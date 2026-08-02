@@ -195,7 +195,11 @@ describe('useMobileNativeChatImageAttachments Stop ordering', () => {
     for (let index = 0; index < 20 && !finishSubmit; index += 1) {
       await Promise.resolve()
     }
-    const stop = requestMobileNativeChatStopLease('terminal-1')
+    const stop = requestMobileNativeChatStopLease('terminal-1', {
+      agent: 'codex',
+      sessionId: 'session-1',
+      streamIdentity: 'stream-1'
+    })
     const stopStarted = vi.fn()
     void stop?.acquired.then(stopStarted)
     await Promise.resolve()
@@ -233,7 +237,11 @@ describe('useMobileNativeChatImageAttachments Stop ordering', () => {
       )
     })
     await act(async () => hook!.attachImage('library'))
-    const stop = requestMobileNativeChatStopLease('terminal-1')
+    const stop = requestMobileNativeChatStopLease('terminal-1', {
+      agent: 'codex',
+      sessionId: 'session-1',
+      streamIdentity: 'stream-1'
+    })
     const stopLease = await stop?.acquired
 
     const staleSend = hook!.sendNativeChat('old route')

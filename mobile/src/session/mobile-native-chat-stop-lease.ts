@@ -9,8 +9,15 @@ export type MobileNativeChatTerminalLeaseRequest = {
   cancel: () => void
 }
 
+export type MobileNativeChatStopLeaseOwner = {
+  readonly agent: string | null
+  readonly sessionId: string | null
+  readonly streamIdentity: string
+}
+
 type PendingLease = {
   readonly kind: MobileNativeChatTerminalLease['kind']
+  readonly stopOwner: MobileNativeChatStopLeaseOwner | null
   readonly token: object
   readonly resolve: (lease: MobileNativeChatTerminalLease | null) => void
   granted: boolean
@@ -24,6 +31,17 @@ type TerminalLeaseQueue = {
 }
 
 const queues = new Map<string, TerminalLeaseQueue>()
+
+function sameStopOwner(
+  left: MobileNativeChatStopLeaseOwner | null,
+  right: MobileNativeChatStopLeaseOwner
+): boolean {
+  return (
+    left?.agent === right.agent &&
+    left.sessionId === right.sessionId &&
+    left.streamIdentity === right.streamIdentity
+  )
+}
 
 function deleteIdleQueue(terminal: string, queue: TerminalLeaseQueue): void {
   if (!queue.active && !queue.stop && queue.writes.length === 0 && queues.get(terminal) === queue) {
@@ -62,16 +80,28 @@ function grantNext(terminal: string, queue: TerminalLeaseQueue): void {
 
 function requestLease(
   terminal: string,
-  kind: MobileNativeChatTerminalLease['kind']
+  kind: MobileNativeChatTerminalLease['kind'],
+  stopOwner: MobileNativeChatStopLeaseOwner | null
 ): MobileNativeChatTerminalLeaseRequest | null {
   const queue = queues.get(terminal) ?? { active: null, stop: null, writes: [] }
   queues.set(terminal, queue)
-  if (kind === 'stop' && (queue.active?.kind === 'stop' || queue.stop)) {
-    return null
+  if (kind === 'stop' && stopOwner) {
+    if (
+      (queue.active?.kind === 'stop' && sameStopOwner(queue.active.stopOwner, stopOwner)) ||
+      sameStopOwner(queue.stop?.stopOwner ?? null, stopOwner)
+    ) {
+      return null
+    }
+    if (queue.stop) {
+      queue.stop.granted = true
+      queue.stop.resolve(null)
+      queue.stop = null
+    }
   }
   let resolve!: PendingLease['resolve']
   const pending: PendingLease = {
     kind,
+    stopOwner,
     token: {},
     resolve: (lease) => resolve(lease),
     granted: false,
@@ -110,13 +140,14 @@ function requestLease(
 export function requestMobileNativeChatWriteLease(
   terminal: string
 ): MobileNativeChatTerminalLeaseRequest {
-  return requestLease(terminal, 'write')!
+  return requestLease(terminal, 'write', null)!
 }
 
 export function requestMobileNativeChatStopLease(
-  terminal: string
+  terminal: string,
+  owner: MobileNativeChatStopLeaseOwner
 ): MobileNativeChatTerminalLeaseRequest | null {
-  return requestLease(terminal, 'stop')
+  return requestLease(terminal, 'stop', owner)
 }
 
 export function ownsMobileNativeChatWriteLease(

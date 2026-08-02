@@ -1,3 +1,4 @@
+import { AGENT_TUI_CLEAR_INPUT_MAX } from '../../../src/shared/agent-tui-input-clear'
 import type { RpcClient } from '../transport/rpc-client'
 import {
   openMobileNativeChatSendBudget,
@@ -14,6 +15,33 @@ type PendingStopCleanup = {
 }
 
 const pendingByStream = new Map<string, PendingStopCleanup>()
+
+export async function sendMobileNativeChatStopCleanup(args: {
+  client: RpcClient
+  deviceToken: string | null
+  terminal: string
+}): Promise<MobileNativeChatSendOutcome> {
+  const deadline = openMobileNativeChatSendBudget()
+  const send = (text: string, enter: boolean): Promise<MobileNativeChatSendOutcome> =>
+    sendMobileNativeChatMessageWithOutcome({
+      client: args.client,
+      terminal: args.terminal,
+      text,
+      enter,
+      deadline,
+      ...(args.deviceToken
+        ? { mobileClient: { id: args.deviceToken, type: 'mobile' as const } }
+        : {})
+    })
+  const cleared = await send(AGENT_TUI_CLEAR_INPUT_MAX, false)
+  if (cleared !== 'accepted') {
+    // No submit byte was sent, so retrying the idempotent clear is safe even if its ack was lost.
+    return 'rejected'
+  }
+  const body = await send(CODEX_STOP_BACKGROUND_TERMINALS, false)
+  // The body-only write cannot run the command; recovery clears any ambiguous partial body.
+  return body === 'accepted' ? send('', true) : 'rejected'
+}
 
 export function rememberMobileNativeChatStopCleanup(args: {
   streamIdentity: string
@@ -46,7 +74,11 @@ export async function recoverMobileNativeChatStopCleanup(args: {
   if (!pending || pending.sessionId !== args.sessionId || pending.terminal !== args.terminal) {
     return 'none'
   }
-  const request = requestMobileNativeChatStopLease(args.terminal)
+  const request = requestMobileNativeChatStopLease(args.terminal, {
+    agent: 'codex',
+    sessionId: args.sessionId,
+    streamIdentity: args.streamIdentity
+  })
   if (!request) {
     return 'busy'
   }
@@ -59,15 +91,10 @@ export async function recoverMobileNativeChatStopCleanup(args: {
     if (current !== pending || !args.shouldSend()) {
       return 'none'
     }
-    const outcome = await sendMobileNativeChatMessageWithOutcome({
+    const outcome = await sendMobileNativeChatStopCleanup({
       client: args.client,
-      terminal: args.terminal,
-      text: CODEX_STOP_BACKGROUND_TERMINALS,
-      enter: true,
-      deadline: openMobileNativeChatSendBudget(),
-      ...(args.deviceToken
-        ? { mobileClient: { id: args.deviceToken, type: 'mobile' as const } }
-        : {})
+      deviceToken: args.deviceToken,
+      terminal: args.terminal
     })
     if (outcome !== 'rejected' && pendingByStream.get(args.streamIdentity) === pending) {
       pendingByStream.delete(args.streamIdentity)

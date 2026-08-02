@@ -131,7 +131,7 @@ export function useMobileNativeChatController(args: {
   activeChatAgentRef.current = activeChatResolution?.agent ?? null
 
   const activeChatSessionId = activeChatResolution?.sessionId ?? null
-  const streamIdentity = `${hostId}\0${worktreeId}\0${activeSessionTabId ?? ''}\0${activeChatSessionId ?? ''}\0${activeHandleRef.current ?? ''}`
+  const streamIdentity = `${hostId}\0${worktreeId}\0${activeSessionTabId ?? ''}\0${activeChatSessionId ?? ''}\0${activeChatResolution?.agent ?? ''}\0${activeHandleRef.current ?? ''}`
 
   const nativeChatSession = useMobileNativeChatSession({
     client,

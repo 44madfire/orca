@@ -3,7 +3,8 @@ import type { RpcClient } from '../transport/rpc-client'
 import {
   hasMobileNativeChatStopCleanup,
   recoverMobileNativeChatStopCleanup,
-  rememberMobileNativeChatStopCleanup
+  rememberMobileNativeChatStopCleanup,
+  sendMobileNativeChatStopCleanup
 } from './mobile-native-chat-stop-cleanup'
 import {
   openMobileNativeChatSendBudget,
@@ -13,7 +14,6 @@ import {
 import { requestMobileNativeChatStopLease } from './mobile-native-chat-stop-lease'
 
 const ESCAPE = String.fromCharCode(27)
-const CODEX_STOP_BACKGROUND_TERMINALS = '/stop'
 const STOP_STEP_DELAY_MS = 80
 
 type StopRoute = {
@@ -166,15 +166,15 @@ export function useMobileNativeChatStop(args: {
       void recoverPendingCleanup()
       return
     }
-    const request = requestMobileNativeChatStopLease(terminal)
-    if (!request) {
-      return
-    }
     const target: StopRoute = {
       agent: agentRef.current,
       sessionId,
       streamIdentity,
       terminal
+    }
+    const request = requestMobileNativeChatStopLease(terminal, target)
+    if (!request) {
+      return
     }
     const deviceToken = deviceTokenRef.current
     const send = (
@@ -244,11 +244,11 @@ export function useMobileNativeChatStop(args: {
           rememberCleanup()
           return
         }
-        const cleanup = await send(
-          CODEX_STOP_BACKGROUND_TERMINALS,
-          true,
-          openMobileNativeChatSendBudget()
-        )
+        const cleanup = await sendMobileNativeChatStopCleanup({
+          client,
+          deviceToken,
+          terminal
+        })
         if (cleanup === 'rejected') {
           const pending = rememberCleanup()
           if (isVisibleOriginal(target)) {

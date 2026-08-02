@@ -1,6 +1,7 @@
 import { createElement, useEffect, useRef } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AGENT_TUI_CLEAR_INPUT_MAX } from '../../../src/shared/agent-tui-input-clear'
 import type { RpcClient } from '../transport/rpc-client'
 import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 import { MOBILE_NATIVE_CHAT_SEND_TIMEOUT_MS } from './mobile-native-chat-send'
@@ -203,12 +204,16 @@ describe('useMobileNativeChatStop', () => {
 
   it('stops acknowledged Codex background tools without closing the reusable session', async () => {
     let backgroundToolRunning = true
+    let cleanupBuffered = false
     let sessionRunning = true
     sendRequest.mockImplementation((method: string, params: { text?: string; enter?: boolean }) => {
       if (method === 'terminal.stop') {
         sessionRunning = false
       }
-      if (params.text === '/stop' && params.enter === true) {
+      if (params.text === '/stop') {
+        cleanupBuffered = true
+      }
+      if (params.text === '' && params.enter === true && cleanupBuffered) {
         backgroundToolRunning = false
       }
       return Promise.resolve({ ok: true, result: { send: { accepted: true } } })
@@ -221,12 +226,16 @@ describe('useMobileNativeChatStop', () => {
     expect(sendRequest.mock.calls.map(([method]) => method)).toEqual([
       'terminal.send',
       'terminal.send',
+      'terminal.send',
+      'terminal.send',
       'terminal.send'
     ])
     expect(sendRequest.mock.calls.map(([, params]) => params)).toEqual([
       expect.objectContaining({ text: '\x1b', enter: false }),
       expect.objectContaining({ text: '\x1b', enter: false }),
-      expect.objectContaining({ text: '/stop', enter: true })
+      expect.objectContaining({ text: AGENT_TUI_CLEAR_INPUT_MAX, enter: false }),
+      expect.objectContaining({ text: '/stop', enter: false }),
+      expect.objectContaining({ text: '', enter: true })
     ])
     expect(backgroundToolRunning).toBe(false)
     expect(sessionRunning).toBe(true)
@@ -266,7 +275,9 @@ describe('useMobileNativeChatStop', () => {
     expect(sendRequest.mock.calls.map(([, params]) => params.text)).toEqual([
       '\x1b',
       '\x1b',
-      '/stop'
+      AGENT_TUI_CLEAR_INPUT_MAX,
+      '/stop',
+      ''
     ])
   })
 
@@ -278,7 +289,7 @@ describe('useMobileNativeChatStop', () => {
     await render(false, 'stream-1', 'codex')
     await act(async () => vi.runAllTimersAsync())
 
-    expect(sendRequest.mock.calls.at(-1)?.[1]).toMatchObject({ text: '/stop', enter: true })
+    expect(sendRequest.mock.calls.at(-1)?.[1]).toMatchObject({ text: '', enter: true })
   })
 
   it('finishes Codex cleanup after the chat unmounts', async () => {
@@ -290,7 +301,7 @@ describe('useMobileNativeChatStop', () => {
     renderer = null
     await act(async () => vi.runAllTimersAsync())
 
-    expect(sendRequest.mock.calls.at(-1)?.[1]).toMatchObject({ text: '/stop', enter: true })
+    expect(sendRequest.mock.calls.at(-1)?.[1]).toMatchObject({ text: '', enter: true })
     expect(onSendError).not.toHaveBeenCalled()
   })
 
@@ -310,6 +321,29 @@ describe('useMobileNativeChatStop', () => {
 
     await render(true, 'stream-1', 'codex', 'session-1')
     await act(() => Promise.resolve())
+    expect(sendRequest.mock.calls.filter(([, params]) => params.text === '/stop')).toHaveLength(1)
+  })
+
+  it('runs a replacement-session Stop after the older same-terminal Stop retires', async () => {
+    let resolveOldEscape!: (value: unknown) => void
+    sendRequest.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOldEscape = resolve
+        })
+    )
+    await render(true, 'stream-1', 'codex', 'session-1')
+    act(() => stop?.())
+    await act(() => Promise.resolve())
+
+    await render(true, 'stream-2', 'codex', 'session-2')
+    act(() => stop?.())
+    await act(async () => {
+      resolveOldEscape({ ok: true, result: { send: { accepted: true } } })
+      await vi.runAllTimersAsync()
+    })
+
+    expect(sendRequest.mock.calls.filter(([, params]) => params.text === '\x1b')).toHaveLength(3)
     expect(sendRequest.mock.calls.filter(([, params]) => params.text === '/stop')).toHaveLength(1)
   })
 
@@ -333,6 +367,44 @@ describe('useMobileNativeChatStop', () => {
 
     expect(sendRequest.mock.calls.filter(([, params]) => params.text === '/stop')).toHaveLength(2)
     expect(sendRequest.mock.calls.filter(([, params]) => params.text === '\x1b')).toHaveLength(2)
+  })
+
+  it('clears a partial cleanup command before retrying a rejected Enter', async () => {
+    let input = ''
+    let rejectNextEnter = true
+    const submitted: string[] = []
+    sendRequest.mockImplementation(
+      (_method: string, params: { text?: string; enter?: boolean }) => {
+        if (params.text === '\x1b') {
+          return Promise.resolve({ ok: true, result: { send: { accepted: true } } })
+        }
+        for (const character of params.text ?? '') {
+          if (character === '\x15' || character === '\x0b') {
+            input = ''
+          } else {
+            input += character
+          }
+        }
+        if (params.enter) {
+          if (rejectNextEnter) {
+            rejectNextEnter = false
+            return Promise.resolve({ ok: true, result: { send: { accepted: false } } })
+          }
+          submitted.push(input)
+          input = ''
+        }
+        return Promise.resolve({ ok: true, result: { send: { accepted: true } } })
+      }
+    )
+    await render(true, 'stream-1', 'codex')
+
+    act(() => stop?.())
+    await act(async () => vi.runAllTimersAsync())
+    await render(false, 'stream-1', 'codex')
+    await render(true, 'stream-1', 'codex')
+    await act(async () => vi.runAllTimersAsync())
+
+    expect(submitted).toEqual(['/stop'])
   })
 
   it('defers queued recovery instead of cleaning up a replacement session', async () => {
@@ -379,8 +451,8 @@ describe('useMobileNativeChatStop', () => {
   })
 
   it('describes an ambiguous Codex cleanup without questioning the accepted interrupt', async () => {
-    sendRequest.mockImplementation((_method: string, params: { text?: string }) =>
-      params.text === '/stop'
+    sendRequest.mockImplementation((_method: string, params: { text?: string; enter?: boolean }) =>
+      params.text === '' && params.enter === true
         ? Promise.reject(markRpcDeliveryUnknown(new Error('rpc timeout')))
         : Promise.resolve({ ok: true, result: { send: { accepted: true } } })
     )
@@ -404,7 +476,7 @@ describe('useMobileNativeChatStop', () => {
     })
     await act(async () => vi.runAllTimersAsync())
 
-    expect(sendRequest).toHaveBeenCalledTimes(3)
+    expect(sendRequest).toHaveBeenCalledTimes(5)
     expect(sendRequest.mock.calls.filter(([, params]) => params.text === '/stop')).toHaveLength(1)
   })
 
@@ -416,8 +488,8 @@ describe('useMobileNativeChatStop', () => {
     async (_case, acceptedIndex) => {
       let escapeIndex = 0
       sendRequest.mockImplementation((_method: string, params: { text?: string }) => {
-        const accepted = params.text === '/stop' || escapeIndex === acceptedIndex
-        if (params.text !== '/stop') {
+        const accepted = params.text !== '\x1b' || escapeIndex === acceptedIndex
+        if (params.text === '\x1b') {
           escapeIndex += 1
         }
         return Promise.resolve({ ok: true, result: { send: { accepted } } })
@@ -444,8 +516,11 @@ describe('useMobileNativeChatStop', () => {
     act(() => stop?.())
     await act(async () => vi.runAllTimersAsync())
 
-    expect(sendRequest).toHaveBeenCalledTimes(3)
-    expect(sendRequest.mock.calls[2]?.[1]).toMatchObject({ text: '/stop', enter: true })
+    expect(sendRequest).toHaveBeenCalledTimes(5)
+    expect(sendRequest.mock.calls[2]?.[1]).toMatchObject({
+      text: AGENT_TUI_CLEAR_INPUT_MAX,
+      enter: false
+    })
     expect(sendRequest.mock.calls[2]?.[2]).toMatchObject({
       timeoutMs: MOBILE_NATIVE_CHAT_SEND_TIMEOUT_MS,
       budgetSpansConnect: true

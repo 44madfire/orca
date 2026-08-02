@@ -81,20 +81,21 @@ describe('useMobileNativeChatController Stop interleaving', () => {
   let cleanupPromise!: Promise<unknown>
   const handleRef = { current: 'terminal-1' as string | null }
   const sendRequest = vi.fn()
+  const client = { sendRequest } as unknown as RpcClient
   const onSendError = vi.fn()
 
-  function Harness({ sessionId }: { sessionId: string }): null {
+  function Harness({ sessionId, agent }: { sessionId: string; agent: string }): null {
     controller = useMobileNativeChatController({
-      client: { sendRequest } as unknown as RpcClient,
+      client,
       connState: 'connected',
       hostId: 'host-1',
       worktreeId: 'worktree-1',
       activeSessionTab: {
         type: 'terminal',
-        launchAgent: 'codex',
+        launchAgent: agent,
         agentStatus: {
           state: 'working',
-          agentType: 'codex',
+          agentType: agent,
           providerSession: { id: sessionId }
         }
       } as never,
@@ -109,9 +110,9 @@ describe('useMobileNativeChatController Stop interleaving', () => {
     return null
   }
 
-  async function render(sessionId: string): Promise<void> {
+  async function render(sessionId: string, agent = 'codex'): Promise<void> {
     await act(async () => {
-      const element = createElement(Harness, { sessionId })
+      const element = createElement(Harness, { sessionId, agent })
       if (renderer) {
         renderer.update(element)
       } else {
@@ -123,7 +124,7 @@ describe('useMobileNativeChatController Stop interleaving', () => {
   async function startStop(): Promise<void> {
     act(() => controller?.handleNativeChatStop())
     await act(async () => vi.advanceTimersByTimeAsync(160))
-    expect(sendRequest.mock.calls.at(-1)?.[1]).toMatchObject({ text: '/stop', enter: true })
+    expect(sendRequest.mock.calls.at(-1)?.[1]).toMatchObject({ text: '/stop', enter: false })
   }
 
   async function settleCleanup(accepted = true): Promise<void> {
@@ -235,7 +236,7 @@ describe('useMobileNativeChatController Stop interleaving', () => {
     finishHostSend(true)
     await activeSend
     await act(async () => vi.advanceTimersByTimeAsync(160))
-    expect(sendRequest.mock.calls.at(-1)?.[1]).toMatchObject({ text: '/stop', enter: true })
+    expect(sendRequest.mock.calls.at(-1)?.[1]).toMatchObject({ text: '/stop', enter: false })
     expect(permissionWrite).not.toHaveBeenCalled()
 
     await settleCleanup()
@@ -360,6 +361,17 @@ describe('useMobileNativeChatController Stop interleaving', () => {
     await expect(currentSend).resolves.toBe(true)
     expect(messageWrite).toHaveBeenCalledOnce()
     expect(messageWrite).toHaveBeenCalledWith('current', undefined)
+  })
+
+  it('drops a queued Codex write after a Claude replacement on the same session', async () => {
+    await startStop()
+    const staleSend = controller!.handleNativeChatSend('stale Codex work')
+
+    await render('session-1', 'claude')
+    await settleCleanup()
+
+    await expect(staleSend).resolves.toBe(false)
+    expect(messageWrite).not.toHaveBeenCalled()
   })
 
   it('credits Stop waiting back to a queued image send budget', async () => {
