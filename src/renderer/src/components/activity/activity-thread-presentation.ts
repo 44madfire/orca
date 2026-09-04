@@ -8,6 +8,7 @@ import {
   resolveActivityThreadStatusPreview
 } from '@/lib/activity-thread-display'
 import { formatUiRelativeTime } from '@/i18n/relative-time-format'
+import { translate } from '@/i18n/i18n'
 import type { AgentStatusEntry, AgentStatusState } from '../../../../shared/agent-status-types'
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
 import type { ActivityEvent, AgentPaneThread } from './activity-thread-types'
@@ -109,9 +110,23 @@ export function threadAgentState(thread: AgentPaneThread): AgentDotState {
 export function threadAgentStateLabel(thread: AgentPaneThread): string {
   const state = threadAgentState(thread)
   if (!thread.currentAgentState && state === 'done' && thread.latestEvent?.entry.interrupted) {
-    return 'Interrupted'
+    return translate('auto.components.activity.ActivityPrototypePage.interrupted', 'Interrupted')
   }
-  return agentStateLabel(state)
+  const labels: Partial<Record<AgentDotState, [string, string]>> = {
+    working: ['working', 'Working'],
+    monitoring: ['monitoring', 'Monitoring background tasks'],
+    blocked: ['blocked', 'Blocked'],
+    waiting: ['waiting', 'Waiting for input'],
+    failed: ['failed', 'Failed'],
+    done: ['done', 'Done'],
+    idle: ['idle', 'Idle'],
+    unverifiable: ['unverifiable', 'No recent update'],
+    permission: ['permission', 'Needs permission']
+  }
+  const entry = labels[state]
+  return entry
+    ? translate(`auto.components.activity.ActivityPrototypePage.state.${entry[0]}`, entry[1])
+    : agentStateLabel(state)
 }
 
 export type ActivityThreadStatusKind = 'tool' | 'message' | 'state' | 'none'
