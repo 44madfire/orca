@@ -12,6 +12,8 @@ describe('mobile web host catalog', () => {
           'git.diff',
           'files.readDir',
           'files.readChunk',
+          'mobileWeb.files.searchPaths',
+          'mobileWeb.files.read',
           'git.status',
           'pairing.getEndpoints',
           'files.searchPaths',
@@ -21,14 +23,28 @@ describe('mobile web host catalog', () => {
       {} as RpcContext
     )
     expect(result).toEqual({
-      grants: ['git.status', 'git.diff', 'files.readDir', 'files.readChunk'].map((method) => ({
+      grants: [
+        'git.status',
+        'git.diff',
+        'files.readDir',
+        'files.readChunk',
+        'mobileWeb.files.searchPaths',
+        'mobileWeb.files.read'
+      ].map((method) => ({
         method,
         workspaceParam: 'worktree',
         maxRequestBytes: 16 * 1024,
         maxResponseBytes: 512 * 1024
       }))
     })
-    for (const method of ['git.status', 'git.diff', 'files.readDir', 'files.readChunk']) {
+    for (const method of [
+      'git.status',
+      'git.diff',
+      'files.readDir',
+      'files.readChunk',
+      'mobileWeb.files.searchPaths',
+      'mobileWeb.files.read'
+    ]) {
       expect(ALL_RPC_METHODS.some((entry) => entry.name === method)).toBe(true)
     }
   })

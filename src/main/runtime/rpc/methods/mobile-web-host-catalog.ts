@@ -3,7 +3,14 @@ import { defineMethod } from '../core'
 
 // Only page-safe results belong here; transport credentials never enter this catalog.
 const PAGE_METHODS = new Map(
-  ['git.status', 'git.diff', 'files.readDir', 'files.readChunk'].map((method) => [
+  [
+    'git.status',
+    'git.diff',
+    'files.readDir',
+    'files.readChunk',
+    'mobileWeb.files.searchPaths',
+    'mobileWeb.files.read'
+  ].map((method) => [
     method,
     {
       method,

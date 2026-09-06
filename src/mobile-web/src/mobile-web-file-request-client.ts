@@ -1,3 +1,5 @@
+import { sanitizeListResult } from '../../shared/mobile-web/file-list-presentation'
+import { projectMobileWebHostFileContent } from './mobile-web-host-file-content'
 import {
   MOBILE_WEB_FILE_CHUNK_MAX_BYTES,
   MobileWebFileListPayloadSchema,
@@ -46,49 +48,85 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
     payload: MobileWebFileListPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebFileListResult> {
-    return this.requests
-      .request(
-        'file',
-        'list',
-        payload,
-        MobileWebFileListPayloadSchema,
-        MobileWebFileListResultSchema,
-        options
-      )
-      .then((result) => matchingFileList(payload, result))
+    const legacy = () =>
+      this.requests
+        .request(
+          'file',
+          'list',
+          payload,
+          MobileWebFileListPayloadSchema,
+          MobileWebFileListResultSchema,
+          options
+        )
+        .then((result) => matchingFileList(payload, result))
+    if (!MobileWebFileListPayloadSchema.safeParse(payload).success) {
+      return legacy()
+    }
+    return this.readHost(
+      'mobileWeb.files.searchPaths',
+      payload.workspaceId,
+      { query: '', limit: payload.limit },
+      (result) => sanitizeListResult(result, payload.workspaceId, undefined, payload.limit),
+      legacy,
+      options
+    )
   }
 
   search(
     payload: MobileWebFileSearchPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebFileListResult> {
-    return this.requests
-      .request(
-        'file',
-        'search',
-        payload,
-        MobileWebFileSearchPayloadSchema,
-        MobileWebFileListResultSchema,
-        options
-      )
-      .then((result) => matchingFileList(payload, result))
+    const legacy = () =>
+      this.requests
+        .request(
+          'file',
+          'search',
+          payload,
+          MobileWebFileSearchPayloadSchema,
+          MobileWebFileListResultSchema,
+          options
+        )
+        .then((result) => matchingFileList(payload, result))
+    if (!MobileWebFileSearchPayloadSchema.safeParse(payload).success) {
+      return legacy()
+    }
+    return this.readHost(
+      'mobileWeb.files.searchPaths',
+      payload.workspaceId,
+      { query: payload.query, limit: payload.limit },
+      (result) => sanitizeListResult(result, payload.workspaceId, undefined, payload.limit),
+      legacy,
+      options
+    )
   }
 
   read(
     payload: MobileWebFileReadPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebFileReadResult> {
-    return this.requests
-      .request(
-        'file',
-        'read',
-        payload,
-        MobileWebFileReadPayloadSchema,
-        MobileWebFileReadResultSchema,
-        options
-      )
-      .then(decodeMobileWebFileContent)
-      .then((result) => matchingFile(payload, result))
+    const legacy = () =>
+      this.requests
+        .request(
+          'file',
+          'read',
+          payload,
+          MobileWebFileReadPayloadSchema,
+          MobileWebFileReadResultSchema,
+          options
+        )
+        .then(decodeMobileWebFileContent)
+        .then((result) => matchingFile(payload, result))
+    if (!MobileWebFileReadPayloadSchema.safeParse(payload).success) {
+      return legacy()
+    }
+    return this.readHost(
+      'mobileWeb.files.read',
+      payload.workspaceId,
+      { relativePath: payload.relativePath },
+      (result) => projectMobileWebHostFileContent(result, payload),
+      legacy,
+      options
+    )
   }
 
   open(payload: MobileWebFileOpenPayload, options?: MobileWebBridgeRequestOptions): Promise<null> {

@@ -21,6 +21,7 @@ pages; no protocol or manifest bump is planned.
 - [x] First complete generic unary slice: `9910fccc298`.
       Desktop catalog, opaque workspace binding, source-control status/diff,
       page-side presentation, legacy fallback, hard payload and concurrency bounds.
+- [x] Directory and binary chunk reads use generic forwarding: `a8bbed52da4`.
 - [ ] Complete the generic bridge and migrate remaining domain consumers.
 - [ ] Complete iOS end-to-end evidence and Android final smoke check.
 
@@ -157,8 +158,11 @@ pnpm test src/shared/mobile-web src/mobile-web src/main/runtime/rpc
 pnpm run build:mobile-web
 ```
 
-Run mobile tests separately from the web export: a previous overlapping run
-failed React Native resolution while an isolated rerun passed. Build the terminal
+Run mobile tests and simulator Metro separately from the web export. The root
+`build:mobile-web-rnw` script runs `pnpm --dir mobile install --frozen-lockfile`,
+which replaces dependency directories and can invalidate a live Metro resolver.
+A previous overlapping mobile test run also failed React Native resolution while
+an isolated rerun passed. Build the terminal
 WebView engine if mobile typechecking needs it. Run Kotlin unit tests with the
 configured JDK 17/Android SDK; prebuild Android when required. Run native Swift
 store tests when native package/CSP behavior changes. Format only changed files
@@ -187,3 +191,24 @@ with `pnpm exec oxfmt --write`.
   Exact command tails: `/tmp/orca-ota-e2e/file-gates/`.
 - iOS retry reached native compilation but failed at React-RCTFabric
   `RCTFabricSurface.mm`; capturing full compiler diagnostics before proceeding.
+
+- iOS native build now passes after regenerating Pods and replacing stale derived
+  compiler caches. The old derived data is preserved at
+  `/tmp/orca-ota-e2e/stale-ios-derived-data`; no dependency source patches needed.
+  Full successful log: `/tmp/orca-ota-e2e/ios-native-build-clean.log`.
+- Running the existing iOS adversarial-content journey (which includes source
+  control) on that build, with `--skip-native-build`, in
+  `/tmp/orca-ota-e2e/ios-journey`. Pairing runtime started and Metro is loading.
+- In progress: file list/search and text reads via Desktop privacy adapters
+  `mobileWeb.files.searchPaths` / `mobileWeb.files.read`. They reuse existing
+  host methods and remove private workspace/root fields before forwarding.
+  Future result fields remain available to the page; native request contract
+  stays unchanged. Focused tests pass; full gates running.
+
+- File list/search/text migration passes every required gate: mobile 831 files /
+  5,493 tests; root 317 files / 2,699 tests. Page build:
+  `8143c37da629651d2e672268423846e8d44fbf33e90637f4436791b4a33e7a53`,
+  52 assets / 9,688,231 bytes. Logs: `/tmp/orca-ota-e2e/file-text-gates/`.
+- First iOS hosted run paired successfully, then page export's dependency
+  reinstall invalidated the live Metro resolver (`InitializeCore` not found).
+  Retired that launcher; rerun after all builds, with no concurrent install/export.

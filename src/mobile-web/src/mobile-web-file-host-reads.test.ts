@@ -32,6 +32,9 @@ function fixture(generic = true) {
     context,
     grants: [
       { capability: 'file', operation: 'directory', limits },
+      { capability: 'file', operation: 'list', limits },
+      { capability: 'file', operation: 'search', limits },
+      { capability: 'file', operation: 'read', limits },
       { capability: 'file', operation: 'readChunk', limits },
       ...(generic ? [{ capability: 'workspace' as const, operation: 'hostRequest', limits }] : [])
     ],
@@ -137,6 +140,78 @@ describe('page-owned generic file reads', () => {
     const result = client.fileReadChunk(chunk)
     respond({ contentBase64: 'AAH/AA==', bytesRead: 4, eof: true })
     await expect(result).rejects.toMatchObject({ code: 'host_error' })
+    client.dispose()
+  })
+})
+
+describe('page-safe file listing and text', () => {
+  it('searches through the host privacy adapter using an opaque workspace', async () => {
+    const { client, messages, respond } = fixture()
+    const result = client.fileSearch({
+      workspaceId: directory.workspaceId,
+      query: 'report',
+      limit: 10
+    })
+    expect(messages[0]).toMatchObject({
+      operation: 'hostRequest',
+      payload: {
+        method: 'mobileWeb.files.searchPaths',
+        workspaceId: directory.workspaceId,
+        params: { query: 'report', limit: 10 }
+      }
+    })
+    respond({
+      files: [{ relativePath: 'docs/report.md', kind: 'text' }],
+      totalCount: 1,
+      truncated: false,
+      futureField: true
+    })
+    await expect(result).resolves.toEqual({
+      workspaceId: directory.workspaceId,
+      files: [{ relativePath: 'docs/report.md', basename: 'report.md', kind: 'text' }],
+      totalCount: 1,
+      truncated: false
+    })
+    client.dispose()
+  })
+
+  it('reads Unicode content directly without a shell base64 projection', async () => {
+    const { client, messages, respond } = fixture()
+    const result = client.fileRead({
+      workspaceId: directory.workspaceId,
+      relativePath: 'report.txt'
+    })
+    expect(messages[0]).toMatchObject({
+      operation: 'hostRequest',
+      payload: { method: 'mobileWeb.files.read' }
+    })
+    const content = '\uFEFFhello 🌍'
+    const byteLength = new TextEncoder().encode(content).byteLength
+    respond({
+      relativePath: 'report.txt',
+      content,
+      truncated: false,
+      byteLength,
+      futureField: 'new'
+    })
+    await expect(result).resolves.toEqual({
+      workspaceId: directory.workspaceId,
+      relativePath: 'report.txt',
+      content,
+      truncated: false,
+      byteLength
+    })
+    client.dispose()
+  })
+
+  it('rejects inconsistent content size', async () => {
+    const { client, respond } = fixture()
+    const result = client.fileRead({
+      workspaceId: directory.workspaceId,
+      relativePath: 'report.txt'
+    })
+    respond({ relativePath: 'report.txt', content: '🌍', truncated: false, byteLength: 1 })
+    await expect(result).rejects.toMatchObject({ code: 'invalid_message' })
     client.dispose()
   })
 })

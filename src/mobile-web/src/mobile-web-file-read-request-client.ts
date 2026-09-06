@@ -90,7 +90,7 @@ export class MobileWebFileReadClient {
     )
   }
 
-  private readHost<T>(
+  protected readHost<T>(
     method: string,
     workspaceId: string,
     params: Record<string, unknown>,

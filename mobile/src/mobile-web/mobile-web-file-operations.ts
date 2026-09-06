@@ -1,18 +1,16 @@
+import { sanitizeListResult } from '../../../src/shared/mobile-web/file-list-presentation'
 import { Buffer } from 'buffer/'
 import {
   MOBILE_WEB_FILE_CONTENT_MAX_BYTES,
   MobileWebFileChunkPayloadSchema,
   MobileWebFileDirectoryPayloadSchema,
-  MobileWebFileEntrySchema,
   MobileWebFileListPayloadSchema,
-  MobileWebFileListResultSchema,
   MobileWebFileOpenPayloadSchema,
   MobileWebFileReadPayloadSchema,
   MobileWebFileReadResultSchema,
   MobileWebFileSearchPayloadSchema,
   type MobileWebFileChunkWireResult,
   type MobileWebFileDirectoryResult,
-  type MobileWebFileEntry,
   type MobileWebFileListResult,
   type MobileWebFileReadWireResult
 } from '../../../src/shared/mobile-web/bridge-operation-contract'
@@ -141,41 +139,6 @@ async function listFiles(
     throw mobileWebBrokerHostRpcError(response.error)
   }
   return sanitizeListResult(response.result, pageWorkspaceId, hostWorkspaceId, limit)
-}
-
-function sanitizeListResult(
-  result: unknown,
-  pageWorkspaceId: string,
-  hostWorkspaceId: string,
-  limit: number
-): MobileWebFileListResult {
-  if (!isRecord(result) || result.worktree !== hostWorkspaceId || !Array.isArray(result.files)) {
-    throw new MobileWebBrokerError('host_error')
-  }
-  const files = result.files.slice(0, limit).flatMap((value): MobileWebFileEntry[] => {
-    if (!isRecord(value) || typeof value.relativePath !== 'string') {
-      return []
-    }
-    const parsed = MobileWebFileEntrySchema.safeParse({
-      relativePath: value.relativePath,
-      basename: value.relativePath.split('/').at(-1)?.slice(0, 255),
-      kind: value.kind === 'binary' ? 'binary' : 'text'
-    })
-    return parsed.success ? [parsed.data] : []
-  })
-  const totalCount =
-    typeof result.totalCount === 'number' &&
-    Number.isSafeInteger(result.totalCount) &&
-    result.totalCount >= 0
-      ? result.totalCount
-      : result.files.length
-  return MobileWebFileListResultSchema.parse({
-    workspaceId: pageWorkspaceId,
-    files,
-    totalCount,
-    truncated:
-      result.truncated === true || result.files.length > files.length || totalCount > files.length
-  })
 }
 
 function sanitizeReadResult(
