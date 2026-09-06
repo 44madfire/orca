@@ -58,6 +58,9 @@ function delay(ms: number): Promise<void> {
  * Snapshot a Windows root's descendants while it is still alive. Resolves null
  * (never rejects) when the table is unreadable or the root is absent — the same
  * contract as the POSIX walk, because "cannot see" is never "nothing is there".
+ *
+ * Stale parent links are pruned by creation time, so a backwards clock step
+ * between two spawns can drop a live descendant — accepted over a certain stall.
  */
 export async function captureWindowsDescendantSnapshot(
   rootPid: number,
@@ -83,18 +86,14 @@ export async function captureWindowsDescendantSnapshot(
   const rootCreationTimeMs = root.creationTimeMs
   // Windows keeps a process's original parent PID after that parent exits, so a
   // reused PID is not ancestry: no real child predates the parent it claims.
-  // The root's start is the floor for a chain through a row that denied its
-  // creation time, since such a row is admitted unchecked and its children find
-  // no parent time to compare against. Ties pass -- these are FILETIMEs
-  // truncated to ms, so a parent and child spawned in the same millisecond
-  // collide exactly and `>` would drop true descendants. The root itself is
-  // never pruned: its own ppid can be recycled too, and a pruned root loses the
-  // snapshot outright. Monotonicity along a real chain is assumed; a backwards
-  // clock step between two spawns would drop a live descendant, which is
-  // accepted over the certain stall a retained stale link causes.
+  // The root's start backstops the undefined-time bypass, which admits a row
+  // unchecked and leaves its children no parent time to compare against. Ties
+  // pass -- FILETIMEs truncated to ms make a same-millisecond parent and child
+  // collide exactly, so `>` would drop true descendants.
   const currentRows = table.filter((row) => {
     const parentCreationTimeMs = rowsByPid.get(row.ppid)?.creationTimeMs
     return (
+      // Its own ppid can be recycled too, and a pruned root loses the snapshot.
       row.pid === rootPid ||
       row.creationTimeMs === undefined ||
       (row.creationTimeMs >= rootCreationTimeMs &&
