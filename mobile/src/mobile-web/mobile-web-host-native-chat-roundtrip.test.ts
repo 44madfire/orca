@@ -119,17 +119,25 @@ describe('native-chat generic read migration', () => {
     expect(result.messages[0].blocks[0]).toMatchObject({ type: 'text', text: 'hello' })
     if (host && shell) {
       expect(result).toEqual(f.transcript)
-      expect(f.sendRequest).toHaveBeenCalledWith('mobileWeb.nativeChat.bind', {
-        worktree: 'id:host-workspace',
-        pageSession: MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT.shellSessionId,
-        tabId: 'tab'
-      })
-      expect(f.sendRequest).toHaveBeenCalledWith('mobileWeb.nativeChat.read', {
-        worktree: 'id:host-workspace',
-        pageSession: MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT.shellSessionId,
-        resourceId: 'opaque-resource',
-        read: { limit: 20 }
-      })
+      expect(f.sendRequest).toHaveBeenCalledWith(
+        'mobileWeb.nativeChat.bind',
+        {
+          worktree: 'id:host-workspace',
+          pageSession: MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT.shellSessionId,
+          tabId: 'tab'
+        },
+        expect.objectContaining({ beforeSend: expect.any(Function) })
+      )
+      expect(f.sendRequest).toHaveBeenCalledWith(
+        'mobileWeb.nativeChat.read',
+        {
+          worktree: 'id:host-workspace',
+          pageSession: MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT.shellSessionId,
+          resourceId: 'opaque-resource',
+          read: { limit: 20 }
+        },
+        expect.objectContaining({ beforeSend: expect.any(Function) })
+      )
       expect(f.sendRequest.mock.calls.some(([method]) => method === 'nativeChat.readSession')).toBe(
         false
       )

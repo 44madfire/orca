@@ -33,6 +33,12 @@ Last reconciled: September 6, 2026. Implementation is **in progress**.
 - [x] Full unattended existing adversarial harness on iOS and Android.
 - [ ] Chat-specific interactions, migrated settings and frozen-shell OTA/rollback E2E.
 
+Immediate next step: connect Desktop catalog membership to mobile RPC authorization.
+Investigation found that advertised `mobileWeb.files.*` and `mobileWeb.nativeChat.*`
+adapters were absent from the static mobile allowlist. Prior platform passes can
+include legacy fallbacks and do not prove those generic adapters were exercised.
+This gap must be fixed and verified before their end-to-end migration is complete.
+
 Next: migrate remaining domain operations and mutation fingerprint handling;
 wire hosted settings with their consumers and page-owned route restoration;
 finish bundle/CSP work and verify two-page replacement/rollback on a frozen shell.
@@ -400,3 +406,21 @@ All 11 required gates pass in `/tmp/orca-ota-e2e/page-preferences-gates/`:
 321 root files / 2,710 passed. Cleanup focused checks: 2 files / 4 passed.
 Dispatch census 229 → 230; persisted-state inventory updated deliberately.
 Page export: `1b3542d5b0c6f01d99f4775a4f741f2c3e136397a6cb59f2f1f08368557eab26`.
+
+### Generic request dispatch lifetime
+
+Added final synchronous dispatch guards to direct and relay transports; generic
+host requests revalidate page and workspace authority after connection waits,
+immediately before transmission. Logical connection replacement fences old
+physical requests. Catalog lookup and execution share a 15-second native budget;
+standalone catalog reads are bounded too. Cancellation prevents an unsent frame;
+it does not undo a frame already transmitted. Mutation consumers must preserve
+unknown delivery and never automatically retry it. The additive feature
+`workspace.hostRequestDispatch.v1` lets future pages require this behavior.
+
+All required gates pass (`/tmp/orca-ota-e2e/dispatch-gates/`, final rechecks included).
+Mobile: 840 files / 5,540 passed. Root: 321 files / 2,710 passed.
+Reauthorization census deliberately increases host-request sites 2 → 3.
+Extracted logical-client types and request authority to retain the 300-line limit.
+Page build: `2e64a57e693f312c4113831e84404f87f009bbe5803a9ef19ddc7a8b0d5fffe9`.
+No new platform pass claimed for this slice. Native-chat mutations remain open.

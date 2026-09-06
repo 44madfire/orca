@@ -37,10 +37,14 @@ describe('host-advertised unary forwarding', () => {
       .mockResolvedValueOnce({ ok: true, result: { grants: [grant] } })
       .mockResolvedValueOnce({ ok: true, result })
     await expect(executeMobileWebHostRequest(args)).resolves.toEqual(result)
-    expect(sendRequest).toHaveBeenLastCalledWith(grant.method, {
-      ...args.payload.params,
-      worktree: 'id:host-workspace'
-    })
+    expect(sendRequest).toHaveBeenLastCalledWith(
+      grant.method,
+      {
+        ...args.payload.params,
+        worktree: 'id:host-workspace'
+      },
+      expect.objectContaining({ beforeSend: expect.any(Function), budgetSpansConnect: true })
+    )
     expect(JSON.stringify(result)).not.toContain('host-workspace')
   })
 
@@ -57,9 +61,32 @@ describe('host-advertised unary forwarding', () => {
       pageSessionId: 'current-document',
       payload: { ...args.payload, params: { pageSession: 'retired-document' } }
     })
-    expect(sendRequest).toHaveBeenLastCalledWith(grant.method, {
-      worktree: 'id:host-workspace',
-      pageSession: 'current-document'
+    expect(sendRequest).toHaveBeenLastCalledWith(
+      grant.method,
+      {
+        worktree: 'id:host-workspace',
+        pageSession: 'current-document'
+      },
+      expect.objectContaining({ beforeSend: expect.any(Function) })
+    )
+  })
+
+  it.each(['cancel', 'rebind'] as const)('revalidates %s at transport dispatch', async (change) => {
+    const { args, sendRequest } = fixture()
+    let active = true
+    args.isActive = () => active
+    sendRequest.mockResolvedValueOnce({ ok: true, result: { grants: [grant] } })
+    sendRequest.mockImplementationOnce(async (_method, _params, options) => {
+      if (change === 'cancel') {
+        active = false
+      } else {
+        args.authority.clear()
+      }
+      options?.beforeSend?.()
+      throw new Error('Transport must not write')
+    })
+    await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({
+      code: change === 'cancel' ? 'cancelled' : 'not_found'
     })
   })
 

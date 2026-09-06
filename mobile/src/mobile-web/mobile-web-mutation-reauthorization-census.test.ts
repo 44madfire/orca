@@ -19,7 +19,7 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-agent-history-resume.ts': 1,
   'mobile-web-file-operations.ts': 1,
   'mobile-web-file-write.ts': 1,
-  'mobile-web-host-requests.ts': 2,
+  'mobile-web-host-requests.ts': 3,
   'mobile-web-host-subscriptions.ts': 1,
   'mobile-web-markdown-operations.ts': 2,
   'mobile-web-native-chat-binding.ts': 1,

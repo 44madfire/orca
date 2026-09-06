@@ -4,14 +4,20 @@ import {
   MobileWebHostRequestPayloadSchema,
   mobileWebHostPayloadWithinBounds
 } from '../../../src/shared/mobile-web/host-rpc-contract'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcClient, SendRequestOptions } from '../transport/rpc-client'
 import { MobileWebBrokerError, mobileWebBrokerHostRpcError } from './mobile-web-broker-error'
 import { mobileWebEncodedByteLength } from './mobile-web-request-accounting'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
-export async function readMobileWebHostCatalog(client: RpcClient, input: unknown) {
+const HOST_REQUEST_TIMEOUT_MS = 15_000
+
+export async function readMobileWebHostCatalog(
+  client: RpcClient,
+  input: unknown,
+  options: SendRequestOptions = { timeoutMs: HOST_REQUEST_TIMEOUT_MS, budgetSpansConnect: true }
+) {
   const payload = MobileWebHostCatalogPayloadSchema.parse(input)
-  const response = await client.sendRequest('mobileWeb.host.catalog', payload)
+  const response = await client.sendRequest('mobileWeb.host.catalog', payload, options)
   if (!response.ok) {
     throw mobileWebBrokerHostRpcError(response.error)
   }
@@ -27,6 +33,7 @@ export type MobileWebHostRequestArguments = {
   payload: unknown
   isActive: () => boolean
   pageSessionId?: string
+  requestOptions?: () => SendRequestOptions
 }
 
 export async function prepareMobileWebHostRequest(
@@ -38,7 +45,11 @@ export async function prepareMobileWebHostRequest(
     throw new MobileWebBrokerError('too_large')
   }
   const hostWorkspaceId = args.authority.hostWorkspaceId(payload.workspaceId)
-  const catalog = await readMobileWebHostCatalog(args.client, { methods: [payload.method] })
+  const catalog = await readMobileWebHostCatalog(
+    args.client,
+    { methods: [payload.method] },
+    args.requestOptions?.()
+  )
   const grant = catalog.grants.find((entry) => entry.method === payload.method)
   if (
     !grant ||
@@ -74,11 +85,29 @@ export async function prepareMobileWebHostRequest(
 export async function executeMobileWebHostRequest(
   args: MobileWebHostRequestArguments
 ): Promise<unknown> {
+  const deadline = Date.now() + HOST_REQUEST_TIMEOUT_MS
+  const beforeSend = () => {
+    if (!args.isActive()) {
+      throw new MobileWebBrokerError('cancelled')
+    }
+    if (Date.now() >= deadline) {
+      throw new MobileWebBrokerError('timeout')
+    }
+  }
+  const requestOptions = (): SendRequestOptions => {
+    beforeSend()
+    return { timeoutMs: deadline - Date.now(), budgetSpansConnect: true, beforeSend }
+  }
   const { payload, hostWorkspaceId, grant, params } = await prepareMobileWebHostRequest(
-    args,
+    { ...args, requestOptions },
     'once'
   )
-  const response = await args.client.sendRequest(payload.method, params)
+  const options = requestOptions()
+  options.beforeSend = () => {
+    beforeSend()
+    args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
+  }
+  const response = await args.client.sendRequest(payload.method, params, options)
   if (!response.ok) {
     throw mobileWebBrokerHostRpcError(response.error)
   }

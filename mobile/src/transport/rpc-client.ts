@@ -14,6 +14,8 @@ export type SendRequestOptions = {
   budgetSpansConnect?: boolean
   /** Reject instead of replaying the request after reconnect. */
   failWhenDisconnected?: boolean
+  /** Revalidate caller authority synchronously at the final transport write. */
+  beforeSend?: () => void
 }
 
 type StreamingListener = (result: unknown) => void
