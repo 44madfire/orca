@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { AppState } from '../../../types'
-import type { OpenFile } from '../../../../../../shared/editor-types'
 import { applyRemoveWorktreeSuccessState } from './remove-worktree-store-cleanup'
+
+type OpenFile = AppState['openFiles'][number]
 
 const REMOVED = 'repo-1::/repos/one/removed'
 const KEPT = 'repo-1::/repos/one/kept'
