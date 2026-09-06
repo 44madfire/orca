@@ -24,23 +24,26 @@ export function SectionHeader({
   // Why: shared rounded container so the hover background spans the whole row instead of clipping around the label.
   return (
     <div className="pl-1 pr-3 pt-3 pb-1">
-      <div className="group/section flex items-center rounded-md pr-1 hover:bg-accent hover:text-accent-foreground">
+      <div className="group/section flex items-center gap-1 rounded-md pr-1 hover:bg-accent hover:text-accent-foreground">
         <button
           type="button"
-          className="flex flex-1 items-center gap-1 px-0.5 py-0.5 text-left text-xs font-semibold uppercase tracking-wider text-foreground/70 group-hover/section:text-accent-foreground"
+          className="flex min-w-0 flex-1 items-center gap-1 px-0.5 py-0.5 text-left text-xs font-semibold uppercase tracking-wider text-foreground/70 group-hover/section:text-accent-foreground"
           onClick={onToggle}
+          aria-expanded={!isCollapsed}
         >
           <ChevronDown
             className={cn('size-3.5 shrink-0 transition-transform', isCollapsed && '-rotate-90')}
           />
-          <span>{label}</span>
+          <span className="truncate" title={label}>
+            {label}
+          </span>
           {/* Why: no aria-label here — inside the toggle button it would rewrite the
               button's accessible name; the explanation stays a hover-only title. */}
-          <span className="text-[11px] font-medium tabular-nums" title={countTitle}>
+          <span className="shrink-0 text-[11px] font-medium tabular-nums" title={countTitle}>
             {count}
           </span>
           {conflictCount > 0 && (
-            <span className="text-[11px] font-medium text-destructive/80">
+            <span className="truncate text-[11px] font-medium text-destructive/80">
               · {conflictCount}{' '}
               {translate('auto.components.right.sidebar.SourceControl.413a3ba113', 'conflict')}
               {conflictCount === 1 ? '' : 's'}
