@@ -56,7 +56,7 @@ export async function assertNestedFilesystemRoute(
   if (!route.runtimeOwnerEnvironmentId) {
     throw new Error(`Worktree ${route.worktreeId} has no runtime transport owner`)
   }
-  client.page.on('console', (message) => { if (message.text().startsWith('[nested-rename-')) console.log(message.text()) })
+  client.page.on('console', (message) => { if ((message.text().startsWith('[nested-rename-') || message.text().startsWith('[nested-input-'))) console.log(message.text()) })
   client.page.on('pageerror', (error) => console.log('[nested-rename-pageerror]', error.message))
   const suffix = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
   const directory = `orca-nested-route-${suffix}`

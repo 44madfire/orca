@@ -36,7 +36,7 @@ jobs:
           env SKIP_BUILD=1 ORCA_E2E_SSH_DOCKER=1 ORCA_E2E_NESTED_RUNTIME_SSH=1
           ORCA_E2E_WEB_CLIENT=1 ORCA_E2E_FORWARD_APP_LOGS=1 pnpm exec playwright
           test --config tests/playwright.config.ts ${{ matrix.spec }}
-          --project=electron-headless --workers=1 --grep "$SCENARIO" --retries=0
+          --project=electron-headless --workers=1 --grep "$SCENARIO" --retries=0 --repeat-each=3
         env:
           SCENARIO: ${{ matrix.scenario }}
       - uses: actions/upload-artifact@v7
