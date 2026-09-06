@@ -204,10 +204,6 @@ export class MobileWebBridgeClient {
       mobileWebSessionClientBindings(new MobileWebSessionRequestClient(this.requests))
     )
     this.native = new MobileWebNativeRequestClient(this.requests)
-    this.nativeChat = new MobileWebNativeChatRequestClient(
-      this.requests,
-      this.shellFeatures.has(MOBILE_WEB_SHELL_HOST_PAGE_SESSION_FEATURE)
-    )
     this.markdown = new MobileWebMarkdownRequestClient(this.requests)
     const terminalRequests = new MobileWebTerminalRequestClient(this.requests)
     this.terminalRequest = terminalRequests.request.bind(terminalRequests)
@@ -222,6 +218,11 @@ export class MobileWebBridgeClient {
       otherPendingCount: () => this.requests.pendingCount(),
       requestTimeoutMs: options.requestTimeoutMs
     })
+    this.nativeChat = new MobileWebNativeChatRequestClient(
+      this.requests,
+      this.shellFeatures.has(MOBILE_WEB_SHELL_HOST_PAGE_SESSION_FEATURE),
+      this.subscriptions
+    )
     this.hostSubscribe = this.subscriptions.subscribeHost.bind(this.subscriptions)
     this.account = new MobileWebAccountRequestClient(this.requests, this.subscriptions)
     this.agentHistory = new MobileWebAgentHistoryRequestClient(this.requests)

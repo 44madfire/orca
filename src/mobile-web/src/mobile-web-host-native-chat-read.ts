@@ -1,6 +1,7 @@
+import { bindMobileWebHostNativeChat } from './mobile-web-host-native-chat-binding'
 import type { MobileWebNativeChatReadResult } from '../../shared/mobile-web/native-chat-operation-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
-import { readMobileWebHostMethods, requestMobileWebHost } from './mobile-web-host-request-client'
+import { requestMobileWebHost } from './mobile-web-host-request-client'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
 type MobileWebHostChatReadResult = MobileWebNativeChatReadResult
@@ -17,19 +18,18 @@ export async function readMobileWebHostNativeChat(
     return legacy()
   }
   try {
-    const methods = ['mobileWeb.nativeChat.bind', 'mobileWeb.nativeChat.read']
-    const catalog = await readMobileWebHostMethods(requests, methods)
-    if (!methods.every((method) => catalog.grants.some((grant) => grant.method === method))) {
+    const method = 'mobileWeb.nativeChat.read'
+    const resourceId = await bindMobileWebHostNativeChat(
+      requests,
+      target.workspaceId,
+      target.tabId,
+      method
+    )
+    if (!resourceId) {
       return legacy()
     }
-    const bound = await requestMobileWebHost(requests, methods[0], target.workspaceId, {
-      tabId: target.tabId
-    })
-    if (!isRecord(bound) || typeof bound.resourceId !== 'string') {
-      throw new MobileWebBridgeClientError('invalid_message', false)
-    }
-    const result = await requestMobileWebHost(requests, methods[1], target.workspaceId, {
-      resourceId: bound.resourceId,
+    const result = await requestMobileWebHost(requests, method, target.workspaceId, {
+      resourceId,
       read: {
         limit: target.limit,
         ...(target.beforeOffset === undefined ? {} : { beforeOffset: target.beforeOffset })

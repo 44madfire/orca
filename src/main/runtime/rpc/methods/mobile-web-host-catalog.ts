@@ -1,8 +1,11 @@
-import { MobileWebHostCatalogPayloadSchema } from '../../../../shared/mobile-web/host-rpc-contract'
+import {
+  MobileWebHostCatalogPayloadSchema,
+  type MobileWebHostGrant
+} from '../../../../shared/mobile-web/host-rpc-contract'
 import { defineMethod } from '../core'
 
 // Only page-safe results belong here; transport credentials never enter this catalog.
-const PAGE_METHODS = new Map(
+const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
   [
     'git.status',
     'git.diff',
@@ -24,7 +27,7 @@ const PAGE_METHODS = new Map(
   ])
 )
 
-const fileWatchGrant = {
+const fileWatchGrant: MobileWebHostGrant = {
   method: 'mobileWeb.files.watch',
   workspaceParam: 'worktree',
   mode: 'subscription',
@@ -33,6 +36,13 @@ const fileWatchGrant = {
   maxResponseBytes: 512 * 1024
 }
 PAGE_METHODS.set(fileWatchGrant.method, fileWatchGrant)
+
+PAGE_METHODS.set('mobileWeb.nativeChat.subscribe', {
+  ...fileWatchGrant,
+  method: 'mobileWeb.nativeChat.subscribe',
+  pageSessionParam: 'pageSession',
+  unsubscribeMethod: 'nativeChat.unsubscribe'
+})
 
 export const MOBILE_WEB_HOST_CATALOG_METHOD = defineMethod({
   name: 'mobileWeb.host.catalog',

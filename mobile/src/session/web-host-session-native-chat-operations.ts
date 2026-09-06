@@ -25,11 +25,10 @@ export function webHostSessionNativeChatOperations(
       return (await client.nativeChat.readability({ workspaceId })).readable
     },
     subscribe(target, limit, onEvent, onError) {
-      const subscription = client.nativeChatSubscribe(
-        bridgeTarget(target, { limit }),
-        onEvent,
-        onError
-      )
+      const payload = bridgeTarget(target, { limit })
+      const subscription = target.terminalId
+        ? client.nativeChat.subscribeForTab(target.terminalId, payload, onEvent, onError)
+        : client.nativeChatSubscribe(payload, onEvent, onError)
       void subscription.ready.catch(() => {})
       return subscription.unsubscribe
     },

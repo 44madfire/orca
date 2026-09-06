@@ -1,3 +1,5 @@
+import { subscribeMobileWebHostNativeChat } from './mobile-web-host-native-chat-subscription'
+import type { MobileWebBridgeSubscriptionClient } from './mobile-web-bridge-subscription-client'
 import { readMobileWebHostNativeChat } from './mobile-web-host-native-chat-read'
 import {
   MobileWebNativeChatFileSearchPayloadSchema,
@@ -50,8 +52,21 @@ import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-
 export class MobileWebNativeChatRequestClient {
   constructor(
     private readonly requests: MobileWebOneShotRequestClient,
-    private readonly hostPageSession = false
+    private readonly hostPageSession = false,
+    private readonly subscriptions?: MobileWebBridgeSubscriptionClient
   ) {}
+
+  subscribeForTab(
+    tabId: string,
+    ...args: Parameters<MobileWebBridgeSubscriptionClient['subscribeNativeChat']>
+  ) {
+    if (!this.subscriptions) {
+      throw new MobileWebBridgeClientError('unsupported_capability', false)
+    }
+    return this.hostPageSession
+      ? subscribeMobileWebHostNativeChat(this.requests, this.subscriptions, tabId, ...args)
+      : this.subscriptions.subscribeNativeChat(...args)
+  }
 
   readForTab(payload: MobileWebNativeChatReadPayload, tabId: string) {
     if (!this.hostPageSession) {

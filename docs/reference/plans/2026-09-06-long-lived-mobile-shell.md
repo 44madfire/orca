@@ -46,7 +46,7 @@ source; it must not depend on those temporary files to explain remaining work.
 
 - [ ] Extend host-advertised metadata without freezing new domain schemas into
       the shell. Keep catalog queries bounded, not the lifetime method vocabulary.
-- [ ] Support page-safe host-owned opaque handles alongside existing workspace
+- [x] Support page-safe host-owned opaque handles alongside existing workspace
       handles; retire authority on document/host/client replacement.
 - [ ] Preserve intent fingerprints across opaque ID translation. Validate page
       intent before mapping, recompute host fingerprints afterward, and preserve
@@ -73,7 +73,7 @@ folder and SSH workspaces still use their actual execution owner.
 - [ ] Preserve direct/relay setup, ready, unsubscribe and reconnect behavior.
 - [x] Reuse the existing subscription ledger with bounded pending event bytes
       and event count; enforce aggregate subscription ceilings.
-- [x] Forward domain event shapes without APK-owned projections (source-control file watch).
+- [x] Forward domain event shapes without APK-owned projections (source-control file watch and native-chat transcript feed).
 - [ ] Migrate native-chat/session/source-control/account feeds.
 - [ ] Preserve terminal binary capability negotiation, acknowledgements,
       backpressure and resync; never silently substitute JSON stream semantics.
@@ -329,3 +329,21 @@ Review's Back returns to its source route, and Session need not render literal
 `tabs` text. Updated both readiness checks. One manually assisted Back action was
 used to inspect this failure; this is not a complete unattended E2E pass. Rerun
 with the committed fixture before claiming full iOS coverage; Android remains open.
+
+### Native-chat feed migration
+
+Read/resource slice committed as `e14164f974f`; harness readiness fixes as
+`79f54a8b49e`. Native-chat subscriptions now use the same host-owned opaque
+resources and generic stream. The host announces a random cleanup token and
+reuses the existing transcript watcher. Every event checks the authoritative
+provider binding before publishing; changed bindings close once. Setup failures
+release registered watchers. Cancellation during page binding opens no watcher,
+and cancellation inside ready delivery cannot publish a subsequent snapshot.
+Future transcript/event fields stay intact on the active generic path.
+
+All required gates pass: mobile 836 files / 5,525 tests; root 321 files / 2,709
+tests. Additional focused cancellation/setup checks pass (mobile 7, root 4).
+Logs: `/tmp/orca-ota-e2e/native-chat-stream-gates/`.
+Page build: `81e5d5f47e703f4047e8544d5f3812459adf71ed45ec0951a840129797b6e266`.
+Next: rerun iOS with the updated fixture, then continue mutations, session/domain
+migration and page-owned preferences/routes. No complete platform run claimed yet.
