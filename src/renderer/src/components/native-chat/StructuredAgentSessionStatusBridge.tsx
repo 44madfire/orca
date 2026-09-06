@@ -102,7 +102,12 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     tab.label,
     {
       updatedAt: summary.updatedAt,
-      stateStartedAt: summary.updatedAt,
+      // This ordered host feed can correct a legacy publication clock after upgrade.
+      allowOlderTimestamp: true,
+      stateStartedAt:
+        desired.state !== 'done' && current?.state === desired.state
+          ? current.stateStartedAt
+          : summary.updatedAt,
       evidenceObservedAt: Date.now()
     },
     { tabId: tab.id, worktreeId: tab.worktreeId },

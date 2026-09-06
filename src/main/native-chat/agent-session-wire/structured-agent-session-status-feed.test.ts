@@ -164,6 +164,81 @@ describe('StructuredAgentSessionStatusFeed', () => {
     })
   })
 
+  it('publishes settled activity revisions and restores the same age after reopening', async () => {
+    let now = 100
+    const journal = await openJournal(SESSION, () => now)
+    await journal.appendItem(
+      USER_IDENTITY,
+      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'hello' }] },
+      { fence: 1 }
+    )
+    const assistant = { ...USER_IDENTITY, ordinal: 2 }
+    await journal.appendItem(
+      assistant,
+      { kind: 'message', role: 'assistant', blocks: [{ type: 'text', text: 'first' }] },
+      { fence: 1 }
+    )
+    const { feed, events } = feedFor(new Map([[SESSION, { journal }]]))
+    now = 200
+    await journal.appendItem(
+      assistant,
+      { kind: 'message', role: 'assistant', blocks: [{ type: 'text', text: 'finished' }] },
+      { fence: 1 }
+    )
+    feed.publish(SESSION)
+    expect(events.at(-1)).toMatchObject({
+      type: 'status',
+      session: { status: 'idle', updatedAt: 200 }
+    })
+    feed.publish(SESSION)
+    expect(events).toHaveLength(2)
+    await journal.close()
+    const reopened = await openJournal(SESSION, () => 900)
+    const restored = feedFor(new Map([[SESSION, { journal: reopened }]]))
+    expect(restored.events[0]).toMatchObject({
+      type: 'snapshot',
+      sessions: [{ status: 'idle', updatedAt: 200 }]
+    })
+  })
+
+  it('does not publish every streaming revision while a turn is working', async () => {
+    let now = 100
+    const journal = await openJournal(SESSION, () => now)
+    await journal.appendItem(
+      USER_IDENTITY,
+      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'hello' }] },
+      { fence: 1 }
+    )
+    await journal.appendItem(
+      TURN_IDENTITY,
+      { kind: 'status', text: 'Working', turnLifecycle: { turnId: 'turn-1', state: 'running' } },
+      { fence: 1 }
+    )
+    const { feed, events } = feedFor(new Map([[SESSION, { journal }]]))
+    for (let revision = 1; revision <= 20; revision += 1) {
+      now += 1
+      await journal.appendItem(
+        { ...USER_IDENTITY, ordinal: 2 },
+        {
+          kind: 'message',
+          role: 'assistant',
+          blocks: [{ type: 'text', text: `chunk ${revision}` }]
+        },
+        { fence: 1 }
+      )
+      feed.publish(SESSION)
+    }
+    expect(events).toHaveLength(1)
+    now = 200
+    await journal.appendTombstone(TURN_IDENTITY, { fence: 1 })
+    feed.publish(SESSION)
+    expect(events).toHaveLength(2)
+    expect(events.at(-1)).toMatchObject({
+      type: 'status',
+      session: { status: 'idle', updatedAt: 200 }
+    })
+  })
+
   it('reports a pending approval as attention', async () => {
     const journal = await openJournal()
     const { feed, events } = feedFor(new Map([[SESSION, { journal }]]))

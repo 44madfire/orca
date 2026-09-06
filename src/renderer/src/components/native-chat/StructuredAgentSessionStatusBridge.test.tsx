@@ -9,14 +9,15 @@ import type {
 import { resolveAttention } from '../sidebar/smart-attention'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import type { Tab } from '../../../../shared/tab-types'
+import type { AppState } from '@/store/types'
 import type * as RuntimeRpcClientModule from '@/runtime/runtime-rpc-client'
 
 const mocks = vi.hoisted(() => ({
   removeAgentStatus: vi.fn(),
   setAgentStatus: vi.fn(),
   store: null as null | {
-    getState: () => Record<string, unknown>
-    setState: (state: Record<string, unknown>) => void
+    getState: () => AppState
+    setState: (state: Partial<AppState> & { testRuntimeOwner?: string | null }) => void
   },
   subscribeStatus: vi.fn(),
   subscribeTranscript: vi.fn(),
@@ -25,54 +26,19 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/store', async () => {
-  const { create } = await import('zustand')
-  const useAppStore = create<{
-    agentStatusByPaneKey: Record<string, Record<string, unknown>>
-    removeAgentStatus: (paneKey: string) => void
-    setAgentStatus: (...args: unknown[]) => void
-    testRuntimeOwner: string | null
-    unifiedTabsByWorktree: Record<string, Tab[]>
-  }>((set, get) => ({
-    agentStatusByPaneKey: {},
-    removeAgentStatus: (paneKey) => {
-      mocks.removeAgentStatus(paneKey)
-      if (!get().agentStatusByPaneKey[paneKey]) {
-        return
-      }
-      const next = { ...get().agentStatusByPaneKey }
-      delete next[paneKey]
-      set({ agentStatusByPaneKey: next })
-    },
+  const { createTestStore } = await import('@/store/slices/store-test-helpers')
+  const useAppStore = createTestStore()
+  const { setAgentStatus, removeAgentStatus } = useAppStore.getState()
+  useAppStore.setState({
     setAgentStatus: (...args) => {
       mocks.setAgentStatus(...args)
-      const [paneKey, payload, terminalTitle, timing, routing, metadata] = args as [
-        string,
-        Record<string, unknown>,
-        string,
-        Record<string, unknown>,
-        Record<string, unknown>,
-        Record<string, unknown>
-      ]
-      set((state) => ({
-        agentStatusByPaneKey: {
-          ...state.agentStatusByPaneKey,
-          [paneKey]: {
-            ...payload,
-            ...routing,
-            ...metadata,
-            paneKey,
-            terminalTitle,
-            updatedAt: Date.now(),
-            stateStartedAt: Date.now(),
-            ...timing,
-            stateHistory: []
-          }
-        }
-      }))
+      setAgentStatus(...args)
     },
-    testRuntimeOwner: null,
-    unifiedTabsByWorktree: {}
-  }))
+    removeAgentStatus: (paneKey) => {
+      mocks.removeAgentStatus(paneKey)
+      removeAgentStatus(paneKey)
+    }
+  })
   mocks.store = useAppStore
   return { useAppStore }
 })
@@ -129,7 +95,7 @@ function summary(overrides: Partial<AgentSessionStatusSummary> = {}): AgentSessi
   }
 }
 
-function statuses(): Record<string, unknown>[] {
+function statuses(): AgentStatusEntry[] {
   return Object.values(mocks.store?.getState().agentStatusByPaneKey ?? {})
 }
 
@@ -288,13 +254,53 @@ describe('StructuredAgentSessionStatusBridge', () => {
         expect.objectContaining({ stateStartedAt: now - 50, updatedAt: now - 50 })
       ])
       expect(
-        resolveAttention(
-          [{ kind: 'hook', entry: statuses()[0] as AgentStatusEntry, hasLivePty: false }],
-          now
-        )
+        resolveAttention([{ kind: 'hook', entry: statuses()[0], hasLivePty: false }], now)
       ).toEqual({ cls: 2, attentionTimestamp: now - 50 })
     }
   )
+
+  it('preserves the working age when host metadata advances during the same turn', async () => {
+    render(<StructuredAgentSessionStatusBridge />)
+    await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())
+    act(() => feed().emit({ type: 'status', session: summary({ updatedAt: 100 }) }))
+    act(() =>
+      feed().emit({
+        type: 'status',
+        session: summary({ updatedAt: 200, providerSession: { ...providerSession, id: 'new-id' } })
+      })
+    )
+    expect(statuses()).toEqual([
+      expect.objectContaining({ state: 'working', updatedAt: 200, stateStartedAt: 100 })
+    ])
+  })
+
+  it('accepts an authoritative older journal age after a host upgrade reconnect', async () => {
+    render(<StructuredAgentSessionStatusBridge />)
+    await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())
+    act(() => feed().emit({ type: 'status', session: summary({ updatedAt: 800 }) }))
+    act(() =>
+      feed().emit({ type: 'snapshot', sessions: [summary({ status: 'idle', updatedAt: 900 })] })
+    )
+    const paneKey = statuses()[0].paneKey
+    const history = statuses()[0].stateHistory
+    const acknowledged = { [paneKey]: 950 }
+    mocks.store?.setState({ acknowledgedAgentsByPaneKey: acknowledged })
+    act(() =>
+      feed().emit({ type: 'snapshot', sessions: [summary({ status: 'idle', updatedAt: 200 })] })
+    )
+    expect(statuses()).toEqual([
+      expect.objectContaining({ state: 'done', updatedAt: 200, stateStartedAt: 200 })
+    ])
+    const before = mocks.store?.getState().agentStatusByPaneKey
+    const calls = mocks.setAgentStatus.mock.calls.length
+    expect(statuses()[0].stateHistory).toBe(history)
+    expect(mocks.store?.getState().acknowledgedAgentsByPaneKey).toBe(acknowledged)
+    act(() =>
+      feed().emit({ type: 'snapshot', sessions: [summary({ status: 'idle', updatedAt: 200 })] })
+    )
+    expect(mocks.store?.getState().agentStatusByPaneKey).toBe(before)
+    expect(mocks.setAgentStatus).toHaveBeenCalledTimes(calls)
+  })
 
   it('drops the status and the feed when the last structured tab closes', async () => {
     render(<StructuredAgentSessionStatusBridge />)
