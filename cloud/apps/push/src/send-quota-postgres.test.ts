@@ -6,8 +6,7 @@ import { PushDeviceRegistryStore } from './device-registry-store.js'
 import { openPushDatabase, type PushDatabase } from './push-database.js'
 import { PushSendQuota } from './send-quota.js'
 
-// CI stays SQLite-only. Point this at a throwaway PostgreSQL to prove the
-// advisory lock, because SQLite serializes writers and cannot show the race.
+// Cloud Verify supplies a disposable PostgreSQL; SQLite cannot expose these races.
 const DATABASE_URL = process.env.ORCA_PUSH_TEST_DATABASE_URL
 const CONCURRENT_RESERVES = 80
 
@@ -85,5 +84,17 @@ describe.skipIf(!DATABASE_URL)('push send quota on postgres', () => {
     } finally {
       await database.query('DELETE FROM push_send_log WHERE host_fingerprint = ?', [otherHost])
     }
+  })
+  it('reserves a retried event once under concurrent PostgreSQL transactions', async () => {
+    const quota = new PushSendQuota(database)
+    const event = { notificationEpoch: 'epoch', notificationSeq: 1 }
+    const results = await Promise.all(
+      Array.from({ length: 40 }, () => quota.reserve(hostFingerprint, 'reg-dedupe', event))
+    )
+    expect(results.filter((result) => result === 'allowed')).toHaveLength(1)
+    expect(results.filter((result) => result === 'duplicate')).toHaveLength(39)
+    expect(
+      await quota.reserve(hostFingerprint, 'reg-dedupe', { ...event, notificationEpoch: 'next' })
+    ).toBe('allowed')
   })
 })

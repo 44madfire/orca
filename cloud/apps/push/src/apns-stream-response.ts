@@ -1,7 +1,8 @@
 import type { EventEmitter } from 'node:events'
+import { providerRetryAfter } from './provider-retry-delay.js'
 import { constants } from 'node:http2'
 
-export type ApnsResponse = { status: number; body: string }
+export type ApnsResponse = { status: number; body: string; retryAfterMs?: number }
 
 // The subset of ClientHttp2Stream this module drives, so a fake emitter can
 // stand in for a real APNs stream in tests.
@@ -26,15 +27,23 @@ export function readApnsStreamResponse(
       run()
     }
     let status = 0
+    let retryAfterMs: number | undefined
     const chunks: Buffer[] = []
     stream.setTimeout(timeoutMs, () => stream.destroy(new Error('apns_timeout')))
     stream.on('response', (headers: Record<string, unknown>) => {
       status = Number(headers[constants.HTTP2_HEADER_STATUS] ?? 0)
+      retryAfterMs = providerRetryAfter(String(headers['retry-after'] ?? ''))
     })
     stream.on('data', (chunk: Buffer) => chunks.push(chunk))
     stream.on('error', (error: Error) => settle(() => reject(error)))
     stream.on('end', () =>
-      settle(() => resolve({ status, body: Buffer.concat(chunks).toString('utf8') }))
+      settle(() =>
+        resolve({
+          status,
+          body: Buffer.concat(chunks).toString('utf8'),
+          ...(retryAfterMs === undefined ? {} : { retryAfterMs })
+        })
+      )
     )
     // A peer reset with NGHTTP2_NO_ERROR emits neither 'end' nor 'error', which
     // would leave the coalescer's delivery pending for the life of the process.

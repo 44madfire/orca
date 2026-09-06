@@ -20,8 +20,11 @@ export function createApnsHttp2Transport(): ApnsTransport & { close(): void } {
     const existing = sessions.get(host)
     if (existing && !existing.closed && !existing.destroyed) return existing
     const session = connect(`https://${host}`)
-    session.on('error', () => sessions.delete(host))
-    session.on('close', () => sessions.delete(host))
+    const forget = (): void => {
+      if (sessions.get(host) === session) sessions.delete(host)
+    }
+    session.on('error', forget)
+    session.on('close', forget)
     sessions.set(host, session)
     return session
   }

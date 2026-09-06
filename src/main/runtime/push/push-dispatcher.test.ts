@@ -1,112 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { MobilePushFilter, MobilePushRegistration } from '../../../shared/mobile-push-contract'
-import type { MobileNotificationEvent } from '../runtime-mobile-notification-controller'
-import type { PushGatewayClient, PushSendResult } from './push-gateway-client'
-import { PushDispatcher, mapPushAgentState, type PushDispatcherRegistry } from './push-dispatcher'
-
-const ALL_SOURCES: MobilePushFilter = {
-  sources: ['agent-task-complete', 'terminal-bell', 'plugin'],
-  agentStates: ['needs-input', 'finished']
-}
-
-function registration(overrides: Partial<MobilePushRegistration> = {}): MobilePushRegistration {
-  return {
-    registrationId: 'reg-1',
-    platform: 'ios',
-    filter: ALL_SOURCES,
-    registeredAt: 1,
-    ...overrides
-  }
-}
-
-type SendCall = Parameters<PushGatewayClient['send']>[0]
-
-function createHarness(options: {
-  devices: { deviceId: string; pushRegistration?: MobilePushRegistration }[]
-  results?: PushSendResult[]
-  sendImpl?: () => Promise<never>
-}): {
-  dispatcher: PushDispatcher
-  sends: SendCall[]
-  cleared: (string | null)[]
-  runRetry: () => void
-} {
-  const sends: SendCall[] = []
-  const cleared: (string | null)[] = []
-  let retry: (() => void) | null = null
-  const client = {
-    send: vi.fn(async (input: SendCall) => {
-      sends.push(input)
-      if (options.sendImpl) {
-        return await options.sendImpl()
-      }
-      return {
-        ok: true as const,
-        results:
-          options.results ??
-          input.registrationIds.map((registrationId) => ({
-            registrationId,
-            status: 'queued' as const
-          }))
-      }
-    })
-  } as unknown as PushGatewayClient
-  const registry: PushDispatcherRegistry = {
-    listDevices: () => options.devices,
-    setPushRegistration: (deviceId, value) => {
-      cleared.push(value === null ? deviceId : null)
-      return true
-    }
-  }
-  return {
-    dispatcher: new PushDispatcher({
-      client,
-      registry,
-      scheduleRetry: (run) => {
-        retry = run
-      }
-    }),
-    sends,
-    cleared,
-    runRetry: () => retry?.()
-  }
-}
-
-function notification(overrides: Partial<MobileNotificationEvent> = {}): MobileNotificationEvent {
-  return {
-    type: 'notification',
-    source: 'agent-task-complete',
-    title: 'feat/x - Claude finished',
-    body: 'All done.',
-    worktreeId: 'repo::wt1',
-    notificationId: 'agent:one',
-    notificationSeq: 7,
-    notificationEpoch: 'epoch-1',
-    agentState: 'done',
-    ...overrides
-  } as MobileNotificationEvent
-}
-
-const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
-
-describe('mapPushAgentState', () => {
-  it.each([
-    ['blocked', 'needs-input'],
-    ['waiting', 'needs-input'],
-    ['done', 'finished'],
-    [undefined, 'finished']
-  ] as const)('maps agent-task-complete %s to %s', (agentState, expected) => {
-    expect(mapPushAgentState('agent-task-complete', agentState)).toBe(expected)
-  })
-
-  it('suppresses a still-working agent', () => {
-    expect(mapPushAgentState('agent-task-complete', 'working')).toBeUndefined()
-  })
-
-  it('leaves non-agent sources without a state', () => {
-    expect(mapPushAgentState('terminal-bell', undefined)).toBeNull()
-  })
-})
+import type { PushGatewayClient } from './push-gateway-client'
+import { PushDispatcher } from './push-dispatcher'
+import {
+  createHarness,
+  flush,
+  notification,
+  registration,
+  type SendCall
+} from './push-dispatcher.test-fixture'
 
 describe('PushDispatcher', () => {
   it('batches every matching registration into one send', async () => {
@@ -270,10 +171,11 @@ describe('PushDispatcher', () => {
       })
     } as unknown as PushGatewayClient
     const scheduled: (() => void)[] = []
+    const devices = [{ deviceId: 'a', pushRegistration: registration() }]
     const dispatcher = new PushDispatcher({
       client,
       registry: {
-        listDevices: () => [{ deviceId: 'a', pushRegistration: registration() }],
+        listDevices: () => devices,
         setPushRegistration: () => true
       },
       scheduleRetry: (run, delayMs) => {

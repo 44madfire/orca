@@ -130,11 +130,14 @@ jobs:
         run: |
           set -euo pipefail
           tag="c${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "CANDIDATE_TAG=${tag}" >> "${GITHUB_ENV}"
+          echo "CANDIDATE_REVISION=${SERVICE_NAME}-${tag}" >> "${GITHUB_ENV}"
           gcloud run deploy "${SERVICE_NAME}" \
             --project "${GCP_PROJECT_ID}" \
             --region "${GCP_REGION}" \
             --image "${IMAGE}" \
             --tag "${tag}" \
+            --revision-suffix "${tag}" \
             --no-traffic \
             --quiet
           candidate="$(gcloud run services describe "${SERVICE_NAME}" \
@@ -142,8 +145,7 @@ jobs:
             | jq -er --arg tag "${tag}" \
               '[.status.traffic[] | select(.tag == $tag)]
                | if length == 1 then .[0] else error("tagged candidate is not unique") end')"
-          echo "CANDIDATE_TAG=${tag}" >> "${GITHUB_ENV}"
-          echo "CANDIDATE_REVISION=$(jq -r '.revisionName' <<< "${candidate}")" >> "${GITHUB_ENV}"
+          test "$(jq -r '.revisionName' <<< "${candidate}")" = "${SERVICE_NAME}-${tag}"
           echo "CANDIDATE_URL=$(jq -r '.url' <<< "${candidate}")" >> "${GITHUB_ENV}"
 
       # A tagged revision is directly addressable and sits outside the service-wide cap, so the
@@ -224,6 +226,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "TRAFFIC_SHIFT_ATTEMPTED=true" >> "${GITHUB_ENV}"
           gcloud run services update-traffic "${SERVICE_NAME}" \
             --project "${GCP_PROJECT_ID}" \
             --region "${GCP_REGION}" \
@@ -240,11 +243,12 @@ jobs:
       # moved, the rollback target is the single thing an operator needs, and a summary that only
       # appeared on success would be missing in exactly the run that needs it.
       - name: Publish the rollout summary
+        if: ${{ always() && env.CANDIDATE_REVISION != '' && env.ROLLBACK_REVISION != '' }}
         shell: bash
         run: |
           set -euo pipefail
           {
-            echo '### Push gateway deployed'
+            echo '### Push gateway rollout'
             echo
             echo "Revision: \`${CANDIDATE_REVISION}\`"
             echo
@@ -275,7 +279,7 @@ jobs:
       # is not a failure to deploy, it is a live gateway that has to go back, so the traffic move
       # is undone here rather than left to whoever reads the run.
       - name: Roll traffic back to the previous revision
-        if: ${{ failure() && env.TRAFFIC_SHIFTED == 'true' }}
+        if: ${{ (failure() || cancelled()) && env.TRAFFIC_SHIFT_ATTEMPTED == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -290,6 +294,7 @@ jobs:
             | jq -r '[.status.traffic[] | select((.percent // 0) > 0)]
                      | if length == 1 and .[0].percent == 100 then .[0].revisionName else empty end')"
           test "${serving}" = "${ROLLBACK_REVISION}"
+          echo "TRAFFIC_ROLLED_BACK=true" >> "${GITHUB_ENV}"
           {
             echo
             echo '### Push gateway rolled back'
@@ -302,8 +307,8 @@ jobs:
       # SQL pool for nothing. Its tag comes off first, because Cloud Run refuses to delete a
       # revision a traffic target still names, and clearing CANDIDATE_TAG makes the always() tag
       # step below a no-op rather than a second failure.
-      - name: Delete the candidate revision that never took traffic
-        if: ${{ failure() && env.TRAFFIC_SHIFTED != 'true' }}
+      - name: Delete the rejected candidate revision
+        if: ${{ (failure() || cancelled()) && (env.TRAFFIC_SHIFT_ATTEMPTED != 'true' || env.TRAFFIC_ROLLED_BACK == 'true') }}
         shell: bash
         run: |
           set -euo pipefail

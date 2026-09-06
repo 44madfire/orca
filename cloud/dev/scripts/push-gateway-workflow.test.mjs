@@ -252,15 +252,15 @@ test('a failure after the shift rolls production back automatically', () => {
   const shift = workflow.indexOf('- name: Shift all traffic to the verified candidate')
   assert.ok(
     workflow.indexOf('echo "TRAFFIC_SHIFTED=true"') > shift,
-    'the marker must be set only once the shift has been verified'
+    'the success marker follows the shift step'
   )
   const body = workflow.slice(
     workflow.indexOf('- name: Roll traffic back to the previous revision'),
-    workflow.indexOf('- name: Delete the candidate revision that never took traffic')
+    workflow.indexOf('- name: Delete the rejected candidate revision')
   )
   assert.match(
     body,
-    /if: \$\{\{ failure\(\) && env\.TRAFFIC_SHIFTED == 'true' \}\}/,
+    /if: \$\{\{ \(failure\(\) \|\| cancelled\(\)\) && env\.TRAFFIC_SHIFT_ATTEMPTED == 'true' \}\}/,
     'the rollback must be conditioned on both failure and the shift marker'
   )
   assert.match(body, /test -n "\$\{ROLLBACK_REVISION:-\}"/)
@@ -273,12 +273,12 @@ test('a failure after the shift rolls production back automatically', () => {
 // tag comes off first, because Cloud Run refuses to delete a revision a traffic target names.
 test('a failure before the shift deletes the candidate it created', () => {
   const body = workflow.slice(
-    workflow.indexOf('- name: Delete the candidate revision that never took traffic'),
+    workflow.indexOf('- name: Delete the rejected candidate revision'),
     workflow.indexOf('- name: Drop the candidate traffic tag')
   )
   assert.match(
     body,
-    /if: \$\{\{ failure\(\) && env\.TRAFFIC_SHIFTED != 'true' \}\}/,
+    /env\.TRAFFIC_SHIFT_ATTEMPTED != 'true' \|\| env\.TRAFFIC_ROLLED_BACK == 'true'/,
     'the cleanup must be conditioned on both failure and the absence of the shift marker'
   )
   assert.match(body, /test -n "\$\{CANDIDATE_REVISION:-\}" \|\| exit 0/)

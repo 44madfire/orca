@@ -6,6 +6,7 @@ import type {
   MobilePushAgentState,
   MobilePushRegistration
 } from '../../../shared/mobile-push-contract'
+import { PushOutcomeCounters } from './push-outcome-counters'
 import { MOBILE_PUSH_SOURCES } from '../../../shared/mobile-push-contract'
 import type { MobileNotificationEvent } from '../runtime-mobile-notification-controller'
 import type { PushGatewayClient, PushSendNotification } from './push-gateway-client'
@@ -29,7 +30,7 @@ type PushDispatcherOptions = {
   scheduleRetry?: (run: () => void, delayMs: number) => void
 }
 
-type PushTarget = { deviceId: string; registrationId: string }
+type PushTarget = { deviceId: string; registrationId: string; registration: MobilePushRegistration }
 
 function clip(value: string, maxLength: number): string {
   const normalized = value.replace(/\s+/g, ' ').trim()
@@ -58,6 +59,8 @@ export function mapPushAgentState(
 }
 
 export class PushDispatcher {
+  private readonly outcomes = new PushOutcomeCounters()
+  private stopped = false
   private readonly client: PushGatewayClient
   private readonly registry: PushDispatcherRegistry
   private readonly scheduleRetry: (run: () => void, delayMs: number) => void
@@ -73,7 +76,19 @@ export class PushDispatcher {
       })
   }
 
+  start(): void {
+    this.stopped = false
+  }
+
+  stop(): void {
+    this.stopped = true
+    this.outcomes.flush()
+  }
+
   enqueue(event: MobileNotificationEvent): void {
+    if (this.stopped) {
+      return
+    }
     try {
       const plan = this.planSend(event)
       if (!plan) {
@@ -112,7 +127,9 @@ export class PushDispatcher {
       if (agentState !== null && !registration.filter.agentStates.includes(agentState)) {
         return []
       }
-      return [{ deviceId: device.deviceId, registrationId: registration.registrationId }]
+      return [
+        { deviceId: device.deviceId, registrationId: registration.registrationId, registration }
+      ]
     })
     if (targets.length === 0) {
       return null
@@ -137,15 +154,38 @@ export class PushDispatcher {
     notification: PushSendNotification,
     attempt: number
   ): Promise<void> {
+    if (this.stopped) {
+      return
+    }
+    const currentTargets = targets.filter((target) =>
+      this.registry
+        .listDevices()
+        .some(
+          (device) =>
+            device.deviceId === target.deviceId && device.pushRegistration === target.registration
+        )
+    )
+    if (!currentTargets.length) {
+      return
+    }
     try {
       const result = await this.client.send({
-        registrationIds: targets.map((target) => target.registrationId),
+        registrationIds: currentTargets.map((target) => target.registrationId),
         notification
       })
+      if (this.stopped) {
+        return
+      }
       if (result.ok) {
+        for (const entry of result.results) {
+          if (entry.status === 'error' || entry.status === 'rate_limited') {
+            this.outcomes.record(entry.status)
+          }
+        }
         this.dropDeadRegistrations(targets, result.results)
         return
       }
+      this.outcomes.record(result.reason)
       // Only a transport-level miss is worth repeating; a gateway that refused
       // this payload will refuse the identical retry.
       if (attempt === 0 && result.reason === 'unreachable') {
@@ -167,7 +207,11 @@ export class PushDispatcher {
         continue
       }
       const target = targets.find((entry) => entry.registrationId === result.registrationId)
-      if (!target) {
+      if (
+        !target ||
+        this.registry.listDevices().find((device) => device.deviceId === target.deviceId)
+          ?.pushRegistration !== target.registration
+      ) {
         continue
       }
       try {

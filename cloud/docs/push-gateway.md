@@ -313,3 +313,25 @@ push.onorca.dev.  CNAME  ghs.googlehosted.com.   (DNS only, not proxied)
 `terraform -chdir=infra/terraform output push_dns_record` prints the same three fields. If the
 record is ever lost, recreate it exactly like that; Cloudflare proxying blocks certificate
 issuance and breaks Cloud Run host routing.
+
+
+### Recovery and delivery guarantees
+
+Candidate tags and deterministic revision names are recorded before deployment. Promotion intent is
+recorded before changing traffic, so a failed verification or ambiguous mutation result still triggers
+rollback. Failed candidates are deleted only before attempted promotion or after verified rollback.
+The summary runs even if candidate discovery or traffic verification fails.
+
+Push uses the relay's schema-startup retry implementation through `@orca-cloud/postgres-schema`.
+Session replacement is serialized per host and a unique host index upgrades older databases by
+retaining their newest session. Cloud Verify runs push concurrency tests against PostgreSQL.
+
+Accepted sends deduplicate by host, registration, epoch, and sequence for the quota ledger's 25-hour
+retention period. Provider failures retry at most three times within two minutes, respecting provider
+retry delays. Queues remain in memory; a crash or the nine-second shutdown deadline can still lose work.
+Graceful shutdown first refuses new requests, waits for admitted handlers, and drains pending and active
+deliveries before closing transports and SQL. `delivery_retry` counters accompany existing outcomes.
+
+Notification and worktree IDs allow 2048 characters each, subject to a combined notification JSON
+budget of 3000 UTF-8 bytes. This preserves normal long and Unicode paths without exceeding provider
+envelope space. No identity is truncated to meet this budget.

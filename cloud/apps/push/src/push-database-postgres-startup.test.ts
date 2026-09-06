@@ -60,7 +60,9 @@ describe('PostgreSQL push gateway startup', () => {
       lock_timeout: 1_000,
       idle_in_transaction_session_timeout: 5_000
     })
-    expect(fakes.query.mock.calls.map(([sql]) => sql)).toEqual(pushSchemaStatements())
+    expect(
+      fakes.query.mock.calls.map(([sql]) => sql).slice(0, pushSchemaStatements().length)
+    ).toEqual(pushSchemaStatements())
     await database.close()
   })
 

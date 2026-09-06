@@ -103,7 +103,7 @@ export class PushGatewayClient {
       method: 'DELETE'
     })
     if (!response.ok) {
-      return { deleted: false, retryable: response.reason === 'unreachable' }
+      return { deleted: false, retryable: true }
     }
     await cancelUnreadResponseBody(response.response)
     // A gateway that no longer knows the registration is as deleted as it gets.

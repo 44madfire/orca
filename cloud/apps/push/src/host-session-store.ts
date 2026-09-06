@@ -30,6 +30,7 @@ export class PushHostSessionStore {
       // Why: a desktop holds one session at a time and only re-proves once it is
       // gone, so an earlier row is dead weight. It also bounds the table to one
       // row per host however many proofs a self-minted identity answers.
+      await transaction.lockQuotaScope(`orca-push-session:${hostFingerprint}`)
       await transaction.query('DELETE FROM push_sessions WHERE host_fingerprint = ?', [
         hostFingerprint
       ])

@@ -54,9 +54,7 @@ describe('fcm client', () => {
     const { fake, client: fcm } = client({ status: 200, body: '{"name":"projects/x/messages/1"}' })
     await expect(fcm.send(delivery(), { token: TOKEN })).resolves.toEqual({ status: 'sent' })
     const request = fake.requests[0]!
-    expect(request.url).toBe(
-      'https://fcm.googleapis.com/v1/projects/onorca-cloud/messages:send'
-    )
+    expect(request.url).toBe('https://fcm.googleapis.com/v1/projects/onorca-cloud/messages:send')
     expect(request.accessToken).toBe('access-token')
     expect(JSON.parse(request.body)).toEqual({
       message: {
@@ -86,9 +84,14 @@ describe('fcm client', () => {
     const { fake, client: fcm } = client({ status: 200, body: '{}' })
     await fcm.send(delivery(3, null), { token: TOKEN })
     const message = JSON.parse(fake.requests[0]!.body) as {
-      message: { android: { collapse_key: string; notification: { tag: string } }; data: Record<string, string> }
+      message: {
+        android: { collapse_key: string; notification: { tag: string } }
+        data: Record<string, string>
+      }
     }
-    expect(Object.values(message.message.data).every((value) => typeof value === 'string')).toBe(true)
+    expect(Object.values(message.message.data).every((value) => typeof value === 'string')).toBe(
+      true
+    )
     expect(message.message.data.agentState).toBeUndefined()
     expect(message.message.data.coalescedCount).toBe('3')
     expect(message.message.android.notification.tag).toBe(`host:${HOST}`)
@@ -146,7 +149,9 @@ describe('fcm client', () => {
     })
     await expect(unnamed.client.send(delivery(), { token: TOKEN })).resolves.toEqual({
       status: 'error',
-      reason: 'INVALID_ARGUMENT'
+      reason: 'INVALID_ARGUMENT',
+      retryable: false,
+      retryAfterMs: 10000
     })
   })
 
@@ -157,7 +162,9 @@ describe('fcm client', () => {
     })
     await expect(faulted.client.send(delivery(), { token: TOKEN })).resolves.toEqual({
       status: 'error',
-      reason: 'UNAVAILABLE'
+      reason: 'UNAVAILABLE',
+      retryable: true,
+      retryAfterMs: 10000
     })
     const broken = new FcmClient({
       projectId: 'onorca-cloud',
@@ -168,7 +175,8 @@ describe('fcm client', () => {
     })
     await expect(broken.send(delivery(), { token: TOKEN })).resolves.toEqual({
       status: 'error',
-      reason: 'Error'
+      reason: 'Error',
+      retryable: true
     })
   })
 })

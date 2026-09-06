@@ -14,8 +14,16 @@ const database = await openPushDatabase({
   poolMax: config.databasePoolMax,
   applicationName: 'orca-push'
 })
-const { server, challenges, sessions, quota, coalescer, observability, closeTransports } =
-  createPushServer(config, database)
+const {
+  server,
+  challenges,
+  sessions,
+  quota,
+  coalescer,
+  observability,
+  closeTransports,
+  requestDrain
+} = createPushServer(config, database)
 
 function prune(label: string, run: () => Promise<number>, intervalMs: number): NodeJS.Timeout {
   const timer = setInterval(() => {
@@ -45,15 +53,29 @@ server.listen(config.port, () => {
   console.log(`[orca-push] listening on ${config.publicUrl} (port ${config.port})`)
 })
 
+let stopping = false
 const shutdown = (): void => {
+  if (stopping) return
+  stopping = true
   for (const timer of timers) clearInterval(timer)
-  observability.stop()
-  // Drain the coalescing windows so an in-flight burst still reaches the phone.
-  void coalescer.flushAll().finally(() => {
-    coalescer.stop()
-    closeTransports()
-    server.close(() => void database.close())
-  })
+  // Cloud Run sends SIGKILL after ten seconds; leave time for explicit cleanup.
+  const deadline = setTimeout(() => process.exit(1), 9_000)
+  deadline.unref()
+  const requests = requestDrain.begin()
+  const connections = new Promise<void>((resolve) => server.close(() => resolve()))
+  void Promise.all([requests, connections])
+    .then(async () => {
+      await coalescer.flushAll()
+      coalescer.stop()
+      closeTransports()
+      await database.close()
+      observability.stop()
+      clearTimeout(deadline)
+    })
+    .catch(() => {
+      console.warn(JSON.stringify({ event: 'orca_push_shutdown_failed' }))
+      process.exitCode = 1
+    })
 }
 process.once('SIGTERM', shutdown)
 process.once('SIGINT', shutdown)

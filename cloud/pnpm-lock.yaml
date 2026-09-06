@@ -26,6 +26,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.19.14
         version: 1.19.14(hono@4.12.27)
+      '@orca-cloud/postgres-schema':
+        specifier: workspace:*
+        version: link:../../packages/postgres-schema
       '@orca-cloud/push-contract':
         specifier: workspace:*
         version: link:../../packages/push-contract
@@ -66,6 +69,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.19.14
         version: 1.19.14(hono@4.12.27)
+      '@orca-cloud/postgres-schema':
+        specifier: workspace:*
+        version: link:../../packages/postgres-schema
       '@orca-cloud/relay-contract':
         specifier: workspace:*
         version: link:../../packages/relay-contract
@@ -150,6 +156,18 @@ importers:
       tsx:
         specifier: ^4.21.0
         version: 4.22.4
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.8
+        version: 4.1.9(@types/node@24.13.2)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4))
+
+  packages/postgres-schema:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.0
+        version: 24.13.2
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

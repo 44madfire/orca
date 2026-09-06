@@ -1,3 +1,4 @@
+import { providerRetryAfter } from './provider-retry-delay.js'
 import { createHash } from 'node:crypto'
 import { PUSH_DEFAULTS, PUSH_LIMITS } from '@orca-cloud/push-contract'
 import { orcaDataStrings, type PushDelivery } from './push-delivery-message.js'
@@ -6,7 +7,7 @@ import type { PushProviderOutcome } from './push-provider-outcome.js'
 export const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging'
 
 export type FcmRequest = { url: string; accessToken: string; body: string }
-export type FcmResponse = { status: number; body: string }
+export type FcmResponse = { status: number; body: string; retryAfterMs?: number }
 export type FcmTransport = (request: FcmRequest) => Promise<FcmResponse>
 
 export type FcmClientOptions = {
@@ -89,7 +90,11 @@ export class FcmClient {
         })
       })
     } catch (error) {
-      return { status: 'error', reason: error instanceof Error ? error.name : 'transport_failed' }
+      return {
+        status: 'error',
+        reason: error instanceof Error ? error.name : 'transport_failed',
+        retryable: true
+      }
     }
     if (response.status >= 200 && response.status < 300) return { status: 'sent' }
     const failure = readFcmError(response.body)
@@ -100,7 +105,12 @@ export class FcmClient {
     if (failure.status === 'INVALID_ARGUMENT' && /\btoken\b/i.test(failure.message)) {
       return { status: 'dead', reason: 'INVALID_ARGUMENT' }
     }
-    return { status: 'error', reason: failure.status }
+    return {
+      status: 'error',
+      reason: failure.status,
+      retryable: response.status === 429 || response.status >= 500,
+      retryAfterMs: Math.max(response.status === 429 ? 60_000 : 10_000, response.retryAfterMs ?? 0)
+    }
   }
 }
 
@@ -113,8 +123,13 @@ export function createFcmFetchTransport(fetchImpl: typeof fetch = fetch): FcmTra
         'content-type': 'application/json'
       },
       body: request.body,
+      redirect: 'error',
       signal: AbortSignal.timeout(10_000)
     })
-    return { status: response.status, body: await response.text() }
+    return {
+      status: response.status,
+      body: await response.text(),
+      retryAfterMs: providerRetryAfter(response.headers.get('retry-after') ?? undefined)
+    }
   }
 }

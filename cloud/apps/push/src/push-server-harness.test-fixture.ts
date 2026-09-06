@@ -67,6 +67,7 @@ export async function createPushServerHarness() {
   let fcmResponse: FcmResponse = { status: 200, body: '{}' }
   const server = createPushServer(testPushConfig(), database, {
     now: () => clock,
+    providerRetryWait: async () => undefined,
     apnsTransport: async (request) => {
       apnsRequests.push(request)
       return apnsResponse

@@ -15,6 +15,7 @@ type PushCounterName =
   | 'delivery_sent'
   | 'delivery_dead'
   | 'delivery_error'
+  | 'delivery_retry'
 
 const COUNTER_NAMES: PushCounterName[] = [
   'ip_rate_limited',
@@ -32,7 +33,8 @@ const COUNTER_NAMES: PushCounterName[] = [
   'send_error',
   'delivery_sent',
   'delivery_dead',
-  'delivery_error'
+  'delivery_error',
+  'delivery_retry'
 ]
 
 // Aggregate counters only. Nothing here may accept a token, a title, a body,

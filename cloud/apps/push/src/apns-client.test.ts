@@ -147,7 +147,7 @@ describe('apns client', () => {
     [400, 'PayloadTooLarge'],
     [429, 'TooManyRequests'],
     [500, 'InternalServerError']
-  ])('treats %i %s as a retryable error, not a dead token', async (status, reason) => {
+  ])('treats %i %s with the appropriate retry policy', async (status, reason) => {
     const fake = fakeTransport({ status, body: JSON.stringify({ reason }) })
     const client = new ApnsClient({
       topic: 'com.stably.orca.mobile',
@@ -156,7 +156,7 @@ describe('apns client', () => {
     })
     await expect(
       client.send(delivery(), { token: 'a'.repeat(64), apnsEnvironment: 'production' })
-    ).resolves.toEqual({ status: 'error', reason })
+    ).resolves.toEqual({ status: 'error', reason, retryable: status === 429 || status >= 500 })
   })
 
   it('reports a transport failure as an error rather than throwing', async () => {
@@ -169,6 +169,6 @@ describe('apns client', () => {
     })
     await expect(
       client.send(delivery(), { token: 'a'.repeat(64), apnsEnvironment: 'production' })
-    ).resolves.toEqual({ status: 'error', reason: 'Error' })
+    ).resolves.toEqual({ status: 'error', reason: 'Error', retryable: true })
   })
 })

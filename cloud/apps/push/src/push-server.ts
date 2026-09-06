@@ -23,10 +23,12 @@ import type { PushDatabase } from './push-database.js'
 import { PushDispatcher } from './push-dispatcher.js'
 import { PushObservability } from './push-observability.js'
 import { createPushReadiness } from './push-readiness.js'
+import { PushRequestDrain } from './push-request-drain.js'
 import { PushSendQuota } from './send-quota.js'
 
 export type PushServerOptions = {
   now?: () => number
+  providerRetryWait?: (ms: number) => Promise<void>
   apnsTransport?: ApnsTransport
   fcmTransport?: FcmTransport
   fcmAccessToken?: () => Promise<string>
@@ -69,6 +71,9 @@ export function createPushServer(
   const apnsTransport = options.apnsTransport ?? (config.apns ? createApnsHttp2Transport() : null)
   const dispatcher = new PushDispatcher({
     devices,
+    now,
+    ...(options.providerRetryWait ? { wait: options.providerRetryWait } : {}),
+    onRetry: () => observability.record('delivery_retry'),
     ...(config.apns && apnsTransport
       ? {
           apns: new ApnsClient({
@@ -114,6 +119,8 @@ export function createPushServer(
     onLimited: () => observability.record('ip_rate_limited')
   })
   const app = new Hono<{ Variables: PushVariables }>()
+  const requestDrain = new PushRequestDrain()
+  app.use('*', requestDrain.middleware)
   // Hono's default handler prints the whole error, and a pg error carries the
   // offending row in `detail`. Only the error's name may reach the logs.
   app.onError((error, context) => {
@@ -129,7 +136,9 @@ export function createPushServer(
 
   app.get('/health', (context) => context.json({ ok: true, pushProtocol: 1 }))
   app.get('/ready', async (context) =>
-    (await ready()) ? context.json({ ok: true }) : context.json({ error: 'dependency_unavailable' }, 503)
+    (await ready())
+      ? context.json({ ok: true })
+      : context.json({ error: 'dependency_unavailable' }, 503)
   )
 
   const bearerSession: MiddlewareHandler<{ Variables: PushVariables }> = async (context, next) => {
@@ -173,7 +182,9 @@ export function createPushServer(
     if (!verification.ok) {
       observability.record('session_rejected')
       return context.json(
-        { error: verification.reason === 'unknown_challenge' ? 'invalid_challenge' : 'invalid_proof' },
+        {
+          error: verification.reason === 'unknown_challenge' ? 'invalid_challenge' : 'invalid_proof'
+        },
         401
       )
     }
@@ -236,7 +247,16 @@ export function createPushServer(
         results.push({ registrationId, status: 'dead' })
         continue
       }
-      if ((await quota.reserve(hostFingerprint, registrationId)) === 'rate_limited') {
+      const reservation = await quota.reserve(
+        hostFingerprint,
+        registrationId,
+        body.data.notification
+      )
+      if (reservation === 'duplicate') {
+        results.push({ registrationId, status: 'queued' })
+        continue
+      }
+      if (reservation === 'rate_limited') {
         observability.record('send_rate_limited')
         results.push({ registrationId, status: 'rate_limited' })
         continue
@@ -250,6 +270,7 @@ export function createPushServer(
 
   return {
     app,
+    requestDrain,
     server: createAdaptorServer(app),
     challenges,
     sessions,
@@ -261,7 +282,7 @@ export function createPushServer(
     ready,
     closeTransports: (): void => {
       if (apnsTransport && 'close' in apnsTransport) {
-        (apnsTransport as { close: () => void }).close()
+        ;(apnsTransport as { close: () => void }).close()
       }
     }
   }

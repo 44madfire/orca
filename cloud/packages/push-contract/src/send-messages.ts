@@ -14,7 +14,7 @@ export const PushNotificationSchema = z
     notificationId: z
       .string()
       .min(1)
-      .max(256)
+      .max(2048)
       .regex(/^[\x20-\x7e]+$/)
       .optional(),
     notificationSeq: SequenceSchema,
@@ -23,9 +23,15 @@ export const PushNotificationSchema = z
     agentState: PushAgentStateSchema.nullable(),
     title: z.string().min(1).max(PUSH_LIMITS.titleMaxChars),
     body: z.string().max(PUSH_LIMITS.bodyMaxChars),
-    worktreeId: z.string().min(1).max(256).optional()
+    worktreeId: z.string().min(1).max(2048).optional()
   })
   .strict()
+  .refine(
+    (notification) => new TextEncoder().encode(JSON.stringify(notification)).byteLength <= 3000,
+    {
+      message: 'notification exceeds provider payload budget'
+    }
+  )
 
 export const PushSendRequestSchema = z
   .object({

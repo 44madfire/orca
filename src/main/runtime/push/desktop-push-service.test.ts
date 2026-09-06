@@ -135,6 +135,7 @@ describe('DesktopPushService', () => {
     await harness.service.register({ deviceId: harness.deviceId, ...REGISTER_INPUT })
 
     expect(await harness.service.unregister(harness.deviceId)).toEqual({ unregistered: true })
+    await harness.service.flushUnregisterOutbox()
     expect(harness.registry.getDevice(harness.deviceId)?.pushRegistration).toBeUndefined()
     expect(harness.deletes).toEqual(['reg-1'])
     expect(harness.outbox.pending()).toEqual([])

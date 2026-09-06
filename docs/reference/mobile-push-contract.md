@@ -99,12 +99,12 @@ host restart can re-read it. iOS token is 64 hex chars; Android token is the FCM
 { "v": 1,
   "registrationIds": ["<id>", "..."],
   "notification": {
-    "notificationId": "<string, may be absent for terminal-bell>",
+    "notificationId": "<max 2048 chars, may be absent for terminal-bell>",
     "notificationSeq": <int>, "notificationEpoch": "<uuid>",
     "source": "agent-task-complete" | "terminal-bell" | "plugin",
     "agentState": "needs-input" | "finished" | null,
     "title": "<max 80 chars>", "body": "<max 180 chars>",
-    "worktreeId": "<string|absent>" } }
+    "worktreeId": "<max 2048 chars|absent>" } }
 ```
 → 200
 ```json
@@ -117,6 +117,11 @@ host restart can re-read it. iOS token is 64 hex chars; Android token is the FCM
   The cap counts the ids as sent; the gateway then dedupes them, so a repeated id spends quota once,
   yields one result, and counts once toward `coalescedCount`. `results` may therefore be shorter than
   `registrationIds`, and callers must match a result by its `registrationId`, never by position.
+- Notification JSON is limited to 3000 UTF-8 bytes to leave provider envelope space; identities
+  are preserved exactly, including long filesystem paths. Oversized payloads fail validation.
+- Gateway retries are deduplicated by host, registration, notification epoch, and sequence in the
+  quota ledger for its 25-hour retention window. Duplicates return `queued` without reserving
+  quota or enqueueing another delivery.
 - Both quota counters are reserved under a per-host lock held for the whole transaction. PostgreSQL
   reads at READ COMMITTED, so a concurrent count-then-insert would otherwise admit a whole burst.
 
@@ -151,7 +156,11 @@ summary: title `Orca`, body `<N> agents need attention` (or `<N> updates` when n
 carries the latest event's fields plus `coalescedCount`. Collapse id for a summary is
 `host:<hostFingerprint>` so a later summary replaces it. The window is held in memory per gateway
 instance, so with more than one instance a burst can produce up to one summary per instance; accepted
-for this release, and the collapse id keeps the phone showing one banner.
+for this release, and the collapse id keeps the phone showing one banner. Transient provider errors
+retry at most three attempts within two minutes, honoring Retry-After and FCM minimum delays. Permanent failures
+are not retried. Unregister/dead-token state is re-read before every attempt. Shutdown stops admission
+and drains admitted requests, pending windows, and active deliveries before closing resources;
+a nine-second hard deadline remains below Cloud Run's termination grace. Delivery remains in memory.
 
 ### Provider payloads
 
@@ -176,8 +185,8 @@ metadata server or `GOOGLE_APPLICATION_CREDENTIALS` locally):
 - `push_hosts(host_fingerprint pk, host_public_key, created_at, last_seen_at)`, written only on a
   verified proof and pruned after 1 h of no contact when no `push_devices` row still names the host.
   Nothing reads it, and any keypair mints a host for free, so it is not allowed to accumulate.
-- `push_sessions` holds one row per host: minting a session deletes the host's earlier one, since a
-  desktop holds a single session and only re-proves once it is gone.
+- `push_sessions` holds one row per host, enforced by a unique index and transaction lock. Minting a
+  session deletes the host's earlier one, since a desktop holds a single session and only re-proves once it is gone.
 - `push_challenges(challenge_id pk, host_fingerprint, host_public_key, secret_hash, transcript,
   expires_at, consumed_at)`
 - `push_sessions(token_hash pk, host_fingerprint, expires_at, created_at)`
@@ -216,8 +225,11 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
   optional field, tolerated by old registries). When the gateway accepted the token but the host could
   not store it — the device left mobile scope mid-call (`not_mobile`) or the registry write threw
   (`registration_storage_failed`) — the host queues the gateway delete in the unregister outbox rather
-  than leaking a registration nothing will ever push to. Phones must treat any `registered: false` as
-  "retry later", so an unknown reason string is safe to add.
+  than leaking a registration nothing will ever push to. Registration, unregister, and outbox deletes
+  are serialized per device; re-registration first settles earlier cleanup. Authentication failure
+  never drops a durable delete. Stale send responses only clear the exact local registration observed,
+  while provider dead-token updates match the token/platform/environment that was sent. Phones must
+  treat any `registered: false` as "retry later", so an unknown reason string is safe to add.
 - RPC `notifications.unregisterPush` params null → `{ unregistered: boolean }`. Removes the field and
   enqueues a gateway delete in a durable outbox (`src/main/runtime/push/push-unregister-outbox.ts`,
   modelled on `relay-revoke-outbox.ts`). Unpair/revoke (`revokeMobileDevice`) enqueues the same. The
@@ -236,8 +248,9 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
   events, maps `agentState` to `needs-input | finished` (blocked/waiting → needs-input, else finished),
   batches matching registrationIds into `POST /v1/send` requests of at most 20 registrations each (the
   gateway's per-request cap; extra devices get their own request rather than being dropped), and drops
-  registrations the gateway reports `dead`. Fire-and-forget with one retry after 2 s per request; never
-  throws into dispatch.
+  unchanged registrations the gateway reports `dead`. Failure categories are counted without payload
+  values and logged at most once per minute (with a final flush on shutdown). Fire-and-forget with
+  one retry after 2 s per request; never throws into dispatch.
 - Add `agentState` to `MobileNotificationDispatchEvent` and set it in `src/main/ipc/notifications.ts`
   from `args.agentState`. Fix `buildAgentTaskCompleteNotificationOptions` so `working|running|busy`
   never yields "finished" (title says "working" and the dispatcher treats it as not-final, i.e. no push).

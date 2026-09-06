@@ -37,6 +37,8 @@ export function summaryBody(notifications: readonly PushNotification[]): string 
 // Holds sends per registration for one window so a burst of desktop events
 // reaches the phone as a single banner instead of a stack of near-duplicates.
 export class PushCoalescer {
+  private readonly deliveries = new Set<Promise<void>>()
+  private stopped = false
   private readonly windows = new Map<string, PendingWindow>()
   private readonly windowMs: number
   private readonly setTimer: (callback: () => void, delayMs: number) => CoalescerTimer
@@ -53,6 +55,7 @@ export class PushCoalescer {
     hostFingerprint: string
     notification: PushNotification
   }): void {
+    if (this.stopped) throw new Error('push_coalescer_stopped')
     const existing = this.windows.get(input.registrationId)
     if (existing) {
       existing.notifications.push(input.notification)
@@ -86,18 +89,28 @@ export class PushCoalescer {
       body: coalescedCount > 1 ? summaryBody(window.notifications) : latest.body,
       coalescedCount
     })
+    const pending = Promise.resolve()
+      .then(() => this.options.deliver(delivery))
+      .catch((error) => {
+        this.options.onDeliveryFailed?.(error)
+      })
+    this.deliveries.add(pending)
     try {
-      await this.options.deliver(delivery)
-    } catch (error) {
-      this.options.onDeliveryFailed?.(error)
+      await pending
+    } finally {
+      this.deliveries.delete(pending)
     }
   }
 
   async flushAll(): Promise<void> {
-    await Promise.all([...this.windows.keys()].map((id) => this.flush(id)))
+    do {
+      await Promise.all([...this.windows.keys()].map((id) => this.flush(id)))
+      await Promise.all([...this.deliveries])
+    } while (this.windows.size || this.deliveries.size)
   }
 
   stop(): void {
+    this.stopped = true
     for (const window of this.windows.values()) this.clearTimer(window.timer)
     this.windows.clear()
   }

@@ -169,10 +169,17 @@ export class PushDeviceRegistryStore {
     return row ? toRegistration(row) : null
   }
 
-  async markDead(registrationId: string): Promise<void> {
+  async markDead(registrationId: string, observed?: PushDeviceRegistration): Promise<void> {
     await this.database.query(
-      'UPDATE push_devices SET dead_at = ?, updated_at = ? WHERE registration_id = ?',
-      [this.now(), this.now(), registrationId]
+      `UPDATE push_devices SET dead_at = ?, updated_at = ? WHERE registration_id = ?${
+        observed ? " AND token = ? AND platform = ? AND COALESCE(apns_environment, '') = ?" : ''
+      }`,
+      [
+        this.now(),
+        this.now(),
+        registrationId,
+        ...(observed ? [observed.token, observed.platform, observed.apnsEnvironment ?? ''] : [])
+      ]
     )
   }
 }

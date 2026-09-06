@@ -3,4 +3,4 @@
 export type PushProviderOutcome =
   | { status: 'sent' }
   | { status: 'dead'; reason: string }
-  | { status: 'error'; reason: string }
+  | { status: 'error'; reason: string; retryable?: boolean; retryAfterMs?: number }

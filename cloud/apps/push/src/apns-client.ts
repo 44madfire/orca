@@ -69,7 +69,11 @@ export class ApnsClient {
         body: apnsBody(delivery)
       })
     } catch (error) {
-      return { status: 'error', reason: error instanceof Error ? error.name : 'transport_failed' }
+      return {
+        status: 'error',
+        reason: error instanceof Error ? error.name : 'transport_failed',
+        retryable: true
+      }
     }
     if (response.status === 200) return { status: 'sent' }
     const reason = readReason(response.body)
@@ -77,6 +81,11 @@ export class ApnsClient {
     if (response.status === 400 && DEAD_TOKEN_REASONS.has(reason)) {
       return { status: 'dead', reason }
     }
-    return { status: 'error', reason }
+    return {
+      status: 'error',
+      reason,
+      retryable: response.status === 429 || response.status >= 500,
+      ...(response.retryAfterMs === undefined ? {} : { retryAfterMs: response.retryAfterMs })
+    }
   }
 }
