@@ -230,7 +230,7 @@ export class AgentSessionSubscribers {
       activity !== undefined
         ? activity
         : emitCheckpoint
-          ? this.activityBySession.get(subscriber.sessionId)
+          ? (this.activityBySession.get(subscriber.sessionId) ?? null)
           : undefined
     while (true) {
       const result = readAgentSessionHistory(journal, {
@@ -318,8 +318,7 @@ export class AgentSessionSubscribers {
     }
   }
 
-  private activityField(sessionId: string): { activity?: AgentSessionTurnActivity } {
-    const activity = this.activityBySession.get(sessionId)
-    return activity ? { activity } : {}
+  private activityField(sessionId: string): { activity: AgentSessionTurnActivity | null } {
+    return { activity: this.activityBySession.get(sessionId) ?? null }
   }
 }

@@ -138,3 +138,51 @@ export function claudeProviderFrameActivity(kind: string, payload: unknown): Act
   }
   return undefined
 }
+
+/** Retain only the current summary headline, never materialize the growing transcript. */
+export function createCodexProviderActivityReader(): (
+  method: string,
+  payload: unknown
+) => ActivityText {
+  let itemId: unknown
+  let summaryIndex: unknown
+  let headline = ''
+  let complete = false
+  const limit = MAX_PROVIDER_ACTIVITY_LENGTH * 2 + 16
+  return (method, payload) => {
+    if (
+      method !== 'item/reasoning/summaryTextDelta' &&
+      method !== 'item/reasoning/summaryPartAdded'
+    ) {
+      return codexProviderFrameActivity(method, payload)
+    }
+    const source = record(payload)
+    if (!stringField(source, 'itemId')) {
+      return undefined
+    }
+    if (
+      source?.itemId !== itemId ||
+      source?.summaryIndex !== summaryIndex ||
+      method === 'item/reasoning/summaryPartAdded'
+    ) {
+      itemId = source?.itemId
+      summaryIndex = source?.summaryIndex
+      headline = ''
+      complete = false
+    }
+    if (method === 'item/reasoning/summaryPartAdded') {
+      return null
+    }
+    if (complete || typeof source?.delta !== 'string') {
+      return undefined
+    }
+    headline += source.delta.slice(0, limit - headline.length)
+    const line = headline.trimStart().split(/\r?\n/, 1)[0]
+    complete =
+      headline.length === limit || /\r?\n/.test(headline.trimStart()) || /^\*\*.+\*\*/.test(line)
+    if (complete && line.startsWith('**') && !/\*\*.+\*\*/.test(line)) {
+      return providerActivityText(line.slice(2))
+    }
+    return codexProviderFrameActivity(method, payload, line)
+  }
+}

@@ -67,7 +67,8 @@ describe('AgentSessionSubscribers', () => {
           removedItemIds: [],
           submissions: []
         },
-        fence: 7
+        fence: 7,
+        activity: null
       }
     ])
   })
@@ -290,7 +291,16 @@ describe('AgentSessionSubscribers', () => {
       activity: { turnId: 'turn-1', text: 'Inspecting the session wire' }
     })
 
+    subscribers.close(SESSION, 'subscriber-1')
     subscribers.publish(SESSION, journal, null)
+    subscribers.open({
+      id: 'reconnected',
+      sessionId: SESSION,
+      journal,
+      fence: 1,
+      cursor,
+      emit: (event) => events.push(event)
+    })
     expect(journal.cursor()).toEqual(cursor)
     expect(events.at(-1)).toMatchObject({ activity: null })
   })

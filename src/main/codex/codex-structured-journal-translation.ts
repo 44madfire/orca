@@ -1,4 +1,4 @@
-import { codexProviderFrameActivity } from '../native-chat/agent-session-wire/provider-frame-activity'
+import { createCodexProviderActivityReader } from '../native-chat/agent-session-wire/provider-frame-activity'
 import { CodexJournalGenericFrames } from './codex-structured-journal-generic-frames'
 import { CodexJournalItems } from './codex-structured-journal-items'
 import { CodexJournalPrompts } from './codex-structured-journal-prompts'
@@ -57,6 +57,7 @@ export function createCodexJournalTranslator(
   )
   const flushStreams = (): CodexJournalTranslationAdmission =>
     items.streams.flush() ? CODEX_JOURNAL_ADMITTED : { accepted: false, reason: 'backpressure' }
+  let readActivity = createCodexProviderActivityReader()
   const publishActivity = (
     event: Extract<CodexStructuredSessionEvent, { type: 'notification' }>,
     admission: CodexJournalTranslationAdmission
@@ -68,10 +69,7 @@ export function createCodexJournalTranslator(
     if (!turnId) {
       return admission
     }
-    const params = readCodexJournalRecord(event.params)
-    const itemId = readCodexJournalString(params, 'itemId')
-    const reasoningText = itemId ? items.streams.snapshot(event.threadId, itemId)?.text : null
-    const text = codexProviderFrameActivity(event.method, event.params, reasoningText)
+    const text = readActivity(event.method, event.params)
     if (text !== undefined) {
       deps.sink.setActivity?.(text ? { turnId, text } : null)
     }
@@ -79,8 +77,11 @@ export function createCodexJournalTranslator(
   }
 
   return {
-    restoreThread: (threadId, thread) =>
-      restoreCodexJournalThread({
+    restoreThread: (threadId, thread) => {
+      if (threadId === (deps.primaryThreadId?.() ?? null)) {
+        readActivity = createCodexProviderActivityReader()
+      }
+      return restoreCodexJournalThread({
         threadId,
         thread,
         currentTurnIds: activeTurns.byThread,
@@ -92,7 +93,8 @@ export function createCodexJournalTranslator(
             : { accepted: false, reason: 'untranslated' }
         },
         flush: items.streams.flush
-      }),
+      })
+    },
     handle: (event) => {
       if (event.type === 'ended') {
         const streamAdmission = flushStreams()
@@ -116,6 +118,7 @@ export function createCodexJournalTranslator(
         if (!admission.accepted) {
           return admission
         }
+        readActivity = createCodexProviderActivityReader()
         deps.sink.setActivity?.(null)
         items.activeItems.clear()
         prompts.pending.clear()
@@ -232,6 +235,7 @@ export function createCodexJournalTranslator(
     if (admission.accepted) {
       activeTurns.remember(event.threadId, turnId)
       if (event.threadId === (deps.primaryThreadId?.() ?? null)) {
+        readActivity = createCodexProviderActivityReader()
         deps.sink.setActivity?.(null)
       }
     }
@@ -263,6 +267,7 @@ export function createCodexJournalTranslator(
       items.ordinals.forgetTurn(event.threadId, turnId)
       activeTurns.forget(event.threadId, turnId)
       if (event.threadId === (deps.primaryThreadId?.() ?? null)) {
+        readActivity = createCodexProviderActivityReader()
         deps.sink.setActivity?.(null)
       }
     }

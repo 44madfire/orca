@@ -7,6 +7,7 @@ import type { AgentSessionTurnActivity } from '../../../shared/agent-session-wir
 import { createClaudeJournalTranslator } from '../../claude/claude-structured-journal-translation'
 import { createCodexJournalTranslator } from '../../codex/codex-structured-journal-translation'
 import type { CodexStructuredSessionEvent } from '../../codex/codex-structured-session-state'
+import * as deltaCoalescer from './agent-session-delta-coalescer'
 import type { StructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
 
 const SESSION_ID = 'session-1'
@@ -85,6 +86,109 @@ describe('provider turn activity routing', () => {
     )
     expect(state.rows).toHaveLength(lifecycleRows)
     expect(state.activities.at(-1)?.text).toBe('Tracing the activity pipeline')
+  })
+
+  it('does not materialize full stream snapshots for activity on token deltas', () => {
+    const original = deltaCoalescer.createAgentSessionDeltaCoalescer
+    const snapshot = vi.fn()
+    const factory = vi
+      .spyOn(deltaCoalescer, 'createAgentSessionDeltaCoalescer')
+      .mockImplementation((deps) => {
+        const coalescer = original(deps)
+        return {
+          ...coalescer,
+          snapshot: (key) => {
+            snapshot()
+            return coalescer.snapshot(key)
+          }
+        }
+      })
+    try {
+      const state = recordingSink()
+      const translator = createCodexJournalTranslator({
+        sink: state.sink,
+        primaryThreadId: () => THREAD_ID,
+        schedule: () => () => {}
+      })
+      translator.handle(codexNotification('turn/started', { turn: { id: TURN_ID } }))
+      for (const method of [
+        'item/agentMessage/delta',
+        'item/commandExecution/outputDelta',
+        'item/reasoning/summaryTextDelta'
+      ]) {
+        for (let index = 0; index < 100; index++) {
+          translator.handle(
+            codexNotification(method, {
+              turnId: TURN_ID,
+              itemId: method,
+              summaryIndex: 0,
+              delta: index === 0 ? '**Inspecting**\n' : 'more output'
+            })
+          )
+        }
+      }
+      expect(snapshot).not.toHaveBeenCalled()
+      translator.dispose()
+    } finally {
+      factory.mockRestore()
+    }
+  })
+
+  it('uses the newest summary part and stops republishing its body', () => {
+    const state = recordingSink()
+    const translator = createCodexJournalTranslator({
+      sink: state.sink,
+      primaryThreadId: () => THREAD_ID,
+      schedule: () => () => {}
+    })
+    translator.handle(codexNotification('turn/started', { turn: { id: TURN_ID } }))
+    const params = { turnId: TURN_ID, itemId: 'reasoning-1' }
+    for (const [summaryIndex, headline] of ['First headline', 'Newest headline'].entries()) {
+      translator.handle(
+        codexNotification('item/reasoning/summaryPartAdded', { ...params, summaryIndex })
+      )
+      translator.handle(
+        codexNotification('item/reasoning/summaryTextDelta', {
+          ...params,
+          summaryIndex,
+          delta: `**${headline}`
+        })
+      )
+      expect(state.activities.at(-1)).toBeNull()
+      translator.handle(
+        codexNotification('item/reasoning/summaryTextDelta', {
+          ...params,
+          summaryIndex,
+          delta: '**\n\nBody'
+        })
+      )
+      expect(state.activities.at(-1)?.text).toBe(headline)
+    }
+    const publications = state.activities.length
+    for (let index = 0; index < 100; index++) {
+      translator.handle(
+        codexNotification('item/reasoning/summaryTextDelta', {
+          ...params,
+          summaryIndex: 1,
+          delta: ' more body'
+        })
+      )
+    }
+    expect(state.activities).toHaveLength(publications)
+    translator.handle(
+      codexNotification('turn/completed', { turn: { id: TURN_ID, status: 'completed' } })
+    )
+    translator.handle(codexNotification('turn/started', { turn: { id: 'turn-2' } }))
+    translator.handle(
+      codexNotification('item/reasoning/summaryTextDelta', {
+        ...params,
+        turnId: 'turn-2',
+        summaryIndex: 1,
+        delta: '**Next turn**'
+      })
+    )
+    expect(state.activities.at(-1)).toEqual({ turnId: 'turn-2', text: 'Next turn' })
+    translator.dispose()
   })
 
   it('keeps Codex tool rows singular and the activity free of tool labels', () => {
