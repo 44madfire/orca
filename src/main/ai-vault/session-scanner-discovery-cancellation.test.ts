@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { removeTree } from '../../shared/windows-transient-lock-removal'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
@@ -24,6 +25,6 @@ it('aborts a discovery while checking file dependencies', async () => {
       })
     ).rejects.toMatchObject({ name: 'AbortError' })
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeTree(root)
   }
 })

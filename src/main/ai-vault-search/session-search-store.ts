@@ -1,7 +1,8 @@
+import { SessionSearchMaintenance } from './session-search-maintenance'
+import { recoverSearchWrites } from './session-search-write-recovery'
 import { deleteExpiredSearchFiles } from './session-search-retention-delete'
 import type { AiVaultAgent, AiVaultSession } from '../../shared/ai-vault-types'
 import { aiVaultSearchHistoryCutoffMs } from '../../shared/ai-vault-search-settings'
-import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import type SyncDatabase from '../sqlite/sync-database'
 import type {
   AiVaultSearchArgs,
@@ -16,17 +17,9 @@ import type {
   SessionSearchIndexUpdate
 } from '../ai-vault/session-search-capture'
 import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
-import { redactSessionSearchText } from './session-search-redaction'
 import { SessionSearchIndexWriter } from './session-search-index-writer'
 import { SessionSearchQuery } from './session-search-query'
 import { openSessionSearchDatabase } from './session-search-schema'
-
-// Why: the query log keeps only the surface form so the eval set can be rebuilt
-// from real usage (the shoot-out's highest-value follow-up); bounded ring.
-const SEARCH_LOG_LIMIT = 5000
-// Why: a 2,000-page vacuum step is ~55 ms on a 4 GB index; a 50k-row read is ~48 ms.
-const COMPACT_PAGES_PER_STEP = 2000
-const WARM_ROWS_PER_STEP = 50_000
 
 export type SessionSearchBackfillState = 'idle' | 'running' | 'complete'
 
@@ -34,16 +27,20 @@ type ProviderDiscovery = { files: number; parseFailures: number; scanIssues: num
 
 /** Owns the index database: the scanner writes through it, search reads from it. */
 export class SessionSearchStore implements SessionSearchIndexSink {
+  readonly streamingCapture = true
   /** Exposed for tests that assert on file-level state (page counts). */
   readonly db: SyncDatabase
   private readonly writer: SessionSearchIndexWriter
   private readonly query: SessionSearchQuery
   private backfill: SessionSearchBackfillState = 'idle'
   private closed = false
+  private acceptingWrites = true
   private historyDays: number | null = null
   private providerCounts: { agent: AiVaultAgent; sessions: number; messages: number }[] | null =
     null
-  private warmed: Promise<void> | null = null
+  private cleanupRequested = false
+  private cleanup: Promise<void> | null = null
+  private readonly maintenance: SessionSearchMaintenance
   private lastIndexedAt: string | null = null
   private applyFailures = 0
   private readonly stale = new Map<string, SessionFileCandidate>()
@@ -58,8 +55,10 @@ export class SessionSearchStore implements SessionSearchIndexSink {
       )
   ) {
     this.db = openSessionSearchDatabase(path)
+    recoverSearchWrites(this.db)
     this.writer = new SessionSearchIndexWriter(this.db)
     this.query = new SessionSearchQuery(this.db)
+    this.maintenance = new SessionSearchMaintenance(this.db, () => this.closed, this.onError)
   }
 
   indexedFile(path: string, identity: SessionSearchFileIdentity): SessionSearchIndexedFile | null {
@@ -69,6 +68,10 @@ export class SessionSearchStore implements SessionSearchIndexSink {
       this.onError(error)
       return null
     }
+  }
+
+  setAcceptingWrites(accept: boolean): void {
+    this.acceptingWrites = accept
   }
 
   setHistoryDays(days: number | null): void {
@@ -82,7 +85,9 @@ export class SessionSearchStore implements SessionSearchIndexSink {
 
   acceptsCandidate(candidate: SessionFileCandidate): boolean {
     const cutoff = aiVaultSearchHistoryCutoffMs(this.historyDays)
-    return !this.closed && (cutoff === null || candidate.file.mtimeMs >= cutoff)
+    return (
+      !this.closed && this.acceptingWrites && (cutoff === null || candidate.file.mtimeMs >= cutoff)
+    )
   }
 
   updateMetadata(candidate: SessionFileCandidate, session: AiVaultSession): void {
@@ -96,20 +101,33 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     }
   }
 
-  apply(update: SessionSearchIndexUpdate): void {
+  async apply(update: SessionSearchIndexUpdate): Promise<void> {
     if (!this.acceptsCandidate(update.candidate)) {
       return
     }
     this.providerCounts = null
     try {
-      this.writer.apply(update)
+      const applied = await this.writer.apply(
+        update,
+        () => this.acceptsCandidate(update.candidate),
+        undefined,
+        () => !this.closed
+      )
+      if (!applied) {
+        this.markStale(update.candidate)
+        return
+      }
+      this.providerCounts = null
       // Why: list scans queue every file the backfill has not reached yet; once
       // it lands, a later search must not re-parse the whole queue (8 s live).
       this.stale.delete(update.candidate.file.path)
       this.lastIndexedAt = new Date().toISOString()
     } catch (error) {
+      this.markStale(update.candidate)
       this.applyFailures += 1
       this.onError(error)
+    } finally {
+      this.scheduleCleanup()
     }
   }
 
@@ -135,9 +153,40 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     this.stale.delete(path)
     try {
       this.writer.removeFile(path)
+      this.scheduleCleanup()
     } catch (error) {
       this.onError(error)
     }
+  }
+
+  private scheduleCleanup(): void {
+    if (this.closed) {
+      return
+    }
+    if (this.cleanup) {
+      this.cleanupRequested = true
+      return
+    }
+    this.cleanupRequested = false
+    this.cleanup = deleteExpiredSearchFiles(
+      this.db,
+      null,
+      () => this.closed,
+      () => {
+        this.providerCounts = null
+      }
+    )
+      .catch((error) => {
+        if (!this.closed) {
+          this.onError(error)
+        }
+      })
+      .finally(() => {
+        this.cleanup = null
+        if (this.cleanupRequested) {
+          this.scheduleCleanup()
+        }
+      })
   }
 
   /** Hides expired sessions immediately, then removes their rows in resumable batches. */
@@ -152,7 +201,7 @@ export class SessionSearchStore implements SessionSearchIndexSink {
         }
       )
       if (!this.closed && !signal?.aborted) {
-        await this.compact(signal)
+        await this.maintenance.compact(signal)
       }
     } catch (error) {
       if (!this.closed) {
@@ -161,49 +210,8 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     }
   }
 
-  private async compact(signal?: AbortSignal): Promise<void> {
-    try {
-      let freed = Number(this.db.pragma('freelist_count', { simple: true }))
-      while (!this.closed && !signal?.aborted && freed > 0) {
-        this.db.pragma(`incremental_vacuum(${COMPACT_PAGES_PER_STEP})`)
-        const remaining = Number(this.db.pragma('freelist_count', { simple: true }))
-        // Why: without auto_vacuum the step is a no-op; never spin on it.
-        if (remaining >= freed) {
-          return
-        }
-        freed = remaining
-        await yieldToEventLoop()
-      }
-    } catch (error) {
-      this.onError(error)
-    }
-  }
-
-  /**
-   * Reads the messages table through in slices so its pages sit in the OS
-   * cache before the first query joins against it. Measured on a 4 GB index:
-   * the first query after a cold start drops from ~1.3 s to ~0.45 s, and each
-   * slice holds the connection for under 50 ms.
-   */
   warm(): Promise<void> {
-    this.warmed ??= this.readMessagesThrough().catch((error) => this.onError(error))
-    return this.warmed
-  }
-
-  private async readMessagesThrough(): Promise<void> {
-    const max = (
-      this.db.prepare('SELECT max(id) AS id FROM messages').get() as { id: number | null }
-    ).id
-    const touch = this.db.prepare(
-      'SELECT count(*) FROM messages WHERE id BETWEEN ? AND ? AND role IS NOT NULL'
-    )
-    for (let low = 1; max !== null && low <= max; low += WARM_ROWS_PER_STEP) {
-      if (this.closed) {
-        return
-      }
-      touch.get(low, low + WARM_ROWS_PER_STEP - 1)
-      await yieldToEventLoop()
-    }
+    return this.maintenance.warm()
   }
 
   setBackfillState(state: SessionSearchBackfillState): void {
@@ -225,7 +233,7 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     const startedAt = performance.now()
     const execution = this.query.execute(args, aiVaultSearchHistoryCutoffMs(this.historyDays))
     const durationMs = performance.now() - startedAt
-    this.logQuery(args.query, execution.route, execution.hits.length, durationMs)
+    this.maintenance.logQuery(args.query, execution.route, execution.hits.length, durationMs)
     return {
       hits: execution.hits,
       route: execution.route,
@@ -240,7 +248,8 @@ export class SessionSearchStore implements SessionSearchIndexSink {
       .prepare(
         `SELECT s.agent AS agent, COUNT(DISTINCT s.id) AS sessions, COUNT(m.id) AS messages
          FROM sessions s LEFT JOIN messages m ON m.session_row_id = s.id
-         WHERE s.id NOT IN (SELECT session_row_id FROM search_pending_deletes)
+           AND (m.batch_id IS NULL OR m.batch_id NOT IN (SELECT id FROM search_write_batches WHERE published=0))
+         WHERE s.index_ready=1 AND s.id NOT IN (SELECT session_row_id FROM search_pending_deletes WHERE batch_id IS NULL)
          GROUP BY s.agent ORDER BY s.agent`
       )
       .all() as { agent: AiVaultAgent; sessions: number; messages: number }[])
@@ -286,23 +295,5 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     const created: ProviderDiscovery = { files: 0, parseFailures: 0, scanIssues: 0 }
     this.discovery.set(agent, created)
     return created
-  }
-
-  private logQuery(query: string, route: string, hits: number, durationMs: number): void {
-    try {
-      this.db
-        .prepare(
-          'INSERT INTO search_log(ts, query, route, hits, duration_ms) VALUES (?, ?, ?, ?, ?)'
-        )
-        .run(new Date().toISOString(), redactSessionSearchText(query), route, hits, durationMs)
-      this.db
-        .prepare(
-          `DELETE FROM search_log WHERE id <= (
-             SELECT id FROM search_log ORDER BY id DESC LIMIT 1 OFFSET ?)`
-        )
-        .run(SEARCH_LOG_LIMIT)
-    } catch (error) {
-      this.onError(error)
-    }
   }
 }

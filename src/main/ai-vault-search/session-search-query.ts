@@ -10,7 +10,7 @@ import {
   AI_VAULT_SEARCH_SNIPPET_MARK_CLOSE,
   AI_VAULT_SEARCH_SNIPPET_MARK_OPEN
 } from '../../shared/ai-vault-search-types'
-import type { AiVaultAgent } from '../../shared/ai-vault-types'
+import { sessionFields, type SessionRow } from './session-search-session-row'
 import {
   andExpression,
   orExpression,
@@ -45,22 +45,6 @@ type MessageRow = {
   session_row_id: number
   role: string
   ts: string | null
-}
-
-type SessionRow = {
-  id: number
-  agent: AiVaultAgent
-  session_id: string
-  file_path: string
-  codex_home: string | null
-  title: string
-  cwd: string | null
-  branch: string | null
-  updated_at: string | null
-  message_count: number
-  resume_command: string
-  content_hash: string | null
-  content_hash_count: number
 }
 
 type ScoredSession = {
@@ -195,7 +179,8 @@ export class SessionSearchQuery {
     const matched = `SELECT ${table}.rowid AS rowid, -bm25(${table}, ${weights}) AS score,
       m.session_row_id, m.role, m.ts, s.updated_at
       FROM ${table} JOIN messages m ON m.id = ${table}.rowid
-      JOIN sessions s ON s.id = m.session_row_id WHERE ${table} MATCH ?${eligible}`
+      JOIN sessions s ON s.id = m.session_row_id WHERE ${table} MATCH ?${eligible}
+      AND (m.batch_id IS NULL OR m.batch_id NOT IN (SELECT id FROM search_write_batches WHERE published=0))`
     // Collapse messages before newest ordering so one long session cannot occupy the whole page.
     const sql =
       args.sort === 'newest'
@@ -301,21 +286,6 @@ function resolveLimit(args: AiVaultSearchArgs): number {
     ? (args.limit as number)
     : AI_VAULT_SEARCH_LIMIT_DEFAULT
   return Math.min(Math.max(1, requested), AI_VAULT_SEARCH_LIMIT_MAX)
-}
-
-function sessionFields(session: SessionRow): Omit<AiVaultSearchHit, 'score' | 'evidence'> {
-  return {
-    agent: session.agent,
-    sessionId: session.session_id,
-    filePath: session.file_path,
-    codexHome: session.codex_home,
-    title: session.title,
-    cwd: session.cwd,
-    branch: session.branch,
-    updatedAt: session.updated_at,
-    messageCount: session.message_count,
-    resumeCommand: session.resume_command
-  }
 }
 
 /**

@@ -6,7 +6,7 @@ import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import SyncDatabase from '../../src/main/sqlite/sync-database'
 import { SessionSearchStore } from '../../src/main/ai-vault-search/session-search-store'
 import { deleteExpiredSearchFiles } from '../../src/main/ai-vault-search/session-search-retention-delete'
-import { SessionSearchIndexWriter } from '../../src/main/ai-vault-search/session-search-index-writer'
+import { SearchWalBackpressureError } from '../../src/main/ai-vault-search/session-search-wal-budget'
 
 // Bundle with esbuild --bundle --platform=node, then run on the host under test.
 const root = await mkdtemp(join(tmpdir(), 'orca-search-retention-bench-'))
@@ -38,7 +38,15 @@ try {
       let previous = performance.now()
       const started = previous
       if (mode === 'whole-file') {
-        new SessionSearchIndexWriter(db).removeFile('fixture')
+        db.exec('BEGIN IMMEDIATE')
+        const ids = db.prepare('SELECT id FROM messages WHERE session_row_id=1').all() as {
+          id: number
+        }[]
+        for (const { id } of ids) {
+          db.prepare('DELETE FROM messages_fts WHERE rowid=?').run(id)
+          db.prepare('DELETE FROM conversation_fts WHERE rowid=?').run(id)
+        }
+        db.exec('DELETE FROM messages; DELETE FROM sessions; DELETE FROM files; COMMIT')
         intervals.push(performance.now() - previous)
       } else {
         await deleteExpiredSearchFiles(
@@ -52,7 +60,25 @@ try {
             await yieldToEventLoop()
             previous = performance.now()
           }
-        )
+        ).catch(async (error: unknown) => {
+          if (!(error instanceof SearchWalBackpressureError) || !reader) {
+            throw error
+          }
+          console.log(
+            JSON.stringify({
+              mode,
+              backpressured: true,
+              walBytes: (await stat(`${path}-wal`)).size
+            })
+          )
+          reader.exec('COMMIT')
+          await deleteExpiredSearchFiles(
+            db,
+            null,
+            () => false,
+            () => {}
+          )
+        })
       }
       const wallMs = performance.now() - started
       assert.equal(

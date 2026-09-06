@@ -1,0 +1,86 @@
+import { expect, it } from 'vitest'
+import {
+  captureSessionSearchMessage,
+  checkpointSessionSearchCapture
+} from '../ai-vault/session-search-capture'
+import { captureIndexedSessionParse } from '../ai-vault/session-search-indexed-parse'
+import { SessionSearchIndexWriter } from './session-search-index-writer'
+import { SessionSearchStore } from './session-search-store'
+import { stagedWriteUpdate } from './session-search-staged-write-fixtures'
+
+it.each(['publish', 'reject', 'throw', 'cancel'] as const)(
+  'streams capture with atomic %s',
+  async (outcome) => {
+    const store = new SessionSearchStore(':memory:')
+    const writer = new SessionSearchIndexWriter(store.db)
+    const original = stagedWriteUpdate('oldneedle', 1)
+    const replacement = stagedWriteUpdate('newneedle', 600)
+    let active = true
+    try {
+      await writer.apply(original)
+      const parse = captureIndexedSessionParse(
+        {
+          streamingCapture: true,
+          indexedFile: () => null,
+          markStale: () => {},
+          apply: async (update) => {
+            await writer.apply(
+              update,
+              () => active,
+              undefined,
+              () => true
+            )
+          }
+        },
+        replacement,
+        async () => {
+          for (let i = 0; i < 600; i++) {
+            captureSessionSearchMessage({ role: 'user', text: 'newneedle', timestamp: null })
+            await checkpointSessionSearchCapture()
+            if (i === 400) {
+              expect(
+                Number(
+                  (store.db.prepare('SELECT count(*) AS n FROM messages').get() as { n: number }).n
+                )
+              ).toBeGreaterThan(128)
+              expect(store.search({ query: 'newneedle' }).hits).toHaveLength(0)
+              expect(store.search({ query: 'oldneedle' }).hits).toHaveLength(1)
+              if (outcome === 'throw') {
+                throw new Error('synthetic parse failure')
+              }
+              if (outcome === 'cancel') {
+                active = false
+              }
+            }
+          }
+          return {
+            value: 'parsed',
+            session: outcome === 'reject' ? null : replacement.session,
+            byteOffset: 99
+          }
+        }
+      )
+      if (outcome === 'throw') {
+        await expect(parse).rejects.toThrow('synthetic parse failure')
+      } else {
+        expect(await parse).toBe('parsed')
+      }
+      expect(store.search({ query: 'newneedle' }).hits).toHaveLength(outcome === 'publish' ? 1 : 0)
+      expect(store.search({ query: 'oldneedle' }).hits).toHaveLength(
+        outcome === 'throw' || outcome === 'cancel' ? 1 : 0
+      )
+      expect(writer.indexedFile(original.candidate.file.path, null)?.byteOffset).toBe(
+        outcome === 'publish' || outcome === 'reject' ? 99 : 1
+      )
+      if (outcome === 'publish') {
+        expect(store.search({ query: 'newneedle' }).hits[0].title).toBe('newneedle')
+      }
+      await store.purgeOlderThan(null)
+      expect(
+        store.db.prepare('SELECT id FROM search_write_batches WHERE published=0').all()
+      ).toHaveLength(0)
+    } finally {
+      store.close()
+    }
+  }
+)

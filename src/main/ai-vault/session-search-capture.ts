@@ -22,7 +22,7 @@ export type SessionSearchIndexUpdate = {
   session: AiVaultSession | null
   /** `replace`: whole-file parse, rows supersede the session; `append`: resumed parse. */
   mode: 'replace' | 'append'
-  messages: SessionSearchCapturedMessage[]
+  messages: SessionSearchCapturedMessage[] | AsyncIterable<SessionSearchCapturedMessage>
   /** Byte offset the appended rows continue from; the sink refuses a mismatch. */
   previousByteOffset: number
   byteOffset: number
@@ -37,6 +37,7 @@ export type SessionSearchIndexedFile = {
 }
 
 export type SessionSearchIndexSink = {
+  streamingCapture?: boolean
   acceptsCandidate?(candidate: SessionFileCandidate): boolean
   updateMetadata?(candidate: SessionFileCandidate, session: AiVaultSession): void
   /**
@@ -47,7 +48,7 @@ export type SessionSearchIndexSink = {
    */
   indexedFile(path: string, identity: SessionSearchFileIdentity): SessionSearchIndexedFile | null
   /** Never throws: an index failure must not break the session list. */
-  apply(update: SessionSearchIndexUpdate): void
+  apply(update: SessionSearchIndexUpdate): void | Promise<void>
   /** `opportunistic` mode saw a file the index is behind on; the backfill lane re-parses it. */
   markStale(candidate: SessionFileCandidate): void
 }
@@ -57,7 +58,10 @@ export type SessionSearchIndexSink = {
 // in `required` mode, where index consistency wins over parse reuse.
 export type SessionSearchIndexMode = 'opportunistic' | 'required'
 
-type CaptureScope = { messages: SessionSearchCapturedMessage[] } | null
+type CaptureScope = {
+  messages: { push(message: SessionSearchCapturedMessage): unknown }
+  checkpoint?: () => Promise<void>
+} | null
 
 const captureStorage = new AsyncLocalStorage<CaptureScope>()
 const indexModeStorage = new AsyncLocalStorage<SessionSearchIndexMode>()
@@ -98,4 +102,15 @@ export async function withSessionSearchCapture<T>(
   const scope = { messages: [] as SessionSearchCapturedMessage[] }
   const value = await captureStorage.run(scope, fn)
   return { value, messages: scope.messages }
+}
+
+export function checkpointSessionSearchCapture(): Promise<void> | undefined {
+  return captureStorage.getStore()?.checkpoint?.()
+}
+
+export function withStreamingSessionSearchCapture<T>(
+  messages: { push(message: SessionSearchCapturedMessage): unknown; checkpoint(): Promise<void> },
+  fn: () => Promise<T>
+): Promise<T> {
+  return captureStorage.run({ messages, checkpoint: () => messages.checkpoint() }, fn)
 }

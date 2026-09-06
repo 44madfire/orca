@@ -1,9 +1,10 @@
+import { removeTree } from '../../shared/windows-transient-lock-removal'
 import { sessionSearchPathKey } from './session-search-path-key'
 import { describe, it, expect } from 'vitest'
 import { SessionSearchStore } from './session-search-store'
 import { SessionSearchService } from './session-search-service'
 import { isolatedScanRoots } from '../ai-vault/session-scanner-test-fixtures'
-import { mkdir, mkdtemp, rm, writeFile, utimes } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { userRecord, parseTranscript } from './session-search-transcript-fixtures'
@@ -93,7 +94,7 @@ describe('search correctness regressions', () => {
       expect(s.coverage().sessionsIndexed).toBe(0)
     } finally {
       s.dispose()
-      await rm(root, { recursive: true, force: true })
+      await removeTree(root)
     }
   })
 })

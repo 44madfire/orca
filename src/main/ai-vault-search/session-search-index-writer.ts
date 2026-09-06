@@ -1,22 +1,23 @@
+import { assertSearchWalBudget } from './session-search-wal-budget'
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import type { AiVaultSession } from '../../shared/ai-vault-types'
-import { redactSessionSearchText } from './session-search-redaction'
-import { sessionSearchPathKey } from './session-search-path-key'
 import type SyncDatabase from '../sqlite/sync-database'
 import type {
+  SessionSearchCapturedMessage,
   SessionSearchFileIdentity,
   SessionSearchIndexedFile,
   SessionSearchIndexUpdate
 } from '../ai-vault/session-search-capture'
-import {
-  EMPTY_CONTENT_HASH,
-  foldContentHash,
-  type SessionContentHash
-} from './session-search-content-hash'
-import { identifierShadowText } from './session-search-identifier-split'
+import { EMPTY_CONTENT_HASH, foldContentHash } from './session-search-content-hash'
+import { SessionSearchFileRecords } from './session-search-file-records'
+import { insertSearchMessage, searchMessageRows } from './session-search-message-rows'
+import { discardSearchBatch, retireSearchSession } from './session-search-write-recovery'
+import { redactSessionSearchText } from './session-search-redaction'
+import { sessionSearchPathKey } from './session-search-path-key'
+export { chunkMessageText } from './session-search-message-rows'
 
-// Why: FTS5's length normalization buries a 100 KB tool log even when it holds
-// the query many times; chunks at line boundaries keep every row rankable.
-const CHUNK_TARGET_CHARS = 8000
+export const SEARCH_WRITE_ROWS_PER_STEP = 128
+export const SEARCH_WRITE_CHARS_PER_STEP = 256 * 1024
 
 type FileRow = {
   dev: number | null
@@ -27,29 +28,14 @@ type FileRow = {
   session_row_id: number | null
 }
 
-export function chunkMessageText(text: string): string[] {
-  if (text.length <= CHUNK_TARGET_CHARS) {
-    return [text]
-  }
-  const chunks: string[] = []
-  let start = 0
-  while (start < text.length) {
-    let end = Math.min(text.length, start + CHUNK_TARGET_CHARS)
-    if (end < text.length) {
-      const newline = text.lastIndexOf('\n', end)
-      if (newline > start + CHUNK_TARGET_CHARS / 2) {
-        end = newline + 1
-      }
-    }
-    chunks.push(text.slice(start, end))
-    start = end
-  }
-  return chunks
-}
-
 export class SessionSearchIndexWriter {
-  constructor(private readonly db: SyncDatabase) {}
-
+  private readonly records: SessionSearchFileRecords
+  private activePath: string | null = null
+  private invalidated = false
+  private pending: Promise<unknown> = Promise.resolve()
+  constructor(private readonly db: SyncDatabase) {
+    this.records = new SessionSearchFileRecords(db)
+  }
   indexedFile(path: string, identity: SessionSearchFileIdentity): SessionSearchIndexedFile | null {
     const row = this.db
       .prepare(
@@ -67,51 +53,6 @@ export class SessionSearchIndexWriter {
     return { byteOffset: row.byte_offset, mtimeMs: row.mtime_ms, sizeBytes: row.size_bytes }
   }
 
-  apply(update: SessionSearchIndexUpdate): void {
-    const path = update.candidate.file.path
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      const existing = this.db
-        .prepare('SELECT byte_offset, session_row_id FROM files WHERE path = ?')
-        .get(path) as Pick<FileRow, 'byte_offset' | 'session_row_id'> | undefined
-      const appendable =
-        update.mode === 'append' &&
-        existing !== undefined &&
-        existing.byte_offset === update.previousByteOffset &&
-        existing.session_row_id !== null
-      if (!appendable) {
-        this.deleteFile(path, existing?.session_row_id ?? null)
-      }
-      // Why: an append that does not continue from the stored offset (a racing
-      // parse advanced it) would leave a hole; drop the file so the next parse
-      // is whole instead of storing a partial session.
-      if (update.mode === 'append' && !appendable) {
-        this.db.exec('COMMIT')
-        return
-      }
-      if (update.session === null) {
-        this.upsertFile(update, null)
-        this.db.exec('COMMIT')
-        return
-      }
-      const rowId = appendable ? existing.session_row_id : null
-      const sessionRowId = this.upsertSession(
-        update,
-        rowId,
-        foldContentHash(
-          rowId === null ? EMPTY_CONTENT_HASH : this.contentHash(rowId),
-          update.messages
-        )
-      )
-      this.insertMessages(sessionRowId, update)
-      this.upsertFile(update, sessionRowId)
-      this.db.exec('COMMIT')
-    } catch (error) {
-      this.db.exec('ROLLBACK')
-      throw error
-    }
-  }
-
   updateMetadata(path: string, session: AiVaultSession): void {
     this.db
       .prepare(`UPDATE sessions SET title = ?, cwd = ?, cwd_key = ?, branch = ?
@@ -125,16 +66,39 @@ export class SessionSearchIndexWriter {
       )
   }
 
+  apply(
+    update: SessionSearchIndexUpdate,
+    active: () => boolean = () => true,
+    yieldStep: () => Promise<void> = yieldToEventLoop,
+    available: () => boolean = active
+  ): Promise<boolean> {
+    const run = this.pending
+      .catch(() => undefined)
+      .then(async () => {
+        this.activePath = update.candidate.file.path
+        this.invalidated = false
+        try {
+          return await this.stage(update, active, yieldStep, available)
+        } finally {
+          this.activePath = null
+        }
+      })
+    this.pending = run
+    return run
+  }
+
+  /** Invalidation hides the generation immediately; cleanup does the expensive deletes later. */
   removeFile(path: string): void {
-    const existing = this.db
-      .prepare('SELECT session_row_id FROM files WHERE path = ?')
-      .get(path) as Pick<FileRow, 'session_row_id'> | undefined
-    if (!existing) {
-      return
+    if (this.activePath === path) {
+      this.invalidated = true
     }
+    const existing = this.file(path)
     this.db.exec('BEGIN IMMEDIATE')
     try {
-      this.deleteFile(path, existing.session_row_id)
+      if (existing?.session_row_id != null) {
+        retireSearchSession(this.db, existing.session_row_id)
+      }
+      this.db.prepare('DELETE FROM files WHERE path = ?').run(path)
       this.db.exec('COMMIT')
     } catch (error) {
       this.db.exec('ROLLBACK')
@@ -142,117 +106,139 @@ export class SessionSearchIndexWriter {
     }
   }
 
-  private deleteFile(path: string, sessionRowId: number | null): void {
-    if (sessionRowId !== null) {
-      const ids = this.db
-        .prepare('SELECT id FROM messages WHERE session_row_id = ?')
-        .all(sessionRowId) as { id: number }[]
-      const deleteFts = this.db.prepare('DELETE FROM messages_fts WHERE rowid = ?')
-      const deleteConversation = this.db.prepare('DELETE FROM conversation_fts WHERE rowid = ?')
-      for (const { id } of ids) {
-        deleteFts.run(id)
-        deleteConversation.run(id)
-      }
-      this.db.prepare('DELETE FROM messages WHERE session_row_id = ?').run(sessionRowId)
-      this.db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionRowId)
-    }
-    this.db.prepare('DELETE FROM files WHERE path = ?').run(path)
+  private file(path: string): Pick<FileRow, 'session_row_id' | 'byte_offset'> | undefined {
+    return this.db
+      .prepare('SELECT session_row_id,byte_offset FROM files WHERE path = ?')
+      .get(path) as Pick<FileRow, 'session_row_id' | 'byte_offset'> | undefined
   }
 
-  private contentHash(rowId: number): SessionContentHash {
-    const row = this.db
-      .prepare('SELECT content_hash, content_hash_count FROM sessions WHERE id = ?')
-      .get(rowId) as { content_hash: string | null; content_hash_count: number } | undefined
-    return row ? { hash: row.content_hash, count: row.content_hash_count } : EMPTY_CONTENT_HASH
-  }
-
-  private upsertSession(
+  private async stage(
     update: SessionSearchIndexUpdate,
-    rowId: number | null,
-    contentHash: SessionContentHash
-  ): number {
-    const session = update.session!
-    const values = [
-      session.agent,
-      session.sessionId,
-      session.filePath,
-      session.codexHome,
-      redactSessionSearchText(session.title),
-      session.cwd,
-      session.cwd ? sessionSearchPathKey(session.cwd, session.filePath) : null,
-      session.branch,
-      session.createdAt,
-      session.updatedAt,
-      session.messageCount,
-      session.resumeCommand,
-      contentHash.hash,
-      contentHash.count
-    ]
-    if (rowId !== null) {
-      this.db
-        .prepare(
-          `UPDATE sessions SET agent = ?, session_id = ?, file_path = ?, codex_home = ?, title = ?,
-             cwd = ?, cwd_key = ?, branch = ?, created_at = ?, updated_at = ?, message_count = ?, resume_command = ?,
-             content_hash = ?, content_hash_count = ?
-           WHERE id = ?`
-        )
-        .run(...values, rowId)
-      return rowId
+    active: () => boolean,
+    yieldStep: () => Promise<void>,
+    available: () => boolean
+  ): Promise<boolean> {
+    if (!active()) {
+      return false
     }
-    const result = this.db
-      .prepare(
-        `INSERT INTO sessions(agent, session_id, file_path, codex_home, title, cwd, cwd_key, branch,
-           created_at, updated_at, message_count, resume_command, content_hash, content_hash_count)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    assertSearchWalBudget(this.db)
+    const path = update.candidate.file.path
+    const existing = this.file(path)
+    const append =
+      update.mode === 'append' &&
+      existing?.session_row_id != null &&
+      existing.byte_offset === update.previousByteOffset
+    if (update.mode === 'append' && !append) {
+      this.removeFile(path)
+      return false
+    }
+    if (!update.session) {
+      this.removeFile(path)
+      this.records.upsertFile(update, null)
+      return true
+    }
+    let hash = append ? this.records.contentHash(existing!.session_row_id!) : EMPTY_CONTENT_HASH
+    let sessionId: number
+    let batchId: number
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      sessionId = append
+        ? existing!.session_row_id!
+        : this.records.upsertSession(update, null, hash)
+      if (!append) {
+        this.db.prepare('UPDATE sessions SET index_ready=0 WHERE id=?').run(sessionId)
+      }
+      batchId = Number(
+        this.db
+          .prepare('INSERT INTO search_write_batches(session_row_id) VALUES (?)')
+          .run(sessionId).lastInsertRowid
       )
-      .run(...values)
-    return Number(result.lastInsertRowid)
-  }
-
-  private insertMessages(sessionRowId: number, update: SessionSearchIndexUpdate): void {
-    const insertMessage = this.db.prepare(
-      'INSERT INTO messages(session_row_id, role, ts) VALUES (?, ?, ?)'
-    )
-    const insertFts = this.db.prepare(
-      'INSERT INTO messages_fts(rowid, user_text, assistant_text, tool_text, identifiers) VALUES (?, ?, ?, ?, ?)'
-    )
-    const insertConversation = this.db.prepare(
-      'INSERT INTO conversation_fts(rowid, user_text, assistant_text) VALUES (?, ?, ?)'
-    )
-    for (const message of update.messages) {
-      for (const chunk of chunkMessageText(message.text)) {
-        const id = Number(
-          insertMessage.run(sessionRowId, message.role, message.timestamp).lastInsertRowid
-        )
-        const user = message.role === 'user' ? chunk : ''
-        const assistant = message.role === 'assistant' ? chunk : ''
-        const tool = message.role === 'tool' ? chunk : ''
-        insertFts.run(id, user, assistant, tool, identifierShadowText(chunk))
-        if (message.role !== 'tool') {
-          insertConversation.run(id, user, assistant)
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+    const unchanged = (): boolean => {
+      const current = this.file(path)
+      return (
+        !this.invalidated &&
+        current?.session_row_id === existing?.session_row_id &&
+        current?.byte_offset === existing?.byte_offset
+      )
+    }
+    try {
+      async function* capturedRows() {
+        for await (const message of update.messages) {
+          hash = foldContentHash(hash, [message])
+          yield* searchMessageRows([message])
+        }
+      }
+      const rows = capturedRows()
+      let next = await rows.next()
+      while (!next.done) {
+        const batch: SessionSearchCapturedMessage[] = []
+        let chars = 0
+        while (
+          !next.done &&
+          batch.length < SEARCH_WRITE_ROWS_PER_STEP &&
+          chars < SEARCH_WRITE_CHARS_PER_STEP
+        ) {
+          batch.push(next.value)
+          chars += next.value.text.length
+          next = await rows.next()
+        }
+        if (!active() || !unchanged()) {
+          await rows.return(undefined)
+          return false
+        }
+        assertSearchWalBudget(this.db)
+        this.db.exec('BEGIN IMMEDIATE')
+        try {
+          for (const message of batch) {
+            insertSearchMessage(this.db, sessionId, batchId, message)
+          }
+          this.db.exec('COMMIT')
+        } catch (error) {
+          this.db.exec('ROLLBACK')
+          throw error
+        }
+        await yieldStep()
+      }
+      if (!active() || !unchanged()) {
+        return false
+      }
+      this.db.exec('BEGIN IMMEDIATE')
+      try {
+        if (!update.session) {
+          if (existing?.session_row_id != null) {
+            retireSearchSession(this.db, existing.session_row_id)
+          }
+          this.records.upsertFile(update, null)
+          this.db.exec('COMMIT')
+          return true
+        }
+        this.records.upsertSession(update, sessionId, hash)
+        if (!append && existing?.session_row_id != null) {
+          retireSearchSession(this.db, existing.session_row_id)
+        }
+        this.db.prepare('UPDATE sessions SET index_ready=1 WHERE id=?').run(sessionId)
+        this.db.prepare('UPDATE search_write_batches SET published=1 WHERE id=?').run(batchId)
+        this.records.upsertFile(update, sessionId)
+        this.db.exec('COMMIT')
+      } catch (error) {
+        this.db.exec('ROLLBACK')
+        throw error
+      }
+      return true
+    } finally {
+      if (available()) {
+        const batch = this.db
+          .prepare('SELECT published FROM search_write_batches WHERE id=?')
+          .get(batchId) as { published: number } | undefined
+        if (batch?.published === 0) {
+          discardSearchBatch(this.db, sessionId, batchId, !append)
         }
       }
     }
-  }
-
-  private upsertFile(update: SessionSearchIndexUpdate, sessionRowId: number | null): void {
-    const { file } = update.candidate
-    this.db
-      .prepare(
-        `INSERT INTO files(path, dev, ino, byte_offset, mtime_ms, size_bytes, session_row_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(path) DO UPDATE SET dev = excluded.dev, ino = excluded.ino,
-           byte_offset = excluded.byte_offset, mtime_ms = excluded.mtime_ms,
-           size_bytes = excluded.size_bytes, session_row_id = excluded.session_row_id`
-      )
-      .run(
-        file.path,
-        file.dev ?? null,
-        file.ino ?? null,
-        update.byteOffset,
-        file.mtimeMs,
-        file.sizeBytes ?? null,
-        sessionRowId
-      )
   }
 }

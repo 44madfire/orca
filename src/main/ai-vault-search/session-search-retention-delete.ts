@@ -1,3 +1,4 @@
+import { assertSearchWalBudget } from './session-search-wal-budget'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import type SyncDatabase from '../sqlite/sync-database'
 import { inSessionParseFileLane } from '../ai-vault/session-parse-file-lane'
@@ -49,16 +50,23 @@ export async function deleteExpiredSearchFiles(
       }
       while (!closed()) {
         const pending = db
-          .prepare('SELECT session_row_id FROM search_pending_deletes WHERE path = ?')
-          .get(path) as { session_row_id: number } | undefined
+          .prepare('SELECT session_row_id,batch_id FROM search_pending_deletes WHERE path = ?')
+          .get(path) as { session_row_id: number; batch_id: number | null } | undefined
         if (!pending) {
           return
         }
+        assertSearchWalBudget(db)
         db.exec('BEGIN IMMEDIATE')
         try {
           const ids = db
-            .prepare('SELECT id FROM messages WHERE session_row_id = ? LIMIT ?')
-            .all(pending.session_row_id, RETENTION_DELETE_ROWS_PER_STEP) as { id: number }[]
+            .prepare(
+              pending.batch_id === null
+                ? 'SELECT id FROM messages WHERE session_row_id = ? LIMIT ?'
+                : 'SELECT id FROM messages WHERE batch_id = ? LIMIT ?'
+            )
+            .all(pending.batch_id ?? pending.session_row_id, RETENTION_DELETE_ROWS_PER_STEP) as {
+            id: number
+          }[]
           const full = db.prepare('DELETE FROM messages_fts WHERE rowid = ?')
           const conversation = db.prepare('DELETE FROM conversation_fts WHERE rowid = ?')
           const message = db.prepare('DELETE FROM messages WHERE id = ?')
@@ -68,7 +76,14 @@ export async function deleteExpiredSearchFiles(
             message.run(id)
           }
           if (ids.length < RETENTION_DELETE_ROWS_PER_STEP) {
-            db.prepare('DELETE FROM sessions WHERE id = ?').run(pending.session_row_id)
+            if (pending.batch_id === null) {
+              db.prepare('DELETE FROM search_write_batches WHERE session_row_id=?').run(
+                pending.session_row_id
+              )
+              db.prepare('DELETE FROM sessions WHERE id = ?').run(pending.session_row_id)
+            } else {
+              db.prepare('DELETE FROM search_write_batches WHERE id=?').run(pending.batch_id)
+            }
             db.prepare('DELETE FROM search_pending_deletes WHERE path = ?').run(path)
           }
           db.exec('COMMIT')

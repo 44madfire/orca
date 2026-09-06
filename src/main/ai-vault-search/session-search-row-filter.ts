@@ -20,7 +20,10 @@ export function sessionRowFilter(
   split: AiVaultSearchQuerySplit
 ): SessionRowFilter {
   const filter: SessionRowFilter = {
-    conditions: ['id NOT IN (SELECT session_row_id FROM search_pending_deletes)'],
+    conditions: [
+      'index_ready = 1',
+      'id NOT IN (SELECT session_row_id FROM search_pending_deletes WHERE batch_id IS NULL)'
+    ],
     values: []
   }
   if (args.agents && args.agents.length > 0) {

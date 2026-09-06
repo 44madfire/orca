@@ -1,3 +1,7 @@
+import { discoverAiVaultSessionSources } from '../ai-vault/session-scanner-source-discovery'
+import { sessionCandidatesFromDiscoveries } from '../ai-vault/session-scanner-candidates'
+import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
+
 import { waitForPromiseWithSignal, throwIfSignalAborted } from '../../shared/abort-signal-reason'
 import type { SessionSearchScanRoots } from './session-search-service'
 
@@ -51,4 +55,17 @@ export class SessionSearchRefreshLane {
     }
     this.runs.clear()
   }
+}
+
+export async function discoverRecentSearchFiles(
+  roots: SessionSearchScanRoots,
+  signal?: AbortSignal
+): Promise<SessionFileCandidate[]> {
+  const options = { ...roots, signal }
+  const discoveries = await discoverAiVaultSessionSources({
+    options,
+    limitPerAgent: 12,
+    issues: []
+  })
+  return sessionCandidatesFromDiscoveries(discoveries, options)
 }

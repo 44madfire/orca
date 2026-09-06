@@ -2,7 +2,7 @@ import { rmSync } from 'node:fs'
 import SyncDatabase from '../sqlite/sync-database'
 
 // Bump to drop and rebuild: the index is a cache over the transcripts, never a source.
-export const SESSION_SEARCH_SCHEMA_VERSION = 8
+export const SESSION_SEARCH_SCHEMA_VERSION = 9
 
 // unicode61 keeps `_ . - /` inside tokens so paths and identifiers match exactly;
 // the `identifiers` column carries the split form (see session-search-identifier-split).
@@ -14,6 +14,7 @@ const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions(
   id INTEGER PRIMARY KEY,
+  index_ready INTEGER NOT NULL DEFAULT 1,
   agent TEXT NOT NULL,
   session_id TEXT NOT NULL,
   -- Not unique: OpenCode/Cursor SQLite sessions share one store path; files.path is the key.
@@ -45,15 +46,25 @@ CREATE TABLE IF NOT EXISTS files(
 );
 CREATE TABLE IF NOT EXISTS search_pending_deletes(
   path TEXT PRIMARY KEY,
-  session_row_id INTEGER NOT NULL UNIQUE
+  session_row_id INTEGER NOT NULL,
+  batch_id INTEGER
 );
+CREATE TABLE IF NOT EXISTS search_write_batches(
+  id INTEGER PRIMARY KEY,
+  session_row_id INTEGER NOT NULL,
+  published INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS search_write_batches_session ON search_write_batches(session_row_id);
+CREATE INDEX IF NOT EXISTS search_write_batches_pending ON search_write_batches(published);
 CREATE TABLE IF NOT EXISTS messages(
   id INTEGER PRIMARY KEY,
   session_row_id INTEGER NOT NULL,
+  batch_id INTEGER,
   role TEXT NOT NULL,
   ts TEXT
 );
 CREATE INDEX IF NOT EXISTS messages_session ON messages(session_row_id);
+CREATE INDEX IF NOT EXISTS messages_batch ON messages(batch_id);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
   user_text, assistant_text, tool_text, identifiers, ${TOKENIZER}, detail=full
 );
@@ -96,6 +107,7 @@ function openWithPragmas(path: string): SyncDatabase {
   db.pragma('auto_vacuum = INCREMENTAL')
   db.pragma('journal_mode = WAL')
   db.pragma('synchronous = NORMAL')
+  db.pragma('journal_size_limit = 8388608')
   db.pragma('busy_timeout = 5000')
   return db
 }

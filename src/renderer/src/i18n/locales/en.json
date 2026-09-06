@@ -11800,7 +11800,8 @@
           "clearBodyEnabled": "Deletes the index files. Your transcripts are untouched, and Orca starts rebuilding the index right away.",
           "clearBodyDisabled": "Deletes the index files. Your transcripts are untouched.",
           "cancel": "Cancel",
-          "clearing": "Clearing…"
+          "clearing": "Clearing…",
+          "clearError": "Could not clear the index. Please try again."
         },
         "agentSessionHistory": {
           "search": {
@@ -13027,7 +13028,9 @@
             "sessionDeleteFailed": "Couldn't delete the session",
             "searchMatches_one": "{{count}} match",
             "searchMatches_other": "{{count}} matches",
-            "searchMatches": "{{count}} matches"
+            "searchMatches": "{{count}} matches",
+            "localSearchOnly": "Conversation search covers this computer only. Remote hosts use title search.",
+            "searchUpdating": "Updating search results…"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Scanning sessions",

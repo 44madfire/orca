@@ -1,4 +1,4 @@
-import { SessionSearchRefreshLane } from './session-search-refresh-lane'
+import { SessionSearchRefreshLane, discoverRecentSearchFiles } from './session-search-refresh-lane'
 import { recordSearchDiscovered } from './session-search-discovered-counts'
 import { withCursorChatMetaScan } from '../ai-vault/session-scanner-cursor-chat-meta'
 import { mkdirSync } from 'node:fs'
@@ -35,10 +35,6 @@ import { SessionSearchStore } from './session-search-store'
 // Why: the backfill shares the scanner process's cache lane with list scans,
 // so it yields between files and never holds the lane for long.
 const BACKFILL_YIELD_EVERY_FILES = 8
-// Why: a search must see a session that is being written right now even when
-// no list scan has run; re-reading the newest few files per provider is a
-// readdir + stat plus the appended bytes, well under the query budget.
-const REFRESH_RECENT_PER_AGENT = 12
 export type SessionSearchServiceOptions = { databasePath: string } & AiVaultSearchSettings
 
 /** Scan roots the backfill enumerates; the parent resolves them so they match list scans. */
@@ -92,7 +88,10 @@ export class SessionSearchService {
         await this.refreshLane.run(
           roots,
           async (sharedSignal) => {
-            await this.refreshRecent(roots, sharedSignal)
+            await this.parseAll(
+              this.withinHistory(await discoverRecentSearchFiles(roots, sharedSignal)),
+              sharedSignal
+            )
             await this.reindexStale(sharedSignal)
           },
           signal
@@ -224,6 +223,7 @@ export class SessionSearchService {
   /** Waits for the aborted backfill so its last parse cannot write to a closed store. */
   private async stop(options: { keepStore?: boolean } = {}): Promise<void> {
     this.stopping = true
+    this.store?.setAcceptingWrites(false)
     try {
       this.backfillController?.abort()
       const run = this.backfillRun
@@ -236,6 +236,9 @@ export class SessionSearchService {
       }
     } finally {
       this.stopping = false
+      if (options.keepStore) {
+        this.store?.setAcceptingWrites(true)
+      }
     }
   }
 
@@ -248,18 +251,6 @@ export class SessionSearchService {
     }
     registerSessionSearchIndexSink(null)
     store.close()
-  }
-
-  private async refreshRecent(roots: SessionSearchScanRoots, signal?: AbortSignal): Promise<void> {
-    const issues: AiVaultScanIssue[] = []
-    const options: AiVaultScanOptions = { ...roots, signal }
-    const discoveries = await discoverAiVaultSessionSources({
-      options,
-      limitPerAgent: REFRESH_RECENT_PER_AGENT,
-      issues
-    })
-    const candidates = await sessionCandidatesFromDiscoveries(discoveries, options)
-    await this.parseAll(this.withinHistory(candidates), signal)
   }
 
   private async reindexStale(signal?: AbortSignal): Promise<void> {

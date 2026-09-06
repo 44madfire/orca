@@ -1,3 +1,4 @@
+import { captureIndexedSessionParse } from './session-search-indexed-parse'
 import { inSessionParseFileLane } from './session-parse-file-lane'
 import type { AiVaultSession } from '../../shared/ai-vault-types'
 import { createAntigravitySessionResumeState } from './session-scanner-antigravity-parser'
@@ -25,7 +26,6 @@ import {
   getSessionSearchIndexMode,
   getSessionSearchIndexSink,
   withoutSessionSearchCapture,
-  withSessionSearchCapture,
   type SessionSearchIndexSink
 } from './session-search-capture'
 
@@ -227,16 +227,14 @@ async function indexWholeFileParse(
   candidate: SessionFileCandidate,
   parse: () => Promise<AiVaultSession | null>
 ): Promise<AiVaultSession | null> {
-  const captured = await withSessionSearchCapture(parse)
-  sink.apply({
-    candidate,
-    session: captured.value,
-    mode: 'replace',
-    messages: captured.messages,
-    previousByteOffset: 0,
-    byteOffset: candidate.file.sizeBytes ?? 0
-  })
-  return captured.value
+  return captureIndexedSessionParse(
+    sink,
+    { candidate, mode: 'replace', previousByteOffset: 0 },
+    async () => {
+      const session = await parse()
+      return { value: session, session, byteOffset: candidate.file.sizeBytes ?? 0 }
+    }
+  )
 }
 
 async function parseResumableCandidate(args: {
@@ -296,48 +294,48 @@ async function parseResumableCandidate(args: {
       onLineBytes: state.consumeLineBytes?.bind(state),
       shouldStop: state.shouldStop?.bind(state)
     })
-  // Capture only when the index takes these rows: it disables the Codex
-  // byte-prefix fast path, which is exactly the cost a list-only scan must not pay.
-  const captured = feedIndex
-    ? await withSessionSearchCapture(read)
-    : { value: await read(), messages: [] }
-  const readResult = captured.value
-  if (args.stats) {
-    args.stats.bytesRead += readResult.bytesRead
-  }
+  const produce = async () => {
+    const readResult = await read()
+    if (args.stats) {
+      args.stats.bytesRead += readResult.bytesRead
+    }
 
-  // The stat this scan displays is current even when nothing new was consumed.
-  state.touchFile(file)
+    // The stat this scan displays is current even when nothing new was consumed.
+    state.touchFile(file)
 
-  // Keep parity with the one-shot parser: a final unterminated line is shown,
-  // but stays out of the resumable state so the (possibly still-growing) line
-  // is re-read once complete instead of being half-counted. The index only
-  // stores complete lines, so the display-only consume must not emit rows.
-  let displayState = state
-  if (readResult.trailingPartialLine !== null) {
-    displayState = state.clone()
-    withoutSessionSearchCapture(() => displayState.consumeLine(readResult.trailingPartialLine!))
-  }
+    // Keep parity with the one-shot parser: a final unterminated line is shown,
+    // but stays out of the resumable state so the (possibly still-growing) line
+    // is re-read once complete instead of being half-counted. The index only
+    // stores complete lines, so the display-only consume must not emit rows.
+    let displayState = state
+    if (readResult.trailingPartialLine !== null) {
+      displayState = state.clone()
+      withoutSessionSearchCapture(() => displayState.consumeLine(readResult.trailingPartialLine!))
+    }
 
-  const session = await displayState.finalize(args.platform)
-  if (feedIndex && args.sink) {
-    args.sink.apply({
-      candidate: args.candidate,
-      // The index stores what the complete lines say; the trailing partial line
-      // only changes the displayed session.
+    const session = await displayState.finalize(args.platform)
+    const entry: SessionParseCacheEntry = {
+      mtimeMs: file.mtimeMs,
+      sizeBytes: file.sizeBytes ?? null,
+      platform: args.platform,
+      session,
+      resume: { state, byteOffset: readResult.consumedThrough, identity: fileIdentity(file) }
+    }
+    return {
+      value: entry,
       session: displayState === state ? session : await state.finalize(args.platform),
-      mode: canResume ? 'append' : 'replace',
-      messages: captured.messages,
-      previousByteOffset: startOffset,
       byteOffset: readResult.consumedThrough
-    })
+    }
   }
-
-  return {
-    mtimeMs: file.mtimeMs,
-    sizeBytes: file.sizeBytes ?? null,
-    platform: args.platform,
-    session,
-    resume: { state, byteOffset: readResult.consumedThrough, identity: fileIdentity(file) }
-  }
+  return feedIndex && args.sink
+    ? captureIndexedSessionParse(
+        args.sink,
+        {
+          candidate: args.candidate,
+          mode: canResume ? 'append' : 'replace',
+          previousByteOffset: startOffset
+        },
+        produce
+      )
+    : (await produce()).value
 }

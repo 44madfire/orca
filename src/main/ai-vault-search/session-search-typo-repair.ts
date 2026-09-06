@@ -35,11 +35,22 @@ function similarity(a: string, b: string): number {
 }
 
 export class SessionSearchTypoRepair {
+  private readonly unpublished: ReturnType<SyncDatabase['prepare']>
+  private readonly visiblePostings: ReturnType<SyncDatabase['prepare']>
   private readonly exactMatch: ReturnType<SyncDatabase['prepare']>
   private readonly documentFrequency: ReturnType<SyncDatabase['prepare']>
   private readonly candidatesByPrefix: ReturnType<SyncDatabase['prepare']>
 
   constructor(db: SyncDatabase) {
+    this.unpublished = db.prepare(
+      'SELECT 1 FROM search_write_batches WHERE published=0 UNION ALL SELECT 1 FROM search_pending_deletes LIMIT 1'
+    )
+    this.visiblePostings =
+      db.prepare(`SELECT m.id FROM messages_fts JOIN messages m ON m.id=messages_fts.rowid
+      JOIN sessions s ON s.id=m.session_row_id WHERE messages_fts MATCH ? AND s.index_ready=1
+      AND s.id NOT IN (SELECT session_row_id FROM search_pending_deletes WHERE batch_id IS NULL)
+      AND (m.batch_id IS NULL OR m.batch_id NOT IN (SELECT id FROM search_write_batches WHERE published=0)) LIMIT 2`)
+
     this.exactMatch = db.prepare(
       'SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? LIMIT 1'
     )
@@ -54,6 +65,9 @@ export class SessionSearchTypoRepair {
   }
 
   hasPostings(term: string): boolean {
+    if (this.unpublished.get()) {
+      return this.visiblePostings.all(`"${term.replaceAll('"', '""')}"`).length > 0
+    }
     const row = this.documentFrequency.get(term.toLowerCase()) as VocabRow | undefined
     // unicode61 also folds Latin diacritics; raw vocabulary spelling alone can miss an exact hit.
     return (
@@ -73,12 +87,19 @@ export class SessionSearchTypoRepair {
     }
     // Two-letter prefix first (a typo rarely hits both), then the transposed
     // pair, then the bare first letter as the wide fallback.
+    const unpublished = this.unpublished.get() !== undefined
     const prefixes = [lowered.slice(0, 2), lowered[1] + lowered[0], lowered[0]]
     let best: { term: string; score: number; doc: number } | null = null
     for (const prefix of prefixes) {
       for (const row of this.candidates(prefix, lowered.length)) {
         const score = similarity(lowered, row.term)
         if (score < MIN_SIMILARITY) {
+          continue
+        }
+        if (
+          unpublished &&
+          this.visiblePostings.all(`"${row.term.replaceAll('"', '""')}"`).length < MIN_DOC_FREQUENCY
+        ) {
           continue
         }
         if (!best || score > best.score || (score === best.score && row.doc > best.doc)) {

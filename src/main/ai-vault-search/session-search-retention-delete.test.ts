@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { removeTree } from '../../shared/windows-transient-lock-removal'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
@@ -103,7 +104,7 @@ it('finishes an interrupted deletion after reopening even when history becomes u
     if (!closed) {
       store.close()
     }
-    await rm(root, { recursive: true, force: true })
+    await removeTree(root)
   }
 })
 
@@ -112,7 +113,7 @@ it('does not orphan a replacement file when resuming an older deletion for the s
   try {
     seed(store, 1, 2, 1)
     store.db.exec(
-      "INSERT INTO search_pending_deletes VALUES ('1',1); DELETE FROM files WHERE path='1'"
+      "INSERT INTO search_pending_deletes(path,session_row_id) VALUES ('1',1); DELETE FROM files WHERE path='1'"
     )
     seed(store, 2, 2, 1)
     store.db.exec("UPDATE files SET path='1' WHERE path='2'")
