@@ -11,6 +11,84 @@
   },
   "gates": [
     {
+      "id": "agent-session.submission-settlement",
+      "title": "Late Claude delivery proof settles the original unknown submission",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "native-chat",
+      "layer": "runtime-integration-and-mutation-contract",
+      "surfaces": ["Claude structured chat", "submission journal", "shared structured outbox"],
+      "platforms": ["macos", "linux", "windows", "ios", "android"],
+      "providers": ["local", "remote-runtime", "relay"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local"],
+      "coverageNotes": "Production runtime, host, journal, subscription and shared outbox with scripted Claude transport and process identity probe on macOS; folder workspace exercised. Other native hosts and paired clients are relevant but not covered by this run. Direct SSH/WSL structured Claude execution remains unsupported by existing location checks.",
+      "motivatingLinks": ["https://github.com/stablyai/orca/pull/19141"],
+      "invariant": "A correlated late user echo settles only its original unknown submission accepted, clears its unconfirmed outbox state, suppresses stale retry delivery and preserves a newer active turn.",
+      "oracle": "Timeout the first send, accept a newer send, deliver the first user echo, then require accepted journal/subscription state, removed outbox entry, two provider sends despite explicit retry, and successful newer-turn cancellation. Mutation contracts require serialization behind unknown persistence and one write/publication across repeated settlement.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/native-chat/agent-session-wire/structured-agent-session-late-dispatch.test.ts src/main/runtime/claude-late-dispatch-integration.test.ts"
+      ],
+      "testFiles": [
+        "src/main/native-chat/agent-session-wire/structured-agent-session-late-dispatch.test.ts",
+        "src/main/runtime/claude-late-dispatch-integration.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/main/native-chat/agent-session-wire/structured-agent-session-late-dispatch.test.ts",
+          "assertions": [
+            "waits for the send to persist unknown before accepting and publishing once",
+            "ignores delivery proof after the host session has closed"
+          ]
+        },
+        {
+          "file": "src/main/runtime/claude-late-dispatch-integration.test.ts",
+          "assertions": [
+            "settles a timed-out unknown through the runtime, publishes outbox removal and fences retries"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-06",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/native-chat/agent-session-wire/structured-agent-session-late-dispatch.test.ts src/main/runtime/claude-late-dispatch-integration.test.ts",
+          "result": "passed",
+          "durationSeconds": 15.45,
+          "summary": "7/7 passed after correcting the scripted PID lease-probe fixture; product source at 88d478071a. Earlier broad runs had a process-inspection failure and the fixture failure; no wholly green final broad run claimed."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 30,
+        "scope": "Target for this focused two-file command; observed run 15.45 seconds, measured p95 not established."
+      },
+      "flakeHistory": {
+        "status": "unknown",
+        "evidence": "One corrected focused 7/7 run; sustained soak history missing. Earlier fixture lease-probe failure was corrected, not retried away."
+      },
+      "redGreenEvidence": {
+        "status": "complete",
+        "evidence": "Removing onLateDispatchAccepted runtime adapter forwarding fails the integrated journal assertion with unknown/accepted instead of accepted/accepted; restoring forwarding passes. PR 19141 review artifacts retain ablation and restored-run logs."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "Mutation contract counts one write/publication across repeated settlement; integration counts two provider sends despite retry. No added polling/timers/processes; exceptional settlement copies/scans session submissions. Large-journal latency and subscriber fanout are unmeasured."
+      },
+      "promotionCriteria": [
+        "Collect the policy-required soak runs and days without unexplained flakes.",
+        "Retain forwarding ablation sensitivity, send/write/publication counts and newer-turn cancellation assertions.",
+        "Establish native host and paired-client coverage before claiming those platforms protected."
+      ],
+      "knownGaps": [
+        "Scripted provider integration does not itself prove rendered Electron behavior or live Claude ordering.",
+        "No native Windows/Linux, native iOS/Android, pinned mixed-version client, or paired transport reconnect run for this oracle.",
+        "No settlement-write failure/restart fault injection or release-scale journal performance measurement.",
+        "Existing oldest-unconfirmed Retry targeting is outside this fix."
+      ],
+      "demotionRule": "Remain experimental on unexplained failures or lost ablation sensitivity; do not mask failures with retries, skips or longer timeouts."
+    },
+    {
       "id": "ssh.localhost-terminal-agent-hooks",
       "title": "Localhost SSH terminal and agent hooks reach the owning pane",
       "maturity": "experimental",
