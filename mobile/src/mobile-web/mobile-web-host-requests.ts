@@ -26,6 +26,7 @@ export type MobileWebHostRequestArguments = {
   authority: MobileWebWorkspaceAuthority
   payload: unknown
   isActive: () => boolean
+  pageSessionId?: string
 }
 
 export async function prepareMobileWebHostRequest(
@@ -50,7 +51,17 @@ export async function prepareMobileWebHostRequest(
     throw new MobileWebBrokerError('cancelled')
   }
   args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
-  const params = { ...payload.params, [grant.workspaceParam]: `id:${hostWorkspaceId}` }
+  if (
+    grant.pageSessionParam &&
+    (!args.pageSessionId || grant.pageSessionParam === grant.workspaceParam)
+  ) {
+    throw new MobileWebBrokerError('unsupported_capability')
+  }
+  const params = {
+    ...payload.params,
+    [grant.workspaceParam]: `id:${hostWorkspaceId}`,
+    ...(grant.pageSessionParam ? { [grant.pageSessionParam]: args.pageSessionId } : {})
+  }
   if (
     !mobileWebHostPayloadWithinBounds(params) ||
     mobileWebEncodedByteLength(params) > grant.maxRequestBytes

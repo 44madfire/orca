@@ -301,3 +301,31 @@ passed. Additional capacity tests: 3 files / 14 passed. Deliberate dispatch cens
 workspace dispatch. Logs: `/tmp/orca-ota-e2e/generic-stream-gates/`.
 Page build: `925397fb68c40b511854af454cce2a2989134aa34a517f10fd494064f36ea895`.
 Native-chat/session/account feed migration and platform E2E remain open.
+
+### Host-owned resources and native-chat reads
+
+Generic subscriptions committed as `a0eee2fc21a`. Added a bounded Desktop resource
+registry keyed by runtime, authenticated connection, shell-injected page session,
+workspace and resource kind. Handles contain no provider IDs or transcript paths;
+connection cleanup retires them, and another page session cannot resolve them.
+The shell's optional catalog `pageSessionParam` injects native document authority,
+feature-negotiated as `workspace.hostPageSession.v1` without a protocol bump.
+
+`mobileWeb.nativeChat.bind/read` reuse authoritative session snapshots and the
+existing transcript reader (including SSH routing). The hosted native-chat read
+consumer uses those opaque handles and retains future result fields. Revalidation
+before and after asynchronous reads refuses replaced bindings. Failed snapshots
+remain retryable and do not revoke handles. Old hosts/shells retain the legacy read.
+Chat streams, mutations/fingerprints and remaining domain migrations are still open.
+
+Required gates pass: mobile 836 files / 5,522 tests; root 320 files / 2,706 tests.
+Logs: `/tmp/orca-ota-e2e/native-chat-read-gates/`. Page build:
+`948c8d1f271bf96f45f40ae8bf9e70835790606d8646432c3474e7c721e7bcd7`.
+
+Platform progress: iOS `ios-generic-stream.log` passes native taps/terminal links,
+Tasks and Source Control. `ios-generic-stream-diff.log` also confirms adversarial
+diff content after waiting for its body. It then exposed a fixture assumption:
+Review's Back returns to its source route, and Session need not render literal
+`tabs` text. Updated both readiness checks. One manually assisted Back action was
+used to inspect this failure; this is not a complete unattended E2E pass. Rerun
+with the committed fixture before claiming full iOS coverage; Android remains open.

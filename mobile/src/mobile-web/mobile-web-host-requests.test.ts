@@ -44,6 +44,37 @@ describe('host-advertised unary forwarding', () => {
     expect(JSON.stringify(result)).not.toContain('host-workspace')
   })
 
+  it('overwrites page-authored scope with the current shell document identity', async () => {
+    const { args, sendRequest } = fixture()
+    sendRequest
+      .mockResolvedValueOnce({
+        ok: true,
+        result: { grants: [{ ...grant, pageSessionParam: 'pageSession' }] }
+      })
+      .mockResolvedValueOnce({ ok: true, result: {} })
+    await executeMobileWebHostRequest({
+      ...args,
+      pageSessionId: 'current-document',
+      payload: { ...args.payload, params: { pageSession: 'retired-document' } }
+    })
+    expect(sendRequest).toHaveBeenLastCalledWith(grant.method, {
+      worktree: 'id:host-workspace',
+      pageSession: 'current-document'
+    })
+  })
+
+  it('refuses a scoped method without native document authority', async () => {
+    const { args, sendRequest } = fixture()
+    sendRequest.mockResolvedValueOnce({
+      ok: true,
+      result: { grants: [{ ...grant, pageSessionParam: 'pageSession' }] }
+    })
+    await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({
+      code: 'unsupported_capability'
+    })
+    expect(sendRequest).toHaveBeenCalledOnce()
+  })
+
   it('refuses methods the desktop did not advertise', async () => {
     const { args, sendRequest } = fixture()
     sendRequest.mockResolvedValueOnce({ ok: true, result: { grants: [] } })

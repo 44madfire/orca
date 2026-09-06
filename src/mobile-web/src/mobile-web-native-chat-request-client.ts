@@ -1,3 +1,4 @@
+import { readMobileWebHostNativeChat } from './mobile-web-host-native-chat-read'
 import {
   MobileWebNativeChatFileSearchPayloadSchema,
   MobileWebNativeChatFileSearchResultSchema,
@@ -47,7 +48,19 @@ import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-reques
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
 
 export class MobileWebNativeChatRequestClient {
-  constructor(private readonly requests: MobileWebOneShotRequestClient) {}
+  constructor(
+    private readonly requests: MobileWebOneShotRequestClient,
+    private readonly hostPageSession = false
+  ) {}
+
+  readForTab(payload: MobileWebNativeChatReadPayload, tabId: string) {
+    if (!this.hostPageSession) {
+      return this.read(payload)
+    }
+    return readMobileWebHostNativeChat(this.requests, { ...payload, tabId }, () =>
+      this.read(payload)
+    )
+  }
 
   read(payload: MobileWebNativeChatReadPayload): Promise<MobileWebNativeChatReadResult> {
     return this.requests

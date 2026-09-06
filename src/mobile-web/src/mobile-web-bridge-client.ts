@@ -1,3 +1,4 @@
+import { MOBILE_WEB_SHELL_HOST_PAGE_SESSION_FEATURE } from '../../shared/mobile-web/shell-feature-contract'
 import { subscribeHostSourceControl } from './mobile-web-source-control-host-subscription'
 import {
   MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
@@ -203,7 +204,10 @@ export class MobileWebBridgeClient {
       mobileWebSessionClientBindings(new MobileWebSessionRequestClient(this.requests))
     )
     this.native = new MobileWebNativeRequestClient(this.requests)
-    this.nativeChat = new MobileWebNativeChatRequestClient(this.requests)
+    this.nativeChat = new MobileWebNativeChatRequestClient(
+      this.requests,
+      this.shellFeatures.has(MOBILE_WEB_SHELL_HOST_PAGE_SESSION_FEATURE)
+    )
     this.markdown = new MobileWebMarkdownRequestClient(this.requests)
     const terminalRequests = new MobileWebTerminalRequestClient(this.requests)
     this.terminalRequest = terminalRequests.request.bind(terminalRequests)

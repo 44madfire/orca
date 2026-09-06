@@ -25,6 +25,7 @@ import { rememberMobileWebBrokerRoute } from './mobile-web-broker-route-memory'
 import { resolveMobileWebHostNavigationRoute } from './mobile-web-host-navigation-route'
 import {
   mobileWebEncodedByteLength,
+  mobileWebIsHostRequest,
   mobileWebRequestAtCapacity,
   mobileWebRequestSurvivesCancellation,
   mobileWebAgentHistoryContinuation,
@@ -152,9 +153,7 @@ export class MobileWebCapabilityBroker {
       return
     }
 
-    const isHostRequest =
-      request.capability === 'workspace' &&
-      ['hostRequest', 'hostCatalog', 'hostSubscribe'].includes(request.operation)
+    const isHostRequest = mobileWebIsHostRequest(request)
     const grant = MOBILE_WEB_PRODUCTION_GRANT_INDEX.get(mobileWebOperationKey(request))
     const expectsSubscription = mobileWebRequestExpectsSubscription(request)
     if (!grant || (request.mode === 'subscription') !== expectsSubscription) {
@@ -241,6 +240,7 @@ export class MobileWebCapabilityBroker {
       request,
       isRequestActive,
       connectedClient: () => this.connectedClient(),
+      pageSessionId: this.options.context.shellSessionId,
       terminalClientId: this.options.terminalClientId,
       nativeAuthority: this.options.nativeAuthority,
       agentHistoryAuthority: this.authorities.agentHistory,

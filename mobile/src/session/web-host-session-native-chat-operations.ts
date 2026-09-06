@@ -35,12 +35,13 @@ export function webHostSessionNativeChatOperations(
     },
     async read(target, limit, beforeOffset) {
       try {
-        return await client.nativeChat.read(
-          bridgeTarget(target, {
-            limit,
-            ...(beforeOffset === undefined ? {} : { beforeOffset })
-          })
-        )
+        const payload = bridgeTarget(target, {
+          limit,
+          ...(beforeOffset === undefined ? {} : { beforeOffset })
+        })
+        return target.terminalId
+          ? await client.nativeChat.readForTab(payload, target.terminalId)
+          : await client.nativeChat.read(payload)
       } catch {
         return { error: 'Transcript read failed' }
       }

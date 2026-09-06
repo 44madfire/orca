@@ -27,6 +27,7 @@ import type { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-sub
 type PageRequest = Extract<MobileWebBridgePageMessage, { type: 'request' }>
 
 export type MobileWebCapabilityExecutionDependencies = {
+  pageSessionId?: string
   request: PageRequest
   isRequestActive: () => boolean
   connectedClient: () => RpcClient

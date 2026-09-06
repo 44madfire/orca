@@ -9,12 +9,15 @@ const PAGE_METHODS = new Map(
     'files.readDir',
     'files.readChunk',
     'mobileWeb.files.searchPaths',
-    'mobileWeb.files.read'
+    'mobileWeb.files.read',
+    'mobileWeb.nativeChat.bind',
+    'mobileWeb.nativeChat.read'
   ].map((method) => [
     method,
     {
       method,
       workspaceParam: 'worktree',
+      ...(method.startsWith('mobileWeb.nativeChat.') ? { pageSessionParam: 'pageSession' } : {}),
       maxRequestBytes: 16 * 1024,
       maxResponseBytes: 512 * 1024
     }

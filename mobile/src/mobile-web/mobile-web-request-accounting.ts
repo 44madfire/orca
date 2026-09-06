@@ -126,3 +126,13 @@ export function mobileWebRequestAtCapacity(args: {
       args.maxConcurrent
   )
 }
+
+export function mobileWebIsHostRequest(request: {
+  capability: string
+  operation: string
+}): boolean {
+  return (
+    request.capability === 'workspace' &&
+    ['hostRequest', 'hostCatalog', 'hostSubscribe'].includes(request.operation)
+  )
+}
