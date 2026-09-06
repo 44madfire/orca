@@ -1,4 +1,5 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
+import { defaultAgentChatLabel } from '../../shared/agent-session-chat-label'
 import { OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript } from './orca-runtime-resolve-recovered-structured-tui-transcript'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import { collectSavedStructuredAgentSessionIds } from './saved-structured-agent-session-restoration'
@@ -105,7 +106,7 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
     const tab: RuntimeMobileSessionAgentTab = {
       type: 'agent-session',
       id,
-      title: input.agent === 'claude' ? 'Claude Chat' : 'Codex Chat',
+      title: defaultAgentChatLabel(input.agent),
       sessionId: input.sessionId,
       agent: input.agent,
       isActive: input.activate

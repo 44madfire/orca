@@ -3,6 +3,7 @@ import type {
   RuntimeMobileSessionAgentTab
 } from '../../../../shared/runtime-types'
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../../shared/terminal-tab-types'
+import { defaultAgentChatLabel } from '../../../../shared/agent-session-chat-label'
 import { sanitizeTerminalLayoutPaneTitlesForLabels } from '@/lib/terminal-pane-title-sanitization'
 import { resolveTerminalLayoutRoot } from '../remote-terminal-layout-resolution'
 import { getRemoteRuntimePtyEnvironmentId } from '../runtime-terminal-stream'
@@ -73,8 +74,10 @@ export function buildMirroredAgentTabs(
         worktreeId: snapshot.worktree,
         contentType: 'agent-session',
         agentSessionAgent: tab.agent,
-        label: tab.title.trim() || 'Codex Chat',
-        customLabel: null,
+        label: tab.title.trim() || defaultAgentChatLabel(tab.agent),
+        // Why: a manual rename lives only on the client; re-nulling it here made
+        // every host snapshot silently discard the user's title.
+        customLabel: existing?.customLabel ?? null,
         color: tab.color !== undefined ? tab.color : (existing?.color ?? null),
         sortOrder: sortOffset + index,
         createdAt: existing?.createdAt ?? now + sortOffset + index,

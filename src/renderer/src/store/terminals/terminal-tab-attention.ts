@@ -87,9 +87,12 @@ export function createTerminalTabAttentionActions(
         scheduleRuntimeGraphSync()
         return { tabsByWorktree: next }
       })
-      const item = Object.values(get().unifiedTabsByWorktree)
-        .flat()
-        .find((entry) => entry.contentType === 'terminal' && entry.entityId === tabId)
+      const unified = Object.values(get().unifiedTabsByWorktree).flat()
+      // Why: a structured chat tab has no TerminalTab record, and its rename
+      // arrives keyed by the unified tab id rather than a terminal entityId.
+      const item =
+        unified.find((entry) => entry.contentType === 'terminal' && entry.entityId === tabId) ??
+        unified.find((entry) => entry.contentType === 'agent-session' && entry.id === tabId)
       if (item) {
         get().setTabCustomLabel(item.id, title, opts)
       }
