@@ -1,4 +1,8 @@
 import {
+  MobileWebPagePreferencesPayloadSchema,
+  MobileWebPagePreferencesResultSchema
+} from '../../../src/shared/mobile-web/page-preferences-contract'
+import {
   MobileWebClipboardAvailabilityPayloadSchema,
   MobileWebClipboardAvailabilityResultSchema,
   MobileWebClipboardWritePayloadSchema,
@@ -30,6 +34,13 @@ export async function executeMobileWebNativeCapabilityOperation(args: {
   browserAuthority?: MobileWebBrowserAuthority
   workspaceAuthority?: MobileWebWorkspaceAuthority
 }): Promise<unknown> {
+  if (args.operation === 'pagePreferences') {
+    const payload = MobileWebPagePreferencesPayloadSchema.parse(args.payload)
+    if (!args.authority.pagePreferences) {
+      throw new MobileWebBrokerError('unsupported_capability')
+    }
+    return MobileWebPagePreferencesResultSchema.parse(await args.authority.pagePreferences(payload))
+  }
   if (args.operation === 'alert') {
     const payload = MobileWebNativeAlertPayloadSchema.parse(args.payload)
     if (!args.authority.alert) {

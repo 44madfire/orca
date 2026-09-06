@@ -1,3 +1,8 @@
+import { runMobileWebPagePreferences } from './mobile-web-page-preferences-store'
+import type {
+  MobileWebPagePreferencesPayload,
+  MobileWebPagePreferencesResult
+} from '../../../src/shared/mobile-web/page-preferences-contract'
 import * as Clipboard from 'expo-clipboard'
 import * as ExpoCrypto from 'expo-crypto'
 import { Linking, Platform } from 'react-native'
@@ -57,6 +62,9 @@ type MobileWebNativeDraftScope = {
 }
 
 export type MobileWebNativeCapabilityAuthority = {
+  pagePreferences?: (
+    payload: MobileWebPagePreferencesPayload
+  ) => Promise<MobileWebPagePreferencesResult>
   alert?: (payload: MobileWebNativeAlertPayload) => Promise<MobileWebNativeAlertResult>
   hapticFeedback: (kind: MobileWebHapticKind) => void
   clipboardAvailability: () => Promise<MobileWebClipboardAvailability>
@@ -105,6 +113,7 @@ export function createMobileWebNativeCapabilityAuthority(
 ): MobileWebNativeCapabilityAuthority {
   return {
     alert,
+    pagePreferences: (payload) => runMobileWebPagePreferences(draftScope.hostIdentity, payload),
     hapticFeedback(kind) {
       if (kind === 'selection') {
         triggerSelection()

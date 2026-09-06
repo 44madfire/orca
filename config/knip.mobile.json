@@ -6,7 +6,7 @@
     "host-web-app/**/*.{js,jsx,ts,tsx}",
     "src/**/*.test.{ts,tsx}",
     "src/**/*.{ios,android,native,web}.{js,jsx,ts,tsx}",
-    "src/mobile-web/disabled-page-async-storage.ts",
+    "src/mobile-web/hosted-page-async-storage.ts",
     "src/mobile-web/disabled-page-client-context.tsx",
     "src/mobile-web/disabled-page-host-store.ts",
     "packages/*/src/index.ts",

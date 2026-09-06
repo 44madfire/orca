@@ -11,6 +11,7 @@ const EXPECTED_PERSISTED_STATE_SOURCES = [
   'mobile/src/cache/home-snapshot-cache.ts',
   'mobile/src/home/use-mobile-home-data.ts',
   'mobile/src/mobile-web/mobile-web-cold-resume-route.ts',
+  'mobile/src/mobile-web/mobile-web-page-preferences-store.ts',
   'mobile/src/notifications/notification-reconnect-catchup.ts',
   'mobile/src/session/session-last-visited-worktree.ts',
   'mobile/src/storage/codex-reset-attempt-journal.ts',

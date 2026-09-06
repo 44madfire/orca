@@ -236,6 +236,7 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     clipboardAvailability: 'read',
     clipboardWrite: 'mutation',
     openExternal: 'mutation',
+    pagePreferences: 'mutation',
     terminalPreferences: 'read',
     terminalAccessoryPreferences: 'read',
     terminalCustomKeysUpdate: 'mutation',

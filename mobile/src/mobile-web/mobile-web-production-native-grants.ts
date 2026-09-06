@@ -8,6 +8,7 @@ export const MOBILE_WEB_PRODUCTION_NATIVE_GRANTS = capabilityGrants('native', {
   hapticFeedback: grantLimits(256, 256, 1, 16, 8),
   clipboardWrite: grantLimits(MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES, 256, 1, 4, 1),
   openExternal: grantLimits(8 * 1024, 256, 1, 6, 2),
+  pagePreferences: grantLimits(256 * 1024, 512 * 1024, 4, 24, 12),
   terminalPreferences: grantLimits(256, 1 * 1024, 1, 8, 2),
   terminalAccessoryPreferences: grantLimits(256, 32 * 1024, 1, 8, 2),
   terminalCustomKeysUpdate: grantLimits(32 * 1024, 256, 1, 8, 2),

@@ -1,4 +1,9 @@
 import {
+  MobileWebPagePreferencesPayloadSchema,
+  MobileWebPagePreferencesResultSchema,
+  type MobileWebPagePreferencesPayload
+} from '../../shared/mobile-web/page-preferences-contract'
+import {
   MobileWebClipboardAvailabilityPayloadSchema,
   MobileWebClipboardAvailabilityResultSchema,
   MobileWebClipboardWritePayloadSchema,
@@ -41,6 +46,16 @@ const MOBILE_WEB_NATIVE_ALERT_REQUEST_TIMEOUT_MS = 2_147_483_647
 
 export class MobileWebNativeRequestClient {
   constructor(private readonly requests: MobileWebOneShotRequestClient) {}
+
+  pagePreferences(payload: MobileWebPagePreferencesPayload) {
+    return this.requests.request(
+      'native',
+      'pagePreferences',
+      payload,
+      MobileWebPagePreferencesPayloadSchema,
+      MobileWebPagePreferencesResultSchema
+    )
+  }
 
   alert(payload: MobileWebNativeAlertPayload): Promise<MobileWebNativeAlertResult> {
     return this.requests.request(

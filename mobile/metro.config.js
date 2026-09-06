@@ -4,11 +4,11 @@ const { getDefaultConfig } = require('expo/metro-config')
 const projectRoot = __dirname
 const sharedRoot = path.resolve(projectRoot, '..', 'src', 'shared')
 const mobileWebRoot = path.resolve(projectRoot, '..', 'src', 'mobile-web')
-const disabledPageStorage = path.resolve(
+const hostedPageStorage = path.resolve(
   projectRoot,
   'src',
   'mobile-web',
-  'disabled-page-async-storage.ts'
+  'hosted-page-async-storage.ts'
 )
 const disabledPageClientContext = path.resolve(
   projectRoot,
@@ -41,7 +41,7 @@ if (process.env.ORCA_EXPO_ROUTER_ROOT === 'host-web-app') {
       return context.resolveRequest(context, moduleName, platform)
     }
     if (moduleName === '@react-native-async-storage/async-storage') {
-      return { filePath: disabledPageStorage, type: 'sourceFile' }
+      return { filePath: hostedPageStorage, type: 'sourceFile' }
     }
     const resolution = context.resolveRequest(context, moduleName, platform)
     const aliases = new Map([

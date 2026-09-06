@@ -1,3 +1,4 @@
+import { setMobileWebPagePreferencesClient } from './mobile-web-page-preferences-channel'
 import {
   createContext,
   createElement,
@@ -140,6 +141,7 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
           shellFeatures: init.shellFeatures,
           postMessage: postPageMessage
         })
+        setMobileWebPagePreferencesClient(client)
         setState({
           client,
           context,
@@ -229,6 +231,7 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
       unsubscribe()
       window.removeEventListener('orca-mobile-web-route-failure', onRouteFailure)
       client?.dispose()
+      setMobileWebPagePreferencesClient(null)
       cancelAnimationFrame(healthFrame)
       cancelAnimationFrame(interactiveFrame)
     }

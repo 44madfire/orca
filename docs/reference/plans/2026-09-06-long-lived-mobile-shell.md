@@ -16,6 +16,8 @@ pages; no protocol or manifest bump is planned.
 
 ## Current checkpoint
 
+Last reconciled: September 6, 2026. Implementation is **in progress**.
+
 - [x] Investigate shell/host/page coupling and re-derive host-method census.
 - [x] Pin bridge protocol 2 and installed/cached package admission: `11646f11e0f`.
 - [x] First complete generic unary slice: `9910fccc298`.
@@ -24,7 +26,17 @@ pages; no protocol or manifest bump is planned.
 - [x] Directory and binary chunk reads use generic forwarding: `a8bbed52da4`.
 - [x] File lists/search/text use Desktop privacy adapters: `31024ff0316`.
 - [ ] Complete the generic bridge and migrate remaining domain consumers.
-- [ ] Complete iOS end-to-end evidence and Android final smoke check.
+- [x] Generic subscriptions and source-control watch: `a0eee2fc21a`.
+- [x] Host-owned resources and native-chat reads: `e14164f974f`.
+- [x] Native-chat generic feed: `041e40265b6`.
+- [x] Bounded host-scoped page preferences and hosted AsyncStorage adapter.
+- [x] Full unattended existing adversarial harness on iOS and Android.
+- [ ] Chat-specific interactions, migrated settings and frozen-shell OTA/rollback E2E.
+
+Next: migrate remaining domain operations and mutation fingerprint handling;
+wire hosted settings with their consumers and page-owned route restoration;
+finish bundle/CSP work and verify two-page replacement/rollback on a frozen shell.
+The platform passes cover the existing harness, not these outstanding journeys.
 
 Prior investigation and exact gate tails are currently preserved in
 `/tmp/orca-review2/codex-ota-investigation.md` and
@@ -37,7 +49,7 @@ source; it must not depend on those temporary files to explain remaining work.
       iOS: iPhone 17 Pro, iOS 26.5, `DC47C924-6602-497C-BE01-4C80EB391E20`.
       Android AVDs: `OrcaAttachApi36`, `Pixel_9_Pro_API_36`; initially stopped.
 - [x] Run the focused iOS hosted-WebView Files/Preview journey against this
-      worktree's built Desktop/page and shell. Full combined journey remains open.
+      worktree's built Desktop/page and shell. Full adversarial journey also passed.
 - [x] Keep tests and launched apps under `ORCA_BACKGROUND_LAUNCH=1`; use hidden
       Desktop renderers and emulator automation without activating desktop windows.
 - [ ] Preserve an installed shell/page baseline for mixed-version journeys.
@@ -51,7 +63,9 @@ source; it must not depend on those temporary files to explain remaining work.
 - [ ] Preserve intent fingerprints across opaque ID translation. Validate page
       intent before mapping, recompute host fingerprints afterward, and preserve
       clientOperationId, expectedRuntimeFence and retryUnknown.
-- [ ] Migrate native-chat reads and host actions, separating image/clipboard/
+- [x] Migrate native-chat reads through host-owned opaque resources, preserving
+      future host fields and SSH execution routing.
+- [ ] Migrate native-chat host actions, separating image/clipboard/
       pending-storage device actions from domain presentation.
 - [ ] Migrate session reads and mutations, terminal one-shots and files.
 - [ ] Extend remaining source-control, task, review and account consumers.
@@ -70,11 +84,13 @@ folder and SSH workspaces still use their actual execution owner.
 
 - [x] Remove the transport's static method-to-unsubscribe dependency for generic
       streams using host-advertised cleanup or a generic host subscription token.
-- [ ] Preserve direct/relay setup, ready, unsubscribe and reconnect behavior.
+- [x] Preserve direct/relay setup, ready, unsubscribe and reconnect behavior
+      for generic subscriptions; covered by transport lifecycle tests.
 - [x] Reuse the existing subscription ledger with bounded pending event bytes
       and event count; enforce aggregate subscription ceilings.
 - [x] Forward domain event shapes without APK-owned projections (source-control file watch and native-chat transcript feed).
-- [ ] Migrate native-chat/session/source-control/account feeds.
+- [x] Migrate native-chat transcript and source-control file-watch feeds.
+- [ ] Migrate remaining session/source-control/account feeds.
 - [ ] Preserve terminal binary capability negotiation, acknowledgements,
       backpressure and resync; never silently substitute JSON stream semantics.
 
@@ -84,9 +100,10 @@ work and report a terminal closure to the surviving page.
 
 ## 4. Page-owned persistence and routing
 
-- [ ] Add bounded JSON preferences scoped by paired host and namespace; survive
-      page build changes and rollback. Keep credential storage inaccessible.
-- [ ] Replace hosted AsyncStorage's no-op behavior for page preferences through
+- [x] Add bounded JSON preferences scoped by paired host and namespace;
+      storage identity excludes page build. Keep credential storage inaccessible.
+- [ ] Verify preferences across real two-page OTA replacement and rollback.
+- [x] Replace hosted AsyncStorage's no-op behavior for page preferences through
       an explicit adapter; do not expose arbitrary native storage keys.
 - [ ] Add bounded page-owned resume state and navigation intents, with legacy
       fallback and current host/document fences.
@@ -132,8 +149,12 @@ components. Reuse presentation; split native dependencies through adapters.
 Use iOS for the main loop; run Android as the final platform smoke check. The
 existing simulator harnesses are the starting point, not duplicate test apps.
 
-- [ ] iOS: pairing/package activation, workspace/session/chat/terminal/files/
-      source-control interactions and migrated settings routes.
+- [x] iOS: unattended pairing/activation, workspace privacy, Tasks, Source
+      Control, real terminal-link taps, Review/diff and file-preview isolation.
+      Evidence: `ios-chat-stream.log` (details in progress log).
+- [x] Android: same unattended adversarial journey plus bridge/privacy/exit-info
+      audits. Evidence: `android-chat-stream.log` (details in progress log).
+- [ ] iOS: native-chat interactions and migrated settings routes.
 - [ ] iOS: reconnect, host switching, page restart, cached-page rollback and
       preference persistence across two desktop-served page builds on one shell.
 - [ ] Compatibility: old shell/new page, new shell/old page and cached page/new
@@ -174,8 +195,8 @@ with `pnpm exec oxfmt --write`.
 - Initial checkpoint: two commits above pass all required gates; mobile 831
   files / 5,493 tests, root 315 files / 2,686 tests. No platform journey was
   claimed. Remaining phases are open.
-- Current work: establish emulator baseline and complete generic identity and
-  transport primitives before migrating additional page consumers.
+- Initial next step was the emulator baseline and generic identity/transport;
+  completed progress and remaining work are reconciled in the checklist above.
 
 - iOS baseline first build failed because Pods referenced a stale pnpm React Native
   package directory. Regenerated with `pod install`; native build retry running.
@@ -347,3 +368,35 @@ Logs: `/tmp/orca-ota-e2e/native-chat-stream-gates/`.
 Page build: `81e5d5f47e703f4047e8544d5f3812459adf71ed45ec0951a840129797b6e266`.
 Next: rerun iOS with the updated fixture, then continue mutations, session/domain
 migration and page-owned preferences/routes. No complete platform run claimed yet.
+
+### Full iOS adversarial journey passed
+
+`041e40265b6` commits the chat feed. The unattended run
+`/tmp/orca-ota-e2e/ios-chat-stream.log` exited 0 with `ok: true`, using page
+`81e5d5f47e703f4047e8544d5f3812459adf71ed45ec0951a840129797b6e266`.
+It passes pairing/activation, Alert, workspace privacy, Tasks, both Source Control
+entry points, real native terminal-link taps, Review/diff text, Markdown/HTML/SVG/
+image preview checks, and network/navigation/executable isolation. This is a
+complete pass of that harness, not coverage of native-chat-specific interactions,
+OTA replacement/rollback, remaining settings or physical-device behavior.
+
+### Host-scoped page preferences and Android pass
+
+Both unattended adversarial platform runs pass with page `81e5d5f47e703f4047e8544d5f3812459adf71ed45ec0951a840129797b6e266`:
+`/tmp/orca-ota-e2e/ios-chat-stream.log` and `/tmp/orca-ota-e2e/android-chat-stream.log`.
+Android includes bridge/privacy/exit-info audits. The temporary Android emulator
+was stopped afterward. These runs do not cover chat interactions, settings,
+frozen-shell OTA swaps/rollback, or physical devices.
+
+Added strict native `pagePreferences` with paired-host scope captured in native
+authority, namespace isolation, ordered bounded writes, 64 KiB value and 2 MiB
+host limits. Hosted AsyncStorage now uses this grant; inaccessible/corrupt storage
+fails explicitly. Credentials remain inaccessible. Preferences survive page build
+changes and rollback. Removed the obsolete inert adapter. Settings routes and
+legacy native preference migration remain open.
+
+All 11 required gates pass in `/tmp/orca-ota-e2e/page-preferences-gates/`:
+838 mobile files / 5,533 passed (before removal of one obsolete inert test),
+321 root files / 2,710 passed. Cleanup focused checks: 2 files / 4 passed.
+Dispatch census 229 → 230; persisted-state inventory updated deliberately.
+Page export: `1b3542d5b0c6f01d99f4775a4f741f2c3e136397a6cb59f2f1f08368557eab26`.

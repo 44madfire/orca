@@ -57,6 +57,7 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'native.hapticFeedback',
   'native.hapticSelection',
   'native.openExternal',
+  'native.pagePreferences',
   'native.sessionChatDraftWrite',
   'native.terminalCustomKeysUpdate',
   'native.terminalTextScaleUpdate',
