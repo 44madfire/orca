@@ -20,10 +20,7 @@ import {
   browserUnavailableMessage
 } from '../../shared/runtime-types'
 import { runtimeTerminalDegradation } from './native-terminal-availability'
-import {
-  isWindowsProcessStartTimeAvailable,
-  probeWindowsProcessStartTimeAvailability
-} from '../windows/windows-process-table'
+import { isWindowsProcessStartTimeAvailable } from '../windows/windows-process-table'
 import type { RuntimeWorktreeLifecycleEvent } from './orca-runtime-core'
 import { WORKTREE_CREATE_RESULT_TTL_MS } from './orca-runtime-core'
 import type { RuntimePtyController } from './runtime-pty-controller-contract'
@@ -125,13 +122,6 @@ export class OrcaRuntimeWithGetStatus extends OrcaRuntimeWithGetRuntimeId {
       protocolVersion: RUNTIME_PROTOCOL_VERSION,
       minCompatibleMobileVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION
     }
-  }
-
-  async getStatusAfterWindowsProcessStartTimeProbe(): Promise<RuntimeStatus> {
-    if (process.platform === 'win32') {
-      await probeWindowsProcessStartTimeAvailability()
-    }
-    return this.getStatus()
   }
 
   setPtyController(controller: RuntimePtyController | null): void {

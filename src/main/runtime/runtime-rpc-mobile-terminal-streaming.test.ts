@@ -407,7 +407,6 @@ describe('OrcaRuntimeRpcServer', () => {
       getRuntimeId: () => 'proxy-runtime-test',
       getStartedAt: () => 1,
       getStatus: () => ({ graphStatus: 'unavailable' }),
-      getStatusAfterWindowsProcessStartTimeProbe: async () => ({ graphStatus: 'unavailable' }),
       cleanupSubscriptionsForConnection: () => {},
       cancelMobileDictationForConnection: () => {},
       onClientDisconnected: () => {}

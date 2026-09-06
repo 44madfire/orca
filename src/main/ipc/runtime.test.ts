@@ -110,7 +110,7 @@ describe('registerRuntimeHandlers', () => {
   it('routes generic local runtime RPC calls through the dispatcher', async () => {
     const runtime = {
       syncWindowGraph: vi.fn(),
-      getStatusAfterWindowsProcessStartTimeProbe: vi.fn().mockResolvedValue({
+      getStatus: vi.fn().mockReturnValue({
         runtimeId: 'runtime-1',
         rendererGraphEpoch: 0,
         graphStatus: 'ready',

@@ -4,6 +4,7 @@ import { isWindowsProcessStartTimeAvailable } from '../windows/windows-process-t
 
 export function supportsCodexStructuredLocation(
   location: AgentSessionExecutionLocation,
+  // Injected by the adapter, which owns this dep for every other Codex gate too.
   hasWindowsProcessStartTimeProof: () => boolean = isWindowsProcessStartTimeAvailable
 ): boolean {
   return (

@@ -93,7 +93,9 @@ describe('windows-process-tree command line patch', () => {
       expect(source).not.toMatch(/OpenProcess\([^)]*PROCESS_VM_READ/)
       expect(source).not.toMatch(/ReadProcessMemory\(/)
     }
-    // Creation time, memory, and CPU counters use limited-information handles only.
+    // Memory and CPU counters kept VM_READ and never read an address space.
+    // Three sites now: those two plus GetProcessCreationTime, which needs the
+    // same limited handle for GetProcessTimes.
     expect(processSource.match(/OpenProcess\(PROCESS_QUERY_LIMITED_INFORMATION/g)).toHaveLength(3)
   })
 

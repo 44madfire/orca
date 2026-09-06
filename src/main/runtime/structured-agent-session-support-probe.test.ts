@@ -6,13 +6,13 @@ import {
 } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import { agentSessionPtyWriteGate } from './agent-session-pty-write-gate'
 
-const { probeWindowsProcessStartTimeAvailability } = vi.hoisted(() => ({
-  probeWindowsProcessStartTimeAvailability: vi.fn(async () => true)
+const { isWindowsProcessStartTimeAvailable } = vi.hoisted(() => ({
+  isWindowsProcessStartTimeAvailable: vi.fn(() => true)
 }))
 
 vi.mock('../windows/windows-process-table', async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  probeWindowsProcessStartTimeAvailability
+  isWindowsProcessStartTimeAvailable
 }))
 
 const originalPlatform = process.platform
@@ -110,8 +110,8 @@ async function expectSupportWithoutInstall(input: {
 describe('structured agent-session create-support probe', () => {
   afterEach(() => {
     setPlatform(originalPlatform)
-    probeWindowsProcessStartTimeAvailability.mockReset()
-    probeWindowsProcessStartTimeAvailability.mockResolvedValue(true)
+    isWindowsProcessStartTimeAvailable.mockReset()
+    isWindowsProcessStartTimeAvailable.mockReturnValue(true)
     setStructuredAgentSessionHost(null)
     agentSessionPtyWriteGate.detachRecordLookup()
     vi.restoreAllMocks()
@@ -135,10 +135,10 @@ describe('structured agent-session create-support probe', () => {
     ['claude', true, { supported: true }],
     ['claude', false, { supported: false, reason: 'agent' }]
   ] as const)(
-    'awaits native Windows process identity proof before answering %s support (%s)',
+    'requires native Windows process identity proof before answering %s support (%s)',
     async (agent, proofAvailable, expected) => {
       setPlatform('win32')
-      probeWindowsProcessStartTimeAvailability.mockResolvedValue(proofAvailable)
+      isWindowsProcessStartTimeAvailable.mockReturnValue(proofAvailable)
 
       await expectSupportWithoutInstall({
         agent,
@@ -146,7 +146,7 @@ describe('structured agent-session create-support probe', () => {
         expected
       })
 
-      expect(probeWindowsProcessStartTimeAvailability).toHaveBeenCalledOnce()
+      expect(isWindowsProcessStartTimeAvailable).toHaveBeenCalled()
     }
   )
 
@@ -209,29 +209,5 @@ describe('structured agent-session create-support probe', () => {
       (getStructuredAgentSessionHost() as unknown as { reconcileRestartLeases: () => void })
         .reconcileRestartLeases
     ).toHaveBeenCalledTimes(1)
-  })
-
-  it('awaits Windows process identity proof before startup restoration opens the host', async () => {
-    setPlatform('win32')
-    const runtime = createRuntime({ executionHostId: 'local', wslDistro: null })
-    const { ensure } = stubStructuredHostInstall(runtime)
-    const internal = runtime as unknown as {
-      hasPersistedStructuredAgentSessionStore: () => boolean
-      refreshMobileSessionPtyRecords: () => Promise<void>
-    }
-    internal.hasPersistedStructuredAgentSessionStore = () => true
-    internal.refreshMobileSessionPtyRecords = vi.fn(async () => {})
-    const proof = Promise.withResolvers<boolean>()
-    probeWindowsProcessStartTimeAvailability.mockImplementationOnce(async () => proof.promise)
-
-    const restoring = runtime.prepareStructuredAgentSessionStartupRestoration()
-    await Promise.resolve()
-
-    expect(ensure).not.toHaveBeenCalled()
-
-    proof.resolve(true)
-    await restoring
-
-    expect(ensure).toHaveBeenCalledOnce()
   })
 })
