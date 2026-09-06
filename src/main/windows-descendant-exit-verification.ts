@@ -69,11 +69,23 @@ export async function captureWindowsDescendantSnapshot(
   // One table read, not a walk plus an identity read: each is bounded in
   // seconds, and this runs inside the close ladder's budget.
   const table = await (deps.readTable ?? readWindowsProcessTableFresh)().catch(() => null)
-  const descendants = table && windowsDescendantsFromRows(table, rootPid)
   const root = table?.find((row) => row.pid === rootPid)
-  if (!descendants || typeof root?.creationTimeMs !== 'number') {
+  if (!table || typeof root?.creationTimeMs !== 'number') {
     return null
   }
+  const rootCreationTimeMs = root.creationTimeMs
+  const creationTimes = new Map(table.map((row) => [row.pid, row.creationTimeMs]))
+  // Windows retains the original parent PID after exit; a reused PID is not ancestry.
+  const currentRows = table.filter((row) => {
+    const parentCreationTimeMs = creationTimes.get(row.ppid)
+    return (
+      row.pid === rootPid ||
+      row.creationTimeMs === undefined ||
+      (row.creationTimeMs >= rootCreationTimeMs &&
+        (parentCreationTimeMs === undefined || row.creationTimeMs >= parentCreationTimeMs))
+    )
+  })
+  const descendants = windowsDescendantsFromRows(currentRows, rootPid)!
   return {
     root: { pid: root.pid, creationTimeMs: root.creationTimeMs },
     descendants: descendants.flatMap((row) =>

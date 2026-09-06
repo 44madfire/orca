@@ -19,6 +19,40 @@ function snapshot(
 }
 
 describe('captureWindowsDescendantSnapshot', () => {
+  it('does not claim an older process whose former parent PID was reused by the root', async () => {
+    const olderProcess = { pid: 50244, ppid: 36084, creationTimeMs: 1788659167395 }
+    const captured = await captureWindowsDescendantSnapshot(36084, {
+      readTable: async () => [
+        { pid: 36084, ppid: 60976, creationTimeMs: 1788733587893 },
+        olderProcess
+      ]
+    })
+
+    expect(captured?.descendants).toEqual([])
+    await expect(
+      verifyWindowsDescendantSnapshotExit(captured!, { readTable: async () => [olderProcess] })
+    ).resolves.toBe('exited')
+  })
+
+  it('prunes a stale parent link and its subtree at any depth', async () => {
+    const captured = await captureWindowsDescendantSnapshot(100, {
+      readTable: async () => [
+        { pid: 100, ppid: 1, creationTimeMs: 5 },
+        { pid: 200, ppid: 100, creationTimeMs: 10 },
+        { pid: 300, ppid: 200, creationTimeMs: 7 },
+        { pid: 400, ppid: 300, creationTimeMs: 12 },
+        { pid: 500, ppid: 100, creationTimeMs: 4 },
+        { pid: 600, ppid: 500, creationTimeMs: 13 },
+        { pid: 700, ppid: 200, creationTimeMs: 10 }
+      ]
+    })
+
+    expect(captured?.descendants).toEqual([
+      { pid: 700, creationTimeMs: 10 },
+      { pid: 200, creationTimeMs: 10 }
+    ])
+  })
+
   it('walks the whole subtree and keeps only rows a later read can re-identify', async () => {
     const captured = await captureWindowsDescendantSnapshot(100, {
       // 400 is a grandchild; 300 denied a creation-time query, so no later read
