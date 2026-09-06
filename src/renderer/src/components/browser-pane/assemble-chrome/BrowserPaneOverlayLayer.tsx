@@ -34,7 +34,6 @@ type BrowserOverlaySlotProps = {
   chromeShortcutScope: BrowserChromeShortcutScope
   // Why: overlay is a sibling of the group layout, so pane focus doesn't bubble to TabGroupPanel; re-sync it here or split-view clicks leave activeGroupIdByWorktree stale.
   onFocusOwningGroup: ((groupId: string) => void) | undefined
-  isWorktreeActive: boolean
 }
 
 // Why: memoize each slot so unrelated worktree mutations don't cascade a re-render into every BrowserPane subtree.
@@ -43,8 +42,7 @@ const BrowserOverlaySlot = memo(function BrowserOverlaySlot({
   groupId,
   isActive,
   chromeShortcutScope,
-  onFocusOwningGroup,
-  isWorktreeActive
+  onFocusOwningGroup
 }: BrowserOverlaySlotProps): React.JSX.Element {
   // Why: persistent page viewports (webview guests) live under this root so they survive BrowserPane chrome unmounts without reparenting.
   const setSlotViewportRef = useCallback(
@@ -60,8 +58,8 @@ const BrowserOverlaySlot = memo(function BrowserOverlaySlot({
       : [browserTab.activePageId ?? browserTab.id]
   const needsGuestPaint = useBrowserGuestPaintRetention(browserPageIds)
   const isPaintable = isActive || needsGuestPaint
-  // Why: hidden worktrees keep lightweight overlay slots, but park their webviews unless a remote controller or viewer needs the guest.
-  const shouldMountPane = isWorktreeActive || needsGuestPaint
+  // Why: restoring a workspace must not create guests for every inactive tab.
+  const shouldMountPane = isActive || needsGuestPaint
   // Why: CSS anchor positioning pins the overlay to its owning group's body — a tab move only swaps positionAnchor, no measurement/state.
   // Orphan branch (no anchorName) stays display:none until the tab is reassigned or destroyed.
   const style: React.CSSProperties = useMemo(
@@ -104,7 +102,7 @@ const BrowserOverlaySlot = memo(function BrowserOverlaySlot({
       onFocusCapture={handleFocus}
     >
       <div ref={setSlotViewportRef} className="absolute inset-0 flex min-h-0 flex-col" />
-      {/* Why: hidden worktrees park the heavy pane subtree; visible ones keep stable slots so reparenting can't destroy the webview guest. */}
+      {/* Persistent viewport slots keep live guests intact when inactive chrome unmounts. */}
       {shouldMountPane ? (
         <BrowserPane
           browserTab={browserTab}
@@ -192,7 +190,6 @@ const BrowserPaneOverlayLayer = memo(function BrowserPaneOverlayLayer({
             isActive={isActive}
             chromeShortcutScope={chromeShortcutScope}
             onFocusOwningGroup={focusOwningGroup}
-            isWorktreeActive={isWorktreeActive}
           />
         )
       })}

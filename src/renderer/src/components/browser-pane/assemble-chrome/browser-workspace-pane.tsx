@@ -55,13 +55,26 @@ export default function BrowserPane({
   const automationVisiblePageIds = useBrowserAutomationVisiblePageIds(browserPageIds)
   const mobileDrivenPageIds = useBrowserMobileDrivenPageIds(browserPageIds)
   const remotelyViewedPageIds = useBrowserRemotelyViewedPageIds(browserPageIds)
-  // Why: inactive webviews must stay mounted in their original DOM parent; unmounting/reparenting loses form text and SPA state.
+  // Why: dormant pages load on demand; live guests survive chrome unmounts in persistent viewports.
   const renderedBrowserPages = useMemo(
     () =>
       browserPages.filter(
-        (page) => !getBrowserPageRuntimeEnvironmentId(page, activeRuntimeEnvironmentId)
+        (page) =>
+          !getBrowserPageRuntimeEnvironmentId(page, activeRuntimeEnvironmentId) &&
+          ((isActive && page.id === activeBrowserPageId) ||
+            automationVisiblePageIds.has(page.id) ||
+            mobileDrivenPageIds.has(page.id) ||
+            remotelyViewedPageIds.has(page.id))
       ),
-    [browserPages, activeRuntimeEnvironmentId]
+    [
+      browserPages,
+      activeRuntimeEnvironmentId,
+      isActive,
+      activeBrowserPageId,
+      automationVisiblePageIds,
+      mobileDrivenPageIds,
+      remotelyViewedPageIds
+    ]
   )
   const renderedBrowserPageIds = useMemo(
     () => renderedBrowserPages.map((page) => page.id),
