@@ -45,19 +45,22 @@ vi.mock('./use-structured-agent-session-outbox', () => ({
   })
 }))
 
-import { resolveStructuredLaunchSeedOptions } from '../../../../shared/native-chat-session-option-defaults'
+import {
+  applyNativeChatSessionOptionSettingsMutation,
+  resolveStructuredLaunchSeedOptions
+} from '../../../../shared/native-chat-session-option-defaults'
 import type { PersistedNativeChatSessionOptions } from '../../../../shared/native-chat-session-options'
 import { useStructuredAgentSession } from './use-structured-agent-session'
 
-/** Replay every queued settings update in order, exactly as the real chain would. */
+/** Replay every host mutation in order, exactly as the runtime does. */
 function seededByNextLaunch(): Record<string, string> | undefined {
   let persisted: PersistedNativeChatSessionOptions | undefined
-  for (const [update] of mocks.enqueueSettingsWrite.mock.calls) {
-    persisted = (
-      update as (
-        base: PersistedNativeChatSessionOptions | undefined
-      ) => PersistedNativeChatSessionOptions
-    )(persisted)
+  for (const [, mutation] of mocks.enqueueSettingsWrite.mock.calls) {
+    persisted =
+      applyNativeChatSessionOptionSettingsMutation(
+        persisted,
+        mutation as Parameters<typeof applyNativeChatSessionOptionSettingsMutation>[1]
+      ) ?? persisted
   }
   return resolveStructuredLaunchSeedOptions(persisted, 'codex')
 }
@@ -384,6 +387,44 @@ describe('useStructuredAgentSession options', () => {
     })
 
     expect(seededByNextLaunch()).toEqual({ model: 'gpt-fast', effort: 'low' })
+    expect(mocks.enqueueSettingsWrite).toHaveBeenCalledWith(LOCAL_TARGET, {
+      type: 'apply-picks',
+      agent: 'codex',
+      picks: [
+        { modelId: 'gpt-fast', optionId: 'model', value: 'gpt-fast' },
+        { modelId: 'gpt-fast', optionId: 'effort', value: 'low' }
+      ]
+    })
+  })
+
+  it('writes through the session runtime target', async () => {
+    const remoteTarget = { kind: 'environment', environmentId: 'remote-1' } as const
+    mocks.call.mockImplementation((_target, method) =>
+      method === 'agentSession.options'
+        ? Promise.resolve(OPTIONS)
+        : Promise.resolve({
+            ok: true,
+            value: { key: 'effort', value: 'high', options: { effort: 'high' } }
+          })
+    )
+    const { result } = renderHook(() =>
+      useStructuredAgentSession({
+        sessionId: 'session-1',
+        target: remoteTarget,
+        agent: 'codex',
+        isVisible: true
+      })
+    )
+    await waitFor(() => expect(result.current.optionSnapshot).toHaveLength(2))
+
+    await act(async () => {
+      expect(await result.current.setStructuredOption('effort', 'high')).toBe(true)
+    })
+
+    expect(mocks.enqueueSettingsWrite).toHaveBeenCalledWith(
+      remoteTarget,
+      expect.objectContaining({ type: 'apply-picks', agent: 'codex' })
+    )
   })
 
   it('pins the model an effort-only pick was made against', async () => {

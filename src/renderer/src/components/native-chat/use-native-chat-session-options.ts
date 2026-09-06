@@ -4,10 +4,6 @@ import {
   getAgentSessionOptionCatalog,
   type CatalogModel
 } from '../../../../shared/agent-session-option-catalog'
-import {
-  clearNativeChatSessionOptionModel,
-  updateNativeChatSessionOptionDefaults
-} from '../../../../shared/native-chat-session-option-defaults'
 import type { SessionOptionDescriptor } from '../../../../shared/native-chat-session-options'
 import {
   createNativeChatPtySessionOptions,
@@ -29,6 +25,7 @@ import { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-
 const EMPTY_SNAPSHOT: SessionOptionDescriptor[] = []
 const subscribeEmpty = (): (() => void) => () => {}
 const getEmptySnapshot = (): SessionOptionDescriptor[] => EMPTY_SNAPSHOT
+const CLIENT_SETTINGS_TARGET = { kind: 'local' } as const
 
 /**
  * Why: the picker drops a retired model, but the persisted default is what launches
@@ -47,11 +44,10 @@ export async function retirePersistedModelMissingFromDiscovery(
   if (models.length === 0) {
     return
   }
-  await enqueueSessionOptionSettingsWrite((persisted) => {
-    const modelId = persisted?.[agent]?.model
-    return typeof modelId === 'string' && modelId && !models.some((model) => model.id === modelId)
-      ? clearNativeChatSessionOptionModel(persisted, agent)
-      : null
+  await enqueueSessionOptionSettingsWrite(CLIENT_SETTINGS_TARGET, {
+    type: 'clear-model-if-missing',
+    agent,
+    availableModelIds: models.map((model) => model.id)
   })
 }
 
@@ -105,16 +101,12 @@ export function useNativeChatSessionOptions(args: {
       dispatchCommand,
       onAgentPicker,
       persistSelection: ({ modelId, optionId, value, adoptModelAsLaunchDefault }) =>
-        enqueueSessionOptionSettingsWrite((persisted) =>
-          updateNativeChatSessionOptionDefaults({
-            persisted,
-            agent,
-            modelId,
-            optionId,
-            value,
-            adoptModelAsLaunchDefault
-          })
-        )
+        // Paired PTY launches still assemble their launch preferences from client settings.
+        enqueueSessionOptionSettingsWrite(CLIENT_SETTINGS_TARGET, {
+          type: 'apply-picks',
+          agent,
+          picks: [{ modelId, optionId, value, adoptModelAsLaunchDefault }]
+        })
     })
   }, [
     agent,

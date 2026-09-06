@@ -1,6 +1,7 @@
 import type { AgentType } from './agent-status-types'
 import { sessionOptionValueIsValid } from './agent-session-option-catalog'
 import type {
+  NativeChatSessionOptionSettingsMutation,
   PersistedNativeChatSessionOptions,
   SessionOptionValue
 } from './native-chat-session-options'
@@ -61,13 +62,33 @@ export function resolveStructuredLaunchSeedOptions(
 export function applyNativeChatSessionOptionPicks(args: {
   persisted: PersistedNativeChatSessionOptions | null | undefined
   agent: AgentType
-  picks: readonly { modelId: string; optionId: string; value: SessionOptionValue }[]
+  picks: Extract<NativeChatSessionOptionSettingsMutation, { type: 'apply-picks' }>['picks']
 }): PersistedNativeChatSessionOptions {
   let persisted = args.persisted ?? {}
   for (const pick of args.picks) {
     persisted = updateNativeChatSessionOptionDefaults({ persisted, agent: args.agent, ...pick })
   }
   return persisted
+}
+
+/** Applies one host-owned delta to the latest record. Returning null means the
+ * authoritative model list found nothing to retire. */
+export function applyNativeChatSessionOptionSettingsMutation(
+  persisted: PersistedNativeChatSessionOptions | null | undefined,
+  mutation: NativeChatSessionOptionSettingsMutation
+): PersistedNativeChatSessionOptions | null {
+  if (mutation.type === 'apply-picks') {
+    return applyNativeChatSessionOptionPicks({
+      persisted,
+      agent: mutation.agent,
+      picks: mutation.picks
+    })
+  }
+  const modelId = persisted?.[mutation.agent]?.model
+  if (!modelId || mutation.availableModelIds.includes(modelId)) {
+    return null
+  }
+  return clearNativeChatSessionOptionModel(persisted, mutation.agent)
 }
 
 /** Why: an authoritative probe proved this id gone, and a stale `model` is emitted
