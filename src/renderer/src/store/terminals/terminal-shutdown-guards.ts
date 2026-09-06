@@ -13,6 +13,7 @@ import {
   settleDeferredPtyShutdownExits
 } from '@/components/terminal-pane/pty-shutdown-exit-deferral'
 import type { TerminalStoreGet, TerminalStoreSet } from './terminal-state'
+import { copyOnWriteRecord } from '../copy-on-write-record'
 
 export type TerminalShutdownGuardController = {
   commitHandlerSnapshots: () => void
@@ -55,22 +56,15 @@ export function createTerminalShutdownGuardController({
     }
     set((state) => {
       const pendingPtyShutdownIds = { ...state.pendingPtyShutdownIds }
+      // Why copy-on-write: re-guarding an already-suppressed pty writes the same `true`.
+      const suppressedPtyExitIds = copyOnWriteRecord(state.suppressedPtyExitIds)
       for (const ptyId of exitGuardPtyIds) {
         pendingPtyShutdownIds[ptyId] = (pendingPtyShutdownIds[ptyId] ?? 0) + 1
+        if (state.suppressedPtyExitIds[ptyId] !== true) {
+          suppressedPtyExitIds.set(ptyId, true)
+        }
       }
-      // Why conditional: re-guarding an already-suppressed pty writes the same `true`.
-      const alreadySuppressed = exitGuardPtyIds.every(
-        (ptyId) => state.suppressedPtyExitIds[ptyId] === true
-      )
-      return {
-        suppressedPtyExitIds: alreadySuppressed
-          ? state.suppressedPtyExitIds
-          : {
-              ...state.suppressedPtyExitIds,
-              ...Object.fromEntries(exitGuardPtyIds.map((ptyId) => [ptyId, true] as const))
-            },
-        pendingPtyShutdownIds
-      }
+      return { suppressedPtyExitIds: suppressedPtyExitIds.read(), pendingPtyShutdownIds }
     })
   }
 
