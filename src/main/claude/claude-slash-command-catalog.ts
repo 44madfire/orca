@@ -1,7 +1,6 @@
 import type { AgentSessionSlashCommand } from '../../shared/agent-session-wire'
 
-// The CLI reports its whole `/` surface on `system/init` and republishes it on
-// `system/commands_changed`; both frames carry the same three arrays.
+// Init carries name arrays; reloads carry command descriptors instead.
 const MAX_COMMANDS = 512
 const MAX_NAME_LENGTH = 200
 
@@ -46,28 +45,49 @@ export function readClaudeSlashCommands(
 /** Per-session `/` catalog, seeded from the init frame that proved the session
  *  and refreshed by every later init or `commands_changed` frame. */
 export class ClaudeSlashCommandCatalog {
-  private entries: AgentSessionSlashCommand[]
+  private entries: AgentSessionSlashCommand[] | undefined
+  private hidden = new Set<string>()
+  private commandNames = new Set<string>()
 
   constructor(initMessage?: Record<string, unknown>) {
-    this.entries =
-      initMessage && carriesCommandCatalog(initMessage) ? readClaudeSlashCommands(initMessage) : []
+    if (initMessage) {
+      this.observe(initMessage)
+    }
   }
 
-  get commands(): AgentSessionSlashCommand[] {
+  get commands(): AgentSessionSlashCommand[] | undefined {
     return this.entries
   }
 
   /** True when this frame replaced the catalog with a different one. */
   observe(message: Record<string, unknown>): boolean {
-    if (!carriesCommandCatalog(message)) {
+    let next: AgentSessionSlashCommand[]
+    if (carriesCommandCatalog(message)) {
+      this.hidden = new Set(names(message.terminal_slash_commands))
+      next = readClaudeSlashCommands(message)
+      this.commandNames = new Set(
+        next.filter((entry) => entry.kind === 'command').map((entry) => entry.name)
+      )
+    } else if (
+      message.type === 'system' &&
+      message.subtype === 'commands_changed' &&
+      Array.isArray(message.commands)
+    ) {
+      const descriptors = message.commands.filter(
+        (entry): entry is Record<string, unknown> => entry !== null && typeof entry === 'object'
+      )
+      next = names(descriptors.map((entry) => entry.name))
+        .filter((name) => !this.hidden.has(name))
+        .map((name) => ({ name, kind: this.commandNames.has(name) ? 'command' : 'skill' }))
+    } else {
       return false
     }
-    const next = readClaudeSlashCommands(message)
     if (
+      this.entries !== undefined &&
       next.length === this.entries.length &&
       next.every(
         (entry, index) =>
-          entry.name === this.entries[index]?.name && entry.kind === this.entries[index]?.kind
+          entry.name === this.entries?.[index]?.name && entry.kind === this.entries?.[index]?.kind
       )
     ) {
       return false

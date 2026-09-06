@@ -5,6 +5,7 @@ import type {
 } from './agent-session-journal-types'
 import type {
   AgentSessionBackgroundTaskState,
+  AgentSessionSlashCommand,
   AgentSessionHandoffStatus,
   AgentSessionHistoryPage,
   AgentSessionSubscribeEvent
@@ -21,6 +22,7 @@ export type StructuredAgentSessionState = {
   error?: string
   handoff: AgentSessionHandoffStatus | null
   backgroundTasks?: AgentSessionBackgroundTaskState | null
+  commands?: AgentSessionSlashCommand[] | null
 }
 
 export type StructuredAgentSessionAction =
@@ -182,6 +184,7 @@ export function reduceStructuredAgentSession(
       hasOlder: action.page.hasOlder,
       status: 'ready',
       handoff: state.handoff,
+      ...(sameEpoch ? { commands: state.commands } : {}),
       ...(action.page.backgroundTasks !== undefined
         ? { backgroundTasks: action.page.backgroundTasks }
         : state.backgroundTasks !== undefined
@@ -205,7 +208,10 @@ export function reduceStructuredAgentSession(
     return state
   }
   if (event.type === 'snapshot' || event.type === 'reset') {
-    return replacePage(event.page, event.fence, event.handoff, event.backgroundTasks)
+    return {
+      ...replacePage(event.page, event.fence, event.handoff, event.backgroundTasks),
+      commands: event.commands
+    }
   }
   if (state.epoch !== event.batch.cursor.epoch) {
     return state
@@ -224,6 +230,7 @@ export function reduceStructuredAgentSession(
     journalUnchanged &&
     (event.fence === undefined || event.fence === state.fence) &&
     (event.handoff === undefined || event.handoff === state.handoff) &&
+    (event.commands === undefined || event.commands === state.commands) &&
     backgroundTaskStatesEqual(backgroundTasks, state.backgroundTasks) &&
     state.status === 'ready' &&
     state.error === undefined
@@ -243,6 +250,7 @@ export function reduceStructuredAgentSession(
     status: 'ready',
     error: undefined,
     handoff: event.handoff ?? state.handoff,
+    commands: event.commands !== undefined ? event.commands : state.commands,
     ...(backgroundTasks !== undefined ? { backgroundTasks } : {})
   }
 }

@@ -63,6 +63,7 @@ export class StructuredAgentSessionHost {
     now: () => this.now()
   })
   private readonly subscribers = new AgentSessionSubscribers({
+    readCommands: (sessionId) => this.deps.adapter.readCommands?.(sessionId),
     onJournalPublished: (sessionId, journal) => this.statusFeed.publish(sessionId, journal)
   })
   private readonly tasks = new StructuredAgentSessionTaskQueue()
@@ -317,10 +318,9 @@ export class StructuredAgentSessionHost {
   readOptions = (sessionId: string): Promise<SessionWire.AgentSessionOptionsResult> =>
     readStructuredAgentSessionOptions(this.mutationContext(), sessionId)
 
-  /** Empty when the provider reports no catalog, which the client reads as
-   *  "keep the curated list" rather than "this session has no commands". */
+  /** Undefined means unavailable; an empty array is an authoritative catalog. */
   readCommands = (sessionId: string): SessionWire.AgentSessionCommandsResult => ({
-    commands: this.deps.adapter.readCommands?.(sessionId) ?? []
+    commands: this.deps.adapter.readCommands?.(sessionId)
   })
 
   async handoffStatus(sessionId: string): Promise<SessionWire.AgentSessionHandoffStatus> {
@@ -337,10 +337,8 @@ export class StructuredAgentSessionHost {
   subscribe = (input: AgentSessionSubscribeInput): (() => void) =>
     this.backgroundTasks.subscribe(input)
 
-  publishBackgroundTaskState: StructuredAgentSessionBackgroundTaskChannel['publish'] = (
-    sessionId,
-    state
-  ) => this.backgroundTasks.publish(sessionId, state)
+  publishBackgroundTaskState: StructuredAgentSessionBackgroundTaskChannel['publish'] = (...args) =>
+    this.backgroundTasks.publish(...args)
   unsubscribe = (sessionId: string, id: string): void => this.subscribers.close(sessionId, id)
 
   /** Every session's projected status for session lists; unlike `subscribe`, retains nothing. */

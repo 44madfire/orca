@@ -9,11 +9,9 @@ import {
 import { structuredSlashCommands } from '../../../../shared/structured-agent-session-composer'
 import type { NativeChatStructuredComposerTransport } from './native-chat-composer-types'
 
-const EMPTY_SKILL_NAMES: readonly string[] = []
-
 export type NativeChatComposerCatalog = {
   agentCommands: readonly SlashCommandSuggestion[]
-  sessionSkillNames: readonly string[]
+  sessionSkillNames: readonly string[] | undefined
 }
 
 /**
@@ -32,13 +30,13 @@ export function useNativeChatComposerCatalog(
     () =>
       !structuredTransport
         ? getVerifiedNativeChatCommands(agent)
-        : reported?.length
+        : reported !== undefined
           ? sessionSlashCommandSuggestions(agent, reported)
           : structuredSlashCommands(agent),
     [agent, reported, structuredTransport]
   )
   const sessionSkillNames = useMemo(
-    () => (reported?.length ? sessionReportedSkillNames(reported) : EMPTY_SKILL_NAMES),
+    () => (reported !== undefined ? sessionReportedSkillNames(reported) : undefined),
     [reported]
   )
   return { agentCommands, sessionSkillNames }

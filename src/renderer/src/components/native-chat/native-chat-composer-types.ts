@@ -19,7 +19,7 @@ export type NativeChatStructuredComposerTransport = {
   optionsSurface: SessionOptionsSurface
   optionSnapshot: SessionOptionDescriptor[]
   optionPickerRequest?: NativeChatOptionPickerRequest | null
-  /** The `/` surface the running session reports. Empty keeps the curated
+  /** The `/` surface the running session reports. Absent keeps the curated
    *  per-agent catalog, which is what an older host leaves the client with. */
   sessionCommands?: readonly AgentSessionSlashCommand[]
   worktreeId?: string

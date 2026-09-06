@@ -145,6 +145,8 @@ export type AgentSessionSubscribeEvent =
       fence: number
       handoff?: AgentSessionHandoffStatus
       backgroundTasks?: AgentSessionBackgroundTaskState | null
+      /** Omitted when unchanged; null clears a previous provider catalog. */
+      commands?: AgentSessionSlashCommand[] | null
     }
   | {
       type: 'batch'
@@ -154,6 +156,8 @@ export type AgentSessionSubscribeEvent =
       fence?: number
       handoff?: AgentSessionHandoffStatus
       backgroundTasks?: AgentSessionBackgroundTaskState | null
+      /** Omitted when unchanged; null clears a previous provider catalog. */
+      commands?: AgentSessionSlashCommand[] | null
     }
   | {
       type: 'reset'
@@ -163,6 +167,8 @@ export type AgentSessionSubscribeEvent =
       fence: number
       handoff?: AgentSessionHandoffStatus
       backgroundTasks?: AgentSessionBackgroundTaskState | null
+      /** Omitted when unchanged; null clears a previous provider catalog. */
+      commands?: AgentSessionSlashCommand[] | null
     }
   | { type: 'end' }
 
@@ -317,7 +323,7 @@ export type AgentSessionSlashCommand = {
  *  surface: a host that predates it answers `method_not_found`, and the client
  *  keeps rendering its curated catalog. */
 export type AgentSessionCommandsResult = {
-  commands: AgentSessionSlashCommand[]
+  commands?: AgentSessionSlashCommand[]
 }
 
 /** Provider-reported choices and effective next-turn values. Additive read-only

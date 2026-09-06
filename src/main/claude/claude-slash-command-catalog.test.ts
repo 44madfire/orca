@@ -32,9 +32,11 @@ describe('claude slash command catalog', () => {
 
   it('seeds from the init frame that proved the session', () => {
     expect(new ClaudeSlashCommandCatalog(init()).commands).toHaveLength(3)
-    expect(new ClaudeSlashCommandCatalog().commands).toEqual([])
+    expect(new ClaudeSlashCommandCatalog().commands).toBeUndefined()
     // A frame of the right subtype but without the array is not a catalog.
-    expect(new ClaudeSlashCommandCatalog({ type: 'system', subtype: 'init' }).commands).toEqual([])
+    expect(
+      new ClaudeSlashCommandCatalog({ type: 'system', subtype: 'init' }).commands
+    ).toBeUndefined()
   })
 
   it('replaces the catalog on commands_changed and reports only real changes', () => {
@@ -69,4 +71,25 @@ describe('claude slash command catalog', () => {
     ).toBe(true)
     expect(catalog.commands).toEqual([{ name: 'review', kind: 'skill' }])
   })
+})
+
+it('accepts descriptor reloads, removing old skills while retaining terminal filtering', () => {
+  const catalog = new ClaudeSlashCommandCatalog(init())
+  const reload = {
+    type: 'system',
+    subtype: 'commands_changed',
+    commands: [
+      { name: 'clear', description: 'Clear', argumentHint: '' },
+      { name: 'new-skill', description: 'New', argumentHint: '' },
+      { name: 'doctor', description: 'Terminal', argumentHint: '' }
+    ]
+  }
+  expect(catalog.observe(reload)).toBe(true)
+  expect(catalog.commands).toEqual([
+    { name: 'clear', kind: 'command' },
+    { name: 'new-skill', kind: 'skill' }
+  ])
+  expect(catalog.observe(reload)).toBe(false)
+  expect(catalog.observe({ ...reload, commands: [] })).toBe(true)
+  expect(catalog.commands).toEqual([])
 })

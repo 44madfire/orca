@@ -106,9 +106,8 @@ function mergeNativeChatSkills(
   // actually loaded (plugin roots, setting-source filters), and a scanned root
   // the session ignored must not be offered. The scan stays the source of
   // description and scope for the names both know about.
-  const names = sessionSkillNames?.length
-    ? sessionSkillNames.filter(isTokenSafe)
-    : [...discovered.keys()]
+  const names =
+    sessionSkillNames !== undefined ? sessionSkillNames.filter(isTokenSafe) : [...discovered.keys()]
   return [...new Set(names)]
     .map((name) => discovered.get(name) ?? pickerSkill(name, []))
     .sort(comparePickerSkills)
