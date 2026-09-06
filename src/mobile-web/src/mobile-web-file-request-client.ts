@@ -1,9 +1,5 @@
 import {
   MOBILE_WEB_FILE_CHUNK_MAX_BYTES,
-  MobileWebFileChunkPayloadSchema,
-  MobileWebFileChunkResultSchema,
-  MobileWebFileDirectoryPayloadSchema,
-  MobileWebFileDirectoryResultSchema,
   MobileWebFileListPayloadSchema,
   MobileWebFileListResultSchema,
   MobileWebFileOpenPayloadSchema,
@@ -11,10 +7,6 @@ import {
   MobileWebFileReadPayloadSchema,
   MobileWebFileReadResultSchema,
   MobileWebFileSearchPayloadSchema,
-  type MobileWebFileChunkPayload,
-  type MobileWebFileChunkResult,
-  type MobileWebFileDirectoryPayload,
-  type MobileWebFileDirectoryResult,
   type MobileWebFileListPayload,
   type MobileWebFileListResult,
   type MobileWebFileOpenPayload,
@@ -44,15 +36,12 @@ import {
 } from '../../shared/mobile-web/terminal-artifact-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { requireEchoedWorkspaceId } from './mobile-web-result-echo'
-import { decodeMobileWebFileChunk } from './mobile-web-file-chunk'
+import { MobileWebFileReadClient } from './mobile-web-file-read-request-client'
 import { decodeMobileWebFileBytes, decodeMobileWebFileContent } from './mobile-web-file-content'
 import { mobileWebFileRevision } from './mobile-web-file-edit-content'
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
-import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
-export class MobileWebFileRequestClient {
-  constructor(private readonly requests: MobileWebOneShotRequestClient) {}
-
+export class MobileWebFileRequestClient extends MobileWebFileReadClient {
   list(
     payload: MobileWebFileListPayload,
     options?: MobileWebBridgeRequestOptions
@@ -85,27 +74,6 @@ export class MobileWebFileRequestClient {
       .then((result) => matchingFileList(payload, result))
   }
 
-  directory(
-    payload: MobileWebFileDirectoryPayload,
-    options?: MobileWebBridgeRequestOptions
-  ): Promise<MobileWebFileDirectoryResult> {
-    return this.requests
-      .request(
-        'file',
-        'directory',
-        payload,
-        MobileWebFileDirectoryPayloadSchema,
-        MobileWebFileDirectoryResultSchema,
-        options
-      )
-      .then((result) => {
-        if (result.entries.length > payload.limit) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return matchingFile(payload, result)
-      })
-  }
-
   read(
     payload: MobileWebFileReadPayload,
     options?: MobileWebBridgeRequestOptions
@@ -132,28 +100,6 @@ export class MobileWebFileRequestClient {
       MobileWebFileOpenResultSchema,
       options
     )
-  }
-
-  readChunk(
-    payload: MobileWebFileChunkPayload,
-    options?: MobileWebBridgeRequestOptions
-  ): Promise<MobileWebFileChunkResult> {
-    return this.requests
-      .request(
-        'file',
-        'readChunk',
-        payload,
-        MobileWebFileChunkPayloadSchema,
-        MobileWebFileChunkResultSchema,
-        options
-      )
-      .then(decodeMobileWebFileChunk)
-      .then((result) => {
-        if (result.offset !== payload.offset || result.bytesRead > payload.length) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return matchingFile(payload, result)
-      })
   }
 
   write(

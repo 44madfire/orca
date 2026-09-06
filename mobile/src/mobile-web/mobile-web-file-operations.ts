@@ -1,12 +1,8 @@
 import { Buffer } from 'buffer/'
 import {
-  MOBILE_WEB_FILE_CHUNK_MAX_BYTES,
   MOBILE_WEB_FILE_CONTENT_MAX_BYTES,
   MobileWebFileChunkPayloadSchema,
-  MobileWebFileChunkResultSchema,
-  MobileWebFileDirectoryEntrySchema,
   MobileWebFileDirectoryPayloadSchema,
-  MobileWebFileDirectoryResultSchema,
   MobileWebFileEntrySchema,
   MobileWebFileListPayloadSchema,
   MobileWebFileListResultSchema,
@@ -15,7 +11,6 @@ import {
   MobileWebFileReadResultSchema,
   MobileWebFileSearchPayloadSchema,
   type MobileWebFileChunkWireResult,
-  type MobileWebFileDirectoryEntry,
   type MobileWebFileDirectoryResult,
   type MobileWebFileEntry,
   type MobileWebFileListResult,
@@ -27,9 +22,9 @@ import { MobileWebBrokerError, mobileWebBrokerHostRpcError } from './mobile-web-
 import { executeMobileWebFileOpenOperation } from './mobile-web-file-open-operation'
 import { executeMobileWebFileWrite } from './mobile-web-file-write'
 import {
-  compareMobileWebDirectoryEntries,
-  mobileWebDirectoryRevision
-} from './mobile-web-directory-presentation'
+  sanitizeDirectoryResult,
+  sanitizeChunkResult
+} from '../../../src/shared/mobile-web/file-host-presentation'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 export async function executeMobileWebFileOperation(args: {
@@ -211,73 +206,6 @@ function sanitizeReadResult(
     contentBase64: Buffer.from(content, 'utf8').toString('base64'),
     truncated: result.truncated === true || content !== result.content,
     byteLength: result.byteLength
-  })
-}
-
-function sanitizeDirectoryResult(
-  result: unknown,
-  workspaceId: string,
-  relativePath: string,
-  limit: number
-): MobileWebFileDirectoryResult {
-  if (!Array.isArray(result)) {
-    throw new MobileWebBrokerError('host_error')
-  }
-  const names = new Set<string>()
-  const entries = result.slice(0, limit).flatMap((value): MobileWebFileDirectoryEntry[] => {
-    if (!isRecord(value) || typeof value.name !== 'string' || names.has(value.name)) {
-      return []
-    }
-    const parsed = MobileWebFileDirectoryEntrySchema.safeParse({
-      name: value.name,
-      isDirectory: value.isDirectory === true,
-      isSymlink: value.isSymlink === true
-    })
-    if (!parsed.success) {
-      return []
-    }
-    names.add(parsed.data.name)
-    return [parsed.data]
-  })
-  entries.sort(compareMobileWebDirectoryEntries)
-  const truncated = result.length > entries.length
-  return MobileWebFileDirectoryResultSchema.parse({
-    workspaceId,
-    relativePath,
-    revision: mobileWebDirectoryRevision(entries, truncated),
-    entries,
-    truncated
-  })
-}
-
-function sanitizeChunkResult(
-  result: unknown,
-  payload: {
-    workspaceId: string
-    relativePath: string
-    offset: number
-    length: number
-  }
-): MobileWebFileChunkWireResult {
-  if (
-    !isRecord(result) ||
-    typeof result.contentBase64 !== 'string' ||
-    typeof result.bytesRead !== 'number' ||
-    !Number.isSafeInteger(result.bytesRead) ||
-    result.bytesRead < 0 ||
-    result.bytesRead > payload.length ||
-    result.bytesRead > MOBILE_WEB_FILE_CHUNK_MAX_BYTES ||
-    typeof result.eof !== 'boolean'
-  ) {
-    throw new MobileWebBrokerError('host_error')
-  }
-  return MobileWebFileChunkResultSchema.parse({
-    workspaceId: payload.workspaceId,
-    relativePath: payload.relativePath,
-    offset: payload.offset,
-    contentBase64: result.contentBase64,
-    bytesRead: result.bytesRead,
-    eof: result.eof
   })
 }
 

@@ -1,0 +1,189 @@
+# Long-lived mobile shell implementation tracker
+
+Owner: Codex. Branch: `mobile-rearch`. Commit locally; never push.
+
+## Outcome and completion rule
+
+After one native shell upgrade, ordinary product changes ship with the paired
+Desktop's page bundle. Native releases are reserved for device capabilities,
+secure transport/key storage, WebView/origin policy, background execution and
+package installation/recovery. The paired Desktop is trusted. Keep secrets out
+of page payloads and retain hard memory, size, rate and concurrency ceilings.
+
+A checked box means implemented and verified, with evidence below. Unit tests
+alone do not complete a platform journey. Keep legacy v2 paths for older cached
+pages; no protocol or manifest bump is planned.
+
+## Current checkpoint
+
+- [x] Investigate shell/host/page coupling and re-derive host-method census.
+- [x] Pin bridge protocol 2 and installed/cached package admission: `11646f11e0f`.
+- [x] First complete generic unary slice: `9910fccc298`.
+      Desktop catalog, opaque workspace binding, source-control status/diff,
+      page-side presentation, legacy fallback, hard payload and concurrency bounds.
+- [ ] Complete the generic bridge and migrate remaining domain consumers.
+- [ ] Complete iOS end-to-end evidence and Android final smoke check.
+
+Prior investigation and exact gate tails are currently preserved in
+`/tmp/orca-review2/codex-ota-investigation.md` and
+`/tmp/orca-review2/codex-ota-report.md`. This tracked file is the ongoing status
+source; it must not depend on those temporary files to explain remaining work.
+
+## 1. Establish a reproducible mobile test baseline
+
+- [x] Inventory iOS and Android devices and existing app installations.
+      iOS: iPhone 17 Pro, iOS 26.5, `DC47C924-6602-497C-BE01-4C80EB391E20`.
+      Android AVDs: `OrcaAttachApi36`, `Pixel_9_Pro_API_36`; initially stopped.
+- [ ] Run the existing iOS hosted-WebView journey against this worktree's built
+      Desktop/page and shell. Record exact builds and evidence locations.
+- [ ] Keep tests and launched apps under `ORCA_BACKGROUND_LAUNCH=1`; use hidden
+      Desktop renderers and emulator automation without activating desktop windows.
+- [ ] Preserve an installed shell/page baseline for mixed-version journeys.
+
+## 2. Complete unary forwarding and opaque identity handling
+
+- [ ] Extend host-advertised metadata without freezing new domain schemas into
+      the shell. Keep catalog queries bounded, not the lifetime method vocabulary.
+- [ ] Support page-safe host-owned opaque handles alongside existing workspace
+      handles; retire authority on document/host/client replacement.
+- [ ] Preserve intent fingerprints across opaque ID translation. Validate page
+      intent before mapping, recompute host fingerprints afterward, and preserve
+      clientOperationId, expectedRuntimeFence and retryUnknown.
+- [ ] Migrate native-chat reads and host actions, separating image/clipboard/
+      pending-storage device actions from domain presentation.
+- [ ] Migrate session reads and mutations, terminal one-shots and files.
+- [ ] Extend remaining source-control, task, review and account consumers.
+- [ ] Keep errors useful for reconciliation without exposing transport keys,
+      raw credentials or native private paths.
+- [ ] Remove projections from the active shell path; retain only compatibility
+      adapters required by cached legacy pages.
+- [ ] Freeze the legacy domain-operation surface with a deliberate census:
+      new domain operations use the generic lane, native additions stay explicit.
+
+Proof: a future host method/field works with the same shell; opaque IDs remain
+opaque; stale bindings, retries and cancellations cannot cross workspaces;
+folder and SSH workspaces still use their actual execution owner.
+
+## 3. Generic subscriptions and transport lifecycle
+
+- [ ] Remove the transport's static method-to-unsubscribe dependency for generic
+      streams using host-advertised cleanup or a generic host subscription token.
+- [ ] Preserve direct/relay setup, ready, unsubscribe and reconnect behavior.
+- [ ] Reuse the existing subscription ledger with bounded pending event bytes
+      and event count; enforce aggregate subscription ceilings.
+- [ ] Forward domain event shapes without APK-owned projections.
+- [ ] Migrate native-chat/session/source-control/account feeds.
+- [ ] Preserve terminal binary capability negotiation, acknowledgements,
+      backpressure and resync; never silently substitute JSON stream semantics.
+
+Proof: cancellation before ready, synchronous events during subscribe, late
+handles, client replacement, overflow and reconnect all retire the right host
+work and report a terminal closure to the surviving page.
+
+## 4. Page-owned persistence and routing
+
+- [ ] Add bounded JSON preferences scoped by paired host and namespace; survive
+      page build changes and rollback. Keep credential storage inaccessible.
+- [ ] Replace hosted AsyncStorage's no-op behavior for page preferences through
+      an explicit adapter; do not expose arbitrary native storage keys.
+- [ ] Add bounded page-owned resume state and navigation intents, with legacy
+      fallback and current host/document fences.
+- [ ] Keep notification receipt and host selection native; let the page resolve
+      domain routes after readiness. Never persist document-scoped opaque handles
+      as though they remain valid after restart.
+
+## 5. Move presentation to hosted routes
+
+Follow `docs/STYLEGUIDE.md`, existing tokens/primitives and shared mobile screen
+components. Reuse presentation; split native dependencies through adapters.
+
+- [ ] Native-chat and browser preferences.
+- [ ] Terminal settings, including host settings and device preferences.
+- [ ] Voice and notification settings; native permission/model actions remain
+      explicit capabilities.
+- [ ] Settings menu, About, diagnostics and connection-log presentation.
+- [ ] Preserve pairing/onboarding bootstrap and minimal offline recovery when
+      no trusted healthy page is available.
+- [ ] Deliberately update route ownership, reachability and parity tests.
+
+## 6. Remove avoidable package admission coupling
+
+- [ ] Externalize changing inline bootstrap code behind stable native CSP while
+      retaining cached-page compatibility.
+- [ ] Keep manifest v1 exact keys, canonical hashes and rollback checks intact.
+- [ ] Split content-addressed bundles before reaching the 10 MiB single-asset
+      ceiling; revise the verifier's single-script assumption if needed.
+- [ ] Test corruption, interrupted staging, activation health and rollback.
+
+## Compatibility contract
+
+| Combination                              | Required behavior                                                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Pre-generic old shell / new page         | Detect missing grants/features; use legacy adapters or show bounded feature unavailability.            |
+| Generic shell / future Desktop + page    | New domain methods, fields, events and routes need no APK within device capabilities/ceilings.         |
+| New shell / old page                     | Keep v2 framing, legacy handlers and cached `[2,2]` package admission.                                 |
+| Old cached page / new Desktop            | Keep legacy RPC methods and published semantics; additive catalog is unused.                           |
+| New page / older execution host over SSH | Negotiate host capabilities; no local substitution; loss of contact is `unverifiable`, never `exited`. |
+
+## Verification and evidence
+
+Use iOS for the main loop; run Android as the final platform smoke check. The
+existing simulator harnesses are the starting point, not duplicate test apps.
+
+- [ ] iOS: pairing/package activation, workspace/session/chat/terminal/files/
+      source-control interactions and migrated settings routes.
+- [ ] iOS: reconnect, host switching, page restart, cached-page rollback and
+      preference persistence across two desktop-served page builds on one shell.
+- [ ] Compatibility: old shell/new page, new shell/old page and cached page/new
+      Desktop, plus future method/event fixtures through the frozen shell contract.
+- [ ] Android: install/start, package activation, generic unary/subscription,
+      keyboard/back, settings persistence and restart/recovery.
+- [ ] Record physical-device-only gaps (push, thermal/battery, real background
+      restrictions and hardware permissions); do not claim simulator evidence for them.
+
+Per implementation commit:
+
+```text
+pnpm tc
+pnpm run typecheck:tsc:node
+pnpm run typecheck:mobile-web
+pnpm -C mobile exec tsc --noEmit -p tsconfig.json
+pnpm exec oxlint
+pnpm -C mobile lint
+pnpm run check:code-quality:changed
+pnpm run check:react-doctor:changed
+pnpm -C mobile test
+pnpm test src/shared/mobile-web src/mobile-web src/main/runtime/rpc
+pnpm run build:mobile-web
+```
+
+Run mobile tests separately from the web export: a previous overlapping run
+failed React Native resolution while an isolated rerun passed. Build the terminal
+WebView engine if mobile typechecking needs it. Run Kotlin unit tests with the
+configured JDK 17/Android SDK; prebuild Android when required. Run native Swift
+store tests when native package/CSP behavior changes. Format only changed files
+with `pnpm exec oxfmt --write`.
+
+## Progress log
+
+- Initial checkpoint: two commits above pass all required gates; mobile 831
+  files / 5,493 tests, root 315 files / 2,686 tests. No platform journey was
+  claimed. Remaining phases are open.
+- Current work: establish emulator baseline and complete generic identity and
+  transport primitives before migrating additional page consumers.
+
+- iOS baseline first build failed because Pods referenced a stale pnpm React Native
+  package directory. Regenerated with `pod install`; native build retry running.
+  Evidence: `/tmp/orca-ota-e2e/ios-native-build.log`, `ios-pods.log`,
+  `ios-baseline-retry.log`.
+- Verified implementation: Desktop advertises `files.readDir` and `files.readChunk`; the page
+  owns their presentation using the same generic shell contract. Legacy adapters
+  remain for cached pages and unsupported/oversized generic reads.
+
+- File-read migration gates all pass: mobile 831 files / 5,493 tests; root
+  316 files / 2,693 tests, all typechecks, lint, changed-code and React Doctor.
+  Export: 52 assets / 9,685,882 bytes, build
+  `1df386b5e949d67736d00ba2ca456e157d62ef1db0a619e2363dad6804741a13`.
+  Exact command tails: `/tmp/orca-ota-e2e/file-gates/`.
+- iOS retry reached native compilation but failed at React-RCTFabric
+  `RCTFabricSurface.mm`; capturing full compiler diagnostics before proceeding.
