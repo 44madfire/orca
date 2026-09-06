@@ -8,14 +8,7 @@ description: >-
 
 # Computer Use
 
-This file is a discovery stub, not the usage guide. The full, version-matched computer-use
-reference is served by the `orca` binary itself — kept out of this file on purpose so it can
-never drift from the binary that will actually run your commands.
-
-Engage Orca's computer-use surface when a task requires desktop-level access to a visible local
-app or window, including a native app or an external browser window/webview. Do not use for
-Orca's embedded browser or page-only browser automation. Use `orca-cli` for Orca's embedded
-pages and a page-automation tool such as Playwright or CDP for external pages.
+This discovery stub loads the version-matched guide from the Orca executable used for this session.
 
 ## Resolve the CLI for this session
 
@@ -42,12 +35,7 @@ to another executable, which could silently target a different Orca build.
 ORCA skills get computer-use
 ```
 
-That prints the complete, version-matched guide for the exact binary that will handle your
-next commands — listing apps/windows, reading UI, and driving clicks, typing, and other
-accessibility actions. Read it first, then run the specific command you need.
-
-Don't guess subcommands or flags from memory or from a cached copy of this stub. They change
-between Orca releases, and this file deliberately no longer lists them. Prefer `--json` for
-agent-driven calls. If a command reports that Orca is not running, start it with `ORCA open
---json` and retry. If the binary does not recognize `skills get`, it predates this guide:
-tell the user that updating Orca restores it, and ask before running anything else.
+Prefer `--json`. Use the selected executable's `--help` for commands or flags the guide does
+not cover. If a command reports that Orca is not running, start it with `ORCA open --json`
+and retry. If `skills get` is unknown, explain that updating Orca restores the guide; use
+`--help` for read-only discovery and do not guess unsupported commands.

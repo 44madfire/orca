@@ -144,4 +144,5 @@ Return that primary checkout at `projectRoot` and emit schema version 2:
 
 The `--provision` self-test only sees what the scripts print, so smoke-test the exact emitted target
 as well: dial the host and port with the identity or proxy settings, run `pwd`, verify the repo path,
-check the agent binary, and confirm `destroy` removes the provider resource.
+and check the agent binary. If the recipe created a provider resource, also confirm `destroy`
+removes it.

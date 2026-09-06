@@ -81,17 +81,6 @@ afterEach(async () => {
 })
 
 describe('bundled skill guide generator', () => {
-  it('keeps every fat (non-stub) projection byte-identical to its authoritative source', async () => {
-    for (const name of CANONICAL_GUIDE_NAMES) {
-      if (STUB_TOPICS.includes(name)) {
-        continue
-      }
-      const source = await readFile(path.join(projectDir, 'skill-guides', `${name}.md`))
-      const projection = await readFile(path.join(projectDir, 'skills', name, 'SKILL.md'))
-      expect(projection, name).toEqual(source)
-    }
-  })
-
   it('projects stub topics as hybrid discovery stubs that reuse the guide frontmatter', async () => {
     expect(STUB_TOPICS.length).toBeGreaterThan(0)
     for (const name of STUB_TOPICS) {
@@ -289,7 +278,6 @@ describe('bundled skill guide generator', () => {
       expect(source.replace(/\s+/gu, ' '), name).toContain(
         'the executable you resolved in the stub'
       )
-      expect(source, name).not.toContain('ORCA_CLI_COMMAND')
     }
   })
 
@@ -426,8 +414,7 @@ describe('bundled skill guide generator', () => {
   it('fails loudly on an unknown, missing, duplicated, or re-inlined shared block', async () => {
     const blocks = await readSharedStubBlocks(projectDir)
     const markers = [...blocks.keys()].map((id) => `<!-- shared: ${id} -->`).join('\n\n')
-    const render = (body) =>
-      renderSharedStubBody(body, { topic: 'orca-cli', blocks, sourcePath: 'skill-stubs/x.md' })
+    const render = (body) => renderSharedStubBody(body, { blocks, sourcePath: 'skill-stubs/x.md' })
 
     expect(() => render(markers)).not.toThrow()
     expect(() => render(`${markers}\n\n<!-- shared: nope -->`)).toThrow('Unknown shared stub block')

@@ -1,7 +1,4 @@
-<!-- Single-authored blocks shared by every skill-stubs/<topic>.md projection.
-     Insert one with a line reading `<!-- shared: <id> -->`; every block below must be
-     inserted exactly once by every stub. `reflow` re-wraps the block after {{topic}}
-     substitution, because the substituted name changes where the lines break. -->
+<!-- Single-authored blocks shared by every skill stub. -->
 
 <!-- block: resolver -->
 
@@ -26,8 +23,7 @@ to another executable, which could silently target a different Orca build.
 
 <!-- block: no-guessing -->
 
-Don't guess subcommands or flags from memory or from a cached copy of this stub. They change
-between Orca releases, and this file deliberately no longer lists them. Prefer `--json` for
-agent-driven calls. If a command reports that Orca is not running, start it with `ORCA open
---json` and retry. If the binary does not recognize `skills get`, it predates this guide:
-tell the user that updating Orca restores it, and ask before running anything else.
+Prefer `--json`. Use the selected executable's `--help` for commands or flags the guide does
+not cover. If a command reports that Orca is not running, start it with `ORCA open --json`
+and retry. If `skills get` is unknown, explain that updating Orca restores the guide; use
+`--help` for read-only discovery and do not guess unsupported commands.

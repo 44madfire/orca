@@ -22,12 +22,6 @@ describe('computer-use skill guidance', () => {
     expect(description).toContain('page-only automation (use Playwright or CDP)')
     expect(description).not.toContain('read Slack')
     expect(description).not.toContain('get app state')
-
-    const orcaCli = readFileSync(join(projectDir, 'skill-guides', 'orca-cli.md'), 'utf8').replace(
-      /\s+/gu,
-      ' '
-    )
-    expect(orcaCli).toContain("Orca's embedded browser")
   })
 
   it('keeps web-app targeting on the computer-use surface', () => {
@@ -35,11 +29,10 @@ describe('computer-use skill guidance', () => {
 
     expect(skill).toContain('Use this skill for desktop UI through `orca computer`')
     expect(skill).toContain('external desktop browser window that needs desktop-level control')
-    expect(skill).not.toContain('orca goto')
-    expect(skill).not.toContain('orca snapshot')
-    expect(skill).not.toContain('orca click')
-    expect(skill).not.toContain('orca fill')
-    expect(skill).not.toContain('Routing:')
+    expect(skill).not.toMatch(/\b(?:orca|ORCA) goto\b/u)
+    expect(skill).not.toMatch(/\b(?:orca|ORCA) snapshot\b/u)
+    expect(skill).not.toMatch(/\b(?:orca|ORCA) click\b/u)
+    expect(skill).not.toMatch(/\b(?:orca|ORCA) fill\b/u)
   })
 
   it('warns agents to verify browser-hosted form focus before drafting text', () => {

@@ -11,9 +11,7 @@ description: >-
 
 # Per-Workspace Environments
 
-This file is a discovery stub, not the usage guide. The full, version-matched per-workspace
-environment reference is served by the `orca` binary itself — kept out of this file on
-purpose so it can never drift from the binary that will actually run your commands.
+This discovery stub loads the version-matched guide from the Orca executable used for this session.
 
 ## Resolve the CLI for this session
 
@@ -40,13 +38,7 @@ to another executable, which could silently target a different Orca build.
 ORCA skills get orca-per-workspace-env
 ```
 
-That prints the complete, version-matched guide for the exact binary that will handle your
-next commands — provider setup, base and auth snapshots, `environmentRecipes` in
-`orca.yaml`, lifecycle scripts, and `orca vm recipe doctor`. Read it first, then run the
-specific command you need.
-
-Don't guess subcommands or flags from memory or from a cached copy of this stub. They change
-between Orca releases, and this file deliberately no longer lists them. Prefer `--json` for
-agent-driven calls. If a command reports that Orca is not running, start it with `ORCA open
---json` and retry. If the binary does not recognize `skills get`, it predates this guide:
-tell the user that updating Orca restores it, and ask before running anything else.
+Prefer `--json`. Use the selected executable's `--help` for commands or flags the guide does
+not cover. If a command reports that Orca is not running, start it with `ORCA open --json`
+and retry. If `skills get` is unknown, explain that updating Orca restores the guide; use
+`--help` for read-only discovery and do not guess unsupported commands.
