@@ -54,3 +54,10 @@ export const MOBILE_WEB_HOST_CATALOG_METHOD = defineMethod({
     })
   })
 })
+
+export function isMobileWebHostRpcMethod(method: string): boolean {
+  return (
+    PAGE_METHODS.has(method) ||
+    [...PAGE_METHODS.values()].some((grant) => grant.unsubscribeMethod === method)
+  )
+}

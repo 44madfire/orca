@@ -124,7 +124,9 @@ function serverSubscriptionUnsubscribePairs(): [string, string][] {
     join(process.cwd(), 'mobile/src/transport/rpc-client-server-subscription.ts'),
     'utf8'
   )
-  const map = source.match(/const unsubscribeMethod = \{([\s\S]*?)\}\[method\]/)
+  const map = source.match(
+    /const unsubscribeMethod\s*=\s*(?:cleanupMethod\s*\?\?\s*)?\{([\s\S]*?)\}\[method\]/
+  )
   if (!map) {
     throw new Error('buildServerSubscriptionUnsubscribe map not found')
   }

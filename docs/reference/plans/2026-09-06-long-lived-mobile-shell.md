@@ -33,11 +33,12 @@ Last reconciled: September 6, 2026. Implementation is **in progress**.
 - [x] Full unattended existing adversarial harness on iOS and Android.
 - [ ] Chat-specific interactions, migrated settings and frozen-shell OTA/rollback E2E.
 
-Immediate next step: connect Desktop catalog membership to mobile RPC authorization.
+Catalog authorization correction implemented; platform rerun pending.
 Investigation found that advertised `mobileWeb.files.*` and `mobileWeb.nativeChat.*`
 adapters were absent from the static mobile allowlist. Prior platform passes can
 include legacy fallbacks and do not prove those generic adapters were exercised.
-This gap must be fixed and verified before their end-to-end migration is complete.
+Authenticated dispatch tests now cover this gap; platform evidence must be refreshed
+before claiming their end-to-end migration is complete.
 
 Next: migrate remaining domain operations and mutation fingerprint handling;
 wire hosted settings with their consumers and page-owned route restoration;
@@ -424,3 +425,21 @@ Reauthorization census deliberately increases host-request sites 2 → 3.
 Extracted logical-client types and request authority to retain the 300-line limit.
 Page build: `2e64a57e693f312c4113831e84404f87f009bbe5803a9ef19ddc7a8b0d5fffe9`.
 No new platform pass claimed for this slice. Native-chat mutations remain open.
+
+### Catalog RPC authorization correction
+
+Dispatch lifetime committed as `ceeacb15725`. The advertised page adapters were
+missing from Desktop's static mobile allowlist. A real authenticated-dispatch
+test reproduced `forbidden` for `mobileWeb.files.searchPaths` before the fix.
+Desktop now authorizes exact catalog membership plus declared cleanup methods;
+it does not grant a namespace wildcard. The regression checks every registered
+catalog method/cleanup, successful file-read privacy/future-field preservation,
+and refusal of unadvertised/deletion operations. Legacy cleanup-map census now
+recognizes the host-provided cleanup fallback added in the subscription slice.
+
+All required code/test gates pass after test type fixes; 840 mobile files / 5,540
+tests and 321 root files / 2,710 tests. Additional authenticated authorization
+suite: 4 files / 17 tests. Logs: `/tmp/orca-ota-e2e/catalog-authorization-gates/`.
+Before-fix failure: `/tmp/orca-ota-e2e/catalog-authorization-before.log`.
+Export passed with build `2e64a57e693f312c4113831e84404f87f009bbe5803a9ef19ddc7a8b0d5fffe9`.
+New iOS adversarial journey is next.
