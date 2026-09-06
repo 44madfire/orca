@@ -305,6 +305,8 @@ export function HostScreenHeader({ controller }: { controller: HybridHostScreenC
             style={styles.searchToggle}
             onPress={() => actions.navigateFromHostList(`/h/${hostId}/accounts`)}
             disabled={connState !== 'connected'}
+            accessibilityRole="button"
+            accessibilityLabel="Accounts"
           >
             <UserCircle
               size={16}
@@ -316,6 +318,8 @@ export function HostScreenHeader({ controller }: { controller: HybridHostScreenC
             style={styles.searchToggle}
             onPress={() => actions.navigateFromHostList(`/h/${hostId}/tasks`)}
             disabled={connState !== 'connected'}
+            accessibilityRole="button"
+            accessibilityLabel="Tasks"
           >
             <List
               size={16}

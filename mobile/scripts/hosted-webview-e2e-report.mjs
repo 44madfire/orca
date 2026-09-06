@@ -1,6 +1,9 @@
 export async function evidenceStep(label, run) {
+  console.log(`[hosted-e2e] ${label}...`)
   try {
-    return await run()
+    const result = await run()
+    console.log(`[hosted-e2e] ${label}: ok`)
+    return result
   } catch (error) {
     throw new Error(`${label} failed: ${error instanceof Error ? error.message : String(error)}`, {
       cause: error

@@ -47,6 +47,12 @@ describe('hosted iOS native Alert journey', () => {
       kind: 'label',
       value: 'Back to worktrees'
     })
+    expect(waitForDocument).toHaveBeenLastCalledWith({
+      discoveryUrl: 'http://127.0.0.1:9222',
+      expectedText: 'mobile-rearch',
+      expectedPathname: '/h/host',
+      timeoutMs: 30_000
+    })
     expect(result).toEqual({
       evidence: {
         button: { x: 0.5, y: 0.5 },

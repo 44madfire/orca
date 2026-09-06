@@ -203,31 +203,34 @@ describe('hosted iOS emulator accessibility controls', () => {
     expect(runCommand).toHaveBeenLastCalledWith(emulator, ['tap', '0.5', '0.35'])
   })
 
-  it('reads a composite native row point without tapping it', async () => {
-    const runCommand = vi.fn().mockResolvedValueOnce({
-      stderr: '',
-      stdout: JSON.stringify({
-        ok: true,
-        result: [
-          {
-            label: 'Hybrid Agent History Fixture, 2h, Preview',
-            enabled: true,
-            frame: { x: 0.1, y: 0.2, width: 0.8, height: 0.1 }
-          }
-        ]
+  it.each(['label', 'value'])(
+    'reads a composite row from its %s without tapping it',
+    async (field) => {
+      const runCommand = vi.fn().mockResolvedValueOnce({
+        stderr: '',
+        stdout: JSON.stringify({
+          ok: true,
+          result: [
+            {
+              [field]: 'Hybrid Agent History Fixture, 2h, Preview',
+              enabled: true,
+              frame: { x: 0.1, y: 0.2, width: 0.8, height: 0.1 }
+            }
+          ]
+        })
       })
-    })
 
-    await expect(
-      waitForHostedIosAccessibilityControlByLabelPrefix(
-        emulator,
-        'Hybrid Agent History Fixture',
-        1_000,
-        runCommand
-      )
-    ).resolves.toEqual({ x: 0.5, y: 0.25 })
-    expect(runCommand).toHaveBeenCalledTimes(1)
-  })
+      await expect(
+        waitForHostedIosAccessibilityControlByLabelPrefix(
+          emulator,
+          'Hybrid Agent History Fixture',
+          1_000,
+          runCommand
+        )
+      ).resolves.toEqual({ x: 0.5, y: 0.25 })
+      expect(runCommand).toHaveBeenCalledTimes(1)
+    }
+  )
 
   it('waits for a dynamic count by its stable suffix', async () => {
     const runCommand = vi.fn().mockResolvedValueOnce({

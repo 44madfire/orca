@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { verifyHostedHostOriginSourceControlJourney } from '../../scripts/hosted-ios-host-origin-source-control-journey.mjs'
 
 describe('hosted iOS host-origin Source Control journey', () => {
-  it('opens mobile Review without mutating the Session route', async () => {
+  it.each([true, false])('opens mobile Review with native baseline %s', async (hasBaseline) => {
     const sourceControl = {
       href: 'orca-mobile-web://build/h/host/source-control/workspace'
     }
@@ -36,9 +36,9 @@ describe('hosted iOS host-origin Source Control journey', () => {
     const result = await verifyHostedHostOriginSourceControlJourney({
       discoveryUrl: 'http://127.0.0.1:9222',
       emulator: { udid: 'SIMULATOR-1' },
-      nativeBaseline: {
-        changedFileLabel: 'Open changed file mobile/src/mobile-web/bridge.ts'
-      },
+      nativeBaseline: hasBaseline
+        ? { changedFileLabel: 'Open changed file mobile/src/mobile-web/bridge.ts' }
+        : null,
       timeoutMs: 30_000,
       workspaceName: 'mobile-rearch',
       operations: { activate, longPress, readState, tapNative, waitForDocument }

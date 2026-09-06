@@ -41,7 +41,7 @@ export async function captureNativeCoreRouteBaselines({
 }) {
   await dismissEmulatorDeveloperMenuIfPresent(emulator)
   const filterPoint = await waitForHostedIosAccessibilityControl(emulator, 'Filter', timeoutMs)
-  // The existing non-embedded Tasks icon has no native accessibility label.
+  // Legacy native baselines predate the Tasks accessibility label.
   await tapHostedIosPoint(emulator, { x: TASKS_TOOLBAR_X, y: filterPoint.y })
   const taskStableText = await waitForNativeTasksStableText(emulator, timeoutMs)
   const tasks = await captureNativeRoute({

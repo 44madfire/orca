@@ -115,7 +115,10 @@ export async function tapHostedIosAccessibilityControlByLabelPrefixAtPosition(
     0,
     timeoutMs,
     runCommand,
-    (node) => node.label === labelPrefix || node.label?.startsWith(`${labelPrefix},`),
+    (node) =>
+      [node.label, node.value].some(
+        (value) => value === labelPrefix || value?.startsWith(`${labelPrefix},`)
+      ),
     (frame) => ({
       x: frame.x + frame.width * position.x,
       y: frame.y + frame.height * position.y
@@ -153,7 +156,10 @@ export async function waitForHostedIosAccessibilityControlByLabelPrefix(
     0,
     timeoutMs,
     runCommand,
-    (node) => node.label === labelPrefix || node.label?.startsWith(`${labelPrefix},`)
+    (node) =>
+      [node.label, node.value].some(
+        (value) => value === labelPrefix || value?.startsWith(`${labelPrefix},`)
+      )
   )
 }
 

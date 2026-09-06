@@ -22,6 +22,7 @@ pages; no protocol or manifest bump is planned.
       Desktop catalog, opaque workspace binding, source-control status/diff,
       page-side presentation, legacy fallback, hard payload and concurrency bounds.
 - [x] Directory and binary chunk reads use generic forwarding: `a8bbed52da4`.
+- [x] File lists/search/text use Desktop privacy adapters: `31024ff0316`.
 - [ ] Complete the generic bridge and migrate remaining domain consumers.
 - [ ] Complete iOS end-to-end evidence and Android final smoke check.
 
@@ -35,9 +36,9 @@ source; it must not depend on those temporary files to explain remaining work.
 - [x] Inventory iOS and Android devices and existing app installations.
       iOS: iPhone 17 Pro, iOS 26.5, `DC47C924-6602-497C-BE01-4C80EB391E20`.
       Android AVDs: `OrcaAttachApi36`, `Pixel_9_Pro_API_36`; initially stopped.
-- [ ] Run the existing iOS hosted-WebView journey against this worktree's built
-      Desktop/page and shell. Record exact builds and evidence locations.
-- [ ] Keep tests and launched apps under `ORCA_BACKGROUND_LAUNCH=1`; use hidden
+- [x] Run the focused iOS hosted-WebView Files/Preview journey against this
+      worktree's built Desktop/page and shell. Full combined journey remains open.
+- [x] Keep tests and launched apps under `ORCA_BACKGROUND_LAUNCH=1`; use hidden
       Desktop renderers and emulator automation without activating desktop windows.
 - [ ] Preserve an installed shell/page baseline for mixed-version journeys.
 
@@ -212,3 +213,58 @@ with `pnpm exec oxfmt --write`.
 - First iOS hosted run paired successfully, then page export's dependency
   reinstall invalidated the live Metro resolver (`InitializeCore` not found).
   Retired that launcher; rerun after all builds, with no concurrent install/export.
+
+- Android native shell unit suite passed; Android debug APK build passed (535
+  tasks). The usable AVD is `Pixel_9_Pro_API_36` (`arm64-v8a`); `OrcaAttachApi36`
+  has a corrupt registration. Started Pixel headlessly with `-read-only` and
+  `-no-snapshot`; smoke run is `/tmp/orca-ota-e2e/android-smoke.log`.
+- iOS runtime evidence found standalone Tasks/Accounts toolbar icons lacked the
+  labels already present in the embedded toolbar. Added those labels and button
+  roles; no layout/style changes. The page then passed the Tasks fixture.
+- Harness fixes in progress: match the workspace pathname after native Alert;
+  include bounded route/labels in missing-control diagnostics; handle absent
+  native screenshot baselines in the adversarial source-control mode and use
+  that fixture's workspace instead of depending on our uncommitted files.
+- Latest page build (toolbar labels):
+  `0d1a80e371e8ddf115c38fb4d784772d006059756c752edae198454e149021e2`.
+  iOS run: `/tmp/orca-ota-e2e/ios-file-journey.log`. Do not count a whole
+  platform journey as passed until the harness returns its success report.
+
+- iOS `ios-ax-journey` passed onboarding, hybrid activation, native Alert,
+  workspace privacy, adversarial Tasks, and host-origin Source Control/Review.
+  Fixed AX prefix matching to accept WebView values as well as native labels;
+  regression covers both. The run then failed terminal file-link activation:
+  OSC link content exists in the buffer, but the native tap did not open it.
+  This remains unresolved; no complete iOS success is claimed.
+- Android Tasks now reuses the existing accessibility/semantic control activation
+  path with label and document context, instead of relying solely on viewport
+  coordinate estimates. Smoke rerun: `android-label-smoke.log`.
+- Running focused iOS file-preview parity separately (`ios-files-only.log`) to
+  distinguish file-read behavior from the terminal-touch failure.
+
+### Validated checkpoint and next blocking test
+
+- **PASS:** iOS focused Files/Preview journey exited 0 with `ok: true`.
+  Log: `/tmp/orca-ota-e2e/ios-files-only.log`. Screenshots in
+  `/tmp/orca-ota-e2e/ios-files-only/`: `hosted-files-portrait.png` and
+  `hosted-file-preview-portrait.png`, with matching native baselines. File-list
+  and preview pixel/landmark comparisons pass their existing budgets; hosted
+  preview was also visually inspected. Native Alert and isolation probes pass.
+- **PARTIAL:** Android rerun passes install/start, pairing, hybrid activation,
+  hosted workspace data, privacy, Tasks/error presentation and Session navigation.
+  It fails the same terminal OSC file-link activation gate as iOS. Neither
+  comprehensive platform journey is green. Android log:
+  `/tmp/orca-ota-e2e/android-label-smoke.log`.
+- **PASS:** all required typechecks, lint, changed quality/React Doctor, mobile
+  tests (831 files / 5,496 passed), root tests (317 files / 2,699 passed) and page
+  export. Gate tails: `/tmp/orca-ota-e2e/route-final-gates/`; export log:
+  `/tmp/orca-ota-e2e/route-gates/build-page.log`.
+- **Next blocking work:** capture actual delivered touch coordinates/events and
+  trace retained/live OSC ranges through terminal resize/replay to file-tap RPC
+  and tab activation. The existing diagnostic proves buffer content and intended
+  point, not which handler ran. Do not replace native taps with scripted handlers
+  and claim this gate passed. Per the task brief's stop-at-failing-gate rule,
+  further domain/subscription/screen migrations are held at this checkpoint.
+- Current testing uses development shells and one page build. Frozen release-shell
+  skew, two-page OTA replacement/rollback and physical-device behavior remain
+  unverified. No push or deployment was performed.

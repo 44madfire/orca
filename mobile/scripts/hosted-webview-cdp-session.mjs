@@ -20,12 +20,14 @@ export function selectVisibleHostedWebView(
   probes,
   expectedText,
   expectedHrefIncludes,
-  requireInteractiveControls = true
+  requireInteractiveControls = true,
+  expectedPathname
 ) {
   const eligible = probes.filter(
     (probe) =>
       isHostedMobileWebUrl(probe.href) &&
       (!expectedHrefIncludes || probe.href.includes(expectedHrefIncludes)) &&
+      (!expectedPathname || new URL(probe.href).pathname === expectedPathname) &&
       probe.visibility === 'visible' &&
       probe.bridgeListening &&
       probe.bodyText.includes(expectedText) &&
@@ -38,6 +40,7 @@ export async function waitForVisibleHostedWebView({
   discoveryUrl,
   expectedText,
   expectedHrefIncludes,
+  expectedPathname,
   requireInteractiveControls = true,
   timeoutMs,
   fetchImpl = fetch,
@@ -70,7 +73,8 @@ export async function waitForVisibleHostedWebView({
         probes,
         expectedText,
         expectedHrefIncludes,
-        requireInteractiveControls
+        requireInteractiveControls,
+        expectedPathname
       )
       if (selected) {
         return selected

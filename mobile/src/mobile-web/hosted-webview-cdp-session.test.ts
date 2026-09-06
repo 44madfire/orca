@@ -108,6 +108,17 @@ function probe(overrides: Record<string, unknown> = {}) {
 }
 
 describe('hosted WebView CDP target selection', () => {
+  it('waits for the workspace route when the departing session has the same text', () => {
+    const session = probe({ href: 'orca-mobile-web://session-a/h/host/session/workspace' })
+    const workspace = probe({ href: 'orca-mobile-web://session-a/h/host', focused: false })
+    expect(
+      selectVisibleHostedWebView([session], 'mobile-rearch', undefined, true, '/h/host')
+    ).toBeNull()
+    expect(
+      selectVisibleHostedWebView([session, workspace], 'mobile-rearch', undefined, true, '/h/host')
+    ).toBe(workspace)
+  })
+
   it('recognizes only the platform private asset origins', () => {
     expect(isHostedMobileWebUrl('orca-mobile-web://session-a/')).toBe(true)
     expect(isHostedMobileWebUrl('https://session-a.orca-mobile-web.invalid/#session-a')).toBe(true)

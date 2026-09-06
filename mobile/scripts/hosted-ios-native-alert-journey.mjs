@@ -27,9 +27,16 @@ export async function verifyHostedIosNativeAlertJourney(
   const waitForLabelToDisappear =
     operations.waitForLabelToDisappear ?? waitForHostedIosAccessibilityLabelToDisappear
 
+  const workspacePathname = new URL(workspaceDocument.href).pathname
   await installNativeAlertProbe(workspaceDocument, evaluate)
   await activateWorkspace(workspaceDocument, expectedWorkspace, activateControl, timeoutMs, () =>
-    waitForWorkspaceDocument(discoveryUrl, expectedWorkspace, timeoutMs, waitForDocument)
+    waitForWorkspaceDocument(
+      discoveryUrl,
+      expectedWorkspace,
+      timeoutMs,
+      waitForDocument,
+      workspacePathname
+    )
   )
   const sessionDocument = await waitForDocument({
     discoveryUrl,
@@ -51,7 +58,8 @@ export async function verifyHostedIosNativeAlertJourney(
     discoveryUrl,
     expectedWorkspace,
     timeoutMs,
-    waitForDocument
+    waitForDocument,
+    workspacePathname
   )
   return {
     evidence: {
@@ -148,8 +156,19 @@ async function waitForNativeAlertResponse(document, requestId, timeoutMs, evalua
   throw new Error('Native Alert response did not return to the hosted page')
 }
 
-function waitForWorkspaceDocument(discoveryUrl, expectedWorkspace, timeoutMs, waitForDocument) {
-  return waitForDocument({ discoveryUrl, expectedText: expectedWorkspace, timeoutMs })
+function waitForWorkspaceDocument(
+  discoveryUrl,
+  expectedWorkspace,
+  timeoutMs,
+  waitForDocument,
+  workspacePathname
+) {
+  return waitForDocument({
+    discoveryUrl,
+    expectedText: expectedWorkspace,
+    expectedPathname: workspacePathname,
+    timeoutMs
+  })
 }
 
 function delay(ms) {

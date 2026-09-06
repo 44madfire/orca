@@ -204,7 +204,14 @@ async function main() {
     if (adversarialFixture) {
       const result = await stage('adversarial task and error presentation', () =>
         verifyHostedAdversarialTasks({
-          activatePoint: (point) => tapHostedAndroidPoint(emulator, point),
+          activatePoint: (point, context) =>
+            tapHostedAndroidJourneyControl(
+              emulator,
+              point,
+              context.label,
+              context.attempt,
+              context.document
+            ),
           discoveryUrl,
           document: workspaceDocument,
           timeoutMs: options.timeoutMs

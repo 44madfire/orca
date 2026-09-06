@@ -1,5 +1,8 @@
 import { WebSocket } from 'ws'
-import { evaluateHostedDocumentWithRetry } from './hosted-webview-cdp-session.mjs'
+import {
+  evaluateHostedDocumentWithRetry,
+  readHostedWebViewState
+} from './hosted-webview-cdp-session.mjs'
 
 export async function readHostedWebViewControlPoint(document, label, WebSocketCtor = WebSocket) {
   const expression = `(() => {
@@ -21,7 +24,14 @@ export async function readHostedWebViewControlPoint(document, label, WebSocketCt
   try {
     point = JSON.parse(value)
   } catch {
-    throw new Error(`Hosted WebView control was not measurable: ${label}`)
+    const state = await readHostedWebViewState(document, WebSocketCtor).catch(() => null)
+    throw new Error(
+      `Hosted WebView control was not measurable: ${label}. State: ${JSON.stringify({
+        path: state ? new URL(state.href).pathname : null,
+        labels: state?.labels?.slice(0, 40),
+        text: state?.bodyText?.slice(0, 1000)
+      })}`
+    )
   }
   if (!isNormalizedPoint(point)) {
     throw new Error(`Hosted WebView returned an invalid control point: ${label}`)

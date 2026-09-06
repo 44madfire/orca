@@ -447,9 +447,9 @@ async function main() {
                 verifyHostedHostOriginSourceControlJourney({
                   discoveryUrl,
                   emulator,
-                  nativeBaseline: nativeSourceControlReview.sourceControl,
+                  nativeBaseline: nativeSourceControlReview?.sourceControl,
                   timeoutMs: options.timeoutMs,
-                  workspaceName: expectedWorkspace
+                  workspaceName: adversarialFixture?.workspaceRowName ?? expectedWorkspace
                 })
               )
               workspaceDocument = hostOrigin.workspaceDocument

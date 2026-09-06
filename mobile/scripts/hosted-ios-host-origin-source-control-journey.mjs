@@ -32,7 +32,9 @@ export async function verifyHostedHostOriginSourceControlJourney({
     timeoutMs
   })
   const sourceState = await waitForChangedFileState(sourceControl, timeoutMs, readState)
-  const changedFileLabel = nativeBaseline.changedFileLabel
+  const changedFileLabel =
+    nativeBaseline?.changedFileLabel ??
+    sourceState.labels.find((label) => label.startsWith(CHANGED_FILE_PREFIX))
   if (!sourceState.labels.includes(changedFileLabel)) {
     throw new Error(`Host-origin Source Control is missing ${changedFileLabel}`)
   }

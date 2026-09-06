@@ -60,7 +60,11 @@ export async function verifyHostedAdversarialTasks({
   let lastError
   for (let attempt = 0; attempt < 3 && !tasks; attempt += 1) {
     if (!activeDocument.href.includes('/tasks')) {
-      await activatePoint(await readHostedWebViewControlPoint(activeDocument, 'Tasks'))
+      await activatePoint(await readHostedWebViewControlPoint(activeDocument, 'Tasks'), {
+        label: 'Tasks',
+        document: activeDocument,
+        attempt
+      })
     }
     try {
       tasks = await waitForVisibleHostedWebView({
@@ -92,7 +96,10 @@ export async function verifyHostedAdversarialTasks({
   for (let attempt = 0; attempt < 3 && !workspaceDocument; attempt += 1) {
     if (activeDocument.href.includes('/tasks')) {
       const titlePoint = await readHostedWebViewTextPoint(activeDocument, 'Tasks')
-      await activatePoint({ x: Math.max(0.04, titlePoint.x - 0.12), y: titlePoint.y })
+      await activatePoint(
+        { x: Math.max(0.04, titlePoint.x - 0.12), y: titlePoint.y },
+        { label: 'Back', document: activeDocument, attempt }
+      )
     }
     try {
       workspaceDocument = await waitForVisibleHostedWebView({
