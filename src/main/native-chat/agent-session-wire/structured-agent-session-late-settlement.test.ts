@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
-import type { AgentSessionMutationEnvelope } from '../../../shared/agent-session-wire'
+import type {
+  AgentSessionMutationEnvelope,
+  AgentSessionSubscribeEvent
+} from '../../../shared/agent-session-wire'
 import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import { createTrackedJournalOpener } from '../agent-session-journal/journal-store-test-open'
 import type {
   AgentSessionDispatchOutcome,
   StructuredAgentSessionAdapter
@@ -21,13 +23,13 @@ import {
   resetHostTestOperationIds
 } from './structured-agent-session-host-test-data'
 
-const journals = createTrackedJournalOpener()
 const CALLER = { callerKey: 'client-1' }
 
 let root: string
 let store: AgentSessionRecordStore
 let host: StructuredAgentSessionHost
 let dispatch: Mock<StructuredAgentSessionAdapter['dispatch']>
+let closeSession: Mock<NonNullable<StructuredAgentSessionAdapter['closeSession']>>
 
 function accepted(): AgentSessionDispatchOutcome {
   return {
@@ -65,6 +67,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-wire-late-settle-'))
   resetHostTestOperationIds()
   dispatch = vi.fn(async () => accepted())
+  closeSession = vi.fn(async () => true)
   store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
   host = new StructuredAgentSessionHost({
     store,
@@ -86,6 +89,7 @@ beforeEach(async () => {
       })),
       releaseAcquisition: vi.fn(async () => true),
       dispatch,
+      closeSession,
       cancelTurn: vi.fn(async () => ({ cancelled: true })),
       answerPrompt: vi.fn(async () => undefined),
       setOption: vi.fn(async () => undefined)
@@ -99,12 +103,80 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await journals.closeAll()
   await host.flushAllStreamedEvents()
+  await host.close(SESSION)
   await rm(root, { recursive: true, force: true })
 })
 
 describe('settling a send the provider proves it received after the ack window', () => {
+  it('publishes acceptance during a pending send and never reopens it for retry', async () => {
+    let finishDispatch!: (outcome: AgentSessionDispatchOutcome) => void
+    dispatch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishDispatch = resolve
+        })
+    )
+    const events: AgentSessionSubscribeEvent[] = []
+    const unsubscribe = host.subscribe({
+      id: 'late-receipt',
+      sessionId: SESSION,
+      emit: (event) => events.push(event)
+    })
+    const params = sendParams('echo before send completes')
+    const pending = host.send(CALLER, params)
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1))
+    try {
+      await host.settleLateDispatch({
+        sessionId: SESSION,
+        clientMessageId: params.envelope.clientOperationId,
+        providerIdentity: { provider: 'claude', sessionId: THREAD, uuid: 'early-echo' }
+      })
+      expect(events.at(-1)).toMatchObject({
+        type: 'batch',
+        batch: {
+          submissions: [
+            { clientMessageId: params.envelope.clientOperationId, dispatchState: 'accepted' }
+          ]
+        }
+      })
+    } finally {
+      finishDispatch({ state: 'unknown', reason: 'ack timeout' })
+      unsubscribe()
+    }
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      value: { submission: { dispatchState: 'accepted' } }
+    })
+    await expect(host.send(CALLER, { ...params, retryUnknown: true })).resolves.toMatchObject({
+      ok: true,
+      value: { submission: { dispatchState: 'accepted' } }
+    })
+    expect(dispatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('persists an echo received while the provider is closing', async () => {
+    dispatch.mockResolvedValueOnce({ state: 'unknown', reason: 'ack timeout' })
+    const params = sendParams('received just before shutdown')
+    await host.send(CALLER, params)
+    let settlement: Promise<void> | undefined
+    closeSession.mockImplementationOnce(async () => {
+      settlement = host.settleLateDispatch({
+        sessionId: SESSION,
+        clientMessageId: params.envelope.clientOperationId,
+        providerIdentity: { provider: 'claude', sessionId: THREAD, uuid: 'closing-echo' }
+      })
+      void settlement.catch(() => undefined)
+      return true
+    })
+
+    await host.close(SESSION)
+    await expect(settlement).resolves.toBeUndefined()
+    await host.revealSession(SESSION)
+    expect(submissions()).toMatchObject([{ dispatchState: 'accepted' }])
+    expect(dispatch).toHaveBeenCalledTimes(1)
+  })
+
   it('moves a durable unknown to accepted so nothing offers to send it again', async () => {
     dispatch.mockRejectedValueOnce(new Error('socket closed'))
     const params = sendParams('sent while a turn was running')

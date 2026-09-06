@@ -122,19 +122,7 @@ export function readStructuredAgentSessionOptions(
   })
 }
 
-/**
- * Settle a send whose ack window expired but which the provider later proved it
- * had received.
- *
- * Without this the submission stays `unknown` for the life of the session: the
- * client renders an unconfirmed bubble whose Retry redispatches, so the user is
- * invited to deliver the same message to the agent a second time. Every send made
- * while a turn is already running takes this path, because the provider does not
- * echo the new message until the running turn ends.
- *
- * Serialized with the session's other journal writes, and a no-op once the row is
- * `accepted` or `rejected` — the reducer treats both as terminal.
- */
+/** Settle provider-proven delivery independently of an in-flight client mutation. */
 export async function settleStructuredAgentSessionLateDispatch(
   context: StructuredAgentSessionMutationContext,
   input: {
@@ -147,13 +135,12 @@ export async function settleStructuredAgentSessionLateDispatch(
   if (!session) {
     return
   }
-  await context.serialize(input.sessionId, async () => {
-    await session.journal.resolveDispatch({
-      clientMessageId: input.clientMessageId,
-      state: 'accepted',
-      providerIdentity: input.providerIdentity,
-      fence: session.fence
-    })
-    context.publish(input.sessionId, session.journal)
+  // The journal queue drains before close; the host queue would defer this past teardown.
+  await session.journal.resolveDispatch({
+    clientMessageId: input.clientMessageId,
+    state: 'accepted',
+    providerIdentity: input.providerIdentity,
+    fence: session.fence
   })
+  context.publish(input.sessionId, session.journal)
 }
