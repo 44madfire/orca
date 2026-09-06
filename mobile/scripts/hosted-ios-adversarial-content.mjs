@@ -69,6 +69,7 @@ export function createHostedIosAdversarialContentInspector({ emulator, fixture, 
       observations.push(
         await captureHostedWebViewAdversarialObservation({
           document,
+          expectedMarker: phase === 'review' ? HOSTED_ADVERSARIAL_CONTENT_MARKER : undefined,
           timeoutMs: Math.min(timeoutMs, 15_000)
         })
       )

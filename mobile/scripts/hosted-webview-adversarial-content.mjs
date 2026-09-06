@@ -55,7 +55,9 @@ export async function captureHostedWebViewAdversarialObservation({
     }
     await delay(250)
   } while (Date.now() < deadline)
-  throw new Error(`Hosted adversarial marker was not rendered: ${expectedMarker}`)
+  throw new Error(
+    `Hosted adversarial marker was not rendered: ${expectedMarker}; state=${JSON.stringify(observation?.state).slice(0, 4000)}`
+  )
 }
 
 export function hostedWebViewAdversarialContentObservations(observations) {

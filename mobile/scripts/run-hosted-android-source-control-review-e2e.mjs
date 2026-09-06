@@ -327,7 +327,9 @@ async function main() {
                   await captureHostedWebViewAdversarialObservation({
                     document,
                     expectedMarker:
-                      phase === 'sessionDiff' ? HOSTED_ADVERSARIAL_CONTENT_MARKER : undefined,
+                      phase === 'sessionDiff' || phase === 'review'
+                        ? HOSTED_ADVERSARIAL_CONTENT_MARKER
+                        : undefined,
                     timeoutMs: Math.min(options.timeoutMs, 15_000)
                   })
                 )

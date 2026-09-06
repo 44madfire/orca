@@ -34,7 +34,7 @@ export async function inspectHostedWebViewAdversarialFiles({
 }) {
   const reviewRoute = routeFromDocument(document, 'review')
   await activateHostedWebViewControl(document, { kind: 'label', value: 'Back' }, WebSocketCtor)
-  await waitForRoute(document, '/session/', 'tabs', timeoutMs, WebSocketCtor)
+  await returnToSession(document, timeoutMs, WebSocketCtor)
   await waitForLabel(document, 'Open file explorer', timeoutMs, WebSocketCtor)
   await activateHostedWebViewControl(
     document,
@@ -85,6 +85,25 @@ export async function inspectHostedWebViewAdversarialFiles({
     injectedElementCount: 0,
     repositoryFileScriptMarkersExecuted: false
   }
+}
+
+async function returnToSession(document, timeoutMs, WebSocketCtor) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const state = await readHostedWebViewState(document, WebSocketCtor)
+    if (state.href.includes('/session/')) {
+      return
+    }
+    if (state.href.includes('/source-control/') && state.labels.includes('Back to session')) {
+      await activateHostedWebViewControl(
+        document,
+        { kind: 'label', value: 'Back to session' },
+        WebSocketCtor
+      )
+    }
+    await delay(250)
+  }
+  throw new Error('Hosted adversarial journey did not return to Session')
 }
 
 async function openPreview(document, filename, timeoutMs, WebSocketCtor) {
