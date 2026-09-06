@@ -12,6 +12,7 @@ import {
 import { MobileWebBridgeSubscriptionClient } from '../../../src/mobile-web/src/mobile-web-bridge-subscription-client'
 import type { MobileWebBridgeSubscriptionSetup } from '../../../src/mobile-web/src/mobile-web-bridge-subscription-setup'
 import { MobileWebOneShotRequestClient } from '../../../src/mobile-web/src/mobile-web-one-shot-request-client'
+import { MobileWebHostResultSchema } from '../../../src/shared/mobile-web/host-rpc-contract'
 import { tolerantMobileWebShellPayload } from '../../../src/shared/mobile-web/shell-payload-tolerance'
 import { MOBILE_WEB_PRODUCTION_GRANTS } from './mobile-web-production-grants'
 
@@ -69,6 +70,10 @@ describe('mobile web shell response schema corpus', () => {
   it('rejects invalid success payloads through every one-shot result schema', async () => {
     let caseCount = 0
     for (const { name, schema } of resultSchemas) {
+      // Domain payloads on the generic lane are interpreted by the matching hosted page.
+      if (schema === MobileWebHostResultSchema) {
+        continue
+      }
       const rejected = RESPONSE_PAYLOAD_CORPUS.filter((payload) => pageRejects(schema, payload))
       expect(rejected.length, name).toBeGreaterThanOrEqual(8)
       for (const payload of rejected) {
@@ -77,6 +82,15 @@ describe('mobile web shell response schema corpus', () => {
       }
     }
     expect(caseCount).toBeGreaterThan(1_200)
+  })
+
+  it('keeps generic host domain results opaque to the shell contract', () => {
+    expect(resultSchemas.filter(({ schema }) => schema === MobileWebHostResultSchema)).toHaveLength(
+      1
+    )
+    for (const payload of RESPONSE_PAYLOAD_CORPUS) {
+      expect(MobileWebHostResultSchema.parse(payload)).toEqual(payload)
+    }
   })
 
   it('retires every subscription after an invalid event payload', async () => {

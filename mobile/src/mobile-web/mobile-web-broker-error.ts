@@ -1,10 +1,7 @@
 import type { MobileWebBridgeErrorCode } from '../../../src/shared/mobile-web/bridge-contract'
 
-export class MobileWebBrokerError extends Error {
-  constructor(readonly code: MobileWebBridgeErrorCode) {
-    super(code)
-  }
-}
+import { MobileWebBrokerError } from '../../../src/shared/mobile-web/bridge-operation-error'
+export { MobileWebBrokerError } from '../../../src/shared/mobile-web/bridge-operation-error'
 
 export function mobileWebBridgeErrorCode(error: unknown): MobileWebBridgeErrorCode {
   if (error instanceof MobileWebBrokerError) {

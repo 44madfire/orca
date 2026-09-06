@@ -42,74 +42,12 @@ import {
   type MobileWebSourceControlStagePayload,
   type MobileWebSourceControlUnstagePayload
 } from '../../shared/mobile-web/source-control-mutation-contract'
-import {
-  MobileWebSourceControlDiffPayloadSchema,
-  MobileWebSourceControlDiffResultSchema,
-  MobileWebSourceControlStatusPayloadSchema,
-  MobileWebSourceControlStatusResultSchema,
-  type MobileWebSourceControlDiffPayload,
-  type MobileWebSourceControlDiffResult,
-  type MobileWebSourceControlStatusPayload,
-  type MobileWebSourceControlStatusResult
-} from '../../shared/mobile-web/source-control-operation-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { requireEchoedWorkspaceId } from './mobile-web-result-echo'
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
-import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
+import { MobileWebSourceControlReadClient } from './mobile-web-source-control-read-request-client'
 
-export class MobileWebSourceControlRequestClient {
-  constructor(private readonly requests: MobileWebOneShotRequestClient) {}
-
-  status(
-    payload: MobileWebSourceControlStatusPayload,
-    options?: MobileWebBridgeRequestOptions
-  ): Promise<MobileWebSourceControlStatusResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'status',
-        payload,
-        MobileWebSourceControlStatusPayloadSchema,
-        MobileWebSourceControlStatusResultSchema,
-        options
-      )
-      .then((result) => {
-        if (result.entries.length > payload.limit) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return requireEchoedWorkspaceId(payload.workspaceId, result)
-      })
-  }
-
-  diff(
-    payload: MobileWebSourceControlDiffPayload,
-    options?: MobileWebBridgeRequestOptions
-  ): Promise<MobileWebSourceControlDiffResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'diff',
-        payload,
-        MobileWebSourceControlDiffPayloadSchema,
-        MobileWebSourceControlDiffResultSchema,
-        options
-      )
-      .then((result) => {
-        if (
-          result.relativePath !== payload.relativePath ||
-          result.area !== payload.area ||
-          (result.kind === 'text' &&
-            (result.offset !== payload.offset ||
-              result.rows.length > payload.limit ||
-              (payload.expectedRevision !== undefined &&
-                result.revision !== payload.expectedRevision)))
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return requireEchoedWorkspaceId(payload.workspaceId, result)
-      })
-  }
-
+export class MobileWebSourceControlRequestClient extends MobileWebSourceControlReadClient {
   branches(
     payload: MobileWebSourceControlBranchesPayload,
     options?: MobileWebBridgeRequestOptions

@@ -77,3 +77,8 @@ export function mobileWebPendingRequestForSubscription(
   }
   return null
 }
+
+// Native alerts outlive client churn and explicit cancels; the OS dialog owns the resolution.
+export function mobileWebRequestSurvivesCancellation(pending: { operationKey: string }): boolean {
+  return pending.operationKey === 'native.alert'
+}

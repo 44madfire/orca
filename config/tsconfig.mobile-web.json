@@ -7,6 +7,7 @@
     "../src/shared/event-loop-yield.ts",
     "../src/shared/file-link-location.ts",
     "../src/shared/is-record.ts",
+    "../src/shared/sha256.ts",
     "../src/shared/mobile-markdown-document.ts",
     "../src/shared/mobile-web/**/*",
     "../src/shared/terminal-quick-command-limits.ts",

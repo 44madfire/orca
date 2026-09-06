@@ -61,7 +61,7 @@ acceptance.
 | Native mobile shell                         | Pairing and host selection; secure credential storage; authenticated encrypted transport; QR scanning; notifications and deep links; package verification, cache, private origin, and recovery; clipboard, haptics, audio, camera and file/photo pickers; native settings, onboarding, privacy, About, and diagnostics |
 | Desktop-served React Native Web application | Workspace list and creation; sessions and terminal presentation; files, previews, diffs, source control, reviews, tasks, accounts, browser presentation, Agent History, and native-chat presentation                                                                                                                   |
 | Desktop runtime                             | Builds and ships the matching web package; serves its manifest and chunks through authenticated RPC; reauthorizes every workspace mutation; enforces host, workspace, provider, path, and resource limits                                                                                                              |
-| Typed native bridge                         | Connects the unprivileged page to explicitly granted Desktop operations and native capabilities; carries connection and route state without exposing transport credentials                                                                                                                               |
+| Typed native bridge                         | Connects the unprivileged page to explicitly granted Desktop operations and native capabilities; carries connection and route state without exposing transport credentials                                                                                                                                             |
 
 The page never receives the raw RPC client, pairing credential, host endpoint,
 private key, cache path, or unrestricted native module access. Native-owned
@@ -186,8 +186,18 @@ edges still meet the device and keep their measured values.
   page history writes on that fragment).
 - The shell grants named operation/capability pairs with request, response,
   concurrency, subscription, rate, and message limits.
-- The page cannot invoke a generic RPC passthrough. Desktop still authorizes
-  every operation against the current connection and opaque workspace scope.
+- The page can use `workspace.hostRequest` for desktop-advertised unary methods.
+  The shell queries `mobileWeb.host.catalog` over the authenticated connection,
+  resolves the existing opaque workspace handle, and forwards bounded domain
+  JSON without a shell-owned response schema. The initial catalog grants
+  `git.status` and `git.diff`; the page falls back to legacy reads when the
+  catalog is unavailable or a raw response exceeds its bridge budget.
+- Generic forwarding retains byte, depth, node-count, rate and actual in-flight
+  limits. Cancelling a page request does not release its host-work slot until
+  the host call settles. Catalog authors must grant only page-safe results;
+  methods returning private identifiers need an opaque mapping before adoption.
+  Native-chat/session/terminal/file migrations and generic subscriptions remain
+  future work; their existing adapters and grants still apply.
 - Clipboard reads, pickers, external links, haptics, dictation, and related
   native actions require the relevant grant; privacy-sensitive actions also
   require the system permission the platform asks for. The shell's own
@@ -220,11 +230,12 @@ depends on its direction and on whether it adds a field or an operation:
   `invalid_message` with `retryable: false`, nothing re-subscribes, and the
   one-shot fallback shares the schema, so both legs die on the same byte.
   `shell-payload-tolerance-census.test.ts` fails if a strict node survives.
-- **Additive field, page to shell** (any request payload) requires a grant.
-  Request schemas stay `.strict()` because the shell is the security authority
-  and must reject what it cannot account for; a newer page that sends a field
-  an older shell does not know gets `invalid_request`. Gate the field's use on
-  the operation grant that introduces it, the same way an operation is gated.
+- **Additive field, page to shell** in a native or legacy payload requires negotiation.
+  Native-capability and legacy request schemas stay `.strict()`; a newer page
+  that sends a field an older shell does not know gets `invalid_request`. Gate
+  those fields through shell features. The generic host request has a strict
+  routing envelope but opaque bounded domain params, so desktop/page field
+  additions on that lane do not need an APK schema change.
 - **Additive operation, either direction** negotiates through `init.grants`.
   The page fails an ungranted operation immediately with
   `unsupported_capability`, so a newer page against an older shell degrades at

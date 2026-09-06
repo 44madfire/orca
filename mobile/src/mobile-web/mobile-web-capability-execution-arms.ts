@@ -6,6 +6,7 @@ import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/
 import type { MobileWebBridgeCapability } from '../../../src/shared/mobile-web/bridge-operation-registry'
 import { MobileWebSourceControlSubscribePayloadSchema } from '../../../src/shared/mobile-web/source-control-operation-contract'
 import { MobileWebSpeechSubscribePayloadSchema } from '../../../src/shared/mobile-web/speech-operation-contract'
+import { executeMobileWebHostRequest, readMobileWebHostCatalog } from './mobile-web-host-requests'
 import { executeMobileWebAccountCapability } from './mobile-web-account-capability'
 import { executeMobileWebAgentHistoryOperation } from './mobile-web-agent-history-operations'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
@@ -70,6 +71,17 @@ async function executeBrowser(args: Deps, request: OnceRequest): Promise<unknown
 }
 
 async function executeWorkspace(args: Deps, request: OnceRequest): Promise<unknown> {
+  if (request.operation === 'hostCatalog') {
+    return readMobileWebHostCatalog(args.connectedClient(), request.payload)
+  }
+  if (request.operation === 'hostRequest') {
+    return executeMobileWebHostRequest({
+      client: args.connectedClient(),
+      authority: args.workspaceAuthority,
+      payload: request.payload,
+      isActive: args.isRequestActive
+    })
+  }
   if (request.capability !== 'workspace' && request.capability !== 'settings') {
     throw new MobileWebBrokerError('unsupported_capability')
   }

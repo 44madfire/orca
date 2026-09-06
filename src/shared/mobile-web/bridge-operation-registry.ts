@@ -6,6 +6,8 @@ export type MobileWebBridgeOperationKind = 'read' | 'mutation' | 'subscription'
 
 export const MOBILE_WEB_BRIDGE_OPERATIONS = {
   workspace: {
+    hostCatalog: 'read',
+    hostRequest: 'mutation',
     snapshot: 'read',
     repositories: 'read',
     subscribe: 'subscription',

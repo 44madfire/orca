@@ -35,6 +35,13 @@ export class MobileWebOneShotRequestClient {
     }
   ) {}
 
+  supports(
+    capability: MobileWebBridgeCapability,
+    operation: MobileWebBridgeOperationName
+  ): boolean {
+    return this.options.getGrant(capability, operation) !== undefined
+  }
+
   request<TCapability extends MobileWebBridgeCapability, TPayload, TResult>(
     capability: TCapability,
     operation: MobileWebBridgeOperationName<TCapability>,

@@ -45,6 +45,7 @@ import { UPDATER_METHODS } from './updater'
 import { AGENT_SESSION_METHODS } from './agent-session'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
 import { ARTIFACT_METHODS } from './artifacts'
+import { MOBILE_WEB_HOST_CATALOG_METHOD } from './mobile-web-host-catalog'
 import { MOBILE_WEB_PACKAGE_METHODS } from './mobile-web-package'
 import { MOBILE_FILE_WRITE_METHODS } from './mobile-file-write-if-unchanged'
 import { AGENT_HOOK_METHODS } from './agent-hooks'
@@ -101,5 +102,6 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...EMULATOR_METHODS,
   ...PAIRING_METHODS,
   ...UPDATER_METHODS,
+  MOBILE_WEB_HOST_CATALOG_METHOD,
   ...MOBILE_WEB_PACKAGE_METHODS
 ]

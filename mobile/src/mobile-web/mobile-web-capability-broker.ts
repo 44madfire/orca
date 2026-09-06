@@ -1,3 +1,4 @@
+import { requireMobileWebConnectedClient } from './mobile-web-connected-client'
 import {
   MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS,
   type MobileWebBridgePageMessage,
@@ -25,6 +26,7 @@ import { rememberMobileWebBrokerRoute } from './mobile-web-broker-route-memory'
 import { resolveMobileWebHostNavigationRoute } from './mobile-web-host-navigation-route'
 import {
   mobileWebEncodedByteLength,
+  mobileWebRequestSurvivesCancellation,
   mobileWebAgentHistoryContinuation,
   mobileWebOperationKey,
   mobileWebPendingForOperation,
@@ -36,10 +38,6 @@ import {
 type PageRequest = Extract<MobileWebBridgePageMessage, { type: 'request' }>
 type PendingRequest = { operationKey: string; subscriptionId?: string; cancelled: boolean }
 
-// Native alerts outlive client churn and explicit cancels; the OS dialog owns the resolution.
-function survivesCancellation(pending: PendingRequest): boolean {
-  return pending.operationKey === 'native.alert'
-}
 export class MobileWebCapabilityBroker {
   private readonly pending = new Map<string, PendingRequest>()
   private readonly replay = new MobileWebBrokerReplayGuard()
@@ -50,6 +48,7 @@ export class MobileWebCapabilityBroker {
   private readonly commitMessageGeneration = new MobileWebCommitMessageGeneration()
   private readonly authorities: MobileWebCapabilityAuthorities
   private readonly messages: MobileWebBrokerMessageSender
+  private hostRequestsInFlight = 0
   private disposed = false
 
   constructor(private readonly options: MobileWebCapabilityBrokerOptions) {
@@ -110,7 +109,7 @@ export class MobileWebCapabilityBroker {
     this.terminalStreams.dispose(null, MOBILE_WEB_TERMINAL_CLIENT_CLOSURE)
     this.speechAuthority.replaceClient()
     for (const [requestId, pending] of this.pending) {
-      if (survivesCancellation(pending)) {
+      if (mobileWebRequestSurvivesCancellation(pending)) {
         continue
       }
       pending.cancelled = true
@@ -154,6 +153,9 @@ export class MobileWebCapabilityBroker {
       return
     }
 
+    const isHostRequest =
+      request.capability === 'workspace' &&
+      (request.operation === 'hostRequest' || request.operation === 'hostCatalog')
     const grant = MOBILE_WEB_PRODUCTION_GRANT_INDEX.get(mobileWebOperationKey(request))
     const expectsSubscription = mobileWebRequestExpectsSubscription(request)
     if (!grant || (request.mode === 'subscription') !== expectsSubscription) {
@@ -172,6 +174,7 @@ export class MobileWebCapabilityBroker {
       return
     }
     if (
+      (isHostRequest && this.hostRequestsInFlight >= 4) ||
       this.pending.size >= MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS ||
       mobileWebPendingForOperation(this.pending.values(), mobileWebOperationKey(request)) +
         this.subscriptions.countForOperation(mobileWebOperationKey(request)) +
@@ -200,6 +203,9 @@ export class MobileWebCapabilityBroker {
       cancelled: false
     }
     this.pending.set(request.requestId, pending)
+    if (isHostRequest) {
+      this.hostRequestsInFlight += 1
+    }
     try {
       const payload = await this.execute(request, () => this.isPending(request.requestId, pending))
       if (!this.isPending(request.requestId, pending)) {
@@ -219,6 +225,10 @@ export class MobileWebCapabilityBroker {
         await this.messages.error(request.requestId, code, isRetryableMobileWebBridgeError(code))
       }
     } finally {
+      // Cancellation retires the page request before the host releases its retained work.
+      if (isHostRequest) {
+        this.hostRequestsInFlight -= 1
+      }
       this.authorities.sourceControlBranchCompare.releaseClaim(request.requestId)
       if (this.pending.get(request.requestId) === pending) {
         this.pending.delete(request.requestId)
@@ -258,14 +268,7 @@ export class MobileWebCapabilityBroker {
   }
 
   private connectedClient(): RpcClient {
-    if (!this.options.isConnected()) {
-      throw new MobileWebBrokerError('not_connected')
-    }
-    const client = this.options.getClient()
-    if (!client) {
-      throw new MobileWebBrokerError('not_connected')
-    }
-    return client
+    return requireMobileWebConnectedClient(this.options)
   }
 
   private async cancel(target: 'request' | 'subscription', id: string): Promise<void> {
@@ -288,7 +291,7 @@ export class MobileWebCapabilityBroker {
     if (!pending) {
       return
     }
-    if (survivesCancellation(pending)) {
+    if (mobileWebRequestSurvivesCancellation(pending)) {
       return
     }
     pending.cancelled = true
