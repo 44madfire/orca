@@ -1,8 +1,11 @@
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import type { Tab, TabGroup, WorkspaceVisibleTabType } from '../../../shared/tab-types'
 import type { Worktree } from '../../../shared/worktree/types'
-import { getPaletteWorktreeIdentity, isPaletteCurrentWorktree } from './palette-repo-resolution'
-import { resolvePaletteRepoForWorktree } from './palette-repo-resolution'
+import {
+  getPaletteWorktreeIdentity,
+  isPaletteCurrentWorktree,
+  resolvePaletteRepoForWorktree
+} from './palette-repo-resolution'
 import { getActiveSimulatorTabId } from './simulator-palette-active-tab'
 import { isClipboardTextByteLengthOverLimit } from '../../../shared/clipboard-text'
 import { compareBaseSensitivityLocaleText } from './locale-text-collators'
@@ -77,8 +80,6 @@ export type SimulatorPaletteSearchResult = {
   activity: PaletteActivityRank
 }
 
-type SimulatorPaletteActiveTabType = WorkspaceVisibleTabType
-
 export const SIMULATOR_PALETTE_QUERY_MAX_BYTES = 2 * 1024
 
 // Why search-only: the row icon already says "emulator"; a fixed secondary label
@@ -109,7 +110,7 @@ export type BuildSearchableSimulatorTabsOptions = {
   groupsByWorktree: Record<string, readonly TabGroup[] | undefined>
   activeWorktreeId: string | null
   activeWorkspaceExecutionHostId?: ExecutionHostId | null
-  activeTabType: SimulatorPaletteActiveTabType
+  activeTabType: WorkspaceVisibleTabType
 }
 
 function compareText(a: string, b: string): number {
