@@ -60,13 +60,10 @@ describe('provider frame activity', () => {
     ).toBeNull()
   })
 
-  it('falls through on protocol noise and redacts credential-shaped text', () => {
+  it('falls through on protocol noise and bounds long copy', () => {
     expect(providerActivityText('codex · notification:warning')).toBeNull()
     expect(providerActivityText('item/reasoning/summaryPartAdded')).toBeNull()
     expect(providerActivityText('{"file":"contents"}')).toBeNull()
-    expect(providerActivityText('Connecting with token=sk-examplecredential12345')).toBe(
-      'Connecting with token=[redacted]'
-    )
     const bounded = providerActivityText(`Reviewing ${'long '.repeat(100)}`)
     expect(Array.from(bounded ?? '').length).toBeLessThanOrEqual(MAX_PROVIDER_ACTIVITY_LENGTH)
     expect(bounded?.endsWith('…')).toBe(true)
@@ -83,28 +80,5 @@ describe('provider frame activity', () => {
     expect(
       codexProviderFrameActivity('item/reasoning/summaryTextDelta', {}, '**Inspecting the wor')
     ).toBeUndefined()
-  })
-
-  it.each([
-    ['Auth with ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 done', 'Auth with [redacted] done'],
-    [
-      'Using github_pat_11ABCDEFG0abcdefghijklmnop_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123 now',
-      'Using [redacted] now'
-    ],
-    ['Signing with AKIAIOSFODNN7EXAMPLE now', 'Signing with [redacted] now'],
-    [
-      'Session eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c ready',
-      'Session [redacted] ready'
-    ],
-    [
-      'Cloning https://user:hunter2secret@github.com/org/repo.git',
-      'Cloning https://user:[redacted]@github.com/org/repo.git'
-    ],
-    [
-      'Fetching https://api.example.com/v1/data?token=abcdefghijklmnop0123 now',
-      'Fetching https://api.example.com/v1/data?token=[redacted] now'
-    ]
-  ])('redacts %s', (input, expected) => {
-    expect(providerActivityText(input)).toBe(expected)
   })
 })

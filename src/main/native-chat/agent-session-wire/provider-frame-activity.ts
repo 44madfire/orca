@@ -15,25 +15,6 @@ function stringField(source: Record<string, unknown> | null, key: string): strin
   return typeof value === 'string' && value.trim() ? value : null
 }
 
-function redactSecrets(text: string): string | null {
-  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text)) {
-    return null
-  }
-  return text
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, 'Bearer [redacted]')
-    .replace(/\b(?:sk|xox[baprs])-[A-Za-z0-9_-]{12,}\b/gi, '[redacted]')
-    .replace(
-      /\b(?:gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b/g,
-      '[redacted]'
-    )
-    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
-    .replace(/(:\/\/[^\s/:@]+:)[^\s@/]+@/g, '$1[redacted]@')
-    .replace(
-      /\b(api[_ -]?key|access[_ -]?token|token|secret|password|authorization)(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|\S+)/gi,
-      '$1$2[redacted]'
-    )
-}
-
 /** A reasoning summary streams as a bold headline plus body; only the headline is activity copy. */
 function reasoningHeadline(text: string | null | undefined): ActivityText {
   const line = text?.split(/\r?\n/).find((candidate) => candidate.trim())
@@ -64,13 +45,9 @@ export function providerActivityText(value: unknown): string | null {
   ) {
     return null
   }
-  const redacted = redactSecrets(unwrapped)
-  if (!redacted) {
-    return null
-  }
-  const characters = Array.from(redacted)
+  const characters = Array.from(unwrapped)
   if (characters.length <= MAX_PROVIDER_ACTIVITY_LENGTH) {
-    return redacted
+    return unwrapped
   }
   const head = characters.slice(0, MAX_PROVIDER_ACTIVITY_LENGTH - 1).join('')
   const boundary = head.lastIndexOf(' ')
