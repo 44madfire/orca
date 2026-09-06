@@ -73,8 +73,8 @@ export async function captureWindowsDescendantSnapshot(
   if (!table) {
     return null
   }
-  // The same index the walk below builds, so a table that repeats a pid resolves
-  // a parent link to the row the walk will actually traverse.
+  // Indexed the way the walk indexes, so a repeated pid resolves a parent link
+  // first-wins -- to the row the walk traverses, not the last one a Map would keep.
   const rowsByPid = getProcessTableIndex(table).byPid
   const root = rowsByPid.get(rootPid)
   if (typeof root?.creationTimeMs !== 'number') {
