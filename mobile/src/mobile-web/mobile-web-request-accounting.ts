@@ -1,3 +1,8 @@
+import {
+  MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS,
+  MOBILE_WEB_BRIDGE_MAX_SUBSCRIPTIONS
+} from '../../../src/shared/mobile-web/bridge-limits'
+import { MOBILE_WEB_BRIDGE_OPERATIONS } from '../../../src/shared/mobile-web/bridge-operation-registry'
 export function mobileWebOperationKey(request: { capability: string; operation: string }): string {
   return `${request.capability}.${request.operation}`
 }
@@ -7,7 +12,8 @@ export function mobileWebRequestExpectsSubscription(request: {
   operation: string
 }): boolean {
   return (
-    (request.capability === 'workspace' ||
+    (request.capability === 'workspace' && request.operation === 'hostSubscribe') ||
+    ((request.capability === 'workspace' ||
       request.capability === 'account' ||
       request.capability === 'session' ||
       request.capability === 'sourceControl' ||
@@ -15,7 +21,7 @@ export function mobileWebRequestExpectsSubscription(request: {
       request.capability === 'browser' ||
       request.capability === 'nativeChat' ||
       request.capability === 'speech') &&
-    request.operation === 'subscribe'
+      request.operation === 'subscribe')
   )
 }
 
@@ -81,4 +87,42 @@ export function mobileWebPendingRequestForSubscription(
 // Native alerts outlive client churn and explicit cancels; the OS dialog owns the resolution.
 export function mobileWebRequestSurvivesCancellation(pending: { operationKey: string }): boolean {
   return pending.operationKey === 'native.alert'
+}
+
+export function mobileWebSubscriptionCount(
+  pending: Iterable<{ subscriptionId?: string }>,
+  ledgers: readonly { countForOperation: (key: string) => number }[]
+): number {
+  let count = Array.from(pending).filter((entry) => entry.subscriptionId !== undefined).length
+  for (const [capability, operations] of Object.entries(MOBILE_WEB_BRIDGE_OPERATIONS)) {
+    for (const [operation, kind] of Object.entries(operations)) {
+      if (kind === 'subscription') {
+        for (const ledger of ledgers) {
+          count += ledger.countForOperation(`${capability}.${operation}`)
+        }
+      }
+    }
+  }
+  return count
+}
+
+export function mobileWebRequestAtCapacity(args: {
+  pending: ReadonlyMap<string, { operationKey: string; subscriptionId?: string }>
+  request: { mode: 'once' | 'subscription'; capability: string; operation: string }
+  ledgers: readonly { countForOperation: (key: string) => number }[]
+  isHostRequest: boolean
+  hostRequestsInFlight: number
+  maxConcurrent: number
+}): boolean {
+  const key = mobileWebOperationKey(args.request)
+  return (
+    (args.isHostRequest && args.hostRequestsInFlight >= 4) ||
+    args.pending.size >= MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS ||
+    (args.request.mode === 'subscription' &&
+      mobileWebSubscriptionCount(args.pending.values(), args.ledgers) >=
+        MOBILE_WEB_BRIDGE_MAX_SUBSCRIPTIONS) ||
+    mobileWebPendingForOperation(args.pending.values(), key) +
+      args.ledgers.reduce((sum, ledger) => sum + ledger.countForOperation(key), 0) >=
+      args.maxConcurrent
+  )
 }

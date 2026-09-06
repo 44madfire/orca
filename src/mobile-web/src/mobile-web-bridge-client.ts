@@ -1,3 +1,4 @@
+import { subscribeHostSourceControl } from './mobile-web-source-control-host-subscription'
 import {
   MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
   type MobileWebBridgeMessageContext,
@@ -70,6 +71,7 @@ export class MobileWebBridgeClient {
   readonly fileReadChunk!: MobileWebFileRequestClient['readChunk']
   readonly fileWrite!: MobileWebFileRequestClient['write']
   readonly fileOpen!: MobileWebFileRequestClient['open']
+  readonly hostSubscribe: MobileWebBridgeSubscriptionClient['subscribeHost']
   readonly fileResolveTerminalPath!: MobileWebFileRequestClient['resolveTerminalPath']
   readonly fileReadTerminalArtifactChunk!: MobileWebFileRequestClient['readTerminalArtifactChunk']
   readonly fileReleaseTerminalArtifact!: MobileWebFileRequestClient['releaseTerminalArtifact']
@@ -208,14 +210,15 @@ export class MobileWebBridgeClient {
     this.terminalDeviceInputRequest = terminalRequests.deviceInput.bind(terminalRequests)
     Object.assign(this, mobileWebBrowserNavigationClientBindings(this.requests))
     this.subscriptions = new MobileWebBridgeSubscriptionClient({
-      getGrant: (capability) =>
-        this.grants.get(mobileWebBridgeOperationKey(capability, 'subscribe')),
+      getGrant: (capability, operation = 'subscribe') =>
+        this.grants.get(mobileWebBridgeOperationKey(capability, operation)),
       postMessage: options.postMessage,
       envelope,
       createMessageId: (excluded) => this.uniqueMessageId(excluded),
       otherPendingCount: () => this.requests.pendingCount(),
       requestTimeoutMs: options.requestTimeoutMs
     })
+    this.hostSubscribe = this.subscriptions.subscribeHost.bind(this.subscriptions)
     this.account = new MobileWebAccountRequestClient(this.requests, this.subscriptions)
     this.agentHistory = new MobileWebAgentHistoryRequestClient(this.requests)
     this.speech = new MobileWebSpeechRequestClient(this.requests, this.subscriptions)
@@ -261,7 +264,7 @@ export class MobileWebBridgeClient {
   sourceControlSubscribe(
     ...args: Parameters<MobileWebBridgeSubscriptionClient['subscribeSourceControl']>
   ): MobileWebBridgeSubscription {
-    return this.subscriptions.subscribeSourceControl(...args)
+    return subscribeHostSourceControl(this.requests, this.subscriptions, ...args)
   }
 
   browserSubscribe(

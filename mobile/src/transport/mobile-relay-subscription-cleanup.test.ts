@@ -25,12 +25,18 @@ function setup(waitForConnected: () => Promise<void> = async () => {}) {
 describe('relay server subscription cleanup', () => {
   it.each([
     ['files.watch', 'files.unwatch'],
-    ['accounts.subscribe', 'accounts.unsubscribe']
+    ['accounts.subscribe', 'accounts.unsubscribe'],
+    ['future.feed', 'future.release']
   ])('releases %s before and after the ready response', async (method, unsubscribeMethod) => {
     for (const cancelBeforeReady of [false, true]) {
       const { streams, sendFrame, ready } = setup()
       const listener = vi.fn()
-      const cancel = streams.subscribe(method, {}, listener)
+      const cancel = streams.subscribe(
+        method,
+        {},
+        listener,
+        method === 'future.feed' ? { serverUnsubscribeMethod: unsubscribeMethod } : undefined
+      )
       await Promise.resolve()
       if (cancelBeforeReady) {
         cancel()

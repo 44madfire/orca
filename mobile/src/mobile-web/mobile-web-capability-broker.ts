@@ -1,8 +1,7 @@
 import { requireMobileWebConnectedClient } from './mobile-web-connected-client'
-import {
-  MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS,
-  type MobileWebBridgePageMessage,
-  type MobileWebResumeRoute
+import type {
+  MobileWebBridgePageMessage,
+  MobileWebResumeRoute
 } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
 import {
@@ -26,10 +25,10 @@ import { rememberMobileWebBrokerRoute } from './mobile-web-broker-route-memory'
 import { resolveMobileWebHostNavigationRoute } from './mobile-web-host-navigation-route'
 import {
   mobileWebEncodedByteLength,
+  mobileWebRequestAtCapacity,
   mobileWebRequestSurvivesCancellation,
   mobileWebAgentHistoryContinuation,
   mobileWebOperationKey,
-  mobileWebPendingForOperation,
   mobileWebPendingRequestForSubscription,
   mobileWebRequestExpectsSubscription,
   mobileWebWorkspaceSnapshotContinuation
@@ -155,7 +154,7 @@ export class MobileWebCapabilityBroker {
 
     const isHostRequest =
       request.capability === 'workspace' &&
-      (request.operation === 'hostRequest' || request.operation === 'hostCatalog')
+      ['hostRequest', 'hostCatalog', 'hostSubscribe'].includes(request.operation)
     const grant = MOBILE_WEB_PRODUCTION_GRANT_INDEX.get(mobileWebOperationKey(request))
     const expectsSubscription = mobileWebRequestExpectsSubscription(request)
     if (!grant || (request.mode === 'subscription') !== expectsSubscription) {
@@ -174,13 +173,14 @@ export class MobileWebCapabilityBroker {
       return
     }
     if (
-      (isHostRequest && this.hostRequestsInFlight >= 4) ||
-      this.pending.size >= MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS ||
-      mobileWebPendingForOperation(this.pending.values(), mobileWebOperationKey(request)) +
-        this.subscriptions.countForOperation(mobileWebOperationKey(request)) +
-        this.terminalStreams.countForOperation(mobileWebOperationKey(request)) +
-        this.speechAuthority.countForOperation(mobileWebOperationKey(request)) >=
-        grant.limits.maxConcurrent
+      mobileWebRequestAtCapacity({
+        pending: this.pending,
+        request,
+        isHostRequest,
+        hostRequestsInFlight: this.hostRequestsInFlight,
+        ledgers: [this.subscriptions, this.terminalStreams, this.speechAuthority],
+        maxConcurrent: grant.limits.maxConcurrent
+      })
     ) {
       await this.messages.error(request.requestId, 'rate_limited', true)
       return
@@ -254,6 +254,7 @@ export class MobileWebCapabilityBroker {
       sourceControlBranchCompare: this.authorities.sourceControlBranchCompare,
       speechAuthority: this.speechAuthority,
       workspaceSubscriptions: this.subscriptions.workspace,
+      hostSubscriptions: this.subscriptions.host,
       terminalStreams: this.terminalStreams,
       commitMessageGeneration: this.commitMessageGeneration,
       browserAuthority: this.authorities.browser,

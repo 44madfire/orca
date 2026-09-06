@@ -21,6 +21,16 @@ const PAGE_METHODS = new Map(
   ])
 )
 
+const fileWatchGrant = {
+  method: 'mobileWeb.files.watch',
+  workspaceParam: 'worktree',
+  mode: 'subscription',
+  unsubscribeMethod: 'files.unwatch',
+  maxRequestBytes: 16 * 1024,
+  maxResponseBytes: 512 * 1024
+}
+PAGE_METHODS.set(fileWatchGrant.method, fileWatchGrant)
+
 export const MOBILE_WEB_HOST_CATALOG_METHOD = defineMethod({
   name: 'mobileWeb.host.catalog',
   params: MobileWebHostCatalogPayloadSchema,

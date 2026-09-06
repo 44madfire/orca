@@ -68,12 +68,12 @@ folder and SSH workspaces still use their actual execution owner.
 
 ## 3. Generic subscriptions and transport lifecycle
 
-- [ ] Remove the transport's static method-to-unsubscribe dependency for generic
+- [x] Remove the transport's static method-to-unsubscribe dependency for generic
       streams using host-advertised cleanup or a generic host subscription token.
 - [ ] Preserve direct/relay setup, ready, unsubscribe and reconnect behavior.
-- [ ] Reuse the existing subscription ledger with bounded pending event bytes
+- [x] Reuse the existing subscription ledger with bounded pending event bytes
       and event count; enforce aggregate subscription ceilings.
-- [ ] Forward domain event shapes without APK-owned projections.
+- [x] Forward domain event shapes without APK-owned projections (source-control file watch).
 - [ ] Migrate native-chat/session/source-control/account feeds.
 - [ ] Preserve terminal binary capability negotiation, acknowledgements,
       backpressure and resync; never silently substitute JSON stream semantics.
@@ -284,3 +284,20 @@ A failed/malformed `session.tabs.list` no longer revokes native-chat authority;
 it reports a retryable host error. Successful snapshots still establish removal.
 Next implementation slice: host-advertised generic subscriptions, cleanup
 metadata, bounded queues, and page-side source-control invalidation.
+
+### Generic subscription implementation
+
+Implemented `workspace.hostSubscribe` using Desktop catalog mode/cleanup metadata,
+opaque workspace binding, and unchanged protocol 2. Source-control invalidation
+now consumes Desktop file-watch events in the page, with legacy shell/host fallback.
+Direct and relay transports retain arbitrary cleanup routes across early cancellation;
+direct reconnect clears old tokens. Generic transport records cap at 128, including
+cancelled records awaiting ready. Ledger queues cap at 64 events / 2 MiB; aggregate
+admission counts legacy, terminal and generic subscriptions together.
+
+All required gates pass. Mobile: 834 files / 5,515 passed; root: 318 files / 2,700
+passed. Additional capacity tests: 3 files / 14 passed. Deliberate dispatch census
+228 → 229; reauthorization census includes generic stream delivery and extracted
+workspace dispatch. Logs: `/tmp/orca-ota-e2e/generic-stream-gates/`.
+Page build: `925397fb68c40b511854af454cce2a2989134aa34a517f10fd494064f36ea895`.
+Native-chat/session/account feed migration and platform E2E remain open.

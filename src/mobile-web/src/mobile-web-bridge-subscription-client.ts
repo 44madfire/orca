@@ -1,3 +1,4 @@
+import { hostSubscriptionSetup } from './mobile-web-host-subscription-setup'
 import type {
   MobileWebBridgeCapability,
   MobileWebBridgePageMessage,
@@ -10,16 +11,15 @@ import type {
   MobileWebSessionSubscribePayload,
   MobileWebWorkspaceChange
 } from '../../shared/mobile-web/bridge-operation-contract'
-import {
-  MobileWebTerminalEventSchema,
-  MobileWebTerminalRequestSchema,
-  type MobileWebTerminalEvent,
-  type MobileWebTerminalRequest
+import type {
+  MobileWebTerminalEvent,
+  MobileWebTerminalRequest
 } from '../../shared/mobile-web/terminal-stream-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { deliverMobileWebSubscriptionEvent } from './mobile-web-bridge-subscription-event-delivery'
 import {
   accountSubscriptionSetup,
+  terminalSubscriptionSetup,
   browserSubscriptionSetup,
   nativeChatSubscriptionSetup,
   sessionSubscriptionSetup,
@@ -54,7 +54,10 @@ export class MobileWebBridgeSubscriptionClient {
 
   constructor(
     private readonly options: {
-      getGrant: (capability: MobileWebBridgeCapability) => OperationGrant | undefined
+      getGrant: (
+        capability: MobileWebBridgeCapability,
+        operation?: string
+      ) => OperationGrant | undefined
       postMessage: (message: MobileWebBridgePageMessage) => boolean
       envelope: () => Pick<MobileWebBridgePageMessage, 'version' | 'shellSessionId' | 'buildId'>
       createMessageId: (excluded?: string) => string
@@ -95,15 +98,12 @@ export class MobileWebBridgeSubscriptionClient {
     onEvent: (event: MobileWebTerminalEvent) => void,
     onError: (error: MobileWebBridgeClientError) => void
   ): MobileWebTerminalBridgeSubscription {
-    const subscription = this.subscribeWith({
-      capability: 'terminal',
-      payload,
-      payloadSchema: MobileWebTerminalRequestSchema,
-      eventSchema: MobileWebTerminalEventSchema,
-      onEvent: (value) => onEvent(value as MobileWebTerminalEvent),
-      onError
-    })
+    const subscription = this.subscribeWith(terminalSubscriptionSetup(payload, onEvent, onError))
     return { ...subscription, streamId: subscription.subscriptionId }
+  }
+
+  subscribeHost(...args: Parameters<typeof hostSubscriptionSetup>) {
+    return this.subscribeWith(hostSubscriptionSetup(...args))
   }
 
   subscribeSourceControl(
@@ -123,7 +123,7 @@ export class MobileWebBridgeSubscriptionClient {
   private subscribeWith(
     setup: MobileWebBridgeSubscriptionSetup
   ): MobileWebBridgeSubscription & { subscriptionId: string } {
-    const grant = this.options.getGrant(setup.capability)
+    const grant = this.options.getGrant(setup.capability, setup.operation ?? 'subscribe')
     const parsedPayload = setup.payloadSchema.safeParse(setup.payload)
     const error = mobileWebSubscriptionSetupError({
       disposed: this.disposed,
@@ -184,7 +184,7 @@ export class MobileWebBridgeSubscriptionClient {
       requestId,
       subscriptionId,
       capability: setup.capability,
-      operation: 'subscribe',
+      operation: setup.operation ?? 'subscribe',
       payload: parsedPayload.data
     })
     if (!posted) {

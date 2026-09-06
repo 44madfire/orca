@@ -21,6 +21,8 @@ export const MobileWebHostRequestPayloadSchema = z
 
 export const MobileWebHostGrantSchema = z.object({
   method: MethodSchema,
+  mode: z.enum(['once', 'subscription']).optional(),
+  unsubscribeMethod: MethodSchema.optional(),
   workspaceParam: z
     .string()
     .min(1)

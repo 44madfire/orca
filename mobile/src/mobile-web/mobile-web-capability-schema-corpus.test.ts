@@ -1,3 +1,4 @@
+import { mobileWebRequestExpectsSubscription } from './mobile-web-request-accounting'
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
@@ -94,6 +95,8 @@ function requestFor(
     capability: grant.capability,
     operation: grant.operation,
     payload,
-    ...(grant.operation === 'subscribe' ? { subscriptionId: `s${requestId.slice(1)}` } : {})
+    ...(mobileWebRequestExpectsSubscription(grant)
+      ? { subscriptionId: `s${requestId.slice(1)}` }
+      : {})
   })
 }

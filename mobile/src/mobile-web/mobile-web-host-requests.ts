@@ -21,12 +21,17 @@ export async function readMobileWebHostCatalog(client: RpcClient, input: unknown
   return MobileWebHostCatalogResultSchema.parse(response.result)
 }
 
-export async function executeMobileWebHostRequest(args: {
+export type MobileWebHostRequestArguments = {
   client: RpcClient
   authority: MobileWebWorkspaceAuthority
   payload: unknown
   isActive: () => boolean
-}): Promise<unknown> {
+}
+
+export async function prepareMobileWebHostRequest(
+  args: MobileWebHostRequestArguments,
+  mode: 'once' | 'subscription'
+) {
   const payload = MobileWebHostRequestPayloadSchema.parse(args.payload)
   if (!mobileWebHostPayloadWithinBounds(payload.params)) {
     throw new MobileWebBrokerError('too_large')
@@ -34,7 +39,11 @@ export async function executeMobileWebHostRequest(args: {
   const hostWorkspaceId = args.authority.hostWorkspaceId(payload.workspaceId)
   const catalog = await readMobileWebHostCatalog(args.client, { methods: [payload.method] })
   const grant = catalog.grants.find((entry) => entry.method === payload.method)
-  if (!grant) {
+  if (
+    !grant ||
+    (grant.mode ?? 'once') !== mode ||
+    (mode === 'subscription' && !grant.unsubscribeMethod)
+  ) {
     throw new MobileWebBrokerError('unsupported_capability')
   }
   if (!args.isActive()) {
@@ -48,6 +57,16 @@ export async function executeMobileWebHostRequest(args: {
   ) {
     throw new MobileWebBrokerError('too_large')
   }
+  return { payload, hostWorkspaceId, grant, params }
+}
+
+export async function executeMobileWebHostRequest(
+  args: MobileWebHostRequestArguments
+): Promise<unknown> {
+  const { payload, hostWorkspaceId, grant, params } = await prepareMobileWebHostRequest(
+    args,
+    'once'
+  )
   const response = await args.client.sendRequest(payload.method, params)
   if (!response.ok) {
     throw mobileWebBrokerHostRpcError(response.error)

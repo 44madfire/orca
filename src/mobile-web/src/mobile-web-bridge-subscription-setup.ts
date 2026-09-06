@@ -1,3 +1,9 @@
+import {
+  MobileWebTerminalRequestSchema,
+  MobileWebTerminalEventSchema,
+  type MobileWebTerminalRequest,
+  type MobileWebTerminalEvent
+} from '../../shared/mobile-web/terminal-stream-contract'
 import type { z } from 'zod'
 import type { MobileWebBridgeCapability } from '../../shared/mobile-web/bridge-contract'
 import {
@@ -38,6 +44,7 @@ import {
 } from '../../shared/mobile-web/speech-operation-contract'
 
 export type MobileWebBridgeSubscriptionSetup = {
+  operation?: string
   capability: MobileWebBridgeCapability
   payload: unknown
   payloadSchema: z.ZodType<unknown>
@@ -148,6 +155,21 @@ export function sourceControlSubscriptionSetup(
       (event) => event.workspaceId === payload.workspaceId
     ),
     onEvent: (value) => onEvent(value as MobileWebSourceControlStatusInvalidation),
+    onError
+  }
+}
+
+export function terminalSubscriptionSetup(
+  payload: Extract<MobileWebTerminalRequest, { operation: 'subscribe' }>,
+  onEvent: (event: MobileWebTerminalEvent) => void,
+  onError: (error: MobileWebBridgeClientError) => void
+): MobileWebBridgeSubscriptionSetup {
+  return {
+    capability: 'terminal',
+    payload,
+    payloadSchema: MobileWebTerminalRequestSchema,
+    eventSchema: MobileWebTerminalEventSchema,
+    onEvent: (value) => onEvent(value as MobileWebTerminalEvent),
     onError
   }
 }

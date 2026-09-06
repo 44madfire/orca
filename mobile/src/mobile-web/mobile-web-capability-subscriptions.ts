@@ -1,3 +1,4 @@
+import { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
 import type { MobileWebSubscriptionClosure } from './mobile-web-subscription-closure'
 import type {
@@ -14,6 +15,7 @@ import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authori
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
 
 export class MobileWebCapabilitySubscriptions {
+  readonly host: MobileWebHostSubscriptions
   readonly account: MobileWebAccountSubscriptions
   readonly browser: MobileWebBrowserStreams
   readonly nativeChat: MobileWebNativeChatSubscriptions
@@ -34,6 +36,10 @@ export class MobileWebCapabilitySubscriptions {
       postEvent: args.postEvent,
       postClosed: args.postClosed
     }
+    this.host = new MobileWebHostSubscriptions({
+      ...shared,
+      workspaceAuthority: args.workspaceAuthority
+    })
     this.account = new MobileWebAccountSubscriptions(shared)
     this.browser = new MobileWebBrowserStreams({
       ...shared,
@@ -56,6 +62,7 @@ export class MobileWebCapabilitySubscriptions {
     })
     this.workspace = new MobileWebWorkspaceSubscriptions(shared)
     this.ledgers = [
+      this.host,
       this.account,
       this.browser,
       this.nativeChat,

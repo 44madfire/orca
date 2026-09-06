@@ -6,7 +6,7 @@ import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/
 import type { MobileWebBridgeCapability } from '../../../src/shared/mobile-web/bridge-operation-registry'
 import { MobileWebSourceControlSubscribePayloadSchema } from '../../../src/shared/mobile-web/source-control-operation-contract'
 import { MobileWebSpeechSubscribePayloadSchema } from '../../../src/shared/mobile-web/speech-operation-contract'
-import { executeMobileWebHostRequest, readMobileWebHostCatalog } from './mobile-web-host-requests'
+import { executeWorkspace } from './mobile-web-workspace-capability'
 import { executeMobileWebAccountCapability } from './mobile-web-account-capability'
 import { executeMobileWebAgentHistoryOperation } from './mobile-web-agent-history-operations'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
@@ -23,7 +23,6 @@ import { executeMobileWebSessionOperation } from './mobile-web-session-operation
 import { executeMobileWebSourceControlOperation } from './mobile-web-source-control-operations'
 import { executeMobileWebSpeechOperation } from './mobile-web-speech-operations'
 import { executeMobileWebTaskReadOperation } from './mobile-web-task-read-operations'
-import { executeMobileWebWorkspaceOperation } from './mobile-web-workspace-operations'
 
 type PageRequest = Extract<MobileWebBridgePageMessage, { type: 'request' }>
 type OnceRequest = Extract<PageRequest, { mode: 'once' }>
@@ -68,35 +67,6 @@ async function executeBrowser(args: Deps, request: OnceRequest): Promise<unknown
     workspaceAuthority: args.workspaceAuthority,
     browserAuthority: args.browserAuthority
   })
-}
-
-async function executeWorkspace(args: Deps, request: OnceRequest): Promise<unknown> {
-  if (request.operation === 'hostCatalog') {
-    return readMobileWebHostCatalog(args.connectedClient(), request.payload)
-  }
-  if (request.operation === 'hostRequest') {
-    return executeMobileWebHostRequest({
-      client: args.connectedClient(),
-      authority: args.workspaceAuthority,
-      payload: request.payload,
-      isActive: args.isRequestActive
-    })
-  }
-  if (request.capability !== 'workspace' && request.capability !== 'settings') {
-    throw new MobileWebBrokerError('unsupported_capability')
-  }
-  const result = await executeMobileWebWorkspaceOperation({
-    capability: request.capability,
-    operation: request.operation,
-    payload: request.payload,
-    client: args.connectedClient(),
-    authority: args.workspaceAuthority,
-    snapshots: args.workspaceSnapshots
-  })
-  if (request.capability === 'workspace' && request.operation === 'activate') {
-    args.terminalArtifactAuthority.clear()
-  }
-  return result
 }
 
 async function executeSession(args: Deps, request: OnceRequest): Promise<unknown> {
@@ -242,6 +212,16 @@ async function subscribeBrowser(args: Deps, request: SubscriptionRequest): Promi
 }
 
 async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Promise<unknown> {
+  if (request.operation === 'hostSubscribe') {
+    await args.hostSubscriptions.start({
+      requestId: request.requestId,
+      subscriptionId: request.subscriptionId,
+      payload: request.payload,
+      client: args.connectedClient(),
+      isActive: args.isRequestActive
+    })
+    return null
+  }
   requireSubscribeOperation(request)
   MobileWebWorkspaceSubscribePayloadSchema.parse(request.payload)
   args.workspaceSubscriptions.start({

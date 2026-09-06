@@ -1,3 +1,4 @@
+import type { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
 import type { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
@@ -34,6 +35,7 @@ export type MobileWebCapabilityExecutionDependencies = {
   agentHistoryAuthority: MobileWebAgentHistoryAuthority
   agentHistoryPager: MobileWebAgentHistoryPager
   agentHistoryResume: MobileWebAgentHistoryResume
+  hostSubscriptions: MobileWebHostSubscriptions
   accountSubscriptions: MobileWebAccountSubscriptions
   browserStreams: MobileWebBrowserStreams
   nativeChatSubscriptions: MobileWebNativeChatSubscriptions

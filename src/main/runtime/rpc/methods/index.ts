@@ -46,6 +46,7 @@ import { AGENT_SESSION_METHODS } from './agent-session'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
 import { ARTIFACT_METHODS } from './artifacts'
 import { MOBILE_WEB_FILE_READ_METHODS } from './mobile-web-file-reads'
+import { MOBILE_WEB_FILE_WATCH_METHOD } from './mobile-web-file-watch'
 import { MOBILE_WEB_HOST_CATALOG_METHOD } from './mobile-web-host-catalog'
 import { MOBILE_WEB_PACKAGE_METHODS } from './mobile-web-package'
 import { MOBILE_FILE_WRITE_METHODS } from './mobile-file-write-if-unchanged'
@@ -105,5 +106,6 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...UPDATER_METHODS,
   MOBILE_WEB_HOST_CATALOG_METHOD,
   ...MOBILE_WEB_FILE_READ_METHODS,
+  MOBILE_WEB_FILE_WATCH_METHOD,
   ...MOBILE_WEB_PACKAGE_METHODS
 ]

@@ -3,6 +3,7 @@ import type {
   MobileWebSubscriptionClosure
 } from './mobile-web-subscription-closure'
 import { MOBILE_WEB_BRIDGE_MAX_SUBSCRIPTIONS } from '../../../src/shared/mobile-web/bridge-contract'
+import { mobileWebEncodedByteLength } from './mobile-web-request-accounting'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 
 export type MobileWebSubscriptionRecord = {
@@ -42,6 +43,8 @@ export class MobileWebSubscriptionLedger<
   TRecord extends MobileWebSubscriptionRecord = MobileWebSubscriptionRecord
 > {
   protected readonly records = new Map<string, TRecord>()
+  private queuedEvents = 0
+  private queuedBytes = 0
 
   constructor(protected readonly options: MobileWebSubscriptionLedgerOptions<TEvent>) {}
 
@@ -139,15 +142,31 @@ export class MobileWebSubscriptionLedger<
   ): void {
     const sequence = record.sequence
     record.sequence += 1
-    this.enqueueTask(subscriptionId, record, async () => {
-      await this.options.postEvent(subscriptionId, sequence, event)
-      if (retireAfterDelivery) {
-        this.cancel(subscriptionId)
-      }
-    })
+    this.enqueueTask(
+      subscriptionId,
+      record,
+      async () => {
+        await this.options.postEvent(subscriptionId, sequence, event)
+        if (retireAfterDelivery) {
+          this.cancel(subscriptionId)
+        }
+      },
+      mobileWebEncodedByteLength(event)
+    )
   }
 
-  protected enqueueTask(subscriptionId: string, record: TRecord, task: () => Promise<void>): void {
+  protected enqueueTask(
+    subscriptionId: string,
+    record: TRecord,
+    task: () => Promise<void>,
+    retainedBytes = 0
+  ): void {
+    if (this.queuedEvents >= 64 || this.queuedBytes + retainedBytes > 2 * 1024 * 1024) {
+      this.cancel(subscriptionId, { code: 'rate_limited', retryable: true })
+      return
+    }
+    this.queuedEvents += 1
+    this.queuedBytes += retainedBytes
     record.delivery = record.delivery
       .then(async () => {
         if (this.isCurrent(subscriptionId, record) && this.canDeliver(subscriptionId, record)) {
@@ -156,6 +175,10 @@ export class MobileWebSubscriptionLedger<
       })
       .catch(() => {
         this.cancel(subscriptionId, { code: 'unavailable', retryable: true })
+      })
+      .finally(() => {
+        this.queuedEvents -= 1
+        this.queuedBytes -= retainedBytes
       })
   }
 
