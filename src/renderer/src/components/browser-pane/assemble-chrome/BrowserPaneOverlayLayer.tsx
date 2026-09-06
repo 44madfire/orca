@@ -1,10 +1,11 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import { registerBrowserOverlaySlotViewport } from '../host-guest/browser-page-viewport'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../../../store'
 import type { BrowserTab as BrowserTabState } from '../../../../../shared/browser-workspace-types'
 import type { Tab, TabGroup } from '../../../../../shared/tab-types'
 import BrowserPane from './browser-workspace-pane'
+import { DeferredBrowserContent } from './DeferredBrowserContent'
 import type { BrowserChromeShortcutScope } from '../describe-page/browser-page-types'
 import { tabGroupBodyAnchorName } from '../../tab-group/tab-group-body-anchor'
 import { useBrowserGuestPaintRetention } from '../host-guest/browser-guest-paint-retention'
@@ -58,8 +59,6 @@ const BrowserOverlaySlot = memo(function BrowserOverlaySlot({
       : [browserTab.activePageId ?? browserTab.id]
   const needsGuestPaint = useBrowserGuestPaintRetention(browserPageIds)
   const isPaintable = isActive || needsGuestPaint
-  // Why: restoring a workspace must not create guests for every inactive tab.
-  const shouldMountPane = isActive || needsGuestPaint
   // Why: CSS anchor positioning pins the overlay to its owning group's body — a tab move only swaps positionAnchor, no measurement/state.
   // Orphan branch (no anchorName) stays display:none until the tab is reassigned or destroyed.
   const style: React.CSSProperties = useMemo(
@@ -102,14 +101,13 @@ const BrowserOverlaySlot = memo(function BrowserOverlaySlot({
       onFocusCapture={handleFocus}
     >
       <div ref={setSlotViewportRef} className="absolute inset-0 flex min-h-0 flex-col" />
-      {/* Persistent viewport slots keep live guests intact when inactive chrome unmounts. */}
-      {shouldMountPane ? (
+      <DeferredBrowserContent mountEligible={isPaintable}>
         <BrowserPane
           browserTab={browserTab}
           isActive={isActive}
           chromeShortcutScope={chromeShortcutScope}
         />
-      ) : null}
+      </DeferredBrowserContent>
     </div>
   )
 })
@@ -262,17 +260,11 @@ export const RetainedBrowserPaneOverlayLayer = memo(function RetainedBrowserPane
   isWorktreeActive: boolean
   mountEligible: boolean
 }): React.JSX.Element | null {
-  const [hasCommittedMount, setHasCommittedMount] = useState(false)
-  // Why: commit the latch with the persistent slot DOM so discarded renders cannot retain a guest host.
-  useLayoutEffect(() => {
-    if (mountEligible && !hasCommittedMount) {
-      setHasCommittedMount(true)
-    }
-  }, [hasCommittedMount, mountEligible])
-  if (!mountEligible && !hasCommittedMount) {
-    return null
-  }
-  return <BrowserPaneOverlayLayer worktreeId={worktreeId} isWorktreeActive={isWorktreeActive} />
+  return (
+    <DeferredBrowserContent mountEligible={mountEligible}>
+      <BrowserPaneOverlayLayer worktreeId={worktreeId} isWorktreeActive={isWorktreeActive} />
+    </DeferredBrowserContent>
+  )
 })
 
 export default BrowserPaneOverlayLayer

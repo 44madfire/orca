@@ -1,9 +1,15 @@
 import { DOC_PREVIEW_PARTITION } from '../../../../../shared/doc-preview-scheme'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../../shared/browser-guest-web-preferences'
 import { isWebviewDragPassthroughActive } from '@/components/browser-pane/host-guest/webview-drag-passthrough'
-import { moveFocusToRendererBeforeWebviewDetach } from '@/components/browser-pane/host-guest/webview-registry'
+import {
+  moveFocusToRendererBeforeWebviewDetach,
+  registerPersistentWebview,
+  unregisterPersistentWebview,
+  webviewRegistry
+} from '@/components/browser-pane/host-guest/webview-registry'
 
 export function attachDocPreviewWebview({
+  previewId,
   container,
   url,
   ariaLabel,
@@ -13,6 +19,7 @@ export function attachDocPreviewWebview({
   onNavigated,
   onTitleUpdated
 }: {
+  previewId: string
   container: HTMLDivElement
   url: string
   ariaLabel: string
@@ -52,6 +59,7 @@ export function attachDocPreviewWebview({
   if (isWebviewDragPassthroughActive()) {
     webview.style.pointerEvents = 'none'
   }
+  registerPersistentWebview(previewId, webview)
   container.appendChild(webview)
   webview.setAttribute('src', url)
 
@@ -66,6 +74,9 @@ export function attachDocPreviewWebview({
       webview.removeEventListener('page-title-updated', onTitleUpdated)
       moveFocusToRendererBeforeWebviewDetach(webview)
       webview.remove()
+      if (webviewRegistry.get(previewId) === webview) {
+        unregisterPersistentWebview(previewId)
+      }
     },
     // Why: the protocol handler answers with no-store, so a reload re-reads the workspace disk.
     reload: () => {

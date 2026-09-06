@@ -211,14 +211,21 @@ describe('BrowserPaneOverlayLayer', () => {
     const view = render(<BrowserPaneOverlayLayer worktreeId="wt-1" isWorktreeActive />)
     const slot = view.container.querySelector('[data-browser-overlay-tab-id="browser-0"]')!
     const viewport = slot.firstElementChild
+    const pane = slot.querySelector('[data-browser-pane-id]')
     expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(1)
     expect(view.container.querySelectorAll('[data-browser-overlay-tab-id]')).toHaveLength(200)
 
     view.rerender(<BrowserPaneOverlayLayer worktreeId="wt-1" isWorktreeActive={false} />)
-    expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(0)
-    mocks.state!.groupsByWorktree['wt-1'] = [{ ...group, activeTabId: tabs[199].id }]
+    expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(1)
+    expect(slot.querySelector('[data-browser-pane-id]')).toBe(pane)
+    expect((slot as HTMLElement).style.display).toBe('none')
     view.rerender(<BrowserPaneOverlayLayer worktreeId="wt-1" isWorktreeActive />)
     expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(1)
+    expect(slot.querySelector('[data-browser-pane-id]')).toBe(pane)
+    view.rerender(<BrowserPaneOverlayLayer worktreeId="wt-1" isWorktreeActive={false} />)
+    mocks.state!.groupsByWorktree['wt-1'] = [{ ...group, activeTabId: tabs[199].id }]
+    view.rerender(<BrowserPaneOverlayLayer worktreeId="wt-1" isWorktreeActive />)
+    expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(2)
     expect(view.container.querySelector('[data-browser-pane-id="browser-199"]')).not.toBeNull()
     expect(slot.firstElementChild).toBe(viewport)
     expect(viewport!.isConnected).toBe(true)

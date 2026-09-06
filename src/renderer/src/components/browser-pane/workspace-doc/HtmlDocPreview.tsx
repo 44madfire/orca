@@ -47,6 +47,7 @@ export function HtmlDocPreview({
   relativePath,
   worktreeId,
   holdsGuestFocus = false,
+  isActive = true,
   runtimeEnvironmentId = null,
   externalSshTargetId = null,
   convertedFrom = null,
@@ -58,6 +59,7 @@ export function HtmlDocPreview({
   worktreeId: string
   /** Whether this preview is the surface the reader is in, and so may hold the keyboard. */
   holdsGuestFocus?: boolean
+  isActive?: boolean
   runtimeEnvironmentId?: string | null
   externalSshTargetId?: string | null
   /** Set when the address bar converted this page; Back returns across it once guest history runs out. */
@@ -217,6 +219,7 @@ export function HtmlDocPreview({
           return
         }
         const attached = attachDocPreviewWebview({
+          previewId,
           container: containerRef.current,
           url: handle.url,
           ariaLabel: translate(
@@ -269,6 +272,13 @@ export function HtmlDocPreview({
     syncHistory,
     worktreeId
   ])
+
+  useEffect(() => {
+    // Eviction removes the guest, not the retained pane; only the selected preview restores it.
+    if (isActive && webviewRef.current && !webviewRef.current.isConnected) {
+      setRemintCount((count) => count + 1)
+    }
+  }, [isActive])
 
   // The dropdown's doc-history source: opening a document is a visit, once per document per mount
   // (a hard reload re-mints the grant but is not a new visit).

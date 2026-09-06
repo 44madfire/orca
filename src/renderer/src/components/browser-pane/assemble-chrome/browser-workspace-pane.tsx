@@ -19,6 +19,7 @@ import { RemoteBrowserPagePane } from '../stream-remote/remote-browser-page-pane
 import { ClientHostedBrowserPagePane } from '../ClientHostedBrowserPagePane'
 import { BrowserPagePane } from './browser-page-pane'
 import { WorkspaceDocPagePane } from '../workspace-doc/workspace-doc-page-pane'
+import { DeferredBrowserContent } from './DeferredBrowserContent'
 import { SshRoutedBrowserPageGate } from './ssh-routed-browser-page-gate'
 
 export default function BrowserPane({
@@ -55,30 +56,17 @@ export default function BrowserPane({
   const automationVisiblePageIds = useBrowserAutomationVisiblePageIds(browserPageIds)
   const mobileDrivenPageIds = useBrowserMobileDrivenPageIds(browserPageIds)
   const remotelyViewedPageIds = useBrowserRemotelyViewedPageIds(browserPageIds)
-  // Why: dormant pages load on demand; live guests survive chrome unmounts in persistent viewports.
-  const renderedBrowserPages = useMemo(
+  const localBrowserPages = useMemo(
     () =>
       browserPages.filter(
-        (page) =>
-          !getBrowserPageRuntimeEnvironmentId(page, activeRuntimeEnvironmentId) &&
-          ((isActive && page.id === activeBrowserPageId) ||
-            automationVisiblePageIds.has(page.id) ||
-            mobileDrivenPageIds.has(page.id) ||
-            remotelyViewedPageIds.has(page.id))
+        (page) => !getBrowserPageRuntimeEnvironmentId(page, activeRuntimeEnvironmentId)
       ),
-    [
-      browserPages,
-      activeRuntimeEnvironmentId,
-      isActive,
-      activeBrowserPageId,
-      automationVisiblePageIds,
-      mobileDrivenPageIds,
-      remotelyViewedPageIds
-    ]
+    [browserPages, activeRuntimeEnvironmentId]
   )
-  const renderedBrowserPageIds = useMemo(
-    () => renderedBrowserPages.map((page) => page.id),
-    [renderedBrowserPages]
+  // Routing guards every local guest, including pages hidden after their first activation.
+  const localBrowserPageIds = useMemo(
+    () => localBrowserPages.map((page) => page.id),
+    [localBrowserPages]
   )
   const pageDriver = useBrowserDriverForPage(activeBrowserPageId)
   // Why: a runtime-backed page is streamed, never locally driven, so its driver must read idle.
@@ -162,42 +150,50 @@ export default function BrowserPane({
 
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col">
-      {renderedBrowserPages.length > 0 ? (
+      {localBrowserPages.length > 0 ? (
         <SshRoutedBrowserPageGate
           worktreeId={browserTab.worktreeId}
           sessionProfileId={browserTab.sessionProfileId ?? null}
-          pageIds={renderedBrowserPageIds}
+          pageIds={localBrowserPageIds}
         >
           {(routedPartition) => (
             <div className="relative flex min-h-0 flex-1">
-              {renderedBrowserPages.map((page) =>
-                page.docLocation ? (
-                  <WorkspaceDocPagePane
-                    key={page.id}
-                    page={page}
-                    isActive={isActive && page.id === activeBrowserPage?.id}
-                  />
-                ) : (
-                  <BrowserPagePane
-                    key={page.id}
-                    browserTab={page}
-                    workspaceId={browserTab.id}
-                    worktreeId={browserTab.worktreeId}
-                    sessionProfileId={browserTab.sessionProfileId ?? null}
-                    sessionPartition={routedPartition ?? browserTab.sessionPartition ?? null}
-                    isActive={isActive && page.id === activeBrowserPage?.id}
-                    chromeShortcutScope={
-                      page.id === activeBrowserPage?.id ? resolvedChromeShortcutScope : 'inactive'
-                    }
-                    isAutomationVisible={automationVisiblePageIds.has(page.id)}
-                    isMobileDriven={mobileDrivenPageIds.has(page.id)}
-                    isRemotelyViewed={remotelyViewedPageIds.has(page.id)}
-                    inputLocked={activeBrowserDriver.kind === 'mobile'}
-                    onUpdatePageState={updateBrowserPageState}
-                    onSetUrl={setBrowserPageUrl}
-                  />
-                )
-              )}
+              {localBrowserPages.map((page) => (
+                <DeferredBrowserContent
+                  key={page.id}
+                  mountEligible={
+                    (isActive && page.id === activeBrowserPageId) ||
+                    automationVisiblePageIds.has(page.id) ||
+                    mobileDrivenPageIds.has(page.id) ||
+                    remotelyViewedPageIds.has(page.id)
+                  }
+                >
+                  {page.docLocation ? (
+                    <WorkspaceDocPagePane
+                      page={page}
+                      isActive={isActive && page.id === activeBrowserPage?.id}
+                    />
+                  ) : (
+                    <BrowserPagePane
+                      browserTab={page}
+                      workspaceId={browserTab.id}
+                      worktreeId={browserTab.worktreeId}
+                      sessionProfileId={browserTab.sessionProfileId ?? null}
+                      sessionPartition={routedPartition ?? browserTab.sessionPartition ?? null}
+                      isActive={isActive && page.id === activeBrowserPage?.id}
+                      chromeShortcutScope={
+                        page.id === activeBrowserPage?.id ? resolvedChromeShortcutScope : 'inactive'
+                      }
+                      isAutomationVisible={automationVisiblePageIds.has(page.id)}
+                      isMobileDriven={mobileDrivenPageIds.has(page.id)}
+                      isRemotelyViewed={remotelyViewedPageIds.has(page.id)}
+                      inputLocked={activeBrowserDriver.kind === 'mobile'}
+                      onUpdatePageState={updateBrowserPageState}
+                      onSetUrl={setBrowserPageUrl}
+                    />
+                  )}
+                </DeferredBrowserContent>
+              ))}
               <BrowserMobileDriverOverlay
                 driver={activeBrowserDriver}
                 onTakeBack={reclaimActiveBrowserForDesktop}

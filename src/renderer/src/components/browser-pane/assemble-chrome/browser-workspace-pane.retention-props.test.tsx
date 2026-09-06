@@ -149,7 +149,7 @@ describe('browser workspace pane retention props', () => {
     hydrateBrowserRemoteViewerPages([])
   })
 
-  it('loads only the selected page out of 200 after mounting and remounting', () => {
+  it('defers unopened pages out of 200 and retains opened pages until unmount', () => {
     const pages = Array.from({ length: 200 }, (_, index) => createPage(`page-${index}`))
     mocks.state!.browserPagesByWorkspace[WORKSPACE_ID] = pages
     const workspace = { ...createWorkspace(), activePageId: pages[0].id }
@@ -161,9 +161,9 @@ describe('browser workspace pane retention props', () => {
     expect(renderedIds()).toEqual(['page-0'])
 
     view.rerender(<BrowserPane browserTab={{ ...workspace, activePageId: 'page-199' }} isActive />)
-    expect(renderedIds()).toEqual(['page-199'])
+    expect(renderedIds()).toEqual(['page-0', 'page-199'])
     view.rerender(<BrowserPane browserTab={workspace} isActive={false} />)
-    expect(renderedIds()).toEqual([])
+    expect(renderedIds()).toEqual(['page-0', 'page-199'])
     view.rerender(<BrowserPane key="restored" browserTab={workspace} isActive />)
     expect(renderedIds()).toEqual(['page-0'])
   })
