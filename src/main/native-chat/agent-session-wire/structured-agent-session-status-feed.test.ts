@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentSessionStatusEvent } from '../../../shared/agent-session-wire'
+import { createClaudeJournalTranslator } from '../../claude/claude-structured-journal-translation'
+import { publishCodexTurnLifecycle } from '../../codex/codex-structured-journal-translation-turns'
+import { createDeferredStructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
 import { createTrackedJournalOpener } from '../agent-session-journal/journal-store-test-open'
 import {
   StructuredAgentSessionStatusFeed,
@@ -276,6 +279,83 @@ describe('StructuredAgentSessionStatusFeed', () => {
     feed.subscribe({ id: 'list-2', emit: () => undefined })
     expect(seen.at(-1)).toEqual({ status: 'idle', prompt: 'fix the auth bug', replay: true })
   })
+
+  it.each(['claude', 'codex'] as const)(
+    'observes a fast %s turn even when start and finish queue before persistence',
+    async (agent) => {
+      const journal = await openJournal()
+      await journal.appendItem(
+        USER_IDENTITY,
+        {
+          kind: 'message',
+          role: 'user',
+          blocks: [{ type: 'text', text: 'Fix auth' }]
+        },
+        { fence: 1 }
+      )
+      const seen: (string | null)[] = []
+      const { feed } = feedFor(new Map([[SESSION, { journal }]]), (summary) =>
+        seen.push(summary.status)
+      )
+      const deferred = createDeferredStructuredAgentSessionEventSink()
+      if (agent === 'claude') {
+        const translator = createClaudeJournalTranslator({ sink: deferred.sink })
+        translator.handle({
+          type: 'message',
+          sessionId: SESSION,
+          startsTurn: true,
+          message: {
+            type: 'user',
+            uuid: 'prompt-1',
+            session_id: 'claude-session',
+            parent_tool_use_id: null,
+            message: { role: 'user', content: [{ type: 'text', text: 'Fix auth' }] }
+          }
+        })
+        translator.handle({
+          type: 'message',
+          sessionId: SESSION,
+          message: {
+            type: 'result',
+            subtype: 'success',
+            session_id: 'claude-session',
+            uuid: 'result-1',
+            result: 'Done'
+          }
+        })
+        translator.dispose()
+      } else {
+        for (const state of ['running', 'completed'] as const) {
+          publishCodexTurnLifecycle({
+            sink: deferred.sink,
+            primaryThreadId: 'thread-1',
+            sessionId: SESSION,
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            state
+          })
+        }
+      }
+      for (let index = 0; index < 100; index++) {
+        deferred.sink.publish()
+      }
+      // This queue is also reached while a previous asynchronous journal write is pending.
+      let publications = 0
+      deferred.bind({
+        journal,
+        fence: 1,
+        publish: () => {
+          publications += 1
+          feed.publish(SESSION, journal)
+        }
+      })
+      expect(await deferred.drained()).toEqual({ ok: true })
+      expect(seen).toEqual(['idle', 'working', 'idle'])
+      expect(publications).toBe(2)
+      expect(deferred.state()).toMatchObject({ queuedBytes: 0, queuedOperations: 0 })
+      deferred.close()
+    }
+  )
 
   it('keeps publishing to subscribers when the host observer throws', async () => {
     const journal = await openJournal()

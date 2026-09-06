@@ -112,7 +112,10 @@ export function createClaudeJournalTranslator(
     } else {
       deps.sink.appendTombstone(identity)
     }
-    deps.sink.publish()
+    // Preserve first-work evidence when completion arrives before the journal drains.
+    deps.sink.publish({
+      coalescingKey: running ? `turn-start:${sessionId}:${turnId}` : 'publish'
+    })
   }
 
   const handleStream = (message: Record<string, unknown>): boolean => {

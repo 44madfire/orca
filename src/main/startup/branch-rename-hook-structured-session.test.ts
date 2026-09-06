@@ -19,8 +19,11 @@ vi.mock('../agent-hooks/first-work-folder-rename', () => ({
 vi.mock('../git/worktree', () => ({ moveWorktree: vi.fn() }))
 vi.mock('electron', () => ({ app: { getPath: () => '', on: vi.fn(), isReady: () => true } }))
 
-import { maybeAutoRenameWorkspaceOnFirstStructuredTurn } from './branch-rename-hook'
+import { maybeAutoRenameWorkspaceOnFirstStructuredTurn } from '../agent-hooks/first-work-structured-session-rename'
+import { firstWorkRenameDeps } from '../agent-hooks/first-work-rename-runtime'
 import { mainProcessState } from './main-process-state'
+
+let renameDeps: ReturnType<typeof firstWorkRenameDeps>
 
 const WORKSPACE_ID = 'repo1::/repo/wt'
 
@@ -47,11 +50,12 @@ beforeEach(() => {
   mainProcessState.runtime = {
     getCommitMessageAgentEnvironmentResolvers: () => undefined
   } as unknown as typeof mainProcessState.runtime
+  renameDeps = firstWorkRenameDeps(mainProcessState.store!, mainProcessState.runtime!)
 })
 
 describe('maybeAutoRenameWorkspaceOnFirstStructuredTurn', () => {
   it('drives the first-work rename from the session workspace, with no pane to resolve', () => {
-    maybeAutoRenameWorkspaceOnFirstStructuredTurn(summary(), { replay: false })
+    maybeAutoRenameWorkspaceOnFirstStructuredTurn(summary(), { replay: false }, renameDeps)
 
     expect(renameCalls).toHaveLength(1)
     expect(renameCalls[0]?.[0]).toEqual({
@@ -66,23 +70,29 @@ describe('maybeAutoRenameWorkspaceOnFirstStructuredTurn', () => {
   })
 
   it('marks a re-projected summary as a replay so restore cannot rename on old state', () => {
-    maybeAutoRenameWorkspaceOnFirstStructuredTurn(summary(), { replay: true })
+    maybeAutoRenameWorkspaceOnFirstStructuredTurn(summary(), { replay: true }, renameDeps)
 
     expect(renameCalls[0]?.[0]).toMatchObject({ isReplay: true })
   })
 
   it('ignores every status that is not a running turn', () => {
     for (const status of ['idle', 'attention', null] as const) {
-      maybeAutoRenameWorkspaceOnFirstStructuredTurn(summary({ status }), { replay: false })
+      maybeAutoRenameWorkspaceOnFirstStructuredTurn(
+        summary({ status }),
+        { replay: false },
+        renameDeps
+      )
     }
 
     expect(renameCalls).toEqual([])
   })
 
-  it('does nothing before the store and runtime singletons exist', () => {
+  it('uses the owning runtime even when desktop singletons do not exist', () => {
     mainProcessState.store = null
-    maybeAutoRenameWorkspaceOnFirstStructuredTurn(summary(), { replay: false })
+    mainProcessState.runtime = null
+    maybeAutoRenameWorkspaceOnFirstStructuredTurn(summary(), { replay: false }, renameDeps)
 
-    expect(renameCalls).toEqual([])
+    expect(renameCalls).toHaveLength(1)
+    expect(renameCalls[0]?.[1]).toBe(renameDeps)
   })
 })
