@@ -25,10 +25,12 @@ import { SshRoutedBrowserPageGate } from './ssh-routed-browser-page-gate'
 export default function BrowserPane({
   browserTab,
   isActive,
+  isWorktreeActive = true,
   chromeShortcutScope
 }: {
   browserTab: BrowserWorkspaceState
   isActive: boolean
+  isWorktreeActive?: boolean
   chromeShortcutScope?: BrowserChromeShortcutScope
 }): React.JSX.Element {
   const resolvedChromeShortcutScope = chromeShortcutScope ?? (isActive ? 'focused' : 'inactive')
@@ -161,6 +163,7 @@ export default function BrowserPane({
               {localBrowserPages.map((page) => (
                 <DeferredBrowserContent
                   key={page.id}
+                  retainMounted={isWorktreeActive}
                   mountEligible={
                     (isActive && page.id === activeBrowserPageId) ||
                     automationVisiblePageIds.has(page.id) ||

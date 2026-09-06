@@ -216,19 +216,59 @@ describe('BrowserPaneOverlayLayer', () => {
     expect(view.container.querySelectorAll('[data-browser-overlay-tab-id]')).toHaveLength(200)
 
     view.rerender(<BrowserPaneOverlayLayer worktreeId="wt-1" isWorktreeActive={false} />)
-    expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(1)
-    expect(slot.querySelector('[data-browser-pane-id]')).toBe(pane)
+    expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(0)
+    expect(pane!.isConnected).toBe(false)
     expect((slot as HTMLElement).style.display).toBe('none')
     view.rerender(<BrowserPaneOverlayLayer worktreeId="wt-1" isWorktreeActive />)
     expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(1)
-    expect(slot.querySelector('[data-browser-pane-id]')).toBe(pane)
+    expect(slot.querySelector('[data-browser-pane-id]')).not.toBe(pane)
     view.rerender(<BrowserPaneOverlayLayer worktreeId="wt-1" isWorktreeActive={false} />)
     mocks.state!.groupsByWorktree['wt-1'] = [{ ...group, activeTabId: tabs[199].id }]
     view.rerender(<BrowserPaneOverlayLayer worktreeId="wt-1" isWorktreeActive />)
-    expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(2)
+    expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(1)
     expect(view.container.querySelector('[data-browser-pane-id="browser-199"]')).not.toBeNull()
     expect(slot.firstElementChild).toBe(viewport)
     expect(viewport!.isConnected).toBe(true)
+  })
+
+  it('retains zero unclaimed hidden panes after visiting 50 worktrees with 20 tabs each', () => {
+    const worktreeIds = Array.from({ length: 50 }, (_, index) => `wt-scale-${index}`)
+    for (const worktreeId of worktreeIds) {
+      const browsers = Array.from({ length: 20 }, (_, index) => ({
+        ...createBrowserTab(`${worktreeId}-browser-${index}`, [`${worktreeId}-page-${index}`]),
+        worktreeId
+      }))
+      const tabs = browsers.map((browser, index) => ({
+        ...createUnifiedBrowserTab(`${worktreeId}-tab-${index}`, browser.id, index),
+        worktreeId,
+        groupId: `${worktreeId}-group-${index}`
+      }))
+      mocks.state!.browserTabsByWorktree[worktreeId] = browsers
+      mocks.state!.unifiedTabsByWorktree[worktreeId] = tabs
+      mocks.state!.groupsByWorktree[worktreeId] = tabs.map((tab) => ({
+        id: tab.groupId,
+        worktreeId,
+        activeTabId: tab.id,
+        tabOrder: [tab.id]
+      }))
+    }
+    const surfaces = (activeId: string | null) =>
+      worktreeIds.map((worktreeId) => (
+        <RetainedBrowserPaneOverlayLayer
+          key={worktreeId}
+          worktreeId={worktreeId}
+          isWorktreeActive={worktreeId === activeId}
+          mountEligible={worktreeId === activeId}
+        />
+      ))
+    const view = render(surfaces(null))
+    for (const worktreeId of worktreeIds) {
+      view.rerender(surfaces(worktreeId))
+      expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(20)
+      view.rerender(surfaces(null))
+      expect(view.container.querySelectorAll('[data-browser-pane-id]')).toHaveLength(0)
+    }
+    expect(view.container.querySelectorAll('[data-browser-overlay-tab-id]')).toHaveLength(1000)
   })
 
   it('keeps an active browser pane unfocused when another split holds focus (#11348)', () => {

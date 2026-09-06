@@ -278,7 +278,7 @@ export function HtmlDocPreview({
     if (isActive && webviewRef.current && !webviewRef.current.isConnected) {
       setRemintCount((count) => count + 1)
     }
-  }, [isActive])
+  }, [isActive, previewId])
 
   // The dropdown's doc-history source: opening a document is a visit, once per document per mount
   // (a hard reload re-mints the grant but is not a new visit).

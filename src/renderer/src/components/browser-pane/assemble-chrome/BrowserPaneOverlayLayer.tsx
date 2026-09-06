@@ -29,6 +29,7 @@ const EMPTY_GROUPS: readonly TabGroup[] = []
 
 type BrowserOverlaySlotProps = {
   browserTab: BrowserTabState
+  isWorktreeActive: boolean
   // Why: undefined = orphan tab (in browserTabs but not referenced by any group's unified-tab list); the fallback branch keeps these hidden.
   groupId: string | undefined
   isActive: boolean
@@ -40,6 +41,7 @@ type BrowserOverlaySlotProps = {
 // Why: memoize each slot so unrelated worktree mutations don't cascade a re-render into every BrowserPane subtree.
 const BrowserOverlaySlot = memo(function BrowserOverlaySlot({
   browserTab,
+  isWorktreeActive,
   groupId,
   isActive,
   chromeShortcutScope,
@@ -101,9 +103,10 @@ const BrowserOverlaySlot = memo(function BrowserOverlaySlot({
       onFocusCapture={handleFocus}
     >
       <div ref={setSlotViewportRef} className="absolute inset-0 flex min-h-0 flex-col" />
-      <DeferredBrowserContent mountEligible={isPaintable}>
+      <DeferredBrowserContent mountEligible={isPaintable} retainMounted={isWorktreeActive}>
         <BrowserPane
           browserTab={browserTab}
+          isWorktreeActive={isWorktreeActive}
           isActive={isActive}
           chromeShortcutScope={chromeShortcutScope}
         />
@@ -184,6 +187,7 @@ const BrowserPaneOverlayLayer = memo(function BrowserPaneOverlayLayer({
           <BrowserOverlaySlot
             key={browserTab.id}
             browserTab={browserTab}
+            isWorktreeActive={isWorktreeActive}
             groupId={assignment?.groupId}
             isActive={isActive}
             chromeShortcutScope={chromeShortcutScope}
