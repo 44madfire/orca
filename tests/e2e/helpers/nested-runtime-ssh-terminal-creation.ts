@@ -7,6 +7,7 @@ export async function assertPairedTerminalCreation(
   client: PairedElectronClient,
   marker: string
 ): Promise<{ ptyId: string; tabId: string }> {
+  client.page.on('console', (message) => { if (message.text().startsWith('[nested-input-')) console.log(message.text()) })
   const before = await client.page.evaluate(() => {
     const state = window.__store?.getState()
     const worktreeId = state?.activeWorktreeId

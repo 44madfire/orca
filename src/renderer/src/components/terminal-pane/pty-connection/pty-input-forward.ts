@@ -25,6 +25,7 @@ import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 export function installPtyInputForward(session: ConnectPanePtySession): void {
   session.forwardPtyInput = (data: string): void => {
+    console.info('[nested-input-receipt]', JSON.stringify({ data: data.slice(0, 600), tabId: session.deps.tabId, ptyId: session.transport.getPtyId(), replaying: isPaneReplaying(session.deps.replayingPanesRef, session.pane.id), locked: Boolean(session.transport.getPtyId() && isPtyLocked(session.transport.getPtyId()!)), activeTabId: useAppStore.getState().activeTabId, focusedOnPane: session.pane.terminal.textarea === document.activeElement }))
     // Why: xterm auto-replies to embedded query sequences (DA1, DECRQM,
     // OSC 10/11, focus, CPR) via onData. When we replay recorded PTY bytes
     // into xterm for scrollback/cold-restore/snapshot, those queries would
