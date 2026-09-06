@@ -30,7 +30,7 @@ export function SectionHeader({
           type="button"
           variant="ghost"
           size="xs"
-          className="h-auto min-h-6 min-w-0 flex-auto justify-start gap-x-1 gap-y-0 px-0.5 py-0.5 text-left font-semibold uppercase tracking-wider text-foreground/70 group-hover/section:text-accent-foreground"
+          className="h-auto min-h-6 min-w-0 flex-auto justify-start gap-x-1 gap-y-0 py-0.5 text-left font-semibold uppercase tracking-wider text-foreground/70 group-hover/section:text-accent-foreground"
           onClick={onToggle}
           aria-expanded={!isCollapsed}
         >
