@@ -19,7 +19,7 @@ import type {
 import type {
   AgentSessionBackgroundTaskState,
   AgentSessionOptionsResult,
-  AgentSessionSlashCommand,
+  AgentSessionCommandsResult,
   AgentSessionWireRefusalCode
 } from '../../../shared/agent-session-wire'
 import type { StructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
@@ -146,7 +146,7 @@ export type StructuredAgentSessionAdapter = {
   backgroundTaskState?(sessionId: string): AgentSessionBackgroundTaskState | null | undefined
   /** The `/` surface the running provider reports for itself. Undefined when the
    *  provider never reports one, which is what keeps the client on its catalog. */
-  readCommands?(sessionId: string): AgentSessionSlashCommand[] | undefined
+  readCommands?(sessionId: string): AgentSessionCommandsResult | undefined
   /** Fires the provider callback for an approval or a question. The wire calls
    *  this only after the durable compare-and-set won, so it runs exactly once. */
   answerPrompt(input: {

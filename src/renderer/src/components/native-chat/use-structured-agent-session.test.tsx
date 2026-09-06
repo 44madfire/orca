@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ call: vi.fn(), operationId: vi.fn() }))
 let fence = 3
+let commandsRevision: number | undefined
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call
@@ -14,6 +15,7 @@ vi.mock('./use-structured-agent-session-read', () => ({
   useStructuredAgentSessionRead: () => ({
     state: {
       fence,
+      commandsRevision,
       items: [],
       submissions: [],
       status: 'ready',
@@ -331,5 +333,112 @@ describe('useStructuredAgentSession options', () => {
       scope: 'background-tasks',
       taskId: 'task-2'
     })
+  })
+})
+
+describe('session command catalog reads', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fence = 3
+    commandsRevision = 0
+  })
+
+  const args = { sessionId: 'one', target: LOCAL_TARGET, agent: 'claude' as const, isVisible: true }
+  const commands = [{ name: 'plugin:review', kind: 'skill' as const }]
+  function respond(read: (params: { sessionId: string }) => Promise<unknown>) {
+    mocks.call.mockImplementation((_target, method, params) =>
+      method === 'agentSession.commands'
+        ? read(params)
+        : Promise.resolve(method === 'agentSession.options' ? OPTIONS : null)
+    )
+  }
+
+  it('clears previous session data before a new read settles or fails', async () => {
+    let reject!: (error: Error) => void
+    respond(({ sessionId }) =>
+      sessionId === 'one'
+        ? Promise.resolve({ commands })
+        : new Promise((_resolve, rejectPromise) => {
+            reject = rejectPromise
+          })
+    )
+    const { result, rerender } = renderHook((props) => useStructuredAgentSession(props), {
+      initialProps: args
+    })
+    await waitFor(() => expect(result.current.sessionCommands).toEqual(commands))
+    rerender({ ...args, sessionId: 'two' })
+    expect(result.current.sessionCommands).toBeUndefined()
+    await act(async () => reject(new Error('method_not_found')))
+    expect(result.current.sessionCommands).toBeUndefined()
+  })
+
+  it('does not reuse a catalog for the same session id on another paired runtime', async () => {
+    const first = { kind: 'environment' as const, environmentId: 'first' }
+    const second = { kind: 'environment' as const, environmentId: 'second' }
+    mocks.call.mockImplementation((target, method) => {
+      if (method === 'agentSession.commands') {
+        return target === first ? Promise.resolve({ commands }) : new Promise(() => {})
+      }
+      return Promise.resolve(method === 'agentSession.options' ? OPTIONS : null)
+    })
+    const { result, rerender } = renderHook(
+      (target) => useStructuredAgentSession({ ...args, target }),
+      { initialProps: first }
+    )
+    await waitFor(() => expect(result.current.sessionCommands).toEqual(commands))
+    rerender(second)
+    expect(result.current.sessionCommands).toBeUndefined()
+  })
+
+  it('drops responses from a superseded session and retains authoritative empty responses', async () => {
+    let resolve!: (value: unknown) => void
+    respond(({ sessionId }) =>
+      sessionId === 'one'
+        ? new Promise((resolvePromise) => {
+            resolve = resolvePromise
+          })
+        : Promise.resolve({ commands: [] })
+    )
+    const { result, rerender } = renderHook((props) => useStructuredAgentSession(props), {
+      initialProps: args
+    })
+    rerender({ ...args, sessionId: 'two' })
+    await waitFor(() => expect(result.current.sessionCommands).toEqual([]))
+    await act(async () => resolve({ commands }))
+    expect(result.current.sessionCommands).toEqual([])
+  })
+
+  it('refreshes an idle catalog only on revision changes, not transcript renders', async () => {
+    let current = commands
+    respond(async () => ({ commands: current }))
+    const { result, rerender } = renderHook(() => useStructuredAgentSession(args))
+    await waitFor(() => expect(result.current.sessionCommands).toEqual(commands))
+    const reads = () =>
+      mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.commands').length
+    for (let index = 0; index < 30; index += 1) {
+      rerender()
+    }
+    expect(reads()).toBe(1)
+    current = []
+    commandsRevision = 1
+    rerender()
+    await waitFor(() => expect(result.current.sessionCommands).toEqual([]))
+    expect(reads()).toBe(2)
+  })
+
+  it('falls back after a current catalog read failure and fences reacquisition', async () => {
+    respond(async () => ({ commands }))
+    const { result, rerender } = renderHook(() => useStructuredAgentSession(args))
+    await waitFor(() => expect(result.current.sessionCommands).toEqual(commands))
+    respond(async () => {
+      throw new Error('unreachable')
+    })
+    commandsRevision = 1
+    rerender()
+    await waitFor(() => expect(result.current.sessionCommands).toBeUndefined())
+    respond(() => new Promise(() => {}))
+    fence = 4
+    rerender()
+    expect(result.current.sessionCommands).toBeUndefined()
   })
 })

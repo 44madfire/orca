@@ -32,9 +32,11 @@ describe('claude slash command catalog', () => {
 
   it('seeds from the init frame that proved the session', () => {
     expect(new ClaudeSlashCommandCatalog(init()).commands).toHaveLength(3)
-    expect(new ClaudeSlashCommandCatalog().commands).toEqual([])
+    expect(new ClaudeSlashCommandCatalog().commands).toBeUndefined()
     // A frame of the right subtype but without the array is not a catalog.
-    expect(new ClaudeSlashCommandCatalog({ type: 'system', subtype: 'init' }).commands).toEqual([])
+    expect(
+      new ClaudeSlashCommandCatalog({ type: 'system', subtype: 'init' }).commands
+    ).toBeUndefined()
   })
 
   it('replaces the catalog on commands_changed and reports only real changes', () => {
@@ -69,4 +71,14 @@ describe('claude slash command catalog', () => {
     ).toBe(true)
     expect(catalog.commands).toEqual([{ name: 'review', kind: 'skill' }])
   })
+})
+
+it('distinguishes missing catalogs from an authoritative empty update', () => {
+  const catalog = new ClaudeSlashCommandCatalog()
+  expect(catalog.commands).toBeUndefined()
+  expect(catalog.observe(init({ slash_commands: [] }))).toBe(true)
+  expect(catalog.commands).toEqual([])
+  expect(catalog.revision).toBe(1)
+  expect(catalog.observe(init({ slash_commands: [] }))).toBe(false)
+  expect(catalog.revision).toBe(1)
 })

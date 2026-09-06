@@ -46,14 +46,17 @@ export function readClaudeSlashCommands(
 /** Per-session `/` catalog, seeded from the init frame that proved the session
  *  and refreshed by every later init or `commands_changed` frame. */
 export class ClaudeSlashCommandCatalog {
-  private entries: AgentSessionSlashCommand[]
+  private entries: AgentSessionSlashCommand[] | undefined
+  revision = 0
 
   constructor(initMessage?: Record<string, unknown>) {
     this.entries =
-      initMessage && carriesCommandCatalog(initMessage) ? readClaudeSlashCommands(initMessage) : []
+      initMessage && carriesCommandCatalog(initMessage)
+        ? readClaudeSlashCommands(initMessage)
+        : undefined
   }
 
-  get commands(): AgentSessionSlashCommand[] {
+  get commands(): AgentSessionSlashCommand[] | undefined {
     return this.entries
   }
 
@@ -64,15 +67,17 @@ export class ClaudeSlashCommandCatalog {
     }
     const next = readClaudeSlashCommands(message)
     if (
+      this.entries !== undefined &&
       next.length === this.entries.length &&
       next.every(
         (entry, index) =>
-          entry.name === this.entries[index]?.name && entry.kind === this.entries[index]?.kind
+          entry.name === this.entries?.[index]?.name && entry.kind === this.entries?.[index]?.kind
       )
     ) {
       return false
     }
     this.entries = next
+    this.revision += 1
     return true
   }
 }

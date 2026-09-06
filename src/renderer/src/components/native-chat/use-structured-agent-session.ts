@@ -173,7 +173,15 @@ export function useStructuredAgentSession(args: {
     }
   }, [isVisible, optionCatalog, sessionId, state.fence, target, turnId])
 
-  const [sessionCommands, setSessionCommands] = useState<readonly AgentSessionSlashCommand[]>([])
+  const catalogIdentity = useMemo(
+    () => ({ sessionId, target, fence: state.fence }),
+    [sessionId, target, state.fence]
+  )
+  const [catalog, setCatalog] = useState<{
+    identity: typeof catalogIdentity
+    commands: readonly AgentSessionSlashCommand[] | undefined
+  }>()
+  const sessionCommands = catalog?.identity === catalogIdentity ? catalog.commands : undefined
   useEffect(() => {
     if (!isVisible) {
       return
@@ -184,16 +192,18 @@ export function useStructuredAgentSession(args: {
     })
       .then((result) => {
         if (!stale) {
-          setSessionCommands(result.commands ?? [])
+          setCatalog({ identity: catalogIdentity, commands: result.commands })
         }
       })
-      // Why: a host that predates this method answers method_not_found, which is
-      // the same as "no catalog" — the composer keeps its curated list.
-      .catch(() => {})
+      .catch(() => {
+        if (!stale) {
+          setCatalog({ identity: catalogIdentity, commands: undefined })
+        }
+      })
     return () => {
       stale = true
     }
-  }, [isVisible, sessionId, state.fence, target, turnId])
+  }, [isVisible, catalogIdentity, sessionId, state.commandsRevision, target, turnId])
 
   const optionSnapshot = useMemo(
     () => structuredAgentSessionOptionSnapshot(optionState),

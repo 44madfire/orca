@@ -28,8 +28,6 @@ import {
   emitNativeChatSendClassified
 } from '@/lib/native-chat-telemetry'
 
-const EMPTY_SESSION_SKILL_NAMES: readonly string[] = []
-
 export type NativeChatPickerState = {
   autocomplete: ComposerAutocomplete
   listboxId: string
@@ -48,7 +46,7 @@ export function useNativeChatPickerState(args: {
   draft: string
   caret: number
   agentCommands: readonly SlashCommandSuggestion[]
-  /** Skill names the running session reports; empty keeps the host disk scan. */
+  /** Skill names the running session reports; absence keeps the host disk scan. */
   sessionSkillNames?: readonly string[]
   textareaRef: RefObject<HTMLTextAreaElement | null>
   setDraft: (value: string) => void
@@ -62,7 +60,7 @@ export function useNativeChatPickerState(args: {
     draft,
     caret,
     agentCommands,
-    sessionSkillNames = EMPTY_SESSION_SKILL_NAMES,
+    sessionSkillNames,
     textareaRef,
     setDraft,
     setCaret,

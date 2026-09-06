@@ -409,3 +409,31 @@ describe('structured agent session reducer', () => {
     expect(withoutCapability.backgroundTasks).toBeUndefined()
   })
 })
+
+it('applies catalog-only checkpoints without replacing transcript or submission state', () => {
+  const state = reduceStructuredAgentSession(EMPTY_STRUCTURED_AGENT_SESSION, {
+    type: 'event',
+    event: {
+      type: 'snapshot',
+      sessionId: 'session-a',
+      fence: 1,
+      page: hydrationPage([item('one', 1)], [submission(1)]),
+      commandsRevision: 0
+    }
+  })
+  const event = {
+    type: 'batch' as const,
+    sessionId: 'session-a',
+    fence: 1,
+    commandsRevision: 1,
+    batch: { cursor: state.cursor!, items: [], removedItemIds: [], submissions: [] }
+  }
+  const updated = reduceStructuredAgentSession(state, { type: 'event', event })
+  expect(updated.commandsRevision).toBe(1)
+  expect(updated.items).toBe(state.items)
+  expect(updated.submissions).toBe(state.submissions)
+  expect(updated.cursor).toBe(state.cursor)
+  expect(reduceStructuredAgentSession(updated, { type: 'event', event })).toBe(updated)
+  const { commandsRevision: _revision, ...oldEvent } = event
+  expect(reduceStructuredAgentSession(updated, { type: 'event', event: oldEvent })).toBe(updated)
+})

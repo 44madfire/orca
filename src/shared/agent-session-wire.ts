@@ -145,6 +145,7 @@ export type AgentSessionSubscribeEvent =
       fence: number
       handoff?: AgentSessionHandoffStatus
       backgroundTasks?: AgentSessionBackgroundTaskState | null
+      commandsRevision?: number
     }
   | {
       type: 'batch'
@@ -154,6 +155,7 @@ export type AgentSessionSubscribeEvent =
       fence?: number
       handoff?: AgentSessionHandoffStatus
       backgroundTasks?: AgentSessionBackgroundTaskState | null
+      commandsRevision?: number
     }
   | {
       type: 'reset'
@@ -163,6 +165,7 @@ export type AgentSessionSubscribeEvent =
       fence: number
       handoff?: AgentSessionHandoffStatus
       backgroundTasks?: AgentSessionBackgroundTaskState | null
+      commandsRevision?: number
     }
   | { type: 'end' }
 
@@ -317,7 +320,8 @@ export type AgentSessionSlashCommand = {
  *  surface: a host that predates it answers `method_not_found`, and the client
  *  keeps rendering its curated catalog. */
 export type AgentSessionCommandsResult = {
-  commands: AgentSessionSlashCommand[]
+  commands?: AgentSessionSlashCommand[]
+  revision?: number
 }
 
 /** Provider-reported choices and effective next-turn values. Additive read-only

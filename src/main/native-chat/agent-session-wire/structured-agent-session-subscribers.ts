@@ -37,6 +37,7 @@ type Subscriber = {
 }
 
 export type AgentSessionSubscribersHooks = {
+  commandsRevision?: (sessionId: string) => number | undefined
   /** Fires after any publication that can change journal content, whether or not anyone
    *  is subscribed to the transcript: session lists project status from this same edge. */
   onJournalPublished?: (sessionId: string, journal: AgentSessionJournal) => void
@@ -196,6 +197,17 @@ export class AgentSessionSubscribers {
     }
   }
 
+  commandsChanged(sessionId: string): void {
+    for (const subscriber of this.subscribers(sessionId)) {
+      this.emit(subscriber, {
+        type: 'batch',
+        sessionId,
+        batch: { cursor: subscriber.cursor, items: [], removedItemIds: [], submissions: [] },
+        fence: subscriber.fence
+      })
+    }
+  }
+
   private subscribers(sessionId: string): Subscriber[] {
     return [...(this.bySession.get(sessionId)?.values() ?? [])]
   }
@@ -276,7 +288,12 @@ export class AgentSessionSubscribers {
    *  unknown outcome or poison every later publication. */
   private emit(subscriber: Subscriber, event: AgentSessionSubscribeEvent): void {
     try {
-      subscriber.emit(event)
+      const commandsRevision = this.hooks.commandsRevision?.(subscriber.sessionId)
+      subscriber.emit(
+        event.type !== 'end' && commandsRevision !== undefined
+          ? { ...event, commandsRevision }
+          : event
+      )
     } catch {
       this.drop(subscriber)
     }

@@ -259,7 +259,7 @@ describe('native skill and command picker', () => {
     expect(items[1]).toMatchObject({ kind: 'skill', description: null, sources: [] })
   })
 
-  it('keeps the disk scan when the session reports nothing', () => {
+  it('does not revive disk skills after an authoritative empty report', () => {
     const items = buildNativeChatPickerItems(
       [],
       [skill({ name: 'ref-oss', skillFilePath: '/home/ref-oss/SKILL.md' })],
@@ -267,7 +267,7 @@ describe('native skill and command picker', () => {
       '/',
       []
     )
-    expect(items.map((item) => item.name)).toEqual(['ref-oss'])
+    expect(items).toEqual([])
   })
 
   it('rejects a session-reported name that is not a safe insertion token', () => {

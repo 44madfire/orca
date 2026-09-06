@@ -13,6 +13,7 @@ import type {
 export type StructuredAgentSessionState = {
   epoch: string | null
   cursor: AgentJournalCursor | null
+  commandsRevision?: number
   fence: number | null
   items: AgentJournalRenderItem[]
   submissions: AgentJournalSubmission[]
@@ -175,6 +176,7 @@ export function reduceStructuredAgentSession(
       epoch: action.page.epoch,
       cursor: action.page.liveCursor ?? null,
       fence: action.page.fence ?? null,
+      commandsRevision: sameEpoch ? state.commandsRevision : undefined,
       items: action.page.items,
       submissions: sameEpoch
         ? mergeSubmissions(state.submissions, action.page.submissions)
@@ -205,7 +207,10 @@ export function reduceStructuredAgentSession(
     return state
   }
   if (event.type === 'snapshot' || event.type === 'reset') {
-    return replacePage(event.page, event.fence, event.handoff, event.backgroundTasks)
+    return {
+      ...replacePage(event.page, event.fence, event.handoff, event.backgroundTasks),
+      commandsRevision: event.commandsRevision
+    }
   }
   if (state.epoch !== event.batch.cursor.epoch) {
     return state
@@ -224,6 +229,7 @@ export function reduceStructuredAgentSession(
     journalUnchanged &&
     (event.fence === undefined || event.fence === state.fence) &&
     (event.handoff === undefined || event.handoff === state.handoff) &&
+    (event.commandsRevision === undefined || event.commandsRevision === state.commandsRevision) &&
     backgroundTaskStatesEqual(backgroundTasks, state.backgroundTasks) &&
     state.status === 'ready' &&
     state.error === undefined
@@ -234,6 +240,7 @@ export function reduceStructuredAgentSession(
     ...state,
     cursor: event.batch.cursor,
     fence: event.fence ?? state.fence,
+    commandsRevision: event.commandsRevision ?? state.commandsRevision,
     items: journalUnchanged
       ? state.items
       : mergeItems(state.items, event.batch.items, event.batch.removedItemIds),

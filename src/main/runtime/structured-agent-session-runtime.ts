@@ -258,6 +258,7 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
           }
         })
       },
+      onCommandsChanged: (sessionId) => host?.publishCommandsChanged(sessionId),
       onBackgroundTasksChanged: (sessionId, state) =>
         host?.publishBackgroundTaskState(sessionId, state),
       ...(deps.openClaudeConnection ? { openClaudeConnection: deps.openClaudeConnection } : {}),

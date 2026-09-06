@@ -57,6 +57,7 @@ export type ClaudeStructuredSessionAdapterDeps = {
     identity: AgentSessionJournalIdentity
   }) => Promise<ClaudeStructuredLaunch>
   onEvent?: (event: ClaudeStructuredSessionEvent) => void
+  onCommandsChanged?: (sessionId: string) => void
   onBackgroundTasksChanged?: (
     sessionId: string,
     state: AgentSessionBackgroundTaskState | null

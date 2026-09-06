@@ -52,7 +52,7 @@ export function deriveComposerAutocomplete(
   profile: NativeChatAgentProfile | null = null,
   discovery: NativeChatSkillDiscoverySnapshot = { ...EMPTY_DISCOVERY, skills },
   dismissedTriggerKey: string | null = null,
-  sessionSkillNames: readonly string[] = []
+  sessionSkillNames?: readonly string[]
 ): ComposerAutocomplete {
   const before = draft.slice(0, caret)
   if (before.startsWith('/') && !/\s/.test(before)) {
@@ -101,7 +101,7 @@ function deriveSlashAutocomplete(
   profile: NativeChatAgentProfile | null,
   discovery: NativeChatSkillDiscoverySnapshot,
   dismissedTriggerKey: string | null,
-  sessionSkillNames: readonly string[]
+  sessionSkillNames: readonly string[] | undefined
 ): ComposerAutocomplete {
   const triggerKey = '/:0'
   if (dismissedTriggerKey === triggerKey) {

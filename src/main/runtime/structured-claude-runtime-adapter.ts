@@ -30,6 +30,7 @@ export type StructuredClaudeRuntimeAdapterDeps = {
   openClaudeConnection?: ClaudeStructuredSessionAdapterDeps['openConnection']
   readProcessStartTime?: ClaudeStructuredSessionAdapterDeps['readProcessStartTime']
   onUnexpectedExit: (event: StructuredAgentSessionLifecycleEvent) => void
+  onCommandsChanged?: (sessionId: string) => void
   onBackgroundTasksChanged?: (
     sessionId: string,
     state: AgentSessionBackgroundTaskState | null
@@ -97,6 +98,7 @@ export function createStructuredClaudeRuntimeAdapter(
         })
       }
     },
+    onCommandsChanged: deps.onCommandsChanged,
     ...(deps.onBackgroundTasksChanged
       ? { onBackgroundTasksChanged: deps.onBackgroundTasksChanged }
       : {}),

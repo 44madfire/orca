@@ -63,7 +63,8 @@ export class StructuredAgentSessionHost {
     now: () => this.now()
   })
   private readonly subscribers = new AgentSessionSubscribers({
-    onJournalPublished: (sessionId, journal) => this.statusFeed.publish(sessionId, journal)
+    onJournalPublished: (sessionId, journal) => this.statusFeed.publish(sessionId, journal),
+    commandsRevision: (sessionId) => this.deps.adapter.readCommands?.(sessionId)?.revision
   })
   private readonly tasks = new StructuredAgentSessionTaskQueue()
   private readonly runtimeState: StructuredAgentSessionHostRuntimeState
@@ -317,11 +318,9 @@ export class StructuredAgentSessionHost {
   readOptions = (sessionId: string): Promise<SessionWire.AgentSessionOptionsResult> =>
     readStructuredAgentSessionOptions(this.mutationContext(), sessionId)
 
-  /** Empty when the provider reports no catalog, which the client reads as
-   *  "keep the curated list" rather than "this session has no commands". */
-  readCommands = (sessionId: string): SessionWire.AgentSessionCommandsResult => ({
-    commands: this.deps.adapter.readCommands?.(sessionId) ?? []
-  })
+  readCommands = (sessionId: string) => this.deps.adapter.readCommands?.(sessionId) ?? {}
+
+  publishCommandsChanged = (sessionId: string): void => this.subscribers.commandsChanged(sessionId)
 
   async handoffStatus(sessionId: string): Promise<SessionWire.AgentSessionHandoffStatus> {
     this.requireSession(sessionId)
