@@ -588,14 +588,6 @@ test('routes HUB desktop, web, and two paired desktops through HUB-owned SSH', a
       clientA,
       dockerSshRelayRepoSentinel(sshTarget, DOCKER_SSH_RELAY_REMOTE_REPO_PATH)
     )
-    const pairedCreatedTerminal = await assertPairedTerminalCreation(
-      clientA,
-      `PAIRED_A_CREATED_SSH_${Date.now()}`
-    )
-    expect(pairedCreatedTerminal.ptyId).toContain(encodeURIComponent(clientA.environmentId))
-    expect(remoteTerminalHandle(pairedCreatedTerminal.ptyId)).not.toBe(
-      remoteTerminalHandle(sshRoute.ptyId)
-    )
     await assertNestedFilesystemRoute(clientA, sshRoute, {
       onRenamed: (absolutePath) => {
         expect(
@@ -609,6 +601,14 @@ test('routes HUB desktop, web, and two paired desktops through HUB-owned SSH', a
         ).toBe('yes')
       }
     })
+    const pairedCreatedTerminal = await assertPairedTerminalCreation(
+      clientA,
+      `PAIRED_A_CREATED_SSH_${Date.now()}`
+    )
+    expect(pairedCreatedTerminal.ptyId).toContain(encodeURIComponent(clientA.environmentId))
+    expect(remoteTerminalHandle(pairedCreatedTerminal.ptyId)).not.toBe(
+      remoteTerminalHandle(sshRoute.ptyId)
+    )
     await assertRuntimeTerminalLifecycle(
       clientA,
       pairedCreatedTerminal.ptyId,
