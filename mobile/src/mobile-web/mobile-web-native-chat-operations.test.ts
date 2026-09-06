@@ -174,6 +174,33 @@ describe('mobile web native chat operations', () => {
     )
   })
 
+  it.each([{ ok: false, error: { code: 'unavailable' } }, success(null), success({ tabs: null })])(
+    'retains authority after an unverifiable tab lookup: %j',
+    async (response) => {
+      const context = operationContext()
+      const sendRequest = vi.fn().mockResolvedValue(response)
+      await expect(
+        executeMobileWebNativeChatOperation({
+          operation: 'read',
+          payload: {
+            workspaceId: context.pageWorkspaceId,
+            sessionId: context.pageSessionId,
+            limit: 40
+          },
+          client: { sendRequest } as unknown as RpcClient,
+          workspaceAuthority: context.workspaceAuthority,
+          nativeChatAuthority: context.nativeChatAuthority,
+          nativeAuthority: {},
+          ...OPERATION_RUNTIME
+        })
+      ).rejects.toMatchObject({ code: 'host_error' })
+      expect(sendRequest).toHaveBeenCalledTimes(1)
+      expect(context.nativeChatAuthority.resolve('workspace-1', context.pageSessionId)).toEqual(
+        binding
+      )
+    }
+  )
+
   it('persists pending delivery through stable hidden chat authority', async () => {
     const context = operationContext()
     const sendRequest = vi

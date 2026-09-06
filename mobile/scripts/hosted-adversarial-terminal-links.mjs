@@ -63,7 +63,7 @@ export async function verifyHostedAdversarialTerminalLinks(
     timeoutMs,
     worktree
   })
-  const sessionDocument = await openHostedAdversarialTerminalFileLink({
+  const previewDocument = await openHostedAdversarialTerminalFileLink({
     discoveryUrl,
     document,
     emulator,
@@ -73,6 +73,13 @@ export async function verifyHostedAdversarialTerminalLinks(
     tapPoint,
     timeoutMs,
     waitForDocument
+  })
+  await activateTerminal(previewDocument, { kind: 'label', value: 'Back to files' })
+  const sessionDocument = await waitForDocument({
+    discoveryUrl,
+    expectedHrefIncludes: '/session/',
+    expectedText: terminalTitle,
+    timeoutMs
   })
   await activateTerminal(sessionDocument, {
     kind: 'text',
@@ -121,7 +128,7 @@ async function openHostedAdversarialTerminalFileLink({
       return await waitForDocument({
         discoveryUrl,
         expectedText: positiveFilePath,
-        expectedHrefIncludes: '/session/',
+        expectedHrefIncludes: '/files/preview/',
         requireInteractiveControls: false,
         timeoutMs: Math.min(timeoutMs, NATIVE_LINK_ACTIVATION_TIMEOUT_MS)
       })
@@ -194,7 +201,8 @@ function hostedAdversarialTerminalLinkPayload(
     '\u001B[2J\u001B[H\u001B[999;1H\u001B[10A',
     ...repeatedOscRows(javascriptUrl, HOSTED_TERMINAL_JAVASCRIPT_LINK_LABEL),
     '\r\n',
-    ...repeatedOscRows(positiveFilePath, HOSTED_TERMINAL_FILE_LINK_LABEL),
+    // A line target opens page-owned preview; this fixture has no Desktop renderer for file tabs.
+    ...repeatedOscRows(`${positiveFilePath}:1`, HOSTED_TERMINAL_FILE_LINK_LABEL),
     '\r\n',
     ...repeatedOscRows(httpUrl, HOSTED_TERMINAL_HTTP_LINK_LABEL, stageMarker),
     '\r\n\r\n'

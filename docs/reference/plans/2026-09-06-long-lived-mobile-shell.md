@@ -268,3 +268,19 @@ with `pnpm exec oxfmt --write`.
 - Current testing uses development shells and one page build. Frozen release-shell
   skew, two-page OTA replacement/rollback and physical-device behavior remain
   unverified. No push or deployment was performed.
+
+## Resumed implementation
+
+User requested continuing through completion. Investigation of the terminal gate
+now proves native tap delivery, OSC lookup, host path resolution and activation
+fencing all succeed; file-tab opening returns `host_error`. The headless fixture
+has no renderer, and `files.open` throws `renderer_unavailable` in that topology.
+The positive fixture now includes a line target to exercise the supported hosted
+preview route and return to the terminal. Renderer-backed file-tab opening remains
+a separate Desktop validation case. Traces: `ios-link-trace-stable.log` and
+`ios-open-trace.log` under `/tmp/orca-ota-e2e/`.
+
+A failed/malformed `session.tabs.list` no longer revokes native-chat authority;
+it reports a retryable host error. Successful snapshots still establish removal.
+Next implementation slice: host-advertised generic subscriptions, cleanup
+metadata, bounded queues, and page-side source-control invalidation.

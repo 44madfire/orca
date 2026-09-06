@@ -17,15 +17,13 @@ export async function resolveFreshMobileWebNativeChatBinding(args: {
   const response = await args.client.sendRequest('session.tabs.list', {
     worktree: `id:${args.hostWorkspaceId}`
   })
-  const tab =
-    response.ok && isRecord(response.result) && Array.isArray(response.result.tabs)
-      ? response.result.tabs.find(
-          (value) => isRecord(value) && value.type === 'terminal' && value.id === binding.hostTabId
-        )
-      : undefined
-  // Why not revoke when the host reports no agent status: an unreachable SSH host strips it from a
-  // terminal that still exists, and loss of contact is never evidence the session is gone. Only a
-  // vanished tab, a different terminal, or a tab rebound to another session ends the grant.
+  if (!response.ok || !isRecord(response.result) || !Array.isArray(response.result.tabs)) {
+    throw new MobileWebBrokerError('host_error')
+  }
+  const tab = response.result.tabs.find(
+    (value) => isRecord(value) && value.type === 'terminal' && value.id === binding.hostTabId
+  )
+  // Only a successful host snapshot can establish absence; failed reads are unverifiable.
   const gone =
     tab === undefined ||
     !isSameTerminal(tab, binding) ||

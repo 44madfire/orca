@@ -35,7 +35,7 @@ describe('hosted adversarial terminal links', () => {
     expect(output).toContain(
       "\u001B]8;;javascript:globalThis.__ORCA_HOSTED_TERMINAL_LINK_EXECUTED__='executed'\u001B\\"
     )
-    expect(output).toContain('\u001B]8;;001-adversarial.md\u001B\\')
+    expect(output).toContain('\u001B]8;;001-adversarial.md:1\u001B\\')
     expect(output.match(new RegExp(HOSTED_TERMINAL_HTTP_LINK_LABEL, 'gu'))).toHaveLength(2)
     expect(output.match(new RegExp(HOSTED_TERMINAL_JAVASCRIPT_LINK_LABEL, 'gu'))).toHaveLength(2)
     expect(output.match(new RegExp(HOSTED_TERMINAL_FILE_LINK_LABEL, 'gu'))).toHaveLength(2)
@@ -131,7 +131,7 @@ describe('hosted adversarial terminal links', () => {
     })
     expect(waitForDocument).toHaveBeenCalledWith({
       discoveryUrl: 'http://127.0.0.1:9222',
-      expectedHrefIncludes: '/session/',
+      expectedHrefIncludes: '/files/preview/',
       expectedText: '001-adversarial.md',
       requireInteractiveControls: false,
       timeoutMs: 5_000
@@ -211,7 +211,7 @@ describe('hosted adversarial terminal links', () => {
       }
     )
 
-    expect(waitForDocument).toHaveBeenCalledTimes(2)
+    expect(waitForDocument).toHaveBeenCalledTimes(3)
     expect(readPoints).toHaveBeenCalledTimes(3)
     expect(tapPoint).toHaveBeenCalledTimes(3)
   })
