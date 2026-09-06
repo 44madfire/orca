@@ -16,7 +16,9 @@ import {
   canSetStructuredAgentSessionOption,
   commitStructuredAgentSessionOptionValues,
   createStructuredAgentSessionOptionState,
-  structuredAgentSessionOptionSnapshot
+  structuredAgentSessionOptionPicks,
+  structuredAgentSessionOptionSnapshot,
+  type StructuredSessionOptionPick
 } from '../../../../shared/structured-agent-session-options'
 import { activeStructuredAgentSessionTurnId } from '../../../../shared/structured-agent-session-projection'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
@@ -29,6 +31,8 @@ import { useStructuredAgentSessionHold } from './use-structured-agent-session-ho
 import { useStructuredAgentSessionRead } from './use-structured-agent-session-read'
 import { projectStructuredAgentSessionMessages } from './structured-agent-session-message-projection'
 import { selectStructuredAgentTurnActivity } from './native-chat-turn-activity'
+import { applyNativeChatSessionOptionPicks } from '../../../../shared/native-chat-session-option-defaults'
+import { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-settings-write'
 
 export type StructuredPromptItem = AgentJournalRenderItem & {
   body: Extract<AgentJournalRenderItem['body'], { kind: 'approval' | 'question' }>
@@ -175,6 +179,19 @@ export function useStructuredAgentSession(args: {
     () => structuredAgentSessionOptionSnapshot(optionState),
     [optionState]
   )
+  /** Why: a structured pick is the only record of what the user chose — nothing scrapes
+   *  it back — so the next launch reads it from settings or falls back to the CLI default. */
+  const persistOptionPicks = useCallback(
+    (picks: readonly StructuredSessionOptionPick[]): void => {
+      if (picks.length === 0) {
+        return
+      }
+      void enqueueSessionOptionSettingsWrite((persisted) =>
+        applyNativeChatSessionOptionPicks({ persisted, agent, picks })
+      )
+    },
+    [agent]
+  )
   const setStructuredOption = useCallback(
     async (id: string, value: string | boolean): Promise<boolean> => {
       if (
@@ -192,11 +209,13 @@ export function useStructuredAgentSession(args: {
           { key: id, value }
         )
         if (result && activeOptionRecordRef.current === targetRecord) {
+          const committed = result.options ?? { [id]: value }
           setOptionState((current) =>
             current.record === targetRecord
-              ? commitStructuredAgentSessionOptionValues(current, result.options ?? { [id]: value })
+              ? commitStructuredAgentSessionOptionValues(current, committed)
               : current
           )
+          persistOptionPicks(structuredAgentSessionOptionPicks(optionState, committed))
         }
         return Boolean(result)
       } finally {
@@ -207,7 +226,7 @@ export function useStructuredAgentSession(args: {
         )
       }
     },
-    [mutate, optionState]
+    [mutate, optionState, persistOptionPicks]
   )
   const setOption = useCallback(
     async (id: string, value: string | boolean) => {

@@ -3,11 +3,19 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ call: vi.fn(), operationId: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  call: vi.fn(),
+  operationId: vi.fn(),
+  enqueueSettingsWrite: vi.fn()
+}))
 let fence = 3
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call
+}))
+
+vi.mock('./native-chat-session-option-settings-write', () => ({
+  enqueueSessionOptionSettingsWrite: mocks.enqueueSettingsWrite
 }))
 
 vi.mock('./use-structured-agent-session-read', () => ({
@@ -37,7 +45,22 @@ vi.mock('./use-structured-agent-session-outbox', () => ({
   })
 }))
 
+import { resolveStructuredLaunchSeedOptions } from '../../../../shared/native-chat-session-option-defaults'
+import type { PersistedNativeChatSessionOptions } from '../../../../shared/native-chat-session-options'
 import { useStructuredAgentSession } from './use-structured-agent-session'
+
+/** Replay every queued settings update in order, exactly as the real chain would. */
+function seededByNextLaunch(): Record<string, string> | undefined {
+  let persisted: PersistedNativeChatSessionOptions | undefined
+  for (const [update] of mocks.enqueueSettingsWrite.mock.calls) {
+    persisted = (
+      update as (
+        base: PersistedNativeChatSessionOptions | undefined
+      ) => PersistedNativeChatSessionOptions
+    )(persisted)
+  }
+  return resolveStructuredLaunchSeedOptions(persisted, 'codex')
+}
 
 const LOCAL_TARGET = { kind: 'local' } as const
 
@@ -331,5 +354,85 @@ describe('useStructuredAgentSession options', () => {
       scope: 'background-tasks',
       taskId: 'task-2'
     })
+  })
+
+  it('remembers a model pick so the next launch seeds the pair the provider settled on', async () => {
+    mocks.call.mockImplementation((_target, method) =>
+      method === 'agentSession.options'
+        ? Promise.resolve(OPTIONS)
+        : Promise.resolve({
+            ok: true,
+            value: {
+              key: 'model',
+              value: 'gpt-fast',
+              options: { model: 'gpt-fast', effort: 'low' }
+            }
+          })
+    )
+    const { result } = renderHook(() =>
+      useStructuredAgentSession({
+        sessionId: 'session-1',
+        target: LOCAL_TARGET,
+        agent: 'codex',
+        isVisible: true
+      })
+    )
+    await waitFor(() => expect(result.current.optionSnapshot).toHaveLength(2))
+
+    await act(async () => {
+      expect(await result.current.setStructuredOption('model', 'gpt-fast')).toBe(true)
+    })
+
+    expect(seededByNextLaunch()).toEqual({ model: 'gpt-fast', effort: 'low' })
+  })
+
+  it('pins the model an effort-only pick was made against', async () => {
+    mocks.call.mockImplementation((_target, method) =>
+      method === 'agentSession.options'
+        ? Promise.resolve(OPTIONS)
+        : Promise.resolve({
+            ok: true,
+            value: { key: 'effort', value: 'high', options: { effort: 'high' } }
+          })
+    )
+    const { result } = renderHook(() =>
+      useStructuredAgentSession({
+        sessionId: 'session-1',
+        target: LOCAL_TARGET,
+        agent: 'codex',
+        isVisible: true
+      })
+    )
+    await waitFor(() => expect(result.current.optionSnapshot).toHaveLength(2))
+
+    await act(async () => {
+      expect(await result.current.setStructuredOption('effort', 'high')).toBe(true)
+    })
+
+    // Without the model the launch resolves nothing, so the remembered effort would be dead.
+    expect(seededByNextLaunch()).toEqual({ model: 'gpt-live', effort: 'high' })
+  })
+
+  it('remembers nothing when the provider refuses the pick', async () => {
+    mocks.call.mockImplementation((_target, method) =>
+      method === 'agentSession.options'
+        ? Promise.resolve(OPTIONS)
+        : Promise.reject(new Error('provider rejected option'))
+    )
+    const { result } = renderHook(() =>
+      useStructuredAgentSession({
+        sessionId: 'session-1',
+        target: LOCAL_TARGET,
+        agent: 'codex',
+        isVisible: true
+      })
+    )
+    await waitFor(() => expect(result.current.optionSnapshot).toHaveLength(2))
+
+    await act(async () => {
+      expect(await result.current.setStructuredOption('model', 'gpt-fast')).toBe(false)
+    })
+
+    expect(mocks.enqueueSettingsWrite).not.toHaveBeenCalled()
   })
 })

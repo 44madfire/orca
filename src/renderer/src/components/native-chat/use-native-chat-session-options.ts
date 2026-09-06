@@ -8,11 +8,7 @@ import {
   clearNativeChatSessionOptionModel,
   updateNativeChatSessionOptionDefaults
 } from '../../../../shared/native-chat-session-option-defaults'
-import type {
-  PersistedNativeChatSessionOptions,
-  SessionOptionDescriptor
-} from '../../../../shared/native-chat-session-options'
-import { useAppStore } from '../../store'
+import type { SessionOptionDescriptor } from '../../../../shared/native-chat-session-options'
 import {
   createNativeChatPtySessionOptions,
   type NativeChatPtySessionOptionsSurface
@@ -28,35 +24,11 @@ import {
   resolveNativeChatModelDiscoveryContext
 } from './native-chat-session-option-discovery'
 import { readClaudeSessionOptionsFromTerminalScreen } from './claude-terminal-session-options'
+import { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-settings-write'
 
 const EMPTY_SNAPSHOT: SessionOptionDescriptor[] = []
 const subscribeEmpty = (): (() => void) => () => {}
 const getEmptySnapshot = (): SessionOptionDescriptor[] => EMPTY_SNAPSHOT
-
-/**
- * Why: every nativeChatSessionOptions writer — a pick from any pane, a probe
- * retirement — serializes on this one chain and re-reads live settings at apply
- * time. updateSettings shallow-merges the whole object, so an interleaved write
- * from a snapshot captured earlier would silently clobber a concurrent pick.
- * The update runs against the settled base and may return null to skip writing.
- */
-let settingsWrite: Promise<unknown> = Promise.resolve()
-function enqueueSessionOptionSettingsWrite(
-  update: (
-    base: PersistedNativeChatSessionOptions | undefined
-  ) => PersistedNativeChatSessionOptions | null
-): Promise<void> {
-  const write = settingsWrite
-    .catch(() => undefined)
-    .then(() => {
-      const next = update(useAppStore.getState().settings?.nativeChatSessionOptions)
-      return next
-        ? useAppStore.getState().updateSettings({ nativeChatSessionOptions: next })
-        : undefined
-    })
-  settingsWrite = write
-  return write
-}
 
 /**
  * Why: the picker drops a retired model, but the persisted default is what launches
