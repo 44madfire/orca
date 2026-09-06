@@ -29,6 +29,15 @@ function hybridInitMessage(shellSessionId: string) {
 }
 
 describe('hosted shell init contract', () => {
+  it('accepts the literal version sent by installed version-2 shells', () => {
+    expect(hybridInitMessage(NATIVE_SESSION_ID).version).toBe(2)
+    const parsed = parseMobileWebBridgeInitialMessage(
+      JSON.stringify({ ...hybridInitMessage(NATIVE_SESSION_ID), version: 2 })
+    )
+
+    expect(parsed.ok ? parsed.value.version : parsed.error).toBe(2)
+  })
+
   it('parses the init the hybrid screen posts with a native session id', () => {
     const parsed = parseMobileWebBridgeInitialMessage(
       JSON.stringify(hybridInitMessage(NATIVE_SESSION_ID))
