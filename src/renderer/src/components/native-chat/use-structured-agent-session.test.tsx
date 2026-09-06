@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ call: vi.fn(), operationId: vi.fn() }))
 let fence = 3
+let sessionCommands: { name: string; kind: 'command' | 'skill' }[] | undefined
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call
@@ -14,6 +15,7 @@ vi.mock('./use-structured-agent-session-read', () => ({
   useStructuredAgentSessionRead: () => ({
     state: {
       fence,
+      commands: sessionCommands,
       items: [],
       submissions: [],
       status: 'ready',
@@ -331,5 +333,49 @@ describe('useStructuredAgentSession options', () => {
       scope: 'background-tasks',
       taskId: 'task-2'
     })
+  })
+})
+
+describe('session command catalog stream', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fence = 3
+    sessionCommands = undefined
+    mocks.call.mockResolvedValue(OPTIONS)
+  })
+
+  const args = { sessionId: 'one', target: LOCAL_TARGET, agent: 'claude' as const, isVisible: true }
+  const commands = [{ name: 'plugin:review', kind: 'skill' as const }]
+
+  it('uses owner-scoped catalog state without a separate command RPC or stale cache', () => {
+    sessionCommands = commands
+    const { result, rerender } = renderHook((props) => useStructuredAgentSession(props), {
+      initialProps: args
+    })
+    expect(result.current.sessionCommands).toEqual(commands)
+    sessionCommands = undefined
+    rerender({ ...args, sessionId: 'two' })
+    expect(result.current.sessionCommands).toBeUndefined()
+    sessionCommands = []
+    rerender({ ...args, sessionId: 'two' })
+    expect(result.current.sessionCommands).toEqual([])
+    expect(
+      mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.commands')
+    ).toHaveLength(0)
+  })
+
+  it('adopts idle catalog updates and does no command reads on repeated transcript renders', () => {
+    sessionCommands = commands
+    const { result, rerender } = renderHook(() => useStructuredAgentSession(args))
+    expect(result.current.sessionCommands).toEqual(commands)
+    for (let index = 0; index < 30; index += 1) {
+      rerender()
+    }
+    sessionCommands = []
+    rerender()
+    expect(result.current.sessionCommands).toEqual([])
+    expect(
+      mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.commands')
+    ).toHaveLength(0)
   })
 })
