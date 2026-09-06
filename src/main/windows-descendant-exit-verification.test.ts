@@ -53,6 +53,47 @@ describe('captureWindowsDescendantSnapshot', () => {
     ])
   })
 
+  it('keeps the root when its own parent PID was reused by a newer process', async () => {
+    // The root's retained ppid now names a process created after it. Pruning the
+    // root drops the whole snapshot, so its own link is never evidence about it.
+    const captured = await captureWindowsDescendantSnapshot(100, {
+      readTable: async () => [
+        { pid: 100, ppid: 900, creationTimeMs: 5 },
+        { pid: 900, ppid: 1, creationTimeMs: 50 },
+        { pid: 200, ppid: 100, creationTimeMs: 7 }
+      ],
+      now: () => 42
+    })
+
+    expect(captured).toEqual({
+      root: { pid: 100, creationTimeMs: 5 },
+      descendants: [{ pid: 200, creationTimeMs: 7 }],
+      unidentifiedCount: 0,
+      capturedAtMs: 42
+    })
+  })
+
+  it('bounds a link by the root when the claimed parent denied its creation time', async () => {
+    // 300 has no creation time to compare a child against, so the root's start is
+    // the only bound left: 350 could be its child, 360 predates the tree entirely.
+    const captured = await captureWindowsDescendantSnapshot(100, {
+      readTable: async () => [
+        { pid: 100, ppid: 1, creationTimeMs: 5 },
+        { pid: 300, ppid: 100 },
+        { pid: 350, ppid: 300, creationTimeMs: 9 },
+        { pid: 360, ppid: 300, creationTimeMs: 2 }
+      ],
+      now: () => 42
+    })
+
+    expect(captured).toEqual({
+      root: { pid: 100, creationTimeMs: 5 },
+      descendants: [{ pid: 350, creationTimeMs: 9 }],
+      unidentifiedCount: 1,
+      capturedAtMs: 42
+    })
+  })
+
   it('walks the whole subtree and keeps only rows a later read can re-identify', async () => {
     const captured = await captureWindowsDescendantSnapshot(100, {
       // 400 is a grandchild; 300 denied a creation-time query, so no later read

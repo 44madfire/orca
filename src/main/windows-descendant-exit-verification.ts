@@ -1,3 +1,4 @@
+import { getProcessTableIndex } from '../shared/process-table-index'
 import type { DescendantTreeVerdict } from './pty-descendant-exit-verification'
 import { windowsDescendantsFromRows } from './providers/windows-foreground-process-rows'
 import { readWindowsProcessTableFresh } from './windows/windows-process-table'
@@ -69,15 +70,24 @@ export async function captureWindowsDescendantSnapshot(
   // One table read, not a walk plus an identity read: each is bounded in
   // seconds, and this runs inside the close ladder's budget.
   const table = await (deps.readTable ?? readWindowsProcessTableFresh)().catch(() => null)
-  const root = table?.find((row) => row.pid === rootPid)
-  if (!table || typeof root?.creationTimeMs !== 'number') {
+  if (!table) {
+    return null
+  }
+  // The same index the walk below builds, so a table that repeats a pid resolves
+  // a parent link to the row the walk will actually traverse.
+  const rowsByPid = getProcessTableIndex(table).byPid
+  const root = rowsByPid.get(rootPid)
+  if (typeof root?.creationTimeMs !== 'number') {
     return null
   }
   const rootCreationTimeMs = root.creationTimeMs
-  const creationTimes = new Map(table.map((row) => [row.pid, row.creationTimeMs]))
-  // Windows retains the original parent PID after exit; a reused PID is not ancestry.
+  // Windows keeps a process's original parent PID after that parent exits, so a
+  // reused PID is not ancestry: no real child predates the parent it claims, and
+  // the root's own start bounds the subtree when a parent denied its time. The
+  // root is never pruned by its own link -- its ppid can be recycled too, and a
+  // pruned root loses the snapshot outright.
   const currentRows = table.filter((row) => {
-    const parentCreationTimeMs = creationTimes.get(row.ppid)
+    const parentCreationTimeMs = rowsByPid.get(row.ppid)?.creationTimeMs
     return (
       row.pid === rootPid ||
       row.creationTimeMs === undefined ||
@@ -85,7 +95,10 @@ export async function captureWindowsDescendantSnapshot(
         (parentCreationTimeMs === undefined || row.creationTimeMs >= parentCreationTimeMs))
     )
   })
-  const descendants = windowsDescendantsFromRows(currentRows, rootPid)!
+  const descendants = windowsDescendantsFromRows(currentRows, rootPid)
+  if (!descendants) {
+    return null
+  }
   return {
     root: { pid: root.pid, creationTimeMs: root.creationTimeMs },
     descendants: descendants.flatMap((row) =>
