@@ -190,6 +190,27 @@ describe('orca cli worktree awareness', () => {
     })
   })
 
+  it.each([
+    ['task-create', 'orchestration.taskCreate'],
+    ['worker-start', 'orchestration.workerStart']
+  ])('passes literal spec argv through %s without spawning a shell', async (command, method) => {
+    const spec =
+      '  $(printf substituted) `printf backtick`\n"double" and \'single\'; $HOME & | \\ end\n'
+    process.env.ORCA_TERMINAL_HANDLE = 'term_creator'
+    callMock.mockResolvedValueOnce({
+      id: 'req_literal_spec',
+      ok: true,
+      result: { task: { id: 'task_literal', status: 'ready' } },
+      _meta: { runtimeId: 'runtime-1' }
+    })
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await main(['orchestration', command, '--spec', spec, '--json'], '/tmp/repo')
+
+    expect(callMock).toHaveBeenCalledWith(method, expect.objectContaining({ spec }))
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
+
   it('passes dev mode to injected orchestration dispatches', async () => {
     process.env.ORCA_TERMINAL_HANDLE = 'term_sender'
     process.env.ORCA_USER_DATA_PATH = '/tmp/orca-dev'

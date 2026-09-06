@@ -198,9 +198,16 @@ and start each one:
 
 \`\`\`sh
   ${cli} orchestration run-create --objective "<what the sub-workers are for>" --json
-  ${cli} orchestration task-create --spec "<sub-task>" --json
+  ${cli} orchestration task-create --spec '<sub-task>' --json
   ${cli} orchestration worker-start --task <task_id> --worktree current --agent <agent> --json
 \`\`\`
+
+Pass specs as literal argv with shell execution disabled when calling from code.
+Never interpolate spec text into a double-quoted shell command: dollar-paren and
+backtick substitutions execute before Orca starts and can hang. In POSIX shells,
+single-quote each value and replace every embedded apostrophe with '"'"'. Newlines
+remain literal inside the quotes. Use the selected shell's encoder on Windows;
+cmd.exe does not support POSIX single quoting.
 
 You own those sub-workers: wait for their worker_done, and do not report your own
 until they have settled. Nesting is capped, so a sub-worker of yours may not be

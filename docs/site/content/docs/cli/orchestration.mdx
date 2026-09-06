@@ -36,7 +36,7 @@ Task IDs printed in terminals, such as `task_...`, are clickable links. Clicking
 
 ```bash
 orca orchestration run-create --objective "Split checkout QA and summarize blockers" --json
-orca orchestration task-create --spec "Audit billing settings for mobile layout" --task-title "Billing audit" --json
+orca orchestration task-create --spec 'Audit billing settings for mobile layout' --task-title 'Billing audit' --json
 orca orchestration worker-start --task <taskId> --worktree current --agent codex --json
 # or new worktree:
 orca orchestration worker-start --task <taskId> --worktree new-child --name billing-audit --agent codex --setup run --json
@@ -45,6 +45,14 @@ orca orchestration worker-start --task <taskId> --worktree current --agent claud
 ```
 
 `--model` accepts opaque provider model IDs for Claude, Codex, and Cursor. `--effort` requires `--model` and only applies when that agent/model supports the level. Neither flag can combine with `--terminal` (reuse an existing pane). Overrides apply to that launch only and show under `launch.requested` / `launch.effective` in the start receipt. Federated starts need a worker host that advertises launch-preference support.
+
+Pass arbitrary specs as one argv element with shell execution disabled. Never
+interpolate spec text into a double-quoted shell command: dollar-paren and backtick
+substitutions execute before Orca starts and can hang. In POSIX shells, single-quote
+each value, replacing every embedded apostrophe with `'"'"'`; newlines remain literal
+inside the quotes. For example: `--spec 'Review the worker'"'"'s $(literal) text'`.
+JSON escaping is not shell escaping. On Windows, use a native argv launcher or the
+selected shell's argument encoder; cmd.exe does not support POSIX single quoting.
 
 Wait for completions (process every message in a Delivery, then ack):
 

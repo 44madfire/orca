@@ -10,7 +10,7 @@ Create independent Tasks before the first wait. Encode only real dependencies,
 then use the ready view as external memory:
 
 ```text
-ORCA orchestration task-create --spec "<dependent work>" --deps <json_array> --json
+ORCA orchestration task-create --spec '<dependent work>' --deps <json_array> --json
 ORCA orchestration task-list --ready --brief --json
 ```
 

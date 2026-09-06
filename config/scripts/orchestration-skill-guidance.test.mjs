@@ -77,8 +77,8 @@ describe('orchestration kernel', () => {
       '## Conditional references'
     ]
 
-    // Why: 202 is the budget after the anti-loop nextAction rule; the kernel is always in context.
-    expect(kernel.split('\n').length).toBeLessThanOrEqual(202)
+    // Why: includes literal-spec shell guidance; the kernel is always in context.
+    expect(kernel.split('\n').length).toBeLessThanOrEqual(211)
     for (let index = 1; index < headings.length; index += 1) {
       expect(kernel.indexOf(headings[index])).toBeGreaterThan(kernel.indexOf(headings[index - 1]))
     }
@@ -134,8 +134,8 @@ describe('orchestration kernel', () => {
 
   it('teaches worker-start as the only normal-path launch and starts the wave before waiting', () => {
     const kernel = readKernel()
-    const firstStart = kernel.indexOf('worker-start --spec "<worker A task>"')
-    const secondStart = kernel.indexOf('worker-start --spec "<worker B task>"')
+    const firstStart = kernel.indexOf("worker-start --spec '<worker A task>'")
+    const secondStart = kernel.indexOf("worker-start --spec '<worker B task>'")
     const firstWait = kernel.indexOf('check --wait')
 
     expect(firstStart).toBeGreaterThan(kernel.indexOf('run-create'))
@@ -148,6 +148,25 @@ describe('orchestration kernel', () => {
     )
     expect(kernel).toContain('operator-created process unsupervised')
     expect(kernel).not.toMatch(/^ORCA terminal create/mu)
+  })
+
+  it('keeps free-form spec examples literal and explains the shell boundary', () => {
+    const paths = [
+      guidePath,
+      join(referenceRoot, 'coordinator-loop.md'),
+      join(projectDir, 'docs/site/content/docs/cli/orchestration.mdx'),
+      join(projectDir, 'src/main/runtime/orchestration/preamble.ts')
+    ]
+    for (const path of paths) {
+      const source = readFileSync(path, 'utf8')
+      expect(source).not.toMatch(/(?:task-create|worker-start)[^\n]*--spec "/u)
+      expect(source).toMatch(/(?:task-create|worker-start)[^\n]*--spec '/u)
+    }
+    expect(squash(readKernel())).toContain(
+      'Never interpolate spec text into a double-quoted shell command'
+    )
+    expect(readKernel()).toContain('every embedded apostrophe')
+    expect(readKernel()).toContain('with shell execution disabled')
   })
 
   it('makes worker-start --spec the default and keeps task-create for planned fan-out', () => {

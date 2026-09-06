@@ -103,10 +103,19 @@ waiting. `worker-start --spec` creates the Task and its attempt in one call:
 ```text
 ORCA status --json
 ORCA orchestration run-create --objective "<objective>" --json
-ORCA orchestration worker-start --spec "<worker A task>" --worktree current --agent codex --json
-ORCA orchestration worker-start --spec "<worker B task>" --worktree current --agent claude --json
+ORCA orchestration worker-start --spec '<worker A task>' --worktree current --agent codex --json
+ORCA orchestration worker-start --spec '<worker B task>' --worktree current --agent claude --json
 ORCA orchestration check --wait --types "worker_done,escalation,question" --timeout-ms 900000 --json
 ```
+
+Pass free-form specs as one literal argv element when invoking the CLI from code,
+with shell execution disabled. Never interpolate spec text into a double-quoted
+shell command: dollar-paren and backtick substitutions still execute there and
+can hang before Orca starts. For POSIX shells, single-quote each value and replace
+every embedded apostrophe with `'"'"'` (for example, `--spec 'Review the worker'"'"'s $(literal) text'`).
+Newlines can remain inside those single quotes. JSON string escaping is not shell
+escaping. On Windows, use a native argv launcher or the selected shell's argument
+encoder; POSIX quoting does not apply to cmd.exe.
 
 If `worker-start` exits non-zero, do not relaunch. Read the receipt's
 `failedStage` and `residualResources`, then load
