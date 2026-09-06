@@ -74,13 +74,14 @@ describe('captureWindowsDescendantSnapshot', () => {
   })
 
   it('bounds a link by the root when the claimed parent denied its creation time', async () => {
-    // 300 has no creation time to compare a child against, so the root's start is
-    // the only bound left: 350 could be its child, 360 predates the tree entirely.
+    // 300 has no creation time for a child to be compared against, so the root's
+    // start is the only bound left: 350 ties with it, which a same-millisecond
+    // spawn does routinely, while 360 predates the whole tree.
     const captured = await captureWindowsDescendantSnapshot(100, {
       readTable: async () => [
         { pid: 100, ppid: 1, creationTimeMs: 5 },
         { pid: 300, ppid: 100 },
-        { pid: 350, ppid: 300, creationTimeMs: 9 },
+        { pid: 350, ppid: 300, creationTimeMs: 5 },
         { pid: 360, ppid: 300, creationTimeMs: 2 }
       ],
       now: () => 42
@@ -88,10 +89,29 @@ describe('captureWindowsDescendantSnapshot', () => {
 
     expect(captured).toEqual({
       root: { pid: 100, creationTimeMs: 5 },
-      descendants: [{ pid: 350, creationTimeMs: 9 }],
+      descendants: [{ pid: 350, creationTimeMs: 5 }],
       unidentifiedCount: 1,
       capturedAtMs: 42
     })
+  })
+
+  it('drops an unidentified row whose parent link was pruned', async () => {
+    // 250 denied its creation time, but 200's claim on the root is impossible, so
+    // 250 was never in this tree: counting it would cap the verdict at
+    // unverifiable over a process the root does not own.
+    const captured = await captureWindowsDescendantSnapshot(100, {
+      readTable: async () => [
+        { pid: 100, ppid: 1, creationTimeMs: 10 },
+        { pid: 200, ppid: 100, creationTimeMs: 5 },
+        { pid: 250, ppid: 200 }
+      ]
+    })
+
+    expect(captured?.descendants).toEqual([])
+    expect(captured?.unidentifiedCount).toBe(0)
+    await expect(
+      verifyWindowsDescendantSnapshotExit(captured!, { readTable: async () => [] })
+    ).resolves.toBe('exited')
   })
 
   it('walks the whole subtree and keeps only rows a later read can re-identify', async () => {

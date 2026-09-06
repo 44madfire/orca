@@ -82,10 +82,16 @@ export async function captureWindowsDescendantSnapshot(
   }
   const rootCreationTimeMs = root.creationTimeMs
   // Windows keeps a process's original parent PID after that parent exits, so a
-  // reused PID is not ancestry: no real child predates the parent it claims, and
-  // the root's own start bounds the subtree when a parent denied its time. The
-  // root is never pruned by its own link -- its ppid can be recycled too, and a
-  // pruned root loses the snapshot outright.
+  // reused PID is not ancestry: no real child predates the parent it claims.
+  // The root's start is the floor for a chain through a row that denied its
+  // creation time, since such a row is admitted unchecked and its children find
+  // no parent time to compare against. Ties pass -- these are FILETIMEs
+  // truncated to ms, so a parent and child spawned in the same millisecond
+  // collide exactly and `>` would drop true descendants. The root itself is
+  // never pruned: its own ppid can be recycled too, and a pruned root loses the
+  // snapshot outright. Monotonicity along a real chain is assumed; a backwards
+  // clock step between two spawns would drop a live descendant, which is
+  // accepted over the certain stall a retained stale link causes.
   const currentRows = table.filter((row) => {
     const parentCreationTimeMs = rowsByPid.get(row.ppid)?.creationTimeMs
     return (
