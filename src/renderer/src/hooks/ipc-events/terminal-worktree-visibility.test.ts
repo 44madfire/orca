@@ -66,7 +66,10 @@ describe.each(['reveal', 'create'] as const)('hidden worktree %s bridge', (bridg
         await new Promise<void>((resolve) => {
           finishRefresh = resolve
         })
-        s.state.worktreesByRepo['repo-1'].push({ id: s.worktreeId } as never)
+        s.state.worktreesByRepo = {
+          ...s.state.worktreesByRepo,
+          'repo-1': [...s.state.worktreesByRepo['repo-1'], { id: s.worktreeId, hostId } as never]
+        }
         return true
       })
       const pending = invoke(s)
@@ -140,7 +143,14 @@ describe.each(['reveal', 'create'] as const)('hidden worktree %s bridge', (bridg
     await invoke(s, false)
     expect(s.updateRepo).not.toHaveBeenCalled()
     expect(s.setActiveWorktree).not.toHaveBeenCalled()
-    expect(s.createTab).toHaveBeenCalled()
+    if (bridge === 'reveal') {
+      expect(s.createTab).toHaveBeenCalled()
+    } else {
+      expect(s.createTab).not.toHaveBeenCalled()
+      expect(s.replyTerminalCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ errorCode: 'worktree_not_renderable' })
+      )
+    }
   })
 
   it('accepts a folder workspace without importing it as a git worktree', async () => {
@@ -184,11 +194,11 @@ describe('terminal worktree activation safety', () => {
     }
     s.state.detectedWorktreesByRepo['repo-1'].worktrees.push(second)
     s.fetchWorktrees.mockImplementation(async () => {
-      s.state.worktreesByRepo['repo-1'] = s.state.detectedWorktreesByRepo[
-        'repo-1'
-      ].worktrees.filter((row) =>
-        s.state.repos[0].importedExternalWorktreePaths?.includes(row.path)
-      )
+      s.state.worktreesByRepo = {
+        'repo-1': s.state.detectedWorktreesByRepo['repo-1'].worktrees.filter((row) =>
+          s.state.repos[0].importedExternalWorktreePaths?.includes(row.path)
+        )
+      }
       return true
     })
     const { ensureTerminalWorktreeVisible } = await import('./terminal-worktree-visibility')
@@ -201,5 +211,52 @@ describe('terminal worktree activation safety', () => {
       '/hidden',
       '/second'
     ])
+  })
+})
+
+describe('direct terminal focus events', () => {
+  it('imports before focusing the requested terminal', async () => {
+    const s = await setup()
+    await s.focusTerminalListenerRef.current!({ worktreeId: s.worktreeId, tabId: 'existing' })
+    expect(s.updateRepo).toHaveBeenCalledTimes(1)
+    expect(s.setActiveWorktree).toHaveBeenCalledWith(s.worktreeId)
+    expect(s.setActiveTab).toHaveBeenCalledWith('existing')
+  })
+
+  it('handles a failed import without an uncaught rejection or navigation', async () => {
+    const s = await setup()
+    s.updateRepo.mockResolvedValue(false)
+    await expect(
+      s.focusTerminalListenerRef.current!({ worktreeId: s.worktreeId, tabId: 'existing' })
+    ).resolves.toBeUndefined()
+    expect(s.setActiveWorktree).not.toHaveBeenCalled()
+    expect(s.setActiveTab).not.toHaveBeenCalled()
+  })
+})
+
+describe.each(['ssh:server', 'runtime:server'] as const)('same-ID %s ownership', (hostId) => {
+  it('imports the selected host despite a visible local row with the same ID', async () => {
+    const s = await setup(hostId)
+    s.state.activeWorktreeId = s.worktreeId
+    s.state.activeWorkspaceExecutionHostId = hostId
+    s.state.worktreesByRepo = {
+      'repo-1': [{ id: s.worktreeId, repoId: 'repo-1', hostId: 'local' } as never]
+    }
+    const { ensureTerminalWorktreeVisible, hasTerminalWorktreeRow } =
+      await import('./terminal-worktree-visibility')
+    expect(hasTerminalWorktreeRow(s.state, s.worktreeId)).toBe(false)
+    await ensureTerminalWorktreeVisible(s.worktreeId)
+    expect(s.updateRepo).toHaveBeenCalledWith('repo-1', expect.anything(), { hostId })
+    expect(hasTerminalWorktreeRow(s.state, s.worktreeId)).toBe(true)
+  })
+
+  it('refuses ambiguous ownership instead of accepting the visible local row', async () => {
+    const s = await setup(hostId)
+    s.state.worktreesByRepo = {
+      'repo-1': [{ id: s.worktreeId, repoId: 'repo-1', hostId: 'local' } as never]
+    }
+    const { ensureTerminalWorktreeVisible } = await import('./terminal-worktree-visibility')
+    await expect(ensureTerminalWorktreeVisible(s.worktreeId)).rejects.toThrow('worktree_hidden')
+    expect(s.updateRepo).not.toHaveBeenCalled()
   })
 })

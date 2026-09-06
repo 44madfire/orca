@@ -1,9 +1,8 @@
-import type { AppState } from '../../store/types'
-import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
+import { hasRenderableTerminalWorktreeSurface as hasTerminalWorktreeRow } from '@/lib/terminal-worktree-route'
 import { importNewExternalWorktreeInboxPaths } from '@/components/sidebar/new-external-worktrees-inbox-actions'
 import { resolveWorktreeOperationRoute } from '@/lib/worktree-operation-route'
 import { findRepoForHost, getRepoHostIdentity } from '@/store/slices/repo-host-identity'
-import { findWorktreeById, getRepoIdFromWorktreeId } from '@/store/slices/worktree-helpers'
+import { getRepoIdFromWorktreeId } from '@/store/slices/worktree-helpers'
 import {
   worktreeHostMatchOptions,
   worktreeMatchesHost
@@ -12,12 +11,7 @@ import { useAppStore } from '../../store'
 
 const pendingImports = new Map<string, Promise<void>>()
 
-export function hasTerminalWorktreeRow(state: AppState, worktreeId: string): boolean {
-  if (parseWorkspaceKey(worktreeId)?.type === 'folder') {
-    return Boolean(state.getKnownWorktreeById(worktreeId))
-  }
-  return Boolean(findWorktreeById(state.worktreesByRepo, worktreeId))
-}
+export { hasRenderableTerminalWorktreeSurface as hasTerminalWorktreeRow } from '@/lib/terminal-worktree-route'
 
 export function hiddenTerminalWorktreeError(): Error {
   return new Error('worktree_hidden: Terminal workspace could not be shown in the sidebar')
@@ -29,7 +23,9 @@ export async function ensureTerminalWorktreeVisible(worktreeId: string): Promise
     return
   }
   const route = resolveWorktreeOperationRoute(state, worktreeId)
-  const hostId = route?.executionHostId
+  const hostId = route?.runtimeEnvironmentId
+    ? (`runtime:${encodeURIComponent(route.runtimeEnvironmentId)}` as const)
+    : route?.executionHostId
   if (!hostId) {
     throw hiddenTerminalWorktreeError()
   }
@@ -57,17 +53,14 @@ export async function ensureTerminalWorktreeVisible(worktreeId: string): Promise
       if (!targetRepo || detected?.length !== 1 || detected[0].visible) {
         throw hiddenTerminalWorktreeError()
       }
-      let imported = false
-      await importNewExternalWorktreeInboxPaths({
+      const imported = await importNewExternalWorktreeInboxPaths({
         projectId: repoId,
         repo: targetRepo,
         worktreePaths: [detected[0].path],
         updateRepo: (id, updates) => current.updateRepo(id, updates, { hostId }),
         fetchWorktrees: (id, options) =>
           current.fetchWorktrees(id, { ...options, executionHostId: hostId }),
-        setInboxState: (_id, status) => {
-          imported = status === null
-        }
+        setInboxState: () => {}
       })
       if (!imported || !hasTerminalWorktreeRow(useAppStore.getState(), worktreeId)) {
         throw hiddenTerminalWorktreeError()

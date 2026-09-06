@@ -3,16 +3,59 @@ import { isEphemeralSetupTerminalWorktreeId } from '../../../shared/ephemeral-se
 import { parseExecutionHostId } from '../../../shared/execution-host'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import type { AppState } from '@/store/types'
+import { getIndexedWorktreesById } from '@/store/worktree-repo-index'
+import { getRepoIdFromWorktreeId } from '@/store/slices/worktree-helpers'
+import {
+  worktreeMatchesHost,
+  worktreeHostMatchOptions
+} from '@/store/slices/worktrees/listing/worktree-host-ownership'
+import {
+  resolveWorktreeOperationRoute,
+  resolveWorktreeOperationRouteResult
+} from './worktree-operation-route'
 import {
   getExplicitRuntimeEnvironmentIdForWorktree,
   getRuntimeEnvironmentIdForWorktree,
   type WorktreeRuntimeOwnerState
 } from './worktree-runtime-owner'
-import { resolveWorktreeOperationRouteResult } from './worktree-operation-route'
 import { getSingleFocusedRuntimeEnvironmentId } from './single-runtime-legacy-owner'
 
 export type TerminalWorktreeRoute = {
   runtimeEnvironmentId: string | null
+}
+
+export function hasRenderableTerminalWorktreeSurface(
+  state: AppState,
+  worktreeId: string | null | undefined
+): boolean {
+  if (!worktreeId) {
+    return false
+  }
+  if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
+    return true
+  }
+  const scope = parseWorkspaceKey(worktreeId)
+  if (scope?.type === 'folder') {
+    return (
+      state.folderWorkspaces?.some((workspace) => workspace.id === scope.folderWorkspaceId) ?? false
+    )
+  }
+  // Only the workbench's row index can host new tabs; detected rows and inline setup ids cannot.
+  const route = resolveWorktreeOperationRoute(state, worktreeId)
+  const hostId = route?.executionHostId
+  if (!hostId) {
+    return false
+  }
+  const repoId = getRepoIdFromWorktreeId(worktreeId)
+  const catalogHostId = route.runtimeEnvironmentId
+    ? (`runtime:${encodeURIComponent(route.runtimeEnvironmentId)}` as const)
+    : hostId
+  const matchOptions = worktreeHostMatchOptions(state, repoId, catalogHostId)
+  return state.worktreesByRepo
+    ? getIndexedWorktreesById(state.worktreesByRepo, worktreeId).some((row) =>
+        worktreeMatchesHost(row, catalogHostId, matchOptions)
+      )
+    : false
 }
 
 /**
