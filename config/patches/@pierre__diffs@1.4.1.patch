@@ -37,6 +37,24 @@ index 9bdaaa3ef199f3e443f77106a9ac7eddcc4b05b6..461364d3af60a954a766ef285ddef147
  		const fileDiff = this.getLatestDiff();
  		if (fileDiff == null || fileDiff.editSessionDirty !== true) return false;
  		const { collapsedContextThreshold = 1 } = this.options;
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 10626ccf2c08151951c7a42a7a014ba4b147869b..175f05ac3a4638d5f3df8f3f09b432da3d61e61c 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1,3 +1,4 @@
++export { iterateOverDiff } from "./utils/iterateOverDiff.js";
+ import { AnnotationLineMap, AnnotationSide, AnnotationSpan, AppliedThemeStyleCache, BaseCodeOptions, BaseDiffOptions, BaseDiffOptionsWithDefaults, BundledLanguage, ChangeContent, ChangeTypes, CodeColumnType, CodeToHastOptions, CodeViewDiffItem, CodeViewFileItem, CodeViewItem, CodeViewItemScrollTarget, CodeViewLayout, CodeViewLineScrollTarget, CodeViewPositionScrollTarget, CodeViewRangeScrollTarget, CodeViewScrollBehavior, CodeViewScrollTarget, ConflictResolverTypes, ContextContent, CreatePatchOptionsNonabortable, CustomPreProperties, DecorationItem, DiffAcceptRejectHunkConfig, DiffAcceptRejectHunkType, DiffFileInput, DiffIndicators, DiffLineAnnotation, DiffLineEventBaseProps, DiffTokenEventBaseProps, DiffsHighlighter, DiffsThemeNames, ExpansionDirections, ExtensionFormatMap, FileContents, FileDiffContentsLoader, FileDiffLoadedChangedFiles, FileDiffLoadedFiles, FileDiffLoadedPureRenamedFile, FileDiffMetadata, FileHeaderRenderMode, ForceDiffPlainTextOptions, ForceFilePlainTextOptions, GapSpan, HighlightedToken, HighlighterTypes, Hunk, HunkData, HunkExpansionRegion, HunkLineType, HunkSeparators, LanguageRegistration, LineAnnotation, LineDiffTypes, LineEventBaseProps, LineInfo, LineSpans, LineTypes, MaybeDiffFileInput, MergeConflictActionPayload, MergeConflictMarkerRow, MergeConflictMarkerRowType, MergeConflictRegion, MergeConflictResolution, NumericScrollLineAnchor, ObservedAnnotationNodes, ObservedGridNodes, ParsedPatch, PendingCodeViewLayoutReset, PostRenderPhase, PrePropertiesConfig, ProcessFileConflictData, RenderDiffFilesResult, RenderDiffOptions, RenderDiffResult, RenderFileMetadata, RenderFileOptions, RenderFileResult, RenderHeaderFilenameSuffixCallback, RenderHeaderMetadataCallback, RenderHeaderPrefixCallback, RenderRange, RenderWindow, RenderedDiffASTCache, RenderedFileASTCache, SelectedLineRange, SelectionPoint, SelectionSide, SharedRenderState, ShikiTransformer, SmoothScrollSettings, StickySpecs, SupportedLanguages, ThemeRegistration, ThemeRegistrationResolved, ThemeTypes, ThemedDiffResult, ThemedFileResult, ThemedToken, ThemesType, TokenEventBase, VirtualFileMetrics, VirtualWindowSpecs } from "./types.js";
+ import { FileDiffEditCompleteEvent, FileEditCompleteEvent } from "./editor/types.js";
+ import { GetHoveredLineResult, GetLineIndexUtility, InteractionManager, InteractionManagerBaseOptions, InteractionManagerMode, InteractionManagerOptions, LogTypes, MergeConflictActionTarget, OnDiffLineClickProps, OnDiffLineEnterLeaveProps, OnLineClickProps, OnLineEnterLeaveProps, OnTokenEventProps, SelectionWriteOptions, pluckInteractionOptions } from "./managers/InteractionManager.js";
+diff --git a/dist/index.js b/dist/index.js
+index 5fa10ffa775e8f5e933b6fa415935ef6ab11c4dd..d64b134796b5dcf9bfb167c5ec700d9ea6a90c08 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1,3 +1,4 @@
++export { iterateOverDiff } from "./utils/iterateOverDiff.js";
+ import { ALTERNATE_FILE_NAMES_GIT, CODE_VIEW_FOOTER_ATTRIBUTE, CODE_VIEW_HEADER_ATTRIBUTE, COMMIT_METADATA_SPLIT, CORE_CSS_ATTRIBUTE, CUSTOM_HEADER_SLOT_ID, DEFAULT_CODE_VIEW_FILE_METRICS, DEFAULT_CODE_VIEW_LAYOUT, DEFAULT_COLLAPSED_CONTEXT_THRESHOLD, DEFAULT_EXPANDED_REGION, DEFAULT_RENDER_RANGE, DEFAULT_SMOOTH_SCROLL_SETTINGS, DEFAULT_THEMES, DEFAULT_TOKENIZE_MAX_LENGTH, DEFAULT_VIRTUAL_FILE_METRICS, DIFFS_DEVELOPMENT_BUILD, DIFFS_SCROLLBAR_GUTTER_MEASURED_PROPERTY, DIFFS_SCROLLBAR_MEASURE_ATTRIBUTE, DIFFS_TAG_NAME, EMPTY_RENDER_RANGE, FILENAME_HEADER_REGEX, FILENAME_HEADER_REGEX_GIT, FILE_CONTEXT_BLOB, GIT_DIFF_FILE_BREAK_REGEX, HEADER_FILENAME_SUFFIX_SLOT_ID, HEADER_METADATA_SLOT_ID, HEADER_PREFIX_SLOT_ID, HUNK_HEADER, INDEX_LINE_METADATA, MERGE_CONFLICT_BASE_MARKER_REGEX, MERGE_CONFLICT_END_MARKER_REGEX, MERGE_CONFLICT_SEPARATOR_MARKER_REGEX, MERGE_CONFLICT_START_MARKER_REGEX, SPLIT_WITH_NEWLINES, THEME_CSS_ATTRIBUTE, UNIFIED_DIFF_FILE_BREAK_REGEX, UNSAFE_CSS_ATTRIBUTE } from "./constants.js";
+ import { AttachedLanguages, RegisteredCustomLanguages, ResolvedLanguages, ResolvingLanguages } from "./highlighter/languages/constants.js";
+ import { areLanguagesAttached } from "./highlighter/languages/areLanguagesAttached.js";
 diff --git a/dist/managers/InteractionManager.d.ts b/dist/managers/InteractionManager.d.ts
 index 9f243f97a6eb28c22176b6b3abba022756571fdc..806bb52ac15de68044ea5a5cfbb5016eae38ccae 100644
 --- a/dist/managers/InteractionManager.d.ts

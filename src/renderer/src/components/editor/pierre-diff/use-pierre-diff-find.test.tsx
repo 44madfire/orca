@@ -1,72 +1,118 @@
 // @vitest-environment happy-dom
 import { act, renderHook, cleanup } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
+import type { FileDiffMetadata } from '@pierre/diffs'
 import { usePierreDiffFind } from './use-pierre-diff-find'
 
+const { results } = vi.hoisted(() => ({ results: vi.fn() }))
+vi.mock('./use-pierre-diff-search-results', () => ({ usePierreDiffSearchResults: results }))
+vi.mock('./use-pierre-diff-search-view', () => ({ usePierreDiffSearchView: () => vi.fn() }))
 vi.mock('../editor-shortcuts', () => ({
-  editorShortcutMatches: (_: string, event: KeyboardEvent) => event.key === 'f' && event.ctrlKey
+  editorShortcutMatches: (action: string, event: KeyboardEvent) =>
+    event.key === (action === 'editor.find' ? 'f' : 'h') && event.ctrlKey
 }))
-vi.mock('@/lib/shortcut-platform', () => ({ getShortcutPlatform: () => 'linux' }))
 
 afterEach(() => {
   cleanup()
-  vi.useRealTimers()
+  vi.clearAllMocks()
   document.body.replaceChildren()
 })
 
 function setup(isEditable: boolean) {
-  vi.useFakeTimers()
   const container = document.createElement('div')
-  const host = document.createElement('diffs-container')
-  const shadow = host.attachShadow({ mode: 'open' })
-  container.append(host)
   document.body.append(container)
-  const { result } = renderHook(() =>
-    usePierreDiffFind({ isEditable, containerRef: { current: container } })
-  )
-  const attachContent = () => {
-    const content = document.createElement('div')
-    content.setAttribute('contenteditable', 'true')
-    shadow.append(content)
-    return content
+  const editor = {
+    getText: vi.fn(() => 'modified'),
+    applyEdits: vi.fn(),
+    setSelections: vi.fn(),
+    focus: vi.fn()
   }
-  const find = () =>
+  const fileDiff = { additionLines: ['modified'], deletionLines: ['original'] } as FileDiffMetadata
+  const containerRef = { current: container }
+  const editorRef = { current: editor } as never
+  const { result } = renderHook(() =>
+    usePierreDiffFind({
+      isEditable,
+      containerRef,
+      editorRef,
+      fileDiff
+    })
+  )
+  const find = (key = 'f') =>
     act(() =>
       result.current.handleContainerKeyDown({
-        key: 'f',
+        key,
+        nativeEvent: new KeyboardEvent('keydown', { key, ctrlKey: true }),
         ctrlKey: true,
         preventDefault: vi.fn(),
         stopPropagation: vi.fn()
       } as unknown as React.KeyboardEvent<HTMLElement>)
     )
-  return { result, attachContent, find }
+  return { result, editor, find }
 }
 
-describe('Pierre find shortcut', () => {
-  it('opens on the first press when the editable surface is already attached', () => {
-    const { attachContent, find } = setup(true)
-    const content = attachContent()
-    const search = vi.fn()
-    content.addEventListener('keydown', search)
-    find()
-    act(() => vi.runOnlyPendingTimers())
-    expect(search).toHaveBeenCalledOnce()
-    expect(search.mock.calls[0][0]).toMatchObject({ key: 'f', ctrlKey: true })
-  })
+it('opens find on the first press without creating a writable read-only session', () => {
+  results.mockReturnValue(null)
+  const { result, find, editor } = setup(false)
+  find()
+  expect(result.current.searchBar?.canReplace).toBe(false)
+  act(() => result.current.searchBar?.onReplace(true))
+  expect(editor.applyEdits).not.toHaveBeenCalled()
+  act(() => result.current.searchBar?.onClose())
+  expect(result.current.searchBar).toBeNull()
+})
 
-  it('opens after a read-only find session attaches and cancels on Escape', () => {
-    const { result, attachContent, find } = setup(false)
-    find()
-    expect(result.current.editEnabled).toBe(true)
-    const content = attachContent()
-    const search = vi.fn()
-    content.addEventListener('keydown', search)
-    act(() => result.current.handleEditorAttach({ focus: vi.fn() }))
-    act(() =>
-      result.current.handleContainerKeyDown({ key: 'Escape' } as React.KeyboardEvent<HTMLElement>)
-    )
-    act(() => vi.runOnlyPendingTimers())
-    expect(search).not.toHaveBeenCalled()
-    expect(result.current.editEnabled).toBe(false)
+it('searches original content and never replaces on that side', () => {
+  results.mockReturnValue(null)
+  const { result, find } = setup(true)
+  find()
+  act(() => result.current.searchBar?.onSide('deletions'))
+  expect(results.mock.lastCall?.[0].text).toBe('original')
+  expect(result.current.searchBar?.canReplace).toBe(false)
+})
+
+it('fences replacement against edits made after async search started', () => {
+  results.mockReturnValue({
+    matches: [
+      {
+        range: { start: { line: 1, character: 0 }, end: { line: 1, character: 8 } },
+        replacement: 'new'
+      }
+    ],
+    truncated: false
   })
+  const { result, find, editor } = setup(true)
+  find('h')
+  expect(result.current.searchBar?.replaceOpen).toBe(true)
+  editor.getText.mockReturnValue('newer edit')
+  act(() => result.current.searchBar?.onReplace(true))
+  expect(editor.applyEdits).not.toHaveBeenCalled()
+})
+
+it('moves between results with F3 and Shift+F3', () => {
+  const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }
+  results.mockReturnValue({ matches: [{ range }, { range }], truncated: false })
+  const { result, find } = setup(false)
+  find()
+  act(() =>
+    result.current.searchBar?.onQuery({
+      text: 'm',
+      regex: false,
+      matchCase: false,
+      wholeWord: false
+    })
+  )
+  const key = (shiftKey: boolean) =>
+    act(() =>
+      result.current.handleContainerKeyDown({
+        key: 'F3',
+        shiftKey,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn()
+      } as unknown as React.KeyboardEvent<HTMLElement>)
+    )
+  key(false)
+  expect(result.current.searchBar?.status).toBe('2/2')
+  key(true)
+  expect(result.current.searchBar?.status).toBe('1/2')
 })

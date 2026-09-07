@@ -24,3 +24,7 @@ Drag completion rechecks the predicate. Other consumers retain the upstream defa
 Keep `useTokenTransformer: true` on the pool. Coverage lives in
 `pierre-diff-worker-edit-cache.test.ts` and the large-diff Electron specs. Remove
 the patch when an upstream release provides the same behavior.
+
+The package entrypoint also exposes its existing `iterateOverDiff` iterator.
+Search uses it to map original/context line numbers onto virtualized split and
+unified rows, reusing Pierre's hunk logic without copying its implementation.

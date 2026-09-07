@@ -3,6 +3,7 @@ import { DEFAULT_VIRTUAL_FILE_METRICS, type FileDiffOptions, type ThemesType } f
 import type { CreatePatchOptionsNonabortable } from 'diff'
 import type { GlobalSettings } from '../../../../../shared/global-settings-types'
 import { computeDiffEditorFontSize, resolveEditorFontFamily } from '@/lib/editor-font-zoom'
+import { PIERRE_SEARCH_CSS } from './pierre-diff-search-view'
 import { buildFontFamily } from '@/components/terminal-pane/layout-serialization'
 
 /**
@@ -62,7 +63,7 @@ export function buildPierreDiffOptions<LAnnotation>({
     // from here — without it Pierre asks Shiki for its unregistered default
     // `pierre-dark` and the render throws instead of painting.
     theme: PIERRE_DIFF_THEMES,
-    unsafeCSS: PIERRE_GUTTER_BUTTON_CSS,
+    unsafeCSS: PIERRE_GUTTER_BUTTON_CSS + PIERRE_SEARCH_CSS,
     themeType: settings?.theme ?? 'system',
     overflow: settings?.diffWordWrap ? 'wrap' : 'scroll',
     parseDiffOptions: buildPierreParseDiffOptions(settings?.diffShowWhitespace),
