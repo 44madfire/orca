@@ -1,7 +1,7 @@
-// Both resolvers use only `files[0]`, and both run on every acquisition, so
-// they must hand the scan its early exit. Nothing else pins that wiring: drop
-// the option and the resolvers still return the right file, just after walking
-// every transcript in the home.
+// All three walking resolvers use only `files[0]`, and each runs on every
+// acquisition, so each must hand the scan its early exit. Nothing else pins that
+// wiring: drop the option and a resolver still returns the right file, just
+// after walking every transcript in the home.
 
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
@@ -28,7 +28,7 @@ beforeEach(() => {
 })
 
 describe('session file resolvers stop at the first match', () => {
-  it.each(['claude', 'codex'] as const)('asks the %s scan to stop early', async (agent) => {
+  it.each(['claude', 'codex', 'omp'] as const)('asks the %s scan to stop early', async (agent) => {
     await resolveSessionFilePath(agent, 'session-1')
 
     expect(scanned.calls.length).toBeGreaterThan(0)

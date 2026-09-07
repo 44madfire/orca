@@ -338,6 +338,8 @@ async function resolveOmpSessionFile(
 ): Promise<string | null> {
   const files = await walkSessionFiles(sessionsDir, 'omp', [], {
     extensions: new Set(['.jsonl']),
+    // Why: only `files[0]` is used, so the rest of the walk is pure cost.
+    stopAfterFirstMatch: true,
     // Why: a session's task-subagent transcripts live in its same-named
     // `<stamp>_<uuid>/` artifact dir, and a label-named child can still end in
     // `_<session id>` — so descending would let a subagent transcript win the
