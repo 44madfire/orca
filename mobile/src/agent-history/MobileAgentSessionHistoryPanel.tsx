@@ -28,12 +28,12 @@ import {
   MobileAgentSessionHistoryPresentation,
   type MobileAgentHistoryPresentationState
 } from './MobileAgentSessionHistoryPresentation'
-import {
-  resolveMobileAiVaultSessionResumeTarget,
-  type MobileAiVaultResumeFolderWorkspace,
-  type MobileAiVaultResumeProjectGroup,
-  type MobileAiVaultResumeRepo
-} from '../../../src/shared/mobile-ai-vault-resume-target'
+import type {
+  MobileAiVaultResumeFolderWorkspace,
+  MobileAiVaultResumeProjectGroup,
+  MobileAiVaultResumeRepo
+} from '../../../src/shared/mobile-ai-vault-resume-host-status'
+import { resolveMobileAiVaultSessionResumeTarget } from '../../../src/shared/mobile-ai-vault-resume-target'
 import { buildMobileAgentHistoryResumeActionState } from './agent-history-session-card'
 
 export type MobileAgentSessionHistoryPanelProps = {

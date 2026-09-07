@@ -3,9 +3,9 @@ import {
   getMobileAiVaultResumeRepoTargetStatus,
   getMobileAiVaultResumeWorktreeTargetStatus,
   isSupportedMobileAiVaultResumeTargetStatus,
-  mobileAiVaultResumeTargetBlockMessage,
-  resolveMobileAiVaultSessionResumeTarget
-} from './mobile-ai-vault-resume-target'
+  mobileAiVaultResumeTargetBlockMessage
+} from './mobile-ai-vault-resume-host-status'
+import { resolveMobileAiVaultSessionResumeTarget } from './mobile-ai-vault-resume-target'
 import type { ExecutionHostId } from './execution-host'
 import type { MobileAiVaultWorktree } from './mobile-ai-vault-session-worktree'
 import type { AiVaultSession } from './ai-vault-types'

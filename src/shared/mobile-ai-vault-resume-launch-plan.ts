@@ -12,7 +12,7 @@ import { normalizeAiVaultResumeFilePath } from './ai-vault-resume-path'
 import type { TuiAgent } from './tui-agent'
 import { parseWslUncPath } from './wsl-paths'
 import { resolveWindowsShellStartupFamily } from './windows-terminal-shell'
-import type { MobileAiVaultResumeTargetStatus } from './mobile-ai-vault-resume-target'
+import type { MobileAiVaultResumeTargetStatus } from './mobile-ai-vault-resume-host-status'
 
 export function buildMobileAiVaultResumeCommand(args: {
   session: Pick<AiVaultSession, 'agent' | 'sessionId' | 'cwd' | 'codexHome'> &

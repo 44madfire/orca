@@ -9,12 +9,12 @@ import {
   resolveMobileAiVaultResumePlatform,
   type MobileAiVaultResumeSettings
 } from '../../../../shared/mobile-ai-vault-resume-launch-plan'
-import {
-  resolveMobileAiVaultSessionResumeTarget,
-  type MobileAiVaultResumeFolderWorkspace,
-  type MobileAiVaultResumeProjectGroup,
-  type MobileAiVaultResumeRepo
-} from '../../../../shared/mobile-ai-vault-resume-target'
+import type {
+  MobileAiVaultResumeFolderWorkspace,
+  MobileAiVaultResumeProjectGroup,
+  MobileAiVaultResumeRepo
+} from '../../../../shared/mobile-ai-vault-resume-host-status'
+import { resolveMobileAiVaultSessionResumeTarget } from '../../../../shared/mobile-ai-vault-resume-target'
 import type { MobileAiVaultWorktree } from '../../../../shared/mobile-ai-vault-session-worktree'
 import type { RpcContext } from '../core'
 import {
@@ -36,14 +36,14 @@ export async function resumeMobileWebAgentHistorySession(args: {
     return { status: 'blocked', message: 'This session is missing a resume id.' }
   }
   const rpc = mobileWebAgentHistoryRpc(args.context)
-  const [worktrees, repos, folderWorkspaces, projectGroups, settings, status] = await Promise.all([
+  const [worktrees, repos, folderWorkspaces, projectGroups, settings] = await Promise.all([
     rpc.worktrees(),
     rpc.repos(),
     rpc.folderWorkspaces(),
     rpc.projectGroups(),
-    rpc.settings(),
-    rpc.status()
+    rpc.settings()
   ])
+  const status = rpc.status()
   const target = resolveMobileAiVaultSessionResumeTarget({
     session: args.session,
     activeWorktreeId: args.activeWorktreeId,

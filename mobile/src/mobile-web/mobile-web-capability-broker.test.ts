@@ -450,7 +450,6 @@ describe('mobile web capability broker', () => {
     await harness.broker.handle(subscriptionCancel())
     expect(unsubscribe).toHaveBeenCalledOnce()
   })
-
 })
 
 function createHarness() {
@@ -557,17 +556,6 @@ function request(
     }),
     ...overrides
   } as Extract<MobileWebBridgePageMessage, { type: 'request' }>
-}
-
-function successPayload(message: MobileWebBridgeShellMessage | undefined): unknown {
-  if (message?.type !== 'response' || message.status !== 'success') {
-    throw new Error('Expected a successful bridge response')
-  }
-  return message.payload
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function cancel(): Extract<MobileWebBridgePageMessage, { type: 'cancel' }> {
