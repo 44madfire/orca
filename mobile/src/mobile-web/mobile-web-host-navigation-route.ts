@@ -53,11 +53,7 @@ export async function resolveMobileWebHostNavigationRoute(
   }
 
   const match = matches[0]
-  const hostRepoId = boundedRequiredText(match.repoId, 512)
-  if (!hostRepoId) {
-    throw new MobileWebBrokerError('unavailable')
-  }
-  const pageWorkspaceId = authority.registerWorkspace(hostWorkspaceId, hostRepoId)
+  const pageWorkspaceId = authority.registerWorkspace(hostWorkspaceId)
   return {
     kind: 'session',
     workspaceId: pageWorkspaceId,

@@ -20,7 +20,7 @@ type Continuation = {
 
 export class MobileWebWorkspaceSnapshotPager {
   private continuation: Continuation | null = null
-  private active = false
+  private active: object | null = null
   private nextCursorNumber = 0
 
   constructor(private readonly randomBytes: (length: number) => Uint8Array) {}
@@ -33,12 +33,16 @@ export class MobileWebWorkspaceSnapshotPager {
     if (this.active) {
       throw new MobileWebBrokerError('rate_limited')
     }
-    this.active = true
+    const request = {}
+    this.active = request
     try {
       const payload = MobileWebWorkspaceSnapshotPayloadSchema.parse(payloadValue)
       const continuation = payload.cursor
         ? this.consumeContinuation(payload.cursor)
         : await this.begin(client)
+      if (this.active !== request) {
+        throw new MobileWebBrokerError('cancelled')
+      }
       const page = mobileWebWorkspaceSnapshotPage(
         continuation.hostResult,
         payload.limit,
@@ -52,16 +56,19 @@ export class MobileWebWorkspaceSnapshotPager {
         page.nextOffset === null ? null : this.retain(continuation, page.nextOffset)
       return MobileWebWorkspaceSnapshotResultSchema.parse({ ...page.snapshot, nextCursor })
     } finally {
-      this.active = false
+      if (this.active === request) {
+        this.active = null
+      }
     }
   }
 
   clear(): void {
+    this.active = null
     this.continuation = null
   }
 
   private async begin(client: RpcClient): Promise<Continuation> {
-    this.clear()
+    this.continuation = null
     const response = await client.sendRequest('worktree.ps', {
       limit: MOBILE_WEB_WORKSPACE_LIST_LIMIT + 1
     })
@@ -79,7 +86,7 @@ export class MobileWebWorkspaceSnapshotPager {
 
   private consumeContinuation(cursor: string): Continuation {
     const continuation = this.continuation
-    this.clear()
+    this.continuation = null
     if (!continuation || continuation.cursor !== cursor) {
       throw new MobileWebBrokerError('invalid_request')
     }

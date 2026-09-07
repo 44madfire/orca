@@ -73,13 +73,14 @@ export class MobileWebHostSubscriptions extends MobileWebSubscriptionLedger<
     ) {
       return
     }
-    if (mobileWebHostPayloadByteLength(event) === undefined) {
+    const bytes = mobileWebHostPayloadByteLength(event)
+    if (bytes === undefined) {
       this.cancel(subscriptionId, { code: 'too_large', retryable: false })
       return
     }
     const type =
       typeof event === 'object' && event !== null && 'type' in event ? event.type : undefined
     record.closing = type === 'end' || type === 'error'
-    this.enqueue(subscriptionId, record, event, record.closing)
+    this.enqueue(subscriptionId, record, event, record.closing, bytes)
   }
 }

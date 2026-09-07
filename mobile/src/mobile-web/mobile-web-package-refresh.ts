@@ -60,6 +60,10 @@ export async function runMobileWebPackageRefresh(args: {
         downloaded.commit.buildId,
         MOBILE_WEB_BRIDGE_PROTOCOL_VERSION
       )
+      if (!args.isCurrent()) {
+        await ExpoMobileWebShell.closeSession(session.sessionId).catch(() => {})
+        return { kind: 'stale' }
+      }
       if (!(await args.publish(session, startedAt))) {
         return { kind: 'stale' }
       }

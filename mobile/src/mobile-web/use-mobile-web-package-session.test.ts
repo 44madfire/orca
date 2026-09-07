@@ -307,6 +307,53 @@ describe('useMobileWebPackageSession', () => {
     })
   })
 
+  it('allows recovery again after the desktop upgrades its build', async () => {
+    native.openSession.mockResolvedValue(SESSION_A)
+    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_A.buildId } })
+    await mount('connected')
+    await act(async () => {
+      packageSession?.handleLoadFailure('mobile_web_generation_invalid')
+      await flushPromises()
+    })
+
+    await update('disconnected')
+    native.openSession.mockResolvedValue(SESSION_B)
+    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_B.buildId } })
+    await update('connected')
+    expect(packageSession?.session).toEqual(SESSION_B)
+    removeHostCache.mockClear()
+    await act(async () => {
+      packageSession?.handleLoadFailure('mobile_web_generation_invalid')
+      await flushPromises()
+    })
+
+    expect(removeHostCache).toHaveBeenCalledWith(HOST.publicKeyB64)
+  })
+
+  it('does not reopen a new host when an old host cache removal finishes', async () => {
+    native.openSession.mockResolvedValue(SESSION_A)
+    await mount('disconnected')
+    const removal = deferred<void>()
+    removeHostCache.mockReturnValue(removal.promise)
+    await act(async () => {
+      packageSession?.handleLoadFailure('mobile_web_generation_invalid')
+      await flushPromises()
+    })
+    native.openSession.mockResolvedValue(SESSION_B)
+    await update('disconnected', HOST_B)
+    native.openSession.mockClear()
+    native.closeSession.mockClear()
+
+    await act(async () => {
+      removal.resolve()
+      await flushPromises()
+    })
+
+    expect(packageSession?.session).toEqual(SESSION_B)
+    expect(native.openSession).not.toHaveBeenCalled()
+    expect(native.closeSession).not.toHaveBeenCalled()
+  })
+
   it('allows another drop after the host is selected again', async () => {
     native.openSession.mockResolvedValue(SESSION_A)
     downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_A.buildId } })
@@ -374,6 +421,26 @@ describe('useMobileWebPackageSession', () => {
 
     expect(packageSession?.session).toEqual(SESSION_B)
     expect(native.closeSession).toHaveBeenCalledWith(SESSION_A.sessionId)
+  })
+
+  it('closes a refreshed session opened after its connection was abandoned', async () => {
+    const refreshed = deferred<typeof SESSION_B>()
+    native.openSession.mockImplementation((_host: string, buildId: string | null) =>
+      buildId ? refreshed.promise : Promise.resolve(SESSION_A)
+    )
+    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_B.buildId } })
+    await mount('connected')
+    expect(packageSession?.session).toEqual(SESSION_A)
+    await update('disconnected')
+
+    await act(async () => {
+      refreshed.resolve(SESSION_B)
+      await flushPromises()
+    })
+
+    expect(packageSession?.session).toEqual(SESSION_A)
+    expect(native.closeSession).toHaveBeenCalledWith(SESSION_B.sessionId)
+    expect(native.closeSession).not.toHaveBeenCalledWith(SESSION_A.sessionId)
   })
 
   it('closes the previous host session when the selected host changes', async () => {

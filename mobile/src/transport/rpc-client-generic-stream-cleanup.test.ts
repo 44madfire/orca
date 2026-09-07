@@ -68,18 +68,27 @@ describe('Desktop-advertised stream cleanup', () => {
     )
   })
 
-  it('bounds cancelled streams that have not supplied their cleanup token yet', () => {
-    const { registry } = fixture()
-    for (let index = 0; index < 128; index++) {
-      registry.subscribe('future.watch', {}, () => {}, {
+  it.each([true, false])(
+    'removes ended streams before reconnect replay: streaming=%s',
+    (streaming) => {
+      const { registry, send, ready } = fixture()
+      const listener = vi.fn()
+      registry.subscribe('future.watch', {}, listener, {
         serverUnsubscribeMethod: 'future.release'
-      })()
+      })
+      ready('lease')
+      registry.handleResponse({
+        id: '1',
+        ok: true,
+        streaming,
+        result: { type: 'end' },
+        _meta: { runtimeId: 'host' }
+      })
+      expect(listener).toHaveBeenLastCalledWith({ type: 'end' })
+      expect(registry.size()).toBe(0)
+      registry.markForReplay()
+      registry.replayAfterAuthentication()
+      expect(send).toHaveBeenCalledOnce()
     }
-    const listener = vi.fn()
-    registry.subscribe('future.watch', {}, listener, { serverUnsubscribeMethod: 'future.release' })
-    expect(registry.size()).toBe(128)
-    expect(listener).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'error', error: { code: 'rate_limited' } })
-    )
-  })
+  )
 })

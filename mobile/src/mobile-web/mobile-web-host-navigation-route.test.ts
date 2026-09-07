@@ -65,15 +65,6 @@ describe('mobile web host navigation route', () => {
         truncated: false
       },
       'unavailable'
-    ],
-    [
-      'malformed target',
-      {
-        worktrees: [{ worktreeId: HOST_WORKSPACE_ID }],
-        totalCount: 1,
-        truncated: false
-      },
-      'unavailable'
     ]
   ])('rejects a %s Desktop snapshot', async (_label, result, code) => {
     await expect(
@@ -83,6 +74,19 @@ describe('mobile web host navigation route', () => {
         workspaceAuthority()
       )
     ).rejects.toMatchObject({ code })
+  })
+
+  it('registers a workspace without repository metadata', async () => {
+    const route = await resolveMobileWebHostNavigationRoute(
+      HOST_WORKSPACE_ID,
+      hostClient({ worktrees: [{ worktreeId: HOST_WORKSPACE_ID }] }),
+      workspaceAuthority()
+    )
+    expect(route).toEqual({
+      kind: 'session',
+      workspaceId: `workspace_0_${'07'.repeat(16)}`,
+      workspaceName: 'Workspace'
+    })
   })
 
   it('rejects an oversized Desktop snapshot before registering its target', async () => {

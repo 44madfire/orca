@@ -7,7 +7,7 @@ import {
   buildTerminalUnsubscribeParams,
   updateTerminalSubscriptionViewport
 } from './rpc-client-terminal-subscription'
-import { buildReadyStreamUnsubscribe } from './rpc-client-server-subscription'
+import { buildServerSubscriptionUnsubscribe } from './rpc-client-server-subscription'
 import {
   isStreamingSubscriptionReadyResult,
   isTerminalSubscribedResult
@@ -58,14 +58,6 @@ export class RpcClientStreamRegistry {
     listener: RpcStreamingListener,
     subscribeOptions?: RpcStreamSubscribeOptions
   ): () => void {
-    if (subscribeOptions?.serverUnsubscribeMethod && this.streams.size >= 128) {
-      listener({
-        type: 'error',
-        error: { code: 'rate_limited' },
-        message: 'Too many pending streams'
-      })
-      return () => {}
-    }
     const id = this.options.nextId()
     const stream: StreamRequest = {
       method,
@@ -127,10 +119,6 @@ export class RpcClientStreamRegistry {
   }
 
   handleResponse(response: RpcResponse): boolean {
-    if (response.ok && response.streaming === true) {
-      this.handleStreamingResponse(response)
-      return true
-    }
     const stream = this.streams.get(response.id)
     if (response.ok) {
       const result = (response as RpcSuccess).result as Record<string, unknown> | null
@@ -139,6 +127,10 @@ export class RpcClientStreamRegistry {
           stream.listener(result)
         }
         this.remove(response.id)
+        return true
+      }
+      if (response.streaming === true) {
+        this.handleStreamingResponse(response)
         return true
       }
       if (stream && result?.type === 'scrollback') {
@@ -256,12 +248,11 @@ export class RpcClientStreamRegistry {
     if (!stream.subscriptionId) {
       return
     }
-    const unsubscribe = stream.serverUnsubscribeMethod
-      ? {
-          method: stream.serverUnsubscribeMethod,
-          params: { subscriptionId: stream.subscriptionId }
-        }
-      : buildReadyStreamUnsubscribe(stream.method, stream.subscriptionId)
+    const unsubscribe = buildServerSubscriptionUnsubscribe(
+      stream.method,
+      stream.subscriptionId,
+      stream.serverUnsubscribeMethod
+    )
     if (unsubscribe) {
       this.sendRpc(unsubscribe.method, unsubscribe.params)
     }

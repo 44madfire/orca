@@ -44,8 +44,7 @@ export function capabilityGrants<TCapability extends MobileWebBridgeCapability>(
   }))
 }
 
-/** Grants indexed by `capability.operation`. The broker resolves one per request, including every
- * terminal keystroke, so a linear scan of all 226 entries is not an option. */
+// Indexed for every request, including terminal keystrokes.
 export function indexGrants(
   grants: readonly MobileWebOperationGrant[]
 ): ReadonlyMap<string, MobileWebOperationGrant> {

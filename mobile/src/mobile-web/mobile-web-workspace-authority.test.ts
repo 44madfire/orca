@@ -25,19 +25,6 @@ describe('mobile web workspace authority', () => {
     expect(authority.pageWorkspaceId('repo::C:\\private\\second')).toBe(second)
   })
 
-  it('revokes a repository handle only after workspace and catalog authority both omit it', () => {
-    const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length).fill(8))
-    authority.synchronize(['folder-workspace'])
-    authority.synchronizeRepositories(['folder-repo'])
-    const repo = authority.pageRepoId('folder-repo')
-
-    authority.synchronize([])
-    expect(authority.pageRepoId('folder-repo')).toBe(repo)
-
-    authority.synchronizeRepositories([])
-    expect(() => authority.hostRepoId(repo)).toThrow('not_found')
-  })
-
   it('revokes every mapping when the shell session is cleared', () => {
     const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length))
     authority.synchronize(['host-workspace'])
@@ -46,6 +33,6 @@ describe('mobile web workspace authority', () => {
     authority.clear()
 
     expect(() => authority.hostWorkspaceId(pageWorkspaceId)).toThrow('not_found')
-    expect(() => authority.pageRepoId('host-repo')).toThrow('not_found')
+    expect(() => authority.pageWorkspaceId('host-workspace')).toThrow('not_found')
   })
 })

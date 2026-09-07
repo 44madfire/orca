@@ -13,13 +13,7 @@ export function mobileWebRequestExpectsSubscription(request: {
 }): boolean {
   return (
     (request.capability === 'workspace' && request.operation === 'hostSubscribe') ||
-    ((request.capability === 'workspace' ||
-      request.capability === 'account' ||
-      request.capability === 'session' ||
-      request.capability === 'sourceControl' ||
-      request.capability === 'terminal' ||
-      request.capability === 'nativeChat' ||
-      request.capability === 'speech') &&
+    ((request.capability === 'terminal' || request.capability === 'speech') &&
       request.operation === 'subscribe')
   )
 }

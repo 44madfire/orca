@@ -8,10 +8,7 @@ import {
   buildTerminalUnsubscribeParams,
   updateTerminalSubscriptionViewport
 } from './rpc-client-terminal-subscription'
-import {
-  buildReadyStreamUnsubscribe,
-  buildServerSubscriptionUnsubscribe
-} from './rpc-client-server-subscription'
+import { buildServerSubscriptionUnsubscribe } from './rpc-client-server-subscription'
 import type { RpcClient } from './rpc-client'
 import { routeTerminalMultiplexFrame } from './rpc-client-terminal-multiplex'
 import type { RpcResponse, RpcSuccess } from './types'
@@ -76,13 +73,6 @@ export class MobileRelayRpcStreams {
     listener: (result: unknown) => void,
     subscribeOptions?: Parameters<RpcClient['subscribe']>[3]
   ): () => void {
-    if (
-      subscribeOptions?.serverUnsubscribeMethod &&
-      this.streams.size + this.cancelledSubscriptions.size >= 128
-    ) {
-      listener({ type: 'error', message: 'Stream capacity reached' })
-      return () => {}
-    }
     const id = this.options.nextId()
     const stream: StreamRecord = {
       method,
@@ -131,7 +121,7 @@ export class MobileRelayRpcStreams {
           this.options.sendFrame({ id: this.options.nextId(), ...cancelled.unsubscribe })
         } else if (typeof result.subscriptionId === 'string') {
           this.cancelledSubscriptions.delete(response.id)
-          const unsubscribe = buildReadyStreamUnsubscribe(
+          const unsubscribe = buildServerSubscriptionUnsubscribe(
             cancelled.method,
             result.subscriptionId,
             cancelled.serverUnsubscribeMethod
@@ -229,7 +219,7 @@ export class MobileRelayRpcStreams {
         }
       } else {
         const unsubscribe = stream.subscriptionId
-          ? buildReadyStreamUnsubscribe(
+          ? buildServerSubscriptionUnsubscribe(
               stream.method,
               stream.subscriptionId,
               stream.serverUnsubscribeMethod

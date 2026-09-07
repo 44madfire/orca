@@ -21,15 +21,6 @@ export type MobileWebSubscriptionLedgerOptions<TEvent> = {
   postClosed: MobileWebPostSubscriptionClosed
 }
 
-/** The ledger surface callers share across every event and record type. */
-export type MobileWebSubscriptionLedgerHandle = {
-  cancel: (subscriptionId: string, closure?: MobileWebSubscriptionClosure) => string | null
-  cancelByRequest: (requestId: string) => void
-  countForOperation: (operationKey: string) => number
-  closeAll: (closure: MobileWebSubscriptionClosure) => void
-  dispose: () => void
-}
-
 /** What a concrete ledger supplies; the operation key is its own identity, not the caller's. */
 export type MobileWebSubscriptionLedgerConfig<TEvent> = Omit<
   MobileWebSubscriptionLedgerOptions<TEvent>,
@@ -55,7 +46,6 @@ export class MobileWebSubscriptionLedger<
     }
     record.active = false
     this.records.delete(subscriptionId)
-    this.retire(record)
     try {
       record.unsubscribe()
     } catch {
@@ -138,7 +128,8 @@ export class MobileWebSubscriptionLedger<
     subscriptionId: string,
     record: TRecord,
     event: TEvent,
-    retireAfterDelivery = false
+    retireAfterDelivery = false,
+    retainedBytes = mobileWebEncodedByteLength(event)
   ): void {
     const sequence = record.sequence
     record.sequence += 1
@@ -151,7 +142,7 @@ export class MobileWebSubscriptionLedger<
           this.cancel(subscriptionId)
         }
       },
-      mobileWebEncodedByteLength(event)
+      retainedBytes
     )
   }
 
@@ -186,7 +177,4 @@ export class MobileWebSubscriptionLedger<
   protected canDeliver(_subscriptionId: string, _record: TRecord): boolean {
     return true
   }
-
-  /** Runs while the record is being removed, before the host handle is released. */
-  protected retire(_record: TRecord): void {}
 }

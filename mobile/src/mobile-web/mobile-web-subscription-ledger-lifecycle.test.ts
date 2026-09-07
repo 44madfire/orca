@@ -3,7 +3,6 @@ import type { MobileWebBridgeShellMessage } from '../../../src/shared/mobile-web
 import type { MobileWebSubscriptionClosure } from './mobile-web-subscription-closure'
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
-import { MobileWebCapabilitySubscriptions } from './mobile-web-capability-subscriptions'
 import { MobileWebBrokerMessageSender } from './mobile-web-broker-message-sender'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 import {
@@ -80,7 +79,7 @@ describe('subscription ledger teardown', () => {
     expect(ledger.countForOperation('workspace.hostSubscribe')).toBe(0)
   })
 
-  it('fans closeAll out across every capability ledger', () => {
+  it('posts host-feed closures through the broker message sender', () => {
     const messages: MobileWebBridgeShellMessage[] = []
     const sender = new MobileWebBrokerMessageSender({
       context: MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT,
@@ -91,12 +90,12 @@ describe('subscription ledger teardown', () => {
     })
     const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
     workspaceAuthority.synchronize(['host-workspace'])
-    const subscriptions = new MobileWebCapabilitySubscriptions({
+    const subscriptions = new MobileWebHostSubscriptions({
       ...sender.subscriptionPosts(),
       workspaceAuthority
     })
     const client = stubClient(() => {})
-    subscriptions.host.start({
+    subscriptions.start({
       requestId: 'r2',
       subscriptionId: 'host-1',
       payload: { method: 'mobileWeb.workspace.subscribe', params: {} },

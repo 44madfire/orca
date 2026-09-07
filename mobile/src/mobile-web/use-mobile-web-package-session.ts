@@ -37,8 +37,8 @@ export function useMobileWebPackageSession({
   const hostEpochRef = useRef(0)
   const ownedSessionRef = useRef<MobileWebShellSession | null>(null)
   const cachedBuildRef = useRef<Promise<string | null>>(Promise.resolve(null))
-  // One re-download per host selection: a page that cannot load will not loop over the bundle.
-  const droppedGenerationRef = useRef(false)
+  // One re-download per build: a desktop upgrade gets its own recovery attempt.
+  const droppedGenerationRef = useRef<string | null>(null)
   const droppedHostRef = useRef<string | undefined>(undefined)
   const retryRef = useRef({ hostId: '', loadEpoch: -1, attempts: 0 })
   const connectionId = currentConnectionId(client)
@@ -105,7 +105,7 @@ export function useMobileWebPackageSession({
     hostEpochRef.current = hostEpoch
     if (droppedHostRef.current !== host?.id) {
       droppedHostRef.current = host?.id
-      droppedGenerationRef.current = false
+      droppedGenerationRef.current = null
     }
     dispatch({ type: 'reopening', hasHost: Boolean(host) })
     const closing = ownedSessionRef.current
@@ -242,7 +242,7 @@ export function useMobileWebPackageSession({
         return
       }
       mobileWebDiagnosticsStore.warning(hostId, reason ?? 'mobile_web_document_unavailable')
-      if (droppedGenerationRef.current || !owned) {
+      if (!owned || droppedGenerationRef.current === owned.buildId) {
         dispatch({
           type: 'warning',
           warning: { message: 'Couldn’t open Orca.', code: reason }
@@ -251,8 +251,8 @@ export function useMobileWebPackageSession({
       }
       // The cached generation cannot render, so it is deleted and downloaded again; an unreachable
       // desktop leaves the shell in its offline state until the connection returns.
-      droppedGenerationRef.current = true
-      hostEpochRef.current += 1
+      droppedGenerationRef.current = owned.buildId
+      const dropEpoch = ++hostEpochRef.current
       ownedSessionRef.current = null
       dispatch({
         type: 'generation-dropping',
@@ -261,7 +261,9 @@ export function useMobileWebPackageSession({
       void (async () => {
         await ExpoMobileWebShell.closeSession(owned.sessionId).catch(() => {})
         await removeMobileWebHostCache(host.publicKeyB64).catch(() => {})
-        dispatch({ type: 'reload' })
+        if (hostEpochRef.current === dropEpoch) {
+          dispatch({ type: 'reload' })
+        }
       })()
     },
     [host?.id, host?.publicKeyB64, host?.name]

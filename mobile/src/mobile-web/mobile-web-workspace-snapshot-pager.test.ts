@@ -29,6 +29,27 @@ describe('mobile web workspace snapshot pager', () => {
     ).rejects.toMatchObject({ code: 'invalid_request' })
   })
 
+  it('retires an in-flight snapshot on cleanup without blocking the replacement client', async () => {
+    const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length))
+    const pager = new MobileWebWorkspaceSnapshotPager((length) => new Uint8Array(length))
+    const oldResponse = Promise.withResolvers<Awaited<ReturnType<RpcClient['sendRequest']>>>()
+    const oldClient = { sendRequest: vi.fn(() => oldResponse.promise) } as unknown as RpcClient
+    const pending = pager.snapshot({ limit: 1 }, oldClient, authority)
+    const rejection = expect(pending).rejects.toMatchObject({ code: 'cancelled' })
+
+    pager.clear()
+    authority.clear()
+    const current = await pager.snapshot({ limit: 1 }, workspaceClient(2), authority)
+    oldResponse.resolve({ ok: true, result: { worktrees: [{ worktreeId: 'retired-workspace' }] } })
+    await rejection
+
+    expect(() => authority.pageWorkspaceId('retired-workspace')).toThrow('not_found')
+    expect(authority.hostWorkspaceId(current.workspaces[0]!.id)).toBe('host-workspace-0')
+    await expect(
+      pager.snapshot({ limit: 1, cursor: current.nextCursor! }, workspaceClient(0), authority)
+    ).resolves.toMatchObject({ workspaces: [{ name: 'Workspace 1' }], nextCursor: null })
+  })
+
   it('revokes continuations on lifecycle cleanup and rejects oversized host lists', async () => {
     const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length))
     const pager = new MobileWebWorkspaceSnapshotPager((length) => new Uint8Array(length))

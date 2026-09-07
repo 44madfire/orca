@@ -38,7 +38,15 @@ describe('mobile web capability schema corpus', () => {
   it('applies every production request-byte limit before host or native access', async () => {
     for (const [index, grant] of MOBILE_WEB_PRODUCTION_GRANTS.entries()) {
       const harness = createHarness()
-      const payload = { value: 'x'.repeat(grant.limits.maxRequestBytes + 1) }
+      const oversized = { value: 'x'.repeat(grant.limits.maxRequestBytes + 1) }
+      const payload =
+        grant.capability === 'workspace' &&
+        (grant.operation === 'hostRequest' || grant.operation === 'hostSubscribe')
+          ? {
+              method: grant.operation === 'hostSubscribe' ? 'future.subscribe' : 'future.read',
+              params: oversized
+            }
+          : oversized
 
       await harness.broker.handle(requestFor(grant, payload, index))
 

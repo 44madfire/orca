@@ -12,7 +12,7 @@ import {
 } from './mobile-web-broker-error'
 import { MobileWebOperationRateLimiter } from './mobile-web-operation-rate-limiter'
 import { MobileWebCommitMessageGeneration } from './mobile-web-commit-message-generation'
-import { MobileWebCapabilitySubscriptions } from './mobile-web-capability-subscriptions'
+import { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import { MOBILE_WEB_PRODUCTION_GRANT_INDEX } from './mobile-web-production-grants'
 import { MobileWebTerminalStreams } from './mobile-web-terminal-streams'
 import { MOBILE_WEB_TERMINAL_CLIENT_CLOSURE } from './mobile-web-terminal-stream-retirement'
@@ -41,7 +41,7 @@ type PendingRequest = { operationKey: string; subscriptionId?: string; cancelled
 export class MobileWebCapabilityBroker {
   private readonly pending = new Map<string, PendingRequest>()
   private readonly replay = new MobileWebBrokerReplayWindow()
-  private readonly subscriptions: MobileWebCapabilitySubscriptions
+  private readonly subscriptions: MobileWebHostSubscriptions
   private readonly terminalStreams: MobileWebTerminalStreams
   private readonly speechAuthority: MobileWebSpeechAuthority
   private readonly rateLimiter: MobileWebOperationRateLimiter
@@ -60,7 +60,7 @@ export class MobileWebCapabilityBroker {
       postMessage: options.postMessage
     })
     const posts = this.messages.subscriptionPosts()
-    this.subscriptions = new MobileWebCapabilitySubscriptions({
+    this.subscriptions = new MobileWebHostSubscriptions({
       ...posts,
       workspaceAuthority: this.authorities.workspace
     })
@@ -151,6 +151,8 @@ export class MobileWebCapabilityBroker {
     }
 
     const isHostRequest = mobileWebIsHostRequest(request)
+    const isHostForward =
+      isHostRequest || (request.capability === 'workspace' && request.operation === 'hostSubscribe')
     const grant = MOBILE_WEB_PRODUCTION_GRANT_INDEX.get(mobileWebOperationKey(request))
     const expectsSubscription = mobileWebRequestExpectsSubscription(request)
     if (!grant || (request.mode === 'subscription') !== expectsSubscription) {
@@ -161,7 +163,11 @@ export class MobileWebCapabilityBroker {
       await this.messages.error(request.requestId, 'invalid_request', false)
       return
     }
-    if (mobileWebEncodedByteLength(request.payload) > grant.limits.maxRequestBytes) {
+    // Generic forwarding checks the envelope after rewriting the workspace handle.
+    if (
+      !isHostForward &&
+      mobileWebEncodedByteLength(request.payload) > grant.limits.maxRequestBytes
+    ) {
       await this.messages.error(request.requestId, 'too_large', false)
       return
     }
@@ -201,7 +207,7 @@ export class MobileWebCapabilityBroker {
         return
       }
       this.pending.delete(request.requestId)
-      await (mobileWebEncodedByteLength(payload) > grant.limits.maxResponseBytes
+      await (!isHostForward && mobileWebEncodedByteLength(payload) > grant.limits.maxResponseBytes
         ? this.messages.error(request.requestId, 'unavailable', false)
         : this.messages.success(request.requestId, payload))
     } catch (error) {
@@ -232,7 +238,7 @@ export class MobileWebCapabilityBroker {
       terminalClientId: this.options.terminalClientId,
       nativeAuthority: this.options.nativeAuthority,
       speechAuthority: this.speechAuthority,
-      hostSubscriptions: this.subscriptions.host,
+      hostSubscriptions: this.subscriptions,
       terminalStreams: this.terminalStreams,
       commitMessageGeneration: this.commitMessageGeneration,
       nativeChatAuthority: this.authorities.nativeChat,
