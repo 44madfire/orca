@@ -70,9 +70,9 @@ describe('orca CLI skill guidance', () => {
     expect(skill).toContain(
       'ORCA worktree create --name <task-name> --no-parent --agent codex --prompt'
     )
-    expect(skill).toContain('codex --model gpt-5.5 -c model_reasoning_effort="xhigh"')
-    expect(skill).toContain('wait for TUI readiness so the prompt is not lost')
-    expect(skill).toContain('then send the prompt and stop')
+    expect(skill).toContain('codex --model gpt-6-astra -c model_reasoning_effort="xhigh"')
+    expect(skill).toContain('wait for TUI readiness')
+    expect(skill).toContain('stop after confirming the send was accepted')
     // `terminal wait` prints an ordinary success envelope on timeout and only signals the
     // unsatisfied wait through the exit code, so the gate and its failure direction have to
     // sit beside the recipe or the brief gets typed into a half-started TUI.

@@ -41,7 +41,7 @@ Use `--no-parent` and omit `--base-branch` for independent top-level handoffs un
 
 Custom Codex model/effort handoff:
 
-`worktree create --agent codex` does not take Codex's own `--model` or `-c model_reasoning_effort=...` flags. For a request such as `gpt-5.5 xhigh`, create the worktree, launch Codex there with those flags, wait for TUI readiness so the prompt is not lost, then send the prompt and stop.
+`worktree create --agent codex` uses Orca's configured launcher; it has no per-call model/effort flags or arbitrary Codex argument forwarding. For a request such as `gpt-6-astra xhigh`, create the worktree, launch Codex through `terminal create --command` with `--model` and `-c model_reasoning_effort=...`, wait for TUI readiness, then send the prompt. For a full handoff, stop after confirming the send was accepted.
 
 **Extra first terminal:** when no repo default-terminal configuration supplies a primary terminal, bare `worktree create` (no `--agent`) opens a fallback shell before the later `terminal create --command ...` adds the agent. Configured default tabs are materialized instead and may run real commands. Prefer `--agent` whenever the built-in launcher is enough. When custom argv forces the two-step path, close a prior terminal only after `terminal list` or `terminal show` confirms it is an unused shell.
 
@@ -49,7 +49,7 @@ The create result's `worktree.id` already contains both pieces Orca needs: `<rep
 
 ```text
 ORCA worktree create --name <task-name> --no-parent --json
-ORCA terminal create --worktree id:<repoId>::<newWorktreePath> --title <task-name> --command 'codex --model gpt-5.5 -c model_reasoning_effort="xhigh"' --json
+ORCA terminal create --worktree id:<repoId>::<newWorktreePath> --title <task-name> --command 'codex --model gpt-6-astra -c model_reasoning_effort="xhigh"' --json
 ORCA terminal wait --terminal <handle> --for tui-idle --timeout-ms 60000 --json
 ORCA terminal send --terminal <handle> --text "<task brief>" --enter --json
 ```
