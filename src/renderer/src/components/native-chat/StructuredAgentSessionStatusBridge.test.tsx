@@ -367,6 +367,20 @@ describe('StructuredAgentSessionStatusBridge', () => {
     expect(statuses()).toEqual([expect.objectContaining({ terminalTitle: 'Fix the lease probe' })])
   })
 
+  it('carries the name as an authoritative field, not only as the live title', async () => {
+    mocks.store?.setState({
+      unifiedTabsByWorktree: { 'wt-1': [{ ...structuredTab, label: 'auth/login' }] }
+    })
+    render(<StructuredAgentSessionStatusBridge />)
+    await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())
+
+    act(() => feed().emit({ type: 'snapshot', sessions: [summary()] }))
+
+    // `terminalTitle` is laundered by heuristics meant for scraped pty titles,
+    // which null a name like this one; the row reads the authoritative field.
+    expect(statuses()).toEqual([expect.objectContaining({ conversationName: 'auth/login' })])
+  })
+
   it("keeps the user's own rename above the provider's conversation name", async () => {
     mocks.store?.setState({
       unifiedTabsByWorktree: {

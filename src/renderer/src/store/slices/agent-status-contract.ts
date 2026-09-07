@@ -106,6 +106,7 @@ export type AgentStatusRouting = {
 }
 
 export type AgentStatusMetadata = {
+  conversationName?: string
   providerSession?: AgentProviderSessionMetadata
   launchConfig?: SleepingAgentLaunchConfig
   launchToken?: string

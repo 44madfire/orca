@@ -131,7 +131,8 @@ export function getRetainedFallbackTab(entry: AgentStatusEntry, worktreeId: stri
     ptyId: null,
     worktreeId,
     title: entry.terminalTitle ?? 'Agent',
-    customTitle: null,
+    // Authoritative, so it skips the live-title sanitizer entirely.
+    customTitle: entry.conversationName ?? null,
     color: null,
     sortOrder: 0,
     createdAt: entry.stateStartedAt

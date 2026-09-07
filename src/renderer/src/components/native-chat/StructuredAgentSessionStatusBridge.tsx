@@ -107,6 +107,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     current.lastAssistantMessage === summary.lastAssistantMessage &&
     current.sessionBoundary === desired.sessionBoundary &&
     current.terminalTitle === rowTitle(tab) &&
+    current.conversationName === rowTitle(tab) &&
     current.tabId === tab.id &&
     current.worktreeId === tab.worktreeId &&
     current.terminalResumeEligible === false &&
@@ -126,6 +127,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     { tabId: tab.id, worktreeId: tab.worktreeId },
     {
       ...(summary.providerSession ? { providerSession: summary.providerSession } : {}),
+      conversationName: rowTitle(tab),
       terminalResumeEligible: false
     }
   )
