@@ -1,5 +1,3 @@
-import { parseRelayPtyMintEpoch } from '../../shared/relay-pty-mint-epoch'
-
 type RelayRequest = (
   method: string,
   params?: Record<string, unknown>,
@@ -9,51 +7,34 @@ type RelayRequest = (
 const PROBE_TIMEOUT_MS = 10_000
 
 /**
- * Whether the relay still owns this PTY, as an answer a caller may retire durable state on.
+ * Forwards the liveness question to the relay, which is the only party that can answer it.
  *
- * `pty.listProcesses` is the relay's own live set: it reaps a torn-down record and re-probes a pid
- * before reporting, so a listed id is live. An unlisted id is only an exit when this relay is also
- * the one that minted it — after a restart the relay disowns every id the previous one allocated
- * without having checked anything, which is why absence alone was never evidence
- * (docs/reference/ssh-execution-boundary.md).
+ * The client deliberately computes nothing here. A previous version inferred an exit from an id's
+ * absence in `pty.listProcesses` plus a matching mint epoch, and that is unsound: the relay also
+ * removes a record without observing the process end, so a shutdown that gave up waiting for an
+ * uninterruptible child produced a false death certificate (docs/reference/ssh-execution-boundary.md).
  *
- * Deliberately not `pty.attach`, the only refusal that carries the proven-exited marker: a
- * successful attach opens a delivery, retires the previous one, and restores retired pane surfaces,
- * so probing with it would disturb a live consumer in exactly the case where the answer is "live".
- *
- * Never throws. A transport failure, a disposed multiplexer, a timeout, a legacy `pty-N` id, and a
- * relay that names no mint epoch all answer null, because none of them observed the process.
+ * Never throws, and fails closed. A relay too old to know the method answers JSON-RPC -32601, which
+ * arrives here as a rejection and maps to null, exactly like a timeout or a disposed multiplexer.
+ * Any status other than the two the owner certifies is unverifiable.
  */
 export async function probeSshPtyLiveness(args: {
   request: RelayRequest
   relayPtyId: string
 }): Promise<boolean | null> {
   try {
-    const listed = (await args.request(
-      'pty.listProcesses',
-      { includeForegroundProcessEvidence: false },
+    const answer = (await args.request(
+      'pty.probeLiveness',
+      { id: args.relayPtyId },
       { timeoutMs: PROBE_TIMEOUT_MS }
-    )) as { id?: unknown }[] | null
-    if (!Array.isArray(listed)) {
-      return null
-    }
-    if (listed.some((session) => session.id === args.relayPtyId)) {
+    )) as { status?: unknown } | null
+    if (answer?.status === 'live') {
       return true
     }
-    const mintEpoch = parseRelayPtyMintEpoch(args.relayPtyId)
-    if (!mintEpoch) {
-      return null
+    if (answer?.status === 'exited') {
+      return false
     }
-    // Read after the listing on purpose: both answers come from one relay process, and a restart
-    // between them breaks the multiplexer rather than pairing a new epoch with an old listing.
-    const capabilities = (await args.request('pty.getCapabilities', undefined, {
-      timeoutMs: PROBE_TIMEOUT_MS
-    })) as { ptyIdMintEpoch?: unknown } | null
-    const currentEpoch = capabilities?.ptyIdMintEpoch
-    if (typeof currentEpoch !== 'string' || currentEpoch !== mintEpoch) {
-      return null
-    }
-    return false
+    return null
   } catch {
     return null
   }

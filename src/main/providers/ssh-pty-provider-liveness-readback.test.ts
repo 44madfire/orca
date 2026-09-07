@@ -12,15 +12,13 @@ const APP_PTY_ID = toAppSshPtyId(CONNECTION_ID, RELAY_PTY_ID)
 /**
  * The provider is the owner the liveness rule routes to, so this pins the contract seam itself:
  * without `probePtyLiveness` on this class, `probePtyLivenessFromRuntimeController` answers null
- * for every SSH id and no SSH worker can ever be certified exited.
+ * for every SSH id and no SSH worker can ever be certified exited. The verdict itself belongs to
+ * the relay; this class only carries the question to it.
  */
-function makeProvider(listed: { id: string }[]) {
+function makeProvider(status: 'live' | 'exited' | 'unknown') {
   const request = vi.fn(async (method: string) => {
-    if (method === 'pty.listProcesses') {
-      return listed
-    }
-    if (method === 'pty.getCapabilities') {
-      return { ptyIdMintEpoch: RELAY_EPOCH }
+    if (method === 'pty.probeLiveness') {
+      return { status }
     }
     throw new Error(`unexpected relay method ${method}`)
   })
@@ -34,26 +32,26 @@ function makeProvider(listed: { id: string }[]) {
 
 describe('SshPtyProvider liveness readback', () => {
   it('exposes the readback the liveness rule asks the owning provider for', () => {
-    const { provider } = makeProvider([])
+    const { provider } = makeProvider('unknown')
 
     expect(typeof provider.probePtyLiveness).toBe('function')
   })
 
   it('answers live from the relay for an id its own cache has never seen', async () => {
-    const { provider } = makeProvider([{ id: RELAY_PTY_ID }])
+    const { provider } = makeProvider('live')
 
     expect(provider.hasPty(APP_PTY_ID)).toBe(false)
     await expect(provider.probePtyLiveness(APP_PTY_ID)).resolves.toBe(true)
   })
 
   it('certifies an exit the relay observed', async () => {
-    const { provider } = makeProvider([])
+    const { provider } = makeProvider('exited')
 
     await expect(provider.probePtyLiveness(APP_PTY_ID)).resolves.toBe(false)
   })
 
   it('refuses to answer for an id belonging to another SSH target', async () => {
-    const { provider, request } = makeProvider([])
+    const { provider, request } = makeProvider('exited')
 
     await expect(
       provider.probePtyLiveness(toAppSshPtyId('other-conn', RELAY_PTY_ID))

@@ -162,24 +162,20 @@ describe('legacy worker recovery: certifying that a worker PTY exited', () => {
       })) === false
   }
 
-  it('certifies an SSH exit when the relay that minted the id no longer lists it', async () => {
+  it('certifies an SSH exit the owning relay observed', async () => {
     const { pendingResolutions, deferredDispatchIds } = await reconcile({
       inventory: listingWithoutThePty,
-      isPtyProvenAbsent: provenAbsentViaRelay(async (method) =>
-        method === 'pty.listProcesses' ? [] : { ptyIdMintEpoch: RELAY_EPOCH }
-      )
+      isPtyProvenAbsent: provenAbsentViaRelay(async () => ({ status: 'exited' }))
     })
 
     expect(pendingResolutions).toEqual([{ candidate, resolution: 'exited' }])
     expect(deferredDispatchIds.size).toBe(0)
   })
 
-  it('defers an SSH candidate a restarted relay merely disowns', async () => {
+  it('defers an SSH candidate the owning relay will not certify', async () => {
     const { pendingResolutions, deferredDispatchIds } = await reconcile({
       inventory: listingWithoutThePty,
-      isPtyProvenAbsent: provenAbsentViaRelay(async (method) =>
-        method === 'pty.listProcesses' ? [] : { ptyIdMintEpoch: 'a-later-relay-generation' }
-      )
+      isPtyProvenAbsent: provenAbsentViaRelay(async () => ({ status: 'unknown' }))
     })
 
     expect(pendingResolutions).toEqual([])
