@@ -129,10 +129,11 @@ describe('startRuntimeCapabilityProbe', () => {
     cancel()
   })
 
-  // Was: an ok:false response was retried like a timeout. The probe now backs the gate that sits
-  // above every /h/ route, so polling a host that already answered would run for the life of the
-  // connection. A reply is an answer; only an unanswered request is retried.
-  it('settles once on an ok:false response rather than polling the host', async () => {
+  // Why the ceiling and not a stop: the probe backs the gate above every /h/ route, and
+  // worktree.activate plus every capability wait on its verdict. One error reply, from a
+  // transient host failure or an error frame the relay surfaced, must not withhold those
+  // for the life of the connection; but a host that keeps saying no is not polled fast.
+  it('re-asks an ok:false response at the slow ceiling instead of stopping for good', async () => {
     const failure: RpcResponse = {
       ok: false,
       id: '1',
@@ -147,12 +148,15 @@ describe('startRuntimeCapabilityProbe', () => {
       onUnavailable: (isRetrying) => retrying.push(isRetrying)
     })
     await flushMicrotasks()
-    expect(retrying).toEqual([false])
+    expect(retrying).toEqual([true])
     expect(seen).toEqual([])
 
-    await vi.advanceTimersByTimeAsync(60_000)
+    await vi.advanceTimersByTimeAsync(14_999)
     expect(calls()).toBe(1)
-    expect(seen).toEqual([])
+    await vi.advanceTimersByTimeAsync(1)
+    await flushMicrotasks()
+    expect(calls()).toBe(2)
+    expect(seen).toEqual([['a.v1']])
     cancel()
   })
 

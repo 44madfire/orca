@@ -256,6 +256,36 @@ describe('RpcSessionLivenessWatchdog', () => {
     expect(terminate).toHaveBeenCalledOnce()
   })
 
+  it('gives a second resume probe a fresh miss budget too', async () => {
+    // Why: two app-resume nudges ~2 s apart on a cold radio are one observation each, not a
+    // shared budget; otherwise the second inherits the first's miss and one more slow answer
+    // kills a healthy socket.
+    const terminate = vi.fn()
+    const identity = {}
+    const watchdog = new RpcSessionLivenessWatchdog({
+      transport: 'relay',
+      idleProbeMs: 20_000,
+      probeTimeoutMs: 4_000,
+      missedProbeLimit: 2,
+      urgentProbeTimeoutMs: 2_000,
+      urgentMissedProbeLimit: 2,
+      shouldIdleProbe: () => true,
+      sendProbe: () => true,
+      terminate,
+      now: Date.now
+    })
+    watchdog.start(identity)
+
+    watchdog.probeNow(identity, 'resume')
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(terminate).not.toHaveBeenCalled()
+    watchdog.probeNow(identity, 'resume')
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(terminate).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(terminate).toHaveBeenCalledOnce()
+  })
+
   it('still reaches a verdict on a caller probe when the app backgrounds', async () => {
     // The gate covers the idle sweep only. A nudge or resume probe was asked for on
     // purpose, and abandoning it would leave a genuinely dead socket unreported.

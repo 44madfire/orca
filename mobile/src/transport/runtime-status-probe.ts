@@ -11,11 +11,10 @@ const FAILURE_RETRY_MAX_DELAY_MS = 15_000
 
 export type RuntimeStatusProbeHandlers = {
   onStatus: (status: Record<string, unknown>) => void
-  // Fires once per attempt that produced no status. `retrying` is false when the host itself
-  // answered with an error: that is a definitive reply, so the probe stops rather than polling a
-  // host that has already said no. It is true when nothing reached us and a retry is armed, which
-  // lets a caller that must not stay blocked fail open on the first miss and be upgraded later.
-  onUnavailable?: (retrying: boolean) => void
+  // Fires once per attempt that produced no status, with a retry always armed: an unanswered
+  // request backs off from 1 s, an answered error re-asks at the 15 s ceiling. Either way a
+  // caller that must not stay blocked can fail open on the first miss and be upgraded later.
+  onUnavailable?: (retrying: true) => void
 }
 
 // Single status.get producer for a connected client: one request, retried until it
@@ -35,9 +34,11 @@ export function startRuntimeStatusProbe(
           return
         }
         if (!response.ok) {
-          // Why not retry: the desktop replied. Re-asking every 15 s for the life of a connection
-          // from a probe mounted above every /h/ route buys nothing a reconnect would not.
-          handlers.onUnavailable?.(false)
+          // Why retry: an error reply is a definitive answer for this attempt, not for the
+          // connection. A transient host failure or an error frame surfaced by the relay must
+          // not withhold worktree.activate and every capability until the socket is replaced.
+          // Backed off to the 15 s ceiling so a host that keeps saying no is not hammered.
+          scheduleRetry(false, true)
           return
         }
         const result = (response as RpcSuccess).result
@@ -54,12 +55,16 @@ export function startRuntimeStatusProbe(
     )
   }
 
-  function scheduleRetry(cutover: boolean): void {
+  function scheduleRetry(cutover: boolean, answered = false): void {
     // Why: cutover means the replacement transport is already authenticated —
     // re-ask promptly; other failures back off so a wedged host isn't hammered.
+    // An answered error skips straight to the ceiling: the host is reachable and
+    // said no, so only a slow re-ask is worth anything.
     const delay = cutover
       ? CUTOVER_RETRY_DELAY_MS
-      : Math.min(FAILURE_RETRY_BASE_DELAY_MS * 2 ** failureRetries++, FAILURE_RETRY_MAX_DELAY_MS)
+      : answered
+        ? FAILURE_RETRY_MAX_DELAY_MS
+        : Math.min(FAILURE_RETRY_BASE_DELAY_MS * 2 ** failureRetries++, FAILURE_RETRY_MAX_DELAY_MS)
     retryTimer = setTimeout(attempt, delay)
     handlers.onUnavailable?.(true)
   }

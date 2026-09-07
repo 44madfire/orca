@@ -52,9 +52,11 @@ export class MobileRelayCredentialRefresh {
         randomBytes: args.randomBytes
       })
       args.adoptBundle(result.bundle)
-      // Why: a scheduled rotation can finish after the old credential enters the rejection gate.
-      refreshed = true
       await args.persistResolvedRelay(result.relay)
+      // Why after the persist: lifting the gate and dialing on a rotation whose endpoint
+      // write failed would dial the pre-rotation cell. The credential itself is already
+      // durable, so a failed write leaves a retry, not a lost credential.
+      refreshed = true
     } catch {
       // Why: pending material remains durable; the next authenticated direct
       // opportunity must reconcile it before creating another install key.

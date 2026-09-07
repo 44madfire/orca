@@ -96,14 +96,16 @@ export class RelayDialStageTracker implements RelayDialStageSource {
 
 // Budget per stage once the cell holds the dial. awaiting-hello covers the cell's
 // assignment/reservation transactions (observed 14–16s under lock contention) plus its
-// 10s host-attach deadline; handshaking is two E2EE round trips; confirming is bounded
-// by the session's own 30s resume-confirmation request, with slack so that error wins.
+// 10s host-attach deadline; handshaking is two E2EE round trips. confirming is kept for
+// the bound's own completeness: the live session publishes 'connected' in the same turn
+// it enters the stage and bounds the resume confirm itself at 12 s, so this entry is
+// only reachable by a session that times the stage without publishing, never in production.
 const RELAY_DIAL_STAGE_BUDGET_MS: Record<Exclude<RelayDialStage, 'opening'>, number> = {
   'awaiting-hello': 30_000,
   handshaking: 12_000,
   confirming: 35_000
 }
 
-export function relayDialStageBudgetMs(stage: Exclude<RelayDialStage, 'opening'>): number {
+export function relayDialStageBudgetMs(stage: keyof typeof RELAY_DIAL_STAGE_BUDGET_MS): number {
   return RELAY_DIAL_STAGE_BUDGET_MS[stage]
 }

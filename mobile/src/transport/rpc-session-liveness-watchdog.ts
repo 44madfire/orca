@@ -125,6 +125,12 @@ export class RpcSessionLivenessWatchdog {
       return
     }
     this.lastVoluntaryProbeAt = now
+    // Why: a second resume inside the urgent window (iOS active/inactive/active on a
+    // control-centre swipe) is a new observation on the same cold radio; inheriting the
+    // first resume probe's miss would spend the tolerated slow answer before it is sent.
+    if (urgent) {
+      this.missedProbes = 0
+    }
     this.startProbe(identity, urgent ? this.urgentProfile : this.ordinaryProfile)
   }
 
