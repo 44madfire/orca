@@ -14,6 +14,7 @@ import { defineMethod, defineStreamingMethod, type RpcAnyMethod, type RpcContext
 import {
   ensureStructuredHostInstalled as ensureHostInstalled,
   requireStructuredCapability,
+  requireStructuredCleanupHost,
   requireStructuredHost as requireHost,
   structuredCallerFor as callerFor,
   supportsStructuredSessions
@@ -127,7 +128,14 @@ export const STRUCTURED_AGENT_SESSION_METHODS: RpcAnyMethod[] = [
           const intentFingerprint = computeAgentSessionPayloadFingerprint({
             method: 'agentSession.create',
             sessionId: params.envelope.sessionId,
-            fields: { worktree: params.worktree, agent: params.agent }
+            // `resumeFrom` is part of the intent, not a detail of it: without it here, a retry of
+            // "adopt this conversation" would replay as, or conflict with, a blank create. The
+            // canonicalizer drops `undefined`, so plain creates keep the digest they always had.
+            fields: {
+              worktree: params.worktree,
+              agent: params.agent,
+              resumeFrom: params.resumeFrom
+            }
           })
           const conflict = agentSessionFingerprintConflict(params.envelope, intentFingerprint)
           if (conflict) {
@@ -141,7 +149,9 @@ export const STRUCTURED_AGENT_SESSION_METHODS: RpcAnyMethod[] = [
             },
             envelope: params.envelope,
             worktree: params.worktree,
-            agent: params.agent as 'claude' | 'codex'
+            agent: params.agent as 'claude' | 'codex',
+            caller: callerFor(ctx),
+            ...(params.resumeFrom ? { resumeFrom: params.resumeFrom } : {})
           })
         }
         const { host, attachParams } = await resolveClientSuppliedAttach(params, ctx)
@@ -169,9 +179,10 @@ export const STRUCTURED_AGENT_SESSION_METHODS: RpcAnyMethod[] = [
     handler: async (params, ctx) => requireHost(ctx).send(callerFor(ctx), params)
   }),
   defineMethod({
+    // Stopping a turn, so it stays available after admission is revoked: see the gate's rule.
     name: 'agentSession.cancel',
     params: CancelParams,
-    handler: async (params, ctx) => requireHost(ctx).cancel(callerFor(ctx), params)
+    handler: async (params, ctx) => requireStructuredCleanupHost(ctx).cancel(callerFor(ctx), params)
   }),
   defineMethod({
     // Releasing a chat view, not ending a conversation: the record and journal stay on disk so the
@@ -179,7 +190,9 @@ export const STRUCTURED_AGENT_SESSION_METHODS: RpcAnyMethod[] = [
     name: 'agentSession.close',
     params: OptionsParams,
     handler: async (params, ctx) => {
-      const host = requireHost(ctx)
+      // Cleanup gate: turning the host setting off must not strand an open chat whose owner can
+      // then never close it. See the rule on `requireStructuredCleanupHost`.
+      const host = requireStructuredCleanupHost(ctx)
       // Terminal-disposal closes use this RPC without the session-tabs retirement RPC.
       if (typeof host.setSessionTabVisibility === 'function') {
         await host.setSessionTabVisibility(params.sessionId, false)
@@ -275,7 +288,9 @@ export const STRUCTURED_AGENT_SESSION_METHODS: RpcAnyMethod[] = [
     name: 'agentSession.unsubscribe',
     params: UnsubscribeParams,
     handler: async (params, ctx) => {
-      requireHost(ctx)
+      // Why: cleanup must stay available after the setting is disabled, so an admitted caller can
+      // retire resources it already owns; the base still comes from main's shared helper.
+      requireStructuredCleanupHost(ctx)
       const base = subscriptionBaseFor(ctx, params.sessionId)
       if (params.subscriptionId) {
         ctx.runtime.cleanupSubscription(`${base}:${params.subscriptionId}`)
