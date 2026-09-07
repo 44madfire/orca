@@ -51,6 +51,42 @@ export function resolveMobileFloorClientId(
   return null
 }
 
+/**
+ * Whether these bytes are a person typing, rather than an agent's `terminal send` or the emulator
+ * answering a device query.
+ *
+ * Deliberately its own rule instead of a read of the mobile input floor. The floor is arbitration,
+ * deciding who may write next; this is provenance, deciding who produced the bytes. They agree
+ * today, and the orchestration takeover fence hangs off THIS one, so reweighing the floor cannot
+ * move the fence without someone answering this question again on its own terms.
+ */
+export function isDeliberateHumanInput(
+  input: { client?: TerminalViewportClient; inputKind?: 'query-reply' },
+  mobileWithoutClientMetadata: boolean
+): boolean {
+  if (input.inputKind === 'query-reply') {
+    return false
+  }
+  if (input.client?.type === 'mobile') {
+    return true
+  }
+  // Pre-refactor mobile builds send no client metadata; the pane's mobile driver, or a mobile
+  // stream's own kind, is the only remaining evidence of who is at the keyboard.
+  return !input.client && mobileWithoutClientMetadata
+}
+
+/** One mobile write's floor claim and provenance verdict, decided together before the bytes move. */
+export function newMobileInputWrite(
+  input: { terminal: string; client?: TerminalViewportClient; inputKind?: 'query-reply' },
+  mobileWithoutClientMetadata: boolean
+): MobileInputFloorClaimHolder {
+  return {
+    handle: input.terminal,
+    humanInput: isDeliberateHumanInput(input, mobileWithoutClientMetadata),
+    current: null
+  }
+}
+
 export type TerminalStreamInputOutcome = 'delivered' | 'rejected' | 'failed'
 
 export function watchSubscriptionLifetime(
@@ -113,7 +149,7 @@ export async function sendTerminalStreamInput(
 ): Promise<TerminalStreamInputOutcome> {
   const action = { text: args.text, enter: false, interrupt: false }
   const clientId = args.isMobile ? args.client?.id : undefined
-  const floorClaim: MobileInputFloorClaimHolder = { handle: args.terminal, current: null }
+  const floorClaim = newMobileInputWrite(args, args.isMobile)
   try {
     if (!clientId) {
       const result = await runtime.sendTerminal(args.terminal, action)
@@ -142,22 +178,21 @@ export async function sendTerminalStreamInput(
 
 export type MobileInputFloorClaimHolder = {
   handle: string
+  humanInput: boolean
   current: ReturnType<OrcaRuntimeService['beginMobileInputFloor']>
 }
 
 /**
- * Settle an accepted mobile write: the phone keeps the input floor, and the host records that a
- * human is now driving this terminal.
- *
- * The floor claim is the host's only proof the bytes are deliberate human input — an agent's
- * `terminal send` reaches the same methods naming itself a desktop client, and the emulator's own
- * query replies never claim the floor — so the takeover fence hangs off exactly this condition.
+ * Settle an accepted mobile write: the phone keeps the input floor, and if a human produced the
+ * bytes the host records that they are now driving this terminal.
  */
 export async function settleMobileInputWrite(
   runtime: OrcaRuntimeService,
   claim: MobileInputFloorClaimHolder
 ): Promise<void> {
-  recordWorkerTerminalUserTakeoverFromInput(runtime, claim.handle)
+  if (claim.humanInput) {
+    recordWorkerTerminalUserTakeoverFromInput(runtime, claim.handle)
+  }
   await commitMobileInputFloorClaim(claim)
 }
 

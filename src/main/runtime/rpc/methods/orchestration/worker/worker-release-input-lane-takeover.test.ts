@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createOrchestrationWorkerReleaseHarness } from './worker-release.test-support'
 import { TERMINAL_SEND_METHODS } from '../../terminal/terminal-send-method'
-import { sendTerminalStreamInput } from '../../terminal/terminal-input-delivery'
+import {
+  isDeliberateHumanInput,
+  sendTerminalStreamInput
+} from '../../terminal/terminal-input-delivery'
 import { isStreamingMethod, type RpcMethod } from '../../../core'
 import { RuntimeTerminalWriter } from '../../../../runtime-terminal-writer'
 import { getDefaultWorkspaceSession } from '../../../../../../shared/constants'
@@ -323,4 +326,20 @@ describe('a mobile takeover lifts the settled worker resume fence', () => {
     expect(fenceOnWorkerPane()).toBeUndefined()
     expect(fenceChanges.at(-1)).toEqual([harness.workerPaneKey, false])
   })
+})
+
+// The fence hangs off provenance, not off the input floor, so this rule is pinned on its own.
+describe('which bytes count as a person typing', () => {
+  const cases: [string, Parameters<typeof isDeliberateHumanInput>, boolean][] = [
+    ['a phone keystroke', [{ client: MOBILE_CLIENT }, false], true],
+    ["an agent's terminal send", [{ client: CLI_CLIENT }, false], false],
+    ['a phone query reply', [{ client: MOBILE_CLIENT, inputKind: 'query-reply' }, false], false],
+    ['a legacy phone on a mobile-driven pane', [{}, true], true],
+    ['a clientless send on an idle pane', [{}, false], false]
+  ]
+  for (const [name, args, expected] of cases) {
+    it(`${name} is ${expected ? '' : 'not '}human input`, () => {
+      expect(isDeliberateHumanInput(...args)).toBe(expected)
+    })
+  }
 })

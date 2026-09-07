@@ -10,9 +10,9 @@ import {
   getTerminalSendGuardRefusedReason,
   isTerminalInputLockedForClient,
   isTerminalSendGuardNotWritable,
+  newMobileInputWrite,
   resolveMobileFloorClientId,
-  settleMobileInputWrite,
-  type MobileInputFloorClaimHolder
+  settleMobileInputWrite
 } from './terminal-input-delivery'
 import { updateViewportForClient } from './terminal-viewport-update'
 import {
@@ -181,7 +181,7 @@ export const TERMINAL_SEND_METHODS: RpcAnyMethod[] = [
         }
       }
       const mobileFloorClientId = resolveMobileFloorClientId(driver, params.client)
-      const floorClaim: MobileInputFloorClaimHolder = { handle: params.terminal, current: null }
+      const floorClaim = newMobileInputWrite(params, driver?.kind === 'mobile')
       const beforeWrite =
         orchestrationMutation && params.agentPrompt === true
           ? async (ptyId?: string): Promise<void> => {
