@@ -16218,7 +16218,8 @@
           "showUnreadOnly": "Show unread only",
           "showChildAgents": "Show child agents",
           "activityOptions": "Activity options",
-          "threadListOptionsFiltered": "Thread list options, filters active"
+          "threadListOptionsFiltered": "Thread list options, filters active",
+          "showSearch": "Show search"
         },
         "clearCompleted": {
           "clearedOne": "Cleared 1 completed agent",
