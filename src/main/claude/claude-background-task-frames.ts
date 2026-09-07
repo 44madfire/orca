@@ -61,6 +61,15 @@ export function classifyClaudeBackgroundTaskKind(taskType: unknown): ClaudeBackg
   }
 }
 
+/** Cumulative token usage from a task_progress / task_notification frame. */
+export function taskUsageTotalTokens(frame: Record<string, unknown>): number | undefined {
+  const usage = record(frame.usage)
+  const total = usage?.total_tokens
+  return typeof total === 'number' && Number.isFinite(total) && total >= 0
+    ? Math.floor(total)
+    : undefined
+}
+
 /** Settled state for a terminal status. Null for anything else — an unreadable
  *  status never settles a task by itself. */
 export function terminalClaudeTaskRunState(

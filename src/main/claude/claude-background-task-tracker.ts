@@ -10,32 +10,23 @@ import {
   taskDescription,
   taskId,
   taskName,
-  terminalClaudeTaskRunState,
-  type ClaudeBackgroundTaskKind
+  taskUsageTotalTokens,
+  terminalClaudeTaskRunState
 } from './claude-background-task-frames'
+import {
+  ClaudeSettledBackgroundTasks,
+  claudeBackgroundTaskDetail,
+  type TrackedClaudeBackgroundTask
+} from './claude-settled-background-tasks'
 
 export { classifyClaudeBackgroundTaskKind } from './claude-background-task-frames'
 export type { ClaudeBackgroundTaskKind } from './claude-background-task-frames'
 
 const MAX_TRACKED_TASKS = 256
 
-type TrackedTask = {
-  backgrounded: boolean
-  kind: ClaudeBackgroundTaskKind
-  description?: string
-  name?: string
-  state?: AgentSessionBackgroundTaskRunState
-  /** First-observed epoch ms; preserved across updates and roster replacement
-   *  so clients can render elapsed and keep a stable first-seen sort. */
-  startedAt: number
-}
-
 export class ClaudeBackgroundTaskTracker {
-  private readonly tasks = new Map<string, TrackedTask>()
-  /** Terminal-state tasks retained while live siblings remain, so a finished
-   *  child of a fan-out renders settled instead of vanishing. Flushed the
-   *  moment the live set empties — the strip exits exactly when it does today. */
-  private readonly settled = new Map<string, AgentSessionBackgroundTask>()
+  private readonly tasks = new Map<string, TrackedClaudeBackgroundTask>()
+  private readonly retention = new ClaudeSettledBackgroundTasks()
   private readonly terminalTaskIds = new Set<string>()
   private aggregateRosterObserved = false
   private monitoring = false
@@ -50,7 +41,7 @@ export class ClaudeBackgroundTaskTracker {
     return {
       state: 'monitoring',
       tasks: this.backgroundTaskDetails(),
-      ...(this.settled.size > 0 ? { settledTasks: [...this.settled.values()] } : {})
+      ...(this.retention.hasSettled ? { settledTasks: this.retention.settledDetails() } : {})
     }
   }
 
@@ -80,10 +71,19 @@ export class ClaudeBackgroundTaskTracker {
 
   clear(): boolean {
     this.tasks.clear()
-    this.settled.clear()
+    this.retention.clear()
     this.terminalTaskIds.clear()
     this.aggregateRosterObserved = false
     return this.refreshMonitoring()
+  }
+
+  private settle(
+    id: string,
+    state: AgentSessionBackgroundTaskRunState,
+    outcome: { totalTokens?: number } = {}
+  ): void {
+    this.retention.settle(id, state, outcome, this.tasks.get(id))
+    this.finish(id)
   }
 
   private observeSystemFrame(message: Record<string, unknown>): boolean {
@@ -98,7 +98,20 @@ export class ClaudeBackgroundTaskTracker {
     if (message.subtype === 'task_notification') {
       // The notification is affirmative terminal evidence even when its status
       // field is unreadable — matching the liveness semantics this edge always had.
-      this.settle(id, terminalClaudeTaskRunState(message.status) ?? 'done')
+      this.settle(id, terminalClaudeTaskRunState(message.status) ?? 'done', {
+        totalTokens: taskUsageTotalTokens(message)
+      })
+      return true
+    }
+    if (message.subtype === 'task_progress') {
+      // Progress `description` is the current activity ("Running <tool>"), not
+      // the task's name — only usage (and a missing identity) may update.
+      const existing = this.tasks.get(id)
+      const totalTokens = taskUsageTotalTokens(message)
+      if (!existing?.backgrounded || totalTokens === undefined) {
+        return false
+      }
+      this.tasks.set(id, { ...existing, totalTokens, name: existing.name ?? taskName(message) })
       return true
     }
     if (message.subtype === 'task_updated') {
@@ -190,12 +203,18 @@ export class ClaudeBackgroundTaskTracker {
         description: taskDescription(task.description) ?? existing?.description,
         name: taskName(task) ?? existing?.name,
         state: liveClaudeTaskRunState(task.status) ?? existing?.state,
-        startedAt: existing?.startedAt ?? this.now()
+        startedAt: existing?.startedAt ?? this.now(),
+        totalTokens: existing?.totalTokens
       })
+    }
+    for (const [id, task] of prior) {
+      if (task.backgrounded && !this.tasks.has(id)) {
+        this.retention.rememberRemoved(id, task)
+      }
     }
   }
 
-  private upsert(id: string, task: TrackedTask): void {
+  private upsert(id: string, task: TrackedClaudeBackgroundTask): void {
     const existing = this.tasks.get(id)
     if (existing) {
       this.tasks.set(id, {
@@ -204,7 +223,8 @@ export class ClaudeBackgroundTaskTracker {
         description: task.description ?? existing.description,
         name: task.name ?? existing.name,
         state: task.state ?? existing.state,
-        startedAt: existing.startedAt
+        startedAt: existing.startedAt,
+        totalTokens: existing.totalTokens
       })
       return
     }
@@ -224,21 +244,6 @@ export class ClaudeBackgroundTaskTracker {
     this.tasks.set(id, task)
   }
 
-  private settle(id: string, state: AgentSessionBackgroundTaskRunState): void {
-    const existing = this.tasks.get(id)
-    if (existing?.backgrounded) {
-      this.settled.delete(id)
-      this.settled.set(id, { ...this.taskDetail(id, existing), state })
-      if (this.settled.size > MAX_TRACKED_TASKS) {
-        const oldest = this.settled.keys().next()
-        if (!oldest.done) {
-          this.settled.delete(oldest.value)
-        }
-      }
-    }
-    this.finish(id)
-  }
-
   private finish(id: string): void {
     this.tasks.delete(id)
     this.terminalTaskIds.delete(id)
@@ -253,13 +258,11 @@ export class ClaudeBackgroundTaskTracker {
 
   private refreshMonitoring(): boolean {
     const details = this.backgroundTaskDetails()
-    if (details.length === 0 && this.settled.size > 0) {
-      // Settled context only makes sense beside live work; the strip exits at
-      // the same instant it always has — when the last live task ends.
-      this.settled.clear()
+    if (details.length === 0 && this.retention.hasSettled) {
+      this.retention.flushSettled()
     }
     const next = details.length > 0
-    const fingerprint = next ? JSON.stringify([details, [...this.settled.values()]]) : ''
+    const fingerprint = next ? JSON.stringify([details, this.retention.settledDetails()]) : ''
     if (next === this.monitoring && fingerprint === this.publishedTasksFingerprint) {
       return false
     }
@@ -268,24 +271,13 @@ export class ClaudeBackgroundTaskTracker {
     return true
   }
 
-  private taskDetail(id: string, task: TrackedTask): AgentSessionBackgroundTask {
-    return {
-      id,
-      kind: task.kind,
-      ...(task.description ? { description: task.description } : {}),
-      ...(task.name ? { name: task.name } : {}),
-      state: task.state ?? (task.kind === 'monitor' ? 'monitoring' : 'working'),
-      startedAt: task.startedAt
-    }
-  }
-
   private backgroundTaskDetails(): AgentSessionBackgroundTask[] {
     const details: AgentSessionBackgroundTask[] = []
     for (const [id, task] of this.tasks) {
       if (!task.backgrounded) {
         continue
       }
-      details.push(this.taskDetail(id, task))
+      details.push(claudeBackgroundTaskDetail(id, task))
     }
     return details
   }

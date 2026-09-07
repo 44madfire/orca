@@ -182,6 +182,18 @@ export function backgroundTaskStateReason(state: RunState): string | null {
   }
 }
 
+/** Compact token meta per the mock ("18.2k"). Locale-neutral on purpose:
+ *  it sits in a mono meta slot beside elapsed, like other technical literals. */
+export function formatBackgroundTaskTokens(totalTokens: number): string {
+  if (totalTokens < 1_000) {
+    return String(totalTokens)
+  }
+  const scaled = totalTokens < 1_000_000 ? totalTokens / 1_000 : totalTokens / 1_000_000
+  const unit = totalTokens < 1_000_000 ? 'k' : 'm'
+  const rounded = Math.round(scaled * 10) / 10
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}${unit}`
+}
+
 export function backgroundTaskElapsedLabel(
   task: AgentSessionBackgroundTask,
   now: number

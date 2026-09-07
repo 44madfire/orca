@@ -77,6 +77,8 @@ export type AgentSessionBackgroundTask = {
   state?: AgentSessionBackgroundTaskRunState
   /** Host epoch ms when the task was first observed, so clients render elapsed. */
   startedAt?: number
+  /** Cumulative provider-reported token usage, where the provider supplies it. */
+  totalTokens?: number
 }
 
 export type AgentSessionBackgroundTaskState = {
@@ -100,7 +102,8 @@ function backgroundTaskFieldsEqual(
     left.description === right.description &&
     left.name === right.name &&
     left.state === right.state &&
-    left.startedAt === right.startedAt
+    left.startedAt === right.startedAt &&
+    left.totalTokens === right.totalTokens
   )
 }
 

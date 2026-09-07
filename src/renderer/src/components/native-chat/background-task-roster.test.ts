@@ -4,6 +4,7 @@ import {
   backgroundTasksDotState,
   backgroundTasksHeaderContent,
   buildBackgroundTaskGroups,
+  formatBackgroundTaskTokens,
   resolveBackgroundTaskName
 } from './background-task-roster'
 
@@ -161,6 +162,16 @@ describe('buildBackgroundTaskGroups', () => {
     expect(built[0].tasks[0].state).toBe('working')
     const monitor = buildBackgroundTaskGroups([{ id: 'm', kind: 'monitor' }], [])
     expect(monitor[0].tasks[0].state).toBe('monitoring')
+  })
+})
+
+describe('formatBackgroundTaskTokens', () => {
+  it('renders compact token counts like the mock', () => {
+    expect(formatBackgroundTaskTokens(950)).toBe('950')
+    expect(formatBackgroundTaskTokens(18_130)).toBe('18.1k')
+    expect(formatBackgroundTaskTokens(4_100)).toBe('4.1k')
+    expect(formatBackgroundTaskTokens(2_000)).toBe('2k')
+    expect(formatBackgroundTaskTokens(1_450_000)).toBe('1.5m')
   })
 })
 

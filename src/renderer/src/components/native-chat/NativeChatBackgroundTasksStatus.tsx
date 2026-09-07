@@ -12,6 +12,7 @@ import {
   backgroundTasksHeaderContent,
   backgroundTaskStateReason,
   buildBackgroundTaskGroups,
+  formatBackgroundTaskTokens,
   type BackgroundRosterTask
 } from './background-task-roster'
 
@@ -63,7 +64,16 @@ function BackgroundTaskRow(props: {
   const { entry, now } = props
   const Icon = KIND_ICONS[entry.task.kind]
   const reason = entry.state === 'waiting' ? backgroundTaskStateReason(entry.state) : null
-  const elapsed = entry.settled ? null : backgroundTaskElapsedLabel(entry.task, now)
+  // Settled rows keep their final usage but no elapsed — a still-growing clock
+  // on finished work would lie.
+  const meta = [
+    entry.task.totalTokens !== undefined
+      ? formatBackgroundTaskTokens(entry.task.totalTokens)
+      : null,
+    entry.settled ? null : backgroundTaskElapsedLabel(entry.task, now)
+  ]
+    .filter((part): part is string => part !== null)
+    .join(' · ')
   return (
     <li className="flex h-6 min-w-0 items-center gap-2 text-foreground/80">
       <Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
@@ -72,9 +82,9 @@ function BackgroundTaskRow(props: {
         <span className="font-medium text-foreground">{entry.name}</span>
         {reason ? <span className="text-muted-foreground"> · {reason}</span> : null}
       </span>
-      {elapsed ? (
+      {meta ? (
         <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
-          {elapsed}
+          {meta}
         </span>
       ) : null}
       {!entry.settled && props.supportsTaskStop ? (

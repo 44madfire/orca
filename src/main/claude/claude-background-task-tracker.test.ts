@@ -170,6 +170,114 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(tracker.state).toBeNull()
   })
 
+  it('settles a sibling from the captured producer order: aggregate eviction, then the outcome', () => {
+    // Verbatim sequence from a real SDK capture (2026-09-07): the aggregate
+    // roster arrives FIRST, already missing the finished task, and the
+    // terminal edges trail in the same tick.
+    const tracker = trackerAt([100, 200])
+    tracker.observe(
+      system('task_started', {
+        task_id: 'bh4zn8der',
+        tool_use_id: 'toolu_01M',
+        description: 'Sleep for 5 seconds',
+        is_backgrounded: true,
+        task_type: 'local_bash'
+      })
+    )
+    tracker.observe(
+      aggregate([
+        { task_id: 'bh4zn8der', task_type: 'local_bash', description: 'Sleep for 5 seconds' },
+        { task_id: 'bprosaiim', task_type: 'local_bash', description: 'Sleep for 25 seconds' }
+      ])
+    )
+
+    // The settling child is evicted by the aggregate before any outcome frame.
+    tracker.observe(
+      aggregate([
+        { task_id: 'bprosaiim', task_type: 'local_bash', description: 'Sleep for 25 seconds' }
+      ])
+    )
+    tracker.observe(
+      system('task_updated', {
+        task_id: 'bh4zn8der',
+        patch: { status: 'completed', end_time: 1788804376515 }
+      })
+    )
+    expect(
+      tracker.observe(
+        system('task_notification', {
+          task_id: 'bh4zn8der',
+          tool_use_id: 'toolu_01M',
+          status: 'completed',
+          summary: 'Background command "Sleep for 5 seconds" completed (exit code 0)',
+          usage: { total_tokens: 18130, tool_uses: 1, duration_ms: 10772 }
+        })
+      )
+    ).toBe(true)
+    expect(tracker.state).toEqual({
+      state: 'monitoring',
+      tasks: [
+        {
+          id: 'bprosaiim',
+          kind: 'command',
+          description: 'Sleep for 25 seconds',
+          state: 'working',
+          startedAt: 200
+        }
+      ],
+      settledTasks: [
+        {
+          id: 'bh4zn8der',
+          kind: 'command',
+          description: 'Sleep for 5 seconds',
+          state: 'done',
+          startedAt: 100,
+          totalTokens: 18130
+        }
+      ]
+    })
+
+    // Last task killed, same captured order: the strip exits.
+    tracker.observe(aggregate([]))
+    tracker.observe(system('task_updated', { task_id: 'bprosaiim', patch: { status: 'killed' } }))
+    tracker.observe(system('task_notification', { task_id: 'bprosaiim', status: 'stopped' }))
+    expect(tracker.state).toBeNull()
+  })
+
+  it('carries task_progress usage into a live row without clobbering its name', () => {
+    const tracker = trackerAt([100])
+    tracker.observe(
+      system('task_started', {
+        task_id: 'agent-1',
+        task_type: 'local_agent',
+        subagent_type: 'general-purpose',
+        description: 'Sleep 6 seconds test',
+        is_backgrounded: true
+      })
+    )
+    expect(
+      tracker.observe(
+        system('task_progress', {
+          task_id: 'agent-1',
+          description: 'Running Sleep for 6 seconds',
+          subagent_type: 'general-purpose',
+          usage: { total_tokens: 14866, tool_uses: 1, duration_ms: 2818 },
+          last_tool_name: 'Bash'
+        })
+      )
+    ).toBe(true)
+    expect(tracker.state?.tasks?.[0]).toEqual({
+      id: 'agent-1',
+      kind: 'agent',
+      // Progress descriptions are transient activity, never the task's name.
+      description: 'Sleep 6 seconds test',
+      name: 'general-purpose',
+      state: 'working',
+      startedAt: 100,
+      totalTokens: 14866
+    })
+  })
+
   it('maps terminal statuses onto settled states', () => {
     const tracker = trackerAt([100, 200])
     tracker.observe(
