@@ -1,3 +1,4 @@
+import { HOSTED_TERMINAL_INSTANCE_LOOKUP } from './hosted-terminal-instance-inspection.mjs'
 import { WebSocket } from 'ws'
 import { evaluateHostedDocumentWithRetry } from './hosted-webview-cdp-session.mjs'
 
@@ -74,29 +75,7 @@ export async function readHostedTerminalLinkPoints(document, operations = {}) {
           screenWidth: Number(screen.width)
         });
 
-        function findTerminal(element) {
-          for (
-            let ancestor = element;
-            ancestor instanceof HTMLElement;
-            ancestor = ancestor.parentElement
-          ) {
-            const fiberKey = Object.keys(ancestor).find((key) => key.startsWith('__reactFiber$'));
-            let fiber = fiberKey ? ancestor[fiberKey] : null;
-            for (let depth = 0; fiber && depth < 32; depth += 1, fiber = fiber.return) {
-              let hook = fiber.memoizedState;
-              for (let index = 0; hook && index < 32; index += 1, hook = hook.next) {
-                const current = hook.memoizedState?.current;
-                if (
-                  current &&
-                  Number.isInteger(current.cols) &&
-                  Number.isInteger(current.rows) &&
-                  current.buffer?.active
-                ) return current;
-              }
-            }
-          }
-          return null;
-        }
+        ${HOSTED_TERMINAL_INSTANCE_LOOKUP}
       })()`,
       WebSocket
     )
@@ -156,29 +135,7 @@ export async function describeHostedTerminalLinkPoint(document, point, operation
         viewportTop
       });
 
-      function findTerminal(element) {
-        for (
-          let ancestor = element;
-          ancestor instanceof HTMLElement;
-          ancestor = ancestor.parentElement
-        ) {
-          const fiberKey = Object.keys(ancestor).find((key) => key.startsWith('__reactFiber$'));
-          let fiber = fiberKey ? ancestor[fiberKey] : null;
-          for (let depth = 0; fiber && depth < 32; depth += 1, fiber = fiber.return) {
-            let hook = fiber.memoizedState;
-            for (let index = 0; hook && index < 32; index += 1, hook = hook.next) {
-              const current = hook.memoizedState?.current;
-              if (
-                current &&
-                Number.isInteger(current.cols) &&
-                Number.isInteger(current.rows) &&
-                current.buffer?.active
-              ) return current;
-            }
-          }
-        }
-        return null;
-      }
+      ${HOSTED_TERMINAL_INSTANCE_LOOKUP}
 
       function describeRow(terminal, row) {
         const line = terminal.buffer.active.getLine(row);

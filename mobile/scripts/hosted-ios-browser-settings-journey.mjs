@@ -1,3 +1,4 @@
+import { waitHostedSettingsPickerOption } from './hosted-settings-picker-option.mjs'
 import path from 'node:path'
 import {
   activateHostedWebViewControl,
@@ -27,7 +28,7 @@ export async function verifyHostedIosBrowserSettings(args) {
 async function choose(document, label, timeoutMs) {
   await waitMode(document, undefined, timeoutMs)
   await activateHostedWebViewControl(document, { kind: 'label', value: 'Open terminal links' })
-  await waitPickerOption(document, label, timeoutMs)
+  await waitHostedSettingsPickerOption(document, label, timeoutMs)
   await activateHostedWebViewControl(document, { kind: 'text', value: label })
   await waitMode(document, label, timeoutMs)
 }
@@ -51,26 +52,4 @@ async function waitMode(document, label, timeoutMs) {
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   throw new Error('Browser preference did not finish loading or saving')
-}
-
-async function waitPickerOption(document, label, timeoutMs) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const visible = await evaluateHostedDocumentWithRetry(
-      document,
-      `JSON.stringify(
-      Array.from(document.querySelectorAll('body *')).some((element) => {
-        if (element.children.length || element.textContent.trim() !== ${JSON.stringify(label)}) return false;
-        const rect = element.getBoundingClientRect();
-        const style = getComputedStyle(element);
-        return style.display !== 'none' && style.visibility !== 'hidden' &&
-          rect.width > 0 && rect.height > 0 && rect.top < innerHeight && rect.bottom > 0;
-      }))`
-    )
-    if (JSON.parse(visible)) {
-      return
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-  throw new Error(`Browser option did not become visible: ${label}`)
 }

@@ -1,3 +1,4 @@
+import { verifyHostedIosTerminalSettings } from './hosted-ios-terminal-settings-journey.mjs'
 import { evidenceStep } from './hosted-webview-e2e-report.mjs'
 import { verifyHostedIosNativeAlertJourney } from './hosted-ios-native-alert-journey.mjs'
 import { verifyHostedIosBrowserSettings } from './hosted-ios-browser-settings-journey.mjs'
@@ -20,11 +21,21 @@ export async function verifyHostedIosWorkspaceDeviceCapabilities(args) {
         })
       )
     : null
+  const terminalSettings = browserSettings
+    ? await evidenceStep('hosted terminal preference persistence and consumers', () =>
+        verifyHostedIosTerminalSettings({
+          ...args,
+          workspaceDocument: browserSettings.workspaceDocument
+        })
+      )
+    : null
   return {
     nativeAlert,
+    terminalSettings,
     browserSettings,
     chatSettings,
     workspaceDocument:
+      terminalSettings?.workspaceDocument ??
       browserSettings?.workspaceDocument ??
       chatSettings?.workspaceDocument ??
       nativeAlert.workspaceDocument
