@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
-import { MobileWebBridgeClientError } from '../../../src/mobile-web/src/mobile-web-bridge-client-error'
 import { webHostWorkspaceCreationOperations } from './web-host-workspace-creation-operations'
 
 describe('web host workspace creation operations', () => {
