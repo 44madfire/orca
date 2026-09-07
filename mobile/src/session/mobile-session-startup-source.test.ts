@@ -149,7 +149,7 @@ describe('mobile session startup', () => {
 
   it('loads session tabs without waiting for desktop activation', () => {
     const readsEffect = sliceBetween(
-      'void (async () => {',
+      'hydrationRef.current = (async () => {',
       'return () => {\n      disposed = true',
       startupSource
     )
@@ -188,6 +188,11 @@ describe('mobile session startup', () => {
     expect(activateEffect).toContain('notifyClients: false')
     expect(activateEffect).toContain("navigation: 'caller'")
     expect(activateEffect).not.toContain('await ensureSessionTabs()')
+    // The recovery arms only once hydration settled, so a consumed `created` cannot add a second send.
+    expect(activateEffect).toContain('await hydrationRef.current')
+    expect(activateEffect.indexOf('await hydrationRef.current')).toBeLessThan(
+      activateEffect.indexOf('}, 1800)')
+    )
     // The created-workspace recovery still yields to a terminal that claimed the route first.
     expect(activateEffect).toContain('if (activeHandleRef.current)')
     expect(activateEffect).toContain('}, 1800)')
