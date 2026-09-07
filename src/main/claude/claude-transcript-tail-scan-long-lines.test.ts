@@ -120,7 +120,10 @@ describe('claudeTranscriptTailLines over-long lines', () => {
     const line = `${'x'.repeat(100 * 1024 - 1)}\n`
     const path = await write(
       'huge-lines.jsonl',
-      Buffer.from(line.repeat(Math.ceil(TRANSCRIPT_TAIL_READ_LIMIT_BYTES / line.length) + 4), 'utf8')
+      Buffer.from(
+        line.repeat(Math.ceil(TRANSCRIPT_TAIL_READ_LIMIT_BYTES / line.length) + 4),
+        'utf8'
+      )
     )
     const scan: ClaudeTranscriptTailScan = { reachedFileStart: false }
 
