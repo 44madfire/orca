@@ -126,12 +126,15 @@ describe('generic host subscriptions', () => {
     stalled.resolve()
   })
 
-  it('rejects a method with no derivable cancel name', () => {
-    const f = fixture()
-    f.args.payload = { ...f.args.payload, method: 'future.feed.read' }
-    expect(() => f.ledger.start(f.args)).toThrowError(
-      expect.objectContaining({ code: 'unsupported_capability' })
-    )
-    expect(f.subscribe).not.toHaveBeenCalled()
-  })
+  it.each(['future.feed.read', 'future.files.unwatch'])(
+    'refuses %s in the streaming lane, which has no cancel name to derive',
+    (method) => {
+      const f = fixture()
+      f.args.payload = { ...f.args.payload, method }
+      expect(() => f.ledger.start(f.args)).toThrowError(
+        expect.objectContaining({ code: 'unsupported_capability' })
+      )
+      expect(f.subscribe).not.toHaveBeenCalled()
+    }
+  )
 })

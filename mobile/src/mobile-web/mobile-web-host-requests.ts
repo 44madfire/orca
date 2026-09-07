@@ -1,6 +1,7 @@
 import {
   MobileWebHostRequestPayloadSchema,
-  mobileWebHostPayloadByteLength
+  mobileWebHostPayloadByteLength,
+  mobileWebHostUnsubscribeMethod
 } from '../../../src/shared/mobile-web/host-rpc-contract'
 import type { RpcClient, SendRequestOptions } from '../transport/rpc-client'
 import { MobileWebBrokerError, mobileWebBrokerHostRpcError } from './mobile-web-broker-error'
@@ -56,7 +57,13 @@ export function prepareMobileWebHostRequest(args: MobileWebHostRequestArguments)
   if (mobileWebHostPayloadByteLength(params) === undefined) {
     throw new MobileWebBrokerError('too_large')
   }
-  return { payload, scope, params }
+  // Defined only for a subscribe method, which is what decides the lane each caller may take.
+  return {
+    payload,
+    scope,
+    params,
+    serverUnsubscribeMethod: mobileWebHostUnsubscribeMethod(payload.method)
+  }
 }
 
 export async function executeMobileWebHostRequest(
@@ -71,7 +78,12 @@ export async function executeMobileWebHostRequest(
       throw new MobileWebBrokerError('timeout')
     }
   }
-  const { payload, scope, params } = prepareMobileWebHostRequest(args)
+  const { payload, scope, params, serverUnsubscribeMethod } = prepareMobileWebHostRequest(args)
+  // A subscribe method answers with stream frames the stream registry consumes, so the unary
+  // promise would hang to its deadline while the desktop subscription stayed open uncancellable.
+  if (serverUnsubscribeMethod !== undefined) {
+    throw new MobileWebBrokerError('unsupported_capability')
+  }
   beforeSend()
   const options: SendRequestOptions = {
     timeoutMs: deadline - Date.now(),

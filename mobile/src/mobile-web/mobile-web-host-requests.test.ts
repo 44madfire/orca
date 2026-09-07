@@ -66,6 +66,18 @@ describe('host-advertised unary forwarding', () => {
     expect(sendRequest).not.toHaveBeenCalled()
   })
 
+  it.each(['future.feed.subscribe', 'future.files.watch'])(
+    'refuses %s in the unary lane, whose stream frames it could never settle on',
+    async (method) => {
+      const { args, sendRequest } = fixture()
+      args.payload = { ...args.payload, method }
+      await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({
+        code: 'unsupported_capability'
+      })
+      expect(sendRequest).not.toHaveBeenCalled()
+    }
+  )
+
   it('refuses a response larger than the bridge envelope', async () => {
     const { args, sendRequest } = fixture()
     sendRequest.mockResolvedValueOnce({ ok: true, result: { text: 'x'.repeat(640 * 1024) } })

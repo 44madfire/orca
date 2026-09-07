@@ -1,7 +1,4 @@
-import {
-  mobileWebHostPayloadByteLength,
-  mobileWebHostUnsubscribeMethod
-} from '../../../src/shared/mobile-web/host-rpc-contract'
+import { mobileWebHostPayloadByteLength } from '../../../src/shared/mobile-web/host-rpc-contract'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import {
   assertMobileWebHostRequestScope,
@@ -40,11 +37,10 @@ export class MobileWebHostSubscriptions extends MobileWebSubscriptionLedger<
     }
   ): void {
     this.admit(args.subscriptionId)
-    const { payload, scope, params } = prepareMobileWebHostRequest({
+    const { payload, scope, params, serverUnsubscribeMethod } = prepareMobileWebHostRequest({
       ...args,
       authority: this.config.workspaceAuthority
     })
-    const serverUnsubscribeMethod = mobileWebHostUnsubscribeMethod(payload.method)
     if (serverUnsubscribeMethod === undefined) {
       throw new MobileWebBrokerError('unsupported_capability')
     }
