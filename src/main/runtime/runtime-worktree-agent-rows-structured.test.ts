@@ -93,13 +93,13 @@ describe('terminal listing is deliberately left alone', () => {
     )
     // Guard the guard: an empty read would make every assertion below vacuously true.
     expect(listing).toContain('async listTerminals(')
-    expect(listing).not.toContain('publishedStatusSummaries')
+    expect(listing).not.toContain('liveSessionStatusSummaries')
     expect(listing).not.toContain('structuredSummaries')
 
     const worktreePs = await readFile(
       new URL('./orca-runtime-get-worktree-ps.ts', import.meta.url),
       'utf8'
     )
-    expect(worktreePs).toContain('publishedStatusSummaries')
+    expect(worktreePs).toContain('liveSessionStatusSummaries')
   })
 })

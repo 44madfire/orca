@@ -211,8 +211,9 @@ export class StructuredAgentSessionHost {
 
   listSessionTabs = () => listStructuredAgentSessionTabs(this.sessions)
 
-  /** Last projected status for every structured session, for non-subscribing readers. */
-  readonly publishedStatusSummaries = () => this.statusFeed.publishedSummaries()
+  /** Last projected status for every structured session this host still holds, for non-subscribing
+   *  readers. The retained projections of forgotten sessions are deliberately not included. */
+  readonly liveSessionStatusSummaries = () => this.statusFeed.liveSessionSummaries()
 
   getPersistedVisibleSessionTabIndex(): { present: boolean; sessionIds: string[] } {
     return this.deps.store.getVisibleSessionTabIndex()

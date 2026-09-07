@@ -8,15 +8,12 @@ import {
 import { terminalStatusPayloadMatchesHook } from '../../shared/agent-terminal-status-equivalence'
 import type { RuntimeWorktreeAgentRow, RuntimeWorktreePsSummary } from '../../shared/runtime-types'
 import { parseLegacyNumericPaneKey, parsePaneKey } from '../../shared/stable-pane-id'
-import {
-  structuredAgentSessionPaneKey,
-  structuredAgentSessionTabId
-} from '../../shared/structured-agent-session-projection'
 import type { AgentSessionStatusSummary } from '../../shared/agent-session-wire'
 import { isWslHookRelayConnectionId } from '../../shared/wsl-hook-relay-contract'
 import { mergeWorktreeSummaryStatus } from './runtime-worktree-status-projection'
 import type { RuntimeWorktreeSummaryPathIndex } from './runtime-worktree-summary-paths'
 import type { RuntimeWorkingTerminalEvidence } from './runtime-worktree-ps-activity'
+import { structuredRuntimeWorktreeAgentSources } from './runtime-worktree-structured-agent-rows'
 
 export type RuntimeAgentRowSnapshot = {
   paneKey: string
@@ -41,13 +38,15 @@ type OrchestrationDisplay = {
   parentPaneKey?: string | null
 }
 
-type RuntimeWorktreeAgentSource = {
+export type RuntimeWorktreeAgentSource = {
   paneKey: string
   ptyId?: string
   tabId?: string
   worktreeId?: string
   connectionId: string | null
-  payload: ParsedAgentStatusPayload
+  /** The hook/retained row this source came from. Absent on a structured session: nothing
+   *  downstream reads it, and there is no hook report behind one to carry. */
+  payload?: ParsedAgentStatusPayload
   state: ParsedAgentStatusPayload['state']
   workingMode?: ParsedAgentStatusPayload['workingMode']
   agentType: string | null
@@ -75,7 +74,8 @@ export function attachRuntimeWorktreeAgentRows(args: {
   >
   retainedSnapshots: Iterable<RuntimeAgentRowSnapshot>
   hookSnapshots: readonly AgentStatusIpcPayload[]
-  /** Structured (non-PTY) sessions, projected from the host's own status feed. */
+  /** The structured (non-PTY) sessions the host still holds, projected from its status feed.
+   *  Never the feed's whole retained cache: that keeps a summary after eviction forgets it. */
   structuredSummaries: readonly AgentSessionStatusSummary[]
   orchestrationByPaneKey: Record<string, OrchestrationDisplay> | null | undefined
   getSummary: (
@@ -118,6 +118,7 @@ export function attachRuntimeWorktreeAgentRows(args: {
       if (
         entry.workingMode === 'monitoring' &&
         now - entry.receivedAt <= AGENT_STATUS_STALE_AFTER_MS &&
+        existing.payload !== undefined &&
         terminalStatusPayloadMatchesHook(hookPayload, existing.payload)
       ) {
         existing.workingMode = 'monitoring'
@@ -146,47 +147,11 @@ export function attachRuntimeWorktreeAgentRows(args: {
       updatedAt: entry.receivedAt
     })
   }
-  for (const summary of args.structuredSummaries) {
-    // No turn has been persisted yet, so there is nothing to report - the same read the chat shows.
-    if (!summary.status) {
-      continue
+  for (const source of structuredRuntimeWorktreeAgentSources(args.structuredSummaries)) {
+    // A PTY-backed row already on this pane key wins: it has real process evidence behind it.
+    if (!rowSources.has(source.paneKey)) {
+      rowSources.set(source.paneKey, source)
     }
-    const tabId = structuredAgentSessionTabId(summary.sessionId)
-    // The DERIVED pane key the renderer already publishes, never the orchestration bearer handle
-    // or the minted worker pane key: both of those are credentials.
-    const paneKey = structuredAgentSessionPaneKey(tabId, summary.sessionId)
-    if (rowSources.has(paneKey)) {
-      continue
-    }
-    // Same projection the sidebar applies, so the CLI and the GUI cannot disagree about one session.
-    const state =
-      summary.status === 'working' ? 'working' : summary.status === 'attention' ? 'blocked' : 'done'
-    rowSources.set(paneKey, {
-      paneKey,
-      tabId,
-      worktreeId: summary.workspaceId,
-      connectionId: null,
-      payload: {
-        state,
-        prompt: summary.latestPrompt,
-        agentType: summary.agent,
-        ...(summary.toolName ? { toolName: summary.toolName } : {}),
-        ...(summary.toolInput ? { toolInput: summary.toolInput } : {}),
-        ...(summary.lastAssistantMessage
-          ? { lastAssistantMessage: summary.lastAssistantMessage }
-          : {})
-      } as ParsedAgentStatusPayload,
-      state,
-      agentType: summary.agent,
-      prompt: summary.latestPrompt,
-      lastAssistantMessage: summary.lastAssistantMessage ?? null,
-      toolName: summary.toolName ?? null,
-      toolInput: summary.toolInput ?? null,
-      interrupted: false,
-      stateStartedAt: summary.updatedAt,
-      updatedAt: summary.updatedAt,
-      structured: true
-    })
   }
   if (rowSources.size === 0) {
     return

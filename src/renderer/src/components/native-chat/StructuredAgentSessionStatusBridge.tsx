@@ -2,7 +2,10 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { agentProviderSessionsEqual } from '../../../../shared/agent-session-resume'
 import type { AgentSessionStatusSummary } from '../../../../shared/agent-session-wire'
-import { structuredAgentSessionPaneKey } from '../../../../shared/structured-agent-session-projection'
+import {
+  structuredAgentSessionPaneKey,
+  structuredAgentSessionStatusState
+} from '../../../../shared/structured-agent-session-projection'
 import type { Tab } from '../../../../shared/tab-types'
 import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
@@ -67,12 +70,8 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     return
   }
   const desired = {
-    state:
-      summary.status === 'working'
-        ? 'working'
-        : summary.status === 'attention'
-          ? 'blocked'
-          : 'done',
+    // Shared with `worktree ps`, so the CLI and this row cannot disagree about one session.
+    state: structuredAgentSessionStatusState(summary.status),
     prompt: summary.latestPrompt,
     agentType: tab.agentSessionAgent,
     // The host projects these from the journal so the row reads like a hook-reported one:

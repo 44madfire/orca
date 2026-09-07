@@ -523,3 +523,37 @@ describe('StructuredAgentSessionStatusFeed', () => {
     })
   })
 })
+
+/**
+ * `published` is a broadcast cache, not a roster. It deliberately never retracts — an evicted idle
+ * session is still idle, and a reloading renderer must not lose every settled row — so enumerating
+ * it lists every session this host has ever opened. Eviction's `forget-session` step deletes the
+ * session from the live map and touches nothing else, so a poller has to intersect with that map.
+ */
+describe('the polling reader answers from the live sessions, not the retained cache', () => {
+  it('drops an evicted session from the poll while a late subscriber still sees it', async () => {
+    const journal = await openJournal()
+    const sessions = new Map([[SESSION, { journal }]])
+    const { feed } = feedFor(sessions)
+    await journal.appendItem(
+      USER_IDENTITY,
+      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'hello' }] },
+      { fence: 1 }
+    )
+    feed.publish(SESSION, journal)
+    expect(feed.liveSessionSummaries().map((summary) => summary.sessionId)).toEqual([SESSION])
+
+    // Exactly what eviction's `forget-session` step does; nothing else touches the feed.
+    sessions.delete(SESSION)
+
+    expect(feed.liveSessionSummaries()).toEqual([])
+    const late: AgentSessionStatusEvent[] = []
+    feed.subscribe({ id: 'list-2', emit: (event) => late.push(event) })
+    expect(late).toEqual([
+      {
+        type: 'snapshot',
+        sessions: [expect.objectContaining({ sessionId: SESSION, status: 'idle' })]
+      }
+    ])
+  })
+})

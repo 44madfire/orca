@@ -76,13 +76,24 @@ export class StructuredAgentSessionStatusFeed {
   }
 
   /**
-   * Every summary this host has projected, for readers that poll instead of subscribing.
+   * Summaries for the sessions this host still holds, for readers that poll instead of subscribing.
+   *
+   * `published` never retracts, so it is a broadcast cache and not a roster: enumerating it lists
+   * every session ever opened here. A caller asking what is running gets the live intersection,
+   * while the retained view a subscriber opens on stays whole.
    *
    * Deliberately does NOT re-project: a subscriber's snapshot is the live read, and re-running the
    * journal reduction per caller would make an enumerating command pay for every session it lists.
    */
-  publishedSummaries(): AgentSessionStatusSummary[] {
-    return [...this.published.values()]
+  liveSessionSummaries(): AgentSessionStatusSummary[] {
+    const summaries: AgentSessionStatusSummary[] = []
+    for (const [sessionId] of this.deps.sessions) {
+      const summary = this.published.get(sessionId)
+      if (summary) {
+        summaries.push(summary)
+      }
+    }
+    return summaries
   }
 
   unsubscribe(id: string): void {
