@@ -11,6 +11,8 @@ function fixture(
     migrate?: () => Promise<void>
     adoptsOutright?: () => boolean
     onCutoverFailure?: (error: Error) => void
+    onDirectMigrated?: () => Promise<void>
+    hysteresis?: MobileEndpointHysteresis
   } = {}
 ) {
   const opened: FakeSession[] = []
@@ -27,12 +29,14 @@ function fixture(
       }
     },
     {
-      hysteresis: new MobileEndpointHysteresis(Date.now(), {
-        directSuccessesRequired: 1,
-        directObservationMs: 60_000,
-        failureCooldownMs: 0,
-        minimumDwellMs: 0
-      }),
+      hysteresis:
+        overrides.hysteresis ??
+        new MobileEndpointHysteresis(Date.now(), {
+          directSuccessesRequired: 1,
+          directObservationMs: 60_000,
+          failureCooldownMs: 0,
+          minimumDwellMs: 0
+        }),
       host: () => host,
       canSchedule: () => true,
       canDial: () => true,
@@ -41,7 +45,7 @@ function fixture(
       adoptsOutright: overrides.adoptsOutright ?? (() => false),
       beginOperation: () => {},
       migrate: overrides.migrate ?? (async () => {}),
-      onDirectMigrated: async () => {},
+      onDirectMigrated: overrides.onDirectMigrated ?? (async () => {}),
       afterProbe: () => {},
       onCutoverFailure: overrides.onCutoverFailure ?? ((error) => cutoverFailures.push(error))
     }
@@ -171,6 +175,58 @@ it('contains a reporter that throws, so the timer promise still settles cleanly'
     await vi.advanceTimersByTimeAsync(0)
     await vi.advanceTimersByTimeAsync(0)
 
+    expect(unhandled).not.toHaveBeenCalled()
+    probe.stop()
+  } finally {
+    process.off('unhandledRejection', unhandled)
+  }
+})
+
+it('books a direct failure on a genuine cutover failure, so the next tick honors the cooldown', async () => {
+  // Why: the success streak is credited before migrate runs. Without a booked failure the
+  // next probe re-dials, passes the streak instantly, and fails the same way every tick.
+  const hysteresis = new MobileEndpointHysteresis(Date.now(), {
+    directSuccessesRequired: 1,
+    directObservationMs: 0,
+    failureCooldownMs: 60_000,
+    minimumDwellMs: 0
+  })
+  const { opened, probe, cutoverFailures } = fixture({
+    hysteresis,
+    migrate: async () => {
+      throw new Error('direct session dropped before cutover')
+    }
+  })
+  probe.schedule(0)
+  await vi.advanceTimersByTimeAsync(0)
+  opened[0]!.publishState('connected')
+  await vi.advanceTimersByTimeAsync(0)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(cutoverFailures).toHaveLength(1)
+  expect(hysteresis.canProbe(Date.now())).toBe(false)
+
+  // The 15s tick sees the cooldown and does not dial again.
+  await vi.advanceTimersByTimeAsync(15_000)
+  expect(opened).toHaveLength(1)
+  probe.stop()
+})
+
+it('contains a post-migration bookkeeping failure instead of rejecting the timer promise', async () => {
+  const unhandled = vi.fn()
+  process.on('unhandledRejection', unhandled)
+  try {
+    const { opened, probe, cutoverFailures } = fixture({
+      adoptsOutright: () => true,
+      onDirectMigrated: async () => {
+        throw new Error('credential bookkeeping failed')
+      }
+    })
+    probe.schedule(0)
+    await vi.advanceTimersByTimeAsync(0)
+    opened[0]!.publishState('connected')
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(cutoverFailures.map((error) => error.message)).toEqual(['credential bookkeeping failed'])
     expect(unhandled).not.toHaveBeenCalled()
     probe.stop()
   } finally {

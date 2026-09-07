@@ -98,6 +98,14 @@ export class DirectReturnProbe {
     this.activeProbe?.abort()
   }
 
+  private reportCutoverFailure(error: unknown): void {
+    try {
+      this.hooks.onCutoverFailure(error instanceof Error ? error : new Error(String(error)))
+    } catch {
+      // The reporter is diagnostics; it must not turn into the rejection it exists to avoid.
+    }
+  }
+
   private async probe(): Promise<void> {
     if (this.stopped) {
       return
@@ -169,11 +177,10 @@ export class DirectReturnProbe {
         // caught: a genuine failure is reported to the supervisor's log instead,
         // and the finally reschedules the probe either way.
         if (!this.stopped && !abortCutover()) {
-          try {
-            this.hooks.onCutoverFailure(error instanceof Error ? error : new Error(String(error)))
-          } catch {
-            // The reporter is diagnostics; it must not turn into the rejection it exists to avoid.
-          }
+          // Why: the streak was already credited above, so without a booked failure the
+          // next tick re-dials, promotes on the spot, and fails the same way every 15s.
+          this.hooks.hysteresis.recordDirectFailure(this.deps.now())
+          this.reportCutoverFailure(error)
         }
         return
       }
@@ -181,7 +188,12 @@ export class DirectReturnProbe {
         return
       }
       this.hooks.hysteresis.recordMigration(this.deps.now())
-      await this.hooks.onDirectMigrated()
+      try {
+        await this.hooks.onDirectMigrated()
+      } catch (error) {
+        // The cutover already landed; post-migration bookkeeping must not reject the timer promise.
+        this.reportCutoverFailure(error)
+      }
     } finally {
       this.activeProbe = null
       successful?.client.close()
