@@ -9,6 +9,7 @@ import {
 import { tolerantMobileWebShellPayload } from '../../../../shared/mobile-web/shell-payload-tolerance'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
 import { MOBILE_NATIVE_CHAT_MAX_WINDOW, windowForClient } from './native-chat-rpc-message-sanitizer'
+import { clipMobileWebNativeChatToPageContract } from './mobile-web-native-chat-page-contract-clip'
 
 // The page parses the shell-relayed read with the tolerant rewrite, never the raw strict schema.
 const pageContract = tolerantMobileWebShellPayload(MobileWebNativeChatReadResultSchema)
@@ -16,6 +17,11 @@ const ESC = String.fromCharCode(27)
 
 function asPage(messages: unknown[]) {
   return pageContract.safeParse({ messages, hasMore: false })
+}
+
+function clipped(messages: unknown[]) {
+  const result = clipMobileWebNativeChatToPageContract({ messages, hasMore: false })
+  return (result as { messages: unknown[] }).messages
 }
 
 function sanitized(messages: unknown[]) {
@@ -115,30 +121,33 @@ describe('native chat sanitizer against the page contract', () => {
     expect(parsed.data?.messages).toHaveLength(MOBILE_WEB_NATIVE_CHAT_READ_LIMIT)
   })
 
-  // The three gaps below are unfixed: the sanitizer's mobile caps are the released native app's,
-  // and nothing between it and the page re-bounds them to the page contract.
-  it('gap: a text block over the page ceiling reaches the page as a dropped block', () => {
+  // The desktop adapters clip sanitizer output to the page contract before it leaves the host;
+  // these prove the raw sanitizer alone still needs that pass.
+  it('text over the page ceiling needs the page-contract clip', () => {
     const text = 'a'.repeat(MOBILE_WEB_NATIVE_CHAT_BLOCK_TEXT_MAX_CHARACTERS + 1)
-    const parsed = asPage(sanitized([message('turn-4', [{ type: 'text', text }])]))
+    const raw = asPage(sanitized([message('turn-4', [{ type: 'text', text }])]))
+    expect(raw.data?.messages[0]?.blocks).toEqual([])
 
-    expect(parsed.success).toBe(true)
-    expect(parsed.data?.messages[0]?.blocks).toEqual([])
+    const bounded = asPage(clipped(sanitized([message('turn-4', [{ type: 'text', text }])])))
+    expect(bounded.data?.messages[0]?.blocks[0]).toMatchObject({ type: 'text' })
   })
 
-  it('gap: a turn over the page block limit fails the whole read', () => {
+  it('a turn over the page block limit needs the page-contract clip', () => {
     const blocks = Array.from({ length: MOBILE_WEB_NATIVE_CHAT_MESSAGE_BLOCK_LIMIT + 1 }, () => ({
       type: 'text',
       text: 'hi'
     }))
-    const parsed = asPage(sanitized([message('turn-5', blocks)]))
-
-    expect(parsed.success).toBe(false)
+    expect(asPage(sanitized([message('turn-5', blocks)])).success).toBe(false)
+    expect(asPage(clipped(sanitized([message('turn-5', blocks)]))).success).toBe(true)
   })
 
-  it('gap: a message id over the page ceiling fails the whole read', () => {
+  it('a message id over the page ceiling needs the page-contract clip', () => {
     const id = 'x'.repeat(MOBILE_WEB_NATIVE_CHAT_MESSAGE_ID_MAX_CHARACTERS + 1)
-    const parsed = asPage(sanitized([message(id, [{ type: 'text', text: 'hi' }])]))
-
-    expect(parsed.success).toBe(false)
+    expect(asPage(sanitized([message(id, [{ type: 'text', text: 'hi' }])])).success).toBe(false)
+    const parsed = asPage(clipped(sanitized([message(id, [{ type: 'text', text: 'hi' }])])))
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.messages[0]?.id).toHaveLength(
+      MOBILE_WEB_NATIVE_CHAT_MESSAGE_ID_MAX_CHARACTERS
+    )
   })
 })
