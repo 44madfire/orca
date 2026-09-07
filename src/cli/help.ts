@@ -115,6 +115,9 @@ function formatCommandFlagHelp(flag: string, commandPath: string[]): string {
   if (command === 'orchestration worker-list' && flag === 'terminal-state') {
     return '--terminal-state <state> Terminal accounting filter: active, reclaimable, retained, release_pending, release_unknown, or released'
   }
+  if (command === 'skills get' && flag === 'full') {
+    return '--full                 Print the full guide with bundled references'
+  }
   if (command === 'orchestration worker-list' && flag === 'include-remote') {
     return '--include-remote      Include connected-server worker observations'
   }
@@ -182,6 +185,14 @@ function formatCommandFlagHelp(flag: string, commandPath: string[]): string {
 
 export function formatFlagHelp(flag: string): string {
   const helpByFlag: Record<string, string> = {
+    current: '--current              Use the current Orca worktree linked Linear issue',
+    comments: '--comments             Include threaded Linear comments',
+    children: '--children             Include recursive child issues',
+    depth: '--depth <n>            Child issue depth for --children/--full',
+    attachments: '--attachments          Include attachment metadata and URLs',
+    relations: '--relations            Include blocking, related, and duplicate links',
+    activity: '--activity             Include issue field-change history',
+    full: '--full                 Include all supported V1 issue context within caps',
     agent: '--agent <id>          Launch a known TUI agent in the first terminal',
     'base-branch': '--base-branch <ref>    Base branch/ref to create the worktree from',
     command: '--command <text>       Command to run in the terminal on startup',
@@ -286,31 +297,6 @@ export function formatFlagHelp(flag: string): string {
     'show-profile': '--show-profile        Include tab profile in text output',
     'no-ua-spoof': "--no-ua-spoof         Keep Electron's native user agent",
     format: '--format <png|jpeg>    Screenshot image format'
-  }
-
-  if (flag === 'current') {
-    return '--current              Use the current Orca worktree linked Linear issue'
-  }
-  if (flag === 'comments') {
-    return '--comments             Include threaded Linear comments'
-  }
-  if (flag === 'children') {
-    return '--children             Include recursive child issues'
-  }
-  if (flag === 'depth') {
-    return '--depth <n>            Child issue depth for --children/--full'
-  }
-  if (flag === 'attachments') {
-    return '--attachments          Include attachment metadata and URLs'
-  }
-  if (flag === 'relations') {
-    return '--relations            Include blocking, related, and duplicate links'
-  }
-  if (flag === 'activity') {
-    return '--activity             Include issue field-change history'
-  }
-  if (flag === 'full') {
-    return '--full                 Include all supported V1 issue context within caps'
   }
 
   return helpByFlag[flag] ?? `--${flag}`

@@ -42,6 +42,7 @@ export function VaultSessionRow({
   onJumpToWorktree,
   onResume,
   onContinueInNewSession,
+  onResumeInNewChat,
   resumeLabel,
   resumeActions,
   onResumeInWorktree,
@@ -70,6 +71,7 @@ export function VaultSessionRow({
   onJumpToWorktree?: () => void
   onResume: () => void
   onContinueInNewSession?: () => void
+  onResumeInNewChat?: () => void
   resumeLabel: string
   resumeActions: AiVaultSessionResumeActions
   onResumeInWorktree: () => void
@@ -178,6 +180,7 @@ export function VaultSessionRow({
               onJumpToWorktree={onJumpToWorktree}
               onResume={onResume}
               onContinueInNewSession={onContinueInNewSession}
+              onResumeInNewChat={onResumeInNewChat}
               onCopyResume={onCopyResume}
               onCopyId={onCopyId}
               onCopyPath={onCopyPath}
@@ -223,6 +226,7 @@ export function VaultSessionRow({
               onResumeInWorktree={onResumeInWorktree}
               onResumeInNewTab={onResumeInNewTab}
               onContinueInNewSession={onContinueInNewSession}
+              onResumeInNewChat={onResumeInNewChat}
               onOpenLog={onOpenLog}
             />
           ) : null}
@@ -238,6 +242,7 @@ export function VaultSessionRow({
           onJumpToWorktree={onJumpToWorktree}
           onResume={onResume}
           onContinueInNewSession={onContinueInNewSession}
+          onResumeInNewChat={onResumeInNewChat}
           onCopyResume={onCopyResume}
           onCopyId={onCopyId}
           onCopyPath={onCopyPath}

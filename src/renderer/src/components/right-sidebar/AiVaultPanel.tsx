@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import {
   useActiveRepo,
@@ -29,7 +28,11 @@ import {
   resolveAiVaultSessionResumeActions,
   resolveAiVaultSessionResumeState
 } from './ai-vault-session-resume'
-import { useAiVaultSessionLaunchActions } from './ai-vault-session-launch-actions'
+import {
+  useAiVaultSessionLaunchActions,
+  copyAiVaultSessionValue as copyText
+} from './ai-vault-session-launch-actions'
+import { useAiVaultSessionResumeInChat } from './ai-vault-session-resume-in-chat-workspace'
 import {
   useAiVaultSessionWorktreeMap,
   withAiVaultCurrentWorktreeStatus
@@ -70,7 +73,6 @@ export default function AiVaultPanel(): React.JSX.Element {
   )
   const settings = useAppStore((s) => s.settings)
   const runtimeEnvironments = useAppStore((s) => s.runtimeEnvironments)
-  const agentCmdOverrides = settings?.agentCmdOverrides
   const { getOriginalPaneTarget, getSessionLiveState, jumpToOriginalPane, jumpToWorktree } =
     useAiVaultOriginalPaneActions()
   const [query, setQuery] = useState('')
@@ -181,7 +183,7 @@ export default function AiVaultPanel(): React.JSX.Element {
     activeWorktree: activeWorktree ?? null,
     activeWorktreeId: effectiveActiveWorktreeId,
     targetState: resumeTargetState,
-    agentCmdOverrides
+    agentCmdOverrides: settings?.agentCmdOverrides
   })
   const viewAdjustmentCount = countAiVaultViewAdjustments({
     agents,
@@ -252,15 +254,6 @@ export default function AiVaultPanel(): React.JSX.Element {
     [filteredSessions, group, projectLabelByKey, sessionProjectById]
   )
 
-  const copyText = useCallback(async (text: string, label: string): Promise<void> => {
-    await window.api.ui.writeClipboardText(text)
-    toast.success(
-      translate('auto.components.right.sidebar.AiVaultPanel.valueCopied', '{{value0}} copied', {
-        value0: label
-      })
-    )
-  }, [])
-
   const getSessionResumeState = useCallback(
     (session: AiVaultSession) =>
       resolveAiVaultSessionResumeState({
@@ -288,6 +281,13 @@ export default function AiVaultPanel(): React.JSX.Element {
       }),
     [allWorktrees, effectiveActiveWorktreeId, getSessionWorktreeInfo, repos, resumeTargetState]
   )
+
+  const getSessionResumeInChat = useAiVaultSessionResumeInChat({
+    getResumeState: getSessionResumeState,
+    activeWorkspaceId: effectiveActiveWorktreeId,
+    targetState: resumeTargetState,
+    settings
+  })
 
   const handleScopeChange = useCallback((nextScope: AiVaultScope) => {
     preferredScopeRef.current = nextScope
@@ -385,7 +385,9 @@ export default function AiVaultPanel(): React.JSX.Element {
         onJumpToOriginalPane={jumpToOriginalPane}
         onJumpToWorktree={jumpToWorktree}
         onResume={launchActions.handleResume}
+        getSessionResumeInChat={getSessionResumeInChat}
         onContinueInNewSession={launchActions.handleContinueInNewSession}
+        onResumeInNewChat={launchActions.handleResumeInNewChat}
         onCopyResume={(session, worktreeId) =>
           void launchActions.copyResumeCommand(session, worktreeId)
         }

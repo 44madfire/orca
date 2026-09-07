@@ -63,7 +63,7 @@ export function configureAiVaultSessionSources(next: AiVaultSessionSources): voi
 export async function resolveAiVaultHostScanSources(): Promise<
   Pick<AiVaultWorkerScanOptions, 'additionalCodexSessionsDirs' | 'wslHomeDirs' | 'executionHostId'>
 > {
-  const configuredCodexHomes = sources.getAdditionalCodexHomePaths?.() ?? []
+  const configuredCodexHomes = configuredAdditionalCodexHomePaths()
   const [additionalCodexHomes, wslHomeDirs] = await Promise.all([
     filterPathsToRunningWslDistrosAsync(configuredCodexHomes),
     getAiVaultWslHomeDirs()
@@ -107,6 +107,12 @@ export async function configureAiVaultSearch(
       options.signal
     )) ?? null
   )
+}
+
+/** The extra Codex homes session discovery scans. Anything that decides what a listed row may be
+ *  resumed from must read the same set, or a row can be listed and then refuse to resume. */
+export function configuredAdditionalCodexHomePaths(): readonly string[] {
+  return sources.getAdditionalCodexHomePaths?.() ?? []
 }
 
 export async function listAiVaultSessions(
