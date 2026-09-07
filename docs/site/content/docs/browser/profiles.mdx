@@ -15,7 +15,15 @@ Browser-use profiles let you run the Orca browser with a specific identity — a
 
 Import cookies from Chrome or Edge (or from a cookie file) into a profile from Settings or the browser toolbar. Orca replaces existing cookies only for domains included in the import, so sign-ins for unrelated sites in the same profile stay intact. Google cookies are excluded — import menus show **Google logins aren't imported** and tell you to **Sign in to Google directly in Orca.** After an import that skipped Google cookies, a separate warning names the host that ran the import: open a browser in Orca on that host with the same profile, then sign in.
 
-When a site requests a discoverable passkey from a USB security key and the key offers multiple accounts, Orca opens an account picker instead of silently canceling the sign-in. Choose the account you want or cancel the request. Platform passkeys stored by the operating system are not available in Orca yet; this flow is for external FIDO security keys.
+## Passkeys
+
+Sites can sign you in with a passkey inside Orca's browser. What is available depends on the platform:
+
+- **macOS**: signed Orca builds offer a Touch ID passkey authenticator. When a site asks you to register a passkey, macOS shows the Touch ID sheet and stores the passkey in this Mac's Secure Enclave, scoped to the browser profile that created it. These passkeys are device-bound: they do not sync through iCloud Keychain, and passkeys you already keep in iCloud Keychain, Safari, or a password manager are not offered to sites in Orca. Register a new passkey for the site in Orca when it offers to, or use the site's other sign-in method.
+- **Windows**: Windows handles passkey requests natively, so Windows Hello, security keys, and a phone via QR code all work as they do in other browsers.
+- **Linux**: USB security keys only.
+
+USB security keys work on every platform. When a security key or Touch ID offers more than one account for a site, Orca opens an account picker instead of silently canceling the sign-in. Choose the account you want or cancel the request.
 
 ## Use a profile
 

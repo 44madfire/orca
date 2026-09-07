@@ -20,6 +20,7 @@ const {
 const { verifySkillsCliRuntime } = require('./scripts/verify-skills-cli-runtime.cjs')
 const { verifyStaticAppImagePackage } = require('./scripts/static-appimage-package-contract.cjs')
 const { signWindowsUninstallerViaSignPath } = require('./scripts/windows-uninstaller-signing.cjs')
+const { resolveMacWebAuthnSigning } = require('./scripts/mac-webauthn-signing.cjs')
 
 // Why: dev-channel builds must carry the *release* identity — same bundle id,
 // Developer ID signature, and notarization ticket — or Squirrel.Mac refuses to
@@ -64,6 +65,15 @@ const devChannelRepo = isHourlyChannel
       ? 'orca-adhoc'
       : null
 const appId = 'com.stablyai.orca'
+const MAC_BASE_ENTITLEMENTS = 'resources/build/entitlements.mac.plist'
+// Why: the Touch ID passkey authenticator needs a restricted keychain entitlement that
+// only a provisioning profile can authorise; see scripts/mac-webauthn-signing.cjs.
+const macWebAuthnSigning = resolveMacWebAuthnSigning({
+  repoRoot: resolve(__dirname, '..'),
+  isMacRelease,
+  appId,
+  baseEntitlementsPath: MAC_BASE_ENTITLEMENTS
+})
 const featureWallResources = {
   from: 'resources/onboarding/feature-wall',
   to: 'onboarding/feature-wall'
@@ -460,8 +470,9 @@ module.exports = {
       rank: 'Alternate'
     })),
     icon: 'resources/build/icon.icns',
-    entitlements: 'resources/build/entitlements.mac.plist',
-    entitlementsInherit: 'resources/build/entitlements.mac.plist',
+    entitlements: macWebAuthnSigning?.entitlements ?? MAC_BASE_ENTITLEMENTS,
+    entitlementsInherit: MAC_BASE_ENTITLEMENTS,
+    ...(macWebAuthnSigning ? { provisioningProfile: macWebAuthnSigning.provisioningProfile } : {}),
     extendInfo: {
       NSAppleEventsUsageDescription:
         'Orca allows terminal-launched developer tools to automate local apps when you request it.',

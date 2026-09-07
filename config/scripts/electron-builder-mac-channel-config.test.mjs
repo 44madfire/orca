@@ -150,3 +150,73 @@ describe('electron-builder mac channel config', () => {
     })
   })
 })
+
+describe('electron-builder mac passkey signing', () => {
+  const PROFILE_ENV = ['ORCA_MAC_PROVISIONING_PROFILE', 'APPLE_TEAM_ID']
+
+  function withProfileEnv(env, assert) {
+    const original = Object.fromEntries(PROFILE_ENV.map((key) => [key, process.env[key]]))
+    try {
+      for (const key of PROFILE_ENV) {
+        delete process.env[key]
+      }
+      withEnv(env, assert)
+    } finally {
+      for (const [key, value] of Object.entries(original)) {
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
+      }
+    }
+  }
+
+  // Why: keychain-access-groups is a restricted entitlement, and a binary that claims
+  // it without an embedded profile is killed at launch. No profile means no claim.
+  it('keeps the plain entitlements when no provisioning profile is supplied', () => {
+    withProfileEnv({ ORCA_MAC_RELEASE: '1', APPLE_TEAM_ID: 'ABCDE12345' }, (config) => {
+      expect(config.mac.entitlements).toBe('resources/build/entitlements.mac.plist')
+      expect(config.mac.provisioningProfile).toBeUndefined()
+    })
+  })
+
+  it('signs release builds with the webauthn keychain group and embeds the profile', async () => {
+    const { mkdtemp, readFile, writeFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = await mkdtemp(join(tmpdir(), 'orca-profile-'))
+    const profile = join(dir, 'orca.provisionprofile')
+    await writeFile(profile, 'profile')
+    let rendered
+    withProfileEnv(
+      {
+        ORCA_MAC_RELEASE: '1',
+        APPLE_TEAM_ID: 'ABCDE12345',
+        ORCA_MAC_PROVISIONING_PROFILE: profile
+      },
+      (config) => {
+        expect(config.mac.provisioningProfile).toBe(profile)
+        expect(config.mac.entitlementsInherit).toBe('resources/build/entitlements.mac.plist')
+        rendered = config.mac.entitlements
+      }
+    )
+    expect(await readFile(rendered, 'utf8')).toContain('ABCDE12345.com.stablyai.orca.webauthn')
+  })
+
+  it('never claims the keychain group on local builds', async () => {
+    const { mkdtemp, writeFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = await mkdtemp(join(tmpdir(), 'orca-profile-'))
+    const profile = join(dir, 'orca.provisionprofile')
+    await writeFile(profile, 'profile')
+    withProfileEnv(
+      { APPLE_TEAM_ID: 'ABCDE12345', ORCA_MAC_PROVISIONING_PROFILE: profile },
+      (config) => {
+        expect(config.mac.entitlements).toBe('resources/build/entitlements.mac.plist')
+        expect(config.mac.provisioningProfile).toBeUndefined()
+      }
+    )
+  })
+})
