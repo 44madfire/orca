@@ -1,12 +1,6 @@
-// Adopting a history row imports its transcript into the new session's journal.
-//
-// The import runs AFTER the provider is acquired, because for a create there is no earlier moment
-// — the journal does not exist until the child does. That ordering is what makes the failure cases
-// here load-bearing: by then the provider has already resumed and holds the conversation in
-// context, so an attach that succeeds with an empty journal would show the user a blank chat beside
-// an agent that can already answer from history.
+// Source validation must finish before a new session claims the provider conversation.
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, truncate } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -18,7 +12,9 @@ import {
   type AgentSessionAttachParams
 } from './structured-agent-session-attach'
 import { performAttach, type AttachFlowInput } from './structured-agent-session-attach-flow'
+import { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import { agentSessionJournalCloseRetries } from '../agent-session-journal/journal-close-retry'
+import * as legacyImport from '../agent-session-journal/journal-legacy-import'
 
 const NOW = 1_800_000_000_000
 const SESSION = 'codex_adopting_session'
@@ -181,51 +177,74 @@ describe('adopting a provider conversation on create', () => {
     expect(sessionAdapter.acquire).toHaveBeenCalledTimes(1)
   })
 
-  it('fails the attach when the adopted transcript cannot be read', async () => {
-    root = await mkdtemp(join(tmpdir(), 'orca-adopt-missing-'))
-    const sessionAdapter = adapter()
+  it.each(['missing', 'oversized', 'empty', 'invalid', 'source-less'] as const)(
+    'refuses %s source before claiming a conversation',
+    async (kind) => {
+      root = await mkdtemp(join(tmpdir(), 'orca-adopt-preflight-'))
+      const transcriptPath = join(root, 'rollout.jsonl')
+      if (kind === 'oversized') {
+        await writeCodexRollout(transcriptPath, 'original turn')
+        await truncate(transcriptPath, 16 * 1024 * 1024 + 1)
+      } else if (kind === 'empty' || kind === 'invalid') {
+        await writeFile(transcriptPath, kind === 'empty' ? '' : 'not json\n')
+      }
+      const sessionAdapter = adapter()
+      const onAttached = vi.fn()
+      const result = await attach(
+        kind === 'source-less' ? undefined : transcriptPath,
+        sessionAdapter,
+        onAttached
+      )
+      expect(result).toMatchObject({
+        ok: false,
+        refusal: { code: 'agent_session_identity_required' }
+      })
+      expect(sessionAdapter.acquire).not.toHaveBeenCalled()
+      expect(sessionAdapter.releaseAcquisition).not.toHaveBeenCalled()
+      expect(onAttached).not.toHaveBeenCalled()
+      expect(store?.getRecord(SESSION)).toBeNull()
+      expect(store?.listOperationRows()).toEqual([])
+      if (kind === 'oversized') {
+        expect(JSON.stringify(result)).toContain('import bound')
+      }
+    }
+  )
+
+  it('still releases acquisition and closes the provisional journal on an import write failure', async () => {
+    root = await mkdtemp(join(tmpdir(), 'orca-adopt-write-failure-'))
+    const transcriptPath = join(root, 'rollout.jsonl')
+    await writeCodexRollout(transcriptPath, 'valid source')
+    vi.spyOn(AgentSessionJournal.prototype, 'replaceEpochItems').mockRejectedValueOnce(
+      new Error('disk write failed')
+    )
     const close = vi.spyOn(agentSessionJournalCloseRetries, 'closeOrRetain')
-
-    // A post-acquisition failure throws rather than answering a refusal — the same path a journal
-    // failure already takes — so the caller learns the outcome is unknown, not that nothing ran.
-    await expect(attach(join(root, 'does-not-exist.jsonl'), sessionAdapter)).rejects.toThrow(
-      /ENOENT|no such file/
-    )
-    // The provider had already resumed, so its acquisition is released rather than left holding a
-    // conversation no surface will ever show.
-    expect(sessionAdapter.releaseAcquisition).toHaveBeenCalled()
+    const sessionAdapter = adapter()
+    await expect(attach(transcriptPath, sessionAdapter)).rejects.toThrow('disk write failed')
+    expect(sessionAdapter.acquire).toHaveBeenCalledTimes(1)
+    expect(sessionAdapter.releaseAcquisition).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(1)
-    close.mockRestore()
   })
 
-  it('refuses a source-less replay identity when the journal was never imported', async () => {
-    root = await mkdtemp(join(tmpdir(), 'orca-adopt-unimported-replay-'))
+  it('prepares a valid source once before acquisition and imports those exact items', async () => {
+    root = await mkdtemp(join(tmpdir(), 'orca-adopt-once-'))
+    const transcriptPath = join(root, 'rollout.jsonl')
+    await writeCodexRollout(transcriptPath, 'prepared before acquiring')
+    const prepare = vi.spyOn(legacyImport, 'prepareLegacyTranscriptImport')
     const sessionAdapter = adapter()
-
-    await expect(attach(undefined, sessionAdapter)).rejects.toThrow(
-      'agent_session_identity_required'
+    const acquire = sessionAdapter.acquire
+    sessionAdapter.acquire = vi.fn(async (input) => {
+      expect(prepare).toHaveBeenCalledTimes(1)
+      await rm(transcriptPath)
+      return acquire(input)
+    })
+    const result = await attach(transcriptPath, sessionAdapter, async ({ journal }) =>
+      journal.close()
     )
-    expect(sessionAdapter.releaseAcquisition).toHaveBeenCalled()
-  })
-
-  it('fails the attach when the adopted transcript decodes to no messages', async () => {
-    root = await mkdtemp(join(tmpdir(), 'orca-adopt-empty-'))
-    const transcriptPath = join(root, 'empty.jsonl')
-    // Well-formed but conversation-free: the row promised turns and the provider resumed them, so
-    // an empty journal here is a disagreement, not an empty chat.
-    await writeFile(
-      transcriptPath,
-      `${JSON.stringify({
-        type: 'session_meta',
-        payload: { id: THREAD, timestamp: '2026-09-06T18:00:00.000Z', cwd: '/workspace' }
-      })}\n`,
-      'utf8'
-    )
-    const sessionAdapter = adapter()
-
-    await expect(attach(transcriptPath, sessionAdapter)).rejects.toThrow(
-      'agent_session_identity_required'
-    )
-    expect(sessionAdapter.releaseAcquisition).toHaveBeenCalled()
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      throw new Error('attach failed')
+    }
+    expect(JSON.stringify(result.value.page.items)).toContain('prepared before acquiring')
+    expect(prepare).toHaveBeenCalledTimes(1)
   })
 })

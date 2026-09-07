@@ -36,8 +36,10 @@ import type { StructuredAgentSessionEventSink } from './structured-agent-session
 import { readNativeSessionOptions } from './structured-agent-session-option-restoration'
 import { resolveAgentSessionReplayOutcome } from './structured-agent-session-replay-outcome'
 import { readAgentSessionHydrationPage } from './agent-session-history-page'
-import { agentSessionJournalCloseRetries } from '../agent-session-journal/journal-close-retry'
-import { importAdoptedTranscript } from './structured-agent-session-adopted-import'
+import {
+  importAdoptedTranscript,
+  prepareAdoptedTranscript
+} from './structured-agent-session-adopted-import'
 
 export type AttachFlowInput = {
   store: AgentSessionRecordStore
@@ -80,6 +82,12 @@ export async function performAttach(
   let acquisitionGeneration: string | null = null
   let reservedRecord: AgentSessionRecord | null = null
   let replayed = false
+  const preparedTranscript = store.getRecord(sessionId)
+    ? { ok: true as const, items: null }
+    : await prepareAdoptedTranscript(params)
+  if (!preparedTranscript.ok) {
+    return preparedTranscript
+  }
   try {
     const reserved = await store.reserveOwner(
       reserveRequestFor({
@@ -183,13 +191,7 @@ export async function performAttach(
       journalRoot: input.journalRoot,
       adapter: input.adapter
     })
-    try {
-      await importAdoptedTranscript(params, attached, record)
-    } catch (error) {
-      // Publication has not taken ownership of this provisional journal yet.
-      await agentSessionJournalCloseRetries.closeOrRetain(attached.journal)
-      throw error
-    }
+    await importAdoptedTranscript(params, attached, record, preparedTranscript.items)
     await input.onAttached(attached, acquisitionGeneration)
     await store.recordOperationOutcome({
       callerKey: input.callerKey,
