@@ -12,6 +12,11 @@ import {
   codexSubagentGroupId
 } from './codex-subagent-roster'
 import type { CodexThreadItem } from './codex-structured-item-translation'
+import {
+  MAX_CODEX_SUBAGENT_GROUPS,
+  MAX_CODEX_SUBAGENTS_PER_GROUP,
+  MAX_CODEX_TOKEN_USAGE_THREADS
+} from './codex-structured-journal-limits'
 
 const THREAD = 'thread-parent'
 const TURN = 'turn-1'
@@ -51,6 +56,10 @@ function createHarness(options: { threadId?: string | null } = {}): {
     return block ? block.agents : []
   }
   return { roster, appended, agents, latest: () => appended.at(-1) }
+}
+
+function latestIdentity(appended: Appended[]): AgentJournalItemIdentity | undefined {
+  return appended.at(-1)?.identity
 }
 
 function activity(input: {
@@ -458,6 +467,112 @@ describe('CodexSubagentRoster', () => {
 
     expect(appended).toHaveLength(beforeParentUsage)
     expect(agents()).toHaveLength(1)
+    expect(agents()[0]).not.toHaveProperty('tokens')
+  })
+
+  it('bounds the provider strings the roster row carries into the journal', () => {
+    const { roster, agents, latest } = createHarness()
+    const oversized = 'a'.repeat(20 * 1024)
+
+    deliver(
+      roster,
+      activity({ kind: 'started', agentThreadId: oversized, agentPath: `/root/${oversized}` })
+    )
+
+    const entry = agents()[0]
+    expect(entry?.label).toContain('output truncated')
+    expect(entry?.label.length).toBeLessThan(oversized.length)
+    expect(entry?.id).toContain('output truncated')
+    expect(entry?.id.length).toBeLessThan(oversized.length)
+    expect(isAdmissibleAgentJournalItemBody(latest()?.body)).toBe(true)
+  })
+
+  it('caps the children one spawn group admits', () => {
+    const { roster, agents, appended } = createHarness()
+    for (let index = 0; index < MAX_CODEX_SUBAGENTS_PER_GROUP; index++) {
+      deliver(
+        roster,
+        activity({ kind: 'started', agentThreadId: `child-${index}`, agentPath: '/root/read' })
+      )
+    }
+    const atCap = appended.length
+
+    deliver(
+      roster,
+      activity({ kind: 'started', agentThreadId: 'child-over-cap', agentPath: '/root/read' })
+    )
+
+    expect(agents()).toHaveLength(MAX_CODEX_SUBAGENTS_PER_GROUP)
+    expect(agents().map((agent) => agent.id)).not.toContain('child-over-cap')
+    // Refusing the child must not burn a revision either.
+    expect(appended).toHaveLength(atCap)
+  })
+
+  // The eviction is the KNOWN LIMITATION the module documents: `groups` is never
+  // seeded from the journal, so the evicted group's next child rebuilds its
+  // durable row from that one child. Pinned so the boundary cannot move silently.
+  it('caps live spawn groups, and an evicted group rebuilds its row from one child', () => {
+    const { roster, appended, agents } = createHarness()
+    for (let index = 0; index <= MAX_CODEX_SUBAGENT_GROUPS; index++) {
+      deliver(
+        roster,
+        activity({ kind: 'started', agentThreadId: `child-${index}`, agentPath: '/root/read' }),
+        `turn-${index}`
+      )
+    }
+    const evicted = codexSubagentGroupIdentity(codexSubagentGroupId(THREAD, 'turn-0'))
+    const rowsFor = (identity: AgentJournalItemIdentity): Appended[] =>
+      appended.filter((entry) => JSON.stringify(entry.identity) === JSON.stringify(identity))
+    expect(rowsFor(evicted)).toHaveLength(1)
+
+    deliver(
+      roster,
+      activity({ kind: 'started', agentThreadId: 'child-late', agentPath: '/root/search' }),
+      'turn-0'
+    )
+
+    expect(latestIdentity(appended)).toEqual(evicted)
+    expect(agents().map((agent) => agent.id)).toEqual(['child-late'])
+  })
+
+  it('keeps a token count a later thread-map eviction would otherwise retract', () => {
+    const { roster, agents } = createHarness()
+    deliver(
+      roster,
+      activity({ kind: 'started', agentThreadId: 'child-1', agentPath: '/root/read' })
+    )
+    roster.handleTokenUsage({ threadId: 'child-1', tokenUsage: { total: { totalTokens: 4242 } } })
+    expect(agents()).toMatchObject([{ tokens: 4242 }])
+
+    for (let index = 0; index < MAX_CODEX_TOKEN_USAGE_THREADS; index++) {
+      roster.handleTokenUsage({
+        threadId: `other-${index}`,
+        tokenUsage: { total: { totalTokens: index } }
+      })
+    }
+    deliver(
+      roster,
+      activity({ kind: 'completed', agentThreadId: 'child-1', agentPath: '/root/read' })
+    )
+
+    expect(agents()).toMatchObject([{ state: 'completed', tokens: 4242 }])
+  })
+
+  it('caps retained usage threads, so a frame evicted before its child is dropped', () => {
+    const { roster, agents } = createHarness()
+    roster.handleTokenUsage({ threadId: 'child-1', tokenUsage: { total: { totalTokens: 900 } } })
+    for (let index = 0; index < MAX_CODEX_TOKEN_USAGE_THREADS; index++) {
+      roster.handleTokenUsage({
+        threadId: `other-${index}`,
+        tokenUsage: { total: { totalTokens: index } }
+      })
+    }
+
+    deliver(
+      roster,
+      activity({ kind: 'started', agentThreadId: 'child-1', agentPath: '/root/read' })
+    )
+
     expect(agents()[0]).not.toHaveProperty('tokens')
   })
 

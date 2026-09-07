@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto'
-import type { NativeChatBlock, NativeChatMessage } from '../../../shared/native-chat-types'
+import { normalizeSubagentState } from '../../../shared/native-chat-subagent-summary'
+import type {
+  NativeChatBlock,
+  NativeChatMessage,
+  NativeChatSubagentState
+} from '../../../shared/native-chat-types'
 
 export const DEFAULT_WORKER_TRANSCRIPT_MESSAGE_LIMIT = 40
 export const MAX_WORKER_TRANSCRIPT_MESSAGE_LIMIT = 50
@@ -7,6 +12,9 @@ const MAX_WORKER_TRANSCRIPT_BLOCKS = 6
 const MAX_WORKER_TRANSCRIPT_BLOCK_CHARS = 1_200
 const MAX_WORKER_TRANSCRIPT_INPUT_ITEMS = 20
 const MAX_WORKER_TRANSCRIPT_INPUT_NODES = 100
+// The producer's per-group cap does not reach this boundary: the journal schema
+// declares no maximum, and a remote host may run a build with a different one.
+const MAX_WORKER_TRANSCRIPT_SUBAGENTS = 20
 const MAX_WORKER_TRANSCRIPT_RESPONSE_BYTES = 512 * 1024
 const TRUNCATION_MARKER = '\n… (truncated)'
 const DISPATCH_CAPABILITY_PATTERN = /\bdcap_[A-Za-z0-9_-]{20,}\b/g
@@ -129,15 +137,20 @@ function boundBlock(block: NativeChatBlock, state: TranscriptBoundState): Native
     }
   }
   if (block.type === 'subagent-group') {
-    // Labels come from provider-supplied agent paths, so they get the same
-    // redaction and clipping every other piece of transcript metadata gets.
+    const agents = block.agents.slice(0, MAX_WORKER_TRANSCRIPT_SUBAGENTS)
+    if (agents.length < block.agents.length) {
+      markClipped(state, 'Some subagents were omitted from oversized spawn groups.')
+    }
+    // Labels, ids and states come from provider-supplied strings, so they get the
+    // same redaction and clipping every other piece of transcript metadata gets.
     return {
       ...block,
       groupId: clipMetadata(block.groupId, state),
-      agents: block.agents.map((agent) => ({
+      agents: agents.map((agent) => ({
         ...agent,
         id: clipMetadata(agent.id, state),
-        label: clipMetadata(agent.label, state)
+        label: clipMetadata(agent.label, state),
+        state: clipSubagentState(agent.state, state)
       }))
     }
   }
@@ -183,6 +196,17 @@ function clipMetadata(value: string, state: TranscriptBoundState): string {
   }
   markClipped(state, 'Oversized transcript metadata was clipped.')
   return redacted.slice(0, 512)
+}
+
+/** `state` is an open string on the wire, so it takes the same bound. A value
+ *  that had to be redacted or clipped names no state any build knows, which is
+ *  exactly what `unverifiable` records. */
+function clipSubagentState(
+  value: NativeChatSubagentState,
+  state: TranscriptBoundState
+): NativeChatSubagentState {
+  const clipped = clipMetadata(value, state)
+  return clipped === value ? value : normalizeSubagentState(clipped)
 }
 
 function clipText(value: string, state: TranscriptBoundState): string {

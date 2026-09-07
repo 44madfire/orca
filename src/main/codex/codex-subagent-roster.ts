@@ -28,6 +28,10 @@ import {
   subagentGroupFallbackText
 } from '../../shared/native-chat-subagent-summary'
 import type { NativeChatSubagentEntry } from '../../shared/native-chat-types'
+import {
+  boundInlineText,
+  DEFAULT_JOURNAL_PAYLOAD_LIMITS
+} from '../native-chat/agent-session-journal/journal-payload-bounds'
 import type {
   StructuredAgentSessionEventSink,
   StructuredAgentSessionSinkAdmission
@@ -263,9 +267,16 @@ export class CodexSubagentRoster {
   }
 
   private write(group: RosterGroup): StructuredAgentSessionSinkAdmission {
-    const agents = [...group.entries.values()].map((entry) => {
-      const tokens = this.tokensByThread.get(entry.id)
-      return typeof tokens === 'number' ? { ...entry, tokens } : entry
+    const agents = [...group.entries].map(([id, entry]) => {
+      const tokens = this.tokensByThread.get(id)
+      if (typeof tokens !== 'number' || tokens === entry.tokens) {
+        return entry
+      }
+      // Persisted, not merely read: the thread map is LRU-capped, and reading it
+      // afresh each write would retract a count this row has already shown.
+      const merged = { ...entry, tokens }
+      group.entries.set(id, merged)
+      return merged
     })
     const body = codexSubagentGroupBody(group.groupId, agents)
     const serialized = JSON.stringify(body)
@@ -307,12 +318,23 @@ export function codexSubagentGroupBody(
   groupId: string,
   agents: readonly NativeChatSubagentEntry[]
 ): AgentJournalItemBody {
+  const bounded = agents.map((agent) => ({
+    ...agent,
+    id: boundSubagentField(agent.id),
+    label: boundSubagentField(agent.label)
+  }))
   return {
     kind: 'message',
     role: 'system',
     blocks: [
-      { type: 'text', text: subagentGroupFallbackText(agents) },
-      { type: 'subagent-group', groupId, agents: [...agents] }
+      { type: 'text', text: subagentGroupFallbackText(bounded) },
+      { type: 'subagent-group', groupId, agents: bounded }
     ]
   }
+}
+
+/** `id` and `label` are provider strings, so they take the same inline bound
+ *  every other piece of journal-bound text takes before it reaches a row. */
+function boundSubagentField(value: string): string {
+  return boundInlineText(value, DEFAULT_JOURNAL_PAYLOAD_LIMITS).text
 }
