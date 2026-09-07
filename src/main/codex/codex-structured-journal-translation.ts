@@ -285,12 +285,12 @@ export function createCodexJournalTranslator(
     if (!turnId) {
       return CODEX_JOURNAL_ADMITTED
     }
-    // The turn is over however it ended (completion, failure, or abort), so a
-    // child still reported as working will never be settled by an event.
-    const sweep = subagents.settleTurn(event.threadId, turnId)
-    if (!sweep.accepted) {
-      return sweep
-    }
+    // The roster is deliberately NOT swept here. `spawn_agent` children outlive
+    // the turn that spawned them and go on reporting into the same group, so a
+    // turn boundary is no evidence contact was lost — and `turn/completed` is
+    // the only turn-end notification Codex sends, so an abort cannot be told
+    // apart from a clean finish either. Only `settleSession` may write
+    // `unverifiable`.
     const admission = settleCodexJournalTurn({
       sink: deps.sink,
       sessionId: event.sessionId,

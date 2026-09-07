@@ -52,9 +52,9 @@ export function readCodexSubagentActivity(item: CodexThreadItem): CodexSubagentA
  * The state a `kind` implies for the child it names.
  *
  * An unrecognized kind means "this child exists and reported something we
- * cannot classify" — `working`, which the turn-end sweep will later settle to
- * `unverifiable`. Claiming a terminal state from an unknown kind would assert
- * an outcome the wire never gave us.
+ * cannot classify" — `working`, which the session sweep will later settle to
+ * `unverifiable` if nothing better ever arrives. Claiming a terminal state from
+ * an unknown kind would assert an outcome the wire never gave us.
  */
 export function codexSubagentStateForKind(kind: string): NativeChatSubagentState {
   if (kind === 'completed') {

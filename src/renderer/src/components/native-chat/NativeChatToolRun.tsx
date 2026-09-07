@@ -216,13 +216,7 @@ export function NativeChatToolRun({
   // deciding the row is worth mounting cannot disagree about what draws.
   const subagentRows = subagentGroups
     .filter(isRenderableSubagentGroup)
-    .map((group) => (
-      <NativeChatSubagentRun
-        key={group.groupId}
-        block={group}
-        activeTurnIsWorking={activeTurnIsWorking}
-      />
-    ))
+    .map((group) => <NativeChatSubagentRun key={group.groupId} block={group} />)
   const callCount = countToolCalls(blocks) || blocks.length
   const summary = summarizeToolRun(blocks)
   const latestActiveCall = structuredActivityUi

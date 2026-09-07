@@ -71,9 +71,9 @@ const LATCHED_SUBAGENT_STATES: ReadonlySet<string> = new Set([
 /** Whether `next` may replace `current`.
  *
  *  A child that reported its own outcome keeps it. A child we merely lost sight
- *  of may still settle: a turn-end sweep marks live children `unverifiable`, and
- *  a subagent that outlives its turn reports `completed` afterwards — latching
- *  the sweep would report a child that finished as one we never saw finish.
+ *  of may still settle: the session sweep marks live children `unverifiable`,
+ *  and contact can return before the row is read — latching the sweep would
+ *  report a child that finished as one we never saw finish.
  *  The reverse is refused: nothing returns to `working` once we have given up on
  *  it, so a straggler progress tick cannot re-light a settled row. */
 export function canReplaceSubagentState(current: string, next: string): boolean {
@@ -179,8 +179,8 @@ export function subagentGroupBlocks(
  *  cannot re-check the children — so a frozen `N working` would go on asserting
  *  a liveness only the dead process could have observed. That is the collapse
  *  `docs/reference/ssh-execution-boundary.md` forbids: loss of contact is not
- *  evidence of a live state. Liveness stays with the structured block, whose
- *  reader can settle a stale `working` to `unverifiable`.
+ *  evidence of a live state. Liveness stays with the structured block, which the
+ *  writing host revises in place for as long as it can see the children.
  *
  *  `Kicked off` vs `Ran` is kept, and is not a liveness claim: it reports
  *  whether an outcome had been recorded when the row was written. Saying `Ran`

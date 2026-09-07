@@ -300,7 +300,7 @@ describe('CodexSubagentRoster', () => {
     expect(agents()).toMatchObject([{ state: 'completed' }])
   })
 
-  it('rule 4 — the turn-end sweep settles a lost child as unverifiable, not exited', () => {
+  it('rule 4 — the session sweep settles a lost child as unverifiable, not exited', () => {
     const { roster, agents } = createHarness()
 
     deliver(
@@ -311,7 +311,7 @@ describe('CodexSubagentRoster', () => {
       roster,
       activity({ kind: 'completed', agentThreadId: 'child-2', agentPath: '/root/search' })
     )
-    roster.settleTurn(THREAD, TURN)
+    roster.settleSession()
 
     expect(agents()).toMatchObject([
       { id: 'child-1', state: 'unverifiable' },
@@ -319,18 +319,19 @@ describe('CodexSubagentRoster', () => {
     ])
   })
 
-  it('lets a child swept at turn end still report what it actually did', () => {
+  it('lets a swept child still report what it actually did', () => {
     const { roster, agents } = createHarness()
 
     deliver(
       roster,
       activity({ kind: 'started', agentThreadId: 'child-1', agentPath: '/root/read' })
     )
-    roster.settleTurn(THREAD, TURN)
+    roster.settleSession()
     expect(agents()[0]?.state).toBe('unverifiable')
 
-    // A subagent that outlives its turn settles afterwards. Latching the sweep
-    // would report a child that finished as one we never saw finish.
+    // Contact can return — a reconnected provider replays the child's own
+    // verdict. Latching the sweep would report a child that finished as one we
+    // never saw finish.
     deliver(
       roster,
       activity({ kind: 'completed', agentThreadId: 'child-1', agentPath: '/root/read' })
@@ -345,7 +346,7 @@ describe('CodexSubagentRoster', () => {
       roster,
       activity({ kind: 'started', agentThreadId: 'child-1', agentPath: '/root/read' })
     )
-    roster.settleTurn(THREAD, TURN)
+    roster.settleSession()
     // A straggler progress tick after we gave up must not re-light the row.
     deliver(
       roster,
@@ -731,12 +732,12 @@ describe('CodexSubagentRoster', () => {
     const publishedBeforeSweep = published.length
 
     refusing = true
-    expect(roster.settleTurn(THREAD, TURN)).toEqual({ accepted: false, reason: 'backpressure' })
+    expect(roster.settleSession()).toEqual({ accepted: false, reason: 'backpressure' })
 
     // The retry sweep flips no state — every child already latched — so only a
     // cleared suppression state can carry the unverifiable roster out.
     refusing = false
-    expect(roster.settleTurn(THREAD, TURN)).toEqual({ accepted: true })
+    expect(roster.settleSession()).toEqual({ accepted: true })
     expect(published.length).toBe(publishedBeforeSweep + 1)
     const body = appended.at(-1)?.body
     expect(body?.kind === 'message' ? body.blocks.filter(isSubagentGroupBlock) : []).toMatchObject([

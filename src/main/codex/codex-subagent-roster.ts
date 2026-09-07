@@ -136,7 +136,8 @@ export class CodexSubagentRoster {
       // A child's own verdict latches. Re-applying the same non-terminal state
       // is a no-op, which is what makes the duplicate `item/started` +
       // `item/completed` delivery idempotent. `unverifiable` does not latch: a
-      // child swept at turn end can still report what it actually did.
+      // child swept when contact was lost can still report what it actually did
+      // if contact returns.
       group.entries.set(activity.agentThreadId, {
         ...existing,
         state,
@@ -178,21 +179,13 @@ export class CodexSubagentRoster {
   }
 
   /**
-   * The parent turn ended. Any child still reported as working will never be
-   * settled by an event — Codex sends nothing more for it — so it becomes
-   * `unverifiable`: contact was lost, which is NOT evidence the child exited.
+   * The provider is gone, so any child still reported as working will never be
+   * settled by an event: it becomes `unverifiable` — contact was lost, which is
+   * NOT evidence the child exited.
    *
-   * Keyed on the RAW `turnId`, unlike `groupFor`, which remaps off-primary
-   * activity onto the primary's active turn. A child thread ending its own turn
-   * must not sweep the parent group and settle its still-working siblings, so
-   * that lookup missing is the intended no-op.
+   * This is the ONLY sweep. A turn ending is not one: `spawn_agent` children
+   * routinely outlive their turn and keep reporting into the same group.
    */
-  settleTurn(threadId: string, turnId: string | null): StructuredAgentSessionSinkAdmission {
-    const ownerThreadId = this.deps.primaryThreadId() ?? threadId
-    return this.sweep(this.groups.get(codexSubagentGroupId(ownerThreadId, turnId)))
-  }
-
-  /** The provider is gone; sweep every group the same way. */
   settleSession(): StructuredAgentSessionSinkAdmission {
     for (const group of this.groups.values()) {
       const admission = this.sweep(group)

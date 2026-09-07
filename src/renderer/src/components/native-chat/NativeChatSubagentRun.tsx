@@ -8,31 +8,10 @@ import {
   summarizeSubagentGroup
 } from '../../../../shared/native-chat-subagent-summary'
 import type {
-  NativeChatSubagentEntry,
   NativeChatSubagentGroupBlock,
   NativeChatSubagentState
 } from '../../../../shared/native-chat-types'
 import { formatNativeChatDuration } from './NativeChatWorkingStatus'
-
-/**
- * A roster read back from the journal after the writing process is gone.
- *
- * The state map is process-local and Codex resume replays no non-message items,
- * so no event will ever settle a child that was working when the host died.
- * Once the owning turn is no longer live, such a child is `unverifiable` — the
- * repo's loss-of-contact verdict. It is NOT evidence the child exited.
- */
-export function reconcileSubagentRoster(
-  agents: readonly NativeChatSubagentEntry[],
-  turnIsLive: boolean
-): NativeChatSubagentEntry[] {
-  return agents.map((agent) => {
-    const state = normalizeSubagentState(agent.state)
-    const reconciled: NativeChatSubagentState =
-      state === 'working' && !turnIsLive ? 'unverifiable' : state
-    return reconciled === agent.state ? agent : { ...agent, state: reconciled }
-  })
-}
 
 /** Compact token counts: the row shows scale, not an exact ledger. */
 function formatSubagentTokens(tokens: number): string {
@@ -168,20 +147,21 @@ function SubagentElapsed({
 
 /** One spawn group: how many children are working, their settled verdict, and
  *  the tokens they consumed. Deliberately flat — children are summarized here,
- *  never nested into the transcript as turns of their own. */
+ *  never nested into the transcript as turns of their own.
+ *
+ *  Every state is drawn exactly as the journal recorded it. Turn state is NOT
+ *  consulted: `spawn_agent` children outlive the turn that spawned them and keep
+ *  reporting into this group long after a newer turn opened, so a turn boundary
+ *  is a fact about the turn and never evidence that contact with a child was
+ *  lost. Only the writing host can say that, and it does — see
+ *  `CodexSubagentRoster.settleSession`. */
 export function NativeChatSubagentRun({
-  block,
-  activeTurnIsWorking
+  block
 }: {
   block: NativeChatSubagentGroupBlock
-  /** False once the owning turn is no longer live; undefined means unknown. */
-  activeTurnIsWorking?: boolean
 }): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
-  const agents = useMemo(
-    () => reconcileSubagentRoster(block.agents, activeTurnIsWorking !== false),
-    [block.agents, activeTurnIsWorking]
-  )
+  const agents = block.agents
   const summary = useMemo(() => summarizeSubagentGroup(agents), [agents])
   if (summary.total === 0) {
     return null
@@ -209,11 +189,11 @@ export function NativeChatSubagentRun({
   const alertState = working ? summary.adverseState : null
   const alert =
     alertState === null ? null : subagentStateLabel(alertState, summary.adverseCount, summary.total)
-  // A roster restored from the journal after the host died holds children that
-  // latched `unverifiable` with no terminal timestamp. Their run length is
-  // unknown, and measuring it to `now` would report the time since the crash as
-  // how long they ran — on a row that is not even counting. A sibling's stamp is
-  // no better: in a mixed group it would present that sibling's duration as the
+  // A child can read `unverifiable` with no terminal timestamp — a state a newer
+  // build wrote that this one cannot name. Its run length is unknown, and
+  // measuring it to `now` would report the time since we lost sight of it as how
+  // long it ran, on a row that is not even counting. A sibling's stamp is no
+  // better: in a mixed group it would present that sibling's duration as the
   // group's while a child's fate is still unknown.
   const runLengthUnknown = agents.some(
     (agent) =>

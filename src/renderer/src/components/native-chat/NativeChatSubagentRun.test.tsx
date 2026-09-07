@@ -9,7 +9,7 @@ import type {
   NativeChatSubagentGroupBlock,
   NativeChatSubagentState
 } from '../../../../shared/native-chat-types'
-import { NativeChatSubagentRun, reconcileSubagentRoster } from './NativeChatSubagentRun'
+import { NativeChatSubagentRun } from './NativeChatSubagentRun'
 import { NativeChatToolRun } from './NativeChatToolRun'
 
 afterEach(cleanup)
@@ -26,7 +26,6 @@ describe('NativeChatSubagentRun', () => {
           { id: 'a', label: 'read', state: 'working' },
           { id: 'b', label: 'search', state: 'completed', tokens: 40661 }
         ])}
-        activeTurnIsWorking
       />
     )
 
@@ -42,7 +41,6 @@ describe('NativeChatSubagentRun', () => {
           { id: 'a', label: 'read', state: 'completed' },
           { id: 'b', label: 'search', state: 'completed' }
         ])}
-        activeTurnIsWorking={false}
       />
     )
 
@@ -58,7 +56,6 @@ describe('NativeChatSubagentRun', () => {
           { id: 'b', label: 'search', state: 'failed' },
           { id: 'c', label: 'list', state: 'completed' }
         ])}
-        activeTurnIsWorking={false}
       />
     )
 
@@ -74,7 +71,6 @@ describe('NativeChatSubagentRun', () => {
           { id: 'c', label: 'list', state: 'working' },
           { id: 'd', label: 'edit', state: 'failed' }
         ])}
-        activeTurnIsWorking
       />
     )
 
@@ -92,7 +88,6 @@ describe('NativeChatSubagentRun', () => {
           { id: 'a', label: 'read', state: 'working' },
           { id: 'b', label: 'search', state: 'completed' }
         ])}
-        activeTurnIsWorking
       />
     )
 
@@ -100,24 +95,41 @@ describe('NativeChatSubagentRun', () => {
     expect(container.querySelector('.bg-destructive')).toBeNull()
   })
 
-  it('reconciles a roster persisted before a restart to unverifiable', () => {
+  // The QA defect: a mid-turn correction opened a new turn while three real
+  // children were still running, and the row relabelled every one of them
+  // `unverifiable` and flipped its headline to `Ran`. The children completed
+  // 57-87s later. A turn boundary says nothing about a child.
+  it('keeps a working child working once its turn is no longer the current one', () => {
+    render(<NativeChatSubagentRun block={group([{ id: 'a', label: 'read', state: 'working' }])} />)
+
+    const row = screen.getByRole('button')
+    expect(row).toHaveTextContent('working')
+    expect(row).not.toHaveTextContent('unverifiable')
+    expect(screen.getByText('Kicked off 1 subagent')).toBeInTheDocument()
+  })
+
+  it('reports the verdict a child lands after its turn ended', () => {
     render(
-      <NativeChatSubagentRun
-        block={group([{ id: 'a', label: 'read', state: 'working' }])}
-        activeTurnIsWorking={false}
-      />
+      <NativeChatSubagentRun block={group([{ id: 'a', label: 'read', state: 'completed' }])} />
+    )
+
+    expect(screen.getByText('Ran 1 subagent')).toBeInTheDocument()
+    expect(screen.getByRole('button')).toHaveTextContent('completed')
+  })
+
+  // Only the writing host may claim loss of contact, and it writes that verdict
+  // into the row itself. The renderer draws it, and never infers it.
+  it('draws the unverifiable verdict the host recorded', () => {
+    render(
+      <NativeChatSubagentRun block={group([{ id: 'a', label: 'read', state: 'unverifiable' }])} />
     )
 
     expect(screen.getByRole('button')).toHaveTextContent('unverifiable')
-    expect(screen.getByRole('button')).not.toHaveTextContent('working')
   })
 
   it('leads with the bot glyph, decorative beside the word that names the group', () => {
     const { container } = render(
-      <NativeChatSubagentRun
-        block={group([{ id: 'a', label: 'read', state: 'working' }])}
-        activeTurnIsWorking
-      />
+      <NativeChatSubagentRun block={group([{ id: 'a', label: 'read', state: 'working' }])} />
     )
 
     const glyph = container.querySelector('.lucide-bot')
@@ -139,10 +151,7 @@ describe('NativeChatSubagentRun', () => {
 
     for (const state of states) {
       const { container } = render(
-        <NativeChatSubagentRun
-          block={group([{ id: 'a', label: 'read', state }])}
-          activeTurnIsWorking={state === 'working'}
-        />
+        <NativeChatSubagentRun block={group([{ id: 'a', label: 'read', state }])} />
       )
 
       expect(container.querySelectorAll('.lucide-bot')).toHaveLength(1)
@@ -164,7 +173,6 @@ describe('NativeChatSubagentRun', () => {
     const { container } = render(
       <NativeChatSubagentRun
         block={group([{ id: 'a', label: 'read', state: 'working', startedAt: 1_000 }])}
-        activeTurnIsWorking
       />
     )
 
@@ -181,7 +189,6 @@ describe('NativeChatSubagentRun', () => {
         block={group([
           { id: 'a', label: 'read', state: 'completed', startedAt: 1_000, settledAt: 5_000 }
         ])}
-        activeTurnIsWorking={false}
       />
     )
 
@@ -191,19 +198,18 @@ describe('NativeChatSubagentRun', () => {
     expect(screen.getByRole('button')).toHaveTextContent('4s')
   })
 
-  it('shows no duration for a restored child whose run length was never recorded', () => {
+  it('shows no duration for a child whose run length was never recorded', () => {
     render(
       <NativeChatSubagentRun
-        block={group([{ id: 'a', label: 'read', state: 'working', startedAt: 1_000 }])}
-        activeTurnIsWorking={false}
+        block={group([{ id: 'a', label: 'read', state: 'unverifiable', startedAt: 1_000 }])}
       />
     )
 
     const row = screen.getByRole('button')
     expect(row).toHaveTextContent('unverifiable')
-    // The reconciler latches `unverifiable` without a terminal timestamp, so the
-    // clock would measure to `now` and report the time since the host died as
-    // how long the child ran — on a row that is not even counting.
+    // `unverifiable` with no terminal timestamp has no known run length, so the
+    // clock would measure to `now` and report the time since we lost sight of
+    // the child as how long it ran — on a row that is not even counting.
     expect(row.textContent).not.toContain('·')
   })
 
@@ -215,24 +221,14 @@ describe('NativeChatSubagentRun', () => {
       <NativeChatSubagentRun
         block={group([
           { id: 'a', label: 'read', state: 'completed', startedAt: 1_000, settledAt: 5_000 },
-          { id: 'b', label: 'search', state: 'working', startedAt: 1_000 }
+          { id: 'b', label: 'search', state: 'unverifiable', startedAt: 1_000 }
         ])}
-        activeTurnIsWorking={false}
       />
     )
 
     const row = screen.getByRole('button')
     expect(row).toHaveTextContent('unverifiable')
     expect(row.textContent).not.toContain('·')
-  })
-
-  it('leaves a live turn working — a settled roster is never asserted early', () => {
-    expect(
-      reconcileSubagentRoster([{ id: 'a', label: 'read', state: 'working' }], true)
-    ).toMatchObject([{ state: 'working' }])
-    expect(
-      reconcileSubagentRoster([{ id: 'a', label: 'read', state: 'working' }], false)
-    ).toMatchObject([{ state: 'unverifiable' }])
   })
 })
 

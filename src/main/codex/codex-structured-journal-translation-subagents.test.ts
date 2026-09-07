@@ -122,17 +122,30 @@ describe('codex journal translation — subagents', () => {
     expect(rosterAgents(rows)).toMatchObject([{ id: 'child-1', tokens: 40661 }])
   })
 
-  it('sweeps a child that never reported completion when the turn ends', () => {
+  // The QA scenario this row got wrong: three `spawn_agent` children were still
+  // running when a mid-turn correction ended their turn and opened a new one.
+  // They reported `completed` 57-87s later, so a turn boundary is a fact about
+  // the turn and never evidence that contact with a child was lost.
+  it('leaves children working when their turn ends and a newer turn opens', () => {
     const { translator, rows } = harness()
 
     translator.handle(notification('turn/started', { turn: { id: TURN_ID } }))
-    deliverActivity(translator, subagentItem('started', 'child-1', '/root/read'))
-    deliverActivity(translator, subagentItem('completed', 'child-2', '/root/search'))
+    deliverActivity(translator, subagentItem('started', 'child-1', '/root/read_readme'))
+    deliverActivity(translator, subagentItem('started', 'child-2', '/root/read_package'))
     translator.handle(notification('turn/completed', { turn: { id: TURN_ID } }))
+    translator.handle(notification('turn/started', { turn: { id: 'turn-2' } }))
 
     expect(rosterAgents(rows)).toMatchObject([
-      { id: 'child-1', state: 'unverifiable' },
-      { id: 'child-2', state: 'completed' }
+      { id: 'child-1', state: 'working' },
+      { id: 'child-2', state: 'working' }
+    ])
+
+    // And the verdict a child reports after its turn ended still lands on the row.
+    deliverActivity(translator, subagentItem('completed', 'child-1', '/root/read_readme'))
+
+    expect(rosterAgents(rows)).toMatchObject([
+      { id: 'child-1', state: 'completed' },
+      { id: 'child-2', state: 'working' }
     ])
   })
 
