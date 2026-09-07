@@ -485,12 +485,57 @@ describe('CodexSubagentRoster', () => {
     )
 
     const entry = agents()[0]
-    expect(entry?.label.length).toBe(MAX_SUBAGENT_FIELD_CHARS)
-    expect(entry?.label.endsWith('…')).toBe(true)
-    expect(entry?.id.length).toBe(MAX_SUBAGENT_FIELD_CHARS)
-    expect(entry?.id.endsWith('…')).toBe(true)
+    expect(entry?.label.length).toBeLessThanOrEqual(MAX_SUBAGENT_FIELD_CHARS)
+    expect(entry?.label).toMatch(/…~0$/)
+    expect(entry?.id.length).toBeLessThanOrEqual(MAX_SUBAGENT_FIELD_CHARS)
+    expect(entry?.id).toMatch(/…~0$/)
     expect(JSON.stringify(latest()?.body)).not.toContain('output truncated')
     expect(isAdmissibleAgentJournalItemBody(latest()?.body)).toBe(true)
+  })
+
+  // The clip cuts UTF-16 code units, so a boundary landing inside a surrogate
+  // pair left a LONE high surrogate in a durable row — malformed, and replaced
+  // with U+FFFD through any non-JSON UTF-8 hop.
+  it('never clips a provider string mid surrogate pair', () => {
+    const { roster, agents } = createHarness()
+    const astral = '😀'.repeat(400)
+
+    deliver(
+      roster,
+      activity({ kind: 'started', agentThreadId: astral, agentPath: `/root/${astral}` })
+    )
+
+    const entry = agents()[0]
+    expect(entry?.id.length).toBeLessThanOrEqual(MAX_SUBAGENT_FIELD_CHARS)
+    expect(Buffer.from(entry?.id ?? '', 'utf8').toString('utf8')).toBe(entry?.id)
+    expect(Buffer.from(entry?.label ?? '', 'utf8').toString('utf8')).toBe(entry?.label)
+  })
+
+  // The clip removes exactly the tail that told two children apart: `id` is the
+  // renderer's React key, and `claimLabel` writes its repeat ordinal at the end.
+  // Two clipped children collapsing to one key drew two rows under one identity.
+  it('keeps clipped ids and labels distinct between children', () => {
+    const { roster, agents } = createHarness()
+    const prefix = 'p'.repeat(MAX_SUBAGENT_FIELD_CHARS)
+    const sharedPath = `/root/${'q'.repeat(640)}`
+
+    deliver(
+      roster,
+      activity({ kind: 'started', agentThreadId: `${prefix}AAAA`, agentPath: sharedPath })
+    )
+    deliver(
+      roster,
+      activity({ kind: 'started', agentThreadId: `${prefix}BBBB`, agentPath: sharedPath })
+    )
+
+    const entries = agents()
+    expect(entries).toHaveLength(2)
+    expect(new Set(entries.map((agent) => agent.id)).size).toBe(2)
+    expect(new Set(entries.map((agent) => agent.label)).size).toBe(2)
+    for (const agent of entries) {
+      expect(agent.id.length).toBeLessThanOrEqual(MAX_SUBAGENT_FIELD_CHARS)
+      expect(agent.label.length).toBeLessThanOrEqual(MAX_SUBAGENT_FIELD_CHARS)
+    }
   })
 
   it('caps the children one spawn group admits', () => {

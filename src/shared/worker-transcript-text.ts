@@ -15,15 +15,12 @@ import type { NativeChatMessage } from './native-chat-types'
 export function formatWorkerTranscriptMessage(message: NativeChatMessage): string {
   // Every roster block is written beside a plain-text twin carrying the same
   // sentence, for clients that cannot draw the block. Text surfaces are those
-  // clients, so they print the twin and drop the block — the mirror of the
-  // renderer, which draws the block and drops the twin. Either way the sentence
-  // prints once.
-  // Counted, not a boolean: a message carrying two roster blocks and one twin
-  // suppressed BOTH groups and printed one sentence, losing a roster silently.
-  let unclaimedTwins = message.blocks.filter(
-    (block) => block.type === 'text' && isSubagentGroupFallbackText(block.text)
-  ).length
-  const blocks = message.blocks.map((block) => {
+  // clients, so they print the twin and drop the block. The renderer reaches the
+  // same single print from the other side but not by the same rule: it drops
+  // every fallback-shaped text block as soon as any group is present and draws
+  // each group, so it never has to decide which twin belongs to which group.
+  const standIns = claimSubagentGroupTwins(message.blocks)
+  const blocks = message.blocks.map((block, index) => {
     if (block.type === 'text') {
       return block.text
     }
@@ -37,17 +34,7 @@ export function formatWorkerTranscriptMessage(message: NativeChatMessage): strin
       return block.url ? `[image] ${block.url}` : `[image omitted]`
     }
     if (block.type === 'subagent-group') {
-      // Stand in for the block only when no twin is left to print it: the wire
-      // admits a roster that arrived without one, and dropping that
-      // unconditionally would lose the sentence altogether. Counted, not a
-      // byte compare against a recomputed sentence — a roster from a newer
-      // build holds a state this build reads as `unverifiable`, so recomputing
-      // yields a different sentence and both would print.
-      if (unclaimedTwins > 0) {
-        unclaimedTwins -= 1
-        return null
-      }
-      return `[subagents] ${subagentGroupFallbackText(block.agents)}`
+      return standIns.get(index) ?? null
     }
     // The journal deliberately admits block types this build does not know, and
     // a newer remote host can send one over the wire. Degrade to a marker rather
@@ -55,6 +42,46 @@ export function formatWorkerTranscriptMessage(message: NativeChatMessage): strin
     return '[unsupported block]'
   })
   return `[${message.role}] ${blocks.filter((line) => line !== null).join('\n')}`.trimEnd()
+}
+
+/** For each roster block, the sentence it must print itself — absent when a twin
+ *  beside it already prints one.
+ *
+ *  Exact-text claims are settled for EVERY group before any leftover twin is
+ *  claimed by position: claiming in block order let an earlier group consume a
+ *  later group's twin, silencing the earlier roster while the later one printed
+ *  twice. The positional fallback stays because a roster written by a newer build
+ *  holds a state this build reads as `unverifiable`, so its frozen twin can never
+ *  equal the sentence recomputed here and a text match alone would print it
+ *  twice. A group left with no twin prints its own: the wire admits a roster that
+ *  arrived without one, and dropping that would lose the sentence altogether. */
+function claimSubagentGroupTwins(blocks: NativeChatMessage['blocks']): Map<number, string> {
+  const twins: string[] = []
+  const groups: { index: number; sentence: string }[] = []
+  blocks.forEach((block, index) => {
+    if (block.type === 'text' && isSubagentGroupFallbackText(block.text)) {
+      twins.push(block.text)
+    } else if (block.type === 'subagent-group') {
+      groups.push({ index, sentence: subagentGroupFallbackText(block.agents) })
+    }
+  })
+  const standIns = new Map<number, string>()
+  const unclaimed = groups.filter((group) => {
+    const exact = twins.indexOf(group.sentence)
+    if (exact === -1) {
+      return true
+    }
+    twins.splice(exact, 1)
+    return false
+  })
+  for (const group of unclaimed) {
+    if (twins.length > 0) {
+      twins.pop()
+      continue
+    }
+    standIns.set(group.index, `[subagents] ${group.sentence}`)
+  }
+  return standIns
 }
 
 function safeJson(value: unknown): string {

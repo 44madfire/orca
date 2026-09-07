@@ -396,6 +396,52 @@ describe('formatWorkerRead', () => {
     expect(output).toContain(`[subagents] ${subagentGroupFallbackText(other)}`)
   })
 
+  // Which group a lone twin belongs to is decided by its TEXT, not its position.
+  // Claiming positionally silenced whichever group came first, so a twin
+  // belonging to a LATER group erased the earlier group's roster and printed the
+  // later one's sentence twice — the same silent drop, one permutation over.
+  it('claims a lone twin for the group it names, not the first group in the message', () => {
+    const other: readonly NativeChatSubagentEntry[] = [
+      { id: 'child-3', label: 'plan', state: 'completed' }
+    ]
+    const second = subagentGroupFallbackText(other)
+    const output = formatWorkerRead(
+      transcriptRead(
+        [
+          { type: 'text', text: second },
+          { type: 'subagent-group', groupId: 'thread:turn-1', agents: [...ROSTER] },
+          { type: 'subagent-group', groupId: 'thread:turn-2', agents: [...other] }
+        ],
+        'system'
+      )
+    )
+
+    expect(occurrences(output, second)).toBe(1)
+    expect(output).toContain(`[subagents] ${subagentGroupFallbackText(ROSTER)}`)
+  })
+
+  // The same claim, with the twin written after both blocks: nothing about the
+  // ORDER of a twin and its group is guaranteed by the block schema.
+  it('claims a trailing twin for the group it names', () => {
+    const other: readonly NativeChatSubagentEntry[] = [
+      { id: 'child-3', label: 'plan', state: 'completed' }
+    ]
+    const second = subagentGroupFallbackText(other)
+    const output = formatWorkerRead(
+      transcriptRead(
+        [
+          { type: 'subagent-group', groupId: 'thread:turn-1', agents: [...ROSTER] },
+          { type: 'subagent-group', groupId: 'thread:turn-2', agents: [...other] },
+          { type: 'text', text: second }
+        ],
+        'system'
+      )
+    )
+
+    expect(occurrences(output, second)).toBe(1)
+    expect(output).toContain(`[subagents] ${subagentGroupFallbackText(ROSTER)}`)
+  })
+
   // A group with no twin beside it is a shape the block schema admits and no
   // producer writes. Dropping it would lose the roster entirely, so the block
   // itself carries the sentence when nothing else does.

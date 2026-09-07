@@ -1,8 +1,5 @@
 import { createHash } from 'node:crypto'
-import {
-  MAX_SUBAGENT_FIELD_CHARS,
-  normalizeSubagentState
-} from '../../../shared/native-chat-subagent-summary'
+import { normalizeSubagentState } from '../../../shared/native-chat-subagent-summary'
 import type {
   NativeChatBlock,
   NativeChatMessage,
@@ -19,9 +16,10 @@ const MAX_WORKER_TRANSCRIPT_INPUT_NODES = 100
 // here. The bound stays because the journal schema declares no maximum and a
 // remote host may run a build with a larger one.
 const MAX_WORKER_TRANSCRIPT_SUBAGENTS = 64
-// Roster ids and labels arrive already bounded to this; every other piece of
-// transcript metadata takes the same one.
-const MAX_WORKER_TRANSCRIPT_METADATA_CHARS = MAX_SUBAGENT_FIELD_CHARS
+// Message ids, turn ids, tool-call names and image urls, not only roster fields.
+// Equal to `MAX_SUBAGENT_FIELD_CHARS` today, kept a separate literal so a
+// roster-motivated change to that cap cannot silently move this one.
+const MAX_WORKER_TRANSCRIPT_METADATA_CHARS = 512
 const MAX_WORKER_TRANSCRIPT_RESPONSE_BYTES = 512 * 1024
 const TRUNCATION_MARKER = '\n… (truncated)'
 const DISPATCH_CAPABILITY_PATTERN = /\bdcap_[A-Za-z0-9_-]{20,}\b/g

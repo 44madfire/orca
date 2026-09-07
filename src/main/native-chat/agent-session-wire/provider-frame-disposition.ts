@@ -1,4 +1,5 @@
 import type { CodexAppServerNotificationMethod } from '../../codex/codex-app-server-notification-schema'
+import { CODEX_SUBAGENT_ITEM_TYPE } from '../../codex/codex-subagent-activity'
 import type { ClaudeStreamJsonFrameKind } from './claude-stream-json-frame-schema'
 
 export type ProviderFrameClassification =
@@ -208,7 +209,7 @@ const CODEX_ITEM_CLASSIFICATIONS: Record<string, ProviderFrameClassification> = 
   // guarantees a session reports subagent work as `subAgentActivity` at all; one
   // that only ever emits the collab tool call gets no roster row, and suppressing
   // that too would leave its fan-out showing nothing.
-  subAgentActivity: 'status-chrome',
+  [CODEX_SUBAGENT_ITEM_TYPE]: 'status-chrome',
   // `{id, durationMs}` and nothing else — Codex's own transcript renders it as
   // nothing at all. Every other item type this build does not model carries text
   // a user would want (review output, an image path, hook prompt text), so those
