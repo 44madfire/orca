@@ -158,6 +158,14 @@ function scanKey(
 // reconnect re-probes rather than trusting a dead connection's answer.
 const sshCapabilitiesByConnection = new Map<string, Promise<string[]>>()
 
+/** Drop a connection's memoized capabilities when its session ends. Without
+ *  this the probe answer outlives the relay it described, so a host upgraded by
+ *  the reconnect we asked the user to perform still reports the old capability
+ *  set and the "reconnect this host" message never clears. */
+export function forgetSshSkillDiscoveryCapabilities(connectionId: string): void {
+  sshCapabilitiesByConnection.delete(connectionId)
+}
+
 function cachedSshCapabilities(
   connectionId: string,
   client: SkillSshRelayClient

@@ -3,7 +3,11 @@ import {
   SKILL_DISCOVER_CAPABILITY,
   SKILL_DISCOVER_UPDATE_REQUIRED_MESSAGE
 } from '../../shared/skill-install-capability'
-import { clearSkillDiscoveryCaches, discoverSkillsOnTarget } from './skill-discovery-target'
+import {
+  clearSkillDiscoveryCaches,
+  discoverSkillsOnTarget,
+  forgetSshSkillDiscoveryCapabilities
+} from './skill-discovery-target'
 
 const EMPTY_RESULT = { skills: [], sources: [], scannedAt: 1 }
 
@@ -102,6 +106,41 @@ describe('SSH skill discovery target', () => {
 
     const scans = requestHostRpc.mock.calls.filter(([method]) => method === 'skills.discover')
     expect(scans).toHaveLength(0)
+  })
+
+  // The skew message tells the user to reconnect. If the memoized capability
+  // answer outlived the session, doing exactly that would leave the message
+  // stuck forever on a host that now supports discovery.
+  it('re-probes capabilities after the connection is torn down', async () => {
+    const stale = relayProvider(EMPTY_RESULT, ['skills.install.v1'])
+    await expect(
+      discoverSkillsOnTarget(sshTarget('target-1'), [], { sshProvider: stale.provider })
+    ).rejects.toThrow(SKILL_DISCOVER_UPDATE_REQUIRED_MESSAGE)
+
+    // Only the teardown invalidation — no full cache clear, or this would pass
+    // even with the invalidator stubbed out.
+    forgetSshSkillDiscoveryCapabilities('target-1')
+
+    const upgraded = relayProvider({ ...EMPTY_RESULT, scannedAt: 777 })
+    const result = await discoverSkillsOnTarget(sshTarget('target-1'), [], {
+      sshProvider: upgraded.provider
+    })
+    expect(result.scannedAt).toBe(777)
+  })
+
+  it('probes relay capabilities once per connection, not once per scan', async () => {
+    const { provider, requestHostRpc } = relayProvider()
+
+    // `refresh` bypasses the result cache without the full invalidation that
+    // clearSkillDiscoveryCaches performs, so this is two real scans.
+    await discoverSkillsOnTarget(sshTarget('target-1'), [], { sshProvider: provider })
+    await discoverSkillsOnTarget(sshTarget('target-1'), [], {
+      sshProvider: provider,
+      refresh: true
+    })
+
+    const probes = requestHostRpc.mock.calls.filter(([method]) => method === 'relay.status')
+    expect(probes).toHaveLength(1)
   })
 
   it('rejects a malformed relay frame instead of trusting it', async () => {
