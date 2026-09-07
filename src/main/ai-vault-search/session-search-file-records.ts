@@ -1,11 +1,21 @@
+import type { AiVaultSession } from '../../shared/ai-vault-types'
+import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
 import type SyncDatabase from '../sqlite/sync-database'
-import type { SessionSearchIndexUpdate } from '../ai-vault/session-search-capture'
 import { EMPTY_CONTENT_HASH, type SessionContentHash } from './session-search-content-hash'
 import { redactSessionSearchText } from './session-search-redaction'
 import { sessionSearchPathKey } from './session-search-path-key'
 
 export class SessionSearchFileRecords {
   constructor(private readonly db: SyncDatabase) {}
+  createStagingSession(candidate: SessionFileCandidate): number {
+    return Number(
+      this.db
+        .prepare(`INSERT INTO sessions(index_ready,agent,session_id,file_path,title,resume_command)
+      VALUES (0,?,'',?,'','')`)
+        .run(candidate.agent, candidate.file.path).lastInsertRowid
+    )
+  }
+
   contentHash(rowId: number): SessionContentHash {
     const row = this.db
       .prepare('SELECT content_hash, content_hash_count FROM sessions WHERE id = ?')
@@ -13,12 +23,7 @@ export class SessionSearchFileRecords {
     return row ? { hash: row.content_hash, count: row.content_hash_count } : EMPTY_CONTENT_HASH
   }
 
-  upsertSession(
-    update: SessionSearchIndexUpdate,
-    rowId: number | null,
-    contentHash: SessionContentHash
-  ): number {
-    const session = update.session!
+  updateSession(session: AiVaultSession, rowId: number, contentHash: SessionContentHash): void {
     const values = [
       session.agent,
       session.sessionId,
@@ -35,29 +40,19 @@ export class SessionSearchFileRecords {
       contentHash.hash,
       contentHash.count
     ]
-    if (rowId !== null) {
-      this.db
-        .prepare(
-          `UPDATE sessions SET agent = ?, session_id = ?, file_path = ?, codex_home = ?, title = ?,
-             cwd = ?, cwd_key = ?, branch = ?, created_at = ?, updated_at = ?, message_count = ?, resume_command = ?,
-             content_hash = ?, content_hash_count = ?
-           WHERE id = ?`
-        )
-        .run(...values, rowId)
-      return rowId
-    }
-    const result = this.db
-      .prepare(
-        `INSERT INTO sessions(agent, session_id, file_path, codex_home, title, cwd, cwd_key, branch,
-           created_at, updated_at, message_count, resume_command, content_hash, content_hash_count)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(...values)
-    return Number(result.lastInsertRowid)
+    this.db
+      .prepare(`UPDATE sessions SET agent = ?, session_id = ?, file_path = ?, codex_home = ?, title = ?,
+        cwd = ?, cwd_key = ?, branch = ?, created_at = ?, updated_at = ?, message_count = ?, resume_command = ?,
+        content_hash = ?, content_hash_count = ? WHERE id = ?`)
+      .run(...values, rowId)
   }
 
-  upsertFile(update: SessionSearchIndexUpdate, sessionRowId: number | null): void {
-    const { file } = update.candidate
+  upsertFile(
+    candidate: SessionFileCandidate,
+    byteOffset: number,
+    sessionRowId: number | null
+  ): void {
+    const { file } = candidate
     this.db
       .prepare(
         `INSERT INTO files(path, dev, ino, byte_offset, mtime_ms, size_bytes, session_row_id)
@@ -70,7 +65,7 @@ export class SessionSearchFileRecords {
         file.path,
         file.dev ?? null,
         file.ino ?? null,
-        update.byteOffset,
+        byteOffset,
         file.mtimeMs,
         file.sizeBytes ?? null,
         sessionRowId

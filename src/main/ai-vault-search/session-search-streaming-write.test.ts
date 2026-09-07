@@ -84,3 +84,38 @@ it.each(['publish', 'reject', 'throw', 'cancel'] as const)(
     }
   }
 )
+
+it('waits for final metadata after the last message without mutating the write', async () => {
+  const store = new SessionSearchStore(':memory:')
+  const writer = new SessionSearchIndexWriter(store.db)
+  const replacement = stagedWriteUpdate('finaltitle', 1)
+  const { promise: result, resolve } = Promise.withResolvers<{
+    session: typeof replacement.session
+    byteOffset: number
+  }>()
+  try {
+    await writer.apply(stagedWriteUpdate('oldneedle', 1))
+    let drained = false
+    const write = Object.freeze({
+      candidate: replacement.candidate,
+      mode: replacement.mode,
+      previousByteOffset: replacement.previousByteOffset,
+      result,
+      messages: (async function* () {
+        yield { role: 'user' as const, text: 'newneedle', timestamp: null }
+        drained = true
+      })()
+    })
+    const applied = writer.apply(write)
+    await expect.poll(() => drained).toBe(true)
+    expect(store.search({ query: 'newneedle' }).hits).toHaveLength(0)
+    expect(writer.indexedFile('synthetic-transcript', null)?.byteOffset).toBe(1)
+    resolve({ session: replacement.session, byteOffset: 99 })
+    expect(await applied).toBe(true)
+    expect(store.search({ query: 'newneedle' }).hits[0].title).toBe('finaltitle')
+    expect(writer.indexedFile('synthetic-transcript', null)?.byteOffset).toBe(99)
+  } finally {
+    resolve({ session: null, byteOffset: 0 })
+    store.close()
+  }
+})

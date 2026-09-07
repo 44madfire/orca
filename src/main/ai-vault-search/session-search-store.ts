@@ -14,7 +14,7 @@ import type {
   SessionSearchFileIdentity,
   SessionSearchIndexedFile,
   SessionSearchIndexSink,
-  SessionSearchIndexUpdate
+  SessionSearchIndexWrite
 } from '../ai-vault/session-search-capture'
 import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
 import { SessionSearchIndexWriter } from './session-search-index-writer'
@@ -101,7 +101,7 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     }
   }
 
-  async apply(update: SessionSearchIndexUpdate): Promise<void> {
+  async apply(update: SessionSearchIndexWrite): Promise<void> {
     if (!this.acceptsCandidate(update.candidate)) {
       return
     }

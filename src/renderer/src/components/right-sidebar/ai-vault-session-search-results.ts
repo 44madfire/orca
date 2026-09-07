@@ -1,5 +1,5 @@
 import { isWebClientLocation } from '@/lib/web-client-location'
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { translate } from '@/i18n/i18n'
 import type {
   AiVaultSearchArgs,
@@ -56,8 +56,6 @@ export function useAiVaultSessionSearchResults(input: {
   sessions: readonly AiVaultSession[]
 }): AiVaultSessionSearchView {
   const [newestFirst, setNewestFirst] = useState(false)
-  const [flushSignal, setFlushSignal] = useState(0)
-  const flush = useCallback(() => setFlushSignal((value) => value + 1), [])
   const { agents, enabled, executionHostScope, query, scopePaths, sessions } = input
 
   const localOnly = !isWebClientLocation()
@@ -79,9 +77,8 @@ export function useAiVaultSessionSearchResults(input: {
     }
   }, [agents, enabled, newestFirst, query, scopePaths, supportedHost])
 
-  const { error, loading, result, updating } = useAiVaultSessionSearchRequest(
+  const { error, flush, loading, result, updating } = useAiVaultSessionSearchRequest(
     args,
-    flushSignal,
     executionHostScope
   )
   // With an empty box no search runs, so the panel reads coverage directly to

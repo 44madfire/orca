@@ -16,6 +16,7 @@ export type AiVaultSearchRequestState = {
   /** An answer is on screen but a newer query is still in flight. */
   updating: boolean
   error: string | null
+  flush: () => void
 }
 
 type SettledSearch = {
@@ -40,8 +41,6 @@ type SettledSearch = {
  */
 export function useAiVaultSessionSearchRequest(
   args: AiVaultSearchArgs | null,
-  /** Bumped on Enter: runs the full tier now instead of waiting out the debounce. */
-  flushSignal = 0,
   ownerKey = ''
 ): AiVaultSearchRequestState {
   const [settled, setSettled] = useState<SettledSearch | null>(null)
@@ -80,8 +79,7 @@ export function useAiVaultSessionSearchRequest(
     [ownerKey]
   )
 
-  // Why: a flush has to cancel the debounce the args effect armed, and the two
-  // effects cannot share locals, so the args effect publishes its cancel.
+  // Enter cancels both timers before issuing the full query.
   const cancelDebounceRef = useRef<() => void>(() => undefined)
 
   useEffect(() => {
@@ -109,21 +107,16 @@ export function useAiVaultSessionSearchRequest(
     }
   }, [argsKey, issue])
 
-  // Why: the args effect must not re-run on flush (it would restart the
-  // debounce), so the flush reads the key it was rendered with. The pending
-  // debounce is dropped so a late typing-tier request cannot outrank it.
-  useEffect(() => {
-    if (flushSignal > 0) {
-      cancelDebounceRef.current()
-      issue(argsKey, { tier: 'full' })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flushSignal, issue])
+  const flush = useCallback(() => {
+    cancelDebounceRef.current()
+    issue(argsKey, { tier: 'full' })
+  }, [argsKey, issue])
 
   const owned = settled?.ownerKey === ownerKey ? settled : null
   const current = owned?.key === argsKey ? owned : null
   const previous = current === null && argsKey !== '' ? (owned?.result ?? null) : null
   return {
+    flush,
     result: current?.result ?? previous,
     loading: argsKey !== '' && current === null && previous === null,
     updating: argsKey !== '' && !current?.full,

@@ -166,7 +166,10 @@ describe('useAiVaultSessionSearchRequest', () => {
       vi.advanceTimersByTime(AI_VAULT_SEARCH_SETTLED_DELAY_MS)
     })
     expect(searchSessions).not.toHaveBeenCalled()
+    act(() => result.current.flush())
+    expect(searchSessions).not.toHaveBeenCalled()
     expect(result.current).toEqual({
+      flush: expect.any(Function),
       result: null,
       loading: false,
       updating: false,
@@ -202,13 +205,12 @@ describe('useAiVaultSessionSearchRequest', () => {
     expect(result.current.loading).toBe(false)
   })
 
-  it('runs the full tier at once when the flush signal is bumped', () => {
-    const { rerender } = renderHook(
-      ({ flush }: { flush: number }) => useAiVaultSessionSearchRequest(argsFor('alpha'), flush),
-      { initialProps: { flush: 0 }, wrapper }
-    )
-
-    rerender({ flush: 1 })
+  it('flushes the full tier immediately and cancels both pending timers', () => {
+    const { result } = renderHook(() => useAiVaultSessionSearchRequest(argsFor('alpha')), {
+      wrapper
+    })
+    act(() => result.current.flush())
+    act(() => vi.advanceTimersByTime(AI_VAULT_SEARCH_SETTLED_DELAY_MS))
 
     expect(searchSessions).toHaveBeenCalledTimes(1)
     expect(searchSessions.mock.calls[0]?.[0]).toMatchObject({ query: 'alpha', tier: 'full' })
@@ -221,7 +223,7 @@ it('retires retained and in-flight results when the execution host changes with 
     () => new Promise<AiVaultSearchResult>((resolve) => resolvers.push(resolve))
   )
   const { rerender, result } = renderHook(
-    ({ host }: { host: string }) => useAiVaultSessionSearchRequest(argsFor('alpha'), 0, host),
+    ({ host }: { host: string }) => useAiVaultSessionSearchRequest(argsFor('alpha'), host),
     { initialProps: { host: 'runtime:a' }, wrapper }
   )
   act(() => {

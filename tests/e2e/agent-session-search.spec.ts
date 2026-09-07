@@ -46,6 +46,7 @@ test('consent, Unicode search, scope exclusion, and clear stay inside an isolate
   await query.fill('transcriptneedle repo:missing-project')
   await expect(orcaPage.getByText('Search audit fixture', { exact: true })).toHaveCount(0)
   await query.fill('coalescs')
+  await query.press('Enter')
   await expect(orcaPage.getByText(/Showing results for coalesces/)).toBeVisible()
   await orcaPage.screenshot({ path: testInfo.outputPath('session-search.png') })
   await orcaPage.evaluate(() => {

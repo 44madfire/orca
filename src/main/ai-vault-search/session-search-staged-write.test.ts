@@ -142,3 +142,19 @@ it('does not suggest unpublished vocabulary while a large update is being writte
     store.close()
   }
 })
+
+it('keeps published data and queues recovery when an append cursor is stale', async () => {
+  const store = new SessionSearchStore(':memory:')
+  try {
+    await store.apply(update('oldneedle', 1))
+    await store.apply(update('newneedle', 1, 'append'))
+    await store.apply(update('staleneedle', 1, 'append'))
+    expect(store.search({ query: 'oldneedle' }).hits).toHaveLength(1)
+    expect(store.search({ query: 'newneedle' }).hits).toHaveLength(1)
+    expect(store.search({ query: 'staleneedle' }).hits).toHaveLength(0)
+    expect(store.indexedFile('synthetic-transcript', null)?.byteOffset).toBe(2)
+    expect(store.staleCount).toBe(1)
+  } finally {
+    store.close()
+  }
+})

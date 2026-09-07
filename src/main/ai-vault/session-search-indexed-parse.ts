@@ -25,43 +25,16 @@ export async function captureIndexedSessionParse<T>(
     return captured.value.value
   }
   const channel = new SessionSearchMessageChannel()
-  // The staging row is hidden; the producer replaces this placeholder before closing the channel.
-  const update: SessionSearchIndexUpdate = {
-    ...base,
-    messages: channel,
-    byteOffset: 0,
-    session: {
-      id: 'pending',
-      executionHostId: 'local',
-      agent: base.candidate.agent,
-      sessionId: 'pending',
-      title: '',
-      cwd: null,
-      branch: null,
-      model: null,
-      filePath: base.candidate.file.path,
-      codexHome: base.candidate.codexHome,
-      createdAt: null,
-      updatedAt: null,
-      modifiedAt: base.candidate.file.modifiedAt,
-      messageCount: 0,
-      totalTokens: 0,
-      previewMessages: [],
-      queuedMessageCount: 0,
-      subagentTranscriptCount: 0,
-      resumeCommand: '',
-      subagent: null
-    }
-  }
-  const indexing = Promise.resolve(sink.apply(update)).finally(() => channel.stop())
+  const parsed = withStreamingSessionSearchCapture(channel, parse)
+  const indexing = Promise.resolve(
+    sink.apply({ ...base, messages: channel, result: parsed })
+  ).finally(() => channel.stop())
   void indexing.catch(() => undefined)
   try {
-    const parsed = await withStreamingSessionSearchCapture(channel, parse)
-    update.session = parsed.session
-    update.byteOffset = parsed.byteOffset
+    const completed = await parsed
     channel.close()
     await indexing
-    return parsed.value
+    return completed.value
   } catch (error) {
     channel.close(error)
     await indexing.catch(() => undefined)

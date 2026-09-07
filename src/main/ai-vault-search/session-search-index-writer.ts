@@ -6,7 +6,7 @@ import type {
   SessionSearchCapturedMessage,
   SessionSearchFileIdentity,
   SessionSearchIndexedFile,
-  SessionSearchIndexUpdate
+  SessionSearchIndexWrite
 } from '../ai-vault/session-search-capture'
 import { EMPTY_CONTENT_HASH, foldContentHash } from './session-search-content-hash'
 import { SessionSearchFileRecords } from './session-search-file-records'
@@ -67,7 +67,7 @@ export class SessionSearchIndexWriter {
   }
 
   apply(
-    update: SessionSearchIndexUpdate,
+    update: SessionSearchIndexWrite,
     active: () => boolean = () => true,
     yieldStep: () => Promise<void> = yieldToEventLoop,
     available: () => boolean = active
@@ -113,7 +113,7 @@ export class SessionSearchIndexWriter {
   }
 
   private async stage(
-    update: SessionSearchIndexUpdate,
+    update: SessionSearchIndexWrite,
     active: () => boolean,
     yieldStep: () => Promise<void>,
     available: () => boolean
@@ -129,13 +129,8 @@ export class SessionSearchIndexWriter {
       existing?.session_row_id != null &&
       existing.byte_offset === update.previousByteOffset
     if (update.mode === 'append' && !append) {
-      this.removeFile(path)
+      // A stale producer cannot invalidate a newer published cursor.
       return false
-    }
-    if (!update.session) {
-      this.removeFile(path)
-      this.records.upsertFile(update, null)
-      return true
     }
     let hash = append ? this.records.contentHash(existing!.session_row_id!) : EMPTY_CONTENT_HASH
     let sessionId: number
@@ -144,10 +139,7 @@ export class SessionSearchIndexWriter {
     try {
       sessionId = append
         ? existing!.session_row_id!
-        : this.records.upsertSession(update, null, hash)
-      if (!append) {
-        this.db.prepare('UPDATE sessions SET index_ready=0 WHERE id=?').run(sessionId)
-      }
+        : this.records.createStagingSession(update.candidate)
       batchId = Number(
         this.db
           .prepare('INSERT INTO search_write_batches(session_row_id) VALUES (?)')
@@ -204,26 +196,27 @@ export class SessionSearchIndexWriter {
         }
         await yieldStep()
       }
+      const result = 'result' in update ? await update.result : update
       if (!active() || !unchanged()) {
         return false
       }
       this.db.exec('BEGIN IMMEDIATE')
       try {
-        if (!update.session) {
+        if (!result.session) {
           if (existing?.session_row_id != null) {
             retireSearchSession(this.db, existing.session_row_id)
           }
-          this.records.upsertFile(update, null)
+          this.records.upsertFile(update.candidate, result.byteOffset, null)
           this.db.exec('COMMIT')
           return true
         }
-        this.records.upsertSession(update, sessionId, hash)
+        this.records.updateSession(result.session, sessionId, hash)
         if (!append && existing?.session_row_id != null) {
           retireSearchSession(this.db, existing.session_row_id)
         }
         this.db.prepare('UPDATE sessions SET index_ready=1 WHERE id=?').run(sessionId)
         this.db.prepare('UPDATE search_write_batches SET published=1 WHERE id=?').run(batchId)
-        this.records.upsertFile(update, sessionId)
+        this.records.upsertFile(update.candidate, result.byteOffset, sessionId)
         this.db.exec('COMMIT')
       } catch (error) {
         this.db.exec('ROLLBACK')

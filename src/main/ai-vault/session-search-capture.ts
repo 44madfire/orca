@@ -28,6 +28,15 @@ export type SessionSearchIndexUpdate = {
   byteOffset: number
 }
 
+export type SessionSearchIndexResult = Pick<SessionSearchIndexUpdate, 'session' | 'byteOffset'>
+
+/** Streaming writes receive final metadata only when parsing completes. */
+export type SessionSearchIndexWrite =
+  | SessionSearchIndexUpdate
+  | (Omit<SessionSearchIndexUpdate, 'session' | 'byteOffset'> & {
+      result: Promise<SessionSearchIndexResult>
+    })
+
 export type SessionSearchFileIdentity = { dev: number; ino: number } | null
 
 export type SessionSearchIndexedFile = {
@@ -48,7 +57,7 @@ export type SessionSearchIndexSink = {
    */
   indexedFile(path: string, identity: SessionSearchFileIdentity): SessionSearchIndexedFile | null
   /** Never throws: an index failure must not break the session list. */
-  apply(update: SessionSearchIndexUpdate): void | Promise<void>
+  apply(update: SessionSearchIndexWrite): void | Promise<void>
   /** `opportunistic` mode saw a file the index is behind on; the backfill lane re-parses it. */
   markStale(candidate: SessionFileCandidate): void
 }
