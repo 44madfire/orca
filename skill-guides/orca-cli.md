@@ -135,7 +135,7 @@ Lineage is a filing choice: it controls how the worktree is grouped in Orca's si
 
 Each option trades the same two things in opposite directions. Pick against how the user will look for this worktree afterwards, and say which you picked:
 
-- As a child, it is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows. It is hidden while the parent's lineage group is collapsed, and deleting the parent deletes it too — the delete dialog lists the child workspaces it will remove alongside the parent.
+- As a child, it is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows. It is hidden while the parent's lineage group is collapsed, and deleting the parent in the Orca UI deletes it too — the delete dialog lists the child workspaces it will remove alongside the parent. `orca worktree rm` removes only the worktree you name, so a child outlives a parent you remove from the CLI.
 - As a top-level worktree, it is always its own row and is unaffected when another worktree is deleted. Nothing groups it with the work it came from, so it has to be found on its own.
 
 Flags:

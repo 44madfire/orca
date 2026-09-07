@@ -56,7 +56,12 @@ describe('orca CLI skill guidance', () => {
       "As a child, it is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows."
     )
     expect(skill).toContain("hidden while the parent's lineage group is collapsed")
-    expect(skill).toContain('deleting the parent deletes it too')
+    expect(skill).toContain('deleting the parent in the Orca UI deletes it too')
+    // The cascade is a UI-surface behaviour; the CLI removes only the named worktree.
+    // Left unscoped, an agent cleaning up via the parent would leak its children.
+    expect(skill).toContain(
+      '`orca worktree rm` removes only the worktree you name, so a child outlives a parent you remove from the CLI'
+    )
     // Top-level: the mirror-image benefit and cost.
     expect(skill).toContain(
       'As a top-level worktree, it is always its own row and is unaffected when another worktree is deleted.'

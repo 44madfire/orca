@@ -134,7 +134,9 @@ describe('orchestration skill guidance', () => {
     expect(fullHandoffs).toContain(
       "As a child the new worktree is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows"
     )
-    expect(fullHandoffs).toContain('deleting the parent deletes it too')
+    expect(fullHandoffs).toContain(
+      'deleting the parent in the Orca UI deletes it too (`orca worktree rm` removes only the worktree you name)'
+    )
     expect(fullHandoffs).toContain(
       "As a top-level worktree it is always its own row and survives the parent's deletion, but nothing groups it with the work it came from"
     )
