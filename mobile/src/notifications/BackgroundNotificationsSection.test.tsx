@@ -9,13 +9,12 @@ import {
 } from './BackgroundNotificationsSection'
 
 vi.mock('react-native', () => ({
+  AppState: { currentState: 'background' },
   StyleSheet: { create: <T,>(styles: T) => styles },
   Switch: 'Switch',
   Text: 'Text',
   View: 'View'
 }))
-
-type SwitchNode = { props: { value: boolean; disabled?: boolean } }
 
 describe('BackgroundNotificationsSection', () => {
   let renderer: ReactTestRenderer | null = null
@@ -32,9 +31,7 @@ describe('BackgroundNotificationsSection', () => {
           supported: true,
           resolved: true,
           enabled: true,
-          agentStates: ['needs-input', 'finished'],
           onToggleEnabled: () => {},
-          onToggleAgentState: () => {},
           ...overrides
         })
       )
@@ -49,15 +46,10 @@ describe('BackgroundNotificationsSection', () => {
       .filter((child): child is string => typeof child === 'string')
   }
 
-  it('shows the switch, the disclosure, and both agent-state sub-switches', () => {
+  it('shows the switch, the disclosure without a second set of event filters', () => {
     const texts = textOf(render())
 
-    expect(texts).toEqual([
-      'Background notifications',
-      BACKGROUND_NOTIFICATIONS_HINT,
-      'Needs input',
-      'Task finished'
-    ])
+    expect(texts).toEqual(['Background notifications', BACKGROUND_NOTIFICATIONS_HINT])
   })
 
   it('states verbatim which parties see the alert text and the push token', () => {
@@ -75,21 +67,5 @@ describe('BackgroundNotificationsSection', () => {
 
   it('renders nothing while the paired hosts are still being probed', () => {
     expect(render({ supported: false, resolved: false }).toJSON()).toBeNull()
-  })
-
-  it('reflects a sub-switch the user turned off', () => {
-    const switches = render({ agentStates: ['needs-input'] }).root.findAllByType(
-      'Switch' as never
-    ) as unknown as SwitchNode[]
-
-    expect(switches.map((node) => node.props.value)).toEqual([true, true, false])
-  })
-
-  it('locks the sub-switches while background notifications are off', () => {
-    const switches = render({ enabled: false }).root.findAllByType(
-      'Switch' as never
-    ) as unknown as SwitchNode[]
-
-    expect(switches.map((node) => node.props.disabled)).toEqual([undefined, true, true])
   })
 })

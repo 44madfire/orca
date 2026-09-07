@@ -1,3 +1,5 @@
+import { allowsLocalNotification } from './notification-viewing-policy'
+import { loadPushNotificationsEnabled, loadRemotePushEnabled } from '../storage/preferences'
 import { loadHostCatalog } from '../transport/host-store'
 import {
   adoptNotificationEpoch,
@@ -32,6 +34,17 @@ export async function shouldSuppressForegroundPush(data: unknown): Promise<boole
   // reached the desktop. A banner naming a host this phone no longer has cannot be
   // tapped anywhere, so it is noise the user cannot act on or turn off per-host.
   if (!hostId) {
+    return true
+  }
+  if (!(await loadPushNotificationsEnabled()) || !(await loadRemotePushEnabled())) {
+    return true
+  }
+  if (
+    !(await allowsLocalNotification(
+      { ...payload, source: payload.source ?? 'agent-task-complete' },
+      hostId
+    ))
+  ) {
     return true
   }
   const session = getHostNotificationSession(hostId)

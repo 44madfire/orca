@@ -12,6 +12,7 @@ export type PushOrcaData = {
 }
 
 export type PushDelivery = {
+  sound?: boolean
   registrationId: string
   hostFingerprint: string
   title: string
@@ -56,6 +57,7 @@ export function buildPushDelivery(input: {
 }): PushDelivery {
   const { notification, hostFingerprint, coalescedCount } = input
   return {
+    ...(notification.sound === false ? { sound: false } : {}),
     registrationId: input.registrationId,
     hostFingerprint,
     title: input.title,

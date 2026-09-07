@@ -20,6 +20,7 @@ export const PushNotificationSchema = z
     notificationSeq: SequenceSchema,
     notificationEpoch: OpaqueIdSchema,
     source: PushNotificationSourceSchema,
+    sound: z.boolean().optional(),
     agentState: PushAgentStateSchema.nullable(),
     title: z.string().min(1).max(PUSH_LIMITS.titleMaxChars),
     body: z.string().max(PUSH_LIMITS.bodyMaxChars),

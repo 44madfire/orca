@@ -1,6 +1,8 @@
+import { loadNotificationDeliveryPreferences } from '../src/notifications/notification-delivery-preferences'
+import { setNotificationViewingWorkspace } from '../src/notifications/notification-viewing-policy'
 import { useCallback, useEffect, useRef } from 'react'
 import { View, StyleSheet } from 'react-native'
-import { Stack, useRouter } from 'expo-router'
+import { Stack, useRouter, useGlobalSearchParams, usePathname } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import * as Notifications from 'expo-notifications'
@@ -46,7 +48,7 @@ Notifications.setNotificationHandler({
     return {
       shouldShowBanner: !suppressed,
       shouldShowList: !suppressed,
-      shouldPlaySound: !suppressed,
+      shouldPlaySound: !suppressed && (await loadNotificationDeliveryPreferences()).sound,
       shouldSetBadge: false
     }
   }
@@ -54,6 +56,16 @@ Notifications.setNotificationHandler({
 
 export default function RootLayout() {
   const router = useRouter()
+  const pathname = usePathname()
+  const { hostId, worktreeId } = useGlobalSearchParams<{ hostId?: string; worktreeId?: string }>()
+  useEffect(() => {
+    setNotificationViewingWorkspace(
+      pathname.includes('/session/') && typeof hostId === 'string' && typeof worktreeId === 'string'
+        ? { hostId, worktreeId }
+        : null
+    )
+    return () => setNotificationViewingWorkspace(null)
+  }, [pathname, hostId, worktreeId])
   const openNotificationRoute = useOpenNotificationRoute()
   const handledNotificationIdsRef = useRef<Set<string>>(new Set())
 

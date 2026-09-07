@@ -268,8 +268,7 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 - Settings (`mobile/app/notifications.tsx`): single "Background notifications" switch, default off,
   hint text exactly: "Get alerts while Orca is closed. Alerts show the same text as on your desktop. That
   text, your phone's push token, and opaque host and device ids pass through Orca's push service and Apple
-  or Google. Turning this off or unpairing deletes the token." Below it, two sub-switches "Needs input"
-  and "Task finished" (both default on) that set `filter.agentStates`; `sources` is fixed to all three.
+  or Google. Turning this off or unpairing deletes the token." Event controls live in the shared notification-preferences section and apply to both connected and background notifications.
   Hide the whole section, with copy "Update your desktop app to enable background notifications", when
   no paired host advertises `notifications.remote-push.v1`.
 - Registration: on switch-on (after OS permission), and on every host reaching `connected` while the
@@ -307,3 +306,37 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 
 Ack gate, generic-alert mode, staging gateway, iOS Notification Service Extension, Android data-only
 messages, Live Activities, account-based quota tiers, dismissal via silent push.
+
+### Device delivery preferences
+
+The desktop advertises `notifications.delivery-preferences.v1`. Completion detection remains
+active when desktop notifications are off; semantic validity checks still precede delivery.
+IPC publishes `desktopAllowed: false` for terminal events disabled by the desktop master or
+source switch. Desktop focus and native authorization remain desktop-only delivery gates.
+
+`notifications.subscribe` and `notifications.getMissedSince` accept optional
+`includeDesktopSuppressed: true`. Only opted-in callers receive those events, including replay;
+legacy callers keep the old filtered stream. A new phone against an older host can narrow the
+available events but cannot recover events that host never published.
+
+The phone defaults to following each host. `filter.followDesktop` is optional: absent retains
+legacy desktop gating; explicit false permits independent event choices. The desktop persists
+it with the paired registration and evaluates it for every send, so desktop preference changes
+work while the phone is disconnected. This flag is host-local and is not sent to the gateway.
+The phone uses the same shared event predicate for socket/replay delivery as the push dispatcher.
+Optional `emittedAt` carries the event time for per-device five-second burst suppression after
+source filtering. Desktop eligibility, source, and agent state use separate upstream cooldown
+buckets so filtered events cannot suppress the next eligible event. Legacy RPC callers retain
+workspace-wide burst suppression on the host.
+
+`filter.sound` is also host-local. False groups that device's requests separately and adds
+optional `notification.sound: false` to gateway sends. The gateway omits APNs `aps.sound` and
+uses Android's `orca-desktop-silent` channel. Missing sound preserves existing audible delivery.
+Deploy the updated gateway before distributing hosts that send the optional sound field: older
+gateways strictly reject unknown notification fields. No token or database migration is needed.
+
+The phone's master switch disables background registration as well as local scheduling. Sound
+and viewing preferences belong to the receiving phone. The phone suppresses a banner for its
+currently viewed host/workspace only while active; it never assumes desktop focus means the
+phone is viewing that workspace. Changes to an offline host's persisted filter take effect on
+reconnection. No live APNs/FCM delivery is implied by simulator notification injection.

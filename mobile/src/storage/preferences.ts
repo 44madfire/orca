@@ -1,7 +1,11 @@
+import {
+  loadNotificationDeliveryPreferences,
+  notificationPreferencesFilter,
+  saveNotificationDeliveryPreferences
+} from '../notifications/notification-delivery-preferences'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   MOBILE_PUSH_AGENT_STATES,
-  MOBILE_PUSH_SOURCES,
   type MobilePushAgentState,
   type MobilePushFilter
 } from '../../../src/shared/mobile-push-contract'
@@ -44,9 +48,7 @@ const REMOTE_PUSH_KEY = 'orca:remotePushEnabled'
 const REMOTE_PUSH_AGENT_STATES_KEY = 'orca:remotePushAgentStates'
 const REMOTE_PUSH_HOST_REGISTRATIONS_KEY = 'orca:remotePushHostRegistrations'
 
-// Aliased from the shared contract rather than restated: the host validates what the
-// phone sends against those exact members. `sources` is fixed here — the two
-// sub-switches only ever narrow agentStates.
+// The host and phone share the same source and agent-state vocabulary.
 export type RemotePushAgentState = MobilePushAgentState
 export type RemotePushFilter = MobilePushFilter
 
@@ -81,11 +83,18 @@ export async function loadRemotePushAgentStates(): Promise<readonly RemotePushAg
 export async function saveRemotePushAgentStates(
   states: readonly RemotePushAgentState[]
 ): Promise<void> {
+  const current = await loadNotificationDeliveryPreferences()
+  await saveNotificationDeliveryPreferences({
+    ...current,
+    followDesktop: false,
+    taskFinished: states.includes('finished'),
+    needsInput: states.includes('needs-input')
+  })
   await AsyncStorage.setItem(REMOTE_PUSH_AGENT_STATES_KEY, JSON.stringify([...states]))
 }
 
 export async function loadRemotePushFilter(): Promise<RemotePushFilter> {
-  return { sources: MOBILE_PUSH_SOURCES, agentStates: await loadRemotePushAgentStates() }
+  return notificationPreferencesFilter(await loadNotificationDeliveryPreferences())
 }
 
 // Why persisted: switching off while a host is offline leaves a token the gateway

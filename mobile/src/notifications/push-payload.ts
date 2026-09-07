@@ -8,6 +8,7 @@ export type OrcaPushPayload = {
   readonly notificationEpoch?: string
   readonly worktreeId?: string
   readonly source?: string
+  readonly agentState?: string
   // Present only on a gateway summary standing in for N events; see the coalescing
   // window in docs/reference/mobile-push-contract.md.
   readonly coalescedCount?: number
@@ -40,6 +41,7 @@ export function readOrcaPushPayload(data: unknown): OrcaPushPayload | null {
     notificationEpoch: readString(record.notificationEpoch),
     worktreeId: readString(record.worktreeId),
     source: readString(record.source),
+    agentState: readString(record.agentState),
     coalescedCount: readSeq(record.coalescedCount)
   }
 }

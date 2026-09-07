@@ -16,6 +16,8 @@ export const MOBILE_PUSH_APNS_ENVIRONMENTS = ['sandbox', 'production'] as const
 export type MobilePushApnsEnvironment = (typeof MOBILE_PUSH_APNS_ENVIRONMENTS)[number]
 
 export type MobilePushFilter = {
+  followDesktop?: boolean
+  sound?: boolean
   sources: readonly MobilePushSource[]
   agentStates: readonly MobilePushAgentState[]
 }
@@ -65,6 +67,8 @@ function parseFilter(value: unknown): MobilePushFilter | null {
     return null
   }
   return {
+    ...(typeof filter.sound === 'boolean' ? { sound: filter.sound } : {}),
+    ...(typeof filter.followDesktop === 'boolean' ? { followDesktop: filter.followDesktop } : {}),
     sources: filter.sources.filter((entry) => isStringMember(entry, MOBILE_PUSH_SOURCES)),
     agentStates: filter.agentStates.filter((entry) =>
       isStringMember(entry, MOBILE_PUSH_AGENT_STATES)

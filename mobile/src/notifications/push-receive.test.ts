@@ -14,6 +14,8 @@ import {
   shouldSuppressForegroundPush
 } from './push-receive'
 
+vi.mock('react-native', () => ({ AppState: { currentState: 'background' } }))
+
 vi.mock('../transport/host-store', () => ({ loadHostCatalog: vi.fn() }))
 
 const storage = new Map<string, string>()
@@ -46,6 +48,8 @@ function fcmData(orca: Record<string, unknown>): unknown {
 beforeEach(() => {
   vi.clearAllMocks()
   storage.clear()
+  storage.set('orca:pushNotificationsEnabled', 'true')
+  storage.set('orca:remotePushEnabled', 'true')
   resetHostNotificationSessionsForTests()
   vi.mocked(loadHostCatalog).mockResolvedValue(hosts)
 })

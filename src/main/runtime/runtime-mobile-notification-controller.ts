@@ -9,6 +9,8 @@ import { getRuntimeDesktopSurface } from './runtime-desktop-surface'
 
 export type MobileNotificationDispatchEvent = {
   type: 'notification'
+  desktopAllowed?: boolean
+  emittedAt?: number
   source: 'agent-task-complete' | 'terminal-bell' | 'test' | 'plugin'
   title: string
   body: string

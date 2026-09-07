@@ -38,6 +38,7 @@ const SendResponseSchema = z.object({
 export type PushSendResult = z.infer<typeof SendResponseSchema>['results'][number]
 
 export type PushSendNotification = {
+  sound?: boolean
   notificationId?: string
   notificationSeq: number
   notificationEpoch: string

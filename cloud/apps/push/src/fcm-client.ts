@@ -43,7 +43,10 @@ export function fcmMessageBody(input: {
         priority: 'HIGH',
         ttl: `${PUSH_LIMITS.notificationTtlSeconds}s`,
         collapse_key: fcmCollapseKey(delivery.collapseId),
-        notification: { channel_id: input.channelId, tag: delivery.collapseId }
+        notification: {
+          channel_id: delivery.sound === false ? `${input.channelId}-silent` : input.channelId,
+          tag: delivery.collapseId
+        }
       },
       data: orcaDataStrings(delivery.orca)
     }

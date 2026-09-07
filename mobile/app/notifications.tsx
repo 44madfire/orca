@@ -1,19 +1,33 @@
+import { NotificationDeliverySection } from '../src/notifications/NotificationDeliverySection'
+import {
+  DEFAULT_NOTIFICATION_DELIVERY,
+  loadNotificationDeliveryPreferences,
+  type NotificationDeliveryPreferences
+} from '../src/notifications/notification-delivery-preferences'
 import { useState, useCallback, useEffect } from 'react'
-import { AppState, Linking, View, Text, StyleSheet, Pressable, Switch } from 'react-native'
+import {
+  AppState,
+  Linking,
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  Switch,
+  ScrollView,
+  Alert
+} from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
 import { ChevronLeft } from 'lucide-react-native'
 import { colors, spacing, typography } from '../src/theme/mobile-theme'
 import {
   loadPushNotificationsEnabled,
-  loadRemotePushAgentStates,
   loadRemotePushEnabled,
-  savePushNotificationsEnabled,
-  type RemotePushAgentState
+  savePushNotificationsEnabled
 } from '../src/storage/preferences'
 import { BackgroundNotificationsSection } from '../src/notifications/BackgroundNotificationsSection'
 import {
-  setRemotePushAgentStates,
+  setNotificationDeliveryPreferences,
   setRemotePushEnabled
 } from '../src/notifications/push-registration'
 import { useRemotePushCapableHosts } from '../src/notifications/use-remote-push-capable-hosts'
@@ -36,7 +50,8 @@ export default function NotificationsScreen() {
   const [pushEnabled, setPushEnabled] = useState(false)
   const [permissionState, setPermissionState] = useState(DEFAULT_PERMISSION_STATE)
   const [backgroundEnabled, setBackgroundEnabled] = useState(false)
-  const [agentStates, setAgentStates] = useState<readonly RemotePushAgentState[]>([])
+  const [delivery, setDelivery] = useState(DEFAULT_NOTIFICATION_DELIVERY)
+  const [saving, setSaving] = useState(false)
   const remotePushSupport = useRemotePushCapableHosts()
 
   const refreshSettings = useCallback(async () => {
@@ -44,12 +59,12 @@ export default function NotificationsScreen() {
       loadPushNotificationsEnabled(),
       getNotificationPermissionState(),
       loadRemotePushEnabled(),
-      loadRemotePushAgentStates()
+      loadNotificationDeliveryPreferences()
     ])
     setPushEnabled(enabled)
     setPermissionState(permission)
     setBackgroundEnabled(background)
-    setAgentStates(states)
+    setDelivery(states)
   }, [])
 
   useFocusEffect(
@@ -75,11 +90,17 @@ export default function NotificationsScreen() {
       if (!granted) {
         setPushEnabled(false)
         await savePushNotificationsEnabled(false)
+        await setRemotePushEnabled(false)
+        setBackgroundEnabled(false)
         return
       }
     }
     setPushEnabled(value)
     await savePushNotificationsEnabled(value)
+    if (!value) {
+      await setRemotePushEnabled(false)
+      setBackgroundEnabled(false)
+    }
   }
 
   const toggleBackground = async (value: boolean) => {
@@ -90,16 +111,24 @@ export default function NotificationsScreen() {
         return
       }
     }
+    if (value) {
+      await savePushNotificationsEnabled(true)
+      setPushEnabled(true)
+    }
     setBackgroundEnabled(value)
     await setRemotePushEnabled(value)
   }
 
-  const toggleAgentState = async (state: RemotePushAgentState, value: boolean) => {
-    const next = value
-      ? [...new Set([...agentStates, state])]
-      : agentStates.filter((existing) => existing !== state)
-    setAgentStates(next)
-    await setRemotePushAgentStates(next)
+  const changeDelivery = async (value: NotificationDeliveryPreferences) => {
+    setSaving(true)
+    try {
+      await setNotificationDeliveryPreferences(value)
+      setDelivery(value)
+    } catch {
+      Alert.alert('Could not save notification settings', 'Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const switchEnabled = pushEnabled && permissionState.granted
@@ -109,7 +138,13 @@ export default function NotificationsScreen() {
     : 'Get notified on this device when an agent needs your input or finishes a task.'
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{
+        paddingTop: insets.top + spacing.sm,
+        paddingBottom: insets.bottom + spacing.xl
+      }}
+    >
       <View style={styles.topRow}>
         <Pressable style={styles.backButton} onPress={() => router.back()}>
           <ChevronLeft size={22} color={colors.textSecondary} />
@@ -119,8 +154,9 @@ export default function NotificationsScreen() {
 
       <View style={styles.section}>
         <View style={styles.row}>
-          <Text style={styles.rowLabel}>Agent notifications</Text>
+          <Text style={styles.rowLabel}>Enable notifications</Text>
           <Switch
+            accessibilityLabel="Enable notifications"
             value={switchEnabled}
             disabled={notificationsBlocked}
             onValueChange={(v) => void togglePush(v)}
@@ -142,15 +178,18 @@ export default function NotificationsScreen() {
         )}
       </View>
 
+      <NotificationDeliverySection
+        value={delivery}
+        disabled={saving}
+        onChange={(value) => void changeDelivery(value)}
+      />
       <BackgroundNotificationsSection
         supported={remotePushSupport.supported}
         resolved={remotePushSupport.resolved}
         enabled={backgroundEnabled}
-        agentStates={agentStates}
         onToggleEnabled={(value) => void toggleBackground(value)}
-        onToggleAgentState={(state, value) => void toggleAgentState(state, value)}
       />
-    </View>
+    </ScrollView>
   )
 }
 

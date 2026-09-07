@@ -12,6 +12,12 @@ export function ensureDesktopNotificationChannel(): void {
   if (Platform.OS !== 'android') {
     return
   }
+  void Notifications.setNotificationChannelAsync(`${DESKTOP_NOTIFICATION_CHANNEL_ID}-silent`, {
+    name: 'Orca silent notifications',
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: null,
+    enableVibrate: false
+  })?.catch(() => {})
   void Notifications.setNotificationChannelAsync(DESKTOP_NOTIFICATION_CHANNEL_ID, {
     name: 'Desktop Notifications',
     importance: Notifications.AndroidImportance.HIGH,

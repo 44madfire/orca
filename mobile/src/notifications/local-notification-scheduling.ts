@@ -1,3 +1,6 @@
+import { reserveNotificationCooldown } from '../../../src/shared/notification-burst-cooldown'
+import { loadNotificationDeliveryPreferences } from './notification-delivery-preferences'
+import { allowsLocalNotification } from './notification-viewing-policy'
 import * as Notifications from 'expo-notifications'
 import { Platform } from 'react-native'
 import { loadPushNotificationsEnabled } from '../storage/preferences'
@@ -8,6 +11,9 @@ import { dismissPresentedPushNotification } from './push-tray-dismissal'
 
 export type NotificationEvent = {
   type: 'notification'
+  desktopAllowed?: boolean
+  emittedAt?: number
+  agentState?: string
   source: DesktopNotificationSource
   title: string
   body: string
@@ -30,6 +36,19 @@ type ScheduledNotificationState = {
   identifier?: string
   pending?: Promise<string | null>
   dismissAfterSchedule?: boolean
+}
+
+const recentNotifications = new Map<string, number>()
+
+function reserveLocalNotification(event: NotificationEvent, hostId: string): boolean {
+  return (
+    event.emittedAt === undefined ||
+    reserveNotificationCooldown(
+      recentNotifications,
+      JSON.stringify([hostId, event.worktreeId ?? 'global']),
+      event.emittedAt
+    )
+  )
 }
 
 const scheduledNotificationsByHostAndNotificationId = new Map<string, ScheduledNotificationState>()
@@ -68,6 +87,13 @@ export async function showLocalNotification(
   event: NotificationEvent,
   hostId: string
 ): Promise<void> {
+  if (!(await allowsLocalNotification(event, hostId))) {
+    return
+  }
+  const preferences = await loadNotificationDeliveryPreferences()
+  const channelId = preferences.sound
+    ? DESKTOP_NOTIFICATION_CHANNEL_ID
+    : `${DESKTOP_NOTIFICATION_CHANNEL_ID}-silent`
   const storedKey = event.notificationId
     ? getStoredNotificationKey(hostId, event.notificationId)
     : null
@@ -83,12 +109,16 @@ export async function showLocalNotification(
       return
     }
 
+    if (!reserveLocalNotification(event, hostId)) {
+      return
+    }
     await Notifications.scheduleNotificationAsync({
       content: {
         title: event.title,
         body: event.body,
+        sound: preferences.sound ? 'default' : false,
         data: buildLocalNotificationData(event, hostId),
-        ...(Platform.OS === 'android' ? { channelId: DESKTOP_NOTIFICATION_CHANNEL_ID } : {})
+        ...(Platform.OS === 'android' ? { channelId } : {})
       },
       trigger: null
     })
@@ -116,6 +146,9 @@ export async function showLocalNotification(
       return null
     }
 
+    if (!reserveLocalNotification(event, hostId)) {
+      return null
+    }
     if (notificationState.identifier) {
       await Notifications.dismissNotificationAsync(notificationState.identifier).catch(() => {})
       notificationState.identifier = undefined
@@ -125,8 +158,9 @@ export async function showLocalNotification(
       content: {
         title: event.title,
         body: event.body,
+        sound: preferences.sound ? 'default' : false,
         data: buildLocalNotificationData(event, hostId),
-        ...(Platform.OS === 'android' ? { channelId: DESKTOP_NOTIFICATION_CHANNEL_ID } : {})
+        ...(Platform.OS === 'android' ? { channelId } : {})
       },
       trigger: null
     })

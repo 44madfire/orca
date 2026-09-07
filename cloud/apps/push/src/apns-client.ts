@@ -32,7 +32,7 @@ export function apnsBody(delivery: PushDelivery): string {
   return JSON.stringify({
     aps: {
       alert: { title: delivery.title, body: delivery.body },
-      sound: 'default',
+      ...(delivery.sound === false ? {} : { sound: 'default' }),
       'thread-id': delivery.hostFingerprint
     },
     orca: delivery.orca

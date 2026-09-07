@@ -1,11 +1,9 @@
+import { reserveNotificationCooldown } from '../../../shared/notification-burst-cooldown'
 // Why: the out-of-band leg of the mobile notification fan-out. Every event that
 // already went to connected sockets is offered to the push gateway so a phone
 // with Orca closed still hears about it. Fire-and-forget by construction: the
 // socket fan-out must never wait on, or fail because of, a push.
-import type {
-  MobilePushAgentState,
-  MobilePushRegistration
-} from '../../../shared/mobile-push-contract'
+import type { MobilePushRegistration } from '../../../shared/mobile-push-contract'
 import { PushOutcomeCounters } from './push-outcome-counters'
 import { MOBILE_PUSH_SOURCES } from '../../../shared/mobile-push-contract'
 import type { MobileNotificationEvent } from '../runtime-mobile-notification-controller'
@@ -37,28 +35,14 @@ function clip(value: string, maxLength: number): string {
   return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 1)}…`
 }
 
-/**
- * Maps desktop agent status onto the two states a phone understands.
- * `null` means "this event has no agent state" (a bell or a plugin alert), and
- * `undefined` means "do not push" — an agent that is still working has not
- * produced anything the user needs to be woken for.
- */
-export function mapPushAgentState(
-  source: string,
-  agentState: string | undefined
-): MobilePushAgentState | null | undefined {
-  if (source !== 'agent-task-complete') {
-    return null
-  }
-  if (agentState === 'blocked' || agentState === 'waiting') {
-    return 'needs-input'
-  }
-  // Absent state means the hook snapshot was gone by dispatch time; the
-  // notification itself only fires on completion, so it stays a finish.
-  return agentState === undefined || agentState === 'done' ? 'finished' : undefined
-}
+export { mapPushAgentState } from '../../../shared/mobile-notification-policy'
+import {
+  allowsMobileNotification,
+  mapPushAgentState
+} from '../../../shared/mobile-notification-policy'
 
 export class PushDispatcher {
+  private readonly recentNotifications = new Map<string, number>()
   private readonly outcomes = new PushOutcomeCounters()
   private stopped = false
   private readonly client: PushGatewayClient
@@ -94,10 +78,17 @@ export class PushDispatcher {
       if (!plan) {
         return
       }
-      // Each chunk is its own request, so its retry and dead-drop are independent.
-      for (let start = 0; start < plan.targets.length; start += MAX_REGISTRATIONS_PER_SEND) {
-        const chunk = plan.targets.slice(start, start + MAX_REGISTRATIONS_PER_SEND)
-        void this.deliver(chunk, plan.notification, 0)
+      for (const sound of [true, false]) {
+        const targets = plan.targets.filter(
+          (target) => (target.registration.filter.sound !== false) === sound
+        )
+        for (let start = 0; start < targets.length; start += MAX_REGISTRATIONS_PER_SEND) {
+          void this.deliver(
+            targets.slice(start, start + MAX_REGISTRATIONS_PER_SEND),
+            { ...plan.notification, ...(!sound ? { sound: false } : {}) },
+            0
+          )
+        }
       }
     } catch (error) {
       console.warn('[push] Failed to prepare a push notification:', error)
@@ -121,10 +112,17 @@ export class PushDispatcher {
     }
     const targets = this.registry.listDevices().flatMap((device) => {
       const registration = device.pushRegistration
-      if (!registration || !registration.filter.sources.includes(source)) {
+      if (!registration || !allowsMobileNotification(registration.filter, event)) {
         return []
       }
-      if (agentState !== null && !registration.filter.agentStates.includes(agentState)) {
+      if (
+        event.emittedAt !== undefined &&
+        !reserveNotificationCooldown(
+          this.recentNotifications,
+          JSON.stringify([device.deviceId, event.worktreeId ?? 'global']),
+          event.emittedAt
+        )
+      ) {
         return []
       }
       return [

@@ -22,7 +22,10 @@ vi.mock('expo-notifications', () => ({
   dismissNotificationAsync: vi.fn()
 }))
 
-vi.mock('react-native', () => ({ Platform: { OS: 'ios', Version: 18 } }))
+vi.mock('react-native', () => ({
+  AppState: { currentState: 'background' },
+  Platform: { OS: 'ios', Version: 18 }
+}))
 
 vi.mock('../transport/host-store', () => ({ loadHostCatalog: vi.fn() }))
 
@@ -85,6 +88,7 @@ function catchUpClient(): { client: RpcClient; ready: () => void } {
             notifications: [
               {
                 type: 'notification',
+                source: 'agent-task-complete',
                 title: 'm6',
                 body: 'b',
                 notificationId: 'a:6',
@@ -92,6 +96,7 @@ function catchUpClient(): { client: RpcClient; ready: () => void } {
               },
               {
                 type: 'notification',
+                source: 'agent-task-complete',
                 title: 'm7',
                 body: 'b',
                 notificationId: 'a:7',

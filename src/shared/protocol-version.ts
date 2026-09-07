@@ -183,6 +183,8 @@ export const AUTOMATION_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY =
 // Why: registered on every build, so it is a STATIC capability. Mobile hides its
 // background-notification settings entirely unless a paired host advertises it —
 // an older host has no notifications.registerPush to call.
+export const NOTIFICATION_DELIVERY_PREFERENCES_CAPABILITY =
+  'notifications.delivery-preferences.v1' as const
 export const NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY = 'notifications.remote-push.v1' as const
 
 // Generic native clients include the CLI and must not claim Electron-only page
@@ -276,7 +278,8 @@ export const RUNTIME_CAPABILITIES = [
   AUTOMATION_LIST_HOST_SCOPE_RUNTIME_CAPABILITY,
   AUTOMATION_OWNER_FENCING_RUNTIME_CAPABILITY,
   AUTOMATION_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY,
-  NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY
+  NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY,
+  NOTIFICATION_DELIVERY_PREFERENCES_CAPABILITY
 ] as const
 
 export type RuntimeCapability = (typeof RUNTIME_CAPABILITIES)[number] | (string & {})

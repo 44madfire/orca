@@ -16,6 +16,7 @@ vi.mock('expo-notifications', () => ({
 }))
 
 vi.mock('react-native', () => ({
+  AppState: { currentState: 'background' },
   Platform: { OS: 'ios', Version: 18 }
 }))
 
@@ -74,7 +75,9 @@ function makeHostClient() {
       if (method !== 'notifications.getMissedSince') {
         return { ok: true, result: undefined } as never
       }
-      askedFrom.push((params as { lastSeenSeq: number }).lastSeenSeq)
+      askedFrom.push(
+        (params as { includeDesktopSuppressed: true; lastSeenSeq: number }).lastSeenSeq
+      )
       if (outcome.kind === 'heldReject') {
         await new Promise<void>((resolve) => {
           releaseHeld = resolve
@@ -108,6 +111,7 @@ function makeHostClient() {
 function notification(seq: number) {
   return {
     type: 'notification',
+    source: 'agent-task-complete',
     title: `m${seq}`,
     body: 'b',
     notificationId: `agent:${seq}`,

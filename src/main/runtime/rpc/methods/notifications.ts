@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { createNotificationStreamFilter } from './notification-stream-policy'
 import {
   MOBILE_PUSH_AGENT_STATES,
   MOBILE_PUSH_APNS_ENVIRONMENTS,
@@ -32,13 +33,16 @@ const NotificationUnsubscribeParams = z.object({
 // client that predates the field keeps the seq-only cut.
 const NotificationGetMissedSinceParams = z.object({
   lastSeenSeq: z.number().int().min(0, 'lastSeenSeq must be a non-negative integer'),
-  epoch: z.string().optional()
+  epoch: z.string().optional(),
+  includeDesktopSuppressed: z.boolean().optional()
 })
 
 // Why: the phone owns which alerts are worth waking it for; the host stores the
 // filter per device and applies it before it ever calls the gateway. Native push
 // tokens are long (FCM registration strings), so the bound is generous.
 const NotificationPushFilterParams = z.object({
+  followDesktop: z.boolean().optional(),
+  sound: z.boolean().optional(),
   sources: z.array(z.enum(MOBILE_PUSH_SOURCES)).max(MOBILE_PUSH_SOURCES.length),
   agentStates: z.array(z.enum(MOBILE_PUSH_AGENT_STATES)).max(MOBILE_PUSH_AGENT_STATES.length)
 })
@@ -66,11 +70,14 @@ const NotificationRegisterPushParams = z
 export const NOTIFICATION_METHODS: readonly RpcAnyMethod[] = [
   defineStreamingMethod({
     name: 'notifications.subscribe',
-    params: null,
-    handler: async (_params, { runtime, connectionId }, emit) => {
+    params: z.object({ includeDesktopSuppressed: z.boolean().optional() }).optional(),
+    handler: async (params, { runtime, connectionId }, emit) => {
+      const shouldEmit = createNotificationStreamFilter(params?.includeDesktopSuppressed)
       await new Promise<void>((resolve) => {
         const unsubscribe = runtime.onNotificationDispatched((event) => {
-          emit(event)
+          if (shouldEmit(event)) {
+            emit(event)
+          }
         })
 
         // Why: scope by per-ws connectionId + per-process counter so
@@ -109,7 +116,12 @@ export const NOTIFICATION_METHODS: readonly RpcAnyMethod[] = [
     // client missed while its socket was reaped.
     handler: async (params, { runtime }) => {
       const missed = runtime.getMissedNotificationsSince(params.lastSeenSeq, params.epoch)
-      return { notifications: missed, epoch: runtime.getMobileNotificationEpoch() }
+      return {
+        notifications: missed.filter(
+          createNotificationStreamFilter(params.includeDesktopSuppressed)
+        ),
+        epoch: runtime.getMobileNotificationEpoch()
+      }
     }
   }),
   defineMethod({

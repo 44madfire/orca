@@ -12,7 +12,10 @@ vi.mock('expo-notifications', () => ({
   setNotificationChannelAsync: vi.fn()
 }))
 
-vi.mock('react-native', () => ({ Platform: { OS: 'android' } }))
+vi.mock('react-native', () => ({
+  AppState: { currentState: 'background' },
+  Platform: { OS: 'android' }
+}))
 
 beforeEach(() => {
   vi.clearAllMocks()

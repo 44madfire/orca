@@ -1,5 +1,4 @@
 import type { RpcClient } from '../transport/rpc-client'
-// Re-exported so the existing importers (and their vi.mock paths) keep working.
 export {
   ensureNotificationPermissions,
   getNotificationPermissionState,
@@ -35,7 +34,6 @@ type SubscribeResult = {
   epoch?: string
 }
 
-// Per-connection subscription; a reconnect `ready` triggers watermarked catch-up (#8129) so already-pushed events aren't re-sent.
 export function subscribeToDesktopNotifications(client: RpcClient, hostId: string): () => void {
   ensureDesktopNotificationChannel()
 
@@ -114,8 +112,7 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
     }
   }
 
-  // Claimed inline rather than via queueDelivery: the batch is already one queue
-  // entry, and re-enqueueing per item is what let a live event cut in.
+  // Re-enqueueing inside a replay batch would let live delivery overtake it.
   async function deliverMissedEvent(
     event: NotificationEvent | DismissNotificationEvent
   ): Promise<void> {
@@ -156,6 +153,7 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
     const missed = await client
       .sendRequest('notifications.getMissedSince', {
         lastSeenSeq: askFrom,
+        includeDesktopSuppressed: true,
         // Why: sending the epoch lets the desktop reject a watermark from a counter
         // it no longer has and return the whole retained buffer instead of nothing.
         ...(session.lastDeliveredEpoch != null ? { epoch: session.lastDeliveredEpoch } : {})
@@ -220,7 +218,8 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
     }
   }
 
-  const unsubscribeStream = client.subscribe('notifications.subscribe', {}, (data: unknown) => {
+  const params = { includeDesktopSuppressed: true }
+  const unsubscribeStream = client.subscribe('notifications.subscribe', params, (data: unknown) => {
     const event = data as
       | NotificationEvent
       | DismissNotificationEvent

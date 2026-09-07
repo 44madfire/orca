@@ -119,26 +119,28 @@ export function registerNotificationHandlers(store: Store, runtime?: OrcaRuntime
       }
 
       const settings = store.getSettings().notifications
-      if (!settings.enabled) {
-        return { delivered: false, reason: 'disabled' }
-      }
-
-      if (
-        (args.source === 'agent-task-complete' && !settings.agentTaskComplete) ||
-        (args.source === 'terminal-bell' && !settings.terminalBell)
-      ) {
-        return { delivered: false, reason: 'source-disabled' }
-      }
+      const desktopAllowed =
+        settings.enabled &&
+        (args.source !== 'agent-task-complete' || settings.agentTaskComplete) &&
+        (args.source !== 'terminal-bell' || settings.terminalBell)
 
       const notificationOptions = buildNotificationOptions(args)
 
       // Why: desktop focus only means this computer sees the worktree; the paired phone may still need the alert.
       if (runtime && args.source !== 'test') {
         const dedupeKey = args.worktreeId ?? args.worktreeLabel ?? 'global'
-        if (reserveNotificationCooldown(recentMobileNotifications, dedupeKey, Date.now())) {
+        if (
+          reserveNotificationCooldown(
+            recentMobileNotifications,
+            JSON.stringify([desktopAllowed, args.source, args.agentState, dedupeKey]),
+            Date.now()
+          )
+        ) {
           runtime.dispatchMobileNotification({
             type: 'notification',
+            emittedAt: Date.now(),
             source: args.source,
+            ...(!desktopAllowed ? { desktopAllowed: false } : {}),
             title: notificationOptions.title,
             body: notificationOptions.body,
             worktreeId: args.worktreeId,
@@ -148,6 +150,10 @@ export function registerNotificationHandlers(store: Store, runtime?: OrcaRuntime
             ...(args.agentState ? { agentState: args.agentState } : {})
           })
         }
+      }
+
+      if (!desktopAllowed) {
+        return { delivered: false, reason: settings.enabled ? 'source-disabled' : 'disabled' }
       }
 
       const browserWindow =
