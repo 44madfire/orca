@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { EditorFocusOptions } from '@pierre/diffs/edit'
 import { getShortcutPlatform } from '@/lib/shortcut-platform'
 import { editorShortcutMatches } from '../editor-shortcuts'
@@ -10,7 +10,7 @@ import { editorShortcutMatches } from '../editor-shortcuts'
  */
 function findPierreContentElement(container: HTMLElement | null): HTMLElement | null {
   const host = container?.querySelector('diffs-container')
-  const editable = host?.shadowRoot?.querySelector('[contenteditable]')
+  const editable = host?.shadowRoot?.querySelector('[contenteditable="true"]')
   return editable instanceof HTMLElement ? editable : null
 }
 
@@ -61,9 +61,44 @@ export function usePierreDiffFind({
 }): PierreDiffFind {
   const [findActive, setFindActive] = useState(false)
   const pendingFindRef = useRef(false)
+  const replayingFindRef = useRef(false)
+  const findFrameRef = useRef<number | null>(null)
+
+  const openMountedSearch = useCallback(() => {
+    if (findFrameRef.current !== null) {
+      cancelAnimationFrame(findFrameRef.current)
+    }
+    findFrameRef.current = requestAnimationFrame(() => {
+      findFrameRef.current = null
+      const target = findPierreContentElement(containerRef.current)
+      if (!target || !pendingFindRef.current) {
+        return
+      }
+      pendingFindRef.current = false
+      target.focus({ preventScroll: true })
+      replayingFindRef.current = true
+      try {
+        dispatchPierreOpenSearchPanel(target)
+      } finally {
+        replayingFindRef.current = false
+      }
+    })
+  }, [containerRef])
+
+  useEffect(
+    () => () => {
+      if (findFrameRef.current !== null) {
+        cancelAnimationFrame(findFrameRef.current)
+      }
+    },
+    []
+  )
 
   const handleContainerKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {
+      if (replayingFindRef.current) {
+        return
+      }
       // Why: a find-only session must not outlive the search panel, or a
       // read-only diff stays editable forever after a single Cmd+F.
       if (findActive && event.key === 'Escape') {
@@ -71,15 +106,19 @@ export function usePierreDiffFind({
         setFindActive(false)
         return
       }
-      if (findActive || !editorShortcutMatches('editor.find', event)) {
+      if (!editorShortcutMatches('editor.find', event)) {
         return
       }
       event.preventDefault()
       event.stopPropagation()
       pendingFindRef.current = true
       setFindActive(true)
+      // Editable surfaces already attached; toggling find does not reattach them.
+      if (findPierreContentElement(containerRef.current)) {
+        openMountedSearch()
+      }
     },
-    [findActive]
+    [findActive, containerRef, openMountedSearch]
   )
 
   // Why: leaving the surface ends a find-only session too; the panel is gone.
@@ -99,20 +138,13 @@ export function usePierreDiffFind({
       if (!pendingFindRef.current) {
         return
       }
-      pendingFindRef.current = false
       editor.focus({ lineNumber: 'first-visible', preventScroll: true })
       // Why: the editable DOM is not focusable until after this commit paints,
       // so a same-tick dispatch misses Pierre's content element and the first
       // Cmd+F is swallowed — which is why it used to take two presses.
-      requestAnimationFrame(() => {
-        const target = findPierreContentElement(containerRef.current)
-        if (target) {
-          target.focus()
-          dispatchPierreOpenSearchPanel(target)
-        }
-      })
+      openMountedSearch()
     },
-    [containerRef]
+    [openMountedSearch]
   )
 
   const exitFind = useCallback(() => {

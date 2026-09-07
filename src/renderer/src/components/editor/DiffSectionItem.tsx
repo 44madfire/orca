@@ -87,16 +87,23 @@ export function DiffSectionItem({
 
   const fileDiff = useMemo(
     () =>
-      buildPierreFileDiff({
-        path: section.path,
-        oldPath: section.oldPath,
-        status: section.status,
-        originalContent: section.originalContent,
-        modifiedContent: section.modifiedContent,
-        // Why: keyed by content generation so the worker AST cache survives virtualization remounts.
-        cacheKey: `${section.key}:${section.contentGeneration ?? 0}`,
-        parseDiffOptions: buildPierreParseDiffOptions(settings?.diffShowWhitespace)
-      }),
+      section.collapsed ||
+      section.loading ||
+      section.loadOnDemand ||
+      section.error ||
+      section.diffResult?.kind === 'binary' ||
+      section.largeDiffRenderLimit?.limited
+        ? null
+        : buildPierreFileDiff({
+            path: section.path,
+            oldPath: section.oldPath,
+            status: section.status,
+            originalContent: section.originalContent,
+            modifiedContent: section.modifiedContent,
+            // Why: keyed by content generation so the worker AST cache survives virtualization remounts.
+            cacheKey: `${worktreeId}:${section.key}:${section.contentGeneration ?? 0}`,
+            parseDiffOptions: buildPierreParseDiffOptions(settings?.diffShowWhitespace)
+          }),
     [
       section.path,
       section.oldPath,
@@ -105,6 +112,13 @@ export function DiffSectionItem({
       section.modifiedContent,
       section.key,
       section.contentGeneration,
+      section.collapsed,
+      section.loading,
+      section.loadOnDemand,
+      section.error,
+      section.diffResult?.kind,
+      section.largeDiffRenderLimit?.limited,
+      worktreeId,
       settings?.diffShowWhitespace
     ]
   )
@@ -209,32 +223,33 @@ export function DiffSectionItem({
       return
     }
     return installEditorSaveShortcut(node, () => void handleSectionSaveRef.current(index))
-  }, [handleSectionSaveRef, index, isEditable])
+  }, [handleSectionSaveRef, index, isEditable, section.collapsed])
 
   const renderDiff = useCallback(
-    () => (
-      <PierreDiffSurface
-        fileDiff={fileDiff}
-        sideBySide={sideBySide}
-        settings={settings}
-        isEditable={isEditable}
-        collapseUnchanged
-        worktreeId={worktreeId ?? ''}
-        filePath={section.path}
-        language={detectLanguage(section.path)}
-        comments={comments}
-        onDeleteComment={handleDeleteComment}
-        onUpdateComment={handleUpdateComment}
-        onEditChange={handleEditChange}
-        onPostRender={handlePostRender}
-        onAddComment={hasLineCommentAction ? handleAddComment : undefined}
-        pendingComment={pendingComment}
-        addCommentPlaceholder={addLineCommentPlaceholder}
-        addCommentLabel={addLineCommentLabel}
-        onCancelComment={() => setPendingComment(null)}
-        onSubmitComment={handleSubmitComment}
-      />
-    ),
+    () =>
+      fileDiff ? (
+        <PierreDiffSurface
+          fileDiff={fileDiff}
+          sideBySide={sideBySide}
+          settings={settings}
+          isEditable={isEditable}
+          collapseUnchanged
+          worktreeId={worktreeId ?? ''}
+          filePath={section.path}
+          language={detectLanguage(section.path)}
+          comments={comments}
+          onDeleteComment={handleDeleteComment}
+          onUpdateComment={handleUpdateComment}
+          onEditChange={handleEditChange}
+          onPostRender={handlePostRender}
+          onAddComment={hasLineCommentAction ? handleAddComment : undefined}
+          pendingComment={pendingComment}
+          addCommentPlaceholder={addLineCommentPlaceholder}
+          addCommentLabel={addLineCommentLabel}
+          onCancelComment={() => setPendingComment(null)}
+          onSubmitComment={handleSubmitComment}
+        />
+      ) : null,
     [
       addLineCommentLabel,
       addLineCommentPlaceholder,

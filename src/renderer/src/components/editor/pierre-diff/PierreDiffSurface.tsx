@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { FileDiff } from '@pierre/diffs/react'
-import type { FileDiffMetadata, PostRenderPhase, SelectedLineRange } from '@pierre/diffs'
-import type { FileContents } from '@pierre/diffs'
+import type {
+  FileContents,
+  FileDiffMetadata,
+  PostRenderPhase,
+  SelectedLineRange
+} from '@pierre/diffs'
 import type { EditorOptions } from '@pierre/diffs/edit'
 import { useAppStore } from '@/store'
 import { RecoverableRenderErrorBoundary } from '@/components/error-boundaries/RecoverableRenderErrorBoundary'
@@ -103,11 +107,15 @@ export function PierreDiffSurface({
       }),
       enableGutterUtility: Boolean(onAddComment),
       onGutterUtilityClick: onAddComment
-        ? (range: SelectedLineRange) =>
+        ? (range: SelectedLineRange) => {
+            if (range.side === 'deletions' || range.endSide === 'deletions') {
+              return
+            }
             onAddComment({
               lineNumber: Math.max(range.start, range.end),
               startLine: range.start === range.end ? undefined : Math.min(range.start, range.end)
             })
+          }
         : undefined,
       onPostRender: onPostRender
         ? (node: HTMLElement, _instance: unknown, phase: PostRenderPhase) =>
@@ -121,8 +129,8 @@ export function PierreDiffSurface({
     [settings, editorFontZoomLevel]
   )
   const lineAnnotations = useMemo(
-    () => buildPierreDiffCommentAnnotations(comments, pendingComment),
-    [comments, pendingComment]
+    () => buildPierreDiffCommentAnnotations(comments, filePath, pendingComment),
+    [comments, filePath, pendingComment]
   )
   const editorOptions = useMemo<EditorOptions<'file-diff', PierreDiffAnnotationData, undefined>>(
     () => ({

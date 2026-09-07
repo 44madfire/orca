@@ -21,13 +21,16 @@ export type PierreDiffCommentAnnotation = DiffLineAnnotation<PierreDiffAnnotatio
  */
 export function buildPierreDiffCommentAnnotations(
   comments: readonly DecoratedDiffComment[],
+  filePath: string,
   draft?: { lineNumber: number; startLine?: number } | null
 ): PierreDiffCommentAnnotation[] {
-  const annotations: PierreDiffCommentAnnotation[] = comments.map((comment) => ({
-    side: 'additions',
-    lineNumber: comment.lineNumber,
-    metadata: { kind: 'comment', comment }
-  }))
+  const annotations: PierreDiffCommentAnnotation[] = comments
+    .filter((comment) => comment.filePath === filePath)
+    .map((comment) => ({
+      side: 'additions',
+      lineNumber: comment.lineNumber,
+      metadata: { kind: 'comment', comment }
+    }))
   if (draft) {
     annotations.push({
       side: 'additions',

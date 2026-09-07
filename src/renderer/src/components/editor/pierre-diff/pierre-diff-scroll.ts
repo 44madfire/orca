@@ -7,19 +7,28 @@ export function scrollPierreDiffToLine({
   host,
   container,
   lineNumber,
+  side = 'additions',
   hunkIndex,
   hunkCount
 }: {
   host: HTMLElement | null
   container: HTMLElement | null
   lineNumber: number
+  side?: 'additions' | 'deletions'
   hunkIndex: number
   hunkCount: number
 }): boolean {
   if (!container) {
     return false
   }
-  const row = host?.shadowRoot?.querySelector(`[data-line="${lineNumber}"]`)
+  const lineType = side === 'additions' ? 'change-addition' : 'change-deletion'
+  const root = host?.shadowRoot
+  const row =
+    root?.querySelector(`[data-code][data-${side}] [data-line="${lineNumber}"]`) ??
+    root?.querySelector(`[data-code] [data-line="${lineNumber}"][data-line-type="${lineType}"]`) ??
+    root?.querySelector(
+      `[data-code]:not([data-deletions]) [data-line="${lineNumber}"]:not([data-line-type="change-deletion"])`
+    )
   if (row instanceof HTMLElement) {
     const offset = row.getBoundingClientRect().top - container.getBoundingClientRect().top
     container.scrollTop += offset - container.clientHeight / 3

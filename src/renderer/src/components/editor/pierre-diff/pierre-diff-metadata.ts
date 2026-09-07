@@ -1,5 +1,6 @@
 import { parseDiffFromFile, type FileContents, type FileDiffMetadata } from '@pierre/diffs'
 import type { CreatePatchOptionsNonabortable } from 'diff'
+import { getPierreDiffCacheIdentity } from './pierre-diff-cache-identity'
 
 /** Statuses whose old side does not exist, so Pierre should render an add. */
 const ADDED_STATUSES = new Set(['added', 'untracked'])
@@ -36,12 +37,15 @@ export function buildPierreFileDiff({
 }): FileDiffMetadata {
   const isAdded = ADDED_STATUSES.has(status)
   const isDeleted = status === 'deleted'
+  const identity = getPierreDiffCacheIdentity(
+    JSON.stringify([cacheKey, path, oldPath, status, parseDiffOptions]),
+    originalContent,
+    modifiedContent
+  )
   const oldFile = isAdded
     ? null
-    : toFileContents(oldPath ?? path, originalContent, cacheKey && `${cacheKey}:old`)
-  const newFile = isDeleted
-    ? null
-    : toFileContents(path, modifiedContent, cacheKey && `${cacheKey}:new`)
+    : toFileContents(oldPath ?? path, originalContent, `${identity}:old`)
+  const newFile = isDeleted ? null : toFileContents(path, modifiedContent, `${identity}:new`)
 
-  return parseDiffFromFile(oldFile, newFile, parseDiffOptions)
+  return { ...parseDiffFromFile(oldFile, newFile, { ...parseDiffOptions }), cacheKey: identity }
 }

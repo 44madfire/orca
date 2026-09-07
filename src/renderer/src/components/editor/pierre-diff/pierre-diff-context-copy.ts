@@ -2,6 +2,7 @@ import { formatCopiedSelectionWithContext } from '../selection-copy'
 import { editorShortcutMatches } from '../editor-shortcuts'
 import { formatShortcutLabel } from '@/hooks/useShortcutLabel'
 import { useAppStore } from '@/store'
+import { getPierreSelectionRange } from './pierre-diff-selection'
 import {
   PRIMARY_SELECTION_MAX_LENGTH,
   isPrimarySelectionEnabled,
@@ -9,15 +10,6 @@ import {
 } from '@/lib/primary-selection'
 
 const PRIMARY_SELECTION_DEBOUNCE_MS = 200
-
-/** Resolves the 1-based line of the row containing a selection boundary node. */
-function lineOf(node: Node | null): number | null {
-  const element = node instanceof Element ? node : (node?.parentElement ?? null)
-  const row = element?.closest('[data-line]')
-  const raw = row?.getAttribute('data-line')
-  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
-  return Number.isFinite(parsed) ? parsed : null
-}
 
 /**
  * Restores `editor.copyContext` for Pierre-rendered diffs. Monaco exposed the
@@ -32,14 +24,19 @@ export function installPierreContextualCopy(
   // is an overlay pinned to the selection's client rect instead.
   const hint = document.createElement('div')
   hint.className =
-    'pointer-events-none fixed z-50 rounded-md border border-border/90 bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-[0_6px_18px_rgba(15,23,42,0.18)] backdrop-blur whitespace-nowrap'
+    'pointer-events-none fixed z-50 rounded-md border border-border/90 bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-floating backdrop-blur whitespace-nowrap'
   hint.style.display = 'none'
   document.body.appendChild(hint)
   let primarySelectionTimer: number | null = null
 
   const readSelection = (): Selection | null => {
     const root = container.querySelector('diffs-container')?.shadowRoot
-    return (root as unknown as { getSelection?: () => Selection | null })?.getSelection?.() ?? null
+    const selection =
+      (root as unknown as { getSelection?: () => Selection | null })?.getSelection?.() ?? null
+    return root?.contains(selection?.anchorNode ?? null) &&
+      root.contains(selection?.focusNode ?? null)
+      ? selection
+      : null
   }
 
   const hideHint = (): void => {
@@ -49,10 +46,9 @@ export function installPierreContextualCopy(
   const updateHint = (): void => {
     const selection = readSelection()
     const text = selection?.toString() ?? ''
-    const startLine = lineOf(selection?.anchorNode ?? null)
-    const endLine = lineOf(selection?.focusNode ?? null)
+    const range = getPierreSelectionRange(selection)
     // Why: copy-with-context is a multi-line affordance; a single line copies plainly.
-    if (!text || startLine == null || endLine == null || startLine === endLine) {
+    if (!text || !range || range.startLineNumber === range.endLineNumber) {
       hideHint()
       return
     }
@@ -95,19 +91,13 @@ export function installPierreContextualCopy(
     if (!editorShortcutMatches('editor.copyContext', event)) {
       return
     }
-    const host = container.querySelector('diffs-container')
-    const root = host?.shadowRoot
-    // Why: Chromium scopes the selection to the shadow root that owns the range.
-    const selection = (
-      root as unknown as { getSelection?: () => Selection | null }
-    )?.getSelection?.()
+    const selection = readSelection()
     const selectedText = selection?.toString() ?? ''
     if (!selectedText) {
       return
     }
-    const startLine = lineOf(selection?.anchorNode ?? null)
-    const endLine = lineOf(selection?.focusNode ?? null)
-    if (startLine == null || endLine == null) {
+    const range = getPierreSelectionRange(selection)
+    if (!range) {
       return
     }
     const { relativePath, language } = getFileInfo()
@@ -115,12 +105,7 @@ export function installPierreContextualCopy(
       relativePath,
       language,
       selectedText,
-      selection: {
-        startLineNumber: Math.min(startLine, endLine),
-        endLineNumber: Math.max(startLine, endLine),
-        startColumn: 1,
-        endColumn: 1
-      }
+      selection: range
     })
     if (!formatted) {
       return
@@ -133,9 +118,11 @@ export function installPierreContextualCopy(
 
   container.addEventListener('keydown', handleKeyDown, true)
   document.addEventListener('selectionchange', handleSelectionChange)
+  document.addEventListener('scroll', hideHint, true)
   return () => {
     container.removeEventListener('keydown', handleKeyDown, true)
     document.removeEventListener('selectionchange', handleSelectionChange)
+    document.removeEventListener('scroll', hideHint, true)
     if (primarySelectionTimer !== null) {
       window.clearTimeout(primarySelectionTimer)
     }

@@ -17,6 +17,7 @@ import { PierreDiffSurface } from './pierre-diff/PierreDiffSurface'
 import { buildPierreFileDiff } from './pierre-diff/pierre-diff-metadata'
 import { buildPierreParseDiffOptions } from './pierre-diff/pierre-diff-options'
 import { scrollPierreDiffToLine } from './pierre-diff/pierre-diff-scroll'
+import { getPierreDiffChangeTargets } from './pierre-diff/pierre-diff-change-targets'
 
 const EMPTY_DIFF_COMMENTS: readonly DecoratedDiffComment[] = []
 
@@ -70,19 +71,32 @@ export default function DiffViewer({
 
   const fileDiff = useMemo(
     () =>
-      buildPierreFileDiff({
-        path: relativePath,
-        status: 'modified',
-        originalContent,
-        modifiedContent,
-        cacheKey: modelKey,
-        parseDiffOptions: buildPierreParseDiffOptions(settings?.diffShowWhitespace)
-      }),
-    [relativePath, originalContent, modifiedContent, modelKey, settings?.diffShowWhitespace]
+      renderLimit.limited
+        ? null
+        : buildPierreFileDiff({
+            path: relativePath,
+            status: 'modified',
+            originalContent,
+            modifiedContent,
+            cacheKey: modelKey,
+            parseDiffOptions: buildPierreParseDiffOptions(settings?.diffShowWhitespace)
+          }),
+    [
+      relativePath,
+      originalContent,
+      modifiedContent,
+      modelKey,
+      settings?.diffShowWhitespace,
+      renderLimit.limited
+    ]
   )
 
   const { registerDiffNavigator, unregisterDiffNavigator } = useDiffNavigatorRegistration()
-  const changeLines = useMemo(() => fileDiff.hunks.map((hunk) => hunk.additionStart), [fileDiff])
+  const changeTargets = useMemo(() => getPierreDiffChangeTargets(fileDiff), [fileDiff])
+  const changeLines = useMemo(
+    () => changeTargets.map((target) => target.lineNumber),
+    [changeTargets]
+  )
 
   useEffect(() => {
     const container = scrollContainerRef.current
@@ -97,6 +111,7 @@ export default function DiffViewer({
           host: pierreHostRef.current,
           container,
           lineNumber,
+          side: changeTargets[hunkIndex]?.side,
           hunkIndex,
           hunkCount
         })
@@ -104,7 +119,13 @@ export default function DiffViewer({
     }
     registerDiffNavigator(navigator)
     return () => unregisterDiffNavigator(navigator)
-  }, [changeLines, registerDiffNavigator, renderLimit.limited, unregisterDiffNavigator])
+  }, [
+    changeLines,
+    changeTargets,
+    registerDiffNavigator,
+    renderLimit.limited,
+    unregisterDiffNavigator
+  ])
 
   const handlePostRender = useCallback((node: HTMLElement, phase: PostRenderPhase) => {
     pierreHostRef.current = phase === 'unmount' ? null : node
@@ -243,7 +264,7 @@ export default function DiffViewer({
               saveContentAvailable: largeDiffSaveContentAvailable
             })}
           />
-        ) : (
+        ) : fileDiff ? (
           <PierreDiffProviders>
             <PierreDiffSurface
               fileDiff={fileDiff}
@@ -267,7 +288,7 @@ export default function DiffViewer({
               onSubmitComment={handleSubmitComment}
             />
           </PierreDiffProviders>
-        )}
+        ) : null}
       </div>
     </div>
   )
