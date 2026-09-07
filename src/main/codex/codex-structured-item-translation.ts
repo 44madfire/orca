@@ -1,3 +1,4 @@
+import { toolExecutionMetadata, toolWebSearchResults } from '../../shared/native-chat-tool-identity'
 import type { AgentJournalItemBody } from '../../shared/agent-session-journal-types'
 import type { NativeChatBlock } from '../../shared/native-chat-types'
 import {
@@ -97,6 +98,7 @@ function commandItem(item: CodexThreadItem): CodexJournalItem {
         DEFAULT_JOURNAL_PAYLOAD_LIMITS
       ),
       state: commandState(item),
+      ...toolExecutionMetadata(item),
       ...(bounded === null ? {} : { output: bounded.bounded })
     },
     handled: true
@@ -200,12 +202,14 @@ function webSearchInput(item: CodexThreadItem): Record<string, unknown> | null {
  *  completed item's own `query` is routinely still empty. The hits arrive on
  *  `results` and are the call's output. */
 function webSearchItem(item: CodexThreadItem): CodexJournalItem {
+  const results = toolWebSearchResults(item.results)
   const hits = Array.isArray(item.results) && item.results.length > 0 ? item.results : null
   const bounded = hits && boundInlineText(JSON.stringify(hits), DEFAULT_JOURNAL_PAYLOAD_LIMITS)
   return {
     body: {
       kind: 'tool-call',
       name: 'web_search',
+      ...(results.length > 0 ? { webSearchResults: results } : {}),
       input: boundToolInput(webSearchInput(item), DEFAULT_JOURNAL_PAYLOAD_LIMITS),
       state: item.action === null || item.action === undefined ? 'running' : 'completed',
       ...(bounded === null ? {} : { output: bounded.bounded })

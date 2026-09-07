@@ -154,6 +154,7 @@ export const MessageRow = memo(function MessageRow({
       {tools.length > 0 ? (
         <NativeChatToolRun
           blocks={tools}
+          onLinkClick={onLinkClick}
           expandSignal={expandSignal}
           expandOverride={activityExpandOverride}
           activeTurnIsWorking={activeTurnIsWorking}

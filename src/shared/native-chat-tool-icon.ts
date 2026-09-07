@@ -1,3 +1,4 @@
+import { mcpToolIdentity } from './native-chat-tool-identity'
 /**
  * The category vocabulary for native-chat tool rows, and the one glyph each
  * category keeps. A row is `icon + word + argument`: the icon is decorative and
@@ -81,7 +82,8 @@ const CATEGORY_BY_ROW_WORD = new Map<string, NativeChatToolCategory>([
   ['webfetch', 'webSearch'],
   ['todowrite', 'todoList'],
   ['web search', 'webSearch'],
-  ['websearch', 'webSearch']
+  ['websearch', 'webSearch'],
+  ['web_search', 'webSearch']
 ])
 
 /** The edit family, lowercased for row-word matching. Deliberately not
@@ -97,7 +99,7 @@ const MCP_TOOL_PREFIX = 'mcp__'
  *  vocabulary doesn't model yet. */
 export function nativeChatToolCategory(rowWord: string): NativeChatToolCategory | null {
   const word = rowWord.trim().toLowerCase()
-  if (word.startsWith(MCP_TOOL_PREFIX)) {
+  if (word.startsWith(MCP_TOOL_PREFIX) || mcpToolIdentity(rowWord) !== null) {
     return 'mcpToolCall'
   }
   // Before the edit family: a command tool runs whatever it is handed, so a

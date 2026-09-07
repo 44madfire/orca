@@ -245,3 +245,20 @@ describe('native chat tool icons', () => {
     expect(nativeChatToolIconName('__proto__')).toBe('wrench')
   })
 })
+
+describe('qualified tool identity icons', () => {
+  it.each(['linear/list_issues', 'linear.list_issues', 'mcp__linear__list_issues'])(
+    'uses the MCP glyph for %s',
+    (name) => expect(nativeChatToolIconName(name)).toBe('plug')
+  )
+  it.each(['setup.py', 'src/read', 'src/tool.ts', '/usr/bin/tool'])(
+    'does not claim MCP for %s',
+    (name) => expect(nativeChatToolCategory(name)).toBeNull()
+  )
+  it('keeps classified command and web identities', () => {
+    expect(nativeChatToolCategory('read')).toBe('read')
+    expect(nativeChatToolCategory('search')).toBe('search')
+    expect(nativeChatToolCategory('list')).toBe('listFiles')
+    expect(nativeChatToolIconName('web_search')).toBe('globe')
+  })
+})

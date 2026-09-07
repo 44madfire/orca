@@ -283,3 +283,27 @@ describe('structured agent session status projection', () => {
     ])
   })
 })
+
+it('preserves optional tool annotations for desktop and mobile projection', () => {
+  const metadata = {
+    exitCode: 127,
+    durationMs: 400,
+    webSearchResults: [{ title: 'Docs', url: 'https://example.com' }]
+  }
+  const projected = projectStructuredItemToNativeChat(
+    item('annotated', 1, {
+      kind: 'tool-call',
+      name: 'shell',
+      input: null,
+      state: 'failed',
+      ...metadata
+    })
+  )
+  expect(projected?.blocks[0]).toEqual({
+    type: 'tool-call',
+    name: 'shell',
+    input: null,
+    state: 'failed',
+    ...metadata
+  })
+})
