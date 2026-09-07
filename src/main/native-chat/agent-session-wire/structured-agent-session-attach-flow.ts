@@ -2,6 +2,10 @@ import { settlePostAcquisitionAttachFailure } from './structured-agent-session-a
 import { rewindRefusal } from './structured-rewind-refusal'
 import {
   AgentSessionRewindRefusal,
+  AgentSessionAcquisitionExitUnprovenError,
+  AgentSessionAcquisitionRootExitObservedError,
+  AgentSessionAcquisitionRefusal,
+  isAgentSessionPreSpawnError,
   type StructuredAgentSessionAcquireInput,
   type StructuredAgentSessionAdapter
 } from './structured-agent-session-adapter'
@@ -24,12 +28,6 @@ import {
 } from './structured-agent-session-attach'
 import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import { adapterSupportsCreateIfDeclared } from './structured-agent-session-provider-support'
-import {
-  AgentSessionAcquisitionExitUnprovenError,
-  AgentSessionAcquisitionRootExitObservedError,
-  AgentSessionAcquisitionRefusal,
-  isAgentSessionPreSpawnError
-} from './structured-agent-session-adapter'
 import type { StructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
 import { resolveAgentSessionReplayOutcome } from './structured-agent-session-replay-outcome'
 import { readAgentSessionHydrationPage } from './agent-session-history-page'
