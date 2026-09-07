@@ -9,17 +9,11 @@ export default function HostMobileWebFileExplorerRoute() {
     () => (shell.client ? webHostFileExplorerOperations(shell.client) : undefined),
     [shell.client]
   )
-  const connectionState =
-    shell.connection === 'offline'
-      ? 'disconnected'
-      : shell.connection === 'recovering'
-        ? 'reconnecting'
-        : shell.connection
 
   return (
     <MobileFileExplorerScreen
       operations={operations}
-      connectionState={connectionState}
+      connectionState={shell.connection}
       nativeHostBinding={false}
     />
   )

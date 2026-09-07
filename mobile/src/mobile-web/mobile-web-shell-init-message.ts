@@ -4,7 +4,6 @@ import {
   type MobileWebResumeRoute
 } from '../../../src/shared/mobile-web/bridge-contract'
 import type { ConnectionState } from '../transport/types'
-import { mobileWebBridgeConnectionState } from './mobile-web-bridge-connection-state'
 import { MOBILE_WEB_PRODUCTION_GRANTS } from './mobile-web-production-grants'
 
 type MobileWebShellInitArgs = {
@@ -28,7 +27,7 @@ export function mobileWebShellInitMessage(
     type: 'init',
     shellSessionId: args.shellSessionId,
     buildId: args.buildId,
-    connection: mobileWebBridgeConnectionState(args.state),
+    connection: args.state,
     hostDisplayName: args.hostDisplayName,
     reconnectAttempts: args.reconnectAttempts,
     lastConnectedAt: args.lastConnectedAt,

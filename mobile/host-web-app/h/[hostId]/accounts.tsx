@@ -14,18 +14,12 @@ export default function HostMobileWebAccountsRoute() {
         : undefined,
     [shell.client, shell.hostDisplayName]
   )
-  const connectionState =
-    shell.connection === 'offline'
-      ? 'disconnected'
-      : shell.connection === 'recovering'
-        ? 'reconnecting'
-        : shell.connection
 
   return (
     <AccountsScreen
       hostId={HOSTED_PAGE_HOST_ID}
       operations={operations}
-      connectionState={connectionState}
+      connectionState={shell.connection}
       nativeHostBinding={false}
     />
   )

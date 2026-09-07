@@ -165,7 +165,16 @@ const ShellEnvelopeSchema = z.object({
   buildId: BuildIdSchema
 })
 
-const ConnectionStateSchema = z.enum(['connecting', 'connected', 'offline', 'recovering'])
+// The shell publishes the transport's own state; the page decides what to show for each.
+const ConnectionStateSchema = z.enum([
+  'connecting',
+  'handshaking',
+  'connected',
+  'disconnected',
+  'reconnecting',
+  'auth-failed'
+])
+export type MobileWebConnectionState = z.infer<typeof ConnectionStateSchema>
 const ConnectionMetricsShape = {
   reconnectAttempts: z.number().int().nonnegative().max(1_000_000).optional(),
   lastConnectedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().optional()

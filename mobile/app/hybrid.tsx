@@ -22,7 +22,6 @@ import { MobileWebHybridShellPresentation } from '../src/mobile-web/MobileWebHyb
 import { mobileWebShellLoadFailureWarning } from '../src/mobile-web/mobile-web-shell-load-failure-warning'
 import { useMobileWebNavigationIntentHandoff } from '../src/mobile-web/use-mobile-web-navigation-intent-handoff'
 import { useMobileWebColdResumeRoute } from '../src/mobile-web/use-mobile-web-cold-resume-route'
-import { mobileWebBridgeConnectionState } from '../src/mobile-web/mobile-web-bridge-connection-state'
 import { MobileWebOneShotResponseDrop } from '../src/mobile-web/mobile-web-one-shot-response-drop'
 import { useMobileWebE2eHostSelection } from '../src/mobile-web/mobile-web-e2e-host-selection'
 import { useMobileWebAppForegroundAuthority } from '../src/mobile-web/use-mobile-web-app-foreground-authority'
@@ -266,7 +265,7 @@ export default function HybridScreen() {
   }, [postInit])
 
   useEffect(() => {
-    brokerRef.current?.updateConnectionState(mobileWebBridgeConnectionState(state))
+    brokerRef.current?.updateConnectionState(state)
     const current = session
     if (!current || pageDocument.initializedSessionRef.current !== current.sessionId) {
       return
@@ -276,7 +275,7 @@ export default function HybridScreen() {
       type: 'connection',
       shellSessionId: current.sessionId,
       buildId: current.buildId,
-      state: mobileWebBridgeConnectionState(state),
+      state,
       reconnectAttempts: reconnects,
       lastConnectedAt: lastConnected
     })

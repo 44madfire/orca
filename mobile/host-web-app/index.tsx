@@ -45,12 +45,6 @@ export default function HostMobileWebRoute() {
       ),
     [pathname, router, shell.client]
   )
-  const connectionState =
-    shell.connection === 'offline'
-      ? 'disconnected'
-      : shell.connection === 'recovering'
-        ? 'reconnecting'
-        : shell.connection
   const hostStatusGates = useWebHostStatusGates({
     client: shell.client,
     connection: shell.connection
@@ -60,7 +54,7 @@ export default function HostMobileWebRoute() {
       <HostScreen
         hostId={HOSTED_PAGE_HOST_ID}
         nativeHostBinding={false}
-        connectionState={connectionState}
+        connectionState={shell.connection}
         connectionMetrics={{
           reconnectAttempts: shell.reconnectAttempts,
           lastConnectedAt: shell.lastConnectedAt

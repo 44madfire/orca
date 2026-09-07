@@ -516,7 +516,7 @@ describe('mobile web bridge shell contract', () => {
       type: 'connection',
       shellSessionId: SHELL_SESSION_ID,
       buildId: BUILD_ID,
-      state: 'recovering'
+      state: 'reconnecting'
     }
 
     expect(

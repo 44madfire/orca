@@ -1,6 +1,7 @@
 import { requireMobileWebConnectedClient } from './mobile-web-connected-client'
 import type {
   MobileWebBridgePageMessage,
+  MobileWebConnectionState,
   MobileWebResumeRoute
 } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
@@ -115,7 +116,7 @@ export class MobileWebCapabilityBroker {
       void this.messages.error(requestId, 'cancelled', false)
     }
   }
-  updateConnectionState(state: 'connecting' | 'connected' | 'offline' | 'recovering'): void {
+  updateConnectionState(state: MobileWebConnectionState): void {
     if (state !== 'connected') {
       this.authorities.terminalArtifact.clear()
       void this.speechAuthority.cancel('disconnected')

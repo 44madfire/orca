@@ -17,19 +17,13 @@ export default function HostMobileWebSourceControlRoute() {
       shell.client && workspaceId ? webHostSourceControlClient(shell.client, workspaceId) : null,
     [shell.client, workspaceId]
   )
-  const connectionState =
-    shell.connection === 'offline'
-      ? 'disconnected'
-      : shell.connection === 'recovering'
-        ? 'reconnecting'
-        : shell.connection
 
   return (
     <MobileSourceControlRoute
       routeName={workspaceName}
       binding={{
         client,
-        connectionState,
+        connectionState: shell.connection,
         reconnect: async () => {
           await shell.client?.navigationReconnect()
         },

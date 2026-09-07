@@ -9,17 +9,11 @@ export default function HostMobileWebFilePreviewRoute() {
     () => (shell.client ? webHostFilePreviewOperations(shell.client) : undefined),
     [shell.client]
   )
-  const connectionState =
-    shell.connection === 'offline'
-      ? 'disconnected'
-      : shell.connection === 'recovering'
-        ? 'reconnecting'
-        : shell.connection
 
   return (
     <MobileFilePreviewRoute
       operations={operations}
-      connectionState={connectionState}
+      connectionState={shell.connection}
       nativeHostBinding={false}
     />
   )

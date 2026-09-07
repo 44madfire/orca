@@ -83,12 +83,6 @@ export default function HostMobileWebSessionRoute() {
     () => (shell.client ? webHostSessionChatPendingDeliveryOperations(shell.client) : undefined),
     [shell.client]
   )
-  const connectionState =
-    shell.connection === 'offline'
-      ? 'disconnected'
-      : shell.connection === 'recovering'
-        ? 'reconnecting'
-        : shell.connection
 
   return (
     <SessionScreen
@@ -104,7 +98,7 @@ export default function HostMobileWebSessionRoute() {
       sessionNativeChatOperations={sessionNativeChatOperations}
       sessionChatDraftOperations={sessionChatDraftOperations}
       sessionChatPendingDeliveryOperations={sessionChatPendingDeliveryOperations}
-      connectionState={connectionState}
+      connectionState={shell.connection}
       nativeHostBinding={false}
       reconnect={() =>
         shell.client
