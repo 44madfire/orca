@@ -15,32 +15,23 @@ class ExpoMobileWebShellModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("ExpoMobileWebShell")
 
-    AsyncFunction("beginStage") {
+    AsyncFunction("writeStagedAsset") {
         hostIdentity: String,
-        manifestJson: String,
-        canonicalManifestJson: String ->
-      packageStore.beginStage(hostIdentity, manifestJson, canonicalManifestJson)
-    }
-
-    AsyncFunction("writeAssetChunk") {
-        stageId: String,
+        buildId: String,
         path: String,
-        offset: Int,
-        dataBase64: String,
-        chunkSha256: String ->
-      packageStore.writeAssetChunk(stageId, path, offset, dataBase64, chunkSha256)
+        dataBase64: String ->
+      packageStore.writeStagedAsset(hostIdentity, buildId, path, dataBase64)
     }
 
-    AsyncFunction("finishAsset") { stageId: String, path: String ->
-      packageStore.finishAsset(stageId, path)
+    AsyncFunction("commitGeneration") {
+        hostIdentity: String,
+        buildId: String,
+        manifestJson: String ->
+      mapOf("buildId" to packageStore.commitGeneration(hostIdentity, buildId, manifestJson))
     }
 
-    AsyncFunction("commitStage") { stageId: String ->
-      mapOf("buildId" to packageStore.commitStage(stageId))
-    }
-
-    AsyncFunction("abortStage") { stageId: String ->
-      packageStore.abortStage(stageId)
+    AsyncFunction("abortGeneration") { hostIdentity: String, buildId: String ->
+      packageStore.abortGeneration(hostIdentity, buildId)
     }
 
     AsyncFunction("openSession") {
@@ -48,14 +39,6 @@ class ExpoMobileWebShellModule : Module() {
         buildId: String?,
         bridgeVersion: Int ->
       packageStore.openSession(hostIdentity, buildId, bridgeVersion)
-    }
-
-    AsyncFunction("recoverSession") { sessionId: String ->
-      packageStore.recoverSession(sessionId)
-    }
-
-    AsyncFunction("markSessionHealthy") { sessionId: String ->
-      mapOf("buildId" to packageStore.markSessionHealthy(sessionId))
     }
 
     AsyncFunction("closeSession") { sessionId: String ->

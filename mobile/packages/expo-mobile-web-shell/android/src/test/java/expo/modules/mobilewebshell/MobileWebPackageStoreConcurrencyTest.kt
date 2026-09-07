@@ -1,21 +1,15 @@
 package expo.modules.mobilewebshell
 
-import org.json.JSONArray
-import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
-import java.util.Base64
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CountDownLatch
+import java.util.Collections
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -24,212 +18,105 @@ class MobileWebPackageStoreConcurrencyTest {
   val temporary = TemporaryFolder()
 
   @Test
-  fun serializesConcurrentHostsAndDuplicateGenerationCommits() {
-    val root = temporary.newFolder()
-    val store = concurrencyStore(root)
-    val failures = ConcurrentLinkedQueue<Throwable>()
+  fun independentHostsCommitAndServeConcurrently() {
+    val root = temporary.newFolder("hosts")
+    val store = jvmMobileWebPackageStore(root)
 
-    runConcurrent(24, failures) { index ->
+    val failures = runConcurrently(24) { iteration ->
+      val index = iteration % 4
       val host = "concurrent-host-$index"
-      val fixture = concurrencyFixture("<title>$index</title>")
-      concurrencyStagePackage(store, host, fixture)
-      val session = store.openSession(host, fixture.buildId, 1)
-      val sessionId = session.getValue("sessionId")
-      assertArrayEquals(fixture.bytes, store.readAsset(sessionId, "index.html").bytes)
-      assertEquals(fixture.buildId, store.markSessionHealthy(sessionId))
-      store.closeSession(sessionId)
+      val fixture = mobileWebStoreFixture(content = "<title>$index</title>")
+      store.commitFixture(host, fixture)
+      val session = store.openSession(host, fixture.buildId, 1).getValue("sessionId")
+      assertArrayEquals(fixture.bytes, store.readAsset(session, "index.html").bytes)
+      store.closeSession(session)
     }
-    assertTrue(failures.joinToString("\n") { it.stackTraceToString() }, failures.isEmpty())
 
-    val duplicate = concurrencyFixture("<title>same generation</title>")
-    runConcurrent(24, failures) {
-      concurrencyStagePackage(store, "same-host", duplicate)
-    }
-    assertTrue(failures.joinToString("\n") { it.stackTraceToString() }, failures.isEmpty())
-    runConcurrent(24, failures) {
-      val session = store.openSession("same-host", duplicate.buildId, 1)
-      val sessionId = session.getValue("sessionId")
-      assertArrayEquals(duplicate.bytes, store.readAsset(sessionId, "index.html").bytes)
-      assertEquals(duplicate.buildId, store.markSessionHealthy(sessionId))
-      store.closeSession(sessionId)
-    }
-    assertTrue(failures.joinToString("\n") { it.stackTraceToString() }, failures.isEmpty())
-    val session = store.openSession("same-host", null, 1)
-    assertArrayEquals(
-      duplicate.bytes,
-      store.readAsset(session.getValue("sessionId"), "index.html").bytes
-    )
-    val staging = File(root, "${concurrencySha256("same-host".toByteArray())}/staging")
-    assertFalse(staging.listFiles()?.isNotEmpty() == true)
+    assertEquals(emptyList<String>(), failures)
+    assertEquals(4, root.listFiles()?.size)
   }
 
   @Test
-  fun preservesCompetingLiveGenerationsDuringConcurrentActivation() {
-    val root = temporary.newFolder()
-    val store = concurrencyStore(root)
-    val failures = ConcurrentLinkedQueue<Throwable>()
-    val fixtures = (0 until 16).map {
-      concurrencyFixture("<title>generation-$it</title>")
-    }
+  fun repeatedCommitsOfOneGenerationConverge() {
+    val root = temporary.newFolder("duplicate")
+    val store = jvmMobileWebPackageStore(root)
+    val fixture = mobileWebStoreFixture(content = "<title>same generation</title>")
 
-    runConcurrent(fixtures.size, failures) { index ->
-      concurrencyStagePackage(store, "generation-host", fixtures[index])
-    }
-    assertTrue(failures.joinToString("\n") { it.stackTraceToString() }, failures.isEmpty())
+    val commitFailures = runConcurrently(24) { store.commitFixture("same-host", fixture) }
+    assertEquals(emptyList<String>(), commitFailures)
 
-    val sessions = fixtures.map { store.openSession("generation-host", it.buildId, 1) }
-    runConcurrent(sessions.size, failures) { index ->
-      val sessionId = sessions[index].getValue("sessionId")
-      assertArrayEquals(fixtures[index].bytes, store.readAsset(sessionId, "index.html").bytes)
-      assertEquals(fixtures[index].buildId, store.markSessionHealthy(sessionId))
-      assertArrayEquals(fixtures[index].bytes, store.readAsset(sessionId, "index.html").bytes)
+    val readFailures = runConcurrently(24) {
+      val session = store.openSession("same-host", fixture.buildId, 1).getValue("sessionId")
+      assertArrayEquals(fixture.bytes, store.readAsset(session, "index.html").bytes)
+      store.closeSession(session)
     }
-    assertTrue(failures.joinToString("\n") { it.stackTraceToString() }, failures.isEmpty())
+    assertEquals(emptyList<String>(), readFailures)
+    val active = store.openSession("same-host", null, 1).getValue("sessionId")
+    assertArrayEquals(fixture.bytes, store.readAsset(active, "index.html").bytes)
+    assertTrue(File(mobileWebStoreHostRoot(root, "same-host"), "tmp").listFiles().isNullOrEmpty())
+  }
 
+  /** Competing commits for one host converge on exactly one generation, whichever wins the lock. */
+  @Test
+  fun competingGenerationsConvergeOnOne() {
+    val root = temporary.newFolder("generations")
+    val store = jvmMobileWebPackageStore(root)
+    val fixtures = (0 until 16).map { mobileWebStoreFixture(content = "<title>generation-$it</title>") }
+
+    val failures = runConcurrently(fixtures.size) { store.commitFixture("generation-host", fixtures[it]) }
+
+    assertEquals(emptyList<String>(), failures)
+    val retained = mobileWebStoreGenerations(root, "generation-host").listFiles()?.map { it.name }
+    assertEquals(1, retained?.size)
     val active = store.openSession("generation-host", null, 1)
-    val activeBuildId = active.getValue("buildId")
-    val activeFixture = fixtures.first { it.buildId == activeBuildId }
+    assertEquals(retained?.single(), active["buildId"])
+    val activeFixture = fixtures.single { it.buildId == active["buildId"] }
     assertArrayEquals(
       activeFixture.bytes,
       store.readAsset(active.getValue("sessionId"), "index.html").bytes
     )
-    sessions.forEach { store.closeSession(it.getValue("sessionId")) }
-    assertEquals(activeBuildId, store.markSessionHealthy(active.getValue("sessionId")))
-    val generations = File(
-      root,
-      "${concurrencySha256("generation-host".toByteArray())}/generations"
-    )
-    assertTrue(generations.listFiles().orEmpty().size <= 2)
-    store.closeSession(active.getValue("sessionId"))
   }
 
   @Test
-  fun serializesConcurrentCommitAndAbortMutations() {
-    val root = temporary.newFolder()
-    val store = concurrencyStore(root)
-    val failures = ConcurrentLinkedQueue<Throwable>()
-    val fixtures = (0 until 16).map { concurrencyFixture("<title>stage-$it</title>") }
-    val stages = fixtures.map { store.beginStage("stage-host", it.manifest, it.canonical) }
+  fun abortedStagesNeverBecomeGenerations() {
+    val root = temporary.newFolder("commit-abort")
+    val store = jvmMobileWebPackageStore(root)
+    val fixtures = (0 until 16).map { mobileWebStoreFixture(content = "<title>stage-$it</title>") }
+    fixtures.forEach { store.stageAsset("stage-host", it) }
 
-    runConcurrent(stages.size, failures) { index ->
+    val failures = runConcurrently(fixtures.size) { index ->
       if (index % 2 == 0) {
-        concurrencyFinishStage(store, stages[index], fixtures[index])
+        store.commitGeneration("stage-host", fixtures[index].buildId, fixtures[index].manifestJson)
       } else {
-        store.abortStage(stages[index])
+        store.abortGeneration("stage-host", fixtures[index].buildId)
       }
     }
-    assertTrue(failures.joinToString("\n") { it.stackTraceToString() }, failures.isEmpty())
 
-    fixtures.forEachIndexed { index, fixture ->
-      if (index % 2 == 0) {
-        val session = store.openSession("stage-host", fixture.buildId, 1)
-        assertArrayEquals(
-          fixture.bytes,
-          store.readAsset(session.getValue("sessionId"), "index.html").bytes
-        )
-        store.closeSession(session.getValue("sessionId"))
-      } else {
-        assertTrue(runCatching { store.openSession("stage-host", fixture.buildId, 1) }.isFailure)
+    assertEquals(emptyList<String>(), failures)
+    for (index in 1 until fixtures.size step 2) {
+      assertThrows(IllegalArgumentException::class.java) {
+        store.openSession("stage-host", fixtures[index].buildId, 1)
       }
     }
+    val retained = mobileWebStoreGenerations(root, "stage-host").listFiles()?.map { it.name }
+    assertEquals(1, retained?.size)
+    assertTrue(
+      fixtures.filterIndexed { index, _ -> index % 2 == 0 }.any { it.buildId == retained?.single() }
+    )
     store.removeHost("stage-host")
-    val hostRoot = File(root, concurrencySha256("stage-host".toByteArray()))
-    assertFalse(hostRoot.exists())
+    assertFalse(mobileWebStoreHostRoot(root, "stage-host").exists())
   }
 
-  private fun runConcurrent(
-    count: Int,
-    failures: ConcurrentLinkedQueue<Throwable>,
-    operation: (Int) -> Unit
-  ) {
-    val executor = Executors.newFixedThreadPool(count)
-    val ready = CountDownLatch(count)
-    val start = CountDownLatch(1)
-    val complete = CountDownLatch(count)
-    repeat(count) { index ->
-      executor.execute {
-        ready.countDown()
-        try {
-          start.await()
-          operation(index)
-        } catch (error: Throwable) {
-          failures += error
-        } finally {
-          complete.countDown()
-        }
-      }
+  private fun runConcurrently(iterations: Int, body: (Int) -> Unit): List<String> {
+    val failures = Collections.synchronizedList(mutableListOf<String>())
+    val executor = Executors.newFixedThreadPool(8)
+    try {
+      (0 until iterations)
+        .map { index -> executor.submit { runCatching { body(index) }.onFailure { failures += "$it" } } }
+        .forEach { it.get(60, TimeUnit.SECONDS) }
+    } finally {
+      executor.shutdownNow()
     }
-    assertTrue(ready.await(10, TimeUnit.SECONDS))
-    start.countDown()
-    assertTrue(complete.await(30, TimeUnit.SECONDS))
-    executor.shutdownNow()
+    return failures.toList()
   }
-
-  private fun concurrencyStagePackage(
-    store: MobileWebPackageStore,
-    host: String,
-    fixture: ConcurrencyFixture
-  ) {
-    val stageId = store.beginStage(host, fixture.manifest, fixture.canonical)
-    concurrencyFinishStage(store, stageId, fixture)
-  }
-
-  private fun concurrencyFinishStage(
-    store: MobileWebPackageStore,
-    stageId: String,
-    fixture: ConcurrencyFixture
-  ) {
-    store.writeAssetChunk(
-      stageId,
-      "index.html",
-      0,
-      Base64.getEncoder().encodeToString(fixture.bytes),
-      concurrencySha256(fixture.bytes)
-    )
-    store.finishAsset(stageId, "index.html")
-    assertEquals(fixture.buildId, store.commitStage(stageId))
-  }
-
-  private fun concurrencyFixture(content: String): ConcurrencyFixture {
-    val bytes = content.toByteArray()
-    val asset = JSONObject()
-      .put("path", "index.html")
-      .put("sha256", concurrencySha256(bytes))
-      .put("byteLength", bytes.size)
-      .put("contentType", "text/html; charset=utf-8")
-      .put("role", "document")
-    val canonical = JSONObject()
-      .put("schemaVersion", 1)
-      .put("bridge", JSONObject().put("minimum", 1).put("testedThrough", 1))
-      .put("entrypoint", "index.html")
-      .put("totalBytes", bytes.size)
-      .put("assets", JSONArray().put(asset))
-      .toString()
-    val buildId = concurrencySha256(canonical.toByteArray())
-    val manifest = JSONObject(canonical).put("buildId", buildId).toString()
-    return ConcurrencyFixture(bytes, canonical, manifest, buildId)
-  }
-
-  private fun concurrencyStore(root: File): MobileWebPackageStore =
-    jvmMobileWebPackageStore(
-      root,
-      replaceActivation = { source, destination ->
-        Files.move(
-          source.toPath(),
-          destination.toPath(),
-          StandardCopyOption.ATOMIC_MOVE,
-          StandardCopyOption.REPLACE_EXISTING
-        )
-      }
-    )
-
-  private fun concurrencySha256(bytes: ByteArray): String =
-    MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-
-  private data class ConcurrencyFixture(
-    val bytes: ByteArray,
-    val canonical: String,
-    val manifest: String,
-    val buildId: String
-  )
 }
