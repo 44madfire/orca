@@ -1,7 +1,10 @@
 import { settlePostAcquisitionAttachFailure } from './structured-agent-session-attach-failure'
 import { rewindRefusal } from './structured-rewind-refusal'
-import type { StructuredAgentSessionAcquireInput } from './structured-agent-session-adapter'
-import { AgentSessionRewindRefusal } from './structured-agent-session-adapter'
+import {
+  AgentSessionRewindRefusal,
+  type StructuredAgentSessionAcquireInput,
+  type StructuredAgentSessionAdapter
+} from './structured-agent-session-adapter'
 // The host supplies owner authority; this flow reserves, proves, and publishes the session.
 
 import type {
@@ -20,7 +23,6 @@ import {
   type AttachedJournal
 } from './structured-agent-session-attach'
 import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { adapterSupportsCreateIfDeclared } from './structured-agent-session-provider-support'
 import {
   AgentSessionAcquisitionExitUnprovenError,
