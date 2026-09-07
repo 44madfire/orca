@@ -75,15 +75,30 @@ export function isDeliberateHumanInput(
   return !input.client && mobileWithoutClientMetadata
 }
 
-/** One mobile write's floor claim and provenance verdict, decided together before the bytes move. */
-export function newMobileInputWrite(
+/**
+ * Whether a pane is currently driven from a phone, which is the host's standing reading of input
+ * that carries no client metadata — the same policy `isTerminalInputLockedForClient` applies when
+ * it lets a clientless write through as a pre-refactor mobile build.
+ */
+export function isMobileDrivenPane(runtime: OrcaRuntimeService, handle: string): boolean {
+  try {
+    const ptyId = runtime.resolveLiveLeafForHandle(handle)?.ptyId
+    return Boolean(ptyId) && runtime.getDriver(ptyId!).kind === 'mobile'
+  } catch {
+    // A handle that no longer resolves says nothing about who was typing into it.
+    return false
+  }
+}
+
+/** One accepted write's provenance verdict, decided from the request before the bytes move. */
+export function newTerminalInputWrite(
   input: { terminal: string; client?: TerminalViewportClient; inputKind?: 'query-reply' },
   mobileWithoutClientMetadata: boolean
-): MobileInputFloorClaimHolder {
+): TerminalInputWrite {
   return {
     handle: input.terminal,
     humanInput: isDeliberateHumanInput(input, mobileWithoutClientMetadata),
-    current: null
+    floorClaim: null
   }
 }
 
@@ -148,67 +163,74 @@ export async function sendTerminalStreamInput(
   }
 ): Promise<TerminalStreamInputOutcome> {
   const action = { text: args.text, enter: false, interrupt: false }
+  // Why: a stream's `isMobile` comes from client metadata alone, so a phone that predates
+  // `client.type` reports neither; the pane's driver is what the host has left to read it by.
+  const inputWrite = newTerminalInputWrite(
+    args,
+    !args.client && isMobileDrivenPane(runtime, args.terminal)
+  )
+  // Only a client that named itself can hold the floor, but every accepted write settles.
   const clientId = args.isMobile ? args.client?.id : undefined
-  // Why: a stream's `isMobile` is read off the same `client` it carries, so the metadata-less
-  // legacy phone the unary lane recognises by driver cannot reach this lane at all.
-  const floorClaim = newMobileInputWrite(args, false)
   try {
-    if (!clientId) {
-      const result = await runtime.sendTerminal(args.terminal, action)
-      return result.accepted ? 'delivered' : 'rejected'
-    }
     const result = await runtime.sendTerminal(args.terminal, action, {
-      reserveWrite: (writePtyId) => {
-        const claim = runtime.beginMobileInputFloor(writePtyId, clientId)
-        if (!claim) {
-          throw new Error('mobile_input_floor_unavailable')
-        }
-        floorClaim.current = claim
-      },
-      afterWrite: () => settleMobileInputWrite(runtime, floorClaim)
+      ...(clientId
+        ? {
+            reserveWrite: (writePtyId: string): void => {
+              const claim = runtime.beginMobileInputFloor(writePtyId, clientId)
+              if (!claim) {
+                throw new Error('mobile_input_floor_unavailable')
+              }
+              inputWrite.floorClaim = claim
+            }
+          }
+        : {}),
+      afterWrite: () => settleTerminalInputWrite(runtime, inputWrite)
     })
     if (!result.accepted) {
-      floorClaim.current?.rollback()
+      inputWrite.floorClaim?.rollback()
       return 'rejected'
     }
     return 'delivered'
   } catch (error) {
-    floorClaim.current?.rollback()
+    inputWrite.floorClaim?.rollback()
     return isTerminalStreamInputRejection(error) ? 'rejected' : 'failed'
   }
 }
 
-export type MobileInputFloorClaimHolder = {
+/**
+ * One write in flight: who produced the bytes, and the input floor it reserved if it reserved one.
+ * Provenance stands on its own here — a write with no floor claim still records a takeover.
+ */
+export type TerminalInputWrite = {
   handle: string
   humanInput: boolean
-  current: ReturnType<OrcaRuntimeService['beginMobileInputFloor']>
+  floorClaim: ReturnType<OrcaRuntimeService['beginMobileInputFloor']>
 }
 
 /**
- * Settle an accepted mobile write: the phone keeps the input floor, and if a human produced the
- * bytes the host records that they are now driving this terminal.
+ * Settle an accepted write: if a human produced the bytes the host records that they are now
+ * driving this terminal, and a phone that reserved the input floor keeps it.
+ *
+ * Runs on every accepted write, not only floor-reserving ones, so provenance alone decides the
+ * takeover. A write holding no claim commits nothing.
  */
-export async function settleMobileInputWrite(
+export async function settleTerminalInputWrite(
   runtime: OrcaRuntimeService,
-  claim: MobileInputFloorClaimHolder
+  write: TerminalInputWrite
 ): Promise<void> {
-  if (claim.humanInput) {
-    recordWorkerTerminalUserTakeoverFromInput(runtime, claim.handle)
+  if (write.humanInput) {
+    recordWorkerTerminalUserTakeoverFromInput(runtime, write.handle)
   }
-  await commitMobileInputFloorClaim(claim)
-}
-
-async function commitMobileInputFloorClaim(claim: MobileInputFloorClaimHolder): Promise<void> {
-  const current = claim.current
-  if (!current) {
+  const claim = write.floorClaim
+  if (!claim) {
     return
   }
   try {
-    await current.commit()
+    await claim.commit()
   } finally {
     // Why: the runtime may yield before the next write, which then needs a fresh reservation if desktop reclaimed the floor.
-    if (claim.current === current) {
-      claim.current = null
+    if (write.floorClaim === claim) {
+      write.floorClaim = null
     }
   }
 }

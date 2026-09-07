@@ -10,9 +10,9 @@ import {
   getTerminalSendGuardRefusedReason,
   isTerminalInputLockedForClient,
   isTerminalSendGuardNotWritable,
-  newMobileInputWrite,
+  newTerminalInputWrite,
   resolveMobileFloorClientId,
-  settleMobileInputWrite
+  settleTerminalInputWrite
 } from './terminal-input-delivery'
 import { updateViewportForClient } from './terminal-viewport-update'
 import {
@@ -181,7 +181,7 @@ export const TERMINAL_SEND_METHODS: RpcAnyMethod[] = [
         }
       }
       const mobileFloorClientId = resolveMobileFloorClientId(driver, params.client)
-      const floorClaim = newMobileInputWrite(params, driver?.kind === 'mobile')
+      const inputWrite = newTerminalInputWrite(params, driver?.kind === 'mobile')
       const beforeWrite =
         orchestrationMutation && params.agentPrompt === true
           ? async (ptyId?: string): Promise<void> => {
@@ -203,7 +203,7 @@ export const TERMINAL_SEND_METHODS: RpcAnyMethod[] = [
               if (!claim) {
                 throw new Error('mobile_input_floor_unavailable')
               }
-              floorClaim.current = claim
+              inputWrite.floorClaim = claim
             }
           : undefined
       let result
@@ -236,13 +236,11 @@ export const TERMINAL_SEND_METHODS: RpcAnyMethod[] = [
                 beforeWrite,
                 signal,
                 ...(reserveWrite ? { reserveWrite } : {}),
-                ...(params.inputKind !== 'query-reply' && mobileFloorClientId
-                  ? { afterWrite: () => settleMobileInputWrite(runtime, floorClaim) }
-                  : {})
+                afterWrite: () => settleTerminalInputWrite(runtime, inputWrite)
               }
             )
       } catch (error) {
-        floorClaim.current?.rollback()
+        inputWrite.floorClaim?.rollback()
         if (isAgentSessionPtyWriteRefusedError(error)) {
           // Why: name the owner and the stage instead of a bare not-writable, so a client can say
           // who holds the session rather than retrying into a lease it will never win.
@@ -281,7 +279,7 @@ export const TERMINAL_SEND_METHODS: RpcAnyMethod[] = [
         throw error
       }
       if (result.accepted !== true) {
-        floorClaim.current?.rollback()
+        inputWrite.floorClaim?.rollback()
       }
       if (
         result.accepted === true &&

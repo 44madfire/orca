@@ -5,6 +5,9 @@ import {
   isDeliberateHumanInput,
   sendTerminalStreamInput
 } from '../../terminal/terminal-input-delivery'
+import { registerLegacyBinaryControlFrames } from '../../terminal/terminal-legacy-binary-control-frames'
+import { installMultiplexSlotFrames } from '../../terminal/terminal-multiplex-slot-frames'
+import { TerminalStreamOpcode } from '../../../../../../shared/terminal-stream-protocol'
 import { isStreamingMethod, type RpcMethod } from '../../../core'
 import { RuntimeTerminalWriter } from '../../../../runtime-terminal-writer'
 import { getDefaultWorkspaceSession } from '../../../../../../shared/constants'
@@ -51,6 +54,62 @@ function stubAcceptedWrite(): void {
   vi.spyOn(harness.runtime, 'resolveLiveLeafForHandle').mockReturnValue({
     ptyId: 'pty-worker'
   } as never)
+}
+
+/** The pane a pre-refactor phone is typing into: mobile driver, no client metadata anywhere. */
+function driveFromMobile(): void {
+  vi.spyOn(harness.runtime, 'getDriver').mockReturnValue({
+    kind: 'mobile',
+    clientId: 'legacy-phone'
+  })
+}
+
+/** Pushes one Input frame through the real adapter a subscribed client's bytes arrive on. */
+function deliverInputFrame(lane: 'legacy binary' | 'multiplex'): void {
+  const frame = {
+    opcode: TerminalStreamOpcode.Input,
+    streamId: 1,
+    payload: new TextEncoder().encode('x')
+  }
+  if (lane === 'legacy binary') {
+    let handler!: (input: typeof frame) => void
+    registerLegacyBinaryControlFrames(
+      {
+        runtime: harness.runtime,
+        params: { terminal: 'term_worker' },
+        ptyId: 'pty-worker',
+        isMobile: false,
+        registerBinaryStreamHandler: (_id: number, callback: typeof handler) => {
+          handler = callback
+          return () => {}
+        }
+      } as never,
+      1,
+      'legacy-sub',
+      { isClosed: () => false, getDesktopClaimTail: () => Promise.resolve(true) } as never
+    )
+    handler(frame)
+    return
+  }
+  const stream = {
+    streamId: 1,
+    terminal: 'term_worker',
+    ptyId: 'pty-worker',
+    client: undefined,
+    isMobile: false,
+    desktopClaimTail: Promise.resolve(true)
+  }
+  const state = {
+    runtime: harness.runtime,
+    closed: false,
+    streams: new Map([[1, stream]]),
+    notifyStreamWriteUnavailable: () => {}
+  }
+  installMultiplexSlotFrames(state as never)
+  ;(state as unknown as { handleSlotFrame: (s: unknown, f: unknown) => void }).handleSlotFrame(
+    stream,
+    frame
+  )
 }
 
 function ownership(dispatchId: string): string | undefined {
@@ -134,6 +193,67 @@ describe('settled worker terminal: who counts as a user takeover', () => {
       state: 'retained',
       reason: 'user_takeover'
     })
+  })
+
+  // A phone older than `client.type` subscribes without metadata, so both stream initializers
+  // report isMobile false. Delivered through the real frame adapters, the bytes must still fence:
+  // the unary lane already reads this population off the pane's driver, and the destructive
+  // boundary cannot depend on which lane the same person's keystroke happened to take.
+  for (const lane of ['legacy binary', 'multiplex'] as const) {
+    it(`fences a clientless legacy phone through the ${lane} frame adapter`, async () => {
+      const worker = await harness.startSettledWorker()
+      stubAcceptedWrite()
+      driveFromMobile()
+      const delivered = harness.deferred<void>()
+      const write = vi.mocked(harness.runtime.sendTerminal).getMockImplementation()!
+      vi.mocked(harness.runtime.sendTerminal).mockImplementation(async (...args) => {
+        const result = await write(...args)
+        delivered.resolve()
+        return result
+      })
+
+      deliverInputFrame(lane)
+      await delivered.promise
+
+      expect(ownership(worker.dispatchId)).toBe('user_owned')
+      expect(await release(worker.dispatchId)).toMatchObject({
+        state: 'retained',
+        reason: 'user_takeover'
+      })
+      expect(harness.runtime.closeTerminal).not.toHaveBeenCalled()
+    })
+  }
+
+  it('fences clientless stream input on a mobile-driven pane', async () => {
+    const worker = await harness.startSettledWorker()
+    stubAcceptedWrite()
+    driveFromMobile()
+
+    await expect(
+      sendTerminalStreamInput(harness.runtime, {
+        terminal: 'term_worker',
+        text: 'x',
+        client: undefined,
+        isMobile: false
+      })
+    ).resolves.toBe('delivered')
+
+    expect(ownership(worker.dispatchId)).toBe('user_owned')
+  })
+
+  it('leaves paired desktop web stream input to the report lane', async () => {
+    const worker = await harness.startSettledWorker()
+    stubAcceptedWrite()
+
+    await sendTerminalStreamInput(harness.runtime, {
+      terminal: 'term_worker',
+      text: 'x',
+      client: { id: 'paired-web', type: 'desktop' },
+      isMobile: false
+    })
+
+    expect(ownership(worker.dispatchId)).toBe('owned')
+    expect(harness.runtime.beginMobileInputFloor).not.toHaveBeenCalled()
   })
 
   it('an SSH-hosted worker terminal records the same takeover as a local one', async () => {
