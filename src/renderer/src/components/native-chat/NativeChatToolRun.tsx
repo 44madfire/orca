@@ -352,7 +352,7 @@ export function NativeChatToolRun({
                   `browser.open` and `tools/read`. The list stays one line and
                   truncates as a whole rather than wrapping into a block — a
                   header that grows to three rows stops reading as a header. */}
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
+              <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
                 {keyedSummaryMembers.map((member, index) => (
                   <span
                     key={member.key}
@@ -384,7 +384,7 @@ export function NativeChatToolRun({
               ) : null}
             </>
           ) : (
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
+            <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
               {fallbackLabel}
             </span>
           )}
