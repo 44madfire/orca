@@ -47,6 +47,15 @@ function concurrentCreateCollision(
   return false
 }
 
+const ALTER_TABLE_ADD_CONSTRAINT = /^\s*ALTER\s+TABLE\s+\S+\s+ADD\s+CONSTRAINT\b/i
+
+function constraintAlreadyApplied(error: unknown, statement: string): boolean {
+  return (
+    ALTER_TABLE_ADD_CONSTRAINT.test(statement) &&
+    (error as { code?: unknown }).code === '42710'
+  )
+}
+
 function retryableSchemaError(error: unknown, statement: string): boolean {
   const value = error as { code?: unknown; constraint?: unknown }
   return (
@@ -71,6 +80,7 @@ export async function applyPostgresSchema(
         await query(statement)
         break
       } catch (error) {
+        if (constraintAlreadyApplied(error, statement)) break
         const code = String((error as { code?: unknown }).code)
         const remainingMs = deadlineAt - now()
         const retryable = retryableSchemaError(error, statement)
