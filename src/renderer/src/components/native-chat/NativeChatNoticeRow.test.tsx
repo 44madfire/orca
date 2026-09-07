@@ -50,6 +50,22 @@ describe('notice rows', () => {
       'text-foreground'
     )
   })
+  it('shows provider notice text once while retaining its diagnostic disclosure', () => {
+    renderStatus({
+      kind: 'status',
+      text: 'Check the configuration',
+      tone: 'warning',
+      providerFrame: {
+        provider: 'codex',
+        kind: 'notification:warning',
+        payload: { head: '{"message":"Check the configuration"}', byteLength: 37, truncated: false }
+      }
+    })
+    expect(screen.getAllByText('Check the configuration')).toHaveLength(1)
+    const disclosure = screen.getByText('Details').closest('details')
+    expect(disclosure?.querySelector('summary')).not.toHaveTextContent('Check the configuration')
+    expect(disclosure?.querySelector('pre')).toHaveTextContent('Check the configuration')
+  })
   it('renders future presentation and tone values as untinted text', () => {
     renderStatus({
       kind: 'status',

@@ -16949,6 +16949,7 @@
     "native-chat": {
       "notices": {
         "compaction": "Context compacted",
+        "details": "Details",
         "plan": "Plan"
       },
       "composer": {

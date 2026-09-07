@@ -75,7 +75,12 @@ export function NativeChatNoticeRow({
         {Icon ? <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" /> : null}
         <p className="min-w-0 whitespace-pre-wrap break-words">{block.text}</p>
       </div>
-      {block.providerFrame ? <ProviderFrameRow block={block} /> : null}
+      {block.providerFrame ? (
+        <ProviderFrameRow
+          block={block}
+          summary={translate('components.native-chat.notices.details', 'Details')}
+        />
+      ) : null}
     </div>
   )
 }
