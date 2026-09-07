@@ -6,6 +6,7 @@ import {
   type AgentStatusIpcPayload
 } from '../../shared/agent-status-types'
 import { settledWriteStub } from '../providers/settled-pty-write-stub'
+import { MAILBOX_POINTER_WRITE_ATTEMPTED } from './orchestration/db/messages/mailbox-pointer-enter-state'
 import {
   createBoundRun,
   createDatabase,
@@ -148,6 +149,34 @@ describe('Codex completion title mailbox delivery', () => {
     expect(write.mock.calls.map(([, data]) => data)).toEqual([
       expect.stringContaining('You have 1 orchestration message')
     ])
+    db.close()
+  })
+
+  it('keeps an unverified staged pointer pending and submits it once readiness returns', async () => {
+    vi.useFakeTimers()
+    const { db, runtime, write, run, getForegroundProcess, completeWithNativeTitles } =
+      completionFixture()
+    getForegroundProcess.mockResolvedValue(null)
+    await runtime.listTerminals()
+    const message = insertDirectRunMessage(db, run.id, 'Worker progress')
+    completeWithNativeTitles()
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
+    expect(write.mock.calls.map(([, data]) => data)).toEqual([
+      expect.stringContaining('You have 1 orchestration message')
+    ])
+    expect(db.getMessageById(message.id)).toMatchObject({
+      read: 0,
+      delivered_at: null,
+      pointer_enter_pending: MAILBOX_POINTER_WRITE_ATTEMPTED
+    })
+
+    runtime.ingestSyntheticTitleFrame(PTY_ID, '\x1b]0;Codex ready\x07')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(write.mock.calls.map(([, data]) => data)).toEqual([
+      expect.stringContaining('You have 1 orchestration message'),
+      '\r'
+    ])
+    expect(db.getMessageById(message.id)).toMatchObject({ pointer_enter_pending: 0 })
     db.close()
   })
 
