@@ -24,6 +24,11 @@ const UNRENDERABLE_RUN = /(?:[\s\p{Cc}\p{Zl}\p{Zp}]|(?![\u200C\u200D])\p{Cf})+/g
  *  spaces that run collapsed to — they are still a blank label. */
 const BLANK_ONLY = /^[\s\u200C\u200D]+$/u
 
+/** A surrogate with no partner — a provider that truncated an emoji, usually.
+ *  Under `u` this class matches ONLY unpaired ones, so astral characters keep
+ *  both halves; left in, each renders as U+FFFD on every surface. */
+const LONE_SURROGATE = /[\uD800-\uDFFF]/gu
+
 /** A cut inside an emoji sequence strands the joiner that attached it. */
 const TRAILING_DANGLE = /[\s\u200C\u200D]+$/u
 
@@ -31,7 +36,8 @@ export function normalizeAgentSessionConversationName(value: unknown): string | 
   if (typeof value !== 'string') {
     return null
   }
-  const collapsed = value.replace(UNRENDERABLE_RUN, ' ').trim()
+  // Surrogates first, so the gap one leaves collapses with the run around it.
+  const collapsed = value.replace(LONE_SURROGATE, '').replace(UNRENDERABLE_RUN, ' ').trim()
   if (!collapsed || BLANK_ONLY.test(collapsed)) {
     return null
   }

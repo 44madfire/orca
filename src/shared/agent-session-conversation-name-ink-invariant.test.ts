@@ -76,12 +76,18 @@ function expectClean(result: SweepResult, atLeast: number): void {
   expect(result.swept).toBeGreaterThanOrEqual(atLeast)
 }
 
-describe('normalizeAgentSessionConversationName never accepts a name that draws no ink', () => {
-  const alphabet = invisibleCodePoints()
+/** Category Cs, so no invisible class reaches them — but a provider that
+ *  truncated an emoji sends one, and it draws as U+FFFD. Boundary values only:
+ *  the sweeps below are quadratic and the block holds 2048 more. */
+const LONE_SURROGATES = ['\uD800', '\uDBFF', '\uDC00', '\uDFFF']
 
-  it('covers the joiners it deliberately keeps', () => {
+describe('normalizeAgentSessionConversationName never accepts a name that draws no ink', () => {
+  const alphabet = [...invisibleCodePoints(), ...LONE_SURROGATES]
+
+  it('covers the joiners it deliberately keeps and the stray surrogates', () => {
     expect(alphabet).toContain(ZWJ)
     expect(alphabet).toContain(ZWNJ)
+    expect(alphabet).toEqual(expect.arrayContaining(LONE_SURROGATES))
     expect(alphabet.length).toBeGreaterThan(200)
   })
 
@@ -269,6 +275,24 @@ describe('normalizeAgentSessionConversationName keeps legitimate text byte-ident
     expect(describeCodePoints(normalized ?? '')).toBe(describeCodePoints(name))
     expect(normalized).toBe(name)
   })
+
+  it('drops a stray surrogate and keeps the astral character beside it', () => {
+    const normalized = normalizeAgentSessionConversationName('Fix \uD800probe \u{1F600}\uDFFF')
+
+    // Asserted on code points: the stray halves render as U+FFFD, which is
+    // indistinguishable from the real thing in a rendered string.
+    expect(describeCodePoints(normalized ?? '')).toBe(
+      'U+0046 U+0069 U+0078 U+0020 U+0070 U+0072 U+006F U+0062 U+0065 U+0020 U+1F600'
+    )
+    expect(LONE_SURROGATE.test((normalized ?? '').replace(SURROGATE_PAIR, ''))).toBe(false)
+  })
+
+  it.each(LONE_SURROGATES.map((c) => [describeCodePoints(c), c]))(
+    'rejects a name that is only %s',
+    (_label, only) => {
+      expect(normalizeAgentSessionConversationName(only)).toBeNull()
+    }
+  )
 
   it('never strands a joiner when the cut lands inside an emoji sequence', () => {
     const family = `\u{1F468}${ZWJ}\u{1F469}${ZWJ}\u{1F467}`
