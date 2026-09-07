@@ -101,7 +101,9 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
       })
       const items: AgentJournalRenderItem[] = []
       const journal = {
+        lastActivityAt: () => 0,
         snapshot: () => ({ items }),
+        lastActivityAt: () => 1,
         isReadOnly: false
       } as unknown as AgentSessionJournal
       const pending: Promise<void>[] = []
@@ -172,7 +174,9 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
       getRepo: () => ({ id: REPO_ID, kind: 'folder', path: '/workspace/platform' }) as Repo
     })
     const journal = {
+      lastActivityAt: () => 0,
       isReadOnly: false,
+      lastActivityAt: () => 1,
       snapshot: () => ({
         items: [
           { body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'Fix auth' }] } },

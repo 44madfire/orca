@@ -18472,6 +18472,198 @@
         "The new PR lane is outside verify until reliability is established."
       ],
       "demotionRule": "Keep experimental if provisioning or an execution flakes; never promote by skipping a case, raising timeouts, or retrying until green."
+    },
+    {
+      "id": "browser.packaged-mixed-version-placement",
+      "title": "Packaged browser placement across versions",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "browser-runtime",
+      "layer": "electron-packaged",
+      "surfaces": [
+        "paired browser placement"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "paired-runtime"
+      ],
+      "coveredPlatforms": [
+        "linux"
+      ],
+      "coveredProviders": [
+        "paired-runtime"
+      ],
+      "coverageNotes": "Published Linux 1.4.188 desktop against current source in both directions; scheduled weekly and manually runnable. No required PR check.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/actions/runs/34069063016"
+      ],
+      "invariant": "A paired client and host without client-hosted browser capabilities retain server-hosted browser placement across supported version skew.",
+      "oracle": "Require both existing named browser placement scenarios to pass three times with one attempt, zero skips, zero failures, and no report errors.",
+      "commands": [
+        "gh workflow run packaged-browser-e2e.yml",
+        "pnpm exec playwright test tests/e2e/packaged-mixed-version-browser-placement.spec.ts --config tests/playwright.config.ts --project=electron-headless --workers=1 --repeat-each=3 --retries=0",
+        "node_modules/.bin/vitest run --config config/vitest.config.ts config/scripts/packaged-browser-lane-contract.test.mjs config/scripts/verify-packaged-browser-participation.test.mjs",
+        "gh run view 34069063016 --log"
+      ],
+      "testFiles": [
+        "tests/e2e/packaged-mixed-version-browser-placement.spec.ts",
+        "config/scripts/packaged-browser-lane-contract.test.mjs",
+        "config/scripts/verify-packaged-browser-participation.test.mjs"
+      ],
+      "assertionRefs": [
+        {
+          "file": "tests/e2e/packaged-mixed-version-browser-placement.spec.ts",
+          "assertions": [
+            "old client and old host lack client-host and browser-tunnel capabilities",
+            "browser contents remain owned by the server and the expected snapshot marker is readable"
+          ]
+        },
+        {
+          "file": "config/scripts/verify-packaged-browser-participation.test.mjs",
+          "assertions": [
+            "reject missing, substituted, skipped and retried scenarios"
+          ]
+        },
+        {
+          "file": "config/scripts/packaged-browser-lane-contract.test.mjs",
+          "assertions": [
+            "verify pinned package checksum before extraction",
+            "require both directions three times and run report verification even on failure"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "ci",
+          "platform": "linux",
+          "result": "passed",
+          "command": "gh run view 34069063016 --log",
+          "durationSeconds": 120,
+          "summary": "Both unmodified compatibility cases passed three times at 5a99f935 with published1.4.188 and main f7d52160162; retries0. Final workflow34069429156 also passed6/6; its downloaded JSON passed the same participation verifier."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 1500,
+        "scope": "CI job timeout; not a measured p95"
+      },
+      "flakeHistory": {
+        "status": "soaking",
+        "evidence": "Initial executable discovery matched CLI and desktop and was corrected before any tests ran. Corrected baseline2/2 and repeat6/6 pass."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "Participation unit tests reject missing and retried scenarios; no application mutation proof."
+      },
+      "performanceBudget": {
+        "required": false,
+        "evidence": "Compatibility assertions, not a performance benchmark."
+      },
+      "promotionCriteria": [
+        "Final workflow JSON report proves all six executions.",
+        "Collect repeated scheduled history before making this required."
+      ],
+      "knownGaps": [
+        "Linux1.4.188 only; no macOS or Windows packaged coverage.",
+        "No folder workspace, SSH execution host or live-service coverage.",
+        "Other released version pairs remain untested; not a required PR check."
+      ],
+      "demotionRule": "Keep experimental if any direction skips or fails; do not extend timeouts or retry to green."
+    },
+    {
+      "id": "terminal-input.native-wayland-hangul-digit",
+      "title": "Native Wayland Hangul terminating digits reach the PTY exactly once",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "terminal-input",
+      "layer": "electron-native-ime-e2e",
+      "surfaces": [
+        "native Hangul composition",
+        "Wayland terminal input"
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "providers": [
+        "local"
+      ],
+      "coveredPlatforms": [
+        "linux"
+      ],
+      "coveredProviders": [
+        "local"
+      ],
+      "coverageNotes": "Ubuntu 22.04 nested GNOME and IBus Hangul drive three complete native executions in GitHub Actions. GNOME owns IBus; daemon and CLI share its default config discovery path.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/pull/19174"
+      ],
+      "invariant": "Typing d k 1 Return through native IBus Hangul delivers exactly 아1 followed by newline without missing, duplicate, or reordered characters.",
+      "oracle": "Three executions each assert three exact UTF-8 PTY lines. Verify the exact Playwright title, zero skips/retries, each individual native composition receipt, and the nested launch Wayland flag.",
+      "commands": [
+        "gh workflow run terminal-ime-e2e.yml",
+        "gh run view 34074017928 --log",
+        "pnpm exec playwright test --config tests/playwright.config.ts tests/e2e/terminal-hangul-terminating-digit-native.spec.ts --project=electron-headful --workers=1 --repeat-each=3 --retries=0 --reporter=list,json",
+        "ORCA_BACKGROUND_LAUNCH=1 node_modules/.bin/vitest run --config config/vitest.config.ts config/scripts/terminal-ime-e2e-workflow.test.mjs"
+      ],
+      "testFiles": [
+        "tests/e2e/terminal-hangul-terminating-digit-native.spec.ts",
+        "config/scripts/terminal-ime-e2e-workflow.test.mjs"
+      ],
+      "assertionRefs": [
+        {
+          "file": "tests/e2e/terminal-hangul-terminating-digit-native.spec.ts",
+          "assertions": [
+            "a digit typed right after a Hangul syllable reaches the pty"
+          ]
+        },
+        {
+          "file": "config/scripts/terminal-ime-e2e-workflow.test.mjs",
+          "assertions": [
+            "runs native Wayland independently with CJK fonts and retained evidence"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "ci",
+          "platform": "linux",
+          "command": "gh run view 34074017928 --log",
+          "result": "passed",
+          "summary": "Permanent runner passed three native executions, nine exact lines and zero skips/retries. Downloaded participation report and all three engagement receipts verified; compositor cleanup reported no remaining group members. Independent X11 job passed.",
+          "durationSeconds": 76.61
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 1500,
+        "scope": "CI job timeout including installation/build; measured p95 not established"
+      },
+      "flakeHistory": {
+        "status": "soaking",
+        "evidence": "Earlier diagnostic repetition had one unexplained missing Hangul commit. GNOME-owned diagnostic and corrected permanent runner each passed 3/3. Long-term soak is missing."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "Original exact-byte assertions retained. Permanent startup failed until the GNOME config-discovery mismatch was corrected. No intentional production regression was introduced."
+      },
+      "performanceBudget": {
+        "required": false,
+        "evidence": "CI-only harness; no application runtime changes."
+      },
+      "promotionCriteria": [
+        "Collect 100 soak runs across 14 days with no unexplained flakes.",
+        "Exercise native Wayland desktops beyond nested GNOME before broadening the claim."
+      ],
+      "knownGaps": [
+        "Only Hangul terminating digits; no native candidate-selection or other input-method coverage claim.",
+        "No macOS, Windows, SSH terminal, packaged build, or mixed-version claim.",
+        "Default config paths are shared with GNOME on a disposable hosted CI runner; nested mode refuses non-GitHub-Actions execution."
+      ],
+      "demotionRule": "Keep experimental on unexplained failures; retain exact bytes and participation checks without retries, skips, or longer deadlines."
     }
   ]
 }
