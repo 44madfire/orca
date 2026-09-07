@@ -98,6 +98,72 @@ describe('readCodexGeneratedTitle', () => {
   })
 })
 
+describe('naming thread hardening', () => {
+  it('opens the throwaway thread with no approvals and no write access', async () => {
+    const { connection, calls } = fakeConnection()
+
+    await run(connection, '{"title":"Fix lease probe"}')
+
+    // The prompt embeds untrusted user text and this thread's frames never reach
+    // the journal, so anything the host would auto-approve would run unseen.
+    expect(calls.find((call) => call.method === 'thread/start')?.params).toEqual({
+      cwd: '/work/repo',
+      ephemeral: true,
+      approvalPolicy: 'never',
+      sandbox: 'read-only'
+    })
+  })
+
+  it('releases the throwaway thread with the protocol cleanup', async () => {
+    const { connection, calls } = fakeConnection()
+
+    await run(connection, '{"title":"Fix lease probe"}')
+
+    expect(calls.find((call) => call.method === 'thread/unsubscribe')?.params).toEqual({
+      threadId: NAMING
+    })
+  })
+
+  it('never unsubscribes the user own thread when the reply named it', async () => {
+    const calls: { method: string; params: Record<string, unknown> }[] = []
+    const connection: Pick<CodexAppServerConnection, 'request'> = {
+      request: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        calls.push({ method, params: params ?? {} })
+        // The reply names the SESSION's thread; unsubscribing it would cut the
+        // user's chat off from every frame it depends on.
+        return method === 'thread/start' ? { thread: { id: THREAD } } : {}
+      })
+    }
+
+    await expect(run(connection, '{"title":"Fix lease probe"}')).resolves.toEqual({
+      name: null,
+      settled: false
+    })
+    expect(calls.map((call) => call.method)).not.toContain('thread/unsubscribe')
+  })
+
+  it('refuses to parse an answer far larger than any title', async () => {
+    // The 36-character cap is a schema request to the model, not a bound the
+    // host enforces on the reply.
+    const huge = `{"title":"${'a'.repeat(9 * 1024)}"}`
+
+    expect(readCodexGeneratedTitle(huge)).toBeNull()
+  })
+
+  it('flattens and bounds the name before it reaches the user Codex thread', async () => {
+    const { connection, calls } = fakeConnection()
+    const sprawling = `Fix\nthe lease probe ${'x'.repeat(400)}`
+
+    await run(connection, JSON.stringify({ title: sprawling }))
+
+    const set = calls.find((call) => call.method === 'thread/name/set')
+    const name = String(set?.params.name)
+    expect(name).not.toContain('\n')
+    expect(name.length).toBeLessThanOrEqual(200)
+    expect(name.startsWith('Fix the lease probe ')).toBe(true)
+  })
+})
+
 describe('createCodexNamingTurnCollector', () => {
   it('reports a completed turn that said nothing as a DECLINE', async () => {
     const collector = createCodexNamingTurnCollector(60_000)

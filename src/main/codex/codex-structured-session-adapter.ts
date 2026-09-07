@@ -38,7 +38,7 @@ import {
   deliverCodexServerRequest,
   deliverCodexUnhandledFrame
 } from './codex-structured-provider-events'
-import { isCodexNamingFrame } from './codex-conversation-name-generation'
+import { isCodexNamingFrame, isCodexNamingThread } from './codex-conversation-name-generation'
 import {
   captureCodexConversationName,
   startCodexConversationNamingForTurn
@@ -173,7 +173,10 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     request: Parameters<typeof deliverCodexServerRequest>[2]
   ): void {
     const session = this.sessions.get(sessionId)
-    if (session && isCodexNamingFrame(session, readCodexThreadId(request.params))) {
+    // Exact id only: the broad pre-id rule would refuse a SUB-AGENT's approval
+    // request during the `thread/start` window, since the naming thread has no
+    // turn running yet and cannot be the one asking.
+    if (session && isCodexNamingThread(session, readCodexThreadId(request.params))) {
       // An approval request from the naming turn would become a durable prompt in
       // the user's chat, for a command they never asked for, left pending forever
       // once the turn is abandoned. Refuse it so the turn settles instead.

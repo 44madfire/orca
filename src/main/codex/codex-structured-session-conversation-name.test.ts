@@ -129,6 +129,9 @@ function namingCodex(
     answer?: string
     existingName?: string
     hangNamingTurn?: boolean
+    /** Never answers the ephemeral `thread/start`, so naming is in flight with
+     *  NO naming thread id known: the window the broad frame rule covers. */
+    hangNamingThreadStart?: boolean
     /** Completes the naming turn having said nothing: a genuine model decline,
      *  which is a different fact from prose that ignored the schema. */
     declineNamingTurn?: boolean
@@ -148,6 +151,9 @@ function namingCodex(
       request: async (method: string, params?: Record<string, unknown>) => {
         calls.push({ method, params: params ?? {} })
         if (method === 'thread/start' && params?.ephemeral === true) {
+          if (options.hangNamingThreadStart) {
+            return await new Promise<never>(() => {})
+          }
           // Leaves the naming turn in flight: the thread id is known, but nothing
           // ever settles the collector, which is the window sub-agents run in.
           if (options.hangNamingTurn) {
@@ -512,6 +518,28 @@ describe('Codex sub-agent threads survive the naming window', () => {
     // a naming frame would drop its rows from the transcript entirely.
     expect(emittedThreads(events)).toContain(SUBAGENT_THREAD)
     expect(JSON.stringify(events)).toContain('subagent finished its work')
+  })
+
+  it('prompts the user for a sub-agent approval sent during the thread/start window', async () => {
+    // No naming thread id exists yet, so only the broad rule could match — and
+    // on the request path it can only ever match a genuine sub-agent, because
+    // the naming thread has no turn running to ask with.
+    const codex = namingCodex({ hangNamingThreadStart: true })
+    const { events } = await dispatchedAdapter(codex)
+    await settle()
+
+    codex.connections[0]!.handlers.onServerRequest?.({
+      id: 92,
+      method: 'item/commandExecution/requestApproval',
+      params: { threadId: SUBAGENT_THREAD, itemId: 'item-subagent-2', command: 'pnpm test' }
+    })
+    await settle()
+
+    expect(codex.replies).toEqual([])
+    const prompts = events.filter((event) => (event as { type?: string }).type === 'prompt')
+    expect(prompts).toEqual([
+      expect.objectContaining({ threadId: SUBAGENT_THREAD, codexItemId: 'item-subagent-2' })
+    ])
   })
 
   it('prompts the user for a sub-agent approval instead of auto-refusing it', async () => {

@@ -22,8 +22,24 @@
 // takes seconds and another client may have named the thread in the meantime; a
 // name a person chose must never lose to one Orca inferred.
 
+import { normalizeAgentSessionConversationName } from '../../shared/agent-session-conversation-name'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import { readCodexThreadId, readCodexThreadName } from './codex-structured-thread-facts'
+
+/**
+ * The throwaway thread runs with no approvals and no write access.
+ *
+ * The prompt embeds the user's own message text, which is untrusted, and this
+ * thread's frames are deliberately kept out of the journal — so any tool the
+ * host would auto-approve runs where the user can never see it. Orca refuses
+ * server requests on this thread as well, but that only covers the ones that
+ * ask; these two params cover the ones that do not.
+ */
+const NAMING_THREAD_APPROVAL_POLICY = 'never'
+const NAMING_THREAD_SANDBOX = 'read-only'
+
+/** Past this an answer is not a title, and parsing it is wasted work. */
+const NAMING_ANSWER_MAX_BYTES = 8 * 1024
 
 /** Short enough to read as a tab label at a glance; also the schema's own cap. */
 export const CODEX_CONVERSATION_NAME_MAX_LENGTH = 36
@@ -98,13 +114,35 @@ export type CodexNamingState = {
  * has.
  */
 export function isCodexNamingFrame(state: CodexNamingState, frameThreadId: string | null): boolean {
+  if (isCodexNamingThread(state, frameThreadId)) {
+    return true
+  }
+  return (
+    frameThreadId !== null &&
+    frameThreadId !== state.threadId &&
+    state.naming !== null &&
+    state.namingThreadIds.size === 0
+  )
+}
+
+/**
+ * The exact-match half, for the server-REQUEST path.
+ *
+ * The broad pre-id rule must not apply there. A request only arrives from a
+ * thread with a turn running, and the naming thread's `turn/start` is sent after
+ * its id is known — so inside the `thread/start` window the broad rule can only
+ * ever match a genuine sub-agent, whose approval request would then be refused
+ * with -32001 instead of reaching the user. On the notification path the same
+ * rule costs at most one wasted naming attempt, which is why it stays there.
+ */
+export function isCodexNamingThread(
+  state: CodexNamingState,
+  frameThreadId: string | null
+): boolean {
   if (frameThreadId === null || frameThreadId === state.threadId) {
     return false
   }
-  if (state.namingThreadIds.has(frameThreadId)) {
-    return true
-  }
-  return state.naming !== null && state.namingThreadIds.size === 0
+  return state.namingThreadIds.has(frameThreadId)
 }
 
 /**
@@ -189,6 +227,11 @@ export function createCodexNamingTurnCollector(timeoutMs: number): CodexNamingTu
 /** The title inside the turn's structured answer, or null when it is unusable. */
 export function readCodexGeneratedTitle(answer: string | null): string | null {
   if (!answer) {
+    return null
+  }
+  // The 36-character cap is a request to the model, not a bound the host
+  // enforces: a reply that ignored the schema arrives at whatever size it likes.
+  if (Buffer.byteLength(answer, 'utf8') > NAMING_ANSWER_MAX_BYTES) {
     return null
   }
   let parsed: unknown
@@ -277,13 +320,19 @@ export async function generateAndSetCodexConversationName(
   const collector = input.openNamingTurn()
   let result: CodexNamingTurnResult = { outcome: 'failed' }
   let disposableThreadId: string | null = null
+  let namingThreadId: string | null = null
   try {
     const opened = await connection.request(
       'thread/start',
-      { cwd: input.cwd, ephemeral: true },
+      {
+        cwd: input.cwd,
+        ephemeral: true,
+        approvalPolicy: NAMING_THREAD_APPROVAL_POLICY,
+        sandbox: NAMING_THREAD_SANDBOX
+      },
       { timeoutMs }
     )
-    const namingThreadId = readCodexThreadId(opened)
+    const openedThreadId = readCodexThreadId(opened)
     // No usable throwaway thread is a host that could not be asked, not a decline.
     // An app-server that ignored `ephemeral` hands back a NEW PERSISTED thread,
     // not the user's — so the id check below is not what protects them; the
@@ -292,9 +341,12 @@ export async function generateAndSetCodexConversationName(
     // user's chat. A reply naming some OTHER pre-existing thread of the user's
     // is not guarded and is not treated as a real risk: `thread/start` returns
     // the thread it just opened.
-    if (!namingThreadId || namingThreadId === input.threadId) {
+    if (!openedThreadId || openedThreadId === input.threadId) {
       return { name: null, settled: false }
     }
+    // Held for the cleanup below only once it is known NOT to be the user's own
+    // thread: unsubscribing that one would cut the chat off from its frames.
+    namingThreadId = openedThreadId
     input.retainNamingThread(namingThreadId)
     // Only when `ephemeral` was NOT honoured. A truly ephemeral thread refuses
     // deletion ("thread is not persisted and cannot be deleted"), so attempting
@@ -321,6 +373,15 @@ export async function generateAndSetCodexConversationName(
     result = await collector.answer
   } finally {
     input.closeNamingTurn()
+    // The protocol's own cleanup for a thread a client is done with. Retaining
+    // the id stays the load-bearing guard — a turn that timed out is never
+    // cancelled and can still emit — so this is best-effort on top, never a
+    // reason to fail the naming attempt.
+    if (namingThreadId) {
+      await connection
+        .request('thread/unsubscribe', { threadId: namingThreadId }, { timeoutMs })
+        .catch((error: unknown) => input.onError?.('unsubscribe-naming-thread', error))
+    }
     // Set only when the app-server persisted the thread despite `ephemeral`.
     // Without this, every named chat would leave a junk thread and rollout file
     // in the user's Codex history that Orca never shows and never reclaims.
@@ -364,10 +425,13 @@ export async function generateAndSetCodexConversationName(
   if (!isCodexThreadReadablyUnnamed(current)) {
     return { name: null, settled: true }
   }
-  await connection.request(
-    'thread/name/set',
-    { threadId: input.threadId, name: title },
-    { timeoutMs }
-  )
-  return { name: title, settled: true }
+  // Normalized through the same reader Orca's own copy goes through, so the
+  // name in the user's Codex history cannot be a multi-line or unbounded string
+  // that only their client would ever render.
+  const name = normalizeAgentSessionConversationName(title)
+  if (!name) {
+    return { name: null, settled: true }
+  }
+  await connection.request('thread/name/set', { threadId: input.threadId, name }, { timeoutMs })
+  return { name, settled: true }
 }
