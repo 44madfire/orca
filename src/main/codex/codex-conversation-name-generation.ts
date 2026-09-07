@@ -25,7 +25,7 @@
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import { readCodexThreadId, readCodexThreadName } from './codex-structured-thread-facts'
 
-/** Upstream's own bound for a thread name; keeps the tab strip readable. */
+/** Short enough to read as a tab label at a glance; also the schema's own cap. */
 export const CODEX_CONVERSATION_NAME_MAX_LENGTH = 36
 
 export const CODEX_CONVERSATION_NAME_SCHEMA = {
@@ -82,6 +82,25 @@ export type CodexNamingTurnCollector = {
   answer: Promise<string | null>
 }
 
+/**
+ * Whether an `error` frame ends the turn. There is no `turn/failed`; a refused or
+ * rate-limited turn arrives as `error`. A RETRYABLE one explicitly does not
+ * interrupt the turn, so settling on it would abandon a naming turn that was
+ * about to succeed.
+ */
+export function isTerminalCodexTurnError(method: string, params: unknown): boolean {
+  if (method !== 'error') {
+    return false
+  }
+  if (typeof params !== 'object' || params === null) {
+    return false
+  }
+  return (
+    (params as { willRetry?: unknown; will_retry?: unknown }).willRetry !== true &&
+    (params as { will_retry?: unknown }).will_retry !== true
+  )
+}
+
 function agentMessageText(params: unknown): string | null {
   if (typeof params !== 'object' || params === null) {
     return null
@@ -109,10 +128,7 @@ export function createCodexNamingTurnCollector(timeoutMs: number): CodexNamingTu
     handle: (method, params) => {
       if (method === 'item/completed') {
         latest = agentMessageText(params) ?? latest
-      } else if (method === 'turn/completed' || method === 'error') {
-        // `error` is how the app-server reports a refused or rate-limited turn;
-        // there is no `turn/failed`. Without it a failed turn would hold this
-        // open for the full timeout.
+      } else if (method === 'turn/completed' || isTerminalCodexTurnError(method, params)) {
         settle(latest)
       }
     },
@@ -138,6 +154,38 @@ export function readCodexGeneratedTitle(answer: string | null): string | null {
   return typeof title === 'string' && title.trim() ? title.trim() : null
 }
 
+/**
+ * True only when the reply is one this build understands AND carries no name.
+ * An unrecognised shape is not evidence of an unnamed thread.
+ */
+export function isCodexThreadReadablyUnnamed(read: unknown): boolean {
+  if (typeof read !== 'object' || read === null) {
+    return false
+  }
+  const thread = (read as { thread?: unknown }).thread
+  if (typeof thread !== 'object' || thread === null) {
+    return false
+  }
+  // A thread reply this build can read always names the thread it describes.
+  if (typeof (thread as { id?: unknown }).id !== 'string') {
+    return false
+  }
+  return readCodexThreadName(read) === null
+}
+
+/** Whether the app-server confirmed the thread it opened is throwaway. */
+export function readCodexThreadIsEphemeral(opened: unknown): boolean {
+  if (typeof opened !== 'object' || opened === null) {
+    return false
+  }
+  const thread = (opened as { thread?: unknown }).thread
+  return (
+    typeof thread === 'object' &&
+    thread !== null &&
+    (thread as { ephemeral?: unknown }).ephemeral === true
+  )
+}
+
 export type CodexConversationNameGeneration = {
   connection: Pick<CodexAppServerConnection, 'request'>
   cwd: string
@@ -151,6 +199,8 @@ export type CodexConversationNameGeneration = {
    *  arriving after this flow gives up are dropped rather than journaled. */
   retainNamingThread: (namingThreadId: string) => void
   closeNamingTurn: () => void
+  /** Diagnostics only; naming never surfaces to the user. */
+  onError?: (scope: string, error: unknown) => void
 }
 
 /**
@@ -163,6 +213,7 @@ export async function generateAndSetCodexConversationName(
   const { connection, timeoutMs } = input
   const collector = input.openNamingTurn()
   let answer: string | null
+  let disposableThreadId: string | null = null
   try {
     const opened = await connection.request(
       'thread/start',
@@ -170,13 +221,21 @@ export async function generateAndSetCodexConversationName(
       { timeoutMs }
     )
     const namingThreadId = readCodexThreadId(opened)
-    // Never the user's own thread: an app-server that ignored `ephemeral` would
-    // otherwise have this turn's prompt and JSON answer land in their transcript
-    // and their history, which is the one outcome this whole path exists to avoid.
+    // An app-server that ignored `ephemeral` hands back a NEW PERSISTED thread,
+    // not the user's — so the id check below is not what protects them; the
+    // delete in the finally block is. The check covers only a reply that names
+    // the session's own thread, which would put this turn straight into the
+    // user's chat.
     if (!namingThreadId || namingThreadId === input.threadId) {
       return null
     }
     input.retainNamingThread(namingThreadId)
+    // Only when `ephemeral` was NOT honoured. A truly ephemeral thread refuses
+    // deletion ("thread is not persisted and cannot be deleted"), so attempting
+    // it unconditionally would log a failure on every successful naming.
+    if (!readCodexThreadIsEphemeral(opened)) {
+      disposableThreadId = namingThreadId
+    }
     await connection.request(
       'turn/start',
       {
@@ -190,6 +249,14 @@ export async function generateAndSetCodexConversationName(
     answer = await collector.answer
   } finally {
     input.closeNamingTurn()
+    // Set only when the app-server persisted the thread despite `ephemeral`.
+    // Without this, every named chat would leave a junk thread and rollout file
+    // in the user's Codex history that Orca never shows and never reclaims.
+    if (disposableThreadId) {
+      await connection
+        .request('thread/delete', { threadId: disposableThreadId }, { timeoutMs })
+        .catch((error: unknown) => input.onError?.('delete-naming-thread', error))
+    }
   }
   const title = readCodexGeneratedTitle(answer)
   if (!title) {
@@ -202,7 +269,10 @@ export async function generateAndSetCodexConversationName(
     { threadId: input.threadId },
     { timeoutMs }
   )
-  if (readCodexThreadName(current)) {
+  // Fails CLOSED. Only a reply this build can positively read as unnamed permits
+  // the write: a shape it does not recognise would otherwise read as "unnamed"
+  // and clobber a name a person chose. Skipping a name is a non-event.
+  if (!isCodexThreadReadablyUnnamed(current)) {
     return null
   }
   await connection.request(

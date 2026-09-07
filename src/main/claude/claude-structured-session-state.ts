@@ -76,8 +76,13 @@ export type ClaudeStructuredSessionAdapterDeps = {
   }) => Promise<void>
   /** Claude named (or the user renamed) the conversation behind this session. */
   onConversationName?: (sessionId: string, conversationName: string) => void
-  /** The name already recorded for a session, so a re-acquisition does not retitle it. */
-  readConversationName?: (sessionId: string) => string | null
+  /** The durable naming state, so a re-acquisition does not retitle. */
+  readNamingState?: (sessionId: string) => {
+    conversationName: string | null
+    namingAttempted: boolean
+  }
+  markNamingAttempted?: (sessionId: string) => void
+  onNamingError?: (scope: string, error: unknown) => void
   /** The name Claude already persisted for this provider session, if any. Its
    *  stream carries no title frame, so the transcript is the only source. */
   readTranscriptConversationName?: (input: {
@@ -136,7 +141,8 @@ export type ClaudeSession = {
   /** Provider uuid of the most recently admitted turn, if one is active. */
   activeTurnId?: string
   backgroundTasks: ClaudeBackgroundTaskTracker
-  /** One naming attempt per session; see claude-conversation-name-turn. */
+  /** Guards a second attempt within this live session only; the durable marker
+   *  on the record is what survives eviction. See claude-conversation-name-turn. */
   namingAttempted: boolean
   /** Monotonic fence advanced when a dispatch starts, including unresolved dispatches. */
   dispatchSequence: number

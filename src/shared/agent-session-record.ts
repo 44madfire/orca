@@ -129,6 +129,11 @@ export type AgentSessionRecord = {
   /** Name the PROVIDER gave this conversation. A user's own rename lives on the
    *  client tab and always outranks it; nothing here may overwrite that. */
   conversationName?: string
+  /** Set once Orca has asked a provider to name this conversation. Durable on
+   *  purpose: the session object is rebuilt on every acquisition, so an eviction
+   *  or a restart would otherwise re-ask — re-imposing a name the user cleared,
+   *  and paying for it again. */
+  conversationNamingAttempted?: boolean
   launchArgs?: AgentSessionLaunchArgs
   lease: AgentSessionLease
   createdAt: number
@@ -341,6 +346,8 @@ export function isAgentSessionRecord(value: unknown): value is AgentSessionRecor
     (record.options === undefined || isAgentSessionOptions(record.options)) &&
     (record.conversationName === undefined ||
       isAgentSessionConversationName(record.conversationName)) &&
+    (record.conversationNamingAttempted === undefined ||
+      typeof record.conversationNamingAttempted === 'boolean') &&
     (record.launchArgs === undefined || isAgentSessionLaunchArgs(record.launchArgs)) &&
     !Object.hasOwn(record, 'launchEnv') &&
     isAgentSessionLease(record.lease) &&

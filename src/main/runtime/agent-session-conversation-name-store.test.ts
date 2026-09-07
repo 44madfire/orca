@@ -49,7 +49,11 @@ describe('agent session conversation name', () => {
     const store = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
     await store.reserveOwner(request())
 
-    await store.setConversationName(SESSION, 'Fix the lease probe', NOW + 1)
+    await store.applyConversationNaming(
+      SESSION,
+      { conversationName: 'Fix the lease probe' },
+      NOW + 1
+    )
 
     const reopened = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
     expect(reopened.getRecord(SESSION)?.conversationName).toBe('Fix the lease probe')
@@ -58,9 +62,17 @@ describe('agent session conversation name', () => {
   it('leaves the record untouched when the name it is given is the stored one', async () => {
     const store = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
     await store.reserveOwner(request())
-    const named = await store.setConversationName(SESSION, 'Fix the lease probe', NOW + 1)
+    const named = await store.applyConversationNaming(
+      SESSION,
+      { conversationName: 'Fix the lease probe' },
+      NOW + 1
+    )
 
-    const again = await store.setConversationName(SESSION, 'Fix the lease probe', NOW + 2)
+    const again = await store.applyConversationNaming(
+      SESSION,
+      { conversationName: 'Fix the lease probe' },
+      NOW + 2
+    )
 
     expect(again.updatedAt).toBe(named.updatedAt)
   })
@@ -68,9 +80,9 @@ describe('agent session conversation name', () => {
   it('refuses a name for a session that has no record', async () => {
     const store = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
 
-    await expect(store.setConversationName('missing-session', 'name', NOW)).rejects.toThrow(
-      'agent_session_identity_required'
-    )
+    await expect(
+      store.applyConversationNaming('missing-session', { conversationName: 'name' }, NOW)
+    ).rejects.toThrow('agent_session_identity_required')
   })
 })
 

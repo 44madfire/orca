@@ -462,6 +462,48 @@ describe('structured session cold restoration', () => {
     expect(again.snapshotVersion).toBe(settled.snapshotVersion)
   })
 
+  it('labels a revealed chat with the name its record already holds', async () => {
+    const runtime = new OrcaRuntimeService()
+    // Reveal, re-open and create publish no title. Only the startup sweep did,
+    // and resume reports the same name so the unchanged-name short circuit means
+    // nothing ever repairs the label afterwards.
+    setStructuredAgentSessionHost({
+      setSessionTabVisibility: async () => undefined,
+      readConversationName: () => 'Fix the lease probe'
+    } as never)
+
+    await runtime.publishStructuredAgentSessionTab({
+      workspaceId: 'workspace-1',
+      sessionId: 'revealed-codex',
+      agent: 'codex',
+      activate: true
+    })
+
+    const snapshot = await runtime.listMobileSessionTabs('id:workspace-1')
+    expect(snapshot.tabs[0]).toMatchObject({
+      id: 'agent-session:revealed-codex',
+      title: 'Fix the lease probe'
+    })
+  })
+
+  it('keeps the placeholder for a chat whose record holds no name', async () => {
+    const runtime = new OrcaRuntimeService()
+    setStructuredAgentSessionHost({
+      setSessionTabVisibility: async () => undefined,
+      readConversationName: () => null
+    } as never)
+
+    await runtime.publishStructuredAgentSessionTab({
+      workspaceId: 'workspace-1',
+      sessionId: 'unnamed-codex',
+      agent: 'codex',
+      activate: true
+    })
+
+    const snapshot = await runtime.listMobileSessionTabs('id:workspace-1')
+    expect(snapshot.tabs[0]).toMatchObject({ title: 'Codex Chat' })
+  })
+
   it('commits the host close when the renderer already removed the structured tab', async () => {
     const runtime = new OrcaRuntimeService()
     runtime.setNotifier({

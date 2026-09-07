@@ -59,19 +59,28 @@ describe('startClaudeConversationNaming', () => {
     )
   })
 
-  it('asks only once per session', async () => {
+  it('asks only once across a re-acquisition, which builds a NEW session object', async () => {
     const generateSessionTitle = vi.fn(async () => null)
-    const session = sessionWith(generateSessionTitle)
+    // Passing the same object twice could only prove the in-memory flag; an
+    // eviction hands the next send a fresh session, which is the real case.
+    let attempted = false
+    const deps = {
+      onConversationName: vi.fn(),
+      readNamingState: () => ({ conversationName: null, namingAttempted: attempted }),
+      markNamingAttempted: () => {
+        attempted = true
+      }
+    }
 
-    startClaudeConversationNaming(SESSION, session, USER_TURN, { onConversationName: vi.fn() })
+    startClaudeConversationNaming(SESSION, sessionWith(generateSessionTitle), USER_TURN, deps)
     await settle()
-    startClaudeConversationNaming(SESSION, session, USER_TURN, { onConversationName: vi.fn() })
+    startClaudeConversationNaming(SESSION, sessionWith(generateSessionTitle), USER_TURN, deps)
     await settle()
 
     expect(generateSessionTitle).toHaveBeenCalledOnce()
   })
 
-  it('reports nothing when the CLI exposes no title request', async () => {
+  it('reports nothing when the title request answers null', async () => {
     const onConversationName = vi.fn()
 
     startClaudeConversationNaming(SESSION, sessionWith(vi.fn(async () => null)), USER_TURN, {
@@ -139,7 +148,7 @@ describe('startClaudeConversationNaming across re-acquisitions', () => {
 
     startClaudeConversationNaming(SESSION, reacquired, USER_TURN, {
       onConversationName: vi.fn(),
-      readConversationName: () => 'Lease probe flake'
+      readNamingState: () => ({ conversationName: 'Lease probe flake', namingAttempted: true })
     })
     await settle()
 
@@ -152,7 +161,7 @@ describe('startClaudeConversationNaming across re-acquisitions', () => {
 
     startClaudeConversationNaming(SESSION, sessionWith(generateSessionTitle), USER_TURN, {
       onConversationName,
-      readConversationName: () => null
+      readNamingState: () => ({ conversationName: null, namingAttempted: false })
     })
     await settle()
 

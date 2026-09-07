@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import {
   createCodexNamingTurnCollector,
+  isTerminalCodexTurnError,
   generateAndSetCodexConversationName,
   readCodexGeneratedTitle
 } from './codex-conversation-name-generation'
@@ -10,21 +11,37 @@ const THREAD = 'thread-user'
 const NAMING = 'thread-naming'
 
 /** An app-server that answers the naming flow's four requests. */
-function fakeConnection(options: { nameOnReRead?: string | null; answer?: string | null } = {}) {
+function fakeConnection(
+  options: {
+    nameOnReRead?: string | null
+    answer?: string | null
+    /** The app-server ignored `ephemeral` and persisted the throwaway thread. */
+    persistDespiteEphemeral?: boolean
+    /** A `thread/read` reply shape this build may or may not understand. */
+    threadReadReply?: unknown
+  } = {}
+) {
   const calls: { method: string; params: Record<string, unknown> }[] = []
   const connection: Pick<CodexAppServerConnection, 'request'> = {
     request: vi.fn(async (method: string, params?: Record<string, unknown>) => {
       calls.push({ method, params: params ?? {} })
       if (method === 'thread/start') {
-        return { thread: { id: NAMING, ephemeral: params?.ephemeral === true } }
-      }
-      if (method === 'thread/read') {
         return {
           thread: {
-            id: THREAD,
-            ...(options.nameOnReRead ? { name: options.nameOnReRead } : {})
+            id: NAMING,
+            ...(options.persistDespiteEphemeral ? {} : { ephemeral: params?.ephemeral === true })
           }
         }
+      }
+      if (method === 'thread/read') {
+        return options.threadReadReply !== undefined
+          ? options.threadReadReply
+          : {
+              thread: {
+                id: THREAD,
+                ...(options.nameOnReRead ? { name: options.nameOnReRead } : {})
+              }
+            }
       }
       return {}
     })
@@ -179,5 +196,77 @@ describe('generateAndSetCodexConversationName', () => {
     await expect(run(connection, null)).resolves.toBeNull()
 
     expect(calls.some((call) => call.method === 'thread/name/set')).toBe(false)
+  })
+})
+
+describe('naming-turn cleanup and fail-closed re-read', () => {
+  it('deletes a throwaway thread the app-server persisted despite ephemeral', async () => {
+    const { connection, calls } = fakeConnection({ persistDespiteEphemeral: true })
+
+    await run(connection, '{"title":"Fix flaky lease probe"}')
+
+    // Otherwise every named chat leaves a junk thread and rollout file behind.
+    expect(calls.find((call) => call.method === 'thread/delete')?.params).toEqual({
+      threadId: NAMING
+    })
+  })
+
+  it('does not try to delete a genuinely ephemeral thread', async () => {
+    const { connection, calls } = fakeConnection()
+
+    await run(connection, '{"title":"Fix flaky lease probe"}')
+
+    // The app-server refuses to delete one, so attempting it would log a failure
+    // on every successful naming.
+    expect(calls.some((call) => call.method === 'thread/delete')).toBe(false)
+  })
+
+  // NOTE: a name under an unrecognised KEY on an otherwise-readable reply is not
+  // detectable — by construction this build does not know the key. What fails
+  // closed is an unrecognised reply SHAPE, which is the case it can decide.
+  it.each([
+    ['a reply with no thread object', { threadId: 'thread-user' }],
+    ['a reply that is not an object', 'thread-user']
+  ])(
+    'refuses to overwrite a name it cannot positively read as absent: %s',
+    async (_label, reply) => {
+      const { connection, calls } = fakeConnection({ threadReadReply: reply })
+
+      await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toBeNull()
+
+      // Fails CLOSED. Skipping a name is a non-event; clobbering a rename is not.
+      expect(calls.some((call) => call.method === 'thread/name/set')).toBe(false)
+    }
+  )
+
+  it('still names a thread a readable reply shows as unnamed', async () => {
+    const { connection, calls } = fakeConnection()
+
+    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toBe(
+      'Fix flaky lease probe'
+    )
+
+    expect(calls.find((call) => call.method === 'thread/name/set')?.params).toEqual({
+      threadId: THREAD,
+      name: 'Fix flaky lease probe'
+    })
+  })
+})
+
+describe('isTerminalCodexTurnError', () => {
+  it('ends the turn on a non-retryable error', () => {
+    expect(isTerminalCodexTurnError('error', { threadId: 't', willRetry: false })).toBe(true)
+  })
+
+  it('does NOT end the turn on a retryable one', () => {
+    // A retryable error explicitly does not interrupt the turn; settling here
+    // would abandon a naming turn that was about to succeed.
+    expect(isTerminalCodexTurnError('error', { threadId: 't', willRetry: true })).toBe(false)
+    expect(isTerminalCodexTurnError('error', { threadId: 't', will_retry: true })).toBe(false)
+  })
+
+  it('ignores anything that is not an error frame', () => {
+    expect(isTerminalCodexTurnError('turn/started', { willRetry: false })).toBe(false)
+    expect(isTerminalCodexTurnError('error', null)).toBe(false)
   })
 })

@@ -329,8 +329,9 @@ export class StructuredAgentSessionHost {
   ) => this.backgroundTasks.publish(sessionId, state)
   unsubscribe = (sessionId: string, id: string): void => this.subscribers.close(sessionId, id)
 
-  /** Re-projects one session after its RECORD changed; journal writes publish themselves. */
-  republishStatus = (sessionId: string): void => this.statusFeed.publish(sessionId)
+  /** The provider's name for one conversation, for a surface publishing its tab. */
+  readConversationName = (sessionId: string): string | null =>
+    this.deps.store.getRecord(sessionId)?.conversationName ?? null
 
   /** Every session's projected status for session lists; unlike `subscribe`, retains nothing. */
   subscribeStatus = (

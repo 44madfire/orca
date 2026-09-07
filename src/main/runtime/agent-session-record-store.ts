@@ -1,7 +1,6 @@
 /** Durable single-writer session records and their operation ledger. */
 
 import {
-  agentSessionOperationKey,
   settleAgentSessionOperation,
   type AgentSessionOperationDecision,
   type AgentSessionOperationOutcome,
@@ -47,7 +46,10 @@ import {
   isAgentSessionClaimKeyVerifiable,
   retireAgentSessionClaimKey
 } from './agent-session-claim-key-retention'
-import { setAgentSessionRecordConversationName } from './agent-session-record-conversation-name'
+import {
+  applyAgentSessionRecordConversationNaming,
+  type AgentSessionConversationNamingChange
+} from './agent-session-record-conversation-name'
 import {
   listVisibleAgentSessionIds,
   setAgentSessionTabVisibility,
@@ -59,10 +61,7 @@ import {
   type AgentSessionReservationProcesslessProof
 } from './agent-session-processless-reservation'
 import {
-  admitPendingAgentSessionReservationReplay,
-  applyAgentSessionReservation,
-  evaluateAgentSessionReserveOperation,
-  requireAgentSessionRecordForReplay,
+  commitAgentSessionReservation,
   type AgentSessionReserveRequest,
   type AgentSessionReserveResult
 } from './agent-session-reservation-admission'
@@ -162,26 +161,9 @@ export class AgentSessionRecordStore {
    * operation returns the recorded outcome and never reaches the reservation.
    */
   async reserveOwner(request: AgentSessionReserveRequest): Promise<AgentSessionReserveResult> {
-    return this.transact(() => {
-      const decision = evaluateAgentSessionReserveOperation(this.state, request)
-      if (decision.decision === 'refused') {
-        throw new Error(decision.code)
-      }
-      if (decision.decision === 'replay') {
-        let record = requireAgentSessionRecordForReplay(this.state, decision.row, request.sessionId)
-        if (decision.row.outcome.status === 'pending' && request.handoffOperationId !== null) {
-          record = admitPendingAgentSessionReservationReplay(record, request)
-        }
-        return { record, disposition: 'replayed' as const, operationRow: decision.row }
-      }
-      const result = applyAgentSessionReservation(this.state, request, AGENT_SESSION_LEASE_TTL_MS)
-      this.state.operations.set(
-        agentSessionOperationKey(request.operation.callerKey, request.operation.operationId),
-        decision.row
-      )
-      this.state.records.set(result.record.sessionId, result.record)
-      return { ...result, operationRow: decision.row }
-    })
+    return this.transact(() =>
+      commitAgentSessionReservation(this.state, request, AGENT_SESSION_LEASE_TTL_MS)
+    )
   }
 
   async commitProcessIdentity(
@@ -310,13 +292,13 @@ export class AgentSessionRecordStore {
   replaceSessionOptions = (args: AgentSessionOptionsReplacement): Promise<AgentSessionRecord> =>
     this.mutate(args.sessionId, (record) => replaceAgentSessionRecordOptions(record, args))
 
-  setConversationName = (
+  applyConversationNaming = (
     sessionId: string,
-    conversationName: string,
+    change: AgentSessionConversationNamingChange,
     now: number
   ): Promise<AgentSessionRecord> =>
     this.mutate(sessionId, (record) =>
-      setAgentSessionRecordConversationName(record, conversationName, now)
+      applyAgentSessionRecordConversationNaming(record, change, now)
     )
 
   async retireClaimKey(keyId: string, now: number): Promise<void> {

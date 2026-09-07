@@ -49,6 +49,10 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
       if (session.agent !== 'codex' && session.agent !== 'claude') {
         continue
       }
+      // Belt-and-braces: a session id cannot contain ':' (SESSION_ID_PATTERN in
+      // agent-session-record), so a prefixed key cannot reach the host's map.
+      // Stripped here rather than at the lookup so the tab id and the record it
+      // is labelled from can never disagree.
       let sessionId = session.sessionId
       while (sessionId.startsWith('agent-session:')) {
         sessionId = sessionId.slice('agent-session:'.length)
@@ -75,10 +79,18 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
     if (typeof host?.setSessionTabVisibility === 'function') {
       await host.setSessionTabVisibility(input.sessionId, true)
     }
+    // Every publication labels itself from the record, so a revealed or reopened
+    // chat shows the name it already has. Only the startup sweep passes a title,
+    // and an unchanged name never fans out, so nothing else would repair it.
+    const title =
+      input.title?.trim() ||
+      (typeof host?.readConversationName === 'function'
+        ? (host.readConversationName(input.sessionId) ?? '')
+        : '')
     const existing = this.mobileSessionTabsByWorktree.get(input.workspaceId)
     const id = `agent-session:${input.sessionId}`
     if (existing?.tabs.some((tab) => tab.id === id)) {
-      const conversationName = input.title?.trim()
+      const conversationName = title
       if (!input.activate) {
         // Republishing an already-open tab is how a restored session hands over
         // the name it was persisted with; the rest of the snapshot is unchanged.
@@ -121,7 +133,7 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
     const tab: RuntimeMobileSessionAgentTab = {
       type: 'agent-session',
       id,
-      title: input.title?.trim() || defaultAgentChatLabel(input.agent),
+      title: title || defaultAgentChatLabel(input.agent),
       sessionId: input.sessionId,
       agent: input.agent,
       isActive: input.activate

@@ -11,6 +11,12 @@ const MAX_NAMING_PROMPT_LENGTH = 2_000
  * path would leak a filesystem location into a generated label.
  */
 export function agentSessionNamingPromptText(body: AgentJournalMessageItem): string | null {
+  // `blocks` reaches here as provider/journal data, not something the type system
+  // verified: only the RPC send path runs it through a schema. A non-array here
+  // would throw on the send path and turn a delivered message into a failed one.
+  if (!Array.isArray(body?.blocks)) {
+    return null
+  }
   const text = (body.blocks as NativeChatBlock[])
     .filter((block): block is Extract<NativeChatBlock, { type: 'text' }> => block.type === 'text')
     .map((block) => block.text)

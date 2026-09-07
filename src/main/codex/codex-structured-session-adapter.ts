@@ -36,8 +36,11 @@ import {
   deliverCodexUnhandledFrame
 } from './codex-structured-provider-events'
 import { isCodexNamingFrame } from './codex-conversation-name-generation'
-import { startCodexConversationNaming } from './codex-conversation-name-turn'
-import { readCodexThreadId, readCodexThreadName } from './codex-structured-thread-facts'
+import {
+  captureCodexConversationName,
+  startCodexConversationNaming
+} from './codex-conversation-name-turn'
+import { readCodexThreadId } from './codex-structured-thread-facts'
 import { CodexStructuredTurnCancellation } from './codex-structured-turn-cancellation'
 import { createCodexStructuredNotificationRetry } from './codex-structured-notification-retry'
 import { acquireCodexStructuredSession } from './codex-structured-session-acquire'
@@ -121,39 +124,17 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     if (this.turnCancellation.handleNotification(sessionId, session, method, params)) {
       return { accepted: true }
     }
-    // Before every other handler: a naming turn runs on a throwaway thread over
-    // this same connection, and the item translator journals items from ANY
+    // Before anything can journal it: a naming turn runs on a throwaway thread
+    // over this same connection, and the item translator journals items from ANY
     // thread. Routed here, its prompt and its JSON answer never reach the chat.
     if (isCodexNamingFrame(session, readCodexThreadId(params))) {
       session.naming?.handle(method, params)
       return { accepted: true }
     }
-    this.captureConversationName(sessionId, session, method, params)
+    captureCodexConversationName(sessionId, session, method, params, this.deps)
     return deliverCodexNotification(sessionId, session, method, params, (current, event) =>
       this.emit(current, event)
     )
-  }
-
-  /** Codex broadcasts `thread/name/updated` for every thread it has stored, so a
-   *  frame naming another thread must not relabel this session's chat. */
-  private captureConversationName(
-    sessionId: string,
-    session: CodexSession,
-    method: string,
-    params: unknown
-  ): void {
-    if (method !== 'thread/name/updated') {
-      return
-    }
-    if ((readCodexThreadId(params) ?? session.threadId) !== session.threadId) {
-      return
-    }
-    const conversationName = readCodexThreadName(params)
-    if (!conversationName || conversationName === session.conversationName) {
-      return
-    }
-    session.conversationName = conversationName
-    this.deps.onConversationName?.(sessionId, conversationName)
   }
 
   /** Journal first so observers never see an event ahead of its durable row. */
@@ -225,7 +206,14 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
         ...(this.deps.requestTimeoutMs ? { requestTimeoutMs: this.deps.requestTimeoutMs } : {}),
         ...(this.deps.onConversationName
           ? { onConversationName: this.deps.onConversationName }
-          : {})
+          : {}),
+        ...(this.deps.readNamingAttempted
+          ? { readNamingAttempted: this.deps.readNamingAttempted }
+          : {}),
+        ...(this.deps.markNamingAttempted
+          ? { markNamingAttempted: this.deps.markNamingAttempted }
+          : {}),
+        ...(this.deps.onNamingError ? { onError: this.deps.onNamingError } : {})
       })
     }
     return outcome

@@ -3,41 +3,47 @@
 //
 // Claude's stream-json protocol carries no title frame, so the transcript is the
 // only place a name it generated (or a name the user set from the CLI) survives.
-// The records are read through the AI Vault session parser rather than a second
-// one, so `custom-title` / `ai-title` keep meaning exactly what they mean there.
+// `custom-title` and `ai-title` are appended, last-wins records, so the file is
+// read backwards in bounded chunks: a full parse on every acquisition competes
+// with the attach it runs alongside, on files that reach many megabytes.
+//
+// Bounded means a title older than the tail limit is NOT found. That reads as
+// "no name yet", never as "this conversation has no name" — and once any read
+// succeeds the name is on the durable record, so the scan is not repeated.
 
-import { createInterface } from 'node:readline'
-import { openTranscriptReadStream } from '../native-chat/wsl-transcript-fs-access'
-import {
-  consumeClaudeSessionLine,
-  createClaudeSessionParseState
-} from '../ai-vault/session-scanner-primary-parsers'
+import { normalizeTitleText, parseJsonObject } from '../ai-vault/session-scanner-values'
+import { claudeTranscriptTailLines } from './claude-transcript-tail-scan'
 
 /**
- * The transcript's stored name, or null when it holds none.
+ * The transcript's stored name, or null when its tail holds none.
  *
  * A user's own `custom-title` outranks the generated `ai-title`, matching the
- * precedence the CLI itself applies when it shows the session's name.
+ * precedence the CLI itself applies. Read newest-first, so the first record of
+ * each kind is the current one.
  */
 export async function readClaudeTranscriptConversationName(
   transcriptPath: string
 ): Promise<string | null> {
-  const state = createClaudeSessionParseState({
-    path: transcriptPath,
-    mtimeMs: 0,
-    modifiedAt: new Date(0).toISOString()
-  })
-  const stream = openTranscriptReadStream(transcriptPath, { encoding: 'utf-8' }, 'scan')
-  const lines = createInterface({ input: stream, crlfDelay: Infinity })
-  try {
-    for await (const line of lines) {
-      consumeClaudeSessionLine(state, line)
+  let generated: string | null = null
+  for await (const line of claudeTranscriptTailLines(transcriptPath)) {
+    if (!line.includes('-title')) {
+      continue
     }
-  } finally {
-    lines.close()
-    stream.destroy()
+    const record = parseJsonObject(line)
+    if (!record) {
+      continue
+    }
+    if (record.type === 'custom-title') {
+      const title = normalizeTitleText(String(record.customTitle ?? ''))
+      if (title) {
+        return title
+      }
+    }
+    if (record.type === 'ai-title' && !generated) {
+      generated = normalizeTitleText(String(record.aiTitle ?? '')) || null
+    }
   }
-  return state.accumulator.title || state.generatedTitle || null
+  return generated
 }
 
 export type ClaudeConversationNameReporter = {

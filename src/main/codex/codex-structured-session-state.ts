@@ -45,6 +45,11 @@ export type CodexStructuredSessionAdapterDeps = {
   onEvent?: (event: CodexStructuredSessionEvent) => void
   /** Codex named (or renamed) the thread behind this session. */
   onConversationName?: (sessionId: string, conversationName: string) => void
+  /** Codex reports the thread has no name any more. */
+  onConversationNameCleared?: (sessionId: string) => void
+  readNamingAttempted?: (sessionId: string) => boolean
+  markNamingAttempted?: (sessionId: string) => void
+  onNamingError?: (scope: string, error: unknown) => void
   openConnection?: typeof openCodexAppServerConnection
   readProcessStartTime?: (pid: number) => Promise<number | null>
   mintLinkId?: () => string
@@ -76,8 +81,9 @@ export type CodexSession = {
   /** Every throwaway thread this session opened for naming. Retained for the
    *  session's life: an abandoned turn is never cancelled and can still emit. */
   namingThreadIds: Set<string>
-  /** One naming attempt per session: a thread the model declined to name, or one
-   *  a person deliberately cleared, must not be re-asked on every later turn. */
+  /** Guards a SECOND attempt within this live session only. The durable answer
+   *  to "have we asked" lives on the record; this just fences concurrent sends
+   *  before that write lands. */
   namingAttempted: boolean
   prompts: CodexAcquisitionWindow['prompts']
   options: Map<string, string>

@@ -188,7 +188,10 @@ const USER_TURN = {
   blocks: [{ type: 'text', text: 'fix the flaky lease probe' }]
 } as const
 
-async function dispatchedAdapter(codex: ReturnType<typeof namingCodex>) {
+async function dispatchedAdapter(
+  codex: ReturnType<typeof namingCodex>,
+  naming: { readNamingAttempted?: () => boolean; markNamingAttempted?: () => void } = {}
+) {
   const onConversationName = vi.fn()
   const events: unknown[] = []
   const adapter = new CodexStructuredSessionAdapter({
@@ -202,7 +205,8 @@ async function dispatchedAdapter(codex: ReturnType<typeof namingCodex>) {
     openConnection: codex.openConnection,
     readProcessStartTime: async () => 1_700_000_000_000,
     onEvent: (event) => events.push(event),
-    onConversationName
+    onConversationName,
+    ...naming
   })
   await adapter.acquire({ identity, fence: 7, spawnToken: 'spawn-9' })
   await adapter.dispatch({
@@ -247,6 +251,30 @@ describe('Codex conversation-name generation', () => {
     )
     expect(leaked).toEqual([])
     expect(JSON.stringify(events)).not.toContain('Fix lease probe')
+  })
+
+  it('asks only once across a re-acquisition, which builds a NEW session', async () => {
+    // A second acquisition rebuilds the session object, so the in-memory flag
+    // resets. Only the durable marker stops the user's next message paying for
+    // a second naming turn — and re-imposing a name they may have cleared.
+    let attempted = false
+    const naming = {
+      readNamingAttempted: () => attempted,
+      markNamingAttempted: () => {
+        attempted = true
+      }
+    }
+    const first = namingCodex({ answer: 'I could not think of one' })
+    await dispatchedAdapter(first, naming)
+    await settle()
+    const second = namingCodex({ answer: 'I could not think of one' })
+    await dispatchedAdapter(second, naming)
+    await settle()
+
+    const ephemeralStarts = (codex: ReturnType<typeof namingCodex>) =>
+      codex.calls.filter((call) => call.method === 'thread/start' && call.params.ephemeral === true)
+    expect(ephemeralStarts(first)).toHaveLength(1)
+    expect(ephemeralStarts(second)).toHaveLength(0)
   })
 
   it('asks only once per session, even when the first attempt produced no name', async () => {

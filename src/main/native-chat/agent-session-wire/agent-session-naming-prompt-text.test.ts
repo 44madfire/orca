@@ -42,3 +42,20 @@ describe('agentSessionNamingPromptText', () => {
     expect(text).toHaveLength(2_000)
   })
 })
+
+describe('agentSessionNamingPromptText hostile input', () => {
+  it.each([
+    ['absent blocks', {}],
+    ['null blocks', { blocks: null }],
+    ['a non-array blocks', { blocks: 'fix the probe' }],
+    ['an absent body', undefined]
+  ])('reports null rather than throwing on %s', (_label, body) => {
+    // This runs on the send path. Only the RPC send schema guarantees an array;
+    // journal-replay and resend callers do not pass through it, and a throw here
+    // would turn a delivered message into a reported failure.
+    expect(() =>
+      agentSessionNamingPromptText(body as unknown as AgentJournalMessageItem)
+    ).not.toThrow()
+    expect(agentSessionNamingPromptText(body as unknown as AgentJournalMessageItem)).toBeNull()
+  })
+})

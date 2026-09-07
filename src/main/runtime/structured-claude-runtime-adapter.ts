@@ -36,6 +36,12 @@ export type StructuredClaudeRuntimeAdapterDeps = {
     state: AgentSessionBackgroundTaskState | null
   ) => void
   onConversationName?: (sessionId: string, conversationName: string) => void
+  readNamingState?: (sessionId: string) => {
+    conversationName: string | null
+    namingAttempted: boolean
+  }
+  markNamingAttempted?: (sessionId: string) => void
+  onNamingError?: (scope: string, error: unknown) => void
 }
 
 export function createStructuredClaudeRuntimeAdapter(
@@ -80,7 +86,9 @@ export function createStructuredClaudeRuntimeAdapter(
         : null
     },
     ...(deps.onConversationName ? { onConversationName: deps.onConversationName } : {}),
-    readConversationName: (sessionId) => store.getRecord(sessionId)?.conversationName ?? null,
+    ...(deps.readNamingState ? { readNamingState: deps.readNamingState } : {}),
+    ...(deps.markNamingAttempted ? { markNamingAttempted: deps.markNamingAttempted } : {}),
+    ...(deps.onNamingError ? { onNamingError: deps.onNamingError } : {}),
     readTranscriptConversationName: async ({ providerSessionId, claudeConfigDir }) => {
       const transcriptPath = await resolveSessionFilePath('claude', providerSessionId, {
         claudeProjectsDir: join(claudeConfigDir, 'projects')

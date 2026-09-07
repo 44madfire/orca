@@ -81,7 +81,8 @@ export type StructuredAgentSessionRuntimeDeps = {
   onConversationName?: (input: {
     sessionId: string
     workspaceId: string
-    conversationName: string
+    /** Null when the provider cleared the name; the tab returns to its placeholder. */
+    conversationName: string | null
   }) => void
   handoffTransport?: StructuredAgentSessionHandoffTransport
   reapOrphanChildren?: typeof stopOrphanAgentSessionChildren
@@ -224,12 +225,15 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       store,
       now: () => Date.now(),
       onChanged: (sessionId, conversationName) => {
-        host?.republishStatus(sessionId)
+        // The tab snapshot is the only carrier: the status summary has no name
+        // field, so re-projecting it would broadcast a byte-identical summary.
         const workspaceId = store.getRecord(sessionId)?.location.workspaceId
         if (workspaceId) {
           deps.onConversationName?.({ sessionId, workspaceId, conversationName })
         }
-      }
+      },
+      onError: (scope, error) =>
+        console.warn(`[agent-session] conversation naming failed (${scope})`, error)
     })
     const codex = new CodexStructuredSessionAdapter({
       resolveLaunch: createCodexStructuredLaunchResolver({
@@ -242,6 +246,11 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
       onConversationName: (sessionId, conversationName) =>
         void conversationNames.publish(sessionId, conversationName),
+      onConversationNameCleared: (sessionId) => void conversationNames.clear(sessionId),
+      readNamingAttempted: (sessionId) => conversationNames.read(sessionId).namingAttempted,
+      markNamingAttempted: (sessionId) => void conversationNames.markAttempted(sessionId),
+      onNamingError: (scope, error) =>
+        console.warn(`[agent-session] conversation naming failed (${scope})`, error),
       onEvent: (event) => {
         if (event.type !== 'ended' || !('cause' in event) || event.cause !== 'unexpected-exit') {
           return
@@ -285,6 +294,10 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
         host?.publishBackgroundTaskState(sessionId, state),
       onConversationName: (sessionId, conversationName) =>
         void conversationNames.publish(sessionId, conversationName),
+      readNamingState: (sessionId) => conversationNames.read(sessionId),
+      markNamingAttempted: (sessionId) => void conversationNames.markAttempted(sessionId),
+      onNamingError: (scope, error) =>
+        console.warn(`[agent-session] conversation naming failed (${scope})`, error),
       ...(deps.openClaudeConnection ? { openClaudeConnection: deps.openClaudeConnection } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
     })

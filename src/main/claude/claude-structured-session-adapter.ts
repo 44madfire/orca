@@ -230,7 +230,10 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     if (outcome.state === 'accepted') {
       // The accepted user message is the only text this session is sure the CLI
       // received, and the first thing worth naming the conversation after.
-      startClaudeConversationNaming(input.sessionId, session, input.body, this.deps)
+      startClaudeConversationNaming(input.sessionId, session, input.body, {
+        ...this.deps,
+        ...(this.deps.onNamingError ? { onError: this.deps.onNamingError } : {})
+      })
     }
     return outcome
   }

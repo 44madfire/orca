@@ -9,10 +9,6 @@
 // Deliberately NOT Codex's imperative-verb style: Claude's own titling is a short
 // noun phrase in sentence case, and the SDK call already produces that. Passing
 // the user's text as the description and nothing else keeps it that way.
-//
-// Asked at most once per NAMED CONVERSATION, not once per session object: Claude
-// rebuilds its session on every acquisition, so the in-memory flag alone would
-// retitle the chat — and pay for it — on the second message after every eviction.
 
 import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
 import { agentSessionNamingPromptText } from '../native-chat/agent-session-wire/agent-session-naming-prompt-text'
@@ -21,17 +17,23 @@ import type { ClaudeSession } from './claude-structured-session-state'
 export type ClaudeConversationNamingDeps = {
   requestTimeoutMs?: number
   onConversationName?: (sessionId: string, conversationName: string) => void
-  /** The name already recorded for this session, if any. Claude's session object
-   *  is rebuilt on every acquisition, so the in-memory one-shot flag alone would
-   *  re-title the conversation once per eviction cycle. */
-  readConversationName?: (sessionId: string) => string | null
+  /** The durable naming state. Claude rebuilds its session object on every
+   *  acquisition, so an in-memory flag alone would retitle the conversation —
+   *  and pay for it — on the second message after every eviction. */
+  readNamingState?: (sessionId: string) => {
+    conversationName: string | null
+    namingAttempted: boolean
+  }
+  markNamingAttempted?: (sessionId: string) => void
+  onError?: (scope: string, error: unknown) => void
 }
 
 /**
  * Names the session once, off the turn's critical path.
  *
- * One attempt only: a CLI that exposes no title request, or a turn the model
- * declined to name, must not be re-asked on every later turn.
+ * Asked at most once per CONVERSATION rather than once per session object, and
+ * every step runs inside the promise: this sits on the send path, and nothing
+ * here may turn a delivered message into a reported failure.
  */
 export function startClaudeConversationNaming(
   sessionId: string,
@@ -42,33 +44,25 @@ export function startClaudeConversationNaming(
   if (session.namingAttempted || !deps.onConversationName) {
     return
   }
-  // The durable record outlives the session object; a conversation named on any
-  // earlier acquisition is never renamed, and never paid for twice.
-  if (deps.readConversationName?.(sessionId)) {
-    session.namingAttempted = true
-    return
-  }
-  const description = agentSessionNamingPromptText(body)
-  if (!description) {
-    return
-  }
   session.namingAttempted = true
-  // Started inside a promise so NOTHING here can reach the caller. This runs on
-  // the send path, and an integration fake without the method turned a delivered
-  // message into a reported failure — a synchronous throw from any cause would do
-  // the same. A chat with no name beats a send that claims it failed.
   void Promise.resolve()
-    .then(() =>
-      session.connection.generateSessionTitle(description, {
+    .then(async () => {
+      const durable = deps.readNamingState?.(sessionId)
+      if (durable?.conversationName || durable?.namingAttempted) {
+        return
+      }
+      const description = agentSessionNamingPromptText(body)
+      if (!description) {
+        return
+      }
+      deps.markNamingAttempted?.(sessionId)
+      const title = await session.connection.generateSessionTitle(description, {
         persist: true,
         ...(deps.requestTimeoutMs ? { timeoutMs: deps.requestTimeoutMs } : {})
       })
-    )
-    .then((title) => {
       if (title) {
         deps.onConversationName?.(sessionId, title)
       }
     })
-    // A session without a name is the state this started in; never surface it.
-    .catch(() => undefined)
+    .catch((error: unknown) => deps.onError?.('claude-conversation-naming', error))
 }
