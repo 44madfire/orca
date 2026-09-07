@@ -2,7 +2,7 @@ import { useAppStore } from '@/store'
 import { hasPtySerializer } from '../pty-buffer-serializer'
 import { writeTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-scheduler'
 
-import { settleSpawnThatLeftPaneUnbound } from './unbound-pane-spawn-recovery'
+import { observeSpawnSettlement } from './unbound-pane-spawn-recovery'
 import { STARTUP_CWD_FALLBACK_NOTICE } from './startup-cwd-fallback-notice'
 import { pendingSpawnByPaneKey, pendingSpawnGenerationByPaneKey } from './pty-connect-limits'
 import { shouldWritePtyOutputForeground } from './foreground-output-scan'
@@ -320,21 +320,7 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
         }
       })
     session.armDirectSshPaneRetryTimeout(trackedPromise, session.directSshRetryAttempt)
-    void trackedPromise.then((spawnedPtyId) => {
-      if (spawnedPtyId) {
-        return
-      }
-      queueMicrotask(() => {
-        if (
-          session.disposed ||
-          session.transport.getPtyId() ||
-          pendingSpawnByPaneKey.has(session.pendingSpawnKey)
-        ) {
-          return
-        }
-        settleSpawnThatLeftPaneUnbound(session)
-      })
-    })
+    observeSpawnSettlement(session, trackedPromise)
     // Why: split panes in the same tab can spawn concurrently. Key by pane
     // as well as tab so a remount cannot attach to a sibling setup pane's PTY.
     pendingSpawnByPaneKey.set(session.pendingSpawnKey, trackedPromise)

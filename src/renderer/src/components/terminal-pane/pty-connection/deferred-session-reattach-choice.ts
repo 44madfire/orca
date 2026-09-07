@@ -13,6 +13,7 @@ import {
   canRestorePairedParkedTerminal,
   isSessionOwnedByWorktree
 } from './paired-parked-terminal-restore'
+import { armSpawnSettlementWatchdog } from './unbound-pane-spawn-recovery'
 import { startDeferredSessionReattach } from './deferred-session-reattach-connect'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
@@ -171,6 +172,9 @@ export function runDeferredSessionReattachChoice(session: ConnectPanePtySession)
       }
       recordPtyConnectDiagnostic(`pane=${session.pane.id} -> PENDING SPAWN`)
       session.armDirectSshPaneRetryTimeout(pendingSpawn, session.directSshRetryAttempt)
+      // Why re-arm: the adopting instance needs its own settlement clock, or a hung
+      // spawn it inherited would freeze this pane with no timer of its own.
+      armSpawnSettlementWatchdog(session, pendingSpawn)
       void pendingSpawn
         .then((spawnedPtyId) => {
           if (session.disposed) {

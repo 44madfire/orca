@@ -1,6 +1,40 @@
 import { warnTerminalLifecycleAnomaly } from '../terminal-lifecycle-diagnostics'
-import { requestTerminalPaneRecovery } from '../terminal-pane-recovery'
+import {
+  captureTerminalPaneRecoveryGeneration,
+  requestTerminalPaneRecovery,
+  type TerminalPaneRecoveryReason
+} from '../terminal-pane-recovery'
+import {
+  TRANSPORT_CONNECT_SETTLE_GRACE_MS,
+  pendingSpawnByPaneKey,
+  pendingSpawnGenerationByPaneKey
+} from './pty-connect-limits'
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
+
+// Why a module-level set: a promise is already a unique identity, so arming from
+// both the fresh spawn and a remount's pending-spawn adoption cannot double-time it.
+const spawnSettlementTimedPromises = new WeakSet<Promise<unknown>>()
+
+function remountUnboundPane(
+  session: ConnectPanePtySession,
+  reason: TerminalPaneRecoveryReason,
+  anomaly: string
+): void {
+  warnTerminalLifecycleAnomaly(anomaly, {
+    tabId: session.deps.tabId,
+    worktreeId: session.deps.worktreeId,
+    leafId: session.deps.restoredLeafId ?? session.pane.leafId,
+    paneId: session.pane.id,
+    ptyId: null
+  })
+  void requestTerminalPaneRecovery({
+    tabId: session.deps.tabId,
+    ptyId: null,
+    reason,
+    terminalRecoveryGeneration: session.terminalRecoveryGeneration,
+    terminalRecoveryInstanceId: session.terminalRecoveryInstance.id
+  })
+}
 
 /** Settle a spawn that resolved without a PTY id, remounting the pane when
  *  nothing else owns its recovery.
@@ -23,18 +57,75 @@ export function settleSpawnThatLeftPaneUnbound(session: ConnectPanePtySession): 
   if (directSshRetryOwnsRecovery) {
     return
   }
-  warnTerminalLifecycleAnomaly('fresh spawn left the pane unbound', {
-    tabId: session.deps.tabId,
-    worktreeId: session.deps.worktreeId,
-    leafId: session.deps.restoredLeafId ?? session.pane.leafId,
-    paneId: session.pane.id,
-    ptyId: null
+  remountUnboundPane(session, 'spawn-left-pane-unbound', 'fresh spawn left the pane unbound')
+}
+
+/** Own both outcomes of one spawn: it settles with no PTY id, or it never
+ *  settles at all. Both leave the pane mounted and unbound, so they share the
+ *  remount seam and are kept together rather than split across the caller. */
+export function observeSpawnSettlement(
+  session: ConnectPanePtySession,
+  trackedPromise: Promise<string | null>
+): void {
+  armSpawnSettlementWatchdog(session, trackedPromise)
+  void trackedPromise.then((spawnedPtyId) => {
+    if (spawnedPtyId) {
+      return
+    }
+    // Deferred: let a concurrent sibling spawn claim the pane key first.
+    queueMicrotask(() => {
+      if (
+        session.disposed ||
+        session.transport.getPtyId() ||
+        pendingSpawnByPaneKey.has(session.pendingSpawnKey)
+      ) {
+        return
+      }
+      settleSpawnThatLeftPaneUnbound(session)
+    })
   })
-  void requestTerminalPaneRecovery({
-    tabId: session.deps.tabId,
-    ptyId: null,
-    reason: 'spawn-left-pane-unbound',
-    terminalRecoveryGeneration: session.terminalRecoveryGeneration,
-    terminalRecoveryInstanceId: session.terminalRecoveryInstance.id
-  })
+}
+
+/** Bound how long a pane waits on a spawn that may never settle.
+ *
+ *  Why not a timeout on the invoke itself: rejecting in the renderer cannot
+ *  cancel main's spawn, so a slow-but-alive one would be respawned and the late
+ *  PTY orphaned. This times out the pane's *waiting* instead; a late settlement
+ *  is already retired by the existing spawn-retirement path.
+ *
+ *  Unpinning is unconditional because a hung invoke otherwise strands the
+ *  pane-key entry forever, which also freezes any remount that adopts it. */
+export function armSpawnSettlementWatchdog(
+  session: ConnectPanePtySession,
+  trackedPromise: Promise<string | null>
+): void {
+  if (session.disposed || spawnSettlementTimedPromises.has(trackedPromise)) {
+    return
+  }
+  spawnSettlementTimedPromises.add(trackedPromise)
+  const { pendingSpawnKey } = session
+  const tabId = session.deps.tabId
+  const timer = setTimeout(() => {
+    if (pendingSpawnByPaneKey.get(pendingSpawnKey) === trackedPromise) {
+      pendingSpawnByPaneKey.delete(pendingSpawnKey)
+      pendingSpawnGenerationByPaneKey.delete(pendingSpawnKey)
+    }
+    // Something bound meanwhile, or the SSH ledger owns the retry: leave it alone.
+    if (session.transport.getPtyId() || session.directSshRetryAttempt) {
+      return
+    }
+    if (!session.disposed) {
+      remountUnboundPane(session, 'spawn-never-settled', 'spawn never settled; pane left unbound')
+      return
+    }
+    // Arming pane is gone, but an adopter may still be waiting on the pin. No
+    // instance id: this request belongs to the tab, not to a disposed xterm.
+    void requestTerminalPaneRecovery({
+      tabId,
+      ptyId: null,
+      reason: 'spawn-never-settled',
+      terminalRecoveryGeneration: captureTerminalPaneRecoveryGeneration(tabId)
+    })
+  }, TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+  void trackedPromise.finally(() => clearTimeout(timer)).catch(() => {})
 }
