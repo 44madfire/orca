@@ -13,6 +13,7 @@ import {
 import { isSubagentGroupBlock, type NativeChatMessage } from '../../../../shared/native-chat-types'
 import { splitNativeChatBlocks } from './native-chat-tool-fold'
 import { NativeChatToolRun } from './NativeChatToolRun'
+import { NativeChatMessageTimestamp } from './NativeChatMessageTimestamp'
 import { nativeChatProseToMarkdown } from './native-chat-prose'
 import {
   NativeChatAgentControls,
@@ -134,11 +135,10 @@ export const MessageRow = memo(function MessageRow({
             />
           )}
         </div>
-        {rewind ? (
-          <div className="pointer-events-none flex items-center gap-1 select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-            <NativeChatRewindAction itemId={message.id} rewind={rewind} />
-          </div>
-        ) : null}
+        <div className="pointer-events-none flex items-center gap-1 select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+          <NativeChatMessageTimestamp timestamp={message.timestamp} focusable />
+          {rewind ? <NativeChatRewindAction itemId={message.id} rewind={rewind} /> : null}
+        </div>
         {deliveryFailed ? (
           <div className="max-w-[85%] text-[11px] text-destructive/80">
             {translate(
@@ -183,6 +183,7 @@ export const MessageRow = memo(function MessageRow({
       {tools.length > 0 || subagentGroups.length > 0 ? (
         <NativeChatToolRun
           blocks={tools}
+          onLinkClick={onLinkClick}
           subagentGroups={subagentGroups}
           expandSignal={expandSignal}
           expandOverride={activityExpandOverride}
@@ -193,6 +194,7 @@ export const MessageRow = memo(function MessageRow({
       {showControls ? (
         <NativeChatAgentControls
           markdown={markdown}
+          timestamp={message.timestamp}
           onScrollToTop={scrollToTop}
           className="pointer-events-none mt-1 -mb-5 w-fit select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
         />
