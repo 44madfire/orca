@@ -43,8 +43,6 @@ describe('mobile web session screen binding', () => {
     expect(hostedSessionRoute).toContain('lastConnectedAt={shell.lastConnectedAt}')
     expect(hostedSessionRoute).toContain('<SessionScreen')
     expect(nativeSessionRoute).toContain('export function SessionScreen(')
-    // The native-only API bans moved to hosted-route-native-api-census.test.ts, which walks
-    // every module the hosted session route reaches rather than this fixed file list.
     expect(nativeSessionRoute).toContain('sessionDeviceOperations?.openTerminalSettings()')
     expect(nativeSessionRoute).toContain(
       'sessionDeviceOperations?.loadTerminalAccessoryPreferences()'
