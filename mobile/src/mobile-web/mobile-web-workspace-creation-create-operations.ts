@@ -95,6 +95,7 @@ async function hostSelection(
   return {
     kind: 'work-item',
     item: buildLinearWorkspaceSource(issue),
+    baseBranch: selection.baseBranch,
     branchNameOverride: selection.branchNameOverride
   }
 }

@@ -171,7 +171,8 @@ describe('mobile web workspace creation writes', () => {
             title: 'Tampered page title',
             url: 'https://linear.app/attacker/issue/STA-42',
             linearIdentifier: 'STA-42'
-          }
+          },
+          baseBranch: 'origin/release'
         },
         targetRepoId: REPO_ID,
         setupDecision: 'skip',
@@ -184,6 +185,7 @@ describe('mobile web workspace creation writes', () => {
 
     expect(sendRequest.mock.calls.map(([method]) => method)).toContain('linear.searchIssues')
     const create = sendRequest.mock.calls.find(([method]) => method === 'worktree.create')!
+    expect(create[1]).toMatchObject({ baseBranch: 'origin/release' })
     expect(JSON.stringify(create[1])).not.toContain('Tampered')
   })
 

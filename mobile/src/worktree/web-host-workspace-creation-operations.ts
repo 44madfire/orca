@@ -101,6 +101,7 @@ function webCreationSelection(
         linearIdentifier: item.linearIdentifier ?? '',
         linearBranchName: item.linearBranchName
       },
+      baseBranch: selection.baseBranch,
       branchNameOverride: selection.branchNameOverride
     }
   }

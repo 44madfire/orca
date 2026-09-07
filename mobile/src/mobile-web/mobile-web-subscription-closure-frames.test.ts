@@ -17,9 +17,6 @@ type Posts = {
 
 type LedgerCase = {
   name: string
-  // A push-driven ledger has no host frame to reject, so it has no invalid-message closure.
-  invalidCode: 'invalid_message' | null
-  invalid: unknown
   valid: unknown
   open: (posts: Posts) => Promise<(value: unknown) => void>
 }
@@ -58,8 +55,6 @@ function pageWorkspace(): { authority: MobileWebWorkspaceAuthority; pageWorkspac
 const LEDGER_CASES: LedgerCase[] = [
   {
     name: 'host',
-    invalidCode: null,
-    invalid: undefined,
     valid: { type: 'end' },
     open: async (posts) => {
       const host = hostClient()
@@ -76,9 +71,6 @@ const LEDGER_CASES: LedgerCase[] = [
   },
   {
     name: 'speech',
-    // Push-driven from the shell's dictation runtime, so no host frame can be unusable.
-    invalidCode: null,
-    invalid: { status: 'bogus' },
     valid: { status: 'recording' },
     open: async (posts) => {
       const subscriptions = new MobileWebSpeechSubscriptions(posts)
@@ -88,29 +80,8 @@ const LEDGER_CASES: LedgerCase[] = [
   }
 ]
 
-// Ledgers that retire on an unusable host message; a push-driven ledger has none, so it is absent.
-const RETIRING_LEDGER_CASES = LEDGER_CASES.filter(
-  (ledger): ledger is LedgerCase & { invalidCode: 'invalid_message' } => ledger.invalidCode !== null
-)
-
 // Without a terminal frame the page keeps a live subscription and freezes on its last value.
 describe('shell subscription ledgers publish a closure frame when they retire early', () => {
-  it.each(RETIRING_LEDGER_CASES)(
-    'closes the $name subscription on an unusable host message',
-    async (ledger) => {
-      const closures: [string, MobileWebSubscriptionClosure][] = []
-      const emit = await ledger.open({
-        isActive: () => true,
-        postEvent: async () => {},
-        postClosed: (subscriptionId, closure) => closures.push([subscriptionId, closure])
-      })
-
-      emit(ledger.invalid)
-
-      expect(closures).toEqual([[SUBSCRIPTION_ID, { code: ledger.invalidCode, retryable: false }]])
-    }
-  )
-
   it.each(LEDGER_CASES)(
     'closes the $name subscription when the page post fails',
     async (ledger) => {

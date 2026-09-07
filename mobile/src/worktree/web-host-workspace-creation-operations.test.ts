@@ -100,6 +100,38 @@ describe('web host workspace creation operations', () => {
     )
   })
 
+  it('preserves the selected base branch when creating from a Linear issue', async () => {
+    const client = bridgeClient()
+    const operations = webHostWorkspaceCreationOperations(
+      client as unknown as MobileWebBridgeClient
+    )
+    await operations.createWorkspaceFromSource({
+      selection: {
+        kind: 'work-item',
+        item: {
+          provider: 'linear',
+          type: 'issue',
+          number: 0,
+          title: 'Release fix',
+          url: 'https://linear.app/orca/issue/ORC-1',
+          linearIdentifier: 'ORC-1'
+        },
+        baseBranch: 'origin/release'
+      },
+      targetRepoId: 'repo-1',
+      setupDecision: 'skip',
+      agentChoice: 'blank',
+      workspaceName: undefined,
+      note: undefined,
+      worktreeCreateIdempotency: false
+    })
+    expect(client.workspaceCreationCreate.createFromSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selection: expect.objectContaining({ baseBranch: 'origin/release' })
+      })
+    )
+  })
+
   it('maps all create failures to stable page-safe copy', async () => {
     const client = bridgeClient()
     client.workspaceCreationCreate.createBlank.mockRejectedValue(
