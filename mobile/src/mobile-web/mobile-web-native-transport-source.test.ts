@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { MOBILE_WEB_BRIDGE_MAX_MESSAGE_BYTES } from '../../../src/shared/mobile-web/bridge-contract'
-import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from '../../../src/shared/mobile-web/markdown-editor-csp'
-import { mobileWebMermaidFrameCspDirectives } from '../../../src/shared/mobile-web/mermaid-frame-document'
+import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from '../components/markdown-editor-csp'
+import { mobileWebMermaidFrameCspDirectives } from '../components/pr-sidebar/mermaid-frame-document'
 
 const iosSource = readFileSync(
   new URL('../../packages/expo-mobile-web-shell/ios/MobileWebShellView.swift', import.meta.url),

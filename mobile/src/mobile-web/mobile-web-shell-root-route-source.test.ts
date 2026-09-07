@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from '../../../src/shared/mobile-web/markdown-editor-csp'
+import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from '../components/markdown-editor-csp'
 
 const iosShellViewSource = readFileSync(
   new URL('../../packages/expo-mobile-web-shell/ios/MobileWebShellView.swift', import.meta.url),

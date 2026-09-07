@@ -9,7 +9,7 @@ import { MobileWebManifestSchema } from '../../src/shared/mobile-web/manifest-co
 import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
   MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH
-} from '../../src/shared/mobile-web/mermaid-frame-document'
+} from '../../mobile/src/components/pr-sidebar/mermaid-frame-document'
 
 const execFileAsync = promisify(execFile)
 const temporaryRoots: string[] = []

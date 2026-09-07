@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
   buildMobileWebMermaidFrameDocument
-} from '../../src/shared/mobile-web/mermaid-frame-document'
+} from '../../mobile/src/components/pr-sidebar/mermaid-frame-document'
 import {
   MOBILE_WEB_MANIFEST_SCHEMA_VERSION,
   serializeMobileWebManifestForBuildId

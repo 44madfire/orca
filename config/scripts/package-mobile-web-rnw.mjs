@@ -10,7 +10,7 @@ import {
 import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
   buildMobileWebMermaidFrameDocument
-} from '../../src/shared/mobile-web/mermaid-frame-document.ts'
+} from '../../mobile/src/components/pr-sidebar/mermaid-frame-document.ts'
 import { colors } from '../../mobile/src/theme/mobile-theme.ts'
 import { splitMobileWebRnwScript } from './mobile-web-rnw-script-chunks.mjs'
 import { assertMobileWebRnwExecutablePolicy } from './mobile-web-rnw-executable-policy.mjs'

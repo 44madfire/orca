@@ -10,7 +10,7 @@ import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
   MOBILE_WEB_MERMAID_FRAME_SCRIPT,
   mobileWebMermaidFrameCspDirectives
-} from '../../src/shared/mobile-web/mermaid-frame-document.ts'
+} from '../../mobile/src/components/pr-sidebar/mermaid-frame-document.ts'
 import {
   MOBILE_WEB_RNW_BUILD_BUDGET,
   mobileWebRnwBuildBudgetFailures

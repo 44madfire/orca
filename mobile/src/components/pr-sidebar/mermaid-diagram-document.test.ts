@@ -6,7 +6,7 @@ import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
   MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH,
   buildMobileWebMermaidFrameDocument
-} from '../../../../src/shared/mobile-web/mermaid-frame-document'
+} from './mermaid-frame-document'
 import {
   buildMermaidDiagramDocument,
   MERMAID_DIAGRAM_SCRIPT,

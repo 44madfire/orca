@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { colors } from '../../theme/mobile-theme'
-import { MOBILE_WEB_MERMAID_FRAME_PATH } from '../../../../src/shared/mobile-web/mermaid-frame-document'
+import { MOBILE_WEB_MERMAID_FRAME_PATH } from './mermaid-frame-document'
 import {
   MERMAID_DIAGRAM_MAX_SOURCE_CHARACTERS,
   createMermaidDiagramEngineMessages,
