@@ -1,3 +1,4 @@
+import { waitForSocketPushHandoff } from './socket-push-delivery-handoff'
 import type { RpcClient } from '../transport/rpc-client'
 export {
   ensureNotificationPermissions,
@@ -39,8 +40,8 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
 
   let subscriptionId: string | null = null
   let disposed = false
-  // Why (#8591): survives the unsubscribe/resubscribe the app performs on every
-  // socket drop, so a reconnect still knows its watermark and that it reconnected.
+  const deliveryAbort = new AbortController()
+  // Preserve the watermark across socket reconnects.
   const session = getHostNotificationSession(hostId)
 
   /**
@@ -83,23 +84,26 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
     adoptNotificationEpoch(session, hostId, event.notificationEpoch)
     const epochAtDelivery = session.lastDeliveredEpoch
     if (type === 'notification') {
-      await showLocalNotification(event as NotificationEvent, hostId)
+      const show = await waitForSocketPushHandoff(
+        event as NotificationEvent,
+        hostId,
+        deliveryAbort.signal
+      )
+      if (disposed) {
+        throw new Error('notification_subscription_disposed')
+      }
+      if (show) {
+        await showLocalNotification(event as NotificationEvent, hostId)
+      }
     } else {
       await dismissLocalNotification(event as DismissNotificationEvent, hostId)
     }
-    // Why after the await, exactly like the watermark below: `seen` asserts this event
-    // reached the user (#8129). Marked before, a rejected show leaves the key behind and
-    // every later replay is dropped as a duplicate — loss the quarantine cannot recover,
-    // since the first event to drain a batch lifts it past the one never shown.
+    // Claim only after local delivery or a matching presented push.
     const key = seenKeyForEvent(event)
     // A mid-flight epoch adoption already cleared the counter lifetime this key indexes.
     if (key && session.lastDeliveredEpoch === epochAtDelivery) {
       session.seen.add(key)
     }
-    // Why after the await (#8591): the watermark is a promise that everything up
-    // to this seq has been shown. Advancing it before the local notification lands
-    // means a process death in between silently drops it — the next launch asks the
-    // desktop for seq greater than one the user never saw.
     if (event.notificationSeq != null && event.notificationSeq > session.lastDeliveredSeq) {
       session.lastDeliveredSeq = event.notificationSeq
       // Why clamped: while a failed catch-up's range is still unrecovered, persisting
@@ -112,11 +116,9 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
     }
   }
 
-  // Re-enqueueing inside a replay batch would let live delivery overtake it.
   async function deliverMissedEvent(
     event: NotificationEvent | DismissNotificationEvent
   ): Promise<void> {
-    // No pre-marking here either: deliverLive marks the key once the show lands.
     const key = seenKeyForEvent(event)
     if (key && session.seen.has(key)) {
       return
@@ -142,13 +144,9 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
     if (disposed) {
       return
     }
-    // Captured before the request: everything at or below it is known delivered, so
-    // it is the floor the watermark falls back to if this catch-up never completes.
+    // Preserve the delivered floor if catch-up fails.
     const askFrom = catchUpWatermarkSeq(session)
-    // Why started here and applied below: a push the OS drew while Orca was closed was
-    // never marked seen, so the replay would banner it again. The read runs alongside
-    // the request; the keys are claimed inside the queue, after any epoch adoption has
-    // cleared `seen`, so a tray entry cannot resurrect a key from a dead counter.
+    // Read concurrently; claim inside the queue after epoch adoption to avoid stale keys.
     const presentedPushKeys = readPresentedPushSeenKeys(hostId)
     const missed = await client
       .sendRequest('notifications.getMissedSince', {
@@ -181,8 +179,6 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
     // chain for that would stall live delivery on a slow link.
     await enqueueHostDelivery(session, async () => {
       markPresentedPushesSeen(session, await presentedPushKeys)
-      // Advances only past events this batch settled, so a teardown or a failing show
-      // quarantines the true contiguous point instead of the range it never reached.
       let contiguousSeq = askFrom
       let drained = false
       try {
@@ -291,6 +287,7 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
 
   return () => {
     disposed = true
+    deliveryAbort.abort()
     // Why: drop the local stream first — readiness can race unmount; don't hold the callback while a subscription id is pending.
     unsubscribeStream()
     if (subscriptionId) {

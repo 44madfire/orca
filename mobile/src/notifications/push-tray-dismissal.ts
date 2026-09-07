@@ -1,3 +1,4 @@
+import { readNativeNotificationData } from './native-notification-data'
 import * as Notifications from 'expo-notifications'
 import { readOrcaPushPayload } from './push-payload'
 
@@ -14,7 +15,7 @@ export async function dismissPresentedPushNotification(notificationId: string): 
     const presented = await Notifications.getPresentedNotificationsAsync()
     await Promise.all(
       presented.map(async (notification) => {
-        const payload = readOrcaPushPayload(notification.request.content.data)
+        const payload = readOrcaPushPayload(readNativeNotificationData(notification.request))
         if (payload?.notificationId !== notificationId) {
           return
         }

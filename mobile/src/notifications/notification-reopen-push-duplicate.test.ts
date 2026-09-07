@@ -41,7 +41,10 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   }
 }))
 
-vi.mock('../storage/preferences', () => ({ loadPushNotificationsEnabled: vi.fn() }))
+vi.mock('../storage/preferences', () => ({
+  loadRemotePushEnabled: vi.fn(async () => false),
+  loadPushNotificationsEnabled: vi.fn()
+}))
 
 const publicKey = Uint8Array.from({ length: 32 }, (_, index) => index)
 const publicKeyB64 = Buffer.from(publicKey).toString('base64')
@@ -56,7 +59,11 @@ function flushAsync(): Promise<void> {
 function presentTray(entries: readonly Record<string, unknown>[]): void {
   vi.mocked(Notifications.getPresentedNotificationsAsync).mockResolvedValue(
     entries.map((orca, index) => ({
-      request: { identifier: `tray-${index}`, content: { data: { orca } } }
+      request: {
+        identifier: `tray-${index}`,
+        content: { data: null },
+        trigger: { type: 'push', payload: { orca } }
+      }
     })) as never
   )
 }

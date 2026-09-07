@@ -341,3 +341,12 @@ and viewing preferences belong to the receiving phone. The phone suppresses a ba
 currently viewed host/workspace only while active; it never assumes desktop focus means the
 phone is viewing that workspace. Changes to an offline host's persisted filter take effect on
 reconnection. No live APNs/FCM delivery is implied by simulator notification injection.
+
+For a phone registered for background push, socket notification delivery waits while the app is
+inactive. On foreground, it checks the native push tray before scheduling a local fallback, so
+a still-connected background socket cannot duplicate APNs/FCM delivery. Unsubscribing cancels
+the wait without claiming delivery. Hosts without push registration keep local delivery.
+
+Native notification readers accept Expo's iOS `request.trigger.payload` as well as
+`request.content.data`. APNs custom fields can exist only in the former; foreground deduplication,
+tray replay suppression, dismissal, and tap routing all use the same reader.

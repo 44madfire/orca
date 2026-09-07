@@ -1,3 +1,4 @@
+import { readNativeNotificationData } from '../src/notifications/native-notification-data'
 import { loadNotificationDeliveryPreferences } from '../src/notifications/notification-delivery-preferences'
 import { setNotificationViewingWorkspace } from '../src/notifications/notification-viewing-policy'
 import { useCallback, useEffect, useRef } from 'react'
@@ -42,9 +43,9 @@ Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     // Why the check: a gateway push can arrive for an event the socket already
     // delivered, and only the handler can stop the OS drawing a second banner.
-    const suppressed = await shouldSuppressForegroundPush(notification.request.content.data).catch(
-      () => false
-    )
+    const suppressed = await shouldSuppressForegroundPush(
+      readNativeNotificationData(notification.request)
+    ).catch(() => false)
     return {
       shouldShowBanner: !suppressed,
       shouldShowList: !suppressed,
@@ -131,7 +132,7 @@ export default function RootLayout() {
 
     async function getNavigationTarget(notification: Notifications.Notification) {
       const hosts = await loadHostCatalog().catch(() => null)
-      const data: unknown = notification.request.content.data
+      const data = readNativeNotificationData(notification.request)
       // A gateway push names its host by key fingerprint, not by this device's hostId.
       // With no catalog to resolve against, such a push stays unrouted instead of
       // falling back to whatever hostId its raw data carries.

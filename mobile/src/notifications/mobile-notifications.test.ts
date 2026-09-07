@@ -41,6 +41,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }))
 
 vi.mock('../storage/preferences', () => ({
+  loadRemotePushEnabled: vi.fn(async () => false),
   loadPushNotificationsEnabled: vi.fn()
 }))
 

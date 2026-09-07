@@ -1,3 +1,4 @@
+import { readNativeNotificationData } from './native-notification-data'
 import * as Notifications from 'expo-notifications'
 import { loadHostCatalog } from '../transport/host-store'
 import { seenKeyForEvent, type HostNotificationSession } from './notification-reconnect-catchup'
@@ -27,7 +28,7 @@ export async function readPresentedPushSeenKeys(
     const hosts = await loadHostCatalog().catch(() => [])
     const keys: PresentedPushSeenKey[] = []
     for (const notification of presented) {
-      const payload = readOrcaPushPayload(notification.request.content.data)
+      const payload = readOrcaPushPayload(readNativeNotificationData(notification.request))
       // A coalesced summary stands in for N events while carrying only the latest
       // one's fields, so its key belongs to a banner the user has NOT seen.
       if (!payload || (payload.coalescedCount ?? 0) > 1) {
