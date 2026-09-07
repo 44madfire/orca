@@ -425,8 +425,9 @@ async function runOuter() {
         IBUS_ENABLE_SYNC_MODE: '1',
         LANG: process.env.LANG || 'C.UTF-8',
         QT_IM_MODULE: 'ibus',
-        XDG_CACHE_HOME: path.join(evidenceDir, 'cache'),
-        XDG_CONFIG_HOME: path.join(evidenceDir, 'config'),
+        // GNOME 42 drops XDG_CONFIG_HOME when spawning IBus; both must use its default path.
+        XDG_CACHE_HOME: nestedWayland ? undefined : path.join(evidenceDir, 'cache'),
+        XDG_CONFIG_HOME: nestedWayland ? undefined : path.join(evidenceDir, 'config'),
         XDG_RUNTIME_DIR: runtimeDir,
         XMODIFIERS: '@im=ibus'
       },
