@@ -143,7 +143,7 @@ describe('page-owned generic file reads', () => {
     const { client, respond } = fixture()
     const result = client.fileReadChunk(chunk)
     respond({ contentBase64: 'AAH/AA==', bytesRead: 4, eof: true })
-    await expect(result).rejects.toMatchObject({ code: 'host_error' })
+    await expect(result).rejects.toMatchObject({ code: 'invalid_message' })
     client.dispose()
   })
 })

@@ -3,11 +3,9 @@ import type { MobileWebBridgeCapability } from '../../../src/shared/mobile-web/b
 import { MobileWebSpeechSubscribePayloadSchema } from '../../../src/shared/mobile-web/speech-operation-contract'
 import { executeWorkspace } from './mobile-web-workspace-capability'
 import { executeMobileWebAccountCapability } from './mobile-web-account-capability'
-import { executeMobileWebAgentHistoryOperation } from './mobile-web-agent-history-operations'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import type { MobileWebCapabilityExecutionDependencies } from './mobile-web-capability-execution-dependencies'
-import { executeMobileWebFileOperation } from './mobile-web-file-operations'
-import { executeMobileWebMarkdownOperation } from './mobile-web-markdown-operations'
+import { executeMobileWebMarkdownDraftOperation } from './mobile-web-markdown-draft-operations'
 import { executeMobileWebNavigationOperation } from './mobile-web-navigation-operations'
 import { executeMobileWebNativeCapabilityOperation } from './mobile-web-native-capability-operations'
 import { executeMobileWebNativeChatCapability } from './mobile-web-native-chat-capability'
@@ -51,24 +49,11 @@ async function executeTerminal(args: Deps, request: OnceRequest): Promise<unknow
 }
 
 async function executeFile(args: Deps, request: OnceRequest): Promise<unknown> {
-  const client = args.connectedClient()
-  if (request.operation.startsWith('markdown')) {
-    return executeMobileWebMarkdownOperation({ ...args, ...request, client })
-  }
-  if (request.operation === 'resolveTerminalPath') {
-    return args.terminalArtifactAuthority.resolve(request.payload, client, args.workspaceAuthority)
-  }
-  if (request.operation === 'readTerminalArtifactChunk') {
-    return args.terminalArtifactAuthority.readChunk(request.payload, client)
-  }
-  if (request.operation === 'releaseTerminalArtifact') {
-    return args.terminalArtifactAuthority.release(request.payload)
-  }
-  return executeMobileWebFileOperation({
+  return executeMobileWebMarkdownDraftOperation({
     operation: request.operation,
     payload: request.payload,
-    client,
-    workspaceAuthority: args.workspaceAuthority
+    workspaceAuthority: args.workspaceAuthority,
+    nativeAuthority: args.nativeAuthority
   })
 }
 
@@ -105,7 +90,6 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
     native: executeNative,
     nativeChat: (args, request) => executeMobileWebNativeChatCapability(args, request),
     navigation: executeNavigation,
-    agentHistory: (args) => executeMobileWebAgentHistoryOperation(args),
     account: (args) => executeMobileWebAccountCapability(args),
     workspace: executeWorkspace,
     terminal: executeTerminal,

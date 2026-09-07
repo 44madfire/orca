@@ -3,11 +3,12 @@ import {
   getMobileAiVaultResumeRepoTargetStatus,
   getMobileAiVaultResumeWorktreeTargetStatus,
   isSupportedMobileAiVaultResumeTargetStatus,
-  mobileAiVaultResumeTargetBlockMessage,
-  resolveMobileAiVaultSessionResumeTarget
-} from './agent-history-resume-target'
-import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
-import type { Worktree } from '../worktree/workspace-list-types'
+  mobileAiVaultResumeTargetBlockMessage
+} from './mobile-ai-vault-resume-host-status'
+import { resolveMobileAiVaultSessionResumeTarget } from './mobile-ai-vault-resume-target'
+import type { ExecutionHostId } from './execution-host'
+import type { MobileAiVaultWorktree } from './mobile-ai-vault-session-worktree'
+import type { AiVaultSession } from './ai-vault-types'
 
 function session(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
   return {
@@ -35,20 +36,16 @@ function session(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
   }
 }
 
-function worktree(overrides: Partial<Worktree> & { worktreeId: string; path: string }): Worktree {
-  return {
-    repoId: 'local-repo',
-    repo: 'orca',
-    branch: 'main',
-    displayName: overrides.worktreeId,
-    liveTerminalCount: 0,
-    hasAttachedPty: false,
-    preview: '',
-    unread: false,
-    isPinned: false,
-    linkedPR: null,
-    ...overrides
-  }
+type ResumeTestWorktree = MobileAiVaultWorktree & {
+  workspaceKind?: 'git' | 'folder-workspace'
+  hostId?: ExecutionHostId
+  terminalPlatform?: NodeJS.Platform
+}
+
+function worktree(
+  overrides: Partial<ResumeTestWorktree> & { worktreeId: string; path: string }
+): ResumeTestWorktree {
+  return { repoId: 'local-repo', ...overrides }
 }
 
 describe('mobile AI Vault resume target guards', () => {

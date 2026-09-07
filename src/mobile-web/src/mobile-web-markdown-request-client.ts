@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import {
   MobileWebMarkdownDraftReadPayloadSchema,
   MobileWebMarkdownDraftReadResultSchema,
@@ -5,7 +6,6 @@ import {
   MobileWebMarkdownDraftWriteResultSchema,
   MobileWebMarkdownReadPayloadSchema,
   MobileWebMarkdownReadResultSchema,
-  MobileWebMarkdownSavePayloadSchema,
   MobileWebMarkdownSaveResultSchema,
   type MobileWebMarkdownDraftReadPayload,
   type MobileWebMarkdownDraftWire,
@@ -17,6 +17,7 @@ import { MOBILE_MARKDOWN_EDIT_MAX_BYTES } from '../../shared/mobile-markdown-doc
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
 import { decodeMobileWebFileBytes } from './mobile-web-file-content'
+import { requestMobileWebHost } from './mobile-web-host-request-client'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
 export type MobileWebMarkdownDraft = {
@@ -34,6 +35,8 @@ export type MobileWebMarkdownSaveResult = Omit<MobileWebMarkdownSaveWireResult, 
 
 type MarkdownTarget = MobileWebMarkdownDraftReadPayload
 
+const SaveOutcomeSchema = z.object({ outcome: z.enum(['saved', 'conflict']) })
+
 export class MobileWebMarkdownRequestClient {
   constructor(private readonly requests: MobileWebOneShotRequestClient) {}
 
@@ -41,39 +44,49 @@ export class MobileWebMarkdownRequestClient {
     payload: MobileWebMarkdownReadPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebMarkdownReadResult> {
-    return this.requests
-      .request(
-        'file',
-        'markdownRead',
-        payload,
-        MobileWebMarkdownReadPayloadSchema,
-        MobileWebMarkdownReadResultSchema,
-        options
-      )
-      .then((result) => decodeReadResult(matchingTarget(payload, result)))
+    if (!MobileWebMarkdownReadPayloadSchema.safeParse(payload).success) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
+    }
+    return requestMobileWebHost(
+      this.requests,
+      'mobileWeb.markdown.read',
+      payload.workspaceId,
+      {
+        tabId: payload.tabId,
+        ...(payload.relativePath ? { relativePath: payload.relativePath } : {}),
+        tabIsDirty: payload.tabIsDirty
+      },
+      options
+    ).then((result) =>
+      decodeReadResult(parseHostResult(MobileWebMarkdownReadResultSchema, payload, result))
+    )
   }
 
   save(
     payload: MarkdownTarget & { content: string; baseVersion: string },
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebMarkdownSaveResult> {
-    const wirePayload = {
-      workspaceId: payload.workspaceId,
-      tabId: payload.tabId,
-      relativePath: payload.relativePath,
-      baseVersion: payload.baseVersion,
-      contentBase64: encodeMarkdownContent(payload.content)
-    }
-    return this.requests
-      .request(
-        'file',
-        'markdownSave',
-        wirePayload,
-        MobileWebMarkdownSavePayloadSchema,
-        MobileWebMarkdownSaveResultSchema,
-        options
-      )
-      .then((result) => decodeSaveResult(matchingTarget(payload, result)))
+    return requestMobileWebHost(
+      this.requests,
+      'mobileWeb.markdown.save',
+      payload.workspaceId,
+      {
+        tabId: payload.tabId,
+        ...(payload.relativePath ? { relativePath: payload.relativePath } : {}),
+        baseVersion: payload.baseVersion,
+        contentBase64: encodeMarkdownContent(payload.content)
+      },
+      options
+    ).then((result) => {
+      const outcome = SaveOutcomeSchema.safeParse(result)
+      if (!outcome.success) {
+        throw new MobileWebBridgeClientError('invalid_message', false)
+      }
+      if (outcome.data.outcome === 'conflict') {
+        throw new MobileWebBridgeClientError('conflict', false)
+      }
+      return decodeSaveResult(parseHostResult(MobileWebMarkdownSaveResultSchema, payload, result))
+    })
   }
 
   loadDraft(
@@ -116,7 +129,24 @@ export class MobileWebMarkdownRequestClient {
   }
 }
 
-/** A tab is addressed by id; `relativePath` is only ever an echo, and the shell omits it for tabs
+/** The desktop answers a tab, not a workspace; the page restates the handle it addressed. */
+function parseHostResult<T extends MarkdownTarget>(
+  schema: { safeParse(value: unknown): { success: boolean; data?: unknown } },
+  payload: MarkdownTarget,
+  result: unknown
+): T {
+  const { outcome: _outcome, ...fields } =
+    typeof result === 'object' && result !== null
+      ? (result as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+  const parsed = schema.safeParse({ ...fields, workspaceId: payload.workspaceId })
+  if (!parsed.success) {
+    throw new MobileWebBridgeClientError('invalid_message', false)
+  }
+  return matchingTarget(payload, parsed.data as T)
+}
+
+/** A tab is addressed by id; `relativePath` is only ever an echo, and the desktop omits it for tabs
  * whose host path is not worktree-relative. */
 function matchingTarget<T extends MarkdownTarget>(expected: MarkdownTarget, result: T): T {
   const relativePathDiverged =

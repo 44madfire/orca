@@ -271,6 +271,15 @@ edges still meet the device and keep their measured values.
   reads, Source Control reads/watch, session snapshot/feed/actions, terminal
   metadata, workspace activation/pin/sleep/removal, the repository catalog, the
   workspace view settings and the whole account domain use this path.
+  ids. Generic subscriptions, native-chat domain actions, file reads/open/write,
+  Source Control reads/watch, session snapshot/feed/actions, terminal metadata,
+  terminal artifact previews, markdown tab reads/saves and agent history
+  reads/resume use this path. None of it keeps a handle ledger on either side:
+  a terminal artifact is addressed by the tab plus the terminal text that named
+  it, and the Desktop re-resolves the path and re-earns the file grant on every
+  chunk; an agent session is addressed by the agent and provider session id the
+  scan reports, and paging is a caller-supplied offset. The shell keeps only
+  markdown drafts, because those are device storage, not host state.
 - Decisions behind the generic lane and its 2026-09-07 simplification are in
   [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.

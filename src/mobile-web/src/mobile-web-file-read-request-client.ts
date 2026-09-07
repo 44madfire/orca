@@ -7,7 +7,6 @@ import {
   type MobileWebFileDirectoryPayload,
   type MobileWebFileDirectoryResult
 } from '../../shared/mobile-web/bridge-operation-contract'
-import { sanitizeChunkResult } from '../../shared/mobile-web/file-host-presentation'
 import { requestMobileWebHost } from './mobile-web-host-request-client'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { decodeMobileWebFileChunk } from './mobile-web-file-chunk'
@@ -24,7 +23,7 @@ export class MobileWebFileReadClient {
     if (!MobileWebFileDirectoryPayloadSchema.safeParse(payload).success) {
       return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
     }
-    return this.readHost(
+    return this.requestHost(
       'mobileWeb.files.readDir',
       payload.workspaceId,
       { relativePath: payload.relativePath, limit: payload.limit },
@@ -52,16 +51,16 @@ export class MobileWebFileReadClient {
     if (!MobileWebFileChunkPayloadSchema.safeParse(payload).success) {
       return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
     }
-    return this.readHost(
+    return this.requestHost(
       'files.readChunk',
       payload.workspaceId,
       { relativePath: payload.relativePath, offset: payload.offset, length: payload.length },
-      (result) => decodeMobileWebFileChunk(sanitizeChunkResult(result, payload)),
+      (result) => decodeMobileWebFileChunk(result, payload),
       options
     )
   }
 
-  protected readHost<T>(
+  protected requestHost<T>(
     method: string,
     workspaceId: string,
     params: Record<string, unknown>,

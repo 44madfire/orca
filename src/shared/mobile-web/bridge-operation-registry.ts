@@ -25,15 +25,8 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     cancel: 'mutation'
   },
   file: {
-    write: 'mutation',
-    markdownRead: 'read',
-    markdownSave: 'mutation',
     markdownDraftRead: 'read',
-    markdownDraftWrite: 'mutation',
-    open: 'mutation',
-    resolveTerminalPath: 'read',
-    readTerminalArtifactChunk: 'read',
-    releaseTerminalArtifact: 'mutation'
+    markdownDraftWrite: 'mutation'
   },
   sourceControl: {
     generateCommitMessage: 'mutation',
@@ -43,10 +36,9 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     resetCreditCapability: 'read',
     consumeResetCredit: 'mutation'
   },
-  agentHistory: {
+  settings: {
     snapshot: 'read',
-    preview: 'read',
-    resume: 'mutation'
+    update: 'mutation'
   },
   speech: {
     subscribe: 'subscription',

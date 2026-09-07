@@ -15,7 +15,8 @@ export type HostSessionTerminalFileTarget =
     }
   | {
       kind: 'web-artifact'
-      token: string
+      /** The terminal text the desktop re-resolves for every chunk read. */
+      pathText: string
       displayName: string
       previewKind: 'text' | 'raster'
       workspaceId?: string

@@ -29,7 +29,6 @@ import {
   mobileWebIsHostRequest,
   mobileWebRequestAtCapacity,
   mobileWebRequestSurvivesCancellation,
-  mobileWebAgentHistoryContinuation,
   mobileWebOperationKey,
   mobileWebPendingRequestForSubscription,
   mobileWebRequestExpectsSubscription,
@@ -118,7 +117,6 @@ export class MobileWebCapabilityBroker {
   }
   updateConnectionState(state: MobileWebConnectionState): void {
     if (state !== 'connected') {
-      this.authorities.terminalArtifact.clear()
       void this.speechAuthority.cancel('disconnected')
     }
   }
@@ -182,7 +180,6 @@ export class MobileWebCapabilityBroker {
     }
     if (
       !mobileWebWorkspaceSnapshotContinuation(request) &&
-      !mobileWebAgentHistoryContinuation(request) &&
       !this.rateLimiter.take(mobileWebOperationKey(request), grant)
     ) {
       await this.messages.error(request.requestId, 'rate_limited', true)
@@ -234,15 +231,11 @@ export class MobileWebCapabilityBroker {
       connectedClient: () => requireMobileWebConnectedClient(this.options),
       terminalClientId: this.options.terminalClientId,
       nativeAuthority: this.options.nativeAuthority,
-      agentHistoryAuthority: this.authorities.agentHistory,
-      agentHistoryPager: this.authorities.agentHistoryPager,
-      agentHistoryResume: this.authorities.agentHistoryResume,
       speechAuthority: this.speechAuthority,
       hostSubscriptions: this.subscriptions.host,
       terminalStreams: this.terminalStreams,
       commitMessageGeneration: this.commitMessageGeneration,
       nativeChatAuthority: this.authorities.nativeChat,
-      terminalArtifactAuthority: this.authorities.terminalArtifact,
       workspaceAuthority: this.authorities.workspace,
       workspaceSnapshots: this.authorities.workspaceSnapshots,
       navigationAuthority: this.options.navigationAuthority

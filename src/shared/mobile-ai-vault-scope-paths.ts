@@ -1,22 +1,17 @@
-import {
-  isRuntimePathAbsolute,
-  normalizeRuntimePathForComparison
-} from '../../../src/shared/cross-platform-path'
-import type { Worktree } from '../worktree/workspace-list-types'
-import {
-  AI_VAULT_SCOPE_PATHS_MAX_COUNT,
-  type AiVaultScope
-} from '../../../src/shared/ai-vault-types'
+import { isRuntimePathAbsolute, normalizeRuntimePathForComparison } from './cross-platform-path'
+import { AI_VAULT_SCOPE_PATHS_MAX_COUNT, type AiVaultScope } from './ai-vault-types'
 
 // Why: the renderer's deriveAiVault* helpers are renderer-located and
 // Metro-unresolvable, so mobile does its own minimal derivation seeded by the
 // active worktree's path plus same-repo sibling worktrees (mobile already loads
 // the full worktree list via worktree.ps). scopePaths only widen the host scan's
 // discovery breadth; they are host-local match prefixes, never device paths.
+export type MobileAiVaultScopeWorktree = { worktreeId: string; path: string; repoId: string }
+
 export function deriveMobileAiVaultScopePaths(
   scope: AiVaultScope,
-  activeWorktree: Pick<Worktree, 'worktreeId' | 'path' | 'repoId'> | null,
-  liveWorktrees: readonly Pick<Worktree, 'worktreeId' | 'path' | 'repoId'>[]
+  activeWorktree: MobileAiVaultScopeWorktree | null,
+  liveWorktrees: readonly MobileAiVaultScopeWorktree[]
 ): string[] {
   // 'all' scope scans without scope hints — the host returns the global recency
   // list, so no scopePaths are needed (and would only narrow discovery).

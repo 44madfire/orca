@@ -1,44 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
-import { executeMobileWebFileWrite } from './mobile-web-file-write'
 import { executeMobileWebNativeChatOperation } from './mobile-web-native-chat-operations'
 import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 describe('mobile web mutation authorization races', () => {
-  it('rejects a file write when ownership preflight loses its workspace authority', async () => {
-    const workspace = workspaceAuthority()
-    const worktree = deferredResult()
-    const sendRequest = vi.fn((method: string) => {
-      if (method === 'status.get') {
-        return Promise.resolve(success({ capabilities: ['files.mutation-ownership.v1'] }))
-      }
-      if (method === 'worktree.show') {
-        return worktree.promise
-      }
-      if (method === 'files.writeIfUnchanged') {
         return Promise.resolve(success({ ok: true }))
       }
       return Promise.resolve(failure())
     })
-    const pending = executeMobileWebFileWrite(
-      {
-        workspaceId: workspace.pageId,
-        relativePath: 'src/app.ts',
-        expectedRevision: 'a'.repeat(64),
-        contentBase64: btoa('guarded')
-      },
-      client(sendRequest),
-      workspace.authority
-    )
-    const rejection = expect(pending).rejects.toMatchObject({ code: 'not_found' })
-
-    await vi.waitFor(() => expect(callsFor(sendRequest, 'worktree.show')).toHaveLength(1))
-    workspace.remove()
-    worktree.resolve(success({ worktree: { hostId: 'local' } }))
-
-    await rejection
-    expect(callsFor(sendRequest, 'files.writeIfUnchanged')).toHaveLength(0)
   })
 
   it('rejects native-chat persistence when the tab lookup loses its workspace authority', async () => {

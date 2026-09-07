@@ -17,6 +17,9 @@ import { MOBILE_WEB_TASK_PROJECT_TABLE_METHOD } from './mobile-web-task-project-
 import { MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS } from './mobile-web-session-terminal-creation'
 import { MOBILE_WEB_NATIVE_CHAT_FILE_METHODS } from './mobile-web-native-chat-files'
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
+import { MOBILE_WEB_TERMINAL_ARTIFACT_METHODS } from './mobile-web-terminal-artifact'
+import { MOBILE_WEB_MARKDOWN_TAB_METHODS } from './mobile-web-markdown-tab'
+import { MOBILE_WEB_AGENT_HISTORY_METHODS } from './mobile-web-agent-history'
 import { MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD } from './mobile-web-native-chat-stream'
 import { MOBILE_WEB_BROWSER_INPUT_METHODS } from './mobile-web-browser-input'
 import { MOBILE_WEB_BROWSER_NAVIGATION_METHODS } from './mobile-web-browser-navigation'
@@ -71,6 +74,8 @@ import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
 import { ARTIFACT_METHODS } from './artifacts'
 import { MOBILE_WEB_FILE_READ_METHODS } from './mobile-web-file-reads'
 import { MOBILE_WEB_FILE_WATCH_METHOD } from './mobile-web-file-watch'
+import { MOBILE_WEB_FILE_OPEN_METHOD } from './mobile-web-file-open'
+import { MOBILE_WEB_FILE_WRITE_METHOD } from './mobile-web-file-write'
 import { MOBILE_WEB_PACKAGE_METHODS } from './mobile-web-package'
 import { MOBILE_FILE_WRITE_METHODS } from './mobile-file-write-if-unchanged'
 import { AGENT_HOOK_METHODS } from './agent-hooks'
@@ -139,7 +144,12 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...MOBILE_WEB_REVIEW_METHODS,
   MOBILE_WEB_TASK_PROJECT_TABLE_METHOD,
   MOBILE_WEB_FILE_WATCH_METHOD,
+  MOBILE_WEB_FILE_OPEN_METHOD,
+  MOBILE_WEB_FILE_WRITE_METHOD,
   ...MOBILE_WEB_TERMINAL_ACTION_METHODS,
+  ...MOBILE_WEB_TERMINAL_ARTIFACT_METHODS,
+  ...MOBILE_WEB_MARKDOWN_TAB_METHODS,
+  ...MOBILE_WEB_AGENT_HISTORY_METHODS,
   ...MOBILE_WEB_NATIVE_CHAT_METHODS,
   ...MOBILE_WEB_NATIVE_CHAT_FILE_METHODS,
   ...MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS,

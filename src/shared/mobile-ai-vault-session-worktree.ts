@@ -1,8 +1,7 @@
-import { isPathInsideOrEqual, isRuntimePathAbsolute } from '../../../src/shared/cross-platform-path'
-import { parseWslUncPath } from '../../../src/shared/wsl-paths'
-import { splitWorktreeIdForFilesystem } from '../../../src/shared/worktree/id'
-import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
-import type { Worktree } from '../worktree/workspace-list-types'
+import { isPathInsideOrEqual, isRuntimePathAbsolute } from './cross-platform-path'
+import { parseWslUncPath } from './wsl-paths'
+import { splitWorktreeIdForFilesystem } from './worktree/id'
+import type { AiVaultSession } from './ai-vault-types'
 
 export type MobileAgentHistorySessionWorktreeStatus = 'current' | 'active' | 'archived'
 
@@ -13,18 +12,23 @@ export type MobileAgentHistorySessionWorktreeInfo = {
 }
 
 type WorktreeCandidate = {
-  worktree: WorktreeWithPriorIds
+  worktree: MobileAiVaultWorktree
   path: string
   source: 'current-path' | 'prior-path'
 }
 
-type WorktreeWithPriorIds = Worktree & {
+/** The worktree-list fields this resolution reads; the caller's row type may carry far more. */
+export type MobileAiVaultWorktree = {
+  worktreeId: string
+  repoId: string
+  path: string
+  isArchived?: boolean
   priorWorktreeIds?: readonly string[]
 }
 
 export function resolveMobileAgentHistorySessionWorktree(args: {
   session: Pick<AiVaultSession, 'cwd'>
-  worktrees: readonly Worktree[]
+  worktrees: readonly MobileAiVaultWorktree[]
   activeWorktreeId: string | null
 }): MobileAgentHistorySessionWorktreeInfo | null {
   if (!args.session.cwd) {
@@ -58,9 +62,11 @@ export function canResumeInMobileSessionWorktree(
   return Boolean(worktreeInfo && worktreeInfo.status !== 'archived')
 }
 
-function buildMobileWorktreeCandidates(worktrees: readonly Worktree[]): WorktreeCandidate[] {
+function buildMobileWorktreeCandidates(
+  worktrees: readonly MobileAiVaultWorktree[]
+): WorktreeCandidate[] {
   const candidates: WorktreeCandidate[] = []
-  for (const worktree of worktrees as readonly WorktreeWithPriorIds[]) {
+  for (const worktree of worktrees) {
     if (hasUsablePath(worktree.path)) {
       candidates.push({ worktree, path: worktree.path, source: 'current-path' })
     }

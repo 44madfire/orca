@@ -16,7 +16,7 @@ export function webHostSessionTerminalFileOperations(
         line: request.line,
         column: request.column
       })
-      return webTerminalFileTarget(result)
+      return webTerminalFileTarget(result, request.pathText)
     },
     async openWorktreeFile(workspaceId, relativePath) {
       await client.fileOpen({ workspaceId, relativePath })
@@ -25,7 +25,8 @@ export function webHostSessionTerminalFileOperations(
 }
 
 function webTerminalFileTarget(
-  result: Awaited<ReturnType<MobileWebBridgeClient['fileResolveTerminalPath']>>
+  result: Awaited<ReturnType<MobileWebBridgeClient['fileResolveTerminalPath']>>,
+  pathText: string
 ): HostSessionTerminalFileTarget {
   return result.kind === 'worktree-file'
     ? {
@@ -36,7 +37,7 @@ function webTerminalFileTarget(
       }
     : {
         kind: 'web-artifact',
-        token: result.token,
+        pathText,
         displayName: result.displayName,
         previewKind: result.previewKind,
         workspaceId: result.workspaceId

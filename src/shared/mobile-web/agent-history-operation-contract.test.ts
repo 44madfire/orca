@@ -11,7 +11,7 @@ import {
 } from './agent-history-operation-contract'
 
 const SESSION = {
-  handle: 'agent_session_opaque_1',
+  sessionId: 'provider-session-1',
   agent: 'codex',
   agentLabel: 'Codex',
   title: 'Continue mobile migration',
@@ -29,7 +29,7 @@ describe('mobile web agent-history operation contract', () => {
     expect(MOBILE_WEB_AGENT_HISTORY_AGENTS).toEqual(AI_VAULT_AGENTS)
   })
 
-  it('accepts bounded opaque snapshot, preview, and resume values', () => {
+  it('accepts bounded snapshot, preview, and resume values', () => {
     expect(
       MobileWebAgentHistorySnapshotPayloadSchema.parse({
         workspaceId: 'workspace_opaque_1',
@@ -43,7 +43,7 @@ describe('mobile web agent-history operation contract', () => {
         supported: true,
         sessions: [SESSION],
         skippedTranscriptCount: 0,
-        nextCursor: null
+        nextOffset: null
       }).sessions
     ).toEqual([SESSION])
     expect(
@@ -54,19 +54,23 @@ describe('mobile web agent-history operation contract', () => {
     expect(
       MobileWebAgentHistoryResumePayloadSchema.parse({
         workspaceId: 'workspace_opaque_1',
-        sessionHandle: SESSION.handle
+        scope: 'workspace',
+        agent: SESSION.agent,
+        sessionId: SESSION.sessionId
       })
-    ).toMatchObject({ sessionHandle: SESSION.handle })
+    ).toMatchObject({ agent: SESSION.agent, sessionId: SESSION.sessionId })
   })
 
-  it('rejects host paths, provider session ids, commands, and unbounded pages', () => {
-    for (const privateField of ['cwd', 'filePath', 'sessionId', 'resumeCommand']) {
+  /** The provider session id is what the page addresses a session by, so it is published on
+   *  purpose. Everything host-shaped around it still has to stay behind the projection. */
+  it('rejects host paths, commands, and unbounded pages', () => {
+    for (const privateField of ['cwd', 'filePath', 'resumeCommand', 'id']) {
       expect(
         MobileWebAgentHistorySnapshotResultSchema.safeParse({
           supported: true,
           sessions: [{ ...SESSION, [privateField]: '/private/host/value' }],
           skippedTranscriptCount: 0,
-          nextCursor: null
+          nextOffset: null
         }).success
       ).toBe(false)
     }
@@ -75,7 +79,7 @@ describe('mobile web agent-history operation contract', () => {
         supported: true,
         sessions: Array.from({ length: MOBILE_WEB_AGENT_HISTORY_PAGE_LIMIT + 1 }, () => SESSION),
         skippedTranscriptCount: 0,
-        nextCursor: null
+        nextOffset: null
       }).success
     ).toBe(false)
     expect(
@@ -94,13 +98,15 @@ describe('mobile web agent-history operation contract', () => {
         supported: true,
         sessions: [{ ...SESSION, agent: 'unknown-provider' }],
         skippedTranscriptCount: 0,
-        nextCursor: null
+        nextOffset: null
       }).success
     ).toBe(false)
     expect(
       MobileWebAgentHistoryResumePayloadSchema.safeParse({
         workspaceId: 'workspace_opaque_1',
-        sessionHandle: SESSION.handle,
+        scope: 'workspace',
+        agent: SESSION.agent,
+        sessionId: SESSION.sessionId,
         command: "cd '/secret' && codex resume provider-session-id"
       }).success
     ).toBe(false)

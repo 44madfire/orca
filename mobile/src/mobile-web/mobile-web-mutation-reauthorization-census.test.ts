@@ -18,19 +18,14 @@ const HANDLE_RESOLUTION =
  * every call site count. This counts sites; it does not prove each one sits after the awaited
  * read it guards. */
 const REAUTHORIZATION_SITES: Record<string, number> = {
-  'mobile-web-agent-history-resume.ts': 1,
-  'mobile-web-file-operations.ts': 1,
-  'mobile-web-file-write.ts': 1,
   'mobile-web-host-requests.ts': 5,
   'mobile-web-host-subscriptions.ts': 1,
-  'mobile-web-markdown-operations.ts': 2,
   'mobile-web-native-chat-binding.ts': 2,
   'mobile-web-workspace-creation-create-operations.ts': 2
 }
 
 // Device-only mutations and handles consumed in one awaited call have no reauthorization window.
 const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
-  'file.releaseTerminalArtifact',
   'native.alert',
   'native.clipboardWrite',
   'native.hapticFeedback',
@@ -41,6 +36,7 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'native.diagnosticsSubmit',
   'native.openExternal',
   'native.pagePreferences',
+  'file.markdownDraftWrite',
   'native.sessionChatDraftWrite',
   'native.terminalCustomKeysUpdate',
   'native.terminalTextScaleUpdate',

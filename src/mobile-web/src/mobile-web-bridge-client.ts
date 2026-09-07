@@ -78,7 +78,6 @@ export class MobileWebBridgeClient {
   readonly hostSubscribe: MobileWebBridgeSubscriptionClient['subscribeHost']
   readonly fileResolveTerminalPath!: MobileWebFileRequestClient['resolveTerminalPath']
   readonly fileReadTerminalArtifactChunk!: MobileWebFileRequestClient['readTerminalArtifactChunk']
-  readonly fileReleaseTerminalArtifact!: MobileWebFileRequestClient['releaseTerminalArtifact']
   readonly sourceControlStatus!: MobileWebSourceControlRequestClient['status']
   readonly sourceControlDiff!: MobileWebSourceControlRequestClient['diff']
   readonly sourceControlBranches!: MobileWebSourceControlRequestClient['branches']

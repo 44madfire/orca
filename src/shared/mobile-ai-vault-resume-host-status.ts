@@ -4,14 +4,9 @@ import {
   parseExecutionHostId,
   toSshExecutionHostId,
   type ExecutionHostId
-} from '../../../src/shared/execution-host'
-import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
-import { isPathInsideOrEqual } from '../../../src/shared/cross-platform-path'
-import type { Worktree } from '../worktree/workspace-list-types'
-import {
-  canResumeInMobileSessionWorktree,
-  resolveMobileAgentHistorySessionWorktree
-} from './agent-history-session-worktree'
+} from './execution-host'
+import { isPathInsideOrEqual } from './cross-platform-path'
+import type { MobileAiVaultWorktree } from './mobile-ai-vault-session-worktree'
 
 export type MobileAiVaultResumeTargetStatus = 'local' | 'ssh' | 'runtime' | 'unknown'
 
@@ -23,9 +18,9 @@ export type MobileAiVaultResumeRepo = {
   executionHostId?: ExecutionHostId | null
 }
 
-type MobileAiVaultResumeWorktree = Pick<Worktree, 'repoId' | 'worktreeId'> & {
+export type MobileAiVaultResumeWorktree = Pick<MobileAiVaultWorktree, 'repoId' | 'worktreeId'> & {
   path?: string | null
-  workspaceKind?: Worktree['workspaceKind']
+  workspaceKind?: 'git' | 'folder-workspace'
   hostId?: ExecutionHostId | null
 }
 
@@ -40,18 +35,9 @@ export type MobileAiVaultResumeProjectGroup = {
   id: string
   parentGroupId?: string | null
   connectionId?: string | null
-  executionHostId?: ExecutionHostId | string | null
+  // Rows written before execution hosts were typed still carry a bare string here.
+  executionHostId?: string | null
 }
-
-export type MobileAiVaultSessionResumeTarget =
-  | {
-      status: 'ready'
-      worktreeId: string
-      targetStatus: 'local'
-      workspacePath: string | null
-      terminalPlatform: NodeJS.Platform | null
-    }
-  | { status: 'blocked'; message: string }
 
 export function getMobileAiVaultResumeRepoTargetStatus(
   repo: MobileAiVaultResumeRepo | null | undefined
@@ -112,63 +98,6 @@ export function mobileAiVaultResumeTargetBlockMessage(
     return 'This session is stored on the host machine, so it cannot be resumed in an SSH workspace. Open a local workspace for this project.'
   }
   return 'Open a local workspace before resuming a session.'
-}
-
-export function resolveMobileAiVaultSessionResumeTarget(args: {
-  session: AiVaultSession
-  activeWorktreeId: string | null
-  worktrees: readonly Worktree[]
-  repos: readonly MobileAiVaultResumeRepo[]
-  folderWorkspaces?: readonly MobileAiVaultResumeFolderWorkspace[]
-  projectGroups?: readonly MobileAiVaultResumeProjectGroup[]
-}): MobileAiVaultSessionResumeTarget {
-  const sessionWorktree = resolveMobileAgentHistorySessionWorktree({
-    session: args.session,
-    worktrees: args.worktrees,
-    activeWorktreeId: args.activeWorktreeId
-  })
-  const sessionWorktreeId = canResumeInMobileSessionWorktree(sessionWorktree)
-    ? sessionWorktree?.worktreeId
-    : null
-  const candidateWorktreeIds = [
-    sessionWorktreeId,
-    args.activeWorktreeId && args.activeWorktreeId !== sessionWorktreeId
-      ? args.activeWorktreeId
-      : null
-  ].filter((candidate): candidate is string => Boolean(candidate))
-
-  for (const candidateWorktreeId of candidateWorktreeIds) {
-    const targetStatus = getMobileAiVaultResumeWorktreeTargetStatus({
-      worktreeId: candidateWorktreeId,
-      worktrees: args.worktrees,
-      repos: args.repos,
-      folderWorkspaces: args.folderWorkspaces,
-      projectGroups: args.projectGroups
-    })
-    if (!isSupportedMobileAiVaultResumeTargetStatus(targetStatus)) {
-      continue
-    }
-    return {
-      status: 'ready',
-      worktreeId: candidateWorktreeId,
-      targetStatus,
-      workspacePath:
-        args.worktrees.find((worktree) => worktree.worktreeId === candidateWorktreeId)?.path ??
-        null,
-      terminalPlatform:
-        args.worktrees.find((worktree) => worktree.worktreeId === candidateWorktreeId)
-          ?.terminalPlatform ?? null
-    }
-  }
-
-  const blockedStatus = getMobileAiVaultResumeWorktreeTargetStatus({
-    worktreeId: candidateWorktreeIds[0] ?? args.activeWorktreeId,
-    worktrees: args.worktrees,
-    repos: args.repos,
-    folderWorkspaces: args.folderWorkspaces,
-    projectGroups: args.projectGroups
-  })
-  return { status: 'blocked', message: mobileAiVaultResumeTargetBlockMessage(blockedStatus) }
 }
 
 function getMobileAiVaultResumeFolderTargetStatus(args: {
