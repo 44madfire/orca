@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import { posix as pathPosix, win32 as pathWin32 } from 'node:path'
 import {
   createTomlLineScanState,
@@ -155,4 +156,103 @@ function getTomlHeaderPath(header: string): string {
     return trimmed.slice(1, -1).trim()
   }
   return ''
+}
+
+// Why: these settings must resolve inside whichever CODEX_HOME is *active*, not
+// against the directory of the file that declared them. That is the opposite of
+// EXACT_PATH_CONFIG_KEYS above, which anchors relative values to the SOURCE home
+// so user-owned assets stay reachable after the mirror moves the TOML.
+//
+// A bundled marketplace only loads when its source sits inside the active home,
+// so copying `~/.codex/.tmp/bundled-marketplaces/...` verbatim silently drops
+// the plugin from Orca-launched Codex (#18682). Adding such a key to the
+// anchoring set would cement the bug rather than fix it.
+const HOME_LOCAL_PATH_CONFIG_PATTERNS = [
+  /^marketplaces\..+\.source$/,
+  /^mcp_servers\..+\.env\.CODEX_HOME$/
+]
+
+function isHomeLocalPathConfigKey(tablePath: string, key: string): boolean {
+  const normalizedKey = normalizeTomlPathExpression(key)
+  const fullPath = tablePath
+    ? `${normalizeTomlPathExpression(tablePath)}.${normalizedKey}`
+    : normalizedKey
+  return HOME_LOCAL_PATH_CONFIG_PATTERNS.some((pattern) => pattern.test(fullPath))
+}
+
+/**
+ * Re-roots home-local settings from the source CODEX_HOME onto the runtime one.
+ *
+ * Only values that actually live inside the source home are moved; anything
+ * pointing elsewhere is the user's own path and is left exactly as written.
+ */
+export function rewriteHomeLocalConfigValues(
+  config: string,
+  sourceHomePath: string,
+  runtimeHomePath: string
+): string {
+  if (!sourceHomePath || !runtimeHomePath || sourceHomePath === runtimeHomePath) {
+    return config
+  }
+  const lines = config.split('\n')
+  let tablePath = ''
+  let scanState = createTomlLineScanState()
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? ''
+    if (isTomlStructuralLine(scanState)) {
+      const header = getTomlTableHeader(line)
+      if (header) {
+        tablePath = getTomlHeaderPath(header)
+      } else {
+        lines[index] = rewriteHomeLocalConfigLine(line, tablePath, sourceHomePath, runtimeHomePath)
+      }
+    }
+    scanState = updateTomlLineScanState(scanState, line)
+  }
+
+  return lines.join('\n')
+}
+
+function rewriteHomeLocalConfigLine(
+  line: string,
+  tablePath: string,
+  sourceHomePath: string,
+  runtimeHomePath: string
+): string {
+  const equalsIndex = line.indexOf('=')
+  if (equalsIndex === -1) {
+    return line
+  }
+  const key = line.slice(0, equalsIndex).trim()
+  if (!isHomeLocalPathConfigKey(tablePath, key)) {
+    return line
+  }
+  const parsed = parseTomlSingleLineStringValue(line, equalsIndex + 1)
+  if (!parsed) {
+    return line
+  }
+  const moved = reRootHomeLocalPath(parsed.value, sourceHomePath, runtimeHomePath)
+  if (moved === null) {
+    return line
+  }
+  return `${line.slice(0, parsed.start)}${quoteTomlPath(moved)}${line.slice(parsed.end)}`
+}
+
+/** Null when the value is not inside the source home, so it stays untouched. */
+function reRootHomeLocalPath(
+  value: string,
+  sourceHomePath: string,
+  runtimeHomePath: string
+): string | null {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+  const expanded = trimmed.startsWith('~/') ? pathPosix.join(homedir(), trimmed.slice(2)) : trimmed
+  const relative = pathPosix.relative(sourceHomePath, expanded)
+  if (relative.startsWith('..') || pathPosix.isAbsolute(relative)) {
+    return null
+  }
+  return relative ? pathPosix.join(runtimeHomePath, relative) : runtimeHomePath
 }

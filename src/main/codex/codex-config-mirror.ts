@@ -7,7 +7,10 @@ import {
 } from '../codex-accounts/fs-utils'
 import { getOrcaManagedCodexHomePath, getSystemCodexHomePath } from './codex-home-paths'
 import { CODEX_CONFIG_FILE_MODE, enforceCodexConfigFileMode } from './codex-config-file-mode'
-import { rewriteRelativePathConfigValues } from './codex-config-path-reference-rewrite'
+import {
+  rewriteHomeLocalConfigValues,
+  rewriteRelativePathConfigValues
+} from './codex-config-path-reference-rewrite'
 import { normalizeDeprecatedCodexHookFeatureFlag } from './config-toml-deprecated-hook-flag'
 import { parseWslUncPath } from '../../shared/wsl-paths'
 import {
@@ -197,13 +200,19 @@ function syncSystemConfigIntoManagedCodexHomeUnsafe(
   if (!runtimeConfigExists) {
     writeFileAtomically(
       runtimeConfigPath,
-      prepareSystemConfigForFreshRuntimeMirror(rawSystemConfig, sourceConfigDir),
+      prepareSystemConfigForFreshRuntimeMirror(rawSystemConfig, sourceConfigDir, {
+        sourceHomePath: systemHomePath,
+        runtimeHomePath
+      }),
       { mode: CODEX_CONFIG_FILE_MODE }
     )
     return { status: 'mirrored', preservedConflictKeys: new Set() }
   }
 
-  const systemConfig = prepareSystemConfigForRuntimeMirror(rawSystemConfig, sourceConfigDir)
+  const systemConfig = prepareSystemConfigForRuntimeMirror(rawSystemConfig, sourceConfigDir, {
+    sourceHomePath: systemHomePath,
+    runtimeHomePath
+  })
   // Why: reuse the bytes already observed above rather than re-reading. A second
   // read could succeed where the first failed and re-open the gap this closes.
   const runtimeConfig = runtimeConfigObservation.value
@@ -228,11 +237,18 @@ export function resolveCodexConfigMirrorSourceDirectory(
   )
 }
 
-function prepareSystemConfigForRuntimeMirror(config: string, systemConfigDir: string): string {
-  return rewriteRelativePathConfigValues(
+function prepareSystemConfigForRuntimeMirror(
+  config: string,
+  systemConfigDir: string,
+  homes?: { sourceHomePath: string; runtimeHomePath: string }
+): string {
+  const anchored = rewriteRelativePathConfigValues(
     normalizeDeprecatedCodexHookFeatureFlag(config),
     systemConfigDir
   )
+  return homes
+    ? rewriteHomeLocalConfigValues(anchored, homes.sourceHomePath, homes.runtimeHomePath)
+    : anchored
 }
 
 // Why: trust blocks reference a hooks.json path, so system-home hook trust
@@ -241,9 +257,12 @@ function prepareSystemConfigForRuntimeMirror(config: string, systemConfigDir: st
 // Linux-side ~/.codex the config resolves against inside the distro.
 export function prepareSystemConfigForFreshRuntimeMirror(
   config: string,
-  systemConfigDir: string
+  systemConfigDir: string,
+  homes?: { sourceHomePath: string; runtimeHomePath: string }
 ): string {
-  return stripRuntimeOwnedTomlSections(prepareSystemConfigForRuntimeMirror(config, systemConfigDir))
+  return stripRuntimeOwnedTomlSections(
+    prepareSystemConfigForRuntimeMirror(config, systemConfigDir, homes)
+  )
 }
 
 function mergeSystemCodexConfigIntoRuntime(runtimeConfig: string, systemConfig: string): string {
