@@ -19,6 +19,12 @@ export type PtyRendererDeliveryStateReport = {
    *  ACK path and resync response carry; merging them here is a free extra
    *  repair lane for the lost-ACK variant. */
   processedCharsByPty: Record<string, number>
+  /** Cumulative chars received for a PTY that has no registered data handler and
+   *  are parked in the renderer's pre-handler buffer. Their ACK is withheld, so —
+   *  unlike received-but-unparsed bytes, which their own deferred ACK repays —
+   *  this debt has no consumer to repay it and only a write-off or a bind clears
+   *  it. Absent means "none parked", which is exactly how an older renderer read. */
+  parkedCharsByPty?: Record<string, number>
   /** Set on the confirming tick: main may write off provably-lost bytes and
    *  answer with restore markers for the renderer to route locally. */
   heal?: boolean
@@ -35,6 +41,13 @@ export type PtyDeliveryWriteOff = {
   writtenOffChars: number
 }
 
+export type PtyDeliveryStalledPty = {
+  id: string
+  inFlightChars: number
+  /** null = this PTY has ACKed nothing since main created its accounting entry. */
+  msSinceLastAck: number | null
+}
+
 export type PtyRendererDeliveryHealthReply = {
   inFlightTotalChars: number
   inFlightPtyCount: number
@@ -42,4 +55,9 @@ export type PtyRendererDeliveryHealthReply = {
   msSinceLastAck: number | null
   /** Present only on a heal report that actually wrote off lost bytes. */
   writtenOff?: PtyDeliveryWriteOff[]
+  /** Per-PTY debt, debt-descending and capped. Session-global `msSinceLastAck` is
+   *  healthy essentially always on a many-terminal machine, so a single wedged pane
+   *  is invisible without this. Absent from an older main leaves the renderer on the
+   *  global predicate alone — today's behaviour. */
+  stalledPtys?: PtyDeliveryStalledPty[]
 }

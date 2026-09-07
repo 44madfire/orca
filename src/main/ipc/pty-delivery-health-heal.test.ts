@@ -294,6 +294,110 @@ describe('registerPtyHandlers', () => {
       vi.useRealTimers()
     }
   })
+  it('writes off parked bytes the renderer reported as having no consumer', async () => {
+    vi.useFakeTimers()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const mockProc = createMockProc()
+    spawnMock.mockReturnValue(mockProc.proc)
+
+    try {
+      const spawnResult = await spawnAndSaturateRendererDeliveryGate(mockProc)
+
+      // The renderer received every byte but has no handler for them, so they sit in the
+      // pre-handler buffer un-ACKed. Received-minus-parked is what can still repay itself.
+      const healed = reportRendererDeliveryState({
+        receivedCharsByPty: { [spawnResult.id]: 512 * 1024 },
+        processedCharsByPty: {},
+        parkedCharsByPty: { [spawnResult.id]: 512 * 1024 },
+        heal: true,
+        rendererPtyDataListenerCount: 1
+      })
+
+      expect(healed.writtenOff).toEqual([{ id: spawnResult.id, writtenOffChars: 512 * 1024 }])
+      expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({ rendererInFlightChars: 0 })
+    } finally {
+      warnSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+  it('still skips a PTY whose received bytes are only partly parked', async () => {
+    vi.useFakeTimers()
+    const mockProc = createMockProc()
+    spawnMock.mockReturnValue(mockProc.proc)
+
+    try {
+      const spawnResult = await spawnAndSaturateRendererDeliveryGate(mockProc)
+
+      // Half the bytes are still in the live parse path; their deferred ACK repays that half,
+      // so nothing here is provably lost and the write-off must stay out of it.
+      const health = reportRendererDeliveryState({
+        receivedCharsByPty: { [spawnResult.id]: 512 * 1024 },
+        processedCharsByPty: {},
+        parkedCharsByPty: { [spawnResult.id]: 256 * 1024 },
+        heal: true
+      })
+
+      expect(health.writtenOff).toBeUndefined()
+      expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
+        rendererInFlightChars: 512 * 1024
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('heals an ACK-silent PTY while a sibling PTY keeps ACKing', () => {
+    vi.useFakeTimers()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const provider = installObservableDaemonTestProvider()
+      registerPtyHandlers(mainWindow as never)
+      provider.emitData('pty-wedged', 'x'.repeat(600 * 1024))
+      provider.emitData('pty-live', 'x'.repeat(600 * 1024))
+      vi.advanceTimersByTime(2)
+      for (let index = 0; index < 400; index++) {
+        vi.advanceTimersByTime(1)
+      }
+
+      // The live pane round-trips its ACK, so the session-global ACK clock reads healthy —
+      // which is exactly the state that used to make the wedged pane permanently unhealable.
+      getPtyAckDataListener()(null, { id: 'pty-live', processedChars: 512 * 1024 })
+
+      const healed = reportRendererDeliveryState({
+        receivedCharsByPty: { 'pty-wedged': 512 * 1024 },
+        processedCharsByPty: {},
+        parkedCharsByPty: { 'pty-wedged': 512 * 1024 },
+        heal: true,
+        rendererPtyDataListenerCount: 1
+      })
+
+      expect(healed.msSinceLastAck).toBe(0)
+      expect(healed.writtenOff?.map((entry) => entry.id)).toEqual(['pty-wedged'])
+      expect(healed.stalledPtys).toBeUndefined()
+    } finally {
+      warnSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+  it('reports per-PTY debt so the renderer can tell which pane is wedged', async () => {
+    vi.useFakeTimers()
+    const mockProc = createMockProc()
+    spawnMock.mockReturnValue(mockProc.proc)
+
+    try {
+      const spawnResult = await spawnAndSaturateRendererDeliveryGate(mockProc)
+
+      const health = reportRendererDeliveryState({
+        receivedCharsByPty: {},
+        processedCharsByPty: {}
+      })
+
+      expect(health.stalledPtys).toEqual([
+        { id: spawnResult.id, inFlightChars: 512 * 1024, msSinceLastAck: null }
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it('zeroes renderer in-flight delivery counters when the renderer lifecycle resets', async () => {
     vi.useFakeTimers()
     const mockProc = createMockProc()

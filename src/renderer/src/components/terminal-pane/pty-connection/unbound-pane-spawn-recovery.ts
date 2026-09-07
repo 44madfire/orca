@@ -7,12 +7,15 @@ import type { ConnectPanePtySession } from './connect-pane-pty-session'
  *
  *  Why this is not self-correcting: the pane stays mounted with no transport
  *  binding, so `registerData` never runs. Main keeps pushing pty:data for the
- *  old id, the dispatcher finds no handler and buffers it in the pre-handler
- *  buffer — which claims no delivery credit, so the bytes are ACKed anyway and
- *  main's flow control reads healthy while the pane displays its last frame
- *  forever. The visibility reconciler skips unbound panes, so nothing else
- *  rebinds one. A remount reattaches over the still-live PTY and drains the
- *  buffer.
+ *  old id and the dispatcher parks it in the pre-handler buffer. The visibility
+ *  reconciler skips unbound panes, so nothing else rebinds one. A remount
+ *  reattaches over the still-live PTY and drains the buffer.
+ *
+ *  Parked bytes now hold their delivery credit, so main's flow control does see
+ *  the dead pane and pauses the shell instead of flooding it. That makes the
+ *  remount reachable from a second detector — the watchdog's parked-stall lane —
+ *  but it is not a replacement: it takes two 15s ticks and only fires once bytes
+ *  arrive, while this seam settles a data-silent pane immediately.
  *
  *  A direct-SSH lease runs its own retry ledger, so it keeps ownership here and
  *  a second remount never races it. */

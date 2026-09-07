@@ -34,6 +34,11 @@ export type TerminalPaneRecoveryReason =
   // binding. pty:data for the old id then lands in the pre-handler buffer, which
   // ACKs it — main's delivery health stays green while the pane shows nothing.
   | 'spawn-left-pane-unbound'
+  // pty:data kept arriving for a pane with no handler and sat parked, un-ACKed, for
+  // two watchdog ticks. Skips the liveness probe like 'input-rejected-by-host': the
+  // parked bytes themselves prove the PTY is alive, so nothing here infers death
+  // from silence — which is what makes it safe across the SSH execution boundary.
+  | 'delivery-parked'
 
 type RecoveryRequest = {
   tabId: string

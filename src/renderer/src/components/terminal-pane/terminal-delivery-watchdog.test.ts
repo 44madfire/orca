@@ -70,7 +70,8 @@ describe('terminal delivery watchdog', () => {
     const restoreChannel = await import('./pty-model-restore-channel')
     watchdog.startTerminalDeliveryWatchdog({
       reattachPushListeners: reattachMock,
-      hasAttachedPtys: () => true
+      hasAttachedPtys: () => true,
+      recoverParkedPanes: async () => []
     })
     return {
       recordPtyDataReceived: watchdog.recordPtyDataReceived,
@@ -176,7 +177,8 @@ describe('terminal delivery watchdog', () => {
     const watchdog = await import('./terminal-delivery-watchdog')
     watchdog.startTerminalDeliveryWatchdog({
       reattachPushListeners: reattachMock,
-      hasAttachedPtys: () => false
+      hasAttachedPtys: () => false,
+      recoverParkedPanes: async () => []
     })
 
     await vi.advanceTimersByTimeAsync(INTERVAL_MS * 3)
@@ -190,7 +192,8 @@ describe('terminal delivery watchdog', () => {
     const watchdog = await import('./terminal-delivery-watchdog')
     watchdog.startTerminalDeliveryWatchdog({
       reattachPushListeners: reattachMock,
-      hasAttachedPtys: () => true
+      hasAttachedPtys: () => true,
+      recoverParkedPanes: async () => []
     })
 
     await vi.advanceTimersByTimeAsync(INTERVAL_MS * 3)

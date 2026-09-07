@@ -5,14 +5,44 @@ import type {
 import { tryGetProviderForPty } from '../provider/registry'
 import { mainDeliveryBreadcrumbs } from './debug'
 import {
+  PTY_DELIVERY_HEAL_MIN_ACK_SILENCE_MS,
   PTY_DELIVERY_RESYNC_TIMEOUT_MS,
   PTY_RENDERER_ACTIVE_PTY_IN_FLIGHT_RESERVE_CHARS,
   PTY_RENDERER_INTERACTIVE_RESERVE_CHARS,
   PTY_RENDERER_IN_FLIGHT_HIGH_WATER_CHARS,
   PTY_RENDERER_TOTAL_IN_FLIGHT_HIGH_WATER_CHARS
 } from './constants'
-import type { PtyIpcSession } from '../session'
+import type { PtyIpcSession, RendererPtyDeliveryAccounting } from '../session'
 import type { PendingPtyData } from '../../pty-pending-data-drain-queue'
+
+/** Why per-PTY and not the session-global ACK clock this replaced: on a machine with a
+ *  hundred terminals some pty always ACKed a moment ago, so the global gate never opened and
+ *  a single wedged pane's debt was permanently unhealable. This keeps the same protection —
+ *  a foreign or buggy caller still cannot write off a pty that is round-tripping ACKs — but
+ *  decides it one pty at a time. */
+export function isPtyAckSilentForHeal(
+  accounting: RendererPtyDeliveryAccounting,
+  now: number
+): boolean {
+  return (
+    accounting.lastAckAtMs === null ||
+    now - accounting.lastAckAtMs >= PTY_DELIVERY_HEAL_MIN_ACK_SILENCE_MS
+  )
+}
+
+/** True when some PTY holds debt AND has itself been ACK-silent long enough to heal. */
+export function hasAckSilentRendererDeliveryDebt(session: PtyIpcSession): boolean {
+  const now = Date.now()
+  for (const accounting of session.rendererDeliveryAccountingByPty.values()) {
+    if (
+      accounting.sentChars - accounting.ackedChars > 0 &&
+      isPtyAckSilentForHeal(accounting, now)
+    ) {
+      return true
+    }
+  }
+  return false
+}
 
 export function getRendererInFlightCharsForPty(session: PtyIpcSession, id: string): number {
   const accounting = session.rendererDeliveryAccountingByPty.get(id)
@@ -158,20 +188,30 @@ export function requestDeliveryResyncForGatedPty(session: PtyIpcSession): void {
   session.mainWindow.webContents.send('pty:requestDeliveryResync', { requestId })
 }
 
+function sanitizeReportedChars(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0
+}
+
 export function writeOffLostRendererDelivery(
   session: PtyIpcSession,
   report: PtyRendererDeliveryStateReport
 ): PtyDeliveryWriteOff[] {
   const writtenOff: PtyDeliveryWriteOff[] = []
+  const now = Date.now()
   for (const [id, accounting] of session.rendererDeliveryAccountingByPty) {
     if (accounting.sentChars - accounting.ackedChars <= 0) {
       continue
     }
-    const received = report.receivedCharsByPty?.[id]
-    const receivedChars =
-      typeof received === 'number' && Number.isFinite(received) ? Math.max(0, received) : 0
+    if (!isPtyAckSilentForHeal(accounting, now)) {
+      continue
+    }
+    const receivedChars = sanitizeReportedChars(report.receivedCharsByPty?.[id])
+    // Parked bytes sit in the renderer's pre-handler buffer with no handler to consume them
+    // and a withheld ACK, so they can never repay themselves; only what is left in the live
+    // parse path does. Absent field ⇒ 0 parked ⇒ the predicate this replaced, byte for byte.
+    const parkedChars = sanitizeReportedChars(report.parkedCharsByPty?.[id])
     // Why skip: received-but-unparsed bytes are alive in the renderer write queue; their deferred ACK still repays this debt.
-    if (receivedChars > accounting.ackedChars) {
+    if (receivedChars - parkedChars > accounting.ackedChars) {
       continue
     }
     const acknowledged = applyCumulativeAck(session, id, accounting.sentChars)

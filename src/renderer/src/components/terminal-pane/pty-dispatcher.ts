@@ -4,7 +4,8 @@ import {
   clearProcessedPtyCharTotal,
   deliverPtyDataWithDeferredAck,
   exposeE2eTerminalPtyAckGate,
-  getProcessedPtyCharTotals
+  getProcessedPtyCharTotals,
+  takeCurrentPtyDeliveryAckCredit
 } from './terminal-pty-ack-gate'
 import { clampUtf8Tail, type EagerBufferChunk } from './pty-eager-buffer-clamp'
 import {
@@ -17,6 +18,7 @@ import { deliverPtyExitToHandlers } from './pty-exit-delivery'
 import {
   clearReceivedPtyCharTotal,
   isPtyPushDeliveryBlackholed,
+  isTerminalDeliveryWatchdogArmed,
   recordPtyDataReceived,
   startTerminalDeliveryWatchdog
 } from './terminal-delivery-watchdog'
@@ -92,7 +94,12 @@ export function ensurePtyDispatcher(): void {
   attachPtyPushListeners()
   startTerminalDeliveryWatchdog({
     reattachPushListeners: reattachPtyDispatcherPushListeners,
-    hasAttachedPtys: () => ptyDataHandlers.size > 0 || eagerPtyHandles.size > 0
+    hasAttachedPtys: () => ptyDataHandlers.size > 0 || eagerPtyHandles.size > 0,
+    // Why lazy: resolving ownership reads the app store, whose terminal slice imports this
+    // module, so a static edge would close an import cycle. The lane fires rarely — paying
+    // the import then costs nothing on the data hot path.
+    recoverParkedPanes: (ptyIds) =>
+      import('./terminal-parked-pane-recovery').then((module) => module.recoverParkedPanes(ptyIds))
   })
 }
 
@@ -151,7 +158,13 @@ function handleDispatchedPtyData(payload: {
     if (handler) {
       handler(payload.data, meta)
     } else {
-      bufferPreHandlerPtyData(payload.id, payload.data, meta)
+      // Why hold the ACK: crediting bytes no handler will consume left main's in-flight window
+      // empty for a dead pane, so its flow control read healthy and it kept flooding. Gated on
+      // the watchdog because held debt with no heal lane is a paused shell nobody can unstick.
+      bufferPreHandlerPtyData(payload.id, payload.data, meta, {
+        chars,
+        settle: isTerminalDeliveryWatchdogArmed() ? takeCurrentPtyDeliveryAckCredit() : null
+      })
     }
     const sidecars = ptyDataSidecars.get(payload.id)
     if (sidecars && sidecars.size > 0) {
