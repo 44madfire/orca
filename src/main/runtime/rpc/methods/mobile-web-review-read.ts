@@ -1,36 +1,29 @@
 import {
-  MobileWebProviderReviewPayloadSchema,
-  MobileWebProviderReviewResultSchema
+  MobileWebProviderReviewHostParamsSchema,
+  type MobileWebProviderReviewResult
 } from '../../../../shared/mobile-web/provider-review-contract'
 import { defineMethod } from '../core'
 import {
   assertMobileWebReviewIdentity,
-  MobileWebReviewScope,
-  mobileWebReviewPayload,
   mobileWebReviewRepoSelector,
-  mobileWebReviewResult,
   readMobileWebReviewDetails,
   readMobileWebReviewSummary
 } from './mobile-web-review-scope'
-import { projectMobileWebReviewDetails } from './mobile-web-review-projection'
+import { projectMobileWebReview } from './mobile-web-review-projection'
 
 export const MOBILE_WEB_REVIEW_READ_METHOD = defineMethod({
   name: 'mobileWeb.review.read',
-  params: MobileWebReviewScope.passthrough(),
-  handler: async (params, context) => {
-    const payload = mobileWebReviewPayload(MobileWebProviderReviewPayloadSchema, params)
-    const identity = { ...payload, worktree: params.worktree }
-    await assertMobileWebReviewIdentity(context, identity)
+  params: MobileWebProviderReviewHostParamsSchema,
+  handler: async (params, context): Promise<Omit<MobileWebProviderReviewResult, 'workspaceId'>> => {
+    await assertMobileWebReviewIdentity(context, params)
     const repo = mobileWebReviewRepoSelector(params.worktree)
-    const summary = await readMobileWebReviewSummary(context, repo, identity)
-    const details = summary ? await readMobileWebReviewDetails(context, repo, summary) : null
-    return mobileWebReviewResult(
-      MobileWebProviderReviewResultSchema.parse({
-        workspaceId: payload.workspaceId,
-        observedHead: payload.expectedHead,
-        branch: payload.expectedBranch,
-        review: summary ? projectMobileWebReviewDetails(summary, details) : null
-      })
-    )
+    const summary = await readMobileWebReviewSummary(context, repo, params)
+    return {
+      observedHead: params.expectedHead,
+      branch: params.expectedBranch,
+      review: summary
+        ? projectMobileWebReview(summary, await readMobileWebReviewDetails(context, repo, summary))
+        : null
+    }
   }
 })

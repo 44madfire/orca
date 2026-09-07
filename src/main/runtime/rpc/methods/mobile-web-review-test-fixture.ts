@@ -1,11 +1,7 @@
-import { vi } from 'vitest'
+import type { GitHubWorkItemDetails } from '../../../../shared/github/work-item-types'
+import type { HostedReviewInfo } from '../../../../shared/hosted-review'
 import type { RpcContext } from '../core'
-import { GIT_METHODS } from './git'
-import { GITHUB_METHODS } from './github'
-import { GITLAB_METHODS } from './gitlab'
-import { HOSTED_REVIEW_METHODS } from './hosted-review'
 import { MOBILE_WEB_REVIEW_METHODS } from './mobile-web-review-methods'
-import { WORKTREE_METHODS } from './worktree'
 
 export const REVIEW_WORKTREE = 'id:repo-1::/private/workspace'
 export const REVIEW_HEAD = 'b'.repeat(40)
@@ -13,39 +9,32 @@ export const REVIEW_BASE = 'a'.repeat(40)
 export const REVIEW_BRANCH = 'feature/review'
 export const REVIEW_IDENTITY = { expectedHead: REVIEW_HEAD, expectedBranch: REVIEW_BRANCH }
 
-const SOURCES = [
-  ...GIT_METHODS,
-  ...GITHUB_METHODS,
-  ...GITLAB_METHODS,
-  ...HOSTED_REVIEW_METHODS,
-  ...WORKTREE_METHODS
-]
+export type ReviewRuntimeCall = { method: string; args: unknown[] }
 
-export type ReviewSourceCall = { method: string; params: unknown }
-type SourceResponse = unknown
-
-/** Stubs the host methods a review wrapper reaches. Anything it reaches that is not stubbed hits a
- *  runtime this context does not have, which is how an unexpected call shows up as a failure. */
-export function stubReviewSources(responses: Record<string, SourceResponse>): ReviewSourceCall[] {
-  const calls: ReviewSourceCall[] = []
-  for (const [name, response] of Object.entries(responses)) {
-    const source = SOURCES.find((method) => method.name === name)
-    if (!source) {
-      throw new Error(`Unknown review source method: ${name}`)
-    }
-    vi.spyOn(source, 'handler').mockImplementation(async (params) => {
-      calls.push({ method: name, params })
-      // A function response lets a test answer the same method differently across calls.
+/** A runtime with only the commands a review wrapper reaches. Anything else it calls is absent, so
+ *  an unexpected command fails the test instead of silently answering undefined. */
+export function reviewRuntime(commands: Record<string, unknown>): {
+  context: RpcContext
+  calls: ReviewRuntimeCall[]
+} {
+  const calls: ReviewRuntimeCall[] = []
+  const runtime: Record<string, unknown> = {}
+  for (const [method, response] of Object.entries(commands)) {
+    runtime[method] = async (...args: unknown[]) => {
+      calls.push({ method, args })
       return typeof response === 'function' ? (response as () => unknown)() : response
-    })
+    }
   }
-  return calls
+  return {
+    calls,
+    context: { runtime, signal: new AbortController().signal } as unknown as RpcContext
+  }
 }
 
 export function runReviewMethod(
   name: string,
   params: Record<string, unknown>,
-  context: RpcContext = { signal: new AbortController().signal } as RpcContext
+  context: RpcContext
 ): Promise<unknown> {
   const method = MOBILE_WEB_REVIEW_METHODS.find((entry) => entry.name === name)
   if (!method) {
@@ -60,12 +49,13 @@ export function reviewStatus(overrides: Record<string, unknown> = {}) {
   return { head: REVIEW_HEAD, branch: REVIEW_BRANCH, entries: [], ...overrides }
 }
 
-export function hostedReviewSummary(overrides: Record<string, unknown> = {}) {
+export function hostedReviewSummary(overrides: Partial<HostedReviewInfo> = {}): HostedReviewInfo {
   return {
     provider: 'github',
     number: 42,
     title: 'Add the review lane',
     state: 'open',
+    url: 'https://github.example/acme/orca/pull/42',
     status: 'success',
     updatedAt: '2026-09-07T00:00:00.000Z',
     mergeable: 'MERGEABLE',
@@ -75,15 +65,24 @@ export function hostedReviewSummary(overrides: Record<string, unknown> = {}) {
   }
 }
 
-export function gitHubReviewDetails(overrides: Record<string, unknown> = {}) {
+export function gitHubReviewDetails(
+  overrides: Partial<GitHubWorkItemDetails> = {}
+): GitHubWorkItemDetails {
   return {
     item: {
+      id: 'PR_42',
       number: 42,
       type: 'pr',
+      title: 'Add the review lane',
+      state: 'open',
+      url: 'https://github.example/acme/orca/pull/42',
+      labels: [],
+      updatedAt: '2026-09-07T00:00:00.000Z',
       author: 'ada',
       prRepo: { owner: 'acme', repo: 'orca', host: 'github.example' },
-      reviewRequests: [{ login: 'grace' }],
-      latestReviews: []
+      reviewRequests: [{ login: 'grace', name: null, avatarUrl: '' }],
+      latestReviews: [],
+      ...overrides.item
     },
     body: 'Review body',
     headSha: REVIEW_HEAD,
@@ -91,6 +90,30 @@ export function gitHubReviewDetails(overrides: Record<string, unknown> = {}) {
     comments: [],
     files: [],
     checks: [],
+    ...overrides
+  }
+}
+
+export function gitLabReviewDetails(overrides: Record<string, unknown> = {}) {
+  return {
+    item: {
+      id: 'MR_42',
+      number: 42,
+      type: 'mr' as const,
+      title: 'Add the review lane',
+      state: 'opened' as const,
+      url: 'https://gitlab.example/acme/orca/-/merge_requests/42',
+      labels: [],
+      updatedAt: '2026-09-07T00:00:00.000Z',
+      author: 'ada',
+      projectRef: { host: 'gitlab.example', path: 'acme/orca' }
+    },
+    body: 'Review body',
+    headSha: REVIEW_HEAD,
+    baseSha: REVIEW_BASE,
+    startSha: REVIEW_BASE,
+    comments: [],
+    files: [],
     ...overrides
   }
 }

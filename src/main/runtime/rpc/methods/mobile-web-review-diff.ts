@@ -1,26 +1,27 @@
 import { createHash } from 'node:crypto'
+import type { z } from 'zod'
 import {
-  MobileWebProviderReviewDiffPayloadSchema,
-  MobileWebProviderReviewDiffResultSchema,
-  type MobileWebProviderReviewDiffPayload,
+  MobileWebProviderReviewDiffHostParamsSchema,
   type MobileWebProviderReviewDiffResult
 } from '../../../../shared/mobile-web/provider-review-diff-contract'
-import type { MobileWebProviderReviewFile } from '../../../../shared/mobile-web/provider-review-contract'
+import type { MobileWebProviderReview } from '../../../../shared/mobile-web/provider-review-contract'
 import { defineMethod, type RpcContext } from '../core'
-import { projectMobileWebReviewDetails } from './mobile-web-review-projection'
+import { projectMobileWebReview } from './mobile-web-review-projection'
 import {
   buildMobileWebReviewContentDiffPage,
   buildMobileWebReviewPatchDiffPage
 } from './mobile-web-review-diff-page'
 import {
-  callMobileWebReviewSource,
-  isRecord,
-  MobileWebReviewScope,
-  mobileWebReviewPayload,
-  mobileWebReviewResult,
-  readMobileWebReviewTarget
+  readMobileWebReviewTarget,
+  type MobileWebReviewDetails,
+  type MobileWebReviewPageResult
 } from './mobile-web-review-scope'
 import { gitHubReviewTarget, reviewInlinePosition } from './mobile-web-review-targets'
+
+type LoadedDetails = Extract<MobileWebReviewDetails, { state: 'loaded' }>
+type ReviewFile = MobileWebProviderReview['files'][number]
+type DiffParams = z.infer<typeof MobileWebProviderReviewDiffHostParamsSchema>
+type DiffPage = MobileWebReviewPageResult<MobileWebProviderReviewDiffResult>
 
 /** A review diff is the provider's own file contents, not the working tree's, so the page's rows
  *  are paged out of a diff this host builds and clips to one transport payload. */
@@ -28,41 +29,33 @@ const MAX_DIFF_RESULT_BYTES = 512 * 1024
 
 export const MOBILE_WEB_REVIEW_DIFF_METHOD = defineMethod({
   name: 'mobileWeb.review.diff',
-  params: MobileWebReviewScope.passthrough(),
-  handler: async (params, context) => {
-    const payload = mobileWebReviewPayload(MobileWebProviderReviewDiffPayloadSchema, params)
-    if (payload.provider !== 'github' && payload.provider !== 'gitlab') {
+  params: MobileWebProviderReviewDiffHostParamsSchema,
+  handler: async (params, context): Promise<DiffPage> => {
+    const { repo, summary, details } = await readMobileWebReviewTarget(context, params)
+    if (details.state !== 'loaded') {
       throw new Error('conflict')
     }
-    const { repo, summary, details } = await readMobileWebReviewTarget(context, {
-      ...payload,
-      worktree: params.worktree
-    })
-    const review = projectMobileWebReviewDetails(summary, details)
-    const file = review.files.find((candidate) => candidate.path === payload.path)
-    if (
-      review.detailsState !== 'loaded' ||
-      review.headSha !== payload.expectedReviewHead ||
-      !file
-    ) {
+    const review = projectMobileWebReview(summary, details)
+    const file = review.files.find((candidate) => candidate.path === params.path)
+    if (review.headSha !== params.expectedReviewHead || !file) {
       throw new Error('conflict')
     }
     const page =
-      payload.provider === 'github'
-        ? await readGitHubReviewDiff({ context, repo, payload, details, file })
-        : readGitLabReviewDiff(payload, details, file)
-    assertRequestedPage(payload, page)
-    return mobileWebReviewResult(MobileWebProviderReviewDiffResultSchema.parse(clipDiffRows(page)))
+      details.provider === 'github'
+        ? await readGitHubReviewDiff({ context, repo, payload: params, details, file })
+        : readGitLabReviewDiff(params, details, file)
+    assertRequestedPage(params, page)
+    return clipDiffRows(page)
   }
 })
 
 async function readGitHubReviewDiff(args: {
   context: RpcContext
   repo: string
-  payload: MobileWebProviderReviewDiffPayload
-  details: unknown
-  file: MobileWebProviderReviewFile
-}): Promise<MobileWebProviderReviewDiffResult> {
+  payload: DiffParams
+  details: LoadedDetails
+  file: ReviewFile
+}): Promise<DiffPage> {
   const position = reviewInlinePosition(args.details, args.payload.expectedReviewHead)
   if (!position?.baseSha) {
     throw new Error('conflict')
@@ -70,61 +63,50 @@ async function readGitHubReviewDiff(args: {
   if (args.file.isBinary) {
     return binaryPage(args.payload)
   }
-  const result = await callMobileWebReviewSource(
-    'github.prFileContents',
-    {
-      repo: args.repo,
-      prNumber: args.payload.reviewNumber,
-      path: args.file.path,
-      ...(args.file.oldPath ? { oldPath: args.file.oldPath } : {}),
-      status: args.file.status,
-      headSha: position.headSha,
-      baseSha: position.baseSha,
-      ...gitHubReviewTarget(args.details)
-    },
-    args.context
-  )
-  if (!isRecord(result)) {
-    throw new Error('host_error')
-  }
-  if (result.originalIsBinary === true || result.modifiedIsBinary === true) {
+  const contents = await args.context.runtime.getRepoPRFileContents(args.repo, {
+    prNumber: args.payload.reviewNumber,
+    prRepo: gitHubReviewTarget(args.details),
+    path: args.file.path,
+    oldPath: args.file.oldPath,
+    status: args.file.status,
+    headSha: position.headSha,
+    baseSha: position.baseSha
+  })
+  if (contents.originalIsBinary || contents.modifiedIsBinary) {
     return binaryPage(args.payload)
   }
-  if (result.originalTooLarge === true || result.modifiedTooLarge === true) {
+  if (contents.originalTooLarge === true || contents.modifiedTooLarge === true) {
     return { ...pageIdentity(args.payload), kind: 'too-large', reason: 'host-limit' }
   }
-  if (typeof result.original !== 'string' || typeof result.modified !== 'string') {
-    throw new Error('host_error')
-  }
   return buildMobileWebReviewContentDiffPage({
-    ...pageInput(args.payload, diffRevision(result.original, result.modified)),
-    originalContent: result.original,
-    modifiedContent: result.modified
+    ...pageInput(args.payload, diffRevision(contents.original, contents.modified)),
+    originalContent: contents.original,
+    modifiedContent: contents.modified
   })
 }
 
 /** GitLab already ships the merge-request patch inside the work item, so no second read is due. */
 function readGitLabReviewDiff(
-  payload: MobileWebProviderReviewDiffPayload,
-  details: unknown,
-  file: MobileWebProviderReviewFile
-): MobileWebProviderReviewDiffResult {
+  payload: DiffParams,
+  details: LoadedDetails,
+  file: ReviewFile
+): DiffPage {
   if (file.isBinary) {
     return binaryPage(payload)
   }
-  const rawFile = providerFile(details, file.path)
-  if (!rawFile || typeof rawFile.diff !== 'string') {
+  const patch =
+    details.provider === 'gitlab'
+      ? details.item.files?.find((candidate) => candidate.path === file.path)?.diff
+      : undefined
+  if (patch === undefined) {
     throw new Error('host_error')
   }
-  return buildMobileWebReviewPatchDiffPage({
-    ...pageInput(payload, diffRevision(rawFile.diff)),
-    patch: rawFile.diff
-  })
+  return buildMobileWebReviewPatchDiffPage({ ...pageInput(payload, diffRevision(patch)), patch })
 }
 
 /** Escaped line text can exceed the byte budget even within the row-count limit. A focused page
  *  keeps its focus row: the schema requires it, so dropping it would fail the whole read. */
-function clipDiffRows(page: MobileWebProviderReviewDiffResult): MobileWebProviderReviewDiffResult {
+function clipDiffRows(page: DiffPage): DiffPage {
   if (page.kind !== 'text') {
     return page
   }
@@ -140,7 +122,7 @@ function clipDiffRows(page: MobileWebProviderReviewDiffResult): MobileWebProvide
   return clipped
 }
 
-function pageInput(payload: MobileWebProviderReviewDiffPayload, revision: string) {
+function pageInput(payload: DiffParams, revision: string) {
   return {
     ...pageIdentity(payload),
     revision,
@@ -150,9 +132,8 @@ function pageInput(payload: MobileWebProviderReviewDiffPayload, revision: string
   }
 }
 
-function pageIdentity(payload: MobileWebProviderReviewDiffPayload) {
+function pageIdentity(payload: DiffParams) {
   return {
-    workspaceId: payload.workspaceId,
     observedHead: payload.expectedHead,
     branch: payload.expectedBranch,
     provider: payload.provider,
@@ -162,18 +143,13 @@ function pageIdentity(payload: MobileWebProviderReviewDiffPayload) {
   }
 }
 
-function binaryPage(
-  payload: MobileWebProviderReviewDiffPayload
-): MobileWebProviderReviewDiffResult {
+function binaryPage(payload: DiffParams): DiffPage {
   return { ...pageIdentity(payload), kind: 'binary' }
 }
 
 /** A page the caller asked to match a revision or centre on a line must do exactly that; anything
  *  else means the review moved between pages. */
-function assertRequestedPage(
-  payload: MobileWebProviderReviewDiffPayload,
-  page: MobileWebProviderReviewDiffResult
-): void {
+function assertRequestedPage(payload: DiffParams, page: DiffPage): void {
   if (
     payload.expectedRevision &&
     (page.kind !== 'text' || page.revision !== payload.expectedRevision)
@@ -186,14 +162,6 @@ function assertRequestedPage(
   ) {
     throw new Error('conflict')
   }
-}
-
-function providerFile(details: unknown, path: string): Record<string, unknown> | null {
-  if (!isRecord(details) || !Array.isArray(details.files)) {
-    return null
-  }
-  const candidate = details.files.find((entry) => isRecord(entry) && entry.path === path)
-  return isRecord(candidate) ? candidate : null
 }
 
 function diffRevision(...values: string[]): string {

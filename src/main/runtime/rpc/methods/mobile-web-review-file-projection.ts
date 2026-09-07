@@ -1,125 +1,77 @@
+import type { GitLabMRFile } from '../../../../shared/gitlab-types'
+import type { GitHubPRFile } from '../../../../shared/github/pull-request-types'
 import {
   MOBILE_WEB_PROVIDER_REVIEW_FILE_LIMIT,
   MOBILE_WEB_PROVIDER_REVIEW_FILE_LINE_LIMIT,
   MOBILE_WEB_PROVIDER_REVIEW_TOTAL_LINE_LIMIT,
-  MobileWebProviderReviewFileSchema,
-  type MobileWebProviderReviewFile,
-  type MobileWebProviderReviewProvider
+  type MobileWebProviderReview
 } from '../../../../shared/mobile-web/provider-review-contract'
-import {
-  isReviewRecord,
-  reviewNonnegativeInteger,
-  reviewObjectId
-} from './mobile-web-review-value-bounds'
+import type { MobileWebReviewDetails } from './mobile-web-review-scope'
 
-const MAX_GITLAB_DIFF_SCAN_CHARACTERS = 256 * 1024
-const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
+type ReviewFile = MobileWebProviderReview['files'][number]
+type CommentableLines = { values: number[]; truncated: boolean }
 
 export function projectMobileWebReviewFiles(
-  provider: MobileWebProviderReviewProvider,
-  value: unknown
-): { items: MobileWebProviderReviewFile[]; truncated: boolean } {
-  if (!Array.isArray(value)) {
-    return { items: [], truncated: false }
-  }
-  const items: MobileWebProviderReviewFile[] = []
+  details: Extract<MobileWebReviewDetails, { state: 'loaded' }>
+): { items: ReviewFile[]; truncated: boolean } {
+  return details.provider === 'github'
+    ? projectFiles(details.item.files ?? [], gitHubCommentableLines)
+    : projectFiles(details.item.files ?? [], gitLabCommentableLines)
+}
+
+/** Commentable lines dominate a review's size, so files are admitted until either the file count
+ *  or the shared line budget runs out. */
+function projectFiles<T extends GitHubPRFile | GitLabMRFile>(
+  source: readonly T[],
+  commentableLines: (file: T, limit: number) => CommentableLines
+): { items: ReviewFile[]; truncated: boolean } {
+  const items: ReviewFile[] = []
   let remainingLines = MOBILE_WEB_PROVIDER_REVIEW_TOTAL_LINE_LIMIT
-  let skipped = false
-  for (const entry of value) {
-    if (items.length >= MOBILE_WEB_PROVIDER_REVIEW_FILE_LIMIT) {
-      skipped = true
-      break
-    }
-    const file = projectReviewFile(provider, entry, remainingLines)
-    if (!file) {
-      skipped = true
-      continue
-    }
-    items.push(file)
-    remainingLines -= file.commentableLines.length
+  for (const file of source.slice(0, MOBILE_WEB_PROVIDER_REVIEW_FILE_LIMIT)) {
+    const lines = commentableLines(
+      file,
+      Math.min(MOBILE_WEB_PROVIDER_REVIEW_FILE_LINE_LIMIT, remainingLines)
+    )
+    items.push({
+      path: file.path,
+      ...(file.oldPath && file.oldPath !== file.path ? { oldPath: file.oldPath } : {}),
+      status: file.status,
+      additions: file.additions,
+      deletions: file.deletions,
+      isBinary: file.isBinary,
+      commentableLines: lines.values,
+      commentableLinesTruncated: lines.truncated
+    })
+    remainingLines -= lines.values.length
   }
-  return {
-    items,
-    truncated: skipped || value.length > MOBILE_WEB_PROVIDER_REVIEW_FILE_LIMIT
-  }
+  return { items, truncated: source.length > MOBILE_WEB_PROVIDER_REVIEW_FILE_LIMIT }
 }
 
-export function projectedMobileWebReviewHead(details: unknown): string | undefined {
-  return isReviewRecord(details) ? reviewObjectId(details.headSha) : undefined
-}
-
-function projectReviewFile(
-  provider: MobileWebProviderReviewProvider,
-  value: unknown,
-  remainingLines: number
-): MobileWebProviderReviewFile | null {
-  if (!isReviewRecord(value)) {
-    return null
-  }
-  const path = safePath(value.path)
-  if (!path) {
-    return null
-  }
-  const oldPath = safePath(value.oldPath)
-  const lineLimit = Math.min(MOBILE_WEB_PROVIDER_REVIEW_FILE_LINE_LIMIT, remainingLines)
-  const lines =
-    provider === 'github'
-      ? boundedLineNumbers(value.reviewCommentLineNumbers, lineLimit)
-      : modifiedDiffLineNumbers(value.diff, lineLimit)
-  const parsed = MobileWebProviderReviewFileSchema.safeParse({
-    path,
-    ...(oldPath && oldPath !== path ? { oldPath } : {}),
-    status: fileStatus(value.status),
-    additions: reviewNonnegativeInteger(value.additions),
-    deletions: reviewNonnegativeInteger(value.deletions),
-    isBinary: value.isBinary === true,
-    commentableLines: lines.values,
-    commentableLinesTruncated: lines.truncated
-  })
-  return parsed.success ? parsed.data : null
-}
-
-function boundedLineNumbers(
-  value: unknown,
-  limit: number
-): { values: number[]; truncated: boolean } {
-  if (!Array.isArray(value)) {
-    return { values: [], truncated: false }
-  }
-  const values: number[] = []
-  const seen = new Set<number>()
-  let truncated = false
-  for (const candidate of value) {
-    if (!positiveInteger(candidate) || seen.has(candidate)) {
-      continue
-    }
-    if (values.length >= limit) {
-      truncated = true
-      break
-    }
-    seen.add(candidate)
-    values.push(candidate)
-  }
-  return { values, truncated }
+function gitHubCommentableLines(file: GitHubPRFile, limit: number): CommentableLines {
+  const lines = file.reviewCommentLineNumbers ?? []
+  return { values: lines.slice(0, limit), truncated: lines.length > limit }
 }
 
 /** GitLab answers a unified patch instead of commentable line numbers, so the added and context
  *  lines of each hunk are the only ones a comment may address. */
-function modifiedDiffLineNumbers(
-  value: unknown,
-  limit: number
-): { values: number[]; truncated: boolean } {
-  if (typeof value !== 'string' || value.length === 0) {
-    return { values: [], truncated: false }
-  }
-  const scanLimit = Math.min(value.length, MAX_GITLAB_DIFF_SCAN_CHARACTERS)
+function gitLabCommentableLines(file: GitLabMRFile, limit: number): CommentableLines {
+  return file.diff === undefined
+    ? { values: [], truncated: false }
+    : modifiedDiffLineNumbers(file.diff, limit)
+}
+
+const MAX_GITLAB_DIFF_SCAN_CHARACTERS = 256 * 1024
+const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
+
+function modifiedDiffLineNumbers(patch: string, limit: number): CommentableLines {
+  const scanLimit = Math.min(patch.length, MAX_GITLAB_DIFF_SCAN_CHARACTERS)
   const values: number[] = []
   let nextLine: number | null = null
   let cursor = 0
   while (cursor <= scanLimit) {
-    const nextBreak = value.indexOf('\n', cursor)
+    const nextBreak = patch.indexOf('\n', cursor)
     const end = nextBreak === -1 || nextBreak > scanLimit ? scanLimit : nextBreak
-    const line = value.slice(cursor, end)
+    const line = patch.slice(cursor, end)
     const hunk = HUNK_HEADER.exec(line)
     if (hunk) {
       const start = Number(hunk[1])
@@ -141,25 +93,5 @@ function modifiedDiffLineNumbers(
     }
     cursor = nextBreak + 1
   }
-  return { values, truncated: value.length > scanLimit }
-}
-
-function safePath(value: unknown): string | undefined {
-  const result = MobileWebProviderReviewFileSchema.shape.path.safeParse(value)
-  return result.success ? result.data : undefined
-}
-
-function fileStatus(value: unknown): MobileWebProviderReviewFile['status'] {
-  return value === 'added' ||
-    value === 'removed' ||
-    value === 'renamed' ||
-    value === 'copied' ||
-    value === 'changed' ||
-    value === 'unchanged'
-    ? value
-    : 'modified'
-}
-
-function positiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+  return { values, truncated: patch.length > scanLimit }
 }

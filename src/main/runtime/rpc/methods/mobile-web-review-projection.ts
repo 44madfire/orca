@@ -1,173 +1,119 @@
+import type { PRCheckDetail } from '../../../../shared/github/check-types'
+import type {
+  GitHubAssignableUser,
+  GitHubPRReviewSummary
+} from '../../../../shared/github/pull-request-types'
 import {
   MOBILE_WEB_PROVIDER_REVIEW_BODY_MAX_CHARACTERS,
+  MOBILE_WEB_PROVIDER_REVIEW_CHECK_LIMIT,
+  MOBILE_WEB_PROVIDER_REVIEW_USER_LIMIT,
   MobileWebProviderReviewSchema,
-  type MobileWebProviderReview,
-  type MobileWebProviderReviewProvider
+  type MobileWebProviderReview
 } from '../../../../shared/mobile-web/provider-review-contract'
 import { projectMobileWebReviewComments } from './mobile-web-review-comment-projection'
-import {
-  projectMobileWebReviewFiles,
-  projectedMobileWebReviewHead
-} from './mobile-web-review-file-projection'
-import {
-  projectMobileWebReviewChecks,
-  projectMobileWebReviewSummaries,
-  projectMobileWebReviewUsers
-} from './mobile-web-review-participant-projection'
-import {
-  isReviewRecord,
-  reviewBoundedString,
-  reviewNonemptyString,
-  reviewObjectId,
-  reviewPositiveInteger
-} from './mobile-web-review-value-bounds'
+import { projectMobileWebReviewFiles } from './mobile-web-review-file-projection'
+import type { MobileWebReviewDetails, MobileWebReviewSummary } from './mobile-web-review-scope'
 
-/** Everything the branch lookup knows before the provider work item is read. */
-export type MobileWebReviewSummaryProjection = Omit<
-  MobileWebProviderReview,
-  | 'body'
-  | 'comments'
-  | 'commentsTruncated'
-  | 'files'
-  | 'filesTruncated'
-  | 'author'
-  | 'reviewRequests'
-  | 'latestReviews'
-  | 'checks'
-  | 'detailsState'
-  | 'canComment'
-  | 'allowedSubmissionActions'
->
-
-export function projectMobileWebReviewSummary(
-  value: unknown
-): MobileWebReviewSummaryProjection | null {
-  if (!isReviewRecord(value)) {
-    return null
-  }
-  const provider = reviewProvider(value.provider)
-  const number = reviewPositiveInteger(value.number)
-  if (!provider || number === null) {
-    return null
-  }
-  const headSha = reviewObjectId(value.headSha)
-  return {
-    provider,
-    number,
-    title: reviewBoundedString(value.title, 512),
-    state: reviewState(value.state),
-    checksStatus: checksStatus(value.status),
-    mergeable: mergeableState(value.mergeable),
-    reviewDecision: reviewDecision(value.reviewDecision),
-    ...(typeof value.autoMergeEnabled === 'boolean'
-      ? { autoMergeEnabled: value.autoMergeEnabled }
-      : {}),
-    ...(typeof value.autoMergeAllowed === 'boolean' || value.autoMergeAllowed === null
-      ? { autoMergeAllowed: value.autoMergeAllowed }
-      : {}),
-    ...(typeof value.mergeStateStatus === 'string' || value.mergeStateStatus === null
-      ? { mergeStateStatus: value.mergeStateStatus }
-      : {}),
-    updatedAt: reviewBoundedString(value.updatedAt, 64),
-    ...(headSha ? { headSha } : {})
-  }
-}
-
-export function projectMobileWebReviewDetails(
-  summary: MobileWebReviewSummaryProjection,
-  details: unknown
+/** Maps the host's own review types onto the page contract. The only work is renaming fields,
+ *  splitting the two providers, and clipping the lists and free text the provider does not bound. */
+export function projectMobileWebReview(
+  summary: MobileWebReviewSummary,
+  details: MobileWebReviewDetails
 ): MobileWebProviderReview {
-  if (summary.provider !== 'github' && summary.provider !== 'gitlab') {
-    return emptyReview(summary, 'unsupported')
+  const base = {
+    provider: summary.provider,
+    number: summary.number,
+    title: summary.title.slice(0, 512),
+    state: summary.state,
+    checksStatus: summary.status,
+    mergeable: summary.mergeable,
+    reviewDecision: summary.reviewDecision ?? null,
+    ...(summary.autoMergeEnabled === undefined
+      ? {}
+      : { autoMergeEnabled: summary.autoMergeEnabled }),
+    ...(summary.autoMergeAllowed === undefined
+      ? {}
+      : { autoMergeAllowed: summary.autoMergeAllowed }),
+    ...(summary.mergeStateStatus === undefined
+      ? {}
+      : { mergeStateStatus: summary.mergeStateStatus?.slice(0, 80) ?? null }),
+    updatedAt: summary.updatedAt.slice(0, 64)
   }
-  if (
-    !isReviewRecord(details) ||
-    !isReviewRecord(details.item) ||
-    reviewPositiveInteger(details.item.number) !== summary.number ||
-    details.item.type !== (summary.provider === 'github' ? 'pr' : 'mr')
-  ) {
-    return emptyReview(summary, 'unavailable')
+  if (details.state !== 'loaded') {
+    return MobileWebProviderReviewSchema.parse({
+      ...base,
+      ...(summary.headSha ? { headSha: summary.headSha } : {}),
+      body: '',
+      comments: [],
+      commentsTruncated: false,
+      files: [],
+      filesTruncated: false,
+      author: null,
+      detailsState: details.state,
+      canComment: false
+    })
   }
-  const comments = projectMobileWebReviewComments(summary.provider, details.comments)
-  const files = projectMobileWebReviewFiles(summary.provider, details.files)
-  const headSha = projectedMobileWebReviewHead(details) ?? summary.headSha
+  const headSha = details.item.headSha ?? summary.headSha
+  const comments = projectMobileWebReviewComments(details.provider, details.item.comments)
+  const files = projectMobileWebReviewFiles(details)
+  const participants = details.provider === 'github' ? details.item.item : null
   return MobileWebProviderReviewSchema.parse({
-    ...summary,
+    ...base,
     ...(headSha ? { headSha } : {}),
-    body: reviewBoundedString(details.body, MOBILE_WEB_PROVIDER_REVIEW_BODY_MAX_CHARACTERS),
+    body: details.item.body.slice(0, MOBILE_WEB_PROVIDER_REVIEW_BODY_MAX_CHARACTERS),
     comments: comments.items,
     commentsTruncated: comments.truncated,
     files: files.items,
     filesTruncated: files.truncated,
-    author: reviewNonemptyString(details.item.author, 80) ?? null,
-    reviewRequests: projectMobileWebReviewUsers(details.item.reviewRequests),
-    latestReviews: projectMobileWebReviewSummaries(details.item.latestReviews),
-    checks: projectMobileWebReviewChecks(details.checks),
+    author: details.item.item.author?.slice(0, 80) ?? null,
+    reviewRequests: projectReviewUsers(participants?.reviewRequests),
+    latestReviews: projectLatestReviews(participants?.latestReviews),
+    checks: projectChecks(details.provider === 'github' ? details.item.checks : undefined),
     detailsState: 'loaded',
     canComment: true,
     allowedSubmissionActions: submissionActions(summary, headSha)
   })
 }
 
-function emptyReview(
-  summary: MobileWebReviewSummaryProjection,
-  detailsState: 'unsupported' | 'unavailable'
-): MobileWebProviderReview {
-  return MobileWebProviderReviewSchema.parse({
-    ...summary,
-    body: '',
-    comments: [],
-    commentsTruncated: false,
-    files: [],
-    filesTruncated: false,
-    author: null,
-    reviewRequests: [],
-    latestReviews: [],
-    checks: [],
-    detailsState,
-    canComment: false,
-    allowedSubmissionActions: []
-  })
-}
-
+/** A review only accepts a verdict while it is still open, and only against a known head. */
 function submissionActions(
-  review: MobileWebReviewSummaryProjection,
+  summary: MobileWebReviewSummary,
   headSha: string | undefined
 ): MobileWebProviderReview['allowedSubmissionActions'] {
-  if ((review.state !== 'open' && review.state !== 'draft') || !headSha) {
+  if ((summary.state !== 'open' && summary.state !== 'draft') || !headSha) {
     return []
   }
-  return review.provider === 'github'
-    ? ['comment', 'approve', 'request-changes']
-    : review.provider === 'gitlab'
-      ? ['comment']
-      : []
+  if (summary.provider === 'github') {
+    return ['comment', 'approve', 'request-changes']
+  }
+  return summary.provider === 'gitlab' ? ['comment'] : []
 }
 
-function reviewProvider(value: unknown): MobileWebProviderReviewProvider | null {
-  return value === 'github' ||
-    value === 'gitlab' ||
-    value === 'bitbucket' ||
-    value === 'azure-devops' ||
-    value === 'gitea'
-    ? value
-    : null
+function projectReviewUsers(
+  users: readonly GitHubAssignableUser[] | undefined
+): MobileWebProviderReview['reviewRequests'] {
+  return (users ?? [])
+    .slice(0, MOBILE_WEB_PROVIDER_REVIEW_USER_LIMIT)
+    .map((user) => ({ login: user.login.slice(0, 80), name: user.name?.slice(0, 160) ?? null }))
 }
 
-function reviewState(value: unknown): MobileWebProviderReview['state'] {
-  return value === 'closed' || value === 'merged' || value === 'draft' ? value : 'open'
+function projectLatestReviews(
+  reviews: readonly GitHubPRReviewSummary[] | undefined
+): MobileWebProviderReview['latestReviews'] {
+  return (reviews ?? []).slice(0, MOBILE_WEB_PROVIDER_REVIEW_USER_LIMIT).map((review) => ({
+    login: review.login.slice(0, 80),
+    state: review.state?.slice(0, 80) ?? null
+  }))
 }
 
-function checksStatus(value: unknown): MobileWebProviderReview['checksStatus'] {
-  return value === 'success' || value === 'failure' || value === 'pending' ? value : 'neutral'
-}
-
-function mergeableState(value: unknown): MobileWebProviderReview['mergeable'] {
-  return value === 'MERGEABLE' || value === 'CONFLICTING' ? value : 'UNKNOWN'
-}
-
-function reviewDecision(value: unknown): MobileWebProviderReview['reviewDecision'] {
-  return value === 'APPROVED' || value === 'CHANGES_REQUESTED' || value === 'REVIEW_REQUIRED'
-    ? value
-    : null
+function projectChecks(
+  checks: readonly PRCheckDetail[] | undefined
+): MobileWebProviderReview['checks'] {
+  return (checks ?? []).slice(0, MOBILE_WEB_PROVIDER_REVIEW_CHECK_LIMIT).map((check) => ({
+    name: check.name.slice(0, 256),
+    status: check.status,
+    conclusion: check.conclusion,
+    ...(check.checkRunId === undefined ? {} : { checkRunId: check.checkRunId }),
+    ...(check.workflowRunId === undefined ? {} : { workflowRunId: check.workflowRunId })
+  }))
 }

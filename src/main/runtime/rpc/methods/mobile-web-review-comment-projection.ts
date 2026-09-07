@@ -1,99 +1,77 @@
 import {
   MOBILE_WEB_PROVIDER_REVIEW_COMMENT_LIMIT,
   MOBILE_WEB_PROVIDER_REVIEW_COMMENT_MAX_CHARACTERS,
-  MobileWebProviderReviewCommentSchema,
-  type MobileWebProviderReviewComment,
+  type MobileWebProviderReview,
   type MobileWebProviderReviewProvider
 } from '../../../../shared/mobile-web/provider-review-contract'
-import {
-  isReviewRecord,
-  reviewBoundedString,
-  reviewNonemptyString,
-  reviewPositiveInteger,
-  reviewPositiveIntegerString,
-  reviewRelativePath
-} from './mobile-web-review-value-bounds'
+
+/** What both providers' comment types share. GitLab has no outdated-thread marker, which an
+ *  optional field already covers. */
+type ProviderReviewComment = {
+  id: number
+  author: string
+  body: string
+  createdAt: string
+  path?: string
+  threadId?: string
+  isResolved?: boolean
+  isOutdated?: boolean
+  line?: number
+  startLine?: number
+  isBot?: boolean
+}
 
 export function projectMobileWebReviewComments(
   provider: MobileWebProviderReviewProvider,
-  value: unknown
-): { items: MobileWebProviderReviewComment[]; truncated: boolean } {
-  if (!Array.isArray(value)) {
-    return { items: [], truncated: false }
-  }
-  const parsed = value.flatMap((entry): MobileWebProviderReviewComment[] => {
-    const comment = projectReviewComment(provider, entry)
-    return comment ? [comment] : []
-  })
+  comments: readonly ProviderReviewComment[]
+): { items: MobileWebProviderReview['comments']; truncated: boolean } {
   return {
-    items: parsed.slice(-MOBILE_WEB_PROVIDER_REVIEW_COMMENT_LIMIT),
-    truncated: parsed.length > MOBILE_WEB_PROVIDER_REVIEW_COMMENT_LIMIT
+    // The newest comments are the ones worth reading on a phone.
+    items: comments
+      .slice(-MOBILE_WEB_PROVIDER_REVIEW_COMMENT_LIMIT)
+      .map((comment) => projectComment(provider, comment)),
+    truncated: comments.length > MOBILE_WEB_PROVIDER_REVIEW_COMMENT_LIMIT
   }
 }
 
-function projectReviewComment(
+function projectComment(
   provider: MobileWebProviderReviewProvider,
-  value: unknown
-): MobileWebProviderReviewComment | null {
-  if (!isReviewRecord(value)) {
-    return null
+  comment: ProviderReviewComment
+): MobileWebProviderReview['comments'][number] {
+  const inline = comment.path !== undefined || comment.line !== undefined || comment.threadId
+  return {
+    id: String(comment.id),
+    author: comment.author.slice(0, 160),
+    body: comment.body.slice(0, MOBILE_WEB_PROVIDER_REVIEW_COMMENT_MAX_CHARACTERS),
+    createdAt: comment.createdAt.slice(0, 64),
+    kind: inline ? 'inline' : 'conversation',
+    ...(comment.path === undefined ? {} : { path: comment.path }),
+    ...(comment.line === undefined ? {} : { line: comment.line }),
+    ...(comment.startLine === undefined ? {} : { startLine: comment.startLine }),
+    ...(comment.threadId === undefined
+      ? {}
+      : { threadId: comment.threadId, threadState: threadState(comment) }),
+    allowedActions: commentActions(provider, comment.threadId),
+    ...(comment.isBot === undefined ? {} : { isBot: comment.isBot })
   }
-  const id = commentIdentifier(value.id)
-  if (!id) {
-    return null
-  }
-  const path = reviewRelativePath(value.path)
-  const line = reviewPositiveInteger(value.line)
-  const startLine = reviewPositiveInteger(value.startLine)
-  const threadId = reviewNonemptyString(value.threadId, 256)
-  const parsed = MobileWebProviderReviewCommentSchema.safeParse({
-    id,
-    author: reviewBoundedString(value.author, 160),
-    body: reviewBoundedString(value.body, MOBILE_WEB_PROVIDER_REVIEW_COMMENT_MAX_CHARACTERS),
-    createdAt: reviewBoundedString(value.createdAt, 64),
-    kind: path || line !== null || threadId ? 'inline' : 'conversation',
-    ...(path ? { path } : {}),
-    ...(line !== null ? { line } : {}),
-    ...(startLine !== null ? { startLine } : {}),
-    ...(threadId ? { threadId, threadState: commentThreadState(value) } : {}),
-    allowedActions: commentActions(provider, id, threadId),
-    ...(typeof value.isBot === 'boolean' ? { isBot: value.isBot } : {})
-  })
-  return parsed.success ? parsed.data : null
 }
 
-/** Only a threaded comment can be replied to or resolved, and only GitHub addresses a reply by the
- *  numeric comment id. */
+/** Only a threaded comment can be replied to or resolved. */
 function commentActions(
   provider: MobileWebProviderReviewProvider,
-  commentId: string,
   threadId: string | undefined
-): MobileWebProviderReviewComment['allowedActions'] {
-  if (!threadId) {
+): MobileWebProviderReview['comments'][number]['allowedActions'] {
+  if (threadId === undefined) {
     return []
   }
-  const actions: MobileWebProviderReviewComment['allowedActions'] = []
-  if (provider === 'github' && reviewPositiveIntegerString(commentId) !== null) {
-    actions.push('reply')
-  }
-  if (provider === 'github' || provider === 'gitlab') {
-    actions.push('set-resolved')
-  }
-  return actions
+  return provider === 'github' ? ['reply', 'set-resolved'] : ['set-resolved']
 }
 
-function commentThreadState(
-  value: Record<string, unknown>
-): NonNullable<MobileWebProviderReviewComment['threadState']> {
-  if (value.isOutdated === true) {
+function threadState(
+  comment: ProviderReviewComment
+): NonNullable<MobileWebProviderReview['comments'][number]['threadState']> {
+  if (comment.isOutdated === true) {
     return 'outdated'
   }
-  return value.isResolved === true ? 'resolved' : 'open'
-}
-
-function commentIdentifier(value: unknown): string | null {
-  if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) {
-    return String(value)
-  }
-  return typeof value === 'string' && value.length > 0 ? value.slice(0, 128) : null
+  return comment.isResolved === true ? 'resolved' : 'open'
 }
