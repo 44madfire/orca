@@ -163,7 +163,15 @@ export class RelayRegionPreferenceResolver {
       outcome.decision = far ? 'deleted' : 'kept'
       outcome.reason = far ? 'assigned-cell-far' : 'assigned-cell-near'
       if (far) {
-        rmSync(this.cachePath(), { force: true })
+        // Reread first: a refresh that finished during the probes may have
+        // written a different, correct region that this stale verdict must not delete.
+        const latest = readRelayRegionCache(this.cachePath(), this.options.directorUrl, now)
+        if (latest?.region === cache.region) {
+          rmSync(this.cachePath(), { force: true })
+        } else {
+          outcome.decision = 'kept'
+          outcome.reason = 'superseded-by-refresh'
+        }
       }
       this.logSelfHeal(outcome)
     } catch {
@@ -210,12 +218,21 @@ export class RelayRegionPreferenceResolver {
         reports,
         best: bestMeasurement(measurements),
         selected,
+        held: !complete && selected !== null,
         ttlMs
       })
     )
+    // A held incumbent is written without the marker: one roll wave may extend
+    // a proven hint by a day, but the next expiry must re-earn it against a full
+    // catalog, so a hint can never be renewed indefinitely on partial evidence.
     this.writeCache(
       selected
-        ? { region: selected.region, latencyMs: selected.latencyMs, ttlMs, fullCatalog: true }
+        ? {
+            region: selected.region,
+            latencyMs: selected.latencyMs,
+            ttlMs,
+            ...(complete ? { fullCatalog: true as const } : {})
+          }
         : { region: null, ttlMs },
       now
     )

@@ -48,6 +48,7 @@ export type RelayRegionSelfHealLogEvent = {
     | 'catalog-unavailable'
     | 'assigned-cell-near'
     | 'assigned-cell-far'
+    | 'superseded-by-refresh'
 }
 
 export type RelayRegionLogEvent = RelayRegionProbeLogEvent | RelayRegionSelfHealLogEvent
@@ -107,6 +108,8 @@ export function relayRegionRefreshEvent(input: {
   reports: RelayRegionProbeReport[]
   best: RegionMeasurement | null
   selected: RegionMeasurement | null
+  /** The incumbent was kept through an incomplete catalog rather than measured against a rival. */
+  held?: boolean
   ttlMs: number
 }): RelayRegionProbeLogEvent {
   return {
@@ -114,7 +117,7 @@ export function relayRegionRefreshEvent(input: {
     directorHost: relayDirectorHost(input.directorUrl),
     regions: input.reports,
     chosenRegion: input.selected?.region ?? 'no-hint',
-    reason: refreshReason(input.reports, input.best, input.selected),
+    reason: input.held ? 'held-previous' : refreshReason(input.reports, input.best, input.selected),
     cached: false,
     ttlMs: input.ttlMs
   }

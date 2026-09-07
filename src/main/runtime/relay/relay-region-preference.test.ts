@@ -409,11 +409,29 @@ describe('Relay region preference', () => {
         logEvent: (event) => events.push(event)
       }).resolve()
     ).resolves.toBe('asia-east2')
-    expect(JSON.parse(readFileSync(cachePath(path), 'utf8'))).toMatchObject({
-      region: 'asia-east2',
-      expiresAt: 1_000 + 24 * 60 * 60_000
-    })
-    expect(events).toEqual([expect.objectContaining({ chosenRegion: 'asia-east2' })])
+    const held = JSON.parse(readFileSync(cachePath(path), 'utf8'))
+    expect(held).toMatchObject({ region: 'asia-east2', expiresAt: 1_000 + 24 * 60 * 60_000 })
+    // One hold per proven hint: the held entry carries no marker, so the next expiry
+    // must re-earn the region against a full catalog rather than chain holds forever.
+    expect(held.fullCatalog).toBeUndefined()
+    expect(events).toEqual([
+      expect.objectContaining({ chosenRegion: 'asia-east2', reason: 'held-previous' })
+    ])
+  })
+
+  it('cannot chain holds: a held hint that expires during a second roll wave is not held again', async () => {
+    const path = userDataPath()
+    writeCache(path, 'asia-east2', 999, false)
+    const healthy = sampledProbe({ [ASIA]: [90, 30, 32, 34] })
+    await expect(
+      new RelayRegionPreferenceResolver({
+        directorUrl: DIRECTOR,
+        userDataPath: path,
+        fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+        probe: healthy.probe,
+        now: () => 1_000
+      }).resolve()
+    ).resolves.toBeUndefined()
   })
 
   it('does not hold an incumbent an older build cached without the full-catalog marker', async () => {
@@ -710,6 +728,45 @@ describe('Relay region cache self-heal', () => {
     expect(fetch).not.toHaveBeenCalled()
     expect(calls).toHaveLength(0)
     expect(existsSync(cachePath(path))).toBe(true)
+  })
+
+  it('does not delete a cache a concurrent refresh rewrote while the self-heal probed', async () => {
+    // Why: self-heal snapshots the cache before its probes. A refresh that finishes in
+    // between may have written a different, correct region; the stale verdict must not
+    // delete it and force yet another probe.
+    const path = userDataPath()
+    writeCache(path, 'asia-east2', 999)
+    const events: unknown[] = []
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const samples: Record<string, number[]> = {
+      [US]: [300, 30, 32, 34],
+      [ASIA]: [300, 200, 205, 210],
+      [CELL]: [300, 200, 205, 210]
+    }
+    const probe = async (origin: string): Promise<number | null> => {
+      await gate
+      return samples[origin]?.shift() ?? null
+    }
+    const resolver = new RelayRegionPreferenceResolver({
+      directorUrl: DIRECTOR,
+      userDataPath: path,
+      fetch: catalogFetch(BOTH_REGIONS),
+      probe,
+      now: () => 500,
+      logEvent: (event) => events.push(event)
+    })
+    const heal = resolver.invalidateIfAssignedCellIsFar(CELL)
+    // The refresh lands first and writes us-central1 against a full catalog.
+    writeCache(path, 'us-central1', 999)
+    release()
+    await heal
+    expect(JSON.parse(readFileSync(cachePath(path), 'utf8'))).toMatchObject({
+      region: 'us-central1'
+    })
+    expect(events).toContainEqual(
+      expect.objectContaining({ decision: 'kept', reason: 'superseded-by-refresh' })
+    )
   })
 
   it('probes a given cell only once per process', async () => {
