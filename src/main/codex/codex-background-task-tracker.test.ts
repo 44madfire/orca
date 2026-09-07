@@ -97,42 +97,6 @@ describe('readCodexBackgroundTaskFrame', () => {
     })
   })
 
-  it('prefers the single parsed action over the /bin/zsh -lc wrapper', () => {
-    const frame = readCodexBackgroundTaskFrame(
-      commandFrame({
-        method: 'item/started',
-        id: 'exec-1',
-        command: "/bin/zsh -lc 'ls -la'",
-        status: 'inProgress',
-        commandActions: [{ type: 'listFiles', command: 'ls -la', path: null }]
-      }),
-      PRIMARY
-    )
-    expect(frame).toMatchObject({
-      kind: 'command',
-      itemId: 'exec-1',
-      label: 'ls -la',
-      running: true
-    })
-  })
-
-  it('keeps the whole command when Codex parsed it into several actions', () => {
-    const frame = readCodexBackgroundTaskFrame(
-      commandFrame({
-        method: 'item/started',
-        id: 'exec-2',
-        command: "/bin/zsh -lc 'cat a.txt && ls src'",
-        status: 'inProgress',
-        commandActions: [
-          { type: 'read', command: 'cat a.txt' },
-          { type: 'listFiles', command: 'ls src' }
-        ]
-      }),
-      PRIMARY
-    )
-    expect(frame).toMatchObject({ label: "/bin/zsh -lc 'cat a.txt && ls src'" })
-  })
-
   it('ignores the root node, which is the parent turn reporting itself', () => {
     expect(
       readCodexBackgroundTaskFrame(
@@ -142,16 +106,17 @@ describe('readCodexBackgroundTaskFrame', () => {
     ).toBeNull()
   })
 
-  it('ignores a command that belongs to a child thread', () => {
+  it('is not a task, because the journal already settles it at turn end', () => {
+    // `settleCodexJournalTurn` writes every still-active item `state: 'failed'`
+    // on `turn/completed`. A strip row saying the same shell is still running
+    // would contradict the row Orca just wrote about it.
     expect(
       readCodexBackgroundTaskFrame(
         commandFrame({
           method: 'item/started',
-          threadId: CHILD_A,
-          id: 'exec-child',
+          id: 'exec-primary',
           command: "/bin/zsh -lc 'sleep 90'",
-          status: 'inProgress',
-          turnId: CHILD_TURN_A
+          status: 'inProgress'
         }),
         PRIMARY
       )
@@ -224,35 +189,7 @@ describe('CodexBackgroundTaskTracker', () => {
     expect(tracker.state).toBeNull()
   })
 
-  it('reports a primary-thread command still in flight after its turn ended', () => {
-    const tracker = new CodexBackgroundTaskTracker(PRIMARY)
-    tracker.observe(
-      commandFrame({
-        method: 'item/started',
-        id: 'exec-1',
-        command: "/bin/zsh -lc 'sleep 90'",
-        status: 'inProgress',
-        commandActions: [{ type: 'other', command: 'sleep 90' }]
-      })
-    )
-    expect(tracker.state).toBeNull()
-    tracker.observe(turnCompleted(PRIMARY, PARENT_TURN))
-    expect(tracker.state?.tasks).toEqual([
-      { id: 'codex-command:exec-1', kind: 'command', description: 'sleep 90' }
-    ])
-    tracker.observe(
-      commandFrame({
-        method: 'item/completed',
-        id: 'exec-1',
-        command: "/bin/zsh -lc 'sleep 90'",
-        status: 'completed',
-        commandActions: [{ type: 'other', command: 'sleep 90' }]
-      })
-    )
-    expect(tracker.state).toBeNull()
-  })
-
-  it('does not count a subagent shell twice: the child is the row', () => {
+  it('leaves a subagent shell to the row of the child that ran it', () => {
     const tracker = new CodexBackgroundTaskTracker(PRIMARY)
     tracker.observe(subagentFrame('item/started', CHILD_A, 'started', '/root/one'))
     tracker.observe(turnCompleted(PRIMARY, PARENT_TURN))
