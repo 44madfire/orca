@@ -245,9 +245,9 @@ export const ORCHESTRATION_WORKER_STOP_METHODS: RpcMethod[] = [
 
 const activeStopByRuntime = new WeakMap<OrcaRuntimeService, Map<string, Promise<unknown>>>()
 
-/** Two callers stopping one Dispatch. `beginWorkerStop` now accepts the second, because a
- *  re-issue is the operator's escape from a `stopping` row, so this coalescing is what keeps them
- *  from both closing the terminal and racing to settle a row only one of them can still find. */
+/** Two callers stopping one Dispatch: coalesced so only one of them closes the terminal. Both are
+ *  in this runtime and so carry one epoch, which `beginWorkerStop` refuses a second time anyway;
+ *  the epoch it does accept belongs to a row a dead runtime stranded, and no caller here holds one. */
 function dedupeWorkerStop(
   runtime: OrcaRuntimeService,
   dispatchId: string,

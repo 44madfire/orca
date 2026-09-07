@@ -244,6 +244,7 @@ describe('worker report settlement over the reachable lifecycle state space', ()
 
     expect(throwing).toEqual([])
     // Guards the search itself: a harness that stopped exploring would also report zero throws.
-    expect(reachable.size).toBeGreaterThan(50)
+    // Measured 71 at this operation set; the floor sits just under it so a real loss is visible.
+    expect(reachable.size).toBeGreaterThan(68)
   }, 300_000)
 })
