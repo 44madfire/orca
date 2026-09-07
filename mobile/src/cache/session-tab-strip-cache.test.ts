@@ -339,4 +339,32 @@ describe('session tab strip cache', () => {
     expect(readCachedSessionTabStrip(hostA)).toBeNull()
     expect(asyncStorage.setItem).toHaveBeenCalledTimes(writesSoFar)
   })
+  it('lets a debounced write that already snapshotted the removed host land first', async () => {
+    // The tombstone stops new saves, but a debounced write that fired a moment earlier
+    // built its blob from the map as it was and is still on the wire. Writing over it
+    // concurrently leaves which blob lands last up to storage.
+    const hostA = getSessionTabStripCacheKey('host-a', 'wt-1')
+    const hostB = getSessionTabStripCacheKey('host-b', 'wt-1')
+    saveCachedSessionTabStrip(hostA, preview('tab-a'))
+    saveCachedSessionTabStrip(hostB, preview('tab-b'))
+
+    let releaseDebounced!: () => void
+    asyncStorage.setItem.mockImplementationOnce(
+      async () =>
+        new Promise<void>((resolve) => {
+          releaseDebounced = () => resolve()
+        })
+    )
+    await vi.advanceTimersByTimeAsync(300)
+
+    const deletion = deleteCachedSessionTabStripForHost('host-a')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(asyncStorage.setItem).toHaveBeenCalledOnce()
+
+    releaseDebounced()
+    await deletion
+
+    expect(asyncStorage.setItem).toHaveBeenCalledTimes(2)
+    expect(lastWrittenFile().workspaces.map((w) => w.key)).toEqual([hostB])
+  })
 })

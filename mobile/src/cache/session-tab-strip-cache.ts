@@ -33,6 +33,9 @@ type StoredFile = { workspaces: StoredWorkspace[] }
 let memoryCache: Map<string, MobileSessionTabStripPreview> | null = null
 let loadPromise: Promise<Map<string, MobileSessionTabStripPreview>> | null = null
 let writeTimer: ReturnType<typeof setTimeout> | null = null
+// The debounced write already on the wire. It snapshotted the map when it started, so a
+// deletion has to let it land before writing, or the stale blob can be the last word.
+let writeInFlight: Promise<void> | null = null
 // Hosts forgotten this session. A save racing the deletion would re-insert the host and
 // the next debounced write would put its tab titles back on disk, so refuse those saves
 // outright. Re-pairing the same host caches again from the next app launch — the cheap
@@ -123,6 +126,8 @@ export async function deleteCachedSessionTabStripForHost(hostId: string): Promis
     clearTimeout(writeTimer)
     writeTimer = null
   }
+  await writeInFlight
+  writeInFlight = null
   await writeFile(cache)
 }
 
@@ -133,6 +138,7 @@ export function resetSessionTabStripCacheForTests(): void {
   }
   memoryCache = null
   loadPromise = null
+  writeInFlight = null
   forgottenHosts.clear()
 }
 
@@ -202,8 +208,9 @@ function scheduleWrite(cache: Map<string, MobileSessionTabStripPreview>): void {
   writeTimer = setTimeout(() => {
     writeTimer = null
     // Best effort by design: a dropped cache refresh costs one repaint, and the next
-    // save rewrites the whole map. Only the deletion path needs the failure.
-    void writeFile(cache).catch(() => {})
+    // save rewrites the whole map. Only the deletion path needs the failure, and it
+    // needs the handle so it can order itself last.
+    writeInFlight = writeFile(cache).catch(() => {})
   }, WRITE_DEBOUNCE_MS)
 }
 
