@@ -558,15 +558,6 @@
           "result": "passed",
           "durationSeconds": 2.1,
           "summary": "104 tests passed across eight parser, payload, normalization, title and terminal-buffer files in the integration worktree."
-        },
-        {
-          "date": "2026-09-07",
-          "runner": "local",
-          "platform": "macos",
-          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config /tmp/orca-original-osc-pending-vitest.config.mjs src/shared/agent-status-osc.test.ts src/shared/agent-status-osc-pending-retention.test.ts src/shared/agent-status-types.test.ts src/main/runtime/terminal-ansi-pending-retention.test.ts src/shared/osc-title-scan-tail-retention.test.ts src/shared/osc-title-scan-tail.test.ts src/main/runtime/terminal-tail-buffer.test.ts src/main/runtime/terminal-tail-whitespace.test.ts",
-          "result": "passed",
-          "durationSeconds": 6.49,
-          "summary": "101 tests across eight files passed with the exact original-base OSC parser plus only the ownership change. The temporary config overrides the parser and original parser test; other source dependencies are unchanged from the original base. No forward-search PR dependency."
         }
       ],
       "runtimeBudget": {
@@ -579,7 +570,7 @@
       },
       "redGreenEvidence": {
         "status": "complete",
-        "evidence": "The original three OSC retention fixtures failed at 4.25/4.21/16.78 MB; the six initial ANSI/title retention fixtures likewise failed baseline at about 4.2/16.8 MB. Ownership passes these and the large trimmed-tail cases. Exact original-base OSC comparison matched 144,246 chunk results; separate adjacent-control corpora matched 65,062 and 50,220 results."
+        "evidence": "The original three OSC retention fixtures failed at 4.25/4.21/16.78 MB; the six initial ANSI/title retention fixtures likewise failed baseline at about 4.2/16.8 MB. Ownership passes these and the large trimmed-tail cases. Exact original-base OSC comparison matched 144,246 chunk results; separate adjacent-control corpora matched 65,062 and 50,220 results. Independently, 101 tests in eight files passed against the exact original-base parser plus ownership using a temporary Vite source override; the additional integrated parser tests account for the 104-test gate run."
       },
       "performanceBudget": {
         "required": true,
