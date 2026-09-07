@@ -18,7 +18,6 @@ import type {
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { deliverMobileWebSubscriptionEvent } from './mobile-web-bridge-subscription-event-delivery'
 import {
-  accountSubscriptionSetup,
   terminalSubscriptionSetup,
   browserSubscriptionSetup,
   speechSubscriptionSetup,
@@ -75,10 +74,6 @@ export class MobileWebBridgeSubscriptionClient {
     onError: (error: MobileWebBridgeClientError) => void
   ): MobileWebBridgeSubscription {
     return subscribeMobileWebHostWorkspace(this, onEvent, onError)
-  }
-
-  subscribeAccount(...args: Parameters<typeof accountSubscriptionSetup>) {
-    return this.subscribeWith(accountSubscriptionSetup(...args))
   }
 
   subscribeTerminal(

@@ -19,22 +19,6 @@ const MobileWebRepoIconSchema = z.discriminatedUnion('type', [
     .strict()
 ])
 
-export const MobileWebRepositoryPresentationSchema = z
-  .object({
-    id: MobileWebRepoIdSchema,
-    displayName: z.string().min(1).max(240),
-    badgeColor: z.string().max(64).optional(),
-    repoIcon: MobileWebRepoIconSchema.nullable().optional()
-  })
-  .strict()
-
-export const MobileWebWorkspaceRepositoriesResultSchema = z
-  .object({
-    repositories: z.array(MobileWebRepositoryPresentationSchema).max(MOBILE_WEB_REPOSITORY_LIMIT),
-    truncated: z.boolean()
-  })
-  .strict()
-
 const MobileWebHostUpstreamSchema = z
   .object({
     owner: z.string().max(240),
@@ -101,13 +85,6 @@ export const MobileWebWorkspaceViewSettingsSchema = z.object({
     .catch(undefined)
 })
 
-export const MobileWebWorkspaceSettingsSnapshotPayloadSchema = z.object({}).strict()
-export const MobileWebWorkspaceSettingsSnapshotResultSchema = z
-  .object({ settings: MobileWebWorkspaceViewSettingsSchema.nullable() })
-  .strict()
-export const MobileWebWorkspaceSettingsUpdatePayloadSchema = MobileWebWorkspaceViewSettingsSchema
-export const MobileWebWorkspaceSettingsUpdateResultSchema = z.null()
-
 export const MobileWebWorkspaceUpdatePayloadSchema = z.discriminatedUnion('mutation', [
   z
     .object({
@@ -135,16 +112,12 @@ export const MobileWebWorkspaceRemoveResultSchema = z
   .object({ workspaceId: MobileWebWorkspaceIdSchema, removed: z.literal(true) })
   .strict()
 
-export const MobileWebWorkspaceSubscribePayloadSchema = z.object({}).strict()
 export const MobileWebWorkspaceChangeSchema = z
   .object({
     type: z.enum(['ready', 'end', 'reposChanged', 'worktreesChanged', 'error'])
   })
   .strict()
 
-export type MobileWebWorkspaceRepositoriesResult = z.infer<
-  typeof MobileWebWorkspaceRepositoriesResultSchema
->
 export type MobileWebWorkspaceViewSettings = z.infer<typeof MobileWebWorkspaceViewSettingsSchema>
 export type MobileWebWorkspaceUpdatePayload = z.infer<typeof MobileWebWorkspaceUpdatePayloadSchema>
 export type MobileWebWorkspaceUpdateResult = z.infer<typeof MobileWebWorkspaceUpdateResultSchema>

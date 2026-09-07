@@ -156,7 +156,6 @@ export const MobileWebCodexResetCreditExpectedScopeSchema = z
     }
   })
 
-export const MobileWebAccountSnapshotPayloadSchema = z.object({}).strict()
 export const MobileWebAccountSelectPayloadSchema = z
   .object({
     provider: z.enum(['claude', 'codex']),
@@ -164,7 +163,6 @@ export const MobileWebAccountSelectPayloadSchema = z
     codexTarget: MobileWebRateLimitRuntimeTargetSchema.optional()
   })
   .strict()
-export const MobileWebAccountSelectResultSchema = z.null()
 export const MobileWebAccountResetCapabilityPayloadSchema = z.object({}).strict()
 export const MobileWebAccountResetCapabilityResultSchema = z.boolean()
 export const MobileWebAccountConsumeResetPayloadSchema = z
@@ -204,7 +202,6 @@ export const MobileWebAccountConsumeResetResultSchema = z.union([
   MobileWebAccountConsumedResetResultSchema,
   MobileWebAccountRejectedResetResultSchema
 ])
-export const MobileWebAccountSubscribePayloadSchema = z.object({}).strict()
 export const MobileWebAccountEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.enum(['ready', 'snapshot']),

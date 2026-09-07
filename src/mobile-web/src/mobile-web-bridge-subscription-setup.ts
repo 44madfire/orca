@@ -6,11 +6,6 @@ import {
 } from '../../shared/mobile-web/terminal-stream-contract'
 import type { z } from 'zod'
 import type { MobileWebBridgeCapability } from '../../shared/mobile-web/bridge-contract'
-import {
-  MobileWebAccountEventSchema,
-  MobileWebAccountSubscribePayloadSchema,
-  type MobileWebAccountEvent
-} from '../../shared/mobile-web/account-operation-contract'
 import type { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import {
   MobileWebBrowserEventSchema,
@@ -32,20 +27,6 @@ export type MobileWebBridgeSubscriptionSetup = {
   eventSchema: z.ZodType<unknown>
   onEvent: (value: unknown) => void
   onError: (error: MobileWebBridgeClientError) => void
-}
-
-export function accountSubscriptionSetup(
-  onEvent: (event: MobileWebAccountEvent) => void,
-  onError: (error: MobileWebBridgeClientError) => void
-): MobileWebBridgeSubscriptionSetup {
-  return {
-    capability: 'account',
-    payload: {},
-    payloadSchema: MobileWebAccountSubscribePayloadSchema,
-    eventSchema: MobileWebAccountEventSchema,
-    onEvent: (value) => onEvent(value as MobileWebAccountEvent),
-    onError
-  }
 }
 
 export function speechSubscriptionSetup(
