@@ -8,6 +8,7 @@ import {
   closeFailedCodexAcquisition,
   stopSupersededCodexAcquisition
 } from './codex-structured-acquisition-lifecycle'
+import { CodexBackgroundTaskTracker } from './codex-background-task-tracker'
 import { createCodexJournalTranslator } from './codex-structured-journal-translation'
 import { openCodexAppServerConnection } from './codex-app-server-connection'
 import { codexProcessIdentity, codexProviderHandleLink } from './codex-structured-owner-identity'
@@ -197,6 +198,7 @@ export async function acquireCodexStructuredSession(input: {
       reportedOptions: reportedCodexThreadOptions(opened),
       turnIdWaiters: [],
       translator,
+      backgroundTasks: new CodexBackgroundTaskTracker(opened.threadId),
       forceCloseUnexpected: (reason) =>
         input.forceCloseUnexpected(
           sessionId,

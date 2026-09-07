@@ -138,6 +138,11 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     }
     if (event.type === 'notification') {
       this.compactions.codex(event.sessionId, event.method, event.params)
+      // After the admission check, so a refused frame is observed by the strip
+      // only on the retry that also reaches the journal.
+      if (session.backgroundTasks.observe(event)) {
+        this.deps.onBackgroundTasksChanged?.(event.sessionId, session.backgroundTasks.state)
+      }
     }
     if (event.type === 'ended') {
       this.compactions.ended(event.sessionId)
@@ -163,6 +168,20 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
       params,
       (session, event) => this.emit(session, event)
     )
+  }
+
+  backgroundTaskState: NonNullable<StructuredAgentSessionAdapter['backgroundTaskState']> = (
+    sessionId
+  ) => this.sessions.get(sessionId)?.backgroundTasks.state
+
+  /** A closed session monitors nothing. Published explicitly because the state
+   *  reader answers `undefined` once the session leaves the map, which every
+   *  channel reads as "unchanged" and would leave the last roster on screen. */
+  private clearBackgroundTasks(sessionId: string, closed: boolean): boolean {
+    if (closed) {
+      this.deps.onBackgroundTasksChanged?.(sessionId, null)
+    }
+    return closed
   }
 
   bindPromptItemId = (sessionId: string, journalItemId: string, promptKey: string): void =>
@@ -259,7 +278,7 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     if (closed) {
       this.notificationRetries.clear(sessionId, null)
     }
-    return closed
+    return this.clearBackgroundTasks(sessionId, closed)
   }
   forceCloseSession = async (sessionId: string): Promise<boolean> => {
     const closed = await closeCodexPublishedSession(this.sessions, sessionId, this.deps.onEvent, {
@@ -269,7 +288,7 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     if (closed) {
       this.notificationRetries.clear(sessionId, null)
     }
-    return closed
+    return this.clearBackgroundTasks(sessionId, closed)
   }
 
   private forceCloseUnexpected(
@@ -293,7 +312,7 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
       expectedFence: fence,
       expectedAcquisitionGeneration: acquisitionGeneration,
       unexpectedReason: reason
-    })
+    }).then((closed) => this.clearBackgroundTasks(sessionId, closed))
   }
   disposeSession = (sessionId: string): Promise<boolean> => this.closeSession(sessionId)
   closeAll = (): Promise<void> =>
