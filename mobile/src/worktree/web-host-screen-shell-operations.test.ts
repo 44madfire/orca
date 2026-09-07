@@ -23,9 +23,10 @@ describe('web host screen shell operations', () => {
     await operations.removeHost('native-public-key-must-not-cross')
 
     expect(navigate).toHaveBeenCalledWith('/h/opaque-host/tasks')
+    expect(navigate).toHaveBeenCalledWith('/connection-log')
     expect(client.navigationRoute).toHaveBeenNthCalledWith(1, { destination: 'hostPicker' })
     expect(client.navigationRoute).toHaveBeenNthCalledWith(2, { destination: 'pairingRepair' })
-    expect(client.navigationRoute).toHaveBeenNthCalledWith(3, { destination: 'connectionLog' })
+    expect(client.navigationRoute).toHaveBeenCalledTimes(2)
     expect(openExternal).toHaveBeenCalledWith('https://example.com/source')
     expect(client.navigationReconnect).toHaveBeenCalledWith()
     expect(client.navigationRemoveHost).toHaveBeenCalledWith({

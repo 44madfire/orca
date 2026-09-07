@@ -110,17 +110,6 @@ describe('host-owned native chat file actions', () => {
     ).rejects.toThrow('lost acknowledgement')
     expect(f.openMobileFile).toHaveBeenCalledOnce()
   })
-  it.each(['id:folder:folder-one', 'id:remote-workspace', 'id:host-workspace'])(
-    'answers readability for %s without enumerating tabs',
-    async (worktree) => {
-      const f = fixture()
-      expect(await method('readability').handler({ worktree }, f.context)).toEqual({
-        readable: true
-      })
-      expect(f.listMobileSessionTabs).not.toHaveBeenCalled()
-    }
-  )
-
   it('resolves the transcript binding once per file search', async () => {
     const f = fixture()
     await method('fileSearch').handler({ ...f.params, search: { query: 'src' } }, f.context)

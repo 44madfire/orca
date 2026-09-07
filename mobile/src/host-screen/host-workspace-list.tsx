@@ -42,7 +42,7 @@ export function HostWorkspaceList({ controller }: { controller: HybridHostScreen
   } = controller
   const { rawSections, sections, uniqueRepoColors } = sectionsResult
   const defaultShellOperations = useDefaultHostScreenShellOperations({ hostId, embedded })
-  // Re-pair and diagnostics are shell screens; the hosted page has neither route nor transport log.
+  // Re-pair is a shell screen; the hosted page reaches diagnostics on its own route.
   const shellOperations = controller.shellOperations ?? defaultShellOperations
 
   return (

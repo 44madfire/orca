@@ -2,11 +2,7 @@ import { z } from 'zod'
 import { defineMethod, isStreamingMethod } from '../core'
 import { FILE_METHODS } from './files'
 import { MOBILE_WEB_FILE_READ_METHODS } from './mobile-web-file-reads'
-import {
-  MobileWebChatScope,
-  MobileWebChatTarget,
-  resolveMobileWebNativeChat
-} from './mobile-web-native-chat-binding'
+import { MobileWebChatTarget, resolveMobileWebNativeChat } from './mobile-web-native-chat-binding'
 import { MobileWebRelativePathSchema } from '../../../../shared/mobile-web/bridge-operation-contract'
 
 function fileMethod(name: string) {
@@ -71,12 +67,6 @@ export const MOBILE_WEB_NATIVE_CHAT_FILE_METHODS = [
       }
       return { opened: result.opened }
     }
-  }),
-  defineMethod({
-    name: 'mobileWeb.nativeChat.readability',
-    params: MobileWebChatScope,
-    // Eligibility is host-owned; transcript reads independently validate their execution provider.
-    handler: () => ({ readable: true })
   })
 ]
 

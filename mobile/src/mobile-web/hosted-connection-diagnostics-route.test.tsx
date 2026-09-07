@@ -3,21 +3,16 @@ import { act, create } from 'react-test-renderer'
 import { describe, expect, it, vi } from 'vitest'
 import { webHostScreenShellOperations } from '../worktree/web-host-screen-shell-operations'
 import { createMobileWebBridgeRoundtripFixture } from './mobile-web-bridge-roundtrip-fixture'
-import { handleMobileWebBrokerMessage } from './mobile-web-broker-message-handoff'
-import { MobileWebNativeRouteHandoff } from './mobile-web-native-route-handoff'
 import { MOBILE_WEB_PRODUCTION_NAVIGATION_GRANTS } from './mobile-web-production-navigation-grants'
 import { useMobileWebNavigationAuthority } from './use-mobile-web-navigation-authority'
 import { leaveHostRoute } from '../host-route-exit'
 import { removeHostAndCloseClient } from '../transport/host-removal-lifecycle'
-import type { MobileWebShellViewRef } from '@orca/expo-mobile-web-shell'
 import type { MobileWebNavigationAuthority } from './mobile-web-navigation-operations'
 
 vi.mock('../host-route-exit', () => ({ leaveHostRoute: vi.fn() }))
 vi.mock('../transport/host-removal-lifecycle', () => ({ removeHostAndCloseClient: vi.fn() }))
 
-const REQUEST_ID = 'D'.repeat(22)
-
-function renderNavigationAuthority(routeHandoff: MobileWebNativeRouteHandoff): {
+function renderNavigationAuthority(): {
   current: MobileWebNavigationAuthority | undefined
 } {
   const authority: { current: MobileWebNavigationAuthority | undefined } = { current: undefined }
@@ -25,7 +20,6 @@ function renderNavigationAuthority(routeHandoff: MobileWebNativeRouteHandoff): {
     authority.current = useMobileWebNavigationAuthority({
       hostId: 'shell-host',
       hostPublicKeyB64: 'shell-key',
-      routeHandoffRef: { current: routeHandoff },
       router: { dismissTo: vi.fn(), push: vi.fn() },
       clearColdResumeRoute: vi.fn(),
       closeHostClient: vi.fn(),
@@ -40,39 +34,19 @@ function renderNavigationAuthority(routeHandoff: MobileWebNativeRouteHandoff): {
 }
 
 describe('hosted network diagnostics route', () => {
-  it('reaches the shell connection log instead of a hosted route', async () => {
-    const routeHandoff = new MobileWebNativeRouteHandoff()
-    const authority = renderNavigationAuthority(routeHandoff)
-    const { broker, client, pageMessages } = createMobileWebBridgeRoundtripFixture({
+  it('opens the hosted route in place instead of handing the session to the shell', async () => {
+    const navigate = vi.fn()
+    const { client, pageMessages } = createMobileWebBridgeRoundtripFixture({
       grants: [...MOBILE_WEB_PRODUCTION_NAVIGATION_GRANTS],
-      createRequestId: () => REQUEST_ID,
       isConnected: () => false,
-      navigationAuthority: {
-        route: (destination, requestId) => authority.current?.route(destination, requestId),
-        reconnect: vi.fn(),
-        removeHost: vi.fn()
-      }
+      navigationAuthority: { route: vi.fn(), reconnect: vi.fn(), removeHost: vi.fn() }
     })
 
-    webHostScreenShellOperations(client, vi.fn()).openConnectionDiagnostics()
-    await vi.waitFor(() => expect(pageMessages).toHaveLength(1))
+    webHostScreenShellOperations(client, navigate).openConnectionDiagnostics()
 
-    const pushed: string[] = []
-    const deactivateSessionView = vi.fn().mockResolvedValue(undefined)
-    await handleMobileWebBrokerMessage({
-      message: pageMessages[0]!,
-      brokerRef: { current: broker },
-      activeSessionIdRef: { current: 'session' },
-      sessionId: 'session',
-      viewRef: { current: { deactivateSessionView } as unknown as MobileWebShellViewRef },
-      routeHandoff,
-      setHostedViewActive: vi.fn(),
-      navigateToNativeRoute: (destination) => pushed.push(destination),
-      onNavigationFailure: vi.fn()
-    })
-
-    await vi.waitFor(() => expect(pushed).toEqual(['connectionLog']))
-    expect(deactivateSessionView).toHaveBeenCalledWith()
+    expect(navigate).toHaveBeenCalledWith('/connection-log')
+    await Promise.resolve()
+    expect(pageMessages).toHaveLength(0)
   })
 
   it('leaves the hosted route before the unpair deletes the package cache it serves', async () => {
@@ -83,7 +57,7 @@ describe('hosted network diagnostics route', () => {
     vi.mocked(removeHostAndCloseClient).mockImplementation(async () => {
       order.push('remove-host')
     })
-    const authority = renderNavigationAuthority(new MobileWebNativeRouteHandoff())
+    const authority = renderNavigationAuthority()
 
     await authority.current?.removeHost()
 
@@ -91,11 +65,10 @@ describe('hosted network diagnostics route', () => {
   })
 
   it('leaves the host picker exit on the page-local route path', () => {
-    const routeHandoff = new MobileWebNativeRouteHandoff()
-    const authority = renderNavigationAuthority(routeHandoff)
+    const authority = renderNavigationAuthority()
 
-    authority.current?.route('hostPicker', REQUEST_ID)
+    authority.current?.route('hostPicker')
 
-    expect(routeHandoff.consume(REQUEST_ID)).toBeNull()
+    expect(leaveHostRoute).toHaveBeenCalled()
   })
 })

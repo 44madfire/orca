@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import type { MobileWebHealthDeadline } from './mobile-web-health-deadline'
-import type { MobileWebNativeRouteHandoff } from './mobile-web-native-route-handoff'
 
 // In-place reloads must retire page authority even when the native view and session survive.
 export function useMobileWebPageDocument({
   sessionId,
   viewEpoch,
-  healthDeadlineRef,
-  routeHandoffRef
+  healthDeadlineRef
 }: {
   sessionId: string | undefined
   viewEpoch: number
   healthDeadlineRef: MutableRefObject<MobileWebHealthDeadline>
-  routeHandoffRef: MutableRefObject<MobileWebNativeRouteHandoff>
 }): {
   epoch: number
   initializedSessionRef: MutableRefObject<string | undefined>
@@ -29,10 +26,9 @@ export function useMobileWebPageDocument({
   const resetDocument = useCallback(() => {
     initializedSessionRef.current = undefined
     loadedRef.current = false
-    routeHandoffRef.current.clear()
     setReadySessionId(undefined)
     healthDeadlineRef.current.clear()
-  }, [healthDeadlineRef, routeHandoffRef])
+  }, [healthDeadlineRef])
 
   useEffect(() => {
     resetDocument()

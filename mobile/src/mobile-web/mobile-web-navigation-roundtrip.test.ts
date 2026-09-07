@@ -7,10 +7,8 @@ describe('mobile web navigation round trip', () => {
     const route = vi.fn()
     const reconnect = vi.fn()
     const removeHost = vi.fn()
-    let requestIndex = 0
     const { client } = createMobileWebBridgeRoundtripFixture({
       grants: [...MOBILE_WEB_PRODUCTION_NAVIGATION_GRANTS],
-      createRequestId: () => String.fromCharCode(82 + requestIndex++).repeat(22),
       isConnected: () => false,
       navigationAuthority: {
         route,
@@ -20,14 +18,14 @@ describe('mobile web navigation round trip', () => {
     })
 
     await expect(client.navigationRoute({ destination: 'hostPicker' })).resolves.toBeNull()
-    await expect(client.navigationRoute({ destination: 'terminalSettings' })).resolves.toBeNull()
+    await expect(client.navigationRoute({ destination: 'pairingRepair' })).resolves.toBeNull()
     await expect(client.navigationReconnect()).resolves.toBeNull()
     await expect(
       client.navigationRemoveHost({ confirmation: 'remove-paired-host' })
     ).resolves.toBeNull()
 
-    expect(route).toHaveBeenCalledWith('hostPicker', 'R'.repeat(22))
-    expect(route).toHaveBeenCalledWith('terminalSettings', 'S'.repeat(22))
+    expect(route).toHaveBeenCalledWith('hostPicker')
+    expect(route).toHaveBeenCalledWith('pairingRepair')
     expect(reconnect).toHaveBeenCalledWith()
     expect(removeHost).toHaveBeenCalledWith()
   })

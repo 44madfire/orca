@@ -34,6 +34,7 @@ export type HostSessionNativeChatImageAttachResult =
   | { status: 'cancelled' | 'permission-denied' | 'too-large' }
 
 export type HostSessionNativeChatOperations = {
+  /** Whether the serving host can read this workspace's agent transcripts. */
   readability(workspaceId: string): Promise<boolean>
   subscribe(
     target: HostSessionNativeChatTarget,

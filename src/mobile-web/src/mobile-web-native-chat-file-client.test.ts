@@ -7,11 +7,7 @@ const payload = { workspaceId: 'workspace', sessionId: `native_chat_0_${'01'.rep
 function fixture() {
   const request = vi.fn(async (capability, operation, value) => {
     if (capability === 'nativeChat') {
-      return operation === 'fileSearch'
-        ? { paths: ['legacy.ts'] }
-        : operation === 'readability'
-          ? { readable: false }
-          : null
+      return operation === 'fileSearch' ? { paths: ['legacy.ts'] } : null
     }
     if (value.method.endsWith('.fileSearch')) {
       return {
@@ -22,9 +18,6 @@ function fixture() {
         ],
         future: 1
       }
-    }
-    if (value.method.endsWith('.readability')) {
-      return { readable: true, future: 1 }
     }
     return { opened: true }
   })
@@ -56,18 +49,6 @@ describe('native-chat file generic client', () => {
     ['openFile', () => fixture().client.openFile({ ...payload, pathText: 'x' }, undefined)]
   ])('refuses %s without a tab to address', async (_name, run) => {
     await expect(run()).rejects.toMatchObject({ code: 'invalid_request' })
-  })
-  it('queries host readability without a terminal or provider id', async () => {
-    const f = fixture()
-    expect(await f.client.readability({ workspaceId: 'workspace' })).toEqual({
-      readable: true,
-      future: 1
-    })
-    expect(f.request.mock.calls[0][2]).toEqual({
-      method: 'mobileWeb.nativeChat.readability',
-      workspaceId: 'workspace',
-      params: {}
-    })
   })
   it('opens a file in one host call carrying the whole budget', async () => {
     const f = fixture()

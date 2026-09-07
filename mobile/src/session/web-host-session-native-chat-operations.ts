@@ -20,8 +20,10 @@ export function webHostSessionNativeChatOperations(
   client: MobileWebBridgeClient
 ): HostSessionNativeChatOperations {
   return {
-    async readability(workspaceId) {
-      return (await client.nativeChat.readability({ workspaceId })).readable
+    // The hosted page never pre-gates: the host owns eligibility and each
+    // transcript read validates its own execution provider.
+    readability() {
+      return Promise.resolve(true)
     },
     subscribe(target, limit, onEvent, onError) {
       const payload = bridgeTarget(target, { limit })

@@ -1,8 +1,7 @@
 import {
   MOBILE_WEB_NATIVE_CHAT_FILE_RESULT_LIMIT,
   type MobileWebNativeChatFileSearchPayload,
-  type MobileWebNativeChatOpenFilePayload,
-  type MobileWebNativeChatReadabilityPayload
+  type MobileWebNativeChatOpenFilePayload
 } from '../../shared/mobile-web/native-chat-operation-contract'
 import { MobileWebRelativePathSchema } from '../../shared/mobile-web/bridge-operation-contract'
 import { requestMobileWebHost } from './mobile-web-host-request-client'
@@ -54,21 +53,6 @@ export class MobileWebNativeChatFileClient {
       throw new MobileWebBridgeClientError('invalid_message', false)
     }
     return null
-  }
-
-  async readability(
-    payload: MobileWebNativeChatReadabilityPayload
-  ): Promise<{ readable: boolean }> {
-    const result = await requestMobileWebHost(
-      this.requests,
-      'mobileWeb.nativeChat.readability',
-      payload.workspaceId,
-      {}
-    )
-    if (!isRecord(result) || typeof result.readable !== 'boolean') {
-      throw new MobileWebBridgeClientError('invalid_message', false)
-    }
-    return result as { readable: boolean }
   }
 
   private target(payload: { sessionId: string }, tabId: string | undefined) {

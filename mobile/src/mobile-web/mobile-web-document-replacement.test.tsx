@@ -12,7 +12,6 @@ import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebCapabilityBroker } from './mobile-web-capability-broker'
 import { MobileWebHealthDeadline } from './mobile-web-health-deadline'
 import { MobileWebHybridShellPresentation } from './MobileWebHybridShellPresentation'
-import { MobileWebNativeRouteHandoff } from './mobile-web-native-route-handoff'
 import { useMobileWebCapabilityBroker } from './use-mobile-web-capability-broker'
 import { useMobileWebPageDocument } from './use-mobile-web-page-document'
 
@@ -212,12 +211,10 @@ function createHarness() {
   }
   state.Shell = ({ hostedViewActive }) => {
     const healthDeadlineRef = useRef(new MobileWebHealthDeadline(10_000))
-    const routeHandoffRef = useRef(new MobileWebNativeRouteHandoff())
     const pageDocument = useMobileWebPageDocument({
       sessionId: SESSION_ID,
       viewEpoch: 0,
-      healthDeadlineRef,
-      routeHandoffRef
+      healthDeadlineRef
     })
     useMobileWebCapabilityBroker({
       brokerRef,
