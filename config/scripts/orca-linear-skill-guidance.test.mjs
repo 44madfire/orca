@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { LINEAR_COMMAND_SPECS } from '../../src/cli/specs/linear'
 
 const projectDir = resolve(import.meta.dirname, '../..')
 // Why: orca-linear and its legacy linear-tickets alias now ship hybrid discovery stubs, so
@@ -10,7 +11,6 @@ const canonicalGuidePath = join(projectDir, 'skill-guides', 'orca-linear.md')
 const legacyGuidePath = join(projectDir, 'skill-guides', 'linear-tickets.md')
 const canonicalStubPath = join(projectDir, 'skills', 'orca-linear', 'SKILL.md')
 const legacyStubPath = join(projectDir, 'skills', 'linear-tickets', 'SKILL.md')
-const linearSpecPath = join(projectDir, 'src', 'cli', 'specs', 'linear.ts')
 const legacyIntro =
   '`linear-tickets` is the legacy bundled name for `orca-linear`. This copy remains complete; its CLI commands are identical to `orca-linear` and always use `ORCA linear ...`.'
 
@@ -78,11 +78,15 @@ describe('orca-linear skill guidance', () => {
     }
   })
 
-  it('keeps the project flag surface owned by the CLI spec', () => {
-    const spec = readFileSync(linearSpecPath, 'utf8')
-
-    expect(spec).toContain('orca linear project list [--query <text>]')
-    expect(spec).toContain('[--project <projectId-or-exact-name>]')
+  it('keeps project discovery and issue assignment on their respective commands', () => {
+    const findCommand = (name) => LINEAR_COMMAND_SPECS.find((spec) => spec.path.join(' ') === name)
+    const projectList = findCommand('linear project list')
+    const createIssue = findCommand('linear create')
+    expect(projectList?.usage).toContain('[--query <text>]')
+    expect(projectList?.allowedFlags).toContain('query')
+    expect(projectList?.allowedFlags).not.toContain('project')
+    expect(createIssue?.usage).toContain('[--project <projectId-or-exact-name>]')
+    expect(createIssue?.allowedFlags).toContain('project')
   })
 })
 
@@ -120,8 +124,8 @@ describe('orca-linear install stubs', () => {
 
       // Version-sensitive command detail lives in the binary-served guide now, not here.
       // (The frontmatter description still names some commands; assert on body-only surface.)
-      expect(stub).not.toMatch(/\b(?:orca|ORCA) linear search\b/u)
-      expect(stub).not.toMatch(/\b(?:orca|ORCA) linear comment\b/u)
+      expect(stub).not.toMatch(/\borca linear search\b/iu)
+      expect(stub).not.toMatch(/\borca linear comment\b/iu)
       expect(stub.length).toBeLessThan(readFileSync(guidePath, 'utf8').length)
     })
 

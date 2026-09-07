@@ -29,10 +29,10 @@ describe('computer-use skill guidance', () => {
 
     expect(skill).toContain('Use this skill for desktop UI through `orca computer`')
     expect(skill).toContain('external desktop browser window that needs desktop-level control')
-    expect(skill).not.toMatch(/\b(?:orca|ORCA) goto\b/u)
-    expect(skill).not.toMatch(/\b(?:orca|ORCA) snapshot\b/u)
-    expect(skill).not.toMatch(/\b(?:orca|ORCA) click\b/u)
-    expect(skill).not.toMatch(/\b(?:orca|ORCA) fill\b/u)
+    expect(skill).not.toMatch(/\borca goto\b/iu)
+    expect(skill).not.toMatch(/\borca snapshot\b/iu)
+    expect(skill).not.toMatch(/\borca click\b/iu)
+    expect(skill).not.toMatch(/\borca fill\b/iu)
   })
 
   it('warns agents to verify browser-hosted form focus before drafting text', () => {

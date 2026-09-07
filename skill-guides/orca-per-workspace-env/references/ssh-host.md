@@ -59,6 +59,16 @@ over SSH once, by hand, before wiring the recipe. The login is interactive, for 
 `ssh -t user@host '<agent> login --device-auth'`, so the user runs it. The host then stays ready
 across workspaces.
 
+Use Git credentials already configured on the SSH host. For GitHub HTTPS repos, verify `gh auth
+status` on that host and run `gh auth setup-git` there if Git has no credential helper. Installed
+`gh` alone is not authentication. SSH URLs use the host's SSH keys; other providers use their own
+credential setup. If credentials are missing, have the user configure them on the host. Do not
+forward a desktop token in the SSH command.
+
+Before the first connection, verify the host key using the provider console or another trusted
+channel and record it in the desktop's `known_hosts`. Do not trust an unverified `ssh-keyscan`
+result. The noninteractive script below refuses unknown or changed keys.
+
 ## The create script
 
 ```bash
@@ -67,15 +77,11 @@ set -euo pipefail
 # resolve from env→state→fallback (default unset optionals to ""): ssh_username, host,
 #   ssh_port (default 22), identity_file, jump_host, proxy_command, project_root, repo_url, repo_ref
 : "${identity_file:=}"; : "${jump_host:=}"; : "${proxy_command:=}"   # avoid set -u aborts on optionals
-gh_token="${GH_TOKEN:-${GITHUB_TOKEN:-$(command -v gh >/dev/null 2>&1 && gh auth token 2>/dev/null || true)}}"
 ssh_target="${ssh_username}@${host}"
 if [ -n "$jump_host" ] && [ -n "$proxy_command" ]; then
   echo "set jump_host or proxy_command, not both" >&2; exit 1
 fi
-# A fresh host's key isn't in known_hosts, and a StrictHostKeyChecking prompt HANGS a
-# non-interactive create. accept-new records the first key seen and never prompts; if the
-# provider publishes the host fingerprint, compare it after the first connection.
-ssh_opts=(-p "$ssh_port" -o StrictHostKeyChecking=accept-new)
+ssh_opts=(-p "$ssh_port" -o BatchMode=yes -o StrictHostKeyChecking=yes)
 [ -n "$identity_file" ] && ssh_opts+=(-i "$identity_file")
 [ -n "$jump_host" ] && ssh_opts+=(-J "$jump_host")
 [ -n "$proxy_command" ] && ssh_opts+=(-o "ProxyCommand=$proxy_command")
@@ -84,11 +90,12 @@ ssh_opts=(-p "$ssh_port" -o StrictHostKeyChecking=accept-new)
 #    printf %q quotes every value for the remote shell, so a space or quote in a path or
 #    ref cannot break out of the command.
 remote_sync='set -euo pipefail
+  export GIT_TERMINAL_PROMPT=0
   [ -d "$project_root/.git" ] || git clone "$repo_url" "$project_root"
   cd "$project_root" && git fetch origin "$repo_ref" && git checkout -B "$repo_ref" FETCH_HEAD'
 ssh "${ssh_opts[@]}" "$ssh_target" "$(printf \
-  'GH_TOKEN=%q GIT_TERMINAL_PROMPT=0 project_root=%q repo_url=%q repo_ref=%q bash -lc %q' \
-  "$gh_token" "$project_root" "$repo_url" "$repo_ref" "$remote_sync")" >&2
+  'project_root=%q repo_url=%q repo_ref=%q bash -lc %q' \
+  "$project_root" "$repo_url" "$repo_ref" "$remote_sync")" >&2
 
 # 2. print the SSH connection block (NO pairingCode, NO orca serve). host/port/username tell Orca's
 #    relay how to dial in; identityFile/jumpHost/proxyCommand/portForwards are emitted when set.
