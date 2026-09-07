@@ -3,7 +3,11 @@ import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { z } from 'zod'
 import { hardenExistingSecureFile, writeSecureJsonFile } from '../../../shared/secure-file'
-import { fetchRelayRegionCatalog, relayDirectorHost } from './relay-region-catalog-fetch'
+import {
+  fetchRelayRegionCatalog,
+  isProbeOriginForDirector,
+  relayDirectorHost
+} from './relay-region-catalog-fetch'
 import {
   logRelayRegionEvent,
   relayRegionCacheHitEvent,
@@ -14,15 +18,15 @@ import {
   type RelayRegionLogSink,
   type RelayRegionSelfHealLogEvent
 } from './relay-region-probe-log'
+import { bestMeasurement, measuredRegions, selectRegionMeasurement } from './relay-region-selection'
 import {
   measureOriginLatency,
   RELAY_REGIONS,
   measureRegion,
   probeRelayOrigin,
   PROBE_TIMEOUT_MS,
-  regionMeasurement,
+  WARMUP_TIMEOUT_MS,
   RelayRegionSchema,
-  type RegionMeasurement,
   type RelayProbe,
   type RelayRegion,
   type RelayRegionCatalog,
@@ -37,8 +41,6 @@ const CACHE_TTL_MS = 24 * 60 * 60_000
 // A withheld hint is cheap to revisit but expensive to re-measure on every
 // reconnect, so it is remembered for far less time than a chosen region.
 const NO_HINT_TTL_MS = 60 * 60_000
-const SWITCH_MINIMUM_MS = 25
-const SWITCH_RATIO = 0.8
 const FAR_CELL_RATIO = 3
 
 const RelayRegionCacheSchema = z
@@ -111,7 +113,12 @@ export class RelayRegionPreferenceResolver {
   // Why: a cache written from a bad measurement pins the desktop to a distant
   // cell for a full day. Probing the cell we actually landed on catches that.
   async invalidateIfAssignedCellIsFar(assignedCellOrigin: string): Promise<void> {
-    if (this.overrideRegion() || this.selfHealedCells.has(assignedCellOrigin)) {
+    // Same ownership rule as a catalog probe origin: an unauthenticated GET.
+    if (
+      this.overrideRegion() ||
+      this.selfHealedCells.has(assignedCellOrigin) ||
+      !isProbeOriginForDirector(assignedCellOrigin, this.options.directorUrl)
+    ) {
       return
     }
     const now = (this.options.now ?? Date.now)()
@@ -176,10 +183,11 @@ export class RelayRegionPreferenceResolver {
       this.log(relayRegionCatalogFailureEvent(this.options.directorUrl))
     )
     const measurements = measuredRegions(reports)
-    // Why: a region may only win against a measured competitor. With a rejected
-    // or unmeasurable peer, director default placement beats a lone survivor.
+    // Why: a region may only win against a measured competitor. An unmeasured
+    // peer, or one the catalog dropped for having no general cell (a roll wave
+    // or heartbeat stall), means director default placement beats a lone survivor.
     const selected =
-      measurements.length < reports.length
+      measurements.length < reports.length || reports.length < RELAY_REGIONS.length
         ? null
         : selectRegionMeasurement(measurements, previous?.region ?? null)
     const ttlMs = selected ? CACHE_TTL_MS : NO_HINT_TTL_MS
@@ -255,12 +263,13 @@ export class RelayRegionPreferenceResolver {
   private createProbe(fetch: typeof globalThis.fetch): RelayProbe {
     return (
       this.options.probe ??
-      ((origin: string) =>
+      ((origin: string, phase?: 'warmup' | 'sample') =>
         probeRelayOrigin(
           origin,
           fetch,
           this.options.measureNow ?? (() => performance.now()),
-          this.options.requestTimeoutMs ?? PROBE_TIMEOUT_MS
+          this.options.requestTimeoutMs ??
+            (phase === 'warmup' ? WARMUP_TIMEOUT_MS : PROBE_TIMEOUT_MS)
         ))
     )
   }
@@ -281,40 +290,6 @@ export function createRelayRegionPreferenceReader(input: {
     resolvePreferredRegion: () => resolver.resolve(),
     noteAssignedCell: (cellUrl) => void resolver.invalidateIfAssignedCellIsFar(cellUrl)
   }
-}
-
-function measuredRegions(reports: RelayRegionProbeReport[]): RegionMeasurement[] {
-  return reports
-    .map(regionMeasurement)
-    .filter((measurement): measurement is RegionMeasurement => measurement !== null)
-}
-
-function bestMeasurement(measurements: RegionMeasurement[]): RegionMeasurement | null {
-  const order = new Map(RELAY_REGIONS.map((region, index) => [region, index]))
-  return (
-    [...measurements].sort(
-      (left, right) =>
-        left.latencyMs - right.latencyMs || order.get(left.region)! - order.get(right.region)!
-    )[0] ?? null
-  )
-}
-
-function selectRegionMeasurement(
-  measurements: RegionMeasurement[],
-  previousRegion: RelayRegion | null
-): RegionMeasurement | null {
-  const best = bestMeasurement(measurements)
-  if (!best || !previousRegion || best.region === previousRegion) {
-    return best
-  }
-  const current = measurements.find((measurement) => measurement.region === previousRegion)
-  if (!current) {
-    return best
-  }
-  const meaningful =
-    current.latencyMs - best.latencyMs >= SWITCH_MINIMUM_MS &&
-    best.latencyMs <= current.latencyMs * SWITCH_RATIO
-  return meaningful ? best : current
 }
 
 function readRelayRegionCache(path: string, directorUrl: string, now: number) {

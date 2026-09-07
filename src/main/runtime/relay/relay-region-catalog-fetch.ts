@@ -59,6 +59,6 @@ function isCanonicalDirectorOrigin(value: string): boolean {
   }
 }
 
-function isProbeOriginForDirector(origin: string, directorUrl: string): boolean {
+export function isProbeOriginForDirector(origin: string, directorUrl: string): boolean {
   return new URL(origin).hostname.endsWith(`.${new URL(directorUrl).hostname}`)
 }

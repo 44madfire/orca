@@ -1,5 +1,10 @@
 import { relayDirectorHost } from './relay-region-catalog-fetch'
-import type { RegionMeasurement, RelayRegion, RelayRegionProbeReport } from './relay-region-probe'
+import {
+  RELAY_REGIONS,
+  type RegionMeasurement,
+  type RelayRegion,
+  type RelayRegionProbeReport
+} from './relay-region-probe'
 
 export const RELAY_REGION_PROBE_EVENT = 'relay_region_probe'
 export const RELAY_REGION_SELF_HEAL_EVENT = 'relay_region_self_heal'
@@ -9,6 +14,7 @@ export type RelayRegionChoiceReason =
   | 'measured'
   | 'held-previous'
   | 'sole-survivor-forbidden'
+  | 'catalog-incomplete'
   | 'all-unreachable'
   | 'all-rejected'
   | 'catalog-unavailable'
@@ -123,6 +129,9 @@ function refreshReason(
     // The resolver keeps the incumbent unless a rival wins by a real margin, so
     // a selection that is not the fastest reading is a deliberate hold.
     return best && selected.region !== best.region ? 'held-previous' : 'measured'
+  }
+  if (reports.length < RELAY_REGIONS.length) {
+    return 'catalog-incomplete'
   }
   if (reports.some((report) => report.verdict === 'measured')) {
     return 'sole-survivor-forbidden'

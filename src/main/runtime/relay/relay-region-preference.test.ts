@@ -313,16 +313,16 @@ describe('Relay region preference', () => {
   it('recovers from corrupt cache and cancels an old directors error response', async () => {
     const path = userDataPath()
     writeFileSync(cachePath(path), '{not-json')
-    const healthy = sampledProbe({ [ASIA]: [90, 30, 32, 34] })
+    const healthy = sampledProbe({ [US]: [300, 36, 38, 40], [ASIA]: [400, 218, 220, 222] })
     await expect(
       new RelayRegionPreferenceResolver({
         directorUrl: DIRECTOR,
         userDataPath: path,
-        fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+        fetch: catalogFetch(BOTH_REGIONS),
         probe: healthy.probe,
         now: () => 1_000
       }).resolve()
-    ).resolves.toBe('asia-east2')
+    ).resolves.toBe('us-central1')
 
     rmSync(cachePath(path), { force: true })
     let cancelled = 0
@@ -345,17 +345,43 @@ describe('Relay region preference', () => {
   it('rejects a cache expiry beyond the 24-hour bound', async () => {
     const path = userDataPath()
     writeCache(path, 'us-central1', 10 * 24 * 60 * 60_000)
-    const healthy = sampledProbe({ [ASIA]: [90, 30, 32, 34] })
+    const healthy = sampledProbe({ [US]: [300, 236, 238, 240], [ASIA]: [90, 30, 32, 34] })
 
     await expect(
       new RelayRegionPreferenceResolver({
         directorUrl: DIRECTOR,
         userDataPath: path,
-        fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+        fetch: catalogFetch(BOTH_REGIONS),
         probe: healthy.probe,
         now: () => 1_000
       }).resolve()
     ).resolves.toBe('asia-east2')
+  })
+
+  it('withholds the hint for the short TTL when the catalog is missing a region', async () => {
+    // Why: the director lists only regions with a general cell, so a roll wave
+    // or a heartbeat stall shortens the catalog. A lone healthy region measured
+    // against nothing must not become a day-long hint pinning the desktop there.
+    const path = userDataPath()
+    const healthy = sampledProbe({ [ASIA]: [90, 30, 32, 34] })
+    const events: unknown[] = []
+    const resolver = new RelayRegionPreferenceResolver({
+      directorUrl: DIRECTOR,
+      userDataPath: path,
+      fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+      probe: healthy.probe,
+      now: () => 1_000,
+      logEvent: (event) => events.push(event)
+    })
+
+    await expect(resolver.resolve()).resolves.toBeUndefined()
+    expect(JSON.parse(readFileSync(cachePath(path), 'utf8'))).toMatchObject({
+      region: null,
+      expiresAt: 1_000 + 60 * 60_000
+    })
+    expect(events).toEqual([
+      expect.objectContaining({ chosenRegion: 'no-hint', reason: 'catalog-incomplete' })
+    ])
   })
 
   it('uses a valid diagnostic override without network or cache mutation', async () => {
@@ -410,6 +436,32 @@ describe('Relay region preference', () => {
       }).resolve()
     ).resolves.toBeUndefined()
     expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it('gives the warm-up request three times the sample budget', async () => {
+    // Why: the warm-up pays the TLS setup the samples are meant to skip; a lossy
+    // far link that fails only the warm-up must not lose the whole region.
+    const budgets: number[] = []
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      budgets.push(ms)
+      return new AbortController().signal
+    })
+    try {
+      await new RelayRegionPreferenceResolver({
+        directorUrl: DIRECTOR,
+        userDataPath: userDataPath(),
+        fetch: async (url) =>
+          String(url).endsWith('/v1/regions')
+            ? Response.json({ v: 1, regions: BOTH_REGIONS })
+            : cancelTrackingResponse(200, () => {}),
+        now: () => 1_000
+      }).resolve()
+    } finally {
+      timeout.mockRestore()
+    }
+    // One catalog request, then per origin one warm-up and three samples.
+    expect(budgets.filter((ms) => ms === 4_500)).toHaveLength(2)
+    expect(budgets.filter((ms) => ms === 1_500)).toHaveLength(7)
   })
 
   it('probes only the canonical health path and cancels its body', async () => {
@@ -529,6 +581,17 @@ describe('Relay region cache self-heal', () => {
         reason: 'catalog-unavailable'
       })
     ])
+  })
+
+  it('never probes an assigned cell that is not under the director', async () => {
+    const path = userDataPath()
+    writeCache(path, 'asia-east2', LIVE_EXPIRY)
+    const { calls, fetch, resolver } = resolverFor(path, [800, 700, 710, 720])
+
+    await resolver.invalidateIfAssignedCellIsFar('https://cell-7.attacker.example')
+    expect(fetch).not.toHaveBeenCalled()
+    expect(calls).toHaveLength(0)
+    expect(existsSync(cachePath(path))).toBe(true)
   })
 
   it('probes a given cell only once per process', async () => {
