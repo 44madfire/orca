@@ -185,7 +185,10 @@ edges still meet the device and keep their measured values.
   `mobile/src/mobile-web/mobile-web-history-session-fragment.ts`, which keeps
   page history writes on that fragment).
 - The shell grants named operation/capability pairs with request, response,
-  concurrency, subscription, rate, and message limits.
+  concurrency, subscription, rate, and message limits. What is left of the
+  workspace translator is the `worktree.ps` catalog read that mints the page's
+  opaque workspace handles, and workspace creation, which registers a handle for
+  a workspace that no catalog page has listed yet.
 - The page calls `workspace.hostRequest` for a unary desktop method and
   `workspace.hostSubscribe` for a stream. The shell consults no method table of
   its own: it resolves the opaque workspace handle, and forwards bounded domain
@@ -207,10 +210,12 @@ edges still meet the device and keep their measured values.
   and node-count limits. Per-operation grants on `workspace.hostRequest` still
   supply the in-flight ceiling, and cancelling a page request does not release
   its host-work slot until the host call settles. The Desktop is trusted, so the
-  page addresses host tabs, browser pages and provider sessions by their host
-  ids. Generic subscriptions, native-chat domain actions, file reads, Source
-  Control reads/watch, session snapshot/feed/actions and terminal metadata use
-  this path.
+  page addresses host tabs, browser pages, provider sessions and repositories by
+  their host ids; only the workspace handle stays opaque, because a worktree id
+  carries the host path. Generic subscriptions, native-chat domain actions, file
+  reads, Source Control reads/watch, session snapshot/feed/actions, terminal
+  metadata, workspace activation/pin/sleep/removal, the repository catalog, the
+  workspace view settings and the whole account domain use this path.
 - Decisions behind the generic lane and its 2026-09-07 simplification are in
   [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.
