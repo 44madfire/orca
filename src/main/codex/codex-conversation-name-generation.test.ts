@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import {
   createCodexNamingTurnCollector,
@@ -445,5 +445,64 @@ describe('settled vs unsettled outcomes', () => {
       name: 'Fix flaky lease probe',
       settled: true
     })
+  })
+})
+
+describe('naming turn timer disposal', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** Runs the flow with a real collector, exposing it so a vacuous pass is visible. */
+  function runExposingCollector(connection: Pick<CodexAppServerConnection, 'request'>) {
+    let collector: ReturnType<typeof createCodexNamingTurnCollector> | null = null
+    const done = generateAndSetCodexConversationName({
+      connection,
+      cwd: '/work/repo',
+      threadId: THREAD,
+      prompt: 'fix the flaky lease probe',
+      openNamingTurn: () => {
+        collector = createCodexNamingTurnCollector(60_000)
+        return collector
+      },
+      retainNamingThread: () => {},
+      closeNamingTurn: () => {}
+    }).catch(() => null)
+    return { done, collector: () => collector }
+  }
+
+  const refusing = (method: string): Pick<CodexAppServerConnection, 'request'> => ({
+    request: vi.fn(async (called: string) => {
+      if (called === method) {
+        throw new Error(`${method} refused`)
+      }
+      return called === 'thread/start' ? { thread: { id: NAMING, ephemeral: true } } : {}
+    })
+  })
+
+  it.each([
+    ['thread/start is refused', refusing('thread/start')],
+    ['turn/start is refused', refusing('turn/start')],
+    [
+      'the opened thread is the user own',
+      {
+        request: vi.fn(async (called: string) =>
+          called === 'thread/start' ? { thread: { id: THREAD, ephemeral: true } } : {}
+        )
+      } as Pick<CodexAppServerConnection, 'request'>
+    ]
+  ])('clears the 60s naming timeout when %s', async (_label, connection) => {
+    const { done, collector } = runExposingCollector(connection)
+
+    await done
+
+    // Without disposal the timer stays armed for the full timeout, holding the
+    // collector closure and its `latest` answer well past the session.
+    expect(collector()).not.toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

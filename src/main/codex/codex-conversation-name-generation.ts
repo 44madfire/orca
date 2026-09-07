@@ -164,6 +164,9 @@ export type CodexNamingTurnResult =
 export type CodexNamingTurnCollector = {
   handle: (method: string, params: unknown) => void
   answer: Promise<CodexNamingTurnResult>
+  /** For a turn abandoned before `answer` is awaited, which would otherwise hold
+   *  the timer — and the closure behind it — for the whole timeout. */
+  dispose: () => void
 }
 
 /**
@@ -226,7 +229,8 @@ export function createCodexNamingTurnCollector(timeoutMs: number): CodexNamingTu
         settle({ outcome: 'failed' })
       }
     },
-    answer
+    answer,
+    dispose: () => settle({ outcome: 'timed-out' })
   }
 }
 
@@ -378,6 +382,9 @@ export async function generateAndSetCodexConversationName(
     )
     result = await collector.answer
   } finally {
+    // Three paths leave before `collector.answer` is awaited: a refused
+    // thread/start, an unusable opened thread, and a refused turn/start.
+    collector.dispose()
     input.closeNamingTurn()
     // The protocol's own cleanup for a thread a client is done with. Retaining
     // the id stays the load-bearing guard — a turn that timed out is never
