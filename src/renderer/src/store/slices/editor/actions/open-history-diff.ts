@@ -72,7 +72,12 @@ export function createOpenHistoryDiff(
           runtimeEnvironmentId
         }
         if (isPreview) {
-          const slot = resolveReplaceablePreviewSlot(s, worktreeId, options?.targetGroupId)
+          const slot = resolveReplaceablePreviewSlot(
+            s,
+            worktreeId,
+            options?.targetGroupId,
+            targetGroupId
+          )
           if (slot) {
             editorItemTargetGroupId = slot.retargetGroupId ?? editorItemTargetGroupId
             return {
@@ -155,7 +160,12 @@ export function createOpenHistoryDiff(
           runtimeEnvironmentId
         }
         if (isPreview) {
-          const slot = resolveReplaceablePreviewSlot(s, worktreeId, options?.targetGroupId)
+          const slot = resolveReplaceablePreviewSlot(
+            s,
+            worktreeId,
+            options?.targetGroupId,
+            targetGroupId
+          )
           if (slot) {
             editorItemTargetGroupId = slot.retargetGroupId ?? editorItemTargetGroupId
             return {

@@ -179,3 +179,86 @@ describe('createEditorSlice parked preview reuse', () => {
     )
   })
 })
+
+it('prefers the focused group preview', () => {
+  const store = createEditorTabsStore()
+  const open = (name: string, targetGroupId?: string) =>
+    store.getState().openDiff('wt-1', `/repo/${name}`, name, 'typescript', false, {
+      preview: true,
+      targetGroupId
+    })
+  open('a.ts')
+  const a = store.getState().groupsByWorktree['wt-1'][0].id
+  const b = store.getState().createEmptySplitGroup('wt-1', a, 'right')
+  if (!b) {
+    throw new Error('expected split group')
+  }
+  open('b.ts', b)
+  store.getState().focusGroup('wt-1', b)
+  open('c.ts')
+  expect(
+    store.getState().unifiedTabsByWorktree['wt-1'].find((t) => t.entityId.endsWith('c.ts'))?.groupId
+  ).toBe(b)
+})
+it('keeps the backing file for an activated permanent tab', () => {
+  const store = createEditorTabsStore()
+  const open = (name: string) =>
+    store.getState().openFile(
+      {
+        filePath: `/repo/${name}`,
+        relativePath: name,
+        worktreeId: 'wt-1',
+        language: 'typescript',
+        mode: 'edit'
+      },
+      { preview: true }
+    )
+  open('a.ts')
+  const tab = store.getState().unifiedTabsByWorktree['wt-1'][0]
+  store.getState().activateTab(tab.id)
+  expect(store.getState().unifiedTabsByWorktree['wt-1'][0].isPreview).toBe(false)
+  expect(store.getState().openFiles[0].isPreview).toBe(true)
+  open('b.ts')
+  expect(store.getState().openFiles.some((f) => f.id === tab.entityId)).toBe(true)
+})
+
+it('opens a permanent file locally without stealing focus from another group', () => {
+  const store = createEditorTabsStore()
+  const file = {
+    filePath: '/repo/a.ts',
+    relativePath: 'a.ts',
+    worktreeId: 'wt-1',
+    language: 'typescript',
+    mode: 'edit' as const
+  }
+  store.getState().openFile(file)
+  const groupA = store.getState().groupsByWorktree['wt-1'][0].id
+  const groupB = store.getState().createEmptySplitGroup('wt-1', groupA, 'right')
+  if (!groupB) {
+    throw new Error('expected split group')
+  }
+  store.getState().focusGroup('wt-1', groupB)
+  store.getState().openFile(file, { preview: true })
+  const tabs = store.getState().unifiedTabsByWorktree['wt-1']
+  expect(tabs.filter((tab) => tab.entityId === file.filePath).map((tab) => tab.groupId)).toEqual([
+    groupA,
+    groupB
+  ])
+  expect(store.getState().activeGroupIdByWorktree['wt-1']).toBe(groupB)
+})
+
+it('preserves a promoted diff when previewing another diff', () => {
+  const store = createEditorTabsStore()
+  const open = (name: string) =>
+    store.getState().openDiff('wt-1', `/repo/${name}`, name, 'typescript', false, { preview: true })
+  open('a.ts')
+  const tab = store.getState().unifiedTabsByWorktree['wt-1'][0]
+  store.getState().activateTab(tab.id)
+  open('b.ts')
+  expect(store.getState().openFiles.map((file) => file.relativePath)).toEqual(['a.ts', 'b.ts'])
+  expect(store.getState().unifiedTabsByWorktree['wt-1']).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: tab.id, entityId: tab.entityId, isPreview: false })
+    ])
+  )
+})
