@@ -16,7 +16,8 @@ import {
 import { useMobileWebPageDocument } from '../src/mobile-web/use-mobile-web-page-document'
 import { mobileWebShellInitMessage } from '../src/mobile-web/mobile-web-shell-init-message'
 import { MobileWebHealthDeadline } from '../src/mobile-web/mobile-web-health-deadline'
-import { useMobileWebAlertSafePackageSession } from '../src/mobile-web/use-mobile-web-alert-safe-package-session'
+import { useMobileWebPackageSession } from '../src/mobile-web/use-mobile-web-package-session'
+import { mobileWebNativeAlertLifecycle } from '../src/mobile-web/mobile-web-native-alert'
 import { MobileWebHybridShellPresentation } from '../src/mobile-web/MobileWebHybridShellPresentation'
 import { mobileWebShellLoadFailureWarning } from '../src/mobile-web/mobile-web-shell-load-failure-warning'
 import { useMobileWebNavigationIntentHandoff } from '../src/mobile-web/use-mobile-web-navigation-intent-handoff'
@@ -87,7 +88,13 @@ export default function HybridScreen() {
     recoverPrevious,
     clearCache,
     showWarning
-  } = useMobileWebAlertSafePackageSession({ client, host: selectedHost, state })
+  } = useMobileWebPackageSession({
+    client,
+    host: selectedHost,
+    state,
+    // A native alert owns the screen; replacing the session under it strands the dialog.
+    beforeSessionReplacement: mobileWebNativeAlertLifecycle.waitForIdle
+  })
   const bridgeRuntimeRef = useMobileWebBridgeRuntimeRef(client, state, session?.sessionId)
   const coldResumeRoute = useMobileWebColdResumeRoute({
     hosts,
