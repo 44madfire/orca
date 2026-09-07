@@ -113,13 +113,13 @@ describe('hosted task operations over the generic host lane', () => {
   })
 
   it('rejects when the desktop refuses the request', async () => {
-    const host = {
+    const requests = {
       request: vi.fn(async () => {
         throw new Error('forbidden')
       })
-    } as unknown as MobileWebHostRequestClient
+    } as unknown as MobileWebOneShotRequestClient
     await expect(
-      nativeHostTaskReadOperations(webHostTaskRpcSender(host)).listRepositories()
+      nativeHostTaskReadOperations(mobileWebHostRpcSender(requests)).listRepositories()
     ).rejects.toThrow('forbidden')
   })
 
