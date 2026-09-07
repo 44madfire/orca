@@ -1,4 +1,3 @@
-import { MobileWebBrowserStreamPayloadSchema } from '../../../src/shared/mobile-web/browser-operation-contract'
 import { MobileWebWorkspaceSubscribePayloadSchema } from '../../../src/shared/mobile-web/bridge-operation-contract'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { MobileWebBridgeCapability } from '../../../src/shared/mobile-web/bridge-operation-registry'
@@ -7,7 +6,6 @@ import { executeWorkspace } from './mobile-web-workspace-capability'
 import { executeMobileWebAccountCapability } from './mobile-web-account-capability'
 import { executeMobileWebAgentHistoryOperation } from './mobile-web-agent-history-operations'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
-import { executeMobileWebBrowserOperation } from './mobile-web-browser-operations'
 import type { MobileWebCapabilityExecutionDependencies } from './mobile-web-capability-execution-dependencies'
 import { executeMobileWebFileOperation } from './mobile-web-file-operations'
 import { executeMobileWebMarkdownOperation } from './mobile-web-markdown-operations'
@@ -50,15 +48,6 @@ async function executeNavigation(args: Deps, request: OnceRequest): Promise<unkn
     operation: request.operation,
     payload: request.payload,
     authority: args.navigationAuthority
-  })
-}
-
-async function executeBrowser(args: Deps, request: OnceRequest): Promise<unknown> {
-  return executeMobileWebBrowserOperation({
-    operation: request.operation,
-    payload: request.payload,
-    client: args.connectedClient(),
-    workspaceAuthority: args.workspaceAuthority
   })
 }
 
@@ -158,7 +147,6 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
     navigation: executeNavigation,
     agentHistory: (args) => executeMobileWebAgentHistoryOperation(args),
     account: (args) => executeMobileWebAccountCapability(args),
-    browser: executeBrowser,
     workspace: executeWorkspace,
     settings: executeWorkspace,
     terminal: executeTerminal,
@@ -168,18 +156,6 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
     speech: executeSpeech,
     task: executeTask
   }
-
-async function subscribeBrowser(args: Deps, request: SubscriptionRequest): Promise<unknown> {
-  requireSubscribeOperation(request)
-  MobileWebBrowserStreamPayloadSchema.parse(request.payload)
-  args.browserStreams.start({
-    requestId: request.requestId,
-    subscriptionId: request.subscriptionId,
-    payload: request.payload,
-    client: args.connectedClient()
-  })
-  return null
-}
 
 async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Promise<unknown> {
   if (request.operation === 'hostSubscribe') {
@@ -228,7 +204,6 @@ export const MOBILE_WEB_SUBSCRIPTION_CAPABILITY_ARMS: Partial<
   Record<MobileWebBridgeCapability, SubscriptionArm>
 > = {
   account: (args) => executeMobileWebAccountCapability(args),
-  browser: subscribeBrowser,
   workspace: subscribeWorkspace,
   terminal: subscribeTerminal,
   speech: subscribeSpeech

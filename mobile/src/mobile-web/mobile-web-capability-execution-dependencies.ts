@@ -5,7 +5,6 @@ import type { MobileWebAccountSubscriptions } from './mobile-web-account-subscri
 import type { MobileWebAgentHistoryAuthority } from './mobile-web-agent-history-authority'
 import type { MobileWebAgentHistoryPager } from './mobile-web-agent-history-pager'
 import type { MobileWebAgentHistoryResume } from './mobile-web-agent-history-resume'
-import type { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import type { MobileWebCommitMessageGeneration } from './mobile-web-commit-message-generation'
 import type { MobileWebNavigationAuthority } from './mobile-web-navigation-operations'
 import type { MobileWebNativeCapabilityAuthority } from './mobile-web-native-capability-authority'
@@ -33,7 +32,6 @@ export type MobileWebCapabilityExecutionDependencies = {
   agentHistoryResume: MobileWebAgentHistoryResume
   hostSubscriptions: MobileWebHostSubscriptions
   accountSubscriptions: MobileWebAccountSubscriptions
-  browserStreams: MobileWebBrowserStreams
   sourceControlBranchCompare: MobileWebSourceControlBranchComparePager
   speechAuthority: MobileWebSpeechAuthority
   workspaceSubscriptions: MobileWebWorkspaceSubscriptions

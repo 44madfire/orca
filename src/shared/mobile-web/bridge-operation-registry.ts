@@ -167,16 +167,6 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     manageReview: 'mutation',
     submitReview: 'mutation'
   },
-  browser: {
-    subscribe: 'subscription',
-    navigate: 'mutation',
-    back: 'mutation',
-    forward: 'mutation',
-    reload: 'mutation',
-    dialog: 'mutation',
-    pointer: 'mutation',
-    keyboard: 'mutation'
-  },
   account: {
     snapshot: 'read',
     select: 'mutation',
