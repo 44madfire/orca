@@ -36,6 +36,7 @@ async function setup() {
     notBefore: clock,
     ratePerMinute: 10,
     preferenceMaxAgeMs: 24 * 60 * 60_000,
+    hostCooldownMs: 7 * 24 * 60 * 60_000,
     drainGraceMs: 60 * 60_000
   })
   await store.reconcileCells([source, noHeadroom, unclean, highLoad, lowLoad])

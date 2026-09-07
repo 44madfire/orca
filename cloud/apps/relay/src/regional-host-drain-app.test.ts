@@ -315,6 +315,7 @@ describe('regional rehome director controls', () => {
       notBefore: 100,
       ratePerMinute: 10,
       preferenceMaxAgeMs: 24 * 60 * 60_000,
+      hostCooldownMs: 7 * 24 * 60 * 60_000,
       drainGraceMs: 60_000,
       confirmation: 'ENABLE_REGIONAL_REHOMING'
     }
@@ -342,6 +343,14 @@ describe('regional rehome director controls', () => {
       '/v1/admin/regional-rehome-control',
       'deploy-token',
       { ...apply, confirmation: 'DISABLE_REGIONAL_REHOMING' }
+    )).status).toBe(400)
+    // The per-host cooldown is part of the durable shape an operator must state.
+    const { hostCooldownMs: _omitted, ...withoutCooldown } = apply
+    expect((await postPath(
+      app,
+      '/v1/admin/regional-rehome-control',
+      'deploy-token',
+      withoutCooldown
     )).status).toBe(400)
   })
 

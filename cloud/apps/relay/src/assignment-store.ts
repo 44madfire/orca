@@ -30,6 +30,9 @@ import {
   ASSIGNMENT_CONNECTION_HEADROOM_QUERY
 } from './assignment-connection-headroom-query.js'
 import { AssignmentIdentityQueue } from './assignment-identity-queue.js'
+import {
+  REGIONAL_REHOME_DEFAULT_HOST_COOLDOWN_MS
+} from './database.js'
 import type { RelayCellConfig } from './config.js'
 import type {
   RelayDatabase,
@@ -151,6 +154,7 @@ export type RegionalRehomeControl = {
   notBefore: number
   ratePerMinute: number
   preferenceMaxAgeMs: number
+  hostCooldownMs: number
   drainGraceMs: number
 }
 
@@ -4921,6 +4925,7 @@ export class RelayAssignmentStore {
     notBefore: number
     ratePerMinute: number
     preferenceMaxAgeMs: number
+    hostCooldownMs: number
     drainGraceMs: number
   }): Promise<RegionalRehomeControl> {
     if (!Number.isSafeInteger(input.expectedGeneration) || input.expectedGeneration < 0) {
@@ -4938,6 +4943,13 @@ export class RelayAssignmentStore {
       input.preferenceMaxAgeMs > 30 * 24 * 60 * 60_000
     ) {
       throw new Error('invalid_regional_rehome_preference_age')
+    }
+    if (
+      !Number.isSafeInteger(input.hostCooldownMs) ||
+      input.hostCooldownMs < 60_000 ||
+      input.hostCooldownMs > 30 * 24 * 60 * 60_000
+    ) {
+      throw new Error('invalid_regional_rehome_host_cooldown')
     }
     if (
       !Number.isSafeInteger(input.drainGraceMs) ||
@@ -4967,14 +4979,15 @@ export class RelayAssignmentStore {
       await transaction.query(
         `UPDATE relay_region_rehome_control
          SET generation = generation + 1, enabled = ?, not_before = ?,
-             rate_per_minute = ?, preference_max_age_ms = ?, drain_grace_ms = ?,
-             updated_at = ?
+             rate_per_minute = ?, preference_max_age_ms = ?, host_cooldown_ms = ?,
+             drain_grace_ms = ?, updated_at = ?
          WHERE control_id = 'global'`,
         [
           input.enabled ? 1 : 0,
           input.notBefore,
           input.ratePerMinute,
           input.preferenceMaxAgeMs,
+          input.hostCooldownMs,
           input.drainGraceMs,
           now
         ]
@@ -5006,10 +5019,17 @@ export class RelayAssignmentStore {
     await database.query(
       `INSERT INTO relay_region_rehome_control
        (control_id, generation, enabled, observation_started_at, not_before,
-        rate_per_minute, preference_max_age_ms, drain_grace_ms, updated_at)
-       VALUES ('global', 0, 0, ?, 0, 10, ?, ?, ?)
+        rate_per_minute, preference_max_age_ms, host_cooldown_ms, drain_grace_ms,
+        updated_at)
+       VALUES ('global', 0, 0, ?, 0, 10, ?, ?, ?, ?)
        ON CONFLICT (control_id) DO NOTHING`,
-      [now, 24 * 60 * 60_000, 60 * 60_000, now]
+      [
+        now,
+        24 * 60 * 60_000,
+        REGIONAL_REHOME_DEFAULT_HOST_COOLDOWN_MS,
+        60 * 60_000,
+        now
+      ]
     )
   }
 
@@ -5119,6 +5139,10 @@ export class RelayAssignmentStore {
       }
       const intervalMs = Math.ceil(60_000 / integer(control, 'rate_per_minute'))
       const preferenceCutoff = now - integer(control, 'preference_max_age_ms')
+      // A host that was rehomed recently is left alone whichever way its
+      // preference now points: a flapping region probe must not walk one host
+      // back and forth across an ocean.
+      const cooldownCutoff = now - integer(control, 'host_cooldown_ms')
       await transaction.query(
         `INSERT INTO relay_region_rehome_worker_state
          (worker_id, next_dispatch_at, paused_until, consecutive_failures, updated_at)
@@ -5305,8 +5329,15 @@ export class RelayAssignmentStore {
                AND migration.relay_host_id = assignment.relay_host_id
                AND migration.completed_at IS NULL AND migration.aborted_at IS NULL
            )
+           AND NOT EXISTS (
+             SELECT 1 FROM relay_region_rehome_attempts recent
+             WHERE recent.user_id = preference.user_id
+               AND recent.relay_host_id = preference.relay_host_id
+               AND recent.created_at > ?
+           )
            AND EXISTS (
              SELECT 1 FROM relay_cell_regions target_region
+             JOIN relay_cells target_cell ON target_cell.cell_id = target_region.cell_id
              JOIN relay_cell_admission target_admission
                ON target_admission.cell_id = target_region.cell_id
              JOIN relay_cell_runtime target_runtime
@@ -5315,6 +5346,7 @@ export class RelayAssignmentStore {
                ON target_capability.cell_id = target_runtime.cell_id
               AND target_capability.cell_incarnation = target_runtime.cell_incarnation
              WHERE target_region.region = preference.preferred_region
+               AND target_cell.enabled = 1
                AND target_admission.admission_state = 'general'
                AND target_runtime.ready = 1
                AND target_runtime.last_heartbeat_at > ?
@@ -5322,7 +5354,13 @@ export class RelayAssignmentStore {
            )
          ORDER BY preference.observed_at, preference.user_id, preference.relay_host_id
          LIMIT 10`,
-        [preferenceCutoff, now - this.heartbeatTtlMs, now, now - this.heartbeatTtlMs]
+        [
+          preferenceCutoff,
+          now - this.heartbeatTtlMs,
+          now,
+          cooldownCutoff,
+          now - this.heartbeatTtlMs
+        ]
       )
       candidatesTotal = candidates.length
       for (const candidate of candidates) {
@@ -5334,6 +5372,7 @@ export class RelayAssignmentStore {
           sourceCellId: text(candidate, 'source_cell_id'),
           assignmentEpoch: integer(candidate, 'assignment_epoch'),
           preferenceCutoff,
+          cooldownCutoff,
           drainGraceMs: integer(control, 'drain_grace_ms'),
           processSafety: effectiveProcessSafety,
           worker,
@@ -5388,6 +5427,7 @@ export class RelayAssignmentStore {
       sourceCellId: string
       assignmentEpoch: number
       preferenceCutoff: number
+      cooldownCutoff: number
       drainGraceMs: number
       processSafety: RegionalRehomeSafetySnapshot
       worker: SqlRow
@@ -5424,6 +5464,18 @@ export class RelayAssignmentStore {
     )
     if (activeMigration.length > 0) {
       input.skips.push({ reason: 'candidate_stale' })
+      return null
+    }
+    // Re-read under the claim: an attempt committed between the scan and here
+    // would otherwise start a second move for the same host.
+    const recentAttempt = await transaction.query(
+      `SELECT 1 FROM relay_region_rehome_attempts
+       WHERE user_id = ? AND relay_host_id = ? AND created_at > ?
+       LIMIT 1`,
+      [input.identity.userId, input.identity.relayHostId, input.cooldownCutoff]
+    )
+    if (recentAttempt.length > 0) {
+      input.skips.push({ reason: 'host_cooldown' })
       return null
     }
     const activityLeases = await this.lockAssignmentActivities(transaction, input.identity)
@@ -8148,6 +8200,7 @@ function regionalRehomeControl(row: SqlRow): RegionalRehomeControl {
     notBefore: integer(row, 'not_before'),
     ratePerMinute: integer(row, 'rate_per_minute'),
     preferenceMaxAgeMs: integer(row, 'preference_max_age_ms'),
+    hostCooldownMs: integer(row, 'host_cooldown_ms'),
     drainGraceMs: integer(row, 'drain_grace_ms')
   }
 }
@@ -8256,6 +8309,7 @@ function regionalRehomeFleetSafetyFailure(
 type RegionalRehomeCandidateSkip = {
   reason:
     | 'candidate_stale'
+    | 'host_cooldown'
     | 'source_ineligible'
     | 'source_unclean'
     | 'source_control_inactive'

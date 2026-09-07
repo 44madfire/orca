@@ -81,6 +81,7 @@ describe('regional rehome assignment state', () => {
       notBefore: context.now(),
       ratePerMinute: 10,
       preferenceMaxAgeMs: 24 * 60 * 60_000,
+      hostCooldownMs: 7 * 24 * 60 * 60_000,
       drainGraceMs: 60_000
     })).rejects.toThrow('regional_rehome_generation_mismatch')
     await expect(context.store.applyRegionalRehomeControl({
@@ -89,6 +90,7 @@ describe('regional rehome assignment state', () => {
       notBefore: context.now(),
       ratePerMinute: 10,
       preferenceMaxAgeMs: 24 * 60 * 60_000,
+      hostCooldownMs: 7 * 24 * 60 * 60_000,
       drainGraceMs: 60_000
     })).resolves.toMatchObject({ generation: 3, enabled: true })
     await context.database.close()
@@ -373,15 +375,49 @@ describe('regional rehome assignment state', () => {
     await context.database.close()
   })
 
-  it('names the skip when the preferred region holds no eligible target cell', async () => {
+  it('drops a candidate at scan time when no cell in the preferred region is usable', async () => {
     const context = await setup()
     await activatePreferredSource(context, {
       userId: 'user-1',
       relayHostId: 'abcdefghijklmnop'
     })
+    // A disabled cell is not a target, and the scan must say so: leaving it to
+    // the claim would burn a slot of the candidate batch on a certain skip.
     await context.database.query(`UPDATE relay_cells SET enabled = 0 WHERE cell_id = ?`, [
       target.id
     ])
+
+    const warnings = collectEventWarnings('orca_relay_regional_rehome_candidates_skipped')
+    try {
+      expect(await context.store.claimRegionalRehome()).toBeNull()
+    } finally {
+      warnings.restore()
+    }
+    expect(warnings.entries).toEqual([])
+    expect(
+      await context.database.query(
+        `SELECT next_dispatch_at FROM relay_region_rehome_worker_state`
+      )
+    ).toEqual([{ next_dispatch_at: 0 }])
+    expect(await context.database.query(`SELECT * FROM relay_assignment_migrations`)).toEqual([])
+    await context.database.close()
+  })
+
+  it('names the skip when the last target is lost between scan and claim', async () => {
+    const database = await openInMemoryRelayDatabase()
+    const context = await setup({
+      database,
+      wrap: (delegate) =>
+        hookAfterCandidateScan(delegate, async (transaction) => {
+          await transaction.query(`UPDATE relay_cells SET enabled = 0 WHERE cell_id = ?`, [
+            target.id
+          ])
+        })
+    })
+    await activatePreferredSource(context, {
+      userId: 'user-1',
+      relayHostId: 'abcdefghijklmnop'
+    })
 
     const warnings = collectEventWarnings('orca_relay_regional_rehome_candidates_skipped')
     try {
@@ -396,8 +432,87 @@ describe('regional rehome assignment state', () => {
       generation: 1,
       enabled: true
     })
-    expect(await context.database.query(`SELECT * FROM relay_assignment_migrations`)).toEqual([])
+    expect(await database.query(`SELECT * FROM relay_assignment_migrations`)).toEqual([])
+    await database.close()
+  })
+
+  it('leaves a host alone until its cooldown expires, then moves it back', async () => {
+    const context = await setup({ hostCooldownMs: 3 * 24 * 60 * 60_000 })
+    const identity = { userId: 'user-1', relayHostId: 'abcdefghijklmnop' }
+    const targetControl = await completeRehomeToTarget(context, identity)
+    // Past the dispatch interval the earlier claim charged, so the next tick
+    // really does scan and the cooldown is the only thing holding this host.
+    context.advance(10_000)
+    // The desktop's region probe now says us-central1 again.
+    await context.store.assign(identity, 'us-central1')
+
+    const warnings = collectEventWarnings('orca_relay_regional_rehome_candidates_skipped')
+    try {
+      expect(await context.store.claimRegionalRehome()).toBeNull()
+    } finally {
+      warnings.restore()
+    }
+    expect(warnings.entries).toEqual([])
+    expect(await context.store.resolve(identity)).toMatchObject({ cellId: target.id })
+
+    context.advance(3 * 24 * 60 * 60_000)
+    await freshHeartbeats(context)
+    await context.store.renewControlActivity(identity, {
+      activityId: targetControl,
+      cellId: target.id,
+      expiresAt: context.now() + 90_000
+    })
+    await context.store.assign(identity, 'us-central1')
+
+    const attempt = await context.store.claimRegionalRehome()
+    expect(attempt).toMatchObject({
+      preferredRegion: 'us-central1',
+      sourceCellId: target.id,
+      targetCellId: source.id
+    })
     await context.database.close()
+  })
+
+  it('rejects a host whose attempt lands between the scan and the claim', async () => {
+    const database = await openInMemoryRelayDatabase()
+    const identity = { userId: 'user-1', relayHostId: 'abcdefghijklmnop' }
+    const context = await setup({
+      database,
+      wrap: (delegate) =>
+        hookAfterCandidateScan(delegate, async (transaction) => {
+          await transaction.query(
+            `INSERT INTO relay_region_rehome_attempts
+             (attempt_id, user_id, relay_host_id, preferred_region, source_cell_id,
+              source_cell_incarnation, target_cell_id, target_cell_incarnation,
+              previous_epoch, assignment_epoch, drain_grace_ms, send_attempts,
+              created_at, updated_at)
+             VALUES ('raced', ?, ?, 'asia-east2', ?, ?, ?, ?, 0, 1, 0, 0, ?, ?)`,
+            [
+              identity.userId,
+              identity.relayHostId,
+              source.id,
+              sourceIncarnation,
+              target.id,
+              targetIncarnation,
+              context.now(),
+              context.now()
+            ]
+          )
+        })
+    })
+    await activatePreferredSource(context, identity)
+
+    const warnings = collectEventWarnings('orca_relay_regional_rehome_candidates_skipped')
+    try {
+      expect(await context.store.claimRegionalRehome()).toBeNull()
+    } finally {
+      warnings.restore()
+    }
+    expect(warnings.entries).toMatchObject([
+      { skips: [{ reason: 'host_cooldown', candidates: 1 }] }
+    ])
+    expect(await database.query(`SELECT * FROM relay_assignment_migrations`)).toEqual([])
+    await database.close()
   })
 
   it('does not scan a candidate whose preferred region has no drainable cell', async () => {
@@ -579,6 +694,7 @@ describe('regional rehome assignment state', () => {
       notBefore: context.now(),
       ratePerMinute: 10,
       preferenceMaxAgeMs: 24 * 60 * 60_000,
+      hostCooldownMs: 7 * 24 * 60 * 60_000,
       drainGraceMs: 60_000
     })
     const retry = await context.store.claimRegionalRehome()
@@ -1654,11 +1770,13 @@ async function setup(
   options: {
     sourceProtocol?: number
     targetProtocol?: number
+    hostCooldownMs?: number
+    database?: RelayDatabase
     wrap?: (database: RelayDatabase) => RelayDatabase
   } = {}
 ) {
   let clock = 1_000_000
-  const database = await openInMemoryRelayDatabase()
+  const database = options.database ?? (await openInMemoryRelayDatabase())
   const store = new RelayAssignmentStore(options.wrap?.(database) ?? database, () => clock, {
     requireLiveCells: true,
     heartbeatTtlMs: 45_000
@@ -1671,6 +1789,7 @@ async function setup(
     notBefore: clock,
     ratePerMinute: 10,
     preferenceMaxAgeMs: 24 * 60 * 60_000,
+    hostCooldownMs: options.hostCooldownMs ?? 7 * 24 * 60 * 60_000,
     drainGraceMs: 60 * 60_000
   })
   await store.reconcileCells([source, target])
@@ -1792,6 +1911,54 @@ async function activatePreferredSource(
   })
   await context.store.assign(identity, 'asia-east2')
   return control
+}
+
+// Runs a hook inside the claim transaction, right after the candidate scan, so
+// a scan-versus-claim race is deterministic instead of timing-dependent.
+function hookAfterCandidateScan(
+  database: RelayDatabase,
+  hook: (transaction: RelayDatabase) => Promise<void>
+): RelayDatabase {
+  let fired = false
+  const decorate = (delegate: RelayDatabase): RelayDatabase => ({
+    query: async (sql, params) => {
+      const rows = await delegate.query(sql, params)
+      if (!fired && sql.includes('FROM relay_assignment_region_preferences preference')) {
+        fired = true
+        await hook(delegate)
+      }
+      return rows
+    },
+    queryLocked: async (sql, params, lockOptions) =>
+      await delegate.queryLocked(sql, params, lockOptions),
+    transaction: async (operation, transactionOptions) =>
+      await delegate.transaction(
+        async (transaction) => await operation(decorate(transaction)),
+        transactionOptions
+      ),
+    close: async () => undefined
+  })
+  return decorate(database)
+}
+
+async function completeRehomeToTarget(
+  context: Context,
+  identity: { userId: string; relayHostId: string }
+): Promise<string> {
+  const sourceControl = await activatePreferredSource(context, identity)
+  const attempt = await context.store.claimRegionalRehome()
+  const targetControl = await context.store.activateControl(identity, {
+    cellId: target.id,
+    assignmentEpoch: attempt!.assignmentEpoch,
+    generation: 1
+  })
+  await context.store.markMigrationTargetRegistered(identity, {
+    cellId: target.id,
+    assignmentEpoch: attempt!.assignmentEpoch
+  })
+  await context.store.releaseActivity(identity, sourceControl)
+  await context.store.completeReadyRegionalRehomes()
+  return targetControl
 }
 
 async function activateReversePreferredSource(

@@ -1413,6 +1413,11 @@ const RegionalRehomeControlSchema = z.discriminatedUnion('action', [
       .int()
       .min(60_000)
       .max(30 * 24 * 60 * 60_000),
+    hostCooldownMs: z
+      .number()
+      .int()
+      .min(60_000)
+      .max(30 * 24 * 60 * 60_000),
     drainGraceMs: z.number().int().min(60_000).max(60 * 60_000),
     confirmation: z.enum([
       'ENABLE_REGIONAL_REHOMING',

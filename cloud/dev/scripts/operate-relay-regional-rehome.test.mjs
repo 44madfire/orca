@@ -26,6 +26,7 @@ function argumentsFor(mode, confirmation) {
       '--not-before', '2000000000000',
       '--rate-per-minute', '10',
       '--preference-max-age-ms', '86400000',
+      '--host-cooldown-ms', '604800000',
       '--drain-grace-ms', '60000',
       '--confirmation', confirmation
     ])
@@ -40,6 +41,7 @@ function control(generation, enabled) {
     notBefore: 2_000_000_000_000,
     ratePerMinute: 10,
     preferenceMaxAgeMs: 86_400_000,
+    hostCooldownMs: 604_800_000,
     drainGraceMs: 60_000
   }
 }
@@ -52,6 +54,17 @@ test('parses exact selector and typed control confirmation', () => {
   assert.equal(parsed.expectedSelectorGeneration, 11)
   assert.equal(parsed.expectedControlGeneration, 4)
   assert.equal(parsed.ratePerMinute, 10)
+  assert.equal(parsed.hostCooldownMs, 604_800_000)
+  assert.throws(
+    () => parseRegionalRehomeArguments(
+      argumentsFor('enable', 'ENABLE_REGIONAL_REHOMING').filter(
+        (value, index, all) =>
+          value !== '--host-cooldown-ms' && all[index - 1] !== '--host-cooldown-ms'
+      ),
+      { ORCA_RELAY_ADMIN_ID_TOKEN: 'token' }
+    ),
+    /complete durable control shape/
+  )
   assert.throws(
     () => parseRegionalRehomeArguments(
       argumentsFor('pause', 'DISABLE_REGIONAL_REHOMING'),
@@ -79,6 +92,7 @@ test('binds enable to exact selector and durable control generations', async () 
     notBefore: 0,
     ratePerMinute: 10,
     preferenceMaxAgeMs: 86_400_000,
+    hostCooldownMs: 604_800_000,
     drainGraceMs: 60_000,
     ...control
   }))
@@ -104,6 +118,7 @@ test('binds enable to exact selector and durable control generations', async () 
     notBefore: 2_000_000_000_000,
     ratePerMinute: 10,
     preferenceMaxAgeMs: 86_400_000,
+    hostCooldownMs: 604_800_000,
     drainGraceMs: 60_000,
     confirmation: 'ENABLE_REGIONAL_REHOMING'
   })
@@ -150,6 +165,7 @@ test('failed-enable recovery CAS-disables an advanced enabled generation', async
     notBefore: 2_000_000_000_000,
     ratePerMinute: 10,
     preferenceMaxAgeMs: 86_400_000,
+    hostCooldownMs: 604_800_000,
     drainGraceMs: 60_000,
     confirmation: 'DISABLE_REGIONAL_REHOMING'
   })

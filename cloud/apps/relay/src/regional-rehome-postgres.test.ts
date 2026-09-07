@@ -166,6 +166,52 @@ describePostgres('PostgreSQL regional rehoming', () => {
     })
   })
 
+  it('leaves a host inside its per-host rehome cooldown, in either direction', async () => {
+    const context = await fixture({ hostCooldownMs: 3 * 24 * 60 * 60_000 })
+    // A move this host already made, whichever way it went.
+    await primary.query(
+      `INSERT INTO relay_region_rehome_attempts
+       (attempt_id, user_id, relay_host_id, preferred_region, source_cell_id,
+        source_cell_incarnation, target_cell_id, target_cell_incarnation,
+        previous_epoch, assignment_epoch, drain_grace_ms, send_attempts,
+        completed_at, created_at, updated_at)
+       VALUES (?, ?, ?, 'us-central1', ?, ?, ?, ?, 0, 1, 0, 0, ?, ?, ?)`,
+      [
+        `pg-rehome-cooldown-${context.identity.relayHostId}`,
+        context.identity.userId,
+        context.identity.relayHostId,
+        context.target.id,
+        '22222222-2222-4222-8222-222222222222',
+        context.source.id,
+        '11111111-1111-4111-8111-111111111111',
+        context.now(),
+        context.now() - 3 * 24 * 60 * 60_000 + 1,
+        context.now()
+      ]
+    )
+
+    await expect(context.store.claimRegionalRehome()).resolves.toBeNull()
+    await expect(context.store.inspectRegionalRehomeControl()).resolves.toMatchObject({
+      generation: 1,
+      enabled: true,
+      hostCooldownMs: 3 * 24 * 60 * 60_000
+    })
+    expect(await attemptAndMigrationCounts(context.identity)).toEqual({
+      attempts: 1,
+      migrations: 0
+    })
+
+    // One millisecond past the window the same host is a candidate again.
+    await primary.query(
+      `UPDATE relay_region_rehome_attempts SET created_at = ? WHERE user_id = ?`,
+      [context.now() - 3 * 24 * 60 * 60_000, context.identity.userId]
+    )
+    await expect(context.store.claimRegionalRehome()).resolves.toMatchObject({
+      sourceCellId: context.source.id,
+      targetCellId: context.target.id
+    })
+  })
+
   it('leaves a host whose preferred region holds no drainable cell', async () => {
     // A cell that cannot be drained cannot be a target: the host would land
     // where no later rehome could move it out again.
@@ -576,6 +622,7 @@ describePostgres('PostgreSQL regional rehoming', () => {
       notBefore: now,
       ratePerMinute: 10,
       preferenceMaxAgeMs: 24 * 60 * 60_000,
+      hostCooldownMs: options.hostCooldownMs ?? 7 * 24 * 60 * 60_000,
       drainGraceMs: 60_000
     })
     await store.reconcileCells([source, target])
@@ -631,6 +678,7 @@ type FixtureOptions = {
   targetRegion?: Region
   preferredRegion?: Region
   targetProtocol?: number
+  hostCooldownMs?: number
 }
 
 function cell(suffix: string, role: string, region: Region) {

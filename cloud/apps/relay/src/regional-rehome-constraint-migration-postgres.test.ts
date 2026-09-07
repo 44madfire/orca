@@ -1,6 +1,10 @@
 import pg from 'pg'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { openRelayDatabase, type RelayDatabase } from './database.js'
+import {
+  openRelayDatabase,
+  REGIONAL_REHOME_DEFAULT_HOST_COOLDOWN_MS,
+  type RelayDatabase
+} from './database.js'
 
 const databaseUrl = process.env.ORCA_RELAY_TEST_POSTGRES_URL
 const describePostgres = databaseUrl ? describe : describe.skip
@@ -32,6 +36,20 @@ CREATE TABLE relay_region_rehome_attempts (
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL,
   UNIQUE (user_id, relay_host_id, assignment_epoch)
+)`
+
+// The control row as it shipped before the per-host cooldown existed.
+const LEGACY_CONTROL_TABLE = `
+CREATE TABLE relay_region_rehome_control (
+  control_id TEXT PRIMARY KEY,
+  generation BIGINT NOT NULL,
+  enabled BIGINT NOT NULL,
+  observation_started_at BIGINT NOT NULL,
+  not_before BIGINT NOT NULL,
+  rate_per_minute BIGINT NOT NULL,
+  preference_max_age_ms BIGINT NOT NULL,
+  drain_grace_ms BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL
 )`
 
 const attemptValues = (attemptId: string, preferredRegion: string): unknown[] => [
@@ -79,6 +97,13 @@ describePostgres('PostgreSQL regional rehome constraint migration', () => {
       await client.query(`CREATE SCHEMA ${schema}`)
       await client.query(`SET search_path = ${schema}`)
       await client.query(LEGACY_ATTEMPTS_TABLE)
+      await client.query(LEGACY_CONTROL_TABLE)
+      await client.query(
+        `INSERT INTO relay_region_rehome_control
+         (control_id, generation, enabled, observation_started_at, not_before,
+          rate_per_minute, preference_max_age_ms, drain_grace_ms, updated_at)
+         VALUES ('global', 3, 0, 1, 0, 10, 86400000, 60000, 1)`
+      )
       // Production data the replacement constraint has to validate.
       await client.query(INSERT_ATTEMPT, attemptValues('attempt-1', 'asia-east2'))
     })
@@ -110,6 +135,18 @@ describePostgres('PostgreSQL regional rehome constraint migration', () => {
         )
         expect(constraints.rows).toEqual([
           { conname: 'relay_region_rehome_attempts_preferred_region_valid' }
+        ])
+        // The existing control row keeps its tuning and gains the cooldown.
+        const control = await client.query(
+          `SELECT generation, preference_max_age_ms, host_cooldown_ms
+           FROM relay_region_rehome_control WHERE control_id = 'global'`
+        )
+        expect(control.rows).toEqual([
+          {
+            generation: '3',
+            preference_max_age_ms: '86400000',
+            host_cooldown_ms: String(REGIONAL_REHOME_DEFAULT_HOST_COOLDOWN_MS)
+          }
         ])
       })
     } finally {

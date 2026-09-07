@@ -45,6 +45,7 @@ export function parseRegionalRehomeArguments(argv, environment = process.env) {
     'not-before',
     'rate-per-minute',
     'preference-max-age-ms',
+    'host-cooldown-ms',
     'drain-grace-ms',
     'confirmation'
   ]
@@ -117,6 +118,11 @@ export function parseRegionalRehomeArguments(argv, environment = process.env) {
             '--preference-max-age-ms',
             { minimum: 60_000, maximum: 30 * 24 * 60 * 60_000 }
           ),
+          hostCooldownMs: integer(
+            values['host-cooldown-ms'],
+            '--host-cooldown-ms',
+            { minimum: 60_000, maximum: 30 * 24 * 60 * 60_000 }
+          ),
           drainGraceMs: integer(values['drain-grace-ms'], '--drain-grace-ms', {
             minimum: 60_000,
             maximum: 60 * 60_000
@@ -147,6 +153,7 @@ function assertControl(control, expected) {
     !Number.isSafeInteger(control.notBefore) ||
     !Number.isSafeInteger(control.ratePerMinute) ||
     !Number.isSafeInteger(control.preferenceMaxAgeMs) ||
+    !Number.isSafeInteger(control.hostCooldownMs) ||
     !Number.isSafeInteger(control.drainGraceMs)
   ) throw new Error('director returned an invalid regional rehome control')
   if (expected.enabled !== undefined && control.enabled !== expected.enabled) {
@@ -171,6 +178,7 @@ async function applyDisabledControl(post, before) {
     notBefore: before.notBefore,
     ratePerMinute: before.ratePerMinute,
     preferenceMaxAgeMs: before.preferenceMaxAgeMs,
+    hostCooldownMs: before.hostCooldownMs,
     drainGraceMs: before.drainGraceMs,
     confirmation: 'DISABLE_REGIONAL_REHOMING'
   })).control, { generation: before.generation + 1, enabled: false })
@@ -278,6 +286,7 @@ export async function operateRegionalRehome(config, dependencies = {}) {
     notBefore: config.notBefore,
     ratePerMinute: config.ratePerMinute,
     preferenceMaxAgeMs: config.preferenceMaxAgeMs,
+    hostCooldownMs: config.hostCooldownMs,
     drainGraceMs: config.drainGraceMs,
     confirmation: enabled
       ? 'ENABLE_REGIONAL_REHOMING'
