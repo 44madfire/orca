@@ -33,7 +33,22 @@ const STRESS_ITERATIONS = 5
 test.describe('Dead Terminal Reproduction @headful', () => {
   const createdWorktreeIds: string[] = []
 
-  test.beforeEach(async ({ orcaPage }) => {
+  test.beforeEach(async ({ orcaPage, electronApp }) => {
+    orcaPage.on('framenavigated', (frame) => console.log('[context-diagnostic]', Date.now(), 'navigated', frame.url()))
+    orcaPage.on('crash', () => console.log('[context-diagnostic]', Date.now(), 'page-crash'))
+    orcaPage.on('close', () => console.log('[context-diagnostic]', Date.now(), 'page-close'))
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        const contents = window.webContents
+        contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
+          console.log('[context-diagnostic]', Date.now(), 'navigation-start', { url, inPlace, mainFrame })
+        })
+        contents.on('render-process-gone', (_event, details) => {
+          console.log('[context-diagnostic]', Date.now(), 'render-process-gone', details)
+        })
+        contents.on('destroyed', () => console.log('[context-diagnostic]', Date.now(), 'webcontents-destroyed'))
+      }
+    })
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
     await ensureTerminalVisible(orcaPage)
