@@ -60,7 +60,6 @@ export const MobileWebFileReadPayloadSchema = z
   })
   .strict()
 export const MobileWebFileOpenPayloadSchema = MobileWebFileReadPayloadSchema
-export const MobileWebFileOpenResultSchema = z.null()
 
 export const MobileWebFileReadResultSchema = z
   .object({

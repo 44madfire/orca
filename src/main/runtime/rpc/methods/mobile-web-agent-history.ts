@@ -86,6 +86,9 @@ async function scanHistory(
   const worktrees = await rpc.worktrees()
   const activeWorktreeId = worktreeIdFromSelector(params.worktree)
   const activeWorktree = worktrees.find((worktree) => worktree.worktreeId === activeWorktreeId)
+  if (!activeWorktree) {
+    throw new Error('selector_not_found')
+  }
   const scopePaths = deriveMobileAiVaultScopePaths(params.scope, activeWorktree ?? null, worktrees)
   const scanned = await rpc.sessions({ force: params.force, scopePaths })
   return {

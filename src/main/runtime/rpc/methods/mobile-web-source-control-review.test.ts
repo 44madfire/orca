@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcContext, RpcMethod } from '../core'
-import { GIT_METHODS } from './git'
 import { TERMINAL_SEND_METHODS } from './terminal/terminal-send-method'
 import { MOBILE_WEB_SOURCE_CONTROL_REPOSITORY_METHODS } from './mobile-web-source-control-repository'
 import { MOBILE_WEB_SOURCE_CONTROL_REVIEW_METADATA_METHODS } from './mobile-web-source-control-review-metadata'
@@ -20,7 +19,7 @@ const METHODS = [
 ]
 
 function stubMethod(name: string, result: unknown) {
-  const method = [...GIT_METHODS, ...TERMINAL_SEND_METHODS].find((entry) => entry.name === name)!
+  const method = TERMINAL_SEND_METHODS.find((entry) => entry.name === name)!
   return vi.spyOn(method as RpcMethod, 'handler').mockResolvedValue(result)
 }
 
@@ -69,14 +68,12 @@ describe('host repository state', () => {
         {},
         {
           getRuntimeGitStatus,
-          getRuntimeGitUpstreamStatus: vi
-            .fn()
-            .mockResolvedValue({
-              hasUpstream: true,
-              ahead: 2,
-              behind: 0,
-              upstreamName: 'origin/x'
-            }),
+          getRuntimeGitUpstreamStatus: vi.fn().mockResolvedValue({
+            hasUpstream: true,
+            ahead: 2,
+            behind: 0,
+            upstreamName: 'origin/x'
+          }),
           showManagedWorktree: vi
             .fn()
             .mockResolvedValue({ ...workspaceRecord, baseRef: 'origin/main' })
@@ -239,10 +236,18 @@ describe('host review link', () => {
 
 describe('host review diff', () => {
   it('pages a staged diff and refuses a branch diff without compare identity', async () => {
-    stubMethod('git.diff', { kind: 'text', originalContent: 'old\n', modifiedContent: 'new\n' })
+    const getRuntimeGitDiff = vi
+      .fn()
+      .mockResolvedValue({ kind: 'text', originalContent: 'old\n', modifiedContent: 'new\n' })
     await expect(
-      run('mobileWeb.sourceControl.reviewDiff', { relativePath: 'src/app.ts', scope: 'staged' })
+      run(
+        'mobileWeb.sourceControl.reviewDiff',
+        { relativePath: 'src/app.ts', scope: 'staged' },
+        { getRuntimeGitDiff },
+        { clientKind: 'mobile', requestId: 'review-diff' }
+      )
     ).resolves.toMatchObject({ kind: 'text', scope: 'staged', relativePath: 'src/app.ts' })
+    expect(getRuntimeGitDiff).toHaveBeenCalledWith(worktree, 'src/app.ts', true)
     await expect(
       run('mobileWeb.sourceControl.reviewDiff', { relativePath: 'src/app.ts', scope: 'branch' })
     ).rejects.toThrow()

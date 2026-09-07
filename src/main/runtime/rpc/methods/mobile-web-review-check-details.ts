@@ -42,9 +42,14 @@ export function clipMobileWebReviewCheckDetails(run: PRCheckRunDetails | null): 
       conclusion: step.conclusion?.slice(0, 80) ?? null
     }))
   }))
+  while (
+    Buffer.byteLength(JSON.stringify({ ...withoutJobs, jobs: [] })) > MAX_CHECK_DETAILS_BYTES &&
+    withoutJobs.annotations.length
+  ) {
+    withoutJobs.annotations.pop()
+  }
   const budget =
-    MAX_CHECK_DETAILS_BYTES -
-    Buffer.byteLength(JSON.stringify({ ...withoutJobs, jobs: [] as unknown[] }))
+    MAX_CHECK_DETAILS_BYTES - Buffer.byteLength(JSON.stringify({ ...withoutJobs, jobs: [] }))
   return { ...withoutJobs, jobs: retainedJobs(jobs, budget) }
 }
 
@@ -54,7 +59,7 @@ function retainedJobs<T>(jobs: T[], budget: number): T[] {
   let remaining = budget
   for (let index = jobs.length - 1; index >= 0; index -= 1) {
     const size = Buffer.byteLength(JSON.stringify(jobs[index])) + 1
-    if (retained.length > 0 && size > remaining) {
+    if (size > remaining) {
       break
     }
     remaining -= size

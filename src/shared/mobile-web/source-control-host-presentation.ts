@@ -1,3 +1,5 @@
+import type { GitDiffResult } from '../git-diff-compare-types'
+import type { GitStatusEntry, GitStatusResult } from '../git-status-types'
 import { sha256 } from '../sha256'
 import { buildMobileWebSourceControlDiffPage } from './source-control-diff-page'
 import {
@@ -12,21 +14,18 @@ import {
 } from './source-control-operation-contract'
 import { MobileWebBrokerError } from './bridge-operation-error'
 
-export function sanitizeMobileWebSourceControlStatus(
-  result: unknown,
+export function projectMobileWebSourceControlStatus(
+  result: GitStatusResult,
   workspaceId: string,
   limit: number
 ): MobileWebSourceControlStatusResult {
-  if (!isRecord(result) || !Array.isArray(result.entries)) {
-    throw new MobileWebBrokerError('host_error')
-  }
   const entries = result.entries.slice(0, limit).flatMap((candidate) => {
-    const entry = sanitizeStatusEntry(candidate)
+    const entry = projectStatusEntry(candidate)
     return entry ? [entry] : []
   })
-  const reportedTotal = safeNonnegativeInteger(result.statusLength)
+  const reportedTotal = result.statusLength
   const totalCount = Math.max(entries.length, reportedTotal ?? result.entries.length)
-  const branch = boundedNonemptyString(result.branch, 240)
+  const branch = result.branch?.slice(0, 240)
   const head =
     typeof result.head === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(result.head)
       ? result.head
@@ -36,7 +35,7 @@ export function sanitizeMobileWebSourceControlStatus(
     workspaceId,
     ...(branch ? { branch } : {}),
     ...(head ? { head } : {}),
-    conflictOperation: readConflictOperation(result.conflictOperation),
+    conflictOperation: result.conflictOperation,
     entries,
     totalCount,
     truncated:
@@ -47,8 +46,8 @@ export function sanitizeMobileWebSourceControlStatus(
   })
 }
 
-export function sanitizeMobileWebSourceControlDiff(
-  result: unknown,
+export function projectMobileWebSourceControlDiff(
+  result: GitDiffResult,
   payload: MobileWebSourceControlDiffPayload
 ): MobileWebSourceControlDiffResult {
   const identity = {
@@ -56,28 +55,16 @@ export function sanitizeMobileWebSourceControlDiff(
     relativePath: payload.relativePath,
     area: payload.area
   }
-  if (!isRecord(result)) {
-    throw new MobileWebBrokerError('host_error')
-  }
   if (result.kind === 'binary') {
     return MobileWebSourceControlDiffResultSchema.parse({ ...identity, kind: 'binary' })
   }
-  if (result.kind === 'too-large' || hostLimitedDiff(result)) {
-    return MobileWebSourceControlDiffResultSchema.parse({
+  if (result.largeDiffRenderLimit?.limited) {
+    return {
       ...identity,
       kind: 'too-large',
       reason: 'host-limit',
-      ...(hostDiffCharacterCount(result) === undefined
-        ? {}
-        : { characterCount: hostDiffCharacterCount(result) })
-    })
-  }
-  if (
-    result.kind !== 'text' ||
-    typeof result.originalContent !== 'string' ||
-    typeof result.modifiedContent !== 'string'
-  ) {
-    throw new MobileWebBrokerError('host_error')
+      characterCount: result.largeDiffRenderLimit.characterCount
+    }
   }
 
   const characterCount = result.originalContent.length + result.modifiedContent.length
@@ -100,20 +87,15 @@ export function sanitizeMobileWebSourceControlDiff(
   )
 }
 
-function sanitizeStatusEntry(candidate: unknown): MobileWebSourceControlStatusEntry | null {
-  if (!isRecord(candidate)) {
-    return null
-  }
+function projectStatusEntry(candidate: GitStatusEntry): MobileWebSourceControlStatusEntry | null {
   const parsed = MobileWebSourceControlStatusEntrySchema.safeParse({
     relativePath: candidate.path,
     ...(candidate.oldPath === undefined ? {} : { oldRelativePath: candidate.oldPath }),
     status: candidate.status,
     area: candidate.area,
     ...(candidate.conflictStatus === undefined ? {} : { conflictStatus: candidate.conflictStatus }),
-    ...(safeNonnegativeInteger(candidate.added) === undefined ? {} : { added: candidate.added }),
-    ...(safeNonnegativeInteger(candidate.removed) === undefined
-      ? {}
-      : { removed: candidate.removed })
+    ...(candidate.added === undefined ? {} : { added: candidate.added }),
+    ...(candidate.removed === undefined ? {} : { removed: candidate.removed })
   })
   return parsed.success ? parsed.data : null
 }
@@ -123,35 +105,4 @@ function diffRevision(originalContent: string, modifiedContent: string): string 
     sha256(new TextEncoder().encode(`${originalContent}\0${modifiedContent}`)),
     (byte) => byte.toString(16).padStart(2, '0')
   ).join('')
-}
-
-function hostLimitedDiff(result: Record<string, unknown>): boolean {
-  return isRecord(result.largeDiffRenderLimit) && result.largeDiffRenderLimit.limited === true
-}
-
-function hostDiffCharacterCount(result: Record<string, unknown>): number | undefined {
-  if (result.kind === 'too-large') {
-    return (
-      safeNonnegativeInteger(result.characterCount) ?? safeNonnegativeInteger(result.byteLength)
-    )
-  }
-  return isRecord(result.largeDiffRenderLimit)
-    ? safeNonnegativeInteger(result.largeDiffRenderLimit.characterCount)
-    : undefined
-}
-
-function readConflictOperation(value: unknown): 'merge' | 'rebase' | 'cherry-pick' | 'unknown' {
-  return value === 'merge' || value === 'rebase' || value === 'cherry-pick' ? value : 'unknown'
-}
-
-function safeNonnegativeInteger(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
-}
-
-function boundedNonemptyString(value: unknown, limit: number): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value.slice(0, limit) : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

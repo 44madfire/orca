@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { MOBILE_WEB_HOST_REQUEST_MAX_TIMEOUT_MS } from '../../shared/mobile-web/host-rpc-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { mobileWebHostRpcSender } from './mobile-web-host-rpc-sender'
+import { MobileWebHostRequestClient } from './mobile-web-host-request-client'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
 function fixture(result: unknown, reject = false) {
@@ -55,5 +56,29 @@ describe('host RPC sender', () => {
     expect(f.request.mock.calls[0]![2]).toMatchObject({
       timeoutMs: MOBILE_WEB_HOST_REQUEST_MAX_TIMEOUT_MS
     })
+    expect(f.request.mock.calls[0]!.at(-1)).toMatchObject({
+      timeoutMs: MOBILE_WEB_HOST_REQUEST_MAX_TIMEOUT_MS
+    })
+  })
+
+  it('honors a generic request payload deadline while preserving cancellation', async () => {
+    const f = fixture({})
+    const client = new MobileWebHostRequestClient({
+      request: f.request
+    } as unknown as MobileWebOneShotRequestClient)
+    const signal = new AbortController().signal
+
+    await client.request({ method: 'ssh.connect', params: {}, timeoutMs: 120_000 }, { signal })
+
+    expect(f.request.mock.calls[0]![2]).toMatchObject({ timeoutMs: 120_000 })
+    expect(f.request.mock.calls[0]!.at(-1)).toEqual({ timeoutMs: 120_000, signal })
+
+    await client.request(
+      { method: 'ssh.connect', params: {}, timeoutMs: 120_000 },
+      { signal, timeoutMs: 60_000 }
+    )
+
+    expect(f.request.mock.calls[1]![2]).toMatchObject({ timeoutMs: 60_000 })
+    expect(f.request.mock.calls[1]!.at(-1)).toEqual({ timeoutMs: 60_000, signal })
   })
 })

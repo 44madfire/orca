@@ -161,7 +161,7 @@ export class MobileWebSourceControlRequestClient extends MobileWebSourceControlR
   ): Promise<void> {
     const [single, bulk] = MUTATION_METHODS[operation]
     const paths = payload.relativePaths
-    return this.host(
+    return this.hostWrite(
       MobileWebSourceControlMutationPayloadSchema,
       payload,
       paths.length > 1 ? bulk : single,

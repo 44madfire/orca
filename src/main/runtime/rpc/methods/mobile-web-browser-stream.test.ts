@@ -172,6 +172,24 @@ describe('host-owned browser screencast', () => {
     expect(f.events.at(-1)).toEqual({ type: 'end' })
   })
 
+  it('releases its registration when the socket was already aborted', async () => {
+    const abort = new AbortController()
+    abort.abort()
+    const cleanups = new Map<string, () => void>()
+    const runtime = {
+      browserScreencast: vi.fn(),
+      registerSubscriptionCleanup: (key: string, cleanup: () => void) => cleanups.set(key, cleanup),
+      cleanupSubscription: (key: string) => {
+        cleanups.get(key)?.()
+        cleanups.delete(key)
+      }
+    }
+    const context = { runtime, signal: abort.signal } as unknown as RpcContext
+    await subscribe.handler(REQUEST, context, () => {})
+    expect(cleanups.size).toBe(0)
+    expect(runtime.browserScreencast).not.toHaveBeenCalled()
+  })
+
   it('exposes the stream and its cancel to the page lane', () => {
     expect(isMobileWebHostRpcMethod('mobileWeb.browser.subscribe')).toBe(true)
     expect(isMobileWebHostRpcMethod('mobileWeb.browser.unsubscribe')).toBe(true)

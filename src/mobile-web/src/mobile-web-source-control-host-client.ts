@@ -5,9 +5,7 @@ import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-reques
 
 type PayloadSchema = { safeParse: (value: unknown) => { success: boolean } }
 
-/** A Git write can outlast a read: a push over a slow link, a pull with a large fetch, a commit
- * behind a slow hook. This raises the page's own wait; the shell still applies its request
- * deadline until the host-request payload carries one. */
+// Git writes can outlast reads, especially over SSH or behind a slow hook.
 export const MOBILE_WEB_SOURCE_CONTROL_WRITE_TIMEOUT_MS = 60_000
 
 /** Every Source Control call is one Desktop method addressed by the page's workspace handle. The

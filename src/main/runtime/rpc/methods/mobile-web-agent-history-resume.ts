@@ -73,11 +73,10 @@ export async function resumeMobileWebAgentHistorySession(args: {
     hostTerminalWindowsShell: status.terminalWindowsShell,
     settings: settings as MobileAiVaultResumeSettings | null
   })
-  const terminal = await rpc.createTerminal(target.worktreeId, {
+  await rpc.createTerminal(target.worktreeId, {
     ...launch,
     clientMutationId: resumeMutationId(args.session)
   })
-  await rpc.sendResumeCommand(terminal, launch.command)
   const targetWorktree = worktreeById(worktrees, target.worktreeId)
   if (!targetWorktree) {
     throw new Error('selector_not_found')

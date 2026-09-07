@@ -114,7 +114,6 @@ export const MobileWebSessionSnapshotResultSchema = z
     truncated: z.boolean()
   })
   .strict()
-export const MobileWebSessionEventSchema = MobileWebSessionSnapshotResultSchema
 
 export const MobileWebSessionCreateResultSchema = z
   .object({

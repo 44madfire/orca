@@ -284,6 +284,40 @@ describe('host-projected provider review queries', () => {
     expect(f.calls.at(-1)?.args).toEqual(['id:repo-1'])
   })
 
+  it('bounds assignable users to the page contract', async () => {
+    const f = reviewRuntime({
+      getRuntimeGitStatus: reviewStatus(),
+      getHostedReviewForBranch: hostedReviewSummary(),
+      getRepoWorkItemDetails: gitHubReviewDetails(),
+      listRepoAssignableUsers: Array.from({ length: 100 }, (_, index) => ({
+        login: `user-${index}`
+      }))
+    })
+    const result = (await runReviewMethod(
+      'mobileWeb.review.query',
+      { ...REVIEW_IDENTITY, provider: 'github', reviewNumber: 42, query: 'assignableUsers' },
+      f.context
+    )) as { users: unknown[] }
+    expect(result.users).toHaveLength(64)
+  })
+
+  it('reports an unavailable provider read as conflict instead of unsupported provider', async () => {
+    const f = reviewRuntime({
+      getRuntimeGitStatus: reviewStatus(),
+      getHostedReviewForBranch: hostedReviewSummary(),
+      getRepoWorkItemDetails: () => {
+        throw new Error('network unavailable')
+      }
+    })
+    await expect(
+      runReviewMethod(
+        'mobileWeb.review.query',
+        { ...REVIEW_IDENTITY, provider: 'github', reviewNumber: 42, query: 'assignableUsers' },
+        f.context
+      )
+    ).rejects.toThrow('conflict')
+  })
+
   it('refuses a review the branch lookup no longer names', async () => {
     const f = reviewRuntime({
       getRuntimeGitStatus: reviewStatus(),

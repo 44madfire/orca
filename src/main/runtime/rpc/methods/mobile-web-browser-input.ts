@@ -1,13 +1,11 @@
 import { z } from 'zod'
-import { defineMethod, type RpcContext } from '../core'
+import { defineMethod } from '../core'
 import {
-  dispatchMobileWebBrowserCommand,
   mobileWebBrowserTargetFields,
   MOBILE_WEB_BROWSER_APPLIED,
   MobileWebBrowserCoordinate,
   MobileWebBrowserTarget
-} from './mobile-web-browser-command-dispatch'
-import { takeMobileWebBrowserInputToken } from './mobile-web-browser-input-rate-limit'
+} from './mobile-web-browser-target'
 
 const PointerParams = z.discriminatedUnion('action', [
   MobileWebBrowserTarget.extend({
@@ -41,66 +39,25 @@ const KeyboardParams = z.discriminatedUnion('action', [
   })
 ])
 
-function requireInputToken(context: RpcContext): void {
-  if (!takeMobileWebBrowserInputToken(context.connectionId)) {
-    throw new Error('rate_limited')
-  }
-}
-
 export const MOBILE_WEB_BROWSER_INPUT_METHODS = [
   defineMethod({
     name: 'mobileWeb.browser.pointer',
     params: PointerParams,
     handler: async (params, context) => {
-      requireInputToken(context)
       const target = mobileWebBrowserTargetFields(params)
       if (params.action === 'scroll') {
-        await dispatchMobileWebBrowserCommand(
-          'browser.mouseMove',
-          { ...target, x: params.x, y: params.y },
-          context
-        )
-        await dispatchMobileWebBrowserCommand(
-          'browser.mouseWheel',
-          { ...target, dx: params.dx, dy: params.dy },
-          context
-        )
+        await context.runtime.browserMouseMove({ ...target, x: params.x, y: params.y })
+        await context.runtime.browserMouseWheel({ ...target, dx: params.dx, dy: params.dy })
         return MOBILE_WEB_BROWSER_APPLIED
       }
-      try {
-        await dispatchMobileWebBrowserCommand(
-          'browser.mouseClick',
-          {
-            ...target,
-            x: params.x,
-            y: params.y,
-            button: params.button,
-            modifiers: params.modifiers,
-            ...(params.radius === undefined ? {} : { radius: params.radius })
-          },
-          context
-        )
-      } catch (error) {
-        // A modified click has no press/release equivalent, so only a plain click falls back.
-        if (params.modifiers.length > 0) {
-          throw error
-        }
-        await dispatchMobileWebBrowserCommand(
-          'browser.mouseMove',
-          { ...target, x: params.x, y: params.y },
-          context
-        )
-        await dispatchMobileWebBrowserCommand(
-          'browser.mouseDown',
-          { ...target, button: params.button },
-          context
-        )
-        await dispatchMobileWebBrowserCommand(
-          'browser.mouseUp',
-          { ...target, button: params.button },
-          context
-        )
-      }
+      await context.runtime.browserMouseClick({
+        ...target,
+        x: params.x,
+        y: params.y,
+        button: params.button,
+        modifiers: params.modifiers,
+        ...(params.radius === undefined ? {} : { radius: params.radius })
+      })
       return MOBILE_WEB_BROWSER_APPLIED
     }
   }),
@@ -108,19 +65,10 @@ export const MOBILE_WEB_BROWSER_INPUT_METHODS = [
     name: 'mobileWeb.browser.keyboard',
     params: KeyboardParams,
     handler: async (params, context) => {
-      requireInputToken(context)
       const target = mobileWebBrowserTargetFields(params)
       await (params.action === 'insertText'
-        ? dispatchMobileWebBrowserCommand(
-            'browser.keyboardInsertText',
-            { ...target, text: params.text },
-            context
-          )
-        : dispatchMobileWebBrowserCommand(
-            'browser.keypress',
-            { ...target, key: params.key },
-            context
-          ))
+        ? context.runtime.browserKeyboardInsertText({ ...target, text: params.text })
+        : context.runtime.browserKeypress({ ...target, key: params.key }))
       return MOBILE_WEB_BROWSER_APPLIED
     }
   }),
@@ -128,11 +76,10 @@ export const MOBILE_WEB_BROWSER_INPUT_METHODS = [
     name: 'mobileWeb.browser.dialog',
     params: MobileWebBrowserTarget.extend({ action: z.enum(['accept', 'dismiss']) }),
     handler: async (params, context) => {
-      await dispatchMobileWebBrowserCommand(
-        params.action === 'accept' ? 'browser.dialogAccept' : 'browser.dialogDismiss',
-        mobileWebBrowserTargetFields(params),
-        context
-      )
+      const target = mobileWebBrowserTargetFields(params)
+      await (params.action === 'accept'
+        ? context.runtime.browserDialogAccept(target)
+        : context.runtime.browserDialogDismiss(target))
       return MOBILE_WEB_BROWSER_APPLIED
     }
   })

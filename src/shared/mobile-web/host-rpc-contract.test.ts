@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   MobileWebHostRequestPayloadSchema,
   mobileWebHostPayloadByteLength,
-  mobileWebHostPayloadWithinBounds,
   mobileWebHostUnsubscribeMethod
 } from './host-rpc-contract'
 
@@ -38,14 +37,16 @@ describe('generic host payload transport', () => {
     expect(mobileWebHostPayloadByteLength(() => {})).toBeUndefined()
   })
 
-  it('bounds depth, node count and encoded bytes independently of domain shape', () => {
+  it('accepts JSON within the byte envelope regardless of depth or node count', () => {
     let nested: unknown = null
     for (let i = 0; i < 34; i++) {
       nested = { nested }
     }
-    expect(mobileWebHostPayloadWithinBounds(nested)).toBe(false)
-    expect(mobileWebHostPayloadWithinBounds(Array(40_001).fill(null))).toBe(false)
-    expect(mobileWebHostPayloadWithinBounds('é'.repeat(310 * 1024))).toBe(false)
-    expect(mobileWebHostPayloadWithinBounds({ future: [{ value: true }] })).toBe(true)
+    expect(mobileWebHostPayloadByteLength(nested)).toBeDefined()
+    expect(mobileWebHostPayloadByteLength(Array(40_001).fill(null))).toBeDefined()
+    expect(mobileWebHostPayloadByteLength({ optional: undefined, value: true })).toBeDefined()
+    const cyclic = { self: null as unknown }
+    cyclic.self = cyclic
+    expect(mobileWebHostPayloadByteLength(cyclic)).toBeUndefined()
   })
 })

@@ -75,6 +75,29 @@ function createHarness() {
 }
 
 describe('subscriptionClosed', () => {
+  it('rejects readiness and cancels the subscription on an invalid acknowledgement', async () => {
+    const { client, messages } = createHarness()
+    const onError = vi.fn()
+    const subscription = client.sessionSubscribe({ workspaceId: 'workspace-1' }, vi.fn(), onError)
+    const rejected = expect(subscription.ready).rejects.toMatchObject({ code: 'invalid_message' })
+
+    client.receive({ ...subscriptionResponse(), payload: {} } as MobileWebBridgeShellMessage)
+
+    await rejected
+    expect(onError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ code: 'invalid_message', retryable: false })
+    )
+    expect(messages.at(-1)).toMatchObject({
+      type: 'cancel',
+      target: 'subscription',
+      id: SUBSCRIPTION_ID
+    })
+    const count = messages.length
+    subscription.unsubscribe()
+    client.dispose()
+    expect(messages).toHaveLength(count)
+  })
+
   it('surfaces a late shell failure through onError and retires the page entry', async () => {
     const { client, messages } = createHarness()
     const onEvent = vi.fn()

@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcContext } from '../core'
-import { GIT_METHODS } from './git'
 import { MOBILE_WEB_SOURCE_CONTROL_READ_METHODS } from './mobile-web-source-control-reads'
 
-const context = { signal: new AbortController().signal } as RpcContext
+const signal = new AbortController().signal
 const worktree = 'id:private-host-workspace'
 function fixture(operation: 'status' | 'diff', raw: unknown) {
-  const source = GIT_METHODS.find((method) => method.name === `git.${operation}`)!
-  const handler = vi.spyOn(source, 'handler').mockResolvedValue(raw)
+  const handler = vi.fn().mockResolvedValue(raw)
+  const context = {
+    signal,
+    clientKind: 'mobile',
+    requestId: 'mobile-diff',
+    runtime: { [operation === 'status' ? 'getRuntimeGitStatus' : 'getRuntimeGitDiff']: handler }
+  } as unknown as RpcContext
   const method = MOBILE_WEB_SOURCE_CONTROL_READ_METHODS.find(
     (entry) => entry.name === `mobileWeb.sourceControl.${operation}`
   )!
@@ -24,6 +28,7 @@ describe('bounded host Source Control reads', () => {
     const raw = {
       worktree,
       rootPath: '/private/repo',
+      conflictOperation: 'unknown',
       entries: Array.from({ length: 10_000 }, (_, i) => ({
         path: `src/${i}.ts`,
         status: 'modified',
@@ -41,7 +46,11 @@ describe('bounded host Source Control reads', () => {
     expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(512 * 1024)
     expect(JSON.stringify(result)).not.toMatch(/private|workspaceId/)
     expect(raw.entries).toHaveLength(10_000)
-    expect(f.handler).toHaveBeenCalledWith({ worktree, reuseLineStats: true }, context)
+    expect(f.handler).toHaveBeenCalledWith(worktree, {
+      reuseLineStats: true,
+      admissionTier: 'status',
+      signal
+    })
   })
   it('pages a diff whose raw contents exceed the bridge budget and checks the revision on later pages', async () => {
     const raw = {
@@ -60,10 +69,7 @@ describe('bounded host Source Control reads', () => {
     expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThan(512 * 1024)
     expect(JSON.stringify(first)).not.toMatch(/private|workspaceId/)
     expect(raw.originalContent.length).toBeGreaterThan(300_000)
-    expect(f.handler).toHaveBeenCalledWith(
-      { worktree, filePath: 'large.txt', staged: false },
-      context
-    )
+    expect(f.handler).toHaveBeenCalledWith(worktree, 'large.txt', false)
   })
   it('keeps escaped diff rows below the wire budget without skipping the next page', async () => {
     const f = fixture('diff', {

@@ -51,7 +51,9 @@ function hasLoneSurrogate(value: unknown): boolean {
         return true
       }
     } else if (Array.isArray(current)) {
-      pending.push(...current)
+      for (const entry of current) {
+        pending.push(entry)
+      }
     } else if (current && typeof current === 'object') {
       for (const [key, entry] of Object.entries(current)) {
         if (isLoneSurrogateText(key)) {

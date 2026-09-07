@@ -117,6 +117,13 @@ describe('mobile web agent history', () => {
     )
   })
 
+  it('does not widen a removed workspace to the global history', async () => {
+    const f = fixture()
+    f.runtime.getWorktreePs.mockResolvedValue({ worktrees: [] })
+    await expect(snapshot.handler(scope, f.context)).rejects.toThrow('selector_not_found')
+    expect(f.runtime.listAiVaultSessions).not.toHaveBeenCalled()
+  })
+
   it('previews a session the page names, with no prior listing required', async () => {
     const f = fixture()
     expect(await preview.handler({ ...scope, ...REF }, f.context)).toEqual({
@@ -144,22 +151,15 @@ describe('mobile web agent history', () => {
   })
 
   it('blocks a resume for a session the scan reports with no provider id', async () => {
-    const f = fixture([session({ sessionId: 'listed-but-unresumable' })])
-    // The projection reports it; only the resume path refuses it.
-    f.runtime.listAiVaultSessions.mockResolvedValue({
-      sessions: [session({ sessionId: 'listed-but-unresumable' }), session({ sessionId: ' ' })],
-      issues: []
+    const f = fixture([session({ sessionId: ' ' })])
+    expect(await resume.handler({ ...scope, agent: 'claude', sessionId: ' ' }, f.context)).toEqual({
+      status: 'blocked',
+      message: 'This session is missing a resume id.'
     })
-    expect(
-      await resume.handler(
-        { ...scope, agent: 'claude', sessionId: 'listed-but-unresumable' },
-        f.context
-      )
-    ).toMatchObject({ status: 'queued' })
-    expect(f.runtime.createMobileSessionTerminal).toHaveBeenCalledTimes(1)
+    expect(f.runtime.createMobileSessionTerminal).not.toHaveBeenCalled()
   })
 
-  it('creates the resume terminal and types the command into it', async () => {
+  it('creates the resume terminal with its startup command', async () => {
     const f = fixture()
     const result = await resume.handler({ ...scope, ...REF }, f.context)
     expect(result).toEqual({
@@ -169,8 +169,11 @@ describe('mobile web agent history', () => {
       targetWorkspaceName: 'App'
     })
     expect(f.runtime.createMobileSessionTerminal.mock.calls[0]?.[0]).toBe('id:workspace-1')
-    expect(f.runtime.sendTerminal.mock.calls[0]?.[0]).toBe('private-terminal')
-    expect(String(f.runtime.sendTerminal.mock.calls[0]?.[1]?.text)).toContain('claude')
+    expect(f.runtime.createMobileSessionTerminal.mock.calls[0]?.[1]).toMatchObject({
+      command: expect.stringContaining('claude'),
+      startupCommandDelivery: 'shell-ready'
+    })
+    expect(f.runtime.sendTerminal).not.toHaveBeenCalled()
   })
 
   it('refuses a worktree selector the shell did not write', async () => {
@@ -188,6 +191,7 @@ describe('mobile web agent history', () => {
       (call) => (call[1] as { clientMutationId: string }).clientMutationId
     )
     expect(keys[0]).toBe(keys[1])
+    expect(f.runtime.sendTerminal).not.toHaveBeenCalled()
   })
 
   it('is reachable from a mobile socket', () => {

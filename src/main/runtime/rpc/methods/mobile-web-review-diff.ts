@@ -113,11 +113,15 @@ function clipDiffRows(page: DiffPage): DiffPage {
   const clipped = { ...page, rows: [...page.rows] }
   while (
     Buffer.byteLength(JSON.stringify(clipped)) > MAX_DIFF_RESULT_BYTES &&
-    clipped.rows.length > 1 &&
-    clipped.rows.at(-1)?.index !== page.focusRowIndex
+    clipped.rows.length > 1
   ) {
-    clipped.rows.pop()
-    clipped.nextOffset = clipped.offset + clipped.rows.length
+    if (clipped.rows.at(-1)?.index === page.focusRowIndex) {
+      clipped.rows.shift()
+      clipped.offset += 1
+    } else {
+      clipped.rows.pop()
+      clipped.nextOffset = clipped.offset + clipped.rows.length
+    }
   }
   return clipped
 }

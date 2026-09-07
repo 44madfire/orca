@@ -114,19 +114,19 @@ describe('page Source Control writes over the host lane', () => {
       single.client.stage({ workspaceId, relativePaths: ['a.ts'] })
     ).resolves.toBeUndefined()
     expect(single.request.mock.calls[0]!.slice(0, 3)).toEqual(
-      hostRequest('git.stage', { filePath: 'a.ts' })
+      hostRequest('git.stage', { filePath: 'a.ts' }, 60_000)
     )
 
     const bulk = fixture({ ok: true })
     await bulk.client.discard({ workspaceId, relativePaths: ['a.ts', 'b.ts'] })
     expect(bulk.request.mock.calls[0]!.slice(0, 3)).toEqual(
-      hostRequest('git.bulkDiscard', { filePaths: ['a.ts', 'b.ts'] })
+      hostRequest('git.bulkDiscard', { filePaths: ['a.ts', 'b.ts'] }, 60_000)
     )
 
     const unstage = fixture({ ok: true })
     await unstage.client.unstage({ workspaceId, relativePaths: ['a.ts', 'b.ts'] })
     expect(unstage.request.mock.calls[0]!.slice(0, 3)).toEqual(
-      hostRequest('git.bulkUnstage', { filePaths: ['a.ts', 'b.ts'] })
+      hostRequest('git.bulkUnstage', { filePaths: ['a.ts', 'b.ts'] }, 60_000)
     )
   })
 

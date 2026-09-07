@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { defineMethod, isStreamingMethod } from '../core'
-import { GITHUB_PROJECT_METHODS } from './github-project-methods'
+import type { GitHubProjectTable } from '../../../../shared/github/project-types'
+import { defineMethod } from '../core'
 
 // The bridge envelope is 600 KB, and a 500-item project view can exceed it, so the page asks for
 // one row window at a time and this handler decides where each window ends.
@@ -16,63 +16,47 @@ const ProjectTableWindow = z.object({
   rowOffset: z.number().int().nonnegative().max(100_000).optional()
 })
 
-type ProjectTableRow = Record<string, unknown>
-
-function projectViewTableMethod() {
-  const method = GITHUB_PROJECT_METHODS.find((entry) => entry.name === 'github.project.viewTable')
-  if (!method || isStreamingMethod(method)) {
-    throw new Error('Missing unary method: github.project.viewTable')
-  }
-  return method
-}
-const viewTable = projectViewTableMethod()
-
 export const MOBILE_WEB_TASK_PROJECT_TABLE_METHOD = defineMethod({
   name: 'mobileWeb.tasks.projectTable',
   params: ProjectTableWindow,
   handler: async (params, context) => {
     const { rowOffset = 0, ...request } = params
-    const raw = await viewTable.handler(request, context)
-    const table = tableOf(raw)
-    if (!table) {
+    const raw = await context.runtime.getGitHubProjectViewTable(request)
+    if (!raw.ok) {
       return raw
     }
-    const rows = Array.isArray(table.rows) ? (table.rows as ProjectTableRow[]) : []
+    const table = raw.data
+    const rows = table.rows
     const window = rowWindow(table, rows, rowOffset)
+    if (window === null) {
+      return {
+        ok: false,
+        error: { type: 'too_large', message: 'A project row exceeds the mobile response limit.' }
+      }
+    }
     const nextRowOffset = rowOffset + window.length
     return {
-      ...(raw as Record<string, unknown>),
+      ...raw,
       data: { ...table, rows: window },
       ...(nextRowOffset < rows.length ? { nextRowOffset } : {})
     }
   }
 })
 
-function tableOf(raw: unknown): Record<string, unknown> | null {
-  const envelope = raw as { ok?: boolean; data?: unknown } | null
-  if (!envelope || envelope.ok === false) {
-    return null
-  }
-  const table = envelope.data
-  return typeof table === 'object' && table !== null ? (table as Record<string, unknown>) : null
-}
-
-/** Always yields at least one row so a caller that has not reached the end always advances. */
 function rowWindow(
-  table: Record<string, unknown>,
-  rows: ProjectTableRow[],
+  table: GitHubProjectTable,
+  rows: GitHubProjectTable['rows'],
   offset: number
-): ProjectTableRow[] {
-  const window: ProjectTableRow[] = []
+): GitHubProjectTable['rows'] | null {
+  const window: GitHubProjectTable['rows'] = []
   for (const row of rows.slice(offset)) {
     window.push(row)
-    if (
-      window.length > 1 &&
-      Buffer.byteLength(JSON.stringify({ ...table, rows: window })) > MAX_RESULT_BYTES
-    ) {
+    if (Buffer.byteLength(JSON.stringify({ ...table, rows: window })) > MAX_RESULT_BYTES) {
       window.pop()
-      break
+      return window.length > 0 ? window : null
     }
   }
-  return window
+  return Buffer.byteLength(JSON.stringify({ ...table, rows: window })) <= MAX_RESULT_BYTES
+    ? window
+    : null
 }

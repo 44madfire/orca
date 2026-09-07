@@ -1,25 +1,21 @@
 import { defineMethod } from '../core'
 import {
   MOBILE_WEB_PAGE_IDENTITY,
-  MobileWebWorktreeScope,
-  sourceControlHostMethod
+  MobileWebWorktreeScope
 } from './mobile-web-source-control-host-method'
 import {
   MobileWebSourceControlDiffPayloadSchema,
   MobileWebSourceControlStatusPayloadSchema
 } from '../../../../shared/mobile-web/source-control-operation-contract'
 import {
-  sanitizeMobileWebSourceControlDiff,
-  sanitizeMobileWebSourceControlStatus
+  projectMobileWebSourceControlDiff,
+  projectMobileWebSourceControlStatus
 } from '../../../../shared/mobile-web/source-control-host-presentation'
 import {
   clipMobileWebDiffResult,
   MOBILE_WEB_SOURCE_CONTROL_MAX_RESULT_BYTES
 } from './mobile-web-source-control-diff-clip'
 import { withoutMobileWebWorkspaceId } from './mobile-web-source-control-workspace-id'
-
-const status = sourceControlHostMethod('git.status')
-const diff = sourceControlHostMethod('git.diff')
 
 export const MOBILE_WEB_SOURCE_CONTROL_READ_METHODS = [
   defineMethod({
@@ -28,9 +24,13 @@ export const MOBILE_WEB_SOURCE_CONTROL_READ_METHODS = [
       MobileWebWorktreeScope.shape
     ),
     handler: async (params, context) => {
-      const raw = await status.handler({ worktree: params.worktree, reuseLineStats: true }, context)
+      const raw = await context.runtime.getRuntimeGitStatus(params.worktree, {
+        reuseLineStats: true,
+        admissionTier: 'status',
+        ...(context.signal ? { signal: context.signal } : {})
+      })
       const result = withoutMobileWebWorkspaceId(
-        sanitizeMobileWebSourceControlStatus(raw, MOBILE_WEB_PAGE_IDENTITY, params.limit)
+        projectMobileWebSourceControlStatus(raw, MOBILE_WEB_PAGE_IDENTITY, params.limit)
       )
       while (
         Buffer.byteLength(JSON.stringify(result)) > MOBILE_WEB_SOURCE_CONTROL_MAX_RESULT_BYTES &&
@@ -48,17 +48,14 @@ export const MOBILE_WEB_SOURCE_CONTROL_READ_METHODS = [
       MobileWebWorktreeScope.shape
     ),
     handler: async (params, context) => {
-      const raw = await diff.handler(
-        {
-          worktree: params.worktree,
-          filePath: params.relativePath,
-          staged: params.area === 'staged'
-        },
-        context
+      const raw = await context.runtime.getRuntimeGitDiff(
+        params.worktree,
+        params.relativePath,
+        params.area === 'staged'
       )
       return clipMobileWebDiffResult(
         withoutMobileWebWorkspaceId(
-          sanitizeMobileWebSourceControlDiff(raw, {
+          projectMobileWebSourceControlDiff(raw, {
             ...params,
             workspaceId: MOBILE_WEB_PAGE_IDENTITY
           })

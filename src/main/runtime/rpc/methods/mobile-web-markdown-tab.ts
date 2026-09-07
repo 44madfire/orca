@@ -4,27 +4,12 @@ import {
   MARKDOWN_RENDERER_UNAVAILABLE,
   MARKDOWN_TOO_LARGE_READ_ONLY_REASON
 } from '../../../../shared/mobile-markdown-disk-fallback'
-import { MOBILE_MARKDOWN_EDIT_MAX_BYTES } from '../../../../shared/mobile-markdown-document'
+import {
+  MOBILE_MARKDOWN_EDIT_MAX_BYTES,
+  type RuntimeMarkdownReadTabResult
+} from '../../../../shared/mobile-markdown-document'
 import { MobileWebRelativePathSchema } from '../../../../shared/mobile-web/file-operation-contract'
-import { defineMethod, isStreamingMethod, type RpcContext } from '../core'
-import { FILE_METHODS } from './files'
-import { MOBILE_MARKDOWN_TAB_METHODS } from './mobile-markdown-tab-methods'
-
-function markdownMethod(name: string) {
-  const method = MOBILE_MARKDOWN_TAB_METHODS.find((entry) => entry.name === name)
-  if (!method || isStreamingMethod(method)) {
-    throw new Error(`Missing markdown method: ${name}`)
-  }
-  return method
-}
-
-const readTab = markdownMethod('markdown.readTab')
-const saveTab = markdownMethod('markdown.saveTab')
-const readFile = FILE_METHODS.find((method) => method.name === 'files.read')
-if (!readFile || isStreamingMethod(readFile)) {
-  throw new Error('Missing file reader')
-}
-const fileReader = readFile
+import { defineMethod, type RpcContext } from '../core'
 
 const Target = z.object({
   worktree: z.string().min(1).max(4096),
@@ -36,27 +21,6 @@ const MarkdownTab = z.object({
   type: z.literal('markdown'),
   relativePath: z.string().min(1)
 })
-const ReadTabResult = z.object({
-  tabId: z.string(),
-  relativePath: z.string(),
-  content: z.string(),
-  version: z.string(),
-  isDirty: z.boolean(),
-  editable: z.boolean(),
-  readOnlyReason: z.string().optional()
-})
-const SaveTabResult = z.object({
-  tabId: z.string(),
-  version: z.string(),
-  isDirty: z.literal(false),
-  content: z.string()
-})
-const DiskResult = z.object({
-  relativePath: z.string(),
-  content: z.string(),
-  truncated: z.boolean()
-})
-
 export const MOBILE_WEB_MARKDOWN_TAB_METHODS = [
   defineMethod({
     name: 'mobileWeb.markdown.read',
@@ -64,10 +28,7 @@ export const MOBILE_WEB_MARKDOWN_TAB_METHODS = [
     handler: async (params, context) => {
       const hostRelativePath = await resolveMarkdownTab(params, context)
       const tab = await Promise.resolve(
-        readTab.handler(
-          readTab.params!.parse({ worktree: params.worktree, tabId: params.tabId }),
-          context
-        )
+        context.runtime.readMobileMarkdownTab(params.worktree, params.tabId)
       ).catch((error: unknown) => {
         if (!isRendererUnavailable(error)) {
           throw error
@@ -89,14 +50,11 @@ export const MOBILE_WEB_MARKDOWN_TAB_METHODS = [
       const hostRelativePath = await resolveMarkdownTab(params, context)
       // A stale base version is an outcome the page acts on, not a transport failure.
       const result = await Promise.resolve(
-        saveTab.handler(
-          saveTab.params!.parse({
-            worktree: params.worktree,
-            tabId: params.tabId,
-            baseVersion: params.baseVersion,
-            content: decodeMarkdown(params.contentBase64)
-          }),
-          context
+        context.runtime.saveMobileMarkdownTab(
+          params.worktree,
+          params.tabId,
+          params.baseVersion,
+          decodeMarkdown(params.contentBase64)
         )
       ).catch((error: unknown) => {
         if (isConflict(error)) {
@@ -107,15 +65,14 @@ export const MOBILE_WEB_MARKDOWN_TAB_METHODS = [
       if (result === null) {
         return { outcome: 'conflict' }
       }
-      const saved = SaveTabResult.safeParse(result)
-      if (!saved.success || saved.data.tabId !== params.tabId) {
+      if (result.tabId !== params.tabId) {
         throw new Error('runtime_unavailable')
       }
       return {
         outcome: 'saved',
         ...pageTarget(params, hostRelativePath),
-        contentBase64: encodeMarkdown(clipMarkdown(saved.data.content).content),
-        baseVersion: saved.data.version
+        contentBase64: encodeMarkdown(clipMarkdown(result.content).content),
+        baseVersion: result.version
       }
     }
   })
@@ -147,22 +104,21 @@ async function resolveMarkdownTab(
 function projectReadTab(
   params: z.infer<typeof Target> & { tabIsDirty: boolean },
   hostRelativePath: string,
-  result: unknown
+  result: RuntimeMarkdownReadTabResult
 ) {
-  const parsed = ReadTabResult.safeParse(result)
-  if (!parsed.success || parsed.data.tabId !== params.tabId) {
+  if (result.tabId !== params.tabId) {
     throw new Error('runtime_unavailable')
   }
-  const readable = clipMarkdown(parsed.data.content)
+  const readable = clipMarkdown(result.content)
   const readOnlyReason = readable.truncated
     ? MARKDOWN_TOO_LARGE_READ_ONLY_REASON
-    : parsed.data.readOnlyReason
+    : result.readOnlyReason
   return {
     ...pageTarget(params, hostRelativePath),
     contentBase64: encodeMarkdown(readable.content),
-    baseVersion: parsed.data.version,
-    editable: parsed.data.editable && !readable.truncated,
-    stale: parsed.data.isDirty,
+    baseVersion: result.version,
+    editable: result.editable && !readable.truncated,
+    stale: result.isDirty,
     ...(readOnlyReason ? { readOnlyReason } : {})
   }
 }
@@ -172,19 +128,14 @@ async function readFromDisk(
   hostRelativePath: string,
   context: RpcContext
 ) {
-  const parsed = DiskResult.safeParse(
-    await fileReader.handler(
-      fileReader.params!.parse({ worktree: params.worktree, relativePath: hostRelativePath }),
-      context
-    )
-  )
-  if (!parsed.success || parsed.data.relativePath !== hostRelativePath) {
+  const result = await context.runtime.readMobileFile(params.worktree, hostRelativePath)
+  if (result.relativePath !== hostRelativePath) {
     throw new Error('runtime_unavailable')
   }
-  const readable = clipMarkdown(parsed.data.content)
+  const readable = clipMarkdown(result.content)
   const fallback = buildMarkdownDiskFallbackDoc({
     content: readable.content,
-    truncated: parsed.data.truncated || readable.truncated,
+    truncated: result.truncated || readable.truncated,
     tabIsDirty: params.tabIsDirty
   })
   return {

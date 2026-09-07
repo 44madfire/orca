@@ -14,8 +14,7 @@ export function requestMobileWebHost(
   params: Record<string, unknown>,
   options?: MobileWebBridgeRequestOptions
 ): Promise<unknown> {
-  // One knob: the caller's own deadline also becomes the shell's, so a slow host call is not cut
-  // short by the shell's default while the page is still waiting for it.
+  // The page and shell share the caller's deadline.
   const timeoutMs =
     options?.timeoutMs === undefined
       ? undefined
@@ -31,7 +30,7 @@ export function requestMobileWebHost(
     },
     MobileWebHostRequestPayloadSchema,
     MobileWebHostResultSchema,
-    options
+    timeoutMs === undefined ? options : { ...options, timeoutMs }
   )
 }
 
@@ -47,7 +46,7 @@ export class MobileWebHostRequestClient {
       payload.method,
       payload.workspaceId,
       payload.params,
-      options
+      { ...options, timeoutMs: options?.timeoutMs ?? payload.timeoutMs }
     )
   }
 }

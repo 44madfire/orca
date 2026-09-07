@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcContext } from '../core'
-import { GITHUB_PROJECT_METHODS } from './github-project-methods'
 import { MOBILE_WEB_TASK_PROJECT_TABLE_METHOD } from './mobile-web-task-project-table'
 
-const context = { signal: new AbortController().signal } as RpcContext
 const request = {
   owner: 'octo',
   ownerType: 'organization',
@@ -12,10 +10,8 @@ const request = {
 }
 
 function fixture(raw: unknown) {
-  const source = GITHUB_PROJECT_METHODS.find(
-    (method) => method.name === 'github.project.viewTable'
-  )!
-  const handler = vi.spyOn(source, 'handler').mockResolvedValue(raw)
+  const handler = vi.fn().mockResolvedValue(raw)
+  const context = { runtime: { getGitHubProjectViewTable: handler } } as unknown as RpcContext
   return {
     handler,
     run: (params: Record<string, unknown> = {}) =>
@@ -28,6 +24,7 @@ function fixture(raw: unknown) {
 
 function table(rowCount: number, titleLength = 8) {
   return {
+    ok: true,
     data: {
       project: { owner: 'octo', ownerType: 'organization', number: 4, host: 'github.com' },
       selectedView: { id: 'PVTV_1', name: 'Board' },
@@ -71,11 +68,11 @@ describe('mobileWeb.tasks.projectTable', () => {
     expect(second.data).toMatchObject({ totalCount: 500, selectedView: { id: 'PVTV_1' } })
   })
 
-  it('advances by one row even when a single row exceeds the budget', async () => {
+  it('returns a classified failure when one row cannot cross the bridge', async () => {
     const f = fixture(table(3, 600 * 1024))
     const result = await f.run()
-    expect((result.data as { rows: unknown[] }).rows).toHaveLength(1)
-    expect(result.nextRowOffset).toBe(1)
+    expect(result).toMatchObject({ ok: false, error: { type: 'too_large' } })
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(512 * 1024)
   })
 
   it('passes a host failure envelope through untouched', async () => {
@@ -88,8 +85,7 @@ describe('mobileWeb.tasks.projectTable', () => {
     const f = fixture(table(3))
     await f.run({ rowOffset: 2 })
     expect(f.handler).toHaveBeenCalledWith(
-      expect.not.objectContaining({ rowOffset: expect.anything() }),
-      context
+      expect.not.objectContaining({ rowOffset: expect.anything() })
     )
   })
 })

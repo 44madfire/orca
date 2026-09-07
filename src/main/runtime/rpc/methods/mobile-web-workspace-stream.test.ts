@@ -56,4 +56,25 @@ describe('host workspace change feed', () => {
     expect(events.at(-1)).toEqual({ type: 'end' })
     expect(f.listeners.size).toBe(0)
   })
+  it('releases its listener when the socket aborts', async () => {
+    const f = fixture()
+    const abort = new AbortController()
+    const events: unknown[] = []
+    const pending = feed.handler(null, { ...f.context, signal: abort.signal }, (event) =>
+      events.push(event)
+    )
+    expect(f.listeners.size).toBe(1)
+    abort.abort()
+    await pending
+    expect(f.listeners.size).toBe(0)
+    expect(events.at(-1)).toEqual({ type: 'end' })
+  })
+
+  it('does not register an already disconnected socket', async () => {
+    const f = fixture()
+    const abort = new AbortController()
+    abort.abort()
+    await feed.handler(null, { ...f.context, signal: abort.signal }, () => {})
+    expect(f.listeners.size).toBe(0)
+  })
 })

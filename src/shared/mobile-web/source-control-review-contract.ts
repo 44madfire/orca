@@ -208,7 +208,6 @@ export const MobileWebSourceControlReviewOpenPayloadSchema = z
     scope: z.enum(['unstaged', 'staged'])
   })
   .strict()
-export const MobileWebSourceControlReviewOpenResultSchema = z.null()
 
 export const MobileWebSourceControlReviewTerminalSendPayloadSchema = z
   .object({

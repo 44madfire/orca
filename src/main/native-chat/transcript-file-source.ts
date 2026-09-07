@@ -1,13 +1,7 @@
 import type { IFilesystemProvider } from '../providers/types'
+import type { TranscriptFileVersion } from './transcript-file-version'
 
 const MAX_TRANSCRIPT_SOURCE_READ_BYTES = 64 * 1024
-
-export type TranscriptFileVersion = {
-  identity: string
-  size: number
-  mtimeMs: number
-  ctimeMs: number
-}
 
 export type TranscriptFileReader = {
   read(offset: number, length: number): Promise<Buffer>
@@ -36,10 +30,11 @@ export function createProviderTranscriptFileSource(
         throw new Error('Transcript unavailable')
       }
       const mtimeMs = value.mtimeMs ?? value.mtime
+      // Appends change size and mtime; boundary checks detect replacement without inode metadata.
       const identity =
         Number.isSafeInteger(value.dev) && Number.isSafeInteger(value.ino)
           ? `${value.dev}:${value.ino}`
-          : `remote:${value.size}:${mtimeMs}`
+          : `remote:${filePath}`
       return {
         identity,
         size: value.size,

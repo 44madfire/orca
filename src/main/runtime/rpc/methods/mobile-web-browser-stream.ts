@@ -2,17 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { decodeBrowserScreencastFrame } from '../../../../shared/browser-screencast-protocol'
 import type { MobileWebBrowserEvent } from '../../../../shared/mobile-web/browser-operation-contract'
-import { defineMethod, defineStreamingMethod, isStreamingMethod } from '../core'
-import { BROWSER_SCREENCAST_METHODS } from './browser-screencast'
-import { MobileWebBrowserTarget } from './mobile-web-browser-command-dispatch'
+import { defineMethod, defineStreamingMethod } from '../core'
+import { MobileWebBrowserTarget } from './mobile-web-browser-target'
 import { mobileWebBrowserFrameChunks } from './mobile-web-browser-frame-chunks'
 import { mobileWebBrowserPageEvent } from './mobile-web-browser-page-event'
-
-const source = BROWSER_SCREENCAST_METHODS.find((method) => method.name === 'browser.screencast')
-if (!source || !isStreamingMethod(source)) {
-  throw new Error('Missing browser screencast stream')
-}
-const stream = source
 
 function subscriptionKey(connectionId: string | undefined, subscriptionId: string): string {
   return `mobileWeb.browser:${connectionId ?? 'local'}:${subscriptionId}`
@@ -52,7 +45,8 @@ export const MOBILE_WEB_BROWSER_STREAM_METHODS = [
       context.runtime.registerSubscriptionCleanup(key, end, context.connectionId)
       context.signal?.addEventListener('abort', end, { once: true })
       if (context.signal?.aborted) {
-        end()
+        context.runtime.cleanupSubscription(key)
+        context.signal.removeEventListener('abort', end)
         return
       }
       // The shell learns the cancel id from this frame, so it precedes anything the stream sends.
@@ -78,10 +72,13 @@ export const MOBILE_WEB_BROWSER_STREAM_METHODS = [
         return true
       }
       try {
-        await stream.handler(
-          stream.params!.parse(params),
-          { ...context, signal: inner.signal, sendBinary: deliverFrame },
-          (event) => {
+        await context.runtime.browserScreencast(params, {
+          connectionId: context.connectionId,
+          pairedDeviceId: context.pairedDeviceId,
+          clientKind: context.clientKind,
+          signal: inner.signal,
+          sendBinary: deliverFrame,
+          emit: (event) => {
             if (closed) {
               return
             }
@@ -95,7 +92,7 @@ export const MOBILE_WEB_BROWSER_STREAM_METHODS = [
             }
             emit(projected)
           }
-        )
+        })
       } finally {
         context.signal?.removeEventListener('abort', end)
         context.runtime.cleanupSubscription(key)

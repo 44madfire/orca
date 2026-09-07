@@ -192,6 +192,10 @@ export class MobileWebBridgeSubscriptionClient {
     if (!pending) {
       return false
     }
+    if (message.status === 'success' && message.payload !== null) {
+      this.fail(pending.subscriptionId, new MobileWebBridgeClientError('invalid_message', false))
+      return true
+    }
     clearTimeout(pending.timer)
     this.pending.delete(message.requestId)
     if (message.status === 'error') {
@@ -200,10 +204,6 @@ export class MobileWebBridgeSubscriptionClient {
       this.active.delete(pending.subscriptionId)
       pending.reject(error)
       subscription?.onError(error)
-      return true
-    }
-    if (message.payload !== null) {
-      this.fail(pending.subscriptionId, new MobileWebBridgeClientError('invalid_message', false))
       return true
     }
     pending.resolve()

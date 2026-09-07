@@ -156,28 +156,37 @@ describe('host-projected provider review diffs', () => {
   })
 
   // Row text is capped at 1024 characters, but each one can escape to six JSON bytes.
-  it('clips a diff page whose escaped rows overrun one transport payload', async () => {
-    const line = '\u0001'.repeat(1024)
-    const f = reviewRuntime({
-      getRuntimeGitStatus: reviewStatus(),
-      getHostedReviewForBranch: hostedReviewSummary(),
-      getRepoWorkItemDetails: gitHubReviewDetails({ files: [file] }),
-      getRepoPRFileContents: {
-        original: '',
-        modified: Array.from({ length: 96 }, () => line).join('\n'),
-        originalIsBinary: false,
-        modifiedIsBinary: false
+  it.each([undefined, 96])(
+    'clips escaped rows while retaining focus line %s',
+    async (focusLine) => {
+      const line = '\u0001'.repeat(1024)
+      const f = reviewRuntime({
+        getRuntimeGitStatus: reviewStatus(),
+        getHostedReviewForBranch: hostedReviewSummary(),
+        getRepoWorkItemDetails: gitHubReviewDetails({ files: [file] }),
+        getRepoPRFileContents: {
+          original: '',
+          modified: Array.from({ length: 96 }, () => line).join('\n'),
+          originalIsBinary: false,
+          modifiedIsBinary: false
+        }
+      })
+
+      const result = (await runReviewMethod(
+        'mobileWeb.review.diff',
+        { ...diffParams, limit: 96, focusLine },
+        f.context
+      )) as { rows: { newLineNumber?: number }[]; offset: number; nextOffset: number | null }
+
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(512 * 1024)
+      expect(result.rows.length).toBeLessThan(96)
+      if (focusLine) {
+        expect(result.rows.some((row) => row.newLineNumber === focusLine)).toBe(true)
+        expect(result.offset).toBeGreaterThan(0)
+        expect(result.nextOffset).toBeNull()
+      } else {
+        expect(result.nextOffset).toBe(result.rows.length)
       }
-    })
-
-    const result = (await runReviewMethod(
-      'mobileWeb.review.diff',
-      { ...diffParams, limit: 96 },
-      f.context
-    )) as { rows: unknown[]; nextOffset: number | null }
-
-    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(512 * 1024)
-    expect(result.rows.length).toBeLessThan(96)
-    expect(result.nextOffset).toBe(result.rows.length)
-  })
+    }
+  )
 })

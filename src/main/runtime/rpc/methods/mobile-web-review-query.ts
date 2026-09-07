@@ -3,7 +3,10 @@ import {
   MobileWebProviderReviewQueryHostParamsSchema,
   type MobileWebProviderReviewQueryResult
 } from '../../../../shared/mobile-web/provider-review-query-contract'
-import type { MobileWebProviderReview } from '../../../../shared/mobile-web/provider-review-contract'
+import {
+  MOBILE_WEB_PROVIDER_REVIEW_USER_LIMIT,
+  type MobileWebProviderReview
+} from '../../../../shared/mobile-web/provider-review-contract'
 import { defineMethod, type RpcContext } from '../core'
 import { clipMobileWebReviewCheckDetails } from './mobile-web-review-check-details'
 import { projectMobileWebReview } from './mobile-web-review-projection'
@@ -24,6 +27,9 @@ export const MOBILE_WEB_REVIEW_QUERY_METHOD = defineMethod({
   params: MobileWebProviderReviewQueryHostParamsSchema,
   handler: async (params, context): Promise<QueryResult> => {
     const { repo, summary, details } = await readMobileWebReviewTarget(context, params)
+    if (details.state === 'unavailable') {
+      throw new Error('conflict')
+    }
     if (details.state !== 'loaded' || details.provider !== 'github') {
       throw new Error('unsupported_provider')
     }
@@ -45,10 +51,12 @@ export const MOBILE_WEB_REVIEW_QUERY_METHOD = defineMethod({
 })
 
 async function assignableUsers(context: RpcContext, repo: string) {
-  return (await context.runtime.listRepoAssignableUsers(repo)).map((user) => ({
-    login: user.login.slice(0, 80),
-    name: user.name?.slice(0, 160) ?? null
-  }))
+  return (await context.runtime.listRepoAssignableUsers(repo))
+    .slice(0, MOBILE_WEB_PROVIDER_REVIEW_USER_LIMIT)
+    .map((user) => ({
+      login: user.login.slice(0, 80),
+      name: user.name?.slice(0, 160) ?? null
+    }))
 }
 
 async function checkDetails(

@@ -195,9 +195,6 @@ export const MobileWebNativeChatSendResultSchema = z
 export const MobileWebNativeChatPrepareCommitPayloadSchema = z
   .object({ ...MobileWebNativeChatTargetShape, ...MobileWebNativeChatDeadlineShape })
   .strict()
-export const MobileWebNativeChatPrepareCommitResultSchema = z
-  .object({ prepared: z.boolean() })
-  .strict()
 
 export const MobileWebNativeChatPendingDeliverySchema = z
   .object({
@@ -242,10 +239,8 @@ export const MobileWebNativeChatOpenFilePayloadSchema = z
     pathText: z.string().min(1).max(4096)
   })
   .strict()
-export const MobileWebNativeChatOpenFileResultSchema = z.null()
 
 export type MobileWebNativeChatAgentStatus = z.infer<typeof MobileWebNativeChatAgentStatusSchema>
-export type MobileWebNativeChatMessage = z.infer<typeof MobileWebNativeChatMessageSchema>
 export type MobileWebNativeChatReadPayload = z.infer<typeof MobileWebNativeChatReadPayloadSchema>
 export type MobileWebNativeChatSubscribePayload = z.infer<
   typeof MobileWebNativeChatSubscribePayloadSchema

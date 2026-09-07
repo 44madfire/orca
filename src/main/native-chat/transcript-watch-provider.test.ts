@@ -1,8 +1,57 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { TranscriptFileSource } from './transcript-file-source'
+import { createProviderTranscriptFileSource } from './transcript-file-source'
+import type { IFilesystemProvider } from '../providers/types'
 import { getActiveNativeChatWatcherCount, subscribeNativeChatTranscript } from './transcript-watch'
 
 describe('provider-backed native-chat transcript watcher', () => {
+  it('preserves appended events when the provider has no inode metadata', async () => {
+    let content = Buffer.from(claudeLine('u-1', 'user', 'hello'))
+    let version = 1
+    const provider = {
+      stat: async () => ({ type: 'file', size: content.length, mtime: version }),
+      readFileChunk: async (_path: string, offset: number, length: number) => {
+        const chunk = content.subarray(offset, offset + length)
+        return {
+          contentBase64: chunk.toString('base64'),
+          bytesRead: chunk.length,
+          eof: offset + chunk.length >= content.length
+        }
+      }
+    } as unknown as IFilesystemProvider
+    const snapshots = vi.fn()
+    const appends = vi.fn()
+    const replacements = vi.fn()
+    const subscription = await subscribeNativeChatTranscript({
+      agent: 'claude',
+      sessionId: 'session-1',
+      filePath: '/remote/session.jsonl',
+      fileSource: createProviderTranscriptFileSource(() => provider),
+      initialLimit: 1,
+      onInitialSnapshot: snapshots,
+      onAppend: appends,
+      onReplace: replacements,
+      debounceMs: 0,
+      reconciliationIntervalMs: 10
+    })
+    try {
+      await vi.waitFor(() => expect(snapshots).toHaveBeenCalledOnce())
+      content = Buffer.concat([content, Buffer.from(claudeLine('a-1', 'assistant', 'reply'))])
+      version += 1
+      await vi.waitFor(() =>
+        expect(appends.mock.calls[0]?.[0]).toEqual([expect.objectContaining({ id: 'a-1' })])
+      )
+      expect(replacements).not.toHaveBeenCalled()
+
+      content = Buffer.from(claudeLine('u-2', 'user', 'rewritten'))
+      version += 1
+      await vi.waitFor(() => expect(replacements).toHaveBeenCalledOnce())
+      expect(replacements.mock.calls[0][0]).toEqual([expect.objectContaining({ id: 'u-2' })])
+    } finally {
+      subscription.unsubscribe()
+    }
+  })
+
   it('recovers after provider loss and stops all reconciliation on unsubscribe', async () => {
     let content = Buffer.from(claudeLine('u-1', 'user', 'hello'))
     let version = 1

@@ -46,14 +46,6 @@ export const MobileWebMarkdownReadResultSchema = z
   })
   .strict()
 
-export const MobileWebMarkdownSavePayloadSchema = z
-  .object({
-    ...MobileWebMarkdownTargetShape,
-    baseVersion: z.string().min(1).max(512),
-    contentBase64: MobileWebMarkdownBase64Schema
-  })
-  .strict()
-
 export const MobileWebMarkdownSaveResultSchema = z
   .object({
     ...MobileWebMarkdownResultTargetShape,

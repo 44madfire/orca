@@ -1,7 +1,9 @@
 import type { AiVaultListResult, AiVaultSession } from '../../../../shared/ai-vault-types'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
-import type { MobileAiVaultResumeLaunch } from '../../../../shared/mobile-ai-vault-resume-launch-plan'
-import type { MobileAiVaultResumeSettings } from '../../../../shared/mobile-ai-vault-resume-launch-plan'
+import type {
+  MobileAiVaultResumeLaunch,
+  MobileAiVaultResumeSettings
+} from '../../../../shared/mobile-ai-vault-resume-launch-plan'
 import type {
   MobileAiVaultResumeFolderWorkspace,
   MobileAiVaultResumeProjectGroup,
@@ -79,7 +81,13 @@ export function mobileWebAgentHistoryRpc(context: RpcContext) {
       worktreeId: string,
       launch: MobileAiVaultResumeLaunch & { clientMutationId: string }
     ): Promise<string> {
+      // Keep command delivery inside the create operation so its retry dedup covers both.
+      await assertLegacyAiVaultResumeCommandAllowed(launch.command, () =>
+        runtime.ensureStructuredAgentSessionHost()
+      )
       const created = await runtime.createMobileSessionTerminal(`id:${worktreeId}`, {
+        command: launch.command,
+        startupCommandDelivery: 'shell-ready',
         ...(launch.env ? { env: launch.env } : {}),
         ...(launch.envToDelete ? { envToDelete: launch.envToDelete } : {}),
         ...(launch.launchConfig ? { launchConfig: launch.launchConfig } : {}),
@@ -95,17 +103,6 @@ export function mobileWebAgentHistoryRpc(context: RpcContext) {
         throw new Error('runtime_unavailable')
       }
       return terminal
-    },
-    async sendResumeCommand(terminal: string, command: string): Promise<void> {
-      // The same guard `terminal.send` applies: a structured session's resume must not be typed
-      // into a pane behind its owner's back.
-      await assertLegacyAiVaultResumeCommandAllowed(command, () =>
-        runtime.ensureStructuredAgentSessionHost()
-      )
-      const send = await runtime.sendTerminal(terminal, { text: command, enter: true })
-      if (!send.accepted) {
-        throw new Error('conflict')
-      }
     }
   }
 }
