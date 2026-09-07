@@ -215,10 +215,12 @@ export class RelayRegionPreferenceResolver {
   ): Promise<RelayRegionProbeReport[]> {
     let catalog: RelayRegionCatalog
     try {
+      // The catalog request is the coldest of the sequence: it pays DNS, TCP,
+      // and TLS to the director, so it gets the warm-up budget, not the sample one.
       catalog = await fetchRelayRegionCatalog(
         this.options.directorUrl,
         fetch,
-        this.options.requestTimeoutMs ?? PROBE_TIMEOUT_MS
+        this.options.requestTimeoutMs ?? WARMUP_TIMEOUT_MS
       )
     } catch (error) {
       onCatalogFailure?.()

@@ -203,7 +203,13 @@ describe('RelayControlOrigin pending-connection replay', () => {
     // both the pairing authority and the E2EE device binding.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     fakes.controlConnect.mockResolvedValue(
-      ack({ pendingConns: [{ connId: 'conn-unknown', connTicket: TICKET }] })
+      ack({
+        pendingConns: [
+          { connId: 'conn-unknown', connTicket: TICKET },
+          { connId: 'conn-unknown-2', connTicket: TICKET },
+          { connId: 'conn-unknown-3', connTicket: TICKET }
+        ]
+      })
     )
     const { origin, owned } = createOrigin()
 
@@ -211,7 +217,11 @@ describe('RelayControlOrigin pending-connection replay', () => {
 
     expect(fakes.transports[0]!.openConnection).not.toHaveBeenCalled()
     expect(owned).toEqual([])
+    // One aggregated line per ack, not one per entry.
     expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]![0]).toBe(
+      '[relay] 3 pending connection(s) not replayable: relay stated no kind/device'
+    )
     warn.mockRestore()
   })
 

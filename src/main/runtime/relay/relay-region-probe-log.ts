@@ -130,13 +130,13 @@ function refreshReason(
     // a selection that is not the fastest reading is a deliberate hold.
     return best && selected.region !== best.region ? 'held-previous' : 'measured'
   }
-  if (reports.length < RELAY_REGIONS.length) {
-    return 'catalog-incomplete'
+  // Reachability first: a support census counting all-unreachable to spot
+  // client-side network breakage must not lose those runs to a roll wave.
+  if (reports.every((report) => report.verdict === 'unreachable')) {
+    return 'all-unreachable'
   }
-  if (reports.some((report) => report.verdict === 'measured')) {
-    return 'sole-survivor-forbidden'
+  if (!reports.some((report) => report.verdict === 'measured')) {
+    return 'all-rejected'
   }
-  return reports.every((report) => report.verdict === 'unreachable')
-    ? 'all-unreachable'
-    : 'all-rejected'
+  return reports.length < RELAY_REGIONS.length ? 'catalog-incomplete' : 'sole-survivor-forbidden'
 }

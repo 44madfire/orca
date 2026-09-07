@@ -172,6 +172,38 @@ describe('Relay region probe log', () => {
     ])
   })
 
+  it('reports a lone unreachable region as all-unreachable, not catalog-incomplete', async () => {
+    // Why: a support census counts all-unreachable to spot client-side network breakage;
+    // a roll wave that shortens the catalog must not hide those runs.
+    const path = userDataPath()
+    const { resolver, events } = resolverWithLog({
+      path,
+      fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+      probe: sampledProbe({})
+    })
+    await expect(resolver.resolve()).resolves.toBeUndefined()
+    expect(probeEvents(events)[0]!.reason).toBe('all-unreachable')
+  })
+
+  it('reports a lone flapping region as all-rejected, and a lone healthy one as catalog-incomplete', async () => {
+    const path = userDataPath()
+    const flapping = resolverWithLog({
+      path,
+      fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+      probe: sampledProbe({ [ASIA]: [90, 30, 40, 900] })
+    })
+    await expect(flapping.resolver.resolve()).resolves.toBeUndefined()
+    expect(probeEvents(flapping.events)[0]!.reason).toBe('all-rejected')
+
+    const healthy = resolverWithLog({
+      path: userDataPath(),
+      fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+      probe: sampledProbe({ [ASIA]: [90, 30, 32, 34] })
+    })
+    await expect(healthy.resolver.resolve()).resolves.toBeUndefined()
+    expect(probeEvents(healthy.events)[0]!.reason).toBe('catalog-incomplete')
+  })
+
   it('names a held incumbent apart from a fresh measurement', async () => {
     const path = userDataPath()
     writeCache(path, 'us-central1', 500)

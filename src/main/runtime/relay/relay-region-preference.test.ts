@@ -459,9 +459,34 @@ describe('Relay region preference', () => {
     } finally {
       timeout.mockRestore()
     }
-    // One catalog request, then per origin one warm-up and three samples.
-    expect(budgets.filter((ms) => ms === 4_500)).toHaveLength(2)
-    expect(budgets.filter((ms) => ms === 1_500)).toHaveLength(7)
+    // The catalog request, then per origin one warm-up and three samples. The catalog
+    // and the warm-ups are the cold requests; only the samples run on the short clock.
+    // Regions measure in parallel, so the two warm-ups are issued before any sample.
+    expect(budgets).toEqual([4_500, 4_500, 4_500, 1_500, 1_500, 1_500, 1_500, 1_500, 1_500])
+  })
+
+  it('lets requestTimeoutMs override every budget, including the warm-up', async () => {
+    const budgets: number[] = []
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      budgets.push(ms)
+      return new AbortController().signal
+    })
+    try {
+      await new RelayRegionPreferenceResolver({
+        directorUrl: DIRECTOR,
+        userDataPath: userDataPath(),
+        fetch: async (url) =>
+          String(url).endsWith('/v1/regions')
+            ? Response.json({ v: 1, regions: BOTH_REGIONS })
+            : cancelTrackingResponse(200, () => {}),
+        requestTimeoutMs: 250,
+        now: () => 1_000
+      }).resolve()
+    } finally {
+      timeout.mockRestore()
+    }
+    expect(budgets).toHaveLength(9)
+    expect(new Set(budgets)).toEqual(new Set([250]))
   })
 
   it('probes only the canonical health path and cancels its body', async () => {
