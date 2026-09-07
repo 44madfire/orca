@@ -22,8 +22,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { b64url, PhoneE2EE, sha256, utf8 } from './phone-e2ee-v2-session.mjs'
 import {
-  classifyPublicHttpsOrigin,
   LIVE_ENV_VAR,
+  classifyPublicHttpsOrigin,
+  describeUntrustedText,
   parseArgs,
   refuse,
   requireBoundedInteger,
@@ -131,10 +132,12 @@ export function dialRelay({
           handle.hello = hello
           mark('relayHello')
           if (!hello.ok) {
-            throw new Error(`relay-hello rejected code=${hello.code}`)
+            throw new Error(`relay-hello rejected code=${describeUntrustedText(hello.code)}`)
           }
           if (hello.credentialKind !== expectedKind) {
-            throw new Error(`credentialKind ${hello.credentialKind} != ${expectedKind}`)
+            throw new Error(
+              `credentialKind ${describeUntrustedText(hello.credentialKind)} != ${expectedKind}`
+            )
           }
           stage = 'awaiting-ready'
           ws.send(JSON.stringify(e2ee.hello))
@@ -194,7 +197,7 @@ export function dialRelay({
         atMs: Math.round(performance.now() - timings.start)
       }
       if (!settled) {
-        fail(new Error(`closed ${code} ${reason.toString()}`))
+        fail(new Error(`closed ${code} ${describeUntrustedText(reason.toString())}`))
         return
       }
       clearTimeout(dialTimer)
@@ -414,7 +417,9 @@ async function pair(pairingUrl, statePath) {
   })
   const provisionMs = Math.round(performance.now() - provisionStarted)
   if (!provision.ok) {
-    throw new Error(`provisionRelay failed: ${JSON.stringify(provision.error)}`)
+    throw new Error(
+      `provisionRelay failed: error ${describeRemoteErrorCode(provision.error?.code)}`
+    )
   }
   const endpointsStarted = performance.now()
   const endpoints = await dial.rpc('pairing.getEndpoints', { installReqId })
