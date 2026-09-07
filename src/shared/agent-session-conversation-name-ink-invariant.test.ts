@@ -1,5 +1,8 @@
 // The invariant behind four rounds of point fixes to this sanitizer, checked by
-// machine rather than by a hand-picked list: a name it accepts always draws ink.
+// machine rather than by a hand-picked list: a name it accepts always contains a
+// code point outside the Unicode invisible categories, and never a stray
+// surrogate. Narrower than "always draws ink" — a font can still draw nothing for
+// a blank-rendering letter such as U+2800 or U+3164, which those categories miss.
 //
 // Four separate defects here shared one shape — a class of invisible input the
 // enumeration of the day happened not to cover. Sweeping the whole invisible

@@ -17,7 +17,11 @@ export const AGENT_SESSION_CONVERSATION_NAME_MAX_LENGTH = 200
  *  is covered with no list to remember; U+200C/U+200D are the one exception,
  *  being load-bearing in Persian, Hindi and every multi-part emoji. Accepted
  *  cost: the U+E0020-E007F tag sequences go too, so the England, Scotland and
- *  Wales flags degrade — far cheaper than an invisible payload in a label. */
+ *  Wales flags degrade — far cheaper than an invisible payload in a label.
+ *  Deliberately NOT reached: blank-RENDERING letters and marks such as U+2800,
+ *  U+3164 and U+115F, which are Lo/So/Mn rather than any invisible category. A
+ *  name made only of those is accepted and looks empty; Braille and the Hangul
+ *  jamo fillers carry meaning in real text, so stripping them would cost more. */
 const UNRENDERABLE_RUN = /(?:[\s\p{Cc}\p{Zl}\p{Zp}]|(?![\u200C\u200D])\p{Cf})+/gu
 
 /** The joiners outlive the run above by design; alone — or separated only by the
