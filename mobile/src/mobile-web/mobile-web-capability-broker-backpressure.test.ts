@@ -48,16 +48,11 @@ const SATURATION_SLOTS: Slot[] = [
     operation: 'open',
     payload: { workspaceId: WORKSPACE, relativePath: 'src/app.ts' }
   },
-  { capability: 'sourceControl', operation: 'branches', payload: { workspaceId: WORKSPACE } },
-  { capability: 'sourceControl', operation: 'history', payload: { workspaceId: WORKSPACE } },
-  { capability: 'sourceControl', operation: 'reviewMetadata', payload: { workspaceId: WORKSPACE } },
-  { capability: 'sourceControl', operation: 'reviewLink', payload: { workspaceId: WORKSPACE } },
   {
     capability: 'sourceControl',
     operation: 'cancelCommitMessageGeneration',
     payload: { workspaceId: WORKSPACE }
   },
-  { capability: 'sourceControl', operation: 'upstream', payload: { workspaceId: WORKSPACE } },
   { capability: 'speech', operation: 'start', payload: {} },
   { capability: 'native', operation: 'clipboardAvailability', payload: {} },
   { capability: 'native', operation: 'clipboardWrite', payload: { text: 'x' } },

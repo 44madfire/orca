@@ -169,7 +169,7 @@ describe('mobile web bridge page contract', () => {
     ).toBe(false)
   })
 
-  it.each(['branches', 'history', 'branchCompare', 'commitCompare'])(
+  it.each(['generateCommitMessage', 'cancelCommitMessageGeneration'])(
     'accepts the explicit source-control %s operation',
     (operation) => {
       expect(

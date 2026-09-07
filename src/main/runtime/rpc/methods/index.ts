@@ -4,6 +4,13 @@ import { MOBILE_WEB_SESSION_CAPABILITIES_METHOD } from './mobile-web-session-cap
 import { MOBILE_WEB_SESSION_QUICK_COMMAND_METHODS } from './mobile-web-session-quick-commands'
 import { MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD } from './mobile-web-session-browser-create'
 import { MOBILE_WEB_SOURCE_CONTROL_READ_METHODS } from './mobile-web-source-control-reads'
+import { MOBILE_WEB_SOURCE_CONTROL_HISTORY_METHODS } from './mobile-web-source-control-history'
+import { MOBILE_WEB_SOURCE_CONTROL_COMPARE_METHODS } from './mobile-web-source-control-compare'
+import { MOBILE_WEB_SOURCE_CONTROL_REPOSITORY_METHODS } from './mobile-web-source-control-repository'
+import { MOBILE_WEB_SOURCE_CONTROL_REVIEW_METADATA_METHODS } from './mobile-web-source-control-review-metadata'
+import { MOBILE_WEB_SOURCE_CONTROL_REVIEW_LINK_METHODS } from './mobile-web-source-control-review-link'
+import { MOBILE_WEB_SOURCE_CONTROL_REVIEW_DIFF_METHODS } from './mobile-web-source-control-review-diff'
+import { MOBILE_WEB_SOURCE_CONTROL_REVIEW_TERMINAL_METHODS } from './mobile-web-source-control-review-terminal-send'
 import { MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS } from './mobile-web-session-terminal-creation'
 import { MOBILE_WEB_NATIVE_CHAT_FILE_METHODS } from './mobile-web-native-chat-files'
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
@@ -116,6 +123,13 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...UPDATER_METHODS,
   ...MOBILE_WEB_FILE_READ_METHODS,
   ...MOBILE_WEB_SOURCE_CONTROL_READ_METHODS,
+  ...MOBILE_WEB_SOURCE_CONTROL_HISTORY_METHODS,
+  ...MOBILE_WEB_SOURCE_CONTROL_COMPARE_METHODS,
+  ...MOBILE_WEB_SOURCE_CONTROL_REPOSITORY_METHODS,
+  ...MOBILE_WEB_SOURCE_CONTROL_REVIEW_METADATA_METHODS,
+  ...MOBILE_WEB_SOURCE_CONTROL_REVIEW_LINK_METHODS,
+  ...MOBILE_WEB_SOURCE_CONTROL_REVIEW_DIFF_METHODS,
+  ...MOBILE_WEB_SOURCE_CONTROL_REVIEW_TERMINAL_METHODS,
   MOBILE_WEB_FILE_WATCH_METHOD,
   ...MOBILE_WEB_TERMINAL_ACTION_METHODS,
   ...MOBILE_WEB_NATIVE_CHAT_METHODS,

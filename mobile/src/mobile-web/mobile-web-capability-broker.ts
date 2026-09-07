@@ -180,12 +180,9 @@ export class MobileWebCapabilityBroker {
       await this.messages.error(request.requestId, 'rate_limited', true)
       return
     }
-    const branchCompareContinuation =
-      this.authorities.sourceControlBranchCompare.claimRequestContinuation(request)
     if (
       !mobileWebWorkspaceSnapshotContinuation(request) &&
       !mobileWebAgentHistoryContinuation(request) &&
-      !branchCompareContinuation &&
       !this.rateLimiter.take(mobileWebOperationKey(request), grant)
     ) {
       await this.messages.error(request.requestId, 'rate_limited', true)
@@ -224,7 +221,6 @@ export class MobileWebCapabilityBroker {
       if (isHostRequest) {
         this.hostRequestsInFlight -= 1
       }
-      this.authorities.sourceControlBranchCompare.releaseClaim(request.requestId)
       if (this.pending.get(request.requestId) === pending) {
         this.pending.delete(request.requestId)
       }
@@ -243,7 +239,6 @@ export class MobileWebCapabilityBroker {
       agentHistoryResume: this.authorities.agentHistoryResume,
       accountSubscriptions: this.subscriptions.account,
       browserStreams: this.subscriptions.browser,
-      sourceControlBranchCompare: this.authorities.sourceControlBranchCompare,
       speechAuthority: this.speechAuthority,
       workspaceSubscriptions: this.subscriptions.workspace,
       hostSubscriptions: this.subscriptions.host,

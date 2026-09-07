@@ -1,16 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import {
-  MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
-  type MobileWebBridgePageMessage,
-  type MobileWebBridgeShellMessage
-} from '../../shared/mobile-web/bridge-contract'
-import { MobileWebBridgeClient } from './mobile-web-bridge-client'
+import { describe, expect, it, vi } from 'vitest'
+import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
+import { MobileWebSourceControlSyncRequestClient } from './mobile-web-source-control-sync-request-client'
 
-const CONTEXT = {
-  shellSessionId: 'S'.repeat(43),
-  buildId: 'a'.repeat(64)
-}
-const HEAD = 'b'.repeat(40)
+const workspaceId = 'page-workspace'
+const OID = 'a'.repeat(40)
 const upstream = {
   hasUpstream: true,
   upstreamName: 'origin/main',
@@ -20,152 +13,98 @@ const upstream = {
   behindCommitsArePatchEquivalent: false
 }
 
-describe('mobile web source-control sync request client', () => {
-  it('sends and validates typed upstream and checkout requests', async () => {
-    const harness = createHarness()
-    const upstreamRequest = harness.client.sourceControlUpstream({
-      workspaceId: 'workspace-1'
-    })
-    expect(harness.messages[0]).toMatchObject({
-      capability: 'sourceControl',
-      operation: 'upstream',
-      payload: { workspaceId: 'workspace-1' }
-    })
-    harness.client.receive(response('A'.repeat(22), repositoryState()))
-    await expect(upstreamRequest).resolves.toMatchObject({ head: HEAD, branch: 'main', upstream })
+function fixture(result: unknown) {
+  const request = vi.fn().mockResolvedValue(result)
+  return {
+    request,
+    client: new MobileWebSourceControlSyncRequestClient({
+      request
+    } as unknown as MobileWebOneShotRequestClient)
+  }
+}
 
-    const checkoutPayload = {
-      workspaceId: 'workspace-1',
-      expectedHead: HEAD,
-      expectedBranch: 'main',
-      branch: 'feature/mobile',
-      confirmation: 'checkout-confirmed' as const
-    }
-    const checkout = harness.client.sourceControlCheckout(checkoutPayload)
-    expect(harness.messages[1]).toMatchObject({
-      capability: 'sourceControl',
-      operation: 'branch',
-      payload: checkoutPayload
+function hostRequest(method: string, params: Record<string, unknown>) {
+  return ['workspace', 'hostRequest', { method, workspaceId, params }]
+}
+
+describe('page repository state', () => {
+  it('reads head, branch, base ref and upstream in one Desktop call', async () => {
+    const f = fixture({
+      head: OID,
+      branch: 'main',
+      conflictOperation: 'unknown',
+      baseRef: 'origin/main',
+      upstream
     })
-    harness.client.receive(
-      response('B'.repeat(22), {
-        workspaceId: 'workspace-1',
-        operation: 'branch',
-        previousHead: HEAD,
-        previousBranch: 'main',
-        branch: 'feature/mobile',
-        repository: { ...repositoryState(), branch: 'feature/mobile' },
-        completed: true
-      })
+    await expect(f.client.repositoryState({ workspaceId })).resolves.toEqual({
+      workspaceId,
+      head: OID,
+      branch: 'main',
+      conflictOperation: 'unknown',
+      baseRef: 'origin/main',
+      upstream
+    })
+    expect(f.request.mock.calls[0]!.slice(0, 3)).toEqual(
+      hostRequest('mobileWeb.sourceControl.repositoryState', {})
     )
-    await expect(checkout).resolves.toMatchObject({
-      operation: 'branch',
-      branch: 'feature/mobile',
-      completed: true
-    })
   })
 
-  it('rejects cross-request action identity and undeclared host fields', async () => {
-    const checkoutHarness = createHarness()
-    const checkout = checkoutHarness.client.sourceControlCheckout({
-      workspaceId: 'workspace-1',
-      expectedHead: HEAD,
-      expectedBranch: 'main',
-      branch: 'feature/mobile',
-      confirmation: 'checkout-confirmed'
+  it('refuses a repository state that leaks a host path as the upstream name', async () => {
+    const f = fixture({
+      head: OID,
+      branch: 'main',
+      conflictOperation: 'unknown',
+      baseRef: null,
+      upstream: { ...upstream, upstreamName: '/private/repository' }
     })
-    checkoutHarness.client.receive(
-      response('A'.repeat(22), {
-        workspaceId: 'workspace-1',
-        operation: 'branch',
-        previousHead: 'c'.repeat(40),
-        previousBranch: 'main',
-        branch: 'feature/mobile',
-        repository: null,
-        completed: true
-      })
-    )
-    await expect(checkout).rejects.toMatchObject({ code: 'invalid_message' })
-
-    const upstreamHarness = createHarness()
-    const request = upstreamHarness.client.sourceControlUpstream({ workspaceId: 'workspace-1' })
-    upstreamHarness.client.receive(
-      response('A'.repeat(22), {
-        ...repositoryState(),
-        hostPath: '/private/repository'
-      })
-    )
-    await expect(request).rejects.toMatchObject({ code: 'invalid_message' })
-  })
-
-  it('cancels a pending sync request when its workspace owner replaces it', async () => {
-    const harness = createHarness()
-    const controller = new AbortController()
-    const request = harness.client.sourceControlFetch(
-      {
-        workspaceId: 'workspace-1',
-        expectedHead: HEAD,
-        expectedBranch: 'main'
-      },
-      { signal: controller.signal }
-    )
-    controller.abort()
-
-    await expect(request).rejects.toMatchObject({ code: 'cancelled', retryable: false })
-    expect(harness.messages.at(-1)).toMatchObject({
-      type: 'cancel',
-      target: 'request',
-      id: 'A'.repeat(22)
-    })
+    await expect(f.client.repositoryState({ workspaceId })).rejects.toThrow()
   })
 })
 
-function createHarness() {
-  const messages: MobileWebBridgePageMessage[] = []
-  const requestIds = ['A'.repeat(22), 'B'.repeat(22), 'C'.repeat(22)]
-  const limits = {
-    maxRequestBytes: 8192,
-    maxResponseBytes: 8192,
-    maxConcurrent: 2,
-    rateCapacity: 8,
-    rateRefillPerSecond: 2
-  }
-  const operations = ['upstream', 'branch', 'fetch', 'pull', 'push', 'rebase', 'abort'] as const
-  const client = new MobileWebBridgeClient({
-    context: CONTEXT,
-    grants: operations.map((operation) => ({
-      capability: 'sourceControl' as const,
-      operation,
-      limits
-    })),
-    postMessage: (message) => {
-      messages.push(message)
-      return true
-    },
-    createRequestId: () => requestIds.shift() ?? 'Z'.repeat(22)
+describe('page repository writes', () => {
+  it('maps each write to the Desktop method that performs it', async () => {
+    const cases: [() => Promise<void>, string, Record<string, unknown>][] = []
+    const f = fixture({ ok: true })
+    cases.push(
+      [
+        () => f.client.checkout({ workspaceId, branch: 'main' }),
+        'git.checkout',
+        { branch: 'main' }
+      ],
+      [() => f.client.fetch({ workspaceId }), 'git.fetch', {}],
+      [() => f.client.pull({ workspaceId, strategy: 'merge' }), 'git.pull', {}],
+      [() => f.client.pull({ workspaceId, strategy: 'fast-forward' }), 'git.fastForward', {}],
+      [() => f.client.push({ workspaceId, mode: 'push' }), 'git.push', { publish: false }],
+      [() => f.client.push({ workspaceId, mode: 'publish' }), 'git.push', { publish: true }],
+      [
+        () => f.client.rebase({ workspaceId, baseRef: 'origin/main' }),
+        'git.rebaseFromBase',
+        { baseRef: 'origin/main' }
+      ],
+      [() => f.client.abort({ workspaceId, conflictOperation: 'merge' }), 'git.abortMerge', {}],
+      [() => f.client.abort({ workspaceId, conflictOperation: 'rebase' }), 'git.abortRebase', {}]
+    )
+    for (const [index, [run, method, params]] of cases.entries()) {
+      await expect(run()).resolves.toBeUndefined()
+      expect(f.request.mock.calls[index]!.slice(0, 3), method).toEqual(hostRequest(method, params))
+      // A Git write waits past the read timeout the page applies to itself.
+      expect(f.request.mock.calls[index]!.at(-1), method).toMatchObject({ timeoutMs: 60_000 })
+    }
   })
-  return { client, messages }
-}
 
-function repositoryState() {
-  return {
-    workspaceId: 'workspace-1',
-    head: HEAD,
-    branch: 'main',
-    conflictOperation: 'unknown',
-    baseRef: 'origin/main',
-    upstream
-  }
-}
+  it('refuses a branch name Git could read as an option', async () => {
+    const f = fixture({ ok: true })
+    await expect(f.client.checkout({ workspaceId, branch: '--force' })).rejects.toMatchObject({
+      code: 'invalid_request'
+    })
+    expect(f.request).not.toHaveBeenCalled()
+  })
 
-function response(requestId: string, payload: unknown): MobileWebBridgeShellMessage {
-  return {
-    version: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
-    type: 'response',
-    shellSessionId: CONTEXT.shellSessionId,
-    buildId: CONTEXT.buildId,
-    requestId,
-    status: 'success',
-    payload
-  }
-}
+  it('surfaces a refused write as the Desktop error', async () => {
+    const request = vi.fn().mockRejectedValue(new Error('host_error'))
+    const client = new MobileWebSourceControlSyncRequestClient({
+      request
+    } as unknown as MobileWebOneShotRequestClient)
+    await expect(client.push({ workspaceId, mode: 'push' })).rejects.toThrow('host_error')
+  })
+})

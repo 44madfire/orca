@@ -278,7 +278,7 @@ async function resolveSessionOriginReviewOpen({
     return { headless: false, native, sessionDiff }
   }
   const bridgeError = (await readHostedWebViewBridgeErrors(sourceControl)).find(
-    (entry) => entry.capability === 'sourceControl' && entry.operation === 'reviewOpen'
+    (entry) => entry.method === 'files.openDiff'
   )
   if (!bridgeError) {
     throw new Error(

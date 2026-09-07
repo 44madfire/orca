@@ -16,7 +16,6 @@ import { executeMobileWebNativeCapabilityOperation } from './mobile-web-native-c
 import { executeMobileWebNativeChatCapability } from './mobile-web-native-chat-capability'
 import { executeMobileWebProviderOperation } from './mobile-web-provider-review-operations'
 import { executeMobileWebProviderReviewDiff } from './mobile-web-provider-review-diff'
-import { executeMobileWebSourceControlOperation } from './mobile-web-source-control-operations'
 import { executeMobileWebSpeechOperation } from './mobile-web-speech-operations'
 import { executeMobileWebTaskReadOperation } from './mobile-web-task-read-operations'
 
@@ -104,7 +103,16 @@ async function executeProvider(args: Deps, request: OnceRequest): Promise<unknow
   })
 }
 
+/** Commit-message generation is the only Source Control operation left in the shell: it outlives
+ * the host lane's request deadline and the page cancels it while it runs. */
 async function executeSourceControl(args: Deps, request: OnceRequest): Promise<unknown> {
+  if (request.operation === 'cancelCommitMessageGeneration') {
+    return args.commitMessageGeneration.cancel(
+      request.payload,
+      args.connectedClient(),
+      args.workspaceAuthority
+    )
+  }
   if (request.operation === 'generateCommitMessage') {
     return args.commitMessageGeneration.generate({
       requestId: request.requestId,
@@ -113,22 +121,7 @@ async function executeSourceControl(args: Deps, request: OnceRequest): Promise<u
       workspaceAuthority: args.workspaceAuthority
     })
   }
-  if (request.operation === 'cancelCommitMessageGeneration') {
-    return args.commitMessageGeneration.cancel(
-      request.payload,
-      args.connectedClient(),
-      args.workspaceAuthority
-    )
-  }
-  return executeMobileWebSourceControlOperation({
-    operation: request.operation,
-    payload: request.payload,
-    client: args.connectedClient(),
-    workspaceAuthority: args.workspaceAuthority,
-    branchComparePager: args.sourceControlBranchCompare,
-    requestId: request.requestId,
-    terminalClientId: args.terminalClientId
-  })
+  throw new MobileWebBrokerError('unsupported_capability')
 }
 
 async function executeSpeech(args: Deps, request: OnceRequest): Promise<unknown> {

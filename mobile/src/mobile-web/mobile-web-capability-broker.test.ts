@@ -141,65 +141,6 @@ describe('mobile web capability broker', () => {
     expect(harness.rememberHostRoute).toHaveBeenNthCalledWith(2, { kind: 'workspaceList' })
   })
 
-  it('grants bounded branch and history reads through the production broker', async () => {
-    const harness = createHarness()
-    await primeWorkspaceAuthority(harness)
-    harness.sendRequest.mockImplementation((method) => {
-      if (method === 'git.localBranches') {
-        return Promise.resolve({
-          ok: true,
-          result: { current: 'main', branches: ['main', 'feature/mobile'] }
-        })
-      }
-      return Promise.resolve({
-        ok: true,
-        result: {
-          items: [],
-          hasIncomingChanges: false,
-          hasOutgoingChanges: false,
-          hasMore: false,
-          limit: 50
-        }
-      })
-    })
-
-    await harness.broker.handle(
-      request({
-        capability: 'sourceControl',
-        operation: 'branches',
-        payload: { workspaceId: OPAQUE_WORKSPACE_ID }
-      })
-    )
-    await harness.broker.handle(
-      request({
-        requestId: 'B'.repeat(22),
-        capability: 'sourceControl',
-        operation: 'history',
-        payload: { workspaceId: OPAQUE_WORKSPACE_ID, limit: 50 }
-      })
-    )
-
-    expect(harness.sendRequest).toHaveBeenNthCalledWith(2, 'git.localBranches', {
-      worktree: 'id:workspace-1'
-    })
-    expect(harness.sendRequest).toHaveBeenNthCalledWith(3, 'git.history', {
-      worktree: 'id:workspace-1',
-      limit: 50
-    })
-    expect(harness.messages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          status: 'success',
-          payload: expect.objectContaining({ branches: ['main', 'feature/mobile'] })
-        }),
-        expect.objectContaining({
-          status: 'success',
-          payload: expect.objectContaining({ items: [], limit: 50 })
-        })
-      ])
-    )
-  })
-
   it('returns stable errors for invalid payloads, disconnected hosts, and ungranted operations', async () => {
     const harness = createHarness()
     await harness.broker.handle(request({ payload: { limit: 201 } }))
@@ -319,11 +260,7 @@ describe('mobile web capability broker', () => {
       request({
         capability: 'sourceControl',
         operation: 'generateCommitMessage',
-        payload: {
-          workspaceId: OPAQUE_WORKSPACE_ID,
-          expectedHead: 'a'.repeat(40),
-          stagedEntries: [{ relativePath: 'src/app.ts', status: 'modified', area: 'staged' }]
-        }
+        payload: { workspaceId: OPAQUE_WORKSPACE_ID, expectedHead: 'a'.repeat(40) }
       })
     )
     await vi.waitFor(() =>

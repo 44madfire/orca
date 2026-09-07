@@ -43,95 +43,48 @@ export const MobileWebSourceControlRepositoryStateSchema = z
   })
   .strict()
 
-export const MobileWebSourceControlUpstreamPayloadSchema = z
+export const MobileWebSourceControlRepositoryStatePayloadSchema = z
   .object({ workspaceId: MobileWebWorkspaceIdSchema })
   .strict()
 
-const ExpectedRepositoryShape = {
-  workspaceId: MobileWebWorkspaceIdSchema,
-  expectedHead: NullableGitObjectIdSchema,
-  expectedBranch: NullableGitRefNameSchema
-} as const
-
-const ExpectedRemoteRepositoryShape = {
-  ...ExpectedRepositoryShape,
-  expectedUpstream: MobileWebSourceControlUpstreamSnapshotSchema
-} as const
-
 export const MobileWebSourceControlCheckoutPayloadSchema = z
   .object({
-    ...ExpectedRepositoryShape,
-    branch: MobileWebGitRefNameSchema,
-    confirmation: z.literal('checkout-confirmed')
+    workspaceId: MobileWebWorkspaceIdSchema,
+    branch: MobileWebGitRefNameSchema
   })
   .strict()
 
-export const MobileWebSourceControlFetchPayloadSchema = z.object(ExpectedRepositoryShape).strict()
+export const MobileWebSourceControlSyncPayloadSchema = z
+  .object({ workspaceId: MobileWebWorkspaceIdSchema })
+  .strict()
 
 export const MobileWebSourceControlPullPayloadSchema = z
   .object({
-    ...ExpectedRemoteRepositoryShape,
-    strategy: z.enum(['fast-forward', 'merge']),
-    confirmation: z.literal('pull-confirmed')
+    workspaceId: MobileWebWorkspaceIdSchema,
+    strategy: z.enum(['fast-forward', 'merge'])
   })
   .strict()
 
 export const MobileWebSourceControlPushPayloadSchema = z
   .object({
-    ...ExpectedRemoteRepositoryShape,
-    mode: z.enum(['push', 'publish']),
-    confirmation: z.literal('push-confirmed')
+    workspaceId: MobileWebWorkspaceIdSchema,
+    mode: z.enum(['push', 'publish'])
   })
   .strict()
 
 export const MobileWebSourceControlRebasePayloadSchema = z
   .object({
-    ...ExpectedRemoteRepositoryShape,
-    baseRef: MobileWebGitRefNameSchema,
-    confirmation: z.literal('rebase-confirmed')
+    workspaceId: MobileWebWorkspaceIdSchema,
+    baseRef: MobileWebGitRefNameSchema
   })
   .strict()
 
 export const MobileWebSourceControlAbortPayloadSchema = z
   .object({
-    ...ExpectedRepositoryShape,
-    conflictOperation: z.enum(['merge', 'rebase']),
-    confirmation: z.literal('abort-confirmed')
+    workspaceId: MobileWebWorkspaceIdSchema,
+    conflictOperation: z.enum(['merge', 'rebase'])
   })
   .strict()
-
-export const MobileWebSourceControlSyncOperationSchema = z.enum([
-  'branch',
-  'fetch',
-  'pull',
-  'push',
-  'rebase',
-  'abort'
-])
-
-const MobileWebSourceControlSyncResultShape = {
-  workspaceId: MobileWebWorkspaceIdSchema,
-  previousHead: NullableGitObjectIdSchema,
-  previousBranch: NullableGitRefNameSchema,
-  repository: MobileWebSourceControlRepositoryStateSchema.nullable(),
-  completed: z.literal(true)
-} as const
-
-export const MobileWebSourceControlSyncResultSchema = z.discriminatedUnion('operation', [
-  z
-    .object({
-      ...MobileWebSourceControlSyncResultShape,
-      operation: z.literal('branch'),
-      branch: MobileWebGitRefNameSchema
-    })
-    .strict(),
-  z
-    .object({
-      ...MobileWebSourceControlSyncResultShape,
-      operation: z.enum(['fetch', 'pull', 'push', 'rebase', 'abort'])
-    })
-    .strict()
-])
 
 export type MobileWebSourceControlUpstreamSnapshot = z.infer<
   typeof MobileWebSourceControlUpstreamSnapshotSchema
@@ -139,14 +92,14 @@ export type MobileWebSourceControlUpstreamSnapshot = z.infer<
 export type MobileWebSourceControlRepositoryState = z.infer<
   typeof MobileWebSourceControlRepositoryStateSchema
 >
-export type MobileWebSourceControlUpstreamPayload = z.infer<
-  typeof MobileWebSourceControlUpstreamPayloadSchema
+export type MobileWebSourceControlRepositoryStatePayload = z.infer<
+  typeof MobileWebSourceControlRepositoryStatePayloadSchema
 >
 export type MobileWebSourceControlCheckoutPayload = z.infer<
   typeof MobileWebSourceControlCheckoutPayloadSchema
 >
-export type MobileWebSourceControlFetchPayload = z.infer<
-  typeof MobileWebSourceControlFetchPayloadSchema
+export type MobileWebSourceControlSyncPayload = z.infer<
+  typeof MobileWebSourceControlSyncPayloadSchema
 >
 export type MobileWebSourceControlPullPayload = z.infer<
   typeof MobileWebSourceControlPullPayloadSchema
@@ -159,10 +112,4 @@ export type MobileWebSourceControlRebasePayload = z.infer<
 >
 export type MobileWebSourceControlAbortPayload = z.infer<
   typeof MobileWebSourceControlAbortPayloadSchema
->
-export type MobileWebSourceControlSyncOperation = z.infer<
-  typeof MobileWebSourceControlSyncOperationSchema
->
-export type MobileWebSourceControlSyncResult = z.infer<
-  typeof MobileWebSourceControlSyncResultSchema
 >

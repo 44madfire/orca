@@ -1,150 +1,160 @@
 import {
   MobileWebSourceControlReviewDiffPayloadSchema,
   MobileWebSourceControlReviewDiffResultSchema,
-  MobileWebSourceControlReviewMetadataPayloadSchema,
-  MobileWebSourceControlReviewMetadataResultSchema,
-  MobileWebSourceControlReviewMetadataUpdatePayloadSchema,
   MobileWebSourceControlReviewLinkPayloadSchema,
   MobileWebSourceControlReviewLinkResultSchema,
   MobileWebSourceControlReviewLinkUpdatePayloadSchema,
+  MobileWebSourceControlReviewMetadataPayloadSchema,
+  MobileWebSourceControlReviewMetadataResultSchema,
+  MobileWebSourceControlReviewMetadataUpdatePayloadSchema,
   MobileWebSourceControlReviewOpenPayloadSchema,
-  MobileWebSourceControlReviewOpenResultSchema,
   MobileWebSourceControlReviewTerminalSendPayloadSchema,
   MobileWebSourceControlReviewTerminalSendResultSchema,
   type MobileWebSourceControlReviewDiffPayload,
   type MobileWebSourceControlReviewDiffResult,
-  type MobileWebSourceControlReviewMetadataPayload,
-  type MobileWebSourceControlReviewMetadataResult,
-  type MobileWebSourceControlReviewMetadataUpdatePayload,
   type MobileWebSourceControlReviewLinkPayload,
   type MobileWebSourceControlReviewLinkResult,
   type MobileWebSourceControlReviewLinkUpdatePayload,
+  type MobileWebSourceControlReviewMetadataPayload,
+  type MobileWebSourceControlReviewMetadataResult,
+  type MobileWebSourceControlReviewMetadataUpdatePayload,
   type MobileWebSourceControlReviewOpenPayload,
   type MobileWebSourceControlReviewTerminalSendPayload,
   type MobileWebSourceControlReviewTerminalSendResult
 } from '../../shared/mobile-web/source-control-review-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
-import { requireEchoedWorkspaceId } from './mobile-web-result-echo'
+import { withPageWorkspaceId } from './mobile-web-host-workspace-result'
+import { MobileWebSourceControlHostClient } from './mobile-web-source-control-host-client'
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
-import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
-export class MobileWebSourceControlReviewRequestClient {
-  constructor(private readonly requests: MobileWebOneShotRequestClient) {}
-
+export class MobileWebSourceControlReviewRequestClient extends MobileWebSourceControlHostClient {
   metadata(
     payload: MobileWebSourceControlReviewMetadataPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlReviewMetadataResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'reviewMetadata',
-        payload,
-        MobileWebSourceControlReviewMetadataPayloadSchema,
-        MobileWebSourceControlReviewMetadataResultSchema,
-        options
-      )
-      .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
+    return this.host(
+      MobileWebSourceControlReviewMetadataPayloadSchema,
+      payload,
+      'mobileWeb.sourceControl.reviewMetadata',
+      {},
+      options
+    ).then((result) => this.parseMetadata(result, payload.workspaceId))
   }
 
   metadataUpdate(
     payload: MobileWebSourceControlReviewMetadataUpdatePayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlReviewMetadataResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'reviewMetadataUpdate',
-        payload,
-        MobileWebSourceControlReviewMetadataUpdatePayloadSchema,
-        MobileWebSourceControlReviewMetadataResultSchema,
-        options
-      )
-      .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
+    return this.host(
+      MobileWebSourceControlReviewMetadataUpdatePayloadSchema,
+      payload,
+      'mobileWeb.sourceControl.reviewMetadataUpdate',
+      {
+        expectedRevision: payload.expectedRevision,
+        comments: payload.comments,
+        reviewState: payload.reviewState
+      },
+      options
+    ).then((result) => this.parseMetadata(result, payload.workspaceId))
   }
 
   link(
     payload: MobileWebSourceControlReviewLinkPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlReviewLinkResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'reviewLink',
-        payload,
-        MobileWebSourceControlReviewLinkPayloadSchema,
-        MobileWebSourceControlReviewLinkResultSchema,
-        options
-      )
-      .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
+    return this.host(
+      MobileWebSourceControlReviewLinkPayloadSchema,
+      payload,
+      'mobileWeb.sourceControl.reviewLink',
+      {},
+      options
+    ).then((result) => this.parseLink(result, payload.workspaceId))
   }
 
   linkUpdate(
     payload: MobileWebSourceControlReviewLinkUpdatePayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlReviewLinkResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'reviewLinkUpdate',
-        payload,
-        MobileWebSourceControlReviewLinkUpdatePayloadSchema,
-        MobileWebSourceControlReviewLinkResultSchema,
-        options
-      )
-      .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
+    return this.host(
+      MobileWebSourceControlReviewLinkUpdatePayloadSchema,
+      payload,
+      'mobileWeb.sourceControl.reviewLinkUpdate',
+      {
+        provider: payload.provider,
+        number: payload.number,
+        ...(payload.baseRef ? { baseRef: payload.baseRef } : {})
+      },
+      options
+    ).then((result) => this.parseLink(result, payload.workspaceId))
   }
 
   diff(
     payload: MobileWebSourceControlReviewDiffPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlReviewDiffResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'reviewDiff',
-        payload,
-        MobileWebSourceControlReviewDiffPayloadSchema,
-        MobileWebSourceControlReviewDiffResultSchema,
-        options
+    return this.host(
+      MobileWebSourceControlReviewDiffPayloadSchema,
+      payload,
+      'mobileWeb.sourceControl.reviewDiff',
+      {
+        relativePath: payload.relativePath,
+        ...(payload.oldRelativePath ? { oldRelativePath: payload.oldRelativePath } : {}),
+        scope: payload.scope,
+        ...(payload.compare ? { compare: payload.compare } : {}),
+        offset: payload.offset,
+        limit: payload.limit,
+        ...(payload.expectedRevision ? { expectedRevision: payload.expectedRevision } : {})
+      },
+      options
+    ).then((result) => {
+      const parsed = MobileWebSourceControlReviewDiffResultSchema.parse(
+        withPageWorkspaceId(result, payload.workspaceId)
       )
-      .then((result) => {
-        if (
-          result.workspaceId !== payload.workspaceId ||
-          result.relativePath !== payload.relativePath ||
-          result.scope !== payload.scope
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+      if (parsed.relativePath !== payload.relativePath || parsed.scope !== payload.scope) {
+        throw new MobileWebBridgeClientError('invalid_message', false)
+      }
+      return parsed
+    })
   }
 
   open(
     payload: MobileWebSourceControlReviewOpenPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<null> {
-    return this.requests.request(
-      'sourceControl',
-      'reviewOpen',
-      payload,
+    return this.host(
       MobileWebSourceControlReviewOpenPayloadSchema,
-      MobileWebSourceControlReviewOpenResultSchema,
+      payload,
+      'files.openDiff',
+      { relativePath: payload.relativePath, staged: payload.scope === 'staged' },
       options
-    )
+    ).then(() => null)
   }
 
   terminalSend(
     payload: MobileWebSourceControlReviewTerminalSendPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlReviewTerminalSendResult> {
-    return this.requests.request(
-      'sourceControl',
-      'reviewTerminalSend',
-      payload,
+    return this.host(
       MobileWebSourceControlReviewTerminalSendPayloadSchema,
-      MobileWebSourceControlReviewTerminalSendResultSchema,
+      payload,
+      'mobileWeb.sourceControl.reviewTerminalSend',
+      { tabId: payload.tabId, text: payload.text },
       options
+    ).then((result) => MobileWebSourceControlReviewTerminalSendResultSchema.parse(result))
+  }
+
+  private parseMetadata(
+    result: unknown,
+    workspaceId: string
+  ): MobileWebSourceControlReviewMetadataResult {
+    return MobileWebSourceControlReviewMetadataResultSchema.parse(
+      withPageWorkspaceId(result, workspaceId)
+    )
+  }
+
+  private parseLink(result: unknown, workspaceId: string): MobileWebSourceControlReviewLinkResult {
+    return MobileWebSourceControlReviewLinkResultSchema.parse(
+      withPageWorkspaceId(result, workspaceId)
     )
   }
 }

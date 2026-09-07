@@ -47,6 +47,7 @@ import { mobileWebReviewClientBindings } from './mobile-web-review-client-bindin
 import { mobileWebSessionClientBindings } from './mobile-web-session-client-bindings'
 import { MobileWebSessionRequestClient } from './mobile-web-session-request-client'
 import { mobileWebSourceControlClientBindings } from './mobile-web-source-control-client-bindings'
+import { MobileWebCommitMessageRequestClient } from './mobile-web-commit-message-request-client'
 import { MobileWebSourceControlRequestClient } from './mobile-web-source-control-request-client'
 import type { MobileWebSourceControlReviewRequestClient } from './mobile-web-source-control-review-request-client'
 import { MobileWebSourceControlSyncRequestClient } from './mobile-web-source-control-sync-request-client'
@@ -88,9 +89,9 @@ export class MobileWebBridgeClient {
   readonly sourceControlUnstage!: MobileWebSourceControlRequestClient['unstage']
   readonly sourceControlDiscard!: MobileWebSourceControlRequestClient['discard']
   readonly sourceControlCommit!: MobileWebSourceControlRequestClient['commit']
-  readonly sourceControlGenerateCommitMessage!: MobileWebSourceControlRequestClient['generateCommitMessage']
-  readonly sourceControlCancelCommitMessageGeneration!: MobileWebSourceControlRequestClient['cancelCommitMessageGeneration']
-  readonly sourceControlUpstream!: MobileWebSourceControlSyncRequestClient['upstream']
+  readonly sourceControlGenerateCommitMessage!: MobileWebCommitMessageRequestClient['generate']
+  readonly sourceControlCancelCommitMessageGeneration!: MobileWebCommitMessageRequestClient['cancel']
+  readonly sourceControlRepositoryState!: MobileWebSourceControlSyncRequestClient['repositoryState']
   readonly sourceControlCheckout!: MobileWebSourceControlSyncRequestClient['checkout']
   readonly sourceControlFetch!: MobileWebSourceControlSyncRequestClient['fetch']
   readonly sourceControlPull!: MobileWebSourceControlSyncRequestClient['pull']
@@ -188,9 +189,14 @@ export class MobileWebBridgeClient {
     Object.assign(this, mobileWebFileClientBindings(new MobileWebFileRequestClient(this.requests)))
     const sourceControlRequests = new MobileWebSourceControlRequestClient(this.requests)
     const sourceControlSyncRequests = new MobileWebSourceControlSyncRequestClient(this.requests)
+    const commitMessageRequests = new MobileWebCommitMessageRequestClient(this.requests)
     Object.assign(
       this,
-      mobileWebSourceControlClientBindings(sourceControlRequests, sourceControlSyncRequests)
+      mobileWebSourceControlClientBindings(
+        sourceControlRequests,
+        sourceControlSyncRequests,
+        commitMessageRequests
+      )
     )
     Object.assign(this, mobileWebReviewClientBindings(this.requests))
     Object.assign(
