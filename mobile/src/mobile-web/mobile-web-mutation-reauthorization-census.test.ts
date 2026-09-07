@@ -25,10 +25,6 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-host-subscriptions.ts': 1,
   'mobile-web-markdown-operations.ts': 2,
   'mobile-web-native-chat-binding.ts': 2,
-  'mobile-web-provider-review-creation.ts': 2,
-  'mobile-web-provider-review-management.ts': 1,
-  'mobile-web-provider-review-operations.ts': 1,
-  'mobile-web-provider-review-submission.ts': 1,
   'mobile-web-source-control-commit-operation.ts': 1,
   'mobile-web-source-control-operations.ts': 1,
   'mobile-web-source-control-review-operations.ts': 3,
@@ -167,7 +163,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations()).toHaveLength(113)
+    expect(mutations()).toHaveLength(108)
   })
 
   it('exempts only registered mutations', () => {
@@ -185,6 +181,6 @@ describe('mobile web mutation reauthorization census', () => {
     const capabilities = Object.keys(MOBILE_WEB_BRIDGE_OPERATIONS) as MobileWebBridgeCapability[]
 
     expect([...kinds].sort()).toEqual(['mutation', 'read', 'subscription'])
-    expect(capabilities).toHaveLength(14)
+    expect(capabilities).toHaveLength(13)
   })
 })

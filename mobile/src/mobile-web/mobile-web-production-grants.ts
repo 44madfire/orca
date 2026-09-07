@@ -47,18 +47,7 @@ export const MOBILE_WEB_PRODUCTION_GRANTS = [
   ...MOBILE_WEB_PRODUCTION_NATIVE_GRANTS,
   ...MOBILE_WEB_PRODUCTION_NATIVE_CHAT_GRANTS,
   ...MOBILE_WEB_PRODUCTION_NAVIGATION_GRANTS,
-  ...MOBILE_WEB_PRODUCTION_WORKSPACE_CREATION_GRANTS,
-  ...capabilityGrants('provider', {
-    review: grantLimits(4 * 1024, 192 * 1024, 2, 6, 1),
-    reviewCreationEligibility: grantLimits(4 * 1024, 48 * 1024, 2, 6, 1),
-    reviewCreate: grantLimits(48 * 1024, 4 * 1024, 1, 2, 0.1),
-    reviewGenerateFields: grantLimits(48 * 1024, 48 * 1024, 1, 2, 0.1),
-    reviewDiff: grantLimits(4 * 1024, 128 * 1024, 2, 8, 2),
-    reviewQuery: grantLimits(4 * 1024, 192 * 1024, 2, 6, 1),
-    mutateReview: grantLimits(16 * 1024, 4 * 1024, 1, 4, 0.5),
-    manageReview: grantLimits(16 * 1024, 4 * 1024, 1, 4, 0.5),
-    submitReview: grantLimits(96 * 1024, 8 * 1024, 1, 2, 0.1)
-  })
+  ...MOBILE_WEB_PRODUCTION_WORKSPACE_CREATION_GRANTS
 ]
 
 export const MOBILE_WEB_PRODUCTION_GRANT_INDEX = indexGrants(MOBILE_WEB_PRODUCTION_GRANTS)

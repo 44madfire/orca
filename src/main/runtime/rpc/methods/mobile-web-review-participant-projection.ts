@@ -2,9 +2,14 @@ import {
   MOBILE_WEB_PROVIDER_REVIEW_CHECK_LIMIT,
   MOBILE_WEB_PROVIDER_REVIEW_USER_LIMIT,
   type MobileWebProviderReview
-} from '../../../src/shared/mobile-web/provider-review-contract'
+} from '../../../../shared/mobile-web/provider-review-contract'
+import {
+  isReviewRecord,
+  reviewNonemptyString,
+  reviewPositiveInteger
+} from './mobile-web-review-value-bounds'
 
-export function sanitizeMobileWebProviderReviewUsers(
+export function projectMobileWebReviewUsers(
   value: unknown
 ): MobileWebProviderReview['reviewRequests'] {
   if (!Array.isArray(value)) {
@@ -12,16 +17,16 @@ export function sanitizeMobileWebProviderReviewUsers(
   }
   return value
     .flatMap((entry) => {
-      if (!isRecord(entry)) {
+      if (!isReviewRecord(entry)) {
         return []
       }
-      const login = nonemptyBoundedString(entry.login, 80)
-      return login ? [{ login, name: nonemptyBoundedString(entry.name, 160) ?? null }] : []
+      const login = reviewNonemptyString(entry.login, 80)
+      return login ? [{ login, name: reviewNonemptyString(entry.name, 160) ?? null }] : []
     })
     .slice(0, MOBILE_WEB_PROVIDER_REVIEW_USER_LIMIT)
 }
 
-export function sanitizeMobileWebProviderReviewSummaries(
+export function projectMobileWebReviewSummaries(
   value: unknown
 ): MobileWebProviderReview['latestReviews'] {
   if (!Array.isArray(value)) {
@@ -29,45 +34,42 @@ export function sanitizeMobileWebProviderReviewSummaries(
   }
   return value
     .flatMap((entry) => {
-      if (!isRecord(entry)) {
+      if (!isReviewRecord(entry)) {
         return []
       }
-      const author = isRecord(entry.author) ? entry.author : null
+      const author = isReviewRecord(entry.author) ? entry.author : null
       const login =
-        nonemptyBoundedString(entry.login, 80) ??
-        (author ? nonemptyBoundedString(author.login, 80) : undefined)
-      return login ? [{ login, state: nonemptyBoundedString(entry.state, 80) ?? null }] : []
+        reviewNonemptyString(entry.login, 80) ??
+        (author ? reviewNonemptyString(author.login, 80) : undefined)
+      return login ? [{ login, state: reviewNonemptyString(entry.state, 80) ?? null }] : []
     })
     .slice(0, MOBILE_WEB_PROVIDER_REVIEW_USER_LIMIT)
 }
 
-export function sanitizeMobileWebProviderReviewChecks(
-  value: unknown
-): MobileWebProviderReview['checks'] {
+export function projectMobileWebReviewChecks(value: unknown): MobileWebProviderReview['checks'] {
   if (!Array.isArray(value)) {
     return []
   }
   return value
     .flatMap((entry) => {
-      if (!isRecord(entry)) {
+      if (!isReviewRecord(entry)) {
         return []
       }
-      const name = nonemptyBoundedString(entry.name, 256)
+      const name = reviewNonemptyString(entry.name, 256)
       const status: MobileWebProviderReview['checks'][number]['status'] | null =
         entry.status === 'queued' || entry.status === 'in_progress' || entry.status === 'completed'
           ? entry.status
           : null
-      const conclusion = checkConclusion(entry.conclusion)
       if (!name || !status) {
         return []
       }
-      const checkRunId = positiveInteger(entry.checkRunId)
-      const workflowRunId = positiveInteger(entry.workflowRunId)
+      const checkRunId = reviewPositiveInteger(entry.checkRunId)
+      const workflowRunId = reviewPositiveInteger(entry.workflowRunId)
       return [
         {
           name,
           status,
-          conclusion,
+          conclusion: checkConclusion(entry.conclusion),
           ...(checkRunId === null ? {} : { checkRunId }),
           ...(workflowRunId === null ? {} : { workflowRunId })
         }
@@ -87,16 +89,4 @@ function checkConclusion(value: unknown): MobileWebProviderReview['checks'][numb
     value === 'action_required'
     ? value
     : null
-}
-
-function nonemptyBoundedString(value: unknown, limit: number): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value.slice(0, limit) : undefined
-}
-
-function positiveInteger(value: unknown): number | null {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

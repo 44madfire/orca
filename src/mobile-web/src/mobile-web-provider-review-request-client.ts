@@ -32,9 +32,12 @@ import {
   type MobileWebProviderReviewSubmissionPayload,
   type MobileWebProviderReviewSubmissionResult
 } from '../../shared/mobile-web/provider-review-submission-contract'
-import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
+import {
+  assertMobileWebReviewEcho,
+  requestMobileWebReviewHost
+} from './mobile-web-review-host-request'
 
 export class MobileWebProviderReviewRequestClient {
   constructor(private readonly requests: MobileWebOneShotRequestClient) {}
@@ -43,166 +46,135 @@ export class MobileWebProviderReviewRequestClient {
     payload: MobileWebProviderReviewPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebProviderReviewResult> {
-    return this.requests
-      .request(
-        'provider',
-        'review',
-        payload,
-        MobileWebProviderReviewPayloadSchema,
-        MobileWebProviderReviewResultSchema,
-        options
+    return requestMobileWebReviewHost(
+      this.requests,
+      'mobileWeb.review.read',
+      payload,
+      MobileWebProviderReviewPayloadSchema,
+      MobileWebProviderReviewResultSchema,
+      options
+    ).then((result) => {
+      assertMobileWebReviewEcho(
+        result.observedHead === payload.expectedHead && result.branch === payload.expectedBranch
       )
-      .then((result) => {
-        if (
-          result.workspaceId !== payload.workspaceId ||
-          result.observedHead !== payload.expectedHead ||
-          result.branch !== payload.expectedBranch
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+      return result
+    })
   }
 
   reviewDiff(
     payload: MobileWebProviderReviewDiffPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebProviderReviewDiffResult> {
-    return this.requests
-      .request(
-        'provider',
-        'reviewDiff',
-        payload,
-        MobileWebProviderReviewDiffPayloadSchema,
-        MobileWebProviderReviewDiffResultSchema,
-        options
+    return requestMobileWebReviewHost(
+      this.requests,
+      'mobileWeb.review.diff',
+      payload,
+      MobileWebProviderReviewDiffPayloadSchema,
+      MobileWebProviderReviewDiffResultSchema,
+      options
+    ).then((result) => {
+      assertMobileWebReviewEcho(
+        result.observedHead === payload.expectedHead &&
+          result.branch === payload.expectedBranch &&
+          result.provider === payload.provider &&
+          result.reviewNumber === payload.reviewNumber &&
+          result.reviewHead === payload.expectedReviewHead &&
+          result.path === payload.path &&
+          (result.kind !== 'text' || result.rows.length <= payload.limit) &&
+          diffPageMatchesPayload(result, payload)
       )
-      .then((result) => {
-        if (
-          result.workspaceId !== payload.workspaceId ||
-          result.observedHead !== payload.expectedHead ||
-          result.branch !== payload.expectedBranch ||
-          result.provider !== payload.provider ||
-          result.reviewNumber !== payload.reviewNumber ||
-          result.reviewHead !== payload.expectedReviewHead ||
-          result.path !== payload.path ||
-          (result.kind === 'text' && result.rows.length > payload.limit) ||
-          !diffPageMatchesPayload(result, payload)
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+      return result
+    })
   }
 
   mutateReview(
     payload: MobileWebProviderReviewMutationPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebProviderReviewMutationResult> {
-    return this.requests
-      .request(
-        'provider',
-        'mutateReview',
-        payload,
-        MobileWebProviderReviewMutationPayloadSchema,
-        MobileWebProviderReviewMutationResultSchema,
-        options
+    return requestMobileWebReviewHost(
+      this.requests,
+      'mobileWeb.review.comment',
+      payload,
+      MobileWebProviderReviewMutationPayloadSchema,
+      MobileWebProviderReviewMutationResultSchema,
+      options
+    ).then((result) => {
+      assertMobileWebReviewEcho(
+        result.provider === payload.provider &&
+          result.reviewNumber === payload.reviewNumber &&
+          mutationResultMatchesPayload(result, payload)
       )
-      .then((result) => {
-        if (
-          result.workspaceId !== payload.workspaceId ||
-          result.provider !== payload.provider ||
-          result.reviewNumber !== payload.reviewNumber ||
-          !mutationResultMatchesPayload(result, payload)
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+      return result
+    })
   }
 
   manageReview(
     payload: MobileWebProviderReviewManagementPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebProviderReviewManagementResult> {
-    return this.requests
-      .request(
-        'provider',
-        'manageReview',
-        payload,
-        MobileWebProviderReviewManagementPayloadSchema,
-        MobileWebProviderReviewManagementResultSchema,
-        options
+    return requestMobileWebReviewHost(
+      this.requests,
+      'mobileWeb.review.manage',
+      payload,
+      MobileWebProviderReviewManagementPayloadSchema,
+      MobileWebProviderReviewManagementResultSchema,
+      options
+    ).then((result) => {
+      assertMobileWebReviewEcho(
+        result.provider === payload.provider &&
+          result.reviewNumber === payload.reviewNumber &&
+          result.action === payload.action
       )
-      .then((result) => {
-        if (
-          result.workspaceId !== payload.workspaceId ||
-          result.provider !== payload.provider ||
-          result.reviewNumber !== payload.reviewNumber ||
-          result.action !== payload.action
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+      return result
+    })
   }
 
   reviewQuery(
     payload: MobileWebProviderReviewQueryPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebProviderReviewQueryResult> {
-    return this.requests
-      .request(
-        'provider',
-        'reviewQuery',
-        payload,
-        MobileWebProviderReviewQueryPayloadSchema,
-        MobileWebProviderReviewQueryResultSchema,
-        options
+    return requestMobileWebReviewHost(
+      this.requests,
+      'mobileWeb.review.query',
+      payload,
+      MobileWebProviderReviewQueryPayloadSchema,
+      MobileWebProviderReviewQueryResultSchema,
+      options
+    ).then((result) => {
+      assertMobileWebReviewEcho(
+        result.provider === payload.provider &&
+          result.reviewNumber === payload.reviewNumber &&
+          result.query === payload.query
       )
-      .then((result) => {
-        if (
-          result.workspaceId !== payload.workspaceId ||
-          result.provider !== payload.provider ||
-          result.reviewNumber !== payload.reviewNumber ||
-          result.query !== payload.query
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+      return result
+    })
   }
 
   submitReview(
     payload: MobileWebProviderReviewSubmissionPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebProviderReviewSubmissionResult> {
-    return this.requests
-      .request(
-        'provider',
-        'submitReview',
-        payload,
-        MobileWebProviderReviewSubmissionPayloadSchema,
-        MobileWebProviderReviewSubmissionResultSchema,
-        options
-      )
-      .then((result) => {
-        if (
-          result.workspaceId !== payload.workspaceId ||
-          result.provider !== payload.provider ||
-          result.reviewNumber !== payload.reviewNumber ||
-          result.expectedReviewHead !== payload.expectedReviewHead ||
-          result.submissionId !== payload.submissionId ||
-          result.action !== payload.action ||
-          !sameStringArray(
+    return requestMobileWebReviewHost(
+      this.requests,
+      'mobileWeb.review.submit',
+      payload,
+      MobileWebProviderReviewSubmissionPayloadSchema,
+      MobileWebProviderReviewSubmissionResultSchema,
+      options
+    ).then((result) => {
+      assertMobileWebReviewEcho(
+        result.provider === payload.provider &&
+          result.reviewNumber === payload.reviewNumber &&
+          result.expectedReviewHead === payload.expectedReviewHead &&
+          result.submissionId === payload.submissionId &&
+          result.action === payload.action &&
+          sameStringArray(
             result.submittedCommentIds,
             payload.comments.map((comment) => comment.id)
           )
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+      )
+      return result
+    })
   }
 }
 

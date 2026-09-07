@@ -16,31 +16,6 @@ const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
   'file.readTerminalArtifactChunk': ['offset', 'tabId', 'token', 'workspaceId'],
   'file.resolveTerminalPath': ['workspaceId'],
   'file.write': ['byteLength', 'relativePath', 'revision', 'workspaceId'],
-  'provider.manageReview': ['action', 'provider', 'reviewNumber', 'workspaceId'],
-  'provider.mutateReview': ['provider', 'reviewNumber', 'workspaceId'],
-  'provider.review': ['branch', 'observedHead', 'workspaceId'],
-  'provider.reviewCreate': ['provider', 'workspaceId'],
-  'provider.reviewCreationEligibility': ['branch', 'observedHead', 'workspaceId'],
-  'provider.reviewDiff': [
-    'branch',
-    'observedHead',
-    'path',
-    'provider',
-    'reviewHead',
-    'reviewNumber',
-    'workspaceId'
-  ],
-  'provider.reviewGenerateFields': ['workspaceId'],
-  'provider.reviewQuery': ['provider', 'query', 'reviewNumber', 'workspaceId'],
-  'provider.submitReview': [
-    'action',
-    'expectedReviewHead',
-    'provider',
-    'reviewNumber',
-    'submissionId',
-    'submittedCommentIds',
-    'workspaceId'
-  ],
   'sourceControl.abort': ['operation', 'previousBranch', 'previousHead', 'workspaceId'],
   'sourceControl.branch': ['branch', 'operation', 'previousBranch', 'previousHead', 'workspaceId'],
   'sourceControl.branchCompare': ['baseRef', 'offset', 'revision', 'workspaceId'],
@@ -296,7 +271,7 @@ describe('mobile web bridge operation echo census', () => {
     )
 
     expect(Object.keys(EXPECTED_ECHO_FIELDS).filter((key) => !registered.has(key))).toEqual([])
-    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(49)
+    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(40)
   })
 
   it('guards the page workspace handle on every workspace-scoped echo it records', () => {
@@ -304,6 +279,6 @@ describe('mobile web bridge operation echo census', () => {
       fields.some((field) => field === 'workspaceId')
     )
 
-    expect(workspaceScoped.length).toBeGreaterThanOrEqual(40)
+    expect(workspaceScoped.length).toBeGreaterThanOrEqual(31)
   })
 })

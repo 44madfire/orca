@@ -14,8 +14,6 @@ import { executeMobileWebMarkdownOperation } from './mobile-web-markdown-operati
 import { executeMobileWebNavigationOperation } from './mobile-web-navigation-operations'
 import { executeMobileWebNativeCapabilityOperation } from './mobile-web-native-capability-operations'
 import { executeMobileWebNativeChatCapability } from './mobile-web-native-chat-capability'
-import { executeMobileWebProviderOperation } from './mobile-web-provider-review-operations'
-import { executeMobileWebProviderReviewDiff } from './mobile-web-provider-review-diff'
 import { executeMobileWebSourceControlOperation } from './mobile-web-source-control-operations'
 import { executeMobileWebSpeechOperation } from './mobile-web-speech-operations'
 import { executeMobileWebTaskReadOperation } from './mobile-web-task-read-operations'
@@ -88,22 +86,6 @@ async function executeFile(args: Deps, request: OnceRequest): Promise<unknown> {
   })
 }
 
-async function executeProvider(args: Deps, request: OnceRequest): Promise<unknown> {
-  if (request.operation === 'reviewDiff') {
-    return executeMobileWebProviderReviewDiff(
-      request.payload,
-      args.connectedClient(),
-      args.workspaceAuthority
-    )
-  }
-  return executeMobileWebProviderOperation({
-    operation: request.operation,
-    payload: request.payload,
-    client: args.connectedClient(),
-    workspaceAuthority: args.workspaceAuthority
-  })
-}
-
 async function executeSourceControl(args: Deps, request: OnceRequest): Promise<unknown> {
   if (request.operation === 'generateCommitMessage') {
     return args.commitMessageGeneration.generate({
@@ -163,7 +145,6 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
     settings: executeWorkspace,
     terminal: executeTerminal,
     file: executeFile,
-    provider: executeProvider,
     sourceControl: executeSourceControl,
     speech: executeSpeech,
     task: executeTask

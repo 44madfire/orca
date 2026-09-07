@@ -156,17 +156,6 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     createProviderIssue: 'mutation',
     updateIssueSource: 'mutation'
   },
-  provider: {
-    review: 'read',
-    reviewCreationEligibility: 'read',
-    reviewCreate: 'mutation',
-    reviewGenerateFields: 'mutation',
-    reviewDiff: 'read',
-    reviewQuery: 'read',
-    mutateReview: 'mutation',
-    manageReview: 'mutation',
-    submitReview: 'mutation'
-  },
   browser: {
     subscribe: 'subscription',
     navigate: 'mutation',

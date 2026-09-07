@@ -1,14 +1,14 @@
 import type {
   MobileWebProviderReviewDiffPayload,
   MobileWebProviderReviewDiffResult
-} from './provider-review-diff-contract'
-import { buildMobileWebSourceControlDiffPage } from './source-control-diff-page'
+} from '../../../../shared/mobile-web/provider-review-diff-contract'
+import { buildMobileWebSourceControlDiffPage } from '../../../../shared/mobile-web/source-control-diff-page'
 import {
   MOBILE_WEB_DIFF_INPUT_MAX_CHARACTERS,
   MOBILE_WEB_DIFF_LINE_MAX_CHARACTERS,
   MOBILE_WEB_DIFF_MAX_ROWS,
   type MobileWebDiffRow
-} from './source-control-operation-contract'
+} from '../../../../shared/mobile-web/source-control-operation-contract'
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
 
@@ -22,7 +22,7 @@ type ReviewDiffPageInput = ReviewDiffIdentity &
     revision: string
   }
 
-export function buildMobileWebProviderReviewContentDiffPage(
+export function buildMobileWebReviewContentDiffPage(
   input: ReviewDiffPageInput & {
     originalContent: string
     modifiedContent: string
@@ -52,7 +52,7 @@ export function buildMobileWebProviderReviewContentDiffPage(
   return paginateReviewRows(input, built.rows, built.truncated)
 }
 
-export function buildMobileWebProviderReviewPatchDiffPage(
+export function buildMobileWebReviewPatchDiffPage(
   input: ReviewDiffPageInput & { patch: string }
 ): MobileWebProviderReviewDiffResult {
   if (input.patch.length > MOBILE_WEB_DIFF_INPUT_MAX_CHARACTERS) {

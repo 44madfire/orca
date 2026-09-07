@@ -5,12 +5,17 @@ import {
   MobileWebProviderReviewFileSchema,
   type MobileWebProviderReviewFile,
   type MobileWebProviderReviewProvider
-} from '../../../src/shared/mobile-web/provider-review-contract'
+} from '../../../../shared/mobile-web/provider-review-contract'
+import {
+  isReviewRecord,
+  reviewNonnegativeInteger,
+  reviewObjectId
+} from './mobile-web-review-value-bounds'
 
 const MAX_GITLAB_DIFF_SCAN_CHARACTERS = 256 * 1024
 const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
 
-export function sanitizeMobileWebProviderReviewFiles(
+export function projectMobileWebReviewFiles(
   provider: MobileWebProviderReviewProvider,
   value: unknown
 ): { items: MobileWebProviderReviewFile[]; truncated: boolean } {
@@ -25,7 +30,7 @@ export function sanitizeMobileWebProviderReviewFiles(
       skipped = true
       break
     }
-    const file = sanitizeReviewFile(provider, entry, remainingLines)
+    const file = projectReviewFile(provider, entry, remainingLines)
     if (!file) {
       skipped = true
       continue
@@ -39,19 +44,16 @@ export function sanitizeMobileWebProviderReviewFiles(
   }
 }
 
-export function sanitizedProviderReviewHead(details: unknown): string | undefined {
-  if (!isRecord(details)) {
-    return undefined
-  }
-  return boundedHead(details.headSha)
+export function projectedMobileWebReviewHead(details: unknown): string | undefined {
+  return isReviewRecord(details) ? reviewObjectId(details.headSha) : undefined
 }
 
-function sanitizeReviewFile(
+function projectReviewFile(
   provider: MobileWebProviderReviewProvider,
   value: unknown,
   remainingLines: number
 ): MobileWebProviderReviewFile | null {
-  if (!isRecord(value)) {
+  if (!isReviewRecord(value)) {
     return null
   }
   const path = safePath(value.path)
@@ -68,8 +70,8 @@ function sanitizeReviewFile(
     path,
     ...(oldPath && oldPath !== path ? { oldPath } : {}),
     status: fileStatus(value.status),
-    additions: nonnegativeInteger(value.additions),
-    deletions: nonnegativeInteger(value.deletions),
+    additions: reviewNonnegativeInteger(value.additions),
+    deletions: reviewNonnegativeInteger(value.deletions),
     isBinary: value.isBinary === true,
     commentableLines: lines.values,
     commentableLinesTruncated: lines.truncated
@@ -101,6 +103,8 @@ function boundedLineNumbers(
   return { values, truncated }
 }
 
+/** GitLab answers a unified patch instead of commentable line numbers, so the added and context
+ *  lines of each hunk are the only ones a comment may address. */
 function modifiedDiffLineNumbers(
   value: unknown,
   limit: number
@@ -145,12 +149,6 @@ function safePath(value: unknown): string | undefined {
   return result.success ? result.data : undefined
 }
 
-function boundedHead(value: unknown): string | undefined {
-  return typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value)
-    ? value
-    : undefined
-}
-
 function fileStatus(value: unknown): MobileWebProviderReviewFile['status'] {
   return value === 'added' ||
     value === 'removed' ||
@@ -162,14 +160,6 @@ function fileStatus(value: unknown): MobileWebProviderReviewFile['status'] {
     : 'modified'
 }
 
-function nonnegativeInteger(value: unknown): number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
-}
-
 function positiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
