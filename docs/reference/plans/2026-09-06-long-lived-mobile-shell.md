@@ -29,7 +29,10 @@ Last reconciled: September 6, 2026. Implementation is **in progress**.
 - [x] Generic subscriptions and source-control watch: `a0eee2fc21a`.
 - [x] Host-owned resources and native-chat reads: `e14164f974f`.
 - [x] Native-chat generic feed: `041e40265b6`.
-- [x] Bounded host-scoped page preferences and hosted AsyncStorage adapter.
+- [x] Bounded host-scoped page preferences and hosted AsyncStorage adapter: `bfb06bad720`.
+- [x] Generic request dispatch guards: `ceeacb15725`.
+- [x] Desktop catalog authorization correction: `2b354df1463`.
+- [x] Generic native-chat TUI actions: `ca6c17a9cd2`.
 - [x] Full unattended existing adversarial harness on iOS and Android.
 - [ ] Chat-specific interactions, migrated settings and frozen-shell OTA/rollback E2E.
 
@@ -124,7 +127,8 @@ work and report a terminal closure to the surviving page.
 Follow `docs/STYLEGUIDE.md`, existing tokens/primitives and shared mobile screen
 components. Reuse presentation; split native dependencies through adapters.
 
-- [ ] Native-chat and browser preferences.
+- [x] Native-chat preferences, including iOS persistence and rendered verification.
+- [ ] Browser preferences.
 - [ ] Terminal settings, including host settings and device preferences.
 - [ ] Voice and notification settings; native permission/model actions remain
       explicit capabilities.
@@ -469,5 +473,26 @@ All required gates pass in `/tmp/orca-ota-e2e/chat-mutations-gates/`:
 841 mobile files / 5,550 passed; 323 root files / 2,717 passed. Additional catalog
 authorization check passes; final deadline-focused rerun is 4 files / 29 tests.
 Export: `47338504aaa0cc119190d6ffe03069b54eaa0c6af6663f8fdeaaf6524b134774`.
-Android adversarial regression is next.
+Chat actions committed as `ca6c17a9cd2`. Android adversarial regression passed
+with this export: `/tmp/orca-ota-e2e/android-chat-mutations.log`, exit 0, `ok: true`.
+It includes bridge/privacy/exit-info audits. The temporary emulator was stopped.
+This harness does not exercise chat composition.
 Native-chat simulator interaction coverage remains open.
+
+### Hosted Chat settings — verified
+
+The existing Chat UI preference screen is now shared by native recovery routes
+and `/native-chat-settings` in the hosted page. The hosted copy identifies the
+paired-host preference scope. The workspace toolbar exposes it only when the
+native page-preferences grant exists; unsupported routes disable the switch.
+The same preference loader already drives hosted session defaults on focus.
+Root shell context readiness remounts the settings screen before reading storage.
+
+All required code/test checks pass: 841 mobile files / 5,552 tests; root 323 files /
+2,717 tests. Route ownership was updated deliberately. Export passes with build
+`de9aad2671b418d061b58035707436f16172385358817648f6722540fd760fee`.
+The full iOS adversarial run, including Chat settings save/reopen, passes with
+`ok: true`, exit 0: `/tmp/orca-ota-e2e/ios-chat-settings-themed.log`. Its screenshot
+was visually checked; the web switch uses the existing theme thumb token.
+Other settings and page-owned route restoration remain open. Gate logs:
+`/tmp/orca-ota-e2e/chat-settings-gates/`.

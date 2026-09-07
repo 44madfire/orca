@@ -7,6 +7,7 @@ import {
   PanelLeftClose,
   Plus,
   Search,
+  Settings,
   SlidersHorizontal,
   SquareTerminal,
   UserCircle,
@@ -300,6 +301,17 @@ export function HostScreenHeader({ controller }: { controller: HybridHostScreenC
           </Pressable>
 
           <View style={styles.toolbarSpacer} />
+
+          {controller.shellOperations.openChatSettings && (
+            <Pressable
+              style={styles.searchToggle}
+              onPress={controller.shellOperations.openChatSettings}
+              accessibilityRole="button"
+              accessibilityLabel="Chat settings"
+            >
+              <Settings size={16} color={colors.textSecondary} />
+            </Pressable>
+          )}
 
           <Pressable
             style={styles.searchToggle}

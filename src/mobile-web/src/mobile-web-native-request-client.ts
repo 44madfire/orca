@@ -1,3 +1,4 @@
+import type { MobileWebBridgeOperationName } from '../../shared/mobile-web/bridge-contract'
 import {
   MobileWebPagePreferencesPayloadSchema,
   MobileWebPagePreferencesResultSchema,
@@ -46,6 +47,10 @@ const MOBILE_WEB_NATIVE_ALERT_REQUEST_TIMEOUT_MS = 2_147_483_647
 
 export class MobileWebNativeRequestClient {
   constructor(private readonly requests: MobileWebOneShotRequestClient) {}
+
+  supports(operation: MobileWebBridgeOperationName<'native'>): boolean {
+    return this.requests.supports('native', operation)
+  }
 
   pagePreferences(payload: MobileWebPagePreferencesPayload) {
     return this.requests.request(

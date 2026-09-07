@@ -63,9 +63,10 @@ describe('mobile native shell route ownership', () => {
     expect(hybridPresentation).not.toContain('MobileWebHostPicker')
   })
 
-  it('does not add native-shell screens to the desktop-served route graph', () => {
+  it('hosts migrated chat settings while retaining native recovery screens', () => {
     const hostedRoutePaths = listRouteFiles(hostedRouteRoot)
-    for (const routeName of NATIVE_ROUTE_NAMES) {
+    expect(hostedRoutePaths).toContain('native-chat-settings.tsx')
+    for (const routeName of NATIVE_ROUTE_NAMES.filter((name) => name !== 'native-chat-settings')) {
       expect(hostedRoutePaths).not.toContain(`${routeName}.tsx`)
     }
   })

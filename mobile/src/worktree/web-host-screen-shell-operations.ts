@@ -13,6 +13,9 @@ export function webHostScreenShellOperations(
   }
 
   return {
+    ...(client?.native.supports('pagePreferences')
+      ? { openChatSettings: () => navigateFromHostList('/native-chat-settings') }
+      : {}),
     leaveHost() {
       void requireClient().navigationRoute({ destination: 'hostPicker' })
     },

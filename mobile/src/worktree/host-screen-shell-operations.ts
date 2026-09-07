@@ -1,4 +1,5 @@
 export type HostScreenShellOperations = {
+  openChatSettings?: () => void
   leaveHost(): void
   navigateFromHostList(target: string): void
   // Diagnostics read the shell's own transport log, so the hosted page cannot render it.

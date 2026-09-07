@@ -6,7 +6,7 @@ describe('web host screen shell operations', () => {
   it('keeps internal routes page-local and sends only named shell intents', async () => {
     const openExternal = vi.fn().mockResolvedValue(null)
     const client = {
-      native: { openExternal },
+      native: { openExternal, supports: () => false },
       navigationRoute: vi.fn().mockResolvedValue(null),
       navigationReconnect: vi.fn().mockResolvedValue(null),
       navigationRemoveHost: vi.fn().mockResolvedValue(null)
@@ -35,6 +35,25 @@ describe('web host screen shell operations', () => {
       'native-public-key'
     )
   })
+
+  it.each([true, false])(
+    'offers hosted chat settings only with persistent preferences: %s',
+    (available) => {
+      const native = { supports: vi.fn(() => available) }
+      const navigate = vi.fn()
+      const operations = webHostScreenShellOperations(
+        { native } as unknown as MobileWebBridgeClient,
+        navigate
+      )
+      expect(native.supports).toHaveBeenCalledWith('pagePreferences')
+      if (available) {
+        operations.openChatSettings?.()
+        expect(navigate).toHaveBeenCalledWith('/native-chat-settings')
+      } else {
+        expect(operations.openChatSettings).toBeUndefined()
+      }
+    }
+  )
 
   it('fails closed before the native shell initializes', async () => {
     const operations = webHostScreenShellOperations(null, vi.fn())

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { verifyHostedIosWorkspaceDeviceCapabilities } from './hosted-ios-workspace-device-capabilities.mjs'
 
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
@@ -60,7 +61,6 @@ import {
   waitForHostedIosMobileLauncher
 } from './hosted-ios-mobile-launcher.mjs'
 import { verifyHostedIosNativeSettingsJourney } from './hosted-ios-native-settings-journey.mjs'
-import { verifyHostedIosNativeAlertJourney } from './hosted-ios-native-alert-journey.mjs'
 import {
   bootHostedIosSimulator,
   resolveHostedIosSimulatorUdid
@@ -285,16 +285,17 @@ async function main() {
     })
     hostedExceptionDocument = workspaceDocument
     await installHostedWebViewRouteExceptionCapture(workspaceDocument)
-    const nativeAlert = await evidenceStep('native Alert bridge journey', () =>
-      verifyHostedIosNativeAlertJourney({
-        discoveryUrl,
-        emulator,
-        expectedWorkspace,
-        timeoutMs: options.timeoutMs,
-        workspaceDocument
-      })
-    )
-    workspaceDocument = nativeAlert.workspaceDocument
+    const deviceCapabilities = await verifyHostedIosWorkspaceDeviceCapabilities({
+      deviceUdid,
+      discoveryUrl,
+      emulator,
+      expectedWorkspace,
+      workspaceDocument,
+      timeoutMs: options.timeoutMs,
+      runtimeDirectory,
+      verifyChatPreferences: options.adversarialContent
+    })
+    workspaceDocument = deviceCapabilities.workspaceDocument
     if (adversarialFixture) {
       await enableHostedTerminalDiagnostics(workspaceDocument)
     }
@@ -559,7 +560,8 @@ async function main() {
       hostedCoreRoutes,
       hostedFilesPreview,
       hostedWorkspace,
-      nativeAlert,
+      nativeAlert: deviceCapabilities.nativeAlert,
+      chatSettings: deviceCapabilities.chatSettings?.evidence ?? null,
       nativeAppPath,
       nativeOnboarding,
       navigationIsolation,
