@@ -370,7 +370,7 @@ describe('terminal send RPC', () => {
     expect(runtime.sendTerminal).toHaveBeenCalledWith(
       'terminal-1',
       { text: '\x1b[3;4R', enter: false, interrupt: false },
-      { beforeWrite: undefined }
+      { beforeWrite: undefined, afterWrite: expect.any(Function) }
     )
     expect(runtime.mobileTookFloor).not.toHaveBeenCalled()
   })
@@ -570,7 +570,7 @@ describe('terminal send RPC', () => {
         enter: false,
         interrupt: false
       },
-      { beforeWrite: undefined }
+      { beforeWrite: undefined, afterWrite: expect.any(Function) }
     )
   })
 
@@ -653,7 +653,7 @@ describe('terminal send RPC', () => {
         enter: true,
         interrupt: false
       },
-      { beforeWrite: expect.any(Function) }
+      { beforeWrite: expect.any(Function), afterWrite: expect.any(Function) }
     )
   })
 
