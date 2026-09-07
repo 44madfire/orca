@@ -14,7 +14,6 @@ export const MOBILE_WEB_HOST_RPC_METHODS = new Set([
   'mobileWeb.nativeChat.mutate',
   'mobileWeb.nativeChat.fileSearch',
   'mobileWeb.nativeChat.openFile',
-  'mobileWeb.nativeChat.readability',
   'mobileWeb.nativeChat.subscribe',
   'mobileWeb.session.snapshot',
   'mobileWeb.session.subscribe',
