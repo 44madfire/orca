@@ -61,7 +61,7 @@ describe('resume fences during asynchronous sleep writes', () => {
         { providerSession: { key: 'session_id', id: 'session-1' } }
       )
     mockApi.pty.kill.mockImplementationOnce(async () => {
-      store.getState().setLegacyWorkerResumeFences({ [pane]: true })
+      store.setState({ legacyWorkerResumeFencesByPaneKey: { [pane]: true } })
       expect(store.getState().legacyWorkerResumeFencesByPaneKey[pane]).toBe(true)
     })
     await store.getState().shutdownWorktreeTerminals(wt, { keepIdentifiers: true })
@@ -98,7 +98,7 @@ describe('resume fences during asynchronous sleep writes', () => {
         { providerSession: { key: 'session_id', id: 'session-1' } }
       )
     mockApi.pty.kill.mockImplementationOnce(async () => {
-      store.getState().setLegacyWorkerResumeFences({ [pane]: true })
+      store.setState({ legacyWorkerResumeFencesByPaneKey: { [pane]: true } })
       expect(store.getState().legacyWorkerResumeFencesByPaneKey[pane]).toBe(true)
       throw new Error('kill_failed')
     })

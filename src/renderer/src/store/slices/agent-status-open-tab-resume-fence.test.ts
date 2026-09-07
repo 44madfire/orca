@@ -58,7 +58,7 @@ describe('a resume fence for a pane with no sleeping record', () => {
   it('is retired only by the runtime replacing the set', () => {
     const store = fencedStore()
 
-    store.getState().setLegacyWorkerResumeFences({})
+    store.setState({ legacyWorkerResumeFencesByPaneKey: {} })
 
     expect(store.getState().legacyWorkerResumeFencesByPaneKey).toEqual({})
   })
@@ -102,7 +102,7 @@ describe('a resume fence for a pane with no sleeping record', () => {
   it('strips a stale projection once the runtime retires the fence', () => {
     const store = fencedStore()
     store.getState().captureAllSleepingAgentSessions('quit')
-    store.getState().setLegacyWorkerResumeFences({})
+    store.setState({ legacyWorkerResumeFencesByPaneKey: {} })
 
     const projected = buildSleepingAgentSessionData(store.getState())
 

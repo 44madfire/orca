@@ -40,7 +40,6 @@ export function createWorkspaceTerminalHydrationActions(
             ])
           )
         : undefined
-      hydrateRuntimeSessionFields(session, set, get, targetTabIds)
       const ownershipTransferTabIds = options?.replaceWorkspaceKeys
         ? new Set(
             options.replaceWorkspaceKeys.flatMap((workspaceKey) =>
@@ -225,9 +224,12 @@ export function createWorkspaceTerminalHydrationActions(
             validTabIds
           })
         }
-        return options?.replaceWorkspaceKeys
-          ? targetScopedWorkspaceHydrationPatch(s, hydrated, session, options)
-          : hydrated
+        return {
+          ...(options?.replaceWorkspaceKeys
+            ? targetScopedWorkspaceHydrationPatch(s, hydrated, session, options)
+            : hydrated),
+          ...hydrateRuntimeSessionFields(session, get, targetTabIds)
+        }
       })
       for (const [tabId, transfers] of ownershipTransfersByTabId) {
         transferNormalizedTerminalLayoutPtyOwnership(get(), tabId, transfers)

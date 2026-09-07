@@ -1,5 +1,4 @@
 import type { SleepingAgentSessionRecord } from '../../../../shared/agent-session-resume'
-import { sameFenceSet } from './legacy-worker-resume-fences'
 import type { AgentStatusSlice } from './agent-status-slice-contract'
 import type { AgentStatusRuntime } from './agent-status-runtime'
 import { collectSleepingAgentSessionRecordsForWorktree } from './agent-status-recovery-collection'
@@ -23,7 +22,6 @@ export function createAgentStatusRecoveryActions(
   | 'captureAllSleepingAgentSessions'
   | 'clearSleepingAgentSession'
   | 'clearSleepingAgentSessionsByPaneKey'
-  | 'setLegacyWorkerResumeFences'
   | 'clearSleepingAgentSessionsByWorktree'
   | 'pruneSleepingAgentSessions'
 > {
@@ -109,14 +107,6 @@ export function createAgentStatusRecoveryActions(
 
     clearSleepingAgentSession: (paneKey) => clearSleepingAgentSessionsByPaneKey([paneKey]),
     clearSleepingAgentSessionsByPaneKey,
-
-    setLegacyWorkerResumeFences: (fences) => {
-      set((s) =>
-        sameFenceSet(s.legacyWorkerResumeFencesByPaneKey, fences)
-          ? s
-          : { legacyWorkerResumeFencesByPaneKey: fences }
-      )
-    },
 
     clearSleepingAgentSessionsByWorktree: (worktreeId) => {
       set((s) => {

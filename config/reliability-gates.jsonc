@@ -25,12 +25,13 @@
       "coverageNotes": "Deterministic local/SSH partition and mixed-source tests; hidden desktop restart/reload and retirement E2Es. No live independently versioned paired-server or physical Windows/Linux claim.",
       "motivatingLinks": ["https://github.com/stablyai/orca/pull/19344"],
       "invariant": "A runtime-authored settled-worker fence survives old writers, absent old-source authority, overlapping hydration, and sibling host write failure; authoritative scoped retirement preserves sibling fences.",
-      "oracle": "Nine round-2 reviewer probes plus publication/read-boundary tests; each of the six round-3 fix mutations must fail. Restart/reload does not resume a fenced worker, while explicit retirement permits resume.",
+      "oracle": "Nine round-2 reviewer probes plus atomic pending-hydration and publication/read-boundary tests; queue-only-fence and stale-read mutations must fail alongside the six round-3 fix mutations. Restart/reload does not resume a fenced worker, while explicit retirement permits resume.",
       "commands": [
-        "ORCA_BACKGROUND_LAUNCH=1 npx vitest run --config config/vitest.config.ts src/renderer/src/lib/runtime-session-application.test.ts src/main/persistence/loading-store/store-runtime-authored-session-fences.test.ts src/main/runtime/runtime-legacy-worker-session-publication.test.ts src/main/runtime/runtime-legacy-worker-host-write-publication.test.ts src/main/runtime/runtime-legacy-worker-recovery-publication-order.test.ts src/renderer/src/lib/legacy-worker-old-source-resume.test.ts src/renderer/src/lib/runtime-session-refresh-hydration-order.test.ts src/renderer/src/store/slices/agent-sleep-resume-fence-races.test.ts src/renderer/src/store/slices/workspace-scoped-resume-fence-hydration.test.ts src/renderer/src/components/terminal-pane/pty-connection/sleeping-record-access-recordless-fence.test.ts",
+        "ORCA_BACKGROUND_LAUNCH=1 npx vitest run --config config/vitest.config.ts src/renderer/src/lib/runtime-session-pending-hydration.test.ts src/renderer/src/lib/runtime-session-application.test.ts src/main/persistence/loading-store/store-runtime-authored-session-fences.test.ts src/main/runtime/runtime-legacy-worker-session-publication.test.ts src/main/runtime/runtime-legacy-worker-host-write-publication.test.ts src/main/runtime/runtime-legacy-worker-recovery-publication-order.test.ts src/renderer/src/lib/legacy-worker-old-source-resume.test.ts src/renderer/src/lib/runtime-session-refresh-hydration-order.test.ts src/renderer/src/store/slices/agent-sleep-resume-fence-races.test.ts src/renderer/src/store/slices/workspace-scoped-resume-fence-hydration.test.ts src/renderer/src/components/terminal-pane/pty-connection/sleeping-record-access-recordless-fence.test.ts",
         "ORCA_BACKGROUND_LAUNCH=1 SKIP_BUILD=1 npx playwright test tests/e2e/settled-worker-resume-fence-restart.spec.ts tests/e2e/completed-worker-retirement-resume.spec.ts --config tests/playwright.config.ts --project=electron-headless --workers=1"
       ],
       "testFiles": [
+        "src/renderer/src/lib/runtime-session-pending-hydration.test.ts",
         "src/renderer/src/lib/runtime-session-application.test.ts",
         "src/main/persistence/loading-store/store-runtime-authored-session-fences.test.ts",
         "src/main/runtime/runtime-legacy-worker-session-publication.test.ts",
@@ -49,7 +50,8 @@
           "file": "src/renderer/src/lib/runtime-session-application.test.ts",
           "assertions": [
             "applies startup runtime fields at read time, before delayed catalog hydration",
-            "orders a scoped retirement after an in-flight invalidation and retains its sibling"
+            "orders a scoped retirement after an in-flight invalidation and retains its sibling",
+            "publishes sleeping records and their authority in a single subscriber notification"
           ]
         }
       ],

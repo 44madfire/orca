@@ -136,3 +136,66 @@ it('an authoritative empty set retires a legacy flag while an absent set preserv
   store.getState().hydrateWorkspaceSession({ ...oldSession, legacyWorkerResumeFencesByPaneKey: {} })
   expect(store.getState().legacyWorkerResumeFencesByPaneKey).toEqual({})
 })
+
+it('publishes sleeping records and their authority in a single subscriber notification', () => {
+  const session = {
+    ...getDefaultWorkspaceSession(),
+    legacyWorkerResumeFencesByPaneKey: { [pane]: true as const },
+    sleepingAgentSessionsByPaneKey: {
+      [pane]: {
+        paneKey: pane,
+        tabId: 'target',
+        worktreeId: 'folder:legacy',
+        agent: 'codex' as const,
+        providerSession: { key: 'session_id' as const, id: 'provider' },
+        prompt: '',
+        state: 'working' as const,
+        capturedAt: 1,
+        updatedAt: 1,
+        origin: 'live' as const
+      }
+    }
+  }
+  const observed: boolean[][] = []
+  const unsubscribe = useAppStore.subscribe((state) => {
+    observed.push([
+      !!state.sleepingAgentSessionsByPaneKey[pane],
+      !!state.legacyWorkerResumeFencesByPaneKey[pane]
+    ])
+  })
+  try {
+    useAppStore.getState().hydrateWorkspaceSession(session, {
+      additionalValidWorkspaceKeys: ['folder:legacy']
+    })
+    expect(observed).toEqual([[true, true]])
+  } finally {
+    unsubscribe()
+  }
+})
+
+it.each(['resolve', 'reject'] as const)(
+  'a later refresh can retire hydration after the older read %ss',
+  async (outcome) => {
+    let settle!: () => void
+    const read = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Record<string, true>>((resolve, reject) => {
+            settle = () => (outcome === 'resolve' ? resolve({}) : reject(new Error('offline')))
+          })
+      )
+      .mockResolvedValue({})
+    vi.stubGlobal('window', { api: { app: { getLegacyWorkerResumeFences: read } } })
+    const pending = refreshLegacyWorkerResumeFences()
+    useAppStore.getState().hydrateWorkspaceSession({
+      ...getDefaultWorkspaceSession(),
+      legacyWorkerResumeFencesByPaneKey: { [pane]: true }
+    })
+    settle()
+    await pending
+    expect(useAppStore.getState().legacyWorkerResumeFencesByPaneKey).toEqual({ [pane]: true })
+    await refreshLegacyWorkerResumeFences()
+    expect(useAppStore.getState().legacyWorkerResumeFencesByPaneKey).toEqual({})
+  }
+)
