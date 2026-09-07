@@ -39,6 +39,20 @@ for (const surface of ['file', 'combined']) {
     await open.click()
     const host = orcaPage.locator('diffs-container').first()
     const line = host.locator('[data-content] [data-line-type="change-addition"]').first()
+    await expect(line).toBeVisible({ timeout: 20_000 })
+    const code = host.locator('[data-code][data-additions]')
+    const codeBox = await code.boundingBox()
+    if (!codeBox) {
+      throw new Error('Missing diff viewport')
+    }
+    await orcaPage.mouse.move(codeBox.x + 120, codeBox.y + 10)
+    await orcaPage.keyboard.down('Shift')
+    await orcaPage.mouse.wheel(0, 120)
+    await orcaPage.keyboard.up('Shift')
+    await expect.poll(() => code.evaluate((node) => node.scrollLeft)).toBeGreaterThan(50)
+    await code.evaluate((node) => {
+      node.scrollLeft = 0
+    })
     await line.click({ timeout: 20_000 })
     await orcaPage.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
     await orcaPage.keyboard.type('X')

@@ -26,6 +26,7 @@ import {
 } from './pierre-diff-comment-annotations'
 import { usePierreDiffFind } from './use-pierre-diff-find'
 import { PierreDiffSearchBar } from './PierreDiffSearchBar'
+import { usePierreDiffShiftWheel } from './use-pierre-diff-shift-wheel'
 import { installPierreContextualCopy } from './pierre-diff-context-copy'
 import { editorShortcutMatches } from '../editor-shortcuts'
 import { usePierreDiffNoteNavigation } from './use-pierre-diff-note-navigation'
@@ -115,6 +116,7 @@ export function PierreDiffSurface({
     onEditChange?.(file)
     searchEditChange()
   }
+  const shiftWheelPostRender = usePierreDiffShiftWheel()
   const navigateToNote = usePierreDiffNoteNavigation({ worktreeId, filePath, comments })
   const commentableLines = useMemo(
     () => (commentableLineNumbers ? new Set(commentableLineNumbers) : null),
@@ -158,6 +160,7 @@ export function PierreDiffSurface({
         onPostRender?.(node, phase, instance)
         navigateToNote(node, phase, instance)
         searchPostRender(node, phase, instance)
+        shiftWheelPostRender(node, phase, instance)
       }
     }),
     [
@@ -168,6 +171,7 @@ export function PierreDiffSurface({
       onAddComment,
       navigateToNote,
       searchPostRender,
+      shiftWheelPostRender,
       commentableLines,
       addCommentLabel
     ]
