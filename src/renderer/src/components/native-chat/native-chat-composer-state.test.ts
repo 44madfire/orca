@@ -16,6 +16,7 @@ import {
   slashCommandDispatchText,
   type SlashCommandSuggestion
 } from './native-chat-composer-state'
+import { sessionSlashCommandSuggestions } from '../../../../shared/native-chat-slash-commands'
 import type { DiscoveredSkill } from '../../../../shared/skills'
 import { getNativeChatAgentProfile } from '../../../../shared/native-chat-agent-profiles'
 
@@ -421,4 +422,32 @@ describe('native skill and command picker', () => {
       ).mode
     ).toBe('none')
   })
+})
+
+it('preserves known skill completion for unclassified session members only', () => {
+  const commands = sessionSlashCommandSuggestions('claude', [
+    { name: 'clear', kind: 'command', kindUnspecified: true },
+    { name: 'typescript', kind: 'command', kindUnspecified: true },
+    { name: 'project-check', kind: 'command', kindUnspecified: true }
+  ])
+  const diskSkills = [
+    skill({ description: 'TypeScript skill' }),
+    skill({ name: 'not-loaded', skillFilePath: '/not-loaded/SKILL.md' })
+  ]
+  const items = buildNativeChatPickerItems(commands, diskSkills, '', '/', [])
+  expect(items.map(({ name, kind }) => ({ name, kind }))).toEqual([
+    { name: 'clear', kind: 'command' },
+    { name: 'project-check', kind: 'command' },
+    { name: 'typescript', kind: 'skill' }
+  ])
+  expect(items[2]).toMatchObject({
+    description: 'TypeScript skill',
+    sources: [{ sourceKind: 'repo' }]
+  })
+  const classified = sessionSlashCommandSuggestions('claude', [
+    { name: 'typescript', kind: 'command' }
+  ])
+  expect(
+    buildNativeChatPickerItems(classified, diskSkills, '', '/', []).map(({ kind }) => kind)
+  ).toEqual(['command'])
 })

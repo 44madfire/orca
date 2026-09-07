@@ -50,11 +50,17 @@ export function buildNativeChatPickerItems(
   prefix: '/' | '$',
   sessionSkillNames?: readonly string[]
 ): NativeChatPickerItem[] {
-  const mergedSkills = mergeNativeChatSkills(skills, sessionSkillNames)
+  const unclassifiedNames = new Set(
+    commands.filter((command) => command.kindUnspecified).map((command) => command.name)
+  )
+  const mergedSkills = mergeNativeChatSkills(skills, sessionSkillNames, unclassifiedNames)
   const skillNames = new Set(mergedSkills.map((skill) => skill.name))
-  const commandNames = new Set(commands.map((command) => command.name))
+  const resolvedCommands = commands.filter(
+    (command) => !(command.kindUnspecified && skillNames.has(command.name))
+  )
+  const commandNames = new Set(resolvedCommands.map((command) => command.name))
   const commandItems = rankItems(
-    commands.map((command, index) => ({
+    resolvedCommands.map((command, index) => ({
       item: {
         kind: 'command' as const,
         // Why: the name is the dispatch token and the catalog is curated, so
@@ -82,7 +88,8 @@ export function buildNativeChatPickerItems(
 
 function mergeNativeChatSkills(
   skills: readonly DiscoveredSkill[],
-  sessionSkillNames?: readonly string[]
+  sessionSkillNames: readonly string[] | undefined,
+  unclassifiedNames: ReadonlySet<string>
 ): Extract<NativeChatPickerItem, { kind: 'skill' }>[] {
   const exactPaths = new Map<string, DiscoveredSkill>()
   for (const skill of skills) {
@@ -107,7 +114,12 @@ function mergeNativeChatSkills(
   // the session ignored must not be offered. The scan stays the source of
   // description and scope for the names both know about.
   const names =
-    sessionSkillNames !== undefined ? sessionSkillNames.filter(isTokenSafe) : [...discovered.keys()]
+    sessionSkillNames !== undefined
+      ? [
+          ...sessionSkillNames.filter(isTokenSafe),
+          ...[...discovered.keys()].filter((name) => unclassifiedNames.has(name))
+        ]
+      : [...discovered.keys()]
   return [...new Set(names)]
     .map((name) => discovered.get(name) ?? pickerSkill(name, []))
     .sort(comparePickerSkills)

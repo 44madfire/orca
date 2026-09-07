@@ -12,6 +12,7 @@ export type SlashCommandSuggestion = {
   name: string
   /** Optional one-line description for the suggestion row. */
   description?: string
+  kindUnspecified?: true
 }
 
 // Best-effort, curated per-agent catalogs. The CLIs ship no machine-readable
@@ -106,7 +107,11 @@ export function sessionSlashCommandSuggestions(
     .filter((entry) => entry.kind === 'command')
     .map((entry) => {
       const description = described.get(entry.name)
-      return { name: entry.name, ...(description ? { description } : {}) }
+      return {
+        name: entry.name,
+        ...(description ? { description } : {}),
+        ...(entry.kindUnspecified ? { kindUnspecified: true as const } : {})
+      }
     })
 }
 

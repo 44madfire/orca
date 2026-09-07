@@ -317,6 +317,8 @@ export type AgentSessionModelOption = {
 export type AgentSessionSlashCommand = {
   name: string
   kind: 'command' | 'skill'
+  /** Membership is authoritative, but this provider report did not classify the name. */
+  kindUnspecified?: true
 }
 
 /** The provider's own command surface, read per session. Additive read-only

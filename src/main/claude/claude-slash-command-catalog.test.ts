@@ -93,3 +93,40 @@ it('accepts descriptor reloads, removing old skills while retaining terminal fil
   expect(catalog.observe({ ...reload, commands: [] })).toBe(true)
   expect(catalog.commands).toEqual([])
 })
+
+it('lets stream init refine a control seed and preserves kinds across descriptor reloads', () => {
+  const seed = { commands: [{ name: 'clear' }, { name: 'project-check' }] }
+  const catalog = new ClaudeSlashCommandCatalog(undefined, seed)
+  expect(catalog.commands).toEqual([
+    { name: 'clear', kind: 'command', kindUnspecified: true },
+    { name: 'project-check', kind: 'command', kindUnspecified: true }
+  ])
+  expect(catalog.observe({ type: 'system', subtype: 'commands_changed', ...seed })).toBe(false)
+  const fullInit = init({ slash_commands: ['clear', 'project-check'], skills: ['project-check'] })
+  expect(catalog.observe(fullInit)).toBe(true)
+  expect(catalog.commands).toEqual([
+    { name: 'clear', kind: 'command' },
+    { name: 'project-check', kind: 'skill' }
+  ])
+  expect(catalog.observe({ type: 'system', subtype: 'commands_changed', ...seed })).toBe(false)
+  expect(new ClaudeSlashCommandCatalog(fullInit, seed).commands).toEqual(catalog.commands)
+  expect(new ClaudeSlashCommandCatalog(init({ slash_commands: [] }), seed).commands).toEqual([])
+})
+
+it('distinguishes missing or malformed control catalogs from authoritative empty ones', () => {
+  for (const initialization of [undefined, null, {}, { commands: null }, { commands: 'bad' }]) {
+    expect(new ClaudeSlashCommandCatalog(undefined, initialization).commands).toBeUndefined()
+  }
+  expect(new ClaudeSlashCommandCatalog(undefined, { commands: [] }).commands).toEqual([])
+  expect(
+    new ClaudeSlashCommandCatalog(undefined, {
+      commands: [null, {}, { name: ' ' }, { name: 'two words' }, { name: 'ok' }, { name: 'ok' }]
+    }).commands
+  ).toEqual([{ name: 'ok', kind: 'command', kindUnspecified: true }])
+})
+
+it('publishes classification becoming authoritative even when the name and kind stay unchanged', () => {
+  const catalog = new ClaudeSlashCommandCatalog(undefined, { commands: [{ name: 'clear' }] })
+  expect(catalog.observe(init({ slash_commands: ['clear'], skills: [] }))).toBe(true)
+  expect(catalog.commands).toEqual([{ name: 'clear', kind: 'command' }])
+})

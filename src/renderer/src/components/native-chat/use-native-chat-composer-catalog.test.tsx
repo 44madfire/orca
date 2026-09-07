@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 import { renderHook } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { buildNativeChatPickerItems } from './native-chat-picker-items'
+import { useNativeChatComposerKeyDown } from './use-native-chat-composer-keydown'
+import { EMPTY_HISTORY } from './native-chat-composer-state'
 import { useNativeChatComposerCatalog } from './use-native-chat-composer-catalog'
 import type { NativeChatStructuredComposerTransport } from './native-chat-composer-types'
 import { getVerifiedNativeChatCommands } from '../../../../shared/native-chat-agent-profiles'
@@ -35,4 +38,77 @@ describe('composer catalog authority', () => {
       sessionSkillNames: []
     })
   })
+})
+
+it('Enter completes a known pre-init skill while still dispatching a built-in command', () => {
+  const reported = [
+    { name: 'clear', kind: 'command' as const, kindUnspecified: true as const },
+    { name: 'project-skill', kind: 'command' as const, kindUnspecified: true as const }
+  ]
+  const complete = vi.fn(),
+    dispatch = vi.fn()
+  const { result, rerender } = renderHook(
+    ({ activeSuggestion }) => {
+      const catalog = useNativeChatComposerCatalog('claude', transport(reported))
+      const items = buildNativeChatPickerItems(
+        catalog.agentCommands,
+        [
+          {
+            id: 'project-skill',
+            name: 'project-skill',
+            description: 'Project skill',
+            providers: ['claude'],
+            sourceKind: 'repo',
+            sourceLabel: 'Project',
+            rootPath: '/project/.claude/skills',
+            directoryPath: '/project/.claude/skills/project-skill',
+            skillFilePath: '/project/.claude/skills/project-skill/SKILL.md',
+            installed: true,
+            updatedAt: null
+          }
+        ],
+        '',
+        '/',
+        catalog.sessionSkillNames
+      )
+      return useNativeChatComposerKeyDown({
+        autocomplete: {
+          mode: 'slash',
+          query: '',
+          items,
+          triggerKey: '/',
+          prefix: '/',
+          grouped: true,
+          commandsEnabled: true,
+          skillsEnabled: true,
+          skillStatus: 'ready'
+        },
+        activeSuggestion,
+        draft: '/',
+        history: EMPTY_HISTORY,
+        isComposing: () => false,
+        completePickerItem: complete,
+        dispatchPickerCommand: dispatch,
+        dismissPicker: vi.fn(),
+        interrupt: vi.fn(),
+        send: vi.fn(),
+        setActiveSuggestion: vi.fn(),
+        setDraft: vi.fn(),
+        setCaret: vi.fn(),
+        setHistory: vi.fn()
+      })
+    },
+    { initialProps: { activeSuggestion: 1 } }
+  )
+  const enter = { key: 'Enter', nativeEvent: {}, preventDefault: vi.fn() } as unknown as Parameters<
+    typeof result.current
+  >[0]
+  result.current(enter)
+  expect(complete).toHaveBeenCalledWith(
+    expect.objectContaining({ name: 'project-skill', kind: 'skill' })
+  )
+  expect(dispatch).not.toHaveBeenCalled()
+  rerender({ activeSuggestion: 0 })
+  result.current(enter)
+  expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ name: 'clear', kind: 'command' }))
 })
