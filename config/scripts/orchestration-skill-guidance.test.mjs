@@ -168,9 +168,11 @@ describe('orchestration kernel', () => {
     expect(kernel).toContain(
       '`projection.attention` categories, `projection.attention.requiresAction`, and literal `projection.nextAction` argv'
     )
-    expect(kernel).toContain(
-      'A `none` `nextAction` has no argv to run: read `liveness.reason` and keep waiting with `check --wait`. Every `unverifiable` row reports it, `requiresAction` or not'
-    )
+    // Why fragments: the kernel must state both halves of projectFleetNextAction's unverifiable
+    // rule — no argv to run, and the pending-input/approval exception that still returns inspect.
+    expect(kernel).toContain('A `none` `nextAction` has no argv to run')
+    expect(kernel).toContain('read `liveness.reason` and keep waiting with `check --wait`')
+    expect(kernel).toContain('An `unverifiable` row reports it unless input or approval waits')
     expect(kernel).toContain('choose `worker-stop` or `worker-abandon`')
   })
 

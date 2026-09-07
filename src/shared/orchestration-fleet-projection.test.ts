@@ -545,6 +545,24 @@ describe('fleet liveness and attention after a host verdict', () => {
     expect(projected.workers[0]!.nextAction.kind).toBe('inspect')
   })
 
+  // The exception the kernel's `none` rule names: pending work is something a command can move,
+  // so these rows keep `inspect` instead of reading as another wait-only unverifiable row.
+  it.each([{ pendingInput: true }, { pendingApproval: true }])(
+    'keeps an unverifiable worker with %o inspectable',
+    (pending) => {
+      const projected = projectOrchestrationFleet({
+        workers: [worker('1', pending)],
+        statuses: [],
+        now: 10_000
+      })
+      expect(projected.workers[0]!.liveness.verdict).toBe('unverifiable')
+      expect(projected.workers[0]!.nextAction).toEqual({
+        kind: 'inspect',
+        argv: ['orchestration', 'worker-show', '--dispatch', '1']
+      })
+    }
+  )
+
   // The live worker-list row from a stopped worker: the same receipt proved the exit,
   // called it absence, and pointed back at the command that reported the settlement.
   it('never contradicts a proven exit on a stopped worker still owning its terminal', () => {
