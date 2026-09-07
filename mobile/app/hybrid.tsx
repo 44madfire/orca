@@ -329,7 +329,10 @@ export default function HybridScreen() {
       selectedHost={selectedHost}
       session={sessionHostId === selectedHostId ? session : null}
       viewEpoch={viewEpoch}
-      packageLoading={packageLoading || !selectedHost || sessionHostId !== selectedHostId}
+      // A session from the previously selected host must not render as ready for this one.
+      packageLoading={
+        packageLoading || !selectedHost || (session !== null && sessionHostId !== selectedHostId)
+      }
       packageProgress={packageProgress}
       packageWarning={packageWarning}
       hostedViewActive={hostedViewActive}
