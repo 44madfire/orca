@@ -484,40 +484,50 @@ describe('agent sleep coordinator', () => {
     expect(shutdown).not.toHaveBeenCalled()
   })
 
-  it('hibernates a runtime-backed candidate with fresh liveness and exact PTYs', async () => {
-    vi.useFakeTimers()
-    installRuntimeListResponses(
-      runtimeListResult(['pty-1']),
-      runtimeListResult(['pty-1']),
-      runtimeListResult(['pty-1'])
-    )
-    const shutdown = installEligibleState(vi.fn().mockResolvedValue(undefined), {
-      settings: {
-        experimentalAgentHibernation: true,
-        agentHibernationIdleMs: DEFAULT_AGENT_HIBERNATION_IDLE_MS,
-        activeRuntimeEnvironmentId: 'runtime-1'
-      } as never,
-      ptyIdsByTabId: { 'tab-1': [] }
-    })
-    startAgentHibernationCoordinator({ intervalMs: 1000, now: () => NOW })
-
-    await vi.advanceTimersByTimeAsync(1000)
-    await vi.advanceTimersByTimeAsync(1000)
-
-    expect(shutdown).toHaveBeenCalledWith('wt-bg', {
-      paneKey: `tab-1:${LEAF}`,
-      tabId: 'tab-1',
-      leafId: LEAF,
-      ptyId: 'pty-1',
-      expectedRuntimePtyId: 'pty-1'
-    })
-    expect(mockRuntimeEnvironmentCall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: 'terminal.list',
-        params: expect.objectContaining({ requireFreshPtyLiveness: true })
+  it.each(['wt-bg', 'folder:folder-1'])(
+    'hibernates a runtime-backed candidate in %s with fresh liveness and exact PTYs',
+    async (worktreeId) => {
+      vi.useFakeTimers()
+      const result = runtimeListResult(['pty-1'])
+      result.terminals[0].worktreeId = worktreeId
+      installRuntimeListResponses(result, result, result)
+      const shutdown = installEligibleState(vi.fn().mockResolvedValue(undefined), {
+        settings: {
+          experimentalAgentHibernation: true,
+          agentHibernationIdleMs: DEFAULT_AGENT_HIBERNATION_IDLE_MS,
+          activeRuntimeEnvironmentId: 'runtime-1'
+        } as never,
+        folderWorkspaces: [
+          {
+            id: 'folder-1',
+            folderPath: tmpdir(),
+            executionHostId: 'runtime:runtime-1'
+          }
+        ] as never,
+        tabsByWorktree: { [worktreeId]: [{ ...tab(), worktreeId }] },
+        agentStatusByPaneKey: { [entry().paneKey]: { ...entry(), worktreeId } },
+        ptyIdsByTabId: { 'tab-1': [] }
       })
-    )
-  })
+      startAgentHibernationCoordinator({ intervalMs: 1000, now: () => NOW })
+
+      await vi.advanceTimersByTimeAsync(1000)
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(shutdown).toHaveBeenCalledWith(worktreeId, {
+        paneKey: `tab-1:${LEAF}`,
+        tabId: 'tab-1',
+        leafId: LEAF,
+        ptyId: 'pty-1',
+        expectedRuntimePtyId: 'pty-1'
+      })
+      expect(mockRuntimeEnvironmentCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'terminal.list',
+          params: expect.objectContaining({ requireFreshPtyLiveness: true })
+        })
+      )
+    }
+  )
 
   it('requires fresh runtime liveness for confirmation and pre-shutdown recheck', async () => {
     vi.useFakeTimers()
@@ -546,7 +556,7 @@ describe('agent sleep coordinator', () => {
   })
 
   it('revalidates a confirmed pane without listing unrelated runtime worktrees', async () => {
-    installRuntimeListResponses(...Array.from({ length: 5 }, () => runtimeListResult(['pty-1'])))
+    installRuntimeListResponses(...Array.from({ length: 3 }, () => runtimeListResult(['pty-1'])))
     const shutdown = installEligibleState(vi.fn().mockResolvedValue(undefined), {
       settings: {
         experimentalAgentHibernation: true,
@@ -583,13 +593,102 @@ describe('agent sleep coordinator', () => {
     const listCalls = mockRuntimeEnvironmentCall.mock.calls.filter(
       ([args]) => args.method === 'terminal.list'
     )
-    // Two global confirmation samples list both worktrees; the destructive
-    // recheck lists only the candidate's owner: 2W + C, not 2W + C×W.
-    expect(listCalls).toHaveLength(5)
+    // Both confirmation samples and the destructive recheck query only the completed agent's owner.
+    expect(listCalls).toHaveLength(3)
     expect(listCalls.at(-1)?.[0]).toMatchObject({
       selector: 'runtime-1',
       params: { worktree: expect.anything() }
     })
+  })
+
+  it('does not request runtime inventories for 100 workspaces without completed agents', async () => {
+    installRuntimeListResponses()
+    const tabs = Array.from({ length: 100 }, (_, index) => ({
+      ...tab(),
+      id: `tab-${index}`,
+      worktreeId: `wt-${index}`
+    }))
+    const shutdown = installEligibleState(vi.fn(), {
+      worktreesByRepo: {
+        'fixture-repo': tabs.map((t) => ({
+          id: t.worktreeId,
+          repoId: 'fixture-repo',
+          hostId: 'runtime:runtime-1',
+          runtimeOwnerEnvironmentId: 'runtime-1'
+        }))
+      } as never,
+      tabsByWorktree: Object.fromEntries(tabs.map((t) => [t.worktreeId, [t]])),
+      agentStatusByPaneKey: Object.fromEntries(
+        tabs.map((t, index) => [
+          `${t.id}:${LEAF}`,
+          {
+            ...entry(),
+            tabId: t.id,
+            worktreeId: t.worktreeId,
+            paneKey: `${t.id}:${LEAF}`,
+            state: index % 2 === 0 ? 'working' : 'waiting'
+          }
+        ])
+      )
+    })
+
+    await runAgentHibernationTick()
+
+    expect(mockRuntimeEnvironmentCall).not.toHaveBeenCalled()
+    expect(shutdown).not.toHaveBeenCalled()
+  })
+
+  it('requires host evidence after a skipped workspace completes during another inventory request', async () => {
+    const delayed = deferred<ReturnType<typeof runtimeListResult>>()
+    installRuntimeListResponses()
+    const respond = mockRuntimeEnvironmentCall.getMockImplementation()!
+    mockRuntimeEnvironmentCall.mockImplementation((args: { method: string }) =>
+      args.method === 'terminal.list'
+        ? delayed.promise.then((result) => ({ id: 'delayed', ok: true, result }))
+        : respond(args)
+    )
+    const first = entry()
+    const second = { ...entry(), tabId: 'tab-2', paneKey: `tab-2:${LEAF}`, worktreeId: 'wt-other' }
+    const shutdown = installEligibleState(vi.fn(), {
+      worktreesByRepo: {
+        'fixture-repo': ['wt-bg', 'wt-other'].map((id) => ({
+          id,
+          repoId: 'fixture-repo',
+          hostId: 'runtime:runtime-1',
+          runtimeOwnerEnvironmentId: 'runtime-1'
+        }))
+      } as never,
+      tabsByWorktree: {
+        'wt-bg': [tab()],
+        'wt-other': [{ ...tab(), id: 'tab-2', worktreeId: 'wt-other' }]
+      },
+      agentStatusByPaneKey: {
+        [first.paneKey]: { ...first, state: 'working' },
+        [second.paneKey]: second
+      }
+    })
+
+    const tick = runAgentHibernationTick()
+    await vi.waitFor(() =>
+      expect(mockRuntimeEnvironmentCall).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'terminal.list' })
+      )
+    )
+    useAppStore.setState({ agentStatusByPaneKey: { [first.paneKey]: first } })
+    delayed.resolve(runtimeListResult([]))
+    await tick
+
+    installRuntimeListResponses()
+    await runAgentHibernationTick()
+    expect(shutdown).not.toHaveBeenCalled()
+    await runAgentHibernationTick()
+    expect(shutdown).toHaveBeenCalledTimes(1)
+    expect(shutdown).toHaveBeenCalledWith(
+      'wt-bg',
+      expect.objectContaining({
+        expectedRuntimePtyId: 'pty-1'
+      })
+    )
   })
 
   it('uses fresh store state after awaiting runtime liveness before shutdown', async () => {

@@ -30,6 +30,7 @@ import type {
   RuntimeTerminalSummary
 } from '../../../shared/runtime-types'
 import { getWindowParkVisible, subscribeWindowParkVisibility } from './window-park-visibility'
+import { getEntryTabId } from './agent-hibernation-pane-eligibility'
 
 export const AGENT_HIBERNATION_TICK_MS = 60 * 1000
 
@@ -132,8 +133,19 @@ async function collectRuntimePtyLiveness(
   const targets = getRuntimeLivenessTargetWorktrees(state, targetWorktreeId)
   const runtimeLivePtyIdsByWorktreeId: Record<string, string[]> = {}
   const runtimeLivenessRequiredWorktreeIds = [...targets.keys()]
+  const completedTabIds = new Set<string>()
+  for (const entry of Object.values(state.agentStatusByPaneKey)) {
+    const tabId = entry?.state === 'done' ? getEntryTabId(entry) : null
+    if (tabId) {
+      completedTabIds.add(tabId)
+    }
+  }
   await Promise.all(
     [...targets].map(async ([worktreeId, runtimeEnvironmentId]) => {
+      if (!state.tabsByWorktree[worktreeId]?.some((tab) => completedTabIds.has(tab.id))) {
+        // Skipped owners still require host evidence if an agent completes during this pass.
+        return
+      }
       try {
         const result = await callRuntimeRpc<RuntimeTerminalListResult>(
           { kind: 'environment', environmentId: runtimeEnvironmentId },
