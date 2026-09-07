@@ -1,8 +1,4 @@
 import { z } from 'zod'
-import {
-  MobileWebHostedNullableAvatarUrlSchema,
-  MobileWebHostedOptionalAvatarUrlSchema
-} from './hosted-avatar-contract'
 import { MobileWebTaskGitHubUserSchema, MobileWebTaskLinearIssueSchema } from './task-list-contract'
 
 const RepoIdSchema = z.string().min(1).max(128)
@@ -13,7 +9,6 @@ export const MobileWebTaskDetailCommentSchema = z
   .object({
     id: z.union([z.string().min(1).max(240), z.number().int().nonnegative()]),
     author: z.string().max(240).optional(),
-    authorAvatarUrl: MobileWebHostedOptionalAvatarUrlSchema,
     user: z
       .object({ displayName: z.string().max(240).optional() })
       .strip()
@@ -103,8 +98,7 @@ export const MobileWebTaskGitHubDetailResultSchema = z
         z
           .object({
             login: z.string().min(1).max(160),
-            state: z.string().max(80).nullable().optional(),
-            avatarUrl: MobileWebHostedNullableAvatarUrlSchema
+            state: z.string().max(80).nullable().optional()
           })
           .strip()
       )

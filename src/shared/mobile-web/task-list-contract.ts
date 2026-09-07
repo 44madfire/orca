@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { MobileWebHostedNullableAvatarUrlSchema } from './hosted-avatar-contract'
 
 const RepoIdSchema = z.string().min(1).max(128)
 const BoundedStringSchema = z.string().max(4_096)
@@ -15,8 +14,7 @@ const OwnerRepoSchema = z
 export const MobileWebTaskGitHubUserSchema = z
   .object({
     login: z.string().min(1).max(160),
-    name: z.string().max(240).nullable().optional(),
-    avatarUrl: MobileWebHostedNullableAvatarUrlSchema
+    name: z.string().max(240).nullable().optional()
   })
   .strip()
 
@@ -44,8 +42,7 @@ const GitHubWorkItemSchema = z
         z
           .object({
             login: z.string().min(1).max(160),
-            state: z.string().max(80).nullable().optional(),
-            avatarUrl: MobileWebHostedNullableAvatarUrlSchema
+            state: z.string().max(80).nullable().optional()
           })
           .strip()
       )

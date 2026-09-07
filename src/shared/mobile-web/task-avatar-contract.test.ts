@@ -28,8 +28,8 @@ describe('mobile web task avatar contracts', () => {
       ]
     })
 
-    expect(result.items[0]?.reviewRequests?.[0]?.avatarUrl).toBeNull()
-    expect(result.items[0]?.latestReviews?.[0]?.avatarUrl).toBeNull()
+    expect(result.items[0]?.reviewRequests?.[0]).not.toHaveProperty('avatarUrl')
+    expect(result.items[0]?.latestReviews?.[0]).not.toHaveProperty('avatarUrl')
     expect(JSON.stringify(result)).not.toContain(AVATAR_URL)
   })
 
@@ -54,10 +54,10 @@ describe('mobile web task avatar contracts', () => {
       files: []
     })
 
-    expect(users.users[0]?.avatarUrl).toBeNull()
-    expect(detail.comments[0]?.authorAvatarUrl).toBeUndefined()
-    expect(detail.reviewRequests?.[0]?.avatarUrl).toBeNull()
-    expect(detail.latestReviews?.[0]?.avatarUrl).toBeNull()
+    expect(users.users[0]).not.toHaveProperty('avatarUrl')
+    expect(detail.comments[0]).not.toHaveProperty('authorAvatarUrl')
+    expect(detail.reviewRequests?.[0]).not.toHaveProperty('avatarUrl')
+    expect(detail.latestReviews?.[0]).not.toHaveProperty('avatarUrl')
     expect(JSON.stringify({ users, detail })).not.toContain(AVATAR_URL)
   })
 
@@ -94,13 +94,13 @@ describe('mobile web task avatar contracts', () => {
     })
 
     const row = result.rows[0]
-    expect(row?.content.assignees[0]?.avatarUrl).toBeNull()
+    expect(row?.content.assignees[0]).not.toHaveProperty('avatarUrl')
     const reviewers = row?.fieldValuesByFieldId.reviewers
     expect(reviewers?.kind).toBe('users')
     if (reviewers?.kind !== 'users') {
       throw new Error('expected users field')
     }
-    expect(reviewers.users[0]?.avatarUrl).toBeNull()
+    expect(reviewers.users[0]).not.toHaveProperty('avatarUrl')
     expect(JSON.stringify(result)).not.toContain(AVATAR_URL)
   })
 })

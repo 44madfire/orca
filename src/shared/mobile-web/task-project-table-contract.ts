@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { MobileWebHostedNullableAvatarUrlSchema } from './hosted-avatar-contract'
 import { MobileWebTaskProjectRefSchema } from './task-project-read-contract'
 
 export const MOBILE_WEB_TASK_PROJECT_PAGE_ROWS = 50
@@ -52,8 +51,7 @@ export const MobileWebTaskProjectFieldSchema = z.discriminatedUnion('kind', [
 const ProjectUserSchema = z
   .object({
     login: z.string().min(1).max(160),
-    name: z.string().max(240).nullable(),
-    avatarUrl: MobileWebHostedNullableAvatarUrlSchema
+    name: z.string().max(240).nullable()
   })
   .strip()
 const ProjectLabelSchema = z
