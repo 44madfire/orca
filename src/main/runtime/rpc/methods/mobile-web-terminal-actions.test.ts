@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcContext } from '../core'
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
-import { MOBILE_WEB_HOST_CATALOG_METHOD } from './mobile-web-host-catalog'
+import { isMobileWebHostRpcMethod } from './mobile-web-host-rpc-allowlist'
 
 const [action] = MOBILE_WEB_TERMINAL_ACTION_METHODS
 function fixture(worktree = 'folder:workspace') {
@@ -121,21 +121,7 @@ describe('host-owned terminal metadata', () => {
     ).rejects.toThrow('runtime_unavailable')
     expect(f.runtime.clearTerminalBuffer).not.toHaveBeenCalled()
   })
-  it('advertises the action with a workspace-scoped grant and no page session', async () => {
-    expect(
-      await MOBILE_WEB_HOST_CATALOG_METHOD.handler(
-        { methods: ['mobileWeb.terminal.action'] },
-        {} as RpcContext
-      )
-    ).toEqual({
-      grants: [
-        {
-          method: 'mobileWeb.terminal.action',
-          workspaceParam: 'worktree',
-          maxRequestBytes: 16 * 1024,
-          maxResponseBytes: 512 * 1024
-        }
-      ]
-    })
+  it('reaches a mobile-scope socket without a page session of its own', () => {
+    expect(isMobileWebHostRpcMethod('mobileWeb.terminal.action')).toBe(true)
   })
 })

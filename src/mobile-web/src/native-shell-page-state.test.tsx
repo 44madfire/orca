@@ -5,7 +5,6 @@ import {
   MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
   parseMobileWebBridgePageMessage
 } from '../../shared/mobile-web/bridge-contract'
-import { MOBILE_WEB_SHELL_PAGE_STATE_FEATURE } from '../../shared/mobile-web/shell-feature-contract'
 import { MobileWebNativeShellProvider, useMobileWebNativeShell } from './native-shell-channel'
 
 const context = { shellSessionId: 'S'.repeat(43), buildId: 'a'.repeat(64) }
@@ -88,7 +87,7 @@ describe('opaque hosted page state', () => {
     const posted: string[] = []
     Object.assign(window, { OrcaNative: { postMessage: (raw: string) => posted.push(raw) } })
     const hook = renderHook(useMobileWebNativeShell, { wrapper: MobileWebNativeShellProvider })
-    dispatch({ ...init, shellFeatures: [MOBILE_WEB_SHELL_PAGE_STATE_FEATURE] })
+    dispatch(init)
     act(() => {
       expect(hook.result.current.rememberRoute(route, 'x'.repeat(4097))).toBe(false)
     })

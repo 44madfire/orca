@@ -288,12 +288,12 @@ When a verdict is `blocked`, `mobile/src/components/ProtocolBlockScreen.tsx` ren
 
 To exercise the block screen locally: set `MIN_COMPATIBLE_DESKTOP_VERSION = 999` in `mobile/src/transport/protocol-version.ts`, rebuild, pair to any desktop. Revert before merging.
 
-The hosted capability bridge has a separate policy in
-`src/shared/mobile-web/bridge-release-policy.ts`. Additive hosted operations use
-capability negotiation without bumping bridge version 2. Breaking bridge or
-security semantics require a native shell release, and Desktop must retain the
-old bridge floor for at least two stable mobile releases containing its
-replacement.
+The hosted capability bridge gates on
+`MOBILE_WEB_BRIDGE_PROTOCOL_VERSION` in `src/shared/mobile-web/bridge-limits.ts`.
+Additive hosted operations negotiate through `init.grants` without bumping bridge
+version 2. Breaking bridge or security semantics require a native shell release,
+and Desktop must retain the old bridge floor for at least two stable mobile
+releases containing its replacement.
 
 ## Mock Server
 

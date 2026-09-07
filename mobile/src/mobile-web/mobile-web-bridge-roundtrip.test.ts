@@ -155,33 +155,18 @@ describe('mobile web bridge round trip', () => {
     let requestIndex = 0
     const rpcClient = {
       sendRequest: (method: string, params: unknown, options: unknown) =>
-        method === 'mobileWeb.host.catalog'
-          ? Promise.resolve({
+        method === 'mobileWeb.session.createTerminal'
+          ? sendRequest('session.tabs.createTerminal', params as never).then(() => ({
               ok: true,
-              result: {
-                grants: [
-                  {
-                    method: 'mobileWeb.session.createTerminal',
-                    workspaceParam: 'worktree',
-                    maxRequestBytes: 16384,
-                    maxResponseBytes: 524288
-                  }
-                ]
-              }
-            })
-          : method === 'mobileWeb.session.createTerminal'
-            ? sendRequest('session.tabs.createTerminal', params as never).then(() => ({
-                ok: true,
-                result: { tabId: 'terminal-2', created: true }
-              }))
-            : options === undefined
-              ? sendRequest(method, params as never)
-              : sendRequest(method, params as never, options as never),
+              result: { tabId: 'terminal-2', created: true }
+            }))
+          : options === undefined
+            ? sendRequest(method, params as never)
+            : sendRequest(method, params as never, options as never),
       subscribe
     } as unknown as RpcClient
     const { client } = createMobileWebBridgeRoundtripFixture({
       context: CONTEXT,
-      shellFeatures: [],
       grants: [...MOBILE_WEB_PRODUCTION_GRANTS],
       rpcClient,
       createRequestId: () => (requestIds[requestIndex++] ?? 'Z').repeat(22),

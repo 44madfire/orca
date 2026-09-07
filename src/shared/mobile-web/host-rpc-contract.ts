@@ -7,10 +7,6 @@ const MethodSchema = z
   .max(160)
   .regex(/^[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/)
 
-export const MobileWebHostCatalogPayloadSchema = z
-  .object({ methods: z.array(MethodSchema).min(1).max(32) })
-  .strict()
-
 export const MobileWebHostRequestPayloadSchema = z
   .object({
     method: MethodSchema,
@@ -19,36 +15,21 @@ export const MobileWebHostRequestPayloadSchema = z
   })
   .strict()
 
-export const MobileWebHostGrantSchema = z
-  .object({
-    method: MethodSchema,
-    scope: z.enum(['workspace', 'host']).optional(),
-    mode: z.enum(['once', 'subscription']).optional(),
-    unsubscribeMethod: MethodSchema.optional(),
-    workspaceParam: z
-      .string()
-      .min(1)
-      .max(80)
-      .regex(/^[A-Za-z][A-Za-z0-9]*$/)
-      .optional(),
-    maxRequestBytes: z.number().int().positive().max(MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES),
-    maxResponseBytes: z.number().int().positive().max(MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES)
-  })
-  .refine(
-    (grant) =>
-      grant.scope === 'host'
-        ? grant.workspaceParam === undefined
-        : grant.workspaceParam !== undefined,
-    'Grant scope and workspace parameter must agree'
-  )
-
-export const MobileWebHostCatalogResultSchema = z.object({
-  grants: z.array(MobileWebHostGrantSchema).max(32)
-})
-
 export const MobileWebHostResultSchema = z.unknown()
-export type MobileWebHostGrant = z.infer<typeof MobileWebHostGrantSchema>
 export type MobileWebHostRequestPayload = z.infer<typeof MobileWebHostRequestPayloadSchema>
+
+/** The desktop cancel method for a subscribe method: only the trailing segment differs. Anything
+ * that is not a subscribe method has no cancel and returns `undefined`, which callers treat as an
+ * unsupported capability. */
+export function mobileWebHostUnsubscribeMethod(method: string): string | undefined {
+  if (method.endsWith('.watch')) {
+    return `${method.slice(0, -'.watch'.length)}.unwatch`
+  }
+  if (method.endsWith('.subscribe')) {
+    return `${method.slice(0, -'.subscribe'.length)}.unsubscribe`
+  }
+  return undefined
+}
 
 export function mobileWebHostPayloadWithinBounds(value: unknown): boolean {
   return mobileWebHostPayloadByteLength(value) !== undefined

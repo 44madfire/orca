@@ -1,7 +1,9 @@
 import type { z } from 'zod'
 import { isRecord } from '../is-record'
-import { MOBILE_WEB_BRIDGE_MAX_MESSAGE_BYTES } from './bridge-limits'
-import { MOBILE_WEB_BRIDGE_PROTOCOL_VERSION } from './bridge-protocol-version'
+import {
+  MOBILE_WEB_BRIDGE_MAX_MESSAGE_BYTES,
+  MOBILE_WEB_BRIDGE_PROTOCOL_VERSION
+} from './bridge-limits'
 import { isExactMobileWebJsonDocument } from './exact-json-document'
 
 export type MobileWebBridgeMessageContext = {

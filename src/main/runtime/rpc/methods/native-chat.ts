@@ -211,17 +211,21 @@ export const NATIVE_CHAT_METHODS: readonly RpcAnyMethod[] = [
       unsubscribe = subscription.unsubscribe
     }
   }),
-  defineMethod({
-    name: 'nativeChat.unsubscribe',
-    params: NativeChatUnsubscribe,
-    handler: async (params, { runtime, connectionId }) => {
-      const connection = connectionId ?? 'local'
-      if (params.subscriptionId) {
-        runtime.cleanupSubscription(`nativeChat:${connection}:${params.subscriptionId}`)
+  // The hybrid page derives its cancel name from `mobileWeb.nativeChat.subscribe`; the released
+  // native app still calls `nativeChat.unsubscribe`, so both names share one handler.
+  ...['nativeChat.unsubscribe', 'mobileWeb.nativeChat.unsubscribe'].map((name) =>
+    defineMethod({
+      name,
+      params: NativeChatUnsubscribe,
+      handler: async (params, { runtime, connectionId }) => {
+        const connection = connectionId ?? 'local'
+        if (params.subscriptionId) {
+          runtime.cleanupSubscription(`nativeChat:${connection}:${params.subscriptionId}`)
+          return { unsubscribed: true }
+        }
+        runtime.cleanupSubscriptionsByPrefix(`nativeChat:${connection}:`)
         return { unsubscribed: true }
       }
-      runtime.cleanupSubscriptionsByPrefix(`nativeChat:${connection}:`)
-      return { unsubscribed: true }
-    }
-  })
+    })
+  )
 ]

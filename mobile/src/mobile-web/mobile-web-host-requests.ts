@@ -4,7 +4,6 @@ import {
 } from '../../../src/shared/mobile-web/host-rpc-contract'
 import type { RpcClient, SendRequestOptions } from '../transport/rpc-client'
 import { MobileWebBrokerError, mobileWebBrokerHostRpcError } from './mobile-web-broker-error'
-import type { MobileWebHostCatalogCache } from './mobile-web-host-catalog-cache'
 import type {
   MobileWebHostWorkspaceId,
   MobileWebWorkspaceAuthority
@@ -13,7 +12,7 @@ import type {
 export const MOBILE_WEB_HOST_REQUEST_TIMEOUT_MS = 15_000
 
 /** The page handle a request is scoped to, resolved once and re-checked at every dispatch. Absent
- * only for host-scoped grants, which carry no workspace at all. */
+ * when the page sent no workspace, which is how a host-wide method is addressed. */
 export type MobileWebHostRequestScope = {
   pageWorkspaceId: string
   hostWorkspaceId: MobileWebHostWorkspaceId
@@ -21,11 +20,9 @@ export type MobileWebHostRequestScope = {
 
 export type MobileWebHostRequestArguments = {
   client: RpcClient
-  catalog: MobileWebHostCatalogCache
   authority: MobileWebWorkspaceAuthority
   payload: unknown
   isActive: () => boolean
-  requestOptions?: () => SendRequestOptions
 }
 
 export function assertMobileWebHostRequestScope(
@@ -37,10 +34,9 @@ export function assertMobileWebHostRequestScope(
   }
 }
 
-export async function prepareMobileWebHostRequest(
-  args: MobileWebHostRequestArguments,
-  mode: 'once' | 'subscription'
-) {
+/** The desktop socket gate decides which methods a page may reach; the shell only rewrites the
+ * page's opaque workspace handle into the host worktree and enforces the bridge envelope. */
+export function prepareMobileWebHostRequest(args: MobileWebHostRequestArguments) {
   const payload = MobileWebHostRequestPayloadSchema.parse(args.payload)
   const scope =
     payload.workspaceId === undefined
@@ -49,29 +45,18 @@ export async function prepareMobileWebHostRequest(
           pageWorkspaceId: payload.workspaceId,
           hostWorkspaceId: args.authority.hostWorkspaceId(payload.workspaceId)
         }
-  const grant = await args.catalog.grant(args.client, payload.method, args.requestOptions?.())
-  if (
-    !grant ||
-    (grant.scope === 'host') !== (scope === undefined) ||
-    (grant.mode ?? 'once') !== mode ||
-    (mode === 'subscription' && !grant.unsubscribeMethod)
-  ) {
-    throw new MobileWebBrokerError('unsupported_capability')
-  }
   if (!args.isActive()) {
     throw new MobileWebBrokerError('cancelled')
   }
   assertMobileWebHostRequestScope(args.authority, scope)
   const params = {
     ...payload.params,
-    // Scope agreement above plus the grant schema's refine make workspaceParam present here.
-    ...(scope ? { [grant.workspaceParam!]: `id:${scope.hostWorkspaceId}` } : {})
+    ...(scope ? { worktree: `id:${scope.hostWorkspaceId}` } : {})
   }
-  const requestBytes = mobileWebHostPayloadByteLength(params)
-  if (requestBytes === undefined || requestBytes > grant.maxRequestBytes) {
+  if (mobileWebHostPayloadByteLength(params) === undefined) {
     throw new MobileWebBrokerError('too_large')
   }
-  return { payload, scope, grant, params }
+  return { payload, scope, params }
 }
 
 export async function executeMobileWebHostRequest(
@@ -86,18 +71,15 @@ export async function executeMobileWebHostRequest(
       throw new MobileWebBrokerError('timeout')
     }
   }
-  const requestOptions = (): SendRequestOptions => {
-    beforeSend()
-    return { timeoutMs: deadline - Date.now(), budgetSpansConnect: true, beforeSend }
-  }
-  const { payload, scope, grant, params } = await prepareMobileWebHostRequest(
-    { ...args, requestOptions },
-    'once'
-  )
-  const options = requestOptions()
-  options.beforeSend = () => {
-    beforeSend()
-    assertMobileWebHostRequestScope(args.authority, scope)
+  const { payload, scope, params } = prepareMobileWebHostRequest(args)
+  beforeSend()
+  const options: SendRequestOptions = {
+    timeoutMs: deadline - Date.now(),
+    budgetSpansConnect: true,
+    beforeSend: () => {
+      beforeSend()
+      assertMobileWebHostRequestScope(args.authority, scope)
+    }
   }
   const response = await args.client.sendRequest(payload.method, params, options)
   if (!response.ok) {
@@ -107,8 +89,7 @@ export async function executeMobileWebHostRequest(
     throw new MobileWebBrokerError('cancelled')
   }
   assertMobileWebHostRequestScope(args.authority, scope)
-  const responseBytes = mobileWebHostPayloadByteLength(response.result)
-  if (responseBytes === undefined || responseBytes > grant.maxResponseBytes) {
+  if (mobileWebHostPayloadByteLength(response.result) === undefined) {
     throw new MobileWebBrokerError('too_large')
   }
   return response.result

@@ -160,19 +160,6 @@ describe('hosted mobile bridge over cloud Relay transport', () => {
           )
           return
         }
-        if (request.method === 'mobileWeb.host.catalog') {
-          reply(
-            rpcSuccess(request.id, {
-              grants: ((request.params?.methods ?? []) as string[]).map((method) => ({
-                method,
-                workspaceParam: 'worktree',
-                maxRequestBytes: 16384,
-                maxResponseBytes: 524288
-              }))
-            })
-          )
-          return
-        }
         if (request.method === 'mobileWeb.nativeChat.read') {
           expect(request.params).toEqual({
             tabId: 'host-relay-tab',
@@ -397,14 +384,12 @@ describe('hosted mobile bridge over cloud Relay transport', () => {
         source: 'transcript'
       }
     ])
-    // One catalog read per method per connection: bind and read share the second one.
+    // The shell forwards each page read straight to the desktop; no discovery round trip.
     expect(observedMethods).toEqual([
       'pairing.getEndpoints',
       'runtime.clientCapabilities.update',
       'worktree.ps',
-      'mobileWeb.host.catalog',
       'mobileWeb.session.snapshot',
-      'mobileWeb.host.catalog',
       'mobileWeb.nativeChat.read'
     ])
     expect(JSON.stringify({ sessionSnapshot, transcript })).not.toContain('host-relay-terminal')

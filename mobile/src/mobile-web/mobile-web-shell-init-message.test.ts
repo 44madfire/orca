@@ -16,7 +16,6 @@ describe('native shell resume init', () => {
       pageState
     })
     expect(message.pageState).toBe(pageState)
-    expect(message.shellFeatures).toContain('navigation.pageState.v1')
     expect(parseMobileWebBridgeInitialMessage(JSON.stringify(message))).toMatchObject({
       ok: true,
       value: { pageState, resumeRoute: { kind: 'workspaceList' } }

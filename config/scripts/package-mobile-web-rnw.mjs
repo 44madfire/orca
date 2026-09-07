@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFile, readdir, rm, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { MOBILE_WEB_PACKAGE_BRIDGE_RANGE } from '../../src/shared/mobile-web/bridge-release-policy.ts'
+import { MOBILE_WEB_PACKAGE_BRIDGE_RANGE } from '../../src/shared/mobile-web/bridge-limits.ts'
 import {
   MOBILE_WEB_MANIFEST_SCHEMA_VERSION,
   MobileWebManifestSchema,

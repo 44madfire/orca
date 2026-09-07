@@ -13,13 +13,9 @@ export async function executeWorkspace(
   args: MobileWebCapabilityExecutionDependencies,
   request: OnceRequest
 ): Promise<unknown> {
-  if (request.operation === 'hostCatalog') {
-    return args.hostCatalog.read(args.connectedClient(), request.payload)
-  }
   if (request.operation === 'hostRequest') {
     return executeMobileWebHostRequest({
       client: args.connectedClient(),
-      catalog: args.hostCatalog,
       authority: args.workspaceAuthority,
       payload: request.payload,
       isActive: args.isRequestActive

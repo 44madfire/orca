@@ -2,9 +2,9 @@ import { z } from 'zod'
 import {
   MOBILE_WEB_BRIDGE_MAX_GRANTS,
   MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES,
-  MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS
+  MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS,
+  MOBILE_WEB_BRIDGE_PROTOCOL_VERSION
 } from './bridge-limits'
-import { MOBILE_WEB_BRIDGE_PROTOCOL_VERSION } from './bridge-protocol-version'
 import { isMobileWebBase64UrlIdentifier, isMobileWebSha256 } from './protocol-token-contract'
 import {
   isMobileWebBridgeOperation,
@@ -22,10 +22,6 @@ import {
   MobileWebNavigationRouteSchema,
   MobileWebResumeRouteSchema
 } from './bridge-route-contract'
-import {
-  MOBILE_WEB_SHELL_MAX_FEATURE_CHARACTERS,
-  MOBILE_WEB_SHELL_MAX_FEATURES
-} from './shell-feature-contract'
 import { tolerantMobileWebShellPayload } from './shell-payload-tolerance'
 
 export {
@@ -42,14 +38,9 @@ export {
   MOBILE_WEB_BRIDGE_MAX_MESSAGE_BYTES,
   MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES,
   MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS,
-  MOBILE_WEB_BRIDGE_MAX_SUBSCRIPTIONS
+  MOBILE_WEB_BRIDGE_MAX_SUBSCRIPTIONS,
+  MOBILE_WEB_BRIDGE_PROTOCOL_VERSION
 } from './bridge-limits'
-export { MOBILE_WEB_BRIDGE_PROTOCOL_VERSION } from './bridge-protocol-version'
-export {
-  MOBILE_WEB_SHELL_FEATURES,
-  MOBILE_WEB_SHELL_NATIVE_CHAT_PASTE_FOLLOWED_BY_TEXT_FEATURE
-} from './shell-feature-contract'
-export type { MobileWebShellFeature } from './shell-feature-contract'
 export { MobileWebNavigationRouteSchema, MobileWebResumeRouteSchema } from './bridge-route-contract'
 export type { MobileWebNavigationRoute, MobileWebResumeRoute } from './bridge-route-contract'
 
@@ -184,11 +175,6 @@ const ShellInitSchema = ShellEnvelopeSchema.extend({
   type: z.literal('init'),
   connection: ConnectionStateSchema,
   grants: z.array(OperationGrantSchema).max(MOBILE_WEB_BRIDGE_MAX_GRANTS),
-  // Absent on a shell built before any feature existed, which reads as "supports none".
-  shellFeatures: z
-    .array(z.string().min(1).max(MOBILE_WEB_SHELL_MAX_FEATURE_CHARACTERS))
-    .max(MOBILE_WEB_SHELL_MAX_FEATURES)
-    .optional(),
   hostDisplayName: z.string().min(1).max(160).optional(),
   resumeRoute: MobileWebResumeRouteSchema.optional(),
   pageState: MobileWebPageStateSchema.optional(),

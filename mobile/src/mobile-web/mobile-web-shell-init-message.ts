@@ -1,6 +1,5 @@
 import {
   MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
-  MOBILE_WEB_SHELL_FEATURES,
   type MobileWebBridgeShellMessage,
   type MobileWebResumeRoute
 } from '../../../src/shared/mobile-web/bridge-contract'
@@ -19,8 +18,8 @@ type MobileWebShellInitArgs = {
   pageState?: string
 }
 
-// Why: the init envelope is the one place the shell declares its grants and features to a page,
-// so it is built here rather than inline in the route screen.
+// Why: the init envelope is the one place the shell declares its grants to a page, so it is built
+// here rather than inline in the route screen.
 export function mobileWebShellInitMessage(
   args: MobileWebShellInitArgs
 ): Extract<MobileWebBridgeShellMessage, { type: 'init' }> {
@@ -35,7 +34,6 @@ export function mobileWebShellInitMessage(
     lastConnectedAt: args.lastConnectedAt,
     resumeRoute: args.resumeRoute,
     ...(args.pageState === undefined ? {} : { pageState: args.pageState }),
-    grants: [...MOBILE_WEB_PRODUCTION_GRANTS],
-    shellFeatures: [...MOBILE_WEB_SHELL_FEATURES]
+    grants: [...MOBILE_WEB_PRODUCTION_GRANTS]
   }
 }

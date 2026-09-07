@@ -3,7 +3,7 @@ import type { RpcClient } from '../transport/rpc-client'
 import { createMobileWebBridgeRoundtripFixture } from './mobile-web-bridge-roundtrip-fixture'
 import { MOBILE_WEB_PRODUCTION_GRANTS } from './mobile-web-production-grants'
 
-export function nativeChatBridgeFixture(genericHost = true, genericShell = true) {
+export function nativeChatBridgeFixture() {
   const transcript = {
     messages: [
       {
@@ -55,26 +55,6 @@ export function nativeChatBridgeFixture(genericHost = true, genericShell = true)
         }
       }
     }
-    if (method === 'mobileWeb.host.catalog') {
-      return {
-        id: 'test-request',
-        _meta: { runtimeId: 'test-runtime' },
-        ok: true,
-        result: {
-          grants: genericHost
-            ? ['read', 'subscribe', 'mutate'].map((operation) => ({
-                method: `mobileWeb.nativeChat.${operation}`,
-                ...(operation === 'subscribe'
-                  ? { mode: 'subscription', unsubscribeMethod: 'nativeChat.unsubscribe' }
-                  : {}),
-                workspaceParam: 'worktree',
-                maxRequestBytes: 16384,
-                maxResponseBytes: 524288
-              }))
-            : []
-        }
-      }
-    }
     if (method === 'mobileWeb.nativeChat.mutate') {
       const input = params as { action: string }
       return {
@@ -113,7 +93,6 @@ export function nativeChatBridgeFixture(genericHost = true, genericShell = true)
   })
   const bridge = createMobileWebBridgeRoundtripFixture({
     grants: MOBILE_WEB_PRODUCTION_GRANTS,
-    ...(genericShell ? {} : { shellFeatures: [] }),
     rpcClient: { sendRequest, subscribe } as unknown as RpcClient
   })
   return {

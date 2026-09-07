@@ -179,7 +179,6 @@ export const MOBILE_RPC_METHOD_ALLOWLIST = new Set([
   'markdown.saveTab',
   'mobileWeb.package.asset',
   'mobileWeb.package.asset.gzip',
-  'mobileWeb.host.catalog',
   'mobileWeb.package.manifest',
   'notifications.getMissedSince',
   'notifications.subscribe',

@@ -184,8 +184,7 @@ async function subscribeBrowser(args: Deps, request: SubscriptionRequest): Promi
 
 async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Promise<unknown> {
   if (request.operation === 'hostSubscribe') {
-    await args.hostSubscriptions.start({
-      catalog: args.hostCatalog,
+    args.hostSubscriptions.start({
       requestId: request.requestId,
       subscriptionId: request.subscriptionId,
       payload: request.payload,

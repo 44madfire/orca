@@ -11,19 +11,12 @@ import {
 } from './mobile-web-bridge-roundtrip-fixture'
 
 describe('mobile web speech broker', () => {
-  it('loads host-authored setup through the generic catalog without losing future fields', async () => {
+  it('loads host-authored setup through the generic host lane without losing future fields', async () => {
     const result = { ...setup(), futureModelPolicy: { mode: 'desktop-defined' } }
     const { operations, sendRequest, pageMessages } = createHostHarness(result)
 
     await expect(operations.load()).resolves.toEqual(result)
-    expect(sendRequest).toHaveBeenNthCalledWith(
-      1,
-      'mobileWeb.host.catalog',
-      { methods: ['speech.models.list'] },
-      expect.objectContaining({ budgetSpansConnect: true })
-    )
-    expect(sendRequest).toHaveBeenNthCalledWith(
-      2,
+    expect(sendRequest).toHaveBeenCalledExactlyOnceWith(
       'speech.models.list',
       {},
       expect.objectContaining({ beforeSend: expect.any(Function), budgetSpansConnect: true })
@@ -35,17 +28,6 @@ describe('mobile web speech broker', () => {
         payload: { method: 'speech.models.list', params: {} }
       })
     ])
-  })
-
-  it('rejects setup metadata exceeding the advertised host response budget', async () => {
-    const { operations } = createHostHarness({ ...setup(), future: 'x'.repeat(64 * 1024) })
-    await expect(operations.load()).rejects.toMatchObject({ code: 'too_large' })
-  })
-
-  it('does not dispatch setup when Desktop omits its grant', async () => {
-    const { operations, sendRequest } = createHostHarness(setup(), false)
-    await expect(operations.load()).rejects.toMatchObject({ code: 'unsupported_capability' })
-    expect(sendRequest).toHaveBeenCalledOnce()
   })
 
   it('accounts for the single speech subscription and releases it on cancel', async () => {
@@ -76,25 +58,8 @@ describe('mobile web speech broker', () => {
   })
 })
 
-function createHostHarness(result: unknown, advertised = true) {
-  const sendRequest = vi
-    .fn<RpcClient['sendRequest']>()
-    .mockResolvedValueOnce({
-      ok: true,
-      result: {
-        grants: advertised
-          ? [
-              {
-                method: 'speech.models.list',
-                scope: 'host',
-                maxRequestBytes: 4096,
-                maxResponseBytes: 64 * 1024
-              }
-            ]
-          : []
-      }
-    })
-    .mockResolvedValueOnce({ ok: true, result })
+function createHostHarness(result: unknown) {
+  const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValueOnce({ ok: true, result })
   const { client, pageMessages } = createMobileWebBridgeRoundtripFixture({
     grants: MOBILE_WEB_PRODUCTION_GRANTS,
     rpcClient: { sendRequest } as unknown as RpcClient

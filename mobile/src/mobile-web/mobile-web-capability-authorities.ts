@@ -1,7 +1,6 @@
 import { MobileWebAgentHistoryAuthority } from './mobile-web-agent-history-authority'
 import { MobileWebAgentHistoryPager } from './mobile-web-agent-history-pager'
 import { MobileWebAgentHistoryResume } from './mobile-web-agent-history-resume'
-import { MobileWebHostCatalogCache } from './mobile-web-host-catalog-cache'
 import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
 import { MobileWebSourceControlBranchComparePager } from './mobile-web-source-control-branch-compare-pager'
 import { MobileWebTerminalArtifactAuthority } from './mobile-web-terminal-artifact-authority'
@@ -14,7 +13,6 @@ export class MobileWebCapabilityAuthorities {
   readonly agentHistory: MobileWebAgentHistoryAuthority
   readonly agentHistoryPager: MobileWebAgentHistoryPager
   readonly agentHistoryResume: MobileWebAgentHistoryResume
-  readonly hostCatalog: MobileWebHostCatalogCache
   readonly nativeChat: MobileWebNativeChatAuthority
   readonly sourceControlBranchCompare: MobileWebSourceControlBranchComparePager
   readonly terminalArtifact: MobileWebTerminalArtifactAuthority
@@ -27,7 +25,6 @@ export class MobileWebCapabilityAuthorities {
     this.agentHistory = new MobileWebAgentHistoryAuthority(options.randomBytes)
     this.agentHistoryPager = new MobileWebAgentHistoryPager(options.randomBytes)
     this.agentHistoryResume = new MobileWebAgentHistoryResume(options.randomBytes)
-    this.hostCatalog = new MobileWebHostCatalogCache()
     this.nativeChat = new MobileWebNativeChatAuthority(options.randomBytes)
     this.sourceControlBranchCompare = new MobileWebSourceControlBranchComparePager()
     this.terminalArtifact = new MobileWebTerminalArtifactAuthority(options)
@@ -41,7 +38,6 @@ export class MobileWebCapabilityAuthorities {
     this.agentHistory.clear()
     this.agentHistoryPager.clear()
     this.agentHistoryResume.clear()
-    this.hostCatalog.clear()
     this.nativeChat.clear()
     this.sourceControlBranchCompare.clear()
     this.terminalArtifact.clear()

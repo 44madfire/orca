@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
 import { useMobileWebNativeShell } from '../../src/mobile-web/src/native-shell-channel'
 import TerminalSettingsScreen from '../src/terminal/terminal-settings-screen'
@@ -6,7 +6,6 @@ import {
   webTerminalSettingsHost,
   webTerminalSettingsOperations
 } from '../src/terminal/web-terminal-settings-operations'
-import type { TerminalSettingsHost } from '../src/terminal/terminal-settings-operations'
 
 export default function HostedTerminalSettingsRoute() {
   const shell = useMobileWebNativeShell()
@@ -20,33 +19,7 @@ function HostedTerminalSettings() {
     () => (client ? webTerminalSettingsOperations(client) : null),
     [client]
   )
-  const [hosts, setHosts] = useState<TerminalSettingsHost[]>([])
-  const [loadingHost, setLoadingHost] = useState(true)
-  const [hostLoadFailed, setHostLoadFailed] = useState(false)
-  useEffect(() => {
-    let active = true
-    if (client) {
-      void webTerminalSettingsHost(client)
-        .then((host) => {
-          if (active) {
-            setHosts(host ? [host] : [])
-          }
-        })
-        .catch(() => {
-          if (active) {
-            setHostLoadFailed(true)
-          }
-        })
-        .finally(() => {
-          if (active) {
-            setLoadingHost(false)
-          }
-        })
-    }
-    return () => {
-      active = false
-    }
-  }, [client])
+  const hosts = useMemo(() => (client ? [webTerminalSettingsHost(client)] : []), [client])
   const onBack = () => {
     if (router.canGoBack()) {
       router.back()
@@ -58,18 +31,6 @@ function HostedTerminalSettings() {
     return null
   }
   return (
-    <TerminalSettingsScreen
-      scope="host"
-      hosts={hosts}
-      operations={operations}
-      onBack={onBack}
-      hostUnavailableMessage={
-        loadingHost
-          ? 'Loading terminal restore settings…'
-          : hostLoadFailed
-            ? 'Could not load terminal restore settings. Go back and try again.'
-            : 'Terminal restore settings are not available with this desktop or app version.'
-      }
-    />
+    <TerminalSettingsScreen scope="host" hosts={hosts} operations={operations} onBack={onBack} />
   )
 }

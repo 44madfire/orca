@@ -6,15 +6,13 @@ import { OrcaRuntimeRpcServer } from './runtime-rpc'
 import { DeviceRegistry } from './device-registry'
 import { createMobileRpcSurfaceRuntime } from './runtime-rpc-mobile-method-allowlist-fixtures'
 import { ALL_RPC_METHODS } from './rpc/methods'
-import { MOBILE_WEB_HOST_CATALOG_METHOD } from './rpc/methods/mobile-web-host-catalog'
-import type { RpcContext } from './rpc/core'
 import {
-  MobileWebHostCatalogResultSchema,
-  type MobileWebHostGrant
-} from '../../shared/mobile-web/host-rpc-contract'
+  MOBILE_WEB_HOST_RPC_CANCEL_METHODS,
+  MOBILE_WEB_HOST_RPC_METHODS
+} from './rpc/methods/mobile-web-host-rpc-allowlist'
 
-it('admits every catalog method and cleanup through authenticated mobile dispatch', async () => {
-  const userDataPath = mkdtempSync(join(tmpdir(), 'orca-mobile-catalog-'))
+it('admits every allowlisted method and cancel through authenticated mobile dispatch', async () => {
+  const userDataPath = mkdtempSync(join(tmpdir(), 'orca-mobile-host-allowlist-'))
   const { runtime } = createMobileRpcSurfaceRuntime()
   const readMobileFile = vi.fn().mockResolvedValue({
     worktree: 'private-workspace',
@@ -45,25 +43,21 @@ it('admits every catalog method and cleanup through authenticated mobile dispatc
     return responses[0]!
   }
   try {
-    const grants: MobileWebHostGrant[] = []
-    for (const method of ALL_RPC_METHODS) {
-      const result = await MOBILE_WEB_HOST_CATALOG_METHOD.handler(
-        { methods: [method.name] },
-        {} as RpcContext
-      )
-      grants.push(...MobileWebHostCatalogResultSchema.parse(result).grants)
+    const registered = new Set(ALL_RPC_METHODS.map((method) => method.name))
+    for (const method of [...MOBILE_WEB_HOST_RPC_METHODS, ...MOBILE_WEB_HOST_RPC_CANCEL_METHODS]) {
+      expect(registered.has(method), method).toBe(true)
+      // Invalid parameters stop at validation; this verifies the real authorization boundary.
+      const response = await dispatch(method, null)
+      expect(response.error?.code, method).not.toBe('forbidden')
+      expect(response.error?.code, method).not.toBe('method_not_found')
     }
-    expect(grants.some((grant) => grant.method === 'mobileWeb.nativeChat.read')).toBe(true)
-    for (const grant of grants) {
-      for (const method of [grant.method, grant.unsubscribeMethod].filter(
-        (method) => method !== undefined
-      )) {
-        // Invalid parameters stop at validation; this verifies the real authorization boundary.
-        const response = await dispatch(method, null)
-        expect(response.error?.code, method).not.toBe('forbidden')
-        expect(response.error?.code, method).not.toBe('method_not_found')
-      }
-    }
+    expect(MOBILE_WEB_HOST_RPC_CANCEL_METHODS).toEqual(
+      new Set([
+        'mobileWeb.files.unwatch',
+        'mobileWeb.nativeChat.unsubscribe',
+        'mobileWeb.session.unsubscribe'
+      ])
+    )
     await expect(
       dispatch('mobileWeb.files.read', {
         worktree: 'id:workspace',

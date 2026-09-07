@@ -46,23 +46,6 @@ export function sessionHostFixture(client: RpcClient): RpcClient {
         return Reflect.get(target, key)
       }
       return async (method: string, input: Record<string, unknown>, options?: unknown) => {
-        if (
-          method === 'mobileWeb.host.catalog' &&
-          Array.isArray(input.methods) &&
-          input.methods.every((name) => String(name).startsWith('mobileWeb.session.'))
-        ) {
-          return reply({
-            grants: input.methods.map((method) => ({
-              method,
-              ...(method === 'mobileWeb.session.subscribe'
-                ? { mode: 'subscription', unsubscribeMethod: 'mobileWeb.session.unsubscribe' }
-                : {}),
-              workspaceParam: 'worktree',
-              maxRequestBytes: 16384,
-              maxResponseBytes: 524288
-            }))
-          })
-        }
         if (method === 'mobileWeb.session.snapshot' || method === 'mobileWeb.session.activate') {
           const response = await target.sendRequest(
             method === 'mobileWeb.session.snapshot' ? 'session.tabs.list' : 'session.tabs.activate',

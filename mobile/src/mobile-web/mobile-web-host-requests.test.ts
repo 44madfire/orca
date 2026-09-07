@@ -1,21 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
-import { MobileWebHostCatalogCache } from './mobile-web-host-catalog-cache'
 import { executeMobileWebHostRequest } from './mobile-web-host-requests'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
-import { MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES } from '../../../src/shared/mobile-web/bridge-limits'
 import {
   MOBILE_WEB_PRODUCTION_GRANT_INDEX,
   MOBILE_WEB_PRODUCTION_GRANTS
 } from './mobile-web-production-grants'
 import { createMobileWebBridgeRoundtripFixture } from './mobile-web-bridge-roundtrip-fixture'
 
-const grant = {
-  method: 'future.domainRead',
-  workspaceParam: 'worktree',
-  maxRequestBytes: 16 * 1024,
-  maxResponseBytes: 512 * 1024
-}
+const METHOD = 'future.domainRead'
 
 function fixture() {
   const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length).fill(1))
@@ -23,11 +16,10 @@ function fixture() {
   const sendRequest = vi.fn<RpcClient['sendRequest']>()
   const args = {
     authority,
-    catalog: new MobileWebHostCatalogCache(),
     client: { sendRequest } as unknown as RpcClient,
     isActive: () => true,
     payload: {
-      method: grant.method,
+      method: METHOD,
       workspaceId: authority.pageWorkspaceId('host-workspace'),
       params: { futureField: { futureVariant: 'added-by-desktop' } }
     }
@@ -39,16 +31,11 @@ describe('host-advertised unary forwarding', () => {
   it('forwards future fields and methods without a shell method entry', async () => {
     const { args, sendRequest } = fixture()
     const result = { futureResult: [{ kind: 'future-kind', value: 4 }] }
-    sendRequest
-      .mockResolvedValueOnce({ ok: true, result: { grants: [grant] } })
-      .mockResolvedValueOnce({ ok: true, result })
+    sendRequest.mockResolvedValueOnce({ ok: true, result })
     await expect(executeMobileWebHostRequest(args)).resolves.toEqual(result)
-    expect(sendRequest).toHaveBeenLastCalledWith(
-      grant.method,
-      {
-        ...args.payload.params,
-        worktree: 'id:host-workspace'
-      },
+    expect(sendRequest).toHaveBeenCalledExactlyOnceWith(
+      METHOD,
+      { ...args.payload.params, worktree: 'id:host-workspace' },
       expect.objectContaining({ beforeSend: expect.any(Function), budgetSpansConnect: true })
     )
     expect(JSON.stringify(result)).not.toContain('host-workspace')
@@ -58,7 +45,6 @@ describe('host-advertised unary forwarding', () => {
     const { args, sendRequest } = fixture()
     let active = true
     args.isActive = () => active
-    sendRequest.mockResolvedValueOnce({ ok: true, result: { grants: [grant] } })
     sendRequest.mockImplementationOnce(async (_method, _params, options) => {
       if (change === 'cancel') {
         active = false
@@ -73,71 +59,28 @@ describe('host-advertised unary forwarding', () => {
     })
   })
 
-  it('refuses methods the desktop did not advertise', async () => {
+  it('does not forward a workspace handle the authority no longer binds', async () => {
     const { args, sendRequest } = fixture()
-    sendRequest.mockResolvedValueOnce({ ok: true, result: { grants: [] } })
-    await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({
-      code: 'unsupported_capability'
-    })
-    expect(sendRequest).toHaveBeenCalledTimes(1)
-  })
-
-  it('does not forward after authority retirement during catalog lookup', async () => {
-    const { args, sendRequest } = fixture()
-    sendRequest.mockImplementationOnce(async () => {
-      args.authority.clear()
-      return { ok: true, result: { grants: [grant] } }
-    })
+    args.authority.clear()
     await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({ code: 'not_found' })
-    expect(sendRequest).toHaveBeenCalledTimes(1)
+    expect(sendRequest).not.toHaveBeenCalled()
   })
 
-  it('refuses a grant advertising more than a shipped shell can deliver', async () => {
+  it('refuses a response larger than the bridge envelope', async () => {
     const { args, sendRequest } = fixture()
-    sendRequest.mockResolvedValueOnce({
-      ok: true,
-      result: { grants: [{ ...grant, maxResponseBytes: 10_000_000 }] }
-    })
-    await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({ name: 'ZodError' })
-    expect(sendRequest).toHaveBeenCalledOnce()
-  })
-
-  it('keeps native hard ceilings at the largest grant the desktop may advertise', async () => {
-    const { args, sendRequest } = fixture()
-    sendRequest
-      .mockResolvedValueOnce({
-        ok: true,
-        result: {
-          grants: [{ ...grant, maxResponseBytes: MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES }]
-        }
-      })
-      .mockResolvedValueOnce({ ok: true, result: { text: 'x'.repeat(640 * 1024) } })
+    sendRequest.mockResolvedValueOnce({ ok: true, result: { text: 'x'.repeat(640 * 1024) } })
     await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({ code: 'too_large' })
   })
 
-  it('enforces the advertised response ceiling below the envelope', async () => {
+  it('refuses a request larger than the bridge envelope before sending it', async () => {
     const { args, sendRequest } = fixture()
-    sendRequest
-      .mockResolvedValueOnce({
-        ok: true,
-        result: { grants: [{ ...grant, maxResponseBytes: 1024 }] }
-      })
-      .mockResolvedValueOnce({ ok: true, result: { text: 'x'.repeat(4096) } })
+    args.payload = { ...args.payload, params: { text: 'x'.repeat(640 * 1024) } }
     await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({ code: 'too_large' })
-  })
-
-  it('enforces host request bounds before executing', async () => {
-    const { args, sendRequest } = fixture()
-    sendRequest.mockResolvedValueOnce({
-      ok: true,
-      result: { grants: [{ ...grant, maxRequestBytes: 1 }] }
-    })
-    await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({ code: 'too_large' })
-    expect(sendRequest).toHaveBeenCalledTimes(1)
+    expect(sendRequest).not.toHaveBeenCalled()
   })
 
   it('retains in-flight admission after page cancellation until host work settles', async () => {
-    const finishCatalog: (() => void)[] = []
+    const finishHostRead: (() => void)[] = []
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockImplementation(async (method) => {
       if (method === 'worktree.ps') {
         return {
@@ -148,12 +91,7 @@ describe('host-advertised unary forwarding', () => {
         }
       }
       return new Promise((resolve) =>
-        finishCatalog.push(() =>
-          resolve({
-            ok: true,
-            result: { grants: [{ ...grant, method: 'mobileWeb.sourceControl.status' }] }
-          })
-        )
+        finishHostRead.push(() => resolve({ ok: true, result: { entries: [] } }))
       )
     })
     const { client } = createMobileWebBridgeRoundtripFixture({
@@ -174,11 +112,11 @@ describe('host-advertised unary forwarding', () => {
     await expect(client.sourceControlStatus(payload)).rejects.toMatchObject({
       code: 'rate_limited'
     })
-    expect(finishCatalog).toHaveLength(1)
-    finishCatalog.forEach((finish) => finish())
+    expect(finishHostRead).toHaveLength(ceiling)
+    finishHostRead.forEach((finish) => finish())
   })
 
-  it('renders bounded Desktop status through the host catalog', async () => {
+  it('renders bounded Desktop status through the generic host lane', async () => {
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockImplementation(async (method) => {
       if (method === 'worktree.ps') {
         return {
@@ -186,12 +124,6 @@ describe('host-advertised unary forwarding', () => {
           result: {
             worktrees: [{ worktreeId: 'host-workspace', repo: '/repo', displayName: 'Workspace' }]
           }
-        }
-      }
-      if (method === 'mobileWeb.host.catalog') {
-        return {
-          ok: true,
-          result: { grants: [{ ...grant, method: 'mobileWeb.sourceControl.status' }] }
         }
       }
       expect(method).toBe('mobileWeb.sourceControl.status')

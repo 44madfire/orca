@@ -10,39 +10,10 @@ function fixture() {
     emit = listener
     return unsubscribe
   })
-  const sendRequest = vi.fn<RpcClient['sendRequest']>().mockImplementation(async (method) => {
-    if (method === 'worktree.ps') {
-      return {
-        ok: true,
-        result: {
-          worktrees: [
-            { worktreeId: 'host-workspace', repo: '/private/repo', displayName: 'Workspace' }
-          ]
-        }
-      }
-    }
-    return {
-      ok: true,
-      result: {
-        grants: [
-          {
-            method: 'mobileWeb.files.watch',
-            mode: 'subscription',
-            workspaceParam: 'worktree',
-            unsubscribeMethod: 'files.unwatch',
-            maxRequestBytes: 1024,
-            maxResponseBytes: 512 * 1024
-          },
-          {
-            method: 'future.events',
-            mode: 'subscription',
-            workspaceParam: 'scope',
-            unsubscribeMethod: 'future.release',
-            maxRequestBytes: 1024,
-            maxResponseBytes: 512 * 1024
-          }
-        ]
-      }
+  const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
+    ok: true,
+    result: {
+      worktrees: [{ worktreeId: 'host-workspace', repo: '/private/repo', displayName: 'Workspace' }]
     }
   })
   const bridge = createMobileWebBridgeRoundtripFixture({
@@ -83,7 +54,7 @@ describe('generic subscription bridge compatibility', () => {
     const workspaceId = (await f.client.workspaceSnapshot({ limit: 10 })).workspaces[0]!.id
     const onEvent = vi.fn()
     const subscription = f.client.hostSubscribe(
-      { method: 'future.events', workspaceId, params: { newParam: 42 } },
+      { method: 'future.feed.subscribe', workspaceId, params: { newParam: 42 } },
       onEvent,
       vi.fn()
     )
@@ -92,10 +63,10 @@ describe('generic subscription bridge compatibility', () => {
     f.emit(event)
     await vi.waitFor(() => expect(onEvent).toHaveBeenCalledWith(event))
     expect(f.subscribe).toHaveBeenCalledWith(
-      'future.events',
-      { scope: 'id:host-workspace', newParam: 42 },
+      'future.feed.subscribe',
+      { worktree: 'id:host-workspace', newParam: 42 },
       expect.any(Function),
-      { serverUnsubscribeMethod: 'future.release' }
+      { serverUnsubscribeMethod: 'future.feed.unsubscribe' }
     )
     subscription.unsubscribe()
   })

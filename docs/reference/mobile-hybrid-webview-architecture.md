@@ -186,21 +186,31 @@ edges still meet the device and keep their measured values.
   page history writes on that fragment).
 - The shell grants named operation/capability pairs with request, response,
   concurrency, subscription, rate, and message limits.
-- The page can use `workspace.hostRequest` for desktop-advertised unary methods.
-  The shell reads `mobileWeb.host.catalog` once per method per connection,
-  resolves the existing opaque workspace handle, and forwards bounded domain
-  JSON without a shell-owned response schema. Hybrid requires package support
-  and `mobileWeb.hybrid.v1`; older Desktop builds show Update Desktop. Completed
+- The page calls `workspace.hostRequest` for a unary desktop method and
+  `workspace.hostSubscribe` for a stream. The shell consults no method table of
+  its own: it resolves the opaque workspace handle, and forwards bounded domain
+  JSON without a shell-owned response schema. The Desktop socket gate
+  (`isMobileWebHostRpcMethod`) is the only allowlist, and it rejects any other
+  method on a mobile-scope socket. Hybrid requires package support and
+  `mobileWeb.hybrid.v1`; older Desktop builds show Update Desktop. Completed
   generic slices have no fallback to superseded shell domain operations.
-- Generic forwarding retains byte, depth, node-count, rate and actual in-flight
-  limits; the grant's `maxConcurrent` is the only source of the in-flight
-  ceiling, and advertised byte limits cannot exceed the bridge envelope.
-  Cancelling a page request does not release its host-work slot until the host
-  call settles. The Desktop is trusted, so the page addresses host tabs,
-  browser pages and provider sessions by their host ids; the catalog is the
-  only allowlist. Generic subscriptions, native-chat domain actions, file
-  reads, Source Control reads/watch, session snapshot/feed/actions and terminal
-  metadata use this path.
+- The shell rewrites the page's workspace handle into `worktree: id:<host>` when
+  the payload carries a `workspaceId`, and forwards the params untouched when it
+  does not. Which shell operation the page called decides unary versus stream,
+  and a stream's desktop cancel name is derived from its subscribe name:
+  `X.watch` becomes `X.unwatch` and `X.subscribe` becomes `X.unsubscribe`. A
+  method matching neither rule cannot be subscribed to. The desktop registers
+  `mobileWeb.files.unwatch` and `mobileWeb.nativeChat.unsubscribe` as aliases of
+  the handlers the released native app still calls under their original names.
+- One envelope bounds both directions: a request, a response and a stream event
+  each have to fit `MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES`, along with the depth
+  and node-count limits. Per-operation grants on `workspace.hostRequest` still
+  supply the in-flight ceiling, and cancelling a page request does not release
+  its host-work slot until the host call settles. The Desktop is trusted, so the
+  page addresses host tabs, browser pages and provider sessions by their host
+  ids. Generic subscriptions, native-chat domain actions, file reads, Source
+  Control reads/watch, session snapshot/feed/actions and terminal metadata use
+  this path.
 - Decisions behind the generic lane and its 2026-09-07 simplification are in
   [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.
@@ -222,9 +232,11 @@ evidence that those gates have passed.
 
 ## Compatibility Policy
 
-Bridge version 2 is the first production policy. Additive operations stay on
-the same version and use capability negotiation. A breaking envelope or
-security semantic requires a new native bridge version.
+Bridge version 2 is the first production policy, and
+`MOBILE_WEB_BRIDGE_PROTOCOL_VERSION` in `src/shared/mobile-web/bridge-limits.ts`
+is the only compat gate the bridge has. Additive operations stay on the same
+version and negotiate through `init.grants`. A breaking envelope or security
+semantic requires a new native bridge version.
 
 The shell and the page ship from different releases, so what a change costs
 depends on its direction and on whether it adds a field or an operation:
@@ -239,12 +251,13 @@ depends on its direction and on whether it adds a field or an operation:
   `invalid_message` with `retryable: false`, nothing re-subscribes, and the
   one-shot fallback shares the schema, so both legs die on the same byte.
   `shell-payload-tolerance-census.test.ts` fails if a strict node survives.
-- **Additive field, page to shell** in a native or legacy payload requires negotiation.
+- **Additive field, page to shell** in a native or legacy payload is a break.
   Native-capability and legacy request schemas stay `.strict()`; a newer page
-  that sends a field an older shell does not know gets `invalid_request`. Gate
-  those fields through shell features. The generic host request has a strict
-  routing envelope but opaque bounded domain params, so desktop/page field
-  additions on that lane do not need an APK schema change.
+  that sends a field an older shell does not know gets `invalid_request`. There
+  is no shell feature list to gate it with, so such a field needs a new
+  operation or a shell release. The generic host request has a strict routing
+  envelope but opaque bounded domain params, so desktop/page field additions on
+  that lane do not need an APK schema change.
 - **Additive operation, either direction** negotiates through `init.grants`.
   The page fails an ungranted operation immediately with
   `unsupported_capability`, so a newer page against an older shell degrades at

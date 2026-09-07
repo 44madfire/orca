@@ -1,17 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
-import { MobileWebHostCatalogCache } from './mobile-web-host-catalog-cache'
 import { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
-const grant = {
-  method: 'future.feed',
-  mode: 'subscription',
-  workspaceParam: 'worktree',
-  unsubscribeMethod: 'future.stop',
-  maxRequestBytes: 1024,
-  maxResponseBytes: 512 * 1024
-}
+const METHOD = 'future.feed.subscribe'
 function fixture() {
   const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length))
   authority.synchronize([{ workspaceId: 'host-workspace', repoId: 'host-repo' }])
@@ -19,7 +11,7 @@ function fixture() {
   const postClosed = vi.fn()
   const unsubscribe = vi.fn()
   let emit: (event: unknown) => void = () => {}
-  const sendRequest = vi.fn().mockResolvedValue({ ok: true, result: { grants: [grant] } })
+  const sendRequest = vi.fn()
   const subscribe = vi.fn<RpcClient['subscribe']>((_method, _params, listener) => {
     emit = listener
     return unsubscribe
@@ -31,13 +23,12 @@ function fixture() {
     postClosed
   })
   const args = {
-    catalog: new MobileWebHostCatalogCache(),
     requestId: 'request',
     subscriptionId: 'stream',
     isActive: () => true,
     client: { sendRequest, subscribe } as unknown as RpcClient,
     payload: {
-      method: grant.method,
+      method: METHOD,
       workspaceId: authority.pageWorkspaceId('host-workspace'),
       params: {}
     }
@@ -56,14 +47,14 @@ function fixture() {
 }
 
 describe('generic host subscriptions', () => {
-  it('forwards future events and uses Desktop cleanup metadata', async () => {
+  it('forwards future events and derives the desktop cancel name', async () => {
     const f = fixture()
-    await f.ledger.start(f.args)
+    f.ledger.start(f.args)
     expect(f.subscribe).toHaveBeenCalledWith(
-      'future.feed',
+      METHOD,
       { worktree: 'id:host-workspace' },
       expect.any(Function),
-      { serverUnsubscribeMethod: 'future.stop' }
+      { serverUnsubscribeMethod: 'future.feed.unsubscribe' }
     )
     const event = { type: 'future-shape', nested: { additional: true } }
     f.emit(event)
@@ -72,15 +63,12 @@ describe('generic host subscriptions', () => {
     expect(f.unsubscribe).toHaveBeenCalledOnce()
   })
 
-  it('does not open after cancellation during catalog discovery', async () => {
+  it('does not open a stream the page already cancelled', () => {
     const f = fixture()
-    let active = true
-    f.args.isActive = () => active
-    f.sendRequest.mockImplementationOnce(async () => {
-      active = false
-      return { ok: true, result: { grants: [grant] } }
-    })
-    await expect(f.ledger.start(f.args)).rejects.toMatchObject({ code: 'cancelled' })
+    f.args.isActive = () => false
+    expect(() => f.ledger.start(f.args)).toThrowError(
+      expect.objectContaining({ code: 'cancelled' })
+    )
     expect(f.subscribe).not.toHaveBeenCalled()
   })
 
@@ -90,7 +78,7 @@ describe('generic host subscriptions', () => {
       emit({ payload: 'x'.repeat(600 * 1024) })
       return f.unsubscribe
     })
-    await f.ledger.start(f.args)
+    f.ledger.start(f.args)
     expect(f.unsubscribe).toHaveBeenCalledOnce()
     expect(f.postClosed).toHaveBeenCalledWith('stream', { code: 'too_large', retryable: false })
   })
@@ -104,7 +92,7 @@ describe('generic host subscriptions', () => {
           release = resolve
         })
     )
-    await f.ledger.start(f.args)
+    f.ledger.start(f.args)
     f.emit({ payload: 'x'.repeat(400 * 1024) })
     await vi.waitFor(() => expect(f.postEvent).toHaveBeenCalledOnce())
     for (let index = 0; index < 6; index++) {
@@ -117,7 +105,7 @@ describe('generic host subscriptions', () => {
 
   it('does not publish after workspace authority is retired', async () => {
     const f = fixture()
-    await f.ledger.start(f.args)
+    f.ledger.start(f.args)
     f.authority.clear()
     f.emit({ type: 'future' })
     expect(f.postEvent).not.toHaveBeenCalled()
@@ -127,7 +115,7 @@ describe('generic host subscriptions', () => {
     const f = fixture()
     const stalled = Promise.withResolvers<void>()
     f.postEvent.mockReturnValueOnce(stalled.promise)
-    await f.ledger.start(f.args)
+    f.ledger.start(f.args)
     f.emit({ value: 0 })
     await vi.waitFor(() => expect(f.postEvent).toHaveBeenCalledOnce())
     for (let value = 1; value <= 64; value++) {
@@ -138,13 +126,12 @@ describe('generic host subscriptions', () => {
     stalled.resolve()
   })
 
-  it('rejects unary grants in the streaming lane', async () => {
+  it('rejects a method with no derivable cancel name', () => {
     const f = fixture()
-    f.sendRequest.mockResolvedValueOnce({
-      ok: true,
-      result: { grants: [{ ...grant, mode: 'once' }] }
-    })
-    await expect(f.ledger.start(f.args)).rejects.toMatchObject({ code: 'unsupported_capability' })
+    f.args.payload = { ...f.args.payload, method: 'future.feed.read' }
+    expect(() => f.ledger.start(f.args)).toThrowError(
+      expect.objectContaining({ code: 'unsupported_capability' })
+    )
     expect(f.subscribe).not.toHaveBeenCalled()
   })
 })

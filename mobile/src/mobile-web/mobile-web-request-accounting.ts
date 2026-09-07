@@ -128,7 +128,7 @@ export function mobileWebRequestAtCapacity(args: {
 }
 
 // Only one-shot forwards hold host work past a page cancellation; subscriptions are capped by
-// their own ledger and catalog reads are served from a per-connection cache.
+// their own ledger.
 export function mobileWebIsHostRequest(request: {
   capability: string
   operation: string

@@ -59,7 +59,7 @@ describe('native-chat generic read migration', () => {
     subscription.unsubscribe()
     expect(f.unsubscribe).toHaveBeenCalledOnce()
   })
-  it('does not open a host feed after cancellation', async () => {
+  it('releases the host feed when the page cancels before it is ready', async () => {
     const f = fixture()
     const workspaceId = (await f.client.workspaceSnapshot({ limit: 10 })).workspaces[0]!.id
     const session = await f.client.sessionSnapshot({ workspaceId })
@@ -76,7 +76,7 @@ describe('native-chat generic read migration', () => {
     )
     subscription.unsubscribe()
     await expect(subscription.ready).rejects.toMatchObject({ code: 'cancelled' })
-    expect(f.subscribe).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(f.unsubscribe).toHaveBeenCalledOnce())
     expect(onError).not.toHaveBeenCalled()
   })
 })

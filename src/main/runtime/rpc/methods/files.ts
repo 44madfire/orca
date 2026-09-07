@@ -274,20 +274,24 @@ export const FILE_METHODS: RpcAnyMethod[] = [
       })
     }
   }),
-  defineMethod({
-    name: 'files.unwatch',
-    params: FileUnwatch,
-    handler: async (params, { runtime, connectionId }) => {
-      if (connectionId) {
-        return {
-          unsubscribed: await runtime.cleanupSubscriptionIfOwnedByConnectionAndWait(
-            params.subscriptionId,
-            connectionId
-          )
+  // The hybrid page derives its cancel name from `mobileWeb.files.watch`; the released native app
+  // still calls `files.unwatch`, so both names share one handler.
+  ...['files.unwatch', 'mobileWeb.files.unwatch'].map((name) =>
+    defineMethod({
+      name,
+      params: FileUnwatch,
+      handler: async (params, { runtime, connectionId }) => {
+        if (connectionId) {
+          return {
+            unsubscribed: await runtime.cleanupSubscriptionIfOwnedByConnectionAndWait(
+              params.subscriptionId,
+              connectionId
+            )
+          }
         }
+        await runtime.cleanupSubscriptionAndWait(params.subscriptionId)
+        return { unsubscribed: true }
       }
-      await runtime.cleanupSubscriptionAndWait(params.subscriptionId)
-      return { unsubscribed: true }
-    }
-  })
+    })
+  )
 ]

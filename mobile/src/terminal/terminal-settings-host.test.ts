@@ -70,44 +70,30 @@ describe('terminal restore settings adapters', () => {
     await expect(host.saveFit(60000)).rejects.toThrow('denied')
     expect(sendRequest).toHaveBeenLastCalledWith('terminal.setAutoRestoreFit', { ms: 60000 })
   })
-  it('negotiates both host methods and sends no invented workspace', async () => {
+  it('reaches both host methods and sends no invented workspace', async () => {
     const client = fixture()
-    const host = await webTerminalSettingsHost(client as unknown as MobileWebBridgeClient)
-    expect(await host?.loadFit()).toBe(60000)
+    const host = webTerminalSettingsHost(client as unknown as MobileWebBridgeClient)
+    expect(await host.loadFit()).toBe(60000)
     expect(client.host.request).toHaveBeenCalledWith({
       method: 'terminal.getAutoRestoreFit',
       params: {}
     })
-    await host?.saveFit(null)
+    await host.saveFit(null)
     expect(client.host.request).toHaveBeenLastCalledWith({
       method: 'terminal.setAutoRestoreFit',
       params: { ms: null }
     })
   })
-  it('does not dispatch when the catalog lacks host-scoped methods', async () => {
-    const client = fixture()
-    client.host.catalog.mockResolvedValue({ grants: [] })
-    expect(await webTerminalSettingsHost(client as unknown as MobileWebBridgeClient)).toBe(null)
-    expect(client.host.request).not.toHaveBeenCalled()
-  })
   it('does not retry an ambiguous host mutation', async () => {
     const client = fixture()
-    const host = await webTerminalSettingsHost(client as unknown as MobileWebBridgeClient)
+    const host = webTerminalSettingsHost(client as unknown as MobileWebBridgeClient)
     client.host.request.mockRejectedValue(new Error('connection lost'))
-    await expect(host?.saveFit(60000)).rejects.toThrow('connection lost')
+    await expect(host.saveFit(60000)).rejects.toThrow('connection lost')
     expect(client.host.request).toHaveBeenCalledTimes(1)
   })
 })
 function fixture() {
   return {
-    host: {
-      catalog: vi.fn().mockResolvedValue({
-        grants: ['terminal.getAutoRestoreFit', 'terminal.setAutoRestoreFit'].map((method) => ({
-          method,
-          scope: 'host'
-        }))
-      }),
-      request: vi.fn().mockResolvedValue({ ms: 60000 })
-    }
+    host: { request: vi.fn().mockResolvedValue({ ms: 60000 }) }
   }
 }

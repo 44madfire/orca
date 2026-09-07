@@ -1,4 +1,4 @@
-import { isMobileWebHostRpcMethod } from '../rpc/methods/mobile-web-host-catalog'
+import { isMobileWebHostRpcMethod } from '../rpc/methods/mobile-web-host-rpc-allowlist'
 import type { WebSocket } from 'ws'
 import type {
   PairingGetEndpointsParams,

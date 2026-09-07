@@ -20,17 +20,8 @@ export function webTerminalSettingsOperations(
   }
 }
 const fitMethods = ['terminal.getAutoRestoreFit', 'terminal.setAutoRestoreFit']
-export async function webTerminalSettingsHost(
-  client: MobileWebBridgeClient
-): Promise<TerminalSettingsHost | null> {
-  const catalog = await client.host.catalog(fitMethods)
-  if (
-    !fitMethods.every((method) =>
-      catalog.grants.some((grant) => grant.method === method && grant.scope === 'host')
-    )
-  ) {
-    return null
-  }
+// The desktop socket gate decides whether these reach a handler; a refusal surfaces on the call.
+export function webTerminalSettingsHost(client: MobileWebBridgeClient): TerminalSettingsHost {
   async function request(method: string, params: Record<string, unknown> = {}) {
     const result = (await client.host.request({ method, params })) as { ms?: unknown } | null
     if (result?.ms !== null && (typeof result?.ms !== 'number' || !Number.isFinite(result.ms))) {

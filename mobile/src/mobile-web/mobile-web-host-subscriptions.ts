@@ -1,4 +1,7 @@
-import { mobileWebHostPayloadByteLength } from '../../../src/shared/mobile-web/host-rpc-contract'
+import {
+  mobileWebHostPayloadByteLength,
+  mobileWebHostUnsubscribeMethod
+} from '../../../src/shared/mobile-web/host-rpc-contract'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import {
   assertMobileWebHostRequestScope,
@@ -15,7 +18,6 @@ import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authori
 
 type HostStreamRecord = MobileWebSubscriptionRecord & {
   scope: MobileWebHostRequestScope | undefined
-  maxEventBytes: number
   closing: boolean
 }
 
@@ -31,35 +33,28 @@ export class MobileWebHostSubscriptions extends MobileWebSubscriptionLedger<
     super({ ...config, operationKey: 'workspace.hostSubscribe' })
   }
 
-  async start(
+  start(
     args: Omit<MobileWebHostRequestArguments, 'authority'> & {
       requestId: string
       subscriptionId: string
     }
-  ): Promise<void> {
+  ): void {
     this.admit(args.subscriptionId)
-    const { payload, scope, grant, params } = await prepareMobileWebHostRequest(
-      {
-        ...args,
-        authority: this.config.workspaceAuthority
-      },
-      'subscription'
-    )
-    if (!args.isActive()) {
-      throw new MobileWebBrokerError('cancelled')
+    const { payload, scope, params } = prepareMobileWebHostRequest({
+      ...args,
+      authority: this.config.workspaceAuthority
+    })
+    const serverUnsubscribeMethod = mobileWebHostUnsubscribeMethod(payload.method)
+    if (serverUnsubscribeMethod === undefined) {
+      throw new MobileWebBrokerError('unsupported_capability')
     }
-    const record: HostStreamRecord = {
-      ...this.newRecord(args.requestId),
-      scope,
-      maxEventBytes: grant.maxResponseBytes,
-      closing: false
-    }
+    const record: HostStreamRecord = { ...this.newRecord(args.requestId), scope, closing: false }
     this.open(args.subscriptionId, record, () =>
       args.client.subscribe(
         payload.method,
         params,
         (event) => this.receive(args.subscriptionId, record, event),
-        { serverUnsubscribeMethod: grant.unsubscribeMethod }
+        { serverUnsubscribeMethod }
       )
     )
   }
@@ -82,8 +77,7 @@ export class MobileWebHostSubscriptions extends MobileWebSubscriptionLedger<
     ) {
       return
     }
-    const eventBytes = mobileWebHostPayloadByteLength(event)
-    if (eventBytes === undefined || eventBytes > record.maxEventBytes) {
+    if (mobileWebHostPayloadByteLength(event) === undefined) {
       this.cancel(subscriptionId, { code: 'too_large', retryable: false })
       return
     }

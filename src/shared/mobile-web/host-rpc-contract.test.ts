@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES } from './bridge-limits'
 import {
   MobileWebHostRequestPayloadSchema,
-  MobileWebHostGrantSchema,
   mobileWebHostPayloadByteLength,
-  mobileWebHostPayloadWithinBounds
+  mobileWebHostPayloadWithinBounds,
+  mobileWebHostUnsubscribeMethod
 } from './host-rpc-contract'
 
 describe('generic host payload transport', () => {
@@ -19,34 +18,16 @@ describe('generic host payload transport', () => {
       MobileWebHostRequestPayloadSchema.safeParse({ ...payload, nativeAuthority: true }).success
     ).toBe(false)
   })
-  it('requires explicit host scope before a grant can omit its workspace parameter', () => {
-    const grant = { method: 'future.hostSetting', maxRequestBytes: 1024, maxResponseBytes: 1024 }
-    expect(MobileWebHostGrantSchema.safeParse(grant).success).toBe(false)
-    expect(MobileWebHostGrantSchema.safeParse({ ...grant, scope: 'host' }).success).toBe(true)
-    expect(
-      MobileWebHostGrantSchema.safeParse({ ...grant, workspaceParam: 'worktree' }).success
-    ).toBe(true)
-    expect(
-      MobileWebHostGrantSchema.safeParse({ ...grant, scope: 'host', workspaceParam: 'worktree' })
-        .success
-    ).toBe(false)
-  })
-  it('refuses a grant advertising more than a shipped shell can deliver', () => {
-    const grant = { method: 'future.read', scope: 'host' as const, maxRequestBytes: 1024 }
-    const envelope = MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES
-    expect(
-      MobileWebHostGrantSchema.safeParse({ ...grant, maxResponseBytes: envelope }).success
-    ).toBe(true)
-    expect(
-      MobileWebHostGrantSchema.safeParse({ ...grant, maxResponseBytes: envelope + 1 }).success
-    ).toBe(false)
-    expect(
-      MobileWebHostGrantSchema.safeParse({
-        ...grant,
-        maxRequestBytes: envelope + 1,
-        maxResponseBytes: 1024
-      }).success
-    ).toBe(false)
+  it('derives the desktop cancel name from the subscribe name, and nothing else', () => {
+    expect(mobileWebHostUnsubscribeMethod('mobileWeb.files.watch')).toBe('mobileWeb.files.unwatch')
+    expect(mobileWebHostUnsubscribeMethod('mobileWeb.session.subscribe')).toBe(
+      'mobileWeb.session.unsubscribe'
+    )
+    expect(mobileWebHostUnsubscribeMethod('mobileWeb.nativeChat.subscribe')).toBe(
+      'mobileWeb.nativeChat.unsubscribe'
+    )
+    expect(mobileWebHostUnsubscribeMethod('mobileWeb.files.read')).toBeUndefined()
+    expect(mobileWebHostUnsubscribeMethod('mobileWeb.files.unwatch')).toBeUndefined()
   })
 
   it('reports the encoded length once for callers that also need the verdict', () => {

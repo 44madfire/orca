@@ -16,7 +16,6 @@ export type { MobileWebOperationGrant } from './mobile-web-production-grant-tabl
 export const MOBILE_WEB_PRODUCTION_GRANTS = [
   ...capabilityGrants('workspace', {
     hostSubscribe: grantLimits(600 * 1024, 1024, 8, 8, 2),
-    hostCatalog: grantLimits(8 * 1024, 32 * 1024, 2, 8, 2),
     hostRequest: grantLimits(600 * 1024, 600 * 1024, 16, 32, 4),
     snapshot: grantLimits(1 * 1024, 128 * 1024, 2, 4, 1),
     repositories: grantLimits(256, 128 * 1024, 2, 4, 1),
