@@ -52,6 +52,31 @@ class MobileWebPackageStoreTest {
   }
 
   @Test
+  fun commitsAllPackagedDocuments() {
+    val store = jvmMobileWebPackageStore(temporary.newFolder())
+    val paths = listOf("index.html", "markdown-editor.html", "mermaid-frame.html")
+    val fixture = mobileWebStoreFixture { manifest ->
+      val asset = manifest.getJSONArray("assets").getJSONObject(0)
+      manifest.put("assets", org.json.JSONArray(paths.map { path ->
+        JSONObject(asset.toString()).put("path", path)
+      }))
+      manifest.put("totalBytes", manifest.getInt("totalBytes") * paths.size)
+    }
+    paths.forEach { path ->
+      store.writeStagedAsset(
+        "paired-host", fixture.buildId, path, Base64.getEncoder().encodeToString(fixture.bytes)
+      )
+    }
+    store.commitGeneration("paired-host", fixture.buildId, fixture.manifestJson)
+    val session = store.openSession("paired-host", fixture.buildId, 1)
+    paths.forEach { path ->
+      val asset = store.readAsset(session.getValue("sessionId"), path)
+      assertArrayEquals(fixture.bytes, asset.bytes)
+      assertTrue(asset.isDocument)
+    }
+  }
+
+  @Test
   fun rejectsManifestsThatDoNotHashToTheBuildId() {
     val root = temporary.newFolder()
     val store = jvmMobileWebPackageStore(root)
@@ -363,7 +388,6 @@ class MobileWebPackageStoreTest {
 
     store.closeSession(previousSession.getValue("sessionId"))
     store.closeSession(active.getValue("sessionId"))
-    store.commitFixture("paired-host", current)
 
     assertEquals(
       listOf(current.buildId),

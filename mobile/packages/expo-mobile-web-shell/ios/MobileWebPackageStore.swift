@@ -210,7 +210,15 @@ final class MobileWebPackageStore {
 
   func closeSession(sessionId: String) {
     locked {
-      _ = sessions.removeValue(forKey: sessionId)
+      guard let session = sessions.removeValue(forKey: sessionId),
+        let root = try? cacheRoot()
+      else { return }
+      let generations = root.appendingPathComponent(session.hostKey, isDirectory: true)
+        .appendingPathComponent("generations", isDirectory: true)
+      guard let newest = try? requestedBuildId(generations: generations, buildId: nil) else { return }
+      try? removeOtherGenerations(
+        generations: generations, hostKey: session.hostKey, keeping: newest, cacheRoot: root
+      )
     }
   }
 
@@ -403,7 +411,7 @@ final class MobileWebPackageStore {
     }
     guard
       totalBytes == declaredTotalBytes,
-      (1...2).contains(documentCount),
+      (1...mobileWebDocumentPaths.count).contains(documentCount),
       entrypoint == "index.html",
       records[entrypoint]?.role == "document"
     else {

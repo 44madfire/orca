@@ -11,6 +11,7 @@ enum MobileWebPackageStoreTests {
     defer { try? FileManager.default.removeItem(at: root) }
 
     try commitsAndReadsExactGeneration(root: root.appendingPathComponent("verified"))
+    try commitsAllPackagedDocuments(root: root.appendingPathComponent("all-documents"))
     try rejectsMalformedManifests(root: root.appendingPathComponent("manifests"))
     acceptsOnlyExactCanonicalAssetPaths()
     acceptsOnlyExactSha256Tokens()
@@ -92,6 +93,36 @@ enum MobileWebPackageStoreTests {
       .appendingPathComponent("tmp")
     let staged = try? FileManager.default.contentsOfDirectory(atPath: staging.path)
     precondition(staged?.isEmpty != false)
+  }
+
+  private static func commitsAllPackagedDocuments(root: URL) throws {
+    let store = MobileWebPackageStore(cacheRoot: root)
+    let paths = ["index.html", "markdown-editor.html", "mermaid-frame.html"]
+    let fixture = try mobileWebStoreFixture { manifest in
+      let asset = (manifest["assets"] as! [[String: Any]])[0]
+      manifest["assets"] = paths.map { path in
+        var document = asset
+        document["path"] = path
+        return document
+      }
+      manifest["totalBytes"] = (manifest["totalBytes"] as! Int) * paths.count
+    }
+    for path in paths {
+      try store.writeStagedAsset(
+        hostIdentity: "paired-host", buildId: fixture.buildId, path: path,
+        dataBase64: fixture.bytes.base64EncodedString()
+      )
+    }
+    try store.commitGeneration(
+      hostIdentity: "paired-host", buildId: fixture.buildId, manifestJson: fixture.manifestJson
+    )
+    let session = try store.openSession(
+      hostIdentity: "paired-host", buildId: fixture.buildId, bridgeVersion: 1
+    )
+    for path in paths {
+      let asset = try store.readAsset(sessionId: session["sessionId"]!, path: path)
+      precondition(asset.data == fixture.bytes && asset.isDocument)
+    }
   }
 
   private static func rejectsMalformedManifests(root: URL) throws {
@@ -526,7 +557,6 @@ enum MobileWebPackageStoreTests {
 
     store.closeSession(sessionId: previousSession["sessionId"]!)
     store.closeSession(sessionId: active["sessionId"]!)
-    try mobileWebStoreCommit(store: store, host: "paired-host", fixture: current)
 
     let generations = mobileWebStoreHostRoot(cacheRoot: root, host: "paired-host")
       .appendingPathComponent("generations")

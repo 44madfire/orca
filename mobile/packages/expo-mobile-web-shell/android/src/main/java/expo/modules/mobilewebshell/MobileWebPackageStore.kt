@@ -173,7 +173,11 @@ internal class MobileWebPackageStore internal constructor(
 
   @Synchronized
   fun closeSession(sessionId: String) {
-    sessions.remove(sessionId)
+    val session = sessions.remove(sessionId) ?: return
+    runCatching {
+      val generations = File(File(cacheRoot, session.hostKey), "generations")
+      removeOtherGenerations(generations, session.hostKey, requestedBuildId(generations, null))
+    }
   }
 
   @Synchronized
@@ -329,7 +333,7 @@ internal class MobileWebPackageStore internal constructor(
     val assets = parsedAssets(assetValues)
     require(
       assets.values.sumOf { it.byteLength } == declaredTotalBytes &&
-        assets.values.count { it.role == "document" } in 1..2 &&
+        assets.values.count { it.role == "document" } in 1..MOBILE_WEB_DOCUMENT_PATHS.size &&
         entrypoint == "index.html" &&
         assets[entrypoint]?.role == "document"
     ) { "mobile_web_manifest_invalid" }
