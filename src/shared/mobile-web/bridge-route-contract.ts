@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { MobileWebWorkspaceIdSchema } from './workspace-operation-contract'
 
+// The shell stores this bounded value without interpreting the page's route vocabulary.
+export const MobileWebPageStateSchema = z.string().max(4096)
+
 /** Routes the bridge carries in both directions: the shell restores one on `init`, drives one on a
  * `navigation` frame, and the page reports the one it settled on. Opaque workspace handles only — a
  * host path must never appear here. */

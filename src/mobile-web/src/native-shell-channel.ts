@@ -1,3 +1,6 @@
+import { postPageMessage, postPageReady } from './native-shell-page-frames'
+import { MobileWebPageStateSchema } from '../../shared/mobile-web/bridge-route-contract'
+import { MOBILE_WEB_SHELL_PAGE_STATE_FEATURE } from '../../shared/mobile-web/shell-feature-contract'
 import { setMobileWebPagePreferencesClient } from './mobile-web-page-preferences-channel'
 import {
   createContext,
@@ -13,24 +16,16 @@ import {
   parseMobileWebBridgeInitialMessage,
   parseMobileWebBridgeShellMessage,
   type MobileWebBridgeMessageContext,
-  type MobileWebBridgePageMessage,
   type MobileWebNavigationRoute,
   type MobileWebResumeRoute
 } from '../../shared/mobile-web/bridge-contract'
 import { MobileWebBridgeClient } from './mobile-web-bridge-client'
-import {
-  dispatchMobileWebHardwareBack,
-  hasMobileWebHardwareBackHandler
-} from './mobile-web-hardware-back-handler'
+import { dispatchMobileWebHardwareBack } from './mobile-web-hardware-back-handler'
 import {
   nextMobileWebShellConnectionMetrics,
   type MobileWebShellConnectionMetrics
 } from './mobile-web-shell-connection-metrics'
 import { subscribeToMobileWebShellMessages } from './native-shell-message-inbox'
-
-type MobileWebNativeWindow = Window & {
-  OrcaNative?: Readonly<{ postMessage(value: string): void }>
-}
 
 export type MobileWebNativeShellState = {
   client: MobileWebBridgeClient | null
@@ -42,7 +37,8 @@ export type MobileWebNativeShellState = {
   navigationRoute: MobileWebNavigationRoute
   resumeRoute: MobileWebResumeRoute
   routeRevision: number
-  rememberRoute: (route: MobileWebResumeRoute) => boolean
+  pageState?: string
+  rememberRoute: (route: MobileWebResumeRoute, pageState?: string) => boolean
 }
 
 const MobileWebNativeShellContext = createContext<MobileWebNativeShellState | null>(null)
@@ -84,9 +80,10 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
     }
     let navigationRoute: MobileWebNavigationRoute = { kind: 'workspaceList' }
     let resumeRoute: MobileWebResumeRoute = { kind: 'workspaceList' }
+    let pageState: string | undefined
     let routeRevision = 0
     let lastNavigationSequence = -1
-    let rememberRoute = (_route: MobileWebResumeRoute): boolean => false
+    let rememberRoute = (_route: MobileWebResumeRoute, _pageState?: string): boolean => false
     let healthFrame = 0
     let interactiveFrame = 0
     const receive = (raw: string): void => {
@@ -99,21 +96,35 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
         if (!retainsContext) {
           resumeRoute = init.resumeRoute ?? { kind: 'workspaceList' }
           navigationRoute = resumeRoute
+          pageState = init.pageState
           routeRevision += 1
           lastNavigationSequence = -1
         }
-        rememberRoute = (route) => {
+        rememberRoute = (route, nextPageState) => {
+          if (!sameContext(context, nextContext)) {
+            return false
+          }
+          if (
+            nextPageState !== undefined &&
+            !MobileWebPageStateSchema.safeParse(nextPageState).success
+          ) {
+            return false
+          }
+          pageState = nextPageState
           resumeRoute = route
           navigationRoute = route
           setState((current) =>
             sameContext(current.context, nextContext)
-              ? { ...current, navigationRoute: route, resumeRoute: route }
+              ? { ...current, navigationRoute: route, resumeRoute: route, pageState }
               : current
           )
           return postPageMessage({
             version: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
             ...nextContext,
             type: 'routeState',
+            ...(init.shellFeatures?.includes(MOBILE_WEB_SHELL_PAGE_STATE_FEATURE)
+              ? { pageState }
+              : {}),
             route
           })
         }
@@ -125,6 +136,7 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
             hostDisplayName,
             navigationRoute,
             resumeRoute,
+            pageState,
             routeRevision,
             rememberRoute,
             ...metrics
@@ -149,6 +161,7 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
           hostDisplayName,
           navigationRoute,
           resumeRoute,
+          pageState,
           routeRevision,
           rememberRoute,
           ...metrics
@@ -171,10 +184,17 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
         }
         lastNavigationSequence = parsed.value.sequence
         navigationRoute = parsed.value.route
+        pageState = parsed.value.pageState
+        if (
+          pageState !== undefined &&
+          (navigationRoute.kind === 'session' || navigationRoute.kind === 'workspaceList')
+        ) {
+          resumeRoute = navigationRoute
+        }
         routeRevision += 1
         setState((current) =>
           sameContext(current.context, activeContext)
-            ? { ...current, navigationRoute, routeRevision, rememberRoute }
+            ? { ...current, navigationRoute, resumeRoute, pageState, routeRevision, rememberRoute }
             : current
         )
         return
@@ -199,6 +219,7 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
           hostDisplayName,
           navigationRoute,
           resumeRoute,
+          pageState,
           routeRevision,
           rememberRoute,
           ...metrics
@@ -228,6 +249,7 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
     }
     window.addEventListener('orca-mobile-web-route-failure', onRouteFailure)
     return () => {
+      context = null
       unsubscribe()
       window.removeEventListener('orca-mobile-web-route-failure', onRouteFailure)
       client?.dispose()
@@ -243,35 +265,6 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
 function parseInitialMessage(raw: string) {
   const parsed = parseMobileWebBridgeInitialMessage(raw)
   return parsed.ok ? parsed.value : null
-}
-
-function postPageMessage(message: MobileWebBridgePageMessage): boolean {
-  const nativeWindow = window as MobileWebNativeWindow
-  if (!nativeWindow.OrcaNative) {
-    return false
-  }
-  try {
-    nativeWindow.OrcaNative.postMessage(JSON.stringify(message))
-    return true
-  } catch {
-    return false
-  }
-}
-
-function postPageReady(context: MobileWebBridgeMessageContext): void {
-  postPageMessage({
-    version: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
-    ...context,
-    type: 'ready'
-  })
-  if (hasMobileWebHardwareBackHandler()) {
-    postPageMessage({
-      version: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
-      ...context,
-      type: 'hardwareBackCapability',
-      revision: 1
-    })
-  }
 }
 
 function sameContext(

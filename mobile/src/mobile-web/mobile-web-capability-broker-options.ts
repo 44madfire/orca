@@ -23,7 +23,7 @@ export type MobileWebCapabilityBrokerOptions = {
   postMessage: (message: MobileWebBridgeShellMessage) => void | Promise<void>
   nativeAuthority: MobileWebNativeCapabilityAuthority
   navigationAuthority?: MobileWebNavigationAuthority
-  rememberRoute?: (route: MobileWebResumeRoute) => void
+  rememberRoute?: (route: MobileWebResumeRoute, pageState?: string) => void
   rememberHostRoute?: (route: MobileWebHostResumeRoute) => void
   terminalClientId: string
   onTerminalFlowMetrics?: (metrics: MobileWebTerminalFlowMetrics) => void

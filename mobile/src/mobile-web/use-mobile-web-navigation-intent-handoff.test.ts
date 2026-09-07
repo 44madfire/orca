@@ -19,6 +19,56 @@ afterEach(() => {
 })
 
 describe('useMobileWebNavigationIntentHandoff', () => {
+  it.each(['coldResume', 'notification'] as const)(
+    'preserves opaque page state only for synthetic cold resume (%s)',
+    async (source) => {
+      const route: MobileWebResumeRoute = {
+        kind: 'session',
+        workspaceId: 'fresh-handle',
+        workspaceName: 'Workspace'
+      }
+      const broker = {
+        resolveNavigationRoute: vi.fn().mockResolvedValue(route)
+      } as unknown as MobileWebCapabilityBroker
+      const pageState = JSON.stringify({ version: 1, pathname: '/settings' })
+      const options = {
+        hosts: [{ id: 'paired-host' }] as HostProfile[],
+        hostsLoading: false,
+        selectedHostId: 'paired-host',
+        connectionState: 'connected' as const,
+        shellContext: { sessionId: 'S'.repeat(43), buildId: 'a'.repeat(64) },
+        pageReadySessionId: 'S'.repeat(43),
+        brokerSessionId: 'S'.repeat(43),
+        getBroker: () => broker,
+        selectHost: vi.fn(),
+        refreshHosts: vi.fn().mockResolvedValue(undefined),
+        postMessage: vi.fn().mockResolvedValue(undefined),
+        rememberRoute: vi.fn(),
+        pageState: () => pageState,
+        showWarning: vi.fn()
+      }
+      globalThis.IS_REACT_ACT_ENVIRONMENT = true
+      act(() => {
+        renderer = create(createElement(NavigationIntentHarness, { options }))
+      })
+      await act(async () => {
+        MOBILE_WEB_NAVIGATION_INTENTS.publish(
+          { kind: 'session', hostId: 'paired-host', hostWorkspaceId: 'stable-host-workspace' },
+          source
+        )
+      })
+      expect(options.postMessage).toHaveBeenCalledTimes(1)
+      expect(options.postMessage.mock.calls[0][0]).toMatchObject({ route })
+      if (source === 'coldResume') {
+        expect(options.rememberRoute).toHaveBeenCalledWith(route, pageState)
+        expect(options.postMessage.mock.calls[0][0].pageState).toBe(pageState)
+      } else {
+        expect(options.rememberRoute).toHaveBeenCalledWith(route)
+        expect(options.postMessage.mock.calls[0][0]).not.toHaveProperty('pageState')
+      }
+    }
+  )
+
   it('suppresses a delayed destination after a newer native intent supersedes it', async () => {
     const first = deferred<MobileWebResumeRoute>()
     const second = deferred<MobileWebResumeRoute>()

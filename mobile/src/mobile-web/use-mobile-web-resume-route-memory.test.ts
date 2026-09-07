@@ -68,6 +68,18 @@ describe('useMobileWebResumeRouteMemory', () => {
     expect(memory?.current()).toEqual({ kind: 'workspaceList' })
   })
 
+  it('replays opaque page state only for the same host and clears it on native navigation', () => {
+    render('host-1', 'session-1')
+    act(() => memory?.remember({ kind: 'workspaceList' }, 'future-page-state'))
+    render('host-1', 'session-2')
+    expect(memory?.pageState()).toBe('future-page-state')
+    render('host-2', 'session-3')
+    expect(memory?.pageState()).toBeUndefined()
+    act(() => memory?.remember({ kind: 'workspaceList' }, 'host-two-state'))
+    act(() => memory?.remember(SESSION_ROUTE))
+    expect(memory?.pageState()).toBeUndefined()
+  })
+
   it('keeps the workspace list once the page navigates back to it', () => {
     render('host-1', 'session-1')
     act(() => memory?.remember(SESSION_ROUTE))

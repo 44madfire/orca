@@ -2,8 +2,9 @@ import { useMemo, useRef } from 'react'
 import type { MobileWebResumeRoute } from '../../../src/shared/mobile-web/bridge-contract'
 
 export type MobileWebResumeRouteMemory = {
-  remember: (route: MobileWebResumeRoute) => void
+  remember: (route: MobileWebResumeRoute, pageState?: string) => void
   current: () => MobileWebResumeRoute
+  pageState: () => string | undefined
 }
 
 /** The route the shell replays in `init` when the hosted document reloads. A package swap or a
@@ -14,19 +15,25 @@ export type MobileWebResumeRouteMemory = {
 export function useMobileWebResumeRouteMemory(
   hostId: string | undefined
 ): MobileWebResumeRouteMemory {
-  const rememberedRef = useRef<{ hostId: string | undefined; route: MobileWebResumeRoute }>({
+  const rememberedRef = useRef<{
+    hostId: string | undefined
+    route: MobileWebResumeRoute
+    pageState?: string
+  }>({
     hostId,
     route: { kind: 'workspaceList' }
   })
   return useMemo(
     () => ({
-      remember: (route) => {
-        rememberedRef.current = { hostId, route }
+      remember: (route, pageState) => {
+        rememberedRef.current = { hostId, route, pageState }
       },
       current: () =>
         rememberedRef.current.hostId === hostId
           ? rememberedRef.current.route
-          : { kind: 'workspaceList' }
+          : { kind: 'workspaceList' },
+      pageState: () =>
+        rememberedRef.current.hostId === hostId ? rememberedRef.current.pageState : undefined
     }),
     [hostId]
   )

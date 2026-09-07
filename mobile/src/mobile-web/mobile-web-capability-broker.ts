@@ -118,23 +118,23 @@ export class MobileWebCapabilityBroker {
     }
   }
   updateConnectionState(state: 'connecting' | 'connected' | 'offline' | 'recovering'): void {
-    if (state === 'connected') {
-      return
+    if (state !== 'connected') {
+      this.authorities.terminalArtifact.clear()
+      void this.speechAuthority.cancel('disconnected')
     }
-    this.authorities.terminalArtifact.clear()
-    void this.speechAuthority.cancel('disconnected')
   }
   updateAppForegroundState(foreground: boolean): void {
     if (!foreground) {
       this.speechAuthority.cancelForAppBackground()
     }
   }
-  rememberRoute(route: MobileWebResumeRoute): void {
+  rememberRoute(route: MobileWebResumeRoute, pageState?: string): void {
     rememberMobileWebBrokerRoute(
       !this.disposed && this.options.isActive(),
       route,
       this.authorities.workspace,
-      this.options
+      this.options,
+      pageState
     )
   }
   async resolveNavigationRoute(hostWorkspaceId: string): Promise<MobileWebResumeRoute> {

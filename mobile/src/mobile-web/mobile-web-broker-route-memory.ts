@@ -6,7 +6,8 @@ export function rememberMobileWebBrokerRoute(
   active: boolean,
   route: MobileWebResumeRoute,
   workspaceAuthority: MobileWebWorkspaceAuthority,
-  options: Pick<MobileWebCapabilityBrokerOptions, 'rememberHostRoute' | 'rememberRoute'>
+  options: Pick<MobileWebCapabilityBrokerOptions, 'rememberHostRoute' | 'rememberRoute'>,
+  pageState?: string
 ): void {
   if (!active) {
     return
@@ -22,5 +23,9 @@ export function rememberMobileWebBrokerRoute(
   } else {
     options.rememberHostRoute?.({ kind: 'workspaceList' })
   }
-  options.rememberRoute?.(route)
+  if (pageState === undefined) {
+    options.rememberRoute?.(route)
+  } else {
+    options.rememberRoute?.(route, pageState)
+  }
 }

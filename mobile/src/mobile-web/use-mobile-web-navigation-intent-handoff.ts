@@ -30,7 +30,8 @@ export function useMobileWebNavigationIntentHandoff(options: {
   selectHost: (hostId: string | undefined) => void
   refreshHosts: () => Promise<void>
   postMessage: (message: MobileWebBridgeShellMessage) => Promise<void>
-  rememberRoute: (route: MobileWebResumeRoute) => void
+  rememberRoute: (route: MobileWebResumeRoute, pageState?: string) => void
+  pageState?: () => string | undefined
   onNavigationResolved?: (intent: MobileWebNavigationIntent, route: MobileWebResumeRoute) => void
   showWarning: (message: string, code?: string) => void
 }): void {
@@ -88,8 +89,13 @@ export function useMobileWebNavigationIntentHandoff(options: {
         ) {
           return
         }
+        const pageState = activeIntent.source === 'coldResume' ? options.pageState?.() : undefined
         if (route.kind === 'workspaceList' || route.kind === 'session') {
-          options.rememberRoute(route)
+          if (pageState === undefined) {
+            options.rememberRoute(route)
+          } else {
+            options.rememberRoute(route, pageState)
+          }
           options.onNavigationResolved?.(activeIntent, route)
         }
         await options.postMessage({
@@ -98,6 +104,7 @@ export function useMobileWebNavigationIntentHandoff(options: {
           shellSessionId: context.sessionId,
           buildId: context.buildId,
           sequence: activeIntent.sequence,
+          ...(pageState === undefined ? {} : { pageState }),
           route
         })
         if (!cancelled && MOBILE_WEB_NAVIGATION_INTENTS.consume(activeIntent.sequence)) {
@@ -123,6 +130,7 @@ export function useMobileWebNavigationIntentHandoff(options: {
     options.getBroker,
     options.onNavigationResolved,
     options.pageReadySessionId,
+    options.pageState,
     options.postMessage,
     options.rememberRoute,
     options.selectedHostId,

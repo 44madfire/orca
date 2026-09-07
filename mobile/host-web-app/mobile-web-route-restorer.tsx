@@ -1,5 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { useRouter } from 'expo-router'
+import { usePathname, useRouter } from 'expo-router'
+import {
+  hostedPageRouteState,
+  hostedPageStateTarget
+} from '../src/mobile-web/hosted-page-route-state'
 
 import { useMobileWebNativeShell } from '../../src/mobile-web/src/native-shell-channel'
 import { mobileWebNavigationRouteTarget } from '../src/mobile-web/mobile-web-route-restoration'
@@ -7,6 +11,8 @@ import { rememberMobileWebRouteQuery } from '../src/mobile-web/mobile-web-route-
 
 export function MobileWebRouteRestorer() {
   const router = useRouter()
+  const pathname = usePathname()
+  const pendingPathRef = useRef<string | undefined>(undefined)
   const shell = useMobileWebNativeShell()
   const restoredContextRef = useRef<string | undefined>(undefined)
 
@@ -19,11 +25,24 @@ export function MobileWebRouteRestorer() {
       return
     }
     restoredContextRef.current = restorationKey
-    const target = mobileWebNavigationRouteTarget(shell.navigationRoute)
-    const query = navigationRouteQuery(shell.navigationRoute)
+    const pageTarget = hostedPageStateTarget(shell.pageState)
+    const target = pageTarget ?? mobileWebNavigationRouteTarget(shell.navigationRoute)
+    const query = pageTarget ? {} : navigationRouteQuery(shell.navigationRoute)
+    pendingPathRef.current = new URL(target, 'https://orca-mobile-web.invalid').pathname
     rememberNavigationRouteQuery(target, query)
     router.replace(mobileWebRouterReplacementHref(target, query))
-  }, [router, shell.context, shell.navigationRoute, shell.routeRevision])
+  }, [router, shell.context, shell.navigationRoute, shell.pageState, shell.routeRevision])
+
+  useEffect(() => {
+    if (!shell.context || (pendingPathRef.current && pendingPathRef.current !== pathname)) {
+      return
+    }
+    pendingPathRef.current = undefined
+    const pageState = hostedPageRouteState(pathname)
+    if (pageState !== shell.pageState) {
+      shell.rememberRoute(shell.resumeRoute, pageState)
+    }
+  }, [pathname, shell.context, shell.pageState, shell.rememberRoute, shell.resumeRoute])
 
   return null
 }

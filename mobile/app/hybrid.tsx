@@ -5,8 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import {
   MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
   parseMobileWebBridgePageMessage,
-  type MobileWebBridgeShellMessage,
-  type MobileWebResumeRoute
+  type MobileWebBridgeShellMessage
 } from '../../src/shared/mobile-web/bridge-contract'
 import { MobileWebCapabilityBroker } from '../src/mobile-web/mobile-web-capability-broker'
 import {
@@ -199,8 +198,8 @@ export default function HybridScreen() {
           mobileWebDiagnosticsStore.terminalFlow(selectedHost.id, metrics),
         onTerminalResync: (reason) =>
           mobileWebDiagnosticsStore.terminalResync(selectedHost.id, reason),
-        rememberRoute(route) {
-          resumeRoute.remember(route)
+        rememberRoute(route, pageState) {
+          resumeRoute.remember(route, pageState)
         },
         rememberHostRoute: coldResumeRoute.rememberHostRoute,
         randomBytes: ExpoCrypto.getRandomBytes
@@ -255,7 +254,8 @@ export default function HybridScreen() {
         hostDisplayName: hostName,
         reconnectAttempts: reconnects,
         lastConnectedAt: lastConnected,
-        resumeRoute: resumeRoute.current()
+        resumeRoute: resumeRoute.current(),
+        pageState: resumeRoute.pageState()
       })
     )
   }, [hostName, lastConnected, onHealthTimeout, postToWeb, reconnects, resumeRoute, session, state])
@@ -305,7 +305,7 @@ export default function HybridScreen() {
           healthDeadlineRef.current.acknowledge(current.sessionId)
           await markHealthy(current.sessionId)
         } else if (parsed.value.type === 'routeState') {
-          brokerRef.current?.rememberRoute(parsed.value.route)
+          brokerRef.current?.rememberRoute(parsed.value.route, parsed.value.pageState)
         } else {
           await handleMobileWebBrokerMessage({
             message: parsed.value,
@@ -343,10 +343,7 @@ export default function HybridScreen() {
   )
 
   const getBroker = useCallback(() => brokerRef.current, [])
-  const rememberRoute = useCallback(
-    (route: MobileWebResumeRoute) => resumeRoute.remember(route),
-    [resumeRoute]
-  )
+  const rememberRoute = resumeRoute.remember
   useMobileWebNavigationIntentHandoff({
     hosts,
     hostsLoading,
@@ -360,6 +357,7 @@ export default function HybridScreen() {
     refreshHosts,
     postMessage: postToWeb,
     rememberRoute,
+    pageState: resumeRoute.pageState,
     onNavigationResolved: coldResumeRoute.onNavigationResolved,
     showWarning
   })

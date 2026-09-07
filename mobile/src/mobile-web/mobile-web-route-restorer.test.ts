@@ -8,11 +8,13 @@ import { mobileWebRouteQuery } from './mobile-web-route-query-cache'
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
+  pathname: '/',
   shell: null as MobileWebNativeShellState | null
 }))
 
 vi.mock('expo-router', () => ({
-  useRouter: () => ({ replace: mocks.replace })
+  useRouter: () => ({ replace: mocks.replace }),
+  usePathname: () => mocks.pathname
 }))
 
 vi.mock('../../../src/mobile-web/src/native-shell-channel', () => ({
@@ -25,6 +27,7 @@ describe('MobileWebRouteRestorer', () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     mocks.replace.mockReset()
+    mocks.pathname = '/'
     mocks.shell = shellState('workspace-one', 'Workspace one', 1)
   })
 
@@ -73,6 +76,51 @@ describe('MobileWebRouteRestorer', () => {
     }
     renderRestorer()
     expect(mocks.replace).toHaveBeenCalledTimes(4)
+  })
+
+  it('restores hosted settings after a page swap and falls back for unknown rollback state', () => {
+    mocks.shell = {
+      ...shellState('workspace-one', 'Workspace one', 1),
+      pageState: JSON.stringify({ version: 1, pathname: '/native-chat-settings' })
+    }
+    renderRestorer()
+    expect(mocks.replace).toHaveBeenLastCalledWith('/native-chat-settings')
+
+    mocks.shell = {
+      ...shellState('workspace-one', 'Workspace one', 2),
+      pageState: JSON.stringify({ version: 2, pathname: '/future-settings' })
+    }
+    renderRestorer()
+    expect(mocks.replace).toHaveBeenLastCalledWith(
+      '/h/paired-orca-desktop/session/workspace-one?name=Workspace+one'
+    )
+  })
+
+  it('does not overwrite the saved page while the router is applying restoration', () => {
+    const rememberRoute = vi.fn()
+    const pageState = JSON.stringify({ version: 1, pathname: '/native-chat-settings' })
+    mocks.shell = { ...shellState('workspace-one', 'Workspace one', 1), pageState, rememberRoute }
+    renderRestorer()
+    expect(rememberRoute).not.toHaveBeenCalled()
+    mocks.pathname = '/native-chat-settings'
+    renderRestorer()
+    expect(rememberRoute).not.toHaveBeenCalled()
+    mocks.pathname = '/'
+    renderRestorer()
+    expect(rememberRoute).toHaveBeenCalledWith(mocks.shell.resumeRoute, undefined)
+  })
+
+  it('remembers new hosted settings without changing the legacy fallback', () => {
+    const rememberRoute = vi.fn()
+    mocks.shell = { ...shellState('workspace-one', 'Workspace one', 1), rememberRoute }
+    mocks.pathname = '/h/paired-orca-desktop/session/workspace-one'
+    renderRestorer()
+    mocks.pathname = '/browser-settings'
+    renderRestorer()
+    expect(rememberRoute).toHaveBeenCalledWith(
+      mocks.shell.resumeRoute,
+      JSON.stringify({ version: 1, pathname: '/browser-settings' })
+    )
   })
 
   it('restores Tasks state and Accounts through queryless hosted history', () => {

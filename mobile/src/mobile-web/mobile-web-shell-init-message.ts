@@ -16,6 +16,7 @@ type MobileWebShellInitArgs = {
   reconnectAttempts: number
   lastConnectedAt: number | null
   resumeRoute: MobileWebResumeRoute | undefined
+  pageState?: string
 }
 
 // Why: the init envelope is the one place the shell declares its grants and features to a page,
@@ -33,6 +34,7 @@ export function mobileWebShellInitMessage(
     reconnectAttempts: args.reconnectAttempts,
     lastConnectedAt: args.lastConnectedAt,
     resumeRoute: args.resumeRoute,
+    ...(args.pageState === undefined ? {} : { pageState: args.pageState }),
     grants: [...MOBILE_WEB_PRODUCTION_GRANTS],
     shellFeatures: [...MOBILE_WEB_SHELL_FEATURES]
   }

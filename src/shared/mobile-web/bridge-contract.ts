@@ -17,7 +17,11 @@ import {
   type MobileWebBridgeMessageContext,
   type MobileWebBridgeMessageParseResult
 } from './bridge-message-parser'
-import { MobileWebNavigationRouteSchema, MobileWebResumeRouteSchema } from './bridge-route-contract'
+import {
+  MobileWebPageStateSchema,
+  MobileWebNavigationRouteSchema,
+  MobileWebResumeRouteSchema
+} from './bridge-route-contract'
 import {
   MOBILE_WEB_SHELL_MAX_FEATURE_CHARACTERS,
   MOBILE_WEB_SHELL_MAX_FEATURES
@@ -106,6 +110,7 @@ const PageHardwareBackResultSchema = PageEnvelopeSchema.extend({
 
 const PageRouteStateSchema = PageEnvelopeSchema.extend({
   type: z.literal('routeState'),
+  pageState: MobileWebPageStateSchema.optional(),
   route: MobileWebResumeRouteSchema
 }).strict()
 
@@ -186,6 +191,7 @@ const ShellInitSchema = ShellEnvelopeSchema.extend({
     .optional(),
   hostDisplayName: z.string().min(1).max(160).optional(),
   resumeRoute: MobileWebResumeRouteSchema.optional(),
+  pageState: MobileWebPageStateSchema.optional(),
   ...ConnectionMetricsShape
 })
   .strict()
@@ -199,6 +205,7 @@ const ShellConnectionSchema = ShellEnvelopeSchema.extend({
 
 const ShellNavigationSchema = ShellEnvelopeSchema.extend({
   type: z.literal('navigation'),
+  pageState: MobileWebPageStateSchema.optional(),
   sequence: SequenceSchema,
   route: MobileWebNavigationRouteSchema
 }).strict()
