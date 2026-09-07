@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
+import { MobileWebHostCatalogCache } from './mobile-web-host-catalog-cache'
 import { executeMobileWebHostRequest } from './mobile-web-host-requests'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 import { MOBILE_WEB_PRODUCTION_GRANTS } from './mobile-web-production-grants'
@@ -21,6 +22,7 @@ function fixture() {
     sendRequest,
     args: {
       authority: new MobileWebWorkspaceAuthority((length) => new Uint8Array(length)),
+      catalog: new MobileWebHostCatalogCache(),
       client: { sendRequest } as unknown as RpcClient,
       isActive: () => true,
       payload: { method: grant.method, params: { enabled: false } }

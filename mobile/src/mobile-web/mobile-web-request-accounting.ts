@@ -116,7 +116,7 @@ export function mobileWebRequestAtCapacity(args: {
 }): boolean {
   const key = mobileWebOperationKey(args.request)
   return (
-    (args.isHostRequest && args.hostRequestsInFlight >= 4) ||
+    (args.isHostRequest && args.hostRequestsInFlight >= args.maxConcurrent) ||
     args.pending.size >= MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS ||
     (args.request.mode === 'subscription' &&
       mobileWebSubscriptionCount(args.pending.values(), args.ledgers) >=
@@ -127,12 +127,11 @@ export function mobileWebRequestAtCapacity(args: {
   )
 }
 
+// Only one-shot forwards hold host work past a page cancellation; subscriptions are capped by
+// their own ledger and catalog reads are served from a per-connection cache.
 export function mobileWebIsHostRequest(request: {
   capability: string
   operation: string
 }): boolean {
-  return (
-    request.capability === 'workspace' &&
-    ['hostRequest', 'hostCatalog', 'hostSubscribe'].includes(request.operation)
-  )
+  return request.capability === 'workspace' && request.operation === 'hostRequest'
 }

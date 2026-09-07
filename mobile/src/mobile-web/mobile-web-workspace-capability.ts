@@ -1,7 +1,7 @@
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { MobileWebCapabilityExecutionDependencies } from './mobile-web-capability-execution-dependencies'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
-import { executeMobileWebHostRequest, readMobileWebHostCatalog } from './mobile-web-host-requests'
+import { executeMobileWebHostRequest } from './mobile-web-host-requests'
 import { executeMobileWebWorkspaceOperation } from './mobile-web-workspace-operations'
 
 type OnceRequest = Extract<
@@ -14,11 +14,12 @@ export async function executeWorkspace(
   request: OnceRequest
 ): Promise<unknown> {
   if (request.operation === 'hostCatalog') {
-    return readMobileWebHostCatalog(args.connectedClient(), request.payload)
+    return args.hostCatalog.read(args.connectedClient(), request.payload)
   }
   if (request.operation === 'hostRequest') {
     return executeMobileWebHostRequest({
       client: args.connectedClient(),
+      catalog: args.hostCatalog,
       authority: args.workspaceAuthority,
       getPageSessionId: args.getPageSessionId,
       payload: request.payload,

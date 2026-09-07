@@ -8,19 +8,21 @@ import {
 
 const SHELL_DIR = resolve(__dirname)
 const REAUTHORIZATION =
-  /\.(?:assertHostWorkspaceBinding|assertHostRepoBinding|assertHostedTarget)\(/g
+  /(?:\.(?:assertHostWorkspaceBinding|assertHostRepoBinding|assertHostedTarget)|\bassertMobileWebHostRequestScope)\(/g
 const HANDLE_RESOLUTION =
   /\.(?:hostWorkspaceId|hostRepoId|hostConnectionId|resolveGitHub|resolveGitLab|resolveLinear)\(/
 
 /** Every module that reauthorizes an opaque handle, and how many times. Pinned so deleting a
- * reauthorization arm fails here even when the surrounding module keeps others. This counts
- * sites; it does not prove each one sits after the awaited read it guards. */
+ * reauthorization arm fails here even when the surrounding module keeps others. Host forwarding
+ * reauthorizes through `assertMobileWebHostRequestScope`, so its declaration, its own assert and
+ * every call site count. This counts sites; it does not prove each one sits after the awaited
+ * read it guards. */
 const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-agent-history-resume.ts': 1,
   'mobile-web-browser-resource-binding.ts': 1,
   'mobile-web-file-operations.ts': 1,
   'mobile-web-file-write.ts': 1,
-  'mobile-web-host-requests.ts': 3,
+  'mobile-web-host-requests.ts': 5,
   'mobile-web-host-subscriptions.ts': 1,
   'mobile-web-markdown-operations.ts': 2,
   'mobile-web-native-chat-binding.ts': 2,

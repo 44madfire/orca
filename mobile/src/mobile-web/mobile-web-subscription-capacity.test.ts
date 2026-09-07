@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MOBILE_WEB_BRIDGE_MAX_SUBSCRIPTIONS } from '../../../src/shared/mobile-web/bridge-limits'
-import { mobileWebRequestAtCapacity } from './mobile-web-request-accounting'
+import { MOBILE_WEB_PRODUCTION_GRANT_INDEX } from './mobile-web-production-grants'
+import { mobileWebIsHostRequest, mobileWebRequestAtCapacity } from './mobile-web-request-accounting'
 
 describe('aggregate subscription admission', () => {
   it('counts pending generic streams alongside active legacy and terminal streams', () => {
@@ -24,8 +25,8 @@ describe('aggregate subscription admission', () => {
                 : 0
         }
       ],
-      isHostRequest: true,
-      hostRequestsInFlight: 1,
+      isHostRequest: false,
+      hostRequestsInFlight: 0,
       maxConcurrent: 8
     }
     expect(mobileWebRequestAtCapacity(args)).toBe(true)
@@ -34,15 +35,37 @@ describe('aggregate subscription admission', () => {
   })
 
   it('retains the actual host work ceiling after page cancellation removes pending state', () => {
-    expect(
+    const args = {
+      pending: new Map(),
+      request: { mode: 'once' as const, capability: 'workspace', operation: 'hostRequest' },
+      ledgers: [],
+      isHostRequest: true,
+      maxConcurrent: 8
+    }
+    expect(mobileWebRequestAtCapacity({ ...args, hostRequestsInFlight: 8 })).toBe(true)
+    expect(mobileWebRequestAtCapacity({ ...args, hostRequestsInFlight: 7 })).toBe(false)
+  })
+
+  it('takes the host-request ceiling from the granted budget, not a private literal', () => {
+    const grant = MOBILE_WEB_PRODUCTION_GRANT_INDEX.get('workspace.hostRequest')
+    expect(grant).toBeDefined()
+    const atCapacity = (hostRequestsInFlight: number) =>
       mobileWebRequestAtCapacity({
         pending: new Map(),
-        request: { mode: 'subscription', capability: 'workspace', operation: 'hostSubscribe' },
+        request: { mode: 'once', capability: 'workspace', operation: 'hostRequest' },
         ledgers: [],
         isHostRequest: true,
-        hostRequestsInFlight: 4,
-        maxConcurrent: 8
+        hostRequestsInFlight,
+        maxConcurrent: grant!.limits.maxConcurrent
       })
-    ).toBe(true)
+    expect(atCapacity(grant!.limits.maxConcurrent - 1)).toBe(false)
+    expect(atCapacity(grant!.limits.maxConcurrent)).toBe(true)
+  })
+
+  it('leaves catalog reads and host streams off the one-shot host ceiling', () => {
+    expect(mobileWebIsHostRequest({ capability: 'workspace', operation: 'hostRequest' })).toBe(true)
+    for (const operation of ['hostCatalog', 'hostSubscribe']) {
+      expect(mobileWebIsHostRequest({ capability: 'workspace', operation })).toBe(false)
+    }
   })
 })

@@ -1,8 +1,19 @@
+import { MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES } from '../../../../shared/mobile-web/bridge-limits'
 import {
   MobileWebHostCatalogPayloadSchema,
   type MobileWebHostGrant
 } from '../../../../shared/mobile-web/host-rpc-contract'
 import { defineMethod } from '../core'
+
+// Reads whose result is a directory, a file, a diff or a transcript page, so the only honest
+// ceiling is the bridge envelope the shell can actually deliver.
+const READ_HEAVY_METHODS = new Set([
+  'mobileWeb.files.readDir',
+  'mobileWeb.files.read',
+  'mobileWeb.sourceControl.diff',
+  'mobileWeb.session.snapshot',
+  'mobileWeb.nativeChat.read'
+])
 
 // Only page-safe results belong here; transport credentials never enter this catalog.
 const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
@@ -40,8 +51,13 @@ const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
       method.startsWith('mobileWeb.session.')
         ? { pageSessionParam: 'pageSession' }
         : {}),
-      maxRequestBytes: method === 'mobileWeb.nativeChat.mutate' ? 600 * 1024 : 16 * 1024,
-      maxResponseBytes: 512 * 1024
+      maxRequestBytes:
+        method === 'mobileWeb.nativeChat.mutate'
+          ? MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES
+          : 16 * 1024,
+      maxResponseBytes: READ_HEAVY_METHODS.has(method)
+        ? MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES
+        : 512 * 1024
     }
   ])
 )

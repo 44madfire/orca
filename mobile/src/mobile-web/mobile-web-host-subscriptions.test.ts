@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
+import { MobileWebHostCatalogCache } from './mobile-web-host-catalog-cache'
 import { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
@@ -30,6 +31,7 @@ function fixture() {
     postClosed
   })
   const args = {
+    catalog: new MobileWebHostCatalogCache(),
     requestId: 'request',
     subscriptionId: 'stream',
     isActive: () => true,
