@@ -22,8 +22,18 @@ export const MOBILE_WEB_NATIVE_CHAT_METHODS = [
     handler: async (params, context) => {
       const binding = await resolveMobileWebNativeChat(context, params)
       const input = reader.params!.parse(mobileWebNativeChatHostParams(binding, params.read))
-      return boundMobileWebNativeChatRead(await reader.handler(input, context))
+      const result = await reader.handler(input, context)
+      // The reader answers an unreachable transcript with `{ error }`; the page must see a
+      // retryable host failure, not a result it cannot parse.
+      if (isRecord(result) && !('messages' in result)) {
+        throw new Error('runtime_unavailable')
+      }
+      return boundMobileWebNativeChatRead(result)
     }
   }),
   MOBILE_WEB_NATIVE_CHAT_MUTATION_METHOD
 ]
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}

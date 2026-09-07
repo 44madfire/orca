@@ -123,6 +123,14 @@ describe('Desktop native-chat page adapter', () => {
     expect(read).not.toHaveBeenCalled()
   })
 
+  it('fails the read instead of forwarding an unreachable-transcript result', async () => {
+    const f = fixture()
+    read.mockResolvedValue({ error: 'Transcript unavailable' })
+    await expect(reader.handler({ ...f.scope, read: { limit: 8 } }, f.context)).rejects.toThrow(
+      'runtime_unavailable'
+    )
+  })
+
   it('reads again after an unverifiable snapshot failure', async () => {
     const f = fixture()
     f.listMobileSessionTabs.mockRejectedValueOnce(new Error('Connection unavailable'))
