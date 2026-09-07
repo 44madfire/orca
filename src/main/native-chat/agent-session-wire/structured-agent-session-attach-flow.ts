@@ -1,3 +1,6 @@
+import { rewindRefusal } from './structured-rewind-refusal'
+import type { StructuredAgentSessionAcquireInput } from './structured-agent-session-adapter'
+import { AgentSessionRewindRefusal } from './structured-agent-session-adapter'
 // The attach transition end to end: reserve the lease, make the reservation
 // real, open the journal.
 //
@@ -38,6 +41,7 @@ import { resolveAgentSessionReplayOutcome } from './structured-agent-session-rep
 import { readAgentSessionHydrationPage } from './agent-session-history-page'
 
 export type AttachFlowInput = {
+  rewind?: StructuredAgentSessionAcquireInput['rewind']
   store: AgentSessionRecordStore
   adapter: StructuredAgentSessionAdapter
   journalRoot: string
@@ -159,6 +163,9 @@ export async function performAttach(
         )
       }
     }
+    if (error instanceof AgentSessionRewindRefusal) {
+      return rewindRefusal(error.rewindReason)
+    }
     if (error instanceof AgentSessionAcquisitionRefusal) {
       return { ok: false, refusal: { code: error.code, message: error.message } }
     }
@@ -278,6 +285,7 @@ async function acquireOwner(
     }
     const acquired = await input.adapter.acquire({
       identity: journalIdentityFor(record, input.params),
+      ...(input.rewind ? { rewind: input.rewind } : {}),
       fence,
       // Retries must recover the original reservation, not mint a second child.
       spawnToken,

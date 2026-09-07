@@ -46,6 +46,16 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
   dispatch: StructuredAgentSessionAdapter['dispatch'] = (input) =>
     this.owner(input.sessionId).dispatch(input)
 
+  rewindSupport: NonNullable<StructuredAgentSessionAdapter['rewindSupport']> = (sessionId) =>
+    this.owners.get(sessionId)?.rewindSupport?.(sessionId) ?? {
+      supported: false,
+      reason: 'unsupported'
+    }
+
+  rewind: NonNullable<StructuredAgentSessionAdapter['rewind']> = (input) =>
+    this.owner(input.sessionId).rewind?.(input) ??
+    Promise.resolve({ ok: false, reason: 'unsupported' })
+
   compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) => {
     const compact = this.owner(input.sessionId).compact
     if (!compact) {
