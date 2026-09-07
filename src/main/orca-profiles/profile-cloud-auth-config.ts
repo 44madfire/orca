@@ -1,4 +1,9 @@
 import { app } from 'electron'
+import {
+  cleanCloudServiceUrl as cleanUrl,
+  cleanCloudServiceOrigin as cleanOrigin
+} from '../../shared/cloud-service-url'
+import { resolvePushGatewayOrigin } from '../runtime/push/push-gateway-origin'
 
 export type OrcaCloudAuthConfig = {
   apiBaseUrl: string
@@ -19,7 +24,6 @@ const DEFAULT_SCOPE = 'openid profile email offline_access'
 const PRODUCTION_API_BASE_URL = 'https://login.onorca.dev'
 const PRODUCTION_CLIENT_ID = 'orca-desktop'
 const PRODUCTION_RELAY_DIRECTOR_URL = 'https://relay.onorca.dev'
-const PRODUCTION_PUSH_GATEWAY_URL = 'https://push.onorca.dev'
 
 // Why: packaged main bundles never define NODE_ENV, so packaged-ness is the
 // only reliable production signal for gating dev-only auth escape hatches.
@@ -31,37 +35,8 @@ function isPackagedOrcaBuild(): boolean {
   }
 }
 
-function cleanUrl(value: string | undefined, allowLoopbackHttp: boolean): string | null {
-  const trimmed = value?.trim()
-  if (!trimmed) {
-    return null
-  }
-  try {
-    const parsed = new URL(trimmed)
-    const loopbackHost =
-      parsed.hostname === '127.0.0.1' ||
-      parsed.hostname === 'localhost' ||
-      parsed.hostname === '[::1]'
-    if (parsed.protocol !== 'https:' && !(loopbackHost && allowLoopbackHttp)) {
-      return null
-    }
-    return parsed.toString().replace(/\/$/, '')
-  } catch {
-    return null
-  }
-}
-
 function endpoint(baseUrl: string, path: string): string {
   return new URL(path, `${baseUrl}/`).toString()
-}
-
-function cleanOrigin(value: string | undefined, allowLoopbackHttp: boolean): string | null {
-  const cleaned = cleanUrl(value, allowLoopbackHttp)
-  if (!cleaned) {
-    return null
-  }
-  const parsed = new URL(cleaned)
-  return parsed.pathname === '/' && !parsed.search && !parsed.hash ? parsed.origin : null
 }
 
 export function getOrcaCloudAuthConfig(
@@ -134,7 +109,7 @@ export function getOrcaPushGatewayUrl(
   env: NodeJS.ProcessEnv = process.env,
   packaged: boolean = isPackagedOrcaBuild()
 ): string {
-  return cleanOrigin(env.ORCA_PUSH_GATEWAY_URL, !packaged) ?? PRODUCTION_PUSH_GATEWAY_URL
+  return resolvePushGatewayOrigin(env, packaged)
 }
 
 export function allowsPlaintextOrcaCloudSession(

@@ -11,6 +11,79 @@
   },
   "gates": [
     {
+      "id": "mobile-push.headless-startup-and-policy",
+      "title": "Headless push lifecycle and mobile delivery policy",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "runtime",
+      "layer": "service-integration",
+      "surfaces": ["headless startup", "push registration", "mobile notification replay"],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local", "remote-runtime"],
+      "coverageNotes": "Actual startOrcad entry with mocked daemon/RPC startup boundaries; real controller, push service, and persisted device registry. Gateway send is stubbed.",
+      "motivatingLinks": ["https://github.com/stablyai/orca/pull/19204"],
+      "invariant": "Headless startup installs and disposes push delivery; push and replay preserve the three-minute away policy, and host activity cannot extend the seven-day mobile lease.",
+      "oracle": "Require registration after RPC identity initialization and shutdown cleanup; idle 179/180/0 yields false/true/false for socket and replay, and exactly one push. Persisted lease expires exactly at seven days and only explicit registration renews it.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/main/orcad/orcad-push-startup.test.ts src/main/runtime/push/push-policy-pipeline.integration.test.ts"
+      ],
+      "testFiles": [
+        "src/main/orcad/orcad-push-startup.test.ts",
+        "src/main/runtime/push/push-policy-pipeline.integration.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/main/orcad/orcad-push-startup.test.ts",
+          "assertions": [
+            "starts push after RPC identity is available and stops dispatch on shutdown"
+          ]
+        },
+        {
+          "file": "src/main/runtime/push/push-policy-pipeline.integration.test.ts",
+          "assertions": [
+            "carries the native idle boundary through replay, socket policy and push dispatch",
+            "expires persisted registration at seven days despite host activity and renews explicitly"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/main/orcad/orcad-push-startup.test.ts src/main/runtime/push/push-policy-pipeline.integration.test.ts",
+          "result": "passed",
+          "summary": "Four tests passed across two files.",
+          "durationSeconds": 0.407
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 10,
+        "scope": "Target budget; measured p95 not established"
+      },
+      "flakeHistory": {
+        "status": "soaking",
+        "evidence": "Focused local run passed; repeated CI history not established."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "Headless startup oracle reproduced missing registrar before the startup fix and passed afterward. Policy tests cover candidate behavior."
+      },
+      "performanceBudget": {
+        "required": false,
+        "evidence": "Lifecycle and policy coverage; asserts exact gateway send counts and zero remaining dispatch listeners after shutdown."
+      },
+      "promotionCriteria": ["Collect repeated CI runs without unexplained failures."],
+      "knownGaps": [
+        "Does not prove APNs silent background wakeup or actual operating-system idle transitions.",
+        "Rendererless agent/bell event generation remains outside the documented feature contract.",
+        "No live Windows or Linux policy evidence."
+      ],
+      "demotionRule": "Keep experimental if lifecycle or policy assertions fail; do not weaken them to bypass platform delivery gaps."
+    },
+    {
       "id": "ssh.localhost-terminal-agent-hooks",
       "title": "Localhost SSH terminal and agent hooks reach the owning pane",
       "maturity": "experimental",
@@ -13256,9 +13329,7 @@
         },
         {
           "file": "src/main/runtime/orchestration/mailbox-pointer-stage.test.ts",
-          "assertions": [
-            "a refused pointer write drains a delivery parked behind its watermark"
-          ]
+          "assertions": ["a refused pointer write drains a delivery parked behind its watermark"]
         },
         {
           "file": "src/main/providers/settled-pty-writer-census.test.ts",
@@ -18480,27 +18551,13 @@
       "protection": "partial",
       "owner": "browser-runtime",
       "layer": "electron-packaged",
-      "surfaces": [
-        "paired browser placement"
-      ],
-      "platforms": [
-        "linux",
-        "macos",
-        "windows"
-      ],
-      "providers": [
-        "paired-runtime"
-      ],
-      "coveredPlatforms": [
-        "linux"
-      ],
-      "coveredProviders": [
-        "paired-runtime"
-      ],
+      "surfaces": ["paired browser placement"],
+      "platforms": ["linux", "macos", "windows"],
+      "providers": ["paired-runtime"],
+      "coveredPlatforms": ["linux"],
+      "coveredProviders": ["paired-runtime"],
       "coverageNotes": "Published Linux 1.4.188 desktop against current source in both directions; scheduled weekly and manually runnable. No required PR check.",
-      "motivatingLinks": [
-        "https://github.com/stablyai/orca/actions/runs/34069063016"
-      ],
+      "motivatingLinks": ["https://github.com/stablyai/orca/actions/runs/34069063016"],
       "invariant": "A paired client and host without client-hosted browser capabilities retain server-hosted browser placement across supported version skew.",
       "oracle": "Require both existing named browser placement scenarios to pass three times with one attempt, zero skips, zero failures, and no report errors.",
       "commands": [
@@ -18524,9 +18581,7 @@
         },
         {
           "file": "config/scripts/verify-packaged-browser-participation.test.mjs",
-          "assertions": [
-            "reject missing, substituted, skipped and retried scenarios"
-          ]
+          "assertions": ["reject missing, substituted, skipped and retried scenarios"]
         },
         {
           "file": "config/scripts/packaged-browser-lane-contract.test.mjs",
@@ -18581,26 +18636,13 @@
       "protection": "partial",
       "owner": "terminal-input",
       "layer": "electron-native-ime-e2e",
-      "surfaces": [
-        "native Hangul composition",
-        "Wayland terminal input"
-      ],
-      "platforms": [
-        "linux"
-      ],
-      "providers": [
-        "local"
-      ],
-      "coveredPlatforms": [
-        "linux"
-      ],
-      "coveredProviders": [
-        "local"
-      ],
+      "surfaces": ["native Hangul composition", "Wayland terminal input"],
+      "platforms": ["linux"],
+      "providers": ["local"],
+      "coveredPlatforms": ["linux"],
+      "coveredProviders": ["local"],
       "coverageNotes": "Ubuntu 22.04 nested GNOME and IBus Hangul drive three complete native executions in GitHub Actions. GNOME owns IBus; daemon and CLI share its default config discovery path.",
-      "motivatingLinks": [
-        "https://github.com/stablyai/orca/pull/19174"
-      ],
+      "motivatingLinks": ["https://github.com/stablyai/orca/pull/19174"],
       "invariant": "Typing d k 1 Return through native IBus Hangul delivers exactly 아1 followed by newline without missing, duplicate, or reordered characters.",
       "oracle": "Three executions each assert three exact UTF-8 PTY lines. Verify the exact Playwright title, zero skips/retries, each individual native composition receipt, and the nested launch Wayland flag.",
       "commands": [
@@ -18616,15 +18658,11 @@
       "assertionRefs": [
         {
           "file": "tests/e2e/terminal-hangul-terminating-digit-native.spec.ts",
-          "assertions": [
-            "a digit typed right after a Hangul syllable reaches the pty"
-          ]
+          "assertions": ["a digit typed right after a Hangul syllable reaches the pty"]
         },
         {
           "file": "config/scripts/terminal-ime-e2e-workflow.test.mjs",
-          "assertions": [
-            "runs native Wayland independently with CJK fonts and retained evidence"
-          ]
+          "assertions": ["runs native Wayland independently with CJK fonts and retained evidence"]
         }
       ],
       "evidenceRuns": [

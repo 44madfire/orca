@@ -24,6 +24,7 @@ vi.mock('./push-registration', () => ({
 }))
 
 const CAPABILITY = 'notifications.remote-push.v1'
+const POLICY_CAPABILITY = 'notifications.delivery-policy.v1'
 
 type ClientEntry = { hostId: string; client: RpcClient; state: string }
 
@@ -85,6 +86,32 @@ afterEach(() => {
 })
 
 describe('useRemotePushCapableHosts', () => {
+  it('requires policy support from every paired host, including a legacy host after reconnect', async () => {
+    await mount()
+    const first = clientFor('host-1')
+    await setClients([
+      { hostId: 'host-1', client: first, state: 'connected' },
+      { hostId: 'host-2', client: clientFor('host-2'), state: 'connected' }
+    ])
+    await answer('host-1', [CAPABILITY, POLICY_CAPABILITY])
+    await answer('host-2', [CAPABILITY])
+    expect(latest).toEqual({ policySupported: false, supported: true, resolved: true })
+
+    await setClients([
+      { hostId: 'host-1', client: first, state: 'connected' },
+      { hostId: 'host-2', client: clientFor('host-2'), state: 'connected' }
+    ])
+    await answer('host-2', [CAPABILITY, POLICY_CAPABILITY])
+    expect(latest).toEqual({ policySupported: true, supported: true, resolved: true })
+
+    await setClients([
+      { hostId: 'host-1', client: first, state: 'connected' },
+      { hostId: 'host-2', client: clientFor('host-2'), state: 'connected' }
+    ])
+    await answer('host-2', [CAPABILITY])
+    expect(latest).toEqual({ policySupported: false, supported: true, resolved: true })
+  })
+
   it('stays unresolved when the host catalog cannot be read', async () => {
     vi.mocked(loadHostCatalog).mockRejectedValue(new Error('keychain locked'))
 
