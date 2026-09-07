@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CodexAppServerRequestError } from './codex-app-server-request-error'
+import { CodexAppServerUnsupportedError } from './codex-app-server-session'
 import {
   createCodexBackgroundTerminals,
   refreshCodexBackgroundTerminals,
@@ -74,13 +75,14 @@ describe('codex background terminals', () => {
 
   describe('capability probe', () => {
     it('latches off and stays quiet when the host refuses the operation', async () => {
+      // Method-not-found reaches callers as CodexAppServerUnsupportedError:
+      // the dispatcher converts -32601 before anyone sees it, so a
+      // RequestError carrying -32601 is a value production cannot produce.
       const request = vi
         .fn()
         .mockRejectedValue(
-          new CodexAppServerRequestError(
-            'thread/backgroundTerminals/list',
-            -32601,
-            'method not found'
+          new CodexAppServerUnsupportedError(
+            'codex app-server does not support thread/backgroundTerminals/list: method not found'
           )
         )
       const terminals = createCodexBackgroundTerminals()
@@ -157,10 +159,8 @@ describe('codex background terminals', () => {
       const request = vi
         .fn()
         .mockRejectedValue(
-          new CodexAppServerRequestError(
-            'thread/backgroundTerminals/clean',
-            -32601,
-            'method not found'
+          new CodexAppServerUnsupportedError(
+            'codex app-server does not support thread/backgroundTerminals/clean: method not found'
           )
         )
       const terminals = createCodexBackgroundTerminals()
@@ -172,5 +172,54 @@ describe('codex background terminals', () => {
       expect(terminals.supported).toBe(false)
       expect(terminals.state).toBeNull()
     })
+  })
+})
+
+// Errors the dispatcher really produces for a host that HAS the methods. None
+// of these may latch the capability off: one bad turn would otherwise hide the
+// row and the Stop button for the rest of the session.
+describe('refusals that must not latch the capability off', () => {
+  const transient = (code: number, message: string): CodexAppServerRequestError =>
+    new CodexAppServerRequestError(
+      'thread/backgroundTerminals/list',
+      code,
+      `codex app-server thread/backgroundTerminals/list failed: ${message}`
+    )
+
+  it.each([
+    ['a thread lost to a resume race', -32600, 'invalid_request: thread not found'],
+    ['an internal server error', -32603, 'internal_error'],
+    ['the experimental-API gate', -32600, 'invalid_request: experimental API not enabled']
+  ])('keeps asking after %s', async (_case, code, message) => {
+    const request = vi.fn().mockRejectedValue(transient(code as number, message as string))
+    const terminals = createCodexBackgroundTerminals()
+    const session = makeSession(request)
+
+    await refreshCodexBackgroundTerminals(terminals, session)
+    await refreshCodexBackgroundTerminals(terminals, session)
+
+    // Not latched, so the next turn tries again...
+    expect(terminals.supported).not.toBe(false)
+    expect(request).toHaveBeenCalledTimes(2)
+    // ...and until one succeeds the client is shown nothing, which is the safe
+    // direction to fail in.
+    expect(terminals.state).toBeNull()
+  })
+
+  it('does not hide a live row because one stop attempt failed', async () => {
+    const terminals = createCodexBackgroundTerminals()
+    terminals.supported = true
+    terminals.state = { state: 'monitoring', tasks: [], supportsTaskStop: true }
+    const request = vi
+      .fn()
+      .mockRejectedValue(
+        new CodexAppServerRequestError('thread/backgroundTerminals/clean', -32603, 'internal_error')
+      )
+
+    const result = await stopCodexBackgroundTerminals(terminals, makeSession(request))
+
+    expect(result).toEqual({ cancelled: false })
+    expect(terminals.supported).toBe(true)
+    expect(terminals.state).not.toBeNull()
   })
 })

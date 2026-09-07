@@ -2,7 +2,7 @@ import type {
   AgentSessionBackgroundTask,
   AgentSessionBackgroundTaskState
 } from '../../shared/agent-session-wire'
-import { isCodexAppServerRequestError } from './codex-app-server-connection'
+import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
 import type { CodexSession } from './codex-structured-session-state'
 
 /**
@@ -10,10 +10,18 @@ import type { CodexSession } from './codex-structured-session-state'
  * outlive the turn. Interrupting a turn does not reap them; the app-server
  * exposes that as its own operation, and this is the only path to it.
  *
- * The operations are experimental upstream, so a host can answer any of them
- * with a refusal. `supported` starts null (never asked) and latches to false on
- * the first refusal, which keeps the client's Stop control hidden rather than
- * offering one that silently does nothing.
+ * The operations are experimental upstream, so a host may not have them at all.
+ * `supported` starts null (never asked) and latches to false only on
+ * CodexAppServerUnsupportedError — the class the dispatcher raises for
+ * method-not-found, and the only one capability caches are allowed to treat as
+ * unsupported (see CodexAppServerUnsupportedError's own contract).
+ *
+ * Every other refusal is transient by definition: a `thread not found` after a
+ * resume race, an internal error, the experimental-API gate on a host that may
+ * admit the call next launch. Those must not latch, or one bad turn would hide
+ * the control for the rest of the session. They leave `supported` at null, so
+ * the client still shows nothing — the safe direction — and the next turn asks
+ * again.
  */
 export type CodexBackgroundTerminals = {
   supported: boolean | null
@@ -99,7 +107,12 @@ export async function refreshCodexBackgroundTerminals(
       { timeoutMs }
     )
   } catch (error) {
-    if (isCodexAppServerRequestError(error)) {
+    // Why only this class: method-not-found is the one signal that means "never
+    // going to work". Latching on the general request error would mark a healthy
+    // host unsupported after a single transient failure, and — worse — would
+    // never fire on a host that genuinely lacks the method, since that arrives
+    // as the unsupported class instead.
+    if (isCodexAppServerUnsupportedError(error)) {
       const had = terminals.state !== null
       terminals.supported = false
       terminals.state = null
@@ -145,7 +158,7 @@ export async function stopCodexBackgroundTerminals(
           { timeoutMs }
         ))
   } catch (error) {
-    if (isCodexAppServerRequestError(error)) {
+    if (isCodexAppServerUnsupportedError(error)) {
       terminals.supported = false
       terminals.state = null
     }

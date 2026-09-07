@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionJournalIdentity } from '../../shared/agent-session-journal-types'
 import type { AgentSessionBackgroundTaskState } from '../../shared/agent-session-wire'
-import {
-  CodexAppServerRequestError,
-  type CodexAppServerConnection,
-  type CodexAppServerConnectionHandlers,
-  type CodexAppServerLaunch,
-  type openCodexAppServerConnection
+import type {
+  CodexAppServerConnection,
+  CodexAppServerConnectionHandlers,
+  CodexAppServerLaunch,
+  openCodexAppServerConnection
 } from './codex-app-server-connection'
+import { CodexAppServerUnsupportedError } from './codex-app-server-session'
 import { CodexStructuredSessionAdapter } from './codex-structured-session-adapter'
 
 const THREAD_ID = 'thread-abc'
@@ -171,9 +171,14 @@ describe('CodexStructuredSessionAdapter background terminals', () => {
   })
 
   describe('a host without the operations', () => {
+    // The dispatcher converts -32601 into CodexAppServerUnsupportedError before
+    // any caller sees it, so a RequestError carrying -32601 is a value
+    // production can never build. Refuse the way a real host refuses.
     const refuse = (method: string): Route => {
       return () => {
-        throw new CodexAppServerRequestError(method, -32601, 'method not found')
+        throw new CodexAppServerUnsupportedError(
+          `codex app-server does not support ${method}: method not found`
+        )
       }
     }
 
