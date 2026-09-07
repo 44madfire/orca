@@ -145,7 +145,8 @@ function readForward(
     // a page it cannot place.
     return historyReset(snapshot, 'cursor_ahead')
   }
-  const since = journal.readSince(cursor)
+  // One lookahead preserves hasNewer without rereading the entire remaining journal per page.
+  const since = journal.readSince(cursor, limit + 1)
   if (!since.ok) {
     return historyReset(snapshot, since.reset)
   }
