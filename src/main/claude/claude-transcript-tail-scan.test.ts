@@ -34,24 +34,29 @@ async function collect(path: string, scan?: ClaudeTranscriptTailScan): Promise<s
   return lines
 }
 
-/** A file whose 64KiB chunk boundary lands inside `marker`'s multi-byte run. */
-function fileSplittingInside(marker: string, targetLine: string): Buffer {
+/** A file whose 64KiB chunk boundary lands `offsetInMarker` bytes into `marker`. */
+function fileSplittingInside(marker: string, targetLine: string, offsetInMarker = 1): Buffer {
   const line = Buffer.from(`${targetLine}\n`, 'utf8')
   const markerBytes = Buffer.from(marker, 'utf8')
   const markerAt = line.indexOf(markerBytes)
   expect(markerAt).toBeGreaterThanOrEqual(0)
-  // Split on the marker's SECOND byte, so the character straddles the boundary.
-  const splitWithinLine = markerAt + 1
+  expect(offsetInMarker).toBeGreaterThan(0)
+  expect(offsetInMarker).toBeLessThan(markerBytes.length)
+  const splitWithinLine = markerAt + offsetInMarker
   const trailing = CHUNK_BYTES - (line.length - splitWithinLine)
   expect(trailing).toBeGreaterThan(0)
   const head = Buffer.from('{"type":"user","sessionId":"session-1"}\n', 'utf8')
   const tail = Buffer.from(`${'x'.repeat(trailing - 1)}\n`, 'utf8')
   const file = Buffer.concat([head, line, tail])
-  // The boundary the reader will use is exactly the marker's continuation byte.
+  // The boundary the reader will use falls strictly inside the marker's bytes.
   const boundary = file.length - CHUNK_BYTES
   expect(boundary).toBe(head.length + splitWithinLine)
-  expect(file[boundary]! & 0xc0).toBe(0x80)
   return file
+}
+
+/** Interior byte offsets of `marker`, every place a boundary could split it. */
+function interiorOffsets(marker: string): number[] {
+  return Array.from({ length: Buffer.byteLength(marker, 'utf8') - 1 }, (_, index) => index + 1)
 }
 
 describe('claudeTranscriptTailLines', () => {
@@ -67,6 +72,24 @@ describe('claudeTranscriptTailLines', () => {
     const path = await write('boundary-3.jsonl', fileSplittingInside('☕', targetLine))
 
     await expect(collect(path)).resolves.toContain(targetLine)
+  })
+
+  it.each([
+    ['2-byte', 'é'],
+    ['3-byte', '☕'],
+    ['4-byte', '\u{1D11E}'],
+    ['ZWJ sequence', '\u{1F468}‍\u{1F469}‍\u{1F467}']
+  ])('keeps a %s marker intact at every boundary offset', async (label, marker) => {
+    const targetLine = `{"type":"ai-title","aiTitle":"Ship ${marker} now","sessionId":"s"}`
+
+    for (const offset of interiorOffsets(marker)) {
+      const path = await write(
+        `sweep-${label.replace(/\W/g, '')}-${offset}.jsonl`,
+        fileSplittingInside(marker, targetLine, offset)
+      )
+
+      await expect(collect(path)).resolves.toContain(targetLine)
+    }
   })
 
   it('yields every non-empty line newest first', async () => {

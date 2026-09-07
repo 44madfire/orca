@@ -53,9 +53,13 @@ export async function* claudeTranscriptTailLines(
       await file.read(buffer, 0, length, position)
       scanned = size - position
       const boundary = position > 0 ? buffer.indexOf(NEWLINE) : -1
-      if (position > 0 && boundary === -1) {
-        // A line longer than the window. Widen it rather than carry its bytes.
-        span += TRANSCRIPT_TAIL_CHUNK_BYTES
+      const from = boundary + 1
+      if (position > 0 && (boundary === -1 || from >= length)) {
+        // No COMPLETE line in the window — either no newline at all, or only the
+        // one `end` already sits past. Widen geometrically rather than carry the
+        // bytes; arithmetic widening re-reads the window each round, which is
+        // quadratic in the length of the long line.
+        span *= 2
         continue
       }
       if (scan) {
@@ -63,7 +67,6 @@ export async function* claudeTranscriptTailLines(
       }
       // Safe to decode: `from` follows a newline (or is the file's start) and
       // `end` is the file's end or one past a newline.
-      const from = boundary + 1
       const lines = buffer.subarray(from).toString('utf8').split(/\r?\n/)
       for (let index = lines.length - 1; index >= 0; index -= 1) {
         const line = lines[index]?.trim()
