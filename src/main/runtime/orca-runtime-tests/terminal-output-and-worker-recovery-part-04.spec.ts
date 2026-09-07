@@ -79,6 +79,8 @@ describe('OrcaRuntimeService', () => {
         kill: vi.fn(() => true),
         getForegroundProcess: async () => null,
         hasPty: () => false,
+        // The owning provider's readback, not the empty listing, is what certifies the exit.
+        probePtyLiveness: async () => false,
         listProcesses: async () => []
       })
       const resolveLegacyWorkerTerminalRecovery = vi.fn()
@@ -186,6 +188,8 @@ describe('OrcaRuntimeService', () => {
         kill: vi.fn(() => true),
         getForegroundProcess: async () => null,
         hasPty: () => false,
+        // The owning provider's readback, not the empty listing, is what certifies the exit.
+        probePtyLiveness: async () => false,
         listProcesses: async () => []
       })
       const resolveLegacyWorkerTerminalRecovery = vi.fn()
@@ -319,6 +323,7 @@ describe('OrcaRuntimeService', () => {
       kill: vi.fn(() => true),
       getForegroundProcess: async () => null,
       hasPty: () => false,
+      probePtyLiveness: async (candidate: string) => candidate === 'pty-exited-two',
       listProcesses
     })
     const revealTerminalSession = vi.fn()

@@ -238,6 +238,8 @@ function makePostRevealWorkerRecoveryHarness(
     kill,
     getForegroundProcess: async () => null,
     hasPty,
+    // Absence is only an exit when the owning provider says so; these fixtures own no other PTY.
+    probePtyLiveness: async (candidate: string) => hasPty(candidate) === true,
     listProcesses:
       listProcesses ??
       (async () => [

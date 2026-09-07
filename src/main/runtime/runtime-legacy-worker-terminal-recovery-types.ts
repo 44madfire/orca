@@ -49,6 +49,8 @@ export type LegacyWorkerRecoveryPorts = {
   ) => Promise<LegacyWorkerRecoveryInventory | null>
   /** Serializes the pre-adoption liveness probe and the adoption itself against other terminal mutations. */
   runMutation: <T>(worktreeId: string, operation: () => Promise<T>) => Promise<T>
+  /** True only when the owning provider answered that the PTY is absent; doubt answers false. */
+  isPtyProvenAbsent: (ptyId: string) => Promise<boolean>
   getActivation: (worktreeId: string) => { activeTabId?: string; activeGroupId?: string }
   hasExactPersistedSurface: (candidate: LegacyWorkerRecoveryCandidate) => boolean
   hasExactSurface: (candidate: LegacyWorkerRecoveryCandidate) => boolean

@@ -8,6 +8,20 @@ import type {
   LegacyWorkerRecoveryWorkspace
 } from './runtime-legacy-worker-terminal-recovery-types'
 
+/**
+ * A listing that does not name the PTY is not an observation of its exit. `listProcesses` returns
+ * the host's CURRENT session map, so a restarted relay omits every id the previous one minted and
+ * a daemon session this process never attached was never in the cache at all — neither shell
+ * necessarily died. Only the owning provider's readback may certify absence; everything else is
+ * unverifiable and defers to the next sweep (docs/reference/ssh-execution-boundary.md).
+ */
+async function resolvePtyAbsentFromListing(
+  ports: LegacyWorkerRecoveryPorts,
+  ptyId: string
+): Promise<'exited' | 'unverifiable'> {
+  return (await ports.isPtyProvenAbsent(ptyId)) ? 'exited' : 'unverifiable'
+}
+
 export async function reconcileLegacyWorkerCandidate(args: {
   controller: RuntimeLegacyWorkerTerminalRecoveryController
   ports: LegacyWorkerRecoveryPorts
@@ -21,7 +35,11 @@ export async function reconcileLegacyWorkerCandidate(args: {
 }): Promise<void> {
   const { controller, ports, options, candidate, workspace, resolvedWorktrees } = args
   if (!args.inventory.livePtyIds.has(candidate.ptyId)) {
-    args.pendingResolutions.push({ candidate, resolution: 'exited' })
+    if ((await resolvePtyAbsentFromListing(ports, candidate.ptyId)) === 'exited') {
+      args.pendingResolutions.push({ candidate, resolution: 'exited' })
+      return
+    }
+    args.deferredDispatchIds.add(candidate.dispatchId)
     return
   }
   const controllerIdentity = args.inventory.terminalIdentityByPtyId.get(candidate.ptyId)
@@ -47,7 +65,7 @@ export async function reconcileLegacyWorkerCandidate(args: {
         return 'unverifiable'
       }
       if (!preAdoptionInventory.livePtyIds.has(candidate.ptyId)) {
-        return 'exited'
+        return await resolvePtyAbsentFromListing(ports, candidate.ptyId)
       }
       const preAdoptionIdentity = preAdoptionInventory.terminalIdentityByPtyId.get(candidate.ptyId)
       if (!preAdoptionIdentity) {
@@ -133,6 +151,10 @@ export async function reconcileLegacyWorkerCandidate(args: {
   }
   if (!finalInventory.livePtyIds.has(candidate.ptyId)) {
     controller.deleteReceipt(candidate.paneKey)
+    if ((await resolvePtyAbsentFromListing(ports, candidate.ptyId)) !== 'exited') {
+      args.deferredDispatchIds.add(candidate.dispatchId)
+      return
+    }
     ports.onPtyExit(candidate)
     args.pendingResolutions.push({ candidate, resolution: 'exited' })
     return
