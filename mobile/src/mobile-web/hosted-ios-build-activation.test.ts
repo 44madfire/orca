@@ -29,11 +29,7 @@ describe('hosted iOS build activation wait', () => {
       'OrcaMobileWeb',
       hostIdentity
     )
-    await mkdir(hostRoot, { recursive: true })
-    await writeFile(
-      path.join(hostRoot, 'activation.json'),
-      JSON.stringify({ active: buildId, previous: null })
-    )
+    await mkdir(path.join(hostRoot, 'generations', buildId), { recursive: true })
     const keypairRoot = path.join(runtimeDirectory, 'paired-host', 'userData')
     await mkdir(keypairRoot, { recursive: true })
     await writeFile(
@@ -82,23 +78,17 @@ describe('hosted iOS build activation wait', () => {
     const buildId = 'b'.repeat(64)
     const cacheRoot = path.join(appDataPath, 'Library', 'Application Support', 'OrcaMobileWeb')
     const keypairRoot = path.join(runtimeDirectory, 'paired-host', 'userData')
-    await mkdir(path.join(cacheRoot, unrelatedIdentity), { recursive: true })
+    await mkdir(path.join(cacheRoot, unrelatedIdentity, 'generations', buildId), {
+      recursive: true
+    })
     await mkdir(keypairRoot, { recursive: true })
-    await writeFile(
-      path.join(cacheRoot, unrelatedIdentity, 'activation.json'),
-      JSON.stringify({ active: buildId })
-    )
     await writeFile(
       path.join(keypairRoot, 'orca-e2ee-keypair.json'),
       JSON.stringify({ publicKeyB64 })
     )
     const expectedHostRoot = path.join(cacheRoot, expectedIdentity)
     const activateExpectedHost = setTimeout(async () => {
-      await mkdir(expectedHostRoot, { recursive: true })
-      await writeFile(
-        path.join(expectedHostRoot, 'activation.json'),
-        JSON.stringify({ active: buildId })
-      )
+      await mkdir(path.join(expectedHostRoot, 'generations', buildId), { recursive: true })
     }, 20)
     const runCommand = vi.fn().mockResolvedValue({ stdout: appDataPath })
 

@@ -5,7 +5,10 @@ import {
   evaluateHostedDocumentWithRetry,
   waitForVisibleHostedWebView
 } from './hosted-webview-cdp-session.mjs'
-import { readIosActivationRecords, waitForIosActivation } from './hosted-ios-mobile-web-cache.mjs'
+import {
+  readIosCommittedGenerations,
+  waitForIosCommittedGeneration
+} from './hosted-ios-mobile-web-cache.mjs'
 import { waitForHostedIosBuildActivation } from './hosted-ios-build-activation.mjs'
 import { serveHostedIosOtaGeneration } from './hosted-ios-ota-package-fixture.mjs'
 import { openHostedIosSettings } from './hosted-ios-settings-navigation.mjs'
@@ -30,13 +33,13 @@ export async function verifyHostedIosOtaJourney(args) {
     { expectedBuild: fixture.A.buildId, timeoutMs },
     runtimeDirectory
   )
-  const records = await readIosActivationRecords(appDataPath)
-  const initial = records.find((record) => record.active === fixture.A.buildId)
+  const records = await readIosCommittedGenerations(appDataPath)
+  const initial = records.find((record) => record.buildId === fixture.A.buildId)
   if (!initial) {
     throw new Error('OTA generation A did not activate')
   }
   try {
-    await access(path.join(path.dirname(initial.path), 'generations', fixture.B.buildId))
+    await access(path.join(initial.path, 'generations', fixture.B.buildId))
     throw new Error('OTA generation B was already cached before delivery')
   } catch (error) {
     if (error?.code !== 'ENOENT') {
@@ -73,7 +76,11 @@ export async function verifyHostedIosOtaJourney(args) {
         { expectedBuild: fixture.B.buildId, timeoutMs },
         runtimeDirectory
       )
-      const activation = await waitForIosActivation(initial.path, fixture.B.buildId, timeoutMs)
+      const activation = await waitForIosCommittedGeneration(
+        appDataPath,
+        fixture.B.buildId,
+        timeoutMs
+      )
       const next = await waitSettings(args, fixture.B.marker, true)
       if (next.state.sessionId === a.state.sessionId) {
         throw new Error('OTA did not replace the native package session')

@@ -89,10 +89,6 @@ const androidReleaseHarnessSource = readFileSync(
   new URL('../../scripts/verify-hosted-android-release-webview.mjs', import.meta.url),
   'utf8'
 )
-const androidCrashLoopHarnessSource = readFileSync(
-  new URL('../../scripts/run-hosted-android-webview-crash-loop.mjs', import.meta.url),
-  'utf8'
-)
 
 function probe(overrides: Record<string, unknown> = {}) {
   return {
@@ -791,14 +787,5 @@ describe('hosted WebView CDP target selection', () => {
     expect(androidSecurityHarnessSource).toContain('verifyHostedWebViewExecutableIsolation')
     expect(androidSecurityHarnessSource).toContain('verifyHostedWebViewPrivacyIsolation')
     expect(androidSecurityHarnessSource).toContain('probe.observations.length > 0')
-  })
-
-  it('crashes three Android renderers and requires native activation rollback', () => {
-    expect(androidCrashLoopHarnessSource).toContain('const failureCount = 3')
-    expect(androidCrashLoopHarnessSource).toContain('terminateHostedWebViewProcess(document)')
-    expect(androidCrashLoopHarnessSource).toContain('initial.previous')
-    expect(androidCrashLoopHarnessSource).toContain('waitForAndroidActivation(')
-    expect(androidCrashLoopHarnessSource).toContain('>= 60_000')
-    expect(androidCrashLoopHarnessSource).toContain('documents.at(-1)?.href === documents[0]?.href')
   })
 })

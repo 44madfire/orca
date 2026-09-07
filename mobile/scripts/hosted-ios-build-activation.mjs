@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { readIosActivationRecords } from './hosted-ios-mobile-web-cache.mjs'
+import { readIosCommittedGenerations } from './hosted-ios-mobile-web-cache.mjs'
 
 const execFileAsync = promisify(execFile)
 const IOS_BUNDLE_IDENTIFIER = 'com.stably.orca.mobile'
@@ -29,11 +29,10 @@ export async function waitForHostedIosBuildActivation(
   const deadline = Date.now() + timeoutMs
   let records = []
   while (Date.now() < deadline) {
-    records = await readIosActivationRecords(appDataPath)
-    const expectedPathPart = `${path.sep}${hostIdentity}${path.sep}`
+    records = await readIosCommittedGenerations(appDataPath)
     if (
       records.some(
-        (record) => record.active === expectedBuild && record.path.includes(expectedPathPart)
+        (record) => record.buildId === expectedBuild && record.hostIdentity === hostIdentity
       )
     ) {
       return

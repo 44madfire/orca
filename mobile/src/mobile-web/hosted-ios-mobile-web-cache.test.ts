@@ -1,48 +1,54 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  readIosActivation,
-  readIosRollbackActivation
+  readCommittedBuildId,
+  readIosCommittedGenerations
 } from '../../scripts/hosted-ios-mobile-web-cache.mjs'
 import { selectHostedIosWebContentPid } from '../../scripts/hosted-ios-webcontent-process.mjs'
 
-const active = 'a'.repeat(64)
-const previous = 'b'.repeat(64)
+const buildA = 'a'.repeat(64)
+const buildB = 'b'.repeat(64)
 const temporaryRoots: string[] = []
-const harnessSource = readFileSync(
-  new URL('../../scripts/run-hosted-ios-webview-crash-loop.mjs', import.meta.url),
-  'utf8'
-)
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true })))
 })
 
 describe('hosted iOS mobile web cache evidence', () => {
-  it('selects the only host with an active and previous generation', async () => {
+  it('reports the single committed generation per paired host', async () => {
     const root = await createAppData()
-    await writeActivation(root, '1'.repeat(64), { active })
-    const candidate = await writeActivation(root, '2'.repeat(64), { active, previous })
+    await writeGeneration(root, '1'.repeat(64), buildA)
+    await writeGeneration(root, '2'.repeat(64), buildB)
 
-    await expect(readIosRollbackActivation(root)).resolves.toEqual({
-      path: candidate,
-      active,
-      previous
-    })
+    await expect(readIosCommittedGenerations(root)).resolves.toEqual([
+      expect.objectContaining({ hostIdentity: '1'.repeat(64), buildId: buildA }),
+      expect.objectContaining({ hostIdentity: '2'.repeat(64), buildId: buildB })
+    ])
   })
 
-  it('normalizes an omitted previous generation and rejects invalid identities', async () => {
+  it('skips a host with no committed generation and refuses more than one', async () => {
     const root = await createAppData()
-    const valid = await writeActivation(root, '1'.repeat(64), { active })
-    const invalid = await writeActivation(root, '2'.repeat(64), { active: '../active' })
+    const empty = await hostRoot(root, '1'.repeat(64))
+    await mkdir(empty, { recursive: true })
+    const doubled = await hostRoot(root, '2'.repeat(64))
+    await mkdir(path.join(doubled, 'generations', buildA), { recursive: true })
+    await mkdir(path.join(doubled, 'generations', buildB), { recursive: true })
 
-    await expect(readIosActivation(valid)).resolves.toEqual({ active, previous: null })
-    await expect(readIosActivation(invalid)).rejects.toThrow(
-      'iOS cache returned an invalid activation record'
+    await expect(readCommittedBuildId(empty)).resolves.toBeNull()
+    await expect(readCommittedBuildId(doubled)).rejects.toThrow(
+      'iOS host kept 2 generations instead of one'
     )
+  })
+
+  // The staged tree is never an activation candidate, so the drill must not report it.
+  it('ignores a staged tree beside the committed generation', async () => {
+    const root = await createAppData()
+    const host = await writeGeneration(root, '1'.repeat(64), buildA)
+    await mkdir(path.join(host, 'tmp', buildB), { recursive: true })
+
+    await expect(readCommittedBuildId(host)).resolves.toBe(buildA)
   })
 
   it('selects only the simulator WebContent child', () => {
@@ -57,15 +63,6 @@ describe('hosted iOS mobile web cache evidence', () => {
       'Expected one iOS WebContent process, found 2'
     )
   })
-
-  it('kills three WebContent processes and requires native activation rollback', () => {
-    expect(harnessSource).toContain('const failureCount = 3')
-    expect(harnessSource).toContain('terminateHostedIosWebContent(deviceUdid)')
-    expect(harnessSource).toContain('initial.previous')
-    expect(harnessSource).toContain('waitForIosActivation(')
-    expect(harnessSource).toContain('>= 60_000')
-    expect(harnessSource).toContain('documents.at(-1)?.href === documents[0]?.href')
-  })
 })
 
 async function createAppData() {
@@ -74,14 +71,12 @@ async function createAppData() {
   return root
 }
 
-async function writeActivation(
-  root: string,
-  hostIdentity: string,
-  value: { active: string; previous?: string }
-) {
-  const hostRoot = path.join(root, 'Library', 'Application Support', 'OrcaMobileWeb', hostIdentity)
-  await mkdir(hostRoot, { recursive: true })
-  const activationPath = path.join(hostRoot, 'activation.json')
-  await writeFile(activationPath, JSON.stringify(value))
-  return activationPath
+async function hostRoot(root: string, hostIdentity: string) {
+  return path.join(root, 'Library', 'Application Support', 'OrcaMobileWeb', hostIdentity)
+}
+
+async function writeGeneration(root: string, hostIdentity: string, buildId: string) {
+  const host = await hostRoot(root, hostIdentity)
+  await mkdir(path.join(host, 'generations', buildId), { recursive: true })
+  return host
 }
