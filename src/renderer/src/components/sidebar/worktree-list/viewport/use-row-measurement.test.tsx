@@ -49,14 +49,12 @@ const DRIFTED_OFFSET = 70
 function createScrollElement(scrollTop: number): HTMLDivElement {
   const element = document.createElement('div')
   document.body.append(element)
-  // Getter plus a no-op setter: this models the STA-6697 case faithfully. The list is too short
-  // to scroll, so the browser clamps any write and the element never moves — which is exactly why
-  // the virtualizer's remembered offset can drift away from it and never resync.
-  Object.defineProperty(element, 'scrollTop', {
-    configurable: true,
-    get: () => scrollTop,
-    set: () => undefined
-  })
+  // A plain writable property, like a real element. The scroll-anchor listener writes this once
+  // from a layout effect (virtualized-scroll-anchor-listener.ts:47), which lands AFTER the render
+  // that computes the sticky index, so it cannot affect the assertion. Verified rather than
+  // assumed: a getter with a no-op setter produces identical results in both tests and under the
+  // call-site ablation, so pinning the value buys nothing here.
+  element.scrollTop = scrollTop
   return element
 }
 

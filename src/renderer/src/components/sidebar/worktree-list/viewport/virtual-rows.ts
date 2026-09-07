@@ -191,14 +191,10 @@ function getHostStickyIndexes(rows: readonly RenderRow[], sticky: readonly numbe
  * screen. The remembered offset stays as the fallback for the pre-mount pass,
  * where there is no element to ask.
  *
- * On cost: this is a render-phase DOM read, which is only cheap while layout is
- * clean at that point. What keeps it clean is not that nothing above it touches
- * the DOM — `useVirtualRowMeasurementSync`'s own layout effect can re-render
- * synchronously through `measureElement` — it is that `measureElement` already
- * calls `getBoundingClientRect()` on the same pass, so layout has been forced
- * before this read reaches it. There are no production `scrollTop` writes in the
- * viewport or the scroll-anchor hook, so nothing creates a write-read interleave.
- * Adding a DOM write above this read would invalidate that, not the ordering.
+ * This runs once per measurement pass, not once per row. Nothing is claimed here about what that
+ * read costs: two attempts at a justification were wrong — the library does not call
+ * getBoundingClientRect at all, and the sidebar does write scrollTop elsewhere (drag autoscroll,
+ * sleep flow, context menu) — so the honest state is that the cost has not been measured.
  */
 export function resolveStickyScrollOffset(args: {
   element: Pick<HTMLElement, 'scrollTop'> | null
