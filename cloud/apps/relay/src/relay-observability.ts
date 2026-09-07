@@ -65,10 +65,28 @@ export interface RelayRuntimeObserver {
   recordControlClose?(code: number): void
   recordSpliceClose?(trigger: string): void
   recordClientAcceptAbandoned?(stage: RelayClientAcceptStage, elapsedMs: number): void
+  recordClientAcceptCompleted?(sample: RelayClientAcceptSample): void
+  recordControlRtt?(rttMs: number): void
 }
 
 // Which serialized accept step the phone had already hung up behind.
 export type RelayClientAcceptStage = 'assignment' | 'credential' | 'activity'
+
+// The attach window is only measurable once the host data leg lands, so it joins
+// the serialized pre-attach steps on completed accepts only.
+export type RelayClientAcceptTimedStage = RelayClientAcceptStage | 'attach'
+
+export const RELAY_CLIENT_ACCEPT_TIMED_STAGES = [
+  'assignment',
+  'credential',
+  'activity',
+  'attach'
+] as const satisfies readonly RelayClientAcceptTimedStage[]
+
+export type RelayClientAcceptSample = {
+  totalMs: number
+  stageMs: Record<RelayClientAcceptTimedStage, number>
+}
 
 type RelayMetricDeltas = {
   forwardedBytes: number
@@ -93,6 +111,9 @@ type RelayMetricDeltas = {
   spliceClosesByTrigger: Record<string, number>
   clientAcceptsAbandonedByStage: Record<string, number>
   clientAcceptAbandonedMsMax: number
+  clientAcceptTotalsMs: number[]
+  clientAcceptStageSamplesMs: Record<RelayClientAcceptTimedStage, number[]>
+  controlRttSamplesMs: number[]
   controlRenewalLatenciesMs: number[]
   controlRenewalsByOutcome: Record<string, number>
   controlActivityRecoveries: number
@@ -124,16 +145,31 @@ const emptyDeltas = (): RelayMetricDeltas => ({
   spliceClosesByTrigger: {},
   clientAcceptsAbandonedByStage: {},
   clientAcceptAbandonedMsMax: 0,
+  clientAcceptTotalsMs: [],
+  clientAcceptStageSamplesMs: { assignment: [], credential: [], activity: [], attach: [] },
+  controlRttSamplesMs: [],
   controlRenewalLatenciesMs: [],
   controlRenewalsByOutcome: {},
   controlActivityRecoveries: 0,
   controlActivityRecoveryFailures: 0
 })
 
-function percentile(values: number[], percentileRank: number): number {
+export function percentile(values: number[], percentileRank: number): number {
   if (values.length === 0) return 0
   const sorted = [...values].sort((left, right) => left - right)
   return sorted[Math.ceil(percentileRank * sorted.length) - 1] ?? 0
+}
+
+function roundMs(value: number): number {
+  return Number(value.toFixed(3))
+}
+
+function latencySummary(samples: number[]): { p50: number; p95: number; max: number } {
+  return {
+    p50: roundMs(percentile(samples, 0.5)),
+    p95: roundMs(percentile(samples, 0.95)),
+    max: roundMs(Math.max(0, ...samples))
+  }
 }
 
 export class RelayObservability implements RelayRuntimeObserver {
@@ -244,6 +280,17 @@ export class RelayObservability implements RelayRuntimeObserver {
     )
   }
 
+  recordClientAcceptCompleted(sample: RelayClientAcceptSample): void {
+    this.deltas.clientAcceptTotalsMs.push(sample.totalMs)
+    for (const stage of RELAY_CLIENT_ACCEPT_TIMED_STAGES) {
+      this.deltas.clientAcceptStageSamplesMs[stage].push(sample.stageMs[stage])
+    }
+  }
+
+  recordControlRtt(rttMs: number): void {
+    this.deltas.controlRttSamplesMs.push(rttMs)
+  }
+
   start(readCounts: () => RelayProcessCounts, intervalMs = 30_000): void {
     if (this.timer) return
     this.eventLoop.enable()
@@ -277,6 +324,9 @@ export class RelayObservability implements RelayRuntimeObserver {
       controlActivityRecoveryFailures: deltas.controlActivityRecoveryFailures
     }
     this.deltas = emptyDeltas()
+    const acceptTotals = latencySummary(deltas.clientAcceptTotalsMs)
+    const controlRtt = latencySummary(deltas.controlRttSamplesMs)
+    const controlRenewal = latencySummary(deltas.controlRenewalLatenciesMs)
     const memory = process.memoryUsage()
     const p99 = this.eventLoop.count === 0 ? 0 : this.eventLoop.percentile(99) / 1_000_000
     this.eventLoop.reset()
@@ -306,10 +356,24 @@ export class RelayObservability implements RelayRuntimeObserver {
       controlClosesByCodeDelta: deltas.controlClosesByCode,
       spliceClosesByTriggerDelta: deltas.spliceClosesByTrigger,
       clientAcceptsAbandonedByStageDelta: deltas.clientAcceptsAbandonedByStage,
-      clientAcceptAbandonedMsMax: Number(deltas.clientAcceptAbandonedMsMax.toFixed(3)),
+      clientAcceptAbandonedMsMax: roundMs(deltas.clientAcceptAbandonedMsMax),
+      clientAcceptCompletedDelta: deltas.clientAcceptTotalsMs.length,
+      clientAcceptTotalMsP50: acceptTotals.p50,
+      clientAcceptTotalMsP95: acceptTotals.p95,
+      clientAcceptTotalMsMax: acceptTotals.max,
+      clientAcceptStageMsP95: {
+        assignment: roundMs(percentile(deltas.clientAcceptStageSamplesMs.assignment, 0.95)),
+        credential: roundMs(percentile(deltas.clientAcceptStageSamplesMs.credential, 0.95)),
+        activity: roundMs(percentile(deltas.clientAcceptStageSamplesMs.activity, 0.95)),
+        attach: roundMs(percentile(deltas.clientAcceptStageSamplesMs.attach, 0.95))
+      },
+      controlRttSamplesDelta: deltas.controlRttSamplesMs.length,
+      controlRttMsP50: controlRtt.p50,
+      controlRttMsP95: controlRtt.p95,
+      controlRttMsMax: controlRtt.max,
       sqlQueriesDelta: deltas.sqlQueries,
       sqlFailuresDelta: deltas.sqlFailures,
-      sqlLatencyMsMax: Number(deltas.sqlLatencyMsMax.toFixed(3)),
+      sqlLatencyMsMax: roundMs(deltas.sqlLatencyMsMax),
       controlRenewalsByOutcomeDelta: deltas.controlRenewalsByOutcome,
       controlRenewalsDelta: deltas.controlRenewalLatenciesMs.length,
       controlRenewalSuccessesDelta: deltas.controlRenewalsByOutcome.renewed ?? 0,
@@ -317,16 +381,10 @@ export class RelayObservability implements RelayRuntimeObserver {
         deltas.controlRenewalsByOutcome.control_activity_not_found ?? 0,
       controlActivityRecoveriesDelta: deltas.controlActivityRecoveries,
       controlActivityRecoveryFailuresDelta: deltas.controlActivityRecoveryFailures,
-      controlRenewalLatencyMsP50: Number(
-        percentile(deltas.controlRenewalLatenciesMs, 0.5).toFixed(3)
-      ),
-      controlRenewalLatencyMsP95: Number(
-        percentile(deltas.controlRenewalLatenciesMs, 0.95).toFixed(3)
-      ),
-      controlRenewalLatencyMsMax: Number(
-        Math.max(0, ...deltas.controlRenewalLatenciesMs).toFixed(3)
-      ),
-      httpLatencyMsMax: Number(deltas.httpLatencyMsMax.toFixed(3)),
+      controlRenewalLatencyMsP50: controlRenewal.p50,
+      controlRenewalLatencyMsP95: controlRenewal.p95,
+      controlRenewalLatencyMsMax: controlRenewal.max,
+      httpLatencyMsMax: roundMs(deltas.httpLatencyMsMax),
       heapUsedBytes: memory.heapUsed,
       heapTotalBytes: memory.heapTotal,
       eventLoopDelayMsP99: Number(p99.toFixed(3))

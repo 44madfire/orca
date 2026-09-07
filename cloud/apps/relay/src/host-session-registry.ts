@@ -29,7 +29,12 @@ import {
 import { HostCloseReasonMemory } from './host-close-reason-memory.js'
 import { relayHostLogDigest } from './relay-host-log-digest.js'
 import type { RelayTokenClaims } from './relay-token-verifier.js'
-import type { RelayClientAcceptStage, RelayRuntimeObserver } from './relay-observability.js'
+import {
+  percentile,
+  type RelayClientAcceptStage,
+  type RelayClientAcceptTimedStage,
+  type RelayRuntimeObserver
+} from './relay-observability.js'
 import type { PendingHostDataReservation } from './relay-connection-ledger.js'
 import { closeRelayWebSocket } from './relay-websocket-close.js'
 import { ProcessQueuedByteBudget, wireSplice } from './splice-forwarder.js'
@@ -44,6 +49,14 @@ function printableCloseReason(reason: Buffer | string): string {
 
 type VerifyRelayToken = (token: string) => Promise<RelayTokenClaims | null>
 type HostState = 'proving' | 'active' | 'orphaned' | 'drain-only' | 'closed'
+
+// A host's distance to its cell moves on the scale of a rehome, not a heartbeat,
+// so a short window is enough to ride out one stalled ping.
+const CONTROL_RTT_WINDOW = 8
+const CONTROL_RTT_LOG_SAMPLE_THRESHOLD = 4
+const CONTROL_RTT_LOG_INTERVAL_MS = 60 * 60 * 1000
+// A pong claiming a multi-minute round trip is clock skew, not distance.
+const CONTROL_RTT_MAX_PLAUSIBLE_MS = 120_000
 
 const CONTROL_ACTIVITY_RENEWAL_INTERVAL_MS = RELAY_PROTOCOL_LIMITS.controlPingIntervalMs * 2
 // Preserve the existing 75s renewal runway after doubling the successful-call interval.
@@ -68,6 +81,8 @@ export type HostSession = {
   orphanTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setInterval> | null
   lastPongAt: number
+  controlRttSamplesMs: number[]
+  controlRttLoggedAt: number | null
   activityRenewalDueAt: number
   activityRenewalAttempt: number
   activityRenewalCompletedAttempt: number
@@ -95,6 +110,15 @@ type PendingConnection = {
   attachTimer: ReturnType<typeof setTimeout>
   credentialActivityId: string | null
   capacityReservation?: PendingHostDataReservation
+  timing: ClientAcceptTiming
+}
+
+// Carries the phone-side accept clock across to the desktop's data leg, which
+// lands in a separate call and is the only place the accept is known to succeed.
+type ClientAcceptTiming = {
+  startedAt: number
+  connOpenAt: number
+  stageMs: Record<RelayClientAcceptStage, number>
 }
 
 function decodeCanonicalBase64(value: string, bytes: number): Uint8Array | null {
@@ -192,6 +216,17 @@ export class HostSessionRegistry {
       )
       return true
     }
+    const stageMs: Record<RelayClientAcceptStage, number> = {
+      assignment: 0,
+      credential: 0,
+      activity: 0
+    }
+    let stageCursor = acceptStartedAt
+    const markStage = (stage: RelayClientAcceptStage): void => {
+      const at = this.now()
+      stageMs[stage] = at - stageCursor
+      stageCursor = at
+    }
     if (this.config.role === 'cell') {
       // Each lookup is its own pooled round trip; stop between them once the phone
       // has left instead of running the rest of the chain for nobody.
@@ -212,6 +247,7 @@ export class HostSessionRegistry {
       }
       if (abandonedByClient('assignment')) return
     }
+    markStage('assignment')
     const reservation = await this.store.reserveCredential(hostId, credential)
     if (!reservation) {
       capacityReservation?.release()
@@ -221,6 +257,7 @@ export class HostSessionRegistry {
     }
     this.observer.recordAuth(true)
     if (abandonedByClient('credential', () => this.failReservationBestEffort(reservation))) return
+    markStage('credential')
     const sessionKey = this.key(reservation.userId, hostId)
     const session = this.sessions.get(sessionKey)
     if (
@@ -275,6 +312,7 @@ export class HostSessionRegistry {
     ) {
       return
     }
+    markStage('activity')
     const attachTimer = setTimeout(() => {
       session.pendingConns.delete(connId)
       capacityReservation?.release()
@@ -289,7 +327,8 @@ export class HostSessionRegistry {
       client: socket,
       attachTimer,
       credentialActivityId,
-      capacityReservation
+      capacityReservation,
+      timing: { startedAt: acceptStartedAt, connOpenAt: this.now(), stageMs }
     }
     capacityReservation?.bind(connId)
     session.pendingConns.set(connId, pending)
@@ -336,6 +375,7 @@ export class HostSessionRegistry {
       return false
     }
     this.observer.recordAuth(true)
+    const attachedAt = this.now()
     clearTimeout(pending.attachTimer)
     session.pendingConns.delete(connId)
     session.activeConnIds.add(connId)
@@ -424,7 +464,59 @@ export class HostSessionRegistry {
           }
         : {})
     })
+    this.recordClientAcceptCompleted(session, pending, attachedAt)
     return true
+  }
+
+  private recordClientAcceptCompleted(
+    session: HostSession,
+    pending: PendingConnection,
+    attachedAt: number
+  ): void {
+    const stageMs: Record<RelayClientAcceptTimedStage, number> = {
+      ...pending.timing.stageMs,
+      attach: attachedAt - pending.timing.connOpenAt
+    }
+    const totalMs = this.now() - pending.timing.startedAt
+    this.observer.recordClientAcceptCompleted?.({ totalMs, stageMs })
+    console.log(
+      JSON.stringify({
+        event: 'orca_relay_client_accept_completed',
+        credentialKind: pending.reservation.credentialKind,
+        stageMs,
+        totalMs,
+        relayHostIdDigest: relayHostLogDigest(session.relayHostId)
+      })
+    )
+  }
+
+  // Every desktop build already echoes the ping's `t`; anything else is dropped
+  // rather than trusted, so no new wire field is required.
+  private recordControlRtt(session: HostSession, echoedPingAt: unknown): void {
+    if (typeof echoedPingAt !== 'number' || !Number.isFinite(echoedPingAt)) return
+    const now = this.now()
+    const rttMs = now - echoedPingAt
+    if (rttMs < 0 || rttMs > CONTROL_RTT_MAX_PLAUSIBLE_MS) return
+    this.observer.recordControlRtt?.(rttMs)
+    const samples = session.controlRttSamplesMs
+    samples.push(rttMs)
+    if (samples.length > CONTROL_RTT_WINDOW) samples.shift()
+    if (samples.length < CONTROL_RTT_LOG_SAMPLE_THRESHOLD) return
+    if (
+      session.controlRttLoggedAt !== null &&
+      now - session.controlRttLoggedAt < CONTROL_RTT_LOG_INTERVAL_MS
+    ) {
+      return
+    }
+    session.controlRttLoggedAt = now
+    console.log(
+      JSON.stringify({
+        event: 'orca_relay_host_control_rtt',
+        relayHostIdDigest: relayHostLogDigest(session.relayHostId),
+        rttMsMedian: percentile(samples, 0.5),
+        sampleCount: samples.length
+      })
+    )
   }
 
   acceptControl(
@@ -843,6 +935,8 @@ export class HostSessionRegistry {
       orphanTimer: null,
       heartbeatTimer: null,
       lastPongAt: this.now(),
+      controlRttSamplesMs: [],
+      controlRttLoggedAt: null,
       activityRenewalDueAt: this.now() + RELAY_PROTOCOL_LIMITS.controlPingIntervalMs,
       activityRenewalAttempt: 0,
       activityRenewalCompletedAttempt: 0,
@@ -900,6 +994,7 @@ export class HostSessionRegistry {
         const parsed = JSON.parse(raw.toString()) as Record<string, unknown>
         if (parsed.type === 'pong') {
           session.lastPongAt = this.now()
+          this.recordControlRtt(session, parsed.t)
           return
         }
         if (parsed.type === 'auth-refresh') {

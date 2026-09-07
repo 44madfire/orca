@@ -181,7 +181,12 @@ describe('relay observability', () => {
       controlActivityRecoveryFailuresDelta: 0,
       httpLatencyMsMax: 0
     })
-    expect(JSON.stringify(entries)).not.toMatch(/token|credential|userId|relayHostId/)
+    expect(JSON.stringify(entries)).not.toMatch(/token|userId|relayHostId/)
+    // `credential` survives only as an accept-stage latency name; a leaked credential
+    // would be a string, so pinning the type is what the guard is actually for.
+    expect(entries[0]).toMatchObject({
+      clientAcceptStageMsP95: { credential: expect.any(Number) }
+    })
   })
 
   it('aggregates control and splice closes as bounded per-reason deltas', () => {
@@ -213,6 +218,63 @@ describe('relay observability', () => {
       clientAcceptsAbandonedByStageDelta: {},
       clientAcceptAbandonedMsMax: 0
     })
+  })
+
+  it('summarises completed client accepts and control round trips per window', () => {
+    const entries: Array<Record<string, unknown>> = []
+    const observability = new RelayObservability(
+      { role: 'cell', cellId: 'production-gce-c28', region: 'asia-east2' },
+      (entry) => entries.push(entry)
+    )
+    observability.recordClientAcceptCompleted({
+      totalMs: 812.4567,
+      stageMs: { assignment: 120, credential: 90, activity: 40, attach: 500 }
+    })
+    observability.recordClientAcceptCompleted({
+      totalMs: 6_400,
+      stageMs: { assignment: 4_100, credential: 95, activity: 60, attach: 2_000 }
+    })
+    observability.recordControlRtt(28)
+    observability.recordControlRtt(240)
+    observability.recordControlRtt(31)
+    observability.flush(counts)
+    observability.flush(counts)
+
+    expect(entries[0]).toMatchObject({
+      clientAcceptCompletedDelta: 2,
+      clientAcceptTotalMsP50: 812.457,
+      clientAcceptTotalMsP95: 6_400,
+      clientAcceptTotalMsMax: 6_400,
+      clientAcceptStageMsP95: {
+        assignment: 4_100,
+        credential: 95,
+        activity: 60,
+        attach: 2_000
+      },
+      controlRttSamplesDelta: 3,
+      controlRttMsP50: 31,
+      controlRttMsP95: 240,
+      controlRttMsMax: 240
+    })
+    // Only-add: the pre-existing fields still read the same after the extension.
+    expect(entries[0]).toMatchObject({
+      event: 'orca_relay_runtime_metrics',
+      metricVersion: 2,
+      clientAcceptsAbandonedByStageDelta: {},
+      clientAcceptAbandonedMsMax: 0
+    })
+    expect(entries[1]).toMatchObject({
+      clientAcceptCompletedDelta: 0,
+      clientAcceptTotalMsP50: 0,
+      clientAcceptTotalMsP95: 0,
+      clientAcceptTotalMsMax: 0,
+      clientAcceptStageMsP95: { assignment: 0, credential: 0, activity: 0, attach: 0 },
+      controlRttSamplesDelta: 0,
+      controlRttMsP50: 0,
+      controlRttMsP95: 0,
+      controlRttMsMax: 0
+    })
+    expect(JSON.stringify(entries)).not.toMatch(/token|userId|relayHostId/)
   })
 
   it('observes successful and failed database calls including transactions', async () => {
