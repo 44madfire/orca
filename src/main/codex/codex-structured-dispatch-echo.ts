@@ -120,17 +120,8 @@ export function resolveCodexUserMessageEcho(
       removeWaiter(echoes.retired, retired)
       onSettledLate?.({ clientMessageId: retired.clientMessageId, providerIdentity: echo.identity })
     }
-    return
   }
-  // Old builds echo no clientId. A sole candidate on one side of the timeout
-  // boundary is unambiguous; anything else stays unknown on purpose.
-  if (echoes.waiters.length === 1 && echoes.retired.length === 0) {
-    settleWaiter(echoes, echoes.waiters[0]!, echo.identity)
-  } else if (echoes.waiters.length === 0 && echoes.retired.length === 1) {
-    const [retired] = echoes.retired
-    removeWaiter(echoes.retired, retired!)
-    onSettledLate?.({ clientMessageId: retired!.clientMessageId, providerIdentity: echo.identity })
-  }
+  // An ID-less lifecycle frame can belong to an earlier send, even with one waiter.
 }
 
 /** Session teardown: an unresolved waiter would otherwise stall its dispatch. */

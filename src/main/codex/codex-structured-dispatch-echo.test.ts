@@ -40,18 +40,27 @@ describe('codex dispatch echo registry', () => {
     expect(echoes.sawClientIdEcho).toBe(true)
   })
 
-  it('lets a null clientId settle only a sole candidate', async () => {
-    const sole = createCodexDispatchEchoes()
-    const only = registerCodexEchoWaiter(sole, 'msg-A')
-    resolveCodexUserMessageEcho(sole, THREAD_ID, echoFor(null))
-    await expect(only.promise).resolves.toEqual(codexIdentity(0))
-    expect(sole.sawClientIdEcho).toBe(false)
+  it('never attributes repeated ID-less lifecycle frames to a later send', async () => {
+    const echoes = createCodexDispatchEchoes()
+    const a = registerCodexEchoWaiter(echoes, 'msg-A')
+    resolveCodexUserMessageEcho(echoes, THREAD_ID, echoFor('msg-A'))
+    await expect(a.promise).resolves.toEqual(codexIdentity(0))
 
-    const crowded = createCodexDispatchEchoes()
-    registerCodexEchoWaiter(crowded, 'msg-A')
-    registerCodexEchoWaiter(crowded, 'msg-B')
-    resolveCodexUserMessageEcho(crowded, THREAD_ID, echoFor(null))
-    expect(crowded.waiters).toHaveLength(2)
+    const b = registerCodexEchoWaiter(echoes, 'msg-B')
+    resolveCodexUserMessageEcho(echoes, THREAD_ID, echoFor(null))
+    expect(echoes.waiters).toEqual([b.waiter])
+    resolveCodexUserMessageEcho(echoes, THREAD_ID, echoFor('msg-B', codexIdentity(2)))
+    await expect(b.promise).resolves.toEqual(codexIdentity(2))
+  })
+
+  it('does not settle a sole timed-out send using an ID-less late echo', () => {
+    const echoes = createCodexDispatchEchoes()
+    const a = registerCodexEchoWaiter(echoes, 'msg-A')
+    retireCodexEchoWaiter(echoes, a.waiter)
+    const settledLate = vi.fn()
+    resolveCodexUserMessageEcho(echoes, THREAD_ID, echoFor(null), settledLate)
+    expect(settledLate).not.toHaveBeenCalled()
+    expect(echoes.retired).toEqual([a.waiter])
   })
 
   it('retires a waiter on timeout and reports its late echo through the callback', async () => {
@@ -138,10 +147,50 @@ describe('dispatchCodexTurn echo correlation', () => {
   })
 
   it('falls back to the positional identity for a fresh turn no build echoed', async () => {
-    const host = hostFor(async () => ({ turn: { id: 'turn-1' } }))
+    const host = hostFor(async () => {
+      host.turnIdWaiters.shift()?.('turn-1')
+      return { turn: { id: 'turn-1' } }
+    })
     await expect(
       dispatchCodexTurn(host, { clientMessageId: 'msg-A', body: BODY }, 5_000, 25)
     ).resolves.toEqual({ state: 'accepted', providerIdentity: codexIdentity(0) })
+  })
+
+  it('uses a fresh-turn notification arriving during the echo grace and cleans up timers', async () => {
+    vi.useFakeTimers()
+    try {
+      const host = hostFor(async () => ({ turn: { id: 'turn-1' } }))
+      const dispatch = dispatchCodexTurn(host, { clientMessageId: 'msg-A', body: BODY }, 50, 25)
+      await vi.advanceTimersByTimeAsync(10)
+      host.turnIdWaiters.shift()?.('turn-1')
+      await vi.advanceTimersByTimeAsync(15)
+      await expect(dispatch).resolves.toEqual({
+        state: 'accepted',
+        providerIdentity: codexIdentity(0)
+      })
+      expect(host.turnIdWaiters).toEqual([])
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not infer ordinal zero for a resumed turn absent from active tracking', async () => {
+    const host = hostFor(async () => ({ turn: { id: 'turn-1' } }))
+    await expect(
+      dispatchCodexTurn(host, { clientMessageId: 'msg-B', body: BODY }, 25)
+    ).resolves.toMatchObject({ state: 'unknown' })
+  })
+
+  it('does not resurrect completed turns when their responses arrive late', async () => {
+    const host = hostFor(async () => {
+      host.activeTurnIds.add('turn-1')
+      host.turnIdWaiters.shift()?.('turn-1')
+      host.activeTurnIds.delete('turn-1')
+      return { turn: { id: 'turn-1' } }
+    })
+    await dispatchCodexTurn(host, { clientMessageId: 'msg-A', body: BODY }, 25)
+    expect(host.activeTurnIds.size).toBe(0)
   })
 
   it('never falls back for a coalesced send: unknown, then the late echo settles it', async () => {

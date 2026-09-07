@@ -88,19 +88,32 @@ function turnInputFor(body: AgentJournalMessageItem): Record<string, unknown>[] 
 export async function startCodexTurn(
   host: CodexTurnHost,
   input: { clientMessageId: string; body: AgentJournalMessageItem; timeoutMs?: number }
-): Promise<{ turnId: string | null; startedNotificationObserved: boolean }> {
+): Promise<{
+  turnId: string | null
+  readonly startedNotificationObserved: boolean
+  dispose: () => void
+}> {
   // Registered BEFORE the call: on builds that ack first, `turn/started` can
   // land while the response is still in flight.
   let notifiedTurnId: string | null = null
   let notified: ((turnId: string) => void) | null = null
+  let notificationTimer: ReturnType<typeof setTimeout> | undefined
   const fromNotification = new Promise<string | null>((resolve) => {
     notified = (turnId: string) => {
       notifiedTurnId = turnId
       resolve(turnId)
     }
     host.turnIdWaiters.push(notified)
-    setTimeout(() => resolve(null), TURN_ID_WAIT_MS).unref?.()
+    notificationTimer = setTimeout(() => resolve(null), TURN_ID_WAIT_MS)
+    notificationTimer.unref?.()
   })
+  const dispose = (): void => {
+    clearTimeout(notificationTimer)
+    const index = notified ? host.turnIdWaiters.indexOf(notified) : -1
+    if (index !== -1) {
+      host.turnIdWaiters.splice(index, 1)
+    }
+  }
   try {
     const started = await host.connection.request(
       'turn/start',
@@ -115,13 +128,14 @@ export async function startCodexTurn(
     const turnId = readCodexTurnId(started) ?? (await fromNotification)
     return {
       turnId,
-      startedNotificationObserved: notifiedTurnId !== null && notifiedTurnId === turnId
+      get startedNotificationObserved() {
+        return notifiedTurnId !== null && notifiedTurnId === turnId
+      },
+      dispose
     }
-  } finally {
-    const index = notified ? host.turnIdWaiters.indexOf(notified) : -1
-    if (index !== -1) {
-      host.turnIdWaiters.splice(index, 1)
-    }
+  } catch (error) {
+    dispose()
+    throw error
   }
 }
 
@@ -148,53 +162,55 @@ export async function dispatchCodexTurn(
     }
     throw error
   }
-  const { turnId } = started
-  // THE CRUX. Codex coalesces a `turn/start` issued while a turn runs into the
-  // RUNNING turn: same id back, and no second `turn/started`. So a response
-  // naming a turn already in flight is a coalesced send whose message is NOT
-  // ordinal 0. An observed `turn/started` overrides: on builds that ack before
-  // naming, the fresh turn's own notification lands first and would otherwise
-  // read as "already in flight".
-  const coalesced =
-    turnId !== null && !started.startedNotificationObserved && session.activeTurnIds.has(turnId)
-  if (turnId !== null) {
-    session.activeTurnIds.add(turnId)
-  }
-  const fullWindowMs = timeoutMs ?? CODEX_DISPATCH_ECHO_TIMEOUT_MS
-  // A coalesced echo is deferred until the running turn yields (measured
-  // +6.15s), so it gets the full request window — the outbox honestly renders
-  // 'dispatching' meanwhile. A fresh turn's echo lands fast or never (old
-  // builds), so it gets only a short grace before the positional fallback.
-  armCodexEchoTimeout(
-    session.dispatchEchoes,
-    echo.waiter,
-    coalesced || turnId === null ? fullWindowMs : Math.min(echoAckWindowMs, fullWindowMs)
-  )
-  const identity = await echo.promise
-  if (identity) {
-    return { state: 'accepted', providerIdentity: identity }
-  }
-  if (turnId === null) {
-    retireCodexEchoWaiter(session.dispatchEchoes, echo.waiter)
-    return { state: 'unknown', reason: 'codex app-server started a turn it did not name in time' }
-  }
-  if (
-    !coalesced &&
-    !session.dispatchEchoes.sawClientIdEcho &&
-    session.dispatchEchoes.waiters.length === 0
-  ) {
-    // Old-build compatibility: no echo will come, and the sole message that
-    // opened a fresh turn is provably its ordinal 0 — exactly today's identity.
-    return {
-      state: 'accepted',
-      providerIdentity: {
-        provider: 'codex',
-        threadId: session.threadId,
-        turnId,
-        ordinal: CODEX_USER_MESSAGE_ORDINAL
+  try {
+    const { turnId } = started
+    // THE CRUX. Codex coalesces a `turn/start` issued while a turn runs into the
+    // RUNNING turn: same id back, and no second `turn/started`. So a response
+    // naming a turn already in flight is a coalesced send whose message is NOT
+    // ordinal 0. An observed `turn/started` overrides: on builds that ack before
+    // naming, the fresh turn's own notification lands first and would otherwise
+    // read as "already in flight".
+    const coalesced =
+      turnId !== null && !started.startedNotificationObserved && session.activeTurnIds.has(turnId)
+    const fullWindowMs = timeoutMs ?? CODEX_DISPATCH_ECHO_TIMEOUT_MS
+    // A coalesced echo is deferred until the running turn yields (measured
+    // +6.15s), so it gets the full request window — the outbox honestly renders
+    // 'dispatching' meanwhile. A fresh turn's echo lands fast or never (old
+    // builds), so it gets only a short grace before the positional fallback.
+    armCodexEchoTimeout(
+      session.dispatchEchoes,
+      echo.waiter,
+      coalesced || turnId === null ? fullWindowMs : Math.min(echoAckWindowMs, fullWindowMs)
+    )
+    const identity = await echo.promise
+    if (identity) {
+      return { state: 'accepted', providerIdentity: identity }
+    }
+    if (turnId === null) {
+      retireCodexEchoWaiter(session.dispatchEchoes, echo.waiter)
+      return { state: 'unknown', reason: 'codex app-server started a turn it did not name in time' }
+    }
+    if (
+      started.startedNotificationObserved &&
+      !session.dispatchEchoes.sawClientIdEcho &&
+      session.dispatchEchoes.waiters.length === 0 &&
+      session.dispatchEchoes.retired.length === 0
+    ) {
+      // Old-build compatibility: no echo will come, and the sole message that
+      // opened a fresh turn is provably its ordinal 0 — exactly today's identity.
+      return {
+        state: 'accepted',
+        providerIdentity: {
+          provider: 'codex',
+          threadId: session.threadId,
+          turnId,
+          ordinal: CODEX_USER_MESSAGE_ORDINAL
+        }
       }
     }
+    retireCodexEchoWaiter(session.dispatchEchoes, echo.waiter)
+    return { state: 'unknown', reason: 'codex accepted a message but did not echo it in time' }
+  } finally {
+    started.dispose()
   }
-  retireCodexEchoWaiter(session.dispatchEchoes, echo.waiter)
-  return { state: 'unknown', reason: 'codex accepted a message but did not echo it in time' }
 }
