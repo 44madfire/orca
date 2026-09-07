@@ -277,13 +277,41 @@ describe('RpcSessionLivenessWatchdog', () => {
     watchdog.start(identity)
 
     // Resumes every 1.5 s on a black-holed socket: each lands inside the 2 s urgent
-    // window, so none may re-arm the deadline or the verdict never comes.
+    // window. A miss buys at most one re-arm, so the verdict lands by 2 s (miss 1)
+    // + 1.5 s (re-arm at 3.5 s) + 2 s = 5.5 s, not never.
     watchdog.probeNow(identity, 'resume')
-    for (let elapsed = 0; elapsed < 6_000; elapsed += 1_500) {
+    for (let elapsed = 0; elapsed < 9_000; elapsed += 1_500) {
       await vi.advanceTimersByTimeAsync(1_500)
       watchdog.probeNow(identity, 'resume')
     }
     expect(terminate).toHaveBeenCalledOnce()
+  })
+
+  it('gives a resume that follows a tolerated miss a fresh window, not the last 100 ms', async () => {
+    // Why: resume at t=0, miss at 2 s, second probe sent; the app flaps and resumes at 3.9 s
+    // with the radio recovering and traffic at 4.1 s. That is a live socket main tolerates.
+    const terminate = vi.fn()
+    const identity = {}
+    const watchdog = new RpcSessionLivenessWatchdog({
+      transport: 'relay',
+      idleProbeMs: 20_000,
+      probeTimeoutMs: 4_000,
+      missedProbeLimit: 2,
+      urgentProbeTimeoutMs: 2_000,
+      urgentMissedProbeLimit: 2,
+      shouldIdleProbe: () => true,
+      sendProbe: () => true,
+      terminate,
+      now: Date.now
+    })
+    watchdog.start(identity)
+    watchdog.probeNow(identity, 'resume')
+    await vi.advanceTimersByTimeAsync(3_900)
+    watchdog.probeNow(identity, 'resume')
+    await vi.advanceTimersByTimeAsync(200)
+    watchdog.noteAuthenticatedInbound(identity)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(terminate).not.toHaveBeenCalled()
   })
 
   it('does not let a resume that follows the ordinary profile inherit its miss', async () => {

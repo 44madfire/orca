@@ -41,6 +41,8 @@ export class RpcSessionLivenessWatchdog {
   // Whether the probe in flight came from the idle sweep rather than a caller.
   private idleSweepProbe = false
   private missedProbes = 0
+  // Miss count at which a resume last re-armed the urgent deadline; one re-arm per miss.
+  private rearmedAtMiss = 0
   private lastInboundAt = 0
   private lastVoluntaryProbeAt: number | null = null
   private profile: ProbeProfile
@@ -103,6 +105,7 @@ export class RpcSessionLivenessWatchdog {
       return
     }
     this.missedProbes = 0
+    this.rearmedAtMiss = 0
     this.probing = false
     this.idleSweepProbe = false
     this.armIdle(identity)
@@ -127,11 +130,17 @@ export class RpcSessionLivenessWatchdog {
     this.lastVoluntaryProbeAt = now
     // Why: a resume is a new observation on a cold radio, so it starts the urgent window
     // with a clean budget (startProbe zeroes the count on a profile switch). A resume that
-    // lands while an urgent probe is already in flight keeps that probe's deadline and
-    // count: re-arming the 2 s clock on every tap would let a user tapping reconnect, or
-    // an AppState flap, hold a dead socket open for as long as they keep tapping.
+    // lands while an urgent probe is in flight keeps its count, and keeps its deadline too
+    // unless a miss has been booked since the probe was sent: re-arming the 2 s clock on
+    // every tap would let a user tapping reconnect hold a dead socket open indefinitely,
+    // while a resume after a tolerated miss is a genuinely new observation that must not
+    // inherit the last 100 ms of the previous one. Each booked miss buys one re-arm, so the
+    // verdict is bounded at (limit × timeout) plus one window per miss.
     if (urgent && this.probing && this.profile === this.urgentProfile) {
-      return
+      if (this.missedProbes === this.rearmedAtMiss) {
+        return
+      }
+      this.rearmedAtMiss = this.missedProbes
     }
     this.startProbe(identity, urgent ? this.urgentProfile : this.ordinaryProfile)
   }
@@ -187,6 +196,7 @@ export class RpcSessionLivenessWatchdog {
     // exists to give a cold radio, so the first 2s miss would kill a healthy socket.
     if (profile !== this.profile) {
       this.missedProbes = 0
+      this.rearmedAtMiss = 0
     }
     this.profile = profile
     this.probing = true
