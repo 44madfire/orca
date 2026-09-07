@@ -43,6 +43,20 @@ function labelOf(store: ReturnType<typeof createTestStore>): string | null | und
     .unifiedTabsByWorktree[WORKTREE]?.find((tab) => tab.id === STRUCTURED_TAB_ID)?.customLabel
 }
 
+function colorOf(store: ReturnType<typeof createTestStore>): string | null | undefined {
+  return store
+    .getState()
+    .unifiedTabsByWorktree[WORKTREE]?.find((tab) => tab.id === STRUCTURED_TAB_ID)?.color
+}
+
+describe('recoloring a structured chat tab', () => {
+  it('writes the color onto the agent-session tab', () => {
+    const store = storeWithStructuredTab()
+    store.getState().setTabColor(STRUCTURED_TAB_ID, 'red')
+    expect(colorOf(store)).toBe('red')
+  })
+})
+
 describe('renaming a structured chat tab', () => {
   it('writes the custom label onto the agent-session tab', () => {
     const store = storeWithStructuredTab()

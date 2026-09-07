@@ -176,7 +176,9 @@ export function createAppCommandHandlers(
         if (
           !workspaceChromeActive ||
           floatingWorkspaceFocused ||
-          store.activeTabType !== 'terminal' ||
+          // Why: a structured chat tab is renamed through the same inline editor,
+          // so gating on 'terminal' alone left the shortcut a silent no-op there.
+          (store.activeTabType !== 'terminal' && store.activeTabType !== 'agent-session') ||
           !store.activeTabId
         ) {
           return false

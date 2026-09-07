@@ -1,6 +1,7 @@
 import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { resolveTerminalWorktreeRoute } from '@/lib/terminal-worktree-route'
 import type { TerminalSlice, TerminalStoreGet, TerminalStoreSet } from './terminal-state'
+import { findRenamableUnifiedTab } from './renamable-unified-tab'
 
 export function createTerminalTabAttentionActions(
   set: TerminalStoreSet,
@@ -87,12 +88,7 @@ export function createTerminalTabAttentionActions(
         scheduleRuntimeGraphSync()
         return { tabsByWorktree: next }
       })
-      const unified = Object.values(get().unifiedTabsByWorktree).flat()
-      // Why: a structured chat tab has no TerminalTab record, and its rename
-      // arrives keyed by the unified tab id rather than a terminal entityId.
-      const item =
-        unified.find((entry) => entry.contentType === 'terminal' && entry.entityId === tabId) ??
-        unified.find((entry) => entry.contentType === 'agent-session' && entry.id === tabId)
+      const item = findRenamableUnifiedTab(get().unifiedTabsByWorktree, tabId)
       if (item) {
         get().setTabCustomLabel(item.id, title, opts)
       }
@@ -105,9 +101,7 @@ export function createTerminalTabAttentionActions(
         }
         return { tabsByWorktree: next }
       })
-      const item = Object.values(get().unifiedTabsByWorktree)
-        .flat()
-        .find((entry) => entry.contentType === 'terminal' && entry.entityId === tabId)
+      const item = findRenamableUnifiedTab(get().unifiedTabsByWorktree, tabId)
       if (item) {
         get().setUnifiedTabColor(item.id, color)
         // Why: tab color is host-authoritative for remote-server tabs; mirror it so it persists instead of reverting on the next snapshot.
