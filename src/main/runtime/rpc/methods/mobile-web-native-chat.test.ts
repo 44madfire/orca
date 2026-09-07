@@ -23,8 +23,7 @@ describe('Desktop native-chat page adapter', () => {
         role: 'assistant',
         source: 'transcript',
         timestamp: index,
-        future: { field: true },
-        blocks: [{ type: 'text', text: character.repeat(64_000), futureBlockField: 'preserved' }]
+        blocks: [{ type: 'text', text: character.repeat(64_000), providerFrame: { kind: 'raw' } }]
       }))
       const raw = { messages, hasMore: true, beforeOffset: 42, futureLifecycle: 'new' }
       read.mockResolvedValue(raw)
@@ -38,11 +37,11 @@ describe('Desktop native-chat page adapter', () => {
       expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
         MOBILE_WEB_NATIVE_CHAT_EVENT_MAX_BYTES
       )
-      expect(result).toMatchObject({ hasMore: true, beforeOffset: 42, futureLifecycle: 'new' })
+      expect(result).toMatchObject({ hasMore: true, beforeOffset: 42 })
+      expect(result).not.toHaveProperty('futureLifecycle')
       expect(result.messages.map(({ id }) => id)).toEqual(messages.map(({ id }) => id))
       for (const message of result.messages) {
-        expect(message.future).toEqual({ field: true })
-        expect(message.blocks[0].futureBlockField).toBe('preserved')
+        expect(message.blocks[0]).not.toHaveProperty('providerFrame')
         expect(message.blocks[0].text).toContain('(truncated)')
         expect(message.blocks[0].text.startsWith(character)).toBe(true)
       }
@@ -50,14 +49,14 @@ describe('Desktop native-chat page adapter', () => {
     }
   )
 
-  it('bounds oversized tool and future blocks without discarding messages or the pagination cursor', async () => {
+  it('bounds oversized tool blocks without discarding messages or the pagination cursor', async () => {
     const f = fixture()
     const raw = {
       messages: Array.from({ length: 40 }, (_, index) => ({
         id: `message-${index}`,
         blocks: [
-          { type: 'future-block', field: 'retained' },
-          { type: 'tool-call', input: { payload: 'x'.repeat(100_000) } }
+          { type: 'image-ref', alt: 'kept' },
+          { type: 'tool-call', name: 'Bash', input: { payload: 'x'.repeat(100_000) } }
         ]
       })),
       hasMore: true,
@@ -71,15 +70,14 @@ describe('Desktop native-chat page adapter', () => {
     expect(result.messages).toHaveLength(40)
     expect(result.beforeOffset).toBe(123)
     expect(result.messages[0].blocks).toEqual([
-      { type: 'future-block', field: 'retained' },
+      { type: 'image-ref', alt: 'kept' },
       { type: 'text', text: '\n… (truncated)' }
     ])
   })
 
   it('reads host identities from the tab list and ignores forged read fields', async () => {
     const f = fixture()
-    const result = { messages: [{ future: { field: true } }], futureLifecycle: 'new' }
-    read.mockResolvedValue(result)
+    read.mockResolvedValue({ messages: [{ id: 'message-1' }], futureLifecycle: 'new' })
     expect(
       await reader.handler(
         {
@@ -94,7 +92,7 @@ describe('Desktop native-chat page adapter', () => {
         },
         f.context
       )
-    ).toEqual(result)
+    ).toEqual({ messages: [{ id: 'message-1' }] })
     expect(read).toHaveBeenCalledWith(
       expect.objectContaining({
         limit: 30,

@@ -34,7 +34,9 @@ describe('mobile web markdown request client', () => {
         response(
           operation === 'markdownDraftRead'
             ? { ...TARGET, draft: { contentBase64, baseVersion: 'v1' } }
-            : { ...TARGET, contentBase64, baseVersion: 'v1', editable: true, stale: false }
+            : operation === 'markdownSave'
+              ? { ...TARGET, contentBase64, baseVersion: 'v1' }
+              : { ...TARGET, contentBase64, baseVersion: 'v1', editable: true, stale: false }
         )
       )
       await expect(pending).resolves.toMatchObject({ content, baseVersion: 'v1' })

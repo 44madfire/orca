@@ -22,7 +22,6 @@ import {
   MobileWebNavigationRouteSchema,
   MobileWebResumeRouteSchema
 } from './bridge-route-contract'
-import { tolerantMobileWebShellPayload } from './shell-payload-tolerance'
 
 export {
   isMobileWebBridgeOperation,
@@ -269,28 +268,17 @@ export function parseMobileWebBridgePageMessage(
   return parseMobileWebBridgeMessage(raw, expected, MobileWebBridgePageMessageSchema)
 }
 
-/**
- * Shell->page frames are authored by an APK that can be newer than the page reading them, and a
- * frame the page cannot parse is dropped whole — for `init` that is every capability lost, not one
- * field. Parsing through the tolerant view strips a key the page does not declare instead of
- * failing the frame, which also keeps the PII fence: an undeclared `hostPath` or raw error
- * `message` never reaches the page either way. Page->shell stays strict; the shell is the
- * authority there.
- */
-const TolerantShellMessageSchema = tolerantMobileWebShellPayload(MobileWebBridgeShellMessageSchema)
-const TolerantShellInitSchema = tolerantMobileWebShellPayload(ShellInitSchema)
-
 export function parseMobileWebBridgeShellMessage(
   raw: string,
   expected: MobileWebBridgeMessageContext
 ): MobileWebBridgeParseResult<MobileWebBridgeShellMessage> {
-  return parseMobileWebBridgeMessage(raw, expected, TolerantShellMessageSchema)
+  return parseMobileWebBridgeMessage(raw, expected, MobileWebBridgeShellMessageSchema)
 }
 
 export function parseMobileWebBridgeInitialMessage(
   raw: string
 ): MobileWebBridgeParseResult<z.infer<typeof ShellInitSchema>> {
-  return parseMobileWebBridgeMessageDocument(raw, TolerantShellInitSchema)
+  return parseMobileWebBridgeMessageDocument(raw, ShellInitSchema)
 }
 
 function validateRequestOperation(

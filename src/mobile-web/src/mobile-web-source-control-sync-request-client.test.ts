@@ -65,7 +65,7 @@ describe('mobile web source-control sync request client', () => {
     })
   })
 
-  it('rejects cross-request action identity and strips undeclared host fields', async () => {
+  it('rejects cross-request action identity and undeclared host fields', async () => {
     const checkoutHarness = createHarness()
     const checkout = checkoutHarness.client.sourceControlCheckout({
       workspaceId: 'workspace-1',
@@ -87,9 +87,6 @@ describe('mobile web source-control sync request client', () => {
     )
     await expect(checkout).rejects.toMatchObject({ code: 'invalid_message' })
 
-    // An undeclared host field must not reach the page, but rejecting the whole result made one
-    // additive field from a newer shell a permanent `invalid_message`. Stripping keeps the leak
-    // fenced and the payload usable.
     const upstreamHarness = createHarness()
     const request = upstreamHarness.client.sourceControlUpstream({ workspaceId: 'workspace-1' })
     upstreamHarness.client.receive(
@@ -98,7 +95,7 @@ describe('mobile web source-control sync request client', () => {
         hostPath: '/private/repository'
       })
     )
-    await expect(request).resolves.not.toHaveProperty('hostPath')
+    await expect(request).rejects.toMatchObject({ code: 'invalid_message' })
   })
 
   it('cancels a pending sync request when its workspace owner replaces it', async () => {

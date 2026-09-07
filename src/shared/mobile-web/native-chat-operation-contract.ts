@@ -147,6 +147,9 @@ export const MobileWebNativeChatEventSchema = z.discriminatedUnion('type', [
       hasMore: z.boolean().optional(),
       beforeOffset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
       error: z.string().min(1).max(512).optional(),
+      // The host answers a transcript it has not drained yet with an empty snapshot; without this
+      // the chat view cannot tell "no messages" from "not read yet".
+      pending: z.boolean().optional(),
       lifecycle: MobileWebNativeChatLifecycleSchema.optional()
     })
     .strict(),

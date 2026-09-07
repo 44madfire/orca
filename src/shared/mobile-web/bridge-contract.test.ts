@@ -371,26 +371,24 @@ describe('mobile web bridge shell contract', () => {
     ).toEqual({ ok: false, error: 'too_large' })
   })
 
-  // Stripped rather than rejected: `init` carries every grant, so dropping the frame over one
-  // undeclared key from a newer shell costs the page every capability. The key is still never
-  // readable by the page, which is the whole point of the fence.
+  // The shell and the page ship as one release pair, so an init carrying a key the page never
+  // declared is a broken shell, not version skew. Fail closed: the page reads no privileged state.
   it.each(['hostId', 'hostIdentity', 'publicKeyB64', 'deviceToken', 'endpoint', 'credential'])(
-    'strips privileged %s state from the initial page message',
+    'refuses an initial page message carrying privileged %s state',
     (field) => {
-      const parsed = parseMobileWebBridgeInitialMessage(
-        JSON.stringify({
-          version: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
-          type: 'init',
-          shellSessionId: SHELL_SESSION_ID,
-          buildId: BUILD_ID,
-          connection: 'connected',
-          grants: [operationGrant()],
-          [field]: 'credential-secret'
-        })
-      )
-
-      expect(parsed).toMatchObject({ ok: true })
-      expect(parsed.ok && parsed.value).not.toHaveProperty(field)
+      expect(
+        parseMobileWebBridgeInitialMessage(
+          JSON.stringify({
+            version: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
+            type: 'init',
+            shellSessionId: SHELL_SESSION_ID,
+            buildId: BUILD_ID,
+            connection: 'connected',
+            grants: [operationGrant()],
+            [field]: 'credential-secret'
+          })
+        )
+      ).toEqual({ ok: false, error: 'invalid_message' })
     }
   )
 
@@ -407,36 +405,29 @@ describe('mobile web bridge shell contract', () => {
     ).toBe(false)
   })
 
-  it('degrades a resume route kind a newer shell added instead of failing the whole init', () => {
-    const base = {
+  it('refuses an init carrying a resume route kind it cannot name', () => {
+    const raw = JSON.stringify({
       version: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
       type: 'init',
       shellSessionId: SHELL_SESSION_ID,
       buildId: BUILD_ID,
       connection: 'connected',
-      grants: [operationGrant(), operationGrant({ capability: 'terminal', operation: 'input' })]
-    }
-    const raw = JSON.stringify({
-      ...base,
+      grants: [operationGrant(), operationGrant({ capability: 'terminal', operation: 'input' })],
       resumeRoute: { kind: 'someFutureKind', workspaceId: 'opaque-workspace' }
     })
 
-    // Why: init is the page's only grant delivery, so a route it cannot name must cost the route.
-    for (const parsed of [
-      parseMobileWebBridgeShellMessage(raw, CONTEXT),
-      parseMobileWebBridgeInitialMessage(raw)
-    ]) {
-      expect(parsed.ok).toBe(true)
-      const value = (parsed as Extract<typeof parsed, { ok: true }>).value as {
-        resumeRoute?: unknown
-        grants: unknown[]
-      }
-      expect(value.resumeRoute).toBeUndefined()
-      expect(value.grants).toHaveLength(2)
-    }
+    // A shell that adds a route kind bumps MOBILE_WEB_BRIDGE_PROTOCOL_VERSION, which is the gate.
+    expect(parseMobileWebBridgeShellMessage(raw, CONTEXT)).toEqual({
+      ok: false,
+      error: 'invalid_message'
+    })
+    expect(parseMobileWebBridgeInitialMessage(raw)).toEqual({
+      ok: false,
+      error: 'invalid_message'
+    })
   })
 
-  it('rejects unbounded resume routes and strips host-shaped ones', () => {
+  it('rejects unbounded and host-shaped resume routes', () => {
     const base = {
       version: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
       type: 'init',
@@ -469,25 +460,20 @@ describe('mobile web bridge shell contract', () => {
       )
     ).toEqual({ ok: false, error: 'invalid_message' })
 
-    const parsed = parseMobileWebBridgeShellMessage(
-      JSON.stringify({
-        ...base,
-        resumeRoute: {
-          kind: 'session',
-          workspaceId: 'opaque-workspace',
-          workspaceName: 'Feature',
-          hostPath: '/private/worktree'
-        }
-      }),
-      CONTEXT
-    )
-    expect(parsed).toMatchObject({ ok: true })
-    expect(parsed.ok && parsed.value).toMatchObject({
-      resumeRoute: { kind: 'session', workspaceName: 'Feature' }
-    })
-    expect(parsed.ok && (parsed.value as { resumeRoute: object }).resumeRoute).not.toHaveProperty(
-      'hostPath'
-    )
+    expect(
+      parseMobileWebBridgeShellMessage(
+        JSON.stringify({
+          ...base,
+          resumeRoute: {
+            kind: 'session',
+            workspaceId: 'opaque-workspace',
+            workspaceName: 'Feature',
+            hostPath: '/private/worktree'
+          }
+        }),
+        CONTEXT
+      )
+    ).toEqual({ ok: false, error: 'invalid_message' })
   })
 
   it('bounds the optional local host display name', () => {
@@ -668,20 +654,16 @@ describe('mobile web bridge shell contract', () => {
     }
     expect(MobileWebBridgeShellMessageSchema.safeParse(response).success).toBe(true)
 
-    // The message is stripped rather than fatal, so the page keeps the error code it can act on
-    // and still cannot read the host path inside the message.
-    const parsed = parseMobileWebBridgeShellMessage(
-      JSON.stringify({
-        ...response,
-        error: { ...response.error, message: '/private/path: permission denied' }
-      }),
-      CONTEXT
-    )
-    expect(parsed).toMatchObject({ ok: true })
-    expect(parsed.ok && parsed.value).toMatchObject({
-      error: { code: 'host_error', retryable: true }
-    })
-    expect(parsed.ok && (parsed.value as { error: object }).error).not.toHaveProperty('message')
+    // A raw host message is never a field the page can read, so the frame carrying one is refused.
+    expect(
+      parseMobileWebBridgeShellMessage(
+        JSON.stringify({
+          ...response,
+          error: { ...response.error, message: '/private/path: permission denied' }
+        }),
+        CONTEXT
+      )
+    ).toEqual({ ok: false, error: 'invalid_message' })
   })
 
   it('parses matching shell events and rejects stale subscription events', () => {

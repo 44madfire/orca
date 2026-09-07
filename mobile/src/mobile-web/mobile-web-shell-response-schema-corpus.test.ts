@@ -13,7 +13,6 @@ import { MobileWebBridgeSubscriptionClient } from '../../../src/mobile-web/src/m
 import type { MobileWebBridgeSubscriptionSetup } from '../../../src/mobile-web/src/mobile-web-bridge-subscription-setup'
 import { MobileWebOneShotRequestClient } from '../../../src/mobile-web/src/mobile-web-one-shot-request-client'
 import { MobileWebHostResultSchema } from '../../../src/shared/mobile-web/host-rpc-contract'
-import { tolerantMobileWebShellPayload } from '../../../src/shared/mobile-web/shell-payload-tolerance'
 import { MOBILE_WEB_PRODUCTION_GRANTS } from './mobile-web-production-grants'
 
 const CONTEXT = {
@@ -107,10 +106,8 @@ describe('mobile web shell response schema corpus', () => {
   })
 })
 
-/** What the page actually applies to a shell payload, so "cannot parse" here is the page's verdict
- * rather than the authoring schema's. */
 function pageRejects(schema: ZodType, payload: unknown): boolean {
-  return !tolerantMobileWebShellPayload(schema).safeParse(payload).success
+  return !schema.safeParse(payload).success
 }
 
 function namedSchemas(suffix: 'ResultSchema' | 'EventSchema'): NamedSchema[] {
