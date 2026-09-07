@@ -105,6 +105,7 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
       beginPtyRegistration: vi.fn(),
       cancelPendingPtyRegistration: vi.fn(),
       assertPtyRegistrationAllowed: vi.fn(),
+      preparePtyExecutionContext: vi.fn(),
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       seedHeadlessTerminal: vi.fn(),
@@ -176,6 +177,8 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
     expect(runtime.beginPtyRegistration).not.toHaveBeenCalled()
     expect(isHiddenRendererPty(spawnArgs.sessionId)).toBe(false)
     expect(runtime.registerPty).not.toHaveBeenCalled()
+    expect(runtime.assertPtyRegistrationAllowed).not.toHaveBeenCalled()
+    expect(runtime.preparePtyExecutionContext).not.toHaveBeenCalled()
     expect(runtime.onPtyExit).not.toHaveBeenCalled()
     expect(providerSpawn).toHaveBeenCalledTimes(1)
     expect(providerSpawn.mock.calls.every(([options]) => options.attachOnly === true)).toBe(true)
@@ -226,6 +229,8 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
       expect(store.setWorkspaceSession).not.toHaveBeenCalled()
       expect(store.persistPtyBinding).not.toHaveBeenCalled()
       expect(runtime.registerPty).not.toHaveBeenCalled()
+      expect(runtime.assertPtyRegistrationAllowed).not.toHaveBeenCalled()
+      expect(runtime.preparePtyExecutionContext).not.toHaveBeenCalled()
       expect(runtime.onPtyExit).not.toHaveBeenCalled()
     }
   )
@@ -285,6 +290,7 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
     const { store, runtime, spawnArgs } = buildFencedPaneContext('execute-refusal')
     const earlyAdoption = vi.spyOn(stableAdoption, 'adoptStablePane').mockResolvedValueOnce(null)
     const providerSpawn = vi.fn(async () => {
+      runtime.preparePtyExecutionContext.mockClear()
       throw new SessionNotFoundError(spawnArgs.sessionId)
     })
     installDaemonTestProvider({ spawn: providerSpawn })
@@ -304,6 +310,8 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
       expect(providerSpawn).toHaveBeenCalledTimes(1)
       expect(runtime.cancelPendingPtyRegistration).toHaveBeenCalledWith(spawnArgs.sessionId)
       expect(runtime.registerPty).not.toHaveBeenCalled()
+      expect(runtime.assertPtyRegistrationAllowed).not.toHaveBeenCalled()
+      expect(runtime.preparePtyExecutionContext).not.toHaveBeenCalled()
       expect(store.setWorkspaceSession).not.toHaveBeenCalled()
       expect(store.persistPtyBinding).not.toHaveBeenCalled()
       expect(isHiddenRendererPty(spawnArgs.sessionId)).toBe(false)
@@ -318,6 +326,7 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
     async (ensureClaim) => {
       const { store, runtime, spawnArgs } = buildFencedPaneContext('runtime-absent-worker')
       const providerSpawn = vi.fn(async () => {
+        runtime.preparePtyExecutionContext.mockClear()
         throw new SessionNotFoundError(spawnArgs.sessionId)
       })
       installDaemonTestProvider({ spawn: providerSpawn })
@@ -345,10 +354,129 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
       })
       expect(providerSpawn).toHaveBeenCalledTimes(1)
       expect(runtime.registerPty).not.toHaveBeenCalled()
+      expect(runtime.assertPtyRegistrationAllowed).not.toHaveBeenCalled()
+      expect(runtime.preparePtyExecutionContext).not.toHaveBeenCalled()
       expect(runtime.cancelPendingPtyRegistration).toHaveBeenCalledWith(spawnArgs.sessionId)
       expect(store.setWorkspaceSession).not.toHaveBeenCalled()
       expect(store.persistPtyBinding).not.toHaveBeenCalled()
       expect(paneSpawnReservationsByOwnerKey.size).toBe(0)
     }
   )
+  it.each([false, true])(
+    'carries unverifiable through the runtime controller (pre-adopted: %s)',
+    async (preAdopted) => {
+      const { store, runtime, spawnArgs } = buildFencedPaneContext('unverifiable-controller')
+      const spawn = vi.fn(async () => {
+        throw new Error('daemon unavailable')
+      })
+      installDaemonTestProvider({ spawn })
+      registerPtyHandlers(
+        mainWindow as never,
+        runtime as never,
+        undefined,
+        undefined,
+        undefined,
+        store as never
+      )
+      const controller = runtime.setPtyController.mock.calls[0]![0] as {
+        spawn: (args: unknown) => Promise<unknown>
+      }
+      const result = await controller.spawn({
+        ...spawnArgs,
+        ...(preAdopted
+          ? {
+              adoptedStablePane: {
+                result: { id: spawnArgs.sessionId, reattachUnverifiable: true },
+                owner: {
+                  ptyId: spawnArgs.sessionId,
+                  tabId: spawnArgs.tabId,
+                  leafId: spawnArgs.leafId
+                }
+              }
+            }
+          : {})
+      })
+      expect(result).toEqual({ id: spawnArgs.sessionId, reattachUnverifiable: true })
+      expect(runtime.assertPtyRegistrationAllowed).not.toHaveBeenCalled()
+      if (preAdopted) {
+        expect(spawn).not.toHaveBeenCalled()
+        expect(runtime.beginPtyRegistration).not.toHaveBeenCalled()
+        expect(runtime.preparePtyExecutionContext).not.toHaveBeenCalled()
+      }
+      expect(store.setWorkspaceSession).not.toHaveBeenCalled()
+    }
+  )
+  it.each(['ipc', 'runtime'] as const)(
+    'preserves a fence committed during %s attach',
+    async (entry) => {
+      const { store, runtime, spawnArgs } = buildFencedPaneContext('late-fenced-worker')
+      const record =
+        store.getWorkspaceSession().sleepingAgentSessionsByPaneKey[
+          makePaneKey(spawnArgs.tabId, spawnArgs.leafId)
+        ]
+      record.automaticResumeBlockedBy = ''
+      const spawn = vi.fn(async () => {
+        record.automaticResumeBlockedBy = 'legacy-orchestration-worker'
+        throw new SessionNotFoundError(spawnArgs.sessionId)
+      })
+      installDaemonTestProvider({ spawn })
+      registerPtyHandlers(
+        mainWindow as never,
+        runtime as never,
+        undefined,
+        undefined,
+        undefined,
+        store as never
+      )
+      const controller = runtime.setPtyController.mock.calls[0]![0] as {
+        spawn: (args: unknown) => Promise<unknown>
+      }
+      const result =
+        entry === 'ipc'
+          ? await handlers.get('pty:spawn')!(null, spawnArgs)
+          : await controller.spawn(spawnArgs)
+      expect(result).toEqual({ id: spawnArgs.sessionId, reattachUnverifiable: true })
+      expect(spawn).toHaveBeenCalledTimes(1)
+      expect(store.setWorkspaceSession).not.toHaveBeenCalled()
+      expect(runtime.onPtyExit).not.toHaveBeenCalled()
+    }
+  )
+  it('refuses a claim spawn when the fence commits during owner reconciliation', async () => {
+    const { store, runtime, spawnArgs } = buildFencedPaneContext('late-claim-fence')
+    const record =
+      store.getWorkspaceSession().sleepingAgentSessionsByPaneKey[
+        makePaneKey(spawnArgs.tabId, spawnArgs.leafId)
+      ]
+    record.automaticResumeBlockedBy = ''
+    const spawn = vi.fn(async () => ({ id: 'replacement' }))
+    const listProcesses = vi.fn(async () => {
+      record.automaticResumeBlockedBy = 'legacy-orchestration-worker'
+      return []
+    })
+    installDaemonTestProvider({ spawn, listProcesses })
+    registerPtyHandlers(
+      mainWindow as never,
+      runtime as never,
+      undefined,
+      undefined,
+      undefined,
+      store as never
+    )
+    const controller = runtime.setPtyController.mock.calls[0]![0] as {
+      spawn: (args: unknown) => Promise<unknown>
+    }
+    await expect(
+      controller.spawn({
+        ...spawnArgs,
+        agentSessionEnsure: { claim: recoveredAgentClaim, surface: recoveredAgentSurface }
+      })
+    ).resolves.toEqual({ id: spawnArgs.sessionId, reattachUnverifiable: true })
+    expect(listProcesses).toHaveBeenCalled()
+    expect(spawn).not.toHaveBeenCalled()
+    expect(runtime.registerPty).not.toHaveBeenCalled()
+    expect(runtime.assertPtyRegistrationAllowed).not.toHaveBeenCalled()
+    expect(store.setWorkspaceSession).not.toHaveBeenCalled()
+    expect(runtime.cancelPendingPtyRegistration).toHaveBeenCalledWith(spawnArgs.sessionId)
+    expect(paneSpawnReservationsByOwnerKey.size).toBe(0)
+  })
 })

@@ -1,6 +1,6 @@
 import { isStablePaneResumeBlocked } from './stable-pane-resume-fence'
 import { toSshExecutionHostId } from '../../../../shared/execution-host'
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey, parsePaneKey } from '../../../../shared/stable-pane-id'
 import { UNVERIFIED_PROCESS_EXIT_CODE } from '../../../../shared/terminal-exit-cause'
 import type { Store } from '../../../persistence'
 import { retirePersistedStablePaneOwner } from './stable-owner-retirement'
@@ -25,7 +25,6 @@ export type StablePaneOwner = {
   hasPersistedBinding?: true
   persistedIncarnationId?: string
   runtimeIncarnationId?: string
-  automaticResumeBlocked?: true
 }
 export type StablePaneAdoption = {
   result: PtySpawnResult
@@ -116,9 +115,6 @@ export function resolveStablePaneOwner(
     ...(runtimeIncarnationId || persisted?.incarnationId
       ? { incarnationId: runtimeIncarnationId ?? persisted?.incarnationId }
       : {}),
-    ...(isStablePaneResumeBlocked(store, paneKey, worktreeId, connectionId)
-      ? { automaticResumeBlocked: true as const }
-      : {}),
     ...(persisted ? { hasPersistedBinding: true as const } : {}),
     ...(persisted?.incarnationId ? { persistedIncarnationId: persisted.incarnationId } : {}),
     ...(runtimeIncarnationId ? { runtimeIncarnationId } : {})
@@ -182,6 +178,13 @@ export async function attachStablePaneOwner(
   args: StablePaneSpawnContext & { owner: StablePaneOwner }
 ): Promise<{ result: PtySpawnResult; owner: StablePaneOwner } | null> {
   const { owner, provider, runtime, spawnOptions } = args
+  const paneKey = makePaneKey(owner.tabId, owner.leafId)
+  const blockedAtAttach = isStablePaneResumeBlocked(
+    args.store,
+    paneKey,
+    args.worktreeId,
+    args.connectionId
+  )
   let result: PtySpawnResult
   try {
     result = await provider.spawn({
@@ -201,12 +204,12 @@ export async function attachStablePaneOwner(
       onPtySpawnCommitted: undefined
     })
   } catch (error) {
-    if (owner.automaticResumeBlocked) {
+    if (isStablePaneResumeBlocked(args.store, paneKey, args.worktreeId, args.connectionId)) {
       return {
         owner,
         result: {
           id: owner.ptyId,
-          ...(isObservedPtyExitEvidence(error)
+          ...(blockedAtAttach && isObservedPtyExitEvidence(error)
             ? { exitedBeforeAttach: true as const }
             : { reattachUnverifiable: true as const })
         }
@@ -271,8 +274,13 @@ export async function attachStablePaneOwner(
 export async function spawnForStablePane(
   args: StablePaneSpawnContext
 ): Promise<{ result: PtySpawnResult; owner: StablePaneOwner | null }> {
+  if (args.owner) {
+    const attached = await attachStablePaneOwner({ ...args, owner: args.owner })
+    if (attached) {
+      return attached
+    }
+  }
   if (
-    !args.owner &&
     isStablePaneResumeBlocked(
       args.store,
       args.spawnOptions.paneKey,
@@ -283,12 +291,6 @@ export async function spawnForStablePane(
     return {
       result: { id: args.spawnOptions.sessionId ?? '', reattachUnverifiable: true },
       owner: null
-    }
-  }
-  if (args.owner) {
-    const attached = await attachStablePaneOwner({ ...args, owner: args.owner })
-    if (attached) {
-      return attached
     }
   }
   const result = await args.provider.spawn(args.spawnOptions)

@@ -1,3 +1,4 @@
+import { TERMINAL_FENCED_CREATE_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createRemoteRuntimeTransportMocks,
@@ -26,6 +27,9 @@ describe('paired host attach evidence', () => {
     'carries host %s without subscribing or publishing a spawn',
     async (outcome) => {
       runtimeCall.mockImplementation(async ({ method }: { method: string }) => {
+        if (method === 'status.get') {
+          return { ok: true, result: { capabilities: [TERMINAL_FENCED_CREATE_RUNTIME_CAPABILITY] } }
+        }
         if (method === 'terminal.resolvePane') {
           return {
             ok: false,
@@ -141,5 +145,42 @@ describe('paired host attach evidence', () => {
     expect(runtimeSubscribe).toHaveBeenCalled()
     await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
     transport.destroy?.()
+  })
+  it('an old host with resolvePane must not create a replacement for a retained pane', async () => {
+    runtimeCall.mockImplementation(async ({ method }: { method: string }) => {
+      if (method === 'terminal.resolvePane') {
+        return { ok: false, error: { code: 'terminal_not_found', message: 'terminal_not_found' } }
+      }
+      return {
+        ok: true,
+        result: {
+          terminal: {
+            handle: 'replacement',
+            ptyId: 'replacement-pty',
+            tabId: 'tab-1',
+            paneKey: 'tab-1:pane:1'
+          }
+        }
+      }
+    })
+    const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
+    const transport = createRemoteRuntimePtyTransport('env-1', {
+      worktreeId: 'wt-1',
+      tabId: 'tab-1',
+      leafId: 'pane:1'
+    })
+    const result = await transport.connect({
+      url: '',
+      sessionId: 'remote:env-1@@retained-handle',
+      callbacks: {}
+    })
+    expect(result).toEqual({ id: 'remote:env-1@@retained-handle', reattachUnverifiable: true })
+    try {
+      expect(runtimeCall).not.toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'terminal.create' })
+      )
+    } finally {
+      transport.destroy?.()
+    }
   })
 })

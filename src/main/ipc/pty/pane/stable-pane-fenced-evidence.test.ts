@@ -94,4 +94,33 @@ describe('stable-pane fenced attach evidence', () => {
     expect(spawn).not.toHaveBeenCalled()
     expect(store.setWorkspaceSession).not.toHaveBeenCalled()
   })
+  it('rechecks a fence committed while attachment is awaiting the host', async () => {
+    const { store, ptyId } = fixture(null)
+    const record = store.getWorkspaceSession().sleepingAgentSessionsByPaneKey[paneKey]
+    delete (record as { automaticResumeBlockedBy?: string }).automaticResumeBlockedBy
+    const resolveOwner = () =>
+      resolveStablePaneOwner(undefined, store as unknown as Store, paneKey, worktreeId, null)
+    const owner = resolveOwner()
+    let calls = 0
+    const spawn = vi.fn(async () => {
+      if (++calls === 1) {
+        record.automaticResumeBlockedBy = 'legacy-orchestration-worker'
+        throw new SessionNotFoundError(ptyId)
+      }
+      return { id: 'replacement-after-fence' }
+    })
+    const result = await spawnForStablePane({
+      runtime: undefined,
+      store: store as unknown as Store,
+      provider: { spawn } as unknown as IPtyProvider,
+      owner,
+      worktreeId,
+      connectionId: null,
+      resolveOwner,
+      spawnOptions: { cols: 80, rows: 24, paneKey }
+    })
+    expect(result.result).toEqual({ id: ptyId, reattachUnverifiable: true })
+    expect(store.setWorkspaceSession).not.toHaveBeenCalled()
+    expect(spawn).toHaveBeenCalledTimes(1)
+  })
 })

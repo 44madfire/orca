@@ -25,13 +25,16 @@
       "coverageNotes": "macOS hidden Electron restart exercises live and absent daemon sessions. Unit contracts cover direct SSH evidence and paired host/client refusal; other operating systems and real remote topologies remain unverified.",
       "motivatingLinks": ["https://github.com/stablyai/orca/pull/19358"],
       "invariant": "Main reads the persisted pane resume fence and permits attachment only. Observed exit preserves the historical tab and binding; unverifiable evidence preserves ownership and permits recovery without replacement.",
-      "oracle": "A fenced stable owner gets one attach attempt and no retirement or second provider call. A restarted worker with a live or exited daemon session retains its exact tab and PTY binding without another agent launch. Unsupported paired resolution never certifies exit.",
+      "oracle": "A fenced stable owner gets one attach attempt and no retirement or second provider call. A restarted worker with a live or exited daemon session retains its exact tab and PTY binding without another agent launch. A fence committed during attachment or claim reconciliation prevents retirement and fresh provider spawn. Unsupported paired resolution never certifies exit; owner absence cannot create until host fenced-create semantics are negotiated.",
       "commands": [
         "ORCA_BACKGROUND_LAUNCH=1 npx vitest run --config config/vitest.config.ts src/main/ipc/pty-attach-only-fenced-pane-spawn.test.ts",
+        "ORCA_BACKGROUND_LAUNCH=1 npx vitest run --config config/vitest.config.ts src/main/ipc/pty-attach-only-fenced-pane-spawn.test.ts src/main/ipc/pty/pane/stable-pane-resume-fence-host.test.ts src/renderer/src/components/terminal-pane/remote-runtime-pty-transport-fenced-outcome.test.ts",
         "ORCA_BACKGROUND_LAUNCH=1 SKIP_BUILD=1 npx playwright test tests/e2e/settled-worker-tab-survives-restart.spec.ts --config tests/playwright.config.ts --project=electron-headless --workers=1 --retries=0"
       ],
       "testFiles": [
         "src/main/ipc/pty-attach-only-fenced-pane-spawn.test.ts",
+        "src/main/ipc/pty/pane/stable-pane-resume-fence-host.test.ts",
+        "src/renderer/src/components/terminal-pane/remote-runtime-pty-transport-fenced-outcome.test.ts",
         "tests/e2e/settled-worker-tab-survives-restart.spec.ts"
       ],
       "assertionRefs": [

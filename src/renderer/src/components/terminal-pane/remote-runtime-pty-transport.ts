@@ -19,7 +19,10 @@ import type {
   RuntimeTerminalResolvePane,
   RuntimeTerminalSend
 } from '../../../../shared/runtime-types'
-import { TERMINAL_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
+import {
+  TERMINAL_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY,
+  TERMINAL_FENCED_CREATE_RUNTIME_CAPABILITY
+} from '../../../../shared/protocol-version'
 import { agentResumeHostAuthorityCapability } from '../../runtime/agent-resume-host-authority-capability'
 import {
   isTerminalInputTooLargeWithDeferredMeasurement,
@@ -2232,6 +2235,15 @@ export function createRemoteRuntimePtyTransport(
             } else {
               emitRecoveryState()
             }
+            return { id: options.sessionId, reattachUnverifiable: true }
+          }
+          const status = await callRuntime<RuntimeStatus>('status.get')
+          if (destroyed || lifecycleEpoch !== connectLifecycleEpoch) {
+            return
+          }
+          if (!status.capabilities?.includes(TERMINAL_FENCED_CREATE_RUNTIME_CAPABILITY)) {
+            connecting = false
+            emitRecoveryState()
             return { id: options.sessionId, reattachUnverifiable: true }
           }
         }

@@ -17,3 +17,5 @@ export function isStablePaneResumeBlocked(
     worktreeId
   )
 }
+
+export class StablePaneResumeBlockedError extends Error {}
