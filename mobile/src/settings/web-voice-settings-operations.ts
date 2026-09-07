@@ -7,17 +7,8 @@ export function webVoiceSettingsOperations(client: MobileWebBridgeClient): Voice
     client.host.request({ method, params })
   return {
     load: async () => (await request('speech.models.list', {})) as MobileSpeechSetup,
-    configure: async (params) => {
-      const result = (await request('speech.dictation.setup', params)) as MobileSpeechSetup
-      if (
-        (params.enabled !== undefined && result.enabled !== params.enabled) ||
-        (params.modelId !== undefined && result.selectedModelId !== params.modelId) ||
-        (params.dictationMode !== undefined && result.dictationMode !== params.dictationMode)
-      ) {
-        throw new Error('Voice settings update was not confirmed')
-      }
-      return result
-    },
+    configure: async (params) =>
+      (await request('speech.dictation.setup', params)) as MobileSpeechSetup,
     download: async (modelId) => {
       await request('speech.models.download', { modelId })
     },

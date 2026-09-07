@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest'
 
 const nativeLayout = readFileSync(new URL('../../app/_layout.tsx', import.meta.url), 'utf8')
 const nativeSettings = readFileSync(new URL('../../app/settings.tsx', import.meta.url), 'utf8')
+const settingsMenuItems = readFileSync(
+  new URL('../settings/mobile-settings-menu-items.ts', import.meta.url),
+  'utf8'
+)
 const nativeHome = readFileSync(new URL('../home/MobileHomeHostList.tsx', import.meta.url), 'utf8')
 const hybridShell = readFileSync(new URL('../../app/hybrid.tsx', import.meta.url), 'utf8')
 const hybridPresentation = readFileSync(
@@ -43,8 +47,9 @@ describe('mobile native shell route ownership', () => {
     for (const routeName of NATIVE_ROUTE_NAMES) {
       expect(nativeLayout).toContain(`name="${routeName}"`)
     }
-    expect(nativeSettings).toContain("router.push('/troubleshoot')")
-    expect(nativeSettings).toContain("router.push('/about')")
+    expect(settingsMenuItems).toContain("push('/troubleshoot')")
+    expect(settingsMenuItems).toContain("push('/about')")
+    expect(nativeSettings).toContain('mobileSettingsMenuItems((route) => router.push(route))')
     expect(nativeSettings).toContain("Linking.openURL('https://www.onorca.dev/privacy')")
   })
 

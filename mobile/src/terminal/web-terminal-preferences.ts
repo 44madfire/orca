@@ -10,22 +10,22 @@ import { loadTerminalAccessoryLayout } from './terminal-accessory-layout'
 
 export async function loadWebHostTerminalPreferences(client: MobileWebBridgeClient) {
   const native = await client.native.terminalPreferences()
-  // Settings sections mount together; keep their combined reads below the bridge grant.
-  const textScale = await loadTerminalTextScale({
-    fallback: native.textScale,
-    rejectReadFailure: true
-  })
-  const autocompleteEnabled = await loadTerminalAutocompleteEnabled({
-    fallback: native.autocompleteEnabled,
-    rejectReadFailure: true
-  })
-  const linkOpenMode = await loadTerminalLinkOpenMode(native.linkOpenMode)
+  const [textScale, autocompleteEnabled, linkOpenMode] = await Promise.all([
+    loadTerminalTextScale({ fallback: native.textScale, rejectReadFailure: true }),
+    loadTerminalAutocompleteEnabled({
+      fallback: native.autocompleteEnabled,
+      rejectReadFailure: true
+    }),
+    loadTerminalLinkOpenMode(native.linkOpenMode)
+  ])
   return { textScale: textScale as MobileWebTerminalTextScale, autocompleteEnabled, linkOpenMode }
 }
 export async function loadWebHostTerminalAccessoryPreferences(client: MobileWebBridgeClient) {
   const native = await client.native.terminalAccessoryPreferences()
-  const customKeys = await loadCustomKeys({ fallback: native.customKeys, rejectReadFailure: true })
-  const layout = await loadTerminalAccessoryLayout({ fallback: native, rejectReadFailure: true })
+  const [customKeys, layout] = await Promise.all([
+    loadCustomKeys({ fallback: native.customKeys, rejectReadFailure: true }),
+    loadTerminalAccessoryLayout({ fallback: native, rejectReadFailure: true })
+  ])
   return {
     customKeys,
     orderedBuiltInIds: layout.orderedBuiltInIds,

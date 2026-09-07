@@ -3,24 +3,14 @@ import { useState } from 'react'
 import { Text } from 'react-native'
 import { colors, typography, spacing } from '../src/theme/mobile-theme'
 import { useRouter } from 'expo-router'
-import {
-  Globe,
-  MessageSquare,
-  Terminal,
-  Mic,
-  Bell,
-  Activity,
-  Info,
-  Shield,
-  LifeBuoy
-} from 'lucide-react-native'
+import { Shield, LifeBuoy } from 'lucide-react-native'
 import { MobileSettingsFrame, MobileSettingsSection } from '../src/settings/mobile-settings-menu'
+import { mobileSettingsMenuItems } from '../src/settings/mobile-settings-menu-items'
 
 export default function HostedSettingsRoute() {
   const router = useRouter()
   const [linkError, setLinkError] = useState<string | null>(null)
   const shell = useMobileWebNativeShell()
-  const disabled = !(shell.client?.native.supports('pagePreferences') ?? false)
   const linksDisabled = !(shell.client?.native.supports('openExternal') ?? false)
   const openExternal = (url: string) => {
     setLinkError(null)
@@ -39,47 +29,10 @@ export default function HostedSettingsRoute() {
       }}
     >
       <MobileSettingsSection
-        items={[
-          {
-            label: 'Terminal',
-            icon: Terminal,
-            disabled: !shell.client,
-            onPress: () => {
-              router.push('/terminal-settings')
-            }
-          },
-          {
-            label: 'Chat UI',
-            disabled,
-            icon: MessageSquare,
-            onPress: () => router.push('/native-chat-settings')
-          },
-          {
-            label: 'Browser',
-            disabled,
-            icon: Globe,
-            onPress: () => router.push('/browser-settings')
-          },
-          {
-            label: 'Voice',
-            icon: Mic,
-            disabled: !shell.client,
-            onPress: () => router.push('/voice-settings')
-          },
-          {
-            label: 'Notifications',
-            icon: Bell,
-            disabled: !shell.client,
-            onPress: () => router.push('/notifications')
-          },
-          {
-            label: 'Troubleshooting',
-            icon: Activity,
-            disabled: !shell.client,
-            onPress: () => router.push('/troubleshoot')
-          },
-          { label: 'About', icon: Info, onPress: () => router.push('/about') }
-        ]}
+        items={mobileSettingsMenuItems((route) => router.push(route), {
+          shell: Boolean(shell.client),
+          pagePreferences: shell.client?.native.supports('pagePreferences') ?? false
+        })}
       />
       <MobileSettingsSection
         spaced

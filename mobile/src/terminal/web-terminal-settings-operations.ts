@@ -12,19 +12,11 @@ import {
 export function webTerminalSettingsOperations(
   client: MobileWebBridgeClient
 ): TerminalSettingsOperations {
-  let accessoryRead: ReturnType<typeof loadWebHostTerminalAccessoryPreferences> | undefined
-  const readAccessories = () => {
-    // The two settings sections share the shell's single accessory-read slot.
-    accessoryRead ??= loadWebHostTerminalAccessoryPreferences(client).finally(() => {
-      accessoryRead = undefined
-    })
-    return accessoryRead
-  }
   return {
     ...nativeTerminalSettingsOperations,
     loadPreferences: () => loadWebHostTerminalPreferences(client),
-    loadKeys: async () => (await readAccessories()).customKeys,
-    loadLayout: readAccessories
+    loadKeys: async () => (await loadWebHostTerminalAccessoryPreferences(client)).customKeys,
+    loadLayout: () => loadWebHostTerminalAccessoryPreferences(client)
   }
 }
 const fitMethods = ['terminal.getAutoRestoreFit', 'terminal.setAutoRestoreFit']

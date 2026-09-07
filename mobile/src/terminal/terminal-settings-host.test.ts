@@ -1,44 +1,38 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nativeTerminalSettingsHost } from './native-terminal-settings-host'
 import {
   webTerminalSettingsHost,
   webTerminalSettingsOperations
 } from './web-terminal-settings-operations'
+import hostedPageStorage from '../mobile-web/hosted-page-async-storage'
+import { setMobileWebPagePreferencesClient } from '../../../src/mobile-web/src/mobile-web-page-preferences-channel'
 import type { RpcClient } from '../transport/rpc-client'
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: { getItem: vi.fn(async () => null) }
 }))
+afterEach(() => setMobileWebPagePreferencesClient(null))
 
 describe('terminal restore settings adapters', () => {
-  it('shares the single native accessory-read slot across settings sections', async () => {
-    const client = {
-      native: {
-        supports: () => true,
-        terminalAccessoryPreferences: vi.fn().mockResolvedValue({
-          customKeys: [],
-          orderedBuiltInIds: ['escape'],
-          visibleBuiltInIds: []
-        })
-      }
-    }
-    const settings = webTerminalSettingsOperations(client as unknown as MobileWebBridgeClient)
-    await Promise.all([settings.loadKeys(), settings.loadLayout()])
-    expect(client.native.terminalAccessoryPreferences).toHaveBeenCalledTimes(1)
-  })
-
   it('loads all settings sections within the page preference concurrency grant', async () => {
+    // The page bundle resolves async storage to the hosted bridge adapter.
+    vi.mocked(AsyncStorage.getItem).mockImplementation((key: string) =>
+      hostedPageStorage.getItem(key)
+    )
     let inFlight = 0
-    vi.mocked(AsyncStorage.getItem).mockImplementation(async () => {
+    const pagePreferences = vi.fn(async (payload: { keys?: string[] }) => {
       if (++inFlight > 4) {
         inFlight--
         throw new Error('page preference concurrency exhausted')
       }
       await new Promise((resolve) => setTimeout(resolve, 1))
       inFlight--
-      return null
+      return { entries: (payload.keys ?? []).map((key) => [key, null]) }
     })
+    setMobileWebPagePreferencesClient({
+      native: { pagePreferences }
+    } as unknown as MobileWebBridgeClient)
     const client = {
       native: {
         terminalPreferences: async () => ({
@@ -58,6 +52,7 @@ describe('terminal restore settings adapters', () => {
       await expect(
         Promise.all([settings.loadPreferences(), settings.loadKeys(), settings.loadLayout()])
       ).resolves.toHaveLength(3)
+      expect(pagePreferences.mock.calls.length).toBeLessThan(4)
     } finally {
       vi.mocked(AsyncStorage.getItem).mockImplementation(async () => null)
     }

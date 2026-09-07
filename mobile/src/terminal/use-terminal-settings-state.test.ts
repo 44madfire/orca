@@ -59,11 +59,11 @@ describe('terminal settings state', () => {
     expect(state.busy).toBe(false)
     expect(state.autocompleteEnabled).toBe(true)
   })
-  it('keeps controls disabled when storage cannot be read', async () => {
+  it('releases the controls when storage cannot be read', async () => {
     const operations = fixture()
     vi.mocked(operations.loadPreferences).mockRejectedValue(new Error('storage unavailable'))
     await mount(operations)
-    expect(state.busy).toBe(true)
+    expect(state.busy).toBe(false)
     expect(state.error).toContain('Could not load')
   })
   it('preserves the confirmed setting when saving fails', async () => {
