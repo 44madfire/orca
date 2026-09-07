@@ -138,16 +138,23 @@ export function syncSystemConfigIntoLegacySharedCodexHome(
   }
   const runtimeConfigBeforeMirror =
     runtimeConfigObservation.kind === 'present' ? runtimeConfigObservation.value : null
-  if (runtimeConfigBeforeMirror !== null) {
-    enforceCodexConfigFileMode(runtimeConfigPath, warnCodexConfigModeRepair)
-  }
+  // Unconditional: a deleted config.toml can leave an orphan config.toml.bak
+  // holding the same secret, and gating on the primary would never repair it.
+  // Both paths no-op on ENOENT, so asking costs nothing.
+  enforceCodexConfigFileMode(runtimeConfigPath, warnCodexConfigModeRepair)
   const nextRuntimeConfig =
     runtimeConfigBeforeMirror !== null
       ? mergeSystemCodexConfigIntoRuntime(
           runtimeConfigBeforeMirror,
-          prepareSystemConfigForRuntimeMirror(rawSystemConfig, sourceConfigDir, null)
+          prepareSystemConfigForRuntimeMirror(rawSystemConfig, sourceConfigDir, {
+            sourceHomePath: homes.systemHomePath,
+            runtimeHomePath: homes.runtimeHomePath
+          })
         )
-      : prepareSystemConfigForFreshRuntimeMirror(rawSystemConfig, sourceConfigDir, null)
+      : prepareSystemConfigForFreshRuntimeMirror(rawSystemConfig, sourceConfigDir, {
+          sourceHomePath: homes.systemHomePath,
+          runtimeHomePath: homes.runtimeHomePath
+        })
   if (runtimeConfigBeforeMirror === nextRuntimeConfig) {
     return
   }
@@ -182,9 +189,9 @@ function syncSystemConfigIntoManagedCodexHomeUnsafe(
     return { status: 'refused-indeterminate', error: runtimeConfigObservation.error }
   }
   const runtimeConfigExists = runtimeConfigObservation.kind === 'present'
-  if (runtimeConfigExists) {
-    enforceCodexConfigFileMode(runtimeConfigPath, warnCodexConfigModeRepair)
-  }
+  // Unconditional for the same reason as the legacy lane above: an orphan
+  // backup outlives its primary, and the fresh-write branch below never repairs.
+  enforceCodexConfigFileMode(runtimeConfigPath, warnCodexConfigModeRepair)
   const rawSystemConfig =
     systemConfigObservation.kind === 'present' ? systemConfigObservation.value : ''
   // Why: a missing or blank source is not an authoritative empty config. Merging
@@ -260,24 +267,10 @@ function prepareSystemConfigForRuntimeMirror(
     normalizeDeprecatedCodexHookFeatureFlag(config),
     systemConfigDir
   )
-  if (!homes || !isHomeLocalRewriteSupported(homes)) {
+  if (!homes) {
     return anchored
   }
   return rewriteHomeLocalConfigValues(anchored, homes.sourceHomePath, homes.runtimeHomePath)
-}
-
-/**
- * WSL is out of scope, declared rather than accidental.
- *
- * A WSL source home arrives as a Windows-side UNC path while the config is read
- * inside the distro, and the runtime home on that call is Windows-side too. The
- * rewrite happens to no-op there today — but had it matched it would have
- * written a UNC path into a config consumed from inside Linux, which is worse
- * than leaving the value alone. Re-rooting for WSL needs a Linux-side runtime
- * home, which this seam does not have.
- */
-function isHomeLocalRewriteSupported(homes: CodexConfigMirrorHomes): boolean {
-  return !parseWslUncPath(homes.sourceHomePath) && !parseWslUncPath(homes.runtimeHomePath)
 }
 
 // Why: trust blocks reference a hooks.json path, so system-home hook trust

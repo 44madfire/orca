@@ -140,3 +140,38 @@ describe('home-local rewrite is conditional on the target existing', () => {
     expect(rewritten).toContain(`${RUNTIME_HOME}/.tmp/bundled-marketplaces/openai-bundled`)
   })
 })
+
+// The WSL scope decision, held by the guard alone. The existence probe is
+// forced true here on purpose: without that, a POSIX test host would refuse the
+// Windows runtime path for an unrelated reason and this would pass whether or
+// not the guard exists — which is exactly how an earlier version of this
+// assertion went green after the probe was introduced.
+describe('WSL homes are refused by the scope guard, not by chance', () => {
+  const WSL_SOURCE = '\\\\wsl.localhost\\Ubuntu\\home\\alice\\.codex'
+  const WIN_RUNTIME = 'C:\\Users\\alice\\AppData\\orca\\home'
+  const config = [
+    '[marketplaces.openai-bundled]',
+    `source = '${WSL_SOURCE}\\.tmp\\bundled-marketplaces\\openai-bundled'`
+  ].join('\n')
+
+  it('leaves a WSL source home untouched even when the target exists', () => {
+    expect(rewriteHomeLocalConfigValues(config, WSL_SOURCE, WIN_RUNTIME, () => true)).toBe(config)
+  })
+
+  it('leaves a WSL runtime home untouched even when the target exists', () => {
+    const winSource = 'C:\\Users\\alice\\.codex'
+    const winConfig = [
+      '[marketplaces.openai-bundled]',
+      `source = '${winSource}\\.tmp\\bundled-marketplaces\\openai-bundled'`
+    ].join('\n')
+
+    expect(
+      rewriteHomeLocalConfigValues(
+        winConfig,
+        winSource,
+        '\\\\wsl.localhost\\Ubuntu\\home\\alice\\rt',
+        () => true
+      )
+    ).toBe(winConfig)
+  })
+})

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { parseWslUncPath } from '../../shared/wsl-paths'
 import { posix as pathPosix, win32 as pathWin32 } from 'node:path'
 import {
   createTomlLineScanState,
@@ -198,6 +199,25 @@ function isHomeLocalPathConfigKey(tablePath: string, key: string): boolean {
 }
 
 /**
+ * WSL is out of scope, declared rather than accidental.
+ *
+ * A WSL source home arrives as a Windows-side UNC path while the config is read
+ * inside the distro, and the runtime home paired with it is Windows-side too.
+ * The rewrite happens to no-op there on a POSIX host — but on a Windows host
+ * with a per-account runtime home that really has the directory, the paths
+ * resolve and a UNC or drive path would be written into a config consumed from
+ * inside Linux, which is worse than leaving the value alone. Re-rooting for WSL
+ * needs a Linux-side runtime home, which this seam does not have.
+ *
+ * Lives here rather than at the mirror because it is a property of path
+ * flavour, and because here it sits behind the injectable existence probe —
+ * which is what lets a test hold it as the only reason a WSL value is refused.
+ */
+function isHomeLocalRewriteSupported(sourceHomePath: string, runtimeHomePath: string): boolean {
+  return !parseWslUncPath(sourceHomePath) && !parseWslUncPath(runtimeHomePath)
+}
+
+/**
  * Re-roots home-local settings from the source CODEX_HOME onto the runtime one.
  *
  * Only values that actually live inside the source home are moved; anything
@@ -219,6 +239,9 @@ export function rewriteHomeLocalConfigValues(
   targetExists: (path: string) => boolean = existsSync
 ): string {
   if (!sourceHomePath || !runtimeHomePath || sourceHomePath === runtimeHomePath) {
+    return config
+  }
+  if (!isHomeLocalRewriteSupported(sourceHomePath, runtimeHomePath)) {
     return config
   }
   const lines = config.split('\n')

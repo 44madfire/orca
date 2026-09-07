@@ -778,29 +778,9 @@ describe('prepareSystemConfigForFreshRuntimeMirror', () => {
   })
 
   it('uses the Linux-side directory for WSL UNC source homes', () => {
-    const wslHome = '\\\\wsl.localhost\\Ubuntu\\home\\alice\\.codex'
-    const sourceDir = resolveCodexConfigMirrorSourceDirectory(wslHome)
-
-    expect(sourceDir).toBe('/home/alice/.codex')
-    const prepared = prepareSystemConfigForFreshRuntimeMirror(
-      [
-        'model_instructions_file = "instructions.md"',
-        '',
-        '[marketplaces.openai-bundled]',
-        `source = '${wslHome}\\.tmp\\bundled-marketplaces\\openai-bundled'`,
-        ''
-      ].join('\n'),
-      sourceDir,
-      // A real WSL pair: the source home is a Windows-side UNC path while the
-      // config is read inside the distro, and the runtime home is Windows-side.
-      { sourceHomePath: wslHome, runtimeHomePath: 'C:\\Users\\alice\\AppData\\orca\\home' }
-    )
-
-    expect(prepared).toContain("model_instructions_file = '/home/alice/.codex/instructions.md'")
-    // The home-local rewrite is declined for WSL rather than allowed to write a
-    // Windows-side path into a config that is read from inside Linux.
-    expect(prepared).toContain(`${wslHome}\\.tmp\\bundled-marketplaces\\openai-bundled`)
-    expect(prepared).not.toContain('AppData')
+    expect(
+      resolveCodexConfigMirrorSourceDirectory('\\\\wsl.localhost\\Ubuntu\\home\\alice\\.codex')
+    ).toBe('/home/alice/.codex')
   })
 
   it('rewrites relative paths against a Linux-side home and strips hook trust', () => {

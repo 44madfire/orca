@@ -1,4 +1,5 @@
 import { chmodSync, statSync } from 'node:fs'
+import { resolveTomlWritePath } from './config-toml-atomic-write'
 
 /**
  * `config.toml` can carry secrets depending on how the user configured Codex —
@@ -33,8 +34,12 @@ export function enforceCodexConfigFileMode(
   if (process.platform === 'win32') {
     return
   }
-  enforceOneFileMode(path, onWarning)
-  enforceOneFileMode(`${path}.bak`, onWarning)
+  // Why resolve first: the writer follows a symlinked config to its realpath
+  // and backs up to `<realpath>.bak`. Deriving the backup from the lexical path
+  // would chmod a file that does not exist and leave the real one loose.
+  const writePath = resolveTomlWritePath(path)
+  enforceOneFileMode(writePath, onWarning)
+  enforceOneFileMode(`${writePath}.bak`, onWarning)
 }
 
 function enforceOneFileMode(path: string, onWarning?: (message: string) => void): void {
