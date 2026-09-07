@@ -209,7 +209,7 @@ export class MobileWebBridgeClient {
     this.native = new MobileWebNativeRequestClient(this.requests)
     this.markdown = new MobileWebMarkdownRequestClient(this.requests)
     this.host = new MobileWebHostRequestClient(this.requests)
-    Object.assign(this, terminal.mobileWebTerminalClientBindings(this.requests, this.shellFeatures))
+    Object.assign(this, terminal.mobileWebTerminalClientBindings(this.requests))
     Object.assign(this, mobileWebBrowserNavigationClientBindings(this.requests))
     this.subscriptions = new MobileWebBridgeSubscriptionClient({
       getGrant: (capability, operation = 'subscribe') =>
