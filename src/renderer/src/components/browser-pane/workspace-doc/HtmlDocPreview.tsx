@@ -10,7 +10,6 @@ import {
   returnAcrossBrowserPageConversion
 } from '@/lib/browser-page-conversion-history'
 import { BrowserGuestAnnotateOverlays } from '@/components/browser-pane/annotate/browser-guest-annotate-overlays'
-import { useGuestDragPassthrough } from '@/components/browser-pane/host-guest/use-guest-drag-passthrough'
 import { attachDocPreviewWebview } from './doc-preview-webview-attach'
 import {
   buildDocPreviewGrantRequest,
@@ -127,7 +126,6 @@ export function HtmlDocPreview({
     [filePath, hostLabel, worktreeRoot]
   )
   const isUnavailable = state === 'unavailable' || failureReason !== null
-  useGuestDragPassthrough(webviewRef, grantId)
   const { grab, markup, annotationSend, grabAnnotations, browserOverlayViewport, elementTools } =
     useDocPreviewGuestTools({
       previewId,
