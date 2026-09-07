@@ -105,6 +105,7 @@ export async function runLegacyWorkerTerminalRecovery(
   }
   const result = {
     blockedPaneCount: plan.blockedPanes.length,
+    blockedPaneKeys: plan.blockedPanes.map((blocked) => blocked.paneKey),
     adoptedDispatchIds,
     exitedDispatchIds,
     deferredDispatchIds: [...deferredDispatchIds]

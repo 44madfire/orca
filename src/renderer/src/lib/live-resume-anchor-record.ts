@@ -52,12 +52,18 @@ export function isCompletedPiCompatibleAgentWithLiveRecoveryRecord(
 }
 
 /**
- * A durable orchestration fence against automatic provider relaunch. Hibernating
- * a fenced pane would strand it or — since `sleepingRecordFromEntry` does not copy
- * the flag — erase the fence and later auto-resume prohibited work.
+ * A durable orchestration fence against automatic provider relaunch; hibernating a fenced pane
+ * would strand it. The record is the fence's home, but a worker that settles while its tab is
+ * still open is fenced before any record exists — `automaticResumeBlockedPaneKeys` holds it for
+ * that window, so the planner must read both.
  */
-export function isAutomaticHibernationAllowed(
+export function isAutomaticHibernationAllowed(pane: {
   record: SleepingAgentSessionRecord | undefined
-): boolean {
-  return !record?.automaticResumeBlockedBy
+  automaticResumeBlockedPaneKeys: Record<string, true | undefined>
+  paneKey: string
+}): boolean {
+  return (
+    !pane.record?.automaticResumeBlockedBy &&
+    pane.automaticResumeBlockedPaneKeys[pane.paneKey] !== true
+  )
 }

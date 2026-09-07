@@ -127,6 +127,107 @@ describe('settled worker automatic-resume fence persistence', () => {
     ])
   })
 
+  // A renderer's blocked-pane map starts empty on every boot (reload, crash restart, asar swap,
+  // a new window). A once-per-process announcement left the reloaded renderer unfenced, so it
+  // minted an unfenced record on close and worktree activation respawned the settled worker.
+  it('re-announces the fence on every pass so a reloaded renderer is fenced again', () => {
+    const fenceChanges: [string, boolean][] = []
+    const h = harness((paneKey, blocked) => fenceChanges.push([paneKey, blocked]), false)
+    settle(h.db, h.taskId, h.dispatchId)
+
+    h.persistence.prepare()
+    expect(fenceChanges).toEqual([[PANE_KEY, true]])
+
+    fenceChanges.length = 0
+    const plan = h.persistence.prepare()
+
+    expect(plan.blockedPanes).toEqual([expect.objectContaining({ paneKey: PANE_KEY })])
+    expect(fenceChanges).toEqual([[PANE_KEY, true]])
+  })
+
+  // Headless `orca serve` / orcad runs the same recovery with no window notifier. Burning the
+  // announcement there meant a client that paired afterwards never learned of the fence.
+  it('still announces to a client that attaches after a headless recovery pass', () => {
+    let notifierAttached = false
+    const fenceChanges: [string, boolean][] = []
+    const h = harness((paneKey, blocked) => {
+      if (notifierAttached) {
+        fenceChanges.push([paneKey, blocked])
+      }
+    }, false)
+    settle(h.db, h.taskId, h.dispatchId)
+
+    h.persistence.prepare()
+    expect(fenceChanges).toEqual([])
+
+    notifierAttached = true
+    h.persistence.prepare()
+
+    expect(fenceChanges).toEqual([[PANE_KEY, true]])
+  })
+
+  // A staging failure must not consume the announcement: the pane stays fenced in the plan, so
+  // the next pass has to deliver it rather than leave a live renderer permanently unfenced.
+  it('redelivers the announcement after a failed session write', () => {
+    const fenceChanges: [string, boolean][] = []
+    let failWrite = true
+    const orchestrationDb = new OrchestrationDb(':memory:')
+    db = orchestrationDb
+    let session = sessionWithSleepingWorker()
+    const store = {
+      getWorkspaceSession: () => session,
+      setWorkspaceSession: (next: WorkspaceSessionState) => {
+        if (failWrite) {
+          throw new Error('workspace_session_write_failed')
+        }
+        session = next
+      },
+      getWorkspaceSessionHostIds: () => [LOCAL_EXECUTION_HOST_ID],
+      flushOrThrow: vi.fn()
+    } as unknown as RuntimeStore
+    const task = orchestrationDb.createTask({ spec: 'fence me' })
+    const started = orchestrationDb.createStartingWorkerDispatch({
+      creator: { kind: 'system' },
+      maxDepth: Number.MAX_SAFE_INTEGER,
+      taskId: task.id,
+      startOptions: {}
+    })
+    orchestrationDb.prepareStartingWorkerAuthority({
+      dispatchId: started.dispatch.id,
+      handle: 'term_worker',
+      paneKey: PANE_KEY,
+      processIncarnation: 'runtime:pty:1',
+      worktreeId: WORKTREE_ID,
+      setupState: 'not_applicable',
+      effects: [],
+      terminalOwnership: 'created'
+    })
+    orchestrationDb.markWorkerDispatchReady(started.dispatch.id)
+    settle(orchestrationDb, task.id, started.dispatch.id)
+    const persistence = new RuntimeLegacyWorkerTerminalRecoveryPersistence(
+      () => store,
+      () => orchestrationDb,
+      () => LOCAL_EXECUTION_HOST_ID,
+      (paneKey, blocked) => fenceChanges.push([paneKey, blocked])
+    )
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      persistence.prepare()
+    } finally {
+      warn.mockRestore()
+    }
+    expect(fenceChanges).toEqual([])
+
+    failWrite = false
+    persistence.prepare()
+
+    expect(fenceChanges).toEqual([[PANE_KEY, true]])
+    expect(session.sleepingAgentSessionsByPaneKey?.[PANE_KEY]?.automaticResumeBlockedBy).toBe(
+      'legacy-orchestration-worker'
+    )
+  })
+
   // The STA-4577 repro: worker_done, no release, restart, open the worktree — the pane still
   // holds a resumable provider session and must not respawn `codex resume`.
   it('fences a settled worker pane whose terminal was never released', () => {

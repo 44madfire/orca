@@ -6,6 +6,8 @@ import type { ResolvedWorktree } from './runtime-worktree-path-identity'
 
 export type LegacyWorkerTerminalRecoveryResult = {
   blockedPaneCount: number
+  /** The authoritative fenced-pane set for this pass; a renderer seeds its volatile map from it. */
+  blockedPaneKeys: string[]
   adoptedDispatchIds: string[]
   exitedDispatchIds: string[]
   deferredDispatchIds: string[]

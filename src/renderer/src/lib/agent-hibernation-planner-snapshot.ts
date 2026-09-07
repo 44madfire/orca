@@ -15,6 +15,8 @@ export type AgentHibernationPlannerSnapshot = {
   mobileLockedPtyIds: string[]
   agentStatusByPaneKey: Record<string, AgentStatusEntry | undefined>
   sleepingAgentSessionsByPaneKey: Record<string, SleepingAgentSessionRecord | undefined>
+  /** Panes fenced before a record exists; main re-seeds this on every renderer start. */
+  automaticResumeBlockedPaneKeys?: Record<string, true | undefined>
   lastTerminalInputAtByPaneKey: Record<string, number | undefined>
   foregroundTerminalLastSeenAtByTabId: Record<string, number | undefined>
   ptyBindingFirstSeenAtByPaneKey?: Record<string, number | undefined>

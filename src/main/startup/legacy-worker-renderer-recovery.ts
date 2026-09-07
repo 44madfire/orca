@@ -1,14 +1,17 @@
+import type { LegacyWorkerResumeFenceSnapshot } from '../../shared/agent-session-resume'
+import type { LegacyWorkerTerminalRecoveryResult } from '../runtime/runtime-legacy-worker-terminal-recovery-types'
+
 type LegacyWorkerRendererRecoveryOptions = {
   firstWindowStartupServicesReady: Promise<void>
   managedWslCliStartupBarrierReady: Promise<void>
   localPtyProviderStartupReady: Promise<void>
-  reconcile: () => Promise<unknown> | undefined
+  reconcile: () => Promise<LegacyWorkerTerminalRecoveryResult | undefined> | undefined
   onDeferredRecoveryError: (error: unknown) => void
 }
 
 export async function recoverLegacyWorkerTerminalsForRendererStartup(
   options: LegacyWorkerRendererRecoveryOptions
-): Promise<void> {
+): Promise<LegacyWorkerResumeFenceSnapshot> {
   const providerStartupResult = options.localPtyProviderStartupReady.then(
     () => ({ ok: true as const }),
     (error: unknown) => ({ ok: false as const, error })
@@ -20,11 +23,12 @@ export async function recoverLegacyWorkerTerminalsForRendererStartup(
   ])
   if (!providerResult.ok) {
     options.onDeferredRecoveryError(providerResult.error)
-    return
+    return { blockedPaneKeys: [] }
   }
   try {
-    await options.reconcile()
+    return { blockedPaneKeys: (await options.reconcile())?.blockedPaneKeys ?? [] }
   } catch (error) {
     options.onDeferredRecoveryError(error)
+    return { blockedPaneKeys: [] }
   }
 }

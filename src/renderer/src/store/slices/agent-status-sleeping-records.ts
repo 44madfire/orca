@@ -19,6 +19,27 @@ export function copyLaunchConfig(config: SleepingAgentLaunchConfig): SleepingAge
   }
 }
 
+/**
+ * The record is the fence's durable home. `automaticResumeBlockedPaneKeys` only covers the window
+ * between a worker settling with its tab still open and the record being minted, and main re-seeds
+ * it on every renderer start — so a rebuild must never drop a flag the record already carries.
+ * Session identity gates the carry-over: a new provider session is new work, not fenced work.
+ */
+export function carriesAutomaticResumeBlock(
+  state: Pick<AppState, 'automaticResumeBlockedPaneKeys' | 'sleepingAgentSessionsByPaneKey'>,
+  next: Pick<SleepingAgentSessionRecord, 'paneKey' | 'agent' | 'providerSession'>
+): boolean {
+  if (state.automaticResumeBlockedPaneKeys?.[next.paneKey]) {
+    return true
+  }
+  const previous = state.sleepingAgentSessionsByPaneKey?.[next.paneKey]
+  return (
+    previous?.automaticResumeBlockedBy === 'legacy-orchestration-worker' &&
+    previous.agent === next.agent &&
+    agentProviderSessionsEqual(next.agent, previous.providerSession, next.providerSession)
+  )
+}
+
 export function sleepingRecordFromEntry(args: {
   state: AppState
   entry: AgentStatusEntry
@@ -60,8 +81,11 @@ export function sleepingRecordFromEntry(args: {
     ...(args.launchConfig ? { launchConfig: copyLaunchConfig(args.launchConfig) } : {}),
     ...(args.entry.interrupted ? { interrupted: true } : {}),
     ...(args.origin ? { origin: args.origin } : {}),
-    // The worker can settle while the tab is open, so the fence arrives before this record exists.
-    ...(args.state.automaticResumeBlockedPaneKeys?.[args.entry.paneKey]
+    ...(carriesAutomaticResumeBlock(args.state, {
+      paneKey: args.entry.paneKey,
+      agent,
+      providerSession: args.entry.providerSession
+    })
       ? { automaticResumeBlockedBy: 'legacy-orchestration-worker' as const }
       : {})
   }
@@ -111,21 +135,6 @@ export function manualSleepCaptureEntry(
   capturedAt: number
 ): AgentStatusEntry {
   return { ...entry, updatedAt: capturedAt, interrupted: false }
-}
-
-// Why: capture recreates a record the manual-sleep wipe would otherwise remove, so a deliberately
-// blocked worker must not become auto-resumable at wake.
-export function carryOverAutomaticResumeBlock(
-  record: SleepingAgentSessionRecord,
-  previous: SleepingAgentSessionRecord | undefined
-): void {
-  if (
-    previous?.automaticResumeBlockedBy === 'legacy-orchestration-worker' &&
-    previous.agent === record.agent &&
-    agentProviderSessionsEqual(record.agent, previous.providerSession, record.providerSession)
-  ) {
-    record.automaticResumeBlockedBy = previous.automaticResumeBlockedBy
-  }
 }
 
 export function removeSleepingRecordsReplacedByManualWorktreeSleep(

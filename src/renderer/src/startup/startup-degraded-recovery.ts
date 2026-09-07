@@ -1,3 +1,4 @@
+import { recoverLegacyWorkerTerminalsAndSeedResumeFences } from './legacy-worker-resume-fence-seed'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '../store'
@@ -87,12 +88,12 @@ export async function recoverFromDegradedStartup(args: DegradedStartupRecoveryAr
   }
   try {
     await window.api.app.awaitFirstWindowStartupServices()
-    await window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()
+    await recoverLegacyWorkerTerminalsAndSeedResumeFences()
     await refreshTerminalProviderSnapshotCapabilities(
       collectTerminalProviderSnapshotPtyIds(useAppStore.getState())
     )
     await reconnectPersistedTerminals(abortSignal)
-    await window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()
+    await recoverLegacyWorkerTerminalsAndSeedResumeFences()
   } catch (reconnectErr) {
     console.error('[startup] reconnectPersistedTerminals failed in error path:', reconnectErr)
     // Why (issue #1158): the await may have run during StrictMode teardown; re-check cancellation so a cancelled pass 1 doesn't stomp pass 2's hydration.

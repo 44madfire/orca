@@ -61,6 +61,7 @@ export function getEligiblePane(args: {
   layout: TerminalLayoutSnapshot | undefined
   livePtyIds: Set<string>
   sleepingAgentSessionsByPaneKey: AgentHibernationPlannerSnapshot['sleepingAgentSessionsByPaneKey']
+  automaticResumeBlockedPaneKeys: Record<string, true | undefined>
   lastTerminalInputAtByPaneKey: AgentHibernationPlannerSnapshot['lastTerminalInputAtByPaneKey']
   foregroundTerminalLastSeenAtByTabId: AgentHibernationPlannerSnapshot['foregroundTerminalLastSeenAtByTabId']
   ptyBindingFirstSeenAtByPaneKey: Record<string, number | undefined>
@@ -75,6 +76,7 @@ export function getEligiblePane(args: {
     layout,
     livePtyIds,
     sleepingAgentSessionsByPaneKey,
+    automaticResumeBlockedPaneKeys,
     lastTerminalInputAtByPaneKey,
     foregroundTerminalLastSeenAtByTabId,
     ptyBindingFirstSeenAtByPaneKey,
@@ -96,9 +98,12 @@ export function getEligiblePane(args: {
     Boolean(entry.subagents?.length) ||
     hasUnsettledOrUnknownDispatch(entry) ||
     (sleepingRecord && !hasOnlyLiveResumeAnchor) ||
-    // Why: a fenced worker must never be auto-relaunched; killing it would also
-    // erase the fence, since the capture does not copy it.
-    !isAutomaticHibernationAllowed(sleepingRecord)
+    // Why: a fenced worker must never be auto-relaunched; the kill would strand it.
+    !isAutomaticHibernationAllowed({
+      record: sleepingRecord,
+      automaticResumeBlockedPaneKeys,
+      paneKey: entry.paneKey
+    })
   ) {
     return null
   }

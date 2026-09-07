@@ -1,3 +1,4 @@
+import type { LegacyWorkerResumeFenceSnapshot } from '../../shared/agent-session-resume'
 import type { AppIdentity } from '../../shared/app-identity'
 import type { E2EConfig } from '../../shared/e2e-config'
 import type { ExecutionHostId } from '../../shared/execution-host'
@@ -43,8 +44,9 @@ export type AppApi = {
   awaitGitEnvironmentStartupBarrier: () => Promise<void>
   /** Inventories retained PTYs and restores durable structured ownership before renderer adoption. */
   prepareTerminalStartupRestoration: () => Promise<void>
-  /** Reconciles legacy worker authority around persisted terminal reconnect. */
-  recoverLegacyWorkerTerminalsForRendererStartup: () => Promise<void>
+  /** Reconciles legacy worker authority around persisted terminal reconnect and returns the
+   *  fenced-pane set the renderer must seed its volatile blocked-pane map from. */
+  recoverLegacyWorkerTerminalsForRendererStartup: () => Promise<LegacyWorkerResumeFenceSnapshot>
   /** Emits a startup benchmark marker when ORCA_STARTUP_DIAGNOSTICS is enabled. */
   startupDiagnostic: (event: string, details?: Record<string, unknown>) => Promise<void>
   /** macOS active input mode, or layout ID when no IME is selected (e.g. `com.apple.keylayout.PolishPro`).

@@ -73,6 +73,10 @@ export type SleepingAgentSessionRecord = {
   restoreOnTabOpenOnly?: boolean
 }
 
+/** The fenced-pane set main hands a starting renderer. The renderer's own blocked-pane map is
+ *  volatile — it starts empty on every renderer boot — so it must be re-derived here, not pushed. */
+export type LegacyWorkerResumeFenceSnapshot = { blockedPaneKeys: string[] }
+
 const RESUMABLE_TUI_AGENT_SET: ReadonlySet<string> = new Set(RESUMABLE_TUI_AGENTS)
 const PROVIDER_SESSION_ID_MAX_LENGTH = 512
 

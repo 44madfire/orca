@@ -63,13 +63,17 @@ export function createTerminalPaneHibernationActions(
         // Why: killing the PTY with no persisted resume record strands the pane unwakeable; abort instead of hibernating unrecoverably.
         throw new Error('agent_hibernation_capture_missing')
       }
-      // Why: the planner's fence check happened before the coordinator's async re-plan;
-      // the fence can be set in that window. Capture below OVERWRITES the record, and
-      // sleepingRecordFromEntry does not copy the flag, so losing this race erases the
-      // fence and later auto-resumes work whose relaunch was explicitly prohibited.
+      // Why: the planner's fence check happened before the coordinator's async re-plan; the fence
+      // can be set in that window, and the kill would strand work whose relaunch is prohibited.
       const assertAutomaticHibernationStillAllowed = (): void => {
-        const record = get().sleepingAgentSessionsByPaneKey[opts.paneKey]
-        if (!isAutomaticHibernationAllowed(record)) {
+        const current = get()
+        if (
+          !isAutomaticHibernationAllowed({
+            record: current.sleepingAgentSessionsByPaneKey[opts.paneKey],
+            automaticResumeBlockedPaneKeys: current.automaticResumeBlockedPaneKeys,
+            paneKey: opts.paneKey
+          })
+        ) {
           throw new Error('agent_hibernation_automatic_resume_blocked')
         }
       }

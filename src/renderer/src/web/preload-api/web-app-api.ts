@@ -35,7 +35,10 @@ export function createWebAppApi(): Partial<PreloadApi> {
       awaitFirstWindowStartupServices: () => Promise.resolve(),
       awaitGitEnvironmentStartupBarrier: () => Promise.resolve(),
       prepareTerminalStartupRestoration: () => Promise.resolve(),
-      recoverLegacyWorkerTerminalsForRendererStartup: () => Promise.resolve(),
+      // No wire method carries the worker resume fence yet, so a paired/web client cannot learn
+      // about a fenced pane that has no sleeping record. Tracked as a follow-up.
+      recoverLegacyWorkerTerminalsForRendererStartup: () =>
+        Promise.resolve({ blockedPaneKeys: [] }),
       startupDiagnostic: () => Promise.resolve(),
       getKeyboardInputSourceId: () => Promise.resolve(null),
       // The web client cannot inspect local Mission Control shortcuts.

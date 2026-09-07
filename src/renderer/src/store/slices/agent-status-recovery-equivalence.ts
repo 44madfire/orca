@@ -43,6 +43,7 @@ export function sleepingRecordsEquivalentIgnoringCaptureTime(
     existing.lastAssistantMessage === next.lastAssistantMessage &&
     existing.interrupted === next.interrupted &&
     existing.origin === next.origin &&
+    existing.automaticResumeBlockedBy === next.automaticResumeBlockedBy &&
     launchConfigsEqual(existing.launchConfig, next.launchConfig)
   )
 }
@@ -54,8 +55,10 @@ export function recoveryRecordMatches(
   if (!existing) {
     return false
   }
-  // Why: completion or interruption must replace a pre-status working checkpoint.
+  // Why: completion or interruption must replace a pre-status working checkpoint. The resume fence
+  // is significant here: a rebuild that dropped it must never be accepted as an equal record.
   return (
+    existing.automaticResumeBlockedBy === next.automaticResumeBlockedBy &&
     existing.origin === next.origin &&
     existing.agent === next.agent &&
     existing.worktreeId === next.worktreeId &&

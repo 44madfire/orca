@@ -478,6 +478,7 @@ describe('OrcaRuntimeService', () => {
       const runtime = new OrcaRuntimeService(store)
       const reconcile = vi.spyOn(runtime, 'reconcileLegacyWorkerTerminals').mockResolvedValue({
         blockedPaneCount: 1,
+        blockedPaneKeys: [],
         adoptedDispatchIds: [],
         exitedDispatchIds: [],
         deferredDispatchIds: []

@@ -85,6 +85,7 @@ function snapshotFromState(
       .map(([ptyId]) => ptyId),
     agentStatusByPaneKey: state.agentStatusByPaneKey,
     sleepingAgentSessionsByPaneKey: state.sleepingAgentSessionsByPaneKey,
+    automaticResumeBlockedPaneKeys: state.automaticResumeBlockedPaneKeys,
     // Why: input stamps are coalesced, so planning must see the not-yet-flushed keystroke.
     lastTerminalInputAtByPaneKey: mergePendingTerminalInputActivity(
       state.lastTerminalInputAtByPaneKey

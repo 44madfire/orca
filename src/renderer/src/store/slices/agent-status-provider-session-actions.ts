@@ -20,7 +20,7 @@ import {
 } from './agent-status-pane-key-tab-binding'
 import { removePaneKeys } from './agent-status-pane-keyed-records'
 import { registryEntryMatchesStatus } from './agent-status-launch-config'
-import { copyLaunchConfig } from './agent-status-sleeping-records'
+import { carriesAutomaticResumeBlock, copyLaunchConfig } from './agent-status-sleeping-records'
 
 export function createAgentStatusProviderSessionActions(
   runtime: AgentStatusRuntime
@@ -113,9 +113,8 @@ export function createAgentStatusProviderSessionActions(
               ? { connectionId: existingRecord.connectionId }
               : {}),
           ...(launchConfig ? { launchConfig: copyLaunchConfig(launchConfig) } : {}),
-          ...(existingRecordMatchesProviderSession &&
-          existingRecord.automaticResumeBlockedBy === 'legacy-orchestration-worker'
-            ? { automaticResumeBlockedBy: 'legacy-orchestration-worker' }
+          ...(carriesAutomaticResumeBlock(s, { paneKey, agent, providerSession })
+            ? { automaticResumeBlockedBy: 'legacy-orchestration-worker' as const }
             : {}),
           ...(preservesCompletedRecoveryRecord && existingRecord.interrupted !== undefined
             ? { interrupted: existingRecord.interrupted }

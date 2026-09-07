@@ -1,3 +1,4 @@
+import { recoverLegacyWorkerTerminalsAndSeedResumeFences } from '@/startup/legacy-worker-resume-fence-seed'
 import { useEffect, useRef } from 'react'
 import { syncZoomCSSVar } from '@/lib/ui-zoom'
 import { installCodexDetachedPaneRestartExecutor } from '@/components/terminal-pane/codex-detached-pane-restart-scheduler'
@@ -260,7 +261,7 @@ export function useAppStartupHydration(onOnboardingLoaded: (state: OnboardingSta
           // Why no explicit barrier here: prepare-terminal-startup-restoration above already awaited
           // the first-window services, and main re-awaits them inside this handler anyway.
           await timeRendererStartupStep('recover-legacy-worker-terminals-pre-reconnect', () =>
-            window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()
+            recoverLegacyWorkerTerminalsAndSeedResumeFences()
           )
           await timeRendererStartupStep('terminal-provider-snapshot-capabilities', () => {
             return refreshTerminalProviderSnapshotCapabilities(
@@ -272,7 +273,7 @@ export function useAppStartupHydration(onOnboardingLoaded: (state: OnboardingSta
             actions.reconnectPersistedTerminals(abortController.signal)
           )
           await timeRendererStartupStep('recover-legacy-worker-terminals-post-reconnect', () =>
-            window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()
+            recoverLegacyWorkerTerminalsAndSeedResumeFences()
           )
           if (useAppStore.getState().settings?.experimentalStructuredNativeChat === true) {
             await timeRendererStartupStep('project-structured-session-tabs', () =>
