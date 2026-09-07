@@ -10,7 +10,7 @@ import {
   type WorkerReleaseReceipt
 } from './worker-release-completion'
 import { WorkerDispatchParams, WorkerRetainParams } from './worker-release-schemas'
-import { sweepSettledWorkerResumeFences } from '../../settled-worker-resume-fence-sweep'
+import { recordWorkerTerminalUserTakeover } from '../../worker-terminal-user-takeover'
 
 export const ORCHESTRATION_WORKER_RELEASE_METHODS: RpcMethod[] = [
   defineMethod({
@@ -145,15 +145,7 @@ export const ORCHESTRATION_WORKER_RELEASE_METHODS: RpcMethod[] = [
       // A structured worker reports by session id; it has no pane of its own to name.
       const paneKey =
         params.paneKey ?? runtime.getStructuredWorkerPaneKeyForSession(params.sessionId!)
-      const changed = paneKey
-        ? runtime.getOrchestrationDb().markWorkerTerminalUserOwned(paneKey)
-        : 0
-      if (changed > 0) {
-        // Only a real takeover retires the resource; ordinary panes report here too and must not
-        // pay for a plan read on every keystroke window.
-        sweepSettledWorkerResumeFences(runtime)
-      }
-      return { changed }
+      return { changed: recordWorkerTerminalUserTakeover(runtime, paneKey) }
     }
   })
 ]

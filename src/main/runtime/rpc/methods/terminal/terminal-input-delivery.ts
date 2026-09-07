@@ -11,6 +11,7 @@ import {
   isTerminalInputTooLargeWithYield
 } from '../../../../../shared/terminal-input'
 import type { TerminalViewportClient } from './terminal-stream-types'
+import { recordWorkerTerminalUserTakeoverFromInput } from '../worker-terminal-user-takeover'
 
 export function isTerminalInputLockedForClient(
   runtime: OrcaRuntimeService,
@@ -112,7 +113,7 @@ export async function sendTerminalStreamInput(
 ): Promise<TerminalStreamInputOutcome> {
   const action = { text: args.text, enter: false, interrupt: false }
   const clientId = args.isMobile ? args.client?.id : undefined
-  const floorClaim: MobileInputFloorClaimHolder = { current: null }
+  const floorClaim: MobileInputFloorClaimHolder = { handle: args.terminal, current: null }
   try {
     if (!clientId) {
       const result = await runtime.sendTerminal(args.terminal, action)
@@ -126,7 +127,7 @@ export async function sendTerminalStreamInput(
         }
         floorClaim.current = claim
       },
-      afterWrite: () => commitMobileInputFloorClaim(floorClaim)
+      afterWrite: () => settleMobileInputWrite(runtime, floorClaim)
     })
     if (!result.accepted) {
       floorClaim.current?.rollback()
@@ -140,12 +141,27 @@ export async function sendTerminalStreamInput(
 }
 
 export type MobileInputFloorClaimHolder = {
+  handle: string
   current: ReturnType<OrcaRuntimeService['beginMobileInputFloor']>
 }
 
-export async function commitMobileInputFloorClaim(
+/**
+ * Settle an accepted mobile write: the phone keeps the input floor, and the host records that a
+ * human is now driving this terminal.
+ *
+ * The floor claim is the host's only proof the bytes are deliberate human input — an agent's
+ * `terminal send` reaches the same methods naming itself a desktop client, and the emulator's own
+ * query replies never claim the floor — so the takeover fence hangs off exactly this condition.
+ */
+export async function settleMobileInputWrite(
+  runtime: OrcaRuntimeService,
   claim: MobileInputFloorClaimHolder
 ): Promise<void> {
+  recordWorkerTerminalUserTakeoverFromInput(runtime, claim.handle)
+  await commitMobileInputFloorClaim(claim)
+}
+
+async function commitMobileInputFloorClaim(claim: MobileInputFloorClaimHolder): Promise<void> {
   const current = claim.current
   if (!current) {
     return
