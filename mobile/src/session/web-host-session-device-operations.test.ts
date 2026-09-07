@@ -4,7 +4,7 @@ import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-w
 import { webHostSessionDeviceOperations } from './web-host-session-device-operations'
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
-  default: { getItem: vi.fn() }
+  default: { getItem: vi.fn(), setItem: vi.fn().mockResolvedValue(undefined) }
 }))
 
 describe('web host session device operations', () => {
@@ -15,7 +15,9 @@ describe('web host session device operations', () => {
   it('applies the paired-host page preference to terminal link behavior', async () => {
     const client = bridgeClient()
     client.native.supports.mockReturnValue(true)
-    vi.mocked(AsyncStorage.getItem).mockResolvedValue('orca-browser')
+    vi.mocked(AsyncStorage.getItem).mockImplementation(async (key) =>
+      key === 'orca:terminalLinkOpenMode' ? 'orca-browser' : null
+    )
     const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
     await expect(operations.loadTerminalPreferences()).resolves.toEqual({
       textScale: 1.25,
@@ -31,7 +33,7 @@ describe('web host session device operations', () => {
     const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
     expect((await operations.loadTerminalPreferences()).linkOpenMode).toBe('phone-browser')
     vi.mocked(AsyncStorage.getItem).mockRejectedValue(new Error('temporarily unavailable'))
-    expect((await operations.loadTerminalPreferences()).linkOpenMode).toBe('phone-browser')
+    await expect(operations.loadTerminalPreferences()).rejects.toThrow('temporarily unavailable')
   })
 
   it('retains the native preference on shells without page storage', async () => {
@@ -40,6 +42,57 @@ describe('web host session device operations', () => {
     expect((await operations.loadTerminalPreferences()).linkOpenMode).toBe('phone-browser')
     expect(AsyncStorage.getItem).not.toHaveBeenCalled()
   })
+
+  it('uses saved scale and autocomplete and stores pinch changes in the same page scope', async () => {
+    const client = bridgeClient()
+    client.native.supports.mockReturnValue(true)
+    vi.mocked(AsyncStorage.getItem).mockImplementation(
+      async (key) =>
+        ({
+          'orca:terminalTextScale': '1.5',
+          'orca:terminalAutocompleteEnabled': 'false'
+        })[key] ?? null
+    )
+    const navigate = vi.fn()
+    const operations = webHostSessionDeviceOperations(
+      client as unknown as MobileWebBridgeClient,
+      navigate
+    )
+    expect(await operations.loadTerminalPreferences()).toEqual({
+      textScale: 1.5,
+      autocompleteEnabled: false,
+      linkOpenMode: 'phone-browser'
+    })
+    await operations.saveTerminalTextScale(2)
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith('orca:terminalTextScale', '2')
+    expect(client.native.terminalTextScaleUpdate).not.toHaveBeenCalled()
+    operations.openTerminalSettings()
+    expect(navigate).toHaveBeenCalledWith('/terminal-settings')
+    expect(client.navigationRoute).not.toHaveBeenCalled()
+  })
+
+  it('keeps an explicitly empty custom-key list and shares session edits with settings', async () => {
+    const client = bridgeClient()
+    client.native.supports.mockReturnValue(true)
+    const key = { id: 'build', label: 'Build', bytes: 'make', enter: true }
+    client.native.terminalAccessoryPreferences.mockResolvedValue({
+      customKeys: [key],
+      orderedBuiltInIds: ['escape', 'tab'],
+      visibleBuiltInIds: []
+    })
+    vi.mocked(AsyncStorage.getItem).mockImplementation(async (name) =>
+      name === 'orca:custom-accessory-keys' ? '[]' : null
+    )
+    const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
+    expect((await operations.loadTerminalAccessoryPreferences()).customKeys).toEqual([])
+    await operations.saveTerminalCustomKeys([key])
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      'orca:custom-accessory-keys',
+      JSON.stringify([key])
+    )
+    expect(client.native.terminalCustomKeysUpdate).not.toHaveBeenCalled()
+  })
+
   it('routes shell-owned effects through named native bridge methods', async () => {
     const client = bridgeClient()
     const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)

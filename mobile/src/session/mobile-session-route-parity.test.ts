@@ -71,8 +71,8 @@ const HEAD_MAIN_HOOK_SHA256 = '8a65c402639980ffda9132ce3dba84da8d85998f5c6b933a8
 const HEAD_HOOK_BINDING_SHA256 = 'e43ab1ae9e6fd0eb126558207868f1da6322ba50bdeb4a6f7132e6a1f29a9474'
 const HEAD_CALLBACK_IDENTITY_SHA256 =
   '3ad3c833aa99bbfd3a4038bae70a0247192f51fb938a2fe3df86626dcfa3386e'
-const HEAD_CALLBACK_BODY_SHA256 = '105697776621cd4eaa4242191844d562c6bf3673fdb42a0736da959a2ca8a574'
-const HEAD_EFFECT_SHA256 = 'f81ef4b4794875643dd429e9dfb6cffab037feb68a334e260c0045a258c07d51'
+const HEAD_CALLBACK_BODY_SHA256 = '4fd9fef0051a6eacd9c870bd577aeb17e6fac734d998c2a5023800eb335c573b'
+const HEAD_EFFECT_SHA256 = '36e816e2114ad1b21e3bc88fea12f0ffdd8a830a5f2aeff90146ca71e626b2ab'
 const HEAD_CONTENT_HOOK_SHA256 = 'd74431115b27c22dd38c29a510604554ca767cdd2585beaa73ec2e2dae0c5de4'
 // Re-frozen when main's structured Claude chat (#18741) generalized the bare-launch gate
 // from an `agent === 'codex'` literal to isAgentSessionHandleProvider.

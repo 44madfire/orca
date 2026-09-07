@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router'
 import { useEffect, useMemo } from 'react'
 import { SessionScreen } from '../../../../app/h/[hostId]/session/[worktreeId]'
 import { useMobileWebNativeShell } from '../../../../../src/mobile-web/src/native-shell-channel'
@@ -16,6 +17,7 @@ import { webHostSessionChatPendingDeliveryOperations } from '../../../../src/ses
 import { useMobileWebRouteParams } from '../../../../src/mobile-web/use-mobile-web-route-params'
 
 export default function HostMobileWebSessionRoute() {
+  const router = useRouter()
   const shell = useMobileWebNativeShell()
   const { worktreeId, name } = useMobileWebRouteParams<{
     worktreeId: string
@@ -55,8 +57,11 @@ export default function HostMobileWebSessionRoute() {
     [shell.client]
   )
   const sessionDeviceOperations = useMemo(
-    () => (shell.client ? webHostSessionDeviceOperations(shell.client) : undefined),
-    [shell.client]
+    () =>
+      shell.client
+        ? webHostSessionDeviceOperations(shell.client, (target) => router.push(target))
+        : undefined,
+    [shell.client, router]
   )
   const sessionBrowserOperations = useMemo(
     () => (shell.client ? webHostSessionBrowserOperations(shell.client) : undefined),

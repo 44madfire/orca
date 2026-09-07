@@ -46,12 +46,15 @@ export function useMobileSessionLifecycle(scope: MobileSessionTabReconciliationM
   useFocusEffect(
     useCallback(() => {
       let stale = false
-      void sessionDeviceOperations?.loadTerminalAccessoryPreferences().then((preferences) => {
-        if (!stale) {
-          setCustomKeys(preferences.customKeys)
-          setVisibleBuiltInIds(preferences.visibleBuiltInIds)
-        }
-      })
+      void sessionDeviceOperations
+        ?.loadTerminalAccessoryPreferences()
+        .then((preferences) => {
+          if (!stale) {
+            setCustomKeys(preferences.customKeys)
+            setVisibleBuiltInIds(preferences.visibleBuiltInIds)
+          }
+        })
+        .catch(() => {})
       return () => {
         stale = true
       }
@@ -61,12 +64,15 @@ export function useMobileSessionLifecycle(scope: MobileSessionTabReconciliationM
   useEffect(() => {
     let mounted = true
     const refresh = () => {
-      void sessionDeviceOperations?.loadTerminalAccessoryPreferences().then((preferences) => {
-        if (mounted) {
-          setCustomKeys(preferences.customKeys)
-          setVisibleBuiltInIds(preferences.visibleBuiltInIds)
-        }
-      })
+      void sessionDeviceOperations
+        ?.loadTerminalAccessoryPreferences()
+        .then((preferences) => {
+          if (mounted) {
+            setCustomKeys(preferences.customKeys)
+            setVisibleBuiltInIds(preferences.visibleBuiltInIds)
+          }
+        })
+        .catch(() => {})
     }
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
       if (s === 'active') {

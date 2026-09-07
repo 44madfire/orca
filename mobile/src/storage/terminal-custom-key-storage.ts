@@ -9,12 +9,35 @@ export type CustomKey = {
   enter: boolean
 }
 
-export async function loadCustomKeys(): Promise<CustomKey[]> {
+export async function loadCustomKeys(
+  options: { fallback?: CustomKey[]; rejectReadFailure?: boolean } = {}
+): Promise<CustomKey[]> {
   try {
     const raw = await AsyncStorage.getItem(CUSTOM_ACCESSORY_KEYS_STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as CustomKey[]) : []
-  } catch {
-    return []
+    if (raw === null) {
+      return options.fallback ?? []
+    }
+    const value: unknown = JSON.parse(raw)
+    if (
+      !Array.isArray(value) ||
+      !value.every(
+        (key) =>
+          key !== null &&
+          typeof key === 'object' &&
+          typeof key.id === 'string' &&
+          typeof key.label === 'string' &&
+          typeof key.bytes === 'string' &&
+          typeof key.enter === 'boolean'
+      )
+    ) {
+      throw new Error('Invalid custom shortcuts')
+    }
+    return value as CustomKey[]
+  } catch (error) {
+    if (options.rejectReadFailure) {
+      throw error
+    }
+    return options.fallback ?? []
   }
 }
 

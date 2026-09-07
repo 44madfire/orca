@@ -22,7 +22,7 @@ describe('mobile web session screen binding', () => {
     expect(hostedSessionRoute).toContain('webHostSessionTerminalOperations(shell.client)')
     expect(hostedSessionRoute).toContain('webHostSessionFileOperations(shell.client)')
     expect(hostedSessionRoute).toContain('webHostSessionMarkdownOperations(shell.client)')
-    expect(hostedSessionRoute).toContain('webHostSessionDeviceOperations(shell.client)')
+    expect(hostedSessionRoute).toContain('webHostSessionDeviceOperations(shell.client,')
     expect(hostedSessionRoute).toContain('webHostSessionBrowserOperations(shell.client)')
     expect(hostedSessionRoute).toContain('webHostSessionDictationOperations(shell.client)')
     expect(hostedSessionRoute).toContain('webHostSessionNativeChatOperations(shell.client)')

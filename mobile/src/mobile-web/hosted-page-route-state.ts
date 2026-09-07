@@ -1,5 +1,11 @@
 // Only page-owned, durable route names belong here; document-scoped resource handles do not.
-const HOSTED_PAGE_ROUTES = new Set(['/settings', '/native-chat-settings', '/browser-settings'])
+const HOSTED_PAGE_ROUTES = new Set([
+  '/settings',
+  '/about',
+  '/native-chat-settings',
+  '/browser-settings',
+  '/terminal-settings'
+])
 
 export function hostedPageRouteState(pathname: string): string | undefined {
   return HOSTED_PAGE_ROUTES.has(pathname) ? JSON.stringify({ version: 1, pathname }) : undefined

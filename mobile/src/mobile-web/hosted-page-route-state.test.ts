@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest'
 import { hostedPageRouteState, hostedPageStateTarget } from './hosted-page-route-state'
 
 describe('hosted page route state', () => {
-  it.each(['/settings', '/native-chat-settings', '/browser-settings'])(
-    'roundtrips %s without document-scoped handles',
-    (pathname) => {
-      const state = hostedPageRouteState(pathname)
-      expect(hostedPageStateTarget(state)).toBe(pathname)
-      expect(JSON.parse(state!)).toEqual({ version: 1, pathname })
-    }
-  )
+  it.each([
+    '/settings',
+    '/native-chat-settings',
+    '/browser-settings',
+    '/terminal-settings',
+    '/about'
+  ])('roundtrips %s without document-scoped handles', (pathname) => {
+    const state = hostedPageRouteState(pathname)
+    expect(hostedPageStateTarget(state)).toBe(pathname)
+    expect(JSON.parse(state!)).toEqual({ version: 1, pathname })
+  })
 
   it.each([
     undefined,

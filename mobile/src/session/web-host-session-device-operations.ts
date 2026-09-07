@@ -1,9 +1,16 @@
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
-import { loadTerminalLinkOpenMode } from '../storage/preferences'
+import { saveTerminalTextScale } from '../storage/preferences'
+import { saveCustomKeys } from '../storage/terminal-custom-key-storage'
+import {
+  loadWebHostTerminalPreferences,
+  loadWebHostTerminalAccessoryPreferences
+} from '../terminal/web-terminal-preferences'
+export { loadWebHostTerminalPreferences } from '../terminal/web-terminal-preferences'
 import type { HostSessionDeviceOperations } from './host-session-device-operations'
 
 export function webHostSessionDeviceOperations(
-  client: MobileWebBridgeClient
+  client: MobileWebBridgeClient,
+  navigate?: (target: string) => void
 ): HostSessionDeviceOperations {
   return {
     hapticFeedback(kind) {
@@ -19,30 +26,31 @@ export function webHostSessionDeviceOperations(
       await client.native.openExternal(url)
     },
     openTerminalSettings() {
-      void client.navigationRoute({ destination: 'terminalSettings' }).catch(() => {})
+      if (navigate && client.native.supports('pagePreferences')) {
+        navigate('/terminal-settings')
+      } else {
+        void client.navigationRoute({ destination: 'terminalSettings' }).catch(() => {})
+      }
     },
     loadTerminalPreferences() {
       return loadWebHostTerminalPreferences(client)
     },
     loadTerminalAccessoryPreferences() {
-      return client.native.terminalAccessoryPreferences()
+      return loadWebHostTerminalAccessoryPreferences(client)
     },
     async saveTerminalCustomKeys(customKeys) {
-      await client.native.terminalCustomKeysUpdate(customKeys)
+      if (client.native.supports('pagePreferences')) {
+        await saveCustomKeys([...customKeys])
+      } else {
+        await client.native.terminalCustomKeysUpdate(customKeys)
+      }
     },
     async saveTerminalTextScale(textScale) {
-      await client.native.terminalTextScaleUpdate(textScale)
+      if (client.native.supports('pagePreferences')) {
+        await saveTerminalTextScale(textScale)
+      } else {
+        await client.native.terminalTextScaleUpdate(textScale)
+      }
     }
-  }
-}
-
-export async function loadWebHostTerminalPreferences(client: MobileWebBridgeClient) {
-  const preferences = await client.native.terminalPreferences()
-  if (!client.native.supports('pagePreferences')) {
-    return preferences
-  }
-  return {
-    ...preferences,
-    linkOpenMode: await loadTerminalLinkOpenMode(preferences.linkOpenMode)
   }
 }

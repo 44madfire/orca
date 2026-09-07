@@ -6,7 +6,7 @@ import { hostedModuleGraph, hostedRoot, mobileRoot } from './hosted-module-graph
 const HOSTED_SESSION_ROUTE = join(hostedRoot, 'h', '[hostId]', 'session', '[worktreeId].tsx')
 
 // Native-only entry points: on the hosted page these either throw or silently do nothing.
-const BANNED_IN_HOSTED_BUNDLE = ['Clipboard.setStringAsync', "router.push('/terminal-settings')"]
+const BANNED_IN_HOSTED_BUNDLE = ['Clipboard.setStringAsync']
 const BANNED_IN_SESSION_ROUTE = [
   ...BANNED_IN_HOSTED_BUNDLE,
   'Linking.openURL',
@@ -32,6 +32,8 @@ describe('hosted route native API census', () => {
     const graph = hostedModuleGraph()
 
     expect(graph.length).toBeGreaterThan(500)
+    expect(graph).toContain(join(hostedRoot, 'terminal-settings.tsx'))
+    // Terminal settings now has a real hosted route; it is no longer a native-only destination.
     // AsyncStorage is deliberately not censused: it is reachable today through the shared
     // storage and transport modules, and on web it resolves to localStorage.
     expect(offenders(graph, BANNED_IN_HOSTED_BUNDLE)).toEqual([])

@@ -65,7 +65,13 @@ describe('mobile native shell route ownership', () => {
 
   it('hosts migrated preferences while retaining native recovery screens', () => {
     const hostedRoutePaths = listRouteFiles(hostedRouteRoot)
-    const hostedSettings = ['settings', 'native-chat-settings', 'browser-settings']
+    const hostedSettings = [
+      'settings',
+      'native-chat-settings',
+      'browser-settings',
+      'terminal-settings',
+      'about'
+    ]
     for (const routeName of hostedSettings) {
       expect(hostedRoutePaths).toContain(`${routeName}.tsx`)
     }
