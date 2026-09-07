@@ -34,6 +34,10 @@ import type { StructuredAgentSessionEventSink } from './structured-agent-session
 import { resolveAgentSessionReplayOutcome } from './structured-agent-session-replay-outcome'
 import { readAgentSessionHydrationPage } from './agent-session-history-page'
 import { acquireOwner } from './structured-agent-session-acquisition'
+import {
+  importAdoptedTranscript,
+  prepareAdoptedTranscript
+} from './structured-agent-session-adopted-import'
 
 export type AttachFlowInput = {
   store: AgentSessionRecordStore
@@ -88,6 +92,12 @@ export async function performAttach(
   let reservedRecord: AgentSessionRecord | null = null
   let unsupportedReservationSettlementAttempted = false
   let replayed = false
+  const preparedTranscript = store.getRecord(sessionId)
+    ? { ok: true as const, items: null }
+    : await prepareAdoptedTranscript(params)
+  if (!preparedTranscript.ok) {
+    return preparedTranscript
+  }
   try {
     const reserved = await store.reserveOwner(
       reserveRequestFor({
@@ -205,6 +215,7 @@ export async function performAttach(
       journalRoot: input.journalRoot,
       adapter: input.adapter
     })
+    await importAdoptedTranscript(params, attached, record, preparedTranscript.items)
     await input.onAttached(attached, acquisitionGeneration)
     await store.recordOperationOutcome({
       callerKey: input.callerKey,

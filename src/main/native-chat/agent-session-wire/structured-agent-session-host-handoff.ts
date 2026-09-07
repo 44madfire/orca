@@ -15,6 +15,7 @@ import { readNativeSessionOptions } from './structured-agent-session-option-rest
 import type { AgentSessionSubscribers } from './structured-agent-session-subscribers'
 import { StructuredTuiTranscriptCatchup } from './structured-tui-transcript-catchup'
 import { adapterSupportsCreateIfDeclared } from './structured-agent-session-provider-support'
+import { retryLoadedStructuredAgentSessionSettlement } from './structured-agent-session-settlement-retry'
 
 type HostHandoffAccess = {
   session: (sessionId: string) => StructuredAgentSessionHostSession
@@ -93,6 +94,13 @@ export function createStructuredAgentSessionHostHandoff(
     acquireNativeStop: async (sessionId, turnId, fence) =>
       (await deps.adapter.cancelTurn({ sessionId, turnId, fence })).cancelled,
     importTuiHistory: (input) => importTuiHistory(deps, host, input),
+    retryPendingSettlement: (sessionId) =>
+      retryLoadedStructuredAgentSessionSettlement({
+        deps,
+        sessionId,
+        session: host.session(sessionId),
+        now: host.now
+      }),
     prepareTuiHistoryCatchup: (sessionId, fence) => tuiHistoryCatchup.prepare(sessionId, fence),
     recoverTuiHistoryCatchup: (sessionId, fence) => tuiHistoryCatchup.recover(sessionId, fence),
     activateTuiHistoryCatchup: (sessionId) => tuiHistoryCatchup.activate(sessionId),
