@@ -275,6 +275,26 @@ describe('session tab strip cache', () => {
     expect(asyncStorage.removeItem).toHaveBeenCalledWith(LEGACY_STORAGE_KEY)
   })
 
+  it('retries a failed legacy removal on a later load, even with no write in between', async () => {
+    // Why: an offline session only ever loads; the memoized file read must not be the
+    // only place the retry lives.
+    const key = getSessionTabStripCacheKey('host-1', 'wt-1')
+    asyncStorage.removeItem.mockRejectedValueOnce(new Error('bridge down'))
+    await loadCachedSessionTabStrip(key)
+    expect(asyncStorage.removeItem).toHaveBeenCalledTimes(1)
+    await loadCachedSessionTabStrip(key)
+    expect(asyncStorage.removeItem).toHaveBeenCalledTimes(2)
+    await loadCachedSessionTabStrip(key)
+    expect(asyncStorage.removeItem).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not report a host forgotten while its legacy blob is still on disk', async () => {
+    asyncStorage.removeItem.mockRejectedValue(new Error('bridge down'))
+    await expect(deleteCachedSessionTabStripForHost('host-1')).rejects.toThrow(/bridge down/)
+    asyncStorage.removeItem.mockResolvedValue(undefined)
+    await expect(deleteCachedSessionTabStripForHost('host-1')).resolves.toBeUndefined()
+  })
+
   it('retries a failed legacy removal on the next write, and stops once it lands', async () => {
     const key = getSessionTabStripCacheKey('host-1', 'wt-1')
     asyncStorage.removeItem.mockRejectedValueOnce(new Error('bridge down'))

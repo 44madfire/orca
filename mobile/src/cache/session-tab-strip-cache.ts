@@ -79,6 +79,9 @@ export async function loadCachedSessionTabStrip(
   if (!key) {
     return null
   }
+  // Every load, not just the first file read: a removal that failed on launch must be
+  // retried by an offline session that only ever loads.
+  removeLegacyBlobsBestEffort()
   const cache = await loadFile()
   return cache.get(key) ?? null
 }
@@ -136,6 +139,9 @@ export async function deleteCachedSessionTabStripForHost(hostId: string): Promis
   }
   // Queued, not raced: the purge is the last write, and its failure is the caller's.
   await enqueueWrite(cache)
+  // The forgotten host's titles may still sit in the blob an older build wrote. A deletion
+  // the user asked for is not done until that is gone too, so this one is awaited and thrown.
+  await removeLegacyBlobs()
 }
 
 export function resetSessionTabStripCacheForTests(): void {
@@ -193,19 +199,24 @@ async function loadFile(): Promise<Map<string, MobileSessionTabStripPreview>> {
   return loadPromise
 }
 
-// Not awaited: the plaintext left by an older build must go, but a failed removal is no reason
-// to withhold the strip this build can draw. A failure keeps the key queued for the next try.
-function removeLegacyBlobs(): void {
-  for (const key of pendingLegacyRemovals) {
-    void AsyncStorage.removeItem(key).then(
-      () => pendingLegacyRemovals.delete(key),
-      () => {}
+// Loads and ordinary writes do not await this: the plaintext left by an older build must go,
+// but a failed removal is no reason to withhold the strip this build can draw. A failure keeps
+// the key queued for the next try. A host deletion does await it, and throws on failure.
+function removeLegacyBlobs(): Promise<void> {
+  return Promise.all(
+    [...pendingLegacyRemovals].map((key) =>
+      AsyncStorage.removeItem(key).then(() => {
+        pendingLegacyRemovals.delete(key)
+      })
     )
-  }
+  ).then(() => {})
+}
+
+function removeLegacyBlobsBestEffort(): void {
+  void removeLegacyBlobs().catch(() => {})
 }
 
 async function readStoredFile(): Promise<StoredWorkspace[]> {
-  removeLegacyBlobs()
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY)
     if (!raw) {
@@ -250,7 +261,7 @@ function enqueueWrite(cache: Map<string, MobileSessionTabStripPreview>): Promise
 }
 
 async function writeFile(cache: Map<string, MobileSessionTabStripPreview>): Promise<void> {
-  removeLegacyBlobs()
+  removeLegacyBlobsBestEffort()
   const workspaces: StoredWorkspace[] = [...cache].map(([key, preview]) => ({ key, preview }))
   // Throws on purpose: a deletion that only removed the in-memory rows must not be
   // reported as a deletion, or the forgotten host's titles stay in plaintext on disk.
