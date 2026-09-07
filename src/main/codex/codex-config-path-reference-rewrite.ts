@@ -168,6 +168,19 @@ function getTomlHeaderPath(header: string): string {
 // so copying `~/.codex/.tmp/bundled-marketplaces/...` verbatim silently drops
 // the plugin from Orca-launched Codex (#18682). Adding such a key to the
 // anchoring set would cement the bug rather than fix it.
+// DELIBERATELY NOT LISTED: `mcp_servers.*.env.NODE_REPL_TRUSTED_CODE_PATHS` and
+// `NODE_REPL_TRUSTED_SERVICES`, even though #18682 asks for all four keys.
+//
+// Those two are a third-party MCP server's allowlist of locations trusted to
+// EXECUTE, not paths that merely need to resolve. Re-pointing them would widen
+// what a tool is permitted to run, on the user's behalf and without telling
+// them — a decision for the user, not a path fix.
+//
+// The cost is real and is accepted knowingly: wherever the marketplace rewrite
+// below fires, code runs from the runtime home while the allowlist still names
+// the source home, so the two disagree — and this change is what creates that
+// disagreement. Before it, both pointed at the source home and were
+// consistently wrong. Revisit deliberately; do not quietly complete the list.
 const HOME_LOCAL_PATH_CONFIG_PATTERNS = [
   // Why the restricted segment rather than `.+`: a greedy match spans dots, so
   // `[marketplaces.x.auth] source` would also be re-rooted onto a directory the
