@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MOBILE_WEB_SOURCE_CONTROL_BRANCH_LIMIT,
-  MOBILE_WEB_SOURCE_CONTROL_COMPARE_ENTRY_LIMIT,
+  MOBILE_WEB_SOURCE_CONTROL_COMPARE_MAX_ENTRIES,
   MOBILE_WEB_SOURCE_CONTROL_HISTORY_MAX_LIMIT,
   MobileWebSourceControlBranchComparePayloadSchema,
   MobileWebSourceControlBranchCompareResultSchema,
@@ -87,22 +87,24 @@ describe('mobile web source-control history contract', () => {
       baseOid: OID,
       headOid: 'b'.repeat(40),
       mergeBase: OID,
-      changedFiles: MOBILE_WEB_SOURCE_CONTROL_COMPARE_ENTRY_LIMIT,
+      changedFiles: MOBILE_WEB_SOURCE_CONTROL_COMPARE_MAX_ENTRIES,
       status: 'ready',
-      revision: 'c'.repeat(64),
-      offset: 0,
-      totalEntries: MOBILE_WEB_SOURCE_CONTROL_COMPARE_ENTRY_LIMIT,
       entries: Array.from(
-        { length: MOBILE_WEB_SOURCE_CONTROL_COMPARE_ENTRY_LIMIT },
+        { length: MOBILE_WEB_SOURCE_CONTROL_COMPARE_MAX_ENTRIES },
         (_, index) => ({
           relativePath: `src/file-${index}.ts`,
           status: 'modified'
         })
       ),
-      nextOffset: null,
       truncated: false
     }
     expect(MobileWebSourceControlBranchCompareResultSchema.safeParse(result).success).toBe(true)
+    expect(
+      MobileWebSourceControlBranchCompareResultSchema.safeParse({
+        ...result,
+        entries: [...result.entries, { relativePath: 'src/extra.ts', status: 'modified' }]
+      }).success
+    ).toBe(false)
     expect(
       MobileWebSourceControlBranchCompareResultSchema.safeParse({
         ...result,

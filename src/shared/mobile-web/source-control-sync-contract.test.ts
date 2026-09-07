@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MobileWebSourceControlCheckoutPayloadSchema,
   MobileWebSourceControlPushPayloadSchema,
-  MobileWebSourceControlRepositoryStateSchema,
-  MobileWebSourceControlSyncResultSchema
+  MobileWebSourceControlRepositoryStateSchema
 } from './source-control-sync-contract'
 
 const HEAD = 'a'.repeat(40)
@@ -17,53 +16,33 @@ const upstream = {
 }
 
 describe('mobile web source-control sync contract', () => {
-  it('requires an explicit checkout confirmation and a non-option local ref', () => {
-    const identity = {
-      workspaceId: 'workspace-1',
-      expectedHead: HEAD,
-      expectedBranch: 'main'
-    }
+  it('requires a non-option local ref to check out', () => {
     expect(
       MobileWebSourceControlCheckoutPayloadSchema.safeParse({
-        ...identity,
-        branch: 'feature/mobile',
-        confirmation: 'checkout-confirmed'
+        workspaceId: 'workspace-1',
+        branch: 'feature/mobile'
       }).success
     ).toBe(true)
     expect(
       MobileWebSourceControlCheckoutPayloadSchema.safeParse({
-        ...identity,
-        branch: '--force',
-        confirmation: 'checkout-confirmed'
-      }).success
-    ).toBe(false)
-    expect(
-      MobileWebSourceControlCheckoutPayloadSchema.safeParse({
-        ...identity,
-        branch: 'feature/mobile'
+        workspaceId: 'workspace-1',
+        branch: '--force'
       }).success
     ).toBe(false)
   })
 
-  it('requires an exact bounded upstream snapshot and push confirmation', () => {
+  it('carries only the push mode the Desktop reauthorizes', () => {
     expect(
       MobileWebSourceControlPushPayloadSchema.safeParse({
         workspaceId: 'workspace-1',
-        expectedHead: HEAD,
-        expectedBranch: 'main',
-        expectedUpstream: upstream,
-        mode: 'push',
-        confirmation: 'push-confirmed'
+        mode: 'publish'
       }).success
     ).toBe(true)
     expect(
       MobileWebSourceControlPushPayloadSchema.safeParse({
         workspaceId: 'workspace-1',
-        expectedHead: HEAD,
-        expectedBranch: 'main',
-        expectedUpstream: { ...upstream, ahead: -1 },
         mode: 'push',
-        confirmation: 'push-confirmed'
+        forceWithLease: true
       }).success
     ).toBe(false)
   })
@@ -88,7 +67,7 @@ describe('mobile web source-control sync contract', () => {
     }
   })
 
-  it('keeps repository and action results strict and request-identifiable', () => {
+  it('keeps the repository state strict', () => {
     const repository = {
       workspaceId: 'workspace-1',
       head: HEAD,
@@ -102,27 +81,6 @@ describe('mobile web source-control sync contract', () => {
       MobileWebSourceControlRepositoryStateSchema.safeParse({
         ...repository,
         hostPath: '/private/repository'
-      }).success
-    ).toBe(false)
-    expect(
-      MobileWebSourceControlSyncResultSchema.safeParse({
-        workspaceId: 'workspace-1',
-        operation: 'push',
-        previousHead: HEAD,
-        previousBranch: 'main',
-        repository,
-        completed: true
-      }).success
-    ).toBe(true)
-    expect(
-      MobileWebSourceControlSyncResultSchema.safeParse({
-        workspaceId: 'workspace-1',
-        operation: 'push',
-        previousHead: HEAD,
-        previousBranch: 'main',
-        branch: 'feature/mobile',
-        repository,
-        completed: true
       }).success
     ).toBe(false)
   })

@@ -6,7 +6,7 @@ import {
   MobileWebSourceControlHistoryRefSchema,
   type MobileWebSourceControlHistoryItem,
   type MobileWebSourceControlHistoryRef
-} from '../../../src/shared/mobile-web/source-control-history-contract'
+} from './source-control-history-contract'
 
 export function sanitizeMobileWebHistoryItem(
   candidate: unknown

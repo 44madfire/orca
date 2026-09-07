@@ -1,57 +1,56 @@
 import { describe, expect, it } from 'vitest'
 import {
   MOBILE_WEB_COMMIT_MESSAGE_MAX_CHARACTERS,
-  MOBILE_WEB_COMMIT_STAGED_ENTRY_LIMIT,
+  MOBILE_WEB_COMMIT_RESULT_ERROR_MAX_CHARACTERS,
   MobileWebSourceControlCommitPayloadSchema,
+  MobileWebSourceControlCommitResultSchema,
   MobileWebSourceControlGenerateCommitMessageResultSchema
 } from './source-control-commit-contract'
 
-const staged = {
-  relativePath: 'src/app.ts',
-  status: 'modified' as const,
-  area: 'staged' as const
-}
-
 describe('mobile web source-control commit contract', () => {
-  it('accepts a bounded commit tied to a full HEAD and staged snapshot', () => {
+  it('accepts a bounded commit message', () => {
     expect(
       MobileWebSourceControlCommitPayloadSchema.parse({
         workspaceId: 'workspace-1',
-        expectedHead: 'a'.repeat(40),
-        stagedEntries: [staged],
         message: 'feat: add mobile commit'
       })
-    ).toMatchObject({ stagedEntries: [staged] })
+    ).toEqual({ workspaceId: 'workspace-1', message: 'feat: add mobile commit' })
   })
 
-  it('rejects blank or oversized messages and unsafe staged snapshots', () => {
+  it('rejects blank, oversized and unexpectedly extended commit requests', () => {
     for (const candidate of [
-      { message: ' ', stagedEntries: [staged] },
-      {
-        message: 'x'.repeat(MOBILE_WEB_COMMIT_MESSAGE_MAX_CHARACTERS + 1),
-        stagedEntries: [staged]
-      },
-      { message: 'feat: duplicate', stagedEntries: [staged, staged] },
-      {
-        message: 'feat: unresolved',
-        stagedEntries: [{ ...staged, conflictStatus: 'unresolved' }]
-      },
-      {
-        message: 'feat: too many',
-        stagedEntries: Array.from(
-          { length: MOBILE_WEB_COMMIT_STAGED_ENTRY_LIMIT + 1 },
-          (_, index) => ({ ...staged, relativePath: `src/${index}.ts` })
-        )
-      }
+      { message: ' ' },
+      { message: 'x'.repeat(MOBILE_WEB_COMMIT_MESSAGE_MAX_CHARACTERS + 1) },
+      { message: 'feat: amend', amend: true }
     ]) {
-      expect(() =>
-        MobileWebSourceControlCommitPayloadSchema.parse({
+      expect(
+        MobileWebSourceControlCommitPayloadSchema.safeParse({
           workspaceId: 'workspace-1',
-          expectedHead: 'a'.repeat(40),
           ...candidate
-        })
-      ).toThrow()
+        }).success
+      ).toBe(false)
     }
+  })
+
+  it('reads a refused commit from the result and bounds its error text', () => {
+    expect(
+      MobileWebSourceControlCommitResultSchema.parse({
+        success: false,
+        error: 'pre-commit hook failed'
+      })
+    ).toEqual({ success: false, error: 'pre-commit hook failed' })
+    expect(
+      MobileWebSourceControlCommitResultSchema.safeParse({
+        success: false,
+        error: 'x'.repeat(MOBILE_WEB_COMMIT_RESULT_ERROR_MAX_CHARACTERS + 1)
+      }).success
+    ).toBe(false)
+    expect(
+      MobileWebSourceControlCommitResultSchema.safeParse({
+        success: true,
+        hostPath: '/private/repo'
+      }).success
+    ).toBe(false)
   })
 
   it('bounds generated messages and strips undeclared host fields', () => {

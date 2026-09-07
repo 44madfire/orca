@@ -111,12 +111,17 @@ export const MobileWebSourceControlReviewMetadataResultSchema = z
   .strict()
   .superRefine(rejectDuplicateReviewMetadataKeys)
 
+/** Shared with the Desktop wrapper, which addresses the workspace by worktree selector instead. */
+export const MobileWebSourceControlReviewMetadataUpdateShape = {
+  expectedRevision: RevisionSchema,
+  comments: ReviewMetadataShape.comments,
+  reviewState: ReviewMetadataShape.reviewState
+} as const
+
 export const MobileWebSourceControlReviewMetadataUpdatePayloadSchema = z
   .object({
     workspaceId: MobileWebWorkspaceIdSchema,
-    expectedRevision: RevisionSchema,
-    comments: ReviewMetadataShape.comments,
-    reviewState: ReviewMetadataShape.reviewState
+    ...MobileWebSourceControlReviewMetadataUpdateShape
   })
   .strict()
   .superRefine(rejectDuplicateReviewMetadataKeys)
@@ -130,32 +135,41 @@ export const MobileWebSourceControlReviewCompareSchema = z
   })
   .strict()
 
+export const MobileWebSourceControlReviewDiffShape = {
+  relativePath: MobileWebRelativePathSchema,
+  oldRelativePath: MobileWebRelativePathSchema.optional(),
+  scope: ReviewScopeSchema,
+  compare: MobileWebSourceControlReviewCompareSchema.optional(),
+  offset: z.number().int().min(0).max(MOBILE_WEB_DIFF_MAX_ROWS).default(0),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(MOBILE_WEB_DIFF_PAGE_LIMIT)
+    .default(MOBILE_WEB_DIFF_PAGE_LIMIT),
+  expectedRevision: RevisionSchema.optional()
+} as const
+
+export function rejectMissingReviewCompareIdentity(
+  value: { scope: string; compare?: unknown },
+  context: z.RefinementCtx
+): void {
+  if ((value.scope === 'branch') !== Boolean(value.compare)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['compare'],
+      message: 'Branch diffs require exact compare identity'
+    })
+  }
+}
+
 export const MobileWebSourceControlReviewDiffPayloadSchema = z
   .object({
     workspaceId: MobileWebWorkspaceIdSchema,
-    relativePath: MobileWebRelativePathSchema,
-    oldRelativePath: MobileWebRelativePathSchema.optional(),
-    scope: ReviewScopeSchema,
-    compare: MobileWebSourceControlReviewCompareSchema.optional(),
-    offset: z.number().int().min(0).max(MOBILE_WEB_DIFF_MAX_ROWS).default(0),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(MOBILE_WEB_DIFF_PAGE_LIMIT)
-      .default(MOBILE_WEB_DIFF_PAGE_LIMIT),
-    expectedRevision: RevisionSchema.optional()
+    ...MobileWebSourceControlReviewDiffShape
   })
   .strict()
-  .superRefine((value, context) => {
-    if ((value.scope === 'branch') !== Boolean(value.compare)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['compare'],
-        message: 'Branch diffs require exact compare identity'
-      })
-    }
-  })
+  .superRefine(rejectMissingReviewCompareIdentity)
 
 const ReviewDiffIdentityShape = {
   workspaceId: MobileWebWorkspaceIdSchema,
@@ -248,7 +262,7 @@ export type MobileWebSourceControlReviewTerminalSendResult = z.infer<
   typeof MobileWebSourceControlReviewTerminalSendResultSchema
 >
 
-function rejectDuplicateReviewMetadataKeys(
+export function rejectDuplicateReviewMetadataKeys(
   value: {
     comments: { id: string }[]
     reviewState: { files: { key: string }[] }

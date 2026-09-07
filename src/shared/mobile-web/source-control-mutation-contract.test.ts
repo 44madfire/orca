@@ -1,70 +1,49 @@
 import { describe, expect, it } from 'vitest'
 import {
   MOBILE_WEB_SOURCE_CONTROL_MUTATION_LIMIT,
-  MobileWebSourceControlDiscardPayloadSchema,
-  MobileWebSourceControlStagePayloadSchema,
-  MobileWebSourceControlUnstagePayloadSchema
+  MobileWebSourceControlMutationPayloadSchema
 } from './source-control-mutation-contract'
 
-const modified = {
-  relativePath: 'src/app.ts',
-  status: 'modified' as const,
-  area: 'unstaged' as const
-}
-
 describe('mobile web source-control mutation contract', () => {
-  it('accepts bounded stage and unstage snapshots', () => {
+  it('accepts a bounded set of workspace-relative paths', () => {
     expect(
-      MobileWebSourceControlStagePayloadSchema.parse({
+      MobileWebSourceControlMutationPayloadSchema.parse({
         workspaceId: 'workspace-1',
-        expectedHead: 'a'.repeat(40),
-        entries: [modified]
+        relativePaths: ['src/app.ts', 'src/other.ts']
       })
-    ).toMatchObject({ entries: [modified] })
-    expect(
-      MobileWebSourceControlUnstagePayloadSchema.parse({
-        workspaceId: 'workspace-1',
-        expectedHead: null,
-        entries: [{ ...modified, area: 'staged' }]
-      })
-    ).toMatchObject({ entries: [{ area: 'staged' }] })
+    ).toEqual({ workspaceId: 'workspace-1', relativePaths: ['src/app.ts', 'src/other.ts'] })
   })
 
-  it('requires explicit confirmation and eligible discard entries', () => {
-    expect(() =>
-      MobileWebSourceControlDiscardPayloadSchema.parse({
+  it('rejects duplicate, empty and oversized path sets', () => {
+    expect(
+      MobileWebSourceControlMutationPayloadSchema.safeParse({
         workspaceId: 'workspace-1',
-        expectedHead: null,
-        entries: [modified]
-      })
-    ).toThrow()
-    expect(() =>
-      MobileWebSourceControlDiscardPayloadSchema.parse({
+        relativePaths: ['src/app.ts', 'src/app.ts']
+      }).success
+    ).toBe(false)
+    expect(
+      MobileWebSourceControlMutationPayloadSchema.safeParse({
         workspaceId: 'workspace-1',
-        expectedHead: null,
-        confirmation: 'discard-confirmed',
-        entries: [{ ...modified, area: 'staged' }]
-      })
-    ).toThrow()
-  })
-
-  it('rejects duplicate and oversized path sets', () => {
-    expect(() =>
-      MobileWebSourceControlStagePayloadSchema.parse({
+        relativePaths: []
+      }).success
+    ).toBe(false)
+    expect(
+      MobileWebSourceControlMutationPayloadSchema.safeParse({
         workspaceId: 'workspace-1',
-        expectedHead: null,
-        entries: [modified, modified]
-      })
-    ).toThrow()
-    expect(() =>
-      MobileWebSourceControlStagePayloadSchema.parse({
-        workspaceId: 'workspace-1',
-        expectedHead: null,
-        entries: Array.from(
+        relativePaths: Array.from(
           { length: MOBILE_WEB_SOURCE_CONTROL_MUTATION_LIMIT + 1 },
-          (_, index) => ({ ...modified, relativePath: `src/${index}.ts` })
+          (_, index) => `src/${index}.ts`
         )
-      })
-    ).toThrow()
+      }).success
+    ).toBe(false)
+  })
+
+  it('rejects a path that escapes the workspace', () => {
+    expect(
+      MobileWebSourceControlMutationPayloadSchema.safeParse({
+        workspaceId: 'workspace-1',
+        relativePaths: ['../outside.ts']
+      }).success
+    ).toBe(false)
   })
 })

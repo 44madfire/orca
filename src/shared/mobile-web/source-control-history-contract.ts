@@ -3,14 +3,13 @@ import {
   MobileWebRelativePathSchema,
   MobileWebWorkspaceIdSchema
 } from './bridge-operation-contract'
-import { isMobileWebGitObjectId, isMobileWebSha256 } from './protocol-token-contract'
+import { isMobileWebGitObjectId } from './protocol-token-contract'
 
 export const MOBILE_WEB_SOURCE_CONTROL_BRANCH_LIMIT = 128
 export const MOBILE_WEB_SOURCE_CONTROL_HISTORY_DEFAULT_LIMIT = 50
 export const MOBILE_WEB_SOURCE_CONTROL_HISTORY_MAX_LIMIT = 100
 export const MOBILE_WEB_SOURCE_CONTROL_HISTORY_PARENT_LIMIT = 16
 export const MOBILE_WEB_SOURCE_CONTROL_HISTORY_REFERENCE_LIMIT = 32
-export const MOBILE_WEB_SOURCE_CONTROL_COMPARE_ENTRY_LIMIT = 128
 export const MOBILE_WEB_SOURCE_CONTROL_COMPARE_MAX_ENTRIES = 4_000
 export const MOBILE_WEB_SOURCE_CONTROL_HISTORY_RESPONSE_MAX_BYTES = 192 * 1024
 export const MOBILE_WEB_SOURCE_CONTROL_COMPARE_RESPONSE_MAX_BYTES = 192 * 1024
@@ -98,15 +97,7 @@ export const MobileWebSourceControlHistoryResultSchema = z
 export const MobileWebSourceControlBranchComparePayloadSchema = z
   .object({
     workspaceId: MobileWebWorkspaceIdSchema,
-    baseRef: MobileWebGitRefNameSchema,
-    offset: z.number().int().min(0).max(MOBILE_WEB_SOURCE_CONTROL_COMPARE_MAX_ENTRIES).default(0),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(MOBILE_WEB_SOURCE_CONTROL_COMPARE_ENTRY_LIMIT)
-      .default(MOBILE_WEB_SOURCE_CONTROL_COMPARE_ENTRY_LIMIT),
-    expectedRevision: z.string().refine(isMobileWebSha256).optional()
+    baseRef: MobileWebGitRefNameSchema
   })
   .strict()
 
@@ -138,18 +129,9 @@ export const MobileWebSourceControlBranchCompareResultSchema = z
     changedFiles: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     commitsAhead: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
     status: z.enum(['ready', 'invalid-base', 'unborn-head', 'no-merge-base', 'error']),
-    revision: z.string().refine(isMobileWebSha256),
-    offset: z.number().int().min(0).max(MOBILE_WEB_SOURCE_CONTROL_COMPARE_MAX_ENTRIES),
-    totalEntries: z.number().int().min(0).max(MOBILE_WEB_SOURCE_CONTROL_COMPARE_MAX_ENTRIES),
     entries: z
       .array(MobileWebSourceControlCompareEntrySchema)
-      .max(MOBILE_WEB_SOURCE_CONTROL_COMPARE_ENTRY_LIMIT),
-    nextOffset: z
-      .number()
-      .int()
-      .min(1)
-      .max(MOBILE_WEB_SOURCE_CONTROL_COMPARE_MAX_ENTRIES)
-      .nullable(),
+      .max(MOBILE_WEB_SOURCE_CONTROL_COMPARE_MAX_ENTRIES),
     truncated: z.boolean()
   })
   .strict()
@@ -166,7 +148,7 @@ export const MobileWebSourceControlCommitCompareResultSchema = z
     status: z.enum(['ready', 'invalid-commit', 'error']),
     entries: z
       .array(MobileWebSourceControlCompareEntrySchema)
-      .max(MOBILE_WEB_SOURCE_CONTROL_COMPARE_ENTRY_LIMIT),
+      .max(MOBILE_WEB_SOURCE_CONTROL_COMPARE_MAX_ENTRIES),
     truncated: z.boolean()
   })
   .strict()
