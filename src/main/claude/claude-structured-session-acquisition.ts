@@ -22,7 +22,7 @@ import {
 } from './claude-structured-init-proof'
 import {
   createClaudeInitDeadline,
-  requestClaudeInitialization
+  initializeClaudeStructuredLaunch
 } from './claude-structured-init-deadline'
 import { claudeConfigDirEnvPatch } from './claude-config-dir-pin'
 import { CLAUDE_SPAWN_TOKEN_ENV, claudeProcessIdentity } from './claude-structured-owner-identity'
@@ -226,17 +226,22 @@ export async function acquireClaudeSession({
     attempt.connection = connection
     acquisitions.assertCurrent(sessionId, attempt)
     initDeadline.start()
-    const [initialization, init] = await Promise.all([
-      requestClaudeInitialization(connection, sessionId, initTimeoutMs),
-      initDeadline.promise
-    ])
+    const [initialization, init] = await initializeClaudeStructuredLaunch(
+      connection,
+      initDeadline,
+      {
+        sessionId,
+        timeoutMs: initTimeoutMs,
+        fork: Boolean(input.fork)
+      }
+    )
     const models = readClaudeModels(initialization)
     callbacks.deliver(attempt, sessionId, () =>
       callbacks.emit(liveSession, input.events, { type: 'options', sessionId, models })
     )
     initDeadline.clear()
     acquisitions.assertCurrent(sessionId, attempt)
-    if (init.providerSessionId !== launch.providerSessionId) {
+    if (init && init.providerSessionId !== launch.providerSessionId) {
       throw new Error(
         `claude proved session ${init.providerSessionId}, expected ${launch.providerSessionId}`
       )
@@ -265,6 +270,7 @@ export async function acquireClaudeSession({
     const publication = createClaudeSessionPublication({
       connection,
       init,
+      providerSessionId: launch.providerSessionId,
       initialization,
       claudeConfigDir: launch.claudeConfigDir,
       leafUuid: observedLeafUuid,

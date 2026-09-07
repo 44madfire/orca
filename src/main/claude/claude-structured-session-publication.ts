@@ -9,7 +9,8 @@ import { ClaudeSlashCommandCatalog } from './claude-slash-command-catalog'
 
 export function createClaudeSessionPublication(input: {
   connection: ClaudeSession['connection']
-  init: ClaudeInitObservation
+  init: ClaudeInitObservation | null
+  providerSessionId: string
   initialization?: unknown
   claudeConfigDir: string
   leafUuid: string | null
@@ -27,13 +28,13 @@ export function createClaudeSessionPublication(input: {
   /** Read from `get_settings`; `system/init` never reports an effort. */
   effort: string | null
 }): { acquisition: AgentSessionAcquisition; session: ClaudeSession } {
-  const model = input.init.model
+  const model = input.init?.model
   const effort = input.effort
   return {
     acquisition: {
       process: input.process,
       link: claudeProviderHandleLink({
-        sessionId: input.init.providerSessionId,
+        sessionId: input.init?.providerSessionId ?? input.providerSessionId,
         leafUuid: input.leafUuid,
         resumed: input.resumed,
         fence: input.fence,
@@ -44,7 +45,7 @@ export function createClaudeSessionPublication(input: {
     },
     session: {
       connection: input.connection,
-      providerSessionId: input.init.providerSessionId,
+      providerSessionId: input.init?.providerSessionId ?? input.providerSessionId,
       claudeConfigDir: input.claudeConfigDir,
       leafUuid: input.leafUuid,
       fence: input.fence,
@@ -54,7 +55,7 @@ export function createClaudeSessionPublication(input: {
       retiredDispatchWaiters: [],
       replayContentFallbackBlocked: false,
       backgroundTasks: new ClaudeBackgroundTaskTracker(),
-      commands: new ClaudeSlashCommandCatalog(input.init.message, input.initialization),
+      commands: new ClaudeSlashCommandCatalog(input.init?.message ?? {}, input.initialization),
       dispatchSequence: 0,
       optionMutationSequence: 0,
       options: new Map(input.options),

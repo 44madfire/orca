@@ -16968,6 +16968,7 @@
       "empty": "No users found"
     },
     "native-chat": {
+      "forkServerUpdateRequired": "Forking requires a newer Orca server. Update the server and try again.",
       "forkFromTurn": "Fork from this turn",
       "forkFailed": "Could not fork this turn. Wait for the conversation to finish and try again.",
       "forkUnconfirmed": "A fork could not be confirmed. Retry the same turn to check its outcome.",

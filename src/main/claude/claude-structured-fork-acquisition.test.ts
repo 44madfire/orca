@@ -15,8 +15,8 @@ const fork = {
   retainedItemIds: [`claude:${PROVIDER_SESSION_ID}:selected`]
 } as const
 
-function setup(initSessionId = childId) {
-  const fake = fakeClaude({ initSessionId })
+function setup(initSessionId = childId, initProof: 'none' | undefined = undefined) {
+  const fake = fakeClaude({ initSessionId, initProof })
   const adapter = new ClaudeStructuredSessionAdapter({
     resolveLaunch: async () => ({
       pathToClaudeCodeExecutable: 'claude',
@@ -35,7 +35,7 @@ function setup(initSessionId = childId) {
 
 describe('Claude fork acquisition', () => {
   it('opens a fork without requiring a lazily created child transcript', async () => {
-    const { fake, adapter } = setup()
+    const { fake, adapter } = setup(childId, 'none')
     try {
       const acquired = await adapter.acquire({
         identity: identityFor(sessionId),
@@ -48,6 +48,7 @@ describe('Claude fork acquisition', () => {
         sessionId: childId,
         leafUuid: 'selected'
       })
+      expect(fake.connections[0]?.sent).toEqual([])
       expect(fake.connections[0]?.launch.options).toMatchObject({
         forkSession: true,
         resume: PROVIDER_SESSION_ID,

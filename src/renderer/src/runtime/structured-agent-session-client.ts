@@ -1,3 +1,4 @@
+import { translate } from '@/i18n/i18n'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import type {
   AgentSessionStatusEvent,
@@ -36,7 +37,12 @@ export async function callStructuredAgentSession<TResult>(
     'forkFrom' in params &&
     !(await structuredAgentSessionForkAvailable(target))
   ) {
-    throw new Error('Forking requires a newer Orca server. Update the server and try again.')
+    throw new Error(
+      translate(
+        'components.native-chat.forkServerUpdateRequired',
+        'Forking requires a newer Orca server. Update the server and try again.'
+      )
+    )
   }
   return method === 'agentSession.conversationCommand'
     ? callRuntimeRpc<TResult>(target, method, params, { timeoutMs: 195_000 })

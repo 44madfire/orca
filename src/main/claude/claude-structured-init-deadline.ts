@@ -66,3 +66,16 @@ export function createClaudeInitDeadline(sessionId: string, timeoutMs: number): 
     }
   }
 }
+
+/** A fork can initialize control before its first real prompt creates transcript frames. */
+export async function initializeClaudeStructuredLaunch(
+  connection: ClaudeStreamJsonConnection,
+  deadline: ClaudeInitDeadline,
+  input: { sessionId: string; timeoutMs: number; fork: boolean }
+): Promise<[unknown, ClaudeInitObservation | null]> {
+  const initialized = requestClaudeInitialization(connection, input.sessionId, input.timeoutMs)
+  return Promise.all([
+    initialized,
+    input.fork ? Promise.race([deadline.promise, initialized.then(() => null)]) : deadline.promise
+  ])
+}
