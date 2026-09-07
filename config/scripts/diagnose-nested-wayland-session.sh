@@ -52,7 +52,7 @@ for attempt in {1..100}; do
   sleep 0.1
 done
 [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]]
-ibus-daemon --daemonize --xim --replace --verbose > "$ORCA_NESTED_EVIDENCE/ibus-daemon.log" 2>&1
+# GNOME owns IBus inside this private D-Bus session.
 for attempt in {1..100}; do
   if ibus engine hangul; then break; fi
   sleep 0.1
