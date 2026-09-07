@@ -29,8 +29,10 @@ const mocks = vi.hoisted(() => ({
   pasteFromClipboard: vi.fn(),
   submissions: [] as unknown[],
   monitoringBackgroundTasks: false,
+  showBackgroundTasks: false,
   supportsBackgroundTaskStop: false,
   backgroundTasks: [] as AgentSessionBackgroundTask[],
+  settledBackgroundTasks: [] as AgentSessionBackgroundTask[],
   stopBackgroundTask: vi.fn()
 }))
 
@@ -75,9 +77,13 @@ vi.mock('./use-structured-agent-session', async () => {
         send: outbox.send,
         retry: outbox.retry,
         isWorking: false,
-        isMonitoringBackgroundTasks: mocks.monitoringBackgroundTasks,
-        supportsBackgroundTaskStop: mocks.supportsBackgroundTaskStop,
-        backgroundTasks: mocks.backgroundTasks,
+        backgroundTasks: {
+          show: mocks.showBackgroundTasks || mocks.monitoringBackgroundTasks,
+          isMonitoring: mocks.monitoringBackgroundTasks,
+          tasks: mocks.backgroundTasks,
+          settledTasks: mocks.settledBackgroundTasks,
+          supportsStop: mocks.supportsBackgroundTaskStop
+        },
         turnId: null,
         cancel: vi.fn(),
         stopBackgroundTask: (taskId?: string) => mocks.stopBackgroundTask(props.sessionId, taskId),
@@ -171,6 +177,8 @@ describe('NativeChatStructuredSession', () => {
     mocks.supportsBackgroundTaskStop = false
     mocks.stopBackgroundTask.mockReset()
     mocks.backgroundTasks = []
+    mocks.settledBackgroundTasks = []
+    mocks.showBackgroundTasks = false
   })
 
   it('routes app-menu paste into the structured composer', () => {
@@ -247,23 +255,22 @@ describe('NativeChatStructuredSession', () => {
       />
     )
 
-    const status = screen
-      .getByText('Monitoring background tasks')
-      .closest('[data-native-chat-background-tasks="true"]')
+    const disclosure = screen.getByRole('button', { name: '1 agent · 1 shell' })
+    const status = disclosure.closest('[data-native-chat-background-tasks="true"]')
     const composer = screen.getByTestId('structured-composer')
     if (!status) {
       throw new Error('background task status was not rendered')
     }
     expect(status.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(mocks.composerProps?.isWorking).toBe(false)
-    expect(screen.queryByRole('list', { name: 'Running background tasks' })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Agents' })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Stop / })).toBeNull()
 
-    const disclosure = screen.getByRole('button', { name: 'Monitoring background tasks' })
     expect(disclosure.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(disclosure)
     expect(disclosure.getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getByRole('list', { name: 'Running background tasks' })).toBeTruthy()
+    expect(screen.getByRole('list', { name: 'Agents' })).toBeTruthy()
+    expect(screen.getByRole('list', { name: 'Shell' })).toBeTruthy()
     expect(screen.getByText('sleep 180')).toBeTruthy()
     expect(screen.getByText('Background agent')).toBeTruthy()
 
@@ -302,7 +309,7 @@ describe('NativeChatStructuredSession', () => {
         agent="claude"
       />
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Monitoring background tasks' }))
+    fireEvent.click(screen.getByRole('button', { name: '2 shells — 2 working' }))
     const firstStop = screen.getByRole('button', { name: 'Stop First task' })
     const secondStop = screen.getByRole('button', { name: 'Stop Second task' })
 
@@ -344,7 +351,7 @@ describe('NativeChatStructuredSession', () => {
         agent="claude"
       />
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Monitoring background tasks' }))
+    fireEvent.click(screen.getByRole('button', { name: '1 shell command — working' }))
     fireEvent.click(screen.getByRole('button', { name: 'Stop Shared task' }))
 
     rerender(

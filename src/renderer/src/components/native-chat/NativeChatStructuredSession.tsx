@@ -303,10 +303,12 @@ export function NativeChatStructuredSession(
           {controller.error ?? composerError}
         </p>
       ) : null}
-      {controller.isMonitoringBackgroundTasks ? (
+      {controller.backgroundTasks.show ? (
         <NativeChatBackgroundTasksStatus
-          tasks={controller.backgroundTasks}
-          supportsTaskStop={controller.supportsBackgroundTaskStop}
+          tasks={controller.backgroundTasks.tasks}
+          settledTasks={controller.backgroundTasks.settledTasks}
+          indicatorActive={controller.backgroundTasks.isMonitoring}
+          supportsTaskStop={controller.backgroundTasks.supportsStop}
           stoppingTaskIds={activeStoppingBackgroundTasks?.taskIds ?? NO_STOPPING_TASKS}
           stoppingAll={activeStoppingBackgroundTasks?.all ?? false}
           onStop={(taskId) => {

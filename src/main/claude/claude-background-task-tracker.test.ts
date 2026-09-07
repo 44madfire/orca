@@ -16,6 +16,11 @@ function aggregate(tasks: unknown[]): Record<string, unknown> {
   return system('background_tasks_changed', { tasks })
 }
 
+function trackerAt(times: number[]): ClaudeBackgroundTaskTracker {
+  let index = 0
+  return new ClaudeBackgroundTaskTracker(() => times[Math.min(index++, times.length - 1)])
+}
+
 describe('ClaudeBackgroundTaskTracker', () => {
   it('classifies SDK task types without inferring them from descriptions', () => {
     expect(classifyClaudeBackgroundTaskKind('local_agent')).toBe('agent')
@@ -25,27 +30,30 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(classifyClaudeBackgroundTaskKind('future_task')).toBe('unknown')
   })
 
-  it('waits for the foreground turn to settle before monitoring a background task', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+  it('publishes a backgrounded task while the foreground turn is still running', () => {
+    const tracker = trackerAt([100])
     tracker.observe({ type: 'user' }, true)
-    tracker.observe(
-      system('task_started', {
-        task_id: 'task-1',
-        task_type: 'local_agent',
-        is_backgrounded: true
-      })
-    )
-    expect(tracker.state).toBeNull()
-
-    expect(tracker.observe(result())).toBe(true)
+    expect(
+      tracker.observe(
+        system('task_started', {
+          task_id: 'task-1',
+          task_type: 'local_agent',
+          is_backgrounded: true
+        })
+      )
+    ).toBe(true)
     expect(tracker.state).toEqual({
       state: 'monitoring',
-      tasks: [{ id: 'task-1', kind: 'agent' }]
+      tasks: [{ id: 'task-1', kind: 'agent', state: 'working', startedAt: 100 }]
     })
+
+    // The turn settling changes nothing the strip renders.
+    expect(tracker.observe(result())).toBe(false)
+    expect(tracker.state?.tasks).toHaveLength(1)
   })
 
   it('uses an explicit background update for a foreground task and ignores progress alone', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+    const tracker = trackerAt([100])
     tracker.observe({ type: 'user' }, true)
     tracker.observe(
       system('task_started', {
@@ -63,12 +71,12 @@ describe('ClaudeBackgroundTaskTracker', () => {
     tracker.observe(system('task_updated', { task_id: 'task-1', patch: { is_backgrounded: true } }))
     expect(tracker.state).toEqual({
       state: 'monitoring',
-      tasks: [{ id: 'task-1', kind: 'command' }]
+      tasks: [{ id: 'task-1', kind: 'command', state: 'working', startedAt: 100 }]
     })
   })
 
   it('publishes bounded display details when a running task description changes', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+    const tracker = trackerAt([100])
     expect(
       tracker.observe(
         system('task_started', {
@@ -81,7 +89,15 @@ describe('ClaudeBackgroundTaskTracker', () => {
     ).toBe(true)
     expect(tracker.state).toEqual({
       state: 'monitoring',
-      tasks: [{ id: 'task-1', kind: 'command', description: 'run the build' }]
+      tasks: [
+        {
+          id: 'task-1',
+          kind: 'command',
+          description: 'run the build',
+          state: 'working',
+          startedAt: 100
+        }
+      ]
     })
 
     expect(
@@ -103,8 +119,85 @@ describe('ClaudeBackgroundTaskTracker', () => {
     ).toBe(false)
   })
 
+  it('carries provider-reported names and re-derives classification per transition', () => {
+    const tracker = trackerAt([100])
+    tracker.observe(
+      system('task_started', {
+        task_id: 'task-1',
+        task_type: 'future_task',
+        is_backgrounded: true
+      })
+    )
+    expect(tracker.state?.tasks?.[0]).toMatchObject({ kind: 'unknown' })
+
+    expect(
+      tracker.observe(
+        system('task_updated', {
+          task_id: 'task-1',
+          patch: { task_type: 'local_agent', agent_type: 'deep_review' }
+        })
+      )
+    ).toBe(true)
+    expect(tracker.state?.tasks?.[0]).toMatchObject({
+      kind: 'agent',
+      name: 'deep_review',
+      state: 'working'
+    })
+  })
+
+  it('retains settled siblings beside live work and exits with the last live task', () => {
+    const tracker = trackerAt([100, 200])
+    tracker.observe(
+      system('task_started', { task_id: 'task-a', task_type: 'local_agent', is_backgrounded: true })
+    )
+    tracker.observe(
+      system('task_started', { task_id: 'task-b', task_type: 'local_agent', is_backgrounded: true })
+    )
+
+    expect(
+      tracker.observe(system('task_updated', { task_id: 'task-a', patch: { status: 'completed' } }))
+    ).toBe(true)
+    expect(tracker.state).toEqual({
+      state: 'monitoring',
+      tasks: [{ id: 'task-b', kind: 'agent', state: 'working', startedAt: 200 }],
+      settledTasks: [{ id: 'task-a', kind: 'agent', state: 'done', startedAt: 100 }]
+    })
+    expect(tracker.stoppableTaskIds).toEqual(['task-b'])
+
+    expect(
+      tracker.observe(system('task_updated', { task_id: 'task-b', patch: { status: 'killed' } }))
+    ).toBe(true)
+    expect(tracker.state).toBeNull()
+  })
+
+  it('maps terminal statuses onto settled states', () => {
+    const tracker = trackerAt([100, 200])
+    tracker.observe(
+      system('task_started', { task_id: 'live', task_type: 'local_agent', is_backgrounded: true })
+    )
+    tracker.observe(
+      system('task_started', { task_id: 'failed', task_type: 'local_agent', is_backgrounded: true })
+    )
+    tracker.observe(system('task_notification', { task_id: 'failed', status: 'failed' }))
+    expect(tracker.state?.settledTasks).toEqual([
+      { id: 'failed', kind: 'agent', state: 'blocked', startedAt: 200 }
+    ])
+  })
+
+  it('leaves a task open when a patch cannot be read', () => {
+    const tracker = trackerAt([100])
+    tracker.observe(
+      system('task_started', { task_id: 'task-1', task_type: 'local_agent', is_backgrounded: true })
+    )
+    expect(tracker.observe(system('task_updated', { task_id: 'task-1', patch: 'garbage' }))).toBe(
+      false
+    )
+    expect(tracker.state?.tasks).toHaveLength(1)
+    expect(tracker.state?.settledTasks).toBeUndefined()
+  })
+
   it('replaces its roster from aggregate lifecycle frames and preserves stoppable provider ids', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+    const tracker = trackerAt([100])
     expect(
       tracker.observe(
         aggregate([
@@ -117,8 +210,8 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(tracker.state).toEqual({
       state: 'monitoring',
       tasks: [
-        { id: 'task-agent', kind: 'agent', description: 'agent' },
-        { id: 'task-bash', kind: 'command', description: 'bash' }
+        { id: 'task-agent', kind: 'agent', description: 'agent', state: 'working', startedAt: 100 },
+        { id: 'task-bash', kind: 'command', description: 'bash', state: 'working', startedAt: 100 }
       ]
     })
 
@@ -128,18 +221,31 @@ describe('ClaudeBackgroundTaskTracker', () => {
       )
     ).toBe(true)
     expect(tracker.stoppableTaskIds).toEqual(['task-next'])
-    expect(tracker.state).toEqual({
-      state: 'monitoring',
-      tasks: [{ id: 'task-next', kind: 'workflow', description: 'workflow' }]
-    })
 
     expect(tracker.observe(aggregate([]))).toBe(true)
     expect(tracker.stoppableTaskIds).toEqual([])
     expect(tracker.state).toBeNull()
   })
 
+  it('preserves first-seen timestamps across aggregate roster replacement', () => {
+    const tracker = trackerAt([100, 200])
+    tracker.observe(
+      system('task_started', { task_id: 'task-1', task_type: 'local_agent', is_backgrounded: true })
+    )
+    tracker.observe(
+      aggregate([
+        { task_id: 'task-1', task_type: 'local_agent' },
+        { task_id: 'task-2', task_type: 'local_bash' }
+      ])
+    )
+    expect(tracker.state?.tasks).toEqual([
+      { id: 'task-1', kind: 'agent', state: 'working', startedAt: 100 },
+      { id: 'task-2', kind: 'command', state: 'working', startedAt: 200 }
+    ])
+  })
+
   it('excludes ambient aggregate tasks', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+    const tracker = trackerAt([100])
     tracker.observe(
       aggregate([
         { task_id: 'ambient', task_type: 'monitor', description: 'watcher', ambient: true },
@@ -151,7 +257,7 @@ describe('ClaudeBackgroundTaskTracker', () => {
   })
 
   it('does not let late edge frames revive tasks cleared by an aggregate roster', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+    const tracker = trackerAt([100])
     tracker.observe(
       aggregate([{ task_id: 'task-late', task_type: 'local_agent', description: 'agent' }])
     )
@@ -173,7 +279,7 @@ describe('ClaudeBackgroundTaskTracker', () => {
   })
 
   it('lets an authoritative aggregate roster replace earlier terminal-edge evidence', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+    const tracker = trackerAt([100])
     tracker.observe(system('task_notification', { task_id: 'task-live', status: 'completed' }))
 
     tracker.observe(
@@ -183,12 +289,14 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(tracker.stoppableTaskIds).toEqual(['task-live'])
     expect(tracker.state).toEqual({
       state: 'monitoring',
-      tasks: [{ id: 'task-live', kind: 'agent', description: 'agent' }]
+      tasks: [
+        { id: 'task-live', kind: 'agent', description: 'agent', state: 'working', startedAt: 100 }
+      ]
     })
   })
 
   it('keeps terminal edges authoritative on either side of aggregate replacement', () => {
-    const terminalFirst = new ClaudeBackgroundTaskTracker()
+    const terminalFirst = trackerAt([100])
     terminalFirst.observe(
       system('task_notification', { task_id: 'task-first', status: 'completed' })
     )
@@ -202,7 +310,7 @@ describe('ClaudeBackgroundTaskTracker', () => {
     )
     expect(terminalFirst.state).toBeNull()
 
-    const terminalLast = new ClaudeBackgroundTaskTracker()
+    const terminalLast = trackerAt([100])
     terminalLast.observe(
       aggregate([{ task_id: 'task-last', task_type: 'local_agent', description: 'agent' }])
     )
@@ -218,7 +326,7 @@ describe('ClaudeBackgroundTaskTracker', () => {
   })
 
   it('keeps terminal evidence authoritative across duplicates and out-of-order starts', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+    const tracker = trackerAt([100])
     const terminal = system('task_notification', { task_id: 'task-late', status: 'completed' })
     tracker.observe(terminal)
     tracker.observe(terminal)
@@ -239,7 +347,7 @@ describe('ClaudeBackgroundTaskTracker', () => {
     )
     expect(tracker.state).toEqual({
       state: 'monitoring',
-      tasks: [{ id: 'task-live', kind: 'monitor' }]
+      tasks: [{ id: 'task-live', kind: 'monitor', state: 'monitoring', startedAt: 100 }]
     })
     expect(
       tracker.observe(system('task_updated', { task_id: 'task-live', patch: { status: 'killed' } }))
@@ -249,17 +357,24 @@ describe('ClaudeBackgroundTaskTracker', () => {
 
   it('recognizes task types that are registered only as background work', () => {
     for (const taskType of ['local_workflow', 'monitor']) {
-      const tracker = new ClaudeBackgroundTaskTracker()
+      const tracker = trackerAt([100])
       tracker.observe(system('task_started', { task_id: taskType, task_type: taskType }))
       expect(tracker.state).toEqual({
         state: 'monitoring',
-        tasks: [{ id: taskType, kind: taskType === 'local_workflow' ? 'workflow' : 'monitor' }]
+        tasks: [
+          {
+            id: taskType,
+            kind: taskType === 'local_workflow' ? 'workflow' : 'monitor',
+            state: taskType === 'local_workflow' ? 'working' : 'monitoring',
+            startedAt: 100
+          }
+        ]
       })
     }
   })
 
   it('admits unknown background updates conservatively and bounds edge-only fallback ids', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+    const tracker = trackerAt([100])
     tracker.observe(
       system('task_updated', { task_id: 'unknown', patch: { is_backgrounded: true } })
     )
@@ -278,7 +393,7 @@ describe('ClaudeBackgroundTaskTracker', () => {
   })
 
   it('bounds aggregate rosters and resets to the edge-only fallback on clear', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+    const tracker = trackerAt([100])
     tracker.observe(
       aggregate(
         Array.from({ length: 400 }, (_, index) => ({
@@ -301,23 +416,30 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(tracker.stoppableTaskIds).toEqual(['edge-after-reset'])
   })
 
-  it('gates aggregate monitoring behind foreground turn completion', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+  it('publishes an aggregate roster observed mid-turn', () => {
+    const tracker = trackerAt([100])
     tracker.observe({ type: 'user' }, true)
-    tracker.observe(
-      aggregate([{ task_id: 'task-live', task_type: 'local_bash', description: 'command' }])
-    )
-    expect(tracker.state).toBeNull()
-
-    expect(tracker.observe(result())).toBe(true)
+    expect(
+      tracker.observe(
+        aggregate([{ task_id: 'task-live', task_type: 'local_bash', description: 'command' }])
+      )
+    ).toBe(true)
     expect(tracker.state).toEqual({
       state: 'monitoring',
-      tasks: [{ id: 'task-live', kind: 'command', description: 'command' }]
+      tasks: [
+        {
+          id: 'task-live',
+          kind: 'command',
+          description: 'command',
+          state: 'working',
+          startedAt: 100
+        }
+      ]
     })
   })
 
   it('ignores ambient SDK tasks and clears all liveness when the session ends', () => {
-    const tracker = new ClaudeBackgroundTaskTracker()
+    const tracker = trackerAt([100])
     tracker.observe(
       system('task_started', {
         task_id: 'ambient',

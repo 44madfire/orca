@@ -38,6 +38,7 @@ import {
   type StructuredPromptItem
 } from './structured-agent-session-message-projection'
 import { selectStructuredAgentTurnActivity } from './native-chat-turn-activity'
+import { structuredSessionBackgroundTasksView } from './structured-session-background-tasks-view'
 import { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-settings-write'
 
 export type { StructuredPromptItem } from './structured-agent-session-message-projection'
@@ -158,8 +159,7 @@ export function useStructuredAgentSession(args: {
     () => selectStructuredAgentTurnActivity(state.items, turnId, state.activity),
     [state.activity, state.items, turnId]
   )
-  const isMonitoringBackgroundTasks =
-    turnId === null && state.backgroundTasks?.state === 'monitoring'
+  const backgroundTasks = structuredSessionBackgroundTasksView(state.backgroundTasks, turnId)
 
   useEffect(() => {
     if (!isVisible || !optionCatalog) {
@@ -258,7 +258,7 @@ export function useStructuredAgentSession(args: {
         command,
         pending: commandPending,
         blocked: Boolean(
-          turnId || prompts.length || isMonitoringBackgroundTasks || outboxController.outbox.length
+          turnId || prompts.length || backgroundTasks.isMonitoring || outboxController.outbox.length
         ),
         send: (command) =>
           mutate<AgentSessionConversationCommandResult>(
@@ -285,9 +285,7 @@ export function useStructuredAgentSession(args: {
     retry: outboxController.retry,
     isWorking: turnId !== null,
     turnActivity,
-    isMonitoringBackgroundTasks,
-    backgroundTasks: state.backgroundTasks?.tasks ?? [],
-    supportsBackgroundTaskStop: state.backgroundTasks?.supportsTaskStop === true,
+    backgroundTasks,
     turnId,
     cancel: (turnId: string) => mutate('agentSession.cancel', 'agentSession.cancel', { turnId }),
     stopBackgroundTask: (taskId?: string) =>
