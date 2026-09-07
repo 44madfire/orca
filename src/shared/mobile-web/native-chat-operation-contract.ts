@@ -8,7 +8,6 @@ import {
   AGENT_TYPE_MAX_LENGTH
 } from '../agent-status-limits'
 import { MobileWebRelativePathSchema } from './file-operation-contract'
-import { MobileWebWorkspaceIdSchema } from './workspace-operation-contract'
 import { MobileWebNativeChatTargetShape } from './native-chat-target-contract'
 
 export * from './native-chat-image-operation-contract'
@@ -242,13 +241,6 @@ export const MobileWebNativeChatOpenFilePayloadSchema = z
   .strict()
 export const MobileWebNativeChatOpenFileResultSchema = z.null()
 
-export const MobileWebNativeChatReadabilityPayloadSchema = z
-  .object({ workspaceId: MobileWebWorkspaceIdSchema })
-  .strict()
-export const MobileWebNativeChatReadabilityResultSchema = z
-  .object({ readable: z.boolean() })
-  .strict()
-
 export type MobileWebNativeChatAgentStatus = z.infer<typeof MobileWebNativeChatAgentStatusSchema>
 export type MobileWebNativeChatMessage = z.infer<typeof MobileWebNativeChatMessageSchema>
 export type MobileWebNativeChatReadPayload = z.infer<typeof MobileWebNativeChatReadPayloadSchema>
@@ -285,7 +277,4 @@ export type MobileWebNativeChatFileSearchResult = z.infer<
 >
 export type MobileWebNativeChatOpenFilePayload = z.infer<
   typeof MobileWebNativeChatOpenFilePayloadSchema
->
-export type MobileWebNativeChatReadabilityPayload = z.infer<
-  typeof MobileWebNativeChatReadabilityPayloadSchema
 >

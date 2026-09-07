@@ -15,10 +15,9 @@ describe('hosted chat file consumers', () => {
   it('supplies the stable tab for generic search/open binding and keeps device attachments on their existing capability', async () => {
     const fileSearch = vi.fn().mockResolvedValue({ paths: ['src/main.ts'] })
     const openFile = vi.fn().mockResolvedValue(null)
-    const readability = vi.fn().mockResolvedValue({ readable: true })
     const attachImage = vi.fn().mockResolvedValue({ status: 'cancelled' })
     const operations = webHostSessionNativeChatOperations({
-      nativeChat: { fileSearch, openFile, readability, attachImage }
+      nativeChat: { fileSearch, openFile, attachImage }
     } as unknown as MobileWebBridgeClient)
     expect(await operations.searchFiles(target, 'src')).toEqual(['src/main.ts'])
     await operations.openFile(target, 'src/main.ts')
@@ -30,7 +29,6 @@ describe('hosted chat file consumers', () => {
       { workspaceId: 'workspace', sessionId: 'session', pathText: 'src/main.ts' },
       'tab'
     )
-    expect(await operations.readability('workspace')).toBe(true)
     expect(await operations.attachImage!(target, 'library')).toEqual({ status: 'cancelled' })
     expect(attachImage).toHaveBeenCalledWith({
       workspaceId: 'workspace',

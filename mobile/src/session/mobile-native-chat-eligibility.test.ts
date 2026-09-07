@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentStatusEntry } from '../../../src/shared/agent-status-types'
-import {
-  canShowMobileNativeChat,
-  isMobileNativeChatTranscriptReadable,
-  resolveMobileNativeChat
-} from './mobile-native-chat-eligibility'
+import { canShowMobileNativeChat, resolveMobileNativeChat } from './mobile-native-chat-eligibility'
 
 function status(overrides: Partial<AgentStatusEntry> = {}): AgentStatusEntry {
   return {
@@ -102,35 +98,10 @@ describe('resolveMobileNativeChat', () => {
     expect(resolveMobileNativeChat({ type: 'terminal', launchAgent: 'gemini' })).toBeNull()
   })
 
-  it('admits Grok only when its transcript is readable by the serving host', () => {
-    const tab = { type: 'terminal', launchAgent: 'grok' }
-    expect(resolveMobileNativeChat(tab, isMobileNativeChatTranscriptReadable(null))).toMatchObject({
-      agent: 'grok'
-    })
-    expect(
-      resolveMobileNativeChat(tab, isMobileNativeChatTranscriptReadable('runtime-ssh-environment'))
-    ).toMatchObject({ agent: 'grok' })
-    expect(
-      resolveMobileNativeChat(tab, isMobileNativeChatTranscriptReadable('model-a-ssh'))
-    ).toBeNull()
-  })
-
-  // Why: omp's hook reports no transcript path either, so mobile can only show
-  // its chat when the serving host is the one holding the session file.
-  it('admits omp only when its transcript is readable by the serving host', () => {
-    const tab = { type: 'terminal', launchAgent: 'omp' }
-    expect(resolveMobileNativeChat(tab, isMobileNativeChatTranscriptReadable(null))).toMatchObject({
-      agent: 'omp'
-    })
-    expect(
-      resolveMobileNativeChat(tab, isMobileNativeChatTranscriptReadable('runtime-ssh-environment'))
-    ).toMatchObject({ agent: 'omp' })
-    expect(
-      resolveMobileNativeChat(tab, isMobileNativeChatTranscriptReadable('model-a-ssh'))
-    ).toBeNull()
-    expect(canShowMobileNativeChat(tab, isMobileNativeChatTranscriptReadable('model-a-ssh'))).toBe(
-      false
-    )
+  it.each(['grok', 'omp'])('admits %s on the transcript agents the host reads', (launchAgent) => {
+    const tab = { type: 'terminal', launchAgent }
+    expect(resolveMobileNativeChat(tab)).toMatchObject({ agent: launchAgent })
+    expect(canShowMobileNativeChat(tab)).toBe(true)
   })
 
   it('returns null for a plain shell (no agent)', () => {

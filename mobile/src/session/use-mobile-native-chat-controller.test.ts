@@ -202,7 +202,6 @@ describe('useMobileNativeChatController handleNativeChatSend', () => {
       activeSessionTabId: (tab as { id?: string } | null)?.id ?? 'tab-1',
       activeHandleRef: { current: activeHandle },
       deviceTokenRef: { current: null },
-      nativeChatTranscriptIsLocalReadable: true,
       nativeChatInputLeaseReady: inputLeaseReady,
       onSendError,
       onSendResolved
@@ -502,7 +501,6 @@ describe('useMobileNativeChatController launch-draft wiring', () => {
       activeSessionTabId: 'tab-1',
       activeHandleRef: { current: 'term-1' },
       deviceTokenRef: { current: null },
-      nativeChatTranscriptIsLocalReadable: true,
       nativeChatInputLeaseReady: true,
       onSendError: vi.fn(),
       onSendResolved: vi.fn()
@@ -594,7 +592,6 @@ describe('useMobileNativeChatController ask dismissal across a transcript reload
       activeSessionTabId: activeTab.id,
       activeHandleRef: { current: 'term-1' },
       deviceTokenRef: { current: null },
-      nativeChatTranscriptIsLocalReadable: true,
       nativeChatInputLeaseReady: true,
       onSendError: vi.fn(),
       onSendResolved: vi.fn()
@@ -871,7 +868,6 @@ describe('useMobileNativeChatController streaming scope', () => {
       activeSessionTabId: 'tab-1',
       activeHandleRef: { current: 'term-1' },
       deviceTokenRef: { current: null },
-      nativeChatTranscriptIsLocalReadable: true,
       nativeChatInputLeaseReady: true,
       onSendError: vi.fn(),
       onSendResolved: vi.fn()

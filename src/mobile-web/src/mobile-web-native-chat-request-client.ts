@@ -26,7 +26,6 @@ import {
   type MobileWebNativeChatPendingReadResult,
   type MobileWebNativeChatPendingWritePayload,
   type MobileWebNativeChatReadPayload,
-  type MobileWebNativeChatReadabilityPayload,
   type MobileWebNativeChatPasteImagesPayload,
   type MobileWebNativeChatPrepareCommitPayload,
   type MobileWebNativeChatReleaseImagesPayload,
@@ -167,9 +166,5 @@ export class MobileWebNativeChatRequestClient {
 
   openFile(payload: MobileWebNativeChatOpenFilePayload, tabId?: string): Promise<null> {
     return this.files.openFile(payload, tabId)
-  }
-
-  readability(payload: MobileWebNativeChatReadabilityPayload): Promise<{ readable: boolean }> {
-    return this.files.readability(payload)
   }
 }

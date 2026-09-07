@@ -1,7 +1,5 @@
 import type { RpcClient } from '../transport/rpc-client'
 import { buildNativeChatSubscriptionId } from '../../../src/shared/native-chat-stream-unsubscribe'
-import { isFloatingWorkspaceWorktreeId } from './floating-workspace'
-import { isMobileNativeChatTranscriptReadable } from './mobile-native-chat-eligibility'
 import { openMobileNativeChatFile } from './mobile-native-chat-open-file'
 import { healMobileNativeChatStaleInput } from './mobile-native-chat-stale-input'
 import {
@@ -10,7 +8,6 @@ import {
   type MobileNativeChatSendOutcome
 } from './mobile-native-chat-send'
 import { rankSuggestions } from './mobile-native-chat-autocomplete'
-import { getRepoIdFromMobileWorktreeId } from './mobile-session-route-helpers'
 import type {
   HostSessionNativeChatOperations,
   HostSessionNativeChatTarget
@@ -27,20 +24,6 @@ export function nativeHostSessionNativeChatOperations(
   const legacyPathsByWorkspace = new Map<string, string[]>()
   const legacyLoadByWorkspace = new Map<string, Promise<string[] | null>>()
   return {
-    async readability(workspaceId) {
-      if (isFloatingWorkspaceWorktreeId(workspaceId)) {
-        return true
-      }
-      const response = await client.sendRequest('repo.list')
-      const repos = response.ok
-        ? ((response.result as { repos?: { id: string; connectionId?: string | null }[] }).repos ??
-          [])
-        : []
-      const repo = repos.find(
-        (candidate) => candidate.id === getRepoIdFromMobileWorktreeId(workspaceId)
-      )
-      return repo ? isMobileNativeChatTranscriptReadable(repo.connectionId ?? null) : false
-    },
     subscribe(target, limit, onEvent) {
       return client.subscribe(
         'nativeChat.subscribe',

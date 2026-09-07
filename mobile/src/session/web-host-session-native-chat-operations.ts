@@ -20,9 +20,6 @@ export function webHostSessionNativeChatOperations(
   client: MobileWebBridgeClient
 ): HostSessionNativeChatOperations {
   return {
-    async readability(workspaceId) {
-      return (await client.nativeChat.readability({ workspaceId })).readable
-    },
     subscribe(target, limit, onEvent, onError) {
       const payload = bridgeTarget(target, { limit })
       if (!target.terminalId) {

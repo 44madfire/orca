@@ -29,7 +29,6 @@ const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
     'mobileWeb.nativeChat.mutate',
     'mobileWeb.nativeChat.fileSearch',
     'mobileWeb.nativeChat.openFile',
-    'mobileWeb.nativeChat.readability',
     'mobileWeb.session.snapshot',
     'mobileWeb.session.activate',
     'mobileWeb.session.close',

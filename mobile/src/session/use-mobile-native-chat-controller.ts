@@ -39,7 +39,6 @@ export function useMobileNativeChatController(args: {
   activeSessionTabId: string | null
   activeHandleRef: MutableRefObject<string | null>
   deviceTokenRef: MutableRefObject<string | null>
-  nativeChatTranscriptIsLocalReadable: boolean
   nativeChatInputLeaseReady: boolean
   onSendError: (message: string) => void
   /** Retires a held failure banner. Any accepted chat write clears it — a delivered
@@ -58,7 +57,6 @@ export function useMobileNativeChatController(args: {
     activeSessionTabId,
     activeHandleRef,
     deviceTokenRef,
-    nativeChatTranscriptIsLocalReadable,
     nativeChatInputLeaseReady,
     onSendError,
     onSendResolved
@@ -82,8 +80,7 @@ export function useMobileNativeChatController(args: {
     activeSessionTab,
     activeSessionTabId,
     activeHandleRef,
-    connected,
-    nativeChatTranscriptIsLocalReadable
+    connected
   })
 
   const { target: nativeChatTarget, targetRef: nativeChatTargetRef } = useMobileNativeChatTarget({
