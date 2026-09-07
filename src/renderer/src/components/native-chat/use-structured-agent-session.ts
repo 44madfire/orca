@@ -80,7 +80,7 @@ export function useStructuredAgentSession(args: {
   const outboxController = useStructuredAgentSessionOutbox({
     sessionId,
     target,
-    fence: state.fence,
+    fence: summary?.rewindBlockedReason ? null : state.fence,
     submissions: state.submissions
   })
 
@@ -257,7 +257,11 @@ export function useStructuredAgentSession(args: {
     blockedClientMessageId: outboxController.blockedClientMessageId,
     send: (...input: Parameters<typeof outboxController.send>) =>
       !commandPending.current && !rewind.blockedRef.current && outboxController.send(...input),
-    retry: outboxController.retry,
+    retry: (clientMessageId: string) => {
+      if (!rewind.blockedRef.current) {
+        outboxController.retry(clientMessageId)
+      }
+    },
     isWorking: turnId !== null,
     turnActivity,
     isMonitoringBackgroundTasks,

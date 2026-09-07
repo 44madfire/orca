@@ -321,6 +321,7 @@ function NativeChatStructuredSessionContent({
             type="button"
             variant="ghost"
             size="xs"
+            disabled={controller.rewind.pending}
             onClick={() => controller.retry(retryableOutboxEntry.clientMessageId)}
           >
             <RotateCcw className="size-3" />
