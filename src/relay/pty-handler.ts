@@ -36,6 +36,7 @@ import {
 } from './pty-spawn-cwd'
 import { PhysicalExitTracker } from '../shared/physical-exit-tracker'
 import { PTY_ATTACH_PROVEN_EXITED_MARKER } from '../shared/pty-attach-absence-evidence'
+import { toRelayPtyIdWithMintEpoch } from '../shared/relay-pty-mint-epoch'
 import { SHELL_READY_MARKER_PREFIX } from '../main/shell-ready-marker-scanner'
 import {
   createShellStartupOutputScanState,
@@ -1092,7 +1093,11 @@ export class PtyHandler {
       agentSessionCreateOperationVersion: AGENT_SESSION_CREATE_OPERATION_PROTOCOL_VERSION,
       // Additive capability: clients may request the no-process-table inventory
       // projection and consume fenced inspect evidence on this host.
-      foregroundProcessEvidenceVersion: 1
+      foregroundProcessEvidenceVersion: 1,
+      // Additive: names the generation that minted this relay's ids, so a client can read an id's
+      // absence from `pty.listProcesses` as an exit this host observed rather than as a restart.
+      // A relay that omits it leaves every absence unverifiable, which is the shipped behaviour.
+      ptyIdMintEpoch: this.ptyIdMintEpoch
     }))
     this.dispatcher.onRequest('pty.listProcesses', (params) => this.listProcesses(params))
     this.dispatcher.onRequest('pty.getDefaultShell', async () => resolveDefaultShell())
@@ -1863,7 +1868,7 @@ export class PtyHandler {
     const shell = resolvedShellOverride || requestedEnvShell || resolveDefaultShell()
     let id: string
     do {
-      id = `pty2:${encodeURIComponent(this.ptyIdMintEpoch)}:${this.nextId++}`
+      id = toRelayPtyIdWithMintEpoch(this.ptyIdMintEpoch, this.nextId++)
     } while (this.ptys.has(id) || this.pendingReviveIds.has(id))
 
     // Why: augmenter values override renderer env so remote paths and hook coords win over local userData.
