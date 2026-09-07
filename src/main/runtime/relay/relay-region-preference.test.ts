@@ -55,10 +55,17 @@ function cachePath(path: string): string {
   return join(path, 'orca-relay-region-preference.json')
 }
 
-function writeCache(path: string, region: string, expiresAt = 999): void {
+function writeCache(path: string, region: string, expiresAt = 999, fullCatalog = true): void {
   writeFileSync(
     cachePath(path),
-    JSON.stringify({ v: 1, directorUrl: DIRECTOR, region, latencyMs: 100, expiresAt })
+    JSON.stringify({
+      v: 1,
+      directorUrl: DIRECTOR,
+      region,
+      latencyMs: 100,
+      expiresAt,
+      ...(fullCatalog ? { fullCatalog: true } : {})
+    })
   )
 }
 
@@ -407,6 +414,49 @@ describe('Relay region preference', () => {
       expiresAt: 1_000 + 24 * 60 * 60_000
     })
     expect(events).toEqual([expect.objectContaining({ chosenRegion: 'asia-east2' })])
+  })
+
+  it('does not hold an incumbent an older build cached without the full-catalog marker', async () => {
+    // Why: a cache written before this rule may hold a lone survivor. Without the
+    // marker there is no proof it won against the other region, so it is re-earned.
+    const path = userDataPath()
+    writeCache(path, 'asia-east2', 999, false)
+    const healthy = sampledProbe({ [ASIA]: [90, 30, 32, 34] })
+    await expect(
+      new RelayRegionPreferenceResolver({
+        directorUrl: DIRECTOR,
+        userDataPath: path,
+        fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+        probe: healthy.probe,
+        now: () => 1_000
+      }).resolve()
+    ).resolves.toBeUndefined()
+    expect(JSON.parse(readFileSync(cachePath(path), 'utf8'))).toMatchObject({ region: null })
+  })
+
+  it('marks a hint earned against a full catalog, and never a no-hint entry', async () => {
+    const path = userDataPath()
+    const both = sampledProbe({ [US]: [300, 95, 100, 105], [ASIA]: [300, 55, 60, 65] })
+    await new RelayRegionPreferenceResolver({
+      directorUrl: DIRECTOR,
+      userDataPath: path,
+      fetch: catalogFetch(BOTH_REGIONS),
+      probe: both.probe,
+      now: () => 1_000
+    }).resolve()
+    expect(JSON.parse(readFileSync(cachePath(path), 'utf8'))).toMatchObject({
+      region: 'asia-east2',
+      fullCatalog: true
+    })
+
+    const lone = sampledProbe({ [ASIA]: [90, 30, 32, 34] })
+    await new RelayRegionPreferenceResolver({
+      directorUrl: DIRECTOR,
+      userDataPath: userDataPath(),
+      fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+      probe: lone.probe,
+      now: () => 1_000
+    }).resolve()
   })
 
   it('does not promote a lone survivor that is not the incumbent', async () => {

@@ -50,6 +50,9 @@ const RelayRegionCacheSchema = z
     // Null records a deliberate "no hint"; the field is absent only for a region.
     region: RelayRegionSchema.nullable(),
     latencyMs: z.number().finite().nonnegative().max(60_000).optional(),
+    // True only for a region that won against every region the fleet serves.
+    // Absent on caches an older build wrote, which may hold a lone survivor.
+    fullCatalog: z.literal(true).optional(),
     expiresAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
   })
   .strict()
@@ -192,7 +195,11 @@ export class RelayRegionPreferenceResolver {
     // during the other region's roll wave would send the desktop to the default.
     const complete =
       measurements.length === reports.length && reports.length === RELAY_REGIONS.length
-    const incumbent = measurements.find((measurement) => measurement.region === previousRegion)
+    // Only a hint earned against a full catalog may be held through an
+    // incomplete one; a cache without the marker is treated as unverified.
+    const incumbent = previous?.fullCatalog
+      ? measurements.find((measurement) => measurement.region === previousRegion)
+      : undefined
     const selected = complete
       ? selectRegionMeasurement(measurements, previousRegion)
       : (incumbent ?? null)
@@ -208,7 +215,7 @@ export class RelayRegionPreferenceResolver {
     )
     this.writeCache(
       selected
-        ? { region: selected.region, latencyMs: selected.latencyMs, ttlMs }
+        ? { region: selected.region, latencyMs: selected.latencyMs, ttlMs, fullCatalog: true }
         : { region: null, ttlMs },
       now
     )
@@ -241,7 +248,7 @@ export class RelayRegionPreferenceResolver {
   }
 
   private writeCache(
-    entry: { region: RelayRegion | null; latencyMs?: number; ttlMs: number },
+    entry: { region: RelayRegion | null; latencyMs?: number; ttlMs: number; fullCatalog?: true },
     now: number
   ): void {
     try {
@@ -250,6 +257,7 @@ export class RelayRegionPreferenceResolver {
         directorUrl: this.options.directorUrl,
         region: entry.region,
         ...(entry.latencyMs === undefined ? {} : { latencyMs: entry.latencyMs }),
+        ...(entry.fullCatalog ? { fullCatalog: true } : {}),
         expiresAt: now + entry.ttlMs
       } satisfies RelayRegionCache)
     } catch {
