@@ -406,6 +406,39 @@ describe('registerPtyHandlers', () => {
       vi.useRealTimers()
     }
   })
+  it('spares a PTY still round-tripping ACKs while a sibling is written off', () => {
+    vi.useFakeTimers()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const provider = installObservableDaemonTestProvider()
+      registerPtyHandlers(mainWindow as never)
+      provider.emitData('pty-wedged', 'x'.repeat(600 * 1024))
+      provider.emitData('pty-live', 'x'.repeat(600 * 1024))
+      vi.advanceTimersByTime(2)
+      for (let index = 0; index < 400; index++) {
+        vi.advanceTimersByTime(1)
+      }
+
+      // A PARTIAL ACK, so the live pane keeps real debt rather than settling to zero. That is
+      // the state the per-PTY silence skip exists for: the heal is legitimately open because
+      // the wedged pane is silent, and only the skip stops the same pass from writing off a
+      // pane that answered a moment ago and would have repaid the rest itself.
+      getPtyAckDataListener()(null, { id: 'pty-live', processedChars: 256 * 1024 })
+
+      const healed = reportRendererDeliveryState({
+        receivedCharsByPty: { 'pty-wedged': 512 * 1024 },
+        processedCharsByPty: {},
+        parkedCharsByPty: { 'pty-wedged': 512 * 1024 },
+        heal: true,
+        rendererPtyDataListenerCount: 1
+      })
+
+      expect(healed.writtenOff?.map((entry) => entry.id)).toEqual(['pty-wedged'])
+    } finally {
+      warnSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
   it('reports per-PTY debt so the renderer can tell which pane is wedged', async () => {
     vi.useFakeTimers()
     const mockProc = createMockProc()
