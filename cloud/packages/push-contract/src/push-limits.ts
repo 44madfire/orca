@@ -16,7 +16,7 @@ export const PUSH_LIMITS = {
   // Covers routine NTP drift without extending the signed challenge window.
   clockSkewToleranceMs: 30_000,
   sessionTtlMs: 24 * 60 * 60 * 1000,
-  // One hour past the widest quota window so a rolling day never reads a pruned row.
+  // Preserve the legacy daily-quota window for rollback compatibility.
   sendLogRetentionMs: 25 * 60 * 60 * 1000,
   notificationTtlSeconds: 5 * 60,
   apnsCollapseIdMaxBytes: 64,

@@ -43,18 +43,18 @@ describe('push contract limits', () => {
       maxRegistrationIdsPerSend: 20,
       maxDevicesPerHost: 64,
       maxDevicesPerListResponse: 1_024,
-      hostSendsPerRollingHour: 60,
-      registrationSendsPerRollingDay: 200,
+      hostEventsPerWindow: 300,
+      eventQuotaWindowMs: 900_000,
       coalesceWindowMs: 3_000,
       challengeTtlMs: 10_000,
       clockSkewToleranceMs: 30_000,
       sessionTtlMs: 86_400_000,
       sendLogRetentionMs: 90_000_000,
-      notificationTtlSeconds: 14_400,
+      notificationTtlSeconds: 300,
       apnsCollapseIdMaxBytes: 64,
       hostRetentionMs: 3_600_000,
       unauthenticatedRequestsPerMinutePerIp: 30,
-      authenticatedRequestsPerMinutePerIp: 240
+      authenticatedRequestsPerMinutePerHost: 600
     })
     expect(PUSH_DEFAULTS.apnsTopic).toBe('com.stably.orca.mobile')
     expect(PUSH_DEFAULTS.fcmProjectId).toBe('onorca-cloud')
@@ -100,8 +100,9 @@ describe('host authentication schemas', () => {
         extra: true
       }).success
     ).toBe(false)
-    expect(PushHostChallengeRequestSchema.safeParse({ v: 2, hostPublicKeyB64: KEY_B64 }).success)
-      .toBe(false)
+    expect(
+      PushHostChallengeRequestSchema.safeParse({ v: 2, hostPublicKeyB64: KEY_B64 }).success
+    ).toBe(false)
     expect(
       PushHostChallengeRequestSchema.safeParse({
         v: 1,
@@ -198,13 +199,12 @@ describe('device registration schemas', () => {
   })
 
   it('shapes the registration and list responses', () => {
-    expect(PushDeviceRegistrationResponseSchema.safeParse({ registrationId: 'reg-1' }).success)
-      .toBe(true)
+    expect(
+      PushDeviceRegistrationResponseSchema.safeParse({ registrationId: 'reg-1' }).success
+    ).toBe(true)
     expect(
       PushDeviceListResponseSchema.safeParse({
-        devices: [
-          { registrationId: 'reg-1', deviceId: 'device-1', platform: 'ios', dead: false }
-        ]
+        devices: [{ registrationId: 'reg-1', deviceId: 'device-1', platform: 'ios', dead: false }]
       }).success
     ).toBe(true)
     expect(
