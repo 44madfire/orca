@@ -178,23 +178,14 @@ function getHostStickyIndexes(rows: readonly RenderRow[], sticky: readonly numbe
 /**
  * The scroll position the sticky decision must be read from.
  *
- * The element's own `scrollTop` is the only value here that cannot drift. The
- * virtualizer books measured size corrections into its remembered offset before
- * the element scrolls, and re-reads the element only on a scroll event — so a
- * card that grows after mount moves the believed offset while the element stays
- * put. In a list too short to scroll the element can never catch up, and the
- * believed offset then pins a header the user cannot see over the row they can
- * (#18667). Toggling a group re-measures and drifts it again, which is the same
- * defect seen as headers jumping.
+ * The element's own `scrollTop` cannot drift. The virtualizer books measured size corrections
+ * into its remembered offset before the element scrolls and re-reads the element only on a scroll
+ * event, so a card that grows after mount moves the believed offset while the element stays put.
+ * In a list too short to scroll the element never catches up, and the believed offset then pins a
+ * header the user cannot see over the row they can (#18667); toggling a group drifts it again,
+ * which is the same defect seen as headers jumping.
  *
- * Reading the element keeps the pinned header tied to what is actually on
- * screen. The remembered offset stays as the fallback for the pre-mount pass,
- * where there is no element to ask.
- *
- * This runs once per measurement pass, not once per row. Nothing is claimed here about what that
- * read costs: two attempts at a justification were wrong — the library does not call
- * getBoundingClientRect at all, and the sidebar does write scrollTop elsewhere (drag autoscroll,
- * sleep flow, context menu) — so the honest state is that the cost has not been measured.
+ * One call site, so one read per render pass rather than per row.
  */
 export function resolveStickyScrollOffset(args: {
   element: Pick<HTMLElement, 'scrollTop'> | null

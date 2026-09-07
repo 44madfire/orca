@@ -49,11 +49,8 @@ const DRIFTED_OFFSET = 70
 function createScrollElement(scrollTop: number): HTMLDivElement {
   const element = document.createElement('div')
   document.body.append(element)
-  // A plain writable property, like a real element. The scroll-anchor listener writes this once
-  // from a layout effect (virtualized-scroll-anchor-listener.ts:47), which lands AFTER the render
-  // that computes the sticky index, so it cannot affect the assertion. Verified rather than
-  // assumed: a getter with a no-op setter produces identical results in both tests and under the
-  // call-site ablation, so pinning the value buys nothing here.
+  // The scroll-anchor listener writes this once from a layout effect, after the render that
+  // computes the sticky index, so it cannot reach the assertion.
   element.scrollTop = scrollTop
   return element
 }
