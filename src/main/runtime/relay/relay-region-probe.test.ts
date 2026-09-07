@@ -9,18 +9,26 @@ const CONTRACT_SOURCE = readFileSync(
   'utf8'
 )
 
-const DECLARATION = /^export const RELAY_REGIONS = \[([^\]]+)\] as const(?: satisfies .+)?$/m
+const DECLARATION = /^export const RELAY_REGIONS = \[([^\]]+)\] as const(?: satisfies .+)?$/gm
 const QUOTED_REGION = /^(['"])([^'"]+)\1$/
+
+// Without this a commented-out declaration is matched instead of the live one. The contract file
+// keeps no `//` inside a string literal, so block comments plus whole-line `//` cover it.
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+}
 
 describe('RELAY_REGIONS', () => {
   it('matches the relay contract exactly, region for region and in order', () => {
-    const declaration = DECLARATION.exec(CONTRACT_SOURCE)
+    const declarations = [...stripComments(CONTRACT_SOURCE).matchAll(DECLARATION)]
+    // Exactly one: zero means the shape moved, and a second live-looking one means this test
+    // would be pinning against whichever came first.
     expect(
-      declaration,
-      'relay-regions.ts no longer declares RELAY_REGIONS as an inline array'
-    ).not.toBeNull()
+      declarations.length,
+      'relay-regions.ts must declare RELAY_REGIONS exactly once as an inline array'
+    ).toBe(1)
 
-    const elements = declaration![1].split(',').map((element) => element.trim())
+    const elements = declarations[0]![1]!.split(',').map((element) => element.trim())
     if (elements.at(-1) === '') {
       elements.pop() // trailing comma
     }
