@@ -119,11 +119,11 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
       timers.push(setTimeout(fn, ms))
     }
     hydrationRef.current = (async () => {
-      await ensureSessionTabs().catch(() => null)
-      if (disposed) {
-        return
-      }
-      await fetchTerminals({ allowEmptyLoaded: false })
+      // Why: independent host reads; serialising them cost a whole extra round trip on every connect.
+      await Promise.all([
+        ensureSessionTabs().catch(() => null),
+        fetchTerminals({ allowEmptyLoaded: false })
+      ])
       if (disposed) {
         return
       }

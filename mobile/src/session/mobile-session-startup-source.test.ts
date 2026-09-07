@@ -154,8 +154,11 @@ describe('mobile session startup', () => {
       startupSource
     )
 
-    expect(readsEffect).toContain('await ensureSessionTabs().catch(() => null)')
-    expect(readsEffect).toContain('await fetchTerminals({ allowEmptyLoaded: false })')
+    expect(readsEffect).toContain('await Promise.all([')
+    const parallelReads = sliceBetween('await Promise.all([', '])', readsEffect)
+    // Why: ensureSessionTabs can reject, and must not strand the follow-up refreshes.
+    expect(parallelReads).toContain('ensureSessionTabs().catch(() => null)')
+    expect(parallelReads).toContain('fetchTerminals({ allowEmptyLoaded: false })')
     expect(readsEffect).toContain(
       'addTimer(() => void fetchTerminals({ allowEmptyLoaded: false }), 750)'
     )
