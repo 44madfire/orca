@@ -14,9 +14,11 @@ import { agentProviderSessionsEqual } from '../../../shared/agent-session-resume
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import { normalizeOptionalField } from '../../../shared/agent-status-field-normalization'
 import { AGENT_MODEL_MAX_LENGTH } from '../../../shared/agent-status-types'
-import type {
-  AgentSessionStatusEvent,
-  AgentSessionStatusSummary
+import {
+  agentSessionBackgroundTasksEqual,
+  type AgentSessionBackgroundTaskState,
+  type AgentSessionStatusEvent,
+  type AgentSessionStatusSummary
 } from '../../../shared/agent-session-wire'
 import { projectStructuredAgentSessionStatusSummary } from '../../../shared/structured-agent-session-projection'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
@@ -39,6 +41,9 @@ export type StructuredAgentSessionStatusFeedDeps = {
   /** Every projection change, whether or not anyone is subscribed. `replay` marks a re-projection
    *  of state the host already knew (restore, an arriving subscriber) rather than a journal edge. */
   onStatusChanged?: (summary: AgentSessionStatusSummary, options: { replay: boolean }) => void
+  /** Live provider-owned background tasks for the summary, so session lists can
+   *  render subagent children. Optional: a provider without the hook projects none. */
+  readBackgroundTasks?: (sessionId: string) => AgentSessionBackgroundTaskState | null | undefined
 }
 
 function summariesEqual(a: AgentSessionStatusSummary, b: AgentSessionStatusSummary): boolean {
@@ -53,8 +58,34 @@ function summariesEqual(a: AgentSessionStatusSummary, b: AgentSessionStatusSumma
     a.toolName === b.toolName &&
     a.toolInput === b.toolInput &&
     a.lastAssistantMessage === b.lastAssistantMessage &&
+    agentSessionBackgroundTasksEqual(a.backgroundTasks, b.backgroundTasks) &&
     agentProviderSessionsEqual(undefined, a.providerSession, b.providerSession)
   )
+}
+
+/** Wire the host's own deps into a feed; keeps the host at one call site.
+ *  `deps` is a thunk because the host builds the feed in a field initializer,
+ *  before its constructor parameters are assigned. */
+export function createStructuredAgentSessionHostStatusFeed(args: {
+  sessions: StructuredAgentSessionStatusFeedDeps['sessions']
+  now: () => number
+  deps: () => {
+    store: { getRecord: (sessionId: string) => AgentSessionRecord | null }
+    adapter: {
+      backgroundTaskState?: (
+        sessionId: string
+      ) => AgentSessionBackgroundTaskState | null | undefined
+    }
+    onSessionStatusChanged?: StructuredAgentSessionStatusFeedDeps['onStatusChanged']
+  }
+}): StructuredAgentSessionStatusFeed {
+  return new StructuredAgentSessionStatusFeed({
+    sessions: args.sessions,
+    getRecord: (sessionId) => args.deps().store.getRecord(sessionId),
+    now: args.now,
+    onStatusChanged: (summary, options) => args.deps().onSessionStatusChanged?.(summary, options),
+    readBackgroundTasks: (sessionId) => args.deps().adapter.backgroundTaskState?.(sessionId)
+  })
 }
 
 export class StructuredAgentSessionStatusFeed {
@@ -121,12 +152,14 @@ export class StructuredAgentSessionStatusFeed {
     // The journal has no model: the record's acknowledged options are where an owner
     // handoff or a mid-session switch lands, so the row follows whichever is in force.
     const model = normalizeOptionalField(record?.options?.model, AGENT_MODEL_MAX_LENGTH)
+    const backgroundTasks = this.deps.readBackgroundTasks?.(sessionId)?.tasks
     return {
       sessionId,
       workspaceId: session.params.location.workspaceId,
       agent: session.params.provider,
       ...projectStructuredAgentSessionStatusSummary(items),
       ...(model ? { model } : {}),
+      ...(backgroundTasks && backgroundTasks.length > 0 ? { backgroundTasks } : {}),
       ...(providerSession ? { providerSession } : {}),
       updatedAt: journal.lastActivityAt() || this.deps.now()
     }

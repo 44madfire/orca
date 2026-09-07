@@ -63,11 +63,13 @@ function indexed(session: { journal: Awaited<ReturnType<typeof openJournal>> }) 
 function feedFor(
   sessions: Map<string, { journal: Awaited<ReturnType<typeof openJournal>> }>,
   record: Partial<AgentSessionRecord> | null = null,
-  onStatusChanged?: StructuredAgentSessionStatusFeedDeps['onStatusChanged']
+  onStatusChanged?: StructuredAgentSessionStatusFeedDeps['onStatusChanged'],
+  readBackgroundTasks?: StructuredAgentSessionStatusFeedDeps['readBackgroundTasks']
 ) {
   let now = 1_000
   const feed = new StructuredAgentSessionStatusFeed({
     ...(onStatusChanged ? { onStatusChanged } : {}),
+    ...(readBackgroundTasks ? { readBackgroundTasks } : {}),
     sessions: {
       get: (sessionId: string) => {
         const session = sessions.get(sessionId)
@@ -521,5 +523,44 @@ describe('StructuredAgentSessionStatusFeed', () => {
       type: 'status',
       session: expect.objectContaining({ status: 'idle', latestPrompt: 'hello' })
     })
+  })
+
+  it('projects live background tasks and republishes a task-only state change', async () => {
+    const journal = await openJournal()
+    let tasks = [
+      { id: 'task-1', kind: 'agent' as const, name: 'deep_review', state: 'working' as const }
+    ]
+    const { feed, events } = feedFor(new Map([[SESSION, { journal }]]), null, undefined, () => ({
+      state: 'monitoring',
+      tasks
+    }))
+    await journal.appendItem(
+      USER_IDENTITY,
+      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'fan out' }] },
+      { fence: 1 }
+    )
+    feed.publish(SESSION, journal)
+    expect(events.at(-1)).toEqual({
+      type: 'status',
+      session: expect.objectContaining({
+        backgroundTasks: [{ id: 'task-1', kind: 'agent', name: 'deep_review', state: 'working' }]
+      })
+    })
+
+    // No journal change: only the task state moved.
+    tasks = [{ id: 'task-1', kind: 'agent', name: 'deep_review', state: 'waiting' as never }]
+    const before = events.length
+    feed.publish(SESSION, journal)
+    expect(events).toHaveLength(before + 1)
+    expect(events.at(-1)).toEqual({
+      type: 'status',
+      session: expect.objectContaining({
+        backgroundTasks: [expect.objectContaining({ state: 'waiting' })]
+      })
+    })
+
+    // An identical projection is suppressed.
+    feed.publish(SESSION, journal)
+    expect(events).toHaveLength(before + 1)
   })
 })

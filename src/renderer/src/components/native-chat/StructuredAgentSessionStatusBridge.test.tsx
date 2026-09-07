@@ -197,6 +197,89 @@ describe('StructuredAgentSessionStatusBridge', () => {
     expect(statuses()).toEqual([expect.objectContaining({ state: 'blocked' })])
   })
 
+  it('publishes agent-kind background tasks as the sidebar subagent children', async () => {
+    render(<StructuredAgentSessionStatusBridge />)
+    await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())
+
+    act(() =>
+      feed().emit({
+        type: 'snapshot',
+        sessions: [
+          summary({
+            backgroundTasks: [
+              {
+                id: 'child-1',
+                kind: 'agent',
+                name: 'deep_review',
+                description: 'Review the diff',
+                state: 'working',
+                startedAt: 500
+              },
+              // A backgrounded shell is not a subagent; kinds stay distinct.
+              { id: 'shell-1', kind: 'command', description: 'sleep 180', state: 'working' }
+            ]
+          })
+        ]
+      })
+    )
+    expect(statuses()).toEqual([
+      expect.objectContaining({
+        subagents: [
+          {
+            id: 'child-1',
+            state: 'working',
+            startedAt: 500,
+            agentType: 'deep_review',
+            description: 'Review the diff'
+          }
+        ]
+      })
+    ])
+
+    // An unchanged roster must not rewrite the store.
+    const writes = mocks.setAgentStatus.mock.calls.length
+    act(() =>
+      feed().emit({
+        type: 'status',
+        session: summary({
+          backgroundTasks: [
+            {
+              id: 'child-1',
+              kind: 'agent',
+              name: 'deep_review',
+              description: 'Review the diff',
+              state: 'working',
+              startedAt: 500
+            },
+            { id: 'shell-1', kind: 'command', description: 'sleep 180', state: 'working' }
+          ]
+        })
+      })
+    )
+    expect(mocks.setAgentStatus.mock.calls.length).toBe(writes)
+
+    act(() =>
+      feed().emit({
+        type: 'status',
+        session: summary({
+          updatedAt: 2,
+          backgroundTasks: [
+            { id: 'child-1', kind: 'agent', name: 'deep_review', state: 'waiting', startedAt: 500 }
+          ]
+        })
+      })
+    )
+    expect(statuses()).toEqual([
+      expect.objectContaining({
+        subagents: [expect.objectContaining({ id: 'child-1', state: 'waiting' })]
+      })
+    ])
+
+    // A summary without tasks ends the fan-out: children clear with it.
+    act(() => feed().emit({ type: 'status', session: summary({ status: 'idle', updatedAt: 3 }) }))
+    expect(statuses()).toEqual([expect.objectContaining({ subagents: undefined })])
+  })
+
   it('carries the model, the running tool line, and the last assistant message', async () => {
     render(<StructuredAgentSessionStatusBridge />)
     await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())

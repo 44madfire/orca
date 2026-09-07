@@ -253,6 +253,10 @@ export type AgentSessionStatusSummary = {
   toolInput?: string
   /** Preview of the newest assistant prose, so a settled row says what the agent said. */
   lastAssistantMessage?: string
+  /** Live provider-owned background tasks, so session lists can render
+   *  subagent children without holding a journal reader open. Optional for
+   *  mixed-version hosts. */
+  backgroundTasks?: AgentSessionBackgroundTask[]
   providerSession?: AgentProviderSessionMetadata
   updatedAt: number
 }

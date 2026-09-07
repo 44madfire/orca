@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { agentProviderSessionsEqual } from '../../../../shared/agent-session-resume'
-import type { AgentSessionStatusSummary } from '../../../../shared/agent-session-wire'
+import type {
+  AgentSessionBackgroundTask,
+  AgentSessionStatusSummary
+} from '../../../../shared/agent-session-wire'
+import {
+  AGENT_STATUS_MAX_SUBAGENTS,
+  agentSubagentsEqual,
+  type AgentSubagentSnapshot,
+  type AgentSubagentState
+} from '../../../../shared/agent-status-types'
 import { structuredAgentSessionPaneKey } from '../../../../shared/structured-agent-session-projection'
 import type { Tab } from '../../../../shared/tab-types'
 import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
@@ -56,6 +65,57 @@ function useStructuredAgentSessionStatusSummary(
   )
 }
 
+/** Matches the wire-parse bound in `normalizeSubagentSnapshot`. */
+const SUBAGENT_ID_MAX_LENGTH = 64
+
+function subagentStateFromTask(task: AgentSessionBackgroundTask): AgentSubagentState {
+  switch (task.state) {
+    case 'waiting':
+      return 'waiting'
+    case 'blocked':
+      return 'blocked'
+    case 'done':
+    case 'idle':
+    case 'unverifiable':
+      return 'idle'
+    // Absent state is an old host's live task; live means working here.
+    case 'working':
+    case 'monitoring':
+    case undefined:
+      return 'working'
+  }
+}
+
+/** Sidebar children for a structured session: the agent-kind background tasks
+ *  the host publishes, mapped to the sidebar's own subagent vocabulary rather
+ *  than widening it. Kinds stay distinct — a backgrounded shell never counts
+ *  as a subagent. */
+function subagentSnapshotsFromTasks(
+  tasks: AgentSessionBackgroundTask[] | undefined
+): AgentSubagentSnapshot[] | undefined {
+  if (!tasks) {
+    return undefined
+  }
+  const snapshots: AgentSubagentSnapshot[] = []
+  for (const task of tasks) {
+    const id = task.id.trim()
+    if (task.kind !== 'agent' || id.length === 0 || id.length > SUBAGENT_ID_MAX_LENGTH) {
+      continue
+    }
+    snapshots.push({
+      id,
+      state: subagentStateFromTask(task),
+      startedAt: task.startedAt ?? 0,
+      ...(task.name ? { agentType: task.name } : {}),
+      ...(task.description ? { description: task.description } : {})
+    })
+    if (snapshots.length >= AGENT_STATUS_MAX_SUBAGENTS) {
+      break
+    }
+  }
+  return snapshots.length > 0 ? snapshots : undefined
+}
+
 function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | null): void {
   const paneKey = structuredAgentSessionPaneKey(tab.id, tab.entityId)
   const store = useAppStore.getState()
@@ -66,6 +126,12 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     }
     return
   }
+  // `parentIsFresh` for these children means "the host feed reported a change
+  // inside the sidebar's ordinary evidence window": every publish below stamps
+  // evidenceObservedAt, a structured session has no hook stream to go quiet,
+  // and a dead feed simply stops restamping — so children decay to idle
+  // instead of pinning 'working' on lost contact.
+  const subagents = subagentSnapshotsFromTasks(summary.backgroundTasks)
   const desired = {
     state:
       summary.status === 'working'
@@ -81,6 +147,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     ...(summary.toolName ? { toolName: summary.toolName } : {}),
     ...(summary.toolInput ? { toolInput: summary.toolInput } : {}),
     ...(summary.lastAssistantMessage ? { lastAssistantMessage: summary.lastAssistantMessage } : {}),
+    ...(subagents ? { subagents } : {}),
     sessionBoundary: false
   } as const
   const current = store.agentStatusByPaneKey?.[paneKey]
@@ -93,6 +160,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     current.toolName === summary.toolName &&
     current.toolInput === summary.toolInput &&
     current.lastAssistantMessage === summary.lastAssistantMessage &&
+    agentSubagentsEqual(current.subagents, subagents) &&
     current.sessionBoundary === desired.sessionBoundary &&
     current.updatedAt === summary.updatedAt &&
     current.terminalTitle === tab.label &&
