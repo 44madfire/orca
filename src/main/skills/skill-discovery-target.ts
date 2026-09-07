@@ -35,9 +35,9 @@ const MAX_CACHED_SKILL_TARGETS = 32
 // This timer is also the *only* thing bounding a stalled host. The scan
 // coalescer's abandon-for-age aborts its own signal, which this task never
 // reads, so that abort is a no-op here. The mux timer is what expires the
-// request and notifies `rpc.cancel` so the relay stops its filesystem work too
-// (ssh-channel-multiplexer.ts). Do not remove it on the belief the coalescer
-// covers the stall case.
+// request and sends `rpc.cancel`; discovery does not consume the relay request
+// signal, so its shared filesystem scans can continue after the caller expires.
+// Do not remove the client timeout on the belief the coalescer covers the stall.
 const SSH_DISCOVERY_TIMEOUT_MS = 9_000
 
 const targetScans = new SkillScanCoalescer<SkillDiscoveryResult>(MAX_CACHED_SKILL_TARGETS)

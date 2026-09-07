@@ -27,8 +27,7 @@ describe('SshRelaySession skill-capability teardown', () => {
       targetId,
       deps.getMainWindow,
       deps.mockStore,
-      deps.mockPortForward,
-      deps.runtime as never
+      deps.mockPortForward
     ) as unknown as {
       teardownProviders: (reason: 'shutdown' | 'connection_lost') => void
     }
