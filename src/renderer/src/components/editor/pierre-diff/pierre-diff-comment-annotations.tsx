@@ -94,6 +94,7 @@ export function renderPierreDiffCommentAnnotation(
 
   return (
     <DiffCommentCard
+      commentId={comment.id}
       lineNumber={comment.lineNumber}
       startLine={comment.startLine}
       label={comment.author ? getDiffCommentLineLabel(comment).toLowerCase() : undefined}

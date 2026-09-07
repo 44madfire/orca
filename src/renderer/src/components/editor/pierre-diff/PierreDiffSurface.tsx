@@ -27,6 +27,7 @@ import {
 import { usePierreDiffFind } from './use-pierre-diff-find'
 import { installPierreContextualCopy } from './pierre-diff-context-copy'
 import { editorShortcutMatches } from '../editor-shortcuts'
+import { usePierreDiffNoteNavigation } from './use-pierre-diff-note-navigation'
 
 export type PierreDiffInstance = PierreFileDiff<PierreDiffAnnotationData> &
   Partial<Pick<VirtualizedFileDiff, 'getLinePosition'>>
@@ -99,6 +100,7 @@ export function PierreDiffSurface({
   onEditChangeRef.current = onEditChange
   const { editEnabled, handleContainerKeyDown, handleContainerBlur, handleEditorAttach } =
     usePierreDiffFind({ isEditable, containerRef })
+  const navigateToNote = usePierreDiffNoteNavigation({ worktreeId, filePath, comments })
 
   // Why: Monaco's diff panes owned `editor.copyContext`; restore it for Pierre rows.
   const fileInfoRef = useRef({ relativePath: filePath, language: language ?? '' })
@@ -130,12 +132,12 @@ export function PierreDiffSurface({
             })
           }
         : undefined,
-      onPostRender: onPostRender
-        ? (node: HTMLElement, instance: PierreDiffInstance, phase: PostRenderPhase) =>
-            onPostRender(node, phase, instance)
-        : undefined
+      onPostRender: (node: HTMLElement, instance: PierreDiffInstance, phase: PostRenderPhase) => {
+        onPostRender?.(node, phase, instance)
+        navigateToNote(node, phase, instance)
+      }
     }),
-    [settings, sideBySide, collapseUnchanged, onPostRender, onAddComment]
+    [settings, sideBySide, collapseUnchanged, onPostRender, onAddComment, navigateToNote]
   )
   const style = useMemo(
     () => buildPierreDiffStyle(settings, editorFontZoomLevel),
