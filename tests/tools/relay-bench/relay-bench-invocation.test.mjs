@@ -168,6 +168,10 @@ describe('classifyPublicHttpsOrigin', () => {
     ['not a url', 'not a URL'],
     ['https://[64:ff9b::7f00:1]/', 'loopback, link-local, or private'],
     ['https://[64:ff9b::a9fe:a9fe]/', 'loopback, link-local, or private'],
+    ['https://[64:ff9b:1::7f00:1]/', 'loopback, link-local, or private'],
+    ['https://[2002:7f00:1::]/', 'loopback, link-local, or private'],
+    ['https://[2002:c0a8:101::1]/', 'loopback, link-local, or private'],
+    ['https://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/', 'loopback, link-local, or private'],
     ['', 'missing origin']
   ])('refuses %s', (value, reason) => {
     const verdict = classifyPublicHttpsOrigin(value)
@@ -175,8 +179,11 @@ describe('classifyPublicHttpsOrigin', () => {
     expect(verdict.reason).toContain(reason)
   })
 
-  it('accepts a NAT64 address that embeds a public v4 address', () => {
+  it('accepts transition addresses that embed a public v4 address', () => {
     expect(classifyPublicHttpsOrigin('https://[64:ff9b::808:808]/').ok).toBe(true)
+    expect(classifyPublicHttpsOrigin('https://[2002:808:808::]/').ok).toBe(true)
+    // A 2001: address outside the Teredo /32 is ordinary global unicast.
+    expect(classifyPublicHttpsOrigin('https://[2001:db8::1]/').ok).toBe(true)
   })
 
   it('never echoes control bytes from a refused value, since the desktop chose it', () => {

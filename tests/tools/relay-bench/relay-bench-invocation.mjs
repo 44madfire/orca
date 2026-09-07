@@ -190,28 +190,39 @@ function ipv6ToBytes(host) {
   return bytes
 }
 
+function v4At(bytes, offset) {
+  return (
+    ((bytes[offset] << 24) >>> 0) +
+    (bytes[offset + 1] << 16) +
+    (bytes[offset + 2] << 8) +
+    bytes[offset + 3]
+  )
+}
+
 function isPublicIpv6(bytes) {
   const leadingZeros = bytes.slice(0, 10).every((byte) => byte === 0)
   if (leadingZeros && bytes[10] === 0xff && bytes[11] === 0xff) {
-    return isPublicIpv4(
-      ((bytes[12] << 24) >>> 0) + (bytes[13] << 16) + (bytes[14] << 8) + bytes[15]
-    )
+    return isPublicIpv4(v4At(bytes, 12))
   }
   if (leadingZeros && bytes[10] === 0 && bytes[11] === 0) {
     // Covers :: and ::1 as well as the deprecated v4-compatible form.
     return false
   }
-  // NAT64 (64:ff9b::/96) reaches the embedded v4 address, so judge that address.
+  // Transition prefixes that reach an embedded v4 address: judge that address.
+  // NAT64 64:ff9b::/96 and 64:ff9b:1::/48 (v4 in the last 32 bits), 6to4 2002::/16
+  // (v4 in bits 16-47). Teredo 2001:0::/32 embeds the client v4 inverted, so it is refused.
+  const nat64 = bytes[0] === 0x00 && bytes[1] === 0x64 && bytes[2] === 0xff && bytes[3] === 0x9b
   if (
-    bytes[0] === 0x00 &&
-    bytes[1] === 0x64 &&
-    bytes[2] === 0xff &&
-    bytes[3] === 0x9b &&
-    bytes.slice(4, 12).every((byte) => byte === 0)
+    nat64 &&
+    (bytes.slice(4, 12).every((byte) => byte === 0) || (bytes[4] === 0 && bytes[5] === 1))
   ) {
-    return isPublicIpv4(
-      ((bytes[12] << 24) >>> 0) + (bytes[13] << 16) + (bytes[14] << 8) + bytes[15]
-    )
+    return isPublicIpv4(v4At(bytes, 12))
+  }
+  if (bytes[0] === 0x20 && bytes[1] === 0x02) {
+    return isPublicIpv4(v4At(bytes, 2))
+  }
+  if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] === 0 && bytes[3] === 0) {
+    return false
   }
   if ((bytes[0] & 0xfe) === 0xfc || bytes[0] === 0xff) {
     return false

@@ -170,7 +170,7 @@ export function dialRelay({
           const msg = JSON.parse(text)
           if (msg.type !== 'e2ee_authenticated') {
             // Type only: the plaintext is the desktop's and would land in row.error.
-            throw new Error(`auth rejected: desktop sent ${JSON.stringify(msg.type ?? null)}`)
+            throw new Error(`auth rejected: desktop sent ${describeUntrustedText(msg.type)}`)
           }
           mark('e2eeAuthenticated')
           stage = 'ready'
@@ -401,7 +401,9 @@ async function pair(pairingUrl, statePath) {
   const resumeToken = b64url(nacl.randomBytes(32))
   const resumeTokenHash = b64url(sha256(utf8(resumeToken)))
   const installReqId = `install-${b64url(nacl.randomBytes(12))}`
-  console.log(`pair: dialing ${relay.cellUrl} host=${relay.relayHostId}`)
+  // The offer is operator-pasted text: the vetted origin, not the raw URL, and the host id
+  // through the same scrub as any other peer-chosen string.
+  console.log(`pair: dialing ${verdict.origin} host=${describeUntrustedText(relay.relayHostId)}`)
   const dial = await dialRelay({
     cellUrl: relay.cellUrl,
     relayHostId: relay.relayHostId,
