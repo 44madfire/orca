@@ -155,25 +155,43 @@ describe.skipIf(process.platform === 'win32')('runtime config.toml backup mode (
 // works in isolation never proves it is wired in — dropping the argument at the
 // two call sites left the whole unit-test suite green.
 describe('home-local rewrite reaches the mirrored file (STA-6706)', () => {
-  it('re-roots a bundled marketplace source in the written runtime config', () => {
+  const BUNDLED = '.tmp/bundled-marketplaces/openai-bundled'
+  const writeMarketplaceConfig = (): void =>
     writeFileSync(
       systemConfigPath(),
       [
         'model = "gpt-5"',
         '',
         '[marketplaces.openai-bundled]',
-        `source = "${systemHome()}/.tmp/bundled-marketplaces/openai-bundled"`,
+        `source = "${systemHome()}/${BUNDLED}"`,
         ''
       ].join('\n'),
       'utf-8'
     )
 
+  it('re-roots a bundled marketplace source in the written runtime config', () => {
+    writeMarketplaceConfig()
+    // Codex materialises this per home; the rewrite is conditional on it.
+    mkdirSync(join(userDataDir, 'codex-runtime-home', 'home', BUNDLED), { recursive: true })
+
     syncSystemConfigIntoManagedCodexHome()
 
     const written = readFileSync(runtimeConfigPath(), 'utf-8')
     // The runtime home, not the standalone one: pointing at ~/.codex is what
-    // silently drops the bundled plugin.
-    expect(written).toContain('codex-runtime-home/home/.tmp/bundled-marketplaces/openai-bundled')
+    // stops Codex recognising it as bundled and silently drops the plugin.
+    expect(written).toContain(`codex-runtime-home/home/${BUNDLED}`)
     expect(written).not.toContain(`${systemHome()}/.tmp/bundled-marketplaces`)
+  })
+
+  it('leaves the source path alone when the runtime home has no bundled directory', () => {
+    writeMarketplaceConfig()
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    // The shared runtime home in the field is exactly this case. Today's value
+    // at least resolves; replacing it with a nonexistent path would be worse.
+    const written = readFileSync(runtimeConfigPath(), 'utf-8')
+    expect(written).toContain(`${systemHome()}/${BUNDLED}`)
+    expect(written).not.toContain(`codex-runtime-home/home/${BUNDLED}`)
   })
 })

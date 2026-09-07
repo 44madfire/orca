@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { posix as pathPosix, win32 as pathWin32 } from 'node:path'
 import {
@@ -188,11 +189,21 @@ function isHomeLocalPathConfigKey(tablePath: string, key: string): boolean {
  *
  * Only values that actually live inside the source home are moved; anything
  * pointing elsewhere is the user's own path and is left exactly as written.
+ *
+ * Conditional on the rewritten target existing, and that is the whole safety
+ * argument. A bundled marketplace is recognised only when its source sits inside
+ * the active home — but Codex materialises that directory itself, per home, and
+ * a home that never received one has nothing to point at. Rewriting there would
+ * trade "points at the wrong home, but the path resolves" for "points at
+ * nothing", which is strictly worse. Rewriting only when the target is really
+ * present makes this no worse than today in every case, and better wherever the
+ * directory exists.
  */
 export function rewriteHomeLocalConfigValues(
   config: string,
   sourceHomePath: string,
-  runtimeHomePath: string
+  runtimeHomePath: string,
+  targetExists: (path: string) => boolean = existsSync
 ): string {
   if (!sourceHomePath || !runtimeHomePath || sourceHomePath === runtimeHomePath) {
     return config
@@ -208,7 +219,13 @@ export function rewriteHomeLocalConfigValues(
       if (header) {
         tablePath = getTomlHeaderPath(header)
       } else {
-        lines[index] = rewriteHomeLocalConfigLine(line, tablePath, sourceHomePath, runtimeHomePath)
+        lines[index] = rewriteHomeLocalConfigLine(
+          line,
+          tablePath,
+          sourceHomePath,
+          runtimeHomePath,
+          targetExists
+        )
       }
     }
     scanState = updateTomlLineScanState(scanState, line)
@@ -221,7 +238,8 @@ function rewriteHomeLocalConfigLine(
   line: string,
   tablePath: string,
   sourceHomePath: string,
-  runtimeHomePath: string
+  runtimeHomePath: string,
+  targetExists: (path: string) => boolean
 ): string {
   const equalsIndex = line.indexOf('=')
   if (equalsIndex === -1) {
@@ -236,7 +254,10 @@ function rewriteHomeLocalConfigLine(
     return line
   }
   const moved = reRootHomeLocalPath(parsed.value, sourceHomePath, runtimeHomePath)
-  if (moved === null) {
+  // Why the existence check: see rewriteHomeLocalConfigValues. Pointing at a
+  // directory that was never materialised is worse than the wrong-home path it
+  // would replace, because that one at least resolves.
+  if (moved === null || !targetExists(moved)) {
     return line
   }
   return `${line.slice(0, parsed.start)}${quoteTomlPath(moved)}${line.slice(parsed.end)}`

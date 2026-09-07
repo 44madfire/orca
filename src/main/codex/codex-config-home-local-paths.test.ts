@@ -4,8 +4,10 @@ import { rewriteHomeLocalConfigValues } from './codex-config-path-reference-rewr
 const SOURCE_HOME = '/home/user/.codex'
 const RUNTIME_HOME = '/home/user/.config/orca/codex-runtime-home/home'
 
+/** Pure cases: the target is assumed present so they exercise path semantics.
+ *  The existence condition itself is covered by its own describe below. */
 const rewrite = (config: string): string =>
-  rewriteHomeLocalConfigValues(config, SOURCE_HOME, RUNTIME_HOME)
+  rewriteHomeLocalConfigValues(config, SOURCE_HOME, RUNTIME_HOME, () => true)
 
 // STA-6706: a bundled marketplace only loads when its source sits inside the
 // ACTIVE CODEX_HOME. Copying the value verbatim points the runtime home at the
@@ -29,7 +31,8 @@ describe('home-local config paths (STA-6706)', () => {
     const rewritten = rewriteHomeLocalConfigValues(
       config,
       `${process.env.HOME}/.codex`,
-      RUNTIME_HOME
+      RUNTIME_HOME,
+      () => true
     )
 
     expect(rewritten).toContain(`source = '${RUNTIME_HOME}/.tmp/bundled'`)
@@ -59,7 +62,7 @@ describe('home-local config paths (STA-6706)', () => {
   it('is a no-op when both homes are the same', () => {
     const config = ['[marketplaces.openai-bundled]', `source = "${SOURCE_HOME}/.tmp/b"`].join('\n')
 
-    expect(rewriteHomeLocalConfigValues(config, SOURCE_HOME, SOURCE_HOME)).toBe(config)
+    expect(rewriteHomeLocalConfigValues(config, SOURCE_HOME, SOURCE_HOME, () => true)).toBe(config)
   })
 })
 
@@ -77,7 +80,7 @@ describe('home-local config paths on Windows', () => {
       `source = '${WIN_SOURCE}\\.tmp\\bundled-marketplaces\\openai-bundled'`
     ].join('\n')
 
-    const rewritten = rewriteHomeLocalConfigValues(config, WIN_SOURCE, WIN_RUNTIME)
+    const rewritten = rewriteHomeLocalConfigValues(config, WIN_SOURCE, WIN_RUNTIME, () => true)
 
     expect(rewritten).toContain('AppData\\Roaming\\orca\\codex-runtime-home\\home')
     expect(rewritten).not.toContain(`${WIN_SOURCE}\\.tmp`)
@@ -86,7 +89,7 @@ describe('home-local config paths on Windows', () => {
   it('leaves a Windows path outside the source home untouched', () => {
     const config = ['[marketplaces.local]', "source = 'D:\\shared\\marketplace'"].join('\n')
 
-    expect(rewriteHomeLocalConfigValues(config, WIN_SOURCE, WIN_RUNTIME)).toBe(config)
+    expect(rewriteHomeLocalConfigValues(config, WIN_SOURCE, WIN_RUNTIME, () => true)).toBe(config)
   })
 })
 
@@ -96,6 +99,44 @@ describe('home-local key matching', () => {
     // would point at a directory the mirror never copies.
     const config = ['[marketplaces.x.auth]', "source = '/home/user/.codex/creds'"].join('\n')
 
-    expect(rewriteHomeLocalConfigValues(config, '/home/user/.codex', RUNTIME_HOME)).toBe(config)
+    expect(
+      rewriteHomeLocalConfigValues(config, '/home/user/.codex', RUNTIME_HOME, () => true)
+    ).toBe(config)
+  })
+})
+
+// The safety argument for the whole rewrite. Codex materialises the bundled
+// marketplace directory itself, per home, so a home that never received one has
+// nothing to point at. Rewriting there would replace a path that resolves with
+// one that does not — strictly worse than doing nothing.
+describe('home-local rewrite is conditional on the target existing', () => {
+  const config = [
+    '[marketplaces.openai-bundled]',
+    `source = "${SOURCE_HOME}/.tmp/bundled-marketplaces/openai-bundled"`
+  ].join('\n')
+
+  it('leaves the value byte-identical when the runtime home has no such directory', () => {
+    const probed: string[] = []
+
+    const rewritten = rewriteHomeLocalConfigValues(config, SOURCE_HOME, RUNTIME_HOME, (path) => {
+      probed.push(path)
+      return false
+    })
+
+    // Byte-identical, not merely "still a valid path": this is the guarantee
+    // that the fix cannot make any home worse than it is today.
+    expect(rewritten).toBe(config)
+    expect(probed).toEqual([`${RUNTIME_HOME}/.tmp/bundled-marketplaces/openai-bundled`])
+  })
+
+  it('rewrites once the runtime home really has the directory', () => {
+    const rewritten = rewriteHomeLocalConfigValues(
+      config,
+      SOURCE_HOME,
+      RUNTIME_HOME,
+      (path) => path === `${RUNTIME_HOME}/.tmp/bundled-marketplaces/openai-bundled`
+    )
+
+    expect(rewritten).toContain(`${RUNTIME_HOME}/.tmp/bundled-marketplaces/openai-bundled`)
   })
 })
