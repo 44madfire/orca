@@ -342,7 +342,7 @@ describe('connectPanePty', () => {
   // Regression (#12320): a cold restore after reboot typed PowerShell single quotes into
   // cmd.exe tabs, so the agent CLI rejected the resume argv ("unexpected argument").
   async function runWindowsColdRestoreResume(args: {
-    terminalWindowsShell: string
+    terminalWindowsShell?: string
     tabShellOverride?: string
   }): Promise<string | undefined> {
     const restoreNavigator = temporarilySetNavigatorUserAgent(
@@ -397,7 +397,11 @@ describe('connectPanePty', () => {
         settings: {
           ...mockStoreState.settings,
           agentCmdOverrides: {},
-          terminalWindowsShell: args.terminalWindowsShell
+          // Why: omitting the shell models the post-restart window where the store
+          // has not hydrated `settings` yet, so terminalWindowsShell is undefined.
+          ...(args.terminalWindowsShell !== undefined
+            ? { terminalWindowsShell: args.terminalWindowsShell }
+            : {})
         },
         sleepingAgentSessionsByPaneKey: {
           [paneKey]: {
@@ -455,6 +459,17 @@ describe('connectPanePty', () => {
     await expect(
       runWindowsColdRestoreResume({ terminalWindowsShell: 'powershell.exe' })
     ).resolves.toBe("codex '--dangerously-bypass-approvals-and-sandbox' 'resume' 'codex-session-1'")
+  })
+
+  // Regression (#12320 residual): a cold restore after restart can run before the
+  // store hydrates `settings`, so terminalWindowsShell is momentarily undefined. The
+  // spawn side then launches %COMSPEC% (cmd.exe), so the resume must be cmd-quoted —
+  // PowerShell single quotes reach cmd.exe literally ("unrecognized subcommand
+  // ''resume''"), which is exactly the field report on a released build.
+  it('quotes for cmd.exe on cold restore when the shell setting has not hydrated', async () => {
+    await expect(runWindowsColdRestoreResume({})).resolves.toBe(
+      'codex "--dangerously-bypass-approvals-and-sandbox" "resume" "codex-session-1"'
+    )
   })
 
   it('keeps a contentless reattach when the sleeping record represents a live session', async () => {

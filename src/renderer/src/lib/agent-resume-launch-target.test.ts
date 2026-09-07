@@ -72,10 +72,14 @@ describe('resolveAgentResumeLaunchTarget on a Windows client', () => {
     })
   })
 
-  it('keeps PowerShell quoting when no Windows shell is configured', async () => {
+  it('quotes for cmd.exe when no Windows shell is configured (mirrors the %COMSPEC% spawn fallback)', async () => {
+    // Why cmd, not PowerShell: with no configured shell the spawn side launches
+    // %COMSPEC% (cmd.exe), and this state is reachable when a cold restore runs
+    // before the store hydrates `settings`. PowerShell quoting here would put
+    // single quotes into a cmd.exe pane and break the resume (#12320 residual).
     await expect(resolveWith({})).resolves.toEqual({
       platform: 'win32',
-      shell: 'powershell'
+      shell: 'cmd'
     })
   })
 

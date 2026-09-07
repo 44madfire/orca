@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { resolveWindowsShellStartupFamily } from './windows-terminal-shell'
+import {
+  resolveLocalWindowsAgentStartupShell,
+  resolveWindowsShellStartupFamily
+} from './windows-terminal-shell'
 
 describe('resolveWindowsShellStartupFamily', () => {
   it('defaults to PowerShell when unset', () => {
@@ -31,5 +34,51 @@ describe('resolveWindowsShellStartupFamily', () => {
     expect(resolveWindowsShellStartupFamily('bash')).toBe('posix')
     expect(resolveWindowsShellStartupFamily('wsl')).toBe('posix')
     expect(resolveWindowsShellStartupFamily('C:\\Program Files\\Git\\bin\\bash')).toBe('posix')
+  })
+})
+
+describe('resolveLocalWindowsAgentStartupShell', () => {
+  it('yields no quoting override off Windows or for remote targets', () => {
+    expect(
+      resolveLocalWindowsAgentStartupShell({ platform: 'linux', isRemote: false })
+    ).toBeUndefined()
+    expect(
+      resolveLocalWindowsAgentStartupShell({
+        platform: 'win32',
+        isRemote: true,
+        terminalWindowsShell: 'cmd.exe'
+      })
+    ).toBeUndefined()
+  })
+
+  it('classifies a configured local Windows shell', () => {
+    expect(
+      resolveLocalWindowsAgentStartupShell({
+        platform: 'win32',
+        isRemote: false,
+        terminalWindowsShell: 'powershell.exe'
+      })
+    ).toBe('powershell')
+    expect(
+      resolveLocalWindowsAgentStartupShell({
+        platform: 'win32',
+        isRemote: false,
+        terminalWindowsShell: 'git-bash'
+      })
+    ).toBe('posix')
+  })
+
+  it('defaults an unset local Windows shell to cmd, mirroring the %COMSPEC% spawn fallback', () => {
+    // Why not PowerShell: the spawn side launches %COMSPEC% (cmd.exe) when no shell
+    // is configured, so quoting must match or single quotes reach cmd.exe literally.
+    for (const shell of [undefined, null, '', '   ']) {
+      expect(
+        resolveLocalWindowsAgentStartupShell({
+          platform: 'win32',
+          isRemote: false,
+          terminalWindowsShell: shell
+        })
+      ).toBe('cmd')
+    }
   })
 })
