@@ -191,7 +191,9 @@ export function createCodexJournalTranslator(
             })
           : null
         if (subagentAdmission) {
-          return subagentAdmission
+          // Not a bare return: the roster claiming the item must not skip the
+          // turn-tail arm, which is the only publisher of its activity copy.
+          return publishActivity(event, subagentAdmission)
         }
         const translated = items.handle(event)
         return publishActivity(
@@ -224,7 +226,8 @@ export function createCodexJournalTranslator(
     }
   }
 
-  /** Routes a `subAgentActivity` item to the roster; null when it is not one. */
+  /** Settles the item a notification the transport refused to carry left
+   *  mid-flight; null when the frame is not one. */
   function settleOversizedNotification(event: {
     sessionId: string
     threadId: string

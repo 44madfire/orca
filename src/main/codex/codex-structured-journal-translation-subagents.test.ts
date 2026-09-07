@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
+import type { AgentSessionTurnActivity } from '../../shared/agent-session-wire'
 import type {
   AgentJournalItemBody,
   AgentJournalItemIdentity
@@ -17,11 +18,13 @@ type Row = { key: string; body: AgentJournalItemBody }
 
 function harness() {
   const rows: Row[] = []
+  const activities: (AgentSessionTurnActivity | null)[] = []
   const sink: StructuredAgentSessionEventSink = {
     appendItem: (identity: AgentJournalItemIdentity, body) =>
       rows.push({ key: agentJournalItemKey(identity), body }),
     appendTombstone: () => {},
-    publish: () => {}
+    publish: () => {},
+    setActivity: (activity) => activities.push(activity)
   }
   const translator = createCodexJournalTranslator({
     sink,
@@ -31,7 +34,7 @@ function harness() {
       return () => {}
     }
   })
-  return { translator, rows }
+  return { translator, rows, activities }
 }
 
 function notification(method: string, params: unknown): CodexStructuredSessionEvent {
@@ -86,6 +89,22 @@ describe('codex journal translation — subagents', () => {
     )
     expect(providerFrameKinds).toEqual([])
     expect(rows.filter((row) => row.key.startsWith('orca:codex-subagents'))).toHaveLength(1)
+  })
+
+  // The roster claims the item, but claiming it must not take the turn tail with
+  // it: the activity table is reached only through the publish arm, so a bare
+  // return leaves the tail stuck on whatever the previous frame said.
+  it('still publishes the turn tail for an item the roster claims', () => {
+    const { translator, activities } = harness()
+
+    translator.handle(notification('turn/started', { turn: { id: TURN_ID } }))
+    activities.length = 0
+    deliverActivity(translator, subagentItem('started', 'child-1', '/root/read'))
+
+    expect(activities.at(-1)).toEqual({
+      turnId: TURN_ID,
+      text: 'Coordinating with another agent'
+    })
   })
 
   it('consumes thread/tokenUsage/updated instead of swallowing it as chrome', () => {
