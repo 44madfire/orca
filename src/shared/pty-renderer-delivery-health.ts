@@ -19,8 +19,11 @@ export type PtyRendererDeliveryStateReport = {
    *  ACK path and resync response carry; merging them here is a free extra
    *  repair lane for the lost-ACK variant. */
   processedCharsByPty: Record<string, number>
-  /** Cumulative chars received for a PTY that has no registered data handler and
-   *  are parked in the renderer's pre-handler buffer. Their ACK is withheld, so —
+  /** Chars CURRENTLY parked for a PTY with no registered data handler — a live balance,
+   *  decremented as each chunk settles, not a cumulative total like the fields either side
+   *  of it. `writeOffLostRendererDelivery` subtracts it from a cumulative `receivedChars`
+   *  precisely because of that: what is still parked is what cannot repay itself. Their ACK
+   *  is withheld, so —
    *  unlike received-but-unparsed bytes, which their own deferred ACK repays —
    *  this debt has no consumer to repay it and only a write-off or a bind clears
    *  it. Absent means "none parked", which is exactly how an older renderer read. */

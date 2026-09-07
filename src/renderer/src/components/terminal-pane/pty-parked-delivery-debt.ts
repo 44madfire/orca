@@ -6,7 +6,9 @@
  * call a wedge, so it was blind by construction, and the producer was never paused — main
  * kept flooding a pane nobody could see. Holding the credit turns parked bytes into real
  * debt, which is what makes main's existing per-PTY window pause the shell, the watchdog
- * see the pane, and the write-off lane able to forgive it.
+ * see the pane, and the write-off lane able to forgive it. The pause is not guaranteed: this
+ * buffer caps at 512KB of UTF-8 BYTES while main's window counts UTF-16 CHARS, so on
+ * multi-byte output eviction settles the credit before main's window ever fills.
 
  *
  * Unit is delivery-credit CHARS (`rawLength ?? data.length`), never the buffer's UTF-8 byte
