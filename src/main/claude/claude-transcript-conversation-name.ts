@@ -16,12 +16,16 @@
 // record is a no-op, so the repeat costs a bounded read and nothing else.
 
 import { normalizeTitleText, parseJsonObject } from '../ai-vault/session-scanner-values'
-import { claudeTranscriptTailLines } from './claude-transcript-tail-scan'
+import {
+  claudeTranscriptTailLines,
+  type ClaudeTranscriptTailScan
+} from './claude-transcript-tail-scan'
 
 /** What the transcript's tail says about this conversation's name. */
 export type ClaudeTranscriptConversationName =
   | { kind: 'named'; title: string }
-  /** The newest title record positively removes the name. */
+  /** The newest title record positively removes the name, and the whole file
+   *  was visible, so there is no older generated name to fall back to. */
   | { kind: 'cleared' }
   /** No title record in the tail. NOT evidence the conversation is unnamed: the
    *  scan is bounded, so an older record simply is not visible from here. */
@@ -46,7 +50,8 @@ export async function readClaudeTranscriptConversationName(
 ): Promise<ClaudeTranscriptConversationName> {
   let generated: string | null = null
   let customCleared = false
-  for await (const line of claudeTranscriptTailLines(transcriptPath)) {
+  const scan: ClaudeTranscriptTailScan = { reachedFileStart: false }
+  for await (const line of claudeTranscriptTailLines(transcriptPath, scan)) {
     if (!line.includes('-title')) {
       continue
     }
@@ -66,13 +71,21 @@ export async function readClaudeTranscriptConversationName(
       continue
     }
     if (record.type === 'ai-title' && !generated) {
-      generated = normalizeTitleText(String(record.aiTitle ?? '')) || null
+      // Guarded, not coerced: `String(someObject)` yields `[object Object]`,
+      // which passes every downstream check and becomes the tab's label.
+      if (typeof record.aiTitle !== 'string') {
+        continue
+      }
+      generated = normalizeTitleText(record.aiTitle)
     }
   }
   if (generated) {
     return { kind: 'named', title: generated }
   }
-  return customCleared ? { kind: 'cleared' } : { kind: 'unknown' }
+  // An emptied custom slot only clears when the scan saw the whole file: an
+  // `ai-title` beyond the tail bound is still this conversation's name, and
+  // clearing on the bound would revert the tab while the CLI still shows it.
+  return customCleared && scan.reachedFileStart ? { kind: 'cleared' } : { kind: 'unknown' }
 }
 
 /** The adapter's own dep bag, which names this reporter's error hook differently.

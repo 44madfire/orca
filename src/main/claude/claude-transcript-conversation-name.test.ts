@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TRANSCRIPT_TAIL_READ_LIMIT_BYTES } from './claude-transcript-tail-scan'
 import {
   claudeConversationNameReporterDeps,
   readClaudeTranscriptConversationName,
@@ -98,6 +99,39 @@ describe('readClaudeTranscriptConversationName clearing', () => {
     await expect(readClaudeTranscriptConversationName(path)).resolves.toEqual({
       kind: 'cleared'
     })
+  })
+
+  it('reports unknown, not cleared, when the bounded scan never saw the ai-title', async () => {
+    // The emptied custom slot is at the tail; the generated name it falls back
+    // to sits beyond the read limit, so absence here is the bound, not a clear.
+    const filler = `${'x'.repeat(1023)}\n`
+    const path = join(root, 'huge.jsonl')
+    await writeFile(
+      path,
+      [
+        `${JSON.stringify({ type: 'ai-title', aiTitle: 'Lease probe flake', sessionId: 's' })}\n`,
+        filler.repeat(Math.ceil(TRANSCRIPT_TAIL_READ_LIMIT_BYTES / 1024) + 8),
+        `${JSON.stringify({ type: 'custom-title', customTitle: '', sessionId: 's' })}\n`
+      ].join(''),
+      'utf8'
+    )
+
+    await expect(readClaudeTranscriptConversationName(path)).resolves.toEqual({ kind: 'unknown' })
+  })
+
+  it.each([
+    ['an object', { title: 'nested' }],
+    ['a number', 12],
+    ['a boolean', true]
+  ])('refuses to coerce %s into a generated title', async (_label, aiTitle) => {
+    const path = await transcript([
+      { type: 'user', sessionId: 'session-1' },
+      { type: 'ai-title', aiTitle, sessionId: 'session-1' }
+    ])
+
+    // `String({})` is `[object Object]`, which survives every downstream check
+    // and would be persisted as the tab's label.
+    await expect(readClaudeTranscriptConversationName(path)).resolves.toEqual({ kind: 'unknown' })
   })
 
   it.each([
