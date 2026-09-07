@@ -239,6 +239,28 @@ describe('a Task whose supervised worker is stopping', () => {
       expect(db.abandonWorkerDispatch(dispatch.id)).toMatchObject({ disposition: 'abandoned' })
       expect(db.getTask(task.id)?.status).toBe('blocked')
     })
+
+    it('refuses a re-issue from the runtime whose own stop is still in flight', () => {
+      const { dispatch } = localWorker()
+      db.beginWorkerStop(dispatch.id, 'epoch_this_runtime')
+
+      // The terminal is closing and its exit event has not landed yet. Letting this second pass
+      // record stop_unknown would make the exit read as a crash instead of this stop succeeding.
+      expect(() => db.beginWorkerStop(dispatch.id, 'epoch_this_runtime')).toThrowError(
+        /cannot stop from stopping/
+      )
+
+      // The row is still the one the exit path claims a clean stop from: stopping, same epoch.
+      expect(db.getWorkerDispatch(dispatch.id)).toMatchObject({
+        state: 'stopping',
+        runtime_epoch: 'epoch_this_runtime'
+      })
+      expect(db.settleWorkerStop(dispatch.id).state).toBe('stopped')
+      expect(db.getDispatchContextById(dispatch.id)).toMatchObject({
+        status: 'failed',
+        last_failure: 'stopped'
+      })
+    })
   })
 
   function workerDoneMessage(taskId: string, runId: string, dispatchId: string) {
