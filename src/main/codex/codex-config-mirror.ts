@@ -6,6 +6,7 @@ import {
   writeFileAtomicallyIfUnchanged
 } from '../codex-accounts/fs-utils'
 import { getOrcaManagedCodexHomePath, getSystemCodexHomePath } from './codex-home-paths'
+import { CODEX_CONFIG_FILE_MODE, enforceCodexConfigFileMode } from './codex-config-file-mode'
 import { rewriteRelativePathConfigValues } from './codex-config-path-reference-rewrite'
 import { normalizeDeprecatedCodexHookFeatureFlag } from './config-toml-deprecated-hook-flag'
 import { parseWslUncPath } from '../../shared/wsl-paths'
@@ -134,6 +135,9 @@ export function syncSystemConfigIntoLegacySharedCodexHome(
   }
   const runtimeConfigBeforeMirror =
     runtimeConfigObservation.kind === 'present' ? runtimeConfigObservation.value : null
+  if (runtimeConfigBeforeMirror !== null) {
+    enforceCodexConfigFileMode(runtimeConfigPath)
+  }
   const nextRuntimeConfig =
     runtimeConfigBeforeMirror !== null
       ? mergeSystemCodexConfigIntoRuntime(
@@ -146,7 +150,9 @@ export function syncSystemConfigIntoLegacySharedCodexHome(
   }
   // Why: stage first, then compare immediately before replace so a retained
   // Codex trust write during mirror preparation wins.
-  writeFileAtomicallyIfUnchanged(runtimeConfigPath, runtimeConfigBeforeMirror, nextRuntimeConfig)
+  writeFileAtomicallyIfUnchanged(runtimeConfigPath, runtimeConfigBeforeMirror, nextRuntimeConfig, {
+    mode: CODEX_CONFIG_FILE_MODE
+  })
 }
 
 type CodexConfigMirrorResult =
@@ -173,6 +179,9 @@ function syncSystemConfigIntoManagedCodexHomeUnsafe(
     return { status: 'refused-indeterminate', error: runtimeConfigObservation.error }
   }
   const runtimeConfigExists = runtimeConfigObservation.kind === 'present'
+  if (runtimeConfigExists) {
+    enforceCodexConfigFileMode(runtimeConfigPath)
+  }
   const rawSystemConfig =
     systemConfigObservation.kind === 'present' ? systemConfigObservation.value : ''
   // Why: a missing or blank source is not an authoritative empty config. Merging
@@ -188,7 +197,8 @@ function syncSystemConfigIntoManagedCodexHomeUnsafe(
   if (!runtimeConfigExists) {
     writeFileAtomically(
       runtimeConfigPath,
-      prepareSystemConfigForFreshRuntimeMirror(rawSystemConfig, sourceConfigDir)
+      prepareSystemConfigForFreshRuntimeMirror(rawSystemConfig, sourceConfigDir),
+      { mode: CODEX_CONFIG_FILE_MODE }
     )
     return { status: 'mirrored', preservedConflictKeys: new Set() }
   }
@@ -202,7 +212,7 @@ function syncSystemConfigIntoManagedCodexHomeUnsafe(
     promotionPlan.runtimeValuesToPreserve
   )
   if (preserved.content !== runtimeConfig) {
-    writeFileAtomically(runtimeConfigPath, preserved.content)
+    writeFileAtomically(runtimeConfigPath, preserved.content, { mode: CODEX_CONFIG_FILE_MODE })
   }
   return { status: 'mirrored', preservedConflictKeys: preserved.keys }
 }
