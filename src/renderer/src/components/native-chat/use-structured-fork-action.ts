@@ -16,12 +16,13 @@ export function useStructuredForkAction(
     () => structuredForkEligibleItems(controller.journalItems ?? []),
     [controller.journalItems]
   )
+  const agent = props.agent === 'claude' ? 'claude' : props.agent === 'codex' ? 'codex' : undefined
   if (
     !controller.forkSupported ||
     !controller.forkSource ||
     !worktreeId ||
     controller.isWorking ||
-    (props.agent !== 'claude' && props.agent !== 'codex')
+    !agent
   ) {
     return undefined
   }
@@ -29,14 +30,14 @@ export function useStructuredForkAction(
     eligibleIds,
     pending,
     onFork: (itemId: string) => {
-      if (!controller.forkSource || (props.agent !== 'claude' && props.agent !== 'codex')) {
+      if (!controller.forkSource) {
         return
       }
       setPending(true)
       void forkStructuredSessionFromTurn({
         target: props.target,
         worktree: toRuntimeWorktreeSelector(worktreeId),
-        agent: props.agent,
+        agent,
         source: { ...controller.forkSource, itemId }
       })
         .catch((error: unknown) => onError(error instanceof Error ? error.message : String(error)))

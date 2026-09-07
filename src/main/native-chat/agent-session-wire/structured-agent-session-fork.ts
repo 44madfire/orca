@@ -1,4 +1,5 @@
 import { forkJournalSeed } from './structured-fork-journal-seed'
+import { restoreRewindJournalBody } from './structured-rewind-journal-body'
 import type { AgentSessionRewindReason } from '../../../shared/agent-session-rewind'
 import { prepareStructuredForkReplay } from './structured-agent-session-fork-replay'
 import type { AgentSessionForkSource } from '../../../shared/agent-session-fork'
@@ -103,7 +104,7 @@ export function forkStructuredAgentSession(
       }
       const retained = selected.retained.map(({ itemId, body, observedAt }) => ({
         itemId,
-        body,
+        body: restoreRewindJournalBody(body),
         observedAt
       }))
       try {

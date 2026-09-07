@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
+import * as prefixSelection from '../../../shared/agent-session-prefix'
 import type { AgentJournalItemIdentity } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionForkSource } from '../../../shared/agent-session-fork'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
@@ -159,6 +160,39 @@ async function setup(provider: 'claude' | 'codex' = 'codex') {
 }
 
 describe('fork from a structured turn', () => {
+  it('keeps an unknown retained message role visible in the seeded child history', async () => {
+    const { host, child, source } = await setup()
+    vi.spyOn(prefixSelection, 'selectAgentSessionPrefix').mockReturnValueOnce({
+      ok: true,
+      retained: [
+        {
+          itemId: source.itemId,
+          body: {
+            kind: 'message',
+            role: 'future-role',
+            blocks: [{ type: 'text', text: 'Retained future message' }]
+          },
+          observedAt: NOW
+        }
+      ],
+      providerItemId: source.itemId,
+      throughId: 'turn-1',
+      beforeTurnId: 'turn-1'
+    })
+    expect(await host.fork(caller, child, source)).toMatchObject({ ok: true })
+    expect(host.journalSnapshot('child-session').items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          body: {
+            kind: 'message',
+            role: 'system',
+            blocks: [{ type: 'text', text: 'Retained future message' }]
+          }
+        })
+      ])
+    )
+  })
+
   it.each(['codex', 'claude'] as const)(
     'creates an independent %s session and leaves the parent unchanged',
     async (provider) => {
