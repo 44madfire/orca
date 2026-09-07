@@ -203,7 +203,6 @@ export default function CombinedDiffViewer({
     isAllMode: entrySet.isAllMode,
     isBranchMode: entrySet.isBranchMode,
     isCommitMode: entrySet.isCommitMode,
-    sections,
     sectionsRef: registry.sectionsRef,
     setSectionHeights,
     setSections
