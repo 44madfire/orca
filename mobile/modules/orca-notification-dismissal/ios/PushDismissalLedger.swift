@@ -9,7 +9,7 @@ struct PushDismissalIdentity: Codable {
 
   init?(_ value: [String: Any]) {
     guard let host = value["hostFingerprint"] as? String, !host.isEmpty, host.count <= 512,
-      let id = value["notificationId"] as? String, !id.isEmpty, id.count <= 512,
+      let id = value["notificationId"] as? String, !id.isEmpty, id.count <= 2048,
       let epoch = value["notificationEpoch"] as? String, !epoch.isEmpty, epoch.count <= 128,
       let seq = value["notificationSeq"] as? NSNumber,
       CFGetTypeID(seq) != CFBooleanGetTypeID(), seq.doubleValue.isFinite,
@@ -57,5 +57,21 @@ final class PushDismissalLedger {
     return read(now: now).contains {
       $0.identity.matches(identity) && $0.identity.notificationSeq >= identity.notificationSeq
     }
+  }
+
+  func containsNotification(_ payload: [String: Any], now: TimeInterval = Date().timeIntervalSince1970) -> Bool {
+    if let count = payload["coalescedCount"] as? NSNumber, count.doubleValue > 1 {
+      guard count.doubleValue.rounded(.down) == count.doubleValue, count.intValue <= 32,
+        let members = payload["summaryMembers"] as? [[String: Any]], members.count == count.intValue,
+        let host = payload["hostFingerprint"] as? String else { return false }
+      return members.allSatisfy { member in
+        var data = member
+        data["hostFingerprint"] = host
+        guard let identity = PushDismissalIdentity(data) else { return false }
+        return contains(identity, now: now)
+      }
+    }
+    guard let identity = PushDismissalIdentity(payload) else { return false }
+    return contains(identity, now: now)
   }
 }

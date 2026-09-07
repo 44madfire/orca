@@ -38,7 +38,7 @@ const NotificationGetMissedSinceParams = z.object({
   deliveredPushes: z
     .array(
       z.object({
-        notificationId: z.string().min(1).max(512),
+        notificationId: z.string().min(1).max(2048),
         notificationEpoch: z.string().min(1).max(128),
         notificationSeq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)
       })

@@ -1,3 +1,4 @@
+import { canCoalescePushNotifications } from './push-delivery-message.js'
 import { reconcileQueuedDismissal, removeDismissedAlerts } from './push-queued-dismissal.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { PUSH_LIMITS, type PushNotification } from '@orca-cloud/push-contract'
@@ -68,13 +69,14 @@ export class DurablePushStore {
       const [batch] =
         kind === 'alert'
           ? await tx.query(
-              "SELECT * FROM push_delivery_batches WHERE registration_id = ? AND kind = ? AND state = 'pending' AND attempts = 0 AND due_at > ? AND expires_at > ? ORDER BY created_at LIMIT 1",
+              "SELECT * FROM push_delivery_batches WHERE registration_id = ? AND kind = ? AND state = 'pending' AND attempts = 0 AND due_at > ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
               [registrationId, kind, now, now]
             )
           : []
-      if (batch) {
-        const notifications = JSON.parse(String(batch.payload_json)) as PushNotification[]
-        notifications.push(notification)
+      const notifications = batch
+        ? [...(JSON.parse(String(batch.payload_json)) as PushNotification[]), notification]
+        : [notification]
+      if (batch && canCoalescePushNotifications(notifications, host)) {
         await tx.query(
           'UPDATE push_delivery_batches SET payload_json = ?, expires_at = ? WHERE batch_id = ?',
           [
@@ -84,6 +86,7 @@ export class DurablePushStore {
           ]
         )
       } else {
+        if (batch) await tx.query('UPDATE push_delivery_batches SET due_at = ? WHERE batch_id = ?', [now, batch.batch_id])
         await tx.query(
           `INSERT INTO push_delivery_batches(batch_id, host_fingerprint, registration_id, kind, payload_json, state, due_at, expires_at, lease_until, attempts, created_at)
           VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 0, 0, ?)`,

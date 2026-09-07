@@ -94,7 +94,7 @@ describe('push coalescer', () => {
     expect(delivered[0]?.orca.notificationId).toBeUndefined()
   })
 
-  it('summarises a burst and collapses it under the host id', async () => {
+  it('summarises a burst with a membership-specific collapse identity', async () => {
     const { coalescer, delivered } = createCoalescer()
     for (const seq of [1, 2, 3]) {
       coalescer.enqueue({
@@ -109,7 +109,7 @@ describe('push coalescer', () => {
     expect(delivered[0]).toMatchObject({
       title: 'Orca',
       body: '3 agents need attention',
-      collapseId: `host:${HOST}`
+      collapseId: expect.stringMatching(/^[a-f0-9]{64}$/)
     })
     // The data carries the latest event, so a tap still opens the newest work.
     expect(delivered[0]?.orca).toMatchObject({

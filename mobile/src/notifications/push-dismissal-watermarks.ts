@@ -1,3 +1,4 @@
+import { representedPushes } from './push-summary-members'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { OrcaPushPayload } from './push-payload'
 import { nativePushDismissal } from './native-push-dismissal'
@@ -77,9 +78,9 @@ export async function rememberPushDismissal(payload: OrcaPushPayload): Promise<v
 }
 
 export async function wasPushDismissed(payload: OrcaPushPayload): Promise<boolean> {
-  // A summary may also represent alerts the dismissal does not cover.
   if ((payload.coalescedCount ?? 0) > 1) {
-    return false
+    const members = representedPushes(payload)
+    return members.length > 0 && (await Promise.all(members.map(wasPushDismissed))).every(Boolean)
   }
   const key = eventKey(payload)
   if (!key) {

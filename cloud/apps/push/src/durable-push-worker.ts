@@ -67,7 +67,8 @@ export class DurablePushWorker {
         notification: latest,
         title: multiple ? 'Orca' : latest.title,
         body: multiple ? summaryBody(batch.notifications) : latest.body,
-        coalescedCount: batch.notifications.length
+        coalescedCount: batch.notifications.length,
+        notifications: batch.notifications
       })
       delivery.expiresAt = batch.expiresAt
       if (this.now() >= batch.expiresAt) {

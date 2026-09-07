@@ -4,31 +4,16 @@ import { loadHostCatalog } from '../transport/host-store'
 import { resolveHostIdForFingerprint } from './push-host-fingerprint'
 import { readNativeNotificationData } from './native-notification-data'
 import { readOrcaPushPayload, type OrcaPushPayload } from './push-payload'
-import { dismissPresentedPushNotification } from './push-tray-dismissal'
+import { dismissRememberedPushNotifications } from './push-tray-dismissal'
+import { rememberPushDismissal } from './push-dismissal-watermarks'
 
-type Identity = { notificationId: string; notificationEpoch: string; notificationSeq: number }
+import {
+  readPushIdentity as identity,
+  representedPushes,
+  type Identity
+} from './push-summary-members'
 const key = (item: Identity) =>
   JSON.stringify([item.notificationId, item.notificationEpoch, item.notificationSeq])
-function identity(value: unknown): Identity | null {
-  if (!value || typeof value !== 'object') {
-    return null
-  }
-  const item = value as Identity
-  return typeof item.notificationId === 'string' &&
-    item.notificationId.length > 0 &&
-    item.notificationId.length <= 512 &&
-    typeof item.notificationEpoch === 'string' &&
-    item.notificationEpoch.length > 0 &&
-    item.notificationEpoch.length <= 128 &&
-    Number.isSafeInteger(item.notificationSeq) &&
-    item.notificationSeq >= 0
-    ? {
-        notificationId: item.notificationId,
-        notificationEpoch: item.notificationEpoch,
-        notificationSeq: item.notificationSeq
-      }
-    : null
-}
 async function readDelivered(hostId: string): Promise<Map<string, OrcaPushPayload>> {
   const selected = new Map<string, OrcaPushPayload>()
   try {
@@ -38,17 +23,16 @@ async function readDelivered(hostId: string): Promise<Map<string, OrcaPushPayloa
     ])
     for (const notification of presented) {
       const payload = readOrcaPushPayload(readNativeNotificationData(notification.request))
-      const id = identity(payload)
-      if (
-        !payload ||
-        !id ||
-        (payload.coalescedCount ?? 0) > 1 ||
-        resolveHostIdForFingerprint(payload.hostFingerprint, hosts) !== hostId
-      ) {
+      if (!payload || resolveHostIdForFingerprint(payload.hostFingerprint, hosts) !== hostId) {
         continue
       }
-      selected.set(key(id), payload)
-      if (selected.size === 256) {
+      for (const member of representedPushes(payload)) {
+        const id = identity(member)
+        if (id && selected.size < 2048) {
+          selected.set(key(id), member)
+        }
+      }
+      if (selected.size === 2048) {
         break
       }
     }
@@ -68,28 +52,54 @@ export async function requestNotificationCatchup(
   if (!params && (delivered.size === 0 || isDisposed())) {
     return { ok: true, result: { notifications: [] } }
   }
+  const entries = [...delivered.entries()]
   const response = await client.sendRequest('notifications.getMissedSince', {
     // First pairing reconciles the tray without requesting historical alerts.
     ...(params ?? { lastSeenSeq: Number.MAX_SAFE_INTEGER }),
     ...(delivered.size
-      ? { deliveredPushes: [...delivered.values()].map((payload) => identity(payload)!) }
+      ? { deliveredPushes: entries.slice(0, 256).map(([, payload]) => identity(payload)!) }
       : {})
   })
   if (!response.ok || isDisposed()) {
     return response
   }
-  const result = response.result as { dismissedPushes?: unknown } | undefined
-  // Older hosts ignore the optional request field and return no reconciliation result.
-  if (Array.isArray(result?.dismissedPushes)) {
+  async function applyDismissals(reply: typeof response, requested: Map<string, OrcaPushPayload>) {
+    if (!reply.ok) {
+      return
+    }
+    const result = reply.result as { dismissedPushes?: unknown } | undefined
+    if (!Array.isArray(result?.dismissedPushes)) {
+      return
+    }
+    const confirmed: OrcaPushPayload[] = []
     for (const raw of result.dismissedPushes.slice(0, 256)) {
       if (isDisposed()) {
         break
       }
       const id = identity(raw)
-      const payload = id ? delivered.get(key(id)) : undefined
+      const payload = id ? requested.get(key(id)) : undefined
       if (payload && id) {
-        await dismissPresentedPushNotification(id.notificationId, payload.hostFingerprint, id)
+        await rememberPushDismissal(payload)
+        confirmed.push(payload)
+        requested.delete(key(id))
       }
+    }
+    if (confirmed.length && !isDisposed()) {
+      await dismissRememberedPushNotifications(confirmed[0]!.hostFingerprint, confirmed)
+    }
+  }
+  await applyDismissals(response, new Map(entries.slice(0, 256)))
+  // Summaries may represent more identities than one RPC permits; replay only once.
+  for (let offset = 256; offset < entries.length && !isDisposed(); offset += 256) {
+    const requested = new Map(entries.slice(offset, offset + 256))
+    try {
+      const reply = await client.sendRequest('notifications.getMissedSince', {
+        lastSeenSeq: Number.MAX_SAFE_INTEGER,
+        deliveredPushes: [...requested.values()].map((payload) => identity(payload)!)
+      })
+      await applyDismissals(reply, requested)
+    } catch {
+      break
     }
   }
   return response

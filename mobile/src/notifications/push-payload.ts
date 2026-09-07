@@ -1,3 +1,4 @@
+import { readSummaryMembers, type Identity } from './push-summary-members'
 // Why two shapes: APNs nests Orca's fields under `orca` beside `aps`, while FCM
 // carries them flat in `data` as strings. Both reach JS as the notification's
 // `content.data`, so the reader accepts either and coerces the numeric fields.
@@ -12,6 +13,7 @@ export type OrcaPushPayload = {
   readonly agentState?: string
   // Present only on a gateway summary standing in for N events; see the coalescing
   // window in docs/reference/mobile-push-contract.md.
+  readonly summaryMembers?: readonly Identity[]
   readonly coalescedCount?: number
 }
 
@@ -44,6 +46,7 @@ export function readOrcaPushPayload(data: unknown): OrcaPushPayload | null {
     worktreeId: readString(record.worktreeId),
     source: readString(record.source),
     agentState: readString(record.agentState),
-    coalescedCount: readSeq(record.coalescedCount)
+    coalescedCount: readSeq(record.coalescedCount),
+    summaryMembers: readSummaryMembers(record.summaryMembers, readSeq(record.coalescedCount))
   }
 }

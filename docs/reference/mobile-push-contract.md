@@ -165,7 +165,12 @@ tokens are FCM registration strings.
 
 Per registration, persist a three-second window and summarize bursts using the latest event's
 routing fields and `coalescedCount`. Windows are shared across replicas. Single-alert collapse IDs
-hash host and notification identity; summaries use a host collapse identity.
+hash host and notification identity; summaries hash the host and their complete membership.
+Each summary carries optional `summaryMembers` (ID, epoch, sequence), encoded as a JSON string
+in FCM data. Admission splits bursts into independently leased batches of at most 32 members,
+and reserves provider envelope space within the 4 KB payload limit. An event without a notification
+identity stays individual. Batches that fill the membership/payload budget become immediately due;
+quota accounting still counts logical alerts, not batches or recipients.
 
 Four worker lanes per instance claim delivery batches with expiring, renewed SQL leases. Retry state
 is persistent, with exponential backoff and provider minimum delays. Retry-After is never shortened
@@ -391,12 +396,15 @@ identities in `notifications.getMissedSince`; updated hosts return optional `dis
 confirmed handled identities. This recovers dismissals after event replay eviction or host restart
 within retained history. Unknown IDs, newer sequences and different epochs are preserved. Older
 hosts ignore the optional request field, and older clients ignore the additional response field.
-No new RPC method, stream opcode or gateway deployment is required.
+No new RPC method or stream opcode is required.
 
 On iOS, a local Expo module handles silent dismissals directly through the native notification
 center, independent of JavaScript initialization. Native and JavaScript dismissal paths use the
 same host/epoch/sequence fences; native watermarks retain up to 512 entries for 24 hours. Older
 native shells and Android retain the JavaScript implementation. A native callback test proves
 processing only when invoked: iOS background push delivery remains best-effort, including while
-suspended or force-quit. Coalesced summaries are preserved because a single member's dismissal
-cannot establish that every alert represented by the summary was handled.
+suspended or force-quit. Summaries with complete membership are removed only when every member is
+covered by a matching host/epoch/sequence dismissal fence. Partial, malformed and legacy summaries
+without membership remain preserved. Reconciliation inspects up to 2,048 represented identities,
+sending pages of 256 without repeating historical replay. A first connection without a saved
+watermark reconciles the tray without replaying old alerts.

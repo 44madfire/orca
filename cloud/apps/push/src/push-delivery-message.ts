@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { type PushNotification } from '@orca-cloud/push-contract'
+import { pushSummaryMembers, type PushSummaryMember } from './push-summary-members.js'
 
 export type PushOrcaData = {
   kind?: 'alert' | 'dismiss'
@@ -11,6 +12,7 @@ export type PushOrcaData = {
   source: string
   agentState: string | null
   coalescedCount: number
+  summaryMembers?: PushSummaryMember[]
 }
 
 export type PushDelivery = {
@@ -59,15 +61,19 @@ export function buildPushDelivery(input: {
   title: string
   body: string
   coalescedCount: number
+  notifications?: readonly PushNotification[]
 }): PushDelivery {
   const { notification, hostFingerprint, coalescedCount } = input
+  const summaryMembers = input.notifications ? pushSummaryMembers(input.notifications) : undefined
   return {
     ...(notification.sound === false ? { sound: false } : {}),
     registrationId: input.registrationId,
     hostFingerprint,
     title: input.title,
     body: input.body,
-    collapseId: collapseIdFor(notification, hostFingerprint, coalescedCount),
+    collapseId: summaryMembers
+      ? createHash('sha256').update(JSON.stringify([hostFingerprint, summaryMembers])).digest('hex')
+      : collapseIdFor(notification, hostFingerprint, coalescedCount),
     orca: {
       ...(notification.kind ? { kind: notification.kind } : {}),
       hostFingerprint,
@@ -79,7 +85,8 @@ export function buildPushDelivery(input: {
       notificationEpoch: notification.notificationEpoch,
       source: notification.source,
       agentState: notification.agentState,
-      coalescedCount
+      coalescedCount,
+      ...(summaryMembers ? { summaryMembers } : {})
     }
   }
 }
@@ -88,6 +95,23 @@ export function orcaDataStrings(orca: PushOrcaData): Record<string, string> {
   return Object.fromEntries(
     Object.entries(orca)
       .filter(([, value]) => value !== undefined && value !== null)
-      .map(([key, value]) => [key, String(value)])
+      .map(([key, value]) => [key, typeof value === 'object' ? JSON.stringify(value) : String(value)])
   )
+}
+
+export function canCoalescePushNotifications(
+  notifications: readonly PushNotification[],
+  hostFingerprint: string
+): boolean {
+  if (!pushSummaryMembers(notifications)) return false
+  const delivery = buildPushDelivery({
+    registrationId: '', hostFingerprint, notifications,
+    notification: notifications.at(-1)!, title: 'Orca', body: '32 agents need attention',
+    coalescedCount: notifications.length
+  })
+  // Reserve provider envelope space, including FCM's JSON-string escaping.
+  return Buffer.byteLength(JSON.stringify({
+    notification: { title: delivery.title, body: delivery.body },
+    data: orcaDataStrings(delivery.orca)
+  }), 'utf8') <= 3500
 }

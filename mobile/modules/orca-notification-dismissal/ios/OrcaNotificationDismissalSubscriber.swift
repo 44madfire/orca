@@ -15,9 +15,8 @@ public class OrcaNotificationDismissalSubscriber: ExpoAppDelegateSubscriber {
     center.getDeliveredNotifications { notifications in
       let ids = notifications.compactMap { notification -> String? in
         guard let data = notification.request.content.userInfo["orca"] as? [String: Any],
-          ((data["coalescedCount"] as? NSNumber)?.intValue ?? 1) <= 1,
-          let delivered = PushDismissalIdentity(data), fence.matches(delivered),
-          delivered.notificationSeq <= fence.notificationSeq else { return nil }
+          data["hostFingerprint"] as? String == fence.hostFingerprint,
+          PushDismissalLedger.shared.containsNotification(data) else { return nil }
         return notification.request.identifier
       }
       center.removeDeliveredNotifications(withIdentifiers: ids)

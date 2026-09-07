@@ -1,5 +1,5 @@
 import { PUSH_LIMITS, type PushNotification } from '@orca-cloud/push-contract'
-import { buildPushDelivery, type PushDelivery } from './push-delivery-message.js'
+import { buildPushDelivery, canCoalescePushNotifications, type PushDelivery } from './push-delivery-message.js'
 
 export type CoalescerTimer = { readonly handle: unknown }
 
@@ -57,10 +57,11 @@ export class PushCoalescer {
   }): void {
     if (this.stopped) throw new Error('push_coalescer_stopped')
     const existing = this.windows.get(input.registrationId)
-    if (existing) {
+    if (existing && canCoalescePushNotifications([...existing.notifications, input.notification], input.hostFingerprint)) {
       existing.notifications.push(input.notification)
       return
     }
+    if (existing) void this.flush(input.registrationId)
     this.windows.set(input.registrationId, {
       hostFingerprint: input.hostFingerprint,
       notifications: [input.notification],
@@ -87,7 +88,8 @@ export class PushCoalescer {
       notification: latest,
       title: coalescedCount > 1 ? 'Orca' : latest.title,
       body: coalescedCount > 1 ? summaryBody(window.notifications) : latest.body,
-      coalescedCount
+      coalescedCount,
+      notifications: window.notifications
     })
     const pending = Promise.resolve()
       .then(() => this.options.deliver(delivery))

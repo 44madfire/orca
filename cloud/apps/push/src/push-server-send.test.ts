@@ -89,7 +89,7 @@ describe('push gateway send route', () => {
     expect(await harness.server.devices.findById(registrationId)).toMatchObject({ dead: false })
   })
 
-  it('coalesces a burst into one apns summary under the host collapse id', async () => {
+  it('coalesces a burst into one apns summary with a membership-specific identity', async () => {
     const sessionToken = await harness.signIn(createPushHostKeypair(18))
     const registration = await harness.post(
       '/v1/devices',
@@ -126,7 +126,7 @@ describe('push gateway send route', () => {
     expect(body.aps.alert).toEqual({ title: 'Orca', body: '3 agents need attention' })
     expect(body.orca.coalescedCount).toBe(3)
     expect(body.orca.notificationSeq).toBe(3)
-    expect(request.headers['apns-collapse-id']).toMatch(/^host:/)
+    expect(request.headers['apns-collapse-id']).toMatch(/^[a-f0-9]{64}$/)
   })
 
   it('sends a lone event through unchanged with its own collapse id', async () => {
