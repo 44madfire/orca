@@ -297,7 +297,7 @@ describe('already-wedged profiles become usable on load', () => {
     })
   })
 
-  it('opens an observed-exit settlement latch through hold after a restart', async () => {
+  it('settles an observed-exit latch through attach before the boot sweep', async () => {
     const record = wedgedRecord({ claimStatus: 'released', handoffStage: 'recovering' })
     record.lease.settlementRetryRequired = true
     record.lease.settlementRetryId = `provider-exit:${SESSION}:12:generation-1`
@@ -310,8 +310,7 @@ describe('already-wedged profiles become usable on load', () => {
     await seedRunningTurn()
     openHost()
 
-    await host.restoreReadableSessions()
-    await host.hold(SESSION, 'desktop-chat:failed-observed-exit')
+    expect(await host.attach(CALLER, hostTestAttachParams(13))).toMatchObject({ ok: true })
 
     expect(acquire).toHaveBeenCalledOnce()
     expect(activeStructuredAgentSessionTurnId(restoredJournal().snapshot().items)).toBe(null)
