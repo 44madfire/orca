@@ -68,6 +68,19 @@ describe('update card error model precedence', () => {
   })
 })
 
+/**
+ * The model is nullable, and these assertions read every field on it. A null
+ * here should fail as "no model was built" rather than as a confusing mismatch
+ * on a property that was never going to exist.
+ */
+function buildErrorModel(status: UpdateStatus): NonNullable<ReturnType<typeof build>> {
+  const model = build(status)
+  if (!model) {
+    throw new Error(`buildUpdateCardErrorModel returned null for state=${status.state}`)
+  }
+  return model
+}
+
 describe('install errors the user has to act on', () => {
   // Why this matters beyond formatting: `detail` is rendered only after the user
   // opens "Show details", in a muted monospace box captioned DETAILS — the
@@ -82,20 +95,20 @@ describe('install errors the user has to act on', () => {
   } as const
 
   it('promotes the message to the summary when the error is not retryable', () => {
-    const model = build(blockedInstall)
+    const model = buildErrorModel(blockedInstall)
 
     expect(model.summary).toBe(blockedInstall.message)
   })
 
   it('buries the same message behind Show details when it is retryable', () => {
-    const model = build({ ...blockedInstall, retryable: true })
+    const model = buildErrorModel({ ...blockedInstall, retryable: true })
 
     expect(model.summary).toBe('Could not complete the update.')
     expect(model.detail).toBe(blockedInstall.message)
   })
 
   it('still offers a manual download when there is no retry action', () => {
-    const model = build(blockedInstall)
+    const model = buildErrorModel(blockedInstall)
 
     expect(model.primaryAction).toBeUndefined()
     expect(model.releaseUrl).toBeTruthy()
