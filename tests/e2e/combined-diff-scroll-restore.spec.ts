@@ -357,11 +357,11 @@ function getLargestBackwardScrollJump(samples: readonly ScrollProbeSample[]): nu
 
 async function clickVisibleDiffLine(page: Page): Promise<void> {
   // Diff rows render asynchronously after switching tabs.
-  let linePoint: { x: number; y: number } | null = null
+  const linePoint: { current: { x: number; y: number } | null } = { current: null }
   await expect
     .poll(
       async () => {
-        linePoint = await page.evaluate(() => {
+        linePoint.current = await page.evaluate(() => {
           const container = document.querySelector<HTMLElement>('.combined-diff-scroll-container')
           if (!container) {
             return null
@@ -391,16 +391,16 @@ async function clickVisibleDiffLine(page: Page): Promise<void> {
             y: rect.top + rect.height / 2
           }
         })
-        return linePoint !== null
+        return linePoint.current !== null
       },
       { timeout: 10_000, message: 'visible combined diff line not found' }
     )
     .toBe(true)
 
-  if (!linePoint) {
+  if (!linePoint.current) {
     throw new Error('visible combined diff line not found')
   }
-  await page.mouse.click(linePoint.x, linePoint.y)
+  await page.mouse.click(linePoint.current.x, linePoint.current.y)
 }
 
 test.describe('Combined diff scroll restore', () => {

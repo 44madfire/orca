@@ -37,6 +37,76 @@ index 9bdaaa3ef199f3e443f77106a9ac7eddcc4b05b6..461364d3af60a954a766ef285ddef147
  		const fileDiff = this.getLatestDiff();
  		if (fileDiff == null || fileDiff.editSessionDirty !== true) return false;
  		const { collapsedContextThreshold = 1 } = this.options;
+diff --git a/dist/managers/InteractionManager.d.ts b/dist/managers/InteractionManager.d.ts
+index 9f243f97a6eb28c22176b6b3abba022756571fdc..806bb52ac15de68044ea5a5cfbb5016eae38ccae 100644
+--- a/dist/managers/InteractionManager.d.ts
++++ b/dist/managers/InteractionManager.d.ts
+@@ -43,6 +43,8 @@ interface InteractionManagerBaseOptions<TMode extends InteractionManagerMode> {
+   lineHoverHighlight?: 'disabled' | 'both' | 'number' | 'line';
+   enableTokenInteractionsOnWhitespace?: boolean;
+   enableGutterUtility?: boolean;
++  canUseGutterUtility?(range: SelectedLineRange): boolean;
++  gutterUtilityLabel?: string;
+   onGutterUtilityClick?(range: SelectedLineRange): unknown;
+   onLineClick?(props: EventClickProps<TMode>): unknown;
+   onLineNumberClick?(props: EventClickProps<TMode>): unknown;
+diff --git a/dist/managers/InteractionManager.js b/dist/managers/InteractionManager.js
+index 8339405526a0a74638708738da09a6c2190cd069..7647ec597f11cbf52a5b6ba0e5e76d9b9ccfdaf6 100644
+--- a/dist/managers/InteractionManager.js
++++ b/dist/managers/InteractionManager.js
+@@ -445,7 +445,7 @@ var InteractionManager = class {
+ 					this.updateSelection(point.lineNumber, point.side);
+ 				}
+ 				const completedRange = this.buildSelectedLineRange(session.anchor, session.current);
+-				onGutterUtilityClick?.({ ...completedRange });
++				if (this.options.canUseGutterUtility?.(completedRange) !== false) onGutterUtilityClick?.({ ...completedRange });
+ 				this.selectionAnchor = void 0;
+ 				this.notifySelectionEnd(completedRange);
+ 				this.notifySelectionCommitted(completedRange);
+@@ -567,6 +567,25 @@ var InteractionManager = class {
+ 	}
+ 	showUtilityOnLine(line) {
+ 		if (this.gutterUtilityContainer == null) return;
++		const range = this.getCurrentSelectionRange() ?? {
++			start: line.lineNumber,
++			end: line.lineNumber,
++			side: line.type === "diff-line" ? line.annotationSide : undefined
++		};
++		if (this.options.canUseGutterUtility?.(range) === false) {
++			this.hideUtility();
++			return;
++		}
++		if (this.gutterUtilityButton != null) {
++			const label = this.options.gutterUtilityLabel;
++			if (label != null) {
++				this.gutterUtilityButton.setAttribute("aria-label", label);
++				this.gutterUtilityButton.title = label;
++			} else {
++				this.gutterUtilityButton.removeAttribute("aria-label");
++				this.gutterUtilityButton.removeAttribute("title");
++			}
++		}
+ 		this.gutterUtilityLine = line;
+ 		line.numberElement.appendChild(this.gutterUtilityContainer);
+ 	}
+@@ -1066,7 +1085,7 @@ var InteractionManager = class {
+ 		if (!split) return lineIndexes[0];
+ 	}
+ };
+-function pluckInteractionOptions({ enableTokenInteractionsOnWhitespace, enableGutterUtility, lineHoverHighlight, onGutterUtilityClick, onLineClick, onLineEnter, onLineLeave, onLineNumberClick, onTokenClick, onTokenEnter, onTokenLeave, renderGutterUtility, __debugPointerEvents, enableLineSelection, controlledSelection, onLineSelected, onLineSelectionStart, onLineSelectionChange, onLineSelectionEnd }, onHunkExpand, getLineIndex, onMergeConflictActionClick) {
++function pluckInteractionOptions({ enableTokenInteractionsOnWhitespace, enableGutterUtility, canUseGutterUtility, gutterUtilityLabel, lineHoverHighlight, onGutterUtilityClick, onLineClick, onLineEnter, onLineLeave, onLineNumberClick, onTokenClick, onTokenEnter, onTokenLeave, renderGutterUtility, __debugPointerEvents, enableLineSelection, controlledSelection, onLineSelected, onLineSelectionStart, onLineSelectionChange, onLineSelectionEnd }, onHunkExpand, getLineIndex, onMergeConflictActionClick) {
+ 	return {
+ 		enableTokenInteractionsOnWhitespace,
+ 		enableGutterUtility: resolveEnableGutterUtilityOption({
+@@ -1077,6 +1096,8 @@ function pluckInteractionOptions({ enableTokenInteractionsOnWhitespace, enableGu
+ 		usesCustomGutterUtility: renderGutterUtility != null,
+ 		lineHoverHighlight,
+ 		onGutterUtilityClick,
++		canUseGutterUtility,
++		gutterUtilityLabel,
+ 		onHunkExpand,
+ 		onMergeConflictActionClick,
+ 		onLineClick,
 diff --git a/dist/renderers/DiffHunksRenderer.js b/dist/renderers/DiffHunksRenderer.js
 index 4e6aeb4cd0a5dc1f9dd094b874f338cafceff29b..fc3bcf89f79ea56dba0a8a84b507fc97a370ff49 100644
 --- a/dist/renderers/DiffHunksRenderer.js

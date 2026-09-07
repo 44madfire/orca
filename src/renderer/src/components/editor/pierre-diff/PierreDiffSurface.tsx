@@ -28,6 +28,7 @@ import { usePierreDiffFind } from './use-pierre-diff-find'
 import { installPierreContextualCopy } from './pierre-diff-context-copy'
 import { editorShortcutMatches } from '../editor-shortcuts'
 import { usePierreDiffNoteNavigation } from './use-pierre-diff-note-navigation'
+import { canCommentOnPierreRange } from './pierre-diff-comment-range'
 
 export type PierreDiffInstance = PierreFileDiff<PierreDiffAnnotationData> &
   Partial<Pick<VirtualizedFileDiff, 'getLinePosition'>>
@@ -53,6 +54,7 @@ export type PierreDiffSurfaceProps = {
   onPostRender?: (node: HTMLElement, phase: PostRenderPhase, instance: PierreDiffInstance) => void
   /** Gutter affordance for starting a note; omit to hide it. */
   onAddComment?: (range: { lineNumber: number; startLine?: number }) => void
+  commentableLineNumbers?: readonly number[]
   /** Open note draft, rendered inline on its anchor line. */
   pendingComment?: { lineNumber: number; startLine?: number } | null
   addCommentPlaceholder?: string
@@ -82,6 +84,7 @@ export function PierreDiffSurface({
   onEditChange,
   onPostRender,
   onAddComment,
+  commentableLineNumbers,
   pendingComment,
   addCommentPlaceholder,
   addCommentLabel,
@@ -101,6 +104,10 @@ export function PierreDiffSurface({
   const { editEnabled, handleContainerKeyDown, handleContainerBlur, handleEditorAttach } =
     usePierreDiffFind({ isEditable, containerRef })
   const navigateToNote = usePierreDiffNoteNavigation({ worktreeId, filePath, comments })
+  const commentableLines = useMemo(
+    () => (commentableLineNumbers ? new Set(commentableLineNumbers) : null),
+    [commentableLineNumbers]
+  )
 
   // Why: Monaco's diff panes owned `editor.copyContext`; restore it for Pierre rows.
   const fileInfoRef = useRef({ relativePath: filePath, language: language ?? '' })
@@ -121,9 +128,12 @@ export function PierreDiffSurface({
         collapseUnchanged
       }),
       enableGutterUtility: Boolean(onAddComment),
+      canUseGutterUtility: (range: SelectedLineRange) =>
+        canCommentOnPierreRange(range, commentableLines),
+      gutterUtilityLabel: addCommentLabel ?? 'Add note for the AI',
       onGutterUtilityClick: onAddComment
         ? (range: SelectedLineRange) => {
-            if (range.side === 'deletions' || range.endSide === 'deletions') {
+            if (!canCommentOnPierreRange(range, commentableLines)) {
               return
             }
             onAddComment({
@@ -137,7 +147,16 @@ export function PierreDiffSurface({
         navigateToNote(node, phase, instance)
       }
     }),
-    [settings, sideBySide, collapseUnchanged, onPostRender, onAddComment, navigateToNote]
+    [
+      settings,
+      sideBySide,
+      collapseUnchanged,
+      onPostRender,
+      onAddComment,
+      navigateToNote,
+      commentableLines,
+      addCommentLabel
+    ]
   )
   const style = useMemo(
     () => buildPierreDiffStyle(settings, editorFontZoomLevel),

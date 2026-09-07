@@ -16,6 +16,11 @@ in a worker. The opt-out preserves completion notifications, live document text,
 and edit history; their hunk metadata retains its edit-session shape. Upstream's
 default cleanup behavior remains unchanged.
 
+The gutter utility also accepts an optional range predicate and accessible label.
+Orca uses these to hide note controls on original or ineligible review lines,
+reject ranges crossing an ineligible line, and retain each surface's note label.
+Drag completion rechecks the predicate. Other consumers retain the upstream defaults.
+
 Keep `useTokenTransformer: true` on the pool. Coverage lives in
 `pierre-diff-worker-edit-cache.test.ts` and the large-diff Electron specs. Remove
 the patch when an upstream release provides the same behavior.

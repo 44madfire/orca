@@ -253,6 +253,7 @@ export function DiffSectionItem({
           onEditChange={handleEditChange}
           onPostRender={handlePostRender}
           onAddComment={hasLineCommentAction ? handleAddComment : undefined}
+          commentableLineNumbers={commentableLineNumbers}
           pendingComment={pendingComment}
           addCommentPlaceholder={addLineCommentPlaceholder}
           addCommentLabel={addLineCommentLabel}
@@ -266,6 +267,7 @@ export function DiffSectionItem({
       addLineCommentLabel,
       addLineCommentPlaceholder,
       comments,
+      commentableLineNumbers,
       fileDiff,
       parseError,
       retryParse,
