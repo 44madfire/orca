@@ -46,24 +46,34 @@ const AGENT_TASK_PREFIX = 'codex-agent:'
 const COMMAND_TASK_PREFIX = 'codex-command:'
 
 type TrackedChild = {
-  label: string | null
+  label: string | undefined
   state: NativeChatSubagentState
   /** Parent turn the child was spawned in; null when Codex named none. */
   turnId: string | null
 }
 
 type TrackedCommand = {
-  label: string | null
+  label: string | undefined
   running: boolean
   turnId: string | null
 }
 
+/** Normalized once at receipt, not per projection: the roster is re-projected on
+ *  every observed frame, and the bound is a property of the stored value. */
 function description(value: string | null): string | undefined {
   if (value === null) {
     return undefined
   }
   const collapsed = value.trim().replace(/\s+/g, ' ')
   return collapsed.length > 0 ? collapsed.slice(0, MAX_TASK_DESCRIPTION_CHARS) : undefined
+}
+
+function task(
+  id: string,
+  kind: AgentSessionBackgroundTask['kind'],
+  label: string | undefined
+): AgentSessionBackgroundTask {
+  return { id, kind, ...(label === undefined ? {} : { description: label }) }
 }
 
 export class CodexBackgroundTaskTracker {
@@ -129,7 +139,7 @@ export class CodexBackgroundTaskTracker {
       // transition (`item/started` and `item/completed`), so a settled child must
       // not be resurrected by the duplicate.
       this.children.set(agentThreadId, {
-        label: existing.label ?? label,
+        label: existing.label ?? description(label),
         state: isTerminalSubagentState(existing.state) ? existing.state : state,
         turnId: existing.turnId ?? turnId
       })
@@ -142,7 +152,7 @@ export class CodexBackgroundTaskTracker {
     ) {
       return
     }
-    this.children.set(agentThreadId, { label, state, turnId })
+    this.children.set(agentThreadId, { label: description(label), state, turnId })
   }
 
   private upsertCommand(
@@ -154,7 +164,7 @@ export class CodexBackgroundTaskTracker {
     const existing = this.commands.get(itemId)
     if (existing) {
       this.commands.set(itemId, {
-        label: label ?? existing.label,
+        label: description(label) ?? existing.label,
         running,
         turnId: existing.turnId ?? turnId
       })
@@ -163,7 +173,7 @@ export class CodexBackgroundTaskTracker {
     if (!this.makeRoom(this.commands, MAX_TRACKED_COMMANDS, (command) => !command.running)) {
       return
     }
-    this.commands.set(itemId, { label, running, turnId })
+    this.commands.set(itemId, { label: description(label), running, turnId })
   }
 
   /** Frees a slot by dropping the oldest settled entry. Refuses to evict a live
@@ -210,21 +220,13 @@ export class CodexBackgroundTaskTracker {
       if (isTerminalSubagentState(child.state) || !this.outlivedItsTurn(child.turnId)) {
         continue
       }
-      tasks.push({
-        id: `${AGENT_TASK_PREFIX}${agentThreadId}`,
-        kind: 'agent',
-        ...(description(child.label) ? { description: description(child.label) } : {})
-      })
+      tasks.push(task(`${AGENT_TASK_PREFIX}${agentThreadId}`, 'agent', child.label))
     }
     for (const [itemId, command] of this.commands) {
       if (!command.running || !this.outlivedItsTurn(command.turnId)) {
         continue
       }
-      tasks.push({
-        id: `${COMMAND_TASK_PREFIX}${itemId}`,
-        kind: 'command',
-        ...(description(command.label) ? { description: description(command.label) } : {})
-      })
+      tasks.push(task(`${COMMAND_TASK_PREFIX}${itemId}`, 'command', command.label))
     }
     return tasks
   }
