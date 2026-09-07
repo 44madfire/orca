@@ -1,10 +1,12 @@
 import { sha256 } from '@noble/hashes/sha256'
+import type {
+  MobileWebTerminalOscLinkRange,
+  MobileWebTerminalEvent
+} from '../../shared/mobile-web/terminal-stream-contract'
 import {
   validateMobileWebTerminalOutputSequence,
-  validateMobileWebTerminalSnapshotOffset,
-  type MobileWebTerminalOscLinkRange,
-  type MobileWebTerminalEvent
-} from '../../shared/mobile-web/terminal-stream-contract'
+  validateMobileWebTerminalSnapshotOffset
+} from '../../shared/mobile-web/terminal-stream-sequencing'
 
 type SnapshotState = {
   id: string

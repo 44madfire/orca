@@ -161,7 +161,7 @@ describe('mobile web native shell channel', () => {
     expect(posted.at(-1)).toMatchObject({ type: 'cancel', target: 'request' })
   })
 
-  it('opens its default route when a newer shell resumes a route kind it cannot name', () => {
+  it('drops an init whose resume route kind it cannot name', () => {
     const target = window as NativeTestWindow
     target.OrcaNative = { postMessage: () => {} }
     const hook = renderHook(() => useMobileWebNativeShell(), {
@@ -179,8 +179,9 @@ describe('mobile web native shell channel', () => {
       )
     )
 
-    // Why: dropping the init instead would cost the page every grant, not one route.
-    expect(hook.result.current.client).not.toBeNull()
+    // The shell and the page ship as one release pair, so an unnameable route kind is a bug in
+    // the pair, not skew: the page stays uninitialised rather than guessing.
+    expect(hook.result.current.client).toBeNull()
     expect(hook.result.current.resumeRoute).toEqual({ kind: 'workspaceList' })
     expect(hook.result.current.navigationRoute).toEqual({ kind: 'workspaceList' })
   })

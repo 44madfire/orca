@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
 import type { RpcResponse } from '../transport/types'
 import { MobileWebSpeechAuthority } from './mobile-web-speech-authority'
-import type { MobileWebSpeechRuntime } from './mobile-web-speech-runtime'
 
 describe('MobileWebSpeechAuthority', () => {
   it('keeps PCM in the shell and finishes without cancelling a successful transcript', async () => {
@@ -160,17 +159,17 @@ function createHarness() {
     initialize: vi.fn(async () => true),
     toggleRecording: vi.fn(() => true),
     tearDown: vi.fn(),
-    addMicrophoneListener: vi.fn((listener) => {
+    addMicrophoneListener: vi.fn((listener: (event: { data: Uint8Array }) => void) => {
       microphone = listener
       return vi.fn()
     }),
-    addInterruptionListener: vi.fn((listener) => {
+    addInterruptionListener: vi.fn((listener: (kind: string) => void) => {
       interruption = listener
       return vi.fn()
     }),
     acquireKeepAwake: vi.fn(async () => {}),
     releaseKeepAwake: vi.fn(async () => {})
-  } satisfies MobileWebSpeechRuntime
+  }
   const sendRequest = vi.fn<RpcClient['sendRequest']>()
   const client = { sendRequest } as unknown as RpcClient
   const postEvent = vi.fn(async () => {})

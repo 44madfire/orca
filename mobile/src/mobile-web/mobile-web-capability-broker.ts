@@ -1,6 +1,7 @@
 import { requireMobileWebConnectedClient } from './mobile-web-connected-client'
 import type {
   MobileWebBridgePageMessage,
+  MobileWebConnectionState,
   MobileWebResumeRoute
 } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
@@ -20,7 +21,7 @@ import { executeMobileWebCapabilityRequest } from './mobile-web-capability-execu
 import { MobileWebCapabilityAuthorities } from './mobile-web-capability-authorities'
 import type { MobileWebCapabilityBrokerOptions } from './mobile-web-capability-broker-options'
 import { MobileWebBrokerMessageSender } from './mobile-web-broker-message-sender'
-import { MobileWebBrokerReplayGuard } from './mobile-web-broker-replay-guard'
+import { MobileWebBrokerReplayWindow } from './mobile-web-broker-replay-window'
 import { rememberMobileWebBrokerRoute } from './mobile-web-broker-route-memory'
 import { resolveMobileWebHostNavigationRoute } from './mobile-web-host-navigation-route'
 import {
@@ -40,7 +41,7 @@ type PendingRequest = { operationKey: string; subscriptionId?: string; cancelled
 
 export class MobileWebCapabilityBroker {
   private readonly pending = new Map<string, PendingRequest>()
-  private readonly replay = new MobileWebBrokerReplayGuard()
+  private readonly replay = new MobileWebBrokerReplayWindow()
   private readonly subscriptions: MobileWebCapabilitySubscriptions
   private readonly terminalStreams: MobileWebTerminalStreams
   private readonly speechAuthority: MobileWebSpeechAuthority
@@ -115,7 +116,7 @@ export class MobileWebCapabilityBroker {
       void this.messages.error(requestId, 'cancelled', false)
     }
   }
-  updateConnectionState(state: 'connecting' | 'connected' | 'offline' | 'recovering'): void {
+  updateConnectionState(state: MobileWebConnectionState): void {
     if (state !== 'connected') {
       this.authorities.terminalArtifact.clear()
       void this.speechAuthority.cancel('disconnected')
@@ -146,7 +147,7 @@ export class MobileWebCapabilityBroker {
     )
   }
   private async handleRequest(request: PageRequest): Promise<void> {
-    if (!this.replay.acceptRequest(request.requestId, this.pending.has(request.requestId))) {
+    if (this.pending.has(request.requestId) || !this.replay.accept(request.requestId)) {
       await this.messages.error(request.requestId, 'invalid_request', false)
       return
     }
@@ -158,10 +159,7 @@ export class MobileWebCapabilityBroker {
       await this.messages.error(request.requestId, 'unsupported_capability', false)
       return
     }
-    if (
-      request.mode === 'subscription' &&
-      !this.replay.acceptSubscription(request.subscriptionId)
-    ) {
+    if (request.mode === 'subscription' && !this.replay.accept(request.subscriptionId)) {
       await this.messages.error(request.requestId, 'invalid_request', false)
       return
     }

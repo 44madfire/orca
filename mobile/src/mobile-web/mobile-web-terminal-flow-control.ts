@@ -2,9 +2,9 @@ import { Buffer } from 'buffer/'
 import { sha256 } from '@noble/hashes/sha256'
 import {
   MOBILE_WEB_TERMINAL_MAX_OUTSTANDING_BYTES,
-  canSendMobileWebTerminalOutput,
   type MobileWebTerminalEvent
 } from '../../../src/shared/mobile-web/terminal-stream-contract'
+import { canSendMobileWebTerminalOutput } from '../../../src/shared/mobile-web/terminal-stream-sequencing'
 import {
   TerminalStreamOpcode,
   type TerminalStreamFrame

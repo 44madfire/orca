@@ -122,7 +122,7 @@ it('round trips bounded task bootstrap reads through opaque repository authority
   expect(linearItems[0]?.targetId).toMatch(/^task_target_/)
   await expect(details.listGitHubLabels(pageRepoId)).resolves.toEqual(['mobile'])
   await expect(details.listGitHubAssignableUsers(pageRepoId)).resolves.toEqual([
-    { login: 'octo', name: 'Octo', avatarUrl: null }
+    { login: 'octo', name: 'Octo' }
   ])
   await expect(
     details.loadGitHub({ repoId: pageRepoId, number: 7, type: 'issue' })
@@ -181,7 +181,7 @@ it('round trips bounded task bootstrap reads through opaque repository authority
   ).resolves.toMatchObject({ body: 'Project item details', labels: ['project'] })
   await expect(projects.listItemLabels(slug)).resolves.toEqual(['project'])
   await expect(projects.listItemAssignableUsers(slug)).resolves.toEqual([
-    { login: 'octo', name: 'Octo', avatarUrl: null }
+    { login: 'octo', name: 'Octo' }
   ])
   await expect(projects.listIssueTypes(slug)).resolves.toEqual([
     { id: 'type-1', name: 'Bug', color: 'RED', description: 'Defect' }

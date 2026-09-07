@@ -7,12 +7,10 @@ import {
   MobileWebManifestSchema,
   serializeMobileWebManifestForBuildId
 } from '../../src/shared/mobile-web/manifest-contract.ts'
-import { mobileWebDocumentCsp } from '../../src/shared/mobile-web/document-csp.ts'
-import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from '../../src/shared/mobile-web/markdown-editor-csp.ts'
 import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
   buildMobileWebMermaidFrameDocument
-} from '../../src/shared/mobile-web/mermaid-frame-document.ts'
+} from '../../mobile/src/components/pr-sidebar/mermaid-frame-document.ts'
 import { colors } from '../../mobile/src/theme/mobile-theme.ts'
 import { splitMobileWebRnwScript } from './mobile-web-rnw-script-chunks.mjs'
 import { assertMobileWebRnwExecutablePolicy } from './mobile-web-rnw-executable-policy.mjs'
@@ -169,13 +167,11 @@ function replaceReferences(source, replacements) {
 }
 
 function mobileWebDocument({ scriptPaths, stylePath }) {
-  const csp = mobileWebDocumentCsp(MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH)
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,shrink-to-fit=no,viewport-fit=cover">
-    <meta http-equiv="Content-Security-Policy" content="${csp}">
     <title>Orca</title>
     <link rel="stylesheet" href="./${stylePath}">
   </head>

@@ -1,8 +1,7 @@
 import { MOBILE_DICTATION_KEEP_AWAKE_STARTUP_BUDGET_MS } from '../hooks/mobile-dictation-session-state'
-import type { MobileWebSpeechRuntime } from './mobile-web-speech-runtime'
 
 export async function acquireMobileWebSpeechStartupWake(
-  runtime: MobileWebSpeechRuntime,
+  runtime: { acquireKeepAwake: (dictationId: string) => Promise<void> },
   dictationId: string
 ): Promise<void> {
   await new Promise<void>((resolve) => {

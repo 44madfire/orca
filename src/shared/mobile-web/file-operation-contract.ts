@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { decodedBase64Length } from './base64-decoded-length'
 import { isMobileWebBase64, isMobileWebSha256 } from './protocol-token-contract'
 import { MobileWebWorkspaceIdSchema } from './workspace-operation-contract'
 
@@ -143,14 +144,6 @@ export type MobileWebFileChunkResult = Omit<MobileWebFileChunkWireResult, 'conte
 
 function boundedBase64Schema(maximum: number) {
   return z.string().max(maximum).refine(isMobileWebBase64, 'Invalid base64')
-}
-
-function decodedBase64Length(value: string): number {
-  if (!value) {
-    return 0
-  }
-  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
-  return (value.length / 4) * 3 - padding
 }
 
 function isSafeRelativePath(value: string): boolean {

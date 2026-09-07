@@ -14,11 +14,13 @@ import {
   MobileWebTerminalOscLinksSchema,
   MobileWebTerminalOutputEventSchema,
   MobileWebTerminalRequestSchema,
-  MobileWebTerminalSnapshotChunkEventSchema,
+  MobileWebTerminalSnapshotChunkEventSchema
+} from './terminal-stream-contract'
+import {
   canSendMobileWebTerminalOutput,
   validateMobileWebTerminalOutputSequence,
   validateMobileWebTerminalSnapshotOffset
-} from './terminal-stream-contract'
+} from './terminal-stream-sequencing'
 
 const STREAM_ID = 'S'.repeat(22)
 const SNAPSHOT_ID = 'N'.repeat(22)

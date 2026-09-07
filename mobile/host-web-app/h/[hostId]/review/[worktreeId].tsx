@@ -16,19 +16,13 @@ export default function HostMobileWebDiffReviewRoute() {
     () => (shell.client && workspaceId ? webHostDiffReviewClient(shell.client, workspaceId) : null),
     [shell.client, workspaceId]
   )
-  const connectionState =
-    shell.connection === 'offline'
-      ? 'disconnected'
-      : shell.connection === 'recovering'
-        ? 'reconnecting'
-        : shell.connection
 
   return (
     <MobileDiffReviewRoute
       routeName={workspaceName}
       binding={{
         client,
-        connectionState,
+        connectionState: shell.connection,
         reconnect: async () => {
           await shell.client?.navigationReconnect()
         },

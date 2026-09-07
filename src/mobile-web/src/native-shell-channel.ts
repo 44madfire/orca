@@ -15,6 +15,7 @@ import {
   parseMobileWebBridgeInitialMessage,
   parseMobileWebBridgeShellMessage,
   type MobileWebBridgeMessageContext,
+  type MobileWebConnectionState,
   type MobileWebNavigationRoute,
   type MobileWebResumeRoute
 } from '../../shared/mobile-web/bridge-contract'
@@ -29,7 +30,7 @@ import { subscribeToMobileWebShellMessages } from './native-shell-message-inbox'
 export type MobileWebNativeShellState = {
   client: MobileWebBridgeClient | null
   context: MobileWebBridgeMessageContext | null
-  connection: 'connecting' | 'connected' | 'offline' | 'recovering'
+  connection: MobileWebConnectionState
   hostDisplayName: string | null
   reconnectAttempts: number
   lastConnectedAt: number | null

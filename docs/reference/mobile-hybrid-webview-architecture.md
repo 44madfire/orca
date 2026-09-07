@@ -238,19 +238,21 @@ is the only compat gate the bridge has. Additive operations stay on the same
 version and negotiate through `init.grants`. A breaking envelope or security
 semantic requires a new native bridge version.
 
-The shell and the page ship from different releases, so what a change costs
-depends on its direction and on whether it adds a field or an operation:
+The page parses every shell-authored payload with the plain contract schema, in
+both directions and at every level. There is no forgiving rewrite: an
+undeclared key, an unclassifiable array member, or an unknown value for a closed
+set fails the frame with `invalid_message` and `retryable: false`. The protocol
+version is what gates a change, so a field the page cannot name is a bug in the
+shell/page/desktop release set rather than skew to absorb. The desktop reshapes
+transcripts to the page contract before they leave the host; see
+`mobile-web-native-chat-read-budget.ts`.
 
-- **Additive field, shell to page** (any result or event payload) is always
-  safe and needs no negotiation. The page parses shell-authored payloads
-  through `tolerantMobileWebShellPayload`, which strips unknown keys, drops an
-  array member it cannot classify, and reads an unknown value for an
-  optional/nullable closed set as absent. Adding an enum value, a session tab
-  kind, or an optional field is therefore a degrade, not a break. Do not
-  reintroduce `.strict()` on that path: a page parse failure is
-  `invalid_message` with `retryable: false`, nothing re-subscribes, and the
-  one-shot fallback shares the schema, so both legs die on the same byte.
-  `shell-payload-tolerance-census.test.ts` fails if a strict node survives.
+What a change costs depends on its direction and on whether it adds a field or
+an operation:
+
+- **Additive field, shell to page** (any result or event payload) needs the
+  page contract to declare it in the same release. An undeclared key fails the
+  frame.
 - **Additive field, page to shell** in a native or legacy payload is a break.
   Native-capability and legacy request schemas stay `.strict()`; a newer page
   that sends a field an older shell does not know gets `invalid_request`. There
@@ -264,17 +266,15 @@ depends on its direction and on whether it adds a field or an operation:
   the call site instead of hanging.
 - **Additive frame type, either direction** is safe at the same version: both
   receivers drop a frame they cannot parse.
-- **Additive envelope field, shell to page** is safe for the same reason as a
-  payload field: `parseMobileWebBridgeShellMessage` and
-  `parseMobileWebBridgeInitialMessage` parse through the tolerant view, so an
-  undeclared key is stripped rather than dropping the frame. That matters most
-  for `init`, where dropping the frame costs the page every grant at once.
-  Stripping keeps the leak fence intact — an undeclared `resumeRoute.hostPath`
-  or a raw error `message` still never reaches the page. The page->shell
-  envelope stays strict.
-- **Additive route kind or other closed variant** is not covered by any of the
-  above and must negotiate. An unknown `resumeRoute.kind` still fails `init`,
-  because the page cannot invent a meaning for a variant it does not have.
+- **Additive envelope field, shell to page** must be declared before it is
+  sent. `parseMobileWebBridgeShellMessage` and
+  `parseMobileWebBridgeInitialMessage` drop a frame carrying a key the page does
+  not declare, which for `init` costs the page every grant at once. Failing
+  closed also keeps the leak fence: an undeclared `resumeRoute.hostPath` or a
+  raw error `message` never reaches the page.
+- **Additive route kind or other closed variant** must negotiate. An unknown
+  `resumeRoute.kind` fails `init`, because the page cannot invent a meaning for
+  a variant it does not have.
 
 Desktop must retain support for the existing bridge floor until a replacement
 has shipped in at least two stable mobile releases and the supported shell

@@ -41,12 +41,6 @@ export default function HostMobileWebTasksRoute() {
       workspaceCreation: webHostWorkspaceCreationOperations(shell.client)
     }
   }, [shell.client])
-  const connectionState =
-    shell.connection === 'offline'
-      ? 'disconnected'
-      : shell.connection === 'recovering'
-        ? 'reconnecting'
-        : shell.connection
 
   return (
     <MobileTasksScreen
@@ -65,7 +59,7 @@ export default function HostMobileWebTasksRoute() {
       providerWriteOperations={operations?.providerWrite}
       readOperations={operations?.read}
       workspaceCreationOperations={operations?.workspaceCreation}
-      connectionState={connectionState}
+      connectionState={shell.connection}
       connectionMetrics={{
         reconnectAttempts: shell.reconnectAttempts,
         lastConnectedAt: shell.lastConnectedAt

@@ -6,13 +6,11 @@ import {
   MobileWebManifestSchema,
   serializeMobileWebManifestForBuildId
 } from '../../src/shared/mobile-web/manifest-contract.ts'
-import { mobileWebDocumentCspDirectives } from '../../src/shared/mobile-web/document-csp.ts'
-import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from '../../src/shared/mobile-web/markdown-editor-csp.ts'
 import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
   MOBILE_WEB_MERMAID_FRAME_SCRIPT,
   mobileWebMermaidFrameCspDirectives
-} from '../../src/shared/mobile-web/mermaid-frame-document.ts'
+} from '../../mobile/src/components/pr-sidebar/mermaid-frame-document.ts'
 import {
   MOBILE_WEB_RNW_BUILD_BUDGET,
   mobileWebRnwBuildBudgetFailures
@@ -82,13 +80,6 @@ if (JSON.stringify(actualPaths) !== JSON.stringify(declaredPaths)) {
 const html = await readFile(path.join(outputRoot, manifest.entrypoint), 'utf8')
 if (!/<meta\s+name=["']viewport["'][^>]*\bviewport-fit=cover\b/i.test(html)) {
   throw new Error('RNW document must expose native safe-area insets')
-}
-for (const directive of mobileWebDocumentCspDirectives(
-  MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH
-)) {
-  if (!html.includes(directive)) {
-    throw new Error(`RNW CSP is missing: ${directive}`)
-  }
 }
 if (/<style(?:\s|>)/i.test(html) || /<script(?!\s+src=)/i.test(html)) {
   throw new Error('RNW document contains inline executable or stylesheet content')

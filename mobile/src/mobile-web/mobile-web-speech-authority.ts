@@ -8,7 +8,7 @@ import { createMobileDictationId } from '../hooks/mobile-dictation-session-state
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import { MobileWebSpeechAudioForwarder } from './mobile-web-speech-audio-forwarder'
-import type { MobileWebSpeechRuntime } from './mobile-web-speech-runtime'
+import type { createMobileWebSpeechNativeRuntime } from './mobile-web-speech-native-runtime'
 import { acquireMobileWebSpeechStartupWake } from './mobile-web-speech-startup-wake'
 import {
   cancelMobileWebRemoteSpeechSession,
@@ -17,6 +17,8 @@ import {
   type MobileWebSpeechSession
 } from './mobile-web-speech-session-rpc'
 import { MobileWebSpeechSubscriptions } from './mobile-web-speech-subscriptions'
+
+type MobileWebSpeechRuntime = ReturnType<typeof createMobileWebSpeechNativeRuntime>
 
 export class MobileWebSpeechAuthority {
   private readonly audio = new MobileWebSpeechAudioForwarder()
@@ -31,6 +33,8 @@ export class MobileWebSpeechAuthority {
   private generation = 0
   private disposed = false
 
+  // The native audio module is imported on first use: a static import drags Expo's
+  // native module core into every module graph that reaches this authority.
   constructor(
     config: MobileWebSubscriptionLedgerConfig<MobileWebSpeechEvent>,
     private readonly loadRuntime: () => Promise<MobileWebSpeechRuntime> = async () =>

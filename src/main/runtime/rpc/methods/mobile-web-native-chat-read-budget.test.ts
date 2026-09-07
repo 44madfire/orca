@@ -7,14 +7,9 @@ import {
   MOBILE_WEB_NATIVE_CHAT_TOOL_NAME_MAX_CHARACTERS,
   MobileWebNativeChatReadResultSchema
 } from '../../../../shared/mobile-web/native-chat-operation-contract'
-import { tolerantMobileWebShellPayload } from '../../../../shared/mobile-web/shell-payload-tolerance'
 import { boundMobileWebNativeChatRead } from './mobile-web-native-chat-read-budget'
 import { windowForClient } from './native-chat-rpc-message-sanitizer'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
-
-// What the page really runs. The strict parse below is the stronger claim: nothing is left for the
-// tolerant rewrite to rescue.
-const pageContract = tolerantMobileWebShellPayload(MobileWebNativeChatReadResultSchema)
 
 function message(id: string, blocks: unknown[]) {
   return { id, role: 'assistant', blocks, timestamp: 1, source: 'transcript' }
@@ -47,7 +42,6 @@ describe('native chat reads against the page contract', () => {
       'turn-blocks',
       'x'.repeat(MOBILE_WEB_NATIVE_CHAT_MESSAGE_ID_MAX_CHARACTERS)
     ])
-    expect(pageContract.safeParse(bounded)).toMatchObject({ success: true })
   })
 
   it('shows a clipped text block instead of dropping it', () => {
@@ -106,25 +100,27 @@ describe('native chat reads against the page contract', () => {
     expect(MobileWebNativeChatReadResultSchema.safeParse(bounded)).toMatchObject({ success: true })
   })
 
-  it('leaves fields and block types the page contract has never named untouched', () => {
+  it('drops host-only block detail and block types the page cannot name', () => {
     const bounded = boundMobileWebNativeChatRead({
       messages: [
-        {
-          ...message('turn-1', [
-            { type: 'text', text: 'a'.repeat(100_000), futureBlockField: 'kept' },
-            { type: 'future-block', field: 'kept' }
-          ]),
-          future: { revision: 2 }
-        }
+        message('turn-1', [
+          {
+            type: 'text',
+            text: 'hi',
+            providerFrame: { provider: 'claude', kind: 'raw', payload: {} }
+          },
+          { type: 'tool-result', output: 'out', editPatch: { filePath: 'a.ts', hunks: [] } },
+          { type: 'future-block', field: 'dropped' }
+        ])
       ],
-      hasMore: false,
-      futureLifecycle: 'new'
-    }) as { futureLifecycle: string; messages: { future: unknown; blocks: unknown[] }[] }
+      hasMore: false
+    }) as { messages: { blocks: unknown[] }[] }
 
-    expect(bounded.futureLifecycle).toBe('new')
-    expect(bounded.messages[0].future).toEqual({ revision: 2 })
-    expect(bounded.messages[0].blocks[0]).toMatchObject({ futureBlockField: 'kept' })
-    expect(bounded.messages[0].blocks[1]).toEqual({ type: 'future-block', field: 'kept' })
+    expect(bounded.messages[0].blocks).toEqual([
+      { type: 'text', text: 'hi' },
+      { type: 'tool-result', output: 'out' }
+    ])
+    expect(MobileWebNativeChatReadResultSchema.safeParse(bounded)).toMatchObject({ success: true })
   })
 
   it('does not mutate the host transcript it was given', () => {

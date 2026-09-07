@@ -3,7 +3,7 @@ import {
   MOBILE_WEB_MERMAID_FRAME_SCRIPT,
   MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH,
   buildMobileWebMermaidFrameDocument
-} from '../../../../src/shared/mobile-web/mermaid-frame-document'
+} from './mermaid-frame-document'
 import { colors } from '../../theme/mobile-theme'
 import {
   MERMAID_WEBVIEW_ENGINE_CSP_HASH,
