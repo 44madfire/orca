@@ -76,11 +76,9 @@ export class StructuredAgentSessionLeaseRenewer {
         if (!probe) {
           continue
         }
-        if (
-          record.lease.runtimeKind === 'native' &&
-          record.lease.leaseDeadlineAt <= now &&
-          isProvenDeadProbe(probe)
-        ) {
+        // Positive death evidence settles it; the deadline only guards a live owner that has not
+        // renewed yet. Matches the dead-TUI-owner branch below, which never waits for expiry.
+        if (record.lease.runtimeKind === 'native' && isProvenDeadProbe(probe)) {
           try {
             await this.input.store.evictProvenDeadOwner({
               sessionId: record.sessionId,

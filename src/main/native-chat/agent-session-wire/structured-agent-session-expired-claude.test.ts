@@ -133,6 +133,25 @@ describe('expired native Claude lease and close', () => {
     expect(fixture.close).not.toHaveBeenCalled()
   })
 
+  it('reclaims a proven-dead native owner before its lease deadline', async () => {
+    const fixture = await capturedSession({ root: 'exited', tree: 'unverifiable' })
+    const beforeDeadline = NOW + 1_000
+    expect(fixture.store.getRecord('session-1')!.lease.leaseDeadlineAt).toBeGreaterThan(
+      beforeDeadline
+    )
+    const renewer = new StructuredAgentSessionLeaseRenewer({
+      store: fixture.store,
+      probe: async () => ({ outcome: 'pid-absent' }) as AgentSessionOwnerProbe,
+      now: () => beforeDeadline
+    })
+    await renewer.renewNow()
+    expect(fixture.store.getRecord('session-1')?.lease).toMatchObject({
+      claimStatus: 'released',
+      ownerProcess: null,
+      deathEvidence: { kind: 'pid-absent' }
+    })
+  })
+
   it.each(['pid-absent', 'indeterminate', 'identity-matched'] as const)(
     'periodically reconciles an expired lease using %s host evidence',
     async (outcome) => {
