@@ -69,10 +69,14 @@ function run(
   // Drive the turn the way the app-server would, once the flow has opened it.
   queueMicrotask(() => {
     queueMicrotask(() => {
-      if (answer !== null) {
+      // `null` leaves the turn unanswered entirely; 'DECLINE' completes it with
+      // no message, which is a different fact the collector must distinguish.
+      if (answer !== null && answer !== 'DECLINE') {
         collector?.handle('item/completed', { item: { type: 'agentMessage', text: answer } })
       }
-      collector?.handle('turn/completed', {})
+      if (answer !== null) {
+        collector?.handle('turn/completed', {})
+      }
     })
   })
   return done
@@ -95,17 +99,41 @@ describe('readCodexGeneratedTitle', () => {
 })
 
 describe('createCodexNamingTurnCollector', () => {
-  it('settles on an error frame, which is how a refused turn reports itself', async () => {
+  it('reports a completed turn that said nothing as a DECLINE', async () => {
+    const collector = createCodexNamingTurnCollector(60_000)
+
+    collector.handle('turn/completed', {})
+
+    // A model that completed and said nothing has answered. Classifying this as
+    // a host failure would re-ask, and pay, on every future acquisition.
+    await expect(collector.answer).resolves.toEqual({ outcome: 'declined' })
+  })
+
+  it('reports the message a completed turn produced', async () => {
+    const collector = createCodexNamingTurnCollector(60_000)
+
+    collector.handle('item/completed', {
+      item: { type: 'agentMessage', text: '{"title":"Fix probe"}' }
+    })
+    collector.handle('turn/completed', {})
+
+    await expect(collector.answer).resolves.toEqual({
+      outcome: 'answered',
+      text: '{"title":"Fix probe"}'
+    })
+  })
+
+  it('reports a terminal error as a FAILURE, not a decline', async () => {
     const collector = createCodexNamingTurnCollector(60_000)
 
     // There is no `turn/failed` notification; a rate-limited or rejected turn
     // arrives as `error`. Without it this would hold for the whole timeout.
     collector.handle('error', { message: 'rate limit exceeded' })
 
-    await expect(collector.answer).resolves.toBeNull()
+    await expect(collector.answer).resolves.toEqual({ outcome: 'failed' })
   })
 
-  it('keeps the answer it had already seen when the turn then errors', async () => {
+  it('reports a failure even when the turn had already said something', async () => {
     const collector = createCodexNamingTurnCollector(60_000)
 
     collector.handle('item/completed', {
@@ -113,7 +141,15 @@ describe('createCodexNamingTurnCollector', () => {
     })
     collector.handle('error', { message: 'stream closed' })
 
-    await expect(collector.answer).resolves.toBe('{"title":"Fix probe"}')
+    // The host is why there is no title; a partial answer does not make it a
+    // decline the conversation should be marked for.
+    await expect(collector.answer).resolves.toEqual({ outcome: 'failed' })
+  })
+
+  it('reports a turn that never answered as TIMED OUT', async () => {
+    const collector = createCodexNamingTurnCollector(1)
+
+    await expect(collector.answer).resolves.toEqual({ outcome: 'timed-out' })
   })
 })
 
@@ -297,12 +333,22 @@ describe('settled vs unsettled outcomes', () => {
     await expect(run(connection, null)).resolves.toEqual({ name: null, settled: false })
   })
 
-  it('is SETTLED when the model answered without a usable title', async () => {
+  it('is SETTLED when the model completed and said nothing', async () => {
     const { connection } = fakeConnection()
 
-    await expect(run(connection, 'I could not think of one')).resolves.toEqual({
+    // A real decline. Left unsettled, this is re-asked — and paid for — on every
+    // future acquisition of the conversation.
+    await expect(run(connection, 'DECLINE')).resolves.toEqual({ name: null, settled: true })
+  })
+
+  it('is UNSETTLED when the model ignored the schema and answered in prose', async () => {
+    const { connection } = fakeConnection()
+
+    // Marking this would make the conversation permanently unnameable, even
+    // after switching to a model that honours the schema.
+    await expect(run(connection, 'Sure! A good title would be "Fix probe".')).resolves.toEqual({
       name: null,
-      settled: true
+      settled: false
     })
   })
 

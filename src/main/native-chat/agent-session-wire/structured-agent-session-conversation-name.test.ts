@@ -81,15 +81,6 @@ describe('StructuredAgentSessionConversationNames', () => {
     expect(onChanged).toHaveBeenCalledExactlyOnceWith(SESSION, null)
   })
 
-  it('does nothing when clearing a conversation that has no name', async () => {
-    const { names, onChanged, applyConversationNaming } = harness()
-
-    await names.clear(SESSION)
-
-    expect(applyConversationNaming).not.toHaveBeenCalled()
-    expect(onChanged).not.toHaveBeenCalled()
-  })
-
   it('records the attempt durably, and reads it back', async () => {
     const { names, record } = harness()
 
@@ -129,5 +120,35 @@ describe('StructuredAgentSessionConversationNames', () => {
     await names.markAttempted(SESSION)
 
     expect(onError).toHaveBeenCalledWith('mark-attempted', expect.any(Error))
+  })
+})
+
+describe('clearing marks the conversation attempted', () => {
+  it('stops the next message from regenerating a name the user deleted', async () => {
+    const { names, record } = harness({ conversationName: 'A name they typed' })
+
+    await names.clear(SESSION)
+
+    // Without this, a chat the user titled by hand and then cleared has no name
+    // and no marker, so their very next message generates a replacement.
+    expect(record.conversationName).toBeUndefined()
+    expect(record.conversationNamingAttempted).toBe(true)
+    expect(names.read(SESSION)).toEqual({ conversationName: null, namingAttempted: true })
+  })
+
+  it('still marks when the name was already absent but never asked about', async () => {
+    const { names, record } = harness()
+
+    await names.clear(SESSION)
+
+    expect(record.conversationNamingAttempted).toBe(true)
+  })
+
+  it('does nothing once the conversation is both nameless and marked', async () => {
+    const { names, applyConversationNaming } = harness({ conversationNamingAttempted: true })
+
+    await names.clear(SESSION)
+
+    expect(applyConversationNaming).not.toHaveBeenCalled()
   })
 })

@@ -74,6 +74,13 @@ export function startCodexConversationNaming(input: CodexConversationNamingInput
       // Marked only on a SETTLED answer, and only after the fact: a host that
       // could not be asked must stay askable, or upgrading the app-server would
       // never rescue the conversations it failed on.
+      //
+      // Tradeoff accepted: marking after the await widens the unmarked window
+      // from near-zero to the generation deadline, so an eviction and
+      // re-acquisition inside it can start a second turn. Two paid calls for one
+      // conversation, bounded by that window — against permanent forfeiture on
+      // every host failure, which is the alternative. The fail-closed re-read
+      // keeps the second turn from clobbering whatever the first one set.
       if (outcome.settled) {
         input.markNamingAttempted?.(sessionId)
       }

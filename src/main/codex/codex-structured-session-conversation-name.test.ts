@@ -125,7 +125,14 @@ describe('Codex structured conversation name', () => {
 
 /** A fake app-server that also serves the naming flow's requests. */
 function namingCodex(
-  options: { answer?: string; existingName?: string; hangNamingTurn?: boolean } = {}
+  options: {
+    answer?: string
+    existingName?: string
+    hangNamingTurn?: boolean
+    /** Completes the naming turn having said nothing: a genuine model decline,
+     *  which is a different fact from prose that ignored the schema. */
+    declineNamingTurn?: boolean
+  } = {}
 ) {
   const connections: FakeConnection[] = []
   const calls: { method: string; params: Record<string, unknown> }[] = []
@@ -148,10 +155,15 @@ function namingCodex(
           }
           // The naming turn's frames arrive on this same connection.
           queueMicrotask(() => {
-            handlers.onNotification?.('item/completed', {
-              threadId: NAMING_THREAD,
-              item: { type: 'agentMessage', text: options.answer ?? '{"title":"Fix lease probe"}' }
-            })
+            if (!options.declineNamingTurn) {
+              handlers.onNotification?.('item/completed', {
+                threadId: NAMING_THREAD,
+                item: {
+                  type: 'agentMessage',
+                  text: options.answer ?? '{"title":"Fix lease probe"}'
+                }
+              })
+            }
             handlers.onNotification?.('turn/completed', { threadId: NAMING_THREAD })
           })
           return { thread: { id: NAMING_THREAD } }
@@ -271,10 +283,10 @@ describe('Codex conversation-name generation', () => {
         attempted = true
       }
     }
-    const first = namingCodex({ answer: 'I could not think of one' })
+    const first = namingCodex({ declineNamingTurn: true })
     await dispatchedAdapter(first, naming)
     await settle()
-    const second = namingCodex({ answer: 'I could not think of one' })
+    const second = namingCodex({ declineNamingTurn: true })
     await dispatchedAdapter(second, naming)
     await settle()
 
@@ -288,7 +300,7 @@ describe('Codex conversation-name generation', () => {
     // A model that declines to answer leaves `conversationName` null, so the
     // one-shot flag is the ONLY thing stopping a second attempt. With a name set
     // this test would pass on the name check and prove nothing.
-    const codex = namingCodex({ answer: 'I could not think of one' })
+    const codex = namingCodex({ declineNamingTurn: true })
     const { adapter } = await dispatchedAdapter(codex)
     await settle()
     const namingThreads = () =>
@@ -424,10 +436,12 @@ describe('Codex marks attempted only on a settled answer', () => {
     expect(markNamingAttempted).not.toHaveBeenCalled()
   })
 
-  it('DOES mark when the model answered without a usable title', async () => {
+  it('DOES mark when the model completed and said nothing', async () => {
     const markNamingAttempted = vi.fn()
 
-    await dispatchedAdapter(namingCodex({ answer: 'I could not think of one' }), {
+    // A genuine decline settles. Prose that ignored the schema does NOT — that
+    // is a model that could not be asked properly, and it stays askable.
+    await dispatchedAdapter(namingCodex({ declineNamingTurn: true }), {
       markNamingAttempted
     })
     await settle()
@@ -497,5 +511,20 @@ describe('Codex sub-agent threads survive the naming window', () => {
 
     expect(events).toHaveLength(before)
     expect(JSON.stringify(events)).not.toContain('Still hidden')
+  })
+})
+
+describe('Codex leaves a schema-ignoring model askable', () => {
+  it('does NOT mark when the naming turn answered in prose', async () => {
+    const markNamingAttempted = vi.fn()
+
+    // Marking here makes the conversation permanently unnameable, even after the
+    // user switches to a model that honours the output schema.
+    await dispatchedAdapter(namingCodex({ answer: 'Sure! How about "Fix probe"?' }), {
+      markNamingAttempted
+    })
+    await settle()
+
+    expect(markNamingAttempted).not.toHaveBeenCalled()
   })
 })

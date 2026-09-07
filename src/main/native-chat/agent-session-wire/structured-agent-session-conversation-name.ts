@@ -51,12 +51,19 @@ export class StructuredAgentSessionConversationNames {
     await this.apply(sessionId, { conversationName }, conversationName)
   }
 
-  /** The provider reports this conversation has no name any more. */
+  /**
+   * The provider reports this conversation has no name any more.
+   *
+   * Also marks it attempted: a person who deletes the name has said what they
+   * want it called, and the next message must not silently generate a new one.
+   * That is the promise the durable marker already makes.
+   */
   clear = async (sessionId: string): Promise<void> => {
-    if (this.read(sessionId).conversationName === null) {
+    const state = this.read(sessionId)
+    if (state.conversationName === null && state.namingAttempted) {
       return
     }
-    await this.apply(sessionId, { conversationName: null }, null)
+    await this.apply(sessionId, { conversationName: null, attempted: true }, null)
   }
 
   /** Durably marks that a naming attempt happened, so no later session repeats it. */
@@ -73,11 +80,12 @@ export class StructuredAgentSessionConversationNames {
 
   private apply = async (
     sessionId: string,
-    change: { conversationName: string | null },
+    change: { conversationName: string | null; attempted?: true },
     next: string | null
   ): Promise<void> => {
     // Read first so an unchanged name costs no durable transaction and no fan-out.
-    if (this.read(sessionId).conversationName === next) {
+    const current = this.read(sessionId)
+    if (current.conversationName === next && (!change.attempted || current.namingAttempted)) {
       return
     }
     try {

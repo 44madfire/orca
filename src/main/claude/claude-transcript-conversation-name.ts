@@ -134,6 +134,9 @@ export function reportPersistedClaudeConversationName(
     .then((found) => {
       if (found.kind === 'cleared') {
         // The user deleted the name in the CLI; a stale one here keeps rendering.
+        // Marked attempted for the same reason the durable clear is: their next
+        // message must not quietly generate a replacement.
+        session.namingAttempted = true
         deps.onConversationNameCleared?.(sessionId)
         return
       }

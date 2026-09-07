@@ -74,12 +74,25 @@ export type CodexNamingState = {
  * Whether a frame belongs to a naming turn rather than the user's conversation.
  *
  * Normally an exact match against a thread this session opened for naming, held
- * for the session's life. The broad "any other thread" rule applies ONLY in the
- * window before `thread/start` has returned that id — while no naming thread is
- * known yet — because a Codex SUB-AGENT runs on its own thread over this same
- * connection. Treating those as naming frames would drop the sub-agent's rows
- * from the transcript, feed its reply to the collector as the naming answer, and
- * auto-refuse an approval the user's own agent asked for.
+ * for the session's life. The broad "any other thread" rule applies ONLY while no
+ * naming thread is known yet, because a Codex SUB-AGENT runs on its own thread
+ * over this same connection. Treating those as naming frames would drop the
+ * sub-agent's rows from the transcript, feed its reply to the collector as the
+ * naming answer, and auto-refuse an approval the user's own agent asked for.
+ *
+ * That window is one `thread/start` round trip on a healthy app-server, but it is
+ * bounded by the request deadline, not instantaneous — a hung server stretches
+ * it. A sub-agent frame arriving inside it is still diverted and can still be
+ * recorded as the naming answer; that costs one wasted naming attempt rather
+ * than a permanent forfeiture, because unparseable output classifies as
+ * unsettled.
+ *
+ * Exact matching means leak protection now RELIES ON ID STABILITY: an app-server
+ * that tagged naming frames with any id other than the one `thread/start`
+ * returned would put this turn's prompt and JSON answer back in the user's
+ * transcript. That is the accepted trade against eating sub-agent frames, and it
+ * is a narrower assumption than the rest of this module makes about app-server
+ * behaviour.
  *
  * A frame naming no thread cannot be attributed and passes through, as it always
  * has.
@@ -94,11 +107,25 @@ export function isCodexNamingFrame(state: CodexNamingState, frameThreadId: strin
   return state.naming !== null && state.namingThreadIds.size === 0
 }
 
-/** Collects one ephemeral naming turn's frames and reports its answer. */
+/**
+ * How one naming turn ended.
+ *
+ * The three ways to produce no title are NOT the same fact: a model that
+ * completed and said nothing has declined, while a turn that errored or never
+ * answered is a host that could not be asked. Only the first may durably mark
+ * the conversation attempted; conflating them either forfeits naming forever or
+ * re-asks — and pays — on every acquisition.
+ */
+export type CodexNamingTurnResult =
+  | { outcome: 'answered'; text: string }
+  | { outcome: 'declined' }
+  | { outcome: 'failed' }
+  | { outcome: 'timed-out' }
+
+/** Collects one ephemeral naming turn's frames and reports how it ended. */
 export type CodexNamingTurnCollector = {
   handle: (method: string, params: unknown) => void
-  /** The turn's final agent message, or null when it produced none. */
-  answer: Promise<string | null>
+  answer: Promise<CodexNamingTurnResult>
 }
 
 /**
@@ -136,19 +163,23 @@ function agentMessageText(params: unknown): string | null {
 }
 
 export function createCodexNamingTurnCollector(timeoutMs: number): CodexNamingTurnCollector {
-  let settle: (value: string | null) => void = () => {}
-  const answer = new Promise<string | null>((resolve) => {
+  let settle: (value: CodexNamingTurnResult) => void = () => {}
+  const answer = new Promise<CodexNamingTurnResult>((resolve) => {
     settle = resolve
     // The turn can die with its provider; nothing here may outlive the session.
-    setTimeout(() => resolve(null), timeoutMs).unref?.()
+    setTimeout(() => resolve({ outcome: 'timed-out' }), timeoutMs).unref?.()
   })
   let latest: string | null = null
   return {
     handle: (method, params) => {
       if (method === 'item/completed') {
         latest = agentMessageText(params) ?? latest
-      } else if (method === 'turn/completed' || isTerminalCodexTurnError(method, params)) {
-        settle(latest)
+      } else if (method === 'turn/completed') {
+        settle(latest === null ? { outcome: 'declined' } : { outcome: 'answered', text: latest })
+      } else if (isTerminalCodexTurnError(method, params)) {
+        // An error ends the turn whatever it had said; the host, not the model,
+        // is why there is no title.
+        settle({ outcome: 'failed' })
       }
     },
     answer
@@ -244,7 +275,7 @@ export async function generateAndSetCodexConversationName(
 ): Promise<CodexConversationNameOutcome> {
   const { connection, timeoutMs } = input
   const collector = input.openNamingTurn()
-  let answer: string | null
+  let result: CodexNamingTurnResult = { outcome: 'failed' }
   let disposableThreadId: string | null = null
   try {
     const opened = await connection.request(
@@ -268,6 +299,12 @@ export async function generateAndSetCodexConversationName(
     // Only when `ephemeral` was NOT honoured. A truly ephemeral thread refuses
     // deletion ("thread is not persisted and cannot be deleted"), so attempting
     // it unconditionally would log a failure on every successful naming.
+    //
+    // Not covered: an app-server that persisted a thread AND returned an id this
+    // build cannot read returns above, before this assignment, so that thread and
+    // its rollout leak uncleaned. Pre-existing — the flow returned at the same
+    // point before there was any cleanup path — and unreachable without a reply
+    // shape no released app-server produces.
     if (!readCodexThreadIsEphemeral(opened)) {
       disposableThreadId = namingThreadId
     }
@@ -281,7 +318,7 @@ export async function generateAndSetCodexConversationName(
       },
       { timeoutMs }
     )
-    answer = await collector.answer
+    result = await collector.answer
   } finally {
     input.closeNamingTurn()
     // Set only when the app-server persisted the thread despite `ephemeral`.
@@ -293,14 +330,21 @@ export async function generateAndSetCodexConversationName(
         .catch((error: unknown) => input.onError?.('delete-naming-thread', error))
     }
   }
-  // A turn that ended with no usable title is a decline and settles; one that
-  // never answered at all (the collector's timeout) did not.
-  if (answer === null) {
+  // A model that completed and said nothing has declined, and that settles. A
+  // turn that errored or never answered is a host failure and stays askable.
+  if (result.outcome === 'declined') {
+    return { name: null, settled: true }
+  }
+  if (result.outcome !== 'answered') {
     return { name: null, settled: false }
   }
-  const title = readCodexGeneratedTitle(answer)
+  const title = readCodexGeneratedTitle(result.text)
   if (!title) {
-    return { name: null, settled: true }
+    // Answered, but not in the shape the schema asked for. That is a model that
+    // could not be asked properly, not one that declined — marking it would make
+    // the conversation permanently unnameable even on a schema-capable model
+    // later. It also defuses a sub-agent reply landing here as the answer.
+    return { name: null, settled: false }
   }
   // Re-read LAST: generation takes seconds, and a name a person chose in that
   // window outranks this one. Losing the race means doing nothing, not retrying.
