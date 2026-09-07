@@ -22,13 +22,22 @@ const EMPTY_FIELD_VALUE = '_No response_'
 export function parseIssueFormSections(body) {
   const sections = new Map()
   let current = null
-  let inFence = false
+  // Why: a fence closes only on the same character, at least as long, with nothing trailing.
+  let fence = null
   for (const rawLine of (body ?? '').split(/\r?\n/)) {
     const line = rawLine.trimEnd()
-    if (/^\s*(`{3,}|~{3,})/.test(line)) {
-      inFence = !inFence
+    const delimiter = line.match(/^\s*(`{3,}|~{3,})/)?.[1]
+    if (!fence) {
+      fence = delimiter ?? null
+    } else if (
+      delimiter &&
+      delimiter[0] === fence[0] &&
+      delimiter.length >= fence.length &&
+      line.trim() === delimiter
+    ) {
+      fence = null
     }
-    const heading = !inFence && line.match(/^### (.+)$/)
+    const heading = !fence && line.match(/^### (.+)$/)
     if (heading) {
       current = heading[1].trim()
       if (!sections.has(current)) {
@@ -78,6 +87,17 @@ function hasComplianceLabel(issue) {
   )
 }
 
+// Why hardcoded: the day this workflow shipped. Issues filed earlier were written
+// before the forms were mandatory, so editing one must not retroactively flag it.
+export const ENFORCEMENT_START = '2026-09-07T00:00:00Z'
+
+// Why created_at, not label presence: `cancel-in-progress` can kill the `opened`
+// run mid-flight, leaving a brand-new non-compliant issue unlabeled.
+function predatesEnforcement(issue) {
+  const createdAt = Date.parse(issue.created_at ?? '')
+  return Number.isFinite(createdAt) && createdAt < Date.parse(ENFORCEMENT_START)
+}
+
 // Returns what the workflow should do; performing it stays in the workflow.
 export function decideIssueTemplateAction(event, templates = ISSUE_TEMPLATES) {
   const { action, issue } = event
@@ -91,9 +111,8 @@ export function decideIssueTemplateAction(event, templates = ISSUE_TEMPLATES) {
     return { kind: 'skip', reason: `bot author ${issue.user.login}` }
   }
   const flagged = hasComplianceLabel(issue)
-  if (action === 'edited' && !flagged) {
-    // Why: older issues predate enforcement; only re-check ones this workflow already flagged.
-    return { kind: 'skip', reason: 'edited issue was never flagged' }
+  if (action === 'edited' && !flagged && predatesEnforcement(issue)) {
+    return { kind: 'skip', reason: 'edited issue predates template enforcement' }
   }
   if (action !== 'opened' && action !== 'edited') {
     return { kind: 'skip', reason: `unhandled action ${action}` }

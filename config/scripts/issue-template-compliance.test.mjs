@@ -7,6 +7,7 @@ import { parse } from 'yaml'
 import {
   COMMENT_MARKER,
   COMPLIANCE_LABEL,
+  ENFORCEMENT_START,
   ISSUE_TEMPLATES,
   decideIssueTemplateAction,
   evaluateIssueTemplateCompliance,
@@ -96,6 +97,30 @@ describe('parseIssueFormSections', () => {
     expect(sections.get('Details')).toContain('### Operating system')
   })
 
+  it('does not let a tilde line close a backtick fence', () => {
+    const body = [
+      '### Details',
+      '',
+      '```',
+      '~~~',
+      '### Operating system',
+      'still inside the block',
+      '```',
+      '',
+      '### Orca version',
+      '',
+      '1.0.0'
+    ].join('\n')
+    const sections = parseIssueFormSections(body)
+    expect([...sections.keys()]).toEqual(['Details', 'Orca version'])
+    expect(sections.get('Details')).toContain('### Operating system')
+  })
+
+  it('requires the closing fence to be at least as long as the opening one', () => {
+    const body = '### Details\n\n````\n```\n### Operating system\n````\n'
+    expect([...parseIssueFormSections(body).keys()]).toEqual(['Details'])
+  })
+
   it('handles null, empty and heading-less bodies', () => {
     expect(parseIssueFormSections(null).size).toBe(0)
     expect(parseIssueFormSections('').size).toBe(0)
@@ -172,12 +197,24 @@ describe('decideIssueTemplateAction', () => {
     expect(decideIssueTemplateAction({ action: 'opened' }).kind).toBe('skip')
   })
 
-  it('leaves edits to older, never-flagged issues alone', () => {
+  it('leaves edits to pre-enforcement, never-flagged issues alone', () => {
     // Why: pre-enforcement issues were written by hand; editing one must not retroactively flag it.
-    expect(decideIssueTemplateAction(issueEvent('edited', 'old hand-written report'))).toEqual({
+    const created_at = new Date(Date.parse(ENFORCEMENT_START) - 1000).toISOString()
+    expect(
+      decideIssueTemplateAction(issueEvent('edited', 'old hand-written report', { created_at }))
+    ).toEqual({
       kind: 'skip',
-      reason: 'edited issue was never flagged'
+      reason: 'edited issue predates template enforcement'
     })
+  })
+
+  it('flags an edited post-enforcement issue whose opened run never labelled it', () => {
+    // Why: `cancel-in-progress` can kill the `opened` run before it adds the label.
+    const created_at = new Date(Date.parse(ENFORCEMENT_START) + 1000).toISOString()
+    const event = issueEvent('edited', 'help', { created_at })
+    expect(decideIssueTemplateAction(event).kind).toBe('flag')
+    // A missing created_at must not become an escape hatch either.
+    expect(decideIssueTemplateAction(issueEvent('edited', 'help')).kind).toBe('flag')
   })
 
   it('clears a flagged issue once its edit makes it compliant, and re-flags otherwise', () => {
@@ -297,6 +334,8 @@ describe('issue-template-compliance workflow contract', () => {
     }
     // Why: comment text flows through env, never interpolated into the shell script.
     expect(actors[0].run).not.toContain('${{')
-    expect(actors[0].run).toContain('grep -qF "$MARKER"')
+    // Why: piping the lookup into `grep` would read a failed `gh issue view` as "no marker".
+    expect(actors[0].run).not.toMatch(/gh issue view[^\n]*\|/)
+    expect(actors[0].run).toContain('grep -qF "$MARKER" <<<"$comments"')
   })
 })

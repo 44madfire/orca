@@ -48,7 +48,9 @@ jobs:
             || echo "Label $LABEL already exists."
           gh issue edit "$ISSUE_URL" --add-label "$LABEL"
           # Why: an author may edit several times; keep a single bot comment per issue.
-          if gh issue view "$ISSUE_URL" --json comments --jq '.comments[].body' | grep -qF "$MARKER"; then
+          # Why the variable: in an `if` pipeline a failed lookup reads as "no marker" and double-comments.
+          comments="$(gh issue view "$ISSUE_URL" --json comments --jq '.comments[].body')"
+          if grep -qF "$MARKER" <<<"$comments"; then
             echo "Compliance comment already present; skipping."
           else
             gh issue comment "$ISSUE_URL" --body "$COMMENT"
