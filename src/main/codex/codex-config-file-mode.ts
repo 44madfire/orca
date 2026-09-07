@@ -37,7 +37,19 @@ export function enforceCodexConfigFileMode(
   // Why resolve first: the writer follows a symlinked config to its realpath
   // and backs up to `<realpath>.bak`. Deriving the backup from the lexical path
   // would chmod a file that does not exist and leave the real one loose.
-  const writePath = resolveTomlWritePath(path)
+  let writePath: string
+  try {
+    writePath = resolveTomlWritePath(path)
+  } catch (error) {
+    // A dangling symlink is the case that gets here: `lstat` succeeds on the link,
+    // so the resolver calls `realpath` and that throws ENOENT. The writer wants that
+    // throw — it fails closed rather than replacing a dotfiles symlink — but this
+    // repair must not, or the exception escapes into the mirror's catch and disables
+    // the whole config mirror on every later pass. Fall back to the lexical path:
+    // there is no realpath to repair, and `enforceOneFileMode` treats it as absent.
+    onWarning?.(`could not resolve the write path for ${path}: ${String(error)}`)
+    writePath = path
+  }
   enforceOneFileMode(writePath, onWarning)
   enforceOneFileMode(`${writePath}.bak`, onWarning)
 }
