@@ -60,6 +60,18 @@ describe('buildMirroredAgentTabs', () => {
   })
 
   it('leaves customLabel null when the tab was never renamed', () => {
-    expect(build(snapshotWith('codex', 'Codex Chat')).customLabel).toBeNull()
+    // Guard: assert the row is actually built, so this cannot pass on an empty
+    // result the way a bare null-check would.
+    const tab = build(snapshotWith('codex', 'Codex Chat'))
+    expect(tab.label).toBe('Codex Chat')
+    expect(tab.customLabel).toBeNull()
+  })
+
+  it('names an agent this build does not know after itself, not Codex', () => {
+    const snapshot = snapshotWith('codex', '')
+    // Cast: the wire union is claude|codex today, but Tab.agentSessionAgent is
+    // the open AgentType, so a future agent can reach this label.
+    ;(snapshot.tabs[0] as { agent: string }).agent = 'gemini'
+    expect(build(snapshot).label).toBe('Gemini Chat')
   })
 })

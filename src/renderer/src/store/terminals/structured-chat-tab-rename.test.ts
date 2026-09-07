@@ -25,6 +25,24 @@ function structuredTab(): Tab {
   }
 }
 
+const TERMINAL_TAB_ID = 'terminal-1'
+const TERMINAL_UNIFIED_ID = 'unified-terminal-1'
+
+function terminalTab(): Tab {
+  return {
+    id: TERMINAL_UNIFIED_ID,
+    entityId: TERMINAL_TAB_ID,
+    groupId: 'group-1',
+    worktreeId: WORKTREE,
+    contentType: 'terminal',
+    label: 'Terminal',
+    customLabel: null,
+    color: null,
+    sortOrder: 1,
+    createdAt: 2
+  }
+}
+
 function storeWithStructuredTab(): ReturnType<typeof createTestStore> {
   const store = createTestStore()
   seedStore(store, {
@@ -48,6 +66,26 @@ function colorOf(store: ReturnType<typeof createTestStore>): string | null | und
     .getState()
     .unifiedTabsByWorktree[WORKTREE]?.find((tab) => tab.id === STRUCTURED_TAB_ID)?.color
 }
+
+describe('renaming a terminal tab still resolves', () => {
+  it('routes a terminal rename through its entityId, not the unified id', () => {
+    const store = createTestStore()
+    seedStore(store, {
+      repos: [{ id: 'local-repo', path: '/tmp/app', name: 'app' }] as never,
+      worktreesByRepo: {
+        'local-repo': [makeWorktree({ id: WORKTREE, repoId: 'local-repo', path: '/tmp/app' })]
+      },
+      unifiedTabsByWorktree: { [WORKTREE]: [terminalTab(), structuredTab()] }
+    })
+
+    // Keyed by the TERMINAL's entityId — the structured tab must not absorb it.
+    store.getState().setTabCustomTitle(TERMINAL_TAB_ID, 'Build logs')
+
+    const tabs = store.getState().unifiedTabsByWorktree[WORKTREE] ?? []
+    expect(tabs.find((t) => t.id === TERMINAL_UNIFIED_ID)?.customLabel).toBe('Build logs')
+    expect(tabs.find((t) => t.id === STRUCTURED_TAB_ID)?.customLabel).toBeNull()
+  })
+})
 
 describe('recoloring a structured chat tab', () => {
   it('writes the color onto the agent-session tab', () => {
