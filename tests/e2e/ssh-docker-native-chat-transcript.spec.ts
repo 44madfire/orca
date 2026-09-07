@@ -133,14 +133,17 @@ test.describe('Docker SSH native-chat transcripts', () => {
       )
       expect(hostedTab).toBeDefined()
       if (hostedTab?.type !== 'terminal' || !hostedTab.nativeChatSessionId) {
-        throw new Error('Hosted SSH session did not expose opaque native-chat authority')
+        throw new Error('Hosted SSH session did not expose a native-chat session')
       }
       await expect(
-        hostedBridge.client.nativeChat.read({
-          workspaceId: hostedWorkspace.id,
-          sessionId: hostedTab.nativeChatSessionId,
-          limit: 40
-        })
+        hostedBridge.client.nativeChat.readForTab(
+          {
+            workspaceId: hostedWorkspace.id,
+            sessionId: hostedTab.nativeChatSessionId,
+            limit: 40
+          },
+          hostedTab.id
+        )
       ).resolves.toMatchObject({
         messages: [expect.objectContaining({ id: 'u-1' })]
       })
@@ -153,11 +156,14 @@ test.describe('Docker SSH native-chat transcripts', () => {
         result: { error: expect.any(String) }
       })
       await expect(
-        hostedBridge.client.nativeChat.read({
-          workspaceId: hostedWorkspace.id,
-          sessionId: hostedTab.nativeChatSessionId,
-          limit: 40
-        })
+        hostedBridge.client.nativeChat.readForTab(
+          {
+            workspaceId: hostedWorkspace.id,
+            sessionId: hostedTab.nativeChatSessionId,
+            limit: 40
+          },
+          hostedTab.id
+        )
       ).rejects.toMatchObject({ code: 'host_error' })
 
       await reconnectDisconnectedDockerSshRelayTarget(orcaPage, remote.targetId)
@@ -181,14 +187,17 @@ test.describe('Docker SSH native-chat transcripts', () => {
         (tab) => tab.type === 'terminal' && tab.nativeChatSessionId
       )
       if (reconnectedHostedTab?.type !== 'terminal' || !reconnectedHostedTab.nativeChatSessionId) {
-        throw new Error('Hosted SSH session did not reacquire opaque native-chat authority')
+        throw new Error('Hosted SSH session did not reacquire a native-chat session')
       }
       await expect(
-        hostedBridge.client.nativeChat.read({
-          workspaceId: hostedWorkspace.id,
-          sessionId: reconnectedHostedTab.nativeChatSessionId,
-          limit: 40
-        })
+        hostedBridge.client.nativeChat.readForTab(
+          {
+            workspaceId: hostedWorkspace.id,
+            sessionId: reconnectedHostedTab.nativeChatSessionId,
+            limit: 40
+          },
+          reconnectedHostedTab.id
+        )
       ).resolves.toMatchObject({
         messages: [expect.objectContaining({ id: 'u-1' }), expect.objectContaining({ id: 'a-1' })]
       })

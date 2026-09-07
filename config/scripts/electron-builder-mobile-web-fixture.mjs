@@ -35,7 +35,7 @@ export async function createMobileWebResourceFixture(resourcesDir) {
   const scriptPath = `assets/${scriptHash}.js`
   const csp = mobileWebDocumentCsp(MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH)
   const document = Buffer.from(
-    `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta http-equiv="Content-Security-Policy" content="${csp}"><script src="./${scriptPath}"></script>`,
+    `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta http-equiv="Content-Security-Policy" content="${csp}"><script src="./${scriptPath}" defer></script>`,
     'utf8'
   )
   const mermaidFrame = Buffer.from(
