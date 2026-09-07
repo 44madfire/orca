@@ -5,7 +5,6 @@ import { MOBILE_WEB_PRODUCTION_NAVIGATION_GRANTS } from './mobile-web-production
 import { MOBILE_WEB_PRODUCTION_NATIVE_GRANTS } from './mobile-web-production-native-grants'
 import { MOBILE_WEB_PRODUCTION_NATIVE_CHAT_GRANTS } from './mobile-web-production-native-chat-grants'
 import { MOBILE_WEB_PRODUCTION_SESSION_GRANTS } from './mobile-web-production-session-grants'
-import { MOBILE_WEB_PRODUCTION_SOURCE_CONTROL_GRANTS } from './mobile-web-production-source-control-grants'
 import { MOBILE_WEB_PRODUCTION_SPEECH_GRANTS } from './mobile-web-production-speech-grants'
 import { MOBILE_WEB_PRODUCTION_TASK_GRANTS } from './mobile-web-production-task-grants'
 import { MOBILE_WEB_PRODUCTION_TERMINAL_GRANTS } from './mobile-web-production-terminal-grants'
@@ -42,7 +41,10 @@ export const MOBILE_WEB_PRODUCTION_GRANTS = [
   ...MOBILE_WEB_PRODUCTION_TERMINAL_GRANTS,
   ...MOBILE_WEB_PRODUCTION_BROWSER_GRANTS,
   ...MOBILE_WEB_PRODUCTION_FILE_GRANTS,
-  ...MOBILE_WEB_PRODUCTION_SOURCE_CONTROL_GRANTS,
+  ...capabilityGrants('sourceControl', {
+    generateCommitMessage: grantLimits(4 * 1024, 16 * 1024, 1, 4, 0.25),
+    cancelCommitMessageGeneration: grantLimits(2 * 1024, 2 * 1024, 2, 8, 4)
+  }),
   ...MOBILE_WEB_PRODUCTION_SPEECH_GRANTS,
   ...MOBILE_WEB_PRODUCTION_NATIVE_GRANTS,
   ...MOBILE_WEB_PRODUCTION_NATIVE_CHAT_GRANTS,

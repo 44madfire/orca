@@ -2,8 +2,10 @@ import type { MobileWebProviderReview } from '../../../src/shared/mobile-web/pro
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebBrokerError, mobileWebBrokerHostRpcError } from './mobile-web-broker-error'
 import { sanitizeMobileWebProviderReviewSummary } from './mobile-web-provider-review-sanitizer'
-import { readMobileWebSourceControlStatusIdentity } from './mobile-web-source-control-repository-state'
-import { assertMobileWebRepositoryIdentity } from './mobile-web-source-control-sync-preflight'
+import {
+  assertProviderReviewRepositoryIdentity,
+  readProviderReviewStatusIdentity
+} from './mobile-web-provider-review-repository-state'
 
 export async function assertCurrentRepositoryIdentity(
   client: RpcClient,
@@ -14,8 +16,8 @@ export async function assertCurrentRepositoryIdentity(
     expectedBranch: string
   }
 ): Promise<void> {
-  const identity = await readMobileWebSourceControlStatusIdentity(client, hostWorkspaceId)
-  assertMobileWebRepositoryIdentity(identity, expected)
+  const identity = await readProviderReviewStatusIdentity(client, hostWorkspaceId)
+  assertProviderReviewRepositoryIdentity(identity, expected)
 }
 
 export async function readHostedReviewSummary(

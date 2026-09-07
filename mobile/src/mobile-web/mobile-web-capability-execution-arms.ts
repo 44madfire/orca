@@ -16,7 +16,6 @@ import { executeMobileWebNativeCapabilityOperation } from './mobile-web-native-c
 import { executeMobileWebNativeChatCapability } from './mobile-web-native-chat-capability'
 import { executeMobileWebProviderOperation } from './mobile-web-provider-review-operations'
 import { executeMobileWebProviderReviewDiff } from './mobile-web-provider-review-diff'
-import { executeMobileWebSourceControlOperation } from './mobile-web-source-control-operations'
 import { executeMobileWebSpeechOperation } from './mobile-web-speech-operations'
 import { executeMobileWebTaskReadOperation } from './mobile-web-task-read-operations'
 
@@ -104,15 +103,9 @@ async function executeProvider(args: Deps, request: OnceRequest): Promise<unknow
   })
 }
 
+/** Commit-message generation is the only Source Control operation left in the shell: it outlives
+ * the host lane's request deadline and the page cancels it while it runs. */
 async function executeSourceControl(args: Deps, request: OnceRequest): Promise<unknown> {
-  if (request.operation === 'generateCommitMessage') {
-    return args.commitMessageGeneration.generate({
-      requestId: request.requestId,
-      payload: request.payload,
-      client: args.connectedClient(),
-      workspaceAuthority: args.workspaceAuthority
-    })
-  }
   if (request.operation === 'cancelCommitMessageGeneration') {
     return args.commitMessageGeneration.cancel(
       request.payload,
@@ -120,14 +113,14 @@ async function executeSourceControl(args: Deps, request: OnceRequest): Promise<u
       args.workspaceAuthority
     )
   }
-  return executeMobileWebSourceControlOperation({
-    operation: request.operation,
+  if (request.operation !== 'generateCommitMessage') {
+    throw new MobileWebBrokerError('unsupported_capability')
+  }
+  return args.commitMessageGeneration.generate({
+    requestId: request.requestId,
     payload: request.payload,
     client: args.connectedClient(),
-    workspaceAuthority: args.workspaceAuthority,
-    branchComparePager: args.sourceControlBranchCompare,
-    requestId: request.requestId,
-    terminalClientId: args.terminalClientId
+    workspaceAuthority: args.workspaceAuthority
   })
 }
 

@@ -29,10 +29,6 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-provider-review-management.ts': 1,
   'mobile-web-provider-review-operations.ts': 1,
   'mobile-web-provider-review-submission.ts': 1,
-  'mobile-web-source-control-commit-operation.ts': 1,
-  'mobile-web-source-control-operations.ts': 1,
-  'mobile-web-source-control-review-operations.ts': 3,
-  'mobile-web-source-control-sync-operations.ts': 6,
   'mobile-web-task-item-file-operations.ts': 1,
   'mobile-web-task-item-mutation-operations.ts': 1,
   'mobile-web-task-item-review-operations.ts': 1,
@@ -167,7 +163,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations()).toHaveLength(113)
+    expect(mutations()).toHaveLength(99)
   })
 
   it('exempts only registered mutations', () => {

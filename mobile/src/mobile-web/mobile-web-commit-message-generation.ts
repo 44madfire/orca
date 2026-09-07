@@ -11,7 +11,6 @@ import {
 } from '../../../src/shared/mobile-web/source-control-commit-contract'
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
-import { assertFreshMobileWebCommitSnapshot } from './mobile-web-source-control-commit-preflight'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 const COMMIT_MESSAGE_GENERATION_TIMEOUT_MS = 65_000
@@ -48,7 +47,6 @@ export class MobileWebCommitMessageGeneration {
     }
     this.active.set(args.requestId, generation)
     try {
-      await assertFreshMobileWebCommitSnapshot(args.client, payload, hostWorkspaceId)
       this.assertAuthorized(generation)
       if (generation.cancelled || this.disposed) {
         return cancelledResult(payload.workspaceId, payload.expectedHead)
@@ -76,7 +74,6 @@ export class MobileWebCommitMessageGeneration {
         throw new MobileWebBrokerError('host_error')
       }
       // Why: generation can be slow over SSH; discard a draft if HEAD or the staged index changed.
-      await assertFreshMobileWebCommitSnapshot(args.client, payload, hostWorkspaceId)
       this.assertAuthorized(generation)
       if (generation.cancelled || this.disposed) {
         return cancelledResult(payload.workspaceId, payload.expectedHead)

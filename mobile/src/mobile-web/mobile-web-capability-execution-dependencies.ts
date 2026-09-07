@@ -10,7 +10,6 @@ import type { MobileWebCommitMessageGeneration } from './mobile-web-commit-messa
 import type { MobileWebNavigationAuthority } from './mobile-web-navigation-operations'
 import type { MobileWebNativeCapabilityAuthority } from './mobile-web-native-capability-authority'
 import type { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
-import type { MobileWebSourceControlBranchComparePager } from './mobile-web-source-control-branch-compare-pager'
 import type { MobileWebSpeechAuthority } from './mobile-web-speech-authority'
 import type { MobileWebTaskTargetAuthority } from './mobile-web-task-target-authority'
 import type { MobileWebTaskProjectTablePager } from './mobile-web-task-project-table-pager'
@@ -34,7 +33,6 @@ export type MobileWebCapabilityExecutionDependencies = {
   hostSubscriptions: MobileWebHostSubscriptions
   accountSubscriptions: MobileWebAccountSubscriptions
   browserStreams: MobileWebBrowserStreams
-  sourceControlBranchCompare: MobileWebSourceControlBranchComparePager
   speechAuthority: MobileWebSpeechAuthority
   workspaceSubscriptions: MobileWebWorkspaceSubscriptions
   terminalStreams: MobileWebTerminalStreams

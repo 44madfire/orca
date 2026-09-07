@@ -12,8 +12,8 @@ import {
 import type { RpcClient } from '../transport/rpc-client'
 import { mobileRepoSelectorFromWorktreeId } from '../source-control/mobile-hosted-review-service'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
-import { readMobileWebSourceControlRepositoryState } from './mobile-web-source-control-repository-state'
-import { assertMobileWebRepositoryIdentity } from './mobile-web-source-control-sync-preflight'
+import { readProviderReviewRepositoryState } from './mobile-web-provider-review-repository-state'
+import { assertProviderReviewRepositoryIdentity } from './mobile-web-provider-review-repository-state'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 export async function readMobileWebProviderReviewEligibility(args: {
@@ -24,7 +24,7 @@ export async function readMobileWebProviderReviewEligibility(args: {
   const payload = MobileWebProviderReviewEligibilityPayloadSchema.parse(args.payload)
   const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
   const snapshot = await creationSnapshot(args.client, payload.workspaceId, hostWorkspaceId)
-  assertMobileWebRepositoryIdentity(snapshot.repository, payload)
+  assertProviderReviewRepositoryIdentity(snapshot.repository, payload)
   const response = await args.client.sendRequest('hostedReview.getCreationEligibility', {
     repo: mobileRepoSelectorFromWorktreeId(hostWorkspaceId),
     worktree: `id:${hostWorkspaceId}`,
@@ -71,12 +71,12 @@ export async function createMobileWebProviderReview(args: {
   ) {
     throw new MobileWebBrokerError('conflict')
   }
-  const repository = await readMobileWebSourceControlRepositoryState(
+  const repository = await readProviderReviewRepositoryState(
     args.client,
     payload.workspaceId,
     hostWorkspaceId
   )
-  assertMobileWebRepositoryIdentity(repository, payload)
+  assertProviderReviewRepositoryIdentity(repository, payload)
   args.workspaceAuthority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
   const response = await args.client.sendRequest('hostedReview.create', {
     repo: mobileRepoSelectorFromWorktreeId(hostWorkspaceId),
@@ -106,12 +106,12 @@ export async function generateMobileWebProviderReviewFields(args: {
 }): Promise<MobileWebProviderReviewFieldsResult> {
   const payload = MobileWebProviderReviewFieldsPayloadSchema.parse(args.payload)
   const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-  const repository = await readMobileWebSourceControlRepositoryState(
+  const repository = await readProviderReviewRepositoryState(
     args.client,
     payload.workspaceId,
     hostWorkspaceId
   )
-  assertMobileWebRepositoryIdentity(repository, payload)
+  assertProviderReviewRepositoryIdentity(repository, payload)
   args.workspaceAuthority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
   const response = await args.client.sendRequest('git.generatePullRequestFields', {
     worktree: `id:${hostWorkspaceId}`,
@@ -150,7 +150,7 @@ async function creationSnapshot(
   hostWorkspaceId: string
 ) {
   const [repository, status, worktree] = await Promise.all([
-    readMobileWebSourceControlRepositoryState(client, pageWorkspaceId, hostWorkspaceId),
+    readProviderReviewRepositoryState(client, pageWorkspaceId, hostWorkspaceId),
     client.sendRequest('git.status', { worktree: `id:${hostWorkspaceId}` }),
     client.sendRequest('worktree.show', { worktree: `id:${hostWorkspaceId}` })
   ])

@@ -105,18 +105,14 @@ describe('web host diff review client', () => {
     ).resolves.toMatchObject({ ok: false, error: { message: 'Source control action failed' } })
   })
 
-  it('assembles every revision-bound branch comparison page for the unchanged Review UI', async () => {
+  it('reads the whole branch comparison in one Desktop answer', async () => {
     const bridge = bridgeClient()
-    const firstEntries = Array.from({ length: 128 }, (_, index) => ({
-      relativePath: `src/file-${index}.ts`,
-      status: 'modified'
-    }))
-    bridge.sourceControlBranchCompare = vi
-      .fn()
-      .mockResolvedValueOnce(branchComparePage(firstEntries, 0, 128))
-      .mockResolvedValueOnce(
-        branchComparePage([{ relativePath: 'src/file-128.ts', status: 'added' }], 128, null)
-      )
+    bridge.sourceControlBranchCompare = vi.fn().mockResolvedValue(
+      branchCompare([
+        { relativePath: 'src/app.ts', status: 'modified' },
+        { relativePath: 'src/next.ts', status: 'added' }
+      ])
+    )
     const client = webHostDiffReviewClient(
       bridge as unknown as MobileWebBridgeClient,
       'workspace-1'
@@ -130,48 +126,17 @@ describe('web host diff review client', () => {
     expect(response).toMatchObject({
       ok: true,
       result: {
-        summary: { baseRef: 'main', changedFiles: 129 },
+        summary: { baseRef: 'main', changedFiles: 2 },
         entries: [
-          { path: 'src/file-0.ts', status: 'modified' },
-          ...Array.from({ length: 127 }, (_, index) => ({
-            path: `src/file-${index + 1}.ts`,
-            status: 'modified'
-          })),
-          { path: 'src/file-128.ts', status: 'added' }
+          { path: 'src/app.ts', status: 'modified' },
+          { path: 'src/next.ts', status: 'added' }
         ]
       }
     })
-    expect(bridge.sourceControlBranchCompare).toHaveBeenNthCalledWith(2, {
+    expect(bridge.sourceControlBranchCompare).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
-      baseRef: 'main',
-      offset: 128,
-      limit: 128,
-      expectedRevision: revision
+      baseRef: 'main'
     })
-  })
-
-  it('rejects a stale branch comparison page instead of mixing Review queues', async () => {
-    const bridge = bridgeClient()
-    bridge.sourceControlBranchCompare = vi
-      .fn()
-      .mockResolvedValueOnce(
-        branchComparePage([{ relativePath: 'src/app.ts', status: 'modified' }], 0, 1)
-      )
-      .mockResolvedValueOnce({
-        ...branchComparePage([{ relativePath: 'src/next.ts', status: 'modified' }], 1, null),
-        revision: 'b'.repeat(64)
-      })
-    const client = webHostDiffReviewClient(
-      bridge as unknown as MobileWebBridgeClient,
-      'workspace-1'
-    )
-
-    await expect(
-      client.sendRequest('git.branchCompare', {
-        worktree: 'id:workspace-1',
-        baseRef: 'main'
-      })
-    ).resolves.toMatchObject({ ok: false, error: { message: 'Source control action failed' } })
   })
 
   it('maps shell metadata, session tabs, diff opening, and terminal send locally', async () => {
@@ -256,7 +221,7 @@ describe('web host diff review client', () => {
 
 function bridgeClient() {
   return {
-    sourceControlUpstream: vi.fn().mockResolvedValue({
+    sourceControlRepositoryState: vi.fn().mockResolvedValue({
       workspaceId: 'workspace-1',
       head: 'b'.repeat(40),
       branch: 'feature',
@@ -330,11 +295,7 @@ function bridgeClient() {
   }
 }
 
-function branchComparePage(
-  entries: { relativePath: string; status: 'modified' | 'added' }[],
-  offset: number,
-  nextOffset: number | null
-) {
+function branchCompare(entries: { relativePath: string; status: 'modified' | 'added' }[]) {
   return {
     workspaceId: 'workspace-1',
     baseRef: 'main',
@@ -342,13 +303,9 @@ function branchComparePage(
     baseOid: 'a'.repeat(40),
     headOid: 'b'.repeat(40),
     mergeBase: 'a'.repeat(40),
-    changedFiles: 129,
+    changedFiles: entries.length,
     status: 'ready' as const,
-    revision,
-    offset,
-    totalEntries: 129,
     entries,
-    nextOffset,
     truncated: false
   }
 }

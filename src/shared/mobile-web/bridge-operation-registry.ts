@@ -65,30 +65,8 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     releaseTerminalArtifact: 'mutation'
   },
   sourceControl: {
-    stage: 'mutation',
-    unstage: 'mutation',
-    discard: 'mutation',
-    commit: 'mutation',
     generateCommitMessage: 'mutation',
-    cancelCommitMessageGeneration: 'mutation',
-    branch: 'mutation',
-    branches: 'read',
-    history: 'read',
-    branchCompare: 'read',
-    commitCompare: 'read',
-    reviewMetadata: 'read',
-    reviewMetadataUpdate: 'mutation',
-    reviewLink: 'read',
-    reviewLinkUpdate: 'mutation',
-    reviewDiff: 'read',
-    reviewOpen: 'mutation',
-    reviewTerminalSend: 'mutation',
-    upstream: 'read',
-    fetch: 'mutation',
-    pull: 'mutation',
-    push: 'mutation',
-    rebase: 'mutation',
-    abort: 'mutation'
+    cancelCommitMessageGeneration: 'mutation'
   },
   task: {
     bootstrap: 'read',

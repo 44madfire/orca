@@ -7,9 +7,19 @@ import {
 import { MobileWebGitRefNameSchema } from '../../../src/shared/mobile-web/source-control-history-contract'
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
-import { resolveMobileWebSourceControlBaseRef } from './mobile-web-source-control-base-ref'
 
-export async function readMobileWebSourceControlRepositoryState(
+/** Hosted review creation reads the repository the same way the Source Control screens do, but it
+ * still runs in the shell: the provider capability has not moved to the generic host lane. */
+export function assertProviderReviewRepositoryIdentity(
+  state: Pick<MobileWebSourceControlRepositoryState, 'head' | 'branch'>,
+  expected: { expectedHead: string | null; expectedBranch: string | null }
+): void {
+  if (state.head !== expected.expectedHead || state.branch !== expected.expectedBranch) {
+    throw new MobileWebBrokerError('conflict')
+  }
+}
+
+export async function readProviderReviewRepositoryState(
   client: RpcClient,
   pageWorkspaceId: string,
   hostWorkspaceId: string
@@ -17,7 +27,7 @@ export async function readMobileWebSourceControlRepositoryState(
   const [statusResponse, upstreamResponse, baseRef] = await Promise.all([
     client.sendRequest('git.status', { worktree: `id:${hostWorkspaceId}` }),
     client.sendRequest('git.upstreamStatus', { worktree: `id:${hostWorkspaceId}` }),
-    resolveMobileWebSourceControlBaseRef(client, hostWorkspaceId)
+    resolveProviderReviewBaseRef(client, hostWorkspaceId)
   ])
   if (!statusResponse.ok || !upstreamResponse.ok || !isRecord(statusResponse.result)) {
     throw new MobileWebBrokerError('host_error')
@@ -28,11 +38,11 @@ export async function readMobileWebSourceControlRepositoryState(
     branch: safeBranch(statusResponse.result.branch),
     conflictOperation: safeConflictOperation(statusResponse.result.conflictOperation),
     baseRef,
-    upstream: sanitizeMobileWebUpstreamSnapshot(upstreamResponse.result)
+    upstream: sanitizeProviderReviewUpstreamSnapshot(upstreamResponse.result)
   })
 }
 
-export async function readMobileWebSourceControlStatusIdentity(
+export async function readProviderReviewStatusIdentity(
   client: RpcClient,
   hostWorkspaceId: string
 ): Promise<Pick<MobileWebSourceControlRepositoryState, 'head' | 'branch' | 'conflictOperation'>> {
@@ -49,20 +59,7 @@ export async function readMobileWebSourceControlStatusIdentity(
   }
 }
 
-export async function tryReadMobileWebSourceControlRepositoryState(
-  client: RpcClient,
-  pageWorkspaceId: string,
-  hostWorkspaceId: string
-): Promise<MobileWebSourceControlRepositoryState | null> {
-  try {
-    return await readMobileWebSourceControlRepositoryState(client, pageWorkspaceId, hostWorkspaceId)
-  } catch {
-    // Why: the Git write already completed; a failed refresh must not turn it into a false failure.
-    return null
-  }
-}
-
-export function sanitizeMobileWebUpstreamSnapshot(
+function sanitizeProviderReviewUpstreamSnapshot(
   value: unknown
 ): MobileWebSourceControlUpstreamSnapshot {
   if (!isRecord(value)) {
@@ -104,4 +101,68 @@ function boundedString(value: unknown, limit: number): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+async function resolveProviderReviewBaseRef(
+  client: RpcClient,
+  hostWorkspaceId: string
+): Promise<string | null> {
+  const worktreeBaseRef = await readWorktreeBaseRef(client, hostWorkspaceId)
+  if (worktreeBaseRef) {
+    return worktreeBaseRef
+  }
+  const repoId = hostWorkspaceId.split('::', 1)[0]?.trim()
+  if (!repoId) {
+    return null
+  }
+  const repoBaseRef = await readRepositoryBaseRef(client, repoId)
+  if (repoBaseRef) {
+    return repoBaseRef
+  }
+  try {
+    const response = await client.sendRequest('repo.baseRefDefault', { repo: `id:${repoId}` })
+    return response.ok && isRecord(response.result)
+      ? safeProviderBaseRef(response.result.defaultBaseRef)
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function readWorktreeBaseRef(
+  client: RpcClient,
+  hostWorkspaceId: string
+): Promise<string | null> {
+  try {
+    const response = await client.sendRequest('worktree.show', {
+      worktree: `id:${hostWorkspaceId}`
+    })
+    return response.ok && isRecord(response.result) && isRecord(response.result.worktree)
+      ? safeProviderBaseRef(response.result.worktree.baseRef)
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function readRepositoryBaseRef(client: RpcClient, repoId: string): Promise<string | null> {
+  try {
+    const response = await client.sendRequest('repo.list')
+    if (!response.ok || !isRecord(response.result) || !Array.isArray(response.result.repos)) {
+      return null
+    }
+    for (const candidate of response.result.repos) {
+      if (isRecord(candidate) && candidate.id === repoId) {
+        return safeProviderBaseRef(candidate.worktreeBaseRef)
+      }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+function safeProviderBaseRef(value: unknown): string | null {
+  const parsed = MobileWebGitRefNameSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
 }

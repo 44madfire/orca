@@ -26,7 +26,7 @@ describe('web host source control client', () => {
       totalCount: 1,
       truncated: false
     })
-    bridge.sourceControlUpstream.mockResolvedValue(repositoryState())
+    bridge.sourceControlRepositoryState.mockResolvedValue(repositoryState())
     const client = webHostSourceControlClient(
       bridge as unknown as MobileWebBridgeClient,
       WORKSPACE_ID
@@ -55,29 +55,9 @@ describe('web host source control client', () => {
     })
   })
 
-  it('revalidates displayed entries before a mutation', async () => {
+  it('sends a staged path straight to the Desktop, which decides whether it may stage', async () => {
     const bridge = bridgeClient()
-    bridge.sourceControlStatus.mockResolvedValue({
-      workspaceId: WORKSPACE_ID,
-      branch: 'main',
-      head: HEAD,
-      conflictOperation: 'unknown',
-      entries: [
-        {
-          relativePath: 'src/app.ts',
-          status: 'modified',
-          area: 'unstaged'
-        }
-      ],
-      totalCount: 1,
-      truncated: false
-    })
-    bridge.sourceControlStage.mockResolvedValue({
-      workspaceId: WORKSPACE_ID,
-      operation: 'stage',
-      relativePaths: ['src/app.ts'],
-      mutated: true
-    })
+    bridge.sourceControlStage.mockResolvedValue(undefined)
     const client = webHostSourceControlClient(
       bridge as unknown as MobileWebBridgeClient,
       WORKSPACE_ID
@@ -91,15 +71,9 @@ describe('web host source control client', () => {
     expect(response.ok).toBe(true)
     expect(bridge.sourceControlStage).toHaveBeenCalledWith({
       workspaceId: WORKSPACE_ID,
-      expectedHead: HEAD,
-      entries: [
-        {
-          relativePath: 'src/app.ts',
-          status: 'modified',
-          area: 'unstaged'
-        }
-      ]
+      relativePaths: ['src/app.ts']
     })
+    expect(bridge.sourceControlStatus).not.toHaveBeenCalled()
   })
 
   it('rejects a guessed workspace selector before bridge dispatch', async () => {
@@ -231,17 +205,9 @@ describe('web host source control client', () => {
     expect(activated).toMatchObject({ ok: true, result: { activeTabId: 'diff-1' } })
   })
 
-  it('maps push through an exact repository snapshot', async () => {
+  it('maps a publish to the Desktop push it performs', async () => {
     const bridge = bridgeClient()
-    bridge.sourceControlUpstream.mockResolvedValue(repositoryState())
-    bridge.sourceControlPush.mockResolvedValue({
-      workspaceId: WORKSPACE_ID,
-      operation: 'push',
-      previousHead: HEAD,
-      previousBranch: 'main',
-      repository: repositoryState(),
-      completed: true
-    })
+    bridge.sourceControlPush.mockResolvedValue(undefined)
     const client = webHostSourceControlClient(
       bridge as unknown as MobileWebBridgeClient,
       WORKSPACE_ID
@@ -255,12 +221,9 @@ describe('web host source control client', () => {
     expect(response.ok).toBe(true)
     expect(bridge.sourceControlPush).toHaveBeenCalledWith({
       workspaceId: WORKSPACE_ID,
-      expectedHead: HEAD,
-      expectedBranch: 'main',
-      expectedUpstream: repositoryState().upstream,
-      mode: 'publish',
-      confirmation: 'push-confirmed'
+      mode: 'publish'
     })
+    expect(bridge.sourceControlRepositoryState).not.toHaveBeenCalled()
   })
 
   it('maps manual review linking without exposing the host workspace identity', async () => {
@@ -283,7 +246,7 @@ describe('web host source control client', () => {
       linkedAzureDevOpsPR: null,
       linkedGiteaPR: null
     })
-    bridge.sourceControlUpstream.mockResolvedValue(repositoryState())
+    bridge.sourceControlRepositoryState.mockResolvedValue(repositoryState())
     const client = webHostSourceControlClient(
       bridge as unknown as MobileWebBridgeClient,
       WORKSPACE_ID
@@ -419,7 +382,7 @@ function repositoryState() {
 function bridgeClient() {
   return {
     sourceControlStatus: vi.fn(),
-    sourceControlUpstream: vi.fn(),
+    sourceControlRepositoryState: vi.fn(),
     sourceControlBranches: vi.fn(),
     sourceControlHistory: vi.fn(),
     sourceControlBranchCompare: vi.fn(),
