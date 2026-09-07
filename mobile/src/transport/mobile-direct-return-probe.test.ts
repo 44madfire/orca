@@ -7,7 +7,11 @@ vi.mock('react-native', () => ({ Platform: { OS: 'ios' } }))
 
 // A LAN that never answers: every dial sits open until the probe's own 12s budget.
 function fixture(
-  overrides: { migrate?: () => Promise<void>; adoptsOutright?: () => boolean } = {}
+  overrides: {
+    migrate?: () => Promise<void>
+    adoptsOutright?: () => boolean
+    onCutoverFailure?: (error: Error) => void
+  } = {}
 ) {
   const opened: FakeSession[] = []
   const cutoverFailures: Error[] = []
