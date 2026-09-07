@@ -177,11 +177,6 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     consumeResetCredit: 'mutation',
     subscribe: 'subscription'
   },
-  agentHistory: {
-    snapshot: 'read',
-    preview: 'read',
-    resume: 'mutation'
-  },
   settings: {
     snapshot: 'read',
     update: 'mutation'

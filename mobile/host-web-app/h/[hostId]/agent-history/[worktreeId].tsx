@@ -124,12 +124,17 @@ export default function HostMobileWebAgentHistoryRoute() {
           void shell.client.native.hapticFeedback('error')
           return
         }
-        setResumeMessage('Agent session queued.')
         void shell.client.native.hapticFeedback('success')
-        const params = new URLSearchParams({ name: result.targetWorkspaceName })
-        router.push(
-          `/h/${encodeURIComponent(hostId)}/session/${encodeURIComponent(result.targetWorkspaceId)}?${params.toString()}`
-        )
+        // Only this route's own workspace has a handle the page can navigate to.
+        if (result.targetIsCurrentWorkspace) {
+          setResumeMessage('Agent session queued.')
+          const params = new URLSearchParams({ name: result.targetWorkspaceName })
+          router.push(
+            `/h/${encodeURIComponent(hostId)}/session/${encodeURIComponent(worktreeId)}?${params.toString()}`
+          )
+          return
+        }
+        setResumeMessage(`Agent session queued in ${result.targetWorkspaceName}.`)
       } catch {
         setResumeMessage('Failed to resume session.')
         void shell.client.native.hapticFeedback('error')

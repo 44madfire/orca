@@ -1,38 +1,32 @@
 import {
   filterAiVaultSessions,
   groupAiVaultSessions
-} from '../../../src/shared/ai-vault-session-filters'
+} from '../../../../shared/ai-vault-session-filters'
 import {
   latestSessionConversationTurn,
   recentSessionConversationTurns
-} from '../../../src/shared/ai-vault-session-display'
+} from '../../../../shared/ai-vault-session-display'
 import {
   AI_VAULT_AGENTS,
   aiVaultAgentLabel,
-  type AiVaultScanIssue,
   type AiVaultScope,
   type AiVaultSession
-} from '../../../src/shared/ai-vault-types'
+} from '../../../../shared/ai-vault-types'
+import { isPathInsideOrEqual } from '../../../../shared/cross-platform-path'
 import {
+  MOBILE_WEB_AGENT_HISTORY_PREVIEW_LIMIT,
   MobileWebAgentHistoryPreviewResultSchema,
   MobileWebAgentHistorySessionSchema,
   type MobileWebAgentHistoryPreviewResult,
   type MobileWebAgentHistorySession
-} from '../../../src/shared/mobile-web/agent-history-operation-contract'
-import { isSessionInActiveWorktree } from '../agent-history/agent-history-session-card'
-import type { MobileWebAgentHistoryAuthority } from './mobile-web-agent-history-authority'
+} from '../../../../shared/mobile-web/agent-history-operation-contract'
 
-export function mobileWebAgentHistoryPresentation(args: {
-  sessions: readonly AiVaultSession[]
-  issues: readonly AiVaultScanIssue[]
-  scope: AiVaultScope
-  query: string
-  scopePaths: readonly string[]
-  activeWorktreePath: string | null
-  authority: MobileWebAgentHistoryAuthority
-}): { sessions: MobileWebAgentHistorySession[]; skippedTranscriptCount: number } {
+export function filterMobileWebAgentHistorySessions(
+  sessions: readonly AiVaultSession[],
+  args: { scope: AiVaultScope; query: string; scopePaths: readonly string[] }
+): AiVaultSession[] {
   const narrowByPath = args.scope !== 'all' && args.scopePaths.length > 0
-  const filtered = filterAiVaultSessions(args.sessions, {
+  return filterAiVaultSessions(sessions, {
     query: args.query,
     agents: AI_VAULT_AGENTS,
     scope: narrowByPath ? 'workspace' : 'all',
@@ -40,12 +34,18 @@ export function mobileWebAgentHistoryPresentation(args: {
     activeWorktreePaths: narrowByPath ? args.scopePaths : [],
     hideEmptySessions: true
   })
-  args.authority.synchronize(filtered)
-  const groups = groupAiVaultSessions(filtered, 'folder')
-  const projected = groups.flatMap((group, groupIndex) =>
+}
+
+/** Projects host sessions into bounded, path-free rows: the page sees a handle, never a cwd. */
+export function projectMobileWebAgentHistory(args: {
+  sessions: readonly AiVaultSession[]
+  activeWorktreePath: string | null
+  handleFor: (session: AiVaultSession) => string
+}): MobileWebAgentHistorySession[] {
+  return groupAiVaultSessions(args.sessions, 'folder').flatMap((group, groupIndex) =>
     group.sessions.map((session) =>
       MobileWebAgentHistorySessionSchema.parse({
-        handle: args.authority.pageHandle(session.id),
+        handle: args.handleFor(session),
         agent: session.agent,
         agentLabel: aiVaultAgentLabel(session.agent),
         title: boundedText(session.title || 'Untitled session', 512),
@@ -54,26 +54,34 @@ export function mobileWebAgentHistoryPresentation(args: {
         updatedAt: timestamp(session.updatedAt ?? session.modifiedAt),
         groupKey: `group_${groupIndex.toString(36)}`,
         groupLabel: boundedText(group.label, 240),
-        isCurrentWorkspace: isSessionInActiveWorktree(session, args.activeWorktreePath),
+        isCurrentWorkspace: isSessionInWorktree(session, args.activeWorktreePath),
         resumeAvailable: session.sessionId.trim().length > 0
       })
     )
   )
-  return {
-    sessions: projected,
-    skippedTranscriptCount: boundedCount(args.issues.length, 10_000)
-  }
 }
 
-export function mobileWebAgentHistoryPreview(
+export function projectMobileWebAgentHistoryPreview(
   session: AiVaultSession
 ): MobileWebAgentHistoryPreviewResult {
   return MobileWebAgentHistoryPreviewResultSchema.parse({
-    messages: recentSessionConversationTurns(session, 5).map((message) => ({
-      role: message.role,
-      text: boundedText(message.text, 4_096)
-    }))
+    messages: recentSessionConversationTurns(session, MOBILE_WEB_AGENT_HISTORY_PREVIEW_LIMIT).map(
+      (message) => ({ role: message.role, text: boundedText(message.text, 4_096) })
+    )
   })
+}
+
+export function boundedCount(value: number, maximum: number): number {
+  return Number.isFinite(value) ? Math.min(maximum, Math.max(0, Math.trunc(value))) : 0
+}
+
+function isSessionInWorktree(
+  session: Pick<AiVaultSession, 'cwd'>,
+  activeWorktreePath: string | null
+): boolean {
+  return Boolean(
+    activeWorktreePath && session.cwd && isPathInsideOrEqual(activeWorktreePath, session.cwd)
+  )
 }
 
 function timestamp(value: string | null): number | null {
@@ -86,8 +94,4 @@ function timestamp(value: string | null): number | null {
 
 function boundedText(value: string, maximum: number): string {
   return value.slice(0, maximum)
-}
-
-function boundedCount(value: number, maximum: number): number {
-  return Number.isFinite(value) ? Math.min(maximum, Math.max(0, Math.trunc(value))) : 0
 }

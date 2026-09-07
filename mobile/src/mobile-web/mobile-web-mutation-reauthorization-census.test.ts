@@ -18,7 +18,6 @@ const HANDLE_RESOLUTION =
  * every call site count. This counts sites; it does not prove each one sits after the awaited
  * read it guards. */
 const REAUTHORIZATION_SITES: Record<string, number> = {
-  'mobile-web-agent-history-resume.ts': 1,
   'mobile-web-host-requests.ts': 5,
   'mobile-web-host-subscriptions.ts': 1,
   'mobile-web-native-chat-binding.ts': 2,
@@ -164,7 +163,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations()).toHaveLength(109)
+    expect(mutations()).toHaveLength(108)
   })
 
   it('exempts only registered mutations', () => {
@@ -182,6 +181,6 @@ describe('mobile web mutation reauthorization census', () => {
     const capabilities = Object.keys(MOBILE_WEB_BRIDGE_OPERATIONS) as MobileWebBridgeCapability[]
 
     expect([...kinds].sort()).toEqual(['mutation', 'read', 'subscription'])
-    expect(capabilities).toHaveLength(14)
+    expect(capabilities).toHaveLength(13)
   })
 })

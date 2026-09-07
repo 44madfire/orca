@@ -4,14 +4,14 @@ import {
   parseExecutionHostId,
   toSshExecutionHostId,
   type ExecutionHostId
-} from '../../../src/shared/execution-host'
-import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
-import { isPathInsideOrEqual } from '../../../src/shared/cross-platform-path'
-import type { Worktree } from '../worktree/workspace-list-types'
+} from './execution-host'
+import type { AiVaultSession } from './ai-vault-types'
+import { isPathInsideOrEqual } from './cross-platform-path'
 import {
   canResumeInMobileSessionWorktree,
-  resolveMobileAgentHistorySessionWorktree
-} from './agent-history-session-worktree'
+  resolveMobileAgentHistorySessionWorktree,
+  type MobileAiVaultWorktree
+} from './mobile-ai-vault-session-worktree'
 
 export type MobileAiVaultResumeTargetStatus = 'local' | 'ssh' | 'runtime' | 'unknown'
 
@@ -23,9 +23,9 @@ export type MobileAiVaultResumeRepo = {
   executionHostId?: ExecutionHostId | null
 }
 
-type MobileAiVaultResumeWorktree = Pick<Worktree, 'repoId' | 'worktreeId'> & {
+type MobileAiVaultResumeWorktree = Pick<MobileAiVaultWorktree, 'repoId' | 'worktreeId'> & {
   path?: string | null
-  workspaceKind?: Worktree['workspaceKind']
+  workspaceKind?: 'git' | 'folder-workspace'
   hostId?: ExecutionHostId | null
 }
 
@@ -117,7 +117,7 @@ export function mobileAiVaultResumeTargetBlockMessage(
 export function resolveMobileAiVaultSessionResumeTarget(args: {
   session: AiVaultSession
   activeWorktreeId: string | null
-  worktrees: readonly Worktree[]
+  worktrees: readonly (MobileAiVaultWorktree & { terminalPlatform?: NodeJS.Platform })[]
   repos: readonly MobileAiVaultResumeRepo[]
   folderWorkspaces?: readonly MobileAiVaultResumeFolderWorkspace[]
   projectGroups?: readonly MobileAiVaultResumeProjectGroup[]

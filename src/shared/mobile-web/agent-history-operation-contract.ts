@@ -94,7 +94,9 @@ export const MobileWebAgentHistoryResumeResultSchema = z.discriminatedUnion('sta
   z
     .object({
       status: z.literal('queued'),
-      targetWorkspaceId: MobileWebWorkspaceIdSchema,
+      /* The page can only route to a workspace it already holds a handle for, so the desktop
+       * says whether the resume landed here rather than naming another workspace. */
+      targetIsCurrentWorkspace: z.boolean(),
       targetWorkspaceName: z.string().max(240)
     })
     .strict(),

@@ -28,7 +28,6 @@ import {
   mobileWebIsHostRequest,
   mobileWebRequestAtCapacity,
   mobileWebRequestSurvivesCancellation,
-  mobileWebAgentHistoryContinuation,
   mobileWebOperationKey,
   mobileWebPendingRequestForSubscription,
   mobileWebRequestExpectsSubscription,
@@ -185,7 +184,6 @@ export class MobileWebCapabilityBroker {
       this.authorities.sourceControlBranchCompare.claimRequestContinuation(request)
     if (
       !mobileWebWorkspaceSnapshotContinuation(request) &&
-      !mobileWebAgentHistoryContinuation(request) &&
       !branchCompareContinuation &&
       !this.rateLimiter.take(mobileWebOperationKey(request), grant)
     ) {
@@ -239,9 +237,6 @@ export class MobileWebCapabilityBroker {
       connectedClient: () => requireMobileWebConnectedClient(this.options),
       terminalClientId: this.options.terminalClientId,
       nativeAuthority: this.options.nativeAuthority,
-      agentHistoryAuthority: this.authorities.agentHistory,
-      agentHistoryPager: this.authorities.agentHistoryPager,
-      agentHistoryResume: this.authorities.agentHistoryResume,
       accountSubscriptions: this.subscriptions.account,
       browserStreams: this.subscriptions.browser,
       sourceControlBranchCompare: this.authorities.sourceControlBranchCompare,

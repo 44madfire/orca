@@ -5,7 +5,6 @@ import type { MobileWebBridgeCapability } from '../../../src/shared/mobile-web/b
 import { MobileWebSpeechSubscribePayloadSchema } from '../../../src/shared/mobile-web/speech-operation-contract'
 import { executeWorkspace } from './mobile-web-workspace-capability'
 import { executeMobileWebAccountCapability } from './mobile-web-account-capability'
-import { executeMobileWebAgentHistoryOperation } from './mobile-web-agent-history-operations'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import { executeMobileWebBrowserOperation } from './mobile-web-browser-operations'
 import type { MobileWebCapabilityExecutionDependencies } from './mobile-web-capability-execution-dependencies'
@@ -142,7 +141,6 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
     native: executeNative,
     nativeChat: (args, request) => executeMobileWebNativeChatCapability(args, request),
     navigation: executeNavigation,
-    agentHistory: (args) => executeMobileWebAgentHistoryOperation(args),
     account: (args) => executeMobileWebAccountCapability(args),
     browser: executeBrowser,
     workspace: executeWorkspace,

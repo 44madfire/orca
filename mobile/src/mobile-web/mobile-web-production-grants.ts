@@ -4,7 +4,6 @@ import { capabilityGrants, grantLimits, indexGrants } from './mobile-web-product
 import { MOBILE_WEB_PRODUCTION_NAVIGATION_GRANTS } from './mobile-web-production-navigation-grants'
 import { MOBILE_WEB_PRODUCTION_NATIVE_GRANTS } from './mobile-web-production-native-grants'
 import { MOBILE_WEB_PRODUCTION_NATIVE_CHAT_GRANTS } from './mobile-web-production-native-chat-grants'
-import { MOBILE_WEB_PRODUCTION_SESSION_GRANTS } from './mobile-web-production-session-grants'
 import { MOBILE_WEB_PRODUCTION_SOURCE_CONTROL_GRANTS } from './mobile-web-production-source-control-grants'
 import { MOBILE_WEB_PRODUCTION_SPEECH_GRANTS } from './mobile-web-production-speech-grants'
 import { MOBILE_WEB_PRODUCTION_TASK_GRANTS } from './mobile-web-production-task-grants'
@@ -38,7 +37,6 @@ export const MOBILE_WEB_PRODUCTION_GRANTS = [
     consumeResetCredit: grantLimits(8 * 1024, 96 * 1024, 1, 2, 0.25),
     subscribe: grantLimits(256, 96 * 1024, 1, 4, 1)
   }),
-  ...MOBILE_WEB_PRODUCTION_SESSION_GRANTS,
   ...MOBILE_WEB_PRODUCTION_TERMINAL_GRANTS,
   ...MOBILE_WEB_PRODUCTION_BROWSER_GRANTS,
   ...MOBILE_WEB_PRODUCTION_FILE_GRANTS,

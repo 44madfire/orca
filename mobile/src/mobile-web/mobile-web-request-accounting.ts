@@ -40,21 +40,6 @@ export function mobileWebWorkspaceSnapshotContinuation(request: {
   )
 }
 
-export function mobileWebAgentHistoryContinuation(request: {
-  capability: string
-  operation: string
-  payload: unknown
-}): boolean {
-  return (
-    request.capability === 'agentHistory' &&
-    request.operation === 'snapshot' &&
-    typeof request.payload === 'object' &&
-    request.payload !== null &&
-    'cursor' in request.payload &&
-    typeof request.payload.cursor === 'string'
-  )
-}
-
 export function mobileWebEncodedByteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength
 }

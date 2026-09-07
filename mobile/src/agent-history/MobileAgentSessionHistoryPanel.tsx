@@ -11,9 +11,9 @@ import {
   createMobileAiVaultResumeMutationRegistry,
   readMobileRuntimeTerminalWindowsShell,
   resolveMobileAiVaultResumePlatform,
-  resumeAiVaultSessionInTerminal,
   type MobileAiVaultResumeSettings
-} from '../session/ai-vault-resume-launch'
+} from '../../../src/shared/mobile-ai-vault-resume-launch-plan'
+import { resumeAiVaultSessionInTerminal } from '../session/ai-vault-resume-launch'
 import {
   prepareMobileAiVaultSessionResume,
   RESUME_RPC_TIMEOUT_MS
@@ -33,7 +33,7 @@ import {
   type MobileAiVaultResumeFolderWorkspace,
   type MobileAiVaultResumeProjectGroup,
   type MobileAiVaultResumeRepo
-} from './agent-history-resume-target'
+} from '../../../src/shared/mobile-ai-vault-resume-target'
 import { buildMobileAgentHistoryResumeActionState } from './agent-history-session-card'
 
 export type MobileAgentSessionHistoryPanelProps = {

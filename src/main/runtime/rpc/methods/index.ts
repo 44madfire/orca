@@ -9,6 +9,7 @@ import { MOBILE_WEB_NATIVE_CHAT_FILE_METHODS } from './mobile-web-native-chat-fi
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
 import { MOBILE_WEB_TERMINAL_ARTIFACT_METHODS } from './mobile-web-terminal-artifact'
 import { MOBILE_WEB_MARKDOWN_TAB_METHODS } from './mobile-web-markdown-tab'
+import { MOBILE_WEB_AGENT_HISTORY_METHODS } from './mobile-web-agent-history'
 import { MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD } from './mobile-web-native-chat-stream'
 import { MOBILE_WEB_NATIVE_CHAT_METHODS } from './mobile-web-native-chat'
 import type { RpcAnyMethod } from '../core'
@@ -126,6 +127,7 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...MOBILE_WEB_TERMINAL_ACTION_METHODS,
   ...MOBILE_WEB_TERMINAL_ARTIFACT_METHODS,
   ...MOBILE_WEB_MARKDOWN_TAB_METHODS,
+  ...MOBILE_WEB_AGENT_HISTORY_METHODS,
   ...MOBILE_WEB_NATIVE_CHAT_METHODS,
   ...MOBILE_WEB_NATIVE_CHAT_FILE_METHODS,
   ...MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS,

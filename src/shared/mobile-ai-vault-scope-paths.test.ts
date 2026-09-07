@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { Worktree } from '../worktree/workspace-list-types'
-import { deriveMobileAiVaultScopePaths } from './agent-history-scope-paths'
+import {
+  deriveMobileAiVaultScopePaths,
+  type MobileAiVaultScopeWorktree
+} from './mobile-ai-vault-scope-paths'
 
-function worktree(overrides: Partial<Worktree>): Pick<Worktree, 'worktreeId' | 'path' | 'repoId'> {
+function worktree(overrides: Partial<MobileAiVaultScopeWorktree>): MobileAiVaultScopeWorktree {
   return {
     worktreeId: overrides.worktreeId ?? 'w1',
     path: overrides.path ?? '/Users/ada/repo/app',

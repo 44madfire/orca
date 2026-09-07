@@ -208,9 +208,14 @@ edges still meet the device and keep their measured values.
   supply the in-flight ceiling, and cancelling a page request does not release
   its host-work slot until the host call settles. The Desktop is trusted, so the
   page addresses host tabs, browser pages and provider sessions by their host
-  ids. Generic subscriptions, native-chat domain actions, file reads, Source
-  Control reads/watch, session snapshot/feed/actions and terminal metadata use
-  this path.
+  ids. Generic subscriptions, native-chat domain actions, file reads/open/write,
+  Source Control reads/watch, session snapshot/feed/actions, terminal metadata,
+  terminal artifact previews, markdown tab reads/saves and agent history
+  reads/resume use this path. State that used to live in the shell now lives on
+  the Desktop keyed by `connectionId`: terminal artifact tokens
+  (`mobile-web-terminal-artifact-store.ts`) and agent-history session handles and
+  page cursors (`mobile-web-agent-history-store.ts`). The shell keeps only
+  markdown drafts, because those are device storage, not host state.
 - Decisions behind the generic lane and its 2026-09-07 simplification are in
   [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.

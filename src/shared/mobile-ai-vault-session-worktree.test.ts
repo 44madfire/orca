@@ -1,29 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
-import type { Worktree } from '../worktree/workspace-list-types'
+import type { AiVaultSession } from './ai-vault-types'
 import {
   canResumeInMobileSessionWorktree,
-  resolveMobileAgentHistorySessionWorktree
-} from './agent-history-session-worktree'
+  resolveMobileAgentHistorySessionWorktree,
+  type MobileAiVaultWorktree
+} from './mobile-ai-vault-session-worktree'
 
 function session(cwd: string | null): Pick<AiVaultSession, 'cwd'> {
   return { cwd }
 }
 
-function worktree(overrides: Partial<Worktree> & { worktreeId: string; path: string }): Worktree {
-  return {
-    repoId: 'repo-1',
-    repo: 'orca',
-    branch: 'main',
-    displayName: overrides.worktreeId,
-    liveTerminalCount: 0,
-    hasAttachedPty: false,
-    preview: '',
-    unread: false,
-    isPinned: false,
-    linkedPR: null,
-    ...overrides
-  }
+function worktree(
+  overrides: Partial<MobileAiVaultWorktree> & { worktreeId: string; path: string }
+): MobileAiVaultWorktree {
+  return { repoId: 'repo-1', ...overrides }
 }
 
 describe('resolveMobileAgentHistorySessionWorktree', () => {
