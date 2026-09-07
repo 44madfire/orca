@@ -7,8 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
   operationId: vi.fn(),
-  enqueueSettingsWrite: vi.fn(),
-  refresh: vi.fn()
+  enqueueSettingsWrite: vi.fn()
 }))
 let fence = 3
 let rewindItems: AgentJournalRenderItem[] = []
@@ -42,8 +41,7 @@ vi.mock('./use-structured-agent-session-read', () => ({
       handoff: null
     },
     loadingOlder: false,
-    loadOlder: vi.fn(),
-    refresh: mocks.refresh
+    loadOlder: vi.fn()
   })
 }))
 
@@ -583,7 +581,6 @@ describe('useStructuredAgentSession rewind RPC', () => {
       expectedEpoch: 'epoch-1'
     })
     expect(view.result.current.send('stale composer text', [])).toBe(false)
-    expect(mocks.refresh).toHaveBeenCalledOnce()
     epoch = 'epoch-2'
     rewindItems = []
     view.rerender()

@@ -29,8 +29,7 @@ function input() {
     support: { supported: true as const },
     supportResolved: true,
     blocked: false,
-    send: vi.fn().mockResolvedValue({ itemId: 'user', epoch: 'new' }),
-    refresh: vi.fn()
+    send: vi.fn().mockResolvedValue({ itemId: 'user', epoch: 'new' })
   }
 }
 function deferred<T>() {
@@ -53,14 +52,13 @@ describe('structured chat rewind', () => {
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
         confirmVariant: 'destructive',
-        description: expect.stringContaining('3 messages total')
+        description: expect.stringContaining('3 in total')
       })
     )
     expect(props.send).toHaveBeenCalledWith(
       { itemId: 'user', expectedEpoch: 'old' },
       expect.any(Function)
     )
-    expect(props.refresh).toHaveBeenCalledOnce()
     expect(view.result.current.pending).toBe(true)
     expect(view.result.current.blockedRef.current).toBe(true)
   })
@@ -101,6 +99,30 @@ describe('structured chat rewind', () => {
     expect(view.result.current.error).toBeNull()
     expect(view.result.current.pending).toBe(false)
     expect(view.result.current.blockedRef.current).toBe(false)
+  })
+
+  it('does not label its in-flight request as an unknown outcome when the host prepares recovery', async () => {
+    const props = input(),
+      response = deferred<{ itemId: string; epoch: string }>()
+    props.send.mockReturnValue(response.promise)
+    const view = renderHook(
+      (value: Parameters<typeof useNativeChatRewind>[0]) => useNativeChatRewind(value),
+      { initialProps: props }
+    )
+    let request!: Promise<void>
+    await act(async () => {
+      request = view.result.current.request('user', async () => true)
+    })
+    view.rerender({ ...props, hostBlockedReason: 'outcome-unknown' })
+    expect(view.result.current.pending).toBe(true)
+    expect(view.result.current.error).toBeNull()
+    await act(async () => {
+      response.resolve({ itemId: 'user', epoch: 'new' })
+      await request
+    })
+    expect(view.result.current.error).toBeNull()
+    view.rerender({ ...props, state: { ...props.state, epoch: 'new' } })
+    expect(view.result.current.pending).toBe(false)
   })
 
   it('does not execute a confirmation after its pane unmounts', async () => {
@@ -242,7 +264,6 @@ describe('structured chat rewind', () => {
       expect(view.result.current.error).not.toContain('failed')
       expect(view.result.current.pending).toBe(true)
     }
-    expect(props.refresh).not.toHaveBeenCalled()
   })
 
   it('treats a lost transport response as uncertain and never retries', async () => {

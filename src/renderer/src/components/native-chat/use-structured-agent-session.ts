@@ -59,7 +59,7 @@ export function useStructuredAgentSession(args: {
     surface: 'desktop-chat',
     enabled: isVisible
   })
-  const { state, loadingOlder, loadOlder, refresh } = useStructuredAgentSessionRead({
+  const { state, loadingOlder, loadOlder } = useStructuredAgentSessionRead({
     sessionId,
     target,
     isVisible
@@ -217,8 +217,7 @@ export function useStructuredAgentSession(args: {
         fields,
         undefined,
         onFailure
-      ),
-    refresh
+      )
   })
   return {
     epoch: state.epoch,

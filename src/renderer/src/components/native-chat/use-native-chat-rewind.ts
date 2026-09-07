@@ -29,7 +29,6 @@ type RewindInput = {
     fields: { itemId: string; expectedEpoch: string },
     onFailure: (refusal?: AgentSessionWireRefusal) => void
   ) => Promise<AgentSessionRewindResult | null>
-  refresh: () => void
 }
 
 export function countNativeChatRewindMessages(
@@ -94,16 +93,19 @@ export function useNativeChatRewind(input: RewindInput) {
       message ? { sessionId: current.sessionId, epoch: current.state.epoch, message } : null
     )
   }
-  const error = input.hostBlockedReason
-    ? nativeChatRewindReasonCopy(input.hostBlockedReason)
-    : failure?.sessionId === input.sessionId && failure.epoch === input.state.epoch
-      ? failure.message
-      : null
   const awaitingReset =
     settlement?.sessionId === input.sessionId && settlement.epoch === input.state.epoch
+  const confirmedResetPending = awaitingReset && Boolean(settlement?.nextEpoch)
+  // The host also holds its recovery latch while our request is still in flight.
+  const error =
+    input.hostBlockedReason && !pending && !confirmedResetPending
+      ? nativeChatRewindReasonCopy(input.hostBlockedReason)
+      : failure?.sessionId === input.sessionId && failure.epoch === input.state.epoch
+        ? failure.message
+        : null
   const disabledReason =
     pending || awaitingReset
-      ? settlement && !settlement.nextEpoch
+      ? awaitingReset && !settlement?.nextEpoch
         ? nativeChatRewindReasonCopy('outcome-unknown')
         : translate(
             'components.native-chat.rewind.pending',
@@ -135,7 +137,7 @@ export function useNativeChatRewind(input: RewindInput) {
         title: translate('components.native-chat.rewind.title', 'Revert to here?'),
         description: translate(
           'components.native-chat.rewind.confirmation',
-          'Discard this message and every later message ({{count}} messages total)? This cannot be undone. Your composer draft and attachments will be cleared. File changes on disk will be kept.',
+          'Discard this message and every later message ({{count}} in total)? This cannot be undone. Your composer draft and attachments will be cleared. File changes on disk will be kept.',
           { count }
         ),
         confirmLabel: translate('components.native-chat.rewind.confirm', 'Discard messages'),
@@ -187,7 +189,6 @@ export function useNativeChatRewind(input: RewindInput) {
           epoch: expectedEpoch,
           nextEpoch: result.epoch
         })
-        current.refresh()
       }
     } finally {
       inFlight.current = false

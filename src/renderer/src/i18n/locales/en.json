@@ -17163,7 +17163,7 @@
         "unavailable": "Reconnect to a writable chat session before rewinding.",
         "pending": "Rewind is in progress. Wait for the conversation to reload.",
         "title": "Revert to here?",
-        "confirmation": "Discard this message and every later message ({{count}} messages total)? This cannot be undone. Your composer draft and attachments will be cleared. File changes on disk will be kept.",
+        "confirmation": "Discard this message and every later message ({{count}} in total)? This cannot be undone. Your composer draft and attachments will be cleared. File changes on disk will be kept.",
         "confirm": "Discard messages",
         "cancel": "Cancel",
         "action": "Revert to here"
