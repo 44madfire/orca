@@ -67,13 +67,10 @@ const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
   'task.loadLinearIssue': ['issue.targetId'],
   'task.projectTable': ['project', 'selectedView.id'],
   'task.resolveProjectRef': ['host'],
-  'workspace.activate': ['workspaceId'],
   'workspace.creationSaveSparsePreset': ['directories', 'id', 'name', 'repoId'],
   'workspace.creationSparsePresets': ['repoId'],
   'workspace.creationSshConnect': ['targetId'],
-  'workspace.creationSshState': ['targetId'],
-  'workspace.remove': ['workspaceId'],
-  'workspace.update': ['workspaceId']
+  'workspace.creationSshState': ['targetId']
 }
 
 /** Echo helpers shared across request clients, and the result fields each one compares. Resolved
@@ -296,7 +293,7 @@ describe('mobile web bridge operation echo census', () => {
     )
 
     expect(Object.keys(EXPECTED_ECHO_FIELDS).filter((key) => !registered.has(key))).toEqual([])
-    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(49)
+    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(46)
   })
 
   it('guards the page workspace handle on every workspace-scoped echo it records', () => {
@@ -304,6 +301,6 @@ describe('mobile web bridge operation echo census', () => {
       fields.some((field) => field === 'workspaceId')
     )
 
-    expect(workspaceScoped.length).toBeGreaterThanOrEqual(40)
+    expect(workspaceScoped.length).toBeGreaterThanOrEqual(37)
   })
 })

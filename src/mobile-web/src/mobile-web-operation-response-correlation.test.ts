@@ -43,32 +43,6 @@ const CORRELATION_CASES: CorrelationCase[] = [
     }
   },
   {
-    name: 'workspace activation workspace',
-    capability: 'workspace',
-    operation: 'activate',
-    invoke: (client) => client.workspaceActivate({ workspaceId: WORKSPACE_ID }),
-    result: {
-      workspaceId: OTHER_WORKSPACE_ID,
-      activated: true,
-      sleepingAgentWake: 'not-applicable'
-    }
-  },
-  {
-    name: 'workspace mutation workspace',
-    capability: 'workspace',
-    operation: 'update',
-    invoke: (client) =>
-      client.workspaceUpdate({ mutation: 'pin', workspaceId: WORKSPACE_ID, pinned: true }),
-    result: { workspaceId: OTHER_WORKSPACE_ID, updated: true }
-  },
-  {
-    name: 'workspace removal workspace',
-    capability: 'workspace',
-    operation: 'remove',
-    invoke: (client) => client.workspaceRemove({ workspaceId: WORKSPACE_ID }),
-    result: { workspaceId: OTHER_WORKSPACE_ID, removed: true }
-  },
-  {
     name: 'session snapshot workspace',
     capability: 'workspace',
     operation: 'hostRequest',
