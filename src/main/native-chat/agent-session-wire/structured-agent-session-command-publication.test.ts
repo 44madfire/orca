@@ -43,7 +43,7 @@ it('publishes idle provider reloads only when the actual command catalog changes
   }
   claude.connections[0].handlers.onMessage?.(message)
   expect(adapter.readCommands(identityFor().sessionId)).toEqual([
-    { name: 'new-skill', kind: 'skill' }
+    { name: 'new-skill', kind: 'command', kindUnspecified: true }
   ])
   expect(publish).toHaveBeenCalledTimes(1)
   claude.connections[0].handlers.onMessage?.(message)
@@ -62,7 +62,9 @@ it('delivers catalog changes through existing frames without resending them on o
   try {
     const journal = await journals.open({ identity: identityFor(), journalDir: root })
     const sessionId = identityFor().sessionId
-    let commands: AgentSessionSlashCommand[] | undefined = [{ name: 'loaded', kind: 'skill' }]
+    let commands: AgentSessionSlashCommand[] | undefined = [
+      { name: 'loaded', kind: 'command', kindUnspecified: true }
+    ]
     const subscribers = new AgentSessionSubscribers({ readCommands: () => commands })
     const close = subscribers.open({
       id: 'one',
