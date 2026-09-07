@@ -1,4 +1,4 @@
-import { rewindCodexSession, observeCodexRewindActivity } from './codex-structured-rewind'
+import * as codexRewind from './codex-structured-rewind'
 import type {
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
@@ -119,7 +119,7 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     method: string,
     params: unknown
   ): CodexJournalTranslationAdmission {
-    observeCodexRewindActivity(session, method, params)
+    codexRewind.observeCodexRewindActivity(session, method, params)
     if (this.turnCancellation.handleNotification(sessionId, session, method, params)) {
       return { accepted: true }
     }
@@ -203,7 +203,10 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
       : { supported: true }
 
   rewind: NonNullable<StructuredAgentSessionAdapter['rewind']> = (input) =>
-    rewindCodexSession(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
+    codexRewind.rewindCodexSession(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
+
+  recoverRewind: NonNullable<StructuredAgentSessionAdapter['recoverRewind']> = (input) =>
+    codexRewind.recoverCodexRewind(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
 
   compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) => {
     const session = this.session(input.sessionId)

@@ -30,9 +30,12 @@ export const AgentSessionRewindRecordSchema = z.object({
   operationId: Key,
   callerKey: Key,
   itemId: Key,
+  providerItemId: Key.optional(),
   expectedEpoch: Key,
   phase: z.enum(['prepared', 'provider-succeeded', 'completed', 'refused']),
   epoch: Key.optional(),
+  hydrationVerified: z.boolean().optional(),
+  providerApplied: z.boolean().optional(),
   reason: z.string().min(1).max(512).optional(),
   retained: z
     .array(

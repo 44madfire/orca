@@ -15,6 +15,9 @@ import type { CodexSession } from './codex-structured-session-state'
 const MAX_PAGES = 100
 const MAX_ENTRIES = CODEX_RESTORE_MAX_OPERATIONS
 
+class CodexRewindTargetRetainedError extends Error {}
+class CodexRewindTargetMissingError extends Error {}
+
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('agent_session_rewind:invalid-provider-response')
@@ -34,7 +37,8 @@ export async function verifyCodexRevertedHistory(
   session: Pick<CodexSession, 'connection' | 'threadId'>,
   reply: Record<string, unknown>,
   beforeTurnId: string,
-  timeoutMs?: number
+  timeoutMs?: number,
+  targetPresence: 'absent' | 'present' = 'absent'
 ): Promise<{ identity: AgentJournalItemIdentity; body: AgentJournalItemBody }[]> {
   let bytes = 0
   let entries = 0
@@ -75,7 +79,10 @@ export async function verifyCodexRevertedHistory(
       for (const raw of result.data) {
         const item = record(raw)
         const turnId = method === 'thread/turns/list' ? item.id : item.turnId
-        if (typeof turnId !== 'string' || !turnId || turnId === beforeTurnId) {
+        if (turnId === beforeTurnId && targetPresence === 'absent') {
+          throw new CodexRewindTargetRetainedError('agent_session_rewind:target-retained')
+        }
+        if (typeof turnId !== 'string' || !turnId) {
           throw new Error('agent_session_rewind:invalid-retained-turn')
         }
         if (method === 'thread/turns/list') {
@@ -97,6 +104,9 @@ export async function verifyCodexRevertedHistory(
       }
     }
   }
+  if (targetPresence === 'present' && !turns.has(beforeTurnId)) {
+    throw new CodexRewindTargetMissingError('agent_session_rewind:target-missing')
+  }
   const items = new Map<
     string,
     { identity: AgentJournalItemIdentity; body: AgentJournalItemBody }
@@ -114,10 +124,16 @@ export async function verifyCodexRevertedHistory(
     primaryThreadId: () => session.threadId
   })
   try {
+    const chronological = [...turns.values()].toReversed()
+    const retained =
+      targetPresence === 'present'
+        ? chronological.slice(
+            0,
+            chronological.findIndex((turn) => turn.id === beforeTurnId)
+          )
+        : chronological
     const admission = translator.restoreThread(session.threadId, {
-      turns: [...turns.values()]
-        .toReversed()
-        .map((turn) => ({ ...turn, items: turn.items.toReversed() }))
+      turns: retained.map((turn) => ({ ...turn, items: turn.items.toReversed() }))
     })
     if (!admission.accepted) {
       throw new Error('agent_session_rewind:history-unreadable')
@@ -128,12 +144,14 @@ export async function verifyCodexRevertedHistory(
   }
 }
 
-export async function rewindCodexSession(
+async function preflightCodexRewind(
   session: CodexSession,
-  input: { fence: number; beforeTurnId: string; onReverted?: () => Promise<void> },
+  fence: number,
   timeoutMs?: number
-): ReturnType<NonNullable<StructuredAgentSessionAdapter['rewind']>> {
-  if (session.fence !== input.fence || session.ended) {
+): Promise<
+  { ok: true } | { ok: false; reason: 'invalid-target' | 'history-not-paginated' | 'busy' }
+> {
+  if (session.fence !== fence || session.ended) {
     return { ok: false, reason: 'invalid-target' }
   }
   if (session.historyMode === 'legacy') {
@@ -145,10 +163,7 @@ export async function rewindCodexSession(
   const metadata = record(
     await session.connection.request(
       'thread/read',
-      {
-        threadId: session.threadId,
-        includeTurns: false
-      },
+      { threadId: session.threadId, includeTurns: false },
       { timeoutMs }
     )
   )
@@ -166,6 +181,78 @@ export async function rewindCodexSession(
     session.dispatchPending
   ) {
     return { ok: false, reason: 'busy' }
+  }
+  if (session.fence !== fence || session.ended) {
+    return { ok: false, reason: 'invalid-target' }
+  }
+  return { ok: true }
+}
+
+export async function recoverCodexRewind(
+  session: CodexSession,
+  input: { fence: number; beforeTurnId: string },
+  timeoutMs?: number
+): ReturnType<NonNullable<StructuredAgentSessionAdapter['recoverRewind']>> {
+  const admission = await preflightCodexRewind(session, input.fence, timeoutMs)
+  if (!admission.ok) {
+    return admission
+  }
+  try {
+    const items = await verifyCodexRevertedHistory(
+      session,
+      { turnsBackwardsCursor: null, itemsBackwardsCursor: null },
+      input.beforeTurnId,
+      timeoutMs
+    )
+    if (session.fence !== input.fence || session.ended) {
+      return { ok: false, reason: 'invalid-target' }
+    }
+    if (session.activeTurnIds?.size || session.dispatchPending) {
+      return { ok: false, reason: 'busy' }
+    }
+    return { ok: true, items }
+  } catch (error) {
+    if (error instanceof CodexRewindTargetRetainedError) {
+      return { ok: false, reason: 'provider-refused' }
+    }
+    throw error
+  }
+}
+
+export async function rewindCodexSession(
+  session: CodexSession,
+  input: Omit<Parameters<NonNullable<StructuredAgentSessionAdapter['rewind']>>[0], 'sessionId'>,
+  timeoutMs?: number
+): ReturnType<NonNullable<StructuredAgentSessionAdapter['rewind']>> {
+  const admission = await preflightCodexRewind(session, input.fence, timeoutMs)
+  if (!admission.ok) {
+    return admission
+  }
+  let expectedItems: Set<string>
+  try {
+    const retained = await verifyCodexRevertedHistory(
+      session,
+      { turnsBackwardsCursor: null, itemsBackwardsCursor: null },
+      input.beforeTurnId,
+      timeoutMs,
+      'present'
+    )
+    expectedItems = new Set(retained.map(({ identity }) => agentJournalItemKey(identity)))
+    await input.onPrepared?.(retained)
+  } catch (error) {
+    return {
+      ok: false,
+      reason:
+        error instanceof CodexRewindTargetMissingError
+          ? 'invalid-target'
+          : error instanceof Error && error.message === 'agent_session_rewind:history-limit'
+            ? 'history-limit'
+            : 'provider-refused'
+    }
+  }
+  const current = await preflightCodexRewind(session, input.fence, timeoutMs)
+  if (!current.ok) {
+    return current
   }
   let result: unknown
   try {
@@ -195,6 +282,12 @@ export async function rewindCodexSession(
   }
   await input.onReverted?.()
   const items = await verifyCodexRevertedHistory(session, reply, input.beforeTurnId, timeoutMs)
+  if (
+    items.length !== expectedItems.size ||
+    items.some(({ identity }) => !expectedItems.has(agentJournalItemKey(identity)))
+  ) {
+    throw new Error('agent_session_rewind:proof-mismatch')
+  }
   return { ok: true, items }
 }
 

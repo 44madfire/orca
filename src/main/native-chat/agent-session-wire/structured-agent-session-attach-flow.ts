@@ -1,12 +1,7 @@
 import { rewindRefusal } from './structured-rewind-refusal'
 import type { StructuredAgentSessionAcquireInput } from './structured-agent-session-adapter'
 import { AgentSessionRewindRefusal } from './structured-agent-session-adapter'
-// The attach transition end to end: reserve the lease, make the reservation
-// real, open the journal.
-//
-// Split out of the host so the sequence reads in one place. The host still owns
-// the decisions that must not be client-supplied — the spawn token, the claim
-// key, the owner probe — and passes them in.
+// The host supplies owner authority; this flow reserves, proves, and publishes the session.
 
 import { isDeepStrictEqual } from 'node:util'
 import type {
@@ -39,6 +34,7 @@ import type { StructuredAgentSessionEventSink } from './structured-agent-session
 import { readNativeSessionOptions } from './structured-agent-session-option-restoration'
 import { resolveAgentSessionReplayOutcome } from './structured-agent-session-replay-outcome'
 import { readAgentSessionHydrationPage } from './agent-session-history-page'
+import { claudeRewindAcquisitionProofs } from './structured-rewind-claude-proof'
 
 export type AttachFlowInput = {
   rewind?: StructuredAgentSessionAcquireInput['rewind']
@@ -264,6 +260,7 @@ async function acquireOwner(
   input: AttachFlowInput,
   record: AgentSessionRecord
 ): Promise<{ record: AgentSessionRecord; acquisitionGeneration: string | null }> {
+  const { store, rewind, now } = input
   const fence = record.lease.runtimeFence
   const spawnToken = record.lease.reservedSpawnToken
   if (!spawnToken) {
@@ -285,7 +282,7 @@ async function acquireOwner(
     }
     const acquired = await input.adapter.acquire({
       identity: journalIdentityFor(record, input.params),
-      ...(input.rewind ? { rewind: input.rewind } : {}),
+      ...claudeRewindAcquisitionProofs({ store, record, rewind, now }),
       fence,
       // Retries must recover the original reservation, not mint a second child.
       spawnToken,

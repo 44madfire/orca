@@ -23,7 +23,10 @@ type Intent = NonNullable<StructuredAgentSessionAcquireInput['rewind']>
 /** The proof authorization exists only for this acquisition's first proof attempt. */
 export class ClaudeRewindAttempt {
   private refusal: AgentSessionRewindRefusal | null = null
-  constructor(private intent: Intent | undefined) {}
+  constructor(
+    private intent: Intent | undefined,
+    private readonly onProved?: (leafUuid: string) => Promise<void>
+  ) {}
 
   observe(message: Record<string, unknown>): AgentSessionRewindRefusal | null {
     if (!this.intent) {
@@ -64,8 +67,9 @@ export class ClaudeRewindAttempt {
     if (!intent) {
       return null
     }
+    let leaf: string | null
     try {
-      const leaf = await deps.readTranscriptLeaf!({
+      leaf = await deps.readTranscriptLeaf!({
         providerSessionId: launch.providerSessionId,
         previousLeafUuid: intent.previousLeafUuid,
         intentionalRewindUuid: intent.targetUuid,
@@ -74,15 +78,41 @@ export class ClaudeRewindAttempt {
       if (leaf !== intent.targetUuid) {
         throw new AgentSessionRewindRefusal('proof-mismatch')
       }
-      return leaf
     } catch (error) {
       throw error instanceof AgentSessionRewindRefusal
         ? error
         : new AgentSessionRewindRefusal('proof-mismatch')
     }
+    // Persistence failure is an unknown outcome, never evidence that the provider refused.
+    await this.onProved?.(leaf)
+    return leaf
   }
 
   clear(): void {
     this.intent = undefined
   }
+}
+
+/** An interrupted, unproved rewind restores its original cursor without ancestor authorization. */
+export async function proveClaudeRewindRecovery(
+  recovery: StructuredAgentSessionAcquireInput['rewindRecovery'],
+  launch: ClaudeStructuredLaunch,
+  deps: Pick<ClaudeStructuredSessionAdapterDeps, 'readTranscriptLeaf'>
+): Promise<string | null> {
+  if (!recovery) {
+    return null
+  }
+  if (!launch.resumed || launch.resumeLeafUuid !== recovery.leafUuid || !deps.readTranscriptLeaf) {
+    throw new AgentSessionRewindRefusal('proof-mismatch')
+  }
+  const leaf = await deps.readTranscriptLeaf({
+    providerSessionId: launch.providerSessionId,
+    previousLeafUuid: recovery.leafUuid,
+    claudeConfigDir: launch.claudeConfigDir
+  })
+  if (leaf !== recovery.leafUuid) {
+    throw new AgentSessionRewindRefusal('proof-mismatch')
+  }
+  await recovery.onProved()
+  return leaf
 }

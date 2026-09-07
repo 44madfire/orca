@@ -108,7 +108,14 @@ export type StructuredAgentSessionLifecycleEvent = {
 
 export type StructuredAgentSessionAcquireInput = {
   identity: AgentSessionJournalIdentity
-  rewind?: { targetUuid: string; previousLeafUuid: string; dropsTurn?: string }
+  rewind?: {
+    targetUuid: string
+    previousLeafUuid: string
+    dropsTurn?: string
+    onProved?: (leafUuid: string) => Promise<void>
+  }
+  /** Recovery restores an unproved rewind's original cursor with ordinary branch proof. */
+  rewindRecovery?: { leafUuid: string; onProved: () => Promise<void> }
   fence: number
   spawnToken: string
   options?: Readonly<Record<string, string>>
@@ -144,10 +151,21 @@ export type StructuredAgentSessionAdapter = {
     fence: number
   }): Promise<AgentSessionDispatchOutcome>
   rewindSupport?(sessionId: string): AgentSessionRewindSupport
+  recoverRewind?(input: {
+    sessionId: string
+    fence: number
+    beforeTurnId: string
+  }): Promise<
+    | { ok: true; items: { identity: AgentJournalItemIdentity; body: AgentJournalItemBody }[] }
+    | { ok: false; reason: AgentSessionRewindReason }
+  >
   rewind?(input: {
     sessionId: string
     fence: number
     beforeTurnId: string
+    onPrepared?: (
+      items: { identity: AgentJournalItemIdentity; body: AgentJournalItemBody }[]
+    ) => Promise<void>
     onReverted?: () => Promise<void>
   }): Promise<
     | { ok: true; items?: { identity: AgentJournalItemIdentity; body: AgentJournalItemBody }[] }

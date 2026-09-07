@@ -1,5 +1,6 @@
 import {
   agentJournalItemKey,
+  agentJournalSubmissionKey,
   parseAgentJournalItemKey
 } from '../../../shared/agent-session-journal-item-key'
 import { agentSessionProviderHandleChainHead } from '../../../shared/agent-session-provider-handle'
@@ -73,11 +74,24 @@ export async function rewindStructuredAgentSession(
             return rewindRefusal('unsupported')
           }
           const snapshot = ctx.journal.snapshot()
+          const providerKeys = new Map(
+            snapshot.submissions.flatMap((submission) =>
+              submission.dispatchState === 'accepted' && submission.providerItemId
+                ? [
+                    [
+                      agentJournalSubmissionKey(submission.clientMessageId),
+                      submission.providerItemId
+                    ] as const
+                  ]
+                : []
+            )
+          )
+          const providerKey = (itemId: string) => providerKeys.get(itemId) ?? itemId
           if (ctx.journal.cursor().epoch !== params.expectedEpoch) {
             return rewindRefusal('stale-epoch')
           }
           const selected = snapshot.items.findIndex((item) => item.itemId === params.itemId)
-          const key = selected === -1 ? null : parseAgentJournalItemKey(params.itemId)
+          const key = selected === -1 ? null : parseAgentJournalItemKey(providerKey(params.itemId))
           const head = agentSessionProviderHandleChainHead(record.providerHandleChain)?.handle
           if (!key || !head || key.provider !== head.provider) {
             return rewindRefusal('invalid-target')
@@ -89,7 +103,7 @@ export async function rewindStructuredAgentSession(
               return rewindRefusal('invalid-target')
             }
             boundary = snapshot.items.findIndex((item) => {
-              const identity = parseAgentJournalItemKey(item.itemId)
+              const identity = parseAgentJournalItemKey(providerKey(item.itemId))
               return (
                 (identity?.provider === 'codex' &&
                   identity.threadId === key.threadId &&
@@ -103,7 +117,7 @@ export async function rewindStructuredAgentSession(
             }
             const previous = snapshot.items
               .slice(0, boundary)
-              .map((item) => parseAgentJournalItemKey(item.itemId))
+              .map((item) => parseAgentJournalItemKey(providerKey(item.itemId)))
               .findLast(
                 (identity) =>
                   identity?.provider === 'claude' && identity.sessionId === key.sessionId
@@ -115,7 +129,9 @@ export async function rewindStructuredAgentSession(
               .slice(boundary)
               .filter((item) => item.body.kind === 'message' && item.body.role === 'user')
             const prompt =
-              prompts.length === 1 ? parseAgentJournalItemKey(prompts[0]!.itemId) : null
+              prompts.length === 1
+                ? parseAgentJournalItemKey(providerKey(prompts[0]!.itemId))
+                : null
             claude = {
               targetUuid: previous.uuid,
               previousLeafUuid: head.leafUuid ?? '',
@@ -126,7 +142,11 @@ export async function rewindStructuredAgentSession(
           }
           const retained = snapshot.items
             .slice(0, boundary)
-            .map(({ itemId, body, observedAt }) => ({ itemId, body, observedAt }))
+            .map(({ itemId, body, observedAt }) => ({
+              itemId: providerKey(itemId),
+              body,
+              observedAt
+            }))
           if (
             retained.length > 10_000 ||
             Buffer.byteLength(JSON.stringify(retained), 'utf8') >
@@ -134,10 +154,11 @@ export async function rewindStructuredAgentSession(
           ) {
             return rewindRefusal('history-limit')
           }
-          const prepared: AgentSessionRewindRecord = {
+          let prepared: AgentSessionRewindRecord = {
             operationId: clientOperationId,
             callerKey: caller.callerKey,
             itemId: params.itemId,
+            providerItemId: providerKey(params.itemId),
             expectedEpoch: params.expectedEpoch,
             phase: 'prepared',
             retained
@@ -150,10 +171,26 @@ export async function rewindStructuredAgentSession(
                 sessionId,
                 fence: ctx.fence,
                 beforeTurnId: key.provider === 'codex' ? key.turnId : '',
+                onPrepared: async (items) => {
+                  const retained = items.map(({ identity, body }) => ({
+                    itemId: agentJournalItemKey(identity),
+                    body,
+                    observedAt: ctx.now()
+                  }))
+                  if (
+                    retained.length > 10_000 ||
+                    Buffer.byteLength(JSON.stringify(retained), 'utf8') >
+                      AGENT_SESSION_HISTORY_MAX_PAGE_BYTES
+                  ) {
+                    throw new Error('agent_session_rewind:history-limit')
+                  }
+                  prepared = { ...prepared, retained }
+                  await persistRewindRecord(store, sessionId, ctx.fence, prepared)
+                },
                 onReverted: async () => {
                   await persistRewindRecord(store, sessionId, ctx.fence, {
                     ...prepared,
-                    phase: 'provider-succeeded'
+                    providerApplied: true
                   })
                 }
               })
@@ -193,7 +230,8 @@ export async function rewindStructuredAgentSession(
           await persistRewindRecord(store, sessionId, fence, {
             ...prepared,
             retained: confirmed,
-            phase: 'provider-succeeded'
+            phase: 'provider-succeeded',
+            hydrationVerified: true
           })
           const journal = context.sessions.get(sessionId)!.journal
           await attachContext.runtimeState.flushEventSink(sessionId)

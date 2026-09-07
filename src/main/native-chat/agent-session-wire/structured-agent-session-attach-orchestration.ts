@@ -128,8 +128,15 @@ export function attachStructuredAgentSession(
           hasProviderChild: true,
           acquisitionGeneration: acquisitionGeneration ?? previous?.acquisitionGeneration ?? null
         })
-        if (context.deps.store.getRecord(sessionId)?.rewind?.phase === 'provider-succeeded') {
-          await recoverStructuredRewind(context.deps.store, sessionId, attached.journal, fence)
+        if (!rewind) {
+          await recoverStructuredRewind(
+            context.deps.store,
+            sessionId,
+            attached.journal,
+            fence,
+            context.deps.adapter,
+            context.now
+          )
         }
         await recoverInterruptedCompaction(context.deps.store, sessionId, attached.journal, fence)
         if (attached.recovery) {
