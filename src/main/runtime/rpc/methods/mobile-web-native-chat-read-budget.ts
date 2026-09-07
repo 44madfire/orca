@@ -2,12 +2,18 @@ import {
   MOBILE_WEB_NATIVE_CHAT_BLOCK_TEXT_MAX_CHARACTERS,
   MOBILE_WEB_NATIVE_CHAT_EVENT_MAX_BYTES
 } from '../../../../shared/mobile-web/native-chat-operation-contract'
+import {
+  clipMobileWebNativeChatToPageContract,
+  MOBILE_WEB_NATIVE_CHAT_OMITTED_BLOCK as omittedBlock,
+  MOBILE_WEB_NATIVE_CHAT_TRUNCATION_MARKER as MARKER
+} from './mobile-web-native-chat-page-contract-clip'
 
-const MARKER = '\n… (truncated)'
-const omittedBlock = { type: 'text', text: MARKER }
 const byteLength = (value: unknown): number => Buffer.byteLength(JSON.stringify(value))
 
-export function boundMobileWebNativeChatRead(value: unknown): unknown {
+export function boundMobileWebNativeChatRead(source: unknown): unknown {
+  // Always first: the byte budget only engages above 512 KiB, and every page-contract overrun is
+  // silent well under it.
+  const value = clipMobileWebNativeChatToPageContract(source)
   if (byteLength(value) <= MOBILE_WEB_NATIVE_CHAT_EVENT_MAX_BYTES) {
     return value
   }
