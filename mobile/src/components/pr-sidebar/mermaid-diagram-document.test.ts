@@ -4,7 +4,6 @@ import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
-  MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH,
   buildMobileWebMermaidFrameDocument
 } from './mermaid-frame-document'
 import {
@@ -63,13 +62,16 @@ describe('Mermaid diagram document', () => {
         primary: '#1a1a1a',
         text: '#e0e0e0',
         line: '#888888'
-      }
+      },
+      script: { src: './assets/mermaid.js' }
     })
 
     expect(Buffer.byteLength(document)).toBeLessThan(16 * 1024)
     expect(document).not.toContain(MERMAID_WEBVIEW_ENGINE_GZIP_BASE64)
-    expect(document).toContain(`script-src ${MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH} blob:`)
-    expect(document).toContain("frame-ancestors 'self'")
+    expect(document).toContain('<script src="./assets/mermaid.js"></script>')
+    expect(document).not.toMatch(/<script(?![^>]*\bsrc=)/)
+    expect(document).not.toContain('Content-Security-Policy')
+    expect(document).not.toContain('sha256-')
     expect(document).not.toContain('graph TD; A-->B')
     expect(document).not.toContain('frame-token')
     expect(MERMAID_DIAGRAM_SCRIPT.indexOf('window.parent !== window')).toBeLessThan(

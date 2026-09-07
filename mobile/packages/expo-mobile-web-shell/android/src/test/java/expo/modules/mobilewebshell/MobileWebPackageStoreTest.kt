@@ -122,6 +122,7 @@ class MobileWebPackageStoreTest {
     val valid = listOf(
       arrayOf("index.html", hash, "text/html; charset=utf-8", "document"),
       arrayOf("mermaid-frame.html", hash, "text/html; charset=utf-8", "document"),
+      arrayOf("markdown-editor.html", hash, "text/html; charset=utf-8", "document"),
       arrayOf("assets/$hash.css", hash, "text/css; charset=utf-8", "style"),
       arrayOf("assets/$hash.js", hash, "text/javascript; charset=utf-8", "script"),
       arrayOf("assets/$hash.png", hash, "image/png", "image"),

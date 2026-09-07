@@ -636,6 +636,12 @@ func isSafeMobileWebAssetPath(_ path: String) -> Bool {
   }
 }
 
+private let mobileWebDocumentPaths: Set<String> = [
+  "index.html",
+  "markdown-editor.html",
+  "mermaid-frame.html"
+]
+
 func isValidMobileWebAssetMetadata(
   path: String,
   hash: String,
@@ -646,8 +652,7 @@ func isValidMobileWebAssetMetadata(
     return false
   }
   if role == "document" {
-    return (path == "index.html" || path == "mermaid-frame.html")
-      && contentType == "text/html; charset=utf-8"
+    return mobileWebDocumentPaths.contains(path) && contentType == "text/html; charset=utf-8"
   }
   let components = path.split(separator: "/")
   guard

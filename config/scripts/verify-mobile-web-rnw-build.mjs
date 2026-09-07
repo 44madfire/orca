@@ -3,14 +3,10 @@ import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { gzipSync } from 'node:zlib'
 import {
+  MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS,
   MobileWebManifestSchema,
   serializeMobileWebManifestForBuildId
 } from '../../src/shared/mobile-web/manifest-contract.ts'
-import {
-  MOBILE_WEB_MERMAID_FRAME_PATH,
-  MOBILE_WEB_MERMAID_FRAME_SCRIPT,
-  mobileWebMermaidFrameCspDirectives
-} from '../../mobile/src/components/pr-sidebar/mermaid-frame-document.ts'
 import {
   MOBILE_WEB_RNW_BUILD_BUDGET,
   mobileWebRnwBuildBudgetFailures
@@ -41,8 +37,11 @@ for (const asset of manifest.assets) {
 }
 
 const roles = countRoles(manifest.assets)
-if (roles.document !== 2 || !(roles.script >= 1) || roles.style > 1) {
-  throw new Error('RNW package must contain two documents, scripts, and at most one style')
+const expectedDocuments = 1 + MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS.length
+if (roles.document !== expectedDocuments || !(roles.script >= 1) || roles.style > 1) {
+  throw new Error(
+    `RNW package must contain ${expectedDocuments} documents, scripts, and at most one style`
+  )
 }
 
 const scriptBytes = bytesForRole(manifest.assets, 'script')
@@ -81,55 +80,55 @@ const html = await readFile(path.join(outputRoot, manifest.entrypoint), 'utf8')
 if (!/<meta\s+name=["']viewport["'][^>]*\bviewport-fit=cover\b/i.test(html)) {
   throw new Error('RNW document must expose native safe-area insets')
 }
-if (/<style(?:\s|>)/i.test(html) || /<script(?!\s+src=)/i.test(html)) {
-  throw new Error('RNW document contains inline executable or stylesheet content')
+if (/<style(?:\s|>)/i.test(html)) {
+  throw new Error('RNW document contains inline stylesheet content')
 }
-for (const match of html.matchAll(/\b(?:src|href)=["']([^"']+)["']/g)) {
-  const reference = match[1]
-  if (!reference?.startsWith('./assets/')) {
-    throw new Error(`RNW document contains a non-relative asset reference: ${reference}`)
+
+const referencedScripts = []
+for (const documentPath of [manifest.entrypoint, ...MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS]) {
+  const source =
+    documentPath === manifest.entrypoint
+      ? html
+      : await readFile(path.join(outputRoot, documentPath), 'utf8')
+  // Every executable in the package is a declared asset, so no native policy has to pin a hash.
+  for (const match of source.matchAll(
+    /<script(?<attributes>[^>]*)>(?<body>[\s\S]*?)<\/script>/gi
+  )) {
+    if (match.groups.body !== '') {
+      throw new Error(`RNW document contains an inline script: ${documentPath}`)
+    }
+    const src = /\bsrc="(?<value>[^"]+)"/.exec(match.groups.attributes)?.groups?.value
+    if (!src) {
+      throw new Error(`RNW document contains a script without a source: ${documentPath}`)
+    }
+    referencedScripts.push(src.slice(2))
   }
-  if (!declaredPaths.includes(reference.slice(2))) {
-    throw new Error(`RNW document references an undeclared asset: ${reference}`)
+  if (/\bContent-Security-Policy\b/i.test(source)) {
+    throw new Error(`RNW document must take its policy from the native header: ${documentPath}`)
+  }
+  for (const match of source.matchAll(/\b(?:src|href)=["']([^"']+)["']/g)) {
+    const reference = match[1]
+    if (!reference?.startsWith('./assets/')) {
+      throw new Error(`RNW document contains a non-relative asset reference: ${reference}`)
+    }
+    if (!declaredPaths.includes(reference.slice(2))) {
+      throw new Error(`RNW document references an undeclared asset: ${reference}`)
+    }
   }
 }
 
-const documentScripts = [...html.matchAll(/<script src="\.\/([^"]+)" defer><\/script>/g)].map(
-  (match) => match[1]
-)
 const packagedScripts = manifest.assets
   .filter((asset) => asset.role === 'script')
   .map((asset) => asset.path)
 if (
-  new Set(documentScripts).size !== documentScripts.length ||
-  documentScripts.length !== packagedScripts.length ||
-  packagedScripts.some((assetPath) => !documentScripts.includes(assetPath))
+  new Set(referencedScripts).size !== referencedScripts.length ||
+  referencedScripts.length !== packagedScripts.length ||
+  packagedScripts.some((assetPath) => !referencedScripts.includes(assetPath))
 ) {
-  throw new Error('RNW document must reference every packaged script exactly once with defer')
+  throw new Error('RNW documents must reference every packaged script exactly once')
 }
-
-const mermaidFrame = await readFile(path.join(outputRoot, MOBILE_WEB_MERMAID_FRAME_PATH), 'utf8')
-for (const directive of mobileWebMermaidFrameCspDirectives()) {
-  if (!mermaidFrame.includes(directive)) {
-    throw new Error(`RNW Mermaid frame CSP is missing: ${directive}`)
-  }
-}
-const mermaidScripts = [
-  ...mermaidFrame.matchAll(/<script(?<attributes>[^>]*)>(?<source>[\s\S]*?)<\/script>/gi)
-]
-if (
-  mermaidScripts.length !== 1 ||
-  mermaidScripts[0]?.groups?.attributes?.trim() !== '' ||
-  mermaidScripts[0]?.groups?.source !== MOBILE_WEB_MERMAID_FRAME_SCRIPT
-) {
-  throw new Error('RNW Mermaid frame must contain only the fixed inline renderer')
-}
-if (/\b(?:src|href)=["']/i.test(mermaidFrame)) {
-  throw new Error('RNW Mermaid frame must not reference external resources')
-}
-const mermaidPolicyFailure = mobileWebRnwExecutablePolicyFailure(MOBILE_WEB_MERMAID_FRAME_SCRIPT)
-if (mermaidPolicyFailure) {
-  throw new Error(`RNW Mermaid frame contains ${mermaidPolicyFailure}`)
+if (!/<script src="\.\/[^"]+" defer><\/script>/.test(html)) {
+  throw new Error('RNW document must load its chunks with defer')
 }
 
 for (const asset of manifest.assets.filter((candidate) => candidate.role === 'script')) {

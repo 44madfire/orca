@@ -177,29 +177,6 @@ export const MOBILE_WEB_MERMAID_FRAME_SCRIPT = String.raw`(function () {
 export const MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH =
   "'sha256-JHwlo5V7HtwqexHUhXguW04dF71kAVlQOX1QdtyCkjg='"
 
-export function mobileWebMermaidFrameCspDirectives() {
-  return [
-    "default-src 'none'",
-    `script-src ${MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH} blob:`,
-    "style-src 'unsafe-inline'",
-    'img-src data:',
-    "font-src 'none'",
-    "connect-src 'none'",
-    "media-src 'none'",
-    "object-src 'none'",
-    "frame-src 'none'",
-    "child-src 'none'",
-    "worker-src 'none'",
-    "base-uri 'none'",
-    "form-action 'none'",
-    "frame-ancestors 'self'"
-  ] as const
-}
-
-export function mobileWebMermaidFrameCsp(): string {
-  return mobileWebMermaidFrameCspDirectives().join('; ')
-}
-
 type MermaidFrameTheme = {
   background: string
   primary: string
@@ -207,8 +184,16 @@ type MermaidFrameTheme = {
   line: string
 }
 
+/**
+ * The packaged frame loads its script from the package and takes its policy from the native
+ * response header, which is the only place that knows the per-session origin. The in-app document
+ * has no server, so it carries its own meta policy over an inline script.
+ */
+type MermaidFrameScript = { src: string } | { inlineCsp: string }
+
 type MermaidFrameDocumentOptions = {
   theme: MermaidFrameTheme
+  script: MermaidFrameScript
   embeddedEngine?: string
   encodedSource?: string
   encodedToken?: string
@@ -216,16 +201,24 @@ type MermaidFrameDocumentOptions = {
 
 export function buildMobileWebMermaidFrameDocument({
   theme,
+  script,
   embeddedEngine = '',
   encodedSource = '',
   encodedToken = ''
 }: MermaidFrameDocumentOptions): string {
+  const policy =
+    'src' in script
+      ? ''
+      : `\n  <meta http-equiv="Content-Security-Policy" content="${script.inlineCsp}" />`
+  const scriptElement =
+    'src' in script
+      ? `<script src="${script.src}"></script>`
+      : `<script>${MOBILE_WEB_MERMAID_FRAME_SCRIPT}</script>`
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <meta http-equiv="Content-Security-Policy" content="${mobileWebMermaidFrameCsp()}" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />${policy}
   <style>:root{--diagram-background:${theme.background};--diagram-primary:${theme.primary};--diagram-text:${theme.text};--diagram-line:${theme.line}}html,body{box-sizing:border-box;margin:0;background:var(--diagram-background)}#c{padding:8px}#c svg{max-width:100%;height:auto}</style>
 </head>
 <body>
@@ -233,7 +226,7 @@ export function buildMobileWebMermaidFrameDocument({
   <textarea id="source" hidden>${encodedSource}</textarea>
   <textarea id="token" hidden>${encodedToken}</textarea>
   <div id="c"></div>
-  <script>${MOBILE_WEB_MERMAID_FRAME_SCRIPT}</script>
+  ${scriptElement}
 </body>
 </html>`
 }

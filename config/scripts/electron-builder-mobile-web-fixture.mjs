@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { MOBILE_WEB_MARKDOWN_EDITOR_PATH } from '../../mobile/src/components/markdown-editor-document'
 import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
   buildMobileWebMermaidFrameDocument
@@ -28,31 +29,46 @@ export async function createPackagedCliResourceFixture(resourcesDir) {
 
 export async function createMobileWebResourceFixture(resourcesDir) {
   const root = join(resourcesDir, 'mobile-web')
-  const script = Buffer.from('globalThis.__orcaPackagedMobileWeb=true', 'utf8')
-  const scriptHash = sha256(script)
-  const scriptPath = `assets/${scriptHash}.js`
+  const scripts = ['globalThis.__orcaPackagedMobileWeb=true', 'void 0', 'void 1'].map((source) => {
+    const bytes = Buffer.from(source, 'utf8')
+    const hash = sha256(bytes)
+    return { bytes, hash, path: `assets/${hash}.js` }
+  })
+  const [entryScript, mermaidScript, editorScript] = scripts
   const document = Buffer.from(
-    `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><script src="./${scriptPath}" defer></script>`,
+    `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><script src="./${entryScript.path}" defer></script>`,
     'utf8'
   )
   const mermaidFrame = Buffer.from(
     buildMobileWebMermaidFrameDocument({
-      theme: { background: 'black', primary: 'gray', text: 'white', line: 'silver' }
+      theme: { background: 'black', primary: 'gray', text: 'white', line: 'silver' },
+      script: { src: `./${mermaidScript.path}` }
     }),
     'utf8'
   )
+  const markdownEditor = Buffer.from(
+    `<!doctype html><html><body><script src="./${editorScript.path}"></script></body></html>`,
+    'utf8'
+  )
   const assets = [
-    {
-      path: scriptPath,
-      sha256: scriptHash,
-      byteLength: script.byteLength,
+    ...scripts.map((entry) => ({
+      path: entry.path,
+      sha256: entry.hash,
+      byteLength: entry.bytes.byteLength,
       contentType: 'text/javascript; charset=utf-8',
       role: 'script'
-    },
+    })),
     {
       path: 'index.html',
       sha256: sha256(document),
       byteLength: document.byteLength,
+      contentType: 'text/html; charset=utf-8',
+      role: 'document'
+    },
+    {
+      path: MOBILE_WEB_MARKDOWN_EDITOR_PATH,
+      sha256: sha256(markdownEditor),
+      byteLength: markdownEditor.byteLength,
       contentType: 'text/html; charset=utf-8',
       role: 'document'
     },
@@ -64,6 +80,7 @@ export async function createMobileWebResourceFixture(resourcesDir) {
       role: 'document'
     }
   ]
+  assets.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
   const seed = {
     schemaVersion: MOBILE_WEB_MANIFEST_SCHEMA_VERSION,
     buildId: '0'.repeat(64),
@@ -74,8 +91,11 @@ export async function createMobileWebResourceFixture(resourcesDir) {
   }
   const manifest = { ...seed, buildId: sha256(serializeMobileWebManifestForBuildId(seed)) }
   await mkdir(join(root, 'assets'), { recursive: true })
-  await writeFile(join(root, scriptPath), script)
+  for (const entry of scripts) {
+    await writeFile(join(root, entry.path), entry.bytes)
+  }
   await writeFile(join(root, 'index.html'), document)
+  await writeFile(join(root, MOBILE_WEB_MARKDOWN_EDITOR_PATH), markdownEditor)
   await writeFile(join(root, MOBILE_WEB_MERMAID_FRAME_PATH), mermaidFrame)
   await writeFile(join(root, 'manifest.json'), JSON.stringify(manifest))
 }

@@ -8,7 +8,10 @@ export const MOBILE_WEB_MAX_ASSET_COUNT = 256
 export const MOBILE_WEB_MAX_PATH_CHARS = 240
 export const MOBILE_WEB_MAX_BRIDGE_VERSION = 65_535
 export const MOBILE_WEB_ENTRYPOINT_PATH = 'index.html'
-export const MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS = ['mermaid-frame.html'] as const
+export const MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS = [
+  'markdown-editor.html',
+  'mermaid-frame.html'
+] as const
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
 const SAFE_PATH_PATTERN = /^[A-Za-z0-9._/-]+$/

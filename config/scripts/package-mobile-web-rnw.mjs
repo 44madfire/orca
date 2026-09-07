@@ -9,11 +9,20 @@ import {
 } from '../../src/shared/mobile-web/manifest-contract.ts'
 import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
+  MOBILE_WEB_MERMAID_FRAME_SCRIPT,
   buildMobileWebMermaidFrameDocument
 } from '../../mobile/src/components/pr-sidebar/mermaid-frame-document.ts'
 import { colors } from '../../mobile/src/theme/mobile-theme.ts'
+import { registerTypeScriptExtensionlessResolver } from './typescript-extensionless-resolver.mjs'
 import { splitMobileWebRnwScript } from './mobile-web-rnw-script-chunks.mjs'
 import { assertMobileWebRnwExecutablePolicy } from './mobile-web-rnw-executable-policy.mjs'
+
+registerTypeScriptExtensionlessResolver()
+const {
+  MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT,
+  MOBILE_WEB_MARKDOWN_EDITOR_PATH,
+  buildMobileRichMarkdownEditorHtml
+} = await import('../../mobile/src/components/mobile-rich-markdown-editor-html.ts')
 
 const args = parseArgs(process.argv.slice(2))
 const inputRoot = path.resolve(args.input ?? 'out/mobile-web-rnw-export')
@@ -67,15 +76,21 @@ const scriptPaths = splitMobileWebRnwScript(script).map((chunk) => {
 const document = mobileWebDocument({ scriptPaths, stylePath })
 const documentBytes = Buffer.from(document)
 packaged.set('index.html', documentBytes)
+// Frame scripts ship as ordinary content-addressed assets so the native CSP never pins a hash.
 const mermaidFrame = buildMobileWebMermaidFrameDocument({
   theme: {
     background: colors.bgRaised,
     primary: colors.bgPanel,
     text: colors.textPrimary,
     line: colors.textSecondary
-  }
+  },
+  script: { src: `./${packageScript(packaged, MOBILE_WEB_MERMAID_FRAME_SCRIPT)}` }
 })
 packaged.set(MOBILE_WEB_MERMAID_FRAME_PATH, Buffer.from(mermaidFrame))
+const markdownEditor = buildMobileRichMarkdownEditorHtml({
+  src: `./${packageScript(packaged, MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT)}`
+})
+packaged.set(MOBILE_WEB_MARKDOWN_EDITOR_PATH, Buffer.from(markdownEditor))
 
 for (const [assetPath, bytes] of packaged) {
   await mkdir(path.dirname(path.join(outputRoot, assetPath)), { recursive: true })
@@ -164,6 +179,13 @@ function replaceReferences(source, replacements) {
     output = output.replaceAll(from, to)
   }
   return output
+}
+
+function packageScript(packaged, source) {
+  const bytes = Buffer.from(`${source}\n`)
+  const assetPath = contentAddressedPath(bytes, '.js')
+  packaged.set(assetPath, bytes)
+  return assetPath
 }
 
 function mobileWebDocument({ scriptPaths, stylePath }) {

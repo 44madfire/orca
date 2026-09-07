@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { MOBILE_WEB_BRIDGE_MAX_MESSAGE_BYTES } from '../../../src/shared/mobile-web/bridge-contract'
-import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from '../components/markdown-editor-csp'
-import { mobileWebMermaidFrameCspDirectives } from '../components/pr-sidebar/mermaid-frame-document'
+import { mobileWebEmbeddedFrameCspDirectives } from './embedded-frame-csp'
 
 const iosSource = readFileSync(
   new URL('../../packages/expo-mobile-web-shell/ios/MobileWebShellView.swift', import.meta.url),
@@ -199,13 +198,16 @@ describe('mobile web native bridge transport', () => {
     expect(nativeCspDirectives(iosSource, 'mobileWebCsp')).toEqual(
       nativeCspDirectives(androidSource, 'MOBILE_WEB_CSP')
     )
-    expect(nativeCspDirectives(iosSource, 'mobileWebMermaidFrameCsp')).toEqual(
-      mobileWebMermaidFrameCspDirectives()
+    // The frame policies interpolate the per-session package origin, so the mirror keeps the
+    // native interpolation token in the script source it compares against.
+    expect(nativeCspDirectives(iosSource, 'func mobileWebEmbeddedFrameCsp')).toEqual(
+      mobileWebEmbeddedFrameCspDirectives('\\(origin) blob:')
     )
-    expect(nativeCspDirectives(androidSource, 'MOBILE_WEB_MERMAID_FRAME_CSP')).toEqual(
-      mobileWebMermaidFrameCspDirectives()
+    expect(nativeCspDirectives(androidSource, 'fun mobileWebEmbeddedFrameCsp')).toEqual(
+      mobileWebEmbeddedFrameCspDirectives('$origin blob:')
     )
     for (const source of [iosSource, androidSource]) {
+      expect(source).not.toContain('sha256-')
       expect(source).toContain('"frame-src \'self\' data:"')
       expect(source).toContain('"child-src \'self\' data:"')
       expect(source).toContain('"connect-src \'none\'"')
@@ -214,13 +216,9 @@ describe('mobile web native bridge transport', () => {
       expect(source).toContain('"form-action \'none\'"')
       expect(source).not.toContain("\"script-src 'self' 'unsafe-inline'\"")
     }
-    expect(iosSource).toContain(
-      `"script-src 'self' ${MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH}"`
-    )
+    expect(iosSource).toContain('"script-src \'self\'"')
     expect(iosSource).toContain("\"style-src 'self' 'unsafe-inline'\"")
-    expect(androidSource).toContain(
-      `"script-src 'self' ${MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH}"`
-    )
+    expect(androidSource).toContain('"script-src \'self\'"')
     expect(androidSource).toContain("\"style-src 'self' 'unsafe-inline'\"")
     expect(androidSource).toContain('"font-src \'self\'"')
     expect(androidSource).toContain('"img-src \'self\' data: blob:"')
@@ -251,10 +249,15 @@ function nativeBlockerScript(source: string, declaration: string): string {
 }
 
 function nativeCspDirectives(source: string, declaration: string): string[] {
-  const kotlinStart = source.indexOf(`${declaration} = listOf(`)
-  const swiftStart = source.indexOf(`${declaration} = [`)
-  const opening = kotlinStart !== -1 ? kotlinStart : swiftStart
-  const closing = source.indexOf(kotlinStart !== -1 ? ').joinToString' : '].joined', opening)
+  const declared = source.indexOf(declaration)
+  if (declared === -1) {
+    return []
+  }
+  const kotlinStart = source.indexOf('listOf(', declared)
+  const swiftStart = source.indexOf('[', declared)
+  const kotlin = kotlinStart !== -1 && (swiftStart === -1 || kotlinStart < swiftStart)
+  const opening = kotlin ? kotlinStart : swiftStart
+  const closing = source.indexOf(kotlin ? ').joinToString' : '].joined', opening)
   if (opening === -1 || closing === -1) {
     return []
   }

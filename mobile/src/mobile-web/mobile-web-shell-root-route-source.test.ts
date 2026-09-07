@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from '../components/markdown-editor-csp'
 
 const iosShellViewSource = readFileSync(
   new URL('../../packages/expo-mobile-web-shell/ios/MobileWebShellView.swift', import.meta.url),
@@ -30,9 +29,7 @@ describe('mobile web shell root route', () => {
     expect(iosShellViewSource).toContain('url.path == "/"')
     expect(iosShellViewSource).not.toContain('url.path == "/index.html"')
     expect(iosShellViewSource).toContain("\"style-src 'self' 'unsafe-inline'\"")
-    expect(iosShellViewSource).toContain(
-      `"script-src 'self' ${MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH}"`
-    )
+    expect(iosShellViewSource).toContain('"script-src \'self\'"')
     expect(iosShellViewSource).not.toContain("\"script-src 'self' 'unsafe-inline'\"")
   })
 

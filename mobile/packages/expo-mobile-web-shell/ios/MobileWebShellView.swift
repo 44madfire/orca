@@ -5,11 +5,16 @@ private let mobileWebScheme = "orca-mobile-web"
 private let mobileWebDocumentUrlLimit = 8 * 1024
 private let mobileWebBridgeHandler = "orcaBridge"
 private let mobileWebMermaidFramePath = "mermaid-frame.html"
+private let mobileWebMarkdownEditorPath = "markdown-editor.html"
+private let mobileWebEmbeddedDocumentPaths: Set<String> = [
+  mobileWebMermaidFramePath,
+  mobileWebMarkdownEditorPath
+]
 private let mobileWebMessageByteLimit = 640 * 1024
 private let mobileWebPendingMessageLimit = 32
 private let mobileWebCsp = [
   "default-src 'none'",
-  "script-src 'self' 'sha256-9WQo6QEeDR1Qf5aOmvWdM6FJv6hDF22Gbk7IKakIW4A='",
+  "script-src 'self'",
   // Why: React Native Web emits runtime style elements and attributes for the existing mobile UI.
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
@@ -24,22 +29,26 @@ private let mobileWebCsp = [
   "form-action 'none'",
   "frame-ancestors 'none'"
 ].joined(separator: "; ")
-private let mobileWebMermaidFrameCsp = [
-  "default-src 'none'",
-  "script-src 'sha256-JHwlo5V7HtwqexHUhXguW04dF71kAVlQOX1QdtyCkjg=' blob:",
-  "style-src 'unsafe-inline'",
-  "img-src data:",
-  "font-src 'none'",
-  "connect-src 'none'",
-  "media-src 'none'",
-  "object-src 'none'",
-  "frame-src 'none'",
-  "child-src 'none'",
-  "worker-src 'none'",
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors 'self'"
-].joined(separator: "; ")
+// The embedded frames are sandboxed, so their origin is opaque and WebKit resolves `'self'`
+// against it. The package origin is named outright so each frame can load its own script.
+private func mobileWebEmbeddedFrameCsp(origin: String) -> String {
+  [
+    "default-src 'none'",
+    "script-src \(origin) blob:",
+    "style-src 'unsafe-inline'",
+    "img-src data:",
+    "font-src 'none'",
+    "connect-src 'none'",
+    "media-src 'none'",
+    "object-src 'none'",
+    "frame-src 'none'",
+    "child-src 'none'",
+    "worker-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'self'"
+  ].joined(separator: "; ")
+}
 private let mobileWebNetworkRules = """
   [
     {
@@ -326,8 +335,9 @@ private final class MobileWebSchemeHandler: NSObject, WKURLSchemeHandler {
         "X-Content-Type-Options": "nosniff"
       ]
       if asset.isDocument {
-        headers["Content-Security-Policy"] =
-          path == mobileWebMermaidFramePath ? mobileWebMermaidFrameCsp : mobileWebCsp
+        headers["Content-Security-Policy"] = mobileWebEmbeddedDocumentPaths.contains(path)
+          ? mobileWebEmbeddedFrameCsp(origin: "\(mobileWebScheme)://\(sessionId)")
+          : mobileWebCsp
       }
       guard let response = HTTPURLResponse(
         url: url,
@@ -630,11 +640,12 @@ final class MobileWebShellView: ExpoView, WKNavigationDelegate, WKUIDelegate,
       let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
     else { return false }
     guard let activeSessionId else { return false }
+    let path = String(url.path.dropFirst())
     return isAllowedMobileWebOriginForSession(url, sessionId: activeSessionId)
-      && url.path == "/\(mobileWebMermaidFramePath)"
+      && mobileWebEmbeddedDocumentPaths.contains(path)
       && url.query == nil
       && url.fragment == nil
-      && components.percentEncodedPath == "/\(mobileWebMermaidFramePath)"
+      && components.percentEncodedPath == "/\(path)"
   }
 
   private func finishNetworkBlockerInstallation(_ ready: Bool) {
