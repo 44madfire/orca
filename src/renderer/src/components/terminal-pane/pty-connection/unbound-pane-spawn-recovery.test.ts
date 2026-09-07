@@ -230,3 +230,46 @@ describe('observeSpawnSettlement', () => {
     )
   })
 })
+
+describe('cold-restore resume spawns', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    pendingSpawnByPaneKey.clear()
+    pendingSpawnGenerationByPaneKey.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Freeze-over-corruption: remounting a hung resume would start a second
+  // --resume on the same transcript, and the late spawn is never retired.
+  it('never remounts a resume spawn that hangs', () => {
+    const promise = new Promise<string | null>(() => {})
+    observeSpawnSettlement(
+      buildSession({ deps: { tabId: 'tab-resume' }, pendingSpawnKey: 'resume-key' }),
+      promise,
+      { resumesProviderSession: true }
+    )
+    pendingSpawnByPaneKey.set('resume-key', promise)
+
+    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+
+    expect(requestTerminalPaneRecovery).not.toHaveBeenCalled()
+    // The stranded pin is still collected — that leak is safe to fix either way.
+    expect(pendingSpawnByPaneKey.has('resume-key')).toBe(false)
+  })
+
+  it('still remounts a non-resume spawn that hangs', () => {
+    observeSpawnSettlement(
+      buildSession({ deps: { tabId: 'tab-plain' }, pendingSpawnKey: 'plain-key' }),
+      new Promise<string | null>(() => {}),
+      { resumesProviderSession: false }
+    )
+
+    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+
+    expect(requestTerminalPaneRecovery).toHaveBeenCalledOnce()
+  })
+})

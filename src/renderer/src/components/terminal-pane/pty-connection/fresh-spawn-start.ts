@@ -320,7 +320,9 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
         }
       })
     session.armDirectSshPaneRetryTimeout(trackedPromise, session.directSshRetryAttempt)
-    observeSpawnSettlement(session, trackedPromise)
+    observeSpawnSettlement(session, trackedPromise, {
+      resumesProviderSession: Boolean(coldRestoreOverride)
+    })
     // Why: split panes in the same tab can spawn concurrently. Key by pane
     // as well as tab so a remount cannot attach to a sibling setup pane's PTY.
     pendingSpawnByPaneKey.set(session.pendingSpawnKey, trackedPromise)

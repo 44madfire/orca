@@ -65,9 +65,10 @@ export function settleSpawnThatLeftPaneUnbound(session: ConnectPanePtySession): 
  *  remount seam and are kept together rather than split across the caller. */
 export function observeSpawnSettlement(
   session: ConnectPanePtySession,
-  trackedPromise: Promise<string | null>
+  trackedPromise: Promise<string | null>,
+  options: { resumesProviderSession?: boolean } = {}
 ): void {
-  armSpawnSettlementWatchdog(session, trackedPromise)
+  armSpawnSettlementWatchdog(session, trackedPromise, options)
   void trackedPromise.then((spawnedPtyId) => {
     if (spawnedPtyId) {
       return
@@ -97,7 +98,8 @@ export function observeSpawnSettlement(
  *  pane-key entry forever, which also freezes any remount that adopts it. */
 export function armSpawnSettlementWatchdog(
   session: ConnectPanePtySession,
-  trackedPromise: Promise<string | null>
+  trackedPromise: Promise<string | null>,
+  options: { resumesProviderSession?: boolean } = {}
 ): void {
   if (session.disposed || spawnSettlementTimedPromises.has(trackedPromise)) {
     return
@@ -112,6 +114,20 @@ export function armSpawnSettlementWatchdog(
     }
     // Something bound meanwhile, or the SSH ledger owns the retry: leave it alone.
     if (session.transport.getPtyId() || session.directSshRetryAttempt) {
+      return
+    }
+    // Why freeze instead of remount: a cold-restore spawn clears its sleeping
+    // record only once it settles, and a late one is deliberately not retired
+    // (it may own a recycled id). Remounting a hung one would put a SECOND
+    // --resume on the same transcript. A stuck pane is recoverable; two agents
+    // writing one conversation is not.
+    if (options.resumesProviderSession === true) {
+      warnTerminalLifecycleAnomaly('resume spawn never settled; remount withheld', {
+        tabId,
+        worktreeId: session.deps.worktreeId,
+        paneId: session.pane.id,
+        ptyId: null
+      })
       return
     }
     if (!session.disposed) {
