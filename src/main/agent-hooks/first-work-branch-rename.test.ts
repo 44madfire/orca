@@ -102,7 +102,8 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
       const items: AgentJournalRenderItem[] = []
       const journal = {
         snapshot: () => ({ items }),
-        isReadOnly: false
+        isReadOnly: false,
+        lastActivityAt: () => 1
       } as unknown as AgentSessionJournal
       const pending: Promise<void>[] = []
       const observe = vi.fn((summary, options) => {
@@ -113,7 +114,14 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
       })
       const feed = new StructuredAgentSessionStatusFeed({
         sessions: new Map([
-          ['session', { journal, params: { location: { workspaceId }, provider: agent } }]
+          [
+            'session',
+            {
+              journal,
+              hasProviderChild: true,
+              params: { location: { workspaceId }, provider: agent }
+            }
+          ]
         ]),
         getRecord: () => null,
         now: () => 1,
@@ -173,6 +181,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     })
     const journal = {
       isReadOnly: false,
+      lastActivityAt: () => 1,
       snapshot: () => ({
         items: [
           { body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'Fix auth' }] } },
@@ -189,7 +198,9 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     const location = { workspaceId, workspaceKind: 'git-worktree' as const }
     const pending: Promise<void>[] = []
     const feed = new StructuredAgentSessionStatusFeed({
-      sessions: new Map([['session', { journal, params: { location, provider: 'codex' } }]]),
+      sessions: new Map([
+        ['session', { journal, hasProviderChild: true, params: { location, provider: 'codex' } }]
+      ]),
       getRecord: () => null,
       now: () => 1,
       onStatusChanged: (summary, options) => {
