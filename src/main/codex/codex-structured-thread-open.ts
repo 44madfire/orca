@@ -1,3 +1,4 @@
+import type { AgentSessionForkTarget } from '../../shared/agent-session-fork'
 // Starting or resuming the single Codex thread a structured session owns.
 //
 // The reply is verified before the caller registers the session, because a
@@ -62,7 +63,8 @@ async function resumeCodexThread(
 export async function openCodexThread(
   connection: Pick<CodexAppServerConnection, 'request'>,
   launch: { cwd: string; resumeThreadId: string | null; resumePath?: string | null },
-  timeoutMs: number | undefined
+  timeoutMs: number | undefined,
+  fork?: AgentSessionForkTarget
 ): Promise<CodexOpenedThread> {
   const resumeParams = launch.resumeThreadId
     ? {
@@ -71,14 +73,32 @@ export async function openCodexThread(
         ...(launch.resumePath ? { path: launch.resumePath } : {})
       }
     : null
-  const opened = resumeParams
-    ? await resumeCodexThread(connection, resumeParams, timeoutMs)
-    : await connection.request('thread/start', { cwd: launch.cwd }, { timeoutMs })
+  if (
+    fork &&
+    (fork.source.provider !== 'codex' || fork.source.threadId !== launch.resumeThreadId)
+  ) {
+    throw new Error('agent_session_identity_required')
+  }
+  const opened =
+    fork && fork.source.provider === 'codex'
+      ? await connection.request(
+          'thread/fork',
+          {
+            threadId: fork.source.threadId,
+            lastTurnId: fork.throughId,
+            excludeTurns: true,
+            cwd: launch.cwd
+          },
+          { timeoutMs }
+        )
+      : resumeParams
+        ? await resumeCodexThread(connection, resumeParams, timeoutMs)
+        : await connection.request('thread/start', { cwd: launch.cwd }, { timeoutMs })
   const threadId = readCodexThreadId(opened)
   if (!threadId) {
     throw new Error('codex app-server did not name the thread it opened')
   }
-  if (launch.resumeThreadId && threadId !== launch.resumeThreadId) {
+  if (!fork && launch.resumeThreadId && threadId !== launch.resumeThreadId) {
     throw new Error(`codex app-server resumed ${threadId} instead of ${launch.resumeThreadId}`)
   }
   const result = opened as Record<string, unknown>
@@ -86,6 +106,13 @@ export async function openCodexThread(
     typeof result.thread === 'object' && result.thread !== null
       ? (result.thread as Record<string, unknown>)
       : {}
+  if (
+    fork &&
+    fork.source.provider === 'codex' &&
+    (threadId === fork.source.threadId || thread.forkedFromId !== fork.source.threadId)
+  ) {
+    throw new Error('agent_session_provider_handle_invalid')
+  }
   const model = nonEmptyString(result.model)
   const effort = nonEmptyString(result.reasoningEffort)
   return {

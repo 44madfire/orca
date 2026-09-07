@@ -1,3 +1,4 @@
+import { isAgentSessionForkRecord, type AgentSessionForkRecord } from './agent-session-fork'
 /**
  * Durable agent-session record and its single-writer lease.
  *
@@ -121,7 +122,7 @@ export type AgentSessionLease = {
 }
 
 export type AgentSessionRecord = {
-  schemaVersion: typeof AGENT_SESSION_RECORD_SCHEMA_VERSION
+  schemaVersion: typeof AGENT_SESSION_RECORD_SCHEMA_VERSION | 3
   sessionId: string
   location: AgentSessionExecutionLocation
   provider: AgentSessionHandleProvider
@@ -129,6 +130,7 @@ export type AgentSessionRecord = {
   accountHome: AgentSessionAccountHome
   /** Provider options acknowledged for the next turn, restored across owner replacement. */
   options?: Record<string, string>
+  fork?: AgentSessionForkRecord
   conversationCommand?: AgentSessionConversationCommandRecord
   launchArgs?: AgentSessionLaunchArgs
   lease: AgentSessionLease
@@ -333,13 +335,17 @@ export function isAgentSessionRecord(value: unknown): value is AgentSessionRecor
   }
   const record = value as Partial<AgentSessionRecord>
   const shapeValid =
-    record.schemaVersion === AGENT_SESSION_RECORD_SCHEMA_VERSION &&
+    (record.schemaVersion === AGENT_SESSION_RECORD_SCHEMA_VERSION ||
+      (record.schemaVersion === 3 &&
+        record.fork !== undefined &&
+        record.fork.phase !== 'completed')) &&
     isAgentSessionId(record.sessionId) &&
     isAgentSessionExecutionLocation(record.location) &&
     (record.provider === 'claude' || record.provider === 'codex') &&
     isAgentSessionProviderHandleChain(record.providerHandleChain) &&
     isAgentSessionAccountHome(record.accountHome) &&
     (record.options === undefined || isAgentSessionOptions(record.options)) &&
+    (record.fork === undefined || isAgentSessionForkRecord(record.fork)) &&
     (record.conversationCommand === undefined ||
       isAgentSessionConversationCommandRecord(record.conversationCommand)) &&
     (record.launchArgs === undefined || isAgentSessionLaunchArgs(record.launchArgs)) &&

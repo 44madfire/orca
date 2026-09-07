@@ -44,7 +44,8 @@ export class ClaudeTranscriptPreviousCursorMissingError extends Error {
 function proveMainLineAncestry(
   nodes: Map<string, TranscriptNode>,
   startUuid: string,
-  providerSessionId: string
+  providerSessionId: string,
+  requiredAncestorUuids: readonly string[] = []
 ): void {
   const visited = new Set<string>()
   let cursor: string | null = startUuid
@@ -65,6 +66,9 @@ function proveMainLineAncestry(
   if (cursor !== null) {
     throw transcriptError('ancestry exceeds the bounded proof limit')
   }
+  if (requiredAncestorUuids.some((uuid) => !visited.has(uuid))) {
+    throw transcriptError('retained record is missing from the main ancestry')
+  }
 }
 
 function proveAppendOrder(nodes: Map<string, TranscriptNode>): void {
@@ -83,6 +87,7 @@ export function proveClaudeTranscriptBranchFromJsonl(input: {
   contents: string
   providerSessionId: string
   previousLeafUuid: string | null
+  requiredAncestorUuids?: readonly string[]
 }): ClaudeTranscriptBranchProof {
   const nodes = new Map<string, TranscriptNode>()
   let leafUuid: string | null = null
@@ -157,7 +162,7 @@ export function proveClaudeTranscriptBranchFromJsonl(input: {
   }
   const previousLeafUuid = input.previousLeafUuid
   if (!previousLeafUuid) {
-    proveMainLineAncestry(nodes, leafUuid, input.providerSessionId)
+    proveMainLineAncestry(nodes, leafUuid, input.providerSessionId, input.requiredAncestorUuids)
     // A branch proof is based on an append-only snapshot. A child that appears
     // before its claimed parent is not a post-snapshot descendant observation;
     // accepting that graph would turn reordered/torn rows into durable ancestry.
@@ -175,7 +180,12 @@ export function proveClaudeTranscriptBranchFromJsonl(input: {
   // either case prove the sampled cursor's own ancestry before accepting it;
   // otherwise a cursor that descended through a parent-tool-use sidechain
   // could be persisted and resumed as if it were on the main transcript.
-  proveMainLineAncestry(nodes, previousLeafUuid, input.providerSessionId)
+  proveMainLineAncestry(
+    nodes,
+    previousLeafUuid,
+    input.providerSessionId,
+    input.requiredAncestorUuids
+  )
   if (leafUuid === previousLeafUuid) {
     proveAppendOrder(nodes)
     return { leafUuid, relation: 'same' }

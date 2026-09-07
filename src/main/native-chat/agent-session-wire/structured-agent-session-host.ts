@@ -1,3 +1,4 @@
+import { createStructuredAgentSessionFork } from './structured-agent-session-fork'
 import { StructuredConversationCommandController } from './structured-conversation-command-controller'
 // Structured agent-session host: where the lease, journal, and provider adapter meet.
 // Mutations share one durable admission path and serialize per session.
@@ -83,6 +84,11 @@ export class StructuredAgentSessionHost {
   private readonly holds: StructuredAgentSessionHolds
   private readonly eventRecovery: StructuredAgentSessionEventRecovery
   private readonly backgroundTasks: StructuredAgentSessionBackgroundTaskChannel
+
+  fork = createStructuredAgentSessionFork(
+    () => this.mutationContext(),
+    () => this.attachContext()
+  )
 
   constructor(readonly deps: StructuredAgentSessionHostDeps) {
     this.backgroundTasks = new StructuredAgentSessionBackgroundTaskChannel(
@@ -175,14 +181,12 @@ export class StructuredAgentSessionHost {
   handleAdapterEvent = (event: Parameters<StructuredAgentSessionEventRecovery['handle']>[0]) =>
     this.eventRecovery.handle(event)
 
-  private lifetimeContext(): StructuredAgentSessionLifetimeContext {
-    return {
-      deps: this.deps,
-      runtimeState: this.runtimeState,
-      sessions: this.sessions,
-      now: () => this.now()
-    }
-  }
+  private lifetimeContext = (): StructuredAgentSessionLifetimeContext => ({
+    deps: this.deps,
+    runtimeState: this.runtimeState,
+    sessions: this.sessions,
+    now: this.now
+  })
 
   /** The host's half of attaching, named so it cannot grow dependencies unnoticed. */
   private attachContext(): StructuredAgentSessionAttachContext {
@@ -211,13 +215,10 @@ export class StructuredAgentSessionHost {
 
   listSessionTabs = () => listStructuredAgentSessionTabs(this.sessions)
 
-  getPersistedVisibleSessionTabIndex(): { present: boolean; sessionIds: string[] } {
-    return this.deps.store.getVisibleSessionTabIndex()
-  }
+  getPersistedVisibleSessionTabIndex = () => this.deps.store.getVisibleSessionTabIndex()
 
-  setSessionTabVisibility(sessionId: string, visible: boolean): Promise<void> {
-    return this.deps.store.setSessionTabVisibility(sessionId, visible)
-  }
+  setSessionTabVisibility = (sessionId: string, visible: boolean) =>
+    this.deps.store.setSessionTabVisibility(sessionId, visible)
 
   reconcileRestartLeases = async (): Promise<void> => {
     const refusal = await this.reconcileLeases('startup')

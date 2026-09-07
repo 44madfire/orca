@@ -153,6 +153,7 @@ export function readStructuredAgentSessionOptions(
     const options = await context.deps.adapter.readOptions({ sessionId, fence: session.fence })
     return {
       ...options,
+      fork: { supported: true },
       conversationCommands: context.deps.adapter.compact ? ['clear', 'compact'] : ['clear']
     }
   })

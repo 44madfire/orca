@@ -1,3 +1,5 @@
+import { proveClaudeStructuredFork } from './claude-structured-fork-proof'
+import { applyClaudeStructuredForkLaunch } from './claude-structured-fork-launch'
 import {
   AgentSessionAcquisitionExitUnprovenError,
   AgentSessionPreSpawnError
@@ -171,13 +173,14 @@ export async function acquireClaudeSession({
           }
         }
       : input.identity
-    const launch = await deps
-      .resolveLaunch({ identity: launchIdentity })
-      .catch((error: unknown) => {
-        throw error instanceof AgentSessionPreSpawnError
-          ? error
-          : new AgentSessionPreSpawnError(error)
-      })
+    let launch = await deps.resolveLaunch({ identity: launchIdentity }).catch((error: unknown) => {
+      throw error instanceof AgentSessionPreSpawnError
+        ? error
+        : new AgentSessionPreSpawnError(error)
+    })
+    if (input.fork) {
+      launch = applyClaudeStructuredForkLaunch(launch, input.fork, sessionId)
+    }
     expectedProviderSessionId = launch.providerSessionId
     observedLeafUuid = launch.resumeLeafUuid
     acquisitions.assertCurrent(sessionId, attempt)
@@ -230,6 +233,9 @@ export async function acquireClaudeSession({
       throw new Error(
         `claude proved session ${init.providerSessionId}, expected ${launch.providerSessionId}`
       )
+    }
+    if (input.fork) {
+      await (deps.proveFork ?? proveClaudeStructuredFork)(launch, input.fork)
     }
     const settings = await connection
       .getSettings({ timeoutMs: deps.requestTimeoutMs })

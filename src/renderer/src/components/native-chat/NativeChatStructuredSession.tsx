@@ -1,3 +1,4 @@
+import { useStructuredForkAction } from './use-structured-fork-action'
 import { useMemo, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { encodeAgentSessionQuestionAnswers } from '../../../../shared/agent-session-question-answer'
@@ -91,6 +92,12 @@ export function NativeChatStructuredSession(
   const fontScale = useNativeChatFontScale(viewState.kind === 'ready')
   const fileLinkContext = useNativeChatFileLinkContext(props.tabId)
   const imageRuntimeContext = useNativeChatImageRuntimeContext(props.tabId)
+  const forkAction = useStructuredForkAction(
+    props,
+    controller,
+    fileLinkContext?.worktreeId,
+    setComposerError
+  )
   const { onLinkClick, linkActionRequest, closeLinkActions } = useNativeChatLinkActions(
     fileLinkContext,
     rootRef,
@@ -191,6 +198,7 @@ export function NativeChatStructuredSession(
           <NativeChatEmptyState kind="empty" agent={props.agent} />
         ) : (
           <NativeChatMessageList
+            forkAction={forkAction}
             session={session}
             isWorking={controller.isWorking}
             expandSignal={false}

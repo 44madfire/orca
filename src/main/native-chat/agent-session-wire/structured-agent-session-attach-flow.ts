@@ -1,3 +1,5 @@
+import { acquireStructuredAgentSessionOwner } from './structured-agent-session-owner-acquisition'
+import { publishStructuredForkJournal } from './structured-agent-session-fork-lifecycle'
 // The attach transition end to end: reserve the lease, make the reservation
 // real, open the journal.
 //
@@ -5,7 +7,6 @@
 // the decisions that must not be client-supplied — the spawn token, the claim
 // key, the owner probe — and passes them in.
 
-import { isDeepStrictEqual } from 'node:util'
 import type {
   AgentSessionAttachResult,
   AgentSessionMutationResult
@@ -16,7 +17,6 @@ import {
   admitAttachOrRefuse,
   attachJournal,
   classifyStoreFailure,
-  journalIdentityFor,
   reserveRequestFor,
   type AgentSessionAttachAuthority,
   type AgentSessionAttachParams,
@@ -28,12 +28,10 @@ import {
   AgentSessionAcquisitionExitUnprovenError,
   AgentSessionAcquisitionRootExitObservedError,
   AgentSessionAcquisitionRefusal,
-  AgentSessionPreSpawnError,
   isAgentSessionPreSpawnError,
   rethrowAfterAgentSessionAcquisitionCleanup
 } from './structured-agent-session-adapter'
 import type { StructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
-import { readNativeSessionOptions } from './structured-agent-session-option-restoration'
 import { resolveAgentSessionReplayOutcome } from './structured-agent-session-replay-outcome'
 import { readAgentSessionHydrationPage } from './agent-session-history-page'
 import {
@@ -117,7 +115,7 @@ export async function performAttach(
     }
     reservedRecord = record
     if (!agentSessionLeaseAdmitsWriter(record.lease)) {
-      const acquired = await acquireOwner(input, record)
+      const acquired = await acquireStructuredAgentSessionOwner(input, record)
       record = acquired.record
       acquisitionGeneration = acquired.acquisitionGeneration
     }
@@ -192,6 +190,7 @@ export async function performAttach(
       adapter: input.adapter
     })
     await importAdoptedTranscript(params, attached, record, preparedTranscript.items)
+    await publishStructuredForkJournal(store, record, attached.journal)
     await input.onAttached(attached, acquisitionGeneration)
     await store.recordOperationOutcome({
       callerKey: input.callerKey,
@@ -260,72 +259,4 @@ async function settlePostAcquisitionAttachFailure(
     )
   }
   throw cleanupError
-}
-
-/** A reservation with no process behind it is only a promise to spawn; the
- *  adapter makes it real and the store then grants the writer. */
-async function acquireOwner(
-  input: AttachFlowInput,
-  record: AgentSessionRecord
-): Promise<{ record: AgentSessionRecord; acquisitionGeneration: string | null }> {
-  const fence = record.lease.runtimeFence
-  const spawnToken = record.lease.reservedSpawnToken
-  if (!spawnToken) {
-    throw new Error('agent_session_ownership_unknown')
-  }
-  // Pre-spawn proof is single-use: this retry may create a child after the durable clear.
-  try {
-    try {
-      record = await input.store.setReservationProcesslessProof({
-        sessionId: record.sessionId,
-        fence,
-        spawnToken,
-        processlessAt: null,
-        now: input.now()
-      })
-      await input.onAcquiring?.()
-    } catch (error) {
-      throw new AgentSessionPreSpawnError(error)
-    }
-    const acquired = await input.adapter.acquire({
-      identity: journalIdentityFor(record, input.params),
-      fence,
-      // Retries must recover the original reservation, not mint a second child.
-      spawnToken,
-      ...(record.options ? { options: record.options } : {}),
-      ...(input.eventSink ? { events: input.eventSink } : {})
-    })
-    const options = await readNativeSessionOptions({
-      adapter: input.adapter,
-      sessionId: record.sessionId,
-      fence,
-      ...(record.options ? { priorOptions: record.options } : {})
-    })
-    if (record.lease.ownerProcess === null) {
-      await input.store.commitProcessIdentity({
-        sessionId: record.sessionId,
-        fence,
-        process: acquired.process,
-        now: input.now()
-      })
-    } else if (!isDeepStrictEqual(record.lease.ownerProcess, acquired.process)) {
-      throw new Error('agent_session_ownership_unknown')
-    }
-    const proved = await input.store.proveOwner({
-      sessionId: record.sessionId,
-      fence,
-      link: acquired.link,
-      now: input.now(),
-      ...(options ? { options } : {})
-    })
-    return {
-      record: proved,
-      acquisitionGeneration: acquired.acquisitionGeneration ?? null
-    }
-  } catch (error) {
-    if (isAgentSessionPreSpawnError(error)) {
-      throw error
-    }
-    return rethrowAfterAgentSessionAcquisitionCleanup(input.adapter, record.sessionId, error)
-  }
 }

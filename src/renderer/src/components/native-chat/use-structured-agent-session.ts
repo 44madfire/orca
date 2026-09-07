@@ -1,16 +1,11 @@
+import {
+  structuredSessionForkState,
+  type StructuredSessionConversationSupport
+} from './structured-agent-session-fork-state'
 import * as conversationCommands from './structured-conversation-command-send'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type {
-  AgentSessionConversationCommand,
-  AgentSessionConversationCommandResult
-} from '../../../../shared/agent-session-conversation-command'
 import type { AgentType } from '../../../../shared/agent-status-types'
-import type {
-  AgentSessionMutationResult,
-  AgentSessionOptionResult,
-  AgentSessionOptionsResult,
-  AgentSessionPromptResult
-} from '../../../../shared/agent-session-wire'
+import type * as SessionWire from '../../../../shared/agent-session-wire'
 import { getAgentSessionOptionCatalog } from '../../../../shared/agent-session-option-catalog'
 import type { SessionOptionsSurface } from '../../../../shared/native-chat-session-options'
 import { agentSessionRefusalOperationState } from '../../../../shared/agent-session-refusal-retry'
@@ -65,10 +60,8 @@ export function useStructuredAgentSession(args: {
   const stateRef = useRef(state)
   const [writeError, setWriteError] = useState<string | null>(null)
   const operationIds = useRef(new Map<string, string>())
-  const [conversationSupport, setConversationSupport] = useState<{
-    sessionId: string
-    commands: readonly AgentSessionConversationCommand[]
-  } | null>(null)
+  const [conversationSupport, setConversationSupport] =
+    useState<StructuredSessionConversationSupport | null>(null)
   const commandPending = useRef(false)
   const [optionState, setOptionState] = useState(() =>
     createStructuredAgentSessionOptionState(agent)
@@ -107,21 +100,25 @@ export function useStructuredAgentSession(args: {
       const clientOperationId =
         operationIdOverride ?? operationIds.current.get(key) ?? structuredSessionOperationId()
       operationIds.current.set(key, clientOperationId)
-      let result: AgentSessionMutationResult<T>
+      let result: SessionWire.AgentSessionMutationResult<T>
       try {
-        result = await callStructuredAgentSession<AgentSessionMutationResult<T>>(target, method, {
-          envelope: {
-            sessionId,
-            clientOperationId,
-            expectedRuntimeFence: targetFence,
-            payloadFingerprint: structuredAgentSessionPayloadFingerprint({
-              method: fingerprintMethod,
+        result = await callStructuredAgentSession<SessionWire.AgentSessionMutationResult<T>>(
+          target,
+          method,
+          {
+            envelope: {
               sessionId,
-              fields
-            })
-          },
-          ...fields
-        })
+              clientOperationId,
+              expectedRuntimeFence: targetFence,
+              payloadFingerprint: structuredAgentSessionPayloadFingerprint({
+                method: fingerprintMethod,
+                sessionId,
+                fields
+              })
+            },
+            ...fields
+          }
+        )
       } catch (error) {
         if (stateRef.current.fence === targetFence) {
           setWriteError(error instanceof Error ? error.message : 'Request was not sent')
@@ -166,12 +163,20 @@ export function useStructuredAgentSession(args: {
       return
     }
     let stale = false
-    void callStructuredAgentSession<AgentSessionOptionsResult>(target, 'agentSession.options', {
-      sessionId
-    })
+    void callStructuredAgentSession<SessionWire.AgentSessionOptionsResult>(
+      target,
+      'agentSession.options',
+      {
+        sessionId
+      }
+    )
       .then((result) => {
         if (!stale) {
-          setConversationSupport({ sessionId, commands: result.conversationCommands ?? [] })
+          setConversationSupport({
+            sessionId,
+            commands: result.conversationCommands ?? [],
+            forkSupported: result.fork?.supported === true
+          })
           setOptionState((current) =>
             current.record === activeOptionRecordRef.current
               ? applyStructuredAgentSessionOptions(current, optionCatalog, result)
@@ -200,7 +205,7 @@ export function useStructuredAgentSession(args: {
       const targetRecord = optionState.record
       setOptionState((current) => ({ ...current, pendingId: id }))
       try {
-        const result = await mutate<AgentSessionOptionResult>(
+        const result = await mutate<SessionWire.AgentSessionOptionResult>(
           'agentSession.setOption',
           'agentSession.setOption',
           { key: id, value }
@@ -251,22 +256,16 @@ export function useStructuredAgentSession(args: {
 
   const prompts = pendingStructuredSessionPrompts(state.items)
   return {
+    ...structuredSessionForkState(state, sessionId, conversationSupport),
     conversationCommands:
       conversationSupport?.sessionId === sessionId ? conversationSupport.commands : [],
-    runConversationCommand: (command: AgentSessionConversationCommand) =>
-      conversationCommands.sendStructuredConversationCommand({
-        command,
-        pending: commandPending,
-        blocked: Boolean(
-          turnId || prompts.length || isMonitoringBackgroundTasks || outboxController.outbox.length
-        ),
-        send: (command) =>
-          mutate<AgentSessionConversationCommandResult>(
-            'agentSession.conversationCommand',
-            'agentSession.conversationCommand',
-            { command }
-          )
-      }),
+    runConversationCommand: conversationCommands.structuredConversationCommandRunner(
+      commandPending,
+      Boolean(
+        turnId || prompts.length || isMonitoringBackgroundTasks || outboxController.outbox.length
+      ),
+      mutate
+    ),
     messages: projectStructuredAgentSessionMessages(
       state.items,
       outboxController.outbox,
@@ -297,7 +296,7 @@ export function useStructuredAgentSession(args: {
         ...(taskId ? { taskId } : {})
       }),
     respond: (item: StructuredPromptItem, optionId: string) =>
-      mutate<AgentSessionPromptResult>(
+      mutate<SessionWire.AgentSessionPromptResult>(
         item.body.kind === 'approval'
           ? 'agentSession.respondToApproval'
           : 'agentSession.respondToQuestion',

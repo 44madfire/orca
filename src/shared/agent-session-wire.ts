@@ -1,3 +1,4 @@
+import type { AgentSessionRewindReason } from './agent-session-rewind'
 import type { AgentSessionConversationCommand } from './agent-session-conversation-command'
 // ─── Structured agent-session wire contract ─────────────────────────────────
 // The shapes `agentSession.*` accepts and publishes. Phase 2 builds provider
@@ -259,6 +260,7 @@ export function isAgentSessionWireRefusalCode(
 }
 
 export type AgentSessionWireRefusal = {
+  forkReason?: AgentSessionRewindReason
   code: AgentSessionWireRefusalCode
   message: string
   /** On a stale fence, so the client can retry without another round trip. */
@@ -349,6 +351,7 @@ export type AgentSessionCommandsResult = {
 /** Provider-reported choices and effective next-turn values. Additive read-only
  *  surface so older hosts can reject it without changing structured v1 writes. */
 export type AgentSessionOptionsResult = {
+  fork?: { supported: boolean }
   conversationCommands?: readonly AgentSessionConversationCommand[]
   models: AgentSessionModelOption[]
   current: {

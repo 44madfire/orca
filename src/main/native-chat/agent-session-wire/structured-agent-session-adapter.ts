@@ -1,3 +1,4 @@
+import type { AgentSessionForkTarget } from '../../../shared/agent-session-fork'
 // What the wire needs from a provider adapter.
 //
 // Phase 2 implements this over the Codex app-server and the Claude Agent SDK;
@@ -96,6 +97,7 @@ export type StructuredAgentSessionLifecycleEvent = {
 }
 
 export type StructuredAgentSessionAcquireInput = {
+  fork?: AgentSessionForkTarget
   identity: AgentSessionJournalIdentity
   fence: number
   spawnToken: string

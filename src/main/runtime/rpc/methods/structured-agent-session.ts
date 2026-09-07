@@ -134,7 +134,8 @@ export const STRUCTURED_AGENT_SESSION_METHODS: RpcAnyMethod[] = [
             fields: {
               worktree: params.worktree,
               agent: params.agent,
-              resumeFrom: params.resumeFrom
+              resumeFrom: params.resumeFrom,
+              forkFrom: params.forkFrom
             }
           })
           const conflict = agentSessionFingerprintConflict(params.envelope, intentFingerprint)
@@ -151,6 +152,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS: RpcAnyMethod[] = [
             worktree: params.worktree,
             agent: params.agent as 'claude' | 'codex',
             caller: callerFor(ctx),
+            ...(params.forkFrom ? { forkFrom: params.forkFrom } : {}),
             ...(params.resumeFrom ? { resumeFrom: params.resumeFrom } : {})
           })
         }

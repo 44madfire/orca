@@ -16947,6 +16947,9 @@
       "empty": "No users found"
     },
     "native-chat": {
+      "forkFromTurn": "Fork from this turn",
+      "forkFailed": "Could not fork this turn. Wait for the conversation to finish and try again.",
+      "forkUnconfirmed": "A fork could not be confirmed. Retry the same turn to check its outcome.",
       "composer": {
         "imageUnsupported": "Image paste is not supported for this agent.",
         "send": "Send",
