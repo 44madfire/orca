@@ -25,7 +25,6 @@ import { SshAgentSessionCapabilities } from './ssh-agent-session-capabilities'
 import type { PtyProcessInspection } from './pty-process-inspection'
 import { spawnWithTerminalRuntimeRepair, type TerminalRepairHook } from './ssh-pty-spawn-repair'
 import { createSshPtyProviderRpcOperations } from './ssh-pty-provider-rpc-operations'
-import { probeSshPtyLiveness } from './ssh-pty-liveness-probe'
 
 // Why: sequential relay teardown calls share one absolute budget; convert to the mux-relative timeout only at dispatch.
 function relayTimeoutOptions(deadlineMs: number | undefined): { timeoutMs: number } | undefined {
@@ -288,21 +287,6 @@ export class SshPtyProvider implements IPtyProvider {
   }
 
   hasPty = (id: string): boolean => this.livePtyIds.has(id)
-
-  /** `hasPty` is this process's cache of what it has seen; only the relay may answer absent. */
-  probePtyLiveness = async (id: string): Promise<boolean | null> => {
-    let relayPtyId: string
-    try {
-      relayPtyId = this.toRelayPtyId(id)
-    } catch {
-      // The id names another SSH target, so this provider is not its owner and cannot answer.
-      return null
-    }
-    return await probeSshPtyLiveness({
-      request: (method, params, options) => this.mux.request(method, params, options),
-      relayPtyId
-    })
-  }
 
   onData = (callback: SshPtyDataCallback): (() => void) => this.outputState.onData(callback)
   onRejectedData = (callback: SshPtyDataCallback): (() => void) =>
