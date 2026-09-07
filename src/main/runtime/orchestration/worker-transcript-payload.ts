@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto'
-import { normalizeSubagentState } from '../../../shared/native-chat-subagent-summary'
+import {
+  MAX_SUBAGENT_FIELD_CHARS,
+  normalizeSubagentState
+} from '../../../shared/native-chat-subagent-summary'
 import type {
   NativeChatBlock,
   NativeChatMessage,
@@ -12,9 +15,13 @@ const MAX_WORKER_TRANSCRIPT_BLOCKS = 6
 const MAX_WORKER_TRANSCRIPT_BLOCK_CHARS = 1_200
 const MAX_WORKER_TRANSCRIPT_INPUT_ITEMS = 20
 const MAX_WORKER_TRANSCRIPT_INPUT_NODES = 100
-// The producer's per-group cap does not reach this boundary: the journal schema
-// declares no maximum, and a remote host may run a build with a different one.
-const MAX_WORKER_TRANSCRIPT_SUBAGENTS = 20
+// Matches the producer's per-group cap, so no group this build writes is clipped
+// here. The bound stays because the journal schema declares no maximum and a
+// remote host may run a build with a larger one.
+const MAX_WORKER_TRANSCRIPT_SUBAGENTS = 64
+// Roster ids and labels arrive already bounded to this; every other piece of
+// transcript metadata takes the same one.
+const MAX_WORKER_TRANSCRIPT_METADATA_CHARS = MAX_SUBAGENT_FIELD_CHARS
 const MAX_WORKER_TRANSCRIPT_RESPONSE_BYTES = 512 * 1024
 const TRUNCATION_MARKER = '\n… (truncated)'
 const DISPATCH_CAPABILITY_PATTERN = /\bdcap_[A-Za-z0-9_-]{20,}\b/g
@@ -191,11 +198,11 @@ function isLocalFileLocator(value: string): boolean {
 
 function clipMetadata(value: string, state: TranscriptBoundState): string {
   const redacted = redactSensitiveText(value, state.warnings)
-  if (redacted.length <= 512) {
+  if (redacted.length <= MAX_WORKER_TRANSCRIPT_METADATA_CHARS) {
     return redacted
   }
   markClipped(state, 'Oversized transcript metadata was clipped.')
-  return redacted.slice(0, 512)
+  return redacted.slice(0, MAX_WORKER_TRANSCRIPT_METADATA_CHARS)
 }
 
 /** `state` is an open string on the wire, so it takes the same bound. A value

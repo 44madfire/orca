@@ -25,13 +25,10 @@ import type {
 import {
   canReplaceSubagentState,
   isTerminalSubagentState,
+  MAX_SUBAGENT_FIELD_CHARS,
   subagentGroupFallbackText
 } from '../../shared/native-chat-subagent-summary'
 import type { NativeChatSubagentEntry } from '../../shared/native-chat-types'
-import {
-  boundInlineText,
-  DEFAULT_JOURNAL_PAYLOAD_LIMITS
-} from '../native-chat/agent-session-journal/journal-payload-bounds'
 import type {
   StructuredAgentSessionEventSink,
   StructuredAgentSessionSinkAdmission
@@ -333,8 +330,12 @@ export function codexSubagentGroupBody(
   }
 }
 
-/** `id` and `label` are provider strings, so they take the same inline bound
- *  every other piece of journal-bound text takes before it reaches a row. */
+/** `id` and `label` are provider strings, so they take the bound both readers of
+ *  this row already clip them to. A plain length check, not the tool-output
+ *  bound: that one digests the whole value before it checks the length, and this
+ *  runs twice per child on every streamed token-usage frame. */
 function boundSubagentField(value: string): string {
-  return boundInlineText(value, DEFAULT_JOURNAL_PAYLOAD_LIMITS).text
+  return value.length <= MAX_SUBAGENT_FIELD_CHARS
+    ? value
+    : `${value.slice(0, MAX_SUBAGENT_FIELD_CHARS - 1)}…`
 }

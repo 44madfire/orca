@@ -4,6 +4,7 @@ import type {
   AgentJournalItemBody,
   AgentJournalItemIdentity
 } from '../../shared/agent-session-journal-types'
+import { MAX_SUBAGENT_FIELD_CHARS } from '../../shared/native-chat-subagent-summary'
 import { isSubagentGroupBlock, type NativeChatSubagentEntry } from '../../shared/native-chat-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import {
@@ -470,6 +471,10 @@ describe('CodexSubagentRoster', () => {
     expect(agents()[0]).not.toHaveProperty('tokens')
   })
 
+  // The row is durable and both readers clip these fields to the same cap, so
+  // writing more than that is bytes replayed on every reconnect and then thrown
+  // away. The marker is an ellipsis, not the tool-output truncation sentence:
+  // `id` is the roster key and the renderer's React key.
   it('bounds the provider strings the roster row carries into the journal', () => {
     const { roster, agents, latest } = createHarness()
     const oversized = 'a'.repeat(20 * 1024)
@@ -480,10 +485,11 @@ describe('CodexSubagentRoster', () => {
     )
 
     const entry = agents()[0]
-    expect(entry?.label).toContain('output truncated')
-    expect(entry?.label.length).toBeLessThan(oversized.length)
-    expect(entry?.id).toContain('output truncated')
-    expect(entry?.id.length).toBeLessThan(oversized.length)
+    expect(entry?.label.length).toBe(MAX_SUBAGENT_FIELD_CHARS)
+    expect(entry?.label.endsWith('…')).toBe(true)
+    expect(entry?.id.length).toBe(MAX_SUBAGENT_FIELD_CHARS)
+    expect(entry?.id.endsWith('…')).toBe(true)
+    expect(JSON.stringify(latest()?.body)).not.toContain('output truncated')
     expect(isAdmissibleAgentJournalItemBody(latest()?.body)).toBe(true)
   })
 

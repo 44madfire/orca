@@ -1,4 +1,7 @@
-import { normalizeSubagentState } from '../../../../shared/native-chat-subagent-summary'
+import {
+  MAX_SUBAGENT_FIELD_CHARS,
+  normalizeSubagentState
+} from '../../../../shared/native-chat-subagent-summary'
 import type { NativeChatBlock, NativeChatSubagentState } from '../../../../shared/native-chat-types'
 import type { RpcContext } from '../core'
 import { sanitizeNativeChatRpcImageBlock } from './native-chat-rpc-image-block'
@@ -24,7 +27,6 @@ const MOBILE_TOOL_INPUT_NODE_CAP = 100
 // journal from a newer build can carry more children and longer strings than
 // this build ever writes.
 const MOBILE_SUBAGENT_CAP = 64
-const MOBILE_SUBAGENT_FIELD_CHAR_CAP = 512
 const TRUNCATION_MARKER = '\n… (truncated)'
 
 function clip(text: string, cap: number): string {
@@ -58,11 +60,11 @@ export function sanitizeNativeChatRpcBlock(
   if (block.type === 'subagent-group') {
     return {
       ...block,
-      groupId: clip(block.groupId, MOBILE_SUBAGENT_FIELD_CHAR_CAP),
+      groupId: clip(block.groupId, MAX_SUBAGENT_FIELD_CHARS),
       agents: block.agents.slice(0, MOBILE_SUBAGENT_CAP).map((agent) => ({
         ...agent,
-        id: clip(agent.id, MOBILE_SUBAGENT_FIELD_CHAR_CAP),
-        label: clip(agent.label, MOBILE_SUBAGENT_FIELD_CHAR_CAP),
+        id: clip(agent.id, MAX_SUBAGENT_FIELD_CHARS),
+        label: clip(agent.label, MAX_SUBAGENT_FIELD_CHARS),
         state: clipSubagentState(agent.state)
       }))
     }
@@ -73,7 +75,7 @@ export function sanitizeNativeChatRpcBlock(
 /** A state too long to be one this build knows names no state at all, which is
  *  what `unverifiable` records — clipping it would ship a truncated word. */
 function clipSubagentState(value: NativeChatSubagentState): NativeChatSubagentState {
-  return value.length > MOBILE_SUBAGENT_FIELD_CHAR_CAP ? normalizeSubagentState(value) : value
+  return value.length > MAX_SUBAGENT_FIELD_CHARS ? normalizeSubagentState(value) : value
 }
 
 function sanitizeToolInput(

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_CODEX_SUBAGENTS_PER_GROUP } from '../../codex/codex-structured-journal-limits'
 import {
   boundWorkerTranscriptMessages,
   redactWorkerTerminalLines
@@ -57,9 +58,10 @@ describe('worker transcript wire bounds', () => {
     )
   })
 
-  // The producer's per-group cap never reaches this boundary: the journal schema
-  // declares no maximum and a remote host may run a build with a different one,
-  // so the transport keeps its own — the invariant that no single block is huge.
+  // The bound matches the producer's per-group cap, so nothing this build writes
+  // is clipped here. It stays because the journal schema declares no maximum and
+  // a remote host may run a build with a larger one — the transport's own
+  // invariant that no single block is huge.
   it('caps and redacts a spawn group the way every other collection is capped', () => {
     const result = boundWorkerTranscriptMessages([
       {
@@ -71,7 +73,7 @@ describe('worker transcript wire bounds', () => {
           {
             type: 'subagent-group',
             groupId: 'thread-1:turn-1',
-            agents: Array.from({ length: 40 }, (_unused, index) => ({
+            agents: Array.from({ length: 80 }, (_unused, index) => ({
               id: `child-${index}`,
               label: index === 0 ? `dcap_${'A'.repeat(24)}` : 'read',
               state: 'working' as const
@@ -83,7 +85,9 @@ describe('worker transcript wire bounds', () => {
 
     const block = result.messages[0]?.blocks[0]
     expect(block?.type).toBe('subagent-group')
-    expect(block?.type === 'subagent-group' ? block.agents : []).toHaveLength(20)
+    expect(block?.type === 'subagent-group' ? block.agents : []).toHaveLength(
+      MAX_CODEX_SUBAGENTS_PER_GROUP
+    )
     expect(JSON.stringify(result.messages)).not.toContain('dcap_')
     expect(result.limited).toBe(true)
     expect(result.warnings).toEqual(

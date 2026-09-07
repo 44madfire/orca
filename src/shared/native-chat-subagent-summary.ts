@@ -43,6 +43,12 @@ export function normalizeSubagentState(state: string): NativeChatSubagentState {
   return TERMINAL_SUBAGENT_STATES.has(state) ? (state as NativeChatSubagentState) : 'unverifiable'
 }
 
+/** Bound on the provider strings a roster row carries — `id`, `label`,
+ *  `groupId`. One constant because the producer writes a durable row and both
+ *  readers clip it again: a larger producer bound is bytes every consumer throws
+ *  away, replayed on every reconnect. */
+export const MAX_SUBAGENT_FIELD_CHARS = 512
+
 export function isTerminalSubagentState(state: string): boolean {
   return normalizeSubagentState(state) !== 'working'
 }
