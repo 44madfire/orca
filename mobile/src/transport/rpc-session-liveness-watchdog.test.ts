@@ -276,14 +276,13 @@ describe('RpcSessionLivenessWatchdog', () => {
     })
     watchdog.start(identity)
 
+    // Resumes every 1.5 s on a black-holed socket: each lands inside the 2 s urgent
+    // window, so none may re-arm the deadline or the verdict never comes.
     watchdog.probeNow(identity, 'resume')
-    await vi.advanceTimersByTimeAsync(2_000)
-    expect(terminate).not.toHaveBeenCalled()
-    // The second resume restarts the 2 s clock on the miss already booked.
-    watchdog.probeNow(identity, 'resume')
-    await vi.advanceTimersByTimeAsync(1_000)
-    watchdog.probeNow(identity, 'resume')
-    await vi.advanceTimersByTimeAsync(2_000)
+    for (let elapsed = 0; elapsed < 6_000; elapsed += 1_500) {
+      await vi.advanceTimersByTimeAsync(1_500)
+      watchdog.probeNow(identity, 'resume')
+    }
     expect(terminate).toHaveBeenCalledOnce()
   })
 

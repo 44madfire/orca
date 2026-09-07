@@ -127,9 +127,12 @@ export class RpcSessionLivenessWatchdog {
     this.lastVoluntaryProbeAt = now
     // Why: a resume is a new observation on a cold radio, so it starts the urgent window
     // with a clean budget (startProbe zeroes the count on a profile switch). A resume that
-    // lands while an urgent probe is already in flight restarts the clock but keeps the
-    // count: otherwise repeated resumes, or a user tapping reconnect on a dead socket,
-    // zero the budget on every tap and the verdict never lands.
+    // lands while an urgent probe is already in flight keeps that probe's deadline and
+    // count: re-arming the 2 s clock on every tap would let a user tapping reconnect, or
+    // an AppState flap, hold a dead socket open for as long as they keep tapping.
+    if (urgent && this.probing && this.profile === this.urgentProfile) {
+      return
+    }
     this.startProbe(identity, urgent ? this.urgentProfile : this.ordinaryProfile)
   }
 

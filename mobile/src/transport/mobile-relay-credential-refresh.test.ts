@@ -12,8 +12,9 @@ const rotated = {
   relay: { v: 1, directorUrl: 'https://relay.example', cellUrl: 'https://c1.relay.example' }
 }
 const rotate = vi.hoisted(() => vi.fn())
+const needsRotation = vi.hoisted(() => vi.fn(() => true))
 vi.mock('./mobile-relay-credential-rotation', () => ({
-  mobileRelayCredentialNeedsRotation: () => true,
+  mobileRelayCredentialNeedsRotation: needsRotation,
   rotateMobileRelayCredential: rotate
 }))
 
@@ -40,6 +41,14 @@ function fixture(overrides: { persistResolvedRelay?: () => Promise<void> } = {})
 }
 
 describe('MobileRelayCredentialRefresh', () => {
+  it('does nothing unforced while the credential is still fresh', async () => {
+    needsRotation.mockReturnValueOnce(false)
+    const { refresh, order } = fixture()
+    await refresh.run(false)
+    expect(order).toEqual([])
+    expect(rotate).not.toHaveBeenCalled()
+  })
+
   it('lifts the gate and starts the relay race only after the endpoint is durable', async () => {
     const { refresh, order } = fixture()
     await refresh.run(true)
