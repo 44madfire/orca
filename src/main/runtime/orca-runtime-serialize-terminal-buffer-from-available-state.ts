@@ -3,6 +3,7 @@ import { OrcaRuntimeWithCreatePtyHeadlessTerminalState } from './orca-runtime-cr
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
 import type { PtyProviderBufferSnapshot } from '../providers/types'
 import { withTimeout } from './runtime-async-boundaries'
+import { AUTHORITATIVE_TERMINAL_SNAPSHOT_TIMEOUT_MS } from './orca-runtime-postlude'
 
 export class OrcaRuntimeWithSerializeTerminalBufferFromAvailableState extends OrcaRuntimeWithCreatePtyHeadlessTerminalState {
   protected async serializeTerminalBufferFromAvailableState(
@@ -58,11 +59,16 @@ export class OrcaRuntimeWithSerializeTerminalBufferFromAvailableState extends Or
     if (!this.providerSnapshotPreferredPtys.has(ptyId) && !needsDeeperHistory) {
       return null
     }
-    // Pre-attach bytes are only a suffix; older providers can fall back to the renderer.
-    return (
-      (await this.serializeProviderTerminalBuffer(ptyId, opts)) ??
-      (await this.serializeRendererTerminalBuffer(ptyId, opts))
-    )
+    // Bound optional deep-history acquisition without duplicating an outstanding provider request.
+    const provider = await this.serializeProviderTerminalBuffer(ptyId, opts, {
+      timeoutMs: AUTHORITATIVE_TERMINAL_SNAPSHOT_TIMEOUT_MS
+    })
+    if (provider) {
+      return provider
+    }
+    const renderer = await this.serializeRendererTerminalBuffer(ptyId, opts)
+    // A parked renderer can register before hydration; keep the populated mirror in that case.
+    return needsDeeperHistory && renderer?.data.length === 0 ? null : renderer
   }
 
   async serializeRendererTerminalBuffer(

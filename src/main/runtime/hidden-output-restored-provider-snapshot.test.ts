@@ -1,5 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AUTHORITATIVE_TERMINAL_SNAPSHOT_TIMEOUT_MS } from './orca-runtime-postlude'
 import { createRuntime, syncSinglePty } from './orca-runtime-test-fixtures.spec'
+
+afterEach(() => vi.useRealTimers())
 
 describe('hidden-output recovery after provider reattach', () => {
   it('uses durable provider history when a desktop request exceeds the runtime mirror', async () => {
@@ -49,6 +52,51 @@ describe('hidden-output recovery after provider reattach', () => {
       })
     ).resolves.toMatchObject({ data: 'renderer retained history', source: 'renderer' })
     expect(serializeBuffer).toHaveBeenCalledWith('pty-1', { scrollbackRows: 100000 })
+  })
+
+  it('does not replace a live mirror with an empty parked renderer on a deep request', async () => {
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      serializeProviderBuffer: async () => null,
+      hasRendererSerializer: () => true,
+      serializeBuffer: async () => ({ data: '', cols: 80, rows: 24 })
+    })
+    syncSinglePty(runtime, 'pty-1')
+    runtime.onPtyData('pty-1', 'live content', 12)
+    const snapshot = await runtime.serializeHiddenOutputRecoveryBuffer('pty-1', {
+      scrollbackRows: 100000
+    })
+    expect(snapshot?.data).toContain('live content')
+    expect(snapshot?.source).toBe('headless')
+  })
+
+  it('falls back to retained renderer history when a deep provider request stalls', async () => {
+    vi.useFakeTimers()
+    const runtime = createRuntime()
+    const serializeProviderBuffer = vi.fn(() => new Promise<never>(() => {}))
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      serializeProviderBuffer,
+      hasRendererSerializer: () => true,
+      serializeBuffer: async () => ({ data: 'retained SSH history', cols: 80, rows: 24 })
+    })
+    syncSinglePty(runtime, 'pty-1')
+    runtime.onPtyData('pty-1', 'new output', 10)
+    const pending = runtime.serializeHiddenOutputRecoveryBuffer('pty-1', { scrollbackRows: 100000 })
+    await vi.advanceTimersByTimeAsync(AUTHORITATIVE_TERMINAL_SNAPSHOT_TIMEOUT_MS)
+    await expect(pending).resolves.toMatchObject({
+      data: 'retained SSH history',
+      source: 'renderer'
+    })
+    const retry = runtime.serializeHiddenOutputRecoveryBuffer('pty-1', { scrollbackRows: 100000 })
+    await vi.advanceTimersByTimeAsync(AUTHORITATIVE_TERMINAL_SNAPSHOT_TIMEOUT_MS)
+    await expect(retry).resolves.toMatchObject({ data: 'retained SSH history' })
+    expect(serializeProviderBuffer).toHaveBeenCalledTimes(1)
   })
 
   it('uses retained provider modes instead of the pre-attach redraw suffix', async () => {

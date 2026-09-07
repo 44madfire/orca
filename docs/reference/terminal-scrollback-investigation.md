@@ -169,3 +169,46 @@ match decorations across all desktop platforms. Investigate off-thread snapshot
 serialization and byte-budget-aware deep remote replay next. An upstream xterm
 proposal should include the source patch, mutation oracle, allocation measurements
 and the dense-workload regression rather than reporting only favorable compression.
+
+
+## Regression hardening follow-up
+
+A second audit found and reproduced two bugs in the new deep-history preference:
+
+- An empty parked renderer could replace a populated runtime mirror when the
+  provider had no snapshot. Empty provisional renderer state now falls through to
+  the mirror.
+- A stalled provider could indefinitely prevent hidden recovery from reaching its
+  renderer fallback. The existing authoritative-snapshot deadline now bounds this
+  acquisition. Repeated requests share the outstanding provider acquisition rather
+  than starting duplicate provider work. The timeout does not mark a process exited.
+
+Both added tests failed before the fix (empty content and test timeout) and pass
+with it. This preserves the existing source-sequence and lifecycle checks.
+
+Additional validation on macOS:
+
+- 1,874 tests passed, 12 skipped, across 177 daemon/restore/remote test files.
+- 350 further tests passed across 43 SSH-provider, reconnect, relay, actual SFTP-wire,
+  compact-buffer and admission suites. The compaction oracle now includes nine seeds
+  and history-depth reduction, clear/reset and subsequent writes. A failing scratch
+  replay also proves that another session can acquire admission and restore.
+- Hidden Electron paired-web validation passed with six terminal workspaces:
+  parking, authoritative restoration, hidden-output suppression and retained-memory
+  bounds. The existing test can now run in the hidden project when
+  `ORCA_E2E_WEB_CLIENT=1`; it explicitly skips without that web-client build.
+- The actual localhost SSH Electron test passed terminal I/O and agent-hook status
+  over a throwaway loopback-only OpenSSH server with isolated test keys. SFTP and
+  relay deployment were exercised. The listener was stopped after the run. This is
+  a real SSH transport check, not a claim of testing a high-latency Linux SSH host.
+- The hidden 100k/75k-row restoration and search test passed again after the runtime
+  fixes. No test activated a desktop window.
+- PR CI identified two stale test expectations for the old 50k policy ceiling;
+  their overflow cases now exercise values above 100k. The production policy did
+  not need another cap change.
+
+A speculative direct-array copy-path optimization was benchmarked and rejected
+because its source candidate resized slower. The published xterm patch and memory
+measurements remain unchanged; the dense-resize regression is still a draft review
+limit, not a resolved performance claim. Earlier statements about no live SSH
+validation are superseded by the loopback SSH result above.

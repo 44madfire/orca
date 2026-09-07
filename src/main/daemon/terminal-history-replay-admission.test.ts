@@ -58,3 +58,26 @@ it('bounds disk restores and checkpoint rebuilds to one scratch grid', async () 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+it('releases scratch admission after replay fails so another session can restore', async () => {
+  const live = new HeadlessEmulator({ cols: 80, rows: 24, scrollback: 1000 })
+  const liveSnapshot = live.getSnapshot()
+  live.dispose()
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  vi.spyOn(HeadlessEmulator.prototype, 'writeSync').mockImplementationOnce(() => {
+    throw new Error('injected replay failure')
+  })
+  const pendingRecords = [{ kind: 'output' as const, data: 'retained-after-failure\r\n' }]
+  const failed = await buildDurableCheckpointSnapshot({
+    liveSnapshot,
+    restoreInfo: null,
+    pendingRecords
+  })
+  expect(failed).toBe(liveSnapshot)
+  const next = await buildDurableCheckpointSnapshot({
+    liveSnapshot,
+    restoreInfo: null,
+    pendingRecords
+  })
+  expect(next.snapshotAnsi).toContain('retained-after-failure')
+})

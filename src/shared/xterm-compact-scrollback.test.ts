@@ -45,7 +45,7 @@ function cellValues(cell: IBufferCell): (string | number)[] {
 }
 
 describe('compact desktop scrollback', () => {
-  it.each([1, 4173, 19368])(
+  it.each([1, 4173, 19368, 7, 42, 65535, 104729, 2147483647, 4294967295])(
     'survives seeded mutation and eviction (seed %i)',
     async (seed) => {
       let state = seed
@@ -112,6 +112,39 @@ describe('compact desktop scrollback', () => {
       expect(terminal.buffer.normal.getLine(0)?.translateToString(true)).toBe('row-0')
     } finally {
       terminal.dispose()
+    }
+  })
+
+  it('matches depth reduction, clear, reset and subsequent output after compaction', async () => {
+    const options = { cols: 200, rows: 24, scrollback: 1000, allowProposedApi: true }
+    const actual = new Terminal(options)
+    const expected = new HeadlessTerminal(options)
+    const a = new SerializeAddon()
+    const b = new SerializeAddon()
+    actual.loadAddon(a)
+    expected.loadAddon(b)
+    try {
+      for (const operation of ['shrink', 'clear', 'reset'] as const) {
+        const output = Array.from({ length: 1200 }, (_, i) => `${operation}-${i} 漢字\r\n`).join('')
+        for (const terminal of [actual, expected]) {
+          terminal.options.scrollback = 1000
+          await write(terminal, output)
+          if (operation === 'shrink') {
+            terminal.options.scrollback = 50
+          } else if (operation === 'clear') {
+            terminal.clear()
+          } else {
+            terminal.reset()
+          }
+          await write(terminal, 'after-operation\r\n')
+        }
+        expect(actual.buffer.normal.length).toBe(expected.buffer.normal.length)
+        expect(a.serialize()).toBe(b.serialize())
+        expect(a.serialize()).not.toContain(`${operation}-0 `)
+      }
+    } finally {
+      actual.dispose()
+      expected.dispose()
     }
   })
 
