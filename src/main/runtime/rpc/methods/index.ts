@@ -4,6 +4,7 @@ import { MOBILE_WEB_SESSION_CAPABILITIES_METHOD } from './mobile-web-session-cap
 import { MOBILE_WEB_SESSION_QUICK_COMMAND_METHODS } from './mobile-web-session-quick-commands'
 import { MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD } from './mobile-web-session-browser-create'
 import { MOBILE_WEB_SOURCE_CONTROL_READ_METHODS } from './mobile-web-source-control-reads'
+import { MOBILE_WEB_TASK_PROJECT_TABLE_METHOD } from './mobile-web-task-project-table'
 import { MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS } from './mobile-web-session-terminal-creation'
 import { MOBILE_WEB_NATIVE_CHAT_FILE_METHODS } from './mobile-web-native-chat-files'
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
@@ -116,6 +117,7 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...UPDATER_METHODS,
   ...MOBILE_WEB_FILE_READ_METHODS,
   ...MOBILE_WEB_SOURCE_CONTROL_READ_METHODS,
+  MOBILE_WEB_TASK_PROJECT_TABLE_METHOD,
   MOBILE_WEB_FILE_WATCH_METHOD,
   ...MOBILE_WEB_TERMINAL_ACTION_METHODS,
   ...MOBILE_WEB_NATIVE_CHAT_METHODS,
