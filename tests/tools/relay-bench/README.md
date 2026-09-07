@@ -100,21 +100,21 @@ BENCH=tests/tools/relay-bench/relay-phone-connect-bench.mjs
 
 # One-time: dial the invite, provision a resume credential, save the bundle. The pairing link
 # comes in on stdin so it stays out of your shell history and out of `ps`.
-pbpaste | node $BENCH pair /tmp/relay-bench/state.json
+pbpaste | node $BENCH pair ~/.orca/relay-bench/state.json
 
 # Or from a file you protect yourself, which `pair` requires to be mode 0600:
-umask 077 && printf '%s' '<orca://pair?code=...>' > /tmp/relay-bench/pair.txt
-node $BENCH pair /tmp/relay-bench/state.json --pairing-url-file=/tmp/relay-bench/pair.txt
-rm /tmp/relay-bench/pair.txt
+umask 077 && printf '%s' '<orca://pair?code=...>' > ~/.orca/relay-bench/pair.txt
+node $BENCH pair ~/.orca/relay-bench/state.json --pairing-url-file=~/.orca/relay-bench/pair.txt
+rm ~/.orca/relay-bench/pair.txt
 
 # Steady-state foreground reconnect, 10 times, 2 s apart, re-resolving the cell each time.
-node $BENCH run /tmp/relay-bench/state.json 10 --resolve --gap=2000
+node $BENCH run ~/.orca/relay-bench/state.json 10 --resolve --gap=2000
 
 # Resume after background: connect, idle 45 s, then probe the retained socket.
-node $BENCH foreground /tmp/relay-bench/state.json --hold=45000
+node $BENCH foreground ~/.orca/relay-bench/state.json --hold=45000
 
 # Same, but crossing the relay's ~105 s client silence watchdog.
-node $BENCH foreground /tmp/relay-bench/state.json --hold=120000
+node $BENCH foreground ~/.orca/relay-bench/state.json --hold=120000
 ```
 
 On Linux or Windows, replace `pbpaste` with whatever prints the link to stdout, or use

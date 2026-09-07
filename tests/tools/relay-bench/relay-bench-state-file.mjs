@@ -4,8 +4,8 @@
 // lives under a directory the operator may not have created yet, so the write would throw ENOENT
 // *after* the desktop already provisioned the credential, losing it.
 import {
-  chmodSync,
   closeSync,
+  fchmodSync,
   constants,
   fstatSync,
   lstatSync,
@@ -36,7 +36,8 @@ function refuseSymlink(path) {
 }
 
 export function writeSecretFile(path, contents) {
-  mkdirSync(dirname(path), { recursive: true })
+  // 0700 so a directory this call creates under a shared parent is not traversable by others.
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
   refuseSymlink(path)
   let fd
   try {
@@ -52,15 +53,22 @@ export function writeSecretFile(path, contents) {
     throw err
   }
   try {
-    if (!fstatSync(fd).isFile()) {
+    const stats = fstatSync(fd)
+    if (!stats.isFile()) {
       throw new Error(`refusing to write ${path}: not a regular file`)
+    }
+    // Before the write, not after: a pre-existing file owned by someone else would take the
+    // token on O_TRUNC and only then fail the chmod, leaving it readable by its owner.
+    if (process.platform !== 'win32' && stats.uid !== process.getuid()) {
+      throw new Error(`refusing to write ${path}: owned by another user`)
+    }
+    if (process.platform !== 'win32' && (stats.mode & GROUP_AND_OTHER_BITS) !== 0) {
+      fchmodSync(fd, SECRET_FILE_MODE)
     }
     writeFileSync(fd, contents)
   } finally {
     closeSync(fd)
   }
-  // Fail closed rather than silently leaving a pre-existing 0644 file readable.
-  chmodSync(path, SECRET_FILE_MODE)
 }
 
 export function readSecretFile(path) {

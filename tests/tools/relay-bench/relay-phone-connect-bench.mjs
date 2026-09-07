@@ -18,6 +18,8 @@
 import { createRequire } from 'node:module'
 import { performance } from 'node:perf_hooks'
 import { pathToFileURL } from 'node:url'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { b64url, PhoneE2EE, sha256, utf8 } from './phone-e2ee-v2-session.mjs'
 import {
   classifyPublicHttpsOrigin,
@@ -41,7 +43,9 @@ const RPC_TIMEOUT_MS = 15_000
 // before any dial or RPC deadline has started.
 const RESOLVE_TIMEOUT_MS = 10_000
 const DEFAULT_HOLD_MS = 45_000
-const DEFAULT_STATE_PATH = '/tmp/relay-bench/state.json'
+// Under the operator's home, not /tmp: the file holds a live resume token, and a shared
+// world-writable directory is where another local user can pre-create the path.
+const DEFAULT_STATE_PATH = join(homedir(), '.orca', 'relay-bench', 'state.json')
 const MAX_RUNS = 1000
 const MAX_DELAY_MS = 3_600_000
 
@@ -162,7 +166,8 @@ export function dialRelay({
         if (stage === 'awaiting-authenticated') {
           const msg = JSON.parse(text)
           if (msg.type !== 'e2ee_authenticated') {
-            throw new Error(`auth rejected: ${text.slice(0, 120)}`)
+            // Type only: the plaintext is the desktop's and would land in row.error.
+            throw new Error(`auth rejected: desktop sent ${JSON.stringify(msg.type ?? null)}`)
           }
           mark('e2eeAuthenticated')
           stage = 'ready'
@@ -330,6 +335,20 @@ async function refreshCell(state, row) {
   }
 }
 
+/** Both destinations the resume token is sent to, each through the literal check and DNS. */
+export async function vetRelayEndpoint(relay, deps) {
+  for (const [label, value] of [
+    ['cell', relay?.cellUrl],
+    ['director', relay?.directorUrl]
+  ]) {
+    const verdict = await vetCellUrl(value, deps)
+    if (!verdict.ok) {
+      return { ok: false, reason: `${label}: ${verdict.reason}` }
+    }
+  }
+  return { ok: true }
+}
+
 export async function vetCellUrl(cellUrl, deps) {
   const verdict = classifyPublicHttpsOrigin(cellUrl)
   if (!verdict.ok) {
@@ -339,21 +358,18 @@ export async function vetCellUrl(cellUrl, deps) {
   return resolved.ok ? verdict : resolved
 }
 
-function loadState(statePath) {
+async function loadState(statePath) {
   const state = JSON.parse(readSecretFile(statePath))
   for (const field of ['relayHostId', 'cellUrl', 'directorUrl']) {
     if (!state.relay?.[field]) {
       throw new Error(`${statePath} has no relay.${field}; re-run pair`)
     }
   }
-  for (const [label, value] of [
-    ['relay.cellUrl', state.relay.cellUrl],
-    ['relay.directorUrl', state.relay.directorUrl]
-  ]) {
-    const verdict = classifyPublicHttpsOrigin(value)
-    if (!verdict.ok) {
-      throw new Error(`${statePath} ${label} ${verdict.reason}`)
-    }
+  // A state file is operator-owned, but its destinations came from the desktop and the director
+  // and the resume token goes to both, so they are vetted again on every load.
+  const verdict = await vetRelayEndpoint(state.relay)
+  if (!verdict.ok) {
+    throw new Error(`${statePath} relay ${verdict.reason}`)
   }
   return state
 }
@@ -395,10 +411,19 @@ async function pair(pairingUrl, statePath) {
   const endpoints = await dial.rpc('pairing.getEndpoints', { installReqId })
   const endpointsMs = Math.round(performance.now() - endpointsStarted)
   if (!endpoints.ok || !endpoints.result.relay) {
-    throw new Error(`getEndpoints failed: ${JSON.stringify(endpoints)}`)
+    // Shape only: the reply is peer-supplied and this line lands in the operator's terminal.
+    throw new Error(
+      `getEndpoints failed: ${endpoints.ok ? 'no relay block in result' : `error ${endpoints.error?.code ?? 'unknown'}`}`
+    )
   }
   console.log(`provisionRelay ${provisionMs} ms, getEndpoints ${endpointsMs} ms`)
   dial.close()
+  // The desktop names the cell and the director the resume token will be sent to, so both get
+  // the same two-layer check as every other supplied destination before they are stored.
+  const endpointVerdict = await vetRelayEndpoint(endpoints.result.relay)
+  if (!endpointVerdict.ok) {
+    throw new Error(`desktop named an unusable relay endpoint: ${endpointVerdict.reason}`)
+  }
   const state = {
     relay: endpoints.result.relay,
     deviceToken: offer.deviceToken,
@@ -414,7 +439,7 @@ async function pair(pairingUrl, statePath) {
 }
 
 async function run(statePath, runs, opts) {
-  const state = loadState(statePath)
+  const state = await loadState(statePath)
   const rows = []
   for (let index = 0; index < runs; index++) {
     const row = { run: index }
@@ -473,7 +498,7 @@ async function run(statePath, runs, opts) {
 // retained socket is still usable and what the fallback resume redial costs. The relay's client
 // silence watchdog is ~105 s, so --hold=120000 is the interesting "crossed the watchdog" case.
 async function foreground(statePath, opts) {
-  const state = loadState(statePath)
+  const state = await loadState(statePath)
   const row = { mode: 'foreground', holdMs: opts.holdMs }
   if (opts.resolve) {
     await refreshCell(state, row)

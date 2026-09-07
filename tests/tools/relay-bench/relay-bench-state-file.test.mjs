@@ -61,6 +61,12 @@ describe('writeSecretFile', () => {
     expect(readFileSync(target, 'utf8')).toBe('target contents')
   })
 
+  it.runIf(posix)('creates the parent directory closed to other users', () => {
+    const path = join(dir, 'nested', 'state.json')
+    writeSecretFile(path, 'x')
+    expect(modeOf(join(dir, 'nested'))).toBe(0o700)
+  })
+
   it('truncates rather than appending to a longer previous file', () => {
     const path = join(dir, 'state.json')
     writeSecretFile(path, '{"a":"aaaaaaaaaaaaaaaaaaaa"}')

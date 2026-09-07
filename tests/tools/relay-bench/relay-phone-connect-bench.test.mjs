@@ -2,7 +2,7 @@
 // missing or malformed pairing link surfaced as a stack trace rather than usage. The link is a
 // live credential, so the failure text has to name the problem without echoing the code.
 import { describe, expect, it, vi } from 'vitest'
-import { decodeOffer, vetCellUrl } from './relay-phone-connect-bench.mjs'
+import { decodeOffer, vetCellUrl, vetRelayEndpoint } from './relay-phone-connect-bench.mjs'
 
 const encode = (offer) => Buffer.from(JSON.stringify(offer), 'utf8').toString('base64url')
 
@@ -55,5 +55,34 @@ describe('vetCellUrl', () => {
       ok: true,
       origin: 'https://cell.example'
     })
+  })
+})
+
+// Why: the desktop's getEndpoints reply names the director every later resolve posts the resume
+// token to. It gets the same two-layer check as the cell, in pair() and again on load.
+describe('vetRelayEndpoint', () => {
+  it('refuses a director that resolves into the operator network even when the cell is fine', async () => {
+    const lookup = vi.fn(async (host) =>
+      host === 'director.example'
+        ? [{ address: '10.0.0.7', family: 4 }]
+        : [{ address: '8.8.8.8', family: 4 }]
+    )
+    const verdict = await vetRelayEndpoint(
+      { cellUrl: 'https://cell.example', directorUrl: 'https://director.example' },
+      { lookup }
+    )
+    expect(verdict.ok).toBe(false)
+    expect(verdict.reason).toContain('director')
+    expect(verdict.reason).toContain('10.0.0.7')
+  })
+
+  it('accepts an endpoint whose cell and director both resolve publicly', async () => {
+    const lookup = vi.fn(async () => [{ address: '8.8.8.8', family: 4 }])
+    await expect(
+      vetRelayEndpoint(
+        { cellUrl: 'https://cell.example', directorUrl: 'https://director.example' },
+        { lookup }
+      )
+    ).resolves.toEqual({ ok: true })
   })
 })
