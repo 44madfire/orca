@@ -19,6 +19,7 @@ describe('parked pty:data delivery credit', () => {
   const originalWindow = (globalThis as { window?: typeof window }).window
   const ackData = vi.fn()
   let emitPtyData: (payload: PtyDataPayload) => void
+  let emitPtyExit: (payload: { id: string; code: number }) => void
 
   function installWindow(options: { deliveryWatchdog: boolean }): void {
     ;(globalThis as { window: typeof window }).window = {
@@ -31,10 +32,15 @@ describe('parked pty:data delivery credit', () => {
             return () => {}
           },
           onReplay: () => () => {},
-          onExit: () => () => {},
+          onExit: (listener: (payload: { id: string; code: number }) => void) => {
+            emitPtyExit = listener
+            return () => {}
+          },
           ackData,
-          // Absent on the web remote client and partial test APIs: the watchdog refuses to
-          // start without it, and the dispatcher must then keep today's ACK-at-return.
+          // Partial test APIs omit it, and the watchdog refuses to start without it, so the
+          // dispatcher keeps today's ACK-at-return. Note the web remote client is NOT this
+          // case — it stubs a real one and does arm the watchdog. Nothing parks there because
+          // its `onData` never emits, so this branch is not what makes that surface safe.
           ...(options.deliveryWatchdog
             ? { reportRendererDeliveryState: vi.fn(async () => null) }
             : {})
@@ -103,6 +109,56 @@ describe('parked pty:data delivery credit', () => {
     expect(ackData.mock.calls).toEqual([[PTY_ID, BOOT_OUTPUT.length, BOOT_OUTPUT.length]])
     expect(getParkedPreHandlerCharsByPty()).toEqual({})
     ptyDataHandlers.delete(PTY_ID)
+  })
+
+  it('repays parked credit on exit, when no handler will ever drain it', async () => {
+    installWindow({ deliveryWatchdog: true })
+    const { ensurePtyDispatcher } = await import('./pty-dispatcher')
+    const { getParkedPreHandlerCharsByPty } = await import('./pty-parked-delivery-debt')
+    ensurePtyDispatcher()
+
+    emitPtyData({ id: PTY_ID, data: BOOT_OUTPUT })
+    expect(getParkedPreHandlerCharsByPty()).toEqual({ [PTY_ID]: BOOT_OUTPUT.length })
+
+    // No primary exit handler, so the exit is only buffered and no drain ever runs. Main
+    // deletes this pty's accounting on exit, so the write-off lane cannot forgive it either:
+    // un-repaid here, the debt pins the session in-flight total until the window reloads.
+    emitPtyExit({ id: PTY_ID, code: 0 })
+
+    expect(getParkedPreHandlerCharsByPty()).toEqual({})
+    expect(ackData).toHaveBeenCalledWith(PTY_ID, BOOT_OUTPUT.length, BOOT_OUTPUT.length)
+  })
+
+  it('leaves no processed-char total behind for the next incarnation of a reused id', async () => {
+    installWindow({ deliveryWatchdog: true })
+    const { ensurePtyDispatcher } = await import('./pty-dispatcher')
+    const { getProcessedPtyCharTotals } = await import('./terminal-pty-ack-gate')
+    ensurePtyDispatcher()
+
+    emitPtyData({ id: PTY_ID, data: BOOT_OUTPUT })
+    emitPtyExit({ id: PTY_ID, code: 0 })
+
+    // Settling ACKs on the way out, which re-adds to the cumulative total. Clearing before
+    // delivery left that total re-seeded, and ids are reused — a redeployed relay renumbers
+    // from pty-1 — so main credited the next incarnation for bytes nobody had parsed.
+    expect(getProcessedPtyCharTotals()).toEqual({})
+  })
+
+  it('clears the processed total even when exit delivery itself credits an ACK', async () => {
+    installWindow({ deliveryWatchdog: true })
+    const { ensurePtyDispatcher, ptyExitHandlers } = await import('./pty-dispatcher')
+    const { ackPtyData, getProcessedPtyCharTotals } = await import('./terminal-pty-ack-gate')
+    ensurePtyDispatcher()
+
+    // An exit owner that flushes buffered writes credits chars while the exit is delivered.
+    // The clear has to be the last word on this id, whatever delivery did.
+    ptyExitHandlers.set(PTY_ID, () => ackPtyData(PTY_ID, BOOT_OUTPUT.length))
+
+    emitPtyExit({ id: PTY_ID, code: 0 })
+
+    expect(ackData).toHaveBeenCalledWith(PTY_ID, BOOT_OUTPUT.length, BOOT_OUTPUT.length)
+    expect(getProcessedPtyCharTotals()).toEqual({})
+    ptyExitHandlers.delete(PTY_ID)
   })
 
   it('holds the credit in rawLength chars, not the UTF-8 byte count', async () => {

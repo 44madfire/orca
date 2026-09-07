@@ -320,6 +320,34 @@ describe('registerPtyHandlers', () => {
       vi.useRealTimers()
     }
   })
+  it('still heals when the same report repairs a lost ACK for the wedged PTY', async () => {
+    vi.useFakeTimers()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const mockProc = createMockProc()
+    spawnMock.mockReturnValue(mockProc.proc)
+
+    try {
+      const spawnResult = await spawnAndSaturateRendererDeliveryGate(mockProc)
+
+      // The repair lane and the heal arrive in one report: the renderer carries a cumulative
+      // total recovering an ACK whose message was lost. Crediting it stamps this PTY's
+      // lastAckAtMs, and reading that stamp back would veto the heal the report asked for —
+      // a recovered ACK is evidence of a LOST one, never of a live consumer.
+      const healed = reportRendererDeliveryState({
+        receivedCharsByPty: { [spawnResult.id]: 512 * 1024 },
+        processedCharsByPty: { [spawnResult.id]: 1 },
+        parkedCharsByPty: { [spawnResult.id]: 512 * 1024 },
+        heal: true,
+        rendererPtyDataListenerCount: 1
+      })
+
+      expect(healed.writtenOff).toEqual([{ id: spawnResult.id, writtenOffChars: 512 * 1024 - 1 }])
+      expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({ rendererInFlightChars: 0 })
+    } finally {
+      warnSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
   it('still skips a PTY whose received bytes are only partly parked', async () => {
     vi.useFakeTimers()
     const mockProc = createMockProc()

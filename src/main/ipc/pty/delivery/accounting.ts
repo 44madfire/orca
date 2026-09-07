@@ -30,14 +30,33 @@ export function isPtyAckSilentForHeal(
   )
 }
 
-/** True when some PTY holds debt AND has itself been ACK-silent long enough to heal. */
-export function hasAckSilentRendererDeliveryDebt(session: PtyIpcSession): boolean {
+/** The PTYs that were ACK-silent at a chosen instant.
+ *
+ *  Why sampled rather than read live: `applyCumulativeAck` stamps `lastAckAtMs`, so a report
+ *  that repairs a lost ACK by merging cumulative totals would otherwise stamp the very PTY it
+ *  is reporting on and read as "this one just ACKed" — vetoing the heal that same report was
+ *  sent to request. A merge credit is evidence of an ACK that was LOST, not of a live
+ *  consumer; only a real `pty:ackData` round trip is that. */
+export function collectAckSilentPtyIdsForHeal(session: PtyIpcSession): Set<string> {
   const now = Date.now()
-  for (const accounting of session.rendererDeliveryAccountingByPty.values()) {
-    if (
-      accounting.sentChars - accounting.ackedChars > 0 &&
-      isPtyAckSilentForHeal(accounting, now)
-    ) {
+  const ackSilentPtyIds = new Set<string>()
+  for (const [id, accounting] of session.rendererDeliveryAccountingByPty) {
+    if (isPtyAckSilentForHeal(accounting, now)) {
+      ackSilentPtyIds.add(id)
+    }
+  }
+  return ackSilentPtyIds
+}
+
+/** True when some PTY holds debt AND was ACK-silent long enough to heal. Debt is read now —
+ *  a merge that fully repaid a PTY must not be written off — while silence comes from the
+ *  pre-merge sample. */
+export function hasAckSilentRendererDeliveryDebt(
+  session: PtyIpcSession,
+  ackSilentPtyIds: ReadonlySet<string>
+): boolean {
+  for (const [id, accounting] of session.rendererDeliveryAccountingByPty) {
+    if (accounting.sentChars - accounting.ackedChars > 0 && ackSilentPtyIds.has(id)) {
       return true
     }
   }
@@ -194,15 +213,15 @@ function sanitizeReportedChars(value: unknown): number {
 
 export function writeOffLostRendererDelivery(
   session: PtyIpcSession,
-  report: PtyRendererDeliveryStateReport
+  report: PtyRendererDeliveryStateReport,
+  ackSilentPtyIds: ReadonlySet<string>
 ): PtyDeliveryWriteOff[] {
   const writtenOff: PtyDeliveryWriteOff[] = []
-  const now = Date.now()
   for (const [id, accounting] of session.rendererDeliveryAccountingByPty) {
     if (accounting.sentChars - accounting.ackedChars <= 0) {
       continue
     }
-    if (!isPtyAckSilentForHeal(accounting, now)) {
+    if (!ackSilentPtyIds.has(id)) {
       continue
     }
     const receivedChars = sanitizeReportedChars(report.receivedCharsByPty?.[id])

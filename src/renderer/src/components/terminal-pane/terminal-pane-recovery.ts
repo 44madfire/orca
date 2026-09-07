@@ -35,9 +35,10 @@ export type TerminalPaneRecoveryReason =
   // ACKs it — main's delivery health stays green while the pane shows nothing.
   | 'spawn-left-pane-unbound'
   // pty:data kept arriving for a pane with no handler and sat parked, un-ACKed, for
-  // two watchdog ticks. Skips the liveness probe like 'input-rejected-by-host': the
-  // parked bytes themselves prove the PTY is alive, so nothing here infers death
-  // from silence — which is what makes it safe across the SSH execution boundary.
+  // two watchdog ticks. Skips the liveness probe like 'input-rejected-by-host', but for a
+  // simpler reason: it renders no verdict on the PTY at all. A remount preserves the PTY
+  // whether or not it is still alive, so nothing here reads silence as death — which is what
+  // makes it safe across the SSH execution boundary.
   | 'delivery-parked'
 
 type RecoveryRequest = {
@@ -201,6 +202,14 @@ function scheduleRecoveryRetry(request: RecoveryRequest, delayMs: number): void 
     timer,
     requestsByInstanceId
   })
+}
+
+/** True while a declined recovery for this tab is queued to run again. Lets a caller tell
+ *  "remounting shortly" from "will never be remounted" — `requestTerminalPaneRecovery`
+ *  answers false for both, and treating a re-queued request as a refusal discards output the
+ *  imminent rebind was about to drain. */
+export function hasPendingTerminalPaneRecovery(tabId: string): boolean {
+  return pendingRetryByTabId.has(tabId)
 }
 
 function cancelPendingRecoveryRetry(tabId: string): void {

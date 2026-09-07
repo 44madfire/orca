@@ -9,7 +9,11 @@ import type {
   PtyRendererDeliveryStateReport
 } from '../../../../shared/pty-renderer-delivery-health'
 import { tryGetProviderForPty } from '../provider/registry'
-import { applyCumulativeAck, hasAckSilentRendererDeliveryDebt } from './accounting'
+import {
+  applyCumulativeAck,
+  collectAckSilentPtyIdsForHeal,
+  hasAckSilentRendererDeliveryDebt
+} from './accounting'
 import { DELIVERY_DIAGNOSTICS_MAX_PTYS } from './constants'
 import type { PtyIpcSession } from '../session'
 
@@ -67,13 +71,16 @@ export function handleRendererDeliveryStateReport(
   session: PtyIpcSession,
   args: PtyRendererDeliveryStateReport | undefined
 ): PtyRendererDeliveryHealthReply {
+  // Sampled before the merge below: crediting a recovered cumulative total stamps that PTY's
+  // lastAckAtMs, which would read as a live ACK and veto the very heal this report requested.
+  const ackSilentPtyIds = collectAckSilentPtyIdsForHeal(session)
   let creditedAny = applyRendererProcessedCharTotals(session, args?.processedCharsByPty)
   let writtenOff: PtyDeliveryWriteOff[] = []
   // Why main must also see ACK silence: it stops a buggy or foreign caller from writing off
   // live delivery. The gate is per-PTY because the session-global one it replaced never
   // opened on a busy machine, leaving a wedged pane's debt permanently unhealable.
-  if (args?.heal === true && hasAckSilentRendererDeliveryDebt(session)) {
-    writtenOff = session.writeOffLostRendererDelivery(args)
+  if (args?.heal === true && hasAckSilentRendererDeliveryDebt(session, ackSilentPtyIds)) {
+    writtenOff = session.writeOffLostRendererDelivery(args, ackSilentPtyIds)
     creditedAny ||= writtenOff.length > 0
   }
   session.schedulePendingDataAfterCreditReport(creditedAny)

@@ -14,7 +14,9 @@ import {
   drainPreHandlerPtyData,
   drainPreHandlerPtyExit
 } from './pty-pre-handler-buffer'
+import { buildPtyDataMeta, type PtyDataPayload } from './pty-data-meta'
 import { deliverPtyExitToHandlers } from './pty-exit-delivery'
+import { settleParkedPtyDeliveryDebtsForPty } from './pty-parked-delivery-debt'
 import {
   clearReceivedPtyCharTotal,
   isPtyPushDeliveryBlackholed,
@@ -35,6 +37,8 @@ import {
 } from './pty-shutdown-data-suspension'
 import { markCommittedPtyShutdowns } from './pty-shutdown-exit-deferral'
 
+export type { PtyDataMeta } from './pty-data-meta'
+
 export {
   ptyDataHandlers,
   ptyDataSidecars,
@@ -50,15 +54,6 @@ export {
 
 // ── Singleton PTY event dispatcher ───────────────────────────────────
 // One global IPC listener per channel (routed by PTY ID) avoids the N-listener MaxListenersExceededWarning with many panes.
-
-export type PtyDataMeta = {
-  seq?: number
-  rawLength?: number
-  transformed?: boolean
-  background?: boolean
-  /** Main dropped this PTY's buffered output at the pending cap; repaint from the main-owned snapshot, not the live stream. */
-  droppedOutput?: boolean
-}
 
 /** Sidecar PTY-data observers, invoked AFTER the primary handler so a side-effect-only watcher can't delay xterm rendering. */
 /** Per-PTY replay handlers on a dedicated pty:replay channel so the renderer can engage the replay guard and suppress xterm auto-replies. */
@@ -99,7 +94,11 @@ export function ensurePtyDispatcher(): void {
     // module, so a static edge would close an import cycle. The lane fires rarely — paying
     // the import then costs nothing on the data hot path.
     recoverParkedPanes: (ptyIds) =>
-      import('./terminal-parked-pane-recovery').then((module) => module.recoverParkedPanes(ptyIds))
+      import('./terminal-parked-pane-recovery')
+        .then((module) => module.recoverParkedPanes(ptyIds))
+        // Why swallowed: a failed chunk load must not reject out of the tick before the heal
+        // runs. Claiming no owner is the safe answer — the write-off lane still forgives.
+        .catch(() => [])
   })
 }
 
@@ -117,36 +116,8 @@ function attachPtyPushListeners(): void {
   attachPtySecondaryPushListeners(unsubscribes)
 }
 
-function handleDispatchedPtyData(payload: {
-  id: string
-  data: string
-  seq?: number
-  rawLength?: number
-  transformed?: boolean
-  background?: boolean
-  droppedOutput?: boolean
-}): void {
-  let meta: PtyDataMeta | undefined
-  if (typeof payload.seq === 'number') {
-    meta ??= {}
-    meta.seq = payload.seq
-  }
-  if (typeof payload.rawLength === 'number') {
-    meta ??= {}
-    meta.rawLength = payload.rawLength
-  }
-  if (payload.transformed === true) {
-    meta ??= {}
-    meta.transformed = true
-  }
-  if (payload.background === true) {
-    meta ??= {}
-    meta.background = true
-  }
-  if (payload.droppedOutput === true) {
-    meta ??= {}
-    meta.droppedOutput = true
-  }
+function handleDispatchedPtyData(payload: PtyDataPayload): void {
+  const meta = buildPtyDataMeta(payload)
   const chars = payload.rawLength ?? payload.data.length
   const dispatch = (): void => {
     if (isPtyDataHandlerShutdownPending(payload.id)) {
@@ -201,9 +172,11 @@ function attachPtySecondaryPushListeners(unsubscribes: (() => void)[]): void {
         // Why: host-initiated remote sleep has no requester transaction in this renderer; classify its ordered exit before pane cleanup runs.
         markCommittedPtyShutdowns([payload.id])
       }
-      // Why: main drops its accounting on exit; drop totals too so a reused id restarts at zero on both sides.
-      clearProcessedPtyCharTotal(payload.id)
-      clearReceivedPtyCharTotal(payload.id)
+      // Why before the totals are cleared: main deletes this pty's accounting on exit, so
+      // parked credit held past here can be repaid by no drain and forgiven by no write-off.
+      // An exit with no primary handler never reaches a drain at all, which pinned the debt —
+      // and with it the session in-flight total — until the window reloaded.
+      settleParkedPtyDeliveryDebtsForPty(payload.id)
       const sidecars = ptyExitSidecars.get(payload.id)
       if (sidecars) {
         ptyExitSidecars.delete(payload.id)
@@ -222,6 +195,12 @@ function attachPtySecondaryPushListeners(unsubscribes: (() => void)[]): void {
         ...(primary ? { primary } : {}),
         sidecars: sidecars ? Array.from(sidecars) : []
       })
+      // Why after delivery: main drops its accounting on exit, so drop totals too and a reused
+      // id restarts at zero on both sides. Delivery can itself credit an ACK — a drain, or a
+      // handler flushing pending writes — and clearing first left that re-seeded, opening the
+      // next incarnation with main crediting bytes nobody had parsed.
+      clearProcessedPtyCharTotal(payload.id)
+      clearReceivedPtyCharTotal(payload.id)
     })
   )
   // Why: main probes on suspected lost ACKs; replying with processed totals lets it reconcile instead of resetting blindly.
