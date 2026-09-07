@@ -73,7 +73,8 @@ export type AgentSessionAttachParams = {
    */
   adopt?: {
     providerHandle: Exclude<AgentSessionProviderHandle, { kind: 'opaque' }>
-    transcriptPath: string
+    /** Omitted only when the exact committed operation replays an already-imported journal. */
+    transcriptPath?: string
   }
 }
 

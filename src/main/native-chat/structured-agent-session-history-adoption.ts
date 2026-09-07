@@ -5,7 +5,9 @@
 // journal, and a call site written there would compile however wrong it was. The runtime hands over
 // the facts it owns — the account homes it recognises, the records it holds — and this decides.
 
-import type { AgentSessionLease } from '../../shared/agent-session-record'
+import type { AgentSessionOperationRow } from '../../shared/agent-session-operation-ledger'
+import type { AgentSessionProviderHandle } from '../../shared/agent-session-journal-types'
+import type { AgentSessionLease, AgentSessionRecord } from '../../shared/agent-session-record'
 import { agentSessionLeaseAdmitsWriter } from '../../shared/agent-session-lease-adjudication'
 
 export type StructuredAgentSessionAdoptionOwnership = {
@@ -19,6 +21,58 @@ export type StructuredAgentSessionAdoption = {
   /** The account home the transcript was actually found under — never a client-supplied path. */
   accountHomePath: string
   transcriptPath: string
+}
+
+export type CommittedStructuredAgentSessionAdoptionReplay = {
+  record: AgentSessionRecord
+  providerHandle: Exclude<AgentSessionProviderHandle, { kind: 'opaque' }>
+}
+
+/** Exact committed-operation identity; attach still validates its fingerprint. */
+export function findCommittedStructuredAgentSessionAdoptionReplay(input: {
+  agent: 'claude' | 'codex'
+  providerSessionId: string
+  selfSessionId: string
+  callerKey: string
+  operationId: string
+  record: AgentSessionRecord | null
+  operations: readonly AgentSessionOperationRow[]
+}): CommittedStructuredAgentSessionAdoptionReplay | null {
+  const operation = input.operations.find(
+    (row) => row.callerKey === input.callerKey && row.operationId === input.operationId
+  )
+  if (
+    operation?.outcome.status !== 'succeeded' ||
+    operation.outcome.sessionId !== input.selfSessionId
+  ) {
+    return null
+  }
+  const record = input.record
+  const adopted = record?.providerHandleChain[0]
+  if (
+    !record ||
+    record.sessionId !== input.selfSessionId ||
+    record.provider !== input.agent ||
+    adopted?.origin !== 'adopted'
+  ) {
+    return null
+  }
+  const providerSessionId =
+    adopted.handle.provider === 'codex' ? adopted.handle.threadId : adopted.handle.sessionId
+  if (providerSessionId !== input.providerSessionId) {
+    return null
+  }
+  return {
+    record,
+    providerHandle:
+      adopted.handle.provider === 'codex'
+        ? { kind: 'codex', threadId: adopted.handle.threadId }
+        : {
+            kind: 'claude',
+            sessionId: adopted.handle.sessionId,
+            leafUuid: adopted.handle.leafUuid
+          }
+  }
 }
 
 /**

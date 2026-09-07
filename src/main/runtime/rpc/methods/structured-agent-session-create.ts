@@ -47,12 +47,16 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
   envelope: AgentSessionMutationEnvelope
   worktree: string
   agent: 'claude' | 'codex'
+  caller: StructuredAgentSessionCaller
   resumeFrom?: StructuredAgentSessionResumeSource
 }): Promise<PreparedStructuredAgentSessionCreate> {
+  // Adoption replay may need the record loaded from disk before source discovery can be skipped.
+  let host = args.resumeFrom ? await args.ensureHost() : null
   const resolved = await args.runtime.resolveStructuredAgentSessionCreateIntent({
     envelope: args.envelope,
     worktree: args.worktree,
     agent: args.agent,
+    callerKey: args.caller.callerKey,
     ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {})
   })
   const hostFingerprint = computeAgentSessionPayloadFingerprint({
@@ -60,7 +64,7 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
     sessionId: args.envelope.sessionId,
     fields: attachFingerprintFields({ ...resolved, envelope: args.envelope })
   })
-  const host = await args.ensureHost()
+  host ??= await args.ensureHost()
   const { agent: _resolvedAgent, provider: _resolvedProvider, ...resolvedAttach } = resolved
   return {
     host,

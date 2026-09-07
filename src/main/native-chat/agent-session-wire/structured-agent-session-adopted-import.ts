@@ -13,6 +13,9 @@ export async function importAdoptedTranscript(
   if (!adopt || attached.journal.cursor().sequence > 1) {
     return
   }
+  if (!adopt.transcriptPath) {
+    throw new Error('agent_session_identity_required')
+  }
   const imported = await importLegacyTranscriptIntoJournal({
     journal: attached.journal,
     agent: params.agent,

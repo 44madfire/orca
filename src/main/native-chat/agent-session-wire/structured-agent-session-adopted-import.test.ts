@@ -56,7 +56,7 @@ async function writeCodexRollout(path: string, text: string): Promise<void> {
   await writeFile(path, `${lines.join('\n')}\n`, 'utf8')
 }
 
-function attachParams(transcriptPath: string): AgentSessionAttachParams {
+function attachParams(transcriptPath?: string): AgentSessionAttachParams {
   const params: AgentSessionAttachParams = {
     envelope: {
       sessionId: SESSION,
@@ -76,7 +76,7 @@ function attachParams(transcriptPath: string): AgentSessionAttachParams {
     runtimeKind: 'native',
     adopt: {
       providerHandle: { kind: 'codex', threadId: THREAD },
-      transcriptPath
+      ...(transcriptPath ? { transcriptPath } : {})
     }
   }
   return {
@@ -116,7 +116,7 @@ function adapter(): StructuredAgentSessionAdapter {
 }
 
 async function attach(
-  transcriptPath: string,
+  transcriptPath: string | undefined,
   sessionAdapter: StructuredAgentSessionAdapter,
   onAttached: AttachFlowInput['onAttached'] = () => {}
 ) {
@@ -196,6 +196,16 @@ describe('adopting a provider conversation on create', () => {
     expect(sessionAdapter.releaseAcquisition).toHaveBeenCalled()
     expect(close).toHaveBeenCalledTimes(1)
     close.mockRestore()
+  })
+
+  it('refuses a source-less replay identity when the journal was never imported', async () => {
+    root = await mkdtemp(join(tmpdir(), 'orca-adopt-unimported-replay-'))
+    const sessionAdapter = adapter()
+
+    await expect(attach(undefined, sessionAdapter)).rejects.toThrow(
+      'agent_session_identity_required'
+    )
+    expect(sessionAdapter.releaseAcquisition).toHaveBeenCalled()
   })
 
   it('fails the attach when the adopted transcript decodes to no messages', async () => {
