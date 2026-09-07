@@ -118,6 +118,6 @@ export class MobileWebSourceControlSyncRequestClient extends MobileWebSourceCont
     params: Record<string, unknown>,
     options?: MobileWebBridgeRequestOptions
   ): Promise<void> {
-    return this.host(schema, payload, method, params, options).then(() => undefined)
+    return this.hostWrite(schema, payload, method, params, options).then(() => undefined)
   }
 }

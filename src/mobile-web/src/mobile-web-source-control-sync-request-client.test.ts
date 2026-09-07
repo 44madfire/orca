@@ -87,6 +87,8 @@ describe('page repository writes', () => {
     for (const [index, [run, method, params]] of cases.entries()) {
       await expect(run()).resolves.toBeUndefined()
       expect(f.request.mock.calls[index]!.slice(0, 3), method).toEqual(hostRequest(method, params))
+      // A Git write waits past the read timeout the page applies to itself.
+      expect(f.request.mock.calls[index]!.at(-1), method).toMatchObject({ timeoutMs: 60_000 })
     }
   })
 

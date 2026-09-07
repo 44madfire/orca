@@ -143,6 +143,7 @@ describe('page Source Control writes over the host lane', () => {
     expect(f.request.mock.calls[0]!.slice(0, 3)).toEqual(
       hostRequest('git.commit', { message: 'feat: mobile' })
     )
+    expect(f.request.mock.calls[0]!.at(-1)).toMatchObject({ timeoutMs: 60_000 })
   })
 
   it('refuses a blank commit message before it reaches the bridge', async () => {

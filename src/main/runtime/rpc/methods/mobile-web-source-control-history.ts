@@ -1,10 +1,6 @@
 import { z } from 'zod'
 import { defineMethod } from '../core'
-import {
-  MOBILE_WEB_PAGE_IDENTITY,
-  MobileWebWorktreeScope,
-  sourceControlHostMethod
-} from './mobile-web-source-control-host-method'
+import { MobileWebWorktreeScope } from './mobile-web-source-control-host-method'
 import {
   MOBILE_WEB_SOURCE_CONTROL_HISTORY_DEFAULT_LIMIT,
   MOBILE_WEB_SOURCE_CONTROL_HISTORY_MAX_LIMIT,
@@ -13,23 +9,14 @@ import {
 import {
   projectMobileWebBranches,
   projectMobileWebHistory
-} from '../../../../shared/mobile-web/source-control-history-presentation'
-import { withoutMobileWebWorkspaceId } from './mobile-web-source-control-workspace-id'
-
-const branches = sourceControlHostMethod('git.localBranches')
-const history = sourceControlHostMethod('git.history')
+} from './mobile-web-source-control-history-projection'
 
 export const MOBILE_WEB_SOURCE_CONTROL_HISTORY_METHODS = [
   defineMethod({
     name: 'mobileWeb.sourceControl.branches',
     params: MobileWebWorktreeScope,
-    handler: async (params, context) =>
-      withoutMobileWebWorkspaceId(
-        projectMobileWebBranches(
-          await branches.handler({ worktree: params.worktree }, context),
-          MOBILE_WEB_PAGE_IDENTITY
-        )
-      )
+    handler: async (params, { runtime }) =>
+      projectMobileWebBranches(await runtime.listRuntimeGitLocalBranches(params.worktree))
   }),
   defineMethod({
     name: 'mobileWeb.sourceControl.history',
@@ -42,20 +29,13 @@ export const MOBILE_WEB_SOURCE_CONTROL_HISTORY_METHODS = [
         .default(MOBILE_WEB_SOURCE_CONTROL_HISTORY_DEFAULT_LIMIT),
       baseRef: MobileWebGitRefNameSchema.optional()
     }),
-    handler: async (params, context) =>
-      withoutMobileWebWorkspaceId(
-        projectMobileWebHistory(
-          await history.handler(
-            {
-              worktree: params.worktree,
-              limit: params.limit,
-              ...(params.baseRef === undefined ? {} : { baseRef: params.baseRef })
-            },
-            context
-          ),
-          MOBILE_WEB_PAGE_IDENTITY,
-          params.limit
-        )
+    handler: async (params, { runtime }) =>
+      projectMobileWebHistory(
+        await runtime.getRuntimeGitHistory(params.worktree, {
+          limit: params.limit,
+          ...(params.baseRef === undefined ? {} : { baseRef: params.baseRef })
+        }),
+        params.limit
       )
   })
 ]

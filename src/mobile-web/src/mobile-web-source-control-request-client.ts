@@ -145,7 +145,7 @@ export class MobileWebSourceControlRequestClient extends MobileWebSourceControlR
     payload: MobileWebSourceControlCommitPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlCommitResult> {
-    return this.host(
+    return this.hostWrite(
       MobileWebSourceControlCommitPayloadSchema,
       payload,
       'git.commit',

@@ -1,32 +1,40 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { RpcContext } from '../core'
-import { GIT_METHODS } from './git'
 import { MOBILE_WEB_SOURCE_CONTROL_COMPARE_METHODS } from './mobile-web-source-control-compare'
 import { MOBILE_WEB_SOURCE_CONTROL_HISTORY_METHODS } from './mobile-web-source-control-history'
 
-const context = { signal: new AbortController().signal } as RpcContext
 const worktree = 'id:private-host-workspace'
 const OID = 'a'.repeat(40)
+const METHODS = [
+  ...MOBILE_WEB_SOURCE_CONTROL_HISTORY_METHODS,
+  ...MOBILE_WEB_SOURCE_CONTROL_COMPARE_METHODS
+]
 
-function fixture(name: string, sourceMethod: string, raw: unknown) {
-  const source = GIT_METHODS.find((method) => method.name === sourceMethod)!
-  const handler = vi.spyOn(source, 'handler').mockResolvedValue(raw)
-  const method = [
-    ...MOBILE_WEB_SOURCE_CONTROL_HISTORY_METHODS,
-    ...MOBILE_WEB_SOURCE_CONTROL_COMPARE_METHODS
-  ].find((entry) => entry.name === name)!
+function fixture(name: string, runtimeMethod: string, result: unknown) {
+  const call = vi.fn().mockResolvedValue(result)
+  const method = METHODS.find((entry) => entry.name === name)!
   return {
-    handler,
+    call,
     run: async (params: Record<string, unknown> = {}) =>
-      method.handler(method.params!.parse({ worktree, ...params }), context)
+      method.handler(method.params!.parse({ worktree, ...params }), {
+        runtime: { [runtimeMethod]: call }
+      } as unknown as RpcContext)
   }
 }
 
-afterEach(() => vi.restoreAllMocks())
+function historyItem(index: number, message: string) {
+  return {
+    id: index.toString(16).padStart(40, '0'),
+    parentIds: [],
+    subject: 'subject',
+    message,
+    references: []
+  }
+}
 
 describe('bounded host Source Control history reads', () => {
   it('caps a branch list the page cannot render and reports the true total', async () => {
-    const f = fixture('mobileWeb.sourceControl.branches', 'git.localBranches', {
+    const f = fixture('mobileWeb.sourceControl.branches', 'listRuntimeGitLocalBranches', {
       current: 'main',
       branches: Array.from({ length: 500 }, (_, index) => `branch-${index}`)
     })
@@ -34,24 +42,29 @@ describe('bounded host Source Control history reads', () => {
     expect(result.branches).toHaveLength(128)
     expect(result).toMatchObject({ totalCount: 500, truncated: true })
     expect(JSON.stringify(result)).not.toContain('workspaceId')
-    expect(f.handler).toHaveBeenCalledWith({ worktree }, context)
+    expect(f.call).toHaveBeenCalledWith(worktree)
+  })
+
+  it('drops a branch name the page contract cannot address', async () => {
+    const f = fixture('mobileWeb.sourceControl.branches', 'listRuntimeGitLocalBranches', {
+      current: '--upload-pack=evil',
+      branches: ['main', '--upload-pack=evil']
+    })
+    await expect(f.run()).resolves.toMatchObject({
+      current: null,
+      branches: ['main'],
+      truncated: true
+    })
   })
 
   it('drops history items that would overrun the bridge budget and marks the page incomplete', async () => {
-    const raw = {
-      items: Array.from({ length: 100 }, (_, index) => ({
-        id: index.toString(16).padStart(40, '0'),
-        parentIds: [],
-        subject: 'subject',
-        message: 'x'.repeat(16 * 1024),
-        references: []
-      })),
+    const f = fixture('mobileWeb.sourceControl.history', 'getRuntimeGitHistory', {
+      items: Array.from({ length: 100 }, (_, index) => historyItem(index, 'x'.repeat(16 * 1024))),
       hasIncomingChanges: false,
       hasOutgoingChanges: false,
       hasMore: false,
       limit: 100
-    }
-    const f = fixture('mobileWeb.sourceControl.history', 'git.history', raw)
+    })
     const result = (await f.run({ limit: 100 })) as {
       items: { message: string }[]
       hasMore: boolean
@@ -60,11 +73,31 @@ describe('bounded host Source Control history reads', () => {
     expect(result.hasMore).toBe(true)
     expect(result.items[0]!.message).toHaveLength(8 * 1024)
     expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(192 * 1024)
-    expect(f.handler).toHaveBeenCalledWith({ worktree, limit: 100 }, context)
+    expect(f.call).toHaveBeenCalledWith(worktree, { limit: 100 })
+  })
+
+  it('drops the desktop-only fields the page contract does not carry', async () => {
+    const f = fixture('mobileWeb.sourceControl.history', 'getRuntimeGitHistory', {
+      items: [
+        {
+          ...historyItem(1, 'feat: ship'),
+          authorEmail: 'private@example.com',
+          statistics: { files: 1, insertions: 2, deletions: 3 },
+          references: [{ id: 'ref', name: 'main', color: 'git-graph-ref' }]
+        }
+      ],
+      hasIncomingChanges: false,
+      hasOutgoingChanges: false,
+      hasMore: false,
+      limit: 50
+    })
+    const result = await f.run()
+    expect(JSON.stringify(result)).not.toMatch(/authorEmail|statistics|color/)
+    expect(result).toMatchObject({ items: [{ references: [{ id: 'ref', name: 'main' }] }] })
   })
 
   it('forwards the requested base ref and defaults the history limit', async () => {
-    const f = fixture('mobileWeb.sourceControl.history', 'git.history', {
+    const f = fixture('mobileWeb.sourceControl.history', 'getRuntimeGitHistory', {
       items: [],
       hasIncomingChanges: false,
       hasOutgoingChanges: false,
@@ -72,14 +105,14 @@ describe('bounded host Source Control history reads', () => {
       limit: 50
     })
     await f.run({ baseRef: 'origin/main' })
-    expect(f.handler).toHaveBeenCalledWith({ worktree, limit: 50, baseRef: 'origin/main' }, context)
+    expect(f.call).toHaveBeenCalledWith(worktree, { limit: 50, baseRef: 'origin/main' })
     await expect(f.run({ baseRef: '--upload-pack=evil' })).rejects.toThrow()
   })
 })
 
 describe('bounded host Source Control compares', () => {
   it('clips a branch compare to the response budget and keeps the reported file count', async () => {
-    const raw = {
+    const f = fixture('mobileWeb.sourceControl.branchCompare', 'getRuntimeGitBranchCompare', {
       summary: {
         baseRef: 'main',
         baseOid: OID,
@@ -93,8 +126,7 @@ describe('bounded host Source Control compares', () => {
         path: `src/${'deep/'.repeat(8)}file-${index}.ts`,
         status: 'modified'
       }))
-    }
-    const f = fixture('mobileWeb.sourceControl.branchCompare', 'git.branchCompare', raw)
+    })
     const result = (await f.run({ baseRef: 'main' })) as {
       entries: unknown[]
       changedFiles: number
@@ -103,11 +135,34 @@ describe('bounded host Source Control compares', () => {
     expect(result.entries.length).toBeLessThan(4_000)
     expect(result).toMatchObject({ changedFiles: 6_000, truncated: true })
     expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(192 * 1024)
-    expect(f.handler).toHaveBeenCalledWith({ worktree, baseRef: 'main' }, context)
+    expect(f.call).toHaveBeenCalledWith(worktree, 'main')
+  })
+
+  it('drops a changed file the page cannot address and reports a loading compare as an error', async () => {
+    const f = fixture('mobileWeb.sourceControl.branchCompare', 'getRuntimeGitBranchCompare', {
+      summary: {
+        baseRef: 'main',
+        baseOid: null,
+        compareRef: 'HEAD',
+        headOid: null,
+        mergeBase: null,
+        changedFiles: 2,
+        status: 'loading'
+      },
+      entries: [
+        { path: '../outside.ts', status: 'modified' },
+        { path: 'src/app.ts', status: 'modified' }
+      ]
+    })
+    await expect(f.run({ baseRef: 'main' })).resolves.toMatchObject({
+      status: 'error',
+      entries: [{ relativePath: 'src/app.ts' }],
+      truncated: true
+    })
   })
 
   it('answers a commit compare in one page and refuses a short commit id', async () => {
-    const f = fixture('mobileWeb.sourceControl.commitCompare', 'git.commitCompare', {
+    const f = fixture('mobileWeb.sourceControl.commitCompare', 'getRuntimeGitCommitCompare', {
       summary: {
         commitOid: OID,
         parentOid: null,
