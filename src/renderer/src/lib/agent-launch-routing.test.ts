@@ -4,7 +4,8 @@ import {
   hasExplicitTuiAgentArgs,
   hasExplicitTuiLaunchCustomization,
   hasSemanticallyNonEmptyAgentArgs,
-  resolveAgentLaunchRoute
+  resolveAgentLaunchRoute,
+  structuredAgentLaunchSupported
 } from './agent-launch-routing'
 
 const settings = {
@@ -31,6 +32,9 @@ describe('resolveAgentLaunchRoute', () => {
     'routes a supported local %s launch to structured native chat',
     (agent) => {
       expect(route({ agent })).toBe('structured-native-chat')
+      expect(route({ agent, initialSessionOptions: { model: 'gpt-5.6-sol' } })).toBe(
+        'structured-native-chat'
+      )
       expect(
         route({ agent, launchText: 'explain this change', promptDelivery: 'auto-submit' })
       ).toBe('structured-native-chat')
@@ -118,7 +122,6 @@ describe('resolveAgentLaunchRoute', () => {
     expect(route({ agent: 'openclaude' })).toBe('legacy-native-chat')
     expect(route({ agent: 'grok' })).toBe('legacy-native-chat')
     expect(route({ requiresTuiLaunchCustomization: true })).toBe('legacy-native-chat')
-    expect(route({ initialSessionOptions: { model: 'gpt-5.6-sol' } })).toBe('legacy-native-chat')
   })
 
   it.each([
@@ -187,4 +190,29 @@ describe('resolveAgentLaunchRoute', () => {
     )
     expect(hasExplicitTuiAgentArgs('codex', '--model gpt-5.6-sol')).toBe(true)
   })
+})
+
+describe('explicit structured chat requests', () => {
+  it.each(['claude', 'codex'] as const)(
+    'supports %s history resume when new tabs default to terminal',
+    (agent) => {
+      const input = {
+        agent,
+        settings: { ...settings, openAgentTabsInChatByDefault: false },
+        executionHostId: 'local',
+        platform: 'darwin' as const,
+        hostCapabilities: [STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY],
+        workspaceKind: 'folder' as const
+      }
+      expect(resolveAgentLaunchRoute(input)).toBe('terminal-tui')
+      expect(structuredAgentLaunchSupported(input)).toBe(true)
+      expect(structuredAgentLaunchSupported({ ...input, hostCapabilities: [] })).toBe(false)
+      expect(
+        structuredAgentLaunchSupported({
+          ...input,
+          settings: { ...input.settings, experimentalStructuredNativeChat: false }
+        })
+      ).toBe(false)
+    }
+  )
 })

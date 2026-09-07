@@ -68,6 +68,11 @@ const STRUCTURED_CALLS: {
     hostMethod: 'attach',
     result: { ok: true, replayed: false, value: { sessionId: SESSION } }
   },
+  {
+    method: 'agentSession.conversationCommand',
+    hostMethod: 'conversationCommand',
+    result: { ok: true, value: { command: 'compact', state: 'completed' } }
+  },
   { method: 'agentSession.send', hostMethod: 'send', result: { ok: true, replayed: false } },
   { method: 'agentSession.cancel', hostMethod: 'cancel', result: { ok: true, replayed: false } },
   { method: 'agentSession.close', hostMethod: 'close', result: { ok: true } },
@@ -100,6 +105,16 @@ const STRUCTURED_CALLS: {
     method: 'agentSession.options',
     hostMethod: 'readOptions',
     result: { current: { model: 'gpt-live' } }
+  },
+  {
+    method: 'agentSession.commands',
+    hostMethod: 'readCommands',
+    result: { commands: [{ name: 'clear', kind: 'command' }] }
+  },
+  {
+    method: 'agentSession.reveal',
+    hostMethod: 'revealSession',
+    result: { ok: true, sessionId: SESSION, workspaceId: WORKSPACE, agent: 'codex', readable: true }
   },
   { method: 'agentSession.hold', hostMethod: 'hold', result: { held: true } },
   { method: 'agentSession.release', hostMethod: 'release', result: { released: true } },
@@ -205,6 +220,10 @@ function paramsFor(method: string): unknown {
       return createIntentParams()
     case 'agentSession.ensure':
       return attachParams(fence)
+    case 'agentSession.conversationCommand': {
+      const fields = { command: 'compact' }
+      return { envelope: envelope({ method, fields, fence }), ...fields }
+    }
     case 'agentSession.send':
       return sendParams('hi', fence)
     case 'agentSession.cancel':
@@ -243,6 +262,7 @@ function runtimeStub(): unknown {
   const cleanups = new Map<string, () => void>()
   return {
     getRuntimeId: () => 'runtime-1',
+    getClientSettings: () => ({ experimentalStructuredNativeChat: true }),
     ensureStructuredAgentSessionHost: async () => undefined,
     getStructuredAgentSessionCreateSupport: async () => ({ supported: true }),
     resolveStructuredAgentSessionCreateIntent: async () => {
@@ -318,9 +338,19 @@ function structuredHostStub(): Record<string, ReturnType<typeof vi.fn>> {
     // supports creating there. A real host always answers; leaving it unstubbed made every
     // `ensure` refuse for the harness's own reason rather than the location's.
     supportsCreate: vi.fn(() => true),
+    conversationCommand: vi.fn(async () => ({
+      ok: true,
+      value: { command: 'compact', state: 'completed' }
+    })),
     send: vi.fn(async () => ({ ok: true, replayed: false })),
     cancel: vi.fn(async () => ({ ok: true, replayed: false })),
     close: vi.fn(async () => undefined),
+    revealSession: vi.fn(async () => ({
+      sessionId: SESSION,
+      workspaceId: WORKSPACE,
+      agent: 'codex' as const,
+      readable: true
+    })),
     hold: vi.fn(async () => undefined),
     release: vi.fn(() => undefined),
     respondToPrompt: vi.fn(async () => ({ ok: true, replayed: false })),
@@ -328,6 +358,7 @@ function structuredHostStub(): Record<string, ReturnType<typeof vi.fn>> {
     requestHandoff: vi.fn(async () => ({ status: { owner: 'native' } })),
     handoffStatus: vi.fn(async () => ({ owner: 'native' })),
     readOptions: vi.fn(async () => ({ models: [], current: { model: 'gpt-live' } })),
+    readCommands: vi.fn(() => ({ commands: [{ name: 'clear', kind: 'command' as const }] })),
     history: vi.fn(() => ({ ok: true, page: { items: [] } })),
     subscribe: vi.fn(() => () => undefined),
     subscribeStatus: vi.fn((subscriber: { emit: (event: unknown) => void }) => {
