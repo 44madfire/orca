@@ -15,11 +15,9 @@ import {
 } from '../src/mobile-web/use-mobile-web-capability-broker'
 import { useMobileWebPageDocument } from '../src/mobile-web/use-mobile-web-page-document'
 import { mobileWebShellInitMessage } from '../src/mobile-web/mobile-web-shell-init-message'
-import { MobileWebHealthDeadline } from '../src/mobile-web/mobile-web-health-deadline'
 import { useMobileWebPackageSession } from '../src/mobile-web/use-mobile-web-package-session'
 import { mobileWebNativeAlertLifecycle } from '../src/mobile-web/mobile-web-native-alert'
 import { MobileWebHybridShellPresentation } from '../src/mobile-web/MobileWebHybridShellPresentation'
-import { mobileWebShellLoadFailureWarning } from '../src/mobile-web/mobile-web-shell-load-failure-warning'
 import { useMobileWebNavigationIntentHandoff } from '../src/mobile-web/use-mobile-web-navigation-intent-handoff'
 import { useMobileWebColdResumeRoute } from '../src/mobile-web/use-mobile-web-cold-resume-route'
 import { MobileWebOneShotResponseDrop } from '../src/mobile-web/mobile-web-one-shot-response-drop'
@@ -48,7 +46,6 @@ export default function HybridScreen() {
   const params = useLocalSearchParams<{ hostId?: string }>()
   const viewRef = useRef<MobileWebShellViewRef>(null)
   const activeSessionIdRef = useRef<string | undefined>(undefined)
-  const healthDeadlineRef = useRef(new MobileWebHealthDeadline(10_000))
   const brokerRef = useRef<MobileWebCapabilityBroker | null>(null)
   const postInitRef = useRef<() => Promise<void>>(() => Promise.resolve())
   useMobileWebAppForegroundAuthority(brokerRef)
@@ -80,12 +77,8 @@ export default function HybridScreen() {
     packageLoading,
     packageProgress,
     packageWarning,
-    markHealthy,
-    handleHealthTimeout: onHealthTimeout,
+    handleLoadFailure,
     handleProcessTerminated,
-    retryPackage,
-    recoverPrevious,
-    clearCache,
     showWarning
   } = useMobileWebPackageSession({
     client,
@@ -145,8 +138,7 @@ export default function HybridScreen() {
 
   const pageDocument = useMobileWebPageDocument({
     sessionId: session?.sessionId,
-    viewEpoch,
-    healthDeadlineRef
+    viewEpoch
   })
 
   const postToWeb = useCallback(async (message: MobileWebBridgeShellMessage) => {
@@ -242,11 +234,6 @@ export default function HybridScreen() {
       return
     }
     pageDocument.initializedSessionRef.current = current.sessionId
-    healthDeadlineRef.current.arm(current.sessionId, (sessionId) => {
-      if (activeSessionIdRef.current === sessionId) {
-        void onHealthTimeout(sessionId)
-      }
-    })
     await postToWeb(
       mobileWebShellInitMessage({
         shellSessionId: current.sessionId,
@@ -259,7 +246,7 @@ export default function HybridScreen() {
         pageState: resumeRoute.pageState()
       })
     )
-  }, [hostName, lastConnected, onHealthTimeout, postToWeb, reconnects, resumeRoute, session, state])
+  }, [hostName, lastConnected, postToWeb, reconnects, resumeRoute, session, state])
   useEffect(() => {
     postInitRef.current = postInit
   }, [postInit])
@@ -302,17 +289,14 @@ export default function HybridScreen() {
           pageDocument.setReadySessionId(current.sessionId)
         }
       } else if (!backMessageHandled) {
-        if (parsed.value.type === 'health') {
-          healthDeadlineRef.current.acknowledge(current.sessionId)
-          await markHealthy(current.sessionId)
-        } else if (parsed.value.type === 'routeState') {
+        if (parsed.value.type === 'routeState') {
           brokerRef.current?.rememberRoute(parsed.value.route, parsed.value.pageState)
         } else {
           await brokerRef.current?.handle(parsed.value)
         }
       }
     },
-    [hardwareBackHandoff, markHealthy, postInit, session]
+    [hardwareBackHandoff, postInit, session]
   )
   const shellContext = useMemo(
     () => (session ? { sessionId: session.sessionId, buildId: session.buildId } : null),
@@ -354,17 +338,6 @@ export default function HybridScreen() {
         coldResumeRoute.clearRoute()
         leaveHostRoute(router)
       }}
-      onRetryRecovery={async () => {
-        if (selectedHost && state !== 'connected') {
-          await forceReconnectHost(selectedHost.id)
-        }
-        retryPackage()
-      }}
-      onUsePrevious={recoverPrevious}
-      onClearCache={clearCache}
-      onRecoveryFailure={() =>
-        showWarning('That didn’t work. Try again.', 'recovery_action_failed')
-      }
       onBridgeMessage={(message) => void handleBridgeMessage(message)}
       onDocumentLoadStarted={pageDocument.onLoadStart}
       onPageLoaded={() => {
@@ -372,17 +345,12 @@ export default function HybridScreen() {
         hardwareBackHandoff.resetPage()
         void postInit()
       }}
-      onLoadFailed={(reason) => {
-        healthDeadlineRef.current.clear()
-        const failure = mobileWebShellLoadFailureWarning(reason)
-        showWarning(failure.message, failure.code)
-      }}
+      onLoadFailed={handleLoadFailure}
       onNavigationBlocked={() => showWarning('That link can’t be opened here.')}
       onProcessTerminated={(sessionId) => {
         hardwareBackHandoff.resetPage()
-        healthDeadlineRef.current.clear()
         retireBroker()
-        void handleProcessTerminated(sessionId)
+        handleProcessTerminated(sessionId)
       }}
     />
   )

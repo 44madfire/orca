@@ -11,28 +11,24 @@ export type MobileWebShellSession = {
 }
 
 type ExpoMobileWebShellNativeModule = {
-  beginStage(
+  /** Writes one complete asset; JS reassembles and verifies it before handing it over. */
+  writeStagedAsset(
     hostIdentity: string,
-    manifestJson: string,
-    canonicalManifestJson: string
-  ): Promise<string>
-  writeAssetChunk(
-    stageId: string,
+    buildId: string,
     path: string,
-    offset: number,
-    dataBase64: string,
-    chunkSha256: string
+    dataBase64: string
   ): Promise<void>
-  finishAsset(stageId: string, path: string): Promise<void>
-  commitStage(stageId: string): Promise<CommittedMobileWebGeneration>
-  abortStage(stageId: string): Promise<void>
+  commitGeneration(
+    hostIdentity: string,
+    buildId: string,
+    manifestJson: string
+  ): Promise<CommittedMobileWebGeneration>
+  abortGeneration(hostIdentity: string, buildId: string): Promise<void>
   openSession(
     hostIdentity: string,
     buildId: string | null,
     bridgeVersion: number
   ): Promise<MobileWebShellSession>
-  recoverSession(sessionId: string): Promise<MobileWebShellSession>
-  markSessionHealthy(sessionId: string): Promise<CommittedMobileWebGeneration>
   closeSession(sessionId: string): Promise<void>
   removeHost(hostIdentity: string): Promise<void>
   activateViewSession(sessionId: string): Promise<void>

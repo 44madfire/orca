@@ -9,7 +9,7 @@ import {
   serializeMobileWebManifestForBuildId,
   supportsMobileWebBridgeVersion
 } from '../../../src/shared/mobile-web/manifest-contract'
-import { clampRangeBytes, downloadAssetChunks } from './mobile-web-package-chunk-pipeline'
+import { clampRangeBytes, downloadAssets } from './mobile-web-package-chunk-pipeline'
 import {
   MobileWebPackageDownloadError,
   requestMobileWebPackageResult,
@@ -109,12 +109,9 @@ export async function downloadMobileWebPackage<TCommit>(
   }
   throwIfAborted(options.signal)
 
-  let stagingStarted = false
   try {
-    await stager.begin(manifest)
-    stagingStarted = true
     let completedBytes = 0
-    await downloadAssetChunks({
+    await downloadAssets({
       request,
       stager,
       manifest,
@@ -124,7 +121,7 @@ export async function downloadMobileWebPackage<TCommit>(
       rangeBytes: options.useGzip ? clampRangeBytes(chunkBytes, options.rangeBytes) : chunkBytes,
       maxConcurrentRequests:
         options.maxConcurrentRequests ?? MOBILE_WEB_PACKAGE_MAX_CONCURRENT_READS,
-      onChunkWritten: (writtenBytes) => {
+      onBytesDownloaded: (writtenBytes) => {
         completedBytes += writtenBytes
         options.onProgress?.({
           phase: 'downloading',
@@ -145,12 +142,10 @@ export async function downloadMobileWebPackage<TCommit>(
       completedBytes: manifest.totalBytes,
       totalBytes: manifest.totalBytes
     })
-    stagingStarted = false
     return { manifest, commit, reusedVerifiedBuild: false }
   } catch (error) {
-    if (stagingStarted) {
-      await stager.abort().catch(() => {})
-    }
+    // Disk full is a write that throws, so the only cleanup left is dropping the staged tree.
+    await stager.abort(manifest.buildId).catch(() => {})
     if (error instanceof MobileWebPackageDownloadError) {
       throw error
     }

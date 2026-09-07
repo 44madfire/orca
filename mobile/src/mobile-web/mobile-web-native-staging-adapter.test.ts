@@ -13,54 +13,54 @@ import {
 } from './mobile-web-native-staging-adapter'
 
 describe('mobile web native staging adapter', () => {
-  it('passes canonical package identity and verified chunks to the native cache', async () => {
+  it('hands the store one complete asset and the manifest the build id hashes', async () => {
     const manifest = createManifest()
     const native = createNativeApi(manifest.buildId)
     const stager = new MobileWebNativeStagingAdapter(native, 'paired-public-key')
-    const asset = manifest.assets[0]!
     const bytes = Buffer.from('Orca')
 
-    await stager.begin(manifest)
-    await stager.writeAssetChunk(asset, 0, bytes)
-    await stager.finishAsset(asset)
+    await stager.writeAsset(manifest.buildId, manifest.assets[0]!, bytes)
     await expect(stager.commit(manifest)).resolves.toEqual({ buildId: manifest.buildId })
 
-    expect(native.beginStage).toHaveBeenCalledWith(
+    expect(native.writeStagedAsset).toHaveBeenCalledWith(
       'paired-public-key',
-      JSON.stringify(manifest),
-      serializeMobileWebManifestForBuildId(manifest)
-    )
-    expect(native.writeAssetChunk).toHaveBeenCalledWith(
-      'stage-id',
+      manifest.buildId,
       'index.html',
-      0,
-      bytes.toString('base64'),
-      sha256Hex(bytes)
+      bytes.toString('base64')
+    )
+    expect(native.commitGeneration).toHaveBeenCalledWith(
+      'paired-public-key',
+      manifest.buildId,
+      serializeMobileWebManifestForBuildId(manifest)
     )
   })
 
-  it('makes abort idempotent and prevents writes outside a stage', async () => {
+  it('refuses a commit that published a different build', async () => {
+    const manifest = createManifest()
+    const native = createNativeApi('f'.repeat(64))
+    const stager = new MobileWebNativeStagingAdapter(native, 'paired-public-key')
+
+    await expect(stager.commit(manifest)).rejects.toThrow('mobile_web_generation_commit_mismatch')
+  })
+
+  it('aborts the staged tree by build id, with no stage handle to lose', async () => {
     const manifest = createManifest()
     const native = createNativeApi(manifest.buildId)
     const stager = new MobileWebNativeStagingAdapter(native, 'paired-public-key')
 
-    await expect(stager.writeAssetChunk(manifest.assets[0]!, 0, Buffer.from('x'))).rejects.toThrow(
-      'mobile_web_stage_not_started'
-    )
-    await stager.begin(manifest)
-    await stager.abort()
-    await stager.abort()
-    expect(native.abortStage).toHaveBeenCalledOnce()
+    await stager.abort(manifest.buildId)
+    await stager.abort(manifest.buildId)
+
+    expect(native.abortGeneration).toHaveBeenCalledTimes(2)
+    expect(native.abortGeneration).toHaveBeenCalledWith('paired-public-key', manifest.buildId)
   })
 })
 
 function createNativeApi(buildId: string) {
   return {
-    beginStage: vi.fn(async () => 'stage-id'),
-    writeAssetChunk: vi.fn(async () => {}),
-    finishAsset: vi.fn(async () => {}),
-    commitStage: vi.fn(async () => ({ buildId })),
-    abortStage: vi.fn(async () => {})
+    writeStagedAsset: vi.fn(async () => {}),
+    commitGeneration: vi.fn(async () => ({ buildId })),
+    abortGeneration: vi.fn(async () => {})
   } satisfies MobileWebNativeStagingApi
 }
 

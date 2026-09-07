@@ -1,18 +1,15 @@
 package expo.modules.mobilewebshell
 
-import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
-import java.io.RandomAccessFile
-import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import java.util.Base64
 
 class MobileWebPackageStoreTest {
@@ -20,81 +17,70 @@ class MobileWebPackageStoreTest {
   val temporary = TemporaryFolder()
 
   @Test
-  fun repairsRedownloadedGeneration() {
+  fun commitsAndReadsOnlyTheExactVerifiedGeneration() {
     val root = temporary.newFolder()
     val store = jvmMobileWebPackageStore(root)
-    val fixture = packageFixture()
-    stagePackage(store, "paired-host", fixture)
-    val sessionId = store.openSession("paired-host", fixture.buildId, 1).getValue("sessionId")
-    store.markSessionHealthy(sessionId)
-    val generation = File(root, "${sha256Hex("paired-host".toByteArray())}/generations/${fixture.buildId}")
-    for (path in listOf("index.html", "manifest.json", "canonical-manifest.json")) {
-      File(generation, path).writeText("corrupt")
-      assertThrows(IllegalArgumentException::class.java) {
-        store.openSession("paired-host", null, 1)
-      }
-      stagePackage(store, "paired-host", fixture)
-      val restored = store.openSession("paired-host", null, 1).getValue("sessionId")
-      assertArrayEquals(fixture.bytes, store.readAsset(restored, "index.html").bytes)
-      assertArrayEquals(fixture.bytes, store.readAsset(sessionId, "index.html").bytes)
-      store.closeSession(restored)
-    }
-  }
+    val fixture = mobileWebStoreFixture()
 
-  @Test
-  fun stagesAndReadsOnlyTheExactVerifiedGeneration() {
-    val root = temporary.newFolder()
-    val store = jvmMobileWebPackageStore(root)
-    val fixture = packageFixture()
-
-    stagePackage(store, "paired-host", fixture)
+    store.commitFixture("paired-host", fixture)
     val session = store.openSession("paired-host", fixture.buildId, 1)
     val sessionId = session.getValue("sessionId")
     val asset = store.readAsset(sessionId, "index.html")
 
     assertEquals(fixture.buildId, session["buildId"])
     assertEquals(43, sessionId.length)
-    assertEquals(true, Regex("[A-Za-z0-9_-]{43}").matches(sessionId))
+    assertTrue(Regex("[A-Za-z0-9_-]{43}").matches(sessionId))
     assertEquals("${mobileWebOriginForSession(sessionId)}/#$sessionId", session["url"])
     assertEquals("text/html; charset=utf-8", asset.contentType)
     assertArrayEquals(fixture.bytes, asset.bytes)
-    val error = assertThrows(IllegalArgumentException::class.java) {
-      store.openSession("different-host", fixture.buildId, 1)
-    }
-    assertEquals("mobile_web_generation_invalid", error.message)
+    assertEquals(fixture.buildId, store.openSession("paired-host", null, 1)["buildId"])
+    assertEquals(
+      "mobile_web_generation_invalid",
+      assertThrows(IllegalArgumentException::class.java) {
+        store.openSession("different-host", fixture.buildId, 1)
+      }.message
+    )
+    assertEquals(
+      "mobile_web_bridge_incompatible",
+      assertThrows(IllegalArgumentException::class.java) {
+        store.openSession("paired-host", fixture.buildId, 2)
+      }.message
+    )
+    assertFalse(
+      mobileWebStoreStagingRoot(root, "paired-host", fixture.buildId).exists()
+    )
   }
 
   @Test
-  fun rejectsMalformedManifestIdentityPathMimeAndTotalsBeforeCreatingAStage() {
+  fun rejectsManifestsThatDoNotHashToTheBuildId() {
     val root = temporary.newFolder()
     val store = jvmMobileWebPackageStore(root)
-    val valid = packageFixture()
-    val duplicateCanonical = valid.canonical.dropLast(1) + ""","schemaVersion":1}"""
-    val duplicateBuildId = sha256Hex(duplicateCanonical.toByteArray())
-    val duplicateManifest = JSONObject(valid.manifest)
-      .put("buildId", duplicateBuildId)
-      .toString()
+    val valid = mobileWebStoreFixture()
     val invalid = listOf(
-      valid.copy(canonical = "${valid.canonical} "),
-      valid.copy(manifest = "${valid.manifest} trailing"),
-      valid.copy(manifest = valid.manifest.dropLast(1) + ""","schemaVersion":1}"""),
-      valid.copy(
-        canonical = duplicateCanonical,
-        manifest = duplicateManifest,
-        buildId = duplicateBuildId
+      valid.copy(manifestJson = "${valid.manifestJson} "),
+      valid.copy(buildId = "a".repeat(64)),
+      valid.copy(buildId = "not-a-hash"),
+      mobileWebStoreFixtureOf(
+        valid.bytes,
+        valid.manifestJson.dropLast(1) + ""","buildId":"${valid.buildId}"}"""
       ),
-      packageFixture(mutateAsset = { asset -> asset.put("path", "../index.html") }),
-      packageFixture(mutateAsset = { asset -> asset.put("contentType", "application/octet-stream") }),
-      packageFixture { _, manifest -> manifest.put("totalBytes", valid.bytes.size + 1) }
+      mobileWebStoreFixture { it.getJSONArray("assets").getJSONObject(0).put("path", "../x.html") },
+      mobileWebStoreFixture {
+        it.getJSONArray("assets").getJSONObject(0).put("contentType", "application/octet-stream")
+      },
+      mobileWebStoreFixture { it.put("totalBytes", valid.bytes.size + 1) },
+      mobileWebStoreFixture { it.put("entrypoint", "other.html") },
+      mobileWebStoreFixture { it.getJSONObject("bridge").put("minimum", 2) }
     )
 
     invalid.forEach { fixture ->
-      val error = assertThrows(IllegalArgumentException::class.java) {
-        store.beginStage("paired-host", fixture.manifest, fixture.canonical)
-      }
-      assertEquals("mobile_web_stage_manifest_invalid", error.message)
+      assertEquals(
+        "mobile_web_manifest_invalid",
+        assertThrows(IllegalArgumentException::class.java) {
+          store.commitGeneration("paired-host", fixture.buildId, fixture.manifestJson)
+        }.message
+      )
     }
-    assertFalse(root.walkTopDown().any { it.name == "staging" && it.listFiles()?.isNotEmpty() == true })
   }
 
   @Test
@@ -116,28 +102,18 @@ class MobileWebPackageStoreTest {
       "a".repeat(241),
       "assets/café.js"
     )
-    val valid = listOf(
-      "index.html",
-      "assets/${"a".repeat(64)}.js",
-      "assets/a_b-c.d.js"
-    )
+    val valid = listOf("index.html", "assets/${"a".repeat(64)}.js", "assets/a_b-c.d.js")
 
     invalid.forEach { assertFalse(it, isSafeMobileWebAssetPath(it)) }
-    valid.forEach { assertEquals(it, true, isSafeMobileWebAssetPath(it)) }
+    valid.forEach { assertTrue(it, isSafeMobileWebAssetPath(it)) }
   }
 
   @Test
   fun acceptsOnlyExactSha256Tokens() {
-    val invalid = listOf(
-      "",
-      "a".repeat(63),
-      "a".repeat(65),
-      "${"a".repeat(64)}\n",
-      "A".repeat(64)
-    )
+    val invalid = listOf("", "a".repeat(63), "a".repeat(65), "${"a".repeat(64)}\n", "A".repeat(64))
 
     invalid.forEach { assertFalse(it, isMobileWebSha256(it)) }
-    assertEquals(true, isMobileWebSha256("a".repeat(64)))
+    assertTrue(isMobileWebSha256("a".repeat(64)))
   }
 
   @Test
@@ -167,7 +143,7 @@ class MobileWebPackageStoreTest {
     )
 
     valid.forEach { (path, assetHash, contentType, role) ->
-      assertEquals(path, true, isValidMobileWebAssetMetadata(path, assetHash, contentType, role))
+      assertTrue(path, isValidMobileWebAssetMetadata(path, assetHash, contentType, role))
     }
     invalid.forEach { (path, assetHash, contentType, role) ->
       assertFalse(path, isValidMobileWebAssetMetadata(path, assetHash, contentType, role))
@@ -175,184 +151,129 @@ class MobileWebPackageStoreTest {
   }
 
   @Test
-  fun rejectsQuotedNumericManifestFieldsBeforeCreatingAStage() {
+  fun rejectsQuotedAndBooleanNumericManifestFields() {
     val root = temporary.newFolder()
     val store = jvmMobileWebPackageStore(root)
-    val valid = packageFixture()
-    val invalid = listOf(
-      packageFixture { _, manifest -> manifest.put("schemaVersion", "1") },
-      packageFixture { _, manifest ->
-        manifest.getJSONObject("bridge").put("minimum", "1")
-      },
-      packageFixture { _, manifest ->
-        manifest.getJSONObject("bridge").put("testedThrough", "1")
-      },
-      packageFixture { _, manifest -> manifest.put("totalBytes", valid.bytes.size.toString()) },
-      packageFixture(mutateAsset = { asset ->
-        asset.put("byteLength", valid.bytes.size.toString())
-      })
+    val size = mobileWebStoreFixture().bytes.size
+    val invalid = listOf<(JSONObject) -> Unit>(
+      { it.put("schemaVersion", "1") },
+      { it.getJSONObject("bridge").put("minimum", "1") },
+      { it.getJSONObject("bridge").put("testedThrough", "1") },
+      { it.put("totalBytes", size.toString()) },
+      { it.getJSONArray("assets").getJSONObject(0).put("byteLength", size.toString()) },
+      { it.put("schemaVersion", true) },
+      { it.getJSONObject("bridge").put("minimum", true) },
+      { it.getJSONObject("bridge").put("testedThrough", true) },
+      { it.put("totalBytes", true) },
+      { it.getJSONArray("assets").getJSONObject(0).put("byteLength", true) }
     )
 
-    invalid.forEach { fixture ->
-      val error = assertThrows(IllegalArgumentException::class.java) {
-        store.beginStage("paired-host", fixture.manifest, fixture.canonical)
-      }
-      assertEquals("mobile_web_stage_manifest_invalid", error.message)
+    invalid.forEach { mutate ->
+      val fixture = mobileWebStoreFixture(mutate = mutate)
+      assertEquals(
+        "mobile_web_manifest_invalid",
+        assertThrows(IllegalArgumentException::class.java) {
+          store.commitGeneration("paired-host", fixture.buildId, fixture.manifestJson)
+        }.message
+      )
     }
-    assertFalse(
-      root.walkTopDown().any { it.name == "staging" && it.listFiles()?.isNotEmpty() == true }
-    )
-  }
-
-  @Test
-  fun rejectsBooleanNumericManifestFieldsBeforeCreatingAStage() {
-    val root = temporary.newFolder()
-    val store = jvmMobileWebPackageStore(root)
-    val invalid = listOf(
-      packageFixture { _, manifest -> manifest.put("schemaVersion", true) },
-      packageFixture { _, manifest ->
-        manifest.getJSONObject("bridge").put("minimum", true)
-      },
-      packageFixture { _, manifest ->
-        manifest.getJSONObject("bridge").put("testedThrough", true)
-      },
-      packageFixture { _, manifest -> manifest.put("totalBytes", true) },
-      packageFixture(mutateAsset = { asset -> asset.put("byteLength", true) })
-    )
-
-    invalid.forEach { fixture ->
-      val error = assertThrows(IllegalArgumentException::class.java) {
-        store.beginStage("paired-host", fixture.manifest, fixture.canonical)
-      }
-      assertEquals("mobile_web_stage_manifest_invalid", error.message)
-    }
-    assertFalse(
-      root.walkTopDown().any { it.name == "staging" && it.listFiles()?.isNotEmpty() == true }
-    )
   }
 
   @Test
   fun rejectsOversizedManifestInputBeforeParsing() {
     val root = temporary.newFolder()
     val store = jvmMobileWebPackageStore(root)
-    val fixture = packageFixture()
+    val oversized = " ".repeat(256 * 1024 + 1)
 
-    listOf(
-      " ".repeat(256 * 1024 + 1) to fixture.canonical,
-      fixture.manifest to " ".repeat(256 * 1024 + 1)
-    ).forEach { (manifest, canonical) ->
-      val error = assertThrows(IllegalArgumentException::class.java) {
-        store.beginStage("paired-host", manifest, canonical)
-      }
-      assertEquals("mobile_web_stage_manifest_invalid", error.message)
-    }
-    assertFalse(root.walkTopDown().any { it.name == "staging" })
+    assertEquals(
+      "mobile_web_manifest_invalid",
+      assertThrows(IllegalArgumentException::class.java) {
+        store.commitGeneration(
+          "paired-host",
+          mobileWebStoreSha256Hex(oversized.toByteArray(Charsets.UTF_8)),
+          oversized
+        )
+      }.message
+    )
   }
 
   @Test
-  fun deletesAnInterruptedStageWhenTheStoreRestarts() {
+  fun dropsStagedTreesWhenTheStoreRestarts() {
     val root = temporary.newFolder()
-    val firstStore = jvmMobileWebPackageStore(root)
-    val fixture = packageFixture()
-    val stageId = firstStore.beginStage("paired-host", fixture.manifest, fixture.canonical)
-    val stagingRoot = File(root, "${sha256Hex("paired-host".toByteArray())}/staging")
+    val first = jvmMobileWebPackageStore(root)
+    val fixture = mobileWebStoreFixture()
+    first.stageAsset("paired-host", fixture)
+    val staging = File(mobileWebStoreHostRoot(root, "paired-host"), "tmp")
+    assertEquals(1, staging.listFiles()?.size)
 
-    assertEquals(1, stagingRoot.listFiles()?.size)
     jvmMobileWebPackageStore(root)
 
-    assertFalse(stagingRoot.listFiles()?.isNotEmpty() == true)
-    assertThrows(IllegalArgumentException::class.java) {
-      firstStore.writeAssetChunk(
-        stageId,
-        "index.html",
-        0,
-        Base64.getEncoder().encodeToString(fixture.bytes),
-        sha256Hex(fixture.bytes)
+    assertFalse(staging.exists())
+    assertEquals(
+      "mobile_web_staged_generation_incomplete",
+      assertThrows(IllegalArgumentException::class.java) {
+        first.commitGeneration("paired-host", fixture.buildId, fixture.manifestJson)
+      }.message
+    )
+  }
+
+  @Test
+  fun rejectsUnusableStagedAssetInput() {
+    val root = temporary.newFolder()
+    val store = jvmMobileWebPackageStore(root)
+    val fixture = mobileWebStoreFixture()
+    val encoded = Base64.getEncoder().encodeToString(fixture.bytes)
+    val invalid = listOf(
+      Triple(fixture.buildId, "index.html", "A".repeat(14 * 1024 * 1024)),
+      Triple(fixture.buildId, "index.html", "not base64!"),
+      Triple(fixture.buildId, "index.html", ""),
+      Triple(fixture.buildId, "../escape.html", encoded),
+      Triple(fixture.buildId, "manifest.json", encoded),
+      Triple("not-a-build-id", "index.html", encoded)
+    )
+
+    invalid.forEach { (buildId, path, data) ->
+      assertEquals(
+        "mobile_web_staged_asset_invalid",
+        assertThrows(IllegalArgumentException::class.java) {
+          store.writeStagedAsset("paired-host", buildId, path, data)
+        }.message
       )
     }
   }
 
   @Test
-  fun rejectsOversizedEncodedChunksBeforeDecoding() {
+  fun rejectsIncompleteStagedTreesAndCorruptionOnOpenAndRead() {
     val root = temporary.newFolder()
     val store = jvmMobileWebPackageStore(root)
-    val fixture = packageFixture()
-    val stageId = store.beginStage("paired-host", fixture.manifest, fixture.canonical)
+    val fixture = mobileWebStoreFixture()
 
-    val error = assertThrows(IllegalArgumentException::class.java) {
-      store.writeAssetChunk(
-        stageId,
-        "index.html",
-        0,
-        "A".repeat(65_537),
-        sha256Hex(fixture.bytes)
-      )
-    }
-
-    assertEquals("mobile_web_stage_chunk_invalid", error.message)
-    store.abortStage(stageId)
-  }
-
-  @Test
-  fun rejectsIncompleteStagesAndCorruptionOnOpenAndRead() {
-    val root = temporary.newFolder()
-    val store = jvmMobileWebPackageStore(root)
-    val fixture = packageFixture()
-    val stageId = store.beginStage("paired-host", fixture.manifest, fixture.canonical)
-
-    assertThrows(IllegalArgumentException::class.java) { store.commitStage(stageId) }
-    store.abortStage(stageId)
-    stagePackage(store, "paired-host", fixture)
-    val session = store.openSession("paired-host", fixture.buildId, 1)
-    val generation = File(
-      root,
-      "${sha256Hex("paired-host".toByteArray())}/generations/${fixture.buildId}/index.html"
-    )
-    generation.writeText("corrupt")
-
-    val readError = assertThrows(IllegalArgumentException::class.java) {
-      store.readAsset(session.getValue("sessionId"), "index.html")
-    }
-    assertEquals("mobile_web_generation_invalid", readError.message)
-    val openError = assertThrows(IllegalArgumentException::class.java) {
-      store.openSession("paired-host", fixture.buildId, 1)
-    }
-    assertEquals("mobile_web_generation_invalid", openError.message)
-  }
-
-  @Test
-  fun rejectsOversizedPersistedFiles() {
-    val root = temporary.newFolder()
-    val store = testStore(root)
-    val fixture = packageFixture()
-    stagePackage(store, "paired-host", fixture)
-    val session = store.openSession("paired-host", fixture.buildId, 1)
-    store.markSessionHealthy(session.getValue("sessionId"))
-    val hostRoot = File(root, sha256Hex("paired-host".toByteArray()))
-    val generationRoot = File(hostRoot, "generations/${fixture.buildId}")
-    val manifest = File(generationRoot, "manifest.json")
-    val canonicalManifest = File(generationRoot, "canonical-manifest.json")
-    val document = File(generationRoot, "index.html")
-
-    manifest.writeBytes(ByteArray(256 * 1024 + 1) { 0x20 })
     assertEquals(
-      "mobile_web_generation_invalid",
+      "mobile_web_staged_generation_incomplete",
       assertThrows(IllegalArgumentException::class.java) {
-        store.openSession("paired-host", fixture.buildId, 1)
+        store.commitGeneration("paired-host", fixture.buildId, fixture.manifestJson)
       }.message
     )
-    manifest.writeText(fixture.manifest, Charsets.UTF_8)
-
-    canonicalManifest.writeBytes(ByteArray(256 * 1024 + 1) { 0x20 })
+    store.stageAsset("paired-host", fixture)
+    store.writeStagedAsset(
+      "paired-host",
+      fixture.buildId,
+      "assets/extra.js",
+      Base64.getEncoder().encodeToString(fixture.bytes)
+    )
     assertEquals(
-      "mobile_web_generation_invalid",
+      "mobile_web_staged_generation_incomplete",
       assertThrows(IllegalArgumentException::class.java) {
-        store.openSession("paired-host", fixture.buildId, 1)
+        store.commitGeneration("paired-host", fixture.buildId, fixture.manifestJson)
       }.message
     )
-    canonicalManifest.writeText(fixture.canonical, Charsets.UTF_8)
+    store.abortGeneration("paired-host", fixture.buildId)
 
-    document.writeBytes(ByteArray(fixture.bytes.size + 1))
+    store.commitFixture("paired-host", fixture)
+    val session = store.openSession("paired-host", fixture.buildId, 1)
+    File(mobileWebStoreGenerations(root, "paired-host"), "${fixture.buildId}/index.html")
+      .writeText("corrupt")
+
     assertEquals(
       "mobile_web_generation_invalid",
       assertThrows(IllegalArgumentException::class.java) {
@@ -365,213 +286,158 @@ class MobileWebPackageStoreTest {
         store.openSession("paired-host", fixture.buildId, 1)
       }.message
     )
+  }
 
-    File(hostRoot, "activation.json").writeBytes(ByteArray(1025) { 0x20 })
-    assertEquals(
-      "mobile_web_activation_invalid",
+  @Test
+  fun repairsRedownloadedGeneration() {
+    val root = temporary.newFolder()
+    val store = jvmMobileWebPackageStore(root)
+    val fixture = mobileWebStoreFixture()
+    store.commitFixture("paired-host", fixture)
+    val generation = File(mobileWebStoreGenerations(root, "paired-host"), fixture.buildId)
+
+    for (path in listOf("index.html", "manifest.json")) {
+      File(generation, path).writeText("corrupt")
       assertThrows(IllegalArgumentException::class.java) {
         store.openSession("paired-host", null, 1)
+      }
+      store.commitFixture("paired-host", fixture)
+      val restored = store.openSession("paired-host", null, 1).getValue("sessionId")
+      assertArrayEquals(fixture.bytes, store.readAsset(restored, "index.html").bytes)
+      store.closeSession(restored)
+    }
+  }
+
+  @Test
+  fun rejectsOversizedPersistedFiles() {
+    val root = temporary.newFolder()
+    val store = jvmMobileWebPackageStore(root)
+    val fixture = mobileWebStoreFixture()
+    store.commitFixture("paired-host", fixture)
+    val session = store.openSession("paired-host", fixture.buildId, 1)
+    val generation = File(mobileWebStoreGenerations(root, "paired-host"), fixture.buildId)
+    val manifest = File(generation, "manifest.json")
+
+    manifest.writeBytes(ByteArray(256 * 1024 + 1) { 0x20 })
+    assertEquals(
+      "mobile_web_generation_invalid",
+      assertThrows(IllegalArgumentException::class.java) {
+        store.openSession("paired-host", fixture.buildId, 1)
+      }.message
+    )
+    manifest.writeText(fixture.manifestJson, Charsets.UTF_8)
+
+    File(generation, "index.html").writeBytes(ByteArray(fixture.bytes.size + 1))
+    assertEquals(
+      "mobile_web_generation_invalid",
+      assertThrows(IllegalArgumentException::class.java) {
+        store.readAsset(session.getValue("sessionId"), "index.html")
+      }.message
+    )
+    assertEquals(
+      "mobile_web_generation_invalid",
+      assertThrows(IllegalArgumentException::class.java) {
+        store.openSession("paired-host", fixture.buildId, 1)
       }.message
     )
   }
 
   @Test
-  fun activatesAndRecoversThePreviousVerifiedGeneration() {
+  fun keepsOnlyTheCommittedGenerationOnceNoSessionHoldsTheOldOne() {
     val root = temporary.newFolder()
-    val store = testStore(root)
-    val previous = packageFixture(content = "<!doctype html><title>Previous</title>")
-    val current = packageFixture(content = "<!doctype html><title>Current</title>")
-    stagePackage(store, "paired-host", previous)
+    val store = jvmMobileWebPackageStore(root)
+    val previous = mobileWebStoreFixture(content = "<!doctype html><title>Previous</title>")
+    val current = mobileWebStoreFixture(content = "<!doctype html><title>Current</title>")
+    store.commitFixture("paired-host", previous)
     val previousSession = store.openSession("paired-host", previous.buildId, 1)
-    assertEquals(previous.buildId, store.markSessionHealthy(previousSession.getValue("sessionId")))
-    stagePackage(store, "paired-host", current)
-    val currentSession = store.openSession("paired-host", current.buildId, 1)
-    assertEquals(current.buildId, store.markSessionHealthy(currentSession.getValue("sessionId")))
 
-    val recovered = store.recoverSession(currentSession.getValue("sessionId"))
+    store.commitFixture("paired-host", current)
 
-    assertEquals(previous.buildId, recovered["buildId"])
-    val active = store.openSession("paired-host", null, 1)
-    assertEquals(previous.buildId, active["buildId"])
-  }
-
-  @Test
-  fun fallsBackFromACorruptActiveGenerationOnColdOpen() {
-    val root = temporary.newFolder()
-    val store = testStore(root)
-    val previous = packageFixture(content = "<!doctype html><title>Previous</title>")
-    val current = packageFixture(content = "<!doctype html><title>Current</title>")
-    stagePackage(store, "paired-host", previous)
-    val previousSession = store.openSession("paired-host", previous.buildId, 1)
-    store.markSessionHealthy(previousSession.getValue("sessionId"))
-    store.closeSession(previousSession.getValue("sessionId"))
-    stagePackage(store, "paired-host", current)
-    val currentSession = store.openSession("paired-host", current.buildId, 1)
-    store.markSessionHealthy(currentSession.getValue("sessionId"))
-    store.closeSession(currentSession.getValue("sessionId"))
-    val currentDocument = File(
-      root,
-      "${sha256Hex("paired-host".toByteArray())}/generations/${current.buildId}/index.html"
-    )
-    currentDocument.writeText("corrupt")
-
-    val recovered = store.openSession("paired-host", null, 1)
-
-    assertEquals(previous.buildId, recovered["buildId"])
-    assertFalse(currentDocument.exists())
-  }
-
-  @Test
-  fun rejectsLowStorageBeforeCreatingAStage() {
-    val root = temporary.newFolder()
-    val store = jvmMobileWebPackageStore(
-      root,
-      availableStorageBytes = { MOBILE_WEB_MINIMUM_FREE_STORAGE_BYTES }
-    )
-    val fixture = packageFixture()
-
-    val error = assertThrows(IllegalArgumentException::class.java) {
-      store.beginStage("paired-host", fixture.manifest, fixture.canonical)
-    }
-
-    assertEquals("mobile_web_cache_storage_unavailable", error.message)
-    assertFalse(root.walkTopDown().any { it.name == "staging" && it.listFiles()?.isNotEmpty() == true })
-  }
-
-  @Test
-  fun evictsAnUnprotectedGenerationBeforeStaging() {
-    val root = temporary.newFolder()
-    val store = testStore(root)
-    val active = packageFixture(content = "<!doctype html><title>Active</title>")
-    stagePackage(store, "paired-host", active)
-    val activeSession = store.openSession("paired-host", active.buildId, 1)
-    store.markSessionHealthy(activeSession.getValue("sessionId"))
-    val hostKey = sha256Hex("paired-host".toByteArray())
-    val staleRoot = File(root, "$hostKey/generations/${"a".repeat(64)}")
-    require(staleRoot.mkdirs())
-    RandomAccessFile(File(staleRoot, "stale.bin"), "rw").use {
-      it.setLength(MOBILE_WEB_PER_HOST_CACHE_BYTE_LIMIT)
-    }
-    val fixture = packageFixture(content = "<!doctype html><title>Next</title>")
-
-    val stageId = store.beginStage("paired-host", fixture.manifest, fixture.canonical)
-
-    assertFalse(staleRoot.exists())
     assertArrayEquals(
-      active.bytes,
-      store.readAsset(activeSession.getValue("sessionId"), "index.html").bytes
+      previous.bytes,
+      store.readAsset(previousSession.getValue("sessionId"), "index.html").bytes
     )
-    store.abortStage(stageId)
+    val active = store.openSession("paired-host", null, 1)
+    assertEquals(current.buildId, active["buildId"])
+
+    store.closeSession(previousSession.getValue("sessionId"))
+    store.closeSession(active.getValue("sessionId"))
+    store.commitFixture("paired-host", current)
+
+    assertEquals(
+      listOf(current.buildId),
+      mobileWebStoreGenerations(root, "paired-host").listFiles()?.map { it.name }
+    )
   }
 
   @Test
-  fun evictsAnotherHostsUnprotectedGenerationForTheGlobalQuota() {
+  fun abortsAStagedGeneration() {
     val root = temporary.newFolder()
-    val otherHostKey = sha256Hex("other-host".toByteArray())
-    val staleRoot = File(root, "$otherHostKey/generations/${"b".repeat(64)}")
-    require(staleRoot.mkdirs())
-    RandomAccessFile(File(staleRoot, "stale.bin"), "rw").use {
-      it.setLength(MOBILE_WEB_GLOBAL_CACHE_BYTE_LIMIT)
+    val store = jvmMobileWebPackageStore(root)
+    val fixture = mobileWebStoreFixture()
+    store.stageAsset("paired-host", fixture)
+    val staged = mobileWebStoreStagingRoot(root, "paired-host", fixture.buildId)
+    assertTrue(staged.exists())
+
+    store.abortGeneration("paired-host", fixture.buildId)
+
+    assertFalse(staged.exists())
+    assertEquals(
+      "mobile_web_staged_generation_incomplete",
+      assertThrows(IllegalArgumentException::class.java) {
+        store.commitGeneration("paired-host", fixture.buildId, fixture.manifestJson)
+      }.message
+    )
+  }
+
+  @Test
+  fun evictsTheLeastRecentlyActivatedHostOverTheCap() {
+    val root = temporary.newFolder()
+    val store = jvmMobileWebPackageStore(root)
+    val hosts = (0..4).map { "cap-host-$it" }
+    val fixtures = hosts.mapIndexed { index, host ->
+      val fixture = mobileWebStoreFixture(content = "<!doctype html><title>$index</title>")
+      store.commitFixture(host, fixture)
+      store.closeSession(store.openSession(host, null, 1).getValue("sessionId"))
+      // The eviction order is the activation order, which is the host root's modification time.
+      mobileWebStoreHostRoot(root, host).setLastModified(1_000_000L + index * 1_000L)
+      host to fixture
+    }.toMap()
+
+    store.commitFixture(hosts[4], fixtures.getValue(hosts[4]))
+
+    assertFalse(mobileWebStoreHostRoot(root, hosts[0]).exists())
+    hosts.drop(1).forEach { host ->
+      val session = store.openSession(host, null, 1).getValue("sessionId")
+      assertArrayEquals(fixtures.getValue(host).bytes, store.readAsset(session, "index.html").bytes)
+      store.closeSession(session)
     }
-    val store = jvmMobileWebPackageStore(root)
-    val fixture = packageFixture()
-
-    val stageId = store.beginStage("paired-host", fixture.manifest, fixture.canonical)
-
-    assertFalse(staleRoot.exists())
-    store.abortStage(stageId)
   }
 
   @Test
-  fun removesOnlyTheSelectedHostCacheSessionsAndStages() {
+  fun removesOnlyTheSelectedHostCacheAndSessions() {
     val root = temporary.newFolder()
     val store = jvmMobileWebPackageStore(root)
-    val removed = packageFixture(content = "<!doctype html><title>Removed</title>")
-    val retained = packageFixture(content = "<!doctype html><title>Retained</title>")
-    stagePackage(store, "removed-host", removed)
-    stagePackage(store, "retained-host", retained)
+    val removed = mobileWebStoreFixture(content = "<!doctype html><title>Removed</title>")
+    val retained = mobileWebStoreFixture(content = "<!doctype html><title>Retained</title>")
+    store.commitFixture("removed-host", removed)
+    store.commitFixture("retained-host", retained)
     val removedSession = store.openSession("removed-host", removed.buildId, 1)
     val retainedSession = store.openSession("retained-host", retained.buildId, 1)
-    val interruptedStage = store.beginStage("removed-host", removed.manifest, removed.canonical)
+    store.stageAsset("removed-host", removed)
 
     store.removeHost("removed-host")
 
-    assertFalse(File(root, sha256Hex("removed-host".toByteArray())).exists())
-    assertThrows(IllegalArgumentException::class.java) {
-      store.readAsset(removedSession.getValue("sessionId"), "index.html")
-    }
-    assertThrows(IllegalArgumentException::class.java) {
-      store.writeAssetChunk(interruptedStage, "index.html", 0, "YQ==", sha256Hex("a".toByteArray()))
-    }
+    assertFalse(mobileWebStoreHostRoot(root, "removed-host").exists())
+    assertEquals(
+      "mobile_web_asset_unavailable",
+      assertThrows(IllegalArgumentException::class.java) {
+        store.readAsset(removedSession.getValue("sessionId"), "index.html")
+      }.message
+    )
     assertArrayEquals(
       retained.bytes,
       store.readAsset(retainedSession.getValue("sessionId"), "index.html").bytes
     )
   }
-
-  private fun stagePackage(
-    store: MobileWebPackageStore,
-    hostIdentity: String,
-    fixture: PackageFixture
-  ) {
-    val stageId = store.beginStage(hostIdentity, fixture.manifest, fixture.canonical)
-    store.writeAssetChunk(
-      stageId,
-      "index.html",
-      0,
-      Base64.getEncoder().encodeToString(fixture.bytes),
-      sha256Hex(fixture.bytes)
-    )
-    store.finishAsset(stageId, "index.html")
-    assertEquals(fixture.buildId, store.commitStage(stageId))
-  }
-
-  private fun packageFixture(
-    content: String = "<!doctype html><title>Orca</title>",
-    mutateAsset: (JSONObject) -> Unit = {},
-    mutateManifest: (JSONObject, JSONObject) -> Unit = { _, _ -> }
-  ): PackageFixture {
-    val bytes = content.toByteArray()
-    val asset = JSONObject()
-      .put("path", "index.html")
-      .put("sha256", sha256Hex(bytes))
-      .put("byteLength", bytes.size)
-      .put("contentType", "text/html; charset=utf-8")
-      .put("role", "document")
-    mutateAsset(asset)
-    val canonical = JSONObject()
-      .put("schemaVersion", 1)
-      .put("bridge", JSONObject().put("minimum", 1).put("testedThrough", 1))
-      .put("entrypoint", "index.html")
-      .put("totalBytes", bytes.size)
-      .put("assets", JSONArray().put(asset))
-    mutateManifest(asset, canonical)
-    val canonicalJson = canonical.toString()
-    val buildId = sha256Hex(canonicalJson.toByteArray())
-    val manifest = JSONObject(canonicalJson).put("buildId", buildId).toString()
-    return PackageFixture(bytes, canonicalJson, manifest, buildId)
-  }
-
-  private fun testStore(root: File): MobileWebPackageStore =
-    jvmMobileWebPackageStore(
-      root,
-      replaceActivation = { source, destination ->
-        java.nio.file.Files.move(
-          source.toPath(),
-          destination.toPath(),
-          StandardCopyOption.ATOMIC_MOVE,
-          StandardCopyOption.REPLACE_EXISTING
-        )
-      }
-    )
 }
-
-private data class PackageFixture(
-  val bytes: ByteArray,
-  val canonical: String,
-  val manifest: String,
-  val buildId: String
-)
-
-private fun sha256Hex(bytes: ByteArray): String =
-  MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

@@ -18,46 +18,20 @@ try {
   await run('xcrun', [
     'swiftc',
     '-DMOBILE_WEB_PACKAGE_STORE_TESTING',
-    join(mobileRoot, 'packages/expo-mobile-web-shell/ios/MobileWebCacheStoragePolicy.swift'),
-    join(mobileRoot, 'packages/expo-mobile-web-shell/ios/MobileWebExactJson.swift'),
-    join(mobileRoot, 'packages/expo-mobile-web-shell/ios/MobileWebActivationMetadata.swift'),
-    join(mobileRoot, 'packages/expo-mobile-web-shell/ios/MobileWebCacheFileBoundary.swift'),
-    join(mobileRoot, 'packages/expo-mobile-web-shell/ios/MobileWebCacheTreeBoundary.swift'),
-    join(mobileRoot, 'packages/expo-mobile-web-shell/ios/MobileWebPackageStore.swift'),
-    join(mobileRoot, 'packages/expo-mobile-web-shell/ios-tests/MobileWebExactJsonTests.swift'),
-    join(
-      mobileRoot,
-      'packages/expo-mobile-web-shell/ios-tests/MobileWebActivationMetadataTests.swift'
-    ),
-    join(
-      mobileRoot,
-      'packages/expo-mobile-web-shell/ios-tests/MobileWebCacheFileBoundaryTests.swift'
-    ),
-    join(
-      mobileRoot,
-      'packages/expo-mobile-web-shell/ios-tests/MobileWebCacheCleanupBoundaryTests.swift'
-    ),
-    join(
-      mobileRoot,
-      'packages/expo-mobile-web-shell/ios-tests/MobileWebCacheWriteBoundaryTests.swift'
-    ),
-    join(
-      mobileRoot,
-      'packages/expo-mobile-web-shell/ios-tests/MobileWebHostRootBoundaryTests.swift'
-    ),
-    join(
-      mobileRoot,
-      'packages/expo-mobile-web-shell/ios-tests/MobileWebPackageStoreGeneratedMutationTests.swift'
-    ),
-    join(
-      mobileRoot,
-      'packages/expo-mobile-web-shell/ios-tests/MobileWebPackageStoreConcurrencyTests.swift'
-    ),
-    join(
-      mobileRoot,
-      'packages/expo-mobile-web-shell/ios-tests/MobileWebPackageStoreProcessInterruptionTests.swift'
-    ),
-    join(mobileRoot, 'packages/expo-mobile-web-shell/ios-tests/MobileWebPackageStoreTests.swift'),
+    ...[
+      'ios/MobileWebCacheFileBoundary.swift',
+      'ios/MobileWebCacheTreeBoundary.swift',
+      'ios/MobileWebPackageStore.swift',
+      'ios-tests/MobileWebPackageStoreFixture.swift',
+      'ios-tests/MobileWebCacheFileBoundaryTests.swift',
+      'ios-tests/MobileWebCacheCleanupBoundaryTests.swift',
+      'ios-tests/MobileWebCacheWriteBoundaryTests.swift',
+      'ios-tests/MobileWebHostRootBoundaryTests.swift',
+      'ios-tests/MobileWebPackageStoreGeneratedMutationTests.swift',
+      'ios-tests/MobileWebPackageStoreConcurrencyTests.swift',
+      'ios-tests/MobileWebPackageStoreProcessInterruptionTests.swift',
+      'ios-tests/MobileWebPackageStoreTests.swift'
+    ].map((file) => join(mobileRoot, 'packages/expo-mobile-web-shell', file)),
     '-o',
     executable
   ])

@@ -3,7 +3,6 @@ import { MOBILE_WEB_TERMINAL_MAX_OUTSTANDING_BYTES } from '../../../src/shared/m
 
 export type MobileWebPackageSource = 'none' | 'verified-cache' | 'desktop-refresh'
 export type MobileWebPackageStatus = 'idle' | 'loading' | 'active' | 'warning' | 'unavailable'
-export type MobileWebHealthStatus = 'none' | 'pending' | 'healthy' | 'restarted' | 'recovered'
 export type MobileWebTerminalResyncReason =
   | 'gap'
   | 'overflow'
@@ -25,8 +24,6 @@ export type MobileWebDiagnosticsSnapshot = {
   packageStatus: MobileWebPackageStatus
   activationMs: number | null
   refreshMs: number | null
-  healthStatus: MobileWebHealthStatus
-  recoveryCount: number
   terminalResyncCount: number
   terminalOverflowCount: number
   terminalAckLagMaxMs: number | null
@@ -42,8 +39,6 @@ const EMPTY_SNAPSHOT: MobileWebDiagnosticsSnapshot = Object.freeze({
   packageStatus: 'idle',
   activationMs: null,
   refreshMs: null,
-  healthStatus: 'none',
-  recoveryCount: 0,
   terminalResyncCount: 0,
   terminalOverflowCount: 0,
   terminalAckLagMaxMs: null,
@@ -82,7 +77,6 @@ export class MobileWebDiagnosticsStore {
       packageSource,
       packageStatus: 'active',
       activationMs: safeDurationMs(activationMs),
-      healthStatus: 'pending',
       lastFailureCode: null
     })
   }
@@ -103,38 +97,13 @@ export class MobileWebDiagnosticsStore {
     })
   }
 
-  healthy(hostId: string, buildId: string): void {
-    if (this.get(hostId).buildId !== safeBuildId(buildId)) {
-      return
-    }
-    this.patch(hostId, {
-      packageStatus: 'active',
-      healthStatus: 'healthy',
-      lastFailureCode: null
-    })
-  }
-
   restarted(hostId: string, buildId: string): void {
     if (this.get(hostId).buildId !== safeBuildId(buildId)) {
       return
     }
     this.patch(hostId, {
       packageStatus: 'warning',
-      healthStatus: 'restarted',
       lastFailureCode: 'webview_process_terminated'
-    })
-  }
-
-  recovered(hostId: string, buildId: string, failureCode: string): void {
-    const previous = this.get(hostId)
-    this.set(hostId, {
-      ...previous,
-      buildId: safeBuildId(buildId),
-      packageSource: 'verified-cache',
-      packageStatus: 'warning',
-      healthStatus: 'recovered',
-      recoveryCount: boundedIncrement(previous.recoveryCount),
-      lastFailureCode: safeFailureCode(failureCode)
     })
   }
 

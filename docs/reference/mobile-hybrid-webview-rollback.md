@@ -16,11 +16,12 @@ boundaries used by this runbook.
   private asset origin, native cache code, the capability bridge, permissions,
   notifications, audio, or pickers.
 - Keep package activation host-scoped. A package from one paired Desktop must
-  never become another host's active or previous generation.
+  never become another host's generation.
 - Serve only complete, content-addressed packages produced by the release
   build. Do not copy loose assets into a packaged Desktop installation.
-- Never edit `activation.json` or replace, delete, or copy generation assets
-  manually. Use the native recovery controls or install a corrected release.
+- Never replace, delete, or copy cached generation assets manually. There is no
+  activation file to edit: the single directory under `generations/` is the
+  activation. Let the shell redownload, or install a corrected release.
 - Never collect pairing credentials, endpoints, absolute cache paths, full
   build IDs, filenames, terminal content, or page payloads for rollback
   diagnosis.
@@ -33,11 +34,11 @@ boundaries used by this runbook.
 | Symptom                                                                   | Boundary                      | First action                                                                |
 | ------------------------------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------- |
 | Workspace UI regression follows one Desktop version                       | Desktop web package           | Stop that Desktop rollout and restore known-good package content            |
-| New package times out or repeatedly terminates its WebView process        | Native verified generation    | Let automatic recovery promote the previous verified generation             |
-| One host reports corrupt or unreadable cached assets                      | Host-scoped native cache      | Use **Reset** and redownload from an authenticated paired Desktop           |
+| New package repeatedly terminates its WebView process                     | Native verified generation    | Stop the Desktop rollout; the shell has no earlier generation to fall back to |
+| One host reports corrupt or unreadable cached assets                      | Host-scoped native cache      | The shell drops that cache and redownloads on the next page-load failure    |
 | Package requires an unsupported bridge version                            | Desktop/native compatibility  | Restore a package compatible with the installed shell; do not force-open it |
 | Pairing, encrypted connectivity, asset origin, cache, or bridge is broken | Native shell                  | Halt the store rollout and prepare a corrected native release               |
-| Notification, deep-link, permission, audio, picker, or recovery UI fails  | Native shell                  | Halt the store rollout and prepare a corrected native release               |
+| Notification, deep-link, permission, audio, or picker fails               | Native shell                  | Halt the store rollout and prepare a corrected native release               |
 | Desktop is unavailable but a healthy verified cache exists                | No rollback                   | Continue using the cache; defer refresh until the Desktop reconnects        |
 | Desktop is unavailable and no verified cache exists                       | Connectivity/package delivery | Reconnect or switch hosts; cache recovery cannot manufacture a package      |
 
@@ -47,8 +48,8 @@ boundaries used by this runbook.
 
 1. Stop distributing the affected Desktop build through every active channel.
 2. Record the Desktop version and commit, the affected package build prefix,
-   installed shell version, bridge version, package source, health state,
-   recovery count, and stable failure code.
+   installed shell version, bridge version, package source, and stable failure
+   code.
 3. Determine whether the failure follows the Desktop package across otherwise
    healthy shells. If native-owned behavior is failing, use the native-shell
    procedure instead.
@@ -69,25 +70,23 @@ boundaries used by this runbook.
 5. Test a device with the bad generation active and another with only a healthy
    cached generation before resuming the Desktop rollout.
 
-The Desktop must stop serving the rejected build ID. The mobile process keeps
-bad build IDs rejected only for its current host session; reconnecting or
-restarting must not make an affected Desktop safe.
+The Desktop must stop serving the rejected build ID. The shell has no memory of
+a bad build: it will download whatever Desktop currently serves, so containment
+is entirely a Desktop-side responsibility.
 
 ### Expected client behavior
 
 - A healthy cached interface remains usable while the Desktop is unavailable
   or a refresh fails.
-- A newly opened package is not active until the native store verifies its
-  manifest and assets and the page reaches the health boundary.
-- A health timeout or third WebView process loss inside the crash window
-  attempts to promote the compatible verified previous generation.
-- **Use last version** promotes the verified previous generation and removes
-  the failed generation from the rollback position.
-- **Reset** closes the current package session, removes only the selected
-  paired host's cache, and requires a verified redownload.
-- An implicit cold open may replace an invalid active generation with a
-  compatible verified previous generation. An explicit build open fails
-  closed.
+- A newly opened package is not active until the native store has verified its
+  manifest and every asset and renamed the staged tree into `generations/`.
+- A WebView process loss restarts the view in place. There is no earlier
+  generation to promote, so a package that keeps crashing keeps restarting.
+- A page that fails to load makes the shell delete that host's cache and
+  download the package again, once per host selection. A second failure leaves
+  the notice on screen instead of downloading again.
+- An unreachable Desktop leaves the shell in its offline state; the refresh
+  resumes when the connection returns.
 
 ## Native-Shell or Store-Release Incident
 
@@ -119,7 +118,7 @@ corrected, higher-version native release repairs installed clients.
    release process.
 3. Verify native pairing, authenticated connectivity, package verification,
    cached and fresh open, private-origin isolation, bridge compatibility,
-   automatic and manual recovery, and the affected capability.
+   cache-drop redownload, and the affected capability.
 4. Verify the corrected shell against the active Desktop package and the oldest
    package still inside the supported compatibility window.
 5. Resume a phased rollout only after the corrected build passes the final
@@ -127,32 +126,28 @@ corrected, higher-version native release repairs installed clients.
 
 A Desktop package rollback cannot repair native pairing, secure storage,
 encrypted transport, WebView configuration, cache verification or activation,
-bridge implementation, notifications, deep links, permissions, audio, pickers,
-or native recovery UI.
+bridge implementation, notifications, deep links, permissions, audio, or
+pickers.
 
-## User Recovery Controls
+## What the User Sees
 
-Use the least destructive control that addresses the observed failure:
+The shell has no recovery controls. Recovery is automatic and has exactly two
+moves:
 
-The recovery UI promotes **Retry** as the single primary button and demotes the
-remaining controls to text links, so support must name them by these labels:
+- A failed page load deletes the host's cached generation and downloads the
+  package again. This happens once per host selection; a second failure leaves
+  the notice on screen.
+- A lost WebView process restarts the view in place.
 
-- **Retry** asks the authenticated Desktop for its current package again. Use it
-  after connectivity or Desktop package delivery is corrected.
-- **Use last version** switches to the verified prior generation for the
-  selected host. Use it for a newly activated functional regression or repeated
-  process failure when the previous action is available.
-- **Reset** removes the selected host's verified generations and forces a
-  redownload. Use it for host-scoped corruption or when support explicitly
-  needs to eliminate cached-package state.
-- **Switch hosts** leaves the affected paired Desktop without changing another
-  host's cache or credentials.
+Support can still ask the user to leave a broken host through the **Hosts**
+button in the shell header, which is present whenever the hosted interface is
+not showing.
 
 The shell shows a plain-language notice plus an `Error: <code>` support line;
 that code is the same stable failure code recorded in diagnostics.
 
-Cache clearing is not a Desktop rollback. If the Desktop still serves the bad
-package, a cleared client downloads the same bad package again.
+Redownloading is not a Desktop rollback. If the Desktop still serves the bad
+package, the client downloads the same bad package again.
 
 ## Diagnostics and Escalation
 
@@ -162,9 +157,8 @@ Ask the user to open **Connection Log** for the selected host and use
 - Orca Desktop version and commit.
 - Mobile shell version, platform, device class, and store channel.
 - Twelve-character package build prefix and bridge version.
-- Package source (`verified-cache` or `desktop-refresh`), package state, and
-  health state.
-- Recovery count and stable failure code.
+- Package source (`verified-cache` or `desktop-refresh`) and package state.
+- Stable failure code.
 - The action attempted and whether the same result occurred after restart,
   reconnect, or host switch.
 
@@ -178,12 +172,12 @@ rather than a routine rollback.
 
 Before production cutover, record iOS and Android evidence for:
 
-1. Readiness timeout and three-process-loss automatic recovery.
-2. Manual **Use last version** recovery.
-3. **Reset** followed by an authenticated verified redownload.
-4. Corrupt active generation with compatible previous-generation fallback.
-5. Incompatible bridge, disconnected Desktop, pairing removal, and WebView
-   process loss.
+1. WebView process loss restarting the view in place.
+2. A failed page load dropping the host cache and redownloading once.
+3. A corrupt cached generation refusing to open and being replaced by a
+   verified redownload.
+4. An interrupted download leaving no staged tree after a restart.
+5. Incompatible bridge, disconnected Desktop, and pairing removal.
 6. Bad Desktop package containment and a corrected Desktop package rollout.
 7. Paused native store rollout and a corrected native release rehearsal.
 8. Privacy review of the copied diagnostics and release evidence.

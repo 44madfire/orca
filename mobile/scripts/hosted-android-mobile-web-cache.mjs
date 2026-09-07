@@ -4,83 +4,73 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const packageName = 'com.stably.orca.mobile'
 const cacheRoot = 'no_backup/OrcaMobileWeb'
-const activationLimit = 16
+const generationLimit = 16
 const buildIdPattern = /^[a-f0-9]{64}$/
 
-export async function readAndroidMobileWebActivations(command, runAdb = runAndroidAdb) {
+/**
+ * A host keeps exactly one committed generation, so the directory under `generations/` is the
+ * activation record; there is no separate file to read.
+ */
+export async function readAndroidCommittedGenerations(command, runAdb = runAndroidAdb) {
   const output = await runAdb(command, [
     'shell',
     'run-as',
     packageName,
     'find',
     cacheRoot,
-    '-name',
-    'activation.json',
+    '-mindepth',
+    '3',
+    '-maxdepth',
+    '3',
     '-type',
-    'f'
+    'd',
+    '-path',
+    `${cacheRoot}/*/generations/*`
   ])
   const paths = output.split(/\r?\n/u).filter(Boolean)
-  if (paths.length > activationLimit) {
-    throw new Error('Android cache returned too many activation records')
+  if (paths.length > generationLimit) {
+    throw new Error('Android cache returned too many committed generations')
   }
-  return Promise.all(
-    paths.map(async (path) => ({
-      path,
-      ...parseAndroidMobileWebActivation(
-        await runAdb(command, ['shell', 'run-as', packageName, 'cat', path])
-      )
-    }))
-  )
+  return paths.map(parseAndroidGenerationPath)
 }
 
-export async function readAndroidRollbackActivation(command, runAdb = runAndroidAdb) {
-  const records = await readAndroidMobileWebActivations(command, runAdb)
-  const candidates = records.filter((record) => record.previous)
-  if (candidates.length !== 1) {
-    throw new Error(`Expected one Android rollback candidate, found ${candidates.length}`)
-  }
-  return candidates[0]
-}
-
-export async function readSingleAndroidActivation(command, runAdb = runAndroidAdb) {
-  const records = await readAndroidMobileWebActivations(command, runAdb)
+export async function readSingleAndroidGeneration(command, runAdb = runAndroidAdb) {
+  const records = await readAndroidCommittedGenerations(command, runAdb)
   if (records.length !== 1) {
-    throw new Error(`Expected one Android activation record, found ${records.length}`)
+    throw new Error(`Expected one Android committed generation, found ${records.length}`)
   }
   return records[0]
 }
 
-export async function waitForAndroidActivation(
+export async function waitForAndroidCommittedGeneration(
   command,
-  path,
   expectedBuildId,
   timeoutMs,
   runAdb = runAndroidAdb
 ) {
   const deadline = Date.now() + timeoutMs
-  let last
+  let records = []
   while (Date.now() < deadline) {
-    last = parseAndroidMobileWebActivation(
-      await runAdb(command, ['shell', 'run-as', packageName, 'cat', path])
-    )
-    if (last.active === expectedBuildId) {
-      return last
+    records = await readAndroidCommittedGenerations(command, runAdb)
+    const match = records.find((record) => record.buildId === expectedBuildId)
+    if (match) {
+      return match
     }
     await delay(100)
   }
-  throw new Error(`Android activation did not change: ${JSON.stringify(last)}`)
+  throw new Error(
+    `Android generation did not commit: ${expectedBuildId}; records=${JSON.stringify(records)}`
+  )
 }
 
-export function parseAndroidMobileWebActivation(value) {
-  const parsed = JSON.parse(value)
-  const previous = parsed?.previous ?? null
-  if (
-    !buildIdPattern.test(parsed?.active) ||
-    (previous !== null && !buildIdPattern.test(previous))
-  ) {
-    throw new Error('Android cache returned an invalid activation record')
+export function parseAndroidGenerationPath(value) {
+  const segments = value.split('/')
+  const buildId = segments.at(-1)
+  const hostIdentity = segments.at(-3)
+  if (!buildIdPattern.test(buildId ?? '') || !buildIdPattern.test(hostIdentity ?? '')) {
+    throw new Error('Android cache returned an invalid generation path')
   }
-  return { active: parsed.active, previous }
+  return { path: value, hostIdentity, buildId }
 }
 
 export async function runAndroidAdb(command, args, timeoutMs = 30_000) {

@@ -21,7 +21,7 @@ describe('mobile web package download abort sites', () => {
 
     await downloadMobileWebPackage(fixture.request, stager, { shellBridgeVersion: 1 })
 
-    expect(stager.begin).toHaveBeenCalledOnce()
+    expect(stager.writeAsset).toHaveBeenCalledOnce()
     expect(stager.commit).toHaveBeenCalledOnce()
   })
 
@@ -39,7 +39,7 @@ describe('mobile web package download abort sites', () => {
     ).rejects.toMatchObject({ code: 'cancelled' })
 
     expect(fixture.request).not.toHaveBeenCalled()
-    expect(stager.begin).not.toHaveBeenCalled()
+    expect(stager.writeAsset).not.toHaveBeenCalled()
     expect(stager.commit).not.toHaveBeenCalled()
   })
 
@@ -55,7 +55,7 @@ describe('mobile web package download abort sites', () => {
       })
     ).rejects.toMatchObject({ code: 'cancelled' })
 
-    expect(stager.begin).not.toHaveBeenCalled()
+    expect(stager.writeAsset).not.toHaveBeenCalled()
     expect(stager.commit).not.toHaveBeenCalled()
   })
 
@@ -75,7 +75,7 @@ describe('mobile web package download abort sites', () => {
       })
     ).rejects.toMatchObject({ code: 'cancelled' })
 
-    expect(stager.begin).not.toHaveBeenCalled()
+    expect(stager.writeAsset).not.toHaveBeenCalled()
   })
 
   it('never commits a staged package when the abort lands after the last asset', async () => {
@@ -92,7 +92,7 @@ describe('mobile web package download abort sites', () => {
       })
     ).rejects.toMatchObject({ code: 'cancelled' })
 
-    expect(stager.begin).toHaveBeenCalledOnce()
+    expect(stager.writeAsset).toHaveBeenCalledOnce()
     expect(stager.commit).not.toHaveBeenCalled()
     expect(stager.abort).toHaveBeenCalledOnce()
   })
@@ -145,11 +145,9 @@ function createFixture(hooks: { afterManifest?: () => void } = {}): {
   return { manifest, request }
 }
 
-function createStager(onFinishAsset: () => void = () => {}) {
+function createStager(onAssetWritten: () => void = () => {}) {
   return {
-    begin: vi.fn(async () => {}),
-    writeAssetChunk: vi.fn(async () => {}),
-    finishAsset: vi.fn(async () => onFinishAsset()),
+    writeAsset: vi.fn(async () => onAssetWritten()),
     commit: vi.fn(async (manifest: MobileWebManifest) => ({ generation: manifest.buildId })),
     abort: vi.fn(async () => {})
   } satisfies MobileWebPackageStager<{ generation: string }>

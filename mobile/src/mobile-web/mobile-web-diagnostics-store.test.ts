@@ -3,34 +3,29 @@ import { MOBILE_WEB_BRIDGE_PROTOCOL_VERSION } from '../../../src/shared/mobile-w
 import { MobileWebDiagnosticsStore } from './mobile-web-diagnostics-store'
 
 const BUILD_A = 'a'.repeat(64)
-const BUILD_B = 'b'.repeat(64)
 
 describe('mobile web diagnostics store', () => {
-  it('records only bounded package, health, and recovery state per host', () => {
+  it('records only bounded package state per host', () => {
     const store = new MobileWebDiagnosticsStore()
 
     store.begin('host-a')
     store.sessionReady('host-a', BUILD_A, 'verified-cache', 148.4)
     store.refreshSucceeded('host-a', 972.6)
-    store.healthy('host-a', BUILD_A)
     store.restarted('host-a', BUILD_A)
-    store.recovered('host-a', BUILD_B, 'webview_crash_loop')
 
     expect(store.get('host-a')).toEqual({
       bridgeVersion: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
-      buildId: BUILD_B,
+      buildId: BUILD_A,
       packageSource: 'verified-cache',
       packageStatus: 'warning',
       activationMs: 148,
       refreshMs: 973,
-      healthStatus: 'recovered',
-      recoveryCount: 1,
       terminalResyncCount: 0,
       terminalOverflowCount: 0,
       terminalAckLagMaxMs: null,
       terminalOutstandingBytesHighWater: 0,
       terminalLastResyncReason: null,
-      lastFailureCode: 'webview_crash_loop'
+      lastFailureCode: 'webview_process_terminated'
     })
     expect(store.get('host-b').buildId).toBeNull()
   })

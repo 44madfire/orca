@@ -23,9 +23,6 @@
     "test:e2e:hosted-webview:android-back": "node scripts/run-hosted-android-hardware-back-e2e.mjs",
     "test:e2e:hosted-webview:android-security": "node scripts/run-hosted-android-webview-security-e2e.mjs",
     "test:e2e:hosted-webview:android-release": "node scripts/verify-hosted-android-release-webview.mjs",
-    "test:e2e:hosted-webview:android-crash-loop": "node scripts/run-hosted-android-webview-crash-loop.mjs",
-    "test:e2e:hosted-webview:android-corrupt-cache": "node scripts/run-hosted-android-corrupt-cache.mjs",
-    "test:e2e:hosted-webview:ios-crash-loop": "node scripts/run-hosted-ios-webview-crash-loop.mjs",
     "test:native:ios-web-store": "node scripts/run-ios-mobile-web-store-tests.mjs"
   },
   "dependencies": {

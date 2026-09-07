@@ -86,9 +86,11 @@ routes remain outside the hosted route graph.
 5. A paired shell requests `mobileWeb.package.manifest` and bounded
    `mobileWeb.package.asset` chunks over the existing authenticated,
    end-to-end-encrypted mobile RPC connection.
-6. The native store stages and verifies the complete package in a cache scoped
-   to the paired Desktop identity. Activation is atomic; incomplete or corrupt
-   generations never become active.
+6. The shell reassembles each asset in memory, checks it against the manifest
+   hash, and hands it to the native store whole with `writeStagedAsset`. One
+   `commitGeneration` call then re-verifies every manifest asset on disk, writes
+   the manifest, and renames the staged tree into place. Activation is that one
+   rename; incomplete or corrupt generations never become active.
 7. The shell renders only verified assets through a native-controlled origin:
    `orca-mobile-web://<session>/` on iOS and
    `https://orca-mobile-web.invalid/` on Android.
@@ -139,10 +141,12 @@ edges still meet the device and keep their measured values.
 - Desktop verifies the package before serving it. The native store independently
   checks the canonical manifest, build identity, asset path, byte length,
   content hash, MIME role, bridge range, and bounded chunk sequence.
-- Package and activation records use bounded exact JSON parsing. Cache reads,
-  writes, cleanup, quota accounting, and activation reject traversal, linked
-  trees, non-regular files, and paths outside the native cache root.
-- Caches and active/previous generations are scoped to one paired host.
+- The build id is the sha256 of the canonical manifest bytes, so the generation
+  directory name authenticates the manifest and the manifest authenticates every
+  asset. The store re-derives that hash on every open.
+- Cache reads, writes, cleanup, and commit reject traversal, linked trees,
+  non-regular files, and paths outside the native cache root.
+- Caches are scoped to one paired host, which keeps exactly one generation.
 
 ### WebView isolation
 
@@ -285,32 +289,27 @@ before opening it.
 This bridge policy is separate from the older broad mobile/Desktop protocol
 version constants used by native routes.
 
-## Cache, Health, and Recovery
+## Cache and Recovery
 
-The shell first tries the active compatible verified generation, then refreshes
-from Desktop when connected. A healthy cached package remains available while a
-refresh fails or Desktop is offline. Page readiness and an interactive health
-message form the activation boundary.
+Each paired host keeps exactly one committed generation. The shell opens that
+generation first, then refreshes from Desktop when connected; a cached package
+stays usable while a refresh fails or Desktop is offline. The cache holds at
+most four hosts and evicts the least recently activated one on overflow.
 
-A WebView process restart below the crash-loop threshold retains the shell
-session id but retires and rebuilds the capability broker, so every page-scoped
-subscription, stream, and pending request from the lost process is discarded
-rather than reused.
+Staged writes live under `<cache>/<hostKey>/tmp/<buildId>/` and are never
+activation candidates. A disk-full write throws and the shell drops the staged
+tree with `abortGeneration`; launching the app removes every `tmp` directory, so
+an interrupted download can never survive a restart.
 
-Repeated WebView process loss or a health timeout can promote the compatible
-verified previous generation. The recovery UI exposes:
+A WebView process restart retains the shell session id but retires and rebuilds
+the capability broker, so every page-scoped subscription, stream, and pending
+request from the lost process is discarded rather than reused.
 
-- **Retry** — request the current package from the authenticated Desktop. This
-  is the only primary button; the rest render as demoted text links.
-- **Use last version** — promote this host's verified prior generation.
-- **Reset** — remove this host's package cache and require a verified
-  redownload.
-- **Switch hosts** — leave the affected host without changing another host's
-  cache or credentials.
-
-Cache clearing does not roll Desktop back. If Desktop still serves a bad
-package, the same package will be downloaded again. Never edit activation
-metadata or cached assets by hand. See the
+There is no A/B rollback: a generation that cannot render is not a generation to
+fall back from. When the page fails to load, the shell deletes that host's cache
+and downloads the package again, once per host selection. If Desktop is
+unreachable, the shell stays in its offline state and retries when the
+connection returns. Never edit cached assets by hand. See the
 [rollback and recovery runbook](./mobile-hybrid-webview-rollback.md) for
 incident containment and store-release recovery.
 

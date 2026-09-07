@@ -43,14 +43,16 @@ describe('mobile web native bridge compatibility', () => {
     )
   })
 
-  it('enforces both manifest bounds on initial open and recovery', () => {
-    expect(iosStoreSource.match(/requireCompatibleBridge/g)).toHaveLength(3)
+  // Opening a session is the only path that binds a generation to the running shell, so both
+  // manifest bounds have to be checked there and nowhere else.
+  it('enforces both manifest bounds on the single open path', () => {
     expect(iosStoreSource).toContain('bridgeVersion >= manifest.bridgeMinimum')
     expect(iosStoreSource).toContain('bridgeVersion <= manifest.bridgeTestedThrough')
-    expect(androidStoreSource.match(/requireCompatibleBridge/g)).toHaveLength(3)
+    expect(iosStoreSource.match(/mobile_web_bridge_incompatible/g)).toHaveLength(1)
     expect(androidStoreSource).toContain(
       'bridgeVersion in manifest.bridgeMinimum..manifest.bridgeTestedThrough'
     )
+    expect(androidStoreSource.match(/mobile_web_bridge_incompatible/g)).toHaveLength(1)
   })
 
   it('keeps native package asset limits aligned with the shared manifest', () => {

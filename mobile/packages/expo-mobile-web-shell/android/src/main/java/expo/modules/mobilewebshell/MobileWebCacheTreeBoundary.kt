@@ -13,15 +13,6 @@ internal fun removeMobileWebCacheTree(entry: File, withinRoot: File): Boolean {
   return entry.delete()
 }
 
-internal fun mobileWebCacheLogicalByteLength(entry: File, withinRoot: File): Long {
-  if (!isMobileWebUnlinkedPath(entry, withinRoot) || !entry.exists()) return 0
-  if (entry.isFile) return entry.length()
-  if (!entry.isDirectory) return 0
-  return entry.listFiles()
-    ?.sumOf { mobileWebCacheLogicalByteLength(it, withinRoot) }
-    ?: 0
-}
-
 internal fun isMobileWebUnlinkedPath(entry: File, withinRoot: File): Boolean {
   val expected = expectedMobileWebCanonicalPath(entry, withinRoot) ?: return false
   return runCatching { entry.canonicalFile.path == expected }.getOrDefault(false)

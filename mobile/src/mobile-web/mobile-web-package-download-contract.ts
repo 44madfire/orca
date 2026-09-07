@@ -46,11 +46,9 @@ export function mobileWebPackageDownloadFailureCode(error: unknown): string {
 export type MobileWebPackageRequest = (method: string, params?: unknown) => Promise<RpcResponse>
 
 export type MobileWebPackageStager<TCommit> = {
-  begin(manifest: MobileWebManifest): Promise<void>
-  writeAssetChunk(asset: MobileWebAsset, offset: number, bytes: Uint8Array): Promise<void>
-  finishAsset(asset: MobileWebAsset): Promise<void>
+  writeAsset(buildId: string, asset: MobileWebAsset, bytes: Uint8Array): Promise<void>
   commit(manifest: MobileWebManifest): Promise<TCommit>
-  abort(): Promise<void>
+  abort(buildId: string): Promise<void>
 }
 
 export async function requestMobileWebPackageResult(

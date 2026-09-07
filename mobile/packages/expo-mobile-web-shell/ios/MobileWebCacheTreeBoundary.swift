@@ -23,21 +23,3 @@ func removeMobileWebCacheTree(_ entry: URL, within cacheRoot: URL) throws {
   }
   try fileManager.removeItem(at: entry)
 }
-
-func mobileWebCacheLogicalByteLength(_ entry: URL, within cacheRoot: URL) throws -> Int64 {
-  guard
-    FileManager.default.fileExists(atPath: entry.path),
-    isMobileWebUnlinkedPath(entry, within: cacheRoot)
-  else { return 0 }
-  let values = try entry.resourceValues(
-    forKeys: [.isDirectoryKey, .isRegularFileKey, .fileSizeKey]
-  )
-  if values.isRegularFile == true { return Int64(values.fileSize ?? 0) }
-  guard values.isDirectory == true else { return 0 }
-  return try FileManager.default.contentsOfDirectory(
-    at: entry,
-    includingPropertiesForKeys: nil
-  ).reduce(Int64(0)) { total, child in
-    total + (try mobileWebCacheLogicalByteLength(child, within: cacheRoot))
-  }
-}
