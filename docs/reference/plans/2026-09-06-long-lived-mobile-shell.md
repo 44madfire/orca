@@ -14,6 +14,20 @@ A checked box means implemented and verified, with evidence below. Unit tests
 alone do not complete a platform journey. Keep legacy v2 paths for older cached
 pages; no protocol or manifest bump is planned.
 
+## Compatibility scope correction — audit completed
+
+User confirmed hybrid has zero released users. Preserve released native mobile →
+new Desktop behavior; hybrid → old Desktop may require a Desktop update. Earlier
+entries requiring compatibility with intermediate hybrid shells/pages are
+superseded by this decision, not evidence of shipped contracts.
+
+The [simplification audit](./2026-09-06-hybrid-compatibility-simplification-audit.md)
+contains concrete removal targets and retained boundaries. Runtime cleanup has
+not been performed. First establish the final hybrid baseline through the existing
+Update Desktop UI, then remove completed slices’ hybrid fallbacks and their dead
+shell branches. Preserve native RPCs, real SSH compatibility, page-state/storage
+protections and currently unmigrated domain paths.
+
 ## Current checkpoint
 
 Last reconciled: September 6, 2026, current host-settings integration batch.
