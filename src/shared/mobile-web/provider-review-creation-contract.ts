@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { isMobileWebGitObjectId } from './protocol-token-contract'
 import { MobileWebGitRefNameSchema } from './source-control-history-contract'
 import { MobileWebWorkspaceIdSchema } from './workspace-operation-contract'
+import { MobileWebProviderReviewHostScope } from './provider-review-contract'
 
 const ProviderSchema = z.enum([
   'github',
@@ -152,6 +153,19 @@ export const MobileWebProviderReviewFieldsResultSchema = z.discriminatedUnion('s
     })
     .strict()
 ])
+
+export const MobileWebProviderReviewEligibilityHostParamsSchema =
+  MobileWebProviderReviewEligibilityPayloadSchema.omit({ workspaceId: true }).extend(
+    MobileWebProviderReviewHostScope
+  )
+export const MobileWebProviderReviewCreateHostParamsSchema =
+  MobileWebProviderReviewCreatePayloadSchema.omit({ workspaceId: true }).extend(
+    MobileWebProviderReviewHostScope
+  )
+export const MobileWebProviderReviewFieldsHostParamsSchema =
+  MobileWebProviderReviewFieldsPayloadSchema.omit({ workspaceId: true }).extend(
+    MobileWebProviderReviewHostScope
+  )
 
 export type MobileWebProviderReviewEligibilityPayload = z.infer<
   typeof MobileWebProviderReviewEligibilityPayloadSchema

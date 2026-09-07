@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildMobileWebProviderReviewContentDiffPage,
-  buildMobileWebProviderReviewPatchDiffPage
-} from './provider-review-diff-page'
+  buildMobileWebReviewContentDiffPage,
+  buildMobileWebReviewPatchDiffPage
+} from './mobile-web-review-diff-page'
 
 const identity = {
   workspaceId: 'repo::workspace',
@@ -19,7 +19,7 @@ const identity = {
 
 describe('mobile web provider review diff pages', () => {
   it('parses bounded GitLab patch rows without retaining patch headers', () => {
-    const result = buildMobileWebProviderReviewPatchDiffPage({
+    const result = buildMobileWebReviewPatchDiffPage({
       ...identity,
       patch: [
         'diff --git a/src/review.ts b/src/review.ts',
@@ -64,7 +64,7 @@ describe('mobile web provider review diff pages', () => {
       ' six',
       ' seven'
     ].join('\n')
-    const result = buildMobileWebProviderReviewPatchDiffPage({
+    const result = buildMobileWebReviewPatchDiffPage({
       ...identity,
       limit: 3,
       focusLine: 4,
@@ -84,7 +84,7 @@ describe('mobile web provider review diff pages', () => {
   })
 
   it('builds paginated GitHub content rows and enforces the mobile input limit', () => {
-    const result = buildMobileWebProviderReviewContentDiffPage({
+    const result = buildMobileWebReviewContentDiffPage({
       ...identity,
       provider: 'github',
       originalContent: 'one\nold\nthree\n',
@@ -97,7 +97,7 @@ describe('mobile web provider review diff pages', () => {
       nextOffset: 2
     })
 
-    const tooLarge = buildMobileWebProviderReviewContentDiffPage({
+    const tooLarge = buildMobileWebReviewContentDiffPage({
       ...identity,
       provider: 'github',
       originalContent: 'x'.repeat(2_000_001),
@@ -111,7 +111,7 @@ describe('mobile web provider review diff pages', () => {
   })
 
   it('caps retained patch rows and individual line text before pagination', () => {
-    const result = buildMobileWebProviderReviewPatchDiffPage({
+    const result = buildMobileWebReviewPatchDiffPage({
       ...identity,
       limit: 96,
       patch: [

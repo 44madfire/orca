@@ -1,20 +1,24 @@
 import type {
   MobileWebProviderReviewDiffPayload,
   MobileWebProviderReviewDiffResult
-} from './provider-review-diff-contract'
-import { buildMobileWebSourceControlDiffPage } from './source-control-diff-page'
+} from '../../../../shared/mobile-web/provider-review-diff-contract'
+import { buildMobileWebSourceControlDiffPage } from '../../../../shared/mobile-web/source-control-diff-page'
+import type { MobileWebReviewPageResult } from './mobile-web-review-scope'
 import {
   MOBILE_WEB_DIFF_INPUT_MAX_CHARACTERS,
   MOBILE_WEB_DIFF_LINE_MAX_CHARACTERS,
   MOBILE_WEB_DIFF_MAX_ROWS,
   type MobileWebDiffRow
-} from './source-control-operation-contract'
+} from '../../../../shared/mobile-web/source-control-operation-contract'
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
+const DISCARDED_WORKSPACE_IDENTITY = 'review'
 
+/** The page result minus the workspace handle the desktop never learns. */
+type ReviewDiffPage = MobileWebReviewPageResult<MobileWebProviderReviewDiffResult>
 type ReviewDiffIdentity = Pick<
-  MobileWebProviderReviewDiffResult,
-  'workspaceId' | 'observedHead' | 'branch' | 'provider' | 'reviewNumber' | 'reviewHead' | 'path'
+  ReviewDiffPage,
+  'observedHead' | 'branch' | 'provider' | 'reviewNumber' | 'reviewHead' | 'path'
 >
 
 type ReviewDiffPageInput = ReviewDiffIdentity &
@@ -22,14 +26,15 @@ type ReviewDiffPageInput = ReviewDiffIdentity &
     revision: string
   }
 
-export function buildMobileWebProviderReviewContentDiffPage(
+export function buildMobileWebReviewContentDiffPage(
   input: ReviewDiffPageInput & {
     originalContent: string
     modifiedContent: string
   }
-): MobileWebProviderReviewDiffResult {
+): ReviewDiffPage {
   const built = buildMobileWebSourceControlDiffPage({
-    workspaceId: input.workspaceId,
+    // The shared builder stamps its own identity onto a result we only read rows out of.
+    workspaceId: DISCARDED_WORKSPACE_IDENTITY,
     relativePath: input.path,
     area: 'unstaged',
     revision: input.revision,
@@ -52,9 +57,9 @@ export function buildMobileWebProviderReviewContentDiffPage(
   return paginateReviewRows(input, built.rows, built.truncated)
 }
 
-export function buildMobileWebProviderReviewPatchDiffPage(
+export function buildMobileWebReviewPatchDiffPage(
   input: ReviewDiffPageInput & { patch: string }
-): MobileWebProviderReviewDiffResult {
+): ReviewDiffPage {
   if (input.patch.length > MOBILE_WEB_DIFF_INPUT_MAX_CHARACTERS) {
     return {
       ...reviewIdentity(input),
@@ -71,7 +76,7 @@ function paginateReviewRows(
   input: ReviewDiffPageInput,
   rows: MobileWebDiffRow[],
   truncated: boolean
-): MobileWebProviderReviewDiffResult {
+): ReviewDiffPage {
   const focusRow = input.focusLine
     ? rows.find((row) => row.newLineNumber === input.focusLine)
     : undefined
@@ -136,7 +141,6 @@ function parsePatchRows(patch: string): { rows: MobileWebDiffRow[]; truncated: b
 
 function reviewIdentity(input: ReviewDiffIdentity): ReviewDiffIdentity {
   return {
-    workspaceId: input.workspaceId,
     observedHead: input.observedHead,
     branch: input.branch,
     provider: input.provider,

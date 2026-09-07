@@ -221,6 +221,14 @@ edges still meet the device and keep their measured values.
   themselves. Only commit-message generation still runs as a shell operation,
   because it outlives the host lane's fifteen-second request deadline and the
   page cancels it while it runs.
+  Control reads/watch, session snapshot/feed/actions, terminal metadata and the
+  whole provider review surface use this path.
+- Provider review is desktop-owned end to end. `mobileWeb.review.*` reads the
+  branch's hosted review, projects the provider work item into the page contract,
+  and runs every comment, management, submission and creation action. GitHub and
+  GitLab differ only inside those handlers; the shell knows neither. Review
+  output the provider does not bound — check-run job logs and file diffs — is
+  clipped on the desktop so the page's schema bounds hold.
 - Decisions behind the generic lane and its 2026-09-07 simplification are in
   [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.
