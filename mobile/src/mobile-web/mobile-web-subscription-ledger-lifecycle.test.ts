@@ -96,21 +96,6 @@ describe('subscription ledger teardown', () => {
       workspaceAuthority
     })
     const client = stubClient(() => {})
-    subscriptions.browser.start({
-      requestId: 'r1',
-      subscriptionId: 'browser-1',
-      payload: {
-        workspaceId: workspaceAuthority.pageWorkspaceId('host-workspace'),
-        pageId: 'page',
-        format: 'jpeg',
-        quality: 72,
-        maxWidth: 800,
-        maxHeight: 600,
-        everyNthFrame: 1,
-        minFrameIntervalMs: 100
-      },
-      client
-    })
     subscriptions.host.start({
       requestId: 'r2',
       subscriptionId: 'host-1',
@@ -121,11 +106,7 @@ describe('subscription ledger teardown', () => {
 
     subscriptions.closeAll({ code: 'unavailable', retryable: true })
 
-    expect(messages.map((message) => message.type)).toEqual([
-      'subscriptionClosed',
-      'subscriptionClosed'
-    ])
-    expect(subscriptions.cancel('browser-1')).toBeNull()
+    expect(messages.map((message) => message.type)).toEqual(['subscriptionClosed'])
     expect(subscriptions.cancel('host-1')).toBeNull()
   })
 

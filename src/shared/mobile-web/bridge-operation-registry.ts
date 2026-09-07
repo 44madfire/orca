@@ -36,10 +36,6 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     resetCreditCapability: 'read',
     consumeResetCredit: 'mutation'
   },
-  settings: {
-    snapshot: 'read',
-    update: 'mutation'
-  },
   speech: {
     subscribe: 'subscription',
     start: 'mutation',

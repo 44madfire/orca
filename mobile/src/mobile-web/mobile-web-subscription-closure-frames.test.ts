@@ -7,6 +7,7 @@ import type { MobileWebSpeechEvent } from '../../../src/shared/mobile-web/speech
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 const SUBSCRIPTION_ID = 'subscription-1'
+const randomBytes = (length: number): Uint8Array => new Uint8Array(length).fill(4)
 
 type Posts = {
   isActive: () => boolean

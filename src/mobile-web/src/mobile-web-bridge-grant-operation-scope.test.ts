@@ -46,14 +46,14 @@ describe('mobile web bridge grant operation scope', () => {
     })
   })
 
-  it('keeps per-capability request limits apart when two capabilities share an operation name', async () => {
+  it('keeps per-capability request limits apart across capabilities', async () => {
     const harness = createHarness([
       {
         capability: 'workspace',
         operation: 'snapshot',
         limits: { ...LIMITS, maxRequestBytes: 8 }
       },
-      { capability: 'agentHistory', operation: 'snapshot', limits: LIMITS }
+      { capability: 'account', operation: 'resetCreditCapability', limits: LIMITS }
     ])
 
     const oversize = harness.client.workspaceSnapshot({ limit: 10 }).then(
@@ -63,13 +63,10 @@ describe('mobile web bridge grant operation scope', () => {
     expect(harness.messages).toHaveLength(0)
     await expect(oversize).resolves.toMatchObject({ code: 'too_large', retryable: false })
 
-    void harness.client.agentHistory.snapshot({
-      workspaceId: WORKSPACE_ID,
-      scope: 'workspace',
-      query: '',
-      force: false
-    })
-    expect(harness.messages).toMatchObject([{ capability: 'agentHistory', operation: 'snapshot' }])
+    void harness.client.account.resetCreditCapability()
+    expect(harness.messages).toMatchObject([
+      { capability: 'account', operation: 'resetCreditCapability' }
+    ])
   })
 })
 

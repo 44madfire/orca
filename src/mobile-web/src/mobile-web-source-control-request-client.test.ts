@@ -15,8 +15,12 @@ function fixture(result: unknown) {
   }
 }
 
-function hostRequest(method: string, params: Record<string, unknown>) {
-  return ['workspace', 'hostRequest', { method, workspaceId, params }]
+function hostRequest(method: string, params: Record<string, unknown>, timeoutMs?: number) {
+  return [
+    'workspace',
+    'hostRequest',
+    { method, workspaceId, params, ...(timeoutMs === undefined ? {} : { timeoutMs }) }
+  ]
 }
 
 describe('page Source Control history reads over the host lane', () => {
@@ -141,7 +145,7 @@ describe('page Source Control writes over the host lane', () => {
       error: 'pre-commit hook failed'
     })
     expect(f.request.mock.calls[0]!.slice(0, 3)).toEqual(
-      hostRequest('git.commit', { message: 'feat: mobile' })
+      hostRequest('git.commit', { message: 'feat: mobile' }, 60_000)
     )
     expect(f.request.mock.calls[0]!.at(-1)).toMatchObject({ timeoutMs: 60_000 })
   })

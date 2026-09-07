@@ -5,11 +5,6 @@ import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 describe('mobile web mutation authorization races', () => {
-        return Promise.resolve(success({ ok: true }))
-      }
-      return Promise.resolve(failure())
-    })
-  })
 
   it('rejects native-chat persistence when the tab lookup loses its workspace authority', async () => {
     const workspace = workspaceAuthority()

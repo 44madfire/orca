@@ -99,6 +99,20 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
   }
 
 
+async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Promise<unknown> {
+  if (request.operation !== 'hostSubscribe') {
+    throw new MobileWebBrokerError('unsupported_capability')
+  }
+  args.hostSubscriptions.start({
+    requestId: request.requestId,
+    subscriptionId: request.subscriptionId,
+    payload: request.payload,
+    client: args.connectedClient(),
+    isActive: args.isRequestActive
+  })
+  return null
+}
+
 async function subscribeTerminal(args: Deps, request: SubscriptionRequest): Promise<unknown> {
   requireSubscribeOperation(request)
   await args.terminalStreams.start({
@@ -124,6 +138,7 @@ async function subscribeSpeech(args: Deps, request: SubscriptionRequest): Promis
 export const MOBILE_WEB_SUBSCRIPTION_CAPABILITY_ARMS: Partial<
   Record<MobileWebBridgeCapability, SubscriptionArm>
 > = {
+  workspace: subscribeWorkspace,
   terminal: subscribeTerminal,
   speech: subscribeSpeech
 }

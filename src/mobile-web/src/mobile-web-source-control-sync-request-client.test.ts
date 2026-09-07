@@ -23,8 +23,12 @@ function fixture(result: unknown) {
   }
 }
 
-function hostRequest(method: string, params: Record<string, unknown>) {
-  return ['workspace', 'hostRequest', { method, workspaceId, params }]
+function hostRequest(method: string, params: Record<string, unknown>, timeoutMs?: number) {
+  return [
+    'workspace',
+    'hostRequest',
+    { method, workspaceId, params, ...(timeoutMs === undefined ? {} : { timeoutMs }) }
+  ]
 }
 
 describe('page repository state', () => {
@@ -86,7 +90,9 @@ describe('page repository writes', () => {
     )
     for (const [index, [run, method, params]] of cases.entries()) {
       await expect(run()).resolves.toBeUndefined()
-      expect(f.request.mock.calls[index]!.slice(0, 3), method).toEqual(hostRequest(method, params))
+      expect(f.request.mock.calls[index]!.slice(0, 3), method).toEqual(
+        hostRequest(method, params, 60_000)
+      )
       // A Git write waits past the read timeout the page applies to itself.
       expect(f.request.mock.calls[index]!.at(-1), method).toMatchObject({ timeoutMs: 60_000 })
     }

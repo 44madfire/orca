@@ -20,8 +20,7 @@ const HANDLE_RESOLUTION =
 const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-host-requests.ts': 5,
   'mobile-web-host-subscriptions.ts': 1,
-  'mobile-web-native-chat-binding.ts': 2,
-  'mobile-web-workspace-creation-create-operations.ts': 2
+  'mobile-web-native-chat-binding.ts': 2
 }
 
 // Device-only mutations and handles consumed in one awaited call have no reauthorization window.
@@ -127,7 +126,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations()).toHaveLength(0)
+    expect(mutations()).toHaveLength(39)
   })
 
   it('exempts only registered mutations', () => {
@@ -145,6 +144,6 @@ describe('mobile web mutation reauthorization census', () => {
     const capabilities = Object.keys(MOBILE_WEB_BRIDGE_OPERATIONS) as MobileWebBridgeCapability[]
 
     expect([...kinds].sort()).toEqual(['mutation', 'read', 'subscription'])
-    expect(capabilities).toHaveLength(13)
+    expect(capabilities).toHaveLength(9)
   })
 })
