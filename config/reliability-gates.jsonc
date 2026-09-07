@@ -487,6 +487,115 @@
       "demotionRule": "Keep experimental until CI soak; investigate failures without relaxing fidelity, liveness or resource-count assertions."
     },
     {
+      "id": "terminal-performance.pending-control-storage",
+      "title": "Pending terminal controls release consumed output backing storage",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "terminal-runtime",
+      "layer": "shared-and-renderer-unit",
+      "surfaces": [
+        "terminal output ingestion",
+        "pending agent status frames",
+        "terminal preview normalization",
+        "terminal title tracking"
+      ],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "daemon", "ssh", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local", "daemon", "ssh", "remote-runtime"],
+      "coverageNotes": "Shared code-unit and production normalizer/parser tests cover provider-independent behavior on macOS; existing buffer contracts cover normalized output. Native execution, process ownership, wire formats and mobile UI are unchanged. Folder/git identity is not inspected by these string functions.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/blob/main/src/shared/agent-status-osc.test.ts"
+      ],
+      "invariant": "Small incomplete status, ANSI and title controls must not retain disproportionately larger consumed output strings. Ownership preserves exact UTF-16, current caps and trimming, payload order and clean-output offsets without repeatedly copying ordinary growing fragments.",
+      "oracle": "Forced-GC fixtures keep live parser closures or pending tail strings after 4-16 MiB of output is consumed and require retained heap below 2 MiB while continuations still complete faithfully. Large trimmed ANSI/title tails preserve their introducers and newest payload units. Lone surrogates and split pairs survive BEL/ST completion; 512-code-unit continuation fragments incur no ownership copies.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/shared/agent-status-osc.test.ts src/shared/agent-status-osc-pending-retention.test.ts src/shared/agent-status-types.test.ts src/main/runtime/terminal-ansi-pending-retention.test.ts src/shared/osc-title-scan-tail-retention.test.ts src/shared/osc-title-scan-tail.test.ts src/main/runtime/terminal-tail-buffer.test.ts src/main/runtime/terminal-tail-whitespace.test.ts"
+      ],
+      "testFiles": [
+        "src/shared/agent-status-osc.test.ts",
+        "src/shared/agent-status-osc-pending-retention.test.ts",
+        "src/shared/agent-status-types.test.ts",
+        "src/main/runtime/terminal-ansi-pending-retention.test.ts",
+        "src/shared/osc-title-scan-tail-retention.test.ts",
+        "src/shared/osc-title-scan-tail.test.ts",
+        "src/main/runtime/terminal-tail-buffer.test.ts",
+        "src/main/runtime/terminal-tail-whitespace.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/shared/agent-status-osc-pending-retention.test.ts",
+          "assertions": [
+            "releases %i-character output prefixes while %i statuses remain incomplete",
+            "preserves raw UTF-16 across an owned suffix and %j",
+            "does not copy a growing incomplete frame on every fragment"
+          ]
+        },
+        {
+          "file": "src/main/runtime/terminal-ansi-pending-retention.test.ts",
+          "assertions": [
+            "releases %i-character prefixes behind %i incomplete statuses",
+            "preserves trimming and code units for %j",
+            "preserves split UTF-16 through %j termination",
+            "does not copy an incomplete control while ordinary fragments grow and trim it"
+          ]
+        },
+        {
+          "file": "src/shared/osc-title-scan-tail-retention.test.ts",
+          "assertions": [
+            "releases %i-character prefixes behind %i incomplete titles",
+            "preserves title %s introducer and exact UTF-16 at the cap",
+            "does not copy ordinary growing tails or unrelated incomplete OSC sequences"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/shared/agent-status-osc.test.ts src/shared/agent-status-osc-pending-retention.test.ts src/shared/agent-status-types.test.ts src/main/runtime/terminal-ansi-pending-retention.test.ts src/shared/osc-title-scan-tail-retention.test.ts src/shared/osc-title-scan-tail.test.ts src/main/runtime/terminal-tail-buffer.test.ts src/main/runtime/terminal-tail-whitespace.test.ts",
+          "result": "passed",
+          "durationSeconds": 2.1,
+          "summary": "104 tests passed across eight parser, payload, normalization, title and terminal-buffer files in the integration worktree."
+        },
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config /tmp/orca-original-osc-pending-vitest.config.mjs src/shared/agent-status-osc.test.ts src/shared/agent-status-osc-pending-retention.test.ts src/shared/agent-status-types.test.ts src/main/runtime/terminal-ansi-pending-retention.test.ts src/shared/osc-title-scan-tail-retention.test.ts src/shared/osc-title-scan-tail.test.ts src/main/runtime/terminal-tail-buffer.test.ts src/main/runtime/terminal-tail-whitespace.test.ts",
+          "result": "passed",
+          "durationSeconds": 6.49,
+          "summary": "101 tests across eight files passed with the exact original-base OSC parser plus only the ownership change. The temporary config overrides the parser and original parser test; other source dependencies are unchanged from the original base. No forward-search PR dependency."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 60,
+        "scope": "Focused unit/provider-contract suite; local runtime budget, not an established p95."
+      },
+      "flakeHistory": {
+        "status": "not-started",
+        "evidence": "Initial local validation; no CI soak history."
+      },
+      "redGreenEvidence": {
+        "status": "complete",
+        "evidence": "The original three OSC retention fixtures failed at 4.25/4.21/16.78 MB; the six initial ANSI/title retention fixtures likewise failed baseline at about 4.2/16.8 MB. Ownership passes these and the large trimmed-tail cases. Exact original-base OSC comparison matched 144,246 chunk results; separate adjacent-control corpora matched 65,062 and 50,220 results."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "100 partial OSC statuses after 64 Ki inputs retained 6,582,640 to 33,304 bytes on the original algorithm. For 256 small tails after 16 Ki output, ANSI retention fell 4,222,312 to 35,888 bytes and title retention 4,217,712 to 31,696 bytes. Copying occurs only when discarded content dominates the bounded tail; ordinary continuation fragments do not recopy. Largest ownership copies are 64 Ki code units for status and 4 Ki for ANSI/title. An adverse full-size status copy measured about 1.14 ms; 4 Ki ANSI/title copies add about 11-13 microseconds. Plain-output paths, scheduling, provider calls, limits and trimming are unchanged."
+      },
+      "knownGaps": [
+        "No live Electron input-latency or Linux/Windows/WSL/SSH execution measurement; exact string and tail behavior is covered on macOS.",
+        "GC gates are experimental with no CI soak. A provider input already sliced from an unseen larger ancestor can retain that ancestor; no universal heap cap or whole-process memory reduction is claimed.",
+        "Production frequency of idle incomplete controls is unmeasured; the largest ownership copy adds a bounded CPU cost."
+      ],
+      "promotionCriteria": [
+        "Complete CI soak with zero unexplained flakes and preserve the observable oracle."
+      ],
+      "demotionRule": "Keep experimental until CI soak; investigate failures without relaxing fidelity, liveness or resource-count assertions."
+    },
+    {
       "id": "terminal-performance.padded-fullscreen-redraw",
       "title": "Fullscreen redraw padding does not stall terminal delivery",
       "maturity": "experimental",

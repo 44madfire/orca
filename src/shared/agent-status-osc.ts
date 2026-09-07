@@ -1,5 +1,6 @@
 import type { ParsedAgentStatusPayload } from './agent-status-types'
 import { parseAgentStatusPayload } from './agent-status-types'
+import { copyUtf16SuffixToOwnedString } from './owned-utf16-suffix'
 
 const OSC_AGENT_STATUS_PREFIX = '\x1b]9999;'
 
@@ -104,6 +105,10 @@ export function createAgentStatusOscProcessor(): (data: string) => ProcessedAgen
       if (terminator === null) {
         const candidate = combined.slice(start)
         pending = candidate.length > MAX_PENDING ? '' : candidate
+        // Own small tails without recopying a growing incomplete frame.
+        if (pending && start > pending.length) {
+          pending = copyUtf16SuffixToOwnedString(combined, pending.length)
+        }
         break
       }
 

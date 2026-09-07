@@ -1,3 +1,5 @@
+import { copyUtf16SuffixToOwnedString } from './owned-utf16-suffix'
+
 const OSC_TITLE_SCAN_TAIL_LIMIT = 4096
 const OSC_TITLE_PREFIX_LENGTH = 4
 const OSC_TITLE_CODES = new Set(['0', '1', '2'])
@@ -7,7 +9,11 @@ export function extractOscTitleScanTail(input: string): string {
   if (lastOsc !== -1) {
     const suffix = input.slice(lastOsc)
     if (!suffix.includes('\x07') && !suffix.includes('\x1b\\')) {
-      return extractIncompleteTitleOscTail(suffix)
+      const tail = extractIncompleteTitleOscTail(suffix)
+      // Own bounded tails without recopying ordinary growing titles.
+      return tail.length > 0 && input.length > tail.length * 2
+        ? copyUtf16SuffixToOwnedString(tail, tail.length)
+        : tail
     }
     return input.endsWith('\x1b') ? '\x1b' : ''
   }
