@@ -6,6 +6,7 @@ import {
   isDeltaShapedProviderFrameKind,
   PROVIDER_FRAME_CLASSIFICATIONS
 } from './provider-frame-disposition'
+import { unhandledProviderFrameJournalItem } from './unhandled-provider-frame'
 
 describe('provider frame classification catalog', () => {
   it('classifies every pinned Codex app-server notification method', () => {
@@ -111,5 +112,97 @@ describe('provider frame classification catalog', () => {
     )
     // An item type nobody has dispositioned still falls through visibly.
     expect(classifyProviderFrame('codex', 'item:futureThing', {})).toBe('timeline-substantive')
+  })
+
+  it('chromes the one unmodelled codex item type that carries no content', () => {
+    expect(classifyProviderFrame('codex', 'item:sleep', { id: 's', durationMs: 20_000 })).toBe(
+      'status-chrome'
+    )
+    // Payload inspection still outranks the item catalog, so chroming a type
+    // cannot swallow one that reports a failure.
+    expect(classifyProviderFrame('codex', 'item:sleep', { id: 's', status: 'failed' })).toBe(
+      'error-surface'
+    )
+  })
+
+  it('suppresses subAgentActivity once the roster renders it, but never collabAgentToolCall', () => {
+    expect(
+      classifyProviderFrame('codex', 'item:subAgentActivity', {
+        id: 'a-1',
+        kind: 'started',
+        agentThreadId: 'thread-child',
+        agentPath: '/root/list_directory'
+      })
+      // The spawn-group roster row renders this now, so a raw gray row beside it
+      // would duplicate it. Suppressing it was gated on that renderer existing.
+    ).toBe('status-chrome')
+    expect(
+      classifyProviderFrame('codex', 'item:collabAgentToolCall', {
+        id: 'c-1',
+        tool: 'spawn',
+        status: 'inProgress',
+        senderThreadId: 'thread-root',
+        receiverThreadIds: ['thread-child'],
+        agentsStates: {}
+      })
+    ).toBe('timeline-substantive')
+  })
+
+  it('leaves content-bearing codex item types on the visible fallback', () => {
+    // Each carries text or a path a user would want: review output, the image
+    // the agent looked at or generated, injected hook prompt text.
+    for (const type of [
+      'imageView',
+      'imageGeneration',
+      'enteredReviewMode',
+      'exitedReviewMode',
+      'hookPrompt'
+    ]) {
+      expect(classifyProviderFrame('codex', `item:${type}`, { id: 'i' }), type).toBe(
+        'timeline-substantive'
+      )
+    }
+  })
+})
+
+describe('codex subagent item disposition', () => {
+  it('keeps subagent lifecycle out of the transcript now that it renders as a roster row', () => {
+    expect(
+      classifyProviderFrame('codex', 'item:subAgentActivity', {
+        type: 'subAgentActivity',
+        kind: 'started',
+        agentThreadId: 'child-1',
+        agentPath: '/root/read'
+      })
+    ).toBe('status-chrome')
+  })
+
+  it('leaves collab tool calls substantive — they may be the only subagent signal', () => {
+    // A session that reports no `subAgentActivity` gets no roster row, so
+    // suppressing this too would render its fan-out blank.
+    expect(
+      classifyProviderFrame('codex', 'item:collabAgentToolCall', {
+        type: 'collabAgentToolCall',
+        agentsStates: {}
+      })
+    ).not.toBe('status-chrome')
+  })
+
+  it('journals no fallback row for subagent activity', () => {
+    expect(
+      unhandledProviderFrameJournalItem('codex', 'item:subAgentActivity', {
+        kind: 'completed',
+        agentThreadId: 'child-1'
+      })
+    ).toBeNull()
+  })
+
+  it('still surfaces a subagent frame that reports a failure', () => {
+    expect(
+      classifyProviderFrame('codex', 'item:collabAgentToolCall', {
+        type: 'collabAgentToolCall',
+        status: 'failed'
+      })
+    ).toBe('error-surface')
   })
 })

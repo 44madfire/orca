@@ -84,7 +84,7 @@ describe('ClaudeSubagentRoster', () => {
     const body = items[0]?.body
     expect(body?.kind === 'message' && body.blocks[0]).toEqual({
       type: 'text',
-      text: 'Kicked off 1 subagent — 1 working'
+      text: 'Kicked off 1 subagent'
     })
     expect(roles()).toEqual([
       expect.objectContaining({ id: 'task-1', label: 'Review the diff', state: 'working' })

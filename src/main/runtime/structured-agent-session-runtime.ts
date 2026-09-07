@@ -16,7 +16,10 @@ import {
   type CodexStructuredSessionAdapterDeps
 } from '../codex/codex-structured-session-adapter'
 import type { ClaudeStructuredSessionAdapterDeps } from '../claude/claude-structured-session-adapter'
-import { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-host'
+import {
+  StructuredAgentSessionHost,
+  type StructuredAgentSessionHostDeps
+} from '../native-chat/agent-session-wire/structured-agent-session-host'
 import { StructuredAgentSessionAdapterRouter } from '../native-chat/agent-session-wire/structured-agent-session-adapter-router'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
@@ -76,6 +79,9 @@ export type StructuredAgentSessionRuntimeDeps = {
   resolveEnvironment?: () => Promise<NodeJS.ProcessEnv>
   resolveCodexOverrides?: () => NodeJS.ProcessEnv
   onError?: (input: { scope: string; error: unknown }) => void
+  /** Every structured-session status projection, for host-side reactions such as the first-work
+   *  workspace rename that CLI agents get from their hooks. */
+  onSessionStatusChanged?: StructuredAgentSessionHostDeps['onSessionStatusChanged']
   handoffTransport?: StructuredAgentSessionHandoffTransport
   reapOrphanChildren?: typeof stopOrphanAgentSessionChildren
 }
@@ -83,7 +89,8 @@ export type StructuredAgentSessionRuntimeDeps = {
 type InstalledRuntime = {
   host: StructuredAgentSessionHost
   adapter: { closeAll(): Promise<void> }
-  /** Resolves after every adapter-exit recovery callback has settled. */
+  /** Resolves after every observed adapter exit has published, and every
+   *  recovery callback it raised has settled. */
   waitForRecovery: () => Promise<void>
 }
 
@@ -111,6 +118,17 @@ export function ensureStructuredAgentSessionHost(
     throw error
   })
   return installing.then((installed) => installed.host)
+}
+
+/** Resolves once every provider exit observed so far has been published by its
+ *  adapter and reconciled by the host. Nothing is installed, nothing to wait on.
+ *
+ *  This is the only handle onto that barrier: reconciliation is driven by exit
+ *  callbacks, so a caller that needs the settled lease — rather than the one the
+ *  exit is still being reconciled out of — has no other way to know it landed. */
+export async function waitForStructuredAgentSessionRecovery(): Promise<void> {
+  const installed = await installing?.catch(() => null)
+  await installed?.waitForRecovery()
 }
 
 /** Drops the host and reaps every Codex child under it. Runtime teardown and
@@ -248,6 +266,14 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       },
       onBackgroundTasksChanged: (sessionId, state) =>
         host?.publishBackgroundTaskState(sessionId, state),
+      onDispatchSettledLate: (settlement) => {
+        void host?.settleLateDispatch(settlement).catch((error) =>
+          deps.onError?.({
+            scope: `structured-agent-session-late-settlement:${settlement.sessionId}`,
+            error
+          })
+        )
+      },
       ...(deps.openClaudeConnection ? { openClaudeConnection: deps.openClaudeConnection } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
     })
@@ -269,6 +295,9 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
         : {}),
       onEventSinkError: ({ sessionId, error }) =>
         deps.onError?.({ scope: `structured-agent-session-journal:${sessionId}`, error }),
+      ...(deps.onSessionStatusChanged
+        ? { onSessionStatusChanged: deps.onSessionStatusChanged }
+        : {}),
       persistTuiProviderHandle: async ({ sessionId, link, now }) => {
         await store.transitionHandoff(sessionId, (record) =>
           recordAgentSessionProviderHandle({ record, fence: record.lease.runtimeFence, link, now })
@@ -284,6 +313,10 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
         // A recovery may synchronously trigger another exit while it is
         // reacquiring. Observe until the chain stops growing.
         for (;;) {
+          // Claude reaches the chain only once its close ladder and transcript
+          // write publish the exit, so an observed death is not yet a chained
+          // one. Codex publishes inside its own exit callback and needs nothing.
+          await claude.drainObservedExits()
           const observed = recoveryChain
           await observed
           if (observed === recoveryChain) {

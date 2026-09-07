@@ -1,8 +1,4 @@
-import {
-  CLIENT_PLATFORM,
-  ensureAgentStartupInTerminal,
-  type LinkedWorkItemSummary
-} from '@/lib/new-workspace'
+import { ensureAgentStartupInTerminal, type LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { seedNativeChatLaunchDraftForAgentTab } from '@/lib/agent-launch-prompt-delivery'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { buildAgentStartupPlan } from '@/lib/tui-agent-startup'
@@ -151,7 +147,6 @@ export async function submitFolderWorkspaceCreate({
         executionHostId: runtimeEnvironmentId
           ? `runtime:${encodeURIComponent(runtimeEnvironmentId)}`
           : (projectGroup.connectionId ?? 'local'),
-        platform: CLIENT_PLATFORM,
         hostCapabilities: readLocalRuntimeCapabilities(),
         workspaceKind: 'folder',
         promptDelivery: launchDraftPrompt ? 'draft' : 'auto-submit',
@@ -182,9 +177,7 @@ export async function submitFolderWorkspaceCreate({
     linkedTask: toFolderWorkspaceLinkedTask(linkedWorkItem),
     ...(linkedTaskSourceContext ? { linkedTaskSourceContext } : {}),
     ...(quickAgent ? { createdWithAgent: quickAgent } : {}),
-    ...(pendingFirstAgentMessageRename && !structuredLaunch
-      ? { pendingFirstAgentMessageRename: true }
-      : {})
+    ...(pendingFirstAgentMessageRename ? { pendingFirstAgentMessageRename: true } : {})
   })
   if (!workspace) {
     return false

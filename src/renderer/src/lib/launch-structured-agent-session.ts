@@ -1,14 +1,16 @@
 import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
 import type {
   AgentSessionAttachResult,
-  AgentSessionMutationEnvelope,
   AgentSessionMutationResult
 } from '../../../shared/agent-session-wire'
 import {
-  createStructuredAgentSessionOperationId,
-  structuredAgentSessionPayloadFingerprint
-} from '../../../shared/structured-agent-session-mutation'
+  createStructuredAgentSessionId,
+  structuredAgentSessionCreateParams,
+  type StructuredAgentSessionCreateParams,
+  type StructuredAgentSessionResumeSource
+} from '../../../shared/structured-agent-session-create'
 import { hasRuntimeRpcErrorCode } from '../../../shared/runtime-rpc-error-code'
+import { isDefinitiveAgentSessionCreateRefusal } from '../../../shared/agent-session-definitive-refusal'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
 import { useAppStore } from '@/store'
@@ -19,12 +21,6 @@ import {
 } from '@/runtime/web-session-focus-intent'
 import { LOCAL_STRUCTURED_SESSION_OWNER } from '@/runtime/local-structured-session-tabs-sync'
 
-type StructuredAgentSessionCreateParams = {
-  envelope: AgentSessionMutationEnvelope
-  worktree: string
-  agent: AgentSessionHandleProvider
-}
-
 export type StructuredAgentSessionLaunchIntent = {
   sessionId: string
   worktreeId: string
@@ -32,14 +28,71 @@ export type StructuredAgentSessionLaunchIntent = {
   params: StructuredAgentSessionCreateParams
 }
 
-export class StructuredAgentSessionCreateRefusalError extends Error {}
+class StructuredAgentSessionCreateError extends Error {
+  constructor(
+    message: string,
+    /** The wire refusal code, or the RPC error code when the create never reached a handler. */
+    readonly code: string
+  ) {
+    super(message)
+  }
+}
+
+/**
+ * The host proved it created nothing, so a caller may open a legacy terminal instead. The class
+ * itself is the verdict: `launchStructuredAgentSession` is the only place that decides it, against
+ * the shared allowlist, so no consumer has to remember to re-check a code.
+ */
+export class StructuredAgentSessionCreateRefusalError extends StructuredAgentSessionCreateError {
+  constructor(message: string, code: string = 'structured_agent_session_unsupported') {
+    super(message, code)
+    this.name = 'StructuredAgentSessionCreateRefusalError'
+  }
+}
+
+/**
+ * Refused with a code that does not prove the session is absent. A sibling opened here would sit
+ * beside a session the host may already hold, so this deliberately is NOT a refusal error: it flows
+ * down the same path as a lost reply, which replays the intent and reconciles.
+ */
+export class StructuredAgentSessionCreateUnknownOutcomeError extends StructuredAgentSessionCreateError {
+  constructor(message: string, code: string) {
+    super(message, code)
+    this.name = 'StructuredAgentSessionCreateUnknownOutcomeError'
+  }
+}
+
+const DEFINITIVE_CREATE_FAILURE_CODES = [
+  'structured_agent_session_unsupported',
+  'method_not_found'
+] as const
+
+function definitiveStructuredAgentSessionCreateErrorCode(error: unknown): string | null {
+  if (error instanceof StructuredAgentSessionCreateError) {
+    // Our own classes already carry the verdict; message sniffing below could only invert it.
+    return error instanceof StructuredAgentSessionCreateRefusalError &&
+      isDefinitiveAgentSessionCreateRefusal(error.code)
+      ? error.code
+      : null
+  }
+  for (const code of DEFINITIVE_CREATE_FAILURE_CODES) {
+    if (hasRuntimeRpcErrorCode(error, code)) {
+      return code
+    }
+  }
+  return null
+}
+
+export function isDefinitiveStructuredAgentSessionCreateError(error: unknown): boolean {
+  return definitiveStructuredAgentSessionCreateErrorCode(error) !== null
+}
 
 export function createStructuredAgentSessionLaunchIntent(
   worktreeId: string,
-  agent: AgentSessionHandleProvider
+  agent: AgentSessionHandleProvider,
+  resumeFrom?: StructuredAgentSessionResumeSource
 ): StructuredAgentSessionLaunchIntent {
-  const sessionId = `${agent}_${crypto.randomUUID().replaceAll('-', '_')}`
-  const fields = { worktree: toRuntimeWorktreeSelector(worktreeId), agent }
+  const sessionId = createStructuredAgentSessionId(agent, () => crypto.randomUUID())
   const state = useAppStore.getState()
   recordWebSessionFocusIntent(
     { environmentId: LOCAL_STRUCTURED_SESSION_OWNER },
@@ -52,19 +105,13 @@ export function createStructuredAgentSessionLaunchIntent(
     sessionId,
     worktreeId,
     agent,
-    params: {
-      envelope: {
-        sessionId,
-        clientOperationId: createStructuredAgentSessionOperationId(() => crypto.randomUUID()),
-        expectedRuntimeFence: null,
-        payloadFingerprint: structuredAgentSessionPayloadFingerprint({
-          method: 'agentSession.create',
-          sessionId,
-          fields
-        })
-      },
-      ...fields
-    }
+    params: structuredAgentSessionCreateParams({
+      sessionId,
+      worktree: toRuntimeWorktreeSelector(worktreeId),
+      agent,
+      ...(resumeFrom ? { resumeFrom } : {}),
+      randomUuid: () => crypto.randomUUID()
+    })
   }
 }
 
@@ -127,20 +174,16 @@ async function hostSupportsCreate(intent: StructuredAgentSessionLaunchIntent): P
 /**
  * Only the host that will execute the session can answer whether it supports creating one there —
  * on Windows that means reading the provider child's process start time, which a client cannot
- * observe.
- *
- * Codex is absent on purpose: its answer is settled by the launch route and owned elsewhere, so
- * probing here would change Codex's wire traffic. Note that this early return is also why the
- * unresolvable-selector race above has never been able to refuse a Codex launch — the race is
- * identical for Codex, nothing asks. Whoever gives Codex a probe inherits it.
+ * observe. Both providers ask: the host classifies per agent, and Codex inherits the
+ * unresolvable-selector retry above along with the probe.
  */
 async function requireHostCreateSupport(intent: StructuredAgentSessionLaunchIntent): Promise<void> {
-  if (intent.agent !== 'claude') {
-    return
-  }
   if (!(await hostSupportsCreate(intent))) {
     abandonStructuredAgentSessionLaunchIntent(intent)
-    throw new StructuredAgentSessionCreateRefusalError('structured_agent_session_unsupported')
+    throw new StructuredAgentSessionCreateRefusalError(
+      'structured_agent_session_unsupported',
+      'structured_agent_session_unsupported'
+    )
   }
 }
 
@@ -148,12 +191,32 @@ export async function launchStructuredAgentSession(
   intent: StructuredAgentSessionLaunchIntent
 ): Promise<Pick<AgentSessionAttachResult, 'sessionId' | 'fence'>> {
   await requireHostCreateSupport(intent)
-  const result = await callStructuredAgentSession<
-    AgentSessionMutationResult<AgentSessionAttachResult>
-  >({ kind: 'local' }, 'agentSession.create', intent.params)
+  let result: AgentSessionMutationResult<AgentSessionAttachResult>
+  try {
+    result = await callStructuredAgentSession<AgentSessionMutationResult<AgentSessionAttachResult>>(
+      { kind: 'local' },
+      'agentSession.create',
+      intent.params
+    )
+  } catch (error) {
+    const code = definitiveStructuredAgentSessionCreateErrorCode(error)
+    if (code) {
+      abandonStructuredAgentSessionLaunchIntent(intent)
+      throw new StructuredAgentSessionCreateRefusalError(
+        error instanceof Error ? error.message : String(error),
+        code
+      )
+    }
+    throw error
+  }
   if (!result.ok) {
+    const { code, message } = result.refusal
+    if (!isDefinitiveAgentSessionCreateRefusal(code)) {
+      // Keep the focus intent: the session may exist, and recovery still has to adopt it.
+      throw new StructuredAgentSessionCreateUnknownOutcomeError(message, code)
+    }
     abandonStructuredAgentSessionLaunchIntent(intent)
-    throw new StructuredAgentSessionCreateRefusalError(result.refusal.message)
+    throw new StructuredAgentSessionCreateRefusalError(message, code)
   }
   return { sessionId: result.value.sessionId, fence: result.value.fence }
 }

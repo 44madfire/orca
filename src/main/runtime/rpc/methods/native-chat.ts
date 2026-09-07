@@ -7,7 +7,7 @@ import {
   type SubscribeNativeChatTranscriptArgs
 } from '../../../native-chat/transcript-watch'
 import { defineMethod, defineStreamingMethod, type RpcAnyMethod, type RpcContext } from '../core'
-import { sanitizeNativeChatMessageForClient } from './native-chat-rpc-block-bounds'
+import { sanitizeNativeChatRpcBlock } from './native-chat-rpc-block-sanitize'
 
 // Why: native chat renders an agent's own transcript (Claude/Codex JSONL). The
 // desktop reaches the readers via Electron IPC; mobile/web clients reach the
@@ -65,11 +65,21 @@ const NativeChatUnsubscribe = z.object({
 const MOBILE_NATIVE_CHAT_DEFAULT_WINDOW = 40
 const MOBILE_NATIVE_CHAT_MAX_WINDOW = 2000
 
+function sanitizeMessage(
+  message: NativeChatMessage,
+  clientKind: RpcContext['clientKind']
+): NativeChatMessage {
+  return {
+    ...message,
+    blocks: message.blocks.map((block) => sanitizeNativeChatRpcBlock(block, clientKind))
+  }
+}
+
 function sanitizeAppendForClient(
   messages: readonly NativeChatMessage[],
   clientKind: RpcContext['clientKind']
 ): NativeChatMessage[] {
-  return messages.map((message) => sanitizeNativeChatMessageForClient(message, clientKind))
+  return messages.map((message) => sanitizeMessage(message, clientKind))
 }
 
 /** Window a transcript to its most recent `limit` messages so a long session
@@ -93,7 +103,7 @@ function windowForClient(
   limit = MOBILE_NATIVE_CHAT_DEFAULT_WINDOW
 ): NativeChatMessage[] {
   const windowed = windowTranscript(messages, limit)
-  return windowed.map((message) => sanitizeNativeChatMessageForClient(message, clientKind))
+  return windowed.map((message) => sanitizeMessage(message, clientKind))
 }
 
 export const NATIVE_CHAT_METHODS: readonly RpcAnyMethod[] = [

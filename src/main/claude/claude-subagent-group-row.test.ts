@@ -21,7 +21,7 @@ describe('claudeSubagentGroupBody fallback sentence', () => {
 
   it('keeps the singular noun for a lone child', () => {
     expect(sentence([entry('a', 'completed')])).toBe('Ran 1 subagent')
-    expect(sentence([entry('a', 'working')])).toBe('Kicked off 1 subagent — 1 working')
+    expect(sentence([entry('a', 'working')])).toBe('Kicked off 1 subagent')
   })
 
   it('names an unverifiable child instead of claiming the group ran', () => {
@@ -42,7 +42,7 @@ describe('claudeSubagentGroupBody fallback sentence', () => {
   it('shows the adverse outcome while a sibling still works', () => {
     expect(
       sentence([entry('a', 'working'), entry('b', 'working'), entry('c', 'unverifiable')])
-    ).toBe('Kicked off 3 subagents — 2 working (1 unverifiable)')
+    ).toBe('Kicked off 3 subagents (1 unverifiable)')
   })
 
   it('leaves a benign settled state out of the sentence', () => {
