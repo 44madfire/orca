@@ -229,6 +229,8 @@ describe('orchestration fleet projection', () => {
     expect(second.workers.at(-1)?.id).toBe('dispatch-109')
   })
 
+  // Cleanup outranks the liveness verdict: this row is `unverifiable` with nothing pending and
+  // still owes a command, so `none` does not follow from absence alone.
   it('suggests release only for reclaimable ownership', () => {
     const result = projectOrchestrationFleet({
       workers: [worker('done', { terminalState: 'reclaimable' })],
@@ -236,6 +238,7 @@ describe('orchestration fleet projection', () => {
       now: 1
     })
 
+    expect(result.workers[0]?.liveness.verdict).toBe('unverifiable')
     expect(result.workers[0]?.nextAction).toEqual({
       kind: 'release',
       argv: ['orchestration', 'worker-release', '--dispatch', 'done']

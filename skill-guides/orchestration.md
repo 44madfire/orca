@@ -138,7 +138,7 @@ After three consecutive empty waits, stop waiting blindly and enumerate with
 Run; `--run <run_id>` overrides; the receipt's `scope` names which), acting on
 each row's `projection.attention` categories, `projection.attention.requiresAction`, and literal `projection.nextAction` argv.
 A `none` `nextAction` has no argv to run: read `liveness.reason` and keep waiting
-with `check --wait`. An `unverifiable` row reports it unless input or approval waits.
+with `check --wait`. Absence never earns an argv; settlement and pending work still do.
 Leave the wait only on positive proof the agent stopped: `exited` liveness, the
 worker's own observation of process exit, or a transcript whose final agent turn
 sent no `worker_done`. Then load `references/recovery-and-cleanup.md` and choose

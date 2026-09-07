@@ -168,11 +168,11 @@ describe('orchestration kernel', () => {
     expect(kernel).toContain(
       '`projection.attention` categories, `projection.attention.requiresAction`, and literal `projection.nextAction` argv'
     )
-    // Why fragments: the kernel must state both halves of projectFleetNextAction's unverifiable
-    // rule — no argv to run, and the pending-input/approval exception that still returns inspect.
+    // Why fragments: the kernel must say what `none` means without deriving it from liveness.
+    // A settled worker owning a reclaimable terminal is unverifiable and still owes `release`.
     expect(kernel).toContain('A `none` `nextAction` has no argv to run')
     expect(kernel).toContain('read `liveness.reason` and keep waiting with `check --wait`')
-    expect(kernel).toContain('An `unverifiable` row reports it unless input or approval waits')
+    expect(kernel).toContain('Absence never earns an argv; settlement and pending work still do')
     expect(kernel).toContain('choose `worker-stop` or `worker-abandon`')
   })
 
