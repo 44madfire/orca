@@ -43,6 +43,11 @@ export function handleCodexSessionExit(input: {
     event.settlementRetryRequired = true
   }
   session.ended = true
+  // A naming turn in flight otherwise holds its collector until the 60s deadline
+  // and then runs its cleanup against a dead connection. Settling it as a host
+  // failure — not a decline — leaves the conversation askable on reacquisition.
+  session.naming?.handle('error', {})
+  session.naming = null
   session.unbindReadingControl?.()
   input.onEvent?.(event)
   session.prompts.clear()

@@ -9,6 +9,7 @@ import {
   CodexStructuredSessionAdapter,
   type CodexStructuredSessionEvent
 } from './codex-structured-session-adapter'
+import { createCodexNamingTurnCollector } from './codex-conversation-name-generation'
 import { handleCodexSessionExit } from './codex-structured-session-close'
 import type { CodexSession } from './codex-structured-session-state'
 import type { StructuredAgentSessionAdapter } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
@@ -73,6 +74,49 @@ function claudeAdapterStub(): StructuredAgentSessionAdapter {
 }
 
 describe('Codex structured session close lifecycle', () => {
+  it('settles a naming turn still in flight instead of leaving it to time out', async () => {
+    const connection: CodexAppServerConnection = {
+      pid: 4321,
+      closed: true,
+      request: async () => ({}),
+      notify: () => {},
+      respond: () => {},
+      respondWithError: () => {},
+      close: async () => true
+    }
+    const naming = createCodexNamingTurnCollector(60_000)
+    const session = {
+      connection,
+      ended: false,
+      requestedClose: false,
+      fence: 7,
+      acquisitionGeneration: 'generation-1',
+      threadId: THREAD,
+      historyPath: null,
+      cwd: '/work/repo',
+      conversationName: null,
+      naming,
+      namingThreadIds: new Set<string>(),
+      namingAttempted: false,
+      prompts: { clear: vi.fn() } as unknown as CodexSession['prompts'],
+      options: new Map(),
+      reportedOptions: {},
+      turnIdWaiters: []
+    } as CodexSession
+
+    handleCodexSessionExit({
+      sessions: new Map([['session-1', session]]),
+      sessionId: 'session-1',
+      connection,
+      error: new Error('provider exited')
+    })
+
+    // A host failure, never a decline: the conversation must stay askable on the
+    // next acquisition rather than be marked permanently attempted.
+    await expect(naming.answer).resolves.toEqual({ outcome: 'failed' })
+    expect(session.naming).toBeNull()
+  })
+
   it('forwards a one-shot exit when lifecycle admission is rejected', () => {
     const connection: CodexAppServerConnection = {
       pid: 4321,

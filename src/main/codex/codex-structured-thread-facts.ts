@@ -12,13 +12,20 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
-/** `thread/start`, `thread/resume`, and `thread/started` all name the thread. */
+/** `thread/start`, `thread/resume`, and `thread/started` all name the thread.
+ *  Reads snake_case for the same reason the name reader does: an envelope whose
+ *  name is readable but whose id is not would attribute another thread's name to
+ *  this chat through the caller's `?? session.threadId` fallback. */
 export function readCodexThreadId(payload: unknown): string | null {
   const root = record(payload)
   if (!root) {
     return null
   }
-  return nonEmptyString(record(root.thread)?.id) ?? nonEmptyString(root.threadId)
+  return (
+    nonEmptyString(record(root.thread)?.id) ??
+    nonEmptyString(root.threadId) ??
+    nonEmptyString(root.thread_id)
+  )
 }
 
 /** Rollout file for the thread, when Codex reports one. Journal recovery reads
