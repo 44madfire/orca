@@ -392,6 +392,36 @@ describe('titlePresentsAgent', () => {
     expect(titlePresentsAgent('⠋ Codex', 'codex')).toBe(true)
   })
 
+  // The OTHER direction of the divergence. The parser resolves a lone vendor marker to its agent,
+  // including Claude's generic status decorations; this predicate must not, or a '. '-prefixed
+  // OpenCode task title would reclaim the pane #8940 exists to protect. Pinned because leaving
+  // this direction unguarded is exactly how the first cut of this change shipped a regression.
+  it('diverges the other way: a generic Claude status prefix is not identity', () => {
+    for (const title of [
+      '. port the claude prompt',
+      '. ship it with claude',
+      '\u2733 investigating startup'
+    ]) {
+      expect(collectAgentTitleEvidence(title).agent).toBe('claude')
+      expect(collectAgentTitleEvidence(title).reason).toBe('vendor-marker')
+      expect(titlePresentsAgent(title, 'claude')).toBe(false)
+    }
+  })
+
+  // But an agent's OWN sigil is identity, and must survive: these are the titles a real Gemini or
+  // Cursor pane paints, and refusing them stranded the pane on its previous owner.
+  it('accepts a vendor marker that is the agent own sigil', () => {
+    for (const title of [
+      '\u2726 Analyzing the repository',
+      '\u23f2 thinking',
+      '\u25c7 waiting',
+      '\u270b approve this edit'
+    ]) {
+      expect(titlePresentsAgent(title, 'gemini')).toBe(true)
+    }
+    expect(titlePresentsAgent('cursor agent', 'cursor')).toBe(true)
+  })
+
   // Task text that merely opens with a name is still task text: the colon is the frame marker.
   it('rejects a name trailed by task text with no frame separator', () => {
     expect(titlePresentsAgent('. Claude Code compare Opencode', 'claude')).toBe(false)

@@ -6,6 +6,7 @@ import {
   GEMINI_WORKING,
   containsAgentSpinnerGlyph,
   isClaudeIdentityFrameSegment,
+  hasGenericClaudeStatusPrefix,
   isClaudeManagementTitle,
   isCursorNativeAgentTitle
 } from './agent-title-core'
@@ -266,47 +267,59 @@ export function collectAgentTitleEvidence(title: string): AgentTitleEvidence {
   }
 }
 
-/** Pure in `title`; the tab strip asks this per pane per render, so keep it off the regex ladder. */
-const collectMemoizedAgentTitleEvidence = memoizeTitleClassification(collectAgentTitleEvidence)
-
 /**
- * Whether a segment puts `agent`'s name in an identity POSITION: the whole undecorated remainder,
- * or the head of a `Name:` frame.
+ * Every agent a title PRESENTS, as opposed to merely mentions. Memoized as a set rather than
+ * per-agent: both tab-strip resolvers ask this per pane on every render, and the positional scan
+ * below runs the name matchers over each wrapper segment.
  */
-function segmentPresentsAgentByPosition(segment: string, agent: TuiAgent): boolean {
-  const undecorated = stripLeadingAgentTitleDecorationOrEmpty(segment).trim()
-  if (!undecorated) {
-    return false
+const titlePresentedAgents = memoizeTitleClassification((title: string): ReadonlySet<TuiAgent> => {
+  const evidence = collectAgentTitleEvidence(title)
+  const presented = new Set<TuiAgent>(evidence.anchoredNames)
+
+  for (const marker of evidence.vendorMarkers) {
+    // Why Claude's marker is excluded and Gemini's and Cursor's are not: a vendor marker is
+    // unforgeable only when it is the agent's OWN sigil. Claude's status decorations are generic —
+    // OpenCode emits '. ' and '* ' too (#8940) — so they prove activity, not identity. A title
+    // that really does present Claude carries an identity frame, which is already anchored above.
+    if (marker !== 'claude' || !hasGenericClaudeStatusPrefix(title)) {
+      presented.add(marker)
+    }
   }
-  if (agentForBareName(undecorated) === agent) {
-    return true
+
+  for (const segment of getEvidenceTitleSegments(title)) {
+    // A name in the identity position: the whole undecorated remainder, or the head of a `Name:`
+    // frame. The colon is what separates `Codex: fix cursor offsets` from `Claude Code compare
+    // Opencode`, one sentence that happens to open with a name.
+    const undecorated = stripLeadingAgentTitleDecorationOrEmpty(segment).trim()
+    const frameEnd = undecorated.indexOf(':')
+    const positional =
+      agentForBareName(undecorated) ??
+      (frameEnd > 0 ? agentForBareName(undecorated.slice(0, frameEnd)) : null)
+    if (positional) {
+      presented.add(positional)
+    }
   }
-  // Why the colon specifically: it is what separates `Codex: fix cursor offsets` — a frame and
-  // then its task — from `Claude Code compare Opencode`, one sentence that happens to open with
-  // a name. Without it, any task text beginning with an agent's name would read as identity.
-  const frameEnd = undecorated.indexOf(':')
-  return frameEnd > 0 && agentForBareName(undecorated.slice(0, frameEnd)) === agent
-}
+
+  return presented
+})
 
 /**
  * Whether `title` PRESENTS `agent` as the pane's identity rather than merely mentioning it. This
  * is the gate a title must pass before it may take a pane away from a known owner (#8940) — for
  * every agent, not only Claude.
  *
- * Deliberate, test-pinned divergence from `collectAgentTitleEvidence`: the parser answers "who
- * does this title name, given no owner", so it must refuse any name an ordinary task sentence
- * could forge. Here the agent is supplied rather than inferred, so the title need only put that
- * one name in an identity position. That admits `⠋ Codex`, which the parser files as
- * `free-text-only` because codex sets `synthesizeWorkingTitle: false` in synthetic-agent-title.ts
- * — Codex emits its own working titles, so Orca never synthesizes one for the parser to anchor
- * against. Task text still cannot pass: `⠋ Fix the codex plugin launcher` puts the name
- * mid-sentence, and `. Claude Code compare Opencode` trails task text past it.
+ * This is NOT collectAgentTitleEvidence with a different signature; the two answer different
+ * questions and diverge in BOTH directions, each pinned by test:
+ *
+ *   more permissive — the parser asks who a title names given no owner, so it must refuse any name
+ *   an ordinary sentence could forge. Here the agent is supplied rather than inferred, so a name in
+ *   the identity POSITION is enough. That admits `⠋ Codex`, which the parser files as
+ *   `free-text-only` because codex sets `synthesizeWorkingTitle: false` in synthetic-agent-title.ts.
+ *
+ *   less permissive — the parser resolves a lone vendor marker to its agent, including Claude's
+ *   generic status decorations. Those are not identity here, or a `. `-prefixed OpenCode task title
+ *   would reclaim the pane it was #8940's whole point to protect.
  */
 export function titlePresentsAgent(title: string, agent: TuiAgent): boolean {
-  if (collectMemoizedAgentTitleEvidence(title).anchoredNames.includes(agent)) {
-    return true
-  }
-  return getEvidenceTitleSegments(title).some((segment) =>
-    segmentPresentsAgentByPosition(segment, agent)
-  )
+  return titlePresentedAgents(title).has(agent)
 }

@@ -101,6 +101,70 @@ describe.each(RESOLVERS)('%s: a foreign name in task text is a mention', (_name,
     ).toBe('codex')
   })
 
+  // The mirror of this PR's own bug, and the regression the first cut of it shipped: a vendor
+  // marker is the agent's OWN sigil, which task text cannot forge, so it must still reclaim a
+  // pane from a prior owner. Gemini's four glyphs and Cursor's native literal are markers, not
+  // anchored names, so a predicate reading only anchoredNames strands a real Gemini pane on its
+  // previous Claude owner.
+  it('lets a vendor-marker title reclaim a pane from a prior owner', () => {
+    for (const title of [
+      '\u2726 Analyzing the repository',
+      '\u23f2 thinking',
+      '\u25c7 waiting',
+      '\u270b approve this edit'
+    ]) {
+      expect(
+        resolve({
+          hasObservedAgentSignal: true,
+          isRemote: false,
+          title,
+          hookAgent: null,
+          launchAgent: 'claude'
+        })
+      ).toBe('gemini')
+      expect(
+        resolve({
+          hasObservedAgentSignal: true,
+          isRemote: false,
+          title,
+          hookAgent: null,
+          focusedCompletedHookAgent: 'claude',
+          launchAgent: 'claude'
+        })
+      ).toBe('gemini')
+    }
+    // #10258: the native literal is deliberately status-less but still identifies a live pane.
+    expect(
+      resolve({
+        hasObservedAgentSignal: true,
+        isRemote: false,
+        title: 'cursor agent',
+        hookAgent: null,
+        launchAgent: 'claude'
+      })
+    ).toBe('cursor')
+  })
+
+  // Claude's decorations are the exception, and the reason the vendor class cannot be admitted
+  // wholesale: OpenCode emits '. ' and '* ' too, so they prove activity, not identity.
+  it('does not let a generic Claude status prefix reclaim a pane', () => {
+    for (const title of [
+      '. port the claude prompt',
+      '. ship it with claude',
+      '. Compare Opencode Vs Orca'
+    ]) {
+      expect(
+        resolve({
+          hasObservedAgentSignal: true,
+          isRemote: false,
+          title,
+          hookAgent: null,
+          launchAgent: 'opencode'
+        })
+      ).toBe('opencode')
+    }
+  })
+
   it('keeps an OpenCode pane OpenCode when its task text mentions Claude (#8940)', () => {
     for (const title of [
       'OC | ⠋ ask claude about this',

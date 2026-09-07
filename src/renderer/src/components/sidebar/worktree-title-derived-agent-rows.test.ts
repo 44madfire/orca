@@ -466,6 +466,39 @@ describe('a foreign name in a Claude pane task title', () => {
     )
   })
 
+  // A vendor marker is the agent's own sigil, so it must still take the row from a prior owner.
+  // Reading only anchoredNames printed a Claude row, with a Claude label, for a live Gemini pane.
+  it('lets a vendor-marker title take the row from a prior owner', () => {
+    expect(
+      resolveTitleDerivedAgentType('\u2726 Analyzing the repository', 'Gemini CLI', 'claude')
+    ).toBe('gemini')
+    expect(resolveTitleDerivedAgentType('\u25c7 waiting', 'Gemini CLI', 'claude')).toBe('gemini')
+    const rows = buildWorktreeAgentRows({
+      tabs: [makeTab('tab-1', { launchAgent: 'claude' })],
+      entries: [],
+      retained: [],
+      runtimePaneTitlesByTabId: { 'tab-1': { 1: '\u2726 Analyzing the repository' } },
+      ptyIdsByTabId: { 'tab-1': ['pty-gemini'] },
+      terminalLayoutsByTabId: { 'tab-1': makeSingleLayout(LEAF_ID_1) },
+      now: 2000
+    })
+    expect(rows.map((row) => [row.agentType, row.entry.prompt])).toEqual([['gemini', 'Gemini CLI']])
+  })
+
+  // #10258: Cursor's status-less native literal still identifies the pane, even against an owner.
+  it('lets the native cursor literal take the row from a prior owner', () => {
+    const rows = buildWorktreeAgentRows({
+      tabs: [makeTab('tab-1', { launchAgent: 'claude' })],
+      entries: [],
+      retained: [],
+      runtimePaneTitlesByTabId: { 'tab-1': { 1: 'Cursor Agent' } },
+      ptyIdsByTabId: { 'tab-1': ['pty-cursor'] },
+      terminalLayoutsByTabId: { 'tab-1': makeSingleLayout(LEAF_ID_1) },
+      now: 2000
+    })
+    expect(rows.map((row) => row.agentType)).toEqual(['cursor'])
+  })
+
   // The label map is missing every label outside its fixed set, so the unknown-label branch is
   // live at runtime. Nothing said so in the types until the value type was narrowed to TuiAgent,
   // and deleting the branch on the compiler's advice would return undefined here instead.
