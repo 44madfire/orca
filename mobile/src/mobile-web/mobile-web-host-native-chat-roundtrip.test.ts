@@ -4,8 +4,8 @@ import { MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT } from './mobile-web-bridge-roundtr
 import { nativeChatBridgeFixture as fixture } from './mobile-web-host-native-chat-test-fixture'
 
 describe('native-chat generic read migration', () => {
-  it.each([[true, true]])('host=%s shell=%s', async (host, shell) => {
-    const f = fixture(host, shell)
+  it('reads native chat through the generic host lane', async () => {
+    const f = fixture()
     const workspaceId = (await f.client.workspaceSnapshot({ limit: 10 })).workspaces[0]!.id
     const session = await f.client.sessionSnapshot({ workspaceId })
     const tab = session.tabs.find((tab) => tab.type === 'terminal')!
@@ -17,43 +17,34 @@ describe('native-chat generic read migration', () => {
       tab.id
     )
     expect(result.messages[0].blocks[0]).toMatchObject({ type: 'text', text: 'hello' })
-    if (host && shell) {
-      const pageSession = boundDocument(f)
-      expect(result).toEqual(f.transcript)
-      expect(f.sendRequest).toHaveBeenCalledWith(
-        'mobileWeb.nativeChat.bind',
-        {
-          worktree: 'id:host-workspace',
-          pageSession,
-          tabId: 'tab'
-        },
-        expect.objectContaining({ beforeSend: expect.any(Function) })
-      )
-      expect(f.sendRequest).toHaveBeenCalledWith(
-        'mobileWeb.nativeChat.read',
-        {
-          worktree: 'id:host-workspace',
-          pageSession,
-          resourceId: 'opaque-resource',
-          read: { limit: 20 }
-        },
-        expect.objectContaining({ beforeSend: expect.any(Function) })
-      )
-      expect(f.sendRequest.mock.calls.some(([method]) => method === 'nativeChat.readSession')).toBe(
-        false
-      )
-    } else {
-      expect(
-        f.sendRequest.mock.calls.some(([method]) => method === 'mobileWeb.nativeChat.bind')
-      ).toBe(false)
-      expect(f.sendRequest.mock.calls.some(([method]) => method === 'nativeChat.readSession')).toBe(
-        true
-      )
-    }
+    const pageSession = boundDocument(f)
+    expect(result).toEqual(f.transcript)
+    expect(f.sendRequest).toHaveBeenCalledWith(
+      'mobileWeb.nativeChat.bind',
+      {
+        worktree: 'id:host-workspace',
+        pageSession,
+        tabId: 'tab'
+      },
+      expect.objectContaining({ beforeSend: expect.any(Function) })
+    )
+    expect(f.sendRequest).toHaveBeenCalledWith(
+      'mobileWeb.nativeChat.read',
+      {
+        worktree: 'id:host-workspace',
+        pageSession,
+        resourceId: 'opaque-resource',
+        read: { limit: 20 }
+      },
+      expect.objectContaining({ beforeSend: expect.any(Function) })
+    )
+    expect(f.sendRequest.mock.calls.some(([method]) => method === 'nativeChat.readSession')).toBe(
+      false
+    )
     expect(JSON.stringify(f.shellMessages)).not.toContain('private-session')
   })
-  it.each([[true, true]])('stream host=%s shell=%s', async (host, shell) => {
-    const f = fixture(host, shell)
+  it('streams native chat through the generic host lane', async () => {
+    const f = fixture()
     const workspaceId = (await f.client.workspaceSnapshot({ limit: 10 })).workspaces[0]!.id
     const session = await f.client.sessionSnapshot({ workspaceId })
     const tab = session.tabs[0]
@@ -68,21 +59,15 @@ describe('native-chat generic read migration', () => {
       vi.fn()
     )
     await subscription.ready
-    const generic = host && shell
-    expect(f.subscribe.mock.calls[0][0]).toBe(
-      generic ? 'mobileWeb.nativeChat.subscribe' : 'nativeChat.subscribe'
-    )
+    expect(f.subscribe.mock.calls[0][0]).toBe('mobileWeb.nativeChat.subscribe')
     const event = { type: 'snapshot', ...f.transcript }
     f.emit(event)
     await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce())
-    if (generic) {
-      const pageSession = boundDocument(f)
-      expect(onEvent).toHaveBeenCalledWith(event)
-      expect(f.subscribe.mock.calls[0][1]).toMatchObject({
-        pageSession,
-        resourceId: 'opaque-resource'
-      })
-    }
+    expect(onEvent).toHaveBeenCalledWith(event)
+    expect(f.subscribe.mock.calls[0][1]).toMatchObject({
+      pageSession: boundDocument(f),
+      resourceId: 'opaque-resource'
+    })
     subscription.unsubscribe()
     expect(f.unsubscribe).toHaveBeenCalledOnce()
   })

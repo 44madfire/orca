@@ -3,8 +3,8 @@ import { nativeChatBridgeFixture } from './mobile-web-host-native-chat-test-fixt
 
 afterEach(() => vi.restoreAllMocks())
 
-async function fixture(host = true, shell = true) {
-  const f = nativeChatBridgeFixture(host, shell)
+async function fixture() {
+  const f = nativeChatBridgeFixture()
   const workspaceId = (await f.client.workspaceSnapshot({ limit: 10 })).workspaces[0]!.id
   const snapshot = await f.client.sessionSnapshot({ workspaceId })
   const tab = snapshot.tabs.find((tab) => tab.type === 'terminal')!
@@ -18,8 +18,8 @@ async function fixture(host = true, shell = true) {
   }
 }
 describe('generic native-chat actions', () => {
-  it.each([[true, true]])('host=%s shell=%s uses a compatible action lane', async (host, shell) => {
-    const f = await fixture(host, shell)
+  it('uses the generic mutate lane instead of terminal.send', async () => {
+    const f = await fixture()
     const result = await f.client.nativeChat.sendMessage(
       { ...f.payload, text: 'hello' },
       undefined,
@@ -28,23 +28,19 @@ describe('generic native-chat actions', () => {
     expect(result.outcome).toBe('accepted')
     expect(
       f.sendRequest.mock.calls.filter(([name]) => name === 'mobileWeb.nativeChat.mutate')
-    ).toHaveLength(host && shell ? 1 : 0)
-    expect(f.sendRequest.mock.calls.filter(([name]) => name === 'terminal.send')).toHaveLength(
-      host && shell ? 0 : 1
-    )
-    if (host && shell) {
-      expect(result).toMatchObject({ futureReceipt: { revision: 2 } })
-      const [, params] = f.sendRequest.mock.calls.find(
-        ([name]) => name === 'mobileWeb.nativeChat.mutate'
-      )!
-      expect(params).toMatchObject({
-        action: 'sendMessage',
-        text: 'hello',
-        resourceId: 'opaque-resource'
-      })
-      expect(params).not.toHaveProperty('sessionId')
-      expect(params).not.toHaveProperty('deadline')
-    }
+    ).toHaveLength(1)
+    expect(f.sendRequest.mock.calls.filter(([name]) => name === 'terminal.send')).toHaveLength(0)
+    expect(result).toMatchObject({ futureReceipt: { revision: 2 } })
+    const [, params] = f.sendRequest.mock.calls.find(
+      ([name]) => name === 'mobileWeb.nativeChat.mutate'
+    )!
+    expect(params).toMatchObject({
+      action: 'sendMessage',
+      text: 'hello',
+      resourceId: 'opaque-resource'
+    })
+    expect(params).not.toHaveProperty('sessionId')
+    expect(params).not.toHaveProperty('deadline')
     f.client.dispose()
   })
   it.each(['respond', 'stop', 'prepareCommit'] as const)(
