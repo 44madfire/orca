@@ -21,12 +21,7 @@ export type WorktreeAgentActivitySummary = {
   hasLiveDone: boolean
   hasRetainedDone: boolean
   agentStatusPaneIdsByTabId: Record<string, ReadonlySet<string>>
-  /**
-   * Panes whose explicit row exists but has gone stale. A stale row is not authority for a status,
-   * but it still proves the pane HAS an agent — which must keep Orca's own one-shot
-   * "<Agent> - action required" title from re-asserting a question the agent stopped asking.
-   * Suppresses `permission` titles only; a working spinner re-renders, so it stays live evidence.
-   */
+  /** Stale rows suppress generated permission labels while preserving native title fallback. */
   stalePaneIdsByTabId: Record<string, ReadonlySet<string>>
 }
 

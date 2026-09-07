@@ -3,6 +3,7 @@ import { classifyTitleActivity } from '@/lib/pane-agent-evidence'
 import { tabHasLivePty } from '@/lib/tab-has-live-pty'
 import { resolveRuntimePaneTitleLeafIdFromRoot } from '@/lib/runtime-pane-title-leaf-id'
 import { containsAgentSpinnerGlyph } from '../../../shared/agent-title-core'
+import { isSyntheticAgentPermissionTitle } from '../../../shared/synthetic-agent-title'
 import type {
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode,
@@ -23,12 +24,7 @@ export type WorktreeStatus =
 type WorktreeStatusHeuristicOptions = {
   liveAgentStatus?: LiveAgentWorktreeStatus
   agentStatusPaneIdsByTabId?: Record<string, ReadonlySet<string>>
-  /**
-   * Panes whose explicit row has gone stale. They suppress `permission` titles only: Orca writes
-   * its own "<Agent> - action required" title once per blocked/waiting hook and never refreshes it,
-   * so a stale row leaves that one-shot string asserting a question the agent stopped asking. A
-   * working title keeps its stale-row fallback — a spinner re-renders, so it is live evidence.
-   */
+  /** Stale rows suppress Orca's generated permission labels; native title fallback stays live. */
   stalePaneIdsByTabId?: Record<string, ReadonlySet<string>>
   terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot | undefined>
   terminalLayoutRootsByTabId?: Record<string, TerminalPaneLayoutNode | null | undefined>
@@ -80,13 +76,18 @@ function tabHasStatus(
   status: 'permission' | 'working',
   options: WorktreeStatusHeuristicOptions
 ): boolean {
-  const agentStatusPaneIds = suppressingPaneIds(tab.id, status, options)
+  const freshPaneIds = options.agentStatusPaneIdsByTabId?.[tab.id]
+  const permissionPaneIds = suppressingPaneIds(tab.id, status, options)
   const paneTitles = runtimePaneTitlesByTabId[tab.id]
   if (paneTitles && Object.keys(paneTitles).length > 0) {
     const tabLayoutRoot =
       options.terminalLayoutRootsByTabId?.[tab.id] ?? options.terminalLayoutsByTabId?.[tab.id]?.root
     const paneTitleEntries = Object.entries(paneTitles)
     for (const [runtimePaneId, title] of paneTitleEntries) {
+      const agentStatusPaneIds =
+        status === 'permission' && isSyntheticAgentPermissionTitle(title)
+          ? permissionPaneIds
+          : freshPaneIds
       const leafId = resolveRuntimePaneTitleLeafIdFromRoot(tabLayoutRoot, runtimePaneId)
       // Why: runtime titles can precede layout hydration (SSH/replay); with one title and one agent row, prefer that row over a stale spinner.
       const hasSingleUnmappedAgentStatusPane =
@@ -108,6 +109,10 @@ function tabHasStatus(
     return false
   }
   // Why: a tab title can't identify its pane; once an agent row owns one, prefer the row over a completed pane's stale "working" title.
+  const agentStatusPaneIds =
+    status === 'permission' && isSyntheticAgentPermissionTitle(tab.title)
+      ? permissionPaneIds
+      : freshPaneIds
   if (agentStatusPaneIds && agentStatusPaneIds.size > 0) {
     return false
   }
@@ -119,7 +124,7 @@ function tabHasStatus(
 
 /**
  * Pane ids whose title must not drive `status` for this tab. Fresh rows suppress every heuristic;
- * stale rows suppress `permission` only (see `stalePaneIdsByTabId`). Returns the fresh set itself
+ * stale rows suppress synthetic permission labels only. Returns the fresh set itself
  * when there is nothing to add, so the common path allocates nothing.
  */
 function suppressingPaneIds(

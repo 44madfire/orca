@@ -140,12 +140,7 @@ export function PaletteLiveStatusProvider({
   )
 }
 
-/**
- * Split each tab's explicit rows into fresh and stale pane ids. Fresh rows suppress every title
- * heuristic; stale rows suppress `permission` only, because Orca writes its own one-shot
- * "<Agent> - action required" title and never refreshes it — a stale row that registered nothing
- * let that string outlive the row and assert a question the agent had stopped asking.
- */
+/** Fresh rows suppress all title heuristics; stale rows suppress generated permission labels. */
 function buildLiveAgentStatusPaneIdsByTabId(
   entriesByTabId: ReadonlyMap<string, readonly AgentStatusEntry[]>,
   now: number
@@ -219,7 +214,8 @@ export function PaletteWorktreeStatusDot({
     {
       liveAgentStatus: live.liveAgentStatusByWorktreeId.get(worktree.id),
       agentStatusPaneIdsByTabId: live.agentStatusPaneIdsByTabId,
-      stalePaneIdsByTabId: live.stalePaneIdsByTabId
+      stalePaneIdsByTabId: live.stalePaneIdsByTabId,
+      terminalLayoutsByTabId: live.paneSources.terminalLayoutsByTabId
     }
   )
   return (

@@ -86,6 +86,24 @@ describe('resolveTerminalTabActivityStatus', () => {
     ).toBe('working')
   })
 
+  it.each(['tab', 'pane'] as const)(
+    'keeps native permission %s titles after hook freshness expires',
+    (surface) => {
+      const stale = entry(FIRST_LEAF_ID, 'working', {
+        agentType: 'gemini',
+        updatedAt: NOW - AGENT_STATUS_STALE_AFTER_MS - 1
+      })
+      expect(
+        resolveTerminalTabActivityStatus({
+          tab: { id: TAB_ID, title: '✋ Gemini CLI' },
+          agentStatusByPaneKey: { [stale.paneKey]: stale },
+          ptyIdsByTabId: LIVE_PTY,
+          runtimePaneTitlesByTabId: surface === 'pane' ? { [TAB_ID]: { 1: '✋ Gemini CLI' } } : {}
+        })
+      ).toBe('permission')
+    }
+  )
+
   it('reports monitoring without hiding active or actionable siblings', () => {
     const monitoring = entry(FIRST_LEAF_ID, 'working', { workingMode: 'monitoring' })
     const working = entry(SECOND_LEAF_ID, 'working')

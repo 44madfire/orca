@@ -23,7 +23,7 @@ type TerminalTabActivityFlags = {
   hasInterrupted: boolean
   hasLiveDone: boolean
   paneIds: Set<string>
-  /** Panes whose row went stale; suppress `permission` titles only. */
+  /** Panes whose row went stale; suppress generated permission labels only. */
   stalePaneIds: Set<string>
 }
 
@@ -71,10 +71,7 @@ function getTerminalTabActivityFlags(
     // Why: stale hook entries (>30m) are not authority; a slept/abandoned pane
     // must not keep a tab spinning. Same freshness gate as the sidebar.
     if (!isExplicitAgentStatusFresh(entry, now, AGENT_STATUS_STALE_AFTER_MS)) {
-      // Why: the row loses authority but the pane keeps its identity, which suppresses
-      // `permission` titles — Orca writes its own one-shot "<Agent> - action required" title and
-      // never refreshes it, so a stale row let that string assert a question nobody was asking.
-      // Working titles still fall back here: a spinner re-renders, so it stays live evidence.
+      // Stale identity suppresses Orca's one-shot permission label without suppressing native titles.
       getOrCreateTerminalTabActivityFlags(flagsByTabId, identity.tabId).stalePaneIds.add(
         identity.paneId
       )
