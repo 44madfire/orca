@@ -579,6 +579,12 @@ describe('Electron runtime package contract', () => {
     expect(packageScripts['test:e2e:terminal-rendering-golden']).not.toContain(
       'terminal-long-table-scroll-restore.spec.ts'
     )
+    expect(packageScripts['test:e2e:terminal-rendering-golden']).toContain(
+      '--project electron-headless'
+    )
+    expect(packageScripts['test:e2e:terminal-rendering-golden']).toContain(
+      '--project electron-headful'
+    )
     expect(packageScripts['test:e2e:windows-fresh-startup-golden']).toContain(
       'golden-windows-fresh-startup.spec.ts'
     )
