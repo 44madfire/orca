@@ -10,27 +10,23 @@ import {
   activateAndRevealWorktree
 } from '@/lib/worktree-activation'
 import { useAppStore } from '@/store'
-import {
-  canResumeAiVaultSessionOnTarget,
-  getAiVaultResumeWorkspaceExecutionHostId,
-  getAiVaultResumeWorkspaceTargetStatus
-} from '@/lib/ai-vault-resume-target'
 import type { AiVaultAgent, AiVaultSession } from '../../../../shared/ai-vault-types'
 import { prepareAiVaultSessionForResume } from '@/lib/ai-vault-session-resume-preparation'
 import type { Worktree } from '../../../../shared/worktree/types'
 import { translate } from '@/i18n/i18n'
 import { agentLabel } from './ai-vault-session-filters'
 import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
-import {
-  isKnownAiVaultResumeWorkspaceTarget,
-  type AiVaultSessionResumeTargetState
-} from './ai-vault-session-resume'
+import type { AiVaultSessionResumeTargetState } from './ai-vault-session-resume'
 import { prepareAiVaultSessionContinuation } from './ai-vault-session-continuation'
 import type { AgentSessionContinuationRequest } from '@/lib/agent-session-continuation'
-import { findWorktreeById } from '@/store/slices/worktree-helpers'
 import { activateAiVaultStructuredSession } from '@/lib/activate-ai-vault-structured-session'
 import { startStructuredAgentLaunch } from '@/lib/structured-agent-session-launch'
 import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
+import {
+  aiVaultResumeUnsupportedMessage,
+  resolveAiVaultSessionLaunchTarget,
+  resolveAiVaultTargetWorkspacePath
+} from './ai-vault-session-launch-target'
 
 export function useAiVaultSessionLaunchActions({
   activeWorktree,
@@ -283,66 +279,9 @@ function notifyAiVaultSessionPreparationFailure(error: unknown): void {
   )
 }
 
-export function resolveAiVaultTargetWorkspacePath(
-  state: AiVaultSessionResumeTargetState,
-  workspaceId: string
-): string | null {
-  const scope = parseWorkspaceKey(workspaceId)
-  if (scope?.type === 'folder') {
-    return (
-      state.folderWorkspaces.find((workspace) => workspace.id === scope.folderWorkspaceId)
-        ?.folderPath ?? null
-    )
-  }
-  const worktreeId = scope?.type === 'worktree' ? scope.worktreeId : workspaceId
-  return findWorktreeById(state.worktreesByRepo, worktreeId)?.path ?? null
-}
-
-export type AiVaultSessionLaunchTarget =
-  | { status: 'missing' }
-  | {
-      status: 'unsupported'
-      targetStatus: ReturnType<typeof getAiVaultResumeWorkspaceTargetStatus>
-    }
-  | { status: 'ready'; worktreeId: string }
-
-export function resolveAiVaultSessionLaunchTarget(args: {
-  sessionFilePath: string | null
-  sessionExecutionHostId?: AiVaultSession['executionHostId'] | null
-  activeWorktreeId: string | null
-  targetWorktreeId?: string
-  targetState: AiVaultSessionResumeTargetState
-}): AiVaultSessionLaunchTarget {
-  const targetWorktreeId = args.targetWorktreeId ?? args.activeWorktreeId
-  if (
-    !targetWorktreeId ||
-    !isKnownAiVaultResumeWorkspaceTarget(args.targetState, targetWorktreeId)
-  ) {
-    return { status: 'missing' }
-  }
-
-  const targetStatus = getAiVaultResumeWorkspaceTargetStatus(args.targetState, targetWorktreeId)
-  const targetExecutionHostId = getAiVaultResumeWorkspaceExecutionHostId(
-    args.targetState,
-    targetWorktreeId
-  )
-  if (
-    !canResumeAiVaultSessionOnTarget({
-      sessionFilePath: args.sessionFilePath,
-      sessionExecutionHostId: args.sessionExecutionHostId,
-      targetStatus,
-      targetExecutionHostId
-    })
-  ) {
-    return { status: 'unsupported', targetStatus }
-  }
-
-  return { status: 'ready', worktreeId: targetWorktreeId }
-}
-
 function resolveAiVaultSessionLaunchTargetOrNotify(
   args: Parameters<typeof resolveAiVaultSessionLaunchTarget>[0]
-): Extract<AiVaultSessionLaunchTarget, { status: 'ready' }> | null {
+): Extract<ReturnType<typeof resolveAiVaultSessionLaunchTarget>, { status: 'ready' }> | null {
   const target = resolveAiVaultSessionLaunchTarget(args)
   if (target.status === 'missing') {
     toast.error(
@@ -358,23 +297,6 @@ function resolveAiVaultSessionLaunchTargetOrNotify(
     return null
   }
   return target
-}
-
-function aiVaultResumeUnsupportedMessage(
-  targetStatus: ReturnType<typeof getAiVaultResumeWorkspaceTargetStatus>
-): string {
-  // Why: local and SSH targets can both be valid generally; this branch means
-  // the session's recorded host does not match the selected workspace.
-  if (targetStatus === 'ssh' || targetStatus === 'local' || targetStatus === 'runtime') {
-    return translate(
-      'auto.components.right.sidebar.AiVaultPanel.sessionHostMismatchUnsupported',
-      'This session belongs to a different host. Open a workspace on the same host to resume it.'
-    )
-  }
-  return translate(
-    'auto.components.right.sidebar.AiVaultPanel.openSupportedWorkspace',
-    'Open a workspace before resuming a session.'
-  )
 }
 
 function activateAiVaultResumeWorkspace(workspaceId: string): void {

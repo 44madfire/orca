@@ -29,21 +29,9 @@ import {
   resolveAiVaultSessionResumeActions,
   resolveAiVaultSessionResumeState
 } from './ai-vault-session-resume'
-import {
-  resolveAiVaultTargetWorkspacePath,
-  useAiVaultSessionLaunchActions
-} from './ai-vault-session-launch-actions'
-import {
-  resolveAiVaultSessionResumeInChatEligibility,
-  type AiVaultResumeInChatEligibility
-} from './ai-vault-session-resume-in-chat'
-import { structuredAgentLaunchSupported } from '@/lib/agent-launch-routing'
-import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
-import { STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
-import { readLocalRuntimeCapabilities } from '@/runtime/local-runtime-capabilities'
-import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
-import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
-import { CLIENT_PLATFORM } from '@/lib/new-workspace'
+import { useAiVaultSessionLaunchActions } from './ai-vault-session-launch-actions'
+import type { AiVaultResumeInChatEligibility } from './ai-vault-session-resume-in-chat'
+import { resolveAiVaultSessionResumeInChatForWorkspace } from './ai-vault-session-resume-in-chat-workspace'
 import {
   useAiVaultSessionWorktreeMap,
   withAiVaultCurrentWorktreeStatus
@@ -306,43 +294,14 @@ export default function AiVaultPanel(): React.JSX.Element {
   // would run it in". The workspace it targets is the session's own when that is open, because
   // Claude looks its transcript up under a directory derived from the launch cwd.
   const getSessionResumeInChat = useCallback(
-    (session: AiVaultSession): AiVaultResumeInChatEligibility => {
-      const resumeState = getSessionResumeState(session)
-      const targetWorkspaceId = resumeState.usesSessionWorktree
-        ? resumeState.worktreeId
-        : (resumeState.worktreeId ?? effectiveActiveWorktreeId)
-      const targetWorkspacePath = targetWorkspaceId
-        ? resolveAiVaultTargetWorkspacePath(resumeTargetState, targetWorkspaceId)
-        : null
-      return resolveAiVaultSessionResumeInChatEligibility({
+    (session: AiVaultSession): AiVaultResumeInChatEligibility =>
+      resolveAiVaultSessionResumeInChatForWorkspace({
         session,
-        targetWorkspaceId,
-        targetWorkspacePath,
-        structuredRouteAvailable:
-          isAgentSessionHandleProvider(session.agent) &&
-          Boolean(targetWorkspaceId) &&
-          structuredAgentLaunchSupported({
-            agent: session.agent,
-            settings,
-            executionHostId: getExecutionHostIdForWorktree(
-              useAppStore.getState(),
-              targetWorkspaceId as string
-            ),
-            platform: CLIENT_PLATFORM,
-            hostCapabilities: readLocalRuntimeCapabilities(),
-            workspaceKind: (targetWorkspaceId as string).startsWith('folder:')
-              ? 'folder'
-              : 'git-worktree',
-            projectRuntime: getLocalProjectExecutionRuntimeContext(
-              useAppStore.getState(),
-              targetWorkspaceId as string
-            )
-          }) &&
-          readLocalRuntimeCapabilities().includes(
-            STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY
-          )
-      })
-    },
+        resumeState: getSessionResumeState(session),
+        activeWorkspaceId: effectiveActiveWorktreeId,
+        targetState: resumeTargetState,
+        settings
+      }),
     [effectiveActiveWorktreeId, getSessionResumeState, resumeTargetState, settings]
   )
 
