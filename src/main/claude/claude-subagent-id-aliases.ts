@@ -9,6 +9,8 @@
 // said "this is a backgrounded shell, not an agent" has to be remembered or a
 // later frame re-admits it.
 
+import { isBoundedClaudeTaskId } from './claude-background-task-tracker'
+
 /** Both maps are event-accumulated and nothing prunes them, so both are bounded. */
 const MAX_TOOL_USE_ALIASES = 512
 const MAX_EXCLUDED_IDS = 512
@@ -23,6 +25,9 @@ export class ClaudeSubagentIds {
   }
 
   alias(toolUseId: string, taskId: string): void {
+    if (!isBoundedClaudeTaskId(toolUseId) || !isBoundedClaudeTaskId(taskId)) {
+      return
+    }
     this.canonicalByToolUse.set(toolUseId, taskId)
     while (this.canonicalByToolUse.size > MAX_TOOL_USE_ALIASES) {
       const oldest = this.canonicalByToolUse.keys().next()
@@ -34,6 +39,9 @@ export class ClaudeSubagentIds {
   }
 
   exclude(id: string): void {
+    if (!isBoundedClaudeTaskId(id)) {
+      return
+    }
     this.excluded.add(id)
     while (this.excluded.size > MAX_EXCLUDED_IDS) {
       const oldest = this.excluded.values().next()

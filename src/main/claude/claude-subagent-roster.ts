@@ -8,18 +8,25 @@
 //
 // Claude re-announces a resumed task under a NEW `tool_use_id`, so `task_id` is
 // the key and tool ids are aliases; keying on the tool id would duplicate the
-// child on every resume. Every transition is idempotent and a terminal state
-// latches, because progress, updates and the parent's tool result can each
-// report the same outcome.
+// child on every resume. Outcomes latch within an invocation; a new spawn
+// alias can reopen it, and authoritative evidence can correct lost contact.
 
-import type { AgentJournalItemIdentity } from '../../shared/agent-session-journal-types'
-import { isTerminalSubagentState } from '../../shared/native-chat-subagent-summary'
+import {
+  canReplaceSubagentState,
+  isTerminalSubagentState
+} from '../../shared/native-chat-subagent-summary'
 import type { NativeChatSubagentEntry } from '../../shared/native-chat-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { isBoundedClaudeTaskId } from './claude-background-task-tracker'
 import { claudeSubagentGroupBody, claudeSubagentGroupIdentity } from './claude-subagent-group-row'
 import { ClaudeSubagentIds } from './claude-subagent-id-aliases'
 import { readClaudeSubagentTaskFrame } from './claude-subagent-task-frames'
+import {
+  applyClaudeSubagentInvocation,
+  claimClaudeSubagentLabel,
+  type RosterGroup,
+  type TrackedEntry
+} from './claude-subagent-roster-state'
 
 /** Spawn-group rows kept live per session, and children per row. Both bound an
  *  event-accumulated map that no provider snapshot ever prunes. */
@@ -30,30 +37,6 @@ const MAX_SUBAGENTS_PER_GROUP = 64
 const OUTSIDE_TURN = 'outside-turn'
 
 const UNLABELLED_AGENT = 'subagent'
-
-type TrackedEntry = {
-  entry: NativeChatSubagentEntry
-  /** The only signal separating a child that dies with its turn from one told to
-   *  outlive it. A turn-end sweep must leave a backgrounded child alone. */
-  backgrounded: boolean
-  /** Label before its ordinal suffix, so a later announcement can tell a
-   *  provisional row from one that already carries the provider's own name. */
-  labelBase: string
-}
-
-type RosterGroup = {
-  groupId: string
-  identity: AgentJournalItemIdentity
-  /** Insertion order is the display order; the map holds the state. */
-  entries: Map<string, TrackedEntry>
-  /** Every RENDERED label this group has handed out. Nothing releases one:
-   *  re-issuing a label would print two identical rows. Growing it past the
-   *  entry cap takes a stream that re-announces a rostered agent as a shell
-   *  task, which churns the row far harder than the set. */
-  claimedLabels: Set<string>
-  /** Last body written, so an idempotent replay writes no new revision. */
-  lastSerialized: string | null
-}
 
 export type ClaudeSubagentRosterDeps = {
   sink: StructuredAgentSessionEventSink
@@ -107,8 +90,18 @@ export class ClaudeSubagentRoster {
       (frame.toolUseId ? this.adopt(frame.toolUseId, frame.taskId) : null)
     if (!located) {
       if (frame.announcesSubagent) {
-        this.create(frame.taskId, frame.label, frame.state ?? 'working', frame.backgrounded)
+        this.create(
+          frame.taskId,
+          frame.label,
+          frame.state ?? 'working',
+          frame.backgrounded ?? false,
+          frame.toolUseId
+        )
       }
+      return true
+    }
+    const tracked = located.group.entries.get(frame.taskId)
+    if (tracked && !applyClaudeSubagentInvocation(tracked, frame, this.now)) {
       return true
     }
     this.revise(located.group, frame.taskId, {
@@ -146,7 +139,7 @@ export class ClaudeSubagentRoster {
       // enter under a looser rule.
       return
     }
-    this.create(canonical, null, 'working', false)
+    this.create(canonical, null, 'working', false, parentToolUseId)
   }
 
   /**
@@ -158,7 +151,12 @@ export class ClaudeSubagentRoster {
   observeToolResult(toolUseId: string, failed: boolean): void {
     const canonical = this.ids.canonical(toolUseId)
     const located = this.locate(canonical)
-    if (!located || located.tracked.backgrounded) {
+    if (
+      !located ||
+      located.tracked.invocationIds === null ||
+      located.tracked.backgrounded ||
+      (located.tracked.toolUseId !== null && located.tracked.toolUseId !== toolUseId)
+    ) {
       return
     }
     this.revise(located.group, canonical, {
@@ -176,9 +174,8 @@ export class ClaudeSubagentRoster {
    */
   settleTurn(groupKey: string | null): void {
     // Only the group this key names. `OUTSIDE_TURN` belongs to no turn, so an
-    // unrelated turn ending is no evidence about a child announced outside it —
-    // and `unverifiable` latches, so sweeping it there would swallow the
-    // `completed` that still arrives. `settleSession` reaches what no turn does.
+    // unrelated turn ending is no evidence about a child announced outside it.
+    // `settleSession` reaches what no turn does.
     this.sweep(this.groups.get(groupKey ?? OUTSIDE_TURN), false)
   }
 
@@ -228,20 +225,24 @@ export class ClaudeSubagentRoster {
     id: string,
     label: string | null,
     state: NativeChatSubagentEntry['state'],
-    backgrounded: boolean
+    backgrounded: boolean,
+    toolUseId: string | null
   ): void {
     const group = this.groupFor()
-    if (group.entries.size >= MAX_SUBAGENTS_PER_GROUP) {
+    if (group.admittedEntries >= MAX_SUBAGENTS_PER_GROUP) {
       return
     }
+    group.admittedEntries += 1
     const now = this.now()
     const labelBase = label ?? UNLABELLED_AGENT
     group.entries.set(id, {
       backgrounded,
+      toolUseId,
+      invocationIds: new Set(toolUseId ? [toolUseId] : []),
       labelBase,
       entry: {
         id,
-        label: this.claimLabel(group, labelBase),
+        label: claimClaudeSubagentLabel(group, labelBase),
         state,
         startedAt: now,
         ...(isTerminalSubagentState(state) ? { settledAt: now } : {})
@@ -257,7 +258,7 @@ export class ClaudeSubagentRoster {
     change: {
       label: string | null
       state: NativeChatSubagentEntry['state'] | null
-      backgrounded: boolean
+      backgrounded: boolean | null
     }
   ): void {
     const tracked = group.entries.get(id)
@@ -266,7 +267,7 @@ export class ClaudeSubagentRoster {
     }
     const next: TrackedEntry = {
       ...tracked,
-      backgrounded: tracked.backgrounded || change.backgrounded,
+      backgrounded: change.backgrounded ?? tracked.backgrounded,
       entry: { ...tracked.entry }
     }
     // A provisional row built from child traffic takes the real name the first
@@ -277,11 +278,10 @@ export class ClaudeSubagentRoster {
       change.label !== UNLABELLED_AGENT
     ) {
       next.labelBase = change.label
-      next.entry.label = this.claimLabel(group, change.label)
+      next.entry.label = claimClaudeSubagentLabel(group, change.label)
     }
-    // Terminal latches: a duplicate or out-of-order frame must not resurrect a
-    // settled child, and re-applying a live state is a no-op.
-    if (change.state && !isTerminalSubagentState(tracked.entry.state)) {
+    // Proven outcomes latch; lost contact can still receive a later verdict.
+    if (change.state && canReplaceSubagentState(tracked.entry.state, change.state)) {
       next.entry.state = change.state
       if (isTerminalSubagentState(change.state)) {
         next.entry.settledAt = this.now()
@@ -338,6 +338,7 @@ export class ClaudeSubagentRoster {
       groupId,
       identity: claudeSubagentGroupIdentity(groupId),
       entries: new Map(),
+      admittedEntries: 0,
       claimedLabels: new Set(),
       lastSerialized: null
     }
@@ -357,19 +358,6 @@ export class ClaudeSubagentRoster {
       this.groups.delete(oldest.value)
     }
     return group
-  }
-
-  /** Two children can share a description; the ordinal keeps their rows apart
-   *  without inventing a name the provider never sent. The probe is over the
-   *  labels actually rendered, not a per-base counter: a generated `Audit 2`
-   *  must not collide with a provider that names its own child `Audit 2`. */
-  private claimLabel(group: RosterGroup, base: string): string {
-    let candidate = base
-    for (let ordinal = 2; group.claimedLabels.has(candidate); ordinal++) {
-      candidate = `${base} ${ordinal}`
-    }
-    group.claimedLabels.add(candidate)
-    return candidate
   }
 
   private write(group: RosterGroup): void {

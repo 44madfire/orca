@@ -483,3 +483,120 @@ describe('ClaudeSubagentRoster — through the real sink queue', () => {
     expect(published).toBeGreaterThan(0)
   })
 })
+
+describe('ClaudeSubagentRoster — authoritative outcomes and retained budgets', () => {
+  it('accepts a notification after the foreground turn lost contact', () => {
+    const { roster, roles } = harness()
+    roster.observeSystemFrame(started({ task_id: 'task-1' }))
+    roster.settleTurn(TURN_1)
+    roster.observeSystemFrame(
+      system('task_notification', { task_id: 'task-1', status: 'completed' })
+    )
+    expect(roles()).toEqual([expect.objectContaining({ state: 'completed' })])
+  })
+
+  it('settles a background child from its notification without a task_updated', () => {
+    const { roster, roles } = harness()
+    roster.observeSystemFrame(started({ task_id: 'task-1', is_backgrounded: true }))
+    roster.settleTurn(TURN_1)
+    roster.observeSystemFrame(system('task_notification', { task_id: 'task-1', status: 'failed' }))
+    expect(roles()).toEqual([expect.objectContaining({ state: 'failed' })])
+  })
+
+  it('bounds lifetime admissions when reclassification repeatedly removes entries', () => {
+    const { roster, items } = harness()
+    for (let i = 0; i < 100; i++) {
+      roster.observeSystemFrame(started({ task_id: `task-${i}`, description: `Agent ${i}` }))
+      roster.observeSystemFrame(
+        system('task_started', { task_id: `task-${i}`, task_type: 'local_bash' })
+      )
+    }
+    expect(items).toHaveLength(64)
+  })
+})
+
+describe('ClaudeSubagentRoster — resumed invocation', () => {
+  it('reopens one canonical child on a new announcement without replaying old results', () => {
+    const { roster, roles } = harness()
+    roster.observeSystemFrame(started({ task_id: 'task-1', tool_use_id: 'first' }))
+    roster.observeToolResult('first', false)
+    roster.observeSystemFrame(
+      started({ task_id: 'task-1', tool_use_id: 'resumed', is_backgrounded: true })
+    )
+    expect(roles()).toEqual([expect.objectContaining({ id: 'task-1', state: 'working' })])
+    expect(roles()[0].settledAt).toBeUndefined()
+    roster.observeSystemFrame(
+      system('task_notification', { task_id: 'task-1', tool_use_id: 'first', status: 'completed' })
+    )
+    roster.observeSystemFrame(started({ task_id: 'task-1', tool_use_id: 'first' }))
+    expect(roles()[0].state).toBe('working')
+    roster.observeSystemFrame(
+      system('task_notification', {
+        task_id: 'task-1',
+        tool_use_id: 'resumed',
+        status: 'completed'
+      })
+    )
+    roster.observeSystemFrame(
+      started({ task_id: 'task-1', tool_use_id: 'resumed', is_backgrounded: true })
+    )
+    expect(roles()[0].state).toBe('completed')
+  })
+})
+
+describe('ClaudeSubagentRoster — invocation fences', () => {
+  it('ignores a previous invocation tool result even without a background flag', () => {
+    const { roster, roles } = harness()
+    roster.observeSystemFrame(started({ task_id: 'task-1', tool_use_id: 'first' }))
+    roster.observeToolResult('first', false)
+    roster.observeSystemFrame(started({ task_id: 'task-1', tool_use_id: 'next' }))
+    roster.observeToolResult('first', true)
+    expect(roles()[0].state).toBe('working')
+    roster.observeToolResult('next', false)
+    expect(roles()[0].state).toBe('completed')
+  })
+
+  it('does not treat an evicted alias as a new invocation', () => {
+    const { roster, rolesIn, setGroupKey } = harness()
+    roster.observeSystemFrame(started({ task_id: 'task-1', tool_use_id: 'first' }))
+    roster.observeToolResult('first', false)
+    setGroupKey('churn')
+    for (let i = 0; i < 513; i++) {
+      roster.observeSystemFrame(
+        system('task_updated', { task_id: `other-${i}`, tool_use_id: `tool-${i}` })
+      )
+    }
+    roster.observeSystemFrame(started({ task_id: 'task-1', tool_use_id: 'first' }))
+    expect(rolesIn(TURN_1)[0].state).toBe('completed')
+  })
+
+  it('bounds invocation history and refuses to reopen beyond the retained budget', () => {
+    const { roster, roles } = harness()
+    for (let i = 0; i < 20; i++) {
+      roster.observeSystemFrame(started({ task_id: 'task-1', tool_use_id: `tool-${i}` }))
+      if (i >= 16) {
+        expect(roles()[0].state).toBe('unverifiable')
+      }
+      roster.observeToolResult(`tool-${i}`, false)
+    }
+    roster.observeSystemFrame(started({ task_id: 'task-1', tool_use_id: 'tool-0' }))
+    expect(roles()[0].state).toBe('unverifiable')
+  })
+})
+
+it('merges an explicit foreground patch without clearing on absent metadata', () => {
+  const { roster, roles } = harness()
+  roster.observeSystemFrame(
+    started({ task_id: 'task-1', tool_use_id: 'tool', is_backgrounded: true })
+  )
+  roster.observeSystemFrame(
+    system('task_updated', { task_id: 'task-1', patch: { description: 'Audit' } })
+  )
+  roster.observeToolResult('tool', false)
+  expect(roles()[0].state).toBe('working')
+  roster.observeSystemFrame(
+    system('task_updated', { task_id: 'task-1', patch: { is_backgrounded: false } })
+  )
+  roster.observeToolResult('tool', false)
+  expect(roles()[0].state).toBe('completed')
+})

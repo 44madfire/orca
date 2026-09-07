@@ -143,8 +143,8 @@ describe('readClaudeSubagentTaskFrame', () => {
       }
     })
 
-    it('treats progress and notification as no lifecycle verdict', () => {
-      for (const subtype of ['task_progress', 'task_notification']) {
+    it('treats progress as no lifecycle verdict', () => {
+      for (const subtype of ['task_progress']) {
         expect(
           readClaudeSubagentTaskFrame(
             system(subtype, { task_id: 'task-1', status: 'completed', patch: { status: 'failed' } })
@@ -152,6 +152,20 @@ describe('readClaudeSubagentTaskFrame', () => {
         ).toMatchObject({ state: null })
       }
     })
+  })
+
+  it('reads the notification verdict from its top-level status', () => {
+    for (const state of ['completed', 'failed', 'stopped']) {
+      expect(
+        readClaudeSubagentTaskFrame(
+          system('task_notification', {
+            task_id: 'task-1',
+            status: state,
+            patch: { status: 'running' }
+          })
+        )
+      ).toMatchObject({ state })
+    }
   })
 
   it('reads the backgrounded flag from the frame or its patch', () => {
@@ -171,7 +185,7 @@ describe('readClaudeSubagentTaskFrame', () => {
     ).toMatchObject({ backgrounded: true })
     expect(
       readClaudeSubagentTaskFrame(system('task_updated', { task_id: 'task-1', patch: {} }))
-    ).toMatchObject({ backgrounded: false })
+    ).toMatchObject({ backgrounded: null })
   })
 
   it('collapses a multi-line description into one bounded label', () => {

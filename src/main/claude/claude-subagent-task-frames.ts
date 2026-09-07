@@ -10,7 +10,8 @@ import type { NativeChatSubagentState } from '../../shared/native-chat-types'
 import {
   classifyClaudeBackgroundTaskKind,
   claudeTaskDescription,
-  claudeTaskId
+  claudeTaskId,
+  isBoundedClaudeTaskId
 } from './claude-background-task-tracker'
 import { claudeRecord, claudeText } from './claude-structured-item-translation'
 
@@ -43,7 +44,7 @@ export type ClaudeSubagentTaskFrame = {
   label: string | null
   /** null when the frame reported no lifecycle status. */
   state: NativeChatSubagentState | null
-  backgrounded: boolean
+  backgrounded: boolean | null
   /** Any `task_started`, subagent or not. Proof this CLI declares its tasks. */
   announcement: boolean
   /** `task_started` for a task the roster should show. Only an announcement
@@ -89,25 +90,32 @@ export function readClaudeSubagentTaskFrame(
     return null
   }
   const patch = claudeRecord(message.patch)
+  const toolUseId = claudeText(message.tool_use_id) ?? claudeText(patch?.tool_use_id)
   const announcement = subtype === 'task_started'
   // Housekeeping Claude runs for itself; the user never asked for it.
   const suppressed = message.ambient === true || message.skip_transcript === true
   const subagent = announcement && !suppressed && isClaudeSubagentTask(message)
   return {
     taskId,
-    toolUseId: claudeText(message.tool_use_id) ?? claudeText(patch?.tool_use_id),
+    toolUseId: toolUseId && isBoundedClaudeTaskId(toolUseId) ? toolUseId : null,
     label:
       claudeTaskDescription(message.description) ??
       claudeTaskDescription(patch?.description) ??
       // Bounded like a description: the roster stores whatever this returns.
       (announcement ? (claudeTaskDescription(message.subagent_type) ?? null) : null),
-    // A notification or progress ping is not a lifecycle verdict: latching one
-    // terminal would settle a child that is still running.
+    // Notifications carry terminal evidence; progress carries usage only.
     state:
-      announcement || subtype === 'task_updated'
-        ? taskState(patch?.status ?? message.status)
-        : null,
-    backgrounded: message.is_backgrounded === true || patch?.is_backgrounded === true,
+      subtype === 'task_notification'
+        ? taskState(message.status)
+        : announcement || subtype === 'task_updated'
+          ? taskState(patch?.status ?? message.status)
+          : null,
+    backgrounded:
+      typeof patch?.is_backgrounded === 'boolean'
+        ? patch.is_backgrounded
+        : typeof message.is_backgrounded === 'boolean'
+          ? message.is_backgrounded
+          : null,
     announcement,
     announcesSubagent: subagent,
     excluded: announcement && !subagent

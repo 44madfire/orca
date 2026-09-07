@@ -38,6 +38,17 @@ describe('ClaudeSubagentIds', () => {
     expect(ids.isExcluded('task-1')).toBe(true)
   })
 
+  it('does not retain oversized aliases or exclusions', () => {
+    const ids = new ClaudeSubagentIds()
+    const oversized = 'x'.repeat(513)
+    ids.alias(oversized, 'task-1')
+    ids.alias('tool-1', oversized)
+    ids.exclude(oversized)
+    expect(ids.canonical(oversized)).toBe(oversized)
+    expect(ids.canonical('tool-1')).toBe('tool-1')
+    expect(ids.isExcluded(oversized)).toBe(false)
+  })
+
   it('forgets everything on clear', () => {
     const ids = new ClaudeSubagentIds()
     ids.alias('toolu_1', 'task-1')
