@@ -260,17 +260,25 @@ export class RelayControlOrigin {
   // the phone waits out its attach deadline and is closed as if the host were offline.
   private replayPendingConnections(ack: RelayHostHelloAckMessage): void {
     const active = new Set(ack.activeConnIds)
+    let unreplayable = 0
     for (const pending of ack.pendingConns) {
       if (active.has(pending.connId) || this.transport.hasConnection(pending.connId)) {
         continue
       }
       const message = this.pendingConnectionOpen(pending)
       if (!message) {
-        console.warn('[relay] pending connection not replayable: relay stated no kind/device')
+        unreplayable += 1
         continue
       }
       // Not remembered: a replay must not extend the observed entry's own life.
       this.dialConnection(message)
+    }
+    // One line, not one per entry: a cell that predates the capability states no
+    // details for any of them, and that is the common case until the fleet rolls.
+    if (unreplayable > 0) {
+      console.warn(
+        `[relay] ${unreplayable} pending connection(s) not replayable: relay stated no kind/device`
+      )
     }
   }
 
