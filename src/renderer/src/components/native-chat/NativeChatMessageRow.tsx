@@ -15,6 +15,7 @@ import {
 } from '../../../../shared/native-chat-types'
 import { splitNativeChatBlocks } from './native-chat-tool-fold'
 import { NativeChatToolRun } from './NativeChatToolRun'
+import { NativeChatMessageTimestamp } from './NativeChatMessageTimestamp'
 import { nativeChatProseToMarkdown } from './native-chat-prose'
 import {
   NativeChatAgentControls,
@@ -111,7 +112,7 @@ export const MessageRow = memo(function MessageRow({
 
   if (isUser) {
     return (
-      <div ref={rowRef} className="flex flex-col items-end gap-0.5">
+      <div ref={rowRef} className="group relative flex flex-col items-end gap-0.5">
         {/* User turns get a distinct muted fill (not the card/canvas color) so
             the prompt reads apart from the assistant's body copy. */}
         <div className="max-w-[85%] rounded-lg rounded-tr-sm bg-muted px-3.5 py-2.5 text-sm text-foreground">
@@ -138,6 +139,11 @@ export const MessageRow = memo(function MessageRow({
             />
           )}
         </div>
+        <NativeChatMessageTimestamp
+          timestamp={message.timestamp}
+          focusable
+          className="pointer-events-none select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+        />
         {deliveryFailed ? (
           <div className="max-w-[85%] text-[11px] text-destructive/80">
             {translate(
@@ -184,6 +190,7 @@ export const MessageRow = memo(function MessageRow({
           blocks={tools}
           previousTodoWrite={previousTodoWrite}
           previousUpdatePlan={previousUpdatePlan}
+          onLinkClick={onLinkClick}
           subagentGroups={subagentGroups}
           expandSignal={expandSignal}
           expandOverride={activityExpandOverride}
@@ -194,6 +201,7 @@ export const MessageRow = memo(function MessageRow({
       {showControls ? (
         <NativeChatAgentControls
           markdown={markdown}
+          timestamp={message.timestamp}
           onScrollToTop={scrollToTop}
           className="pointer-events-none mt-1 -mb-5 w-fit select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
         />
