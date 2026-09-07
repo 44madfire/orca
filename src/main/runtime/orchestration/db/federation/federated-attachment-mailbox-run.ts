@@ -36,6 +36,11 @@ export function federatedMailboxRunIdSql(handleColumn: string): string {
  * Membership is the attachment alone: a loopback Dispatch has both rows, and excluding it was what
  * left that configuration unrepaired. The Run comparison is what keeps this from claiming mail that
  * is already where it belongs, including a Dispatch whose own Run is the legacy one.
+ *
+ * Out of scope: a loopback Dispatch whose own Run is the legacy one, which adoption would sweep
+ * alongside its mail, leaving the row under the right Run but still stamped `legacy_direct`. Nothing
+ * can create that shape — `resolveRunScope` refuses an explicit Run whose `legacy` flag is set — so
+ * widening this to re-classify by contract would guard a state no caller can reach.
  */
 export function misplacedFederatedMailboxSql(handleColumn: string, runColumn: string): string {
   return `EXISTS (

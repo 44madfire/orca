@@ -345,6 +345,31 @@ describe('federated worker mailbox Run', () => {
     }
   })
 
+  // v40 runs for every upgrading database, so its guard is the only thing standing between the
+  // whole install base and an extra Run in `run-list`.
+  it('gives a host that never federated no Run of its own', () => {
+    const path = databasePath()
+    const ordinary = new OrchestrationDb(path)
+    ordinary.createRun({
+      objective: 'ordinary local work',
+      coordinatorHandle: 'term_coord',
+      coordinatorPaneKey: 'tab_c:leaf_c'
+    })
+    ordinary.db.exec(`PRAGMA user_version = ${PRE_FIX_SCHEMA_VERSION}`)
+    ordinary.close()
+
+    const upgraded = new OrchestrationDb(path)
+    try {
+      expect(upgraded.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+      expect(upgraded.getRunRaw(FEDERATED_ATTACHMENT_RUN_ID)).toBeUndefined()
+      expect(upgraded.listRuns().runs.map((run) => run.id)).not.toContain(
+        FEDERATED_ATTACHMENT_RUN_ID
+      )
+    } finally {
+      upgraded.close()
+    }
+  })
+
   it('leaves a genuine legacy mailbox to legacy adoption', () => {
     const path = databasePath()
     const legacy = new OrchestrationDb(path)
