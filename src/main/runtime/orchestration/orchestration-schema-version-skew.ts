@@ -1,4 +1,5 @@
 import type Database from '../../sqlite/sync-database'
+import { misplacedFederatedMailboxSql } from './db/federation/federated-attachment-mailbox-run'
 
 const POST_V6_COLUMNS = [
   ['messages', 'run_id'],
@@ -120,17 +121,28 @@ function messagesAllowQuestions(db: Database.Database): boolean {
   return !!row && row.sql.includes("'question'")
 }
 
+/**
+ * A federated attachment mailbox misfiled under the legacy Run by an earlier build is damage, not
+ * evidence of a pre-Run database. Counting it made this probe report skew, which replayed the whole
+ * chain and let legacy adoption fence a live worker's Delivery. v40 re-homes those rows; excluding
+ * them here is what keeps the probe's premise true in the meantime.
+ */
 function hasConsistentLegacyAdoption(db: Database.Database): boolean {
   const sourceRunId = 'run_legacy_local'
+  const misplacedMessages = misplacedFederatedMailboxSql('to_handle', `'${sourceRunId}'`)
+  // Pre-v34 deliveries carry no mailbox handle, so there is no federated Delivery to discount.
+  const misplacedDeliveries = hasOrchestrationColumn(db, 'deliveries', 'mailbox_handle')
+    ? ` AND NOT (${misplacedFederatedMailboxSql('mailbox_handle', `'${sourceRunId}'`)})`
+    : ''
   const sourceGraph = db
     .prepare(
       `SELECT 1
        WHERE EXISTS(SELECT 1 FROM tasks WHERE run_id = ?)
           OR EXISTS(SELECT 1 FROM dispatch_contexts WHERE run_id = ?)
           OR EXISTS(SELECT 1 FROM decision_gates WHERE run_id = ?)
-          OR EXISTS(SELECT 1 FROM messages WHERE run_id = ?)
+          OR EXISTS(SELECT 1 FROM messages WHERE run_id = ? AND NOT (${misplacedMessages}))
           OR EXISTS(SELECT 1 FROM question_threads WHERE run_id = ?)
-          OR EXISTS(SELECT 1 FROM deliveries WHERE run_id = ?)`
+          OR EXISTS(SELECT 1 FROM deliveries WHERE run_id = ?${misplacedDeliveries})`
     )
     .get(sourceRunId, sourceRunId, sourceRunId, sourceRunId, sourceRunId, sourceRunId)
   const adoption = db

@@ -6,7 +6,6 @@ import {
   createCoordinatorMailRoutingTrigger,
   rememberCurrentRunCoordinatorHandles
 } from './runs/run-coordinator-mail-routing'
-import { relocateFederatedAttachmentMailboxes } from './federation/federated-attachment-mailbox-run'
 import { createTables } from './schema/create-tables'
 import { migrate } from './schema/migrate'
 
@@ -28,10 +27,6 @@ class OrchestrationDbCore {
     this.db.pragma('synchronous = NORMAL')
     this.db.pragma('busy_timeout = 5000')
     createTables.call(this as unknown as OrchestrationDb)
-    // Why here as well as inside the legacy-contract migration: this is the only pass that runs
-    // when migrate returns early, which is every already-adopted database, and it keeps the
-    // version-skew probe from reading a live federated mailbox as a legacy graph.
-    relocateFederatedAttachmentMailboxes.call(this as unknown as OrchestrationDb)
     migrate.call(this as unknown as OrchestrationDb)
     createCoordinatorMailRoutingTrigger.call(this as unknown as OrchestrationDb)
     rememberCurrentRunCoordinatorHandles.call(this as unknown as OrchestrationDb)

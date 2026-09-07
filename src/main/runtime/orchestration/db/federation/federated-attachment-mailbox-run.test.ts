@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OrchestrationDb } from '../../db'
+import { createRootDispatch } from '../root-dispatch-test-fixture'
 import { ORCHESTRATION_LEGACY_RUN_ID } from '../../../../../shared/orchestration-rpc-contract'
 import { SCHEMA_VERSION } from '../contract-constants'
 import {
@@ -23,6 +24,8 @@ describe('federated worker mailbox Run', () => {
   const ADDRESS = `dispatch:${DISPATCH_ID}`
   const MESSAGE_ID = 'msg_fed_control_audit_1'
   const DELIVERY_ID = 'delivery_fed_audit_1'
+  /** What the build that misfiled these rows stamped; v40 is the step that re-homes them. */
+  const PRE_FIX_SCHEMA_VERSION = SCHEMA_VERSION - 1
   let dir: string | undefined
 
   afterEach(() => {
@@ -49,7 +52,10 @@ describe('federated worker mailbox Run', () => {
       .run(DISPATCH_ID, state)
   }
 
-  /** The rows the pre-fix build wrote: a live federated mailbox filed under the legacy Run. */
+  /**
+   * The rows the pre-fix build wrote: a live federated mailbox filed under the legacy Run, left
+   * behind at the schema version that build stamped, which is what makes v40 reachable.
+   */
   function seedMisfiledMailbox(db: OrchestrationDb, toHandle = ADDRESS): void {
     db.db
       .prepare(
@@ -65,6 +71,7 @@ describe('federated worker mailbox Run', () => {
          VALUES (?, ?, ?, 0, ?)`
       )
       .run(DELIVERY_ID, ORCHESTRATION_LEGACY_RUN_ID, toHandle, JSON.stringify([MESSAGE_ID]))
+    db.db.exec(`PRAGMA user_version = ${PRE_FIX_SCHEMA_VERSION}`)
   }
 
   function readMessage(db: OrchestrationDb): MessageRow {
@@ -226,9 +233,9 @@ describe('federated worker mailbox Run', () => {
     }
   })
 
-  // A database old enough to predate `messages.delivery_contract` cannot be relocated before
-  // migrate, so the relocation runs a second time inside the legacy-contract migration, ahead of
-  // the classification and adoption passes that would otherwise fence this worker.
+  // A database old enough to predate `messages.delivery_contract` is genuinely version-skewed, so
+  // the probe still replays the chain and adoption still sweeps by Run. v40 re-homes the rows
+  // afterwards, which is the honest degraded outcome: the instruction is redelivered, not lost.
   it('relocates a pre-contract mailbox before the adoption pass that replays over it', () => {
     const path = databasePath()
     const old = new OrchestrationDb(path)
@@ -250,10 +257,91 @@ describe('federated worker mailbox Run', () => {
     try {
       expect(readMessage(upgraded).run_id).toBe(FEDERATED_ATTACHMENT_RUN_ID)
       expect(readMessage(upgraded).delivery_contract).toBe('current_delivery')
-      expect(readDelivery(upgraded).status).toBe('outstanding')
-      expectDeliverableToWorker(upgraded, DELIVERY_ID)
+      const minted = upgraded.getOrCreateMailboxDelivery({
+        runId: FEDERATED_ATTACHMENT_RUN_ID,
+        mailboxHandle: ADDRESS,
+        consumerGeneration: 0
+      })
+      expect(minted?.messages.map((entry) => entry.id)).toEqual([MESSAGE_ID])
+      expectDeliverableToWorker(upgraded, minted?.delivery.id as string)
     } finally {
       upgraded.close()
+    }
+  })
+
+  // A loopback home shares this database, so the Dispatch has both an attachment row and a local
+  // `dispatch_contexts` row. Excluding that shape from the re-home left the one configuration the
+  // resolver was written for unrepaired, and the resolver's own preference was asserted nowhere.
+  it('re-homes a loopback mailbox onto the local Dispatch Run, not the federated Run', () => {
+    const path = databasePath()
+    const old = new OrchestrationDb(path)
+    const run = old.createRun({
+      objective: 'loopback home',
+      coordinatorHandle: 'term_coord',
+      coordinatorPaneKey: 'tab_c:leaf_c'
+    })
+    const task = old.createTask({ spec: 'loopback task', runId: run.id })
+    const dispatch = createRootDispatch(old, task.id, 'term_w', 'tab_1:leaf_w')
+    old.db
+      .prepare(
+        `INSERT INTO remote_dispatch_attachments (
+           dispatch_id, task_id, home_peer_fingerprint, runtime_epoch, state
+         ) VALUES (?, ?, 'peer_fp', 'epoch_1', 'ready')`
+      )
+      .run(dispatch.id, task.id)
+    expect(old.resolveFederatedMailboxRunId(dispatch.id)).toBe(run.id)
+    old.db
+      .prepare(
+        `INSERT INTO messages (
+           id, run_id, delivery_contract, from_handle, to_handle, subject, type, priority
+         ) VALUES (?, ?, 'current_delivery', 'term_coord', ?, 'do the thing', 'dispatch', 'normal')`
+      )
+      .run(MESSAGE_ID, ORCHESTRATION_LEGACY_RUN_ID, `dispatch:${dispatch.id}`)
+    old.db.exec(`PRAGMA user_version = ${PRE_FIX_SCHEMA_VERSION}`)
+    old.close()
+
+    const upgraded = new OrchestrationDb(path)
+    try {
+      expect(readMessage(upgraded).run_id).toBe(run.id)
+      expect(readMessage(upgraded).delivery_contract).toBe('current_delivery')
+      expect(upgraded.getLegacyAdoption()).toBeUndefined()
+    } finally {
+      upgraded.close()
+    }
+  })
+
+  // The Run comparison, not attachment membership, is what keeps legacy mail legacy. A pre-Run
+  // Dispatch whose id also carries an attachment row is already in the Run it belongs to, so v40
+  // must not claim it and hand inert history back as current-contract mail.
+  it('never re-homes mail whose Dispatch Run is the legacy Run', () => {
+    const path = databasePath()
+    const legacy = new OrchestrationDb(path)
+    const dispatchId = 'ctx_legacy_local_1'
+    legacy.db
+      .prepare(
+        `INSERT INTO dispatch_contexts (id, run_id, task_id, status)
+         VALUES (?, ?, 'task_legacy_1', 'dispatched')`
+      )
+      .run(dispatchId, ORCHESTRATION_LEGACY_RUN_ID)
+    legacy.db
+      .prepare(
+        `INSERT INTO remote_dispatch_attachments (
+           dispatch_id, task_id, home_peer_fingerprint, runtime_epoch, state
+         ) VALUES (?, 'task_legacy_1', 'peer_fp', 'epoch_1', 'ready')`
+      )
+      .run(dispatchId)
+    seedMisfiledMailbox(legacy, `dispatch:${dispatchId}`)
+    legacy.close()
+
+    const opened = new OrchestrationDb(path)
+    try {
+      const adoption = opened.getLegacyAdoption()
+      // The legacy Dispatch row is real evidence of a pre-Run graph, so adoption still runs.
+      expect(adoption).toBeDefined()
+      expect(readMessage(opened).run_id).toBe(adoption?.adopted_run_id)
+      expect(readMessage(opened).delivery_contract).toBe('legacy_direct')
+    } finally {
+      opened.close()
     }
   })
 
