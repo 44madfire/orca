@@ -75,7 +75,7 @@ describe('mobile web native chat operations', () => {
 
 function operationContext() {
   const workspaceAuthority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length))
-  workspaceAuthority.synchronize([{ workspaceId: 'workspace-1', repoId: 'repo-1' }])
+  workspaceAuthority.synchronize(['workspace-1'])
   const nativeChatAuthority = new MobileWebNativeChatAuthority((length) => new Uint8Array(length))
   return {
     workspaceAuthority,

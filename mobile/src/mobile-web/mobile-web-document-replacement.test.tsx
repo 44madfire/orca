@@ -255,8 +255,8 @@ function subscribeRequest(
     requestId: requestId.repeat(22),
     subscriptionId: subscriptionId.repeat(22),
     capability: 'workspace',
-    operation: 'subscribe',
-    payload: {}
+    operation: 'hostSubscribe',
+    payload: { method: 'mobileWeb.workspace.subscribe', params: {} }
   }
 }
 

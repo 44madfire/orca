@@ -8,12 +8,14 @@ import {
 } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebCapabilityBroker } from './mobile-web-capability-broker'
+import { MOBILE_WEB_PRODUCTION_GRANT_INDEX } from './mobile-web-production-grants'
 import {
   useMobileWebCapabilityBroker,
   type MobileWebBrokerPageIdentity
 } from './use-mobile-web-capability-broker'
 
 const CONTEXT = { shellSessionId: 'S'.repeat(43), buildId: 'a'.repeat(64) }
+const ID_ALPHABET = 'ABCDEFGHIJKLMNOP'.split('')
 
 describe('useMobileWebCapabilityBroker', () => {
   let renderer: ReactTestRenderer | null = null
@@ -28,14 +30,18 @@ describe('useMobileWebCapabilityBroker', () => {
     renderer = null
   })
 
-  it('caps a single page at one concurrent workspace subscription', async () => {
+  it('caps a single page at the granted concurrent host stream count', async () => {
     await mount(0)
+    const ceiling =
+      MOBILE_WEB_PRODUCTION_GRANT_INDEX.get('workspace.hostSubscribe')!.limits.maxConcurrent
+    for (let index = 0; index < ceiling; index += 1) {
+      await handle(subscribeRequest(ID_ALPHABET[index]!, ID_ALPHABET[index]!.toLowerCase()))
+    }
 
-    await handle(subscribeRequest('A', 'Z'))
-    await handle(subscribeRequest('B', 'Y'))
+    await handle(subscribeRequest('Y', 'y'))
 
-    expect(harness.subscribe).toHaveBeenCalledOnce()
-    expect(errorFor(harness.messages, 'B')).toEqual([{ code: 'rate_limited', retryable: true }])
+    expect(harness.subscribe).toHaveBeenCalledTimes(ceiling)
+    expect(errorFor(harness.messages, 'Y')).toEqual([{ code: 'rate_limited', retryable: true }])
   })
 
   it('retires the previous page subscriptions when the view epoch restarts the document', async () => {
@@ -171,8 +177,8 @@ function subscribeRequest(
     requestId: requestId.repeat(22),
     subscriptionId: subscriptionId.repeat(22),
     capability: 'workspace',
-    operation: 'subscribe',
-    payload: {}
+    operation: 'hostSubscribe',
+    payload: { method: 'mobileWeb.workspace.subscribe', params: {} }
   }
 }
 

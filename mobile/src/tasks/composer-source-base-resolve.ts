@@ -1,4 +1,4 @@
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 import type { RpcSuccess } from '../transport/types'
 import type { GitHubPrStartPoint } from '../../../src/shared/worktree/types'
 
@@ -15,7 +15,7 @@ type HostedBaseResult = ComposerHostedBase | { error: string }
 // select-time resolution. The runtime returns a soft { error } payload rather
 // than an RPC error for provider failures.
 export type ResolveComposerPrBaseArgs = {
-  client: RpcClient
+  client: RpcRequestSender
   repoId: string
   prNumber: number
   headRefName?: string
@@ -50,7 +50,7 @@ export async function resolveComposerPrBase(
 
 // Resolves a GitLab MR's base via worktree.resolveMrBase.
 export type ResolveComposerMrBaseArgs = {
-  client: RpcClient
+  client: RpcRequestSender
   repoId: string
   mrIid: number
   sourceBranch?: string

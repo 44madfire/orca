@@ -87,7 +87,7 @@ describe('mobile web workspace snapshot', () => {
       workspaces: [
         {
           id: `workspace_0_${'01'.repeat(16)}`,
-          repoId: `repo_1_${'01'.repeat(16)}`,
+          repoId: 'repo-1',
           name: 'Parent',
           repo: 'orca',
           branch: 'main',
@@ -103,7 +103,7 @@ describe('mobile web workspace snapshot', () => {
           ]
         },
         {
-          id: `workspace_2_${'01'.repeat(16)}`,
+          id: `workspace_1_${'01'.repeat(16)}`,
           parentWorkspaceId: `workspace_0_${'01'.repeat(16)}`,
           folderName: 'orca-child'
         }
@@ -141,7 +141,7 @@ describe('mobile web workspace snapshot', () => {
 
     expect(snapshot.truncated).toBe(true)
     expect(snapshot.workspaces[0]).toMatchObject({
-      repoId: `repo_1_${'01'.repeat(16)}`,
+      repoId: 'workspace-repo:one',
       name: 'Workspace',
       repo: 'Repository',
       branch: 'No branch',

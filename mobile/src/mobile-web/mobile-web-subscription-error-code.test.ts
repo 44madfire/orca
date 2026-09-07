@@ -5,7 +5,7 @@ import type {
   MobileWebBridgeShellMessage
 } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
-import { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
+import { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import {
   isRetryableMobileWebBridgeError,
   mobileWebBridgeErrorCode
@@ -14,7 +14,9 @@ import {
   createMobileWebBrokerFixture,
   mobileWebBridgeRequestMessage
 } from './mobile-web-bridge-roundtrip-fixture'
-import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
+import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
+
+const randomBytes = (length: number): Uint8Array => new Uint8Array(length).fill(4)
 
 function stubClient(): RpcClient {
   return { subscribe: vi.fn(() => () => {}) } as unknown as RpcClient
@@ -25,17 +27,27 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
   const postEvent = async (): Promise<void> => {}
   const isActive = (): boolean => true
   const client = stubClient()
+  const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
+  workspaceAuthority.synchronize(['host-workspace'])
+
   const postClosed = (): void => {}
-  const account = new MobileWebAccountSubscriptions({ isActive, postEvent, postClosed })
-  const workspace = new MobileWebWorkspaceSubscriptions({ isActive, postEvent, postClosed })
+  const hostFeed = new MobileWebHostSubscriptions({
+    isActive,
+    workspaceAuthority,
+    postEvent,
+    postClosed
+  })
   return [
     {
-      name: 'account',
-      start: (subscriptionId) => account.start({ requestId: 'r', subscriptionId, client })
-    },
-    {
-      name: 'workspace',
-      start: (subscriptionId) => workspace.start({ requestId: 'r', subscriptionId, client })
+      name: 'host',
+      start: (subscriptionId) =>
+        hostFeed.start({
+          requestId: 'r',
+          subscriptionId,
+          payload: { method: 'accounts.subscribe', params: {} },
+          client,
+          isActive
+        })
     }
   ]
 }

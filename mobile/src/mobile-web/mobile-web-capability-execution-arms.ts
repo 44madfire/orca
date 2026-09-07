@@ -1,4 +1,3 @@
-import { MobileWebWorkspaceSubscribePayloadSchema } from '../../../src/shared/mobile-web/bridge-operation-contract'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { MobileWebBridgeCapability } from '../../../src/shared/mobile-web/bridge-operation-registry'
 import { MobileWebSpeechSubscribePayloadSchema } from '../../../src/shared/mobile-web/speech-operation-contract'
@@ -109,33 +108,12 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
     agentHistory: (args) => executeMobileWebAgentHistoryOperation(args),
     account: (args) => executeMobileWebAccountCapability(args),
     workspace: executeWorkspace,
-    settings: executeWorkspace,
     terminal: executeTerminal,
     file: executeFile,
     sourceControl: executeSourceControl,
     speech: executeSpeech
   }
 
-async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Promise<unknown> {
-  if (request.operation === 'hostSubscribe') {
-    args.hostSubscriptions.start({
-      requestId: request.requestId,
-      subscriptionId: request.subscriptionId,
-      payload: request.payload,
-      client: args.connectedClient(),
-      isActive: args.isRequestActive
-    })
-    return null
-  }
-  requireSubscribeOperation(request)
-  MobileWebWorkspaceSubscribePayloadSchema.parse(request.payload)
-  args.workspaceSubscriptions.start({
-    requestId: request.requestId,
-    subscriptionId: request.subscriptionId,
-    client: args.connectedClient()
-  })
-  return null
-}
 
 async function subscribeTerminal(args: Deps, request: SubscriptionRequest): Promise<unknown> {
   requireSubscribeOperation(request)
@@ -162,8 +140,6 @@ async function subscribeSpeech(args: Deps, request: SubscriptionRequest): Promis
 export const MOBILE_WEB_SUBSCRIPTION_CAPABILITY_ARMS: Partial<
   Record<MobileWebBridgeCapability, SubscriptionArm>
 > = {
-  account: (args) => executeMobileWebAccountCapability(args),
-  workspace: subscribeWorkspace,
   terminal: subscribeTerminal,
   speech: subscribeSpeech
 }

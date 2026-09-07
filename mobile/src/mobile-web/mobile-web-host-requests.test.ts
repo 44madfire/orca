@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
-import { executeMobileWebHostRequest } from './mobile-web-host-requests'
+import { MOBILE_WEB_HOST_REQUEST_MAX_TIMEOUT_MS } from '../../../src/shared/mobile-web/host-rpc-contract'
+import {
+  MOBILE_WEB_HOST_REQUEST_TIMEOUT_MS,
+  executeMobileWebHostRequest
+} from './mobile-web-host-requests'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 import {
   MOBILE_WEB_PRODUCTION_GRANT_INDEX,
@@ -12,7 +16,7 @@ const METHOD = 'future.domainRead'
 
 function fixture() {
   const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length).fill(1))
-  authority.synchronize([{ workspaceId: 'host-workspace', repoId: 'host-repo' }])
+  authority.synchronize(['host-workspace'])
   const sendRequest = vi.fn<RpcClient['sendRequest']>()
   const args = {
     authority,
@@ -169,5 +173,33 @@ describe('host-advertised unary forwarding', () => {
     expect(
       pageMessages.some((message) => message.type === 'request' && message.operation === 'status')
     ).toBe(false)
+  })
+})
+
+describe('page-declared host deadlines', () => {
+  it('gives the host call the page deadline instead of the shell default', async () => {
+    const { args, sendRequest } = fixture()
+    args.payload = { ...args.payload, timeoutMs: 120_000 }
+    sendRequest.mockResolvedValueOnce({ ok: true, result: {} })
+    await executeMobileWebHostRequest(args)
+    const options = sendRequest.mock.calls[0]![2]!
+    expect(options.timeoutMs).toBeGreaterThan(MOBILE_WEB_HOST_REQUEST_TIMEOUT_MS)
+    expect(options.timeoutMs).toBeLessThanOrEqual(120_000)
+  })
+
+  it('falls back to the shell default when the page names no deadline', async () => {
+    const { args, sendRequest } = fixture()
+    sendRequest.mockResolvedValueOnce({ ok: true, result: {} })
+    await executeMobileWebHostRequest(args)
+    expect(sendRequest.mock.calls[0]![2]!.timeoutMs).toBeLessThanOrEqual(
+      MOBILE_WEB_HOST_REQUEST_TIMEOUT_MS
+    )
+  })
+
+  it('refuses a deadline past the envelope ceiling', async () => {
+    const { args, sendRequest } = fixture()
+    args.payload = { ...args.payload, timeoutMs: MOBILE_WEB_HOST_REQUEST_MAX_TIMEOUT_MS + 1000 }
+    await expect(executeMobileWebHostRequest(args)).rejects.toThrow()
+    expect(sendRequest).not.toHaveBeenCalled()
   })
 })

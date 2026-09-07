@@ -189,7 +189,13 @@ edges still meet the device and keep their measured values.
   `mobile/src/mobile-web/mobile-web-history-session-fragment.ts`, which keeps
   page history writes on that fragment).
 - The shell grants named operation/capability pairs with request, response,
-  concurrency, subscription, rate, and message limits.
+  concurrency, subscription, rate, and message limits. What is left of the
+  workspace translator is the `worktree.ps` catalog read that mints the page's
+  opaque workspace handles, and the two creation writes, which register a handle
+  for a workspace no catalog page has listed yet. Every workspace-creation read
+  and provider lookup is the same desktop request the native app makes, issued
+  from the page through `mobileWebHostRpcSender`, an `RpcClient.sendRequest` over
+  `workspace.hostRequest`.
 - The page calls `workspace.hostRequest` for a unary desktop method and
   `workspace.hostSubscribe` for a stream. The shell consults no method table of
   its own: it resolves the opaque workspace handle, and forwards bounded domain
@@ -257,6 +263,14 @@ edges still meet the device and keep their measured values.
   holds up to 500 items and can exceed the envelope, so
   `mobileWeb.tasks.projectTable` returns one row window plus a `nextRowOffset`
   and the page reassembles the table.
+  page addresses host tabs, browser pages, provider sessions and repositories by
+  their host ids, and a page-side host request may name its own deadline up to
+  `MOBILE_WEB_HOST_REQUEST_MAX_TIMEOUT_MS` when the desktop call is slower than
+  the shell default; only the workspace handle stays opaque, because a worktree id
+  carries the host path. Generic subscriptions, native-chat domain actions, file
+  reads, Source Control reads/watch, session snapshot/feed/actions, terminal
+  metadata, workspace activation/pin/sleep/removal, the repository catalog, the
+  workspace view settings and the whole account domain use this path.
 - Decisions behind the generic lane and its 2026-09-07 simplification are in
   [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.

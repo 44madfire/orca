@@ -9,35 +9,6 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     hostSubscribe: 'subscription',
     hostRequest: 'mutation',
     snapshot: 'read',
-    repositories: 'read',
-    subscribe: 'subscription',
-    activate: 'mutation',
-    update: 'mutation',
-    remove: 'mutation',
-    creationRepositories: 'read',
-    creationRetiredNames: 'read',
-    creationSettings: 'read',
-    creationTrustedHooks: 'read',
-    creationGitLabAvailability: 'read',
-    creationLinearAvailability: 'read',
-    creationSshState: 'read',
-    creationSshConnect: 'mutation',
-    creationDetectAgents: 'read',
-    creationRepoHooks: 'read',
-    creationRuntimeCapabilities: 'read',
-    creationSparsePresets: 'read',
-    creationSaveSparsePreset: 'mutation',
-    creationPersistTrust: 'mutation',
-    creationSearchGitHub: 'read',
-    creationSearchGitLab: 'read',
-    creationSearchLinear: 'read',
-    creationSearchBranches: 'read',
-    creationResolveRepoSlug: 'read',
-    creationLookupGitHub: 'read',
-    creationLookupGitHubRepo: 'read',
-    creationLookupGitLab: 'read',
-    creationResolvePrBase: 'read',
-    creationResolveMrBase: 'read',
     creationCreateBlank: 'mutation',
     creationCreateFromSource: 'mutation'
   },
@@ -69,20 +40,13 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     cancelCommitMessageGeneration: 'mutation'
   },
   account: {
-    snapshot: 'read',
-    select: 'mutation',
     resetCreditCapability: 'read',
-    consumeResetCredit: 'mutation',
-    subscribe: 'subscription'
+    consumeResetCredit: 'mutation'
   },
   agentHistory: {
     snapshot: 'read',
     preview: 'read',
     resume: 'mutation'
-  },
-  settings: {
-    snapshot: 'read',
-    update: 'mutation'
   },
   speech: {
     subscribe: 'subscription',

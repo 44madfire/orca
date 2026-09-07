@@ -16,7 +16,7 @@ describe('mobile web Tasks screen binding', () => {
       "import MobileTasksScreen from '../../../app/h/[hostId]/tasks'"
     )
     expect(hostedTasksRoute).toContain('<MobileTasksScreen')
-    expect(hostedTasksRoute).toContain('webHostTaskRpcSender(shell.client.host)')
+    expect(hostedTasksRoute).toContain('shell.client.hostRpcSender')
     expect(hostedTasksRoute).toContain('webHostWorkspaceCreationOperations(shell.client)')
     expect(hostedTasksRoute).toContain('nativeHostBinding={false}')
     expect(hostOperations).toContain('nativeHostBinding = true')

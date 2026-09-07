@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
-import { MobileWebBridgeClientError } from '../../../src/mobile-web/src/mobile-web-bridge-client-error'
 import { webHostWorkspaceCreationOperations } from './web-host-workspace-creation-operations'
 
 describe('web host workspace creation operations', () => {
-  it('rebuilds bounded mobile view models with opaque hosted authority', async () => {
+  it('forwards the catalog reads the native app makes, unprojected', async () => {
     const client = bridgeClient()
     const operations = webHostWorkspaceCreationOperations(
       client as unknown as MobileWebBridgeClient
@@ -12,21 +11,21 @@ describe('web host workspace creation operations', () => {
 
     await expect(operations.listRepositories()).resolves.toEqual([
       {
-        id: 'repo-page-1',
+        id: 'repo-1',
         displayName: 'Orca',
-        connectionId: 'repo-page-1',
-        executionHostId: 'ssh:executionHost-page-1',
-        executionHostLabel: 'Host',
-        projectId: 'project-page-1',
+        connectionId: 'connection-1',
+        executionHostId: 'ssh:host-1',
         kind: 'git',
         path: '/workspace/orca'
       }
     ])
     await expect(operations.readRuntimeSettings()).resolves.toEqual({
       defaultTuiAgent: 'codex',
-      disabledTuiAgents: ['claude'],
+      disabledTuiAgents: ['claude', 'unknown-agent'],
       visibleTaskProviders: ['github']
     })
+    expect(client.hostRpcSender.sendRequest).toHaveBeenCalledWith('repo.list')
+    expect(client.hostRpcSender.sendRequest).toHaveBeenCalledWith('settings.get')
   })
 
   it('sends only a named agent choice and strips page-visible fork remote URLs', async () => {
@@ -124,42 +123,56 @@ describe('web host workspace creation operations', () => {
 
   it('preserves the native SSH GitHub remote state without exposing host details', async () => {
     const client = bridgeClient()
-    client.workspaceCreationSource.searchGitHub.mockRejectedValue(
-      new MobileWebBridgeClientError('not_found', false)
-    )
+    client.sendRequest.mockResolvedValue({
+      ok: false,
+      error: { code: 'not_found', message: 'not_found' }
+    })
     const operations = webHostWorkspaceCreationOperations(
       client as unknown as MobileWebBridgeClient
     )
 
-    await expect(operations.searchGitHubItems('repo-page-1', '')).rejects.toThrow(
+    await expect(operations.searchGitHubItems('repo-1', '')).rejects.toThrow(
       'GitHub work items require a GitHub remote for SSH repositories'
     )
   })
 })
 
 function bridgeClient() {
-  return {
-    workspaceCreation: {
-      repositories: vi.fn().mockResolvedValue({
-        repositories: [
-          {
-            id: 'repo-page-1',
-            displayName: 'Orca',
-            connectionId: 'repo-page-1',
-            executionHostId: 'ssh:executionHost-page-1',
-            executionHostLabel: 'Host',
-            projectId: 'project-page-1',
-            path: '/workspace/orca',
-            kind: 'git'
+  const sendRequest = vi.fn(async (method: string) => {
+    if (method === 'repo.list') {
+      return {
+        ok: true,
+        result: {
+          repos: [
+            {
+              id: 'repo-1',
+              displayName: 'Orca',
+              connectionId: 'connection-1',
+              executionHostId: 'ssh:host-1',
+              path: '/workspace/orca',
+              kind: 'git'
+            }
+          ]
+        }
+      }
+    }
+    if (method === 'settings.get') {
+      return {
+        ok: true,
+        result: {
+          settings: {
+            defaultTuiAgent: 'codex',
+            disabledTuiAgents: ['claude', 'unknown-agent'],
+            visibleTaskProviders: ['github']
           }
-        ]
-      }),
-      settings: vi.fn().mockResolvedValue({
-        defaultTuiAgent: 'codex',
-        disabledTuiAgents: ['claude', 'unknown-agent'],
-        visibleTaskProviders: ['github']
-      })
-    },
+        }
+      }
+    }
+    return { ok: true, result: {} }
+  })
+  return {
+    sendRequest,
+    hostRpcSender: { sendRequest },
     workspaceCreationCreate: {
       createBlank: vi.fn().mockResolvedValue({
         workspaceId: 'workspace-page-1',
@@ -170,9 +183,6 @@ function bridgeClient() {
         name: 'pr-7',
         warning: 'Setup completed with a warning.'
       })
-    },
-    workspaceCreationSource: {
-      searchGitHub: vi.fn().mockResolvedValue([])
     }
   }
 }

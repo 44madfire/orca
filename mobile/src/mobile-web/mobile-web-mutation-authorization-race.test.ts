@@ -88,7 +88,7 @@ const chatTabs = {
 
 function workspaceAuthority() {
   const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length).fill(7))
-  authority.synchronize([{ workspaceId: 'workspace-a', repoId: 'repo-a' }])
+  authority.synchronize(['workspace-a'])
   return {
     authority,
     pageId: authority.pageWorkspaceId('workspace-a'),

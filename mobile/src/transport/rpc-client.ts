@@ -24,15 +24,6 @@ export type RpcRequestReply =
   | { ok: true; result: unknown }
   | { ok: false; error?: { code?: string; message?: string } }
 
-/** The only surface a unary caller needs, so the same operation modules serve the native app over a
- * socket and the hosted page over the bridge. */
-export type RpcRequestSender = {
-  sendRequest: (
-    method: string,
-    params?: unknown,
-    options?: SendRequestOptions
-  ) => Promise<RpcRequestReply>
-}
 
 type StreamingListener = (result: unknown) => void
 
@@ -62,6 +53,10 @@ export type RpcClient = {
   notifyForeground: (reason?: ForegroundNudgeReason) => void
   close: () => void
 }
+
+/** The one method a caller needs to reach the desktop. The hosted page satisfies it over the
+ * bridge, so request code written against the socket runs unchanged inside the webview. */
+export type RpcRequestSender = Pick<RpcClient, 'sendRequest'>
 
 export type ConnectOptions = {
   onStateChange?: (state: ConnectionState) => void

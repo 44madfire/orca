@@ -1,7 +1,7 @@
 import type { RepoSlug } from '../../../src/shared/new-workspace/github-links'
 import type { GitHubWorkItem } from '../../../src/shared/github/work-item-types'
 import type { GitLabWorkItem } from '../../../src/shared/gitlab-types'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 import type { RpcSuccess } from '../transport/types'
 import { resolveComposerMrBase, resolveComposerPrBase } from '../tasks/composer-source-base-resolve'
 import {
@@ -26,7 +26,9 @@ type SourceOperations = Pick<
   | 'resolveMrBase'
 >
 
-export function nativeHostWorkspaceCreationSourceOperations(client: RpcClient): SourceOperations {
+export function nativeHostWorkspaceCreationSourceOperations(
+  client: RpcRequestSender
+): SourceOperations {
   return {
     searchGitHubItems: (repoId, query) => searchGitHubItems(client, repoId, query),
     searchGitLabItems: (repoId, query, state) => searchGitLabItems(client, repoId, query, state),

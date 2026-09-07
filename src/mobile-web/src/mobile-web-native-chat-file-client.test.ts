@@ -35,6 +35,7 @@ describe('native-chat file generic client', () => {
       {
         method: 'mobileWeb.nativeChat.fileSearch',
         workspaceId: 'workspace',
+        timeoutMs: 15_000,
         params: {
           tabId: 'tab',
           sessionId: payload.sessionId,
@@ -63,6 +64,7 @@ describe('native-chat file generic client', () => {
     expect(f.request.mock.calls[0][2]).toEqual({
       method: 'mobileWeb.nativeChat.openFile',
       workspaceId: 'workspace',
+      timeoutMs: 15_000,
       params: {
         tabId: 'tab',
         sessionId: payload.sessionId,

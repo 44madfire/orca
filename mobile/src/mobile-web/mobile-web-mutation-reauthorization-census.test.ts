@@ -30,7 +30,6 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
 
 // Device-only mutations and handles consumed in one awaited call have no reauthorization window.
 const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
-  'workspace.activate',
   'file.releaseTerminalArtifact',
   'native.alert',
   'native.clipboardWrite',
@@ -49,16 +48,10 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'nativeChat.pasteImages',
   'nativeChat.pendingWrite',
   'nativeChat.releaseImages',
-  'settings.update',
   'sourceControl.cancelCommitMessageGeneration',
   'sourceControl.generateCommitMessage',
   'terminal.attachImage',
-  'terminal.clipboardPaste',
-  'workspace.creationPersistTrust',
-  'workspace.creationSaveSparsePreset',
-  'workspace.creationSshConnect',
-  'workspace.remove',
-  'workspace.update'
+  'terminal.clipboardPaste'
 ]
 
 function shellSources(): Map<string, string> {

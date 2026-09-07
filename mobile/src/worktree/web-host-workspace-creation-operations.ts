@@ -1,81 +1,38 @@
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
-import { MobileWebBridgeClientError } from '../../../src/mobile-web/src/mobile-web-bridge-client-error'
 import type {
   MobileWebCreationSelection,
   MobileWebCreationFromSourcePayload
 } from '../../../src/shared/mobile-web/workspace-creation-create-contract'
-import type { TuiAgent } from '../../../src/shared/tui-agent'
-import type { MobileComposerCreateSelection } from '../tasks/mobile-composer-source-types'
 import { GITHUB_WORK_ITEMS_SSH_REMOTE_REQUIRED_MESSAGE } from '../tasks/mobile-work-items'
-import { normalizeWorkspaceAgent } from '../tasks/workspace-agent-selection'
+import type { MobileComposerCreateSelection } from '../tasks/mobile-composer-source-types'
 import type {
   CreateBlankWorkspaceOperationArgs,
   CreateWorkspaceFromSourceOperationArgs,
-  HostWorkspaceCreationOperations,
-  NewWorkspaceRuntimeSettings
+  HostWorkspaceCreationOperations
 } from './host-workspace-creation-operations'
+import { rpcWorkspaceCreationOperations } from './rpc-workspace-creation-operations'
 
 export function webHostWorkspaceCreationOperations(
   client: MobileWebBridgeClient
 ): HostWorkspaceCreationOperations {
+  // Every read and lookup is the same desktop request the native app makes, forwarded verbatim.
+  const operations = rpcWorkspaceCreationOperations(client.hostRpcSender)
   return {
-    async listRepositories() {
-      return (await client.workspaceCreation.repositories()).repositories
-    },
-    readRetiredWorktreeNames: (repoId) => client.workspaceCreation.retiredNames({ repoId }),
-    readRuntimeSettings: async () => webRuntimeSettings(await client.workspaceCreation.settings()),
-    readTrustedHooks: () => client.workspaceCreation.trustedHooks(),
-    isGitLabCliInstalled: () => client.workspaceCreation.gitLabAvailable(),
-    isLinearConnected: () => client.workspaceCreation.linearAvailable(),
-    readSshState: (repoId) => client.workspaceCreation.sshState({ repoId }),
-    connectSsh: (repoId) => client.workspaceCreation.sshConnect({ repoId }),
-    detectAgents: (repoId) => client.workspaceCreation.detectAgents({ repoId }),
-    readRepoHooks: (repoId) => client.workspaceCreation.repoHooks({ repoId }),
-    readRuntimeCapabilities: () => client.workspaceCreation.runtimeCapabilities(),
-    listSparsePresets: (repoId) => client.workspaceCreation.sparsePresets({ repoId }),
-    saveSparsePreset: (repoId, payload) =>
-      client.workspaceCreation.saveSparsePreset({ repoId, ...payload }),
-    persistSetupTrust: (args) => client.workspaceCreation.persistTrust(args),
+    ...operations,
     async searchGitHubItems(repoId, query) {
       try {
-        return await client.workspaceCreationSource.searchGitHub(repoId, query)
+        return await operations.searchGitHubItems(repoId, query)
       } catch (error) {
-        if (error instanceof MobileWebBridgeClientError && error.code === 'not_found') {
+        // The bridge collapses a host error to its code, so the host's own wording is gone by the
+        // time it reaches here and the SSH-remote guidance has to be restored.
+        if (error instanceof Error && error.message === 'not_found') {
           throw new Error(GITHUB_WORK_ITEMS_SSH_REMOTE_REQUIRED_MESSAGE)
         }
         throw error
       }
     },
-    searchGitLabItems: (repoId, query, state) =>
-      client.workspaceCreationSource.searchGitLab(repoId, query, state),
-    searchLinearIssues: (query, linearWorkspaceId) =>
-      client.workspaceCreationSource.searchLinear(query, linearWorkspaceId),
-    searchBranches: (repoId, query) => client.workspaceCreationSource.searchBranches(repoId, query),
-    resolveGitHubRepoSlug: (repoId) => client.workspaceCreationSource.resolveRepoSlug(repoId),
-    lookupGitHubItem: (repoId, number) =>
-      client.workspaceCreationSource.lookupGitHub(repoId, number),
-    lookupGitHubItemByOwnerRepo: (args) => client.workspaceCreationSource.lookupGitHubRepo(args),
-    lookupGitLabItemByPath: (args) => client.workspaceCreationSource.lookupGitLab(args),
-    resolvePrBase: (args) => client.workspaceCreationSource.resolvePrBase(args),
-    resolveMrBase: (args) => client.workspaceCreationSource.resolveMrBase(args),
     createBlankWorkspace: (args) => createBlankWorkspace(client, args),
     createWorkspaceFromSource: (args) => createWorkspaceFromSource(client, args)
-  }
-}
-
-function webRuntimeSettings(settings: {
-  defaultTuiAgent?: string | null
-  disabledTuiAgents?: string[]
-  visibleTaskProviders?: ('github' | 'gitlab' | 'linear')[]
-}): NewWorkspaceRuntimeSettings {
-  const defaultTuiAgent = normalizeWorkspaceAgent(settings.defaultTuiAgent)
-  return {
-    defaultTuiAgent,
-    disabledTuiAgents: settings.disabledTuiAgents?.flatMap((agent) => {
-      const normalized = normalizeWorkspaceAgent(agent)
-      return normalized && normalized !== 'blank' ? [normalized as TuiAgent] : []
-    }),
-    visibleTaskProviders: settings.visibleTaskProviders
   }
 }
 

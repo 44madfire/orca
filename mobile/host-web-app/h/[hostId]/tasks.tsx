@@ -14,7 +14,6 @@ import { nativeHostTaskProviderWriteOperations } from '../../../src/tasks/native
 import { nativeHostTaskReadOperations } from '../../../src/tasks/native-host-task-read-operations'
 import { webHostTaskDeviceOperations } from '../../../src/tasks/web-host-task-device-operations'
 import { webHostTaskProjectReadOperations } from '../../../src/tasks/web-host-task-project-read-operations'
-import { webHostTaskRpcSender } from '../../../src/tasks/web-host-task-rpc-sender'
 import { webHostWorkspaceCreationOperations } from '../../../src/worktree/web-host-workspace-creation-operations'
 
 const HOSTED_PAGE_HOST_ID = 'paired-orca-desktop'
@@ -25,7 +24,7 @@ export default function HostMobileWebTasksRoute() {
     if (!shell.client) {
       return null
     }
-    const sender = webHostTaskRpcSender(shell.client.host)
+    const sender = shell.client.hostRpcSender
     return {
       detail: nativeHostTaskDetailOperations(sender),
       device: webHostTaskDeviceOperations(shell.client),

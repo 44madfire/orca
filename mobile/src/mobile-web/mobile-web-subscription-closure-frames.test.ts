@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebSubscriptionClosure } from './mobile-web-subscription-closure'
 import type { RpcClient } from '../transport/rpc-client'
-import { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
+import { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import { MobileWebSpeechSubscriptions } from './mobile-web-speech-subscriptions'
 import type { MobileWebSpeechEvent } from '../../../src/shared/mobile-web/speech-operation-contract'
-import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
+import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 const SUBSCRIPTION_ID = 'subscription-1'
 
@@ -48,33 +48,27 @@ function hostClient(): { client: RpcClient; emit: (value: unknown) => void } {
   return { client, emit: (value) => listener?.(value) }
 }
 
+function pageWorkspace(): { authority: MobileWebWorkspaceAuthority; pageWorkspaceId: string } {
+  const authority = new MobileWebWorkspaceAuthority(randomBytes)
+  authority.synchronize(['workspace-1'])
+  return { authority, pageWorkspaceId: authority.pageWorkspaceId('workspace-1') }
+}
+
 const LEDGER_CASES: LedgerCase[] = [
   {
-    name: 'account',
-    invalidCode: 'invalid_message',
-    invalid: { type: 'bogus' },
+    name: 'host',
+    invalidCode: null,
+    invalid: undefined,
     valid: { type: 'end' },
     open: async (posts) => {
       const host = hostClient()
-      new MobileWebAccountSubscriptions(posts).start({
+      const { authority } = pageWorkspace()
+      new MobileWebHostSubscriptions({ ...posts, workspaceAuthority: authority }).start({
         requestId: 'request-1',
         subscriptionId: SUBSCRIPTION_ID,
-        client: host.client
-      })
-      return host.emit
-    }
-  },
-  {
-    name: 'workspace',
-    invalidCode: 'invalid_message',
-    invalid: { type: 'bogus' },
-    valid: { type: 'end' },
-    open: async (posts) => {
-      const host = hostClient()
-      new MobileWebWorkspaceSubscriptions(posts).start({
-        requestId: 'request-1',
-        subscriptionId: SUBSCRIPTION_ID,
-        client: host.client
+        payload: { method: 'accounts.subscribe', params: {} },
+        client: host.client,
+        isActive: () => true
       })
       return host.emit
     }

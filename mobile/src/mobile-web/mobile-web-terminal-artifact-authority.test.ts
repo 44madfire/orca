@@ -353,7 +353,7 @@ function resolveArtifact(
   client: RpcClient
 ) {
   const workspaceAuthority = new MobileWebWorkspaceAuthority(() => new Uint8Array(16).fill(7))
-  workspaceAuthority.synchronize([{ workspaceId: HOST_WORKSPACE_ID, repoId: '/private/repo' }])
+  workspaceAuthority.synchronize([HOST_WORKSPACE_ID])
   return authority.resolve(payload, client, workspaceAuthority)
 }
 

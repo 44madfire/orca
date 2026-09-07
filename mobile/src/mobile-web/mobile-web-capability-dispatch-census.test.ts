@@ -58,8 +58,4 @@ describe('mobile web capability dispatch census', () => {
       capabilitiesOwning('subscription')
     )
   })
-
-  it('routes workspace and settings one-shot requests through the same adapter', () => {
-    expect(MOBILE_WEB_ONCE_CAPABILITY_ARMS.settings).toBe(MOBILE_WEB_ONCE_CAPABILITY_ARMS.workspace)
-  })
 })

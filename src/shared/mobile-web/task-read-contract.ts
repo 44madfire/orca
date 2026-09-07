@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { MobileWebCreationTrustedHooksResultSchema } from './workspace-creation-read-contract'
+import { MobileWebCreationTrustedHooksResultSchema } from './workspace-creation-repo-trust-contract'
 
 const TaskProviderSchema = z.enum(['github', 'gitlab', 'linear'])
 const GitHubPresetSchema = z.enum(['issues', 'my-issues', 'prs', 'my-prs', 'review', 'all'])

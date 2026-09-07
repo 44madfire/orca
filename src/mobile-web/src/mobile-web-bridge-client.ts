@@ -1,4 +1,5 @@
 import { MobileWebHostRequestClient } from './mobile-web-host-request-client'
+import { mobileWebHostRpcSender, type MobileWebHostRpcSender } from './mobile-web-host-rpc-sender'
 import {
   subscribeHostSourceControl,
   type MobileWebSourceControlSubscriptionArgs
@@ -57,8 +58,6 @@ import * as terminal from './mobile-web-terminal-request-client'
 import { mobileWebWorkspaceClientBindings } from './mobile-web-workspace-client-bindings'
 import { MobileWebWorkspaceRequestClient } from './mobile-web-workspace-request-client'
 import { MobileWebWorkspaceCreationCreateRequestClient } from './mobile-web-workspace-creation-create-request-client'
-import { MobileWebWorkspaceCreationRequestClient } from './mobile-web-workspace-creation-request-client'
-import { MobileWebWorkspaceCreationSourceRequestClient } from './mobile-web-workspace-creation-source-request-client'
 
 type InitMessage = Extract<MobileWebBridgeShellMessage, { type: 'init' }>
 type OperationGrant = InitMessage['grants'][number]
@@ -68,6 +67,7 @@ export class MobileWebBridgeClient {
   private readonly grants = new Map<string, OperationGrant>()
   private readonly requests: MobileWebOneShotRequestClient
   readonly host: MobileWebHostRequestClient
+  readonly hostRpcSender: MobileWebHostRpcSender
   readonly fileList!: MobileWebFileRequestClient['list']
   readonly fileSearch!: MobileWebFileRequestClient['search']
   readonly fileDirectory!: MobileWebFileRequestClient['directory']
@@ -121,8 +121,6 @@ export class MobileWebBridgeClient {
   readonly workspaceRemove!: MobileWebWorkspaceRequestClient['remove']
   readonly workspaceSettingsSnapshot!: MobileWebWorkspaceRequestClient['settingsSnapshot']
   readonly workspaceSettingsUpdate!: MobileWebWorkspaceRequestClient['settingsUpdate']
-  readonly workspaceCreation: MobileWebWorkspaceCreationRequestClient
-  readonly workspaceCreationSource: MobileWebWorkspaceCreationSourceRequestClient
   readonly workspaceCreationCreate: MobileWebWorkspaceCreationCreateRequestClient
   readonly navigationRoute!: MobileWebNavigationRequestClient['route']
   readonly navigationReconnect!: MobileWebNavigationRequestClient['reconnect']
@@ -202,14 +200,13 @@ export class MobileWebBridgeClient {
       this,
       mobileWebWorkspaceClientBindings(new MobileWebWorkspaceRequestClient(this.requests))
     )
-    this.workspaceCreation = new MobileWebWorkspaceCreationRequestClient(this.requests)
-    this.workspaceCreationSource = new MobileWebWorkspaceCreationSourceRequestClient(this.requests)
     this.workspaceCreationCreate = new MobileWebWorkspaceCreationCreateRequestClient(this.requests)
     const sessionRequests = new MobileWebSessionRequestClient(this.requests)
     Object.assign(this, mobileWebSessionClientBindings(sessionRequests))
     this.native = new MobileWebNativeRequestClient(this.requests)
     this.markdown = new MobileWebMarkdownRequestClient(this.requests)
     this.host = new MobileWebHostRequestClient(this.requests)
+    this.hostRpcSender = mobileWebHostRpcSender(this.requests)
     Object.assign(this, terminal.mobileWebTerminalClientBindings(this.requests))
     Object.assign(this, mobileWebBrowserNavigationClientBindings(this.requests))
     this.subscriptions = new MobileWebBridgeSubscriptionClient({

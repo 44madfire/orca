@@ -1,4 +1,5 @@
 import {
+  MOBILE_WEB_HOST_REQUEST_MAX_TIMEOUT_MS,
   MobileWebHostRequestPayloadSchema,
   MobileWebHostResultSchema,
   type MobileWebHostRequestPayload
@@ -13,10 +14,21 @@ export function requestMobileWebHost(
   params: Record<string, unknown>,
   options?: MobileWebBridgeRequestOptions
 ): Promise<unknown> {
+  // One knob: the caller's own deadline also becomes the shell's, so a slow host call is not cut
+  // short by the shell's default while the page is still waiting for it.
+  const timeoutMs =
+    options?.timeoutMs === undefined
+      ? undefined
+      : Math.min(Math.max(1, Math.round(options.timeoutMs)), MOBILE_WEB_HOST_REQUEST_MAX_TIMEOUT_MS)
   return requests.request(
     'workspace',
     'hostRequest',
-    { method, ...(workspaceId === undefined ? {} : { workspaceId }), params },
+    {
+      method,
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+      params,
+      ...(timeoutMs === undefined ? {} : { timeoutMs })
+    },
     MobileWebHostRequestPayloadSchema,
     MobileWebHostResultSchema,
     options

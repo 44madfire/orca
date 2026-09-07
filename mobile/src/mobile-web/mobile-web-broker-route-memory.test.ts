@@ -5,7 +5,7 @@ import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 describe('broker route state authority', () => {
   it('forwards opaque state only with a live document and valid workspace binding', () => {
     const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length))
-    authority.synchronize([{ workspaceId: 'host-workspace', repoId: 'host-repo' }])
+    authority.synchronize(['host-workspace'])
     const route = {
       kind: 'session' as const,
       workspaceId: authority.pageWorkspaceId('host-workspace'),

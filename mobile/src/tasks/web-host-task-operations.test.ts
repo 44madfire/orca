@@ -1,22 +1,23 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { MobileWebHostRequestClient } from '../../../src/mobile-web/src/mobile-web-host-request-client'
+import type { MobileWebOneShotRequestClient } from '../../../src/mobile-web/src/mobile-web-one-shot-request-client'
+import { mobileWebHostRpcSender } from '../../../src/mobile-web/src/mobile-web-host-rpc-sender'
 import { nativeHostTaskItemMutationOperations } from './native-host-task-item-mutation-operations'
 import { nativeHostTaskListOperations } from './native-host-task-list-operations'
 import { nativeHostTaskPreferenceOperations } from './native-host-task-preference-operations'
 import { nativeHostTaskReadOperations } from './native-host-task-read-operations'
 import { webHostTaskProjectReadOperations } from './web-host-task-project-read-operations'
-import { webHostTaskRpcSender } from './web-host-task-rpc-sender'
 
 type HostRequest = { method: string; params: Record<string, unknown> }
 
 function hostFixture(reply: (request: HostRequest) => unknown) {
   const requests: HostRequest[] = []
-  const request = vi.fn(async (payload: HostRequest) => {
-    requests.push(payload)
-    return reply(payload)
+  // The shared sender posts `workspace.hostRequest`; capture the inner method/params it forwards.
+  const request = vi.fn(async (_capability: string, _operation: string, payload: HostRequest) => {
+    requests.push({ method: payload.method, params: payload.params })
+    return reply({ method: payload.method, params: payload.params })
   })
-  const host = { request } as unknown as MobileWebHostRequestClient
-  return { requests, sender: webHostTaskRpcSender(host) }
+  const requestsClient = { request } as unknown as MobileWebOneShotRequestClient
+  return { requests, sender: mobileWebHostRpcSender(requestsClient) }
 }
 
 function projectRow(index: number) {
