@@ -122,3 +122,160 @@ describe('Codex structured conversation name', () => {
     expect(onConversationName).not.toHaveBeenCalled()
   })
 })
+
+/** A fake app-server that also serves the naming flow's requests. */
+function namingCodex(options: { answer?: string; existingName?: string } = {}) {
+  const connections: FakeConnection[] = []
+  const calls: { method: string; params: Record<string, unknown> }[] = []
+  const openConnection = (async (
+    _launch: CodexAppServerLaunch,
+    handlers: CodexAppServerConnectionHandlers = {}
+  ) => {
+    const connection: FakeConnection = {
+      handlers,
+      pid: 4321,
+      closed: false,
+      request: async (method: string, params?: Record<string, unknown>) => {
+        calls.push({ method, params: params ?? {} })
+        if (method === 'thread/start' && params?.ephemeral === true) {
+          // The naming turn's frames arrive on this same connection.
+          queueMicrotask(() => {
+            handlers.onNotification?.('item/completed', {
+              threadId: NAMING_THREAD,
+              item: { type: 'agentMessage', text: options.answer ?? '{"title":"Fix lease probe"}' }
+            })
+            handlers.onNotification?.('turn/completed', { threadId: NAMING_THREAD })
+          })
+          return { thread: { id: NAMING_THREAD } }
+        }
+        if (method === 'thread/start') {
+          return { thread: { id: THREAD_ID } }
+        }
+        if (method === 'thread/read') {
+          return {
+            thread: {
+              id: THREAD_ID,
+              ...(options.existingName ? { name: options.existingName } : {})
+            }
+          }
+        }
+        if (method === 'turn/start') {
+          return { turn: { id: 'turn-1' } }
+        }
+        return {}
+      },
+      notify: () => {},
+      respond: () => {},
+      respondWithError: () => {},
+      close: async () => {
+        connection.closed = true
+        return true
+      }
+    } as FakeConnection
+    connections.push(connection)
+    return connection
+  }) as typeof openCodexAppServerConnection
+  return { connections, openConnection, calls }
+}
+
+const NAMING_THREAD = 'thread-naming'
+
+const USER_TURN = {
+  kind: 'message',
+  role: 'user',
+  blocks: [{ type: 'text', text: 'fix the flaky lease probe' }]
+} as const
+
+async function dispatchedAdapter(codex: ReturnType<typeof namingCodex>) {
+  const onConversationName = vi.fn()
+  const events: unknown[] = []
+  const adapter = new CodexStructuredSessionAdapter({
+    resolveLaunch: async () => ({
+      command: 'codex',
+      args: ['app-server'],
+      cwd: '/work/repo',
+      codexHome: null,
+      resumeThreadId: null
+    }),
+    openConnection: codex.openConnection,
+    readProcessStartTime: async () => 1_700_000_000_000,
+    onEvent: (event) => events.push(event),
+    onConversationName
+  })
+  await adapter.acquire({ identity, fence: 7, spawnToken: 'spawn-9' })
+  await adapter.dispatch({
+    sessionId: SESSION,
+    clientMessageId: 'client-1',
+    body: USER_TURN as never,
+    fence: 7
+  })
+  return { adapter, onConversationName, events }
+}
+
+/** Lets the naming flow's microtask chain and awaited requests settle. */
+async function settle(): Promise<void> {
+  for (let index = 0; index < 20; index += 1) {
+    await Promise.resolve()
+  }
+}
+
+describe('Codex conversation-name generation', () => {
+  it('names the thread after the first accepted turn', async () => {
+    const codex = namingCodex()
+    const { onConversationName } = await dispatchedAdapter(codex)
+    await settle()
+
+    expect(codex.calls.find((call) => call.method === 'thread/name/set')?.params).toEqual({
+      threadId: THREAD_ID,
+      name: 'Fix lease probe'
+    })
+    expect(onConversationName).toHaveBeenCalledWith(SESSION, 'Fix lease probe')
+  })
+
+  it('keeps the naming turn out of the user transcript', async () => {
+    const codex = namingCodex()
+    const { events } = await dispatchedAdapter(codex)
+    await settle()
+
+    // The item translator journals items from ANY thread, so the only thing
+    // keeping the naming prompt and its JSON answer out of the chat is the
+    // adapter's thread gate. Nothing carrying the naming thread may be emitted.
+    const leaked = events.filter(
+      (event) => (event as { threadId?: string }).threadId === NAMING_THREAD
+    )
+    expect(leaked).toEqual([])
+    expect(JSON.stringify(events)).not.toContain('Fix lease probe')
+  })
+
+  it('asks only once per session, even when the first attempt produced no name', async () => {
+    // A model that declines to answer leaves `conversationName` null, so the
+    // one-shot flag is the ONLY thing stopping a second attempt. With a name set
+    // this test would pass on the name check and prove nothing.
+    const codex = namingCodex({ answer: 'I could not think of one' })
+    const { adapter } = await dispatchedAdapter(codex)
+    await settle()
+    const namingThreads = () =>
+      codex.calls.filter((call) => call.method === 'thread/start' && call.params.ephemeral === true)
+    expect(namingThreads()).toHaveLength(1)
+
+    await adapter.dispatch({
+      sessionId: SESSION,
+      clientMessageId: 'client-2',
+      body: USER_TURN as never,
+      fence: 7
+    })
+    await settle()
+
+    expect(namingThreads()).toHaveLength(1)
+    expect(codex.calls.some((call) => call.method === 'thread/name/set')).toBe(false)
+  })
+
+  it('does not clobber a name set while it was generating', async () => {
+    const codex = namingCodex({ existingName: 'A person named this' })
+    const { onConversationName } = await dispatchedAdapter(codex)
+    await settle()
+
+    expect(codex.calls.some((call) => call.method === 'thread/name/set')).toBe(false)
+    expect(onConversationName).not.toHaveBeenCalled()
+  })
+})

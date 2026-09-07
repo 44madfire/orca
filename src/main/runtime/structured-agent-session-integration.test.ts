@@ -441,7 +441,11 @@ describe('a structured codex session over agentSession.*', () => {
       dispatchState: 'accepted',
       providerItemId: `codex:${THREAD}:${TURN}:0`
     })
-    expect(codex.live().calls.at(-1)).toMatchObject({
+    // Not `.at(-1)`: naming the conversation issues its own requests on this
+    // same connection, so the user's turn is selected by its own message id.
+    expect(
+      codex.live().calls.findLast((call) => call.params?.clientUserMessageId !== undefined)
+    ).toMatchObject({
       method: 'turn/start',
       params: { threadId: THREAD, clientUserMessageId: sent.clientMessageId }
     })
@@ -518,7 +522,11 @@ describe('a structured codex session over agentSession.*', () => {
       dispatchState: 'accepted',
       providerItemId: `codex:${THREAD}:${TURN}:0`
     })
-    expect(codex.live().calls.at(-1)).toMatchObject({
+    // Not `.at(-1)`: naming the conversation issues its own requests on this
+    // same connection, so the user's turn is selected by its own message id.
+    expect(
+      codex.live().calls.findLast((call) => call.params?.clientUserMessageId !== undefined)
+    ).toMatchObject({
       method: 'turn/start',
       params: {
         threadId: THREAD,

@@ -134,6 +134,8 @@ export type ClaudeSession = {
   /** Provider uuid of the most recently admitted turn, if one is active. */
   activeTurnId?: string
   backgroundTasks: ClaudeBackgroundTaskTracker
+  /** One naming attempt per session; see claude-conversation-name-turn. */
+  namingAttempted: boolean
   /** Monotonic fence advanced when a dispatch starts, including unresolved dispatches. */
   dispatchSequence: number
   /** Dispatch sequence that admitted activeTurnId. */

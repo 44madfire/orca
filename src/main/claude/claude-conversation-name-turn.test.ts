@@ -1,0 +1,127 @@
+import { describe, expect, it, vi } from 'vitest'
+import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
+import { startClaudeConversationNaming } from './claude-conversation-name-turn'
+import type { ClaudeSession } from './claude-structured-session-state'
+
+const SESSION = 'session-1'
+
+const USER_TURN = {
+  kind: 'message',
+  role: 'user',
+  blocks: [{ type: 'text', text: 'fix the flaky lease probe' }]
+} as unknown as AgentJournalMessageItem
+
+function sessionWith(generateSessionTitle: ReturnType<typeof vi.fn>): ClaudeSession {
+  return {
+    namingAttempted: false,
+    connection: { generateSessionTitle }
+  } as unknown as ClaudeSession
+}
+
+/** Lets the fire-and-forget promise chain settle. */
+async function settle(): Promise<void> {
+  for (let index = 0; index < 5; index += 1) {
+    await Promise.resolve()
+  }
+}
+
+describe('startClaudeConversationNaming', () => {
+  it('asks the CLI to generate and persist a title, then reports it', async () => {
+    const generateSessionTitle = vi.fn(async () => 'Lease probe flake')
+    const session = sessionWith(generateSessionTitle)
+    const onConversationName = vi.fn()
+
+    startClaudeConversationNaming(SESSION, session, USER_TURN, { onConversationName })
+    await settle()
+
+    // `persist` is what writes the ai-title record a later attach reads back;
+    // without it the name would live only in this process.
+    expect(generateSessionTitle).toHaveBeenCalledWith(
+      'fix the flaky lease probe',
+      expect.objectContaining({ persist: true })
+    )
+    expect(onConversationName).toHaveBeenCalledExactlyOnceWith(SESSION, 'Lease probe flake')
+  })
+
+  it('passes the user text alone, imposing no title style of its own', async () => {
+    const generateSessionTitle = vi.fn(async () => 'Lease probe flake')
+
+    startClaudeConversationNaming(SESSION, sessionWith(generateSessionTitle), USER_TURN, {
+      onConversationName: vi.fn()
+    })
+    await settle()
+
+    // Claude's own titling is a short noun phrase; instructing it in Codex's
+    // imperative-verb style here would fight the SDK's own prompt.
+    expect(generateSessionTitle.mock.calls[0]![0]).toBe('fix the flaky lease probe')
+  })
+
+  it('asks only once per session', async () => {
+    const generateSessionTitle = vi.fn(async () => null)
+    const session = sessionWith(generateSessionTitle)
+
+    startClaudeConversationNaming(SESSION, session, USER_TURN, { onConversationName: vi.fn() })
+    await settle()
+    startClaudeConversationNaming(SESSION, session, USER_TURN, { onConversationName: vi.fn() })
+    await settle()
+
+    expect(generateSessionTitle).toHaveBeenCalledOnce()
+  })
+
+  it('reports nothing when the CLI exposes no title request', async () => {
+    const onConversationName = vi.fn()
+
+    startClaudeConversationNaming(SESSION, sessionWith(vi.fn(async () => null)), USER_TURN, {
+      onConversationName
+    })
+    await settle()
+
+    expect(onConversationName).not.toHaveBeenCalled()
+  })
+
+  it('keeps a failed title request off the turn', async () => {
+    const onConversationName = vi.fn()
+    const generateSessionTitle = vi.fn(async () => {
+      throw new Error('claude generate_session_title request timed out')
+    })
+
+    expect(() =>
+      startClaudeConversationNaming(SESSION, sessionWith(generateSessionTitle), USER_TURN, {
+        onConversationName
+      })
+    ).not.toThrow()
+    await settle()
+
+    expect(onConversationName).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when the submission carries no text to title', async () => {
+    const generateSessionTitle = vi.fn(async () => 'x')
+
+    startClaudeConversationNaming(
+      SESSION,
+      sessionWith(generateSessionTitle),
+      { kind: 'message', role: 'user', blocks: [] } as unknown as AgentJournalMessageItem,
+      { onConversationName: vi.fn() }
+    )
+    await settle()
+
+    expect(generateSessionTitle).not.toHaveBeenCalled()
+  })
+})
+
+describe('startClaudeConversationNaming robustness', () => {
+  it('never fails the send when the connection has no title request at all', async () => {
+    const onConversationName = vi.fn()
+    // A connection predating generateSessionTitle throws synchronously; this runs
+    // on the send path, so it must not reach the caller.
+    const session = { namingAttempted: false, connection: {} } as unknown as ClaudeSession
+
+    expect(() =>
+      startClaudeConversationNaming(SESSION, session, USER_TURN, { onConversationName })
+    ).not.toThrow()
+    await settle()
+
+    expect(onConversationName).not.toHaveBeenCalled()
+  })
+})

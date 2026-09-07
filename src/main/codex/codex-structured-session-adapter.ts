@@ -35,6 +35,7 @@ import {
   deliverCodexServerRequest,
   deliverCodexUnhandledFrame
 } from './codex-structured-provider-events'
+import { startCodexConversationNaming } from './codex-conversation-name-turn'
 import { readCodexThreadId, readCodexThreadName } from './codex-structured-thread-facts'
 import { CodexStructuredTurnCancellation } from './codex-structured-turn-cancellation'
 import { createCodexStructuredNotificationRetry } from './codex-structured-notification-retry'
@@ -119,6 +120,19 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     if (this.turnCancellation.handleNotification(sessionId, session, method, params)) {
       return { accepted: true }
     }
+    // Before every other handler: a naming turn runs on a throwaway thread over
+    // this same connection, and the item translator journals items from ANY
+    // thread. Routed here, its prompt and its JSON answer never reach the chat.
+    //
+    // Keyed on "not the user's thread" rather than the naming thread's own id,
+    // which is unknown until `thread/start` returns — by which point frames for
+    // it are already arriving. A frame naming NO thread still passes through.
+    const naming = session.naming
+    const frameThreadId = readCodexThreadId(params)
+    if (naming && frameThreadId !== null && frameThreadId !== session.threadId) {
+      naming.handle(method, params)
+      return { accepted: true }
+    }
     this.captureConversationName(sessionId, session, method, params)
     return deliverCodexNotification(sessionId, session, method, params, (current, event) =>
       this.emit(current, event)
@@ -192,7 +206,21 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
   }): Promise<AgentSessionDispatchOutcome> {
     const session = this.session(input.sessionId)
     await this.turnCancellation.captureBaseline(session)
-    return dispatchCodexTurn(session, input, this.deps.requestTimeoutMs)
+    const outcome = await dispatchCodexTurn(session, input, this.deps.requestTimeoutMs)
+    if (outcome.state === 'accepted') {
+      // The accepted user message is the first thing worth naming the thread
+      // after, and the only text this session is sure Codex received.
+      startCodexConversationNaming({
+        sessionId: input.sessionId,
+        session,
+        body: input.body,
+        ...(this.deps.requestTimeoutMs ? { requestTimeoutMs: this.deps.requestTimeoutMs } : {}),
+        ...(this.deps.onConversationName
+          ? { onConversationName: this.deps.onConversationName }
+          : {})
+      })
+    }
+    return outcome
   }
 
   async cancelTurn(input: {

@@ -52,6 +52,7 @@ export function createClaudeSessionPublication(input: {
       retiredDispatchWaiters: [],
       replayContentFallbackBlocked: false,
       backgroundTasks: new ClaudeBackgroundTaskTracker(),
+      namingAttempted: false,
       dispatchSequence: 0,
       optionMutationSequence: 0,
       options: new Map(input.options),

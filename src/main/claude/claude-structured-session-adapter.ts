@@ -9,6 +9,7 @@ import {
   cancelClaudeTurn,
   stopClaudeBackgroundTasks
 } from './claude-structured-control-actions'
+import { startClaudeConversationNaming } from './claude-conversation-name-turn'
 import { dispatchClaudeTurn } from './claude-structured-dispatch'
 import { releaseClaudeAcquisition } from './claude-structured-acquisition-release'
 import { acquireClaudeSession } from './claude-structured-session-acquisition'
@@ -219,12 +220,20 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     this.sessions.get(sessionId)?.prompts.bindJournalItemId(journalItemId, promptKey, questionId)
   }
 
-  dispatch: StructuredAgentSessionAdapter['dispatch'] = (input) =>
-    dispatchClaudeTurn(
-      this.session(input.sessionId),
+  dispatch: StructuredAgentSessionAdapter['dispatch'] = async (input) => {
+    const session = this.session(input.sessionId)
+    const outcome = await dispatchClaudeTurn(
+      session,
       input,
       this.deps.dispatchAckTimeoutMs ?? DISPATCH_ACK_TIMEOUT_MS
     )
+    if (outcome.state === 'accepted') {
+      // The accepted user message is the only text this session is sure the CLI
+      // received, and the first thing worth naming the conversation after.
+      startClaudeConversationNaming(input.sessionId, session, input.body, this.deps)
+    }
+    return outcome
+  }
 
   cancelTurn: StructuredAgentSessionAdapter['cancelTurn'] = (input) => {
     const session = this.session(input.sessionId)

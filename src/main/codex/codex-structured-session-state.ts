@@ -9,6 +9,7 @@ import { CodexAcquisitionWindow } from './codex-structured-acquisition-window'
 import type { CodexJournalTranslator } from './codex-structured-journal-translation'
 import type { CodexTurnProcessSnapshot } from './codex-structured-turn-processes'
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
+import type { CodexNamingTurnCollector } from './codex-conversation-name-generation'
 
 export type CodexStructuredLaunch = {
   command: string
@@ -64,9 +65,18 @@ export type CodexSession = {
   fence: number
   acquisitionGeneration: string
   threadId: string
+  /** Workspace the provider was launched in; a naming turn opens its throwaway
+   *  thread in the same place so it inherits the same trust and config. */
+  cwd: string
   historyPath: string | null
   /** Codex's own name for the thread; null until Codex reports one. */
   conversationName: string | null
+  /** The throwaway thread a naming turn is running on, and where its frames go.
+   *  Set only while one is in flight; its frames must never reach the journal. */
+  naming: CodexNamingTurnCollector | null
+  /** One naming attempt per session: a thread the model declined to name, or one
+   *  a person deliberately cleared, must not be re-asked on every later turn. */
+  namingAttempted: boolean
   prompts: CodexAcquisitionWindow['prompts']
   options: Map<string, string>
   reportedOptions: { model?: string; effort?: string }

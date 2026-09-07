@@ -41,6 +41,28 @@ export function claudeQueryAsyncCanceller(
   return typeof cancel === 'function' ? cancel.bind(query) : null
 }
 
+/**
+ * generate_session_title is a runtime Query method the shipped 0.3.251 declaration
+ * omits. With `persist` the CLI writes the name into its own transcript as an
+ * `ai-title` record, which is where Orca reads it back from on a later attach.
+ * The typeof guard is its degradation path.
+ */
+type ClaudeQueryTitleGenerator = {
+  generateSessionTitle?: (
+    description: string,
+    options?: { persist?: boolean }
+  ) => Promise<string | null | undefined>
+}
+
+export function claudeQueryTitleGenerator(
+  query: Query
+):
+  | ((description: string, options?: { persist?: boolean }) => Promise<string | null | undefined>)
+  | null {
+  const generate = (query as unknown as ClaudeQueryTitleGenerator).generateSessionTitle
+  return typeof generate === 'function' ? generate.bind(query) : null
+}
+
 export type ClaudeControlOptions = { timeoutMs?: number }
 
 /**
@@ -95,6 +117,12 @@ export type ClaudeControlSurface = {
   supportedModels: (options?: ClaudeControlOptions) => Promise<unknown[]>
   initializationResult: (options?: ClaudeControlOptions) => Promise<unknown>
   getSettings: (options?: ClaudeControlOptions) => Promise<unknown>
+  /** Null when this CLI exposes no title request; never an error, so a chat
+   *  without a name simply keeps its placeholder. */
+  generateSessionTitle: (
+    description: string,
+    options?: ClaudeControlOptions & { persist?: boolean }
+  ) => Promise<string | null>
 }
 
 type InterruptingQuery = {
@@ -144,6 +172,17 @@ export function createClaudeControlSurface(query: Query): ClaudeControlSurface {
       runClaudeControl('list_models', () => query.supportedModels(), options?.timeoutMs),
     initializationResult: (options) =>
       runClaudeControl('initialize', () => query.initializationResult(), options?.timeoutMs),
+    generateSessionTitle: (description, options) => {
+      const generate = claudeQueryTitleGenerator(query)
+      if (!generate) {
+        return Promise.resolve(null)
+      }
+      return runClaudeControl(
+        'generate_session_title',
+        () => generate(description, { persist: options?.persist === true }),
+        options?.timeoutMs
+      ).then((title) => (typeof title === 'string' && title.trim() ? title.trim() : null))
+    },
     getSettings: (options) => {
       const read = claudeQuerySettingsReader(query)
       return read
