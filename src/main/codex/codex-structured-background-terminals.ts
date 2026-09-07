@@ -37,6 +37,10 @@ export function createCodexBackgroundTerminals(): CodexBackgroundTerminals {
   return { supported: null, state: null }
 }
 
+function isUnsupported(terminals: CodexBackgroundTerminals): boolean {
+  return terminals.supported === false
+}
+
 function readRows(response: unknown): CodexBackgroundTerminalRow[] {
   const data = (response as { data?: unknown } | null)?.data
   return Array.isArray(data) ? (data as CodexBackgroundTerminalRow[]) : []
@@ -120,6 +124,10 @@ export async function refreshCodexBackgroundTerminals(
     }
     return false
   }
+  // A concurrent stop may have latched the capability off while the list was in flight.
+  if (isUnsupported(terminals)) {
+    return false
+  }
   terminals.supported = true
   const next = toState(response)
   if (statesEqual(terminals.state, next)) {
@@ -189,17 +197,25 @@ export function createCodexBackgroundTerminalChannel(deps: {
   requestTimeoutMs?: number
   onChanged?: (sessionId: string, state: AgentSessionBackgroundTaskState | null) => void
 }): CodexBackgroundTerminalChannel {
+  const published = new WeakMap<CodexSession, AgentSessionBackgroundTaskState | null>()
+  const publish = (sessionId: string, session: CodexSession): void => {
+    const state = session.backgroundTerminals.state
+    if (
+      deps.sessions.get(sessionId) !== session ||
+      statesEqual(published.get(session) ?? null, state)
+    ) {
+      return
+    }
+    published.set(session, state)
+    deps.onChanged?.(sessionId, state)
+  }
   const refresh = (sessionId: string, session: CodexSession): void => {
     void refreshCodexBackgroundTerminals(
       session.backgroundTerminals,
       session,
       deps.requestTimeoutMs
     )
-      .then((changed) => {
-        if (changed && deps.sessions.get(sessionId) === session) {
-          deps.onChanged?.(sessionId, session.backgroundTerminals.state)
-        }
-      })
+      .then(() => publish(sessionId, session))
       // The refresh already swallows non-verdict failures; nothing to add.
       .catch(() => {})
   }
@@ -223,6 +239,7 @@ export function createCodexBackgroundTerminalChannel(deps: {
         deps.requestTimeoutMs,
         input.taskId
       )
+      publish(input.sessionId, session)
       refresh(input.sessionId, session)
       return result
     }

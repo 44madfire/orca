@@ -105,6 +105,14 @@ function completeTurn(codex: ReturnType<typeof fakeCodex>): void {
   })
 }
 
+const refuse = (method: string): Route => {
+  return () => {
+    throw new CodexAppServerUnsupportedError(
+      `codex app-server does not support ${method}: method not found`
+    )
+  }
+}
+
 describe('CodexStructuredSessionAdapter background terminals', () => {
   it('surfaces a terminal that outlived its turn', async () => {
     const codex = fakeCodex()
@@ -174,13 +182,6 @@ describe('CodexStructuredSessionAdapter background terminals', () => {
     // The dispatcher converts -32601 into CodexAppServerUnsupportedError before
     // any caller sees it, so a RequestError carrying -32601 is a value
     // production can never build. Refuse the way a real host refuses.
-    const refuse = (method: string): Route => {
-      return () => {
-        throw new CodexAppServerUnsupportedError(
-          `codex app-server does not support ${method}: method not found`
-        )
-      }
-    }
 
     it('offers no control at all rather than one that does nothing', async () => {
       const codex = fakeCodex()
@@ -212,15 +213,50 @@ describe('CodexStructuredSessionAdapter background terminals', () => {
     it('reports an unconfirmed stop when the host refuses to clean', async () => {
       const codex = fakeCodex()
       codex.routes[CLEAN] = refuse(CLEAN)
-      const { adapter } = await acquired(codex)
+      const { adapter, published } = await acquired(codex)
       completeTurn(codex)
       await settle()
 
+      expect(published).toHaveLength(1)
+      expect(published[0]?.state).toBe('monitoring')
       await expect(
         adapter.stopBackgroundTasks?.({ sessionId: 'session-1', fence: 7 })
       ).resolves.toEqual({ cancelled: false })
       expect(adapter.backgroundTaskState?.('session-1')).toBeNull()
+      expect(published).toHaveLength(2)
+      expect(published.at(-1)).toBeNull()
+      completeTurn(codex)
+      await settle()
+      expect(published).toHaveLength(2)
     })
+  })
+
+  it('does not revive a disabled capability from an in-flight list', async () => {
+    const codex = fakeCodex()
+    const { adapter, published } = await acquired(codex)
+    completeTurn(codex)
+    await settle()
+    const response = { data: [{ processId: 'proc-1', command: 'sleep 180' }] }
+    let finishList!: (value: typeof response) => void
+    codex.routes[LIST] = () =>
+      new Promise((resolve) => {
+        finishList = resolve
+      })
+    completeTurn(codex)
+    await settle()
+    codex.routes[CLEAN] = refuse(CLEAN)
+
+    await adapter.stopBackgroundTasks?.({ sessionId: 'session-1', fence: 7 })
+    expect(published).toHaveLength(2)
+    expect(published.at(-1)).toBeNull()
+    finishList(response)
+    await settle()
+    expect(adapter.backgroundTaskState?.('session-1')).toBeNull()
+    expect(published).toHaveLength(2)
+    const calls = codex.connections[0].calls.length
+    completeTurn(codex)
+    await settle()
+    expect(codex.connections[0].calls).toHaveLength(calls)
   })
 
   it('refuses a stop aimed at a superseded child', async () => {
