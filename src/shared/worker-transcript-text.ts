@@ -18,9 +18,11 @@ export function formatWorkerTranscriptMessage(message: NativeChatMessage): strin
   // clients, so they print the twin and drop the block — the mirror of the
   // renderer, which draws the block and drops the twin. Either way the sentence
   // prints once.
-  const hasTwin = message.blocks.some(
+  // Counted, not a boolean: a message carrying two roster blocks and one twin
+  // suppressed BOTH groups and printed one sentence, losing a roster silently.
+  let unclaimedTwins = message.blocks.filter(
     (block) => block.type === 'text' && isSubagentGroupFallbackText(block.text)
-  )
+  ).length
   const blocks = message.blocks.map((block) => {
     if (block.type === 'text') {
       return block.text
@@ -35,13 +37,17 @@ export function formatWorkerTranscriptMessage(message: NativeChatMessage): strin
       return block.url ? `[image] ${block.url}` : `[image omitted]`
     }
     if (block.type === 'subagent-group') {
-      // Stand in for the block only when no twin is being printed: the wire
+      // Stand in for the block only when no twin is left to print it: the wire
       // admits a roster that arrived without one, and dropping that
-      // unconditionally would lose the sentence altogether. Presence, not a
+      // unconditionally would lose the sentence altogether. Counted, not a
       // byte compare against a recomputed sentence — a roster from a newer
       // build holds a state this build reads as `unverifiable`, so recomputing
       // yields a different sentence and both would print.
-      return hasTwin ? null : `[subagents] ${subagentGroupFallbackText(block.agents)}`
+      if (unclaimedTwins > 0) {
+        unclaimedTwins -= 1
+        return null
+      }
+      return `[subagents] ${subagentGroupFallbackText(block.agents)}`
     }
     // The journal deliberately admits block types this build does not know, and
     // a newer remote host can send one over the wire. Degrade to a marker rather

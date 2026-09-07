@@ -374,6 +374,28 @@ describe('formatWorkerRead', () => {
     expect(occurrences(output, sentence)).toBe(1)
   })
 
+  // Suppression is per twin, not per message. One twin beside two roster blocks
+  // silenced BOTH groups and printed one sentence, so the second roster vanished
+  // with no marker — the same silent drop the missing-twin case above avoids.
+  it('stands in for the second roster block when only one twin accompanies two', () => {
+    const other: readonly NativeChatSubagentEntry[] = [
+      { id: 'child-3', label: 'plan', state: 'completed' }
+    ]
+    const output = formatWorkerRead(
+      transcriptRead(
+        [
+          { type: 'text', text: subagentGroupFallbackText(ROSTER) },
+          { type: 'subagent-group', groupId: 'thread:turn-1', agents: [...ROSTER] },
+          { type: 'subagent-group', groupId: 'thread:turn-2', agents: [...other] }
+        ],
+        'system'
+      )
+    )
+
+    expect(occurrences(output, subagentGroupFallbackText(ROSTER))).toBe(1)
+    expect(output).toContain(`[subagents] ${subagentGroupFallbackText(other)}`)
+  })
+
   // A group with no twin beside it is a shape the block schema admits and no
   // producer writes. Dropping it would lose the roster entirely, so the block
   // itself carries the sentence when nothing else does.
