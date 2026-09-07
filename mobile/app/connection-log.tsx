@@ -1,39 +1,18 @@
-import { ConnectionDiagnosticsView } from '../src/diagnostics/connection-diagnostics-view'
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { View, Text, Pressable, Platform } from 'react-native'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { View, Text, Pressable } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import * as Clipboard from 'expo-clipboard'
-import Constants from 'expo-constants'
 import { loadHosts } from '../src/transport/host-store'
-import { connectionLogStore } from '../src/transport/persisted-connection-log-store'
 import { useHostClient, useRpcClientContext } from '../src/transport/client-context'
-import {
-  useConnectionPathStatus,
-  useReconnectAttempt
-} from '../src/transport/client-context-connection-metrics'
-import { buildConnectionDiagnosticsReport } from '../src/diagnostics/connection-diagnostics-report'
-import { mobileWebDiagnosticsStore } from '../src/mobile-web/mobile-web-diagnostics-store'
-import {
-  diagnoseConnection,
-  getReportableConnectionIncidentId
-} from '../src/diagnostics/connection-diagnostics-analysis'
-import { submitConnectionDiagnostics } from '../src/diagnostics/connection-diagnostics-submission'
-import {
-  readHydratedConnectionLog,
-  readConnectionDiagnosticsSnapshot,
-  resolveDiagnosticsHostId,
-  getDiagnosticsSubmissionState,
-  updateDiagnosticsSubmissionState,
-  type DiagnosticsSubmissionStates
-} from '../src/diagnostics/connection-diagnostics-screen-data'
 import { useHostStatusGates } from '../src/transport/host-status-gates'
-import { loadHostAppVersion } from '../src/transport/host-app-version-store'
+import { ConnectionDiagnosticsScreen } from '../src/diagnostics/connection-diagnostics-screen'
+import { createNativeDiagnosticsOperations } from '../src/diagnostics/native-diagnostics-operations'
+import {
+  resolveDiagnosticsHostId,
+  type DiagnosticsHostSelection
+} from '../src/diagnostics/connection-diagnostics-screen-data'
 import { connectionDiagnosticsScreenStyles as styles } from '../src/diagnostics/connection-diagnostics-screen-styles'
-import type { ConnectionLogEntry, HostProfile } from '../src/transport/types'
-
-// Why: getSnapshot must be referentially stable when there's no data —
-// a fresh [] per call would make useSyncExternalStore re-render forever.
-const EMPTY_ENTRIES: readonly ConnectionLogEntry[] = []
+import type { HostProfile } from '../src/transport/types'
 
 // Why: reading the log is most needed while a host is failing, so this
 // screen also *acquires* the host client — opening it kicks a dial and the
@@ -44,21 +23,14 @@ export default function ConnectionLogScreen() {
   const params = useLocalSearchParams<{ hostId?: string }>()
   const routeKey = useMemo(() => ({}), [params.hostId])
   const [hosts, setHosts] = useState<HostProfile[]>([])
-  const [manualSelection, setManualSelection] = useState<{
-    hostId: string
-    requestedHostId: string | undefined
-    routeKey: object
-  } | null>(null)
-  const [copiedHostId, setCopiedHostId] = useState<string | null>(null)
-  const [submissionStates, setSubmissionStates] = useState<DiagnosticsSubmissionStates>({})
+  const [manualSelection, setManualSelection] = useState<DiagnosticsHostSelection | null>(null)
 
   useEffect(() => {
     let stale = false
     void loadHosts().then((loaded) => {
-      if (stale) {
-        return
+      if (!stale) {
+        setHosts(loaded)
       }
-      setHosts(loaded)
     })
     return () => {
       stale = true
@@ -66,179 +38,45 @@ export default function ConnectionLogScreen() {
   }, [])
 
   const selectedId = resolveDiagnosticsHostId(hosts, params.hostId, manualSelection, routeKey)
-  const selected = hosts.find((h) => h.id === selectedId) ?? null
+  const selected = hosts.find((host) => host.id === selectedId) ?? null
   const { client, state } = useHostClient(selected?.id)
-  const { desktopAppVersion: liveDesktopAppVersion } = useHostStatusGates({
-    hostId: selected?.id,
-    client,
-    connState: state
-  })
-  const reconnectAttempts = useReconnectAttempt(selected?.id)
-  const { activePath, pendingPath } = useConnectionPathStatus(selected?.id)
-
-  useEffect(() => {
-    if (selectedId) {
-      void readHydratedConnectionLog(connectionLogStore, selectedId)
-    }
-  }, [selectedId])
-
-  const subscribe = useCallback(
-    (listener: () => void) =>
-      selectedId ? connectionLogStore.subscribe(selectedId, listener) : () => {},
-    [selectedId]
+  // Why: refreshes the persisted desktop version the diagnostics report reads back.
+  useHostStatusGates({ hostId: selected?.id, client, connState: state })
+  const device = useMemo(
+    () => (selected ? createNativeDiagnosticsOperations(selected, clientContext) : null),
+    [selected, clientContext]
   )
-  const getSnapshot = useCallback(
-    () => (selectedId ? connectionLogStore.get(selectedId) : EMPTY_ENTRIES),
-    [selectedId]
+  const select = useCallback(
+    (hostId: string) => setManualSelection({ hostId, requestedHostId: params.hostId, routeKey }),
+    [params.hostId, routeKey]
   )
-  const entries = useSyncExternalStore(subscribe, getSnapshot)
-  const subscribeMobileWeb = useCallback(
-    (listener: () => void) => mobileWebDiagnosticsStore.subscribe(listener),
-    []
-  )
-  const getMobileWebSnapshot = useCallback(
-    () => mobileWebDiagnosticsStore.get(selectedId),
-    [selectedId]
-  )
-  const mobileWebDiagnostics = useSyncExternalStore(subscribeMobileWeb, getMobileWebSnapshot)
-  const diagnosis = selected
-    ? diagnoseConnection({ endpoint: selected.endpoint, state, activePath, pendingPath, entries })
-    : null
-  const incidentId = selected
-    ? getReportableConnectionIncidentId({
-        endpoint: selected.endpoint,
-        state,
-        activePath,
-        pendingPath,
-        entries
-      })
-    : null
-  const submissionKey = selected && incidentId ? `${selected.id}:${incidentId}` : null
-  const submissionState = getDiagnosticsSubmissionState(submissionStates, submissionKey)
-  const copied = copiedHostId === selectedId
-
-  const copyDiagnostics = useCallback(async () => {
-    if (!selected) {
-      return
-    }
-    const desktopAppVersion = liveDesktopAppVersion ?? (await loadHostAppVersion(selected.id))
-    const snapshot = await readConnectionDiagnosticsSnapshot(
-      clientContext,
-      connectionLogStore,
-      selected.id
-    )
-    const report = buildConnectionDiagnosticsReport({
-      endpoint: selected.endpoint,
-      state: snapshot.state,
-      reconnectAttempts: snapshot.reconnectAttempts,
-      lastConnectedAt: snapshot.lastConnectedAt,
-      platform: `${Platform.OS} ${Platform.Version ?? ''}`.trim(),
-      appVersion: Constants.expoConfig?.version ?? 'unknown',
-      desktopAppVersion,
-      entries: snapshot.entries,
-      activePath: snapshot.activePath,
-      pendingPath: snapshot.pendingPath,
-      mobileWeb: mobileWebDiagnostics
-    })
-    await Clipboard.setStringAsync(report)
-    setCopiedHostId(selected.id)
-    setTimeout(() => setCopiedHostId((hostId) => (hostId === selected.id ? null : hostId)), 2000)
-  }, [selected, liveDesktopAppVersion, clientContext, mobileWebDiagnostics])
-
-  const sendDiagnostics = useCallback(async () => {
-    if (!selected || !submissionKey || submissionState === 'sending') {
-      return
-    }
-    const startedKey = submissionKey
-    setSubmissionStates((states) => updateDiagnosticsSubmissionState(states, startedKey, 'sending'))
-    const appVersion = Constants.expoConfig?.version ?? 'unknown'
-    const platform = `${Platform.OS} ${Platform.Version ?? ''}`.trim()
-    const desktopAppVersion = liveDesktopAppVersion ?? (await loadHostAppVersion(selected.id))
-    const snapshot = await readConnectionDiagnosticsSnapshot(
-      clientContext,
-      connectionLogStore,
-      selected.id
-    )
-    const currentIncidentId = getReportableConnectionIncidentId({
-      endpoint: selected.endpoint,
-      state: snapshot.state,
-      activePath: snapshot.activePath,
-      pendingPath: snapshot.pendingPath,
-      entries: snapshot.entries
-    })
-    if (`${selected.id}:${currentIncidentId ?? ''}` !== startedKey) {
-      setSubmissionStates((states) => updateDiagnosticsSubmissionState(states, startedKey, null))
-      return
-    }
-    const report = buildConnectionDiagnosticsReport({
-      endpoint: selected.endpoint,
-      state: snapshot.state,
-      reconnectAttempts: snapshot.reconnectAttempts,
-      lastConnectedAt: snapshot.lastConnectedAt,
-      platform,
-      appVersion,
-      desktopAppVersion,
-      entries: snapshot.entries,
-      activePath: snapshot.activePath,
-      pendingPath: snapshot.pendingPath,
-      mobileWeb: mobileWebDiagnostics
-    })
-    const result = await submitConnectionDiagnostics({ report, appVersion, platform })
-    setSubmissionStates((states) =>
-      updateDiagnosticsSubmissionState(states, startedKey, result.ok ? 'sent' : 'failed')
-    )
-  }, [
-    selected,
-    submissionKey,
-    submissionState,
-    liveDesktopAppVersion,
-    clientContext,
-    mobileWebDiagnostics
-  ])
 
   return (
-    <ConnectionDiagnosticsView
+    <ConnectionDiagnosticsScreen
+      key={selectedId ?? 'none'}
+      device={device}
       hostName={selected?.name ?? null}
-      state={state}
-      reconnectAttempts={reconnectAttempts}
-      copied={copied}
-      copyDiagnostics={copyDiagnostics}
-      diagnosis={diagnosis}
-      submissionState={submissionState}
-      sendDiagnostics={sendDiagnostics}
-      entries={entries}
+      writeClipboard={(report) => Clipboard.setStringAsync(report)}
       onBack={() => router.back()}
       hostPicker={
-        <>
-          {' '}
-          {hosts.length > 1 && (
-            <View style={styles.hostPicker}>
-              {hosts.map((host) => (
-                <Pressable
-                  key={host.id}
-                  style={[styles.hostChip, host.id === selectedId && styles.hostChipActive]}
-                  onPress={() =>
-                    setManualSelection({
-                      hostId: host.id,
-                      requestedHostId: params.hostId,
-                      routeKey
-                    })
-                  }
+        hosts.length > 1 ? (
+          <View style={styles.hostPicker}>
+            {hosts.map((host) => (
+              <Pressable
+                key={host.id}
+                style={[styles.hostChip, host.id === selectedId && styles.hostChipActive]}
+                onPress={() => select(host.id)}
+              >
+                <Text
+                  style={[styles.hostChipText, host.id === selectedId && styles.hostChipTextActive]}
+                  numberOfLines={1}
                 >
-                  <Text
-                    style={[
-                      styles.hostChipText,
-                      host.id === selectedId && styles.hostChipTextActive
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {host.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </>
+                  {host.name}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null
       }
     />
   )

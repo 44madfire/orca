@@ -1,7 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { Text } from 'react-native'
 import { useFocusEffect } from 'expo-router'
-import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
 import type { DiagnosticsSnapshot } from '../../../src/shared/mobile-web/diagnostics-device-contract'
 import type { ConnectionLogEntry } from '../transport/types'
 import type { MobileWebDiagnosticsSnapshot } from '../mobile-web/mobile-web-diagnostics-store'
@@ -17,21 +16,40 @@ import {
   type DiagnosticsSubmissionStates
 } from './connection-diagnostics-screen-data'
 import { connectionDiagnosticsScreenStyles as styles } from './connection-diagnostics-screen-styles'
+import type { DiagnosticsDeviceOperations } from './diagnostics-device-operations'
 
-export function HostedConnectionDiagnosticsScreen({
-  client,
-  onBack
+function reportable(snapshot: DiagnosticsSnapshot) {
+  return {
+    ...snapshot,
+    entries: snapshot.entries as ConnectionLogEntry[],
+    mobileWeb: snapshot.mobileWeb as MobileWebDiagnosticsSnapshot
+  }
+}
+
+// Why: reading the log matters most while a host is failing, so the screen
+// re-polls the device instead of rendering a snapshot taken on mount.
+export function ConnectionDiagnosticsScreen({
+  device,
+  hostName,
+  writeClipboard,
+  onBack,
+  hostPicker
 }: {
-  client: MobileWebBridgeClient
+  device: DiagnosticsDeviceOperations | null
+  hostName: string | null
+  writeClipboard: (report: string) => Promise<unknown>
   onBack: () => void
+  hostPicker?: ReactNode
 }) {
-  const device = client.native.diagnosticsDevice
   const [snapshot, setSnapshot] = useState<DiagnosticsSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [submissions, setSubmissions] = useState<DiagnosticsSubmissionStates>({})
   useFocusEffect(
     useCallback(() => {
+      if (!device) {
+        return
+      }
       let active = true
       let pending = false
       const refresh = async () => {
@@ -61,44 +79,31 @@ export function HostedConnectionDiagnosticsScreen({
       }
     }, [device])
   )
-  const data = snapshot
-    ? {
-        ...snapshot,
-        entries: snapshot.entries as ConnectionLogEntry[],
-        mobileWeb: snapshot.mobileWeb as MobileWebDiagnosticsSnapshot
-      }
-    : null
+  const data = snapshot ? reportable(snapshot) : null
   const diagnosis = data ? diagnoseConnection(data) : null
   const incident = data ? getReportableConnectionIncidentId(data) : null
   const submissionState = getDiagnosticsSubmissionState(submissions, incident)
   const copyDiagnostics = async () => {
+    if (!device) {
+      return
+    }
     try {
-      const fresh = await device.snapshot()
-      await client.native.clipboardWrite(
-        buildConnectionDiagnosticsReport({
-          ...fresh,
-          entries: fresh.entries as ConnectionLogEntry[],
-          mobileWeb: fresh.mobileWeb as MobileWebDiagnosticsSnapshot
-        })
-      )
+      await writeClipboard(buildConnectionDiagnosticsReport(reportable(await device.snapshot())))
       setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     } catch {
       setError('Could not copy the report. Try again.')
     }
   }
   const sendDiagnostics = async () => {
-    if (!incident || submissionState === 'sending') {
+    if (!device || !incident || submissionState === 'sending') {
       return
     }
     const started = incident
     setSubmissions((states) => updateDiagnosticsSubmissionState(states, started, 'sending'))
     try {
       const fresh = await device.snapshot()
-      const reportData = {
-        ...fresh,
-        entries: fresh.entries as ConnectionLogEntry[],
-        mobileWeb: fresh.mobileWeb as MobileWebDiagnosticsSnapshot
-      }
+      const reportData = reportable(fresh)
       if (getReportableConnectionIncidentId(reportData) !== started) {
         setSubmissions((states) => updateDiagnosticsSubmissionState(states, started, null))
         return
@@ -117,8 +122,8 @@ export function HostedConnectionDiagnosticsScreen({
   }
   return (
     <ConnectionDiagnosticsView
-      loading={!snapshot}
-      hostName="Paired desktop"
+      loading={Boolean(device) && !snapshot}
+      hostName={hostName}
       state={snapshot?.state ?? 'disconnected'}
       reconnectAttempts={snapshot?.reconnectAttempts ?? 0}
       entries={data?.entries ?? []}
@@ -129,11 +134,14 @@ export function HostedConnectionDiagnosticsScreen({
       sendDiagnostics={sendDiagnostics}
       onBack={onBack}
       hostPicker={
-        error ? (
-          <Text accessibilityRole="alert" style={styles.emptyText}>
-            {error}
-          </Text>
-        ) : null
+        <>
+          {hostPicker}
+          {error ? (
+            <Text accessibilityRole="alert" style={styles.emptyText}>
+              {error}
+            </Text>
+          ) : null}
+        </>
       }
     />
   )
