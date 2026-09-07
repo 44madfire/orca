@@ -563,6 +563,7 @@ async function main() {
       nativeAlert: deviceCapabilities.nativeAlert,
       chatSettings: deviceCapabilities.chatSettings?.evidence ?? null,
       browserSettings: deviceCapabilities.browserSettings?.evidence ?? null,
+      terminalSettings: deviceCapabilities.terminalSettings?.evidence ?? null,
       nativeAppPath,
       nativeOnboarding,
       navigationIsolation,
