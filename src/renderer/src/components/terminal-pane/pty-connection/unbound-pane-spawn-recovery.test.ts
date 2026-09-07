@@ -261,6 +261,22 @@ describe('cold-restore resume spawns', () => {
     expect(pendingSpawnByPaneKey.has('resume-key')).toBe(false)
   })
 
+  // The adopting remount arms with no options of its own. If the exclusion rode
+  // the arming call instead of the spawn, this pane would re-issue --resume.
+  it('never remounts a resume spawn adopted by a remount whose arming pane was disposed', () => {
+    const promise = new Promise<string | null>(() => {})
+    observeSpawnSettlement(
+      buildSession({ deps: { tabId: 'tab-disposed' }, disposed: true }),
+      promise,
+      { resumesProviderSession: true }
+    )
+
+    armSpawnSettlementWatchdog(buildSession({ deps: { tabId: 'tab-adopter' } }), promise)
+    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+
+    expect(requestTerminalPaneRecovery).not.toHaveBeenCalled()
+  })
+
   it('still remounts a non-resume spawn that hangs', () => {
     observeSpawnSettlement(
       buildSession({ deps: { tabId: 'tab-plain' }, pendingSpawnKey: 'plain-key' }),

@@ -172,8 +172,9 @@ export function runDeferredSessionReattachChoice(session: ConnectPanePtySession)
       }
       recordPtyConnectDiagnostic(`pane=${session.pane.id} -> PENDING SPAWN`)
       session.armDirectSshPaneRetryTimeout(pendingSpawn, session.directSshRetryAttempt)
-      // Why re-arm: the adopting instance needs its own settlement clock, or a hung
-      // spawn it inherited would freeze this pane with no timer of its own.
+      // Why re-arm: a spawn whose arming pane was disposed before it could arm has
+      // no clock at all, and this pane would inherit the freeze. Already-armed
+      // spawns no-op, and the resume exclusion rides the promise, not this call.
       armSpawnSettlementWatchdog(session, pendingSpawn)
       void pendingSpawn
         .then((spawnedPtyId) => {

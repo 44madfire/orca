@@ -14,6 +14,11 @@ import type { ConnectPanePtySession } from './connect-pane-pty-session'
 // Why a module-level set: a promise is already a unique identity, so arming from
 // both the fresh spawn and a remount's pending-spawn adoption cannot double-time it.
 const spawnSettlementTimedPromises = new WeakSet<Promise<unknown>>()
+// Why keyed on the spawn and not on the arming call: a remount adopts a pending
+// spawn it did not start, so a flag passed by the caller would be lost exactly
+// when the arming pane was disposed before it could arm — the one case where the
+// adopter's own arming is what runs.
+const resumeShapedSpawns = new WeakSet<Promise<unknown>>()
 
 function remountUnboundPane(
   session: ConnectPanePtySession,
@@ -68,7 +73,12 @@ export function observeSpawnSettlement(
   trackedPromise: Promise<string | null>,
   options: { resumesProviderSession?: boolean } = {}
 ): void {
-  armSpawnSettlementWatchdog(session, trackedPromise, options)
+  // Recorded before arming, so a pane disposed too early to arm still hands the
+  // flag to whichever remount adopts this spawn.
+  if (options.resumesProviderSession === true) {
+    resumeShapedSpawns.add(trackedPromise)
+  }
+  armSpawnSettlementWatchdog(session, trackedPromise)
   void trackedPromise.then((spawnedPtyId) => {
     if (spawnedPtyId) {
       return
@@ -98,8 +108,7 @@ export function observeSpawnSettlement(
  *  pane-key entry forever, which also freezes any remount that adopts it. */
 export function armSpawnSettlementWatchdog(
   session: ConnectPanePtySession,
-  trackedPromise: Promise<string | null>,
-  options: { resumesProviderSession?: boolean } = {}
+  trackedPromise: Promise<string | null>
 ): void {
   if (session.disposed || spawnSettlementTimedPromises.has(trackedPromise)) {
     return
@@ -121,10 +130,11 @@ export function armSpawnSettlementWatchdog(
     // (it may own a recycled id). Remounting a hung one would put a SECOND
     // --resume on the same transcript. A stuck pane is recoverable; two agents
     // writing one conversation is not.
-    if (options.resumesProviderSession === true) {
+    if (resumeShapedSpawns.has(trackedPromise)) {
       warnTerminalLifecycleAnomaly('resume spawn never settled; remount withheld', {
         tabId,
         worktreeId: session.deps.worktreeId,
+        leafId: session.deps.restoredLeafId ?? session.pane.leafId,
         paneId: session.pane.id,
         ptyId: null
       })

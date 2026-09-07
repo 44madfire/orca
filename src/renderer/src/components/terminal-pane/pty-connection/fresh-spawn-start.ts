@@ -321,7 +321,13 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
       })
     session.armDirectSshPaneRetryTimeout(trackedPromise, session.directSshRetryAttempt)
     observeSpawnSettlement(session, trackedPromise, {
-      resumesProviderSession: Boolean(coldRestoreOverride)
+      // Why the transport options too: spawnIpcPty falls back to them for
+      // `resumeProviderSession`, so a pane whose startup carries a provider
+      // session (sidebar resume of a sleeping agent) re-issues --resume on
+      // EVERY fresh spawn — with no cold-restore override to mark it.
+      resumesProviderSession: Boolean(
+        coldRestoreOverride ?? session.transportOptions?.resumeProviderSession
+      )
     })
     // Why: split panes in the same tab can spawn concurrently. Key by pane
     // as well as tab so a remount cannot attach to a sibling setup pane's PTY.
