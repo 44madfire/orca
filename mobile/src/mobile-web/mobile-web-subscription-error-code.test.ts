@@ -6,7 +6,6 @@ import type {
 } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
-import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import {
   isRetryableMobileWebBridgeError,
   mobileWebBridgeErrorCode
@@ -16,9 +15,6 @@ import {
   mobileWebBridgeRequestMessage
 } from './mobile-web-bridge-roundtrip-fixture'
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
-import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
-
-const randomBytes = (length: number): Uint8Array => new Uint8Array(length).fill(4)
 
 function stubClient(): RpcClient {
   return { subscribe: vi.fn(() => () => {}) } as unknown as RpcClient
@@ -29,20 +25,9 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
   const postEvent = async (): Promise<void> => {}
   const isActive = (): boolean => true
   const client = stubClient()
-  const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
-  workspaceAuthority.synchronize([{ workspaceId: 'host-workspace', repoId: 'repo-1' }])
-  const pageWorkspaceId = workspaceAuthority.pageWorkspaceId('host-workspace')
-  const pageId = 'raw-page'
-
   const postClosed = (): void => {}
   const account = new MobileWebAccountSubscriptions({ isActive, postEvent, postClosed })
   const workspace = new MobileWebWorkspaceSubscriptions({ isActive, postEvent, postClosed })
-  const browser = new MobileWebBrowserStreams({
-    isActive,
-    workspaceAuthority,
-    postEvent,
-    postClosed
-  })
   return [
     {
       name: 'account',
@@ -51,25 +36,6 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
     {
       name: 'workspace',
       start: (subscriptionId) => workspace.start({ requestId: 'r', subscriptionId, client })
-    },
-    {
-      name: 'browser',
-      start: (subscriptionId) =>
-        browser.start({
-          requestId: 'r',
-          subscriptionId,
-          payload: {
-            workspaceId: pageWorkspaceId,
-            pageId,
-            format: 'jpeg',
-            quality: 72,
-            maxWidth: 800,
-            maxHeight: 600,
-            everyNthFrame: 1,
-            minFrameIntervalMs: 100
-          },
-          client
-        })
     }
   ]
 }

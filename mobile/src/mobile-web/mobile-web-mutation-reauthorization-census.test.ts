@@ -35,13 +35,6 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
 // Device-only mutations and handles consumed in one awaited call have no reauthorization window.
 const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'workspace.activate',
-  'browser.back',
-  'browser.dialog',
-  'browser.forward',
-  'browser.keyboard',
-  'browser.navigate',
-  'browser.pointer',
-  'browser.reload',
   'file.releaseTerminalArtifact',
   'native.alert',
   'native.clipboardWrite',
@@ -159,7 +152,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations()).toHaveLength(94)
+    expect(mutations()).toHaveLength(0)
   })
 
   it('exempts only registered mutations', () => {

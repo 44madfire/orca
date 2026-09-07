@@ -238,7 +238,6 @@ export class MobileWebCapabilityBroker {
       agentHistoryPager: this.authorities.agentHistoryPager,
       agentHistoryResume: this.authorities.agentHistoryResume,
       accountSubscriptions: this.subscriptions.account,
-      browserStreams: this.subscriptions.browser,
       speechAuthority: this.speechAuthority,
       workspaceSubscriptions: this.subscriptions.workspace,
       hostSubscriptions: this.subscriptions.host,

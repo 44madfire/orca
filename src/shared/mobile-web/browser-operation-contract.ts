@@ -92,13 +92,14 @@ export const MobileWebBrowserDialogPayloadSchema = MobileWebBrowserTargetSchema.
   action: z.enum(['accept', 'dismiss'])
 }).strict()
 
-export const MobileWebBrowserNavigateResultSchema = z
-  .object({
-    url: z.string().min(1).max(MOBILE_WEB_BROWSER_URL_MAX_LENGTH)
-  })
-  .strict()
+// Desktop-produced results stay open: a newer host may add a field a cached page has never seen.
+export const MobileWebBrowserNavigateResultSchema = z.object({
+  url: z.string().min(1).max(MOBILE_WEB_BROWSER_URL_MAX_LENGTH)
+})
 
-export const MobileWebBrowserCommandResultSchema = z.null()
+/** Every browser command the page issues answers with this acknowledgement; the host result
+ * carries the raw tab URL, which the desktop wrapper never forwards. */
+export const MobileWebBrowserAckSchema = z.object({ applied: z.literal(true) })
 
 const MobileWebBrowserTabStateSchema = z
   .object({

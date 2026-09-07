@@ -1,10 +1,12 @@
 import {
   MobileWebBrowserEventSchema,
   type MobileWebBrowserEvent
-} from '../../../src/shared/mobile-web/browser-operation-contract'
-import { mobileWebPageBrowserUrl } from '../../../src/shared/mobile-web/browser-url-privacy'
+} from '../../../../shared/mobile-web/browser-operation-contract'
+import { mobileWebPageBrowserUrl } from '../../../../shared/mobile-web/browser-url-privacy'
 
-export function sanitizeMobileWebBrowserEvent(value: unknown): MobileWebBrowserEvent | null {
+/** Screencast events carry raw tab URLs, host page ids and driver-supplied text. This is the only
+ * projection the page sees, so anything not named here never reaches it. */
+export function mobileWebBrowserPageEvent(value: unknown): MobileWebBrowserEvent | null {
   if (!isRecord(value)) {
     return null
   }

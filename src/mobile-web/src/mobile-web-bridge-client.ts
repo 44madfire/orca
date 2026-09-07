@@ -25,6 +25,7 @@ import type {
 } from '../../shared/mobile-web/browser-operation-contract'
 import type { MobileWebBrowserRequestClient } from './mobile-web-browser-request-client'
 import { mobileWebBrowserNavigationClientBindings } from './mobile-web-browser-navigation-client-bindings'
+import { subscribeMobileWebHostBrowser } from './mobile-web-host-browser-subscription'
 import { MobileWebAccountRequestClient } from './mobile-web-account-request-client'
 import { MobileWebAgentHistoryRequestClient } from './mobile-web-agent-history-request-client'
 import { mobileWebFileClientBindings } from './mobile-web-file-client-bindings'
@@ -264,7 +265,7 @@ export class MobileWebBridgeClient {
     onEvent: (event: MobileWebBrowserEvent) => void,
     onError: (error: MobileWebBridgeClientError) => void
   ): MobileWebBridgeSubscription {
-    return this.subscriptions.subscribeBrowser(payload, onEvent, onError)
+    return subscribeMobileWebHostBrowser(this.subscriptions, payload, onEvent, onError)
   }
 
   receive(message: MobileWebBridgeShellMessage): void {

@@ -18,7 +18,6 @@ export function mobileWebRequestExpectsSubscription(request: {
       request.capability === 'session' ||
       request.capability === 'sourceControl' ||
       request.capability === 'terminal' ||
-      request.capability === 'browser' ||
       request.capability === 'nativeChat' ||
       request.capability === 'speech') &&
       request.operation === 'subscribe')

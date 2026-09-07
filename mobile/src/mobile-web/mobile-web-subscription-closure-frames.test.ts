@@ -2,11 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebSubscriptionClosure } from './mobile-web-subscription-closure'
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
-import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import { MobileWebSpeechSubscriptions } from './mobile-web-speech-subscriptions'
 import type { MobileWebSpeechEvent } from '../../../src/shared/mobile-web/speech-operation-contract'
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
-import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 const SUBSCRIPTION_ID = 'subscription-1'
 
@@ -18,15 +16,11 @@ type Posts = {
 
 type LedgerCase = {
   name: string
-  // Browser drops an unparseable frame instead of retiring, so it has no invalid-message closure.
+  // A push-driven ledger has no host frame to reject, so it has no invalid-message closure.
   invalidCode: 'invalid_message' | null
   invalid: unknown
   valid: unknown
   open: (posts: Posts) => Promise<(value: unknown) => void>
-}
-
-function randomBytes(length: number): Uint8Array {
-  return new Uint8Array(length).fill(4)
 }
 
 function hostClient(): { client: RpcClient; emit: (value: unknown) => void } {
@@ -52,12 +46,6 @@ function hostClient(): { client: RpcClient; emit: (value: unknown) => void } {
     })
   } as unknown as RpcClient
   return { client, emit: (value) => listener?.(value) }
-}
-
-function pageWorkspace(): { authority: MobileWebWorkspaceAuthority; pageWorkspaceId: string } {
-  const authority = new MobileWebWorkspaceAuthority(randomBytes)
-  authority.synchronize([{ workspaceId: 'workspace-1', repoId: 'repo-1' }])
-  return { authority, pageWorkspaceId: authority.pageWorkspaceId('workspace-1') }
 }
 
 const LEDGER_CASES: LedgerCase[] = [
@@ -92,36 +80,6 @@ const LEDGER_CASES: LedgerCase[] = [
     }
   },
   {
-    name: 'browser',
-    invalidCode: null,
-    invalid: { type: 'bogus' },
-    valid: {
-      type: 'ready',
-      browserPageId: 'raw-page',
-      tab: { url: 'https://example.com', title: 'Example', canGoBack: false, canGoForward: false }
-    },
-    open: async (posts) => {
-      const host = hostClient()
-      const { authority, pageWorkspaceId } = pageWorkspace()
-      new MobileWebBrowserStreams({ ...posts, workspaceAuthority: authority }).start({
-        requestId: 'request-1',
-        subscriptionId: SUBSCRIPTION_ID,
-        payload: {
-          workspaceId: pageWorkspaceId,
-          pageId: 'raw-page',
-          format: 'jpeg',
-          quality: 72,
-          maxWidth: 800,
-          maxHeight: 600,
-          everyNthFrame: 1,
-          minFrameIntervalMs: 100
-        },
-        client: host.client
-      })
-      return host.emit
-    }
-  },
-  {
     name: 'speech',
     // Push-driven from the shell's dictation runtime, so no host frame can be unusable.
     invalidCode: null,
@@ -135,7 +93,7 @@ const LEDGER_CASES: LedgerCase[] = [
   }
 ]
 
-// Ledgers that retire on an unusable host message; browser drops the frame instead, so it is absent.
+// Ledgers that retire on an unusable host message; a push-driven ledger has none, so it is absent.
 const RETIRING_LEDGER_CASES = LEDGER_CASES.filter(
   (ledger): ledger is LedgerCase & { invalidCode: 'invalid_message' } => ledger.invalidCode !== null
 )

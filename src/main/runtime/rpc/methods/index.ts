@@ -16,6 +16,9 @@ import { MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS } from './mobile-web-sessi
 import { MOBILE_WEB_NATIVE_CHAT_FILE_METHODS } from './mobile-web-native-chat-files'
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
 import { MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD } from './mobile-web-native-chat-stream'
+import { MOBILE_WEB_BROWSER_INPUT_METHODS } from './mobile-web-browser-input'
+import { MOBILE_WEB_BROWSER_NAVIGATION_METHODS } from './mobile-web-browser-navigation'
+import { MOBILE_WEB_BROWSER_STREAM_METHODS } from './mobile-web-browser-stream'
 import { MOBILE_WEB_NATIVE_CHAT_METHODS } from './mobile-web-native-chat'
 import type { RpcAnyMethod } from '../core'
 import { STATUS_METHODS } from './status'
@@ -142,6 +145,9 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   MOBILE_WEB_SESSION_CAPABILITIES_METHOD,
   ...MOBILE_WEB_SESSION_QUICK_COMMAND_METHODS,
   MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD,
+  ...MOBILE_WEB_BROWSER_INPUT_METHODS,
+  ...MOBILE_WEB_BROWSER_NAVIGATION_METHODS,
+  ...MOBILE_WEB_BROWSER_STREAM_METHODS,
   MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD,
   ...MOBILE_WEB_PACKAGE_METHODS
 ]

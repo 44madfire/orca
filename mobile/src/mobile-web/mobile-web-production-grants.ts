@@ -1,4 +1,3 @@
-import { MOBILE_WEB_PRODUCTION_BROWSER_GRANTS } from './mobile-web-production-browser-grants'
 import { MOBILE_WEB_PRODUCTION_FILE_GRANTS } from './mobile-web-production-file-grants'
 import { capabilityGrants, grantLimits, indexGrants } from './mobile-web-production-grant-table'
 import { MOBILE_WEB_PRODUCTION_NAVIGATION_GRANTS } from './mobile-web-production-navigation-grants'
@@ -15,7 +14,7 @@ export type { MobileWebOperationGrant } from './mobile-web-production-grant-tabl
 export const MOBILE_WEB_PRODUCTION_GRANTS = [
   ...capabilityGrants('workspace', {
     hostSubscribe: grantLimits(600 * 1024, 1024, 8, 8, 2),
-    hostRequest: grantLimits(600 * 1024, 600 * 1024, 16, 32, 4),
+    hostRequest: grantLimits(600 * 1024, 600 * 1024, 16, 48, 24),
     snapshot: grantLimits(1 * 1024, 128 * 1024, 2, 4, 1),
     repositories: grantLimits(256, 128 * 1024, 2, 4, 1),
     subscribe: grantLimits(256, 1 * 1024, 1, 4, 1),
@@ -39,7 +38,6 @@ export const MOBILE_WEB_PRODUCTION_GRANTS = [
   }),
   ...MOBILE_WEB_PRODUCTION_SESSION_GRANTS,
   ...MOBILE_WEB_PRODUCTION_TERMINAL_GRANTS,
-  ...MOBILE_WEB_PRODUCTION_BROWSER_GRANTS,
   ...MOBILE_WEB_PRODUCTION_FILE_GRANTS,
   ...capabilityGrants('sourceControl', {
     generateCommitMessage: grantLimits(4 * 1024, 16 * 1024, 1, 4, 0.25),

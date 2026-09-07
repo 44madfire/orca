@@ -56,12 +56,12 @@ acceptance.
 
 ## Ownership Boundaries
 
-| Owner                                       | Responsibilities                                                                                                                                                                                                                                                                                                       |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner                                       | Responsibilities                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Native mobile shell                         | Pairing and host selection; secure credential storage; authenticated encrypted transport; QR scanning; notifications and deep links; package verification, cache, private origin, and recovery; clipboard, haptics, audio, camera and file/photo pickers; native onboarding, pairing recovery, and privacy; diagnostics capture (transport log, reachability probes, report submission) |
-| Desktop-served React Native Web application | Workspace list and creation; sessions and terminal presentation; files, previews, diffs, source control, reviews, tasks, accounts, browser presentation, Agent History, native-chat presentation, and the settings, troubleshooting and connection-log screens                                                                                                                   |
-| Desktop runtime                             | Builds and ships the matching web package; serves its manifest and chunks through authenticated RPC; reauthorizes every workspace mutation; enforces host, workspace, provider, path, and resource limits                                                                                                              |
-| Typed native bridge                         | Connects the unprivileged page to explicitly granted Desktop operations and native capabilities; carries connection and route state without exposing transport credentials                                                                                                                                             |
+| Desktop-served React Native Web application | Workspace list and creation; sessions and terminal presentation; files, previews, diffs, source control, reviews, tasks, accounts, browser presentation, Agent History, native-chat presentation, and the settings, troubleshooting and connection-log screens                                                                                                                          |
+| Desktop runtime                             | Builds and ships the matching web package; serves its manifest and chunks through authenticated RPC; reauthorizes every workspace mutation; enforces host, workspace, provider, path, and resource limits                                                                                                                                                                               |
+| Typed native bridge                         | Connects the unprivileged page to explicitly granted Desktop operations and native capabilities; carries connection and route state without exposing transport credentials                                                                                                                                                                                                              |
 
 The page never receives the raw RPC client, pairing credential, host endpoint,
 private key, cache path, or unrestricted native module access. Native-owned
@@ -229,6 +229,21 @@ edges still meet the device and keep their measured values.
   GitLab differ only inside those handlers; the shell knows neither. Review
   output the provider does not bound — check-run job logs and file diffs — is
   clipped on the desktop so the page's schema bounds hold.
+  Control reads/watch, session snapshot/feed/actions, terminal metadata and
+  browser input/navigation/screencast use this path.
+- Browser control is desktop-owned end to end. `mobileWeb.browser.navigate`,
+  `.history`, `.pointer`, `.keyboard`, `.dialog` and the `.subscribe`/
+  `.unsubscribe` screencast stream are the page's whole surface. The wrapper is
+  where the worktree is scoped, the tab URL is stripped
+  (`browser-url-privacy.ts`), the title and dialog text are bounded, the
+  press/release fallback for a failed plain click runs, and pointer and keyboard
+  traffic meet a per-connection token bucket
+  (`mobile-web-browser-input-rate-limit.ts`). The generic lane carries JSON only,
+  so a binary screencast frame crosses it as a run of base64 `frameChunk`
+  events the page reassembles. The stream opens with a bare `ready` carrying the
+  cancel id; the browser's own `ready` is the one that carries tab state. The
+  released native app keeps calling the raw `browser.*` methods and
+  `browser.screencast` unchanged.
 - Decisions behind the generic lane and its 2026-09-07 simplification are in
   [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.
