@@ -35,6 +35,7 @@ export type StructuredClaudeRuntimeAdapterDeps = {
     sessionId: string,
     state: AgentSessionBackgroundTaskState | null
   ) => void
+  onConversationName?: (sessionId: string, conversationName: string) => void
 }
 
 export function createStructuredClaudeRuntimeAdapter(
@@ -78,6 +79,7 @@ export function createStructuredClaudeRuntimeAdapter(
         ? await readClaudeTranscriptLeafUuid(transcriptPath, providerSessionId, previousLeafUuid)
         : null
     },
+    ...(deps.onConversationName ? { onConversationName: deps.onConversationName } : {}),
     readTranscriptConversationName: async ({ providerSessionId, claudeConfigDir }) => {
       const transcriptPath = await resolveSessionFilePath('claude', providerSessionId, {
         claudeProjectsDir: join(claudeConfigDir, 'projects')
