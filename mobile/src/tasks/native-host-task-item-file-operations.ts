@@ -1,7 +1,9 @@
 import type { HostTaskItemFileOperations } from './host-task-item-file-operations'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 
-export function nativeHostTaskItemFileOperations(client: RpcClient): HostTaskItemFileOperations {
+export function nativeHostTaskItemFileOperations(
+  client: RpcRequestSender
+): HostTaskItemFileOperations {
   return {
     async refreshChecks(target, headSha) {
       const checks = await request(client, 'github.prChecks', {
@@ -70,14 +72,14 @@ function repoPayload(target: { repoId: string }) {
 }
 
 async function request<T = unknown>(
-  client: RpcClient,
+  client: RpcRequestSender,
   method: string,
   payload: object,
   timeoutMs = 30_000
 ): Promise<T> {
   const response = await client.sendRequest(method, payload, { timeoutMs })
   if (!response.ok) {
-    throw new Error(response.error.message)
+    throw new Error(response.error?.message ?? 'Task request failed')
   }
   return response.result as T
 }

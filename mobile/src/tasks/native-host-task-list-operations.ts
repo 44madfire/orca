@@ -1,9 +1,8 @@
 import { extractLinearIssueReadItems } from './linear-mobile-issue-read'
 import type { HostTaskListOperations } from './host-task-list-operations'
-import type { RpcClient } from '../transport/rpc-client'
-import type { RpcSuccess } from '../transport/types'
+import type { RpcRequestSender } from '../transport/rpc-client'
 
-export function nativeHostTaskListOperations(client: RpcClient): HostTaskListOperations {
+export function nativeHostTaskListOperations(client: RpcRequestSender): HostTaskListOperations {
   return {
     async listGitHub(payload) {
       return successfulResult(
@@ -73,5 +72,5 @@ async function successfulResult<T>(request: Promise<unknown>): Promise<T> {
   if (!response.ok) {
     throw new Error(response.error?.message ?? 'Task provider request failed')
   }
-  return (response as RpcSuccess).result as T
+  return response.result as T
 }

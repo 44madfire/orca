@@ -6,10 +6,9 @@ import type {
   HostTaskReadOperations,
   HostTaskRepository
 } from './host-task-read-operations'
-import type { RpcClient } from '../transport/rpc-client'
-import type { RpcSuccess } from '../transport/types'
+import type { RpcRequestReply, RpcRequestSender } from '../transport/rpc-client'
 
-export function nativeHostTaskReadOperations(client: RpcClient): HostTaskReadOperations {
+export function nativeHostTaskReadOperations(client: RpcRequestSender): HostTaskReadOperations {
   return {
     bootstrap: () => bootstrap(client),
     listRepositories: () => listRepositories(client),
@@ -18,10 +17,10 @@ export function nativeHostTaskReadOperations(client: RpcClient): HostTaskReadOpe
   }
 }
 
-async function bootstrap(client: RpcClient): Promise<HostTaskBootstrap> {
+async function bootstrap(client: RpcRequestSender): Promise<HostTaskBootstrap> {
   const statusResponse = await client.sendRequest('status.get')
   requireSuccess(statusResponse)
-  const status = (statusResponse as RpcSuccess).result as { capabilities?: string[] }
+  const status = statusResponse.result as { capabilities?: string[] }
   if (!status.capabilities?.includes(MOBILE_TASKS_CAPABILITY)) {
     return emptyBootstrap(false)
   }
@@ -53,17 +52,17 @@ async function bootstrap(client: RpcClient): Promise<HostTaskBootstrap> {
   }
 }
 
-async function listRepositories(client: RpcClient): Promise<HostTaskRepository[]> {
+async function listRepositories(client: RpcRequestSender): Promise<HostTaskRepository[]> {
   const response = await client.sendRequest('repo.list')
   requireSuccess(response)
-  const result = (response as RpcSuccess).result as { repos?: HostTaskRepository[] }
+  const result = response.result as { repos?: HostTaskRepository[] }
   return result.repos ?? []
 }
 
-async function loadLinearContext(client: RpcClient): Promise<HostTaskLinearContext> {
+async function loadLinearContext(client: RpcRequestSender): Promise<HostTaskLinearContext> {
   const statusResponse = await client.sendRequest('linear.status')
   requireSuccess(statusResponse)
-  const status = normalizeLinearStatus((statusResponse as RpcSuccess).result)
+  const status = normalizeLinearStatus(statusResponse.result)
   if (!status.connected) {
     return { status, teams: [] }
   }
@@ -75,12 +74,12 @@ async function loadLinearContext(client: RpcClient): Promise<HostTaskLinearConte
   requireSuccess(teamsResponse)
   return {
     status: { ...status, selectedWorkspaceId: workspaceId },
-    teams: (teamsResponse as RpcSuccess).result as HostTaskLinearContext['teams']
+    teams: teamsResponse.result as HostTaskLinearContext['teams']
   }
 }
 
 async function resolveGitHubRepoSlug(
-  client: RpcClient,
+  client: RpcRequestSender,
   repoId: string
 ): Promise<GitHubOwnerRepo | null> {
   const response = await client.sendRequest(
@@ -89,7 +88,7 @@ async function resolveGitHubRepoSlug(
     { timeoutMs: 30_000 }
   )
   requireSuccess(response)
-  return (response as RpcSuccess).result as GitHubOwnerRepo | null
+  return response.result as GitHubOwnerRepo | null
 }
 
 function emptyBootstrap(supported: boolean): HostTaskBootstrap {
@@ -113,11 +112,13 @@ function normalizeLinearStatus(value: unknown): HostTaskBootstrap['linearStatus'
   }
 }
 
-function successResult<T>(response: { ok: boolean; result?: unknown }): T | null {
+function successResult<T>(response: RpcRequestReply): T | null {
   return response.ok ? (response.result as T) : null
 }
 
-function requireSuccess(response: { ok: boolean; error?: { message?: string } }): void {
+function requireSuccess(
+  response: RpcRequestReply
+): asserts response is { ok: true; result: unknown } {
   if (!response.ok) {
     throw new Error(response.error?.message ?? 'Task operation failed')
   }

@@ -3,10 +3,10 @@ import type {
   HostTaskItemMutationOperations,
   HostTaskItemMutationTarget
 } from './host-task-item-mutation-operations'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 
 export function nativeHostTaskItemMutationOperations(
-  client: RpcClient
+  client: RpcRequestSender
 ): HostTaskItemMutationOperations {
   return {
     async setClosed(target, closed) {
@@ -27,7 +27,7 @@ export function nativeHostTaskItemMutationOperations(
 }
 
 function setGitHubClosed(
-  client: RpcClient,
+  client: RpcRequestSender,
   target: Extract<HostTaskItemMutationTarget, { provider: 'github' }>,
   closed: boolean
 ) {
@@ -46,7 +46,7 @@ function setGitHubClosed(
 }
 
 function setGitLabClosed(
-  client: RpcClient,
+  client: RpcRequestSender,
   target: Extract<HostTaskItemMutationTarget, { provider: 'gitlab' }>,
   closed: boolean
 ) {
@@ -67,7 +67,7 @@ function setGitLabClosed(
 }
 
 function updateGitHubMetadata(
-  client: RpcClient,
+  client: RpcRequestSender,
   target: Extract<HostTaskItemMutationTarget, { provider: 'github' }>,
   updates: MobileWebTaskItemMetadataUpdates
 ) {
@@ -89,7 +89,7 @@ function updateGitHubMetadata(
 }
 
 function updateGitLabMetadata(
-  client: RpcClient,
+  client: RpcRequestSender,
   target: Extract<HostTaskItemMutationTarget, { provider: 'gitlab' }>,
   updates: MobileWebTaskItemMetadataUpdates
 ) {
@@ -122,11 +122,11 @@ function updateGitLabMetadata(
 }
 
 function assertMutation(
-  response: Awaited<ReturnType<RpcClient['sendRequest']>>,
+  response: Awaited<ReturnType<RpcRequestSender['sendRequest']>>,
   fallback: string
 ): void {
   if (!response.ok) {
-    throw new Error(response.error.message)
+    throw new Error(response.error?.message ?? 'Task request failed')
   }
   const result = response.result as { ok?: boolean; error?: string }
   if (result.ok === false) {

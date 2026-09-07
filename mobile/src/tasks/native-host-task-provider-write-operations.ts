@@ -1,8 +1,8 @@
 import type { HostTaskProviderWriteOperations } from './host-task-provider-write-operations'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 
 export function nativeHostTaskProviderWriteOperations(
-  client: RpcClient
+  client: RpcRequestSender
 ): HostTaskProviderWriteOperations {
   return {
     async createIssue(payload) {
@@ -15,7 +15,7 @@ export function nativeHostTaskProviderWriteOperations(
         }
       )
       if (!response.ok) {
-        throw new Error(response.error.message)
+        throw new Error(response.error?.message ?? 'Task request failed')
       }
       const result = response.result as {
         ok?: boolean
@@ -41,7 +41,7 @@ export function nativeHostTaskProviderWriteOperations(
         { timeoutMs: 15_000 }
       )
       if (!response.ok) {
-        throw new Error(response.error.message)
+        throw new Error(response.error?.message ?? 'Task request failed')
       }
     }
   }

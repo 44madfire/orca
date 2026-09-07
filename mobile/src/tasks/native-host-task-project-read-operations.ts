@@ -6,10 +6,10 @@ import type {
 import type { MobileWebTaskProjectTable } from '../../../src/shared/mobile-web/task-project-table-contract'
 import type { HostTaskProjectReadOperations } from './host-task-project-read-operations'
 import { projectGitHubTaskDetail } from './github-task-detail-projection'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 
 export function nativeHostTaskProjectReadOperations(
-  client: RpcClient
+  client: RpcRequestSender
 ): HostTaskProjectReadOperations {
   return {
     async listAccessible(host) {

@@ -1,7 +1,7 @@
 import type { HostTaskLinearOperations } from './host-task-linear-operations'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 
-export function nativeHostTaskLinearOperations(client: RpcClient): HostTaskLinearOperations {
+export function nativeHostTaskLinearOperations(client: RpcRequestSender): HostTaskLinearOperations {
   return {
     async connect(apiKey) {
       assertMutation(
@@ -74,13 +74,13 @@ export function nativeHostTaskLinearOperations(client: RpcClient): HostTaskLinea
 }
 
 async function request<T = unknown>(
-  client: RpcClient,
+  client: RpcRequestSender,
   method: string,
   payload?: object
 ): Promise<T> {
   const response = await client.sendRequest(method, payload, { timeoutMs: 30_000 })
   if (!response.ok) {
-    throw new Error(response.error.message)
+    throw new Error(response.error?.message ?? 'Task request failed')
   }
   return response.result as T
 }

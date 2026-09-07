@@ -1,9 +1,9 @@
 import type { HostTaskProjectFileOperations } from './host-task-project-file-operations'
 import type { HostTaskProjectItemTarget } from './host-task-project-mutation-operations'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 
 export function nativeHostTaskProjectFileOperations(
-  client: RpcClient
+  client: RpcRequestSender
 ): HostTaskProjectFileOperations {
   return {
     async refreshChecks(target, repoId, headSha) {
@@ -60,13 +60,13 @@ function repoPayload(target: HostTaskProjectItemTarget, repoId: string) {
 }
 
 async function request<T = unknown>(
-  client: RpcClient,
+  client: RpcRequestSender,
   method: string,
   payload: object
 ): Promise<T> {
   const response = await client.sendRequest(method, payload, { timeoutMs: 30_000 })
   if (!response.ok) {
-    throw new Error(response.error.message)
+    throw new Error(response.error?.message ?? 'Task request failed')
   }
   return response.result as T
 }

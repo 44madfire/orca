@@ -5,8 +5,7 @@ import type {
 import type { MobileWebTaskLinearIssue } from '../../../src/shared/mobile-web/task-list-contract'
 import type { HostTaskDetailOperations } from './host-task-detail-operations'
 import { projectGitHubTaskDetail } from './github-task-detail-projection'
-import type { RpcClient } from '../transport/rpc-client'
-import type { RpcSuccess } from '../transport/types'
+import type { RpcRequestSender } from '../transport/rpc-client'
 
 type GitLabRawDetails = Partial<MobileWebTaskGitLabDetailResult> & {
   item?: {
@@ -15,7 +14,7 @@ type GitLabRawDetails = Partial<MobileWebTaskGitLabDetailResult> & {
   }
 }
 
-export function nativeHostTaskDetailOperations(client: RpcClient): HostTaskDetailOperations {
+export function nativeHostTaskDetailOperations(client: RpcRequestSender): HostTaskDetailOperations {
   return {
     async listGitHubLabels(repoId) {
       return successfulResult(
@@ -114,5 +113,5 @@ async function successfulResult<T>(request: Promise<unknown>): Promise<T> {
   if (!response.ok) {
     throw new Error(response.error?.message ?? 'Task provider request failed')
   }
-  return (response as RpcSuccess).result as T
+  return response.result as T
 }
