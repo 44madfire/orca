@@ -31,15 +31,13 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
     }
     const stablePaneOwnerCandidate = ctx.preAdoptedStablePane
       ? ctx.preAdoptedStablePane.owner
-      : args.agentSessionEnsure
-        ? null
-        : resolveStablePaneOwner(
-            ctx.deps.runtime,
-            ctx.deps.store,
-            ctx.spawnIdentityPaneKey,
-            args.worktreeId,
-            args.connectionId
-          )
+      : resolveStablePaneOwner(
+          ctx.deps.runtime,
+          ctx.deps.store,
+          ctx.spawnIdentityPaneKey,
+          args.worktreeId,
+          args.connectionId
+        )
     const expectedPtyId =
       stablePaneOwnerCandidate?.ptyId ?? ctx.effectiveSessionAppId ?? ctx.sessionId
     if (expectedPtyId) {
@@ -61,7 +59,11 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
         throw new Error('client_disconnected')
       }
     }
-    if (args.agentSessionEnsure && !ctx.preAdoptedStablePane) {
+    if (
+      args.agentSessionEnsure &&
+      !ctx.preAdoptedStablePane &&
+      !stablePaneOwnerCandidate?.automaticResumeBlocked
+    ) {
       // Why: daemon-backed claims can outlive this controller; import all
       // proven owners before deciding that an identity is absent.
       await reconcileAgentSessionOwnerListings()
@@ -149,6 +151,9 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
           })
       ctx.result = stablePaneSpawn.result
       ctx.stablePaneOwner = stablePaneSpawn.owner
+      if (ctx.result.exitedBeforeAttach || ctx.result.reattachUnverifiable) {
+        return
+      }
       if (
         ctx.stablePaneOwner &&
         ctx.isNewDaemonSession &&

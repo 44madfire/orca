@@ -191,7 +191,7 @@ describe('createIpcPtyTransport', () => {
 
     expect(onError).not.toHaveBeenCalled()
     // undefined, not a sessionExpired result: the reattach handler's no-pty-id branch routes an
-    // SSH pane to recoverUnverifiableDirectSshReattach (remount + reattach, no shell restart).
+    // SSH pane to recoverUnverifiableReattach (remount + reattach, no shell restart).
     expect(result).toBeUndefined()
   })
 

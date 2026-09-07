@@ -406,71 +406,87 @@ describe('connectPanePty', () => {
     expect(mockStoreState.clearSleepingAgentSession).not.toHaveBeenCalled()
   })
 
-  it('reattaches a legacy worker pane through main under attachOnly instead of resuming', async () => {
-    const { connectPanePty } = await import('./pty-connection')
-    const retainedPtyId = 'wt-1@@lost-pty'
-    const transport = createMockTransport()
-    transport.connect.mockImplementation(async ({ sessionId }: { sessionId?: string }) =>
-      sessionId ? { id: sessionId, isReattach: true } : 'fresh-pty'
-    )
-    transportFactoryQueue.push(transport)
-    const paneKey = makePaneKey('tab-1', LEAF_1)
-    mockStoreState = {
-      ...mockStoreState,
-      tabsByWorktree: {
-        'wt-1': [{ id: 'tab-1', ptyId: retainedPtyId }]
-      },
-      settings: {
-        ...mockStoreState.settings,
-        agentCmdOverrides: {}
-      },
-      agentStatusByPaneKey: {
-        [paneKey]: {
-          paneKey,
-          state: 'working',
-          prompt: 'finish the task',
-          agentType: 'codex',
-          providerSession: { key: 'session_id', id: 'codex-session-1' }
+  it.each(['live', 'undefined', 'thrown', 'unverifiable'] as const)(
+    'reattaches a fenced local worker without retiring its binding on %s',
+    async (outcome) => {
+      const { connectPanePty } = await import('./pty-connection')
+      const retainedPtyId = 'wt-1@@lost-pty'
+      const transport = createMockTransport()
+      transport.connect.mockImplementation(async ({ sessionId }: { sessionId?: string }) => {
+        if (outcome === 'undefined') {
+          return undefined
         }
-      },
-      sleepingAgentSessionsByPaneKey: {
-        [paneKey]: {
-          paneKey,
-          tabId: 'tab-1',
-          worktreeId: 'wt-1',
-          agent: 'codex',
-          providerSession: { key: 'session_id', id: 'codex-session-1' },
-          prompt: 'finish the task',
-          state: 'working',
-          capturedAt: 1,
-          updatedAt: 1,
-          automaticResumeBlockedBy: 'legacy-orchestration-worker'
+        if (outcome === 'thrown') {
+          throw new Error('daemon unavailable')
         }
-      }
-    } as StoreState
+        if (outcome === 'unverifiable') {
+          return { id: retainedPtyId, reattachUnverifiable: true }
+        }
+        return sessionId ? { id: sessionId, isReattach: true } : 'fresh-pty'
+      })
+      transportFactoryQueue.push(transport)
+      const paneKey = makePaneKey('tab-1', LEAF_1)
+      mockStoreState = {
+        ...mockStoreState,
+        tabsByWorktree: {
+          'wt-1': [{ id: 'tab-1', ptyId: retainedPtyId }]
+        },
+        settings: {
+          ...mockStoreState.settings,
+          agentCmdOverrides: {}
+        },
+        agentStatusByPaneKey: {
+          [paneKey]: {
+            paneKey,
+            state: 'working',
+            prompt: 'finish the task',
+            agentType: 'codex',
+            providerSession: { key: 'session_id', id: 'codex-session-1' }
+          }
+        },
+        sleepingAgentSessionsByPaneKey: {
+          [paneKey]: {
+            paneKey,
+            tabId: 'tab-1',
+            worktreeId: 'wt-1',
+            agent: 'codex',
+            providerSession: { key: 'session_id', id: 'codex-session-1' },
+            prompt: 'finish the task',
+            state: 'working',
+            capturedAt: 1,
+            updatedAt: 1,
+            automaticResumeBlockedBy: 'legacy-orchestration-worker'
+          }
+        }
+      } as StoreState
 
-    connectPanePty(
-      createPane(1) as never,
-      createManager(1) as never,
-      createDeps({
+      const deps = createDeps({
         restoredLeafId: LEAF_1,
         restoredPtyIdByLeafId: { [LEAF_1]: retainedPtyId }
-      }) as never
-    )
-    await flushAsyncTicks(20)
-    await new Promise((resolve) => setTimeout(resolve, 70))
+      })
+      const binding = connectPanePty(
+        createPane(1) as never,
+        createManager(1) as never,
+        deps as never
+      )
+      await flushAsyncTicks(20)
+      await new Promise((resolve) => setTimeout(resolve, 70))
 
-    // The fence is expressed as attachOnly on the SAME reattach every restored pane runs, so main
-    // owns the daemon session; it is not a renderer-only attach main never learns about.
-    expect(transport.attach).not.toHaveBeenCalled()
-    const connectOptions = transport.connect.mock.calls[0]?.[0] as Record<string, unknown>
-    expect(connectOptions).toMatchObject({ sessionId: retainedPtyId, attachOnly: true })
-    expect(connectOptions).not.toHaveProperty('command')
-    expect(connectOptions).not.toHaveProperty('launchConfig')
-    expect(connectOptions).not.toHaveProperty('resumeProviderSession')
-    expect(mockStoreState.registerAgentLaunchConfig).not.toHaveBeenCalled()
-    expect(mockStoreState.clearSleepingAgentSession).not.toHaveBeenCalled()
-  })
+      expect(deps.clearTabPtyId).not.toHaveBeenCalled()
+      expect(deps.clearExitedPanePtyLayoutBinding).not.toHaveBeenCalled()
+      expect(transport.connect).toHaveBeenCalledTimes(1)
+      expect(transport.attach).not.toHaveBeenCalled()
+      const connectOptions = transport.connect.mock.calls[0]?.[0] as Record<string, unknown>
+      expect(connectOptions).toMatchObject({ sessionId: retainedPtyId })
+      expect(connectOptions).not.toHaveProperty('attachOnly')
+      expect(connectOptions).not.toHaveProperty('command')
+      expect(connectOptions).not.toHaveProperty('launchConfig')
+      expect(connectOptions).not.toHaveProperty('resumeProviderSession')
+      expect(mockStoreState.registerAgentLaunchConfig).not.toHaveBeenCalled()
+      expect(mockStoreState.clearSleepingAgentSession).not.toHaveBeenCalled()
+      binding.dispose()
+    }
+  )
 
   it('does not replace a missing retained legacy worker over direct SSH', async () => {
     const { connectPanePty } = await import('./pty-connection')
@@ -513,8 +529,7 @@ describe('connectPanePty', () => {
 
     expect(transport.attach).not.toHaveBeenCalled()
     expect(transport.connect.mock.calls[0]?.[0]).toMatchObject({
-      sessionId: retainedPtyId,
-      attachOnly: true
+      sessionId: retainedPtyId
     })
     // An unproven failure is `unverifiable`: the pane keeps its binding rather than retiring a
     // session it may never replace (docs/reference/ssh-execution-boundary.md).
@@ -565,10 +580,9 @@ describe('connectPanePty', () => {
 
     expect(window.api.ssh.connect).toHaveBeenCalledWith({ targetId: 'ssh-a' })
     expect(transport.attach).not.toHaveBeenCalled()
-    // Same deferred-SSH flow as every other restored pane; the fence only adds attachOnly.
+    // Same deferred-SSH flow as every other restored pane.
     expect(transport.connect.mock.calls[0]?.[0]).toMatchObject({
-      sessionId: retainedPtyId,
-      attachOnly: true
+      sessionId: retainedPtyId
     })
     expect(deps.clearTabPtyId).not.toHaveBeenCalled()
     expect(mockStoreState.registerAgentLaunchConfig).not.toHaveBeenCalled()

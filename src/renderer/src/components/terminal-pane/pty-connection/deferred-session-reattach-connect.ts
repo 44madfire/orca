@@ -2,7 +2,10 @@ import { warnTerminalLifecycleAnomaly } from '../terminal-lifecycle-diagnostics'
 import { isSshSessionGoneError, recordPtyConnectDiagnostic } from './pty-connect-limits'
 import { isRemoteRuntimePtyId } from './paired-parked-terminal-restore'
 import { toProcessExitStartup } from './process-exit-startup'
-import { recoverUnverifiableDirectSshReattach } from './direct-ssh-reattach-recovery'
+import {
+  mayRetireBindingAfterFailedReattach,
+  recoverUnverifiableReattach
+} from './unverifiable-reattach-recovery'
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 const PANE_OWNER_UNVERIFIED_ERROR = 'terminal_pane_owner_unverified'
@@ -25,9 +28,6 @@ export function startDeferredSessionReattach(
   let expiredReattachError = false
   let paneOwnerUnverified = false
   const coldRestoreStartup = session.buildColdRestoreAgentResumeStartup()
-  // Why: a settled orchestration worker is fenced from resuming; main must attach its live session
-  // or report it absent, never mint a replacement process for this pane.
-  const attachOnly = session.isLegacyWorkerAutomaticResumeBlocked()
   const outputCallbacks = session.captureTransportOutputCallbacks(
     (message) => {
       if (isSshSessionGoneError(message)) {
@@ -51,7 +51,6 @@ export function startDeferredSessionReattach(
     cols: session.cols,
     rows: session.rows,
     sessionId: deferredReattachSessionId,
-    ...(attachOnly ? { attachOnly: true } : {}),
     ...(coldRestoreStartup?.command ? { command: coldRestoreStartup.command } : {}),
     ...(coldRestoreStartup?.env
       ? { env: session.mergeStartupEnvWithPaneIdentity(coldRestoreStartup.env) }
@@ -177,8 +176,8 @@ export function startDeferredSessionReattach(
         return
       }
       session.reportError(message)
-      if (session.connectionId) {
-        recoverUnverifiableDirectSshReattach(session, deferredReattachSessionId)
+      if (!mayRetireBindingAfterFailedReattach(session)) {
+        recoverUnverifiableReattach(session, deferredReattachSessionId)
         return
       }
       session.clearExitedPanePtyLayoutBinding(deferredReattachSessionId)

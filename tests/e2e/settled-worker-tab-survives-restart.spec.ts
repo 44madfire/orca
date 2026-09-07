@@ -1,4 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { DaemonClient } from '../../src/main/daemon/client'
+import { getDaemonSocketPath, getDaemonTokenPath } from '../../src/main/daemon/daemon-spawner'
+import { DEFAULT_LOCAL_ORCA_PROFILE_ID } from '../../src/shared/orca-profiles'
 import type { ElectronApplication, Page } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
 import { TEST_REPO_PATH_FILE } from './global-setup'
@@ -86,298 +90,411 @@ async function backgroundMountTab(page: Page, worktreeId: string, tabId: string)
 // A worker that reported done while its terminal stays open is fenced from auto-resume, so after an
 // app restart its pane re-attaches renderer-only. Revealing that pane used to tear the tab down on a
 // fabricated "no PTY" while the daemon still ran the process (#16904 regression).
-test('a settled orchestration worker tab survives reveal after an app restart', async (// oxlint-disable-next-line no-empty-pattern -- Playwright's second fixture arg is testInfo; the first must be an object destructure to opt out of the default fixture set.
-{}, testInfo) => {
-  test.setTimeout(300_000)
-  const repoPath = readFileSync(TEST_REPO_PATH_FILE, 'utf-8').trim()
-  if (!repoPath || !existsSync(repoPath)) {
-    test.skip(true, 'Global setup did not produce a seeded test repo')
-    return
-  }
-  clearCompletedWorkerLedger()
-
-  const session = createRestartSession(testInfo, completedWorkerLaunchEnv)
-  let firstApp: ElectronApplication | null = null
-  let secondApp: ElectronApplication | null = null
-  try {
-    const first = await session.launch()
-    firstApp = first.app
-    const coordinatorWorktreeId = await attachRepoAndOpenTerminal(first.page, repoPath)
-    await waitForSessionReady(first.page)
-    await waitForActiveWorktree(first.page)
-    await ensureTerminalVisible(first.page)
-    await waitForActiveTerminalManager(first.page)
-    await waitForActivePanePtyId(first.page)
-    await first.page.evaluate(
-      async ({ agentCommand, terminalWindowsShell }) => {
-        await window.__store?.getState().updateSettings({
-          agentCmdOverrides: { codex: agentCommand },
-          terminalWindowsShell,
-          disabledTuiAgents: [],
-          terminalHiddenViewParking: false
-        })
-      },
-      {
-        agentCommand: completedWorkerFakeCodexCommand,
-        terminalWindowsShell: FAKE_AGENT_WINDOWS_SHELL
-      }
-    )
-    const isolatedHome = await firstApp.evaluate(({ app }) => app.getPath('home'))
-    const client = new RuntimeClient(session.userDataDir, 30_000, null, null)
-    const coordinatorPane = await waitForActivePaneHookDescriptor(first.page)
-    const coordinatorHandle = (
-      await client.call<{ terminal: { handle: string } }>('terminal.resolvePane', {
-        paneKey: coordinatorPane.paneKey
-      })
-    ).result.terminal.handle
-    const targetWorktreeId = await findSecondaryWorktree(first.page, client, coordinatorWorktreeId)
-    const targetWorktreePath = splitWorktreeIdForFilesystem(targetWorktreeId)?.worktreePath
-    if (!targetWorktreePath) {
-      throw new Error('The secondary worktree did not expose a filesystem path')
+for (const daemonSessionGone of [false, true]) {
+  test(`a settled worker tab survives restart with daemon session ${daemonSessionGone ? 'exited' : 'live'}`, async (// oxlint-disable-next-line no-empty-pattern -- Playwright's second fixture arg is testInfo; the first must be an object destructure to opt out of the default fixture set.
+  {}, testInfo) => {
+    test.setTimeout(300_000)
+    const repoPath = readFileSync(TEST_REPO_PATH_FILE, 'utf-8').trim()
+    if (!repoPath || !existsSync(repoPath)) {
+      test.skip(true, 'Global setup did not produce a seeded test repo')
+      return
     }
+    clearCompletedWorkerLedger()
 
-    const run = await client.call<{ run: { id: string } }>('orchestration.runCreate', {
-      objective: 'Keep one settled worker tab across restart',
-      from: coordinatorHandle
-    })
-    const task = await client.call<{ task: { id: string } }>('orchestration.taskCreate', {
-      spec: 'Report completion and stay open',
-      run: run.result.run.id,
-      callerTerminalHandle: coordinatorHandle
-    })
-    const started = await client.call<{
-      dispatchId: string
-      state: string
-      effects: { kind: string; role?: string; id?: string }[]
-    }>('orchestration.workerStart', {
-      task: task.result.task.id,
-      from: coordinatorHandle,
-      worktree: `id:${targetWorktreeId}`,
-      agent: 'codex',
-      timeoutMs: 30_000
-    })
-    expect(started.result.state).toBe('ready')
-    const workerHandle = started.result.effects.find(
-      (effect) => effect.kind === 'terminal' && effect.role === 'agent'
-    )?.id
-    if (!workerHandle) {
-      throw new Error('worker-start did not return its agent terminal')
-    }
-    let worker: RuntimeTerminalSummary | undefined
-    await expect
-      .poll(
-        async () => {
-          worker = (await listRuntimeTerminals(client)).find(
-            (terminal) => terminal.handle === workerHandle
-          )
-          return worker?.ptyId ?? null
+    const session = createRestartSession(testInfo, completedWorkerLaunchEnv)
+    let firstApp: ElectronApplication | null = null
+    let secondApp: ElectronApplication | null = null
+    try {
+      const first = await session.launch()
+      firstApp = first.app
+      const coordinatorWorktreeId = await attachRepoAndOpenTerminal(first.page, repoPath)
+      await waitForSessionReady(first.page)
+      await waitForActiveWorktree(first.page)
+      await ensureTerminalVisible(first.page)
+      await waitForActiveTerminalManager(first.page)
+      await waitForActivePanePtyId(first.page)
+      await first.page.evaluate(
+        async ({ agentCommand, terminalWindowsShell }) => {
+          await window.__store?.getState().updateSettings({
+            agentCmdOverrides: { codex: agentCommand },
+            terminalWindowsShell,
+            disabledTuiAgents: [],
+            terminalHiddenViewParking: false
+          })
         },
-        { timeout: 30_000, message: 'background worker never published its PTY identity' }
+        {
+          agentCommand: completedWorkerFakeCodexCommand,
+          terminalWindowsShell: FAKE_AGENT_WINDOWS_SHELL
+        }
       )
-      .not.toBeNull()
-    if (!worker?.ptyId) {
-      throw new Error('Background worker did not publish its PTY')
-    }
-    const workerPtyId = worker.ptyId
-    const workerTabId = worker.tabId
-    const workerPaneKey = `${worker.tabId}:${worker.leafId}`
-    await backgroundMountTab(first.page, targetWorktreeId, workerTabId)
-    let dispatchCapability: string | null = null
-    await expect
-      .poll(() => {
-        dispatchCapability = readCompletedWorkerDispatchCapability()
-        return dispatchCapability
-      })
-      .not.toBeNull()
-    if (!dispatchCapability) {
-      throw new Error('Background worker did not receive its dispatch capability')
-    }
-    const transcriptPath = seedCurrentCodexTranscript(
-      isolatedHome,
-      PROVIDER_SESSION_ID,
-      targetWorktreePath
-    )
-    await first.page.evaluate(
-      ({
-        agentCommand,
-        paneKey,
-        providerSessionId,
-        tabId,
-        terminalHandle,
-        transcriptPath,
-        worktreeId
-      }) => {
-        const state = window.__store?.getState()
-        if (!state) {
-          throw new Error('Renderer store unavailable')
-        }
-        const metadata = { tabId, worktreeId, terminalHandle }
-        const recovery = {
-          providerSession: { key: 'session_id' as const, id: providerSessionId, transcriptPath },
-          launchConfig: {
-            agentCommand,
-            agentArgs: '--dangerously-bypass-approvals-and-sandbox',
-            agentEnv: {}
-          }
-        }
-        for (const agentState of ['working', 'done'] as const) {
-          state.setAgentStatus(
-            paneKey,
-            { state: agentState, prompt: 'Report completion and stay open', agentType: 'codex' },
-            'Settled background worker',
-            undefined,
-            metadata,
-            recovery
-          )
-        }
-      },
-      {
-        agentCommand: completedWorkerFakeCodexCommand,
-        paneKey: workerPaneKey,
-        providerSessionId: PROVIDER_SESSION_ID,
-        tabId: workerTabId,
-        terminalHandle: workerHandle,
-        transcriptPath,
-        worktreeId: targetWorktreeId
-      }
-    )
-    const completed = await client.call<{ message: { type: string } }>(
-      'orchestration.send',
-      {
-        from: workerHandle,
-        subject: 'Completed',
-        body: 'The fixture completed and stays open for inspection.',
-        type: 'worker_done',
-        payload: JSON.stringify({
-          taskId: task.result.task.id,
-          dispatchId: started.result.dispatchId,
-          outcome: 'succeeded'
+      const isolatedHome = await firstApp.evaluate(({ app }) => app.getPath('home'))
+      const client = new RuntimeClient(session.userDataDir, 30_000, null, null)
+      const coordinatorPane = await waitForActivePaneHookDescriptor(first.page)
+      const coordinatorHandle = (
+        await client.call<{ terminal: { handle: string } }>('terminal.resolvePane', {
+          paneKey: coordinatorPane.paneKey
         })
-      },
-      { orchestrationCapability: dispatchCapability }
-    )
-    expect(completed.result.message.type).toBe('worker_done')
-    // The settlement sweep stamps the resume fence on the renderer's record before the tab closes.
-    await expect
-      .poll(
-        () =>
-          first.page.evaluate(
-            (paneKey) =>
-              window.__store?.getState().sleepingAgentSessionsByPaneKey[paneKey]
-                ?.automaticResumeBlockedBy ?? null,
-            workerPaneKey
-          ),
-        { timeout: 30_000, message: 'settled worker pane was never fenced' }
+      ).result.terminal.handle
+      const targetWorktreeId = await findSecondaryWorktree(
+        first.page,
+        client,
+        coordinatorWorktreeId
       )
-      .toBe('legacy-orchestration-worker')
+      const targetWorktreePath = splitWorktreeIdForFilesystem(targetWorktreeId)?.worktreePath
+      if (!targetWorktreePath) {
+        throw new Error('The secondary worktree did not expose a filesystem path')
+      }
 
-    await session.close(firstApp)
-    firstApp = null
-    expect(readPersistedWorkerRecoveryRecord(session.userDataDir, workerPaneKey)).toMatchObject({
-      automaticResumeBlockedBy: 'legacy-orchestration-worker'
-    })
-    expect(readCompletedWorkerLedger().filter((event) => event.event === 'normal-exit')).toEqual([])
-
-    const second = await session.launch()
-    secondApp = second.app
-    await waitForSessionReady(second.page)
-    // The daemon kept the worker alive across the app restart; the new main process never attached it.
-    await expect
-      .poll(
-        async () =>
-          (await listRuntimeTerminals(client)).find((terminal) => terminal.ptyId === workerPtyId)
-            ?.connected ?? null,
-        { timeout: 60_000, message: 'restarted runtime never rediscovered the worker PTY' }
+      const run = await client.call<{ run: { id: string } }>('orchestration.runCreate', {
+        objective: 'Keep one settled worker tab across restart',
+        from: coordinatorHandle
+      })
+      const task = await client.call<{ task: { id: string } }>('orchestration.taskCreate', {
+        spec: 'Report completion and stay open',
+        run: run.result.run.id,
+        callerTerminalHandle: coordinatorHandle
+      })
+      const started = await client.call<{
+        dispatchId: string
+        state: string
+        effects: { kind: string; role?: string; id?: string }[]
+      }>('orchestration.workerStart', {
+        task: task.result.task.id,
+        from: coordinatorHandle,
+        worktree: `id:${targetWorktreeId}`,
+        agent: 'codex',
+        timeoutMs: 30_000
+      })
+      expect(started.result.state).toBe('ready')
+      const workerHandle = started.result.effects.find(
+        (effect) => effect.kind === 'terminal' && effect.role === 'agent'
+      )?.id
+      if (!workerHandle) {
+        throw new Error('worker-start did not return its agent terminal')
+      }
+      let worker: RuntimeTerminalSummary | undefined
+      await expect
+        .poll(
+          async () => {
+            worker = (await listRuntimeTerminals(client)).find(
+              (terminal) => terminal.handle === workerHandle
+            )
+            return worker?.ptyId ?? null
+          },
+          { timeout: 30_000, message: 'background worker never published its PTY identity' }
+        )
+        .not.toBeNull()
+      if (!worker?.ptyId) {
+        throw new Error('Background worker did not publish its PTY')
+      }
+      const workerPtyId = worker.ptyId
+      const workerTabId = worker.tabId
+      const workerPaneKey = `${worker.tabId}:${worker.leafId}`
+      await backgroundMountTab(first.page, targetWorktreeId, workerTabId)
+      let dispatchCapability: string | null = null
+      await expect
+        .poll(() => {
+          dispatchCapability = readCompletedWorkerDispatchCapability()
+          return dispatchCapability
+        })
+        .not.toBeNull()
+      if (!dispatchCapability) {
+        throw new Error('Background worker did not receive its dispatch capability')
+      }
+      const transcriptPath = seedCurrentCodexTranscript(
+        isolatedHome,
+        PROVIDER_SESSION_ID,
+        targetWorktreePath
       )
-      .toBe(true)
-    expect(
+      await first.page.evaluate(
+        ({
+          agentCommand,
+          paneKey,
+          providerSessionId,
+          tabId,
+          terminalHandle,
+          transcriptPath,
+          worktreeId
+        }) => {
+          const state = window.__store?.getState()
+          if (!state) {
+            throw new Error('Renderer store unavailable')
+          }
+          const metadata = { tabId, worktreeId, terminalHandle }
+          const recovery = {
+            providerSession: { key: 'session_id' as const, id: providerSessionId, transcriptPath },
+            launchConfig: {
+              agentCommand,
+              agentArgs: '--dangerously-bypass-approvals-and-sandbox',
+              agentEnv: {}
+            }
+          }
+          for (const agentState of ['working', 'done'] as const) {
+            state.setAgentStatus(
+              paneKey,
+              { state: agentState, prompt: 'Report completion and stay open', agentType: 'codex' },
+              'Settled background worker',
+              undefined,
+              metadata,
+              recovery
+            )
+          }
+        },
+        {
+          agentCommand: completedWorkerFakeCodexCommand,
+          paneKey: workerPaneKey,
+          providerSessionId: PROVIDER_SESSION_ID,
+          tabId: workerTabId,
+          terminalHandle: workerHandle,
+          transcriptPath,
+          worktreeId: targetWorktreeId
+        }
+      )
+      const completed = await client.call<{ message: { type: string } }>(
+        'orchestration.send',
+        {
+          from: workerHandle,
+          subject: 'Completed',
+          body: 'The fixture completed and stays open for inspection.',
+          type: 'worker_done',
+          payload: JSON.stringify({
+            taskId: task.result.task.id,
+            dispatchId: started.result.dispatchId,
+            outcome: 'succeeded'
+          })
+        },
+        { orchestrationCapability: dispatchCapability }
+      )
+      expect(completed.result.message.type).toBe('worker_done')
+      // The settlement sweep stamps the resume fence on the renderer's record before the tab closes.
+      await expect
+        .poll(
+          () =>
+            first.page.evaluate(
+              (paneKey) =>
+                window.__store?.getState().sleepingAgentSessionsByPaneKey[paneKey]
+                  ?.automaticResumeBlockedBy ?? null,
+              workerPaneKey
+            ),
+          { timeout: 30_000, message: 'settled worker pane was never fenced' }
+        )
+        .toBe('legacy-orchestration-worker')
+
+      await session.close(firstApp)
+      firstApp = null
+      expect(readPersistedWorkerRecoveryRecord(session.userDataDir, workerPaneKey)).toMatchObject({
+        automaticResumeBlockedBy: 'legacy-orchestration-worker'
+      })
+      expect(readCompletedWorkerLedger().filter((event) => event.event === 'normal-exit')).toEqual(
+        []
+      )
+
+      const launchesBeforeRestart = readCompletedWorkerLedger().filter(
+        (event) => event.event === 'spawn'
+      )
+      if (daemonSessionGone) {
+        const daemonDir = path.join(session.userDataDir, 'daemon')
+        const daemon = new DaemonClient({
+          socketPath: getDaemonSocketPath(daemonDir),
+          tokenPath: getDaemonTokenPath(daemonDir)
+        })
+        try {
+          await daemon.ensureConnected()
+          await daemon.request('kill', { sessionId: workerPtyId, immediate: true })
+          await expect
+            .poll(async () => {
+              const result = await daemon.request<{ sessions: { sessionId: string }[] }>(
+                'listSessions',
+                undefined
+              )
+              return result.sessions.some((entry) => entry.sessionId === workerPtyId)
+            })
+            .toBe(false)
+        } finally {
+          daemon.disconnect()
+        }
+      }
+      const second = await session.launch()
+      secondApp = second.app
+      await waitForSessionReady(second.page)
+      if (!daemonSessionGone) {
+        // The daemon kept the worker alive across the app restart; the new main process never attached it.
+        await expect
+          .poll(
+            async () =>
+              (await listRuntimeTerminals(client)).find(
+                (terminal) => terminal.ptyId === workerPtyId
+              )?.connected ?? null,
+            { timeout: 60_000, message: 'restarted runtime never rediscovered the worker PTY' }
+          )
+          .toBe(true)
+      }
+      expect(
+        await second.page.evaluate(
+          ({ tabId, worktreeId }) =>
+            Boolean(
+              window.__store?.getState().tabsByWorktree[worktreeId]?.some((tab) => tab.id === tabId)
+            ),
+          { tabId: workerTabId, worktreeId: targetWorktreeId }
+        )
+      ).toBe(true)
+
+      if (daemonSessionGone) {
+        await secondApp.evaluate(({ ipcMain }, ptyId) => {
+          type Handler = (event: unknown, args: Record<string, unknown>) => Promise<unknown>
+          const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })
+            ._invokeHandlers
+          const spawn = handlers.get('pty:spawn')
+          if (!spawn) {
+            throw new Error('PTY spawn handler unavailable')
+          }
+          const observed = globalThis as typeof globalThis & {
+            __settledWorkerAttachExited?: boolean
+          }
+          handlers.set('pty:spawn', async (event, args) => {
+            const result = await spawn(event, args)
+            if (result && typeof result === 'object' && 'id' in result && result.id === ptyId) {
+              observed.__settledWorkerAttachExited =
+                'exitedBeforeAttach' in result && result.exitedBeforeAttach === true
+            }
+            return result
+          })
+        }, workerPtyId)
+      }
+      // Hidden mount, then reveal: the reveal is what runs the missing-session reconciler.
+      await backgroundMountTab(second.page, targetWorktreeId, workerTabId)
+      if (daemonSessionGone) {
+        await expect
+          .poll(
+            () =>
+              secondApp!.evaluate(
+                () =>
+                  (globalThis as typeof globalThis & { __settledWorkerAttachExited?: boolean })
+                    .__settledWorkerAttachExited
+              ),
+            { timeout: 20_000, message: 'main must report observed exit without retiring the pane' }
+          )
+          .toBe(true)
+      }
+      // Poll, don't sample: main's cache learns the session when the pane's deferred reattach lands,
+      // and backgroundMountTab only waits for the pane manager to exist. A restarted main that never
+      // attaches stays false for the whole window, which is the regression this guards.
+      if (!daemonSessionGone) {
+        await expect
+          .configure({ soft: true })
+          .poll(() => second.page.evaluate((ptyId) => window.api.pty.hasPty(ptyId), workerPtyId), {
+            timeout: 20_000,
+            message: 'liveness before reveal'
+          })
+          .toBe(true)
+      }
       await second.page.evaluate(
-        ({ tabId, worktreeId }) =>
-          Boolean(
-            window.__store?.getState().tabsByWorktree[worktreeId]?.some((tab) => tab.id === tabId)
-          ),
+        ({ tabId, worktreeId }) => {
+          const store = window.__store
+          if (!store) {
+            throw new Error('Renderer store unavailable')
+          }
+          type Transition = {
+            activeWorktreeId: string | null
+            tabPresent: boolean
+            leafPtyIds: string[]
+            activeTabId: string | null
+          }
+          const snapshot = (state: ReturnType<typeof store.getState>): Transition => ({
+            activeWorktreeId: state.activeWorktreeId ?? null,
+            tabPresent: Boolean(state.tabsByWorktree[worktreeId]?.some((tab) => tab.id === tabId)),
+            leafPtyIds: Object.values(state.terminalLayoutsByTabId[tabId]?.ptyIdsByLeafId ?? {}),
+            activeTabId: state.activeTabIdByWorktree[worktreeId] ?? null
+          })
+          const transitions: Transition[] = [snapshot(store.getState())]
+          const e2eWindow = window as typeof window & { __orcaRevealTransitions?: Transition[] }
+          e2eWindow.__orcaRevealTransitions = transitions
+          store.subscribe((state) => {
+            const next = snapshot(state)
+            if (JSON.stringify(next) !== JSON.stringify(transitions.at(-1))) {
+              transitions.push(next)
+            }
+          })
+          store.getState().setActiveWorktree(worktreeId)
+        },
         { tabId: workerTabId, worktreeId: targetWorktreeId }
       )
-    ).toBe(true)
-
-    // Hidden mount, then reveal: the reveal is what runs the missing-session reconciler.
-    await backgroundMountTab(second.page, targetWorktreeId, workerTabId)
-    // Poll, don't sample: main's cache learns the session when the pane's deferred reattach lands,
-    // and backgroundMountTab only waits for the pane manager to exist. A restarted main that never
-    // attaches stays false for the whole window, which is the regression this guards.
-    await expect
-      .configure({ soft: true })
-      .poll(() => second.page.evaluate((ptyId) => window.api.pty.hasPty(ptyId), workerPtyId), {
-        timeout: 20_000,
-        message: 'liveness before reveal'
-      })
-      .toBe(true)
-    await second.page.evaluate(
-      ({ tabId, worktreeId }) => {
-        const store = window.__store
-        if (!store) {
-          throw new Error('Renderer store unavailable')
-        }
-        type Transition = {
-          activeWorktreeId: string | null
-          tabPresent: boolean
-          leafPtyIds: string[]
-          activeTabId: string | null
-        }
-        const snapshot = (state: ReturnType<typeof store.getState>): Transition => ({
-          activeWorktreeId: state.activeWorktreeId ?? null,
-          tabPresent: Boolean(state.tabsByWorktree[worktreeId]?.some((tab) => tab.id === tabId)),
-          leafPtyIds: Object.values(state.terminalLayoutsByTabId[tabId]?.ptyIdsByLeafId ?? {}),
-          activeTabId: state.activeTabIdByWorktree[worktreeId] ?? null
-        })
-        const transitions: Transition[] = [snapshot(store.getState())]
-        const e2eWindow = window as typeof window & { __orcaRevealTransitions?: Transition[] }
-        e2eWindow.__orcaRevealTransitions = transitions
-        store.subscribe((state) => {
-          const next = snapshot(state)
-          if (JSON.stringify(next) !== JSON.stringify(transitions.at(-1))) {
-            transitions.push(next)
-          }
-        })
-        store.getState().setActiveWorktree(worktreeId)
-      },
-      { tabId: workerTabId, worktreeId: targetWorktreeId }
-    )
-    // Give the reconciler's async verdict time to land; the tab must never have left.
-    await second.page.waitForTimeout(3_000)
-    const transitions = await second.page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __orcaRevealTransitions?: {
-              activeWorktreeId: string | null
-              tabPresent: boolean
-              leafPtyIds: string[]
-            }[]
-          }
-        ).__orcaRevealTransitions ?? []
-    )
-    // Pre-fix this read: leaf binding cleared -> tab removed -> worktree deselected -> tab re-added by graph sync.
-    expect(
-      transitions.filter((step) => !step.tabPresent || step.leafPtyIds.length === 0),
-      'reveal must not tear the settled worker tab down'
-    ).toEqual([])
-    expect(transitions.at(-1)?.activeWorktreeId).toBe(targetWorktreeId)
-    expect(
-      await second.page.evaluate((tabId) => Boolean(window.__paneManagers?.get(tabId)), workerTabId)
-    ).toBe(true)
-    expect(
-      (await listRuntimeTerminals(client)).find((terminal) => terminal.ptyId === workerPtyId)
-        ?.connected
-    ).toBe(true)
-    expect(readCompletedWorkerLedger().filter((event) => event.event === 'normal-exit')).toEqual([])
-  } finally {
-    if (secondApp) {
+      // Give the reconciler's async verdict time to land; the tab must never have left.
+      await second.page.waitForTimeout(3_000)
+      const transitions = await second.page.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              __orcaRevealTransitions?: {
+                activeWorktreeId: string | null
+                tabPresent: boolean
+                leafPtyIds: string[]
+              }[]
+            }
+          ).__orcaRevealTransitions ?? []
+      )
+      // Pre-fix this read: leaf binding cleared -> tab removed -> worktree deselected -> tab re-added by graph sync.
+      expect(
+        transitions.filter((step) => !step.tabPresent || step.leafPtyIds.length === 0),
+        'reveal must not tear the settled worker tab down'
+      ).toEqual([])
+      expect(transitions.at(-1)?.activeWorktreeId).toBe(targetWorktreeId)
+      expect(
+        await second.page.evaluate(
+          (tabId) => Boolean(window.__paneManagers?.get(tabId)),
+          workerTabId
+        )
+      ).toBe(true)
+      if (!daemonSessionGone) {
+        expect(
+          (await listRuntimeTerminals(client)).find((terminal) => terminal.ptyId === workerPtyId)
+            ?.connected
+        ).toBe(true)
+        expect(
+          readCompletedWorkerLedger().filter((event) => event.event === 'normal-exit')
+        ).toEqual([])
+      }
+      expect(readCompletedWorkerLedger().filter((event) => event.event === 'spawn')).toEqual(
+        launchesBeforeRestart
+      )
+      expect(
+        await secondApp.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().map((window) => ({
+            visible: window.isVisible(),
+            focused: window.isFocused()
+          }))
+        )
+      ).toEqual([{ visible: false, focused: false }])
+      await second.page.screenshot({ path: testInfo.outputPath('settled-worker-revealed.png') })
       await session.close(secondApp)
+      secondApp = null
+      const persisted = JSON.parse(
+        readFileSync(
+          path.join(
+            session.userDataDir,
+            'profiles',
+            DEFAULT_LOCAL_ORCA_PROFILE_ID,
+            'orca-data.json'
+          ),
+          'utf8'
+        )
+      ).workspaceSession
+      expect(
+        persisted.tabsByWorktree[targetWorktreeId].some(
+          (tab: { id: string }) => tab.id === workerTabId
+        )
+      ).toBe(true)
+      expect(Object.values(persisted.terminalLayoutsByTabId[workerTabId].ptyIdsByLeafId)).toContain(
+        workerPtyId
+      )
+    } finally {
+      if (secondApp) {
+        await session.close(secondApp)
+      }
+      if (firstApp) {
+        await session.close(firstApp)
+      }
+      await session.dispose()
     }
-    if (firstApp) {
-      await session.close(firstApp)
-    }
-    await session.dispose()
-  }
-})
+  })
+}

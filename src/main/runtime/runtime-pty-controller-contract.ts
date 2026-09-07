@@ -82,6 +82,8 @@ export type RuntimePtyController = {
     }
   }): Promise<{
     id: string
+    exitedBeforeAttach?: true
+    reattachUnverifiable?: true
     pid?: number | null
     incarnationId?: PtyIncarnationId
     wslDistro?: string

@@ -39,8 +39,6 @@ export type PtySpawnIpcArgs = {
   connectionId?: string | null
   worktreeId?: string
   sessionId?: string
-  // Why: a fenced pane (settled orchestration worker) may attach its session but never mint a replacement one.
-  attachOnly?: boolean
   shellOverride?: string
   projectRuntime?: ProjectExecutionRuntimeResolution
   terminalColorQueryReplies?: {

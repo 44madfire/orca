@@ -90,11 +90,6 @@ export async function buildPtyIpcSpawnOptions(
   if (ctx.effectiveSessionId !== undefined) {
     ctx.spawnOptions.sessionId = ctx.effectiveSessionId
   }
-  // Why: only a caller-supplied session can be attach-only; a minted id has nothing to attach to,
-  // and a bare flag would make the provider refuse every fresh spawn.
-  if (args.attachOnly === true && !ctx.isMintedSessionId && ctx.effectiveSessionId !== undefined) {
-    ctx.spawnOptions.attachOnly = true
-  }
   // Why: without this, the Windows daemon path ignores the user's Default Shell preference (LocalPtyProvider already honors it via getWindowsShell()).
   if (ctx.effectiveShellOverride !== undefined) {
     ctx.spawnOptions.shellOverride = ctx.effectiveShellOverride

@@ -5,8 +5,10 @@ import {
   makePaneSpawnReservationKey,
   paneSpawnReservationsByOwnerKey,
   rejectPaneSpawnReservation,
-  reservePaneSpawn
+  reservePaneSpawn,
+  resolvePaneSpawnReservation
 } from '../pane/spawn-reservation'
+import { isStablePaneResumeBlocked } from '../pane/stable-pane-resume-fence'
 import { resolveStablePaneOwner } from '../pane/stable-owner'
 import { ptySizes } from '../delivery/visibility-state'
 import type { PtyRuntimeControllerDeps } from './controller-deps'
@@ -19,6 +21,8 @@ import { createRuntimePtySpawnState, type RuntimePtySpawnArgs } from './spawn-st
 
 function toRuntimeSpawnReply(result: {
   id: string
+  exitedBeforeAttach?: true
+  reattachUnverifiable?: true
   incarnationId?: string
   wslDistro?: string | null
   stablePaneOwner?: { handle: string; tabId: string; leafId: string }
@@ -26,6 +30,8 @@ function toRuntimeSpawnReply(result: {
 }) {
   return {
     id: result.id,
+    ...(result.exitedBeforeAttach ? { exitedBeforeAttach: true as const } : {}),
+    ...(result.reattachUnverifiable ? { reattachUnverifiable: true as const } : {}),
     ...(result.incarnationId ? { incarnationId: result.incarnationId } : {}),
     ...(typeof result.wslDistro === 'string' ? { wslDistro: result.wslDistro } : {}),
     ...(result.stablePaneOwner ? { stablePaneOwner: result.stablePaneOwner } : {}),
@@ -71,6 +77,12 @@ export async function spawnPtyFromRuntimeController(
           args.connectionId
         )
       : null
+    if (
+      !existingOwner &&
+      isStablePaneResumeBlocked(deps.store, paneKey, args.worktreeId, args.connectionId)
+    ) {
+      return { id: args.sessionId ?? '', reattachUnverifiable: true as const }
+    }
     if (ownerKey && !existingOwner && !paneSpawnReservationsByOwnerKey.has(ownerKey)) {
       ctx.paneSpawnReservationKey = ownerKey
       ctx.paneSpawnReservation = reservePaneSpawn(ownerKey)
@@ -95,6 +107,18 @@ export async function spawnPtyFromRuntimeController(
       return toRuntimeSpawnReply(earlyReserved)
     }
     await executeRuntimePtySpawn(ctx)
+    if (ctx.result.exitedBeforeAttach || ctx.result.reattachUnverifiable) {
+      restoreProvisionalPtySize(ctx)
+      deps.runtime?.cancelPendingPtyRegistration?.(ctx.pendingRegistrationPtyId ?? ctx.result.id)
+      ctx.pendingRegistrationPtyId = null
+      return toRuntimeSpawnReply(
+        resolvePaneSpawnReservation(
+          ctx.paneSpawnReservationKey,
+          ctx.paneSpawnReservation,
+          ctx.result
+        )
+      )
+    }
     return toRuntimeSpawnReply(await commitRuntimePtySpawn(ctx))
   } catch (err) {
     if (ctx.pendingRegistrationPtyId) {

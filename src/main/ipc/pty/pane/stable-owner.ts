@@ -1,8 +1,9 @@
+import { isStablePaneResumeBlocked } from './stable-pane-resume-fence'
 import { toSshExecutionHostId } from '../../../../shared/execution-host'
-import { makePaneKey, parsePaneKey } from '../../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../../shared/stable-pane-id'
 import { UNVERIFIED_PROCESS_EXIT_CODE } from '../../../../shared/terminal-exit-cause'
 import type { Store } from '../../../persistence'
-import { retireTerminalSurfaceFromPersistence } from '../../../runtime/mobile-session-terminal-persistence-retirement'
+import { retirePersistedStablePaneOwner } from './stable-owner-retirement'
 import type { OrcaRuntimeService } from '../../../runtime/orca-runtime'
 import type { IPtyProvider, PtySpawnOptions, PtySpawnResult } from '../../../providers/types'
 import { parseAppSshPtyId } from '../../../providers/ssh-pty-id'
@@ -24,6 +25,7 @@ export type StablePaneOwner = {
   hasPersistedBinding?: true
   persistedIncarnationId?: string
   runtimeIncarnationId?: string
+  automaticResumeBlocked?: true
 }
 export type StablePaneAdoption = {
   result: PtySpawnResult
@@ -114,47 +116,13 @@ export function resolveStablePaneOwner(
     ...(runtimeIncarnationId || persisted?.incarnationId
       ? { incarnationId: runtimeIncarnationId ?? persisted?.incarnationId }
       : {}),
+    ...(isStablePaneResumeBlocked(store, paneKey, worktreeId, connectionId)
+      ? { automaticResumeBlocked: true as const }
+      : {}),
     ...(persisted ? { hasPersistedBinding: true as const } : {}),
     ...(persisted?.incarnationId ? { persistedIncarnationId: persisted.incarnationId } : {}),
     ...(runtimeIncarnationId ? { runtimeIncarnationId } : {})
   }
-}
-
-export function retirePersistedStablePaneOwner(
-  store: Store | undefined,
-  owner: StablePaneOwner,
-  worktreeId: string,
-  connectionId: string | null | undefined
-): boolean {
-  if (!store) {
-    return false
-  }
-  const paneKey = makePaneKey(owner.tabId, owner.leafId)
-  const hostId = connectionId ? toSshExecutionHostId(connectionId) : undefined
-  const current = resolvePersistedStablePaneOwner(store, paneKey, worktreeId, connectionId)
-  if (!current) {
-    // Why: persistence already dropped this pane binding (an earlier stop retired it while the
-    // runtime kept history), so there is nothing left to clear — that is a completed retirement,
-    // not a competing owner. Reporting failure here strands the pane after its PTY is proven dead.
-    return true
-  }
-  if (current.ptyId !== owner.ptyId || current.incarnationId !== owner.persistedIncarnationId) {
-    return false
-  }
-  const session = store.getWorkspaceSession(hostId)
-  const retired = retireTerminalSurfaceFromPersistence(session, {
-    worktreeId,
-    parentTabId: owner.tabId,
-    leafId: owner.leafId,
-    ptyId: owner.ptyId,
-    ...(current.incarnationId ? { incarnationId: current.incarnationId } : {})
-  })
-  if (retired === session) {
-    return false
-  }
-  store.setWorkspaceSession(retired, hostId)
-  store.flushOrThrow()
-  return true
 }
 
 export type StablePaneSpawnContext = {
@@ -233,6 +201,17 @@ export async function attachStablePaneOwner(
       onPtySpawnCommitted: undefined
     })
   } catch (error) {
+    if (owner.automaticResumeBlocked) {
+      return {
+        owner,
+        result: {
+          id: owner.ptyId,
+          ...(isObservedPtyExitEvidence(error)
+            ? { exitedBeforeAttach: true as const }
+            : { reattachUnverifiable: true as const })
+        }
+      }
+    }
     if (error instanceof TerminalSessionOwnerUnverifiedError) {
       throw new Error('terminal_pane_owner_unverified')
     }
@@ -292,6 +271,20 @@ export async function attachStablePaneOwner(
 export async function spawnForStablePane(
   args: StablePaneSpawnContext
 ): Promise<{ result: PtySpawnResult; owner: StablePaneOwner | null }> {
+  if (
+    !args.owner &&
+    isStablePaneResumeBlocked(
+      args.store,
+      args.spawnOptions.paneKey,
+      args.worktreeId,
+      args.connectionId
+    )
+  ) {
+    return {
+      result: { id: args.spawnOptions.sessionId ?? '', reattachUnverifiable: true },
+      owner: null
+    }
+  }
   if (args.owner) {
     const attached = await attachStablePaneOwner({ ...args, owner: args.owner })
     if (attached) {

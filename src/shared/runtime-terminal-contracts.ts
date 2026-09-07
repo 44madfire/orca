@@ -274,6 +274,8 @@ export type RuntimeTerminalCreateRequestPayload =
 
 export type RuntimeTerminalCreate = {
   handle: string
+  exitedBeforeAttach?: true
+  reattachUnverifiable?: true
   /** Host-owned PTY incarnation used to fence remote identity observations. */
   incarnationId?: string | null
   tabId?: string

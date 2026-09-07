@@ -75,9 +75,9 @@ export type PtyConnectResult = {
   id: string
   /** Host-owned PTY incarnation used to fence remote identity observations. */
   incarnationId?: string
-  /** The requested session exited while it had no primary pane handler. Its
-   *  buffered final data/exit were delivered, so callers must not fresh-spawn. */
+  /** The owner observed exit before attachment; preserve the pane without fresh-spawning. */
   exitedBeforeAttach?: boolean
+  reattachUnverifiable?: boolean
   /** The provider adopted an existing session rather than creating a fresh one.
    *  Startup commands may be ignored; recovery still requires separate ownership evidence. */
   isReattach?: boolean
@@ -150,10 +150,6 @@ export type PtyTransport = {
     cols?: number
     rows?: number
     sessionId?: string
-    /** Attach `sessionId` or report it absent; never mint a replacement session.
-     *  The pane's fence (a settled orchestration worker) forbids starting a new
-     *  process, so an absent session is a terminal state, not a respawn cue. */
-    attachOnly?: boolean
     /** Hidden-at-spawn declaration (terminal-query-authority.md): no visible
      *  view will consume this PTY's bytes, so main marks it hidden BEFORE the
      *  first byte and the gate + model responder own spawn-time queries.

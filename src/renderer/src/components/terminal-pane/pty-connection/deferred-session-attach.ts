@@ -10,7 +10,7 @@ import { toProcessExitStartup } from './process-exit-startup'
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 import { runDeferredSessionReattachChoice } from './deferred-session-reattach-choice'
-import { recoverUnverifiableDirectSshReattach } from './direct-ssh-reattach-recovery'
+import { recoverUnverifiableReattach } from './unverifiable-reattach-recovery'
 
 export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
   const isCurrentPaneTransport = (): boolean =>
@@ -137,7 +137,6 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
           }
           let expiredReattachError = false
           const coldRestoreStartup = session.buildColdRestoreAgentResumeStartup()
-          const attachOnly = session.isLegacyWorkerAutomaticResumeBlocked()
           session.clearPaneMode2031State()
           session.clearHiddenOutputRestoreState()
           const outputCallbacks = session.captureTransportOutputCallbacks(
@@ -166,7 +165,6 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
             cols: session.cols,
             rows: session.rows,
             sessionId: pendingSessionId,
-            ...(attachOnly ? { attachOnly: true } : {}),
             ...(coldRestoreStartup?.command ? { command: coldRestoreStartup.command } : {}),
             ...(coldRestoreStartup?.env
               ? { env: session.mergeStartupEnvWithPaneIdentity(coldRestoreStartup.env) }
@@ -287,7 +285,7 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
                 return
               }
               session.reportError(err instanceof Error ? err.message : String(err))
-              recoverUnverifiableDirectSshReattach(session, pendingSessionId)
+              recoverUnverifiableReattach(session, pendingSessionId)
             })
           session.armDirectSshPaneRetryTimeout(
             trackedReattachPromise,

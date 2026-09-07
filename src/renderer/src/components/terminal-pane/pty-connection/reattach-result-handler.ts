@@ -18,7 +18,10 @@ import type { ConnectPanePtySession } from './connect-pane-pty-session'
 import type { ReattachPayloadContext } from './reattach-payload-context'
 import { createReattachPayloadHandlers } from './apply-reattach-payload'
 import type { ReattachPayloadSession } from './reattach-payload-session'
-import { recoverUnverifiableDirectSshReattach } from './direct-ssh-reattach-recovery'
+import {
+  mayRetireBindingAfterFailedReattach,
+  recoverUnverifiableReattach
+} from './unverifiable-reattach-recovery'
 
 type ReattachResultSession = ReattachPayloadSession &
   Pick<
@@ -91,7 +94,7 @@ export function bindHandleReattachResult(sessionBag: ConnectPanePtySession): voi
     }
 
     if (connectResult?.exitedBeforeAttach) {
-      // Why: the transport already delivered the dead session's final frame + exit; treat as terminal state, not a failed reattach.
+      // Preserve the historical pane when its owner observed exit before attachment.
       return true
     }
 
@@ -105,7 +108,7 @@ export function bindHandleReattachResult(sessionBag: ConnectPanePtySession): voi
     const ptyId =
       connectResult?.id ?? (typeof result === 'string' ? result : session.transport.getPtyId())
     const hasExplicitPtyId = Boolean(connectResult?.id || typeof result === 'string')
-    if (!ptyId) {
+    if (!ptyId || connectResult?.reattachUnverifiable) {
       warnTerminalLifecycleAnomaly('restored PTY reattach returned no PTY id', {
         tabId: session.deps.tabId,
         worktreeId: session.deps.worktreeId,
@@ -113,18 +116,15 @@ export function bindHandleReattachResult(sessionBag: ConnectPanePtySession): voi
         paneId: session.pane.id,
         ptyId: staleSessionId ?? null
       })
-      if (session.connectionId) {
-        recoverUnverifiableDirectSshReattach(sessionBag, staleSessionId)
+      if (connectResult?.reattachUnverifiable || !mayRetireBindingAfterFailedReattach(sessionBag)) {
+        recoverUnverifiableReattach(sessionBag, retryPtyId)
         return false
       }
-      // Why: a stale restored session can fail reattach after mount; don't leave xterm alive without a backing PTY.
       if (staleSessionId) {
         session.clearExitedPanePtyLayoutBinding(staleSessionId)
+        session.deps.clearTabPtyId(session.deps.tabId, staleSessionId)
       } else {
         session.syncPanePtyLayoutBinding(null)
-      }
-      if (staleSessionId) {
-        session.deps.clearTabPtyId(session.deps.tabId, staleSessionId)
       }
       session.startFreshColdRestoreAgentResume(coldRestoreStartup, {
         forceBlankRestoredViewport: true

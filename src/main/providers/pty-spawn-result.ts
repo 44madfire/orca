@@ -6,6 +6,8 @@ import type { PtySourceReceivingActivation } from '../../shared/pty-source-recei
 import type { TerminalOwner } from '../../shared/terminal-owner'
 
 export type PtySpawnResult = {
+  exitedBeforeAttach?: true
+  reattachUnverifiable?: true
   agentSessionEnsure?: AgentSessionClaimedSpawnResult
   /** App-facing PTY id. Remote providers must return globally routable ids,
    *  not relay-local handles, because renderer/runtime IPC routes by this key. */

@@ -36,8 +36,6 @@ export type PtyApi = {
     connectionId?: string | null
     worktreeId?: string
     sessionId?: string
-    // Why: attach `sessionId` or fail; a fenced pane may never mint a replacement session.
-    attachOnly?: boolean
     // Why: lets a single tab open in a different shell than the user's default.
     shellOverride?: string
     projectRuntime?: ProjectExecutionRuntimeResolution
@@ -67,6 +65,8 @@ export type PtyApi = {
     isReattach?: boolean
     isAlternateScreen?: boolean
     replay?: string
+    exitedBeforeAttach?: boolean
+    reattachUnverifiable?: boolean
     sessionExpired?: boolean
     coldRestore?: { scrollback: string; cwd: string; cols?: number; rows?: number }
     startupCwdFallback?: { kind: 'worktree'; cwd: string }

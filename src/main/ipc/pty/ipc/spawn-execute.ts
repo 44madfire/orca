@@ -67,6 +67,9 @@ export async function executePtyIpcSpawn(ctx: PtyIpcSpawnState): Promise<void> {
         })
     ctx.result = stablePaneSpawn.result
     ctx.stablePaneOwner = stablePaneSpawn.owner
+    if (ctx.result.exitedBeforeAttach || ctx.result.reattachUnverifiable) {
+      return
+    }
     if (
       ctx.stablePaneOwner &&
       ctx.isMintedSessionId &&
