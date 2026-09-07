@@ -28,6 +28,62 @@ function hostClient(overrides: Record<string, unknown> = {}) {
 }
 
 describe('mobile web workspace creation writes', () => {
+  it.each(['status.get', 'worktree.create'])(
+    'does not continue a cancelled creation after %s returns',
+    async (pendingMethod) => {
+      let active = true
+      const authority = workspaceAuthority()
+      const register = vi.spyOn(authority, 'registerWorkspace')
+      const host = hostClient()
+      const sendRequest = vi.fn<RpcClient['sendRequest']>(async (method, _params, options) => {
+        options?.beforeSend?.()
+        const result = await host(method)
+        if (method === pendingMethod) {
+          active = false
+        }
+        return result as Awaited<ReturnType<RpcClient['sendRequest']>>
+      })
+
+      await expect(
+        executeMobileWebWorkspaceCreationCreateOperation({
+          operation: 'creationCreateBlank',
+          payload: blankPayload(),
+          client: { sendRequest } as unknown as RpcClient,
+          authority,
+          isRequestActive: () => active
+        })
+      ).rejects.toMatchObject({ code: 'cancelled' })
+
+      expect(register).not.toHaveBeenCalled()
+      expect(
+        sendRequest.mock.calls.filter(([method]) => method === 'worktree.create')
+      ).toHaveLength(pendingMethod === 'worktree.create' ? 1 : 0)
+    }
+  )
+
+  it('rechecks cancellation at the transport write after a reconnect wait', async () => {
+    let active = true
+    const host = hostClient()
+    const sendRequest = vi.fn<RpcClient['sendRequest']>(async (method, _params, options) => {
+      if (method === 'worktree.create') {
+        active = false
+      }
+      options?.beforeSend?.()
+      return (await host(method)) as Awaited<ReturnType<RpcClient['sendRequest']>>
+    })
+
+    await expect(
+      executeMobileWebWorkspaceCreationCreateOperation({
+        operation: 'creationCreateBlank',
+        payload: blankPayload(),
+        client: { sendRequest } as unknown as RpcClient,
+        authority: workspaceAuthority(),
+        isRequestActive: () => active
+      })
+    ).rejects.toMatchObject({ code: 'cancelled' })
+    expect(host.mock.calls.map(([method]) => method)).not.toContain('worktree.create')
+  })
+
   it('sends the page selection unchanged and answers with a fresh page handle', async () => {
     const authority = workspaceAuthority()
     const sendRequest = hostClient()
@@ -55,7 +111,8 @@ describe('mobile web workspace creation writes', () => {
         sparseCheckout: { directories: ['src/renderer'], presetId: 'renderer' }
       },
       client: { sendRequest } as unknown as RpcClient,
-      authority
+      authority,
+      isRequestActive: () => true
     })
 
     // The page resolved the base through the same shared operations, so nothing is looked up twice.
@@ -121,7 +178,8 @@ describe('mobile web workspace creation writes', () => {
         agentChoice: 'blank'
       },
       client: { sendRequest } as unknown as RpcClient,
-      authority
+      authority,
+      isRequestActive: () => true
     })
 
     expect(sendRequest.mock.calls.map(([method]) => method)).toContain('linear.searchIssues')
@@ -135,7 +193,8 @@ describe('mobile web workspace creation writes', () => {
         operation: 'creationCreateBlank',
         payload: { ...blankPayload(), agentChoice: 'not-an-agent' },
         client: { sendRequest: hostClient() } as unknown as RpcClient,
-        authority: workspaceAuthority()
+        authority: workspaceAuthority(),
+        isRequestActive: () => true
       })
     ).rejects.toMatchObject({ code: 'invalid_request' })
   })

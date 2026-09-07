@@ -11,7 +11,8 @@ const MOBILE_WEB_NAVIGATION_HOST_ID_MAX_LENGTH = 512
 export async function resolveMobileWebHostNavigationRoute(
   hostWorkspaceId: string,
   client: RpcClient,
-  authority: MobileWebWorkspaceAuthority
+  authority: MobileWebWorkspaceAuthority,
+  isActive: () => boolean
 ): Promise<MobileWebResumeRoute> {
   if (
     hostWorkspaceId.length === 0 ||
@@ -22,6 +23,9 @@ export async function resolveMobileWebHostNavigationRoute(
   const response = await client.sendRequest('worktree.ps', {
     limit: MOBILE_WEB_WORKSPACE_LIST_LIMIT + 1
   })
+  if (!isActive()) {
+    throw new MobileWebBrokerError('cancelled')
+  }
   if (!response.ok) {
     throw mobileWebBrokerHostRpcError(response.error)
   }

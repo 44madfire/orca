@@ -50,6 +50,7 @@ export class MobileWebCapabilityBroker {
   private readonly messages: MobileWebBrokerMessageSender
   private hostRequestsInFlight = 0
   private disposed = false
+  private clientEpoch = 0
 
   constructor(private readonly options: MobileWebCapabilityBrokerOptions) {
     this.rateLimiter = new MobileWebOperationRateLimiter(options.now ?? Date.now)
@@ -88,6 +89,7 @@ export class MobileWebCapabilityBroker {
 
   dispose(): void {
     this.disposed = true
+    this.clientEpoch += 1
     this.commitMessageGeneration.dispose()
     this.subscriptions.dispose()
     this.terminalStreams.dispose(this.options.getClient())
@@ -99,6 +101,7 @@ export class MobileWebCapabilityBroker {
   }
 
   replaceClient(client: RpcClient | null): void {
+    this.clientEpoch += 1
     this.authorities.clear()
     this.commitMessageGeneration.replaceClient(client)
     // The page document outlives the swap, so every live subscription needs a terminal frame; a
@@ -138,10 +141,12 @@ export class MobileWebCapabilityBroker {
     if (this.disposed || !this.options.isActive()) {
       throw new MobileWebBrokerError('cancelled')
     }
+    const epoch = this.clientEpoch
     return resolveMobileWebHostNavigationRoute(
       hostWorkspaceId,
       requireMobileWebConnectedClient(this.options),
-      this.authorities.workspace
+      this.authorities.workspace,
+      () => epoch === this.clientEpoch && !this.disposed && this.options.isActive()
     )
   }
   private async handleRequest(request: PageRequest): Promise<void> {

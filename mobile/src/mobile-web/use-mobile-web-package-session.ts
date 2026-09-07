@@ -58,19 +58,19 @@ export function useMobileWebPackageSession({
   const publishSession = useCallback(
     async (
       next: MobileWebShellSession,
-      hostEpoch: number,
+      isCurrent: () => boolean,
       hostId: string,
       source: 'verified-cache' | 'desktop-refresh',
       activationStartedAt: number
     ): Promise<boolean> => {
-      if (hostEpochRef.current !== hostEpoch) {
+      if (!isCurrent()) {
         await ExpoMobileWebShell.closeSession(next.sessionId).catch(() => {})
         return false
       }
       const previous = ownedSessionRef.current
       if (previous && previous.sessionId !== next.sessionId) {
         await beforeSessionReplacement?.()
-        if (hostEpochRef.current !== hostEpoch) {
+        if (!isCurrent()) {
           await ExpoMobileWebShell.closeSession(next.sessionId).catch(() => {})
           return false
         }
@@ -146,7 +146,7 @@ export function useMobileWebPackageSession({
         }
         const published = await publishSession(
           cached,
-          hostEpoch,
+          () => hostEpochRef.current === hostEpoch && !disposed,
           host.id,
           'verified-cache',
           startedAt
@@ -206,7 +206,7 @@ export function useMobileWebPackageSession({
           retryRef.current.attempts = 0
         },
         publish: (session, startedAt) =>
-          publishSession(session, hostEpoch, host.id, 'desktop-refresh', startedAt),
+          publishSession(session, isCurrent, host.id, 'desktop-refresh', startedAt),
         isVerifiedBuild: async (buildId) => {
           // An owned session only ever comes from openSession, so its build is already verified;
           // otherwise wait for the cache probe rather than re-downloading what is on disk.

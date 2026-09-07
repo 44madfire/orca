@@ -36,6 +36,7 @@ type StreamRequest = {
   subscriptionId?: string
   cancelled?: boolean
   sent?: boolean
+  receivedSnapshot?: boolean
 }
 
 type StreamRegistryOptions = {
@@ -69,7 +70,9 @@ export class RpcClientStreamRegistry {
     }
     this.streams.set(id, stream)
     if (method === 'browser.screencast') {
-      this.replaceBrowserStream(id)
+      for (const superseded of this.browserSlot.replaceWith(id)) {
+        this.dispose(superseded)
+      }
     }
     if (this.options.getState() === 'connected') {
       if (this.send(id, stream)) {
@@ -114,6 +117,7 @@ export class RpcClientStreamRegistry {
     for (const [id, stream] of this.streams) {
       stream.sent = false
       stream.subscriptionId = undefined
+      stream.receivedSnapshot = false
       this.resetTerminalRouting(id)
     }
   }
@@ -176,6 +180,16 @@ export class RpcClientStreamRegistry {
       return
     }
     const result = response.result
+    if (
+      stream.method === 'session.tabs.subscribe' &&
+      (result as { type?: unknown })?.type === 'snapshot'
+    ) {
+      stream.receivedSnapshot = true
+      if (stream.cancelled) {
+        this.dispose(response.id)
+        return
+      }
+    }
     if (isStreamingSubscriptionReadyResult(result)) {
       stream.subscriptionId = result.subscriptionId
       if (stream.cancelled) {
@@ -184,7 +198,7 @@ export class RpcClientStreamRegistry {
         return
       }
       if (stream.method === 'browser.screencast' && !this.browserSlot.acknowledge(response.id)) {
-        this.sendBrowserUnsubscribe(result.subscriptionId)
+        this.sendServerSubscriptionUnsubscribe(stream)
         this.remove(response.id)
         return
       }
@@ -199,6 +213,13 @@ export class RpcClientStreamRegistry {
 
   private dispose(id: string): void {
     const stream = this.streams.get(id)
+    if (stream?.method === 'session.tabs.subscribe') {
+      stream.cancelled = true
+      // The host registers cleanup only after resolving the initial snapshot.
+      if (stream.sent && !stream.receivedSnapshot) {
+        return
+      }
+    }
     if (stream?.method === 'browser.screencast') {
       stream.cancelled = true
       this.browserSlot.clear(id)
@@ -220,18 +241,14 @@ export class RpcClientStreamRegistry {
         this.sendRpc('terminal.unsubscribe', params)
       }
     } else {
-      const unsubscribe = buildStreamUnsubscribe(stream?.method, stream?.params)
+      const unsubscribe = stream?.sent
+        ? buildStreamUnsubscribe(stream.method, stream.params, id)
+        : null
       if (unsubscribe) {
         this.sendRpc(unsubscribe.method, unsubscribe.params)
       }
     }
     this.remove(id)
-  }
-
-  private replaceBrowserStream(id: string): void {
-    for (const superseded of this.browserSlot.replaceWith(id)) {
-      this.dispose(superseded)
-    }
   }
 
   private disposeServerSubscription(id: string, stream: StreamRequest): void {
@@ -258,13 +275,9 @@ export class RpcClientStreamRegistry {
     }
   }
 
-  private sendBrowserUnsubscribe(subscriptionId: string): void {
-    this.sendRpc('browser.screencast.unsubscribe', { subscriptionId })
-  }
-
-  private sendRpc(method: string, params: unknown): boolean {
+  private sendRpc(method: string, params: unknown, id = this.options.nextId()): boolean {
     return this.options.sendEncrypted({
-      id: this.options.nextId(),
+      id,
       deviceToken: this.options.deviceToken,
       method,
       params
@@ -272,12 +285,7 @@ export class RpcClientStreamRegistry {
   }
 
   private send(id: string, stream: StreamRequest): boolean {
-    return this.options.sendEncrypted({
-      id,
-      deviceToken: this.options.deviceToken,
-      method: stream.method,
-      params: stream.params
-    })
+    return this.sendRpc(stream.method, stream.params, id)
   }
 
   private remove(id: string): void {

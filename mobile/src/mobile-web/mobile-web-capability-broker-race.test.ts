@@ -10,6 +10,24 @@ import type { MobileWebNativeCapabilityAuthority } from './mobile-web-native-cap
 const WORKSPACE_ID = `workspace_0_${'01'.repeat(16)}`
 
 describe('mobile web capability broker races', () => {
+  it.each(['replace', 'dispose'] as const)(
+    'rejects navigation resolved after broker %s without minting a stale handle',
+    async (action) => {
+      const harness = await createPrimedHarness()
+      const response = Promise.withResolvers<Awaited<ReturnType<RpcClient['sendRequest']>>>()
+      harness.sendRequest.mockReturnValueOnce(response.promise)
+      const pending = harness.broker.resolveNavigationRoute('retired-workspace')
+      const rejection = expect(pending).rejects.toMatchObject({ code: 'cancelled' })
+      if (action === 'replace') {
+        harness.broker.replaceClient(null)
+      } else {
+        harness.broker.dispose()
+      }
+      response.resolve({ ok: true, result: { worktrees: [{ worktreeId: 'retired-workspace' }] } })
+      await rejection
+    }
+  )
+
   it('prevents a cancelled terminal subscription from registering after host resolution', async () => {
     const harness = await createPrimedHarness()
     const tabs = deferredHostResult()

@@ -13,6 +13,7 @@ export async function executeMobileWebWorkspaceOperation(args: {
   client: RpcClient
   authority: MobileWebWorkspaceAuthority
   snapshots: MobileWebWorkspaceSnapshotPager
+  isRequestActive: () => boolean
 }): Promise<unknown> {
   if (args.operation === 'snapshot') {
     return args.snapshots.snapshot(args.payload, args.client, args.authority)

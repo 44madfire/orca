@@ -20,8 +20,31 @@ export async function executeMobileWebWorkspaceCreationCreateOperation(args: {
   payload: unknown
   client: RpcClient
   authority: MobileWebWorkspaceAuthority
+  isRequestActive: () => boolean
 }): Promise<unknown> {
-  const operations = nativeHostWorkspaceCreationOperations(args.client)
+  const assertActive = () => {
+    if (!args.isRequestActive()) {
+      throw new MobileWebBrokerError('cancelled')
+    }
+  }
+  const operations = nativeHostWorkspaceCreationOperations({
+    ...args.client,
+    getState: () => args.client.getState(),
+    getLastInboundAt: () => args.client.getLastInboundAt?.() ?? null,
+    onStateChange: (listener) => args.client.onStateChange(listener),
+    async sendRequest(method, params, options) {
+      assertActive()
+      const response = await args.client.sendRequest(method, params, {
+        ...options,
+        beforeSend: () => {
+          assertActive()
+          options?.beforeSend?.()
+        }
+      })
+      assertActive()
+      return response
+    }
+  })
   if (args.operation === 'creationCreateBlank') {
     const payload = MobileWebCreationBlankPayloadSchema.parse(args.payload)
     const capabilities = await operations.readRuntimeCapabilities()
@@ -31,6 +54,7 @@ export async function executeMobileWebWorkspaceCreationCreateOperation(args: {
       comment: payload.comment,
       worktreeCreateIdempotency: capabilities.worktreeCreateIdempotency
     })
+    assertActive()
     return presentCreatedWorkspace(result, args.authority)
   }
   if (args.operation === 'creationCreateFromSource') {
@@ -45,6 +69,7 @@ export async function executeMobileWebWorkspaceCreationCreateOperation(args: {
       sparseCheckout: payload.sparseCheckout,
       worktreeCreateIdempotency: capabilities.worktreeCreateIdempotency
     })
+    assertActive()
     return presentCreatedWorkspace(result, args.authority)
   }
   throw new MobileWebBrokerError('unsupported_capability')

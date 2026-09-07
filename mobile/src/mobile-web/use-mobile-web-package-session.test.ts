@@ -57,10 +57,12 @@ const SESSION_B = {
 describe('useMobileWebPackageSession', () => {
   let renderer: ReactTestRenderer | null = null
   let packageSession: MobileWebPackageSession | null = null
+  let beforeSessionReplacement: (() => Promise<void>) | undefined
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     packageSession = null
+    beforeSessionReplacement = undefined
     native.openSession.mockReset()
     native.closeSession.mockReset().mockResolvedValue(undefined)
     removeHostCache.mockReset().mockResolvedValue(undefined)
@@ -92,7 +94,8 @@ describe('useMobileWebPackageSession', () => {
     packageSession = useMobileWebPackageSession({
       client: state === 'connected' ? CLIENT : null,
       host: host ?? undefined,
-      state
+      state,
+      beforeSessionReplacement
     })
     return null
   }
@@ -435,6 +438,28 @@ describe('useMobileWebPackageSession', () => {
 
     await act(async () => {
       refreshed.resolve(SESSION_B)
+      await flushPromises()
+    })
+
+    expect(packageSession?.session).toEqual(SESSION_A)
+    expect(native.closeSession).toHaveBeenCalledWith(SESSION_B.sessionId)
+    expect(native.closeSession).not.toHaveBeenCalledWith(SESSION_A.sessionId)
+  })
+
+  it('keeps the cached page when disconnected while waiting for a native alert', async () => {
+    const alertClosed = deferred<void>()
+    beforeSessionReplacement = vi.fn(() => alertClosed.promise)
+    native.openSession.mockImplementation((_host: string, buildId: string | null) =>
+      Promise.resolve(buildId ? SESSION_B : SESSION_A)
+    )
+    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_B.buildId } })
+    await mount('connected')
+    expect(beforeSessionReplacement).toHaveBeenCalledTimes(1)
+    expect(packageSession?.session).toEqual(SESSION_A)
+
+    await update('disconnected')
+    await act(async () => {
+      alertClosed.resolve()
       await flushPromises()
     })
 

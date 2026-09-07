@@ -29,6 +29,7 @@ export async function executeWorkspace(
     payload: request.payload,
     client: args.connectedClient(),
     authority: args.workspaceAuthority,
-    snapshots: args.workspaceSnapshots
+    snapshots: args.workspaceSnapshots,
+    isRequestActive: args.isRequestActive
   })
 }

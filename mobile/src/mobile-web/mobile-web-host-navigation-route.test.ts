@@ -20,7 +20,12 @@ describe('mobile web host navigation route', () => {
     })
     const authority = workspaceAuthority()
 
-    const route = await resolveMobileWebHostNavigationRoute(HOST_WORKSPACE_ID, client, authority)
+    const route = await resolveMobileWebHostNavigationRoute(
+      HOST_WORKSPACE_ID,
+      client,
+      authority,
+      () => true
+    )
 
     expect(client.sendRequest).toHaveBeenCalledWith('worktree.ps', { limit: 10_001 })
     expect(route).toEqual({
@@ -39,7 +44,8 @@ describe('mobile web host navigation route', () => {
       resolveMobileWebHostNavigationRoute(
         HOST_WORKSPACE_ID,
         hostClient({ worktrees: [], totalCount: 0, truncated: false }),
-        workspaceAuthority()
+        workspaceAuthority(),
+        () => true
       )
     ).resolves.toEqual({ kind: 'workspaceList' })
   })
@@ -71,7 +77,8 @@ describe('mobile web host navigation route', () => {
       resolveMobileWebHostNavigationRoute(
         HOST_WORKSPACE_ID,
         hostClient(result),
-        workspaceAuthority()
+        workspaceAuthority(),
+        () => true
       )
     ).rejects.toMatchObject({ code })
   })
@@ -80,7 +87,8 @@ describe('mobile web host navigation route', () => {
     const route = await resolveMobileWebHostNavigationRoute(
       HOST_WORKSPACE_ID,
       hostClient({ worktrees: [{ worktreeId: HOST_WORKSPACE_ID }] }),
-      workspaceAuthority()
+      workspaceAuthority(),
+      () => true
     )
     expect(route).toEqual({
       kind: 'session',
@@ -105,7 +113,8 @@ describe('mobile web host navigation route', () => {
       resolveMobileWebHostNavigationRoute(
         HOST_WORKSPACE_ID,
         hostClient(result),
-        workspaceAuthority()
+        workspaceAuthority(),
+        () => true
       )
     ).rejects.toMatchObject({ code: 'too_large' })
   })
