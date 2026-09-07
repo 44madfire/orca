@@ -1,23 +1,4 @@
-type PushCounterName =
-  | 'ip_rate_limited'
-  | 'request_error'
-  | 'challenge_issued'
-  | 'challenge_rejected'
-  | 'session_issued'
-  | 'session_rejected'
-  | 'device_registered'
-  | 'device_rejected'
-  | 'device_deleted'
-  | 'send_queued'
-  | 'send_dead'
-  | 'send_rate_limited'
-  | 'send_error'
-  | 'delivery_sent'
-  | 'delivery_dead'
-  | 'delivery_error'
-  | 'delivery_retry'
-
-const COUNTER_NAMES: PushCounterName[] = [
+const COUNTER_NAMES = [
   'ip_rate_limited',
   'request_error',
   'challenge_issued',
@@ -35,7 +16,9 @@ const COUNTER_NAMES: PushCounterName[] = [
   'delivery_dead',
   'delivery_error',
   'delivery_retry'
-]
+] as const
+
+type PushCounterName = (typeof COUNTER_NAMES)[number]
 
 // Aggregate counters only. Nothing here may accept a token, a title, a body,
 // or more than the first four characters of a host fingerprint.

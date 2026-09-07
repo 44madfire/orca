@@ -16,7 +16,10 @@ vi.mock('expo-notifications', () => ({
   dismissNotificationAsync: vi.fn(async () => {})
 }))
 vi.mock('../transport/host-store', () => ({ loadHostCatalog: vi.fn(async () => [{ id: 'host' }]) }))
-vi.mock('./push-host-fingerprint', () => ({ resolveHostIdForFingerprint: () => 'host' }))
+vi.mock('./push-host-fingerprint', () => ({
+  resolveHostIdForFingerprint: () => 'host',
+  deriveHostFingerprint: () => 'abcdefghijklmnop'
+}))
 vi.mock('../storage/preferences', () => ({
   loadRemotePushEnabled: async () => true,
   loadPushNotificationsEnabled: async () => true,
@@ -105,4 +108,28 @@ it('lets the push deliver if the in-flight local schedule fails', async () => {
   const pending = shouldSuppressForegroundPush(push)
   fail(new Error('native scheduling failed'))
   expect(await pending).toBe(false)
+})
+
+it('dismisses the tray while an earlier socket show is still waiting for foreground', async () => {
+  const { AppState } = await import('react-native')
+  let activate!: (state: string) => void
+  Object.assign(AppState, {
+    currentState: 'background',
+    addEventListener: (_name: string, callback: typeof activate) => {
+      activate = callback
+      return { remove: () => {} }
+    }
+  })
+  const receive = await socket()
+  receive(event)
+  await vi.waitFor(() => expect(activate).toBeDefined())
+  vi.mocked(Notifications.getPresentedNotificationsAsync).mockResolvedValueOnce([
+    { request: { identifier: 'remote-alert', content: { data: push } } }
+  ] as never)
+  receive({ ...event, type: 'dismiss', notificationSeq: 2 })
+  await vi.waitFor(() =>
+    expect(Notifications.dismissNotificationAsync).toHaveBeenCalledWith('remote-alert')
+  )
+  AppState.currentState = 'active'
+  activate('active')
 })

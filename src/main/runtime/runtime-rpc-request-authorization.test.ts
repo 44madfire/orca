@@ -30,6 +30,7 @@ describe('OrcaRuntimeRpcServer', () => {
   it('rejects WebSocket requests whose request token differs from the authenticated channel token', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const runtime = {
+      configureNotificationDismissalStore: () => {},
       getRuntimeId: () => 'test-runtime',
       getStatus: vi.fn().mockResolvedValue({ graphStatus: 'ok' })
     } as unknown as OrcaRuntimeService
@@ -173,6 +174,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const createMobileSessionTerminal = vi.fn()
     const runtime = {
+      configureNotificationDismissalStore: () => {},
       getRuntimeId: () => 'test-runtime',
       createMobileSessionTerminal
     } as unknown as OrcaRuntimeService
@@ -214,6 +216,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const pushRuntimeGit = vi.fn().mockResolvedValue({ ok: true })
     const runtime = {
+      configureNotificationDismissalStore: () => {},
       getRuntimeId: () => 'test-runtime',
       pushRuntimeGit
     } as unknown as OrcaRuntimeService

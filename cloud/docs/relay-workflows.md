@@ -405,27 +405,18 @@ aggregate active, receipt, registration, completion, and abort counts.
 
 `Deploy Push Gateway Production` (`.github/workflows/cloud-push-deploy.yml`) is the deploy path
 for `orca-cloud-push`, the mobile push gateway. It is the one `cloud-*` workflow that is not a
-relay operation, and it is here because it shares this repository's Cloud SQL instance, its
-Artifact Registry repository, and its rollout lease.
+relay operation, and it is here because it shares the Artifact Registry repository and rollout
+lease. Push uses a dedicated Cloud SQL instance.
 
-It needs **no new GitHub environment variable.** It authenticates as the shared production deploy
-identity through the already-published `PRODUCTION_GCP_RELAY_DEPLOY_WORKLOAD_IDENTITY_PROVIDER`
-and `PRODUCTION_GCP_RELAY_DEPLOY_SERVICE_ACCOUNT`, and reads `PRODUCTION_GCP_REGION` like the
-rest. That account holds the foundation-owned Cloud SQL rollout lease grant, which names it and nothing
-else, so a dedicated identity could not be given that lease from this root.
+It authenticates through `PRODUCTION_GCP_PUSH_DEPLOY_WORKLOAD_IDENTITY_PROVIDER` and
+`PRODUCTION_GCP_PUSH_DEPLOY_SERVICE_ACCOUNT`. The dedicated identity has Artifact Registry writer,
+Cloud Run developer on the push service, and impersonation of only the push runtime account.
+Its provider pins the repository, production environment, main branch, and exact dispatch workflow;
+its distinct principal attribute cannot assume the shared Relay deploy account.
 
-`infra/terraform/push-gateway.tf` adds three bindings scoped to the gateway: Cloud Run developer
-on that one service, and service-account user plus token creator on the gateway's runtime
-account. Those three are not the workflow's whole authority. Running as the shared account gives
-the run every role that account already holds for the relay: Artifact Registry writer on
-`orca-cloud`, `roles/run.developer` on the relay director and the fence broker, accessor and
-version-adder on the relay regional-placement secret, and service-account user on the relay
-runtime identities. That widening was accepted as the price of the lease, and it is bounded by
-the provider condition and by the workflow being dispatch-only behind a typed confirmation.
-
-The provider's workflow allowlist gained exactly one entry, `cloud-push-deploy.yml`, on `main` in
-the `production` environment. That entry is required: the allowlist compares complete workflow
-refs by equality, so the `cloud-` filename prefix alone does not admit a new file.
+Foundation grants the dedicated account access to the rollout-lock prefix and bucket metadata.
+Apply that companion grant and publish the identity outputs before running the workflow. See
+[push gateway deployment setup](./push-gateway.md#deploying) for the activation steps.
 
 The run builds `apps/push/Dockerfile` **before** taking the lease, so an image build never blocks
 a relay deploy or rehome, then holds the production rollout lease across the deploy itself,

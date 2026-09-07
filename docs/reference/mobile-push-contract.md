@@ -194,6 +194,8 @@ from key id + team id + `.p8`, token cached and refreshed every 50 min):
 - body: `{"aps":{"alert":{"title","body"},"sound":"default","thread-id":"<hostFingerprint>"},
 "orca":{ hostFingerprint, worktreeId, notificationId, notificationSeq, notificationEpoch, source,
 agentState, coalescedCount }}`
+- Dismissals use `apns-push-type: background`, priority `5`, no collapse header, and
+  `aps: {"content-available": 1}` with `orca.kind: "dismiss"`. They carry no alert or sound.
 - Dead token: 410, or 400 with `BadDeviceToken`/`Unregistered`/`DeviceTokenNotForTopic`.
 
 FCM (V1 `projects/onorca-cloud/messages:send`, bearer from the runtime service account via the GCE
@@ -202,6 +204,11 @@ metadata server or `GOOGLE_APPLICATION_CREDENTIALS` locally):
 - `{"message":{"token","notification":{"title","body"},"android":{"priority":"HIGH","ttl":"<remaining event lifetime, at most 300s>",
 "collapse_key":"<sha256(collapseId) hex 32>","notification":{"channel_id":"orca-desktop","tag":"<collapseId>"}},
 "data":{ all orca fields as strings }}}`
+- Dismissals are data-only (`kind: "dismiss"`); omit both `message.notification` and
+  `android.notification`. No visible alert or sound is requested.
+- FCM notification messages are inherently collapsible while offline; `collapse_key` does not
+  preserve every alert. Android `tag` controls replacement after delivery. On reconnect, the
+  existing host notification replay recovers retained events; the tray is not an event log.
 - Dead token: `UNREGISTERED`, or `INVALID_ARGUMENT` whose message names the token.
 
 ### Gateway storage (Postgres in prod, SQLite in tests, same pattern as `cloud/apps/relay/src/database.ts`)
@@ -326,7 +333,7 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 
 - Cloud Run service `orca-cloud-push`, region `us-central1`, project from the environment tfvars, runtime
   SA `orca-cloud-push@<project>.iam.gserviceaccount.com` (exists in prod; declare and import), the three
-  secrets mounted as env (exist; declare and import), Cloud SQL connector to the shared instance with its
+  secrets mounted as env (exist; declare and import), Cloud SQL connector to the dedicated HA PostgreSQL instance with its
   own database `orca_push`, min instances 1, max 2 in production, concurrency 80, ingress all, unauthenticated invoke.
 - IAM: `roles/firebasecloudmessaging.admin` and `roles/serviceusage.serviceUsageConsumer` on the runtime
   SA (exist in prod; declare and import). Secret accessor per secret.

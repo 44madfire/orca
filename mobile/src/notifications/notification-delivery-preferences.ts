@@ -29,31 +29,35 @@ export const DEFAULT_NOTIFICATION_DELIVERY: NotificationDeliveryPreferences = {
 }
 
 export async function loadNotificationDeliveryPreferences(): Promise<NotificationDeliveryPreferences> {
-  const raw = await AsyncStorage.getItem(KEY)
-  if (!raw) {
-    // Preserve an existing explicit background filter when upgrading.
-    const legacy = await AsyncStorage.getItem('orca:remotePushAgentStates')
-    if (legacy) {
-      const states: unknown = JSON.parse(legacy)
-      if (Array.isArray(states)) {
-        return {
-          ...DEFAULT_NOTIFICATION_DELIVERY,
-          followDesktop: false,
-          taskFinished: states.includes('finished'),
-          needsInput: states.includes('needs-input')
+  try {
+    const raw = await AsyncStorage.getItem(KEY)
+    if (!raw) {
+      // Preserve an existing explicit background filter when upgrading.
+      const legacy = await AsyncStorage.getItem('orca:remotePushAgentStates')
+      if (legacy) {
+        const states: unknown = JSON.parse(legacy)
+        if (Array.isArray(states)) {
+          return {
+            ...DEFAULT_NOTIFICATION_DELIVERY,
+            followDesktop: false,
+            taskFinished: states.includes('finished'),
+            needsInput: states.includes('needs-input')
+          }
         }
       }
+      return { ...DEFAULT_NOTIFICATION_DELIVERY }
     }
+    const stored = JSON.parse(raw) as Record<string, unknown>
+    const result = { ...DEFAULT_NOTIFICATION_DELIVERY }
+    for (const key of Object.keys(result) as (keyof NotificationDeliveryPreferences)[]) {
+      if (typeof stored?.[key] === 'boolean') {
+        result[key] = stored[key]
+      }
+    }
+    return result
+  } catch {
     return { ...DEFAULT_NOTIFICATION_DELIVERY }
   }
-  const stored = JSON.parse(raw) as Record<string, unknown>
-  const result = { ...DEFAULT_NOTIFICATION_DELIVERY }
-  for (const key of Object.keys(result) as (keyof NotificationDeliveryPreferences)[]) {
-    if (typeof stored?.[key] === 'boolean') {
-      result[key] = stored[key]
-    }
-  }
-  return result
 }
 
 export async function saveNotificationDeliveryPreferences(

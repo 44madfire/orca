@@ -1,3 +1,4 @@
+import { wasHostPushDismissed } from './push-socket-dismissal'
 import { AppState } from 'react-native'
 import { loadRemotePushEnabled, loadRemotePushHostRegistrations } from '../storage/preferences'
 import { readPresentedPushSeenKeys } from './push-tray-seen-seed'
@@ -40,7 +41,7 @@ export async function waitForSocketPushHandoff(
   }
   // iOS can keep the socket alive while backgrounded; let APNs own that interval.
   await waitUntilActive(signal)
-  if (signal.aborted) {
+  if (signal.aborted || (await wasHostPushDismissed(event, hostId))) {
     return false
   }
   const key = seenKeyForEvent(event)

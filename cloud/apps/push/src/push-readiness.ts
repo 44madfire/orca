@@ -17,8 +17,9 @@ export function createPushReadiness(
   let cachedAt = Number.NEGATIVE_INFINITY
   let cached = false
 
-  return async () => {
-    if (now() - cachedAt < cacheMs) return cached
+  let pending: Promise<boolean> | null = null
+
+  async function check(): Promise<boolean> {
     const startedAt = now()
     try {
       await database.query('SELECT 1 AS ready')
@@ -29,5 +30,13 @@ export function createPushReadiness(
     cachedAt = now()
     options.observe?.({ ready: cached, sqlLatencyMs: Math.max(0, cachedAt - startedAt) })
     return cached
+  }
+
+  return async () => {
+    if (now() - cachedAt < cacheMs) return cached
+    pending ??= check().finally(() => {
+      pending = null
+    })
+    return pending
   }
 }

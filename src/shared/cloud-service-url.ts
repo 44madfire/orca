@@ -12,7 +12,10 @@ export function cleanCloudServiceUrl(
       parsed.hostname === '127.0.0.1' ||
       parsed.hostname === 'localhost' ||
       parsed.hostname === '[::1]'
-    if (parsed.protocol !== 'https:' && !(loopbackHost && allowLoopbackHttp)) {
+    if (
+      parsed.protocol !== 'https:' &&
+      !(parsed.protocol === 'http:' && loopbackHost && allowLoopbackHttp)
+    ) {
       return null
     }
     return parsed.toString().replace(/\/$/, '')

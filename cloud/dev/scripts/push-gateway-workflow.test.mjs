@@ -44,8 +44,8 @@ test('the whole surface stays inert until the owner enables cloud operations', (
 
 test('it authenticates through Workload Identity and holds no repository secret', () => {
   assert.match(workflow, /uses: google-github-actions\/auth@v2/)
-  assert.match(workflow, /workload_identity_provider: \$\{\{ vars\.PRODUCTION_GCP_RELAY_DEPLOY_WORKLOAD_IDENTITY_PROVIDER \}\}/)
-  assert.match(workflow, /service_account: \$\{\{ vars\.PRODUCTION_GCP_RELAY_DEPLOY_SERVICE_ACCOUNT \}\}/)
+  assert.match(workflow, /workload_identity_provider: \$\{\{ vars\.PRODUCTION_GCP_PUSH_DEPLOY_WORKLOAD_IDENTITY_PROVIDER \}\}/)
+  assert.match(workflow, /service_account: \$\{\{ vars\.PRODUCTION_GCP_PUSH_DEPLOY_SERVICE_ACCOUNT \}\}/)
   assert.match(workflow, /environment: production/)
   for (const [, name] of workflow.matchAll(/secrets\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
     assert.equal(name, 'GITHUB_TOKEN', `the workflow reads secrets.${name}`)
@@ -55,7 +55,8 @@ test('it authenticates through Workload Identity and holds no repository secret'
 // Why: Terraform trusts exact workflow filenames, not a prefix. A rename here without the
 // matching tfvars-independent list entry would fail authentication at dispatch time only.
 test('Terraform trusts this exact workflow file on the production deploy provider', () => {
-  assert.match(terraform('relay-github-actions.tf'), /^\s*"push-deploy\.yml"$/m)
+  assert.match(terraform('push-deploy-identity.tf'), /push-deploy\.yml@refs\/heads\/main/)
+  assert.doesNotMatch(terraform('relay-github-actions.tf'), /push-deploy\.yml/)
   assert.equal(relayWorkflowFile(WORKFLOW), 'cloud-push-deploy.yml')
 })
 
@@ -297,4 +298,13 @@ test('the run always drops its traffic tag', () => {
   const body = workflow.slice(workflow.indexOf('- name: Drop the candidate traffic tag'))
   assert.match(body, /if: always\(\)/)
   assert.match(body, /test -n "\$\{CANDIDATE_TAG:-\}" \|\| exit 0/)
+})
+
+test('push credentials cannot assume the shared Relay deploy identity', () => {
+  const source = terraform('push-deploy-identity.tf')
+  assert.match(source, /"attribute.push_deploy"\s*=\s*"'production'"/)
+  assert.doesNotMatch(source, /"attribute.repository"\s*=/)
+  assert.match(source, /attribute\.push_deploy\/production/)
+  assert.doesNotMatch(workflow, /PRODUCTION_GCP_RELAY_DEPLOY_/)
+  assert.doesNotMatch(terraform('push-gateway.tf'), /member\s*=\s*local\.relay_github_deploy_service_account_member/)
 })

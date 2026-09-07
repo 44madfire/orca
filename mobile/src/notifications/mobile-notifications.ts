@@ -37,7 +37,7 @@ type SubscribeResult = {
 }
 
 export function subscribeToDesktopNotifications(client: RpcClient, hostId: string): () => void {
-  ensureDesktopNotificationChannel()
+  void ensureDesktopNotificationChannel().catch(() => {})
 
   let subscriptionId: string | null = null
   let disposed = false
@@ -63,9 +63,15 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
     ) {
       return Promise.resolve()
     }
+    // Tray cleanup must not wait for a background show to hand off on foreground.
+    const dismissal =
+      type === 'dismiss'
+        ? dismissLocalNotification(event as DismissNotificationEvent, hostId)
+        : undefined
+    void dismissal?.catch(() => {})
     return enqueueHostDelivery(session, async () => {
       try {
-        await deliverLive(type, event)
+        await deliverLive(type, event, dismissal)
       } finally {
         if (type === 'notification') {
           releaseQueuedShowNotificationId(session, event.notificationId)
@@ -79,7 +85,8 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
 
   async function deliverLive(
     type: 'notification' | 'dismiss',
-    event: NotificationEvent | DismissNotificationEvent
+    event: NotificationEvent | DismissNotificationEvent,
+    dismissal?: Promise<void>
   ): Promise<void> {
     adoptNotificationEpoch(session, hostId, event.notificationEpoch)
     const epochAtDelivery = session.lastDeliveredEpoch
@@ -95,7 +102,7 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
         await showLocalNotification(event as NotificationEvent, hostId)
       }
     } else {
-      await dismissLocalNotification(event as DismissNotificationEvent, hostId)
+      await (dismissal ?? dismissLocalNotification(event as DismissNotificationEvent, hostId))
     }
     // Claim only after local delivery or a matching presented push.
     // A mid-flight epoch adoption already cleared the counter lifetime this key indexes.

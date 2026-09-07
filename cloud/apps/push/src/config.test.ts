@@ -57,9 +57,9 @@ describe('push gateway config', () => {
   })
 
   it('refuses a partial APNs credential', () => {
-    expect(() =>
-      loadPushConfig({ ...MINIMAL, ORCA_PUSH_APNS_KEY: apnsKeyPem() })
-    ).toThrow('configured together')
+    expect(() => loadPushConfig({ ...MINIMAL, ORCA_PUSH_APNS_KEY: apnsKeyPem() })).toThrow(
+      'configured together'
+    )
     expect(() =>
       loadPushConfig({
         ...MINIMAL,
@@ -87,4 +87,19 @@ describe('push gateway config', () => {
       loadPushConfig({ ...MINIMAL, ORCA_PUSH_DATABASE_URL: '', ORCA_PUSH_APNS_KEY_ID: '' })
     ).toMatchObject({ databaseUrl: undefined, apns: undefined })
   })
+})
+
+it('treats blank defaulted environment settings as absent', () => {
+  const blanks = Object.fromEntries(
+    [
+      'PORT',
+      'ORCA_PUSH_DATA_DIR',
+      'ORCA_PUSH_APNS_TOPIC',
+      'ORCA_PUSH_FCM_PROJECT_ID',
+      'ORCA_PUSH_COALESCE_MS',
+      'ORCA_PUSH_DATABASE_POOL_MAX',
+      'ORCA_PUSH_TRUSTED_PROXY_HOPS'
+    ].map((key) => [key, ' '])
+  )
+  expect(loadPushConfig({ ...MINIMAL, ...blanks })).toEqual(loadPushConfig(MINIMAL))
 })

@@ -148,23 +148,22 @@ affects whether this root's plan is clean, since an undeclared resource is invis
 supported path. Like every `cloud-*` workflow it does nothing until `ORCA_CLOUD_OPERATIONS_ENABLED`
 is `true`, it runs only on `main`, and it needs the confirmation string `DEPLOY_PUSH_GATEWAY`.
 
-It authenticates as the shared production deploy identity through
-`PRODUCTION_GCP_RELAY_DEPLOY_WORKLOAD_IDENTITY_PROVIDER` and
-`PRODUCTION_GCP_RELAY_DEPLOY_SERVICE_ACCOUNT`, which are already published. No new GitHub
-variable is required. That account was chosen because the Cloud SQL rollout lease grant is
-foundation-owned and names only that account; a dedicated identity could not take that lease from
-this root, and the gateway's schema rollout has to serialize against the relay's.
+It authenticates as the dedicated `orca-cloud-gha-push` identity through
+`PRODUCTION_GCP_PUSH_DEPLOY_WORKLOAD_IDENTITY_PROVIDER` and
+`PRODUCTION_GCP_PUSH_DEPLOY_SERVICE_ACCOUNT`. `push-deploy-identity.tf` restricts Workload Identity
+to this exact dispatch workflow on main in the production environment. Its distinct principal
+attribute cannot assume the shared Relay deploy identity.
 
-**That choice widens what this workflow can reach, and the widening is deliberate.** Adding
-`push-deploy.yml` to the provider allowlist gives the run the account's whole existing authority,
-not only the push bindings: Artifact Registry writer on `orca-cloud`, `roles/run.developer` on
-the relay director and the fence broker, accessor and version-adder on the relay
-regional-placement secret, and service-account user on the relay runtime identities. It was
-accepted as the price of the lease. What `push-gateway.tf` adds on top is three bindings scoped
-to the gateway alone: Cloud Run developer on this one service, and service-account user plus
-token creator on the runtime account. The bound on the rest is the provider condition, which
-admits this exact workflow file on `main` in the `production` environment only, and the workflow
-itself, which is dispatch-only behind a typed confirmation.
+The account can write images to the existing Artifact Registry repository, deploy the push service,
+and impersonate only the push runtime account. Foundation separately grants access to the shared
+rollout-lock prefix and bucket metadata; it grants no Terraform-state object access.
+
+Before the next deployment, apply the reviewed identity changes in the relay root, add
+`serviceAccount:orca-cloud-gha-push@onorca-cloud.iam.gserviceaccount.com` to production foundation's
+`cloud_sql_rollout_lease_members`, and apply foundation. Publish the relay outputs
+`github_push_workload_identity_provider` and `github_push_deploy_service_account` as the two
+GitHub production-environment variables above. Keep the shared identity's existing lease grant
+for Relay. Do not fall back to that identity if push setup is incomplete.
 
 The run, in order:
 
@@ -341,4 +340,6 @@ Stable collapse identities reduce duplicates without promising exactly-once visi
 
 `push_dedicated_database_enabled` provisions an independent HA PostgreSQL instance without changing
 the live gateway attachment. It defaults to false. Follow [the database cutover runbook](./push-database-cutover.md)
-before enabling it or switching stores; preserve device registrations and durable queue state.
+before enabling it or switching stores. The current pre-release activation discards registrations
+and queued deliveries; phones re-register on foreground use. A future public-service migration
+requires a separate preservation procedure.

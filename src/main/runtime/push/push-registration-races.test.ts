@@ -168,3 +168,16 @@ it('drains a cleanup queued as an empty flush is completing', async () => {
   expect(h.client.deleteDevice).toHaveBeenCalledWith('orphan')
   expect(h.outbox.pending()).toEqual([])
 })
+
+it('drains durable deletion even if clearing the local registration fails', async () => {
+  const h = harness()
+  await h.service.register({ ...input, deviceId: h.deviceId })
+  await h.service.flushUnregisterOutbox()
+  vi.spyOn(h.registry, 'setPushRegistration').mockImplementation(() => {
+    throw new Error('disk full')
+  })
+  await expect(h.service.unregister(h.deviceId)).rejects.toThrow('disk full')
+  await tick()
+  expect(h.client.deleteDevice).toHaveBeenCalledWith('stable-id')
+  expect(h.outbox.pending()).toEqual([])
+})

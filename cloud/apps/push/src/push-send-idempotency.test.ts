@@ -23,7 +23,9 @@ it('returns queued for concurrent retries without double quota or a false summar
   await h.flushDeliveries()
   expect(h.fcmRequests).toHaveLength(1)
   expect(JSON.parse(h.fcmRequests[0]!.body).message.data.coalescedCount).toBe('1')
-  expect((await h.database.query('SELECT COUNT(*) AS count FROM push_events'))[0]?.count).toBe(1)
+  expect(
+    Number((await h.database.query('SELECT COUNT(*) AS count FROM push_events'))[0]?.count)
+  ).toBe(1)
   await h.post(
     '/v1/send',
     { ...body, notification: notification({ notificationEpoch: 'new-epoch' }) },

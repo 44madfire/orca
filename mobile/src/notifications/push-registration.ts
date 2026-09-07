@@ -1,3 +1,4 @@
+import { ensureDesktopNotificationChannel } from './desktop-notification-channel'
 import { subscribeNotificationConsent } from './notification-consent-events'
 import { AppState } from 'react-native'
 import { startMobilePushLeaseRenewal } from './mobile-push-lease-renewal'
@@ -76,6 +77,7 @@ async function mutateRecords(mutate: (value: RegistrationRecords) => void): Prom
 
 // A missing token is retried: APNs registration may still be in flight.
 async function currentToken(): Promise<MobilePushToken | null> {
+  await ensureDesktopNotificationChannel()
   if (!tokenPromise) {
     const pending: Promise<MobilePushToken | null> = getDevicePushToken().then((token) => {
       if (!token && tokenPromise === pending) {
@@ -90,7 +92,10 @@ async function currentToken(): Promise<MobilePushToken | null> {
 
 async function readRemotePushCapability(client: PushClient): Promise<boolean | null> {
   try {
-    const response = await client.sendRequest('status.get')
+    const response = await client.sendRequest('status.get', undefined, {
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      failWhenDisconnected: true
+    })
     if (!response.ok) {
       return null
     }

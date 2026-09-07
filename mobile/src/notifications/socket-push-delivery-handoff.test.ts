@@ -1,9 +1,12 @@
+import { wasHostPushDismissed } from './push-socket-dismissal'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { AppState } from 'react-native'
 import { waitForSocketPushHandoff } from './socket-push-delivery-handoff'
 import { readPresentedPushSeenKeys } from './push-tray-seen-seed'
 import { loadRemotePushEnabled } from '../storage/preferences'
 import { seenKeyForEvent } from './notification-reconnect-catchup'
+
+vi.mock('./push-socket-dismissal', () => ({ wasHostPushDismissed: vi.fn(async () => false) }))
 
 let active: ((state: string) => void) | undefined
 const remove = vi.fn()
@@ -78,4 +81,14 @@ it('leaves hosts without a registered push token on local delivery', async () =>
     await waitForSocketPushHandoff(event, 'unregistered-host', new AbortController().signal)
   ).toBe(true)
   expect(active).toBeUndefined()
+})
+
+it('does not resurrect an alert dismissed while its handoff waited for foreground', async () => {
+  vi.mocked(readPresentedPushSeenKeys).mockResolvedValue([])
+  const delivery = waitForSocketPushHandoff(event, 'host', new AbortController().signal)
+  await vi.waitFor(() => expect(active).toBeDefined())
+  vi.mocked(wasHostPushDismissed).mockResolvedValueOnce(true)
+  AppState.currentState = 'active'
+  active?.('active')
+  expect(await delivery).toBe(false)
 })

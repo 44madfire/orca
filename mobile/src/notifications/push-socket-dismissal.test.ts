@@ -35,3 +35,26 @@ it('a socket dismissal cannot clear another desktop or a newer notification', as
   await dismissHostPushNotification(event, 'host-a')
   expect(vi.mocked(Notifications.dismissNotificationAsync).mock.calls).toEqual([['older']])
 })
+
+it('supports ID-only legacy dismissal while preserving host isolation', async () => {
+  vi.clearAllMocks()
+  const publicKeyB64 = Buffer.alloc(32, 1).toString('base64')
+  vi.mocked(loadHostCatalog).mockResolvedValue([{ id: 'host-a', publicKeyB64 }] as never)
+  const hostFingerprint = deriveHostFingerprint(publicKeyB64)
+  vi.mocked(Notifications.getPresentedNotificationsAsync).mockResolvedValue([
+    {
+      request: {
+        identifier: 'legacy',
+        content: { data: { hostFingerprint, notificationId: 'same' } }
+      }
+    },
+    {
+      request: {
+        identifier: 'foreign',
+        content: { data: { hostFingerprint: 'other-host', notificationId: 'same' } }
+      }
+    }
+  ] as never)
+  await dismissHostPushNotification({ type: 'dismiss', notificationId: 'same' }, 'host-a')
+  expect(Notifications.dismissNotificationAsync).toHaveBeenCalledExactlyOnceWith('legacy')
+})

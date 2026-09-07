@@ -73,11 +73,8 @@ export function calculateRelayCloudSqlConnectionBudget(inputs) {
     relayDirectorCandidate: retainedDirectorRollback * 2,
     apiCandidate: retainedDirectorRollback + inputs.apiInstances * inputs.apiPoolMax,
     authCandidate: retainedDirectorRollback + inputs.authInstances * inputs.authPoolMax,
-    // The push candidate doubles rather than adding one copy, like the director candidate and
-    // unlike the API and auth ones: cloud-push-deploy.yml probes a *tagged* revision, which is
-    // directly addressable and so sits outside the service-wide instance cap, letting the
-    // candidate and the serving revision each reach push_max_instances at the same time.
-    pushCandidate: retainedDirectorRollback + pushDraw * 2,
+    // Serving push pools are already in configuredMaximum; the tagged candidate adds one copy.
+    pushCandidate: retainedDirectorRollback + pushDraw,
     relayCells: retainedDirectorRollback
   }
   const rolloutOverlap = Math.max(...Object.values(candidateOverlap))

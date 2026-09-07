@@ -1,3 +1,4 @@
+import { translateMain } from '../i18n/main-i18n'
 import type { NotificationDispatchRequest } from '../../shared/notification-settings-types'
 
 const NOTIFICATION_AGENT_LABEL_MAX_LENGTH = 40
@@ -70,12 +71,14 @@ function buildAgentTaskCompleteNotificationOptions(
 // notification itself is the completion signal), may say "finished".
 function formatAgentNotificationStatusText(args: NotificationDispatchRequest): string {
   if (args.agentState === 'blocked' || args.agentState === 'waiting') {
-    return 'needs input'
+    return translateMain('notifications.agentStatus.needsInput', 'needs input')
   }
   if (args.agentState === 'working') {
-    return 'working'
+    return translateMain('notifications.agentStatus.working', 'working')
   }
-  return args.agentState === 'done' && args.agentInterrupted ? 'stopped' : 'finished'
+  return args.agentState === 'done' && args.agentInterrupted
+    ? translateMain('notifications.agentStatus.stopped', 'stopped')
+    : translateMain('notifications.agentStatus.finished', 'finished')
 }
 
 function formatNotificationWorktreeContext(args: NotificationDispatchRequest): string {

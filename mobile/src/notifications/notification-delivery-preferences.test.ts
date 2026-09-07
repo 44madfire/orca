@@ -85,3 +85,11 @@ it('suppresses only the workspace being viewed on this phone, and never while ba
   AppState.currentState = 'background'
   expect(await allowsLocalNotification(event, 'ssh-host')).toBe(true)
 })
+
+it.each(['orca:notificationDeliveryPreferences', 'orca:remotePushAgentStates'])(
+  'recovers defaults from malformed stored %s',
+  async (key) => {
+    storage.set(key, '{broken')
+    expect(await loadNotificationDeliveryPreferences()).toEqual(DEFAULT_NOTIFICATION_DELIVERY)
+  }
+)

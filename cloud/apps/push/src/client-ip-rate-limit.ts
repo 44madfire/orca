@@ -29,8 +29,7 @@ export function readClientIp(context: Context, trustedProxyHops = 0): string {
       .map((hop) => hop.trim())
       .filter((hop) => hop.length > 0) ?? []
   const client = hops[hops.length - 1 - trustedProxyHops]
-  if (client) return client
-  return context.req.header('x-real-ip')?.trim() || UNKNOWN_CLIENT_IP
+  return client ?? UNKNOWN_CLIENT_IP
 }
 
 // In-memory and per-instance on purpose. A shared counter would put a database

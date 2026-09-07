@@ -115,11 +115,14 @@ export class PushDeviceRegistryStore {
   }
 
   async deleteOwned(hostFingerprint: string, registrationId: string): Promise<boolean> {
-    const [result] = await this.database.query(
-      'DELETE FROM push_devices WHERE registration_id = ? AND host_fingerprint = ?',
-      [registrationId, hostFingerprint]
-    )
-    return Number(result?.changes ?? 0) > 0
+    return this.database.transaction(async (transaction) => {
+      await transaction.lockQuotaScope(`${DEVICE_CAP_LOCK_PREFIX}${hostFingerprint}`)
+      const [result] = await transaction.query(
+        'DELETE FROM push_devices WHERE registration_id = ? AND host_fingerprint = ?',
+        [registrationId, hostFingerprint]
+      )
+      return Number(result?.changes ?? 0) > 0
+    })
   }
 
   async list(hostFingerprint: string): Promise<PushDeviceSummary[]> {

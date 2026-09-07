@@ -22,7 +22,7 @@ test('production plus the push gateway keeps allowance and reserve below the cei
   assert.equal(report.rolloutOverlap.relayDirectorCandidate, 30)
   assert.equal(report.rolloutOverlap.apiCandidate, 65)
   assert.equal(report.rolloutOverlap.authCandidate, 35)
-  assert.equal(report.rolloutOverlap.pushCandidate, 23)
+  assert.equal(report.rolloutOverlap.pushCandidate, 19)
   assert.equal(report.rolloutOverlap.relayCells, 15)
   assert.equal(report.rolloutOverlap.retainedDirectorRollback, 15)
   // The gateway does not set the maximum; the API candidate does, as it did before it existed.
@@ -88,7 +88,7 @@ test('the push rollout scenario doubles the gateway draw over the retained direc
 
   assert.equal(report.consumers.push, 4)
   // 15 retained director rollback, plus the 4-connection draw counted twice.
-  assert.equal(report.rolloutOverlap.pushCandidate, 23)
+  assert.equal(report.rolloutOverlap.pushCandidate, 19)
 })
 
 test('fails closed when pool growth consumes the explicit reserve', () => {
@@ -176,7 +176,7 @@ test('a tfvars push_max_instances override wins over the variable default', () =
   })
 
   assert.equal(report.consumers.push, 6)
-  assert.equal(report.rolloutOverlap.pushCandidate, 15)
+  assert.equal(report.rolloutOverlap.pushCandidate, 9)
 })
 
 test('requires strict headroom below the physical ceiling', () => {

@@ -164,8 +164,11 @@ export class DesktopPushService {
     }
     // Persist cleanup before forgetting its ID; neither write waits on the gateway.
     this.outbox.enqueue({ registrationId, deviceId })
-    this.registry.setPushRegistration(deviceId, null)
-    void this.flushUnregisterOutbox()
+    try {
+      this.registry.setPushRegistration(deviceId, null)
+    } finally {
+      void this.flushUnregisterOutbox()
+    }
     return { unregistered: true }
   }
 

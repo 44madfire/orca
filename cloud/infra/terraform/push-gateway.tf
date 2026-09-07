@@ -40,13 +40,7 @@ locals {
 
   push_fqdn = replace(replace(var.push_base_url, "https://", ""), "http://", "")
 
-  # The shared production deploy identity runs `cloud-push-deploy.yml`. The grants this file adds
-  # are scoped to this service and its runtime account alone, but the workflow inherits every
-  # other grant that account already holds for the relay; see the deploy-identity section below.
-  # The account itself is declared in relay-github-actions.tf and is production-only.
-  push_gateway_deploy_count = (
-    var.push_gateway_enabled && local.relay_create_production_ops_identity ? 1 : 0
-  )
+
 }
 
 # --- Runtime identity ---------------------------------------------------------------------
@@ -364,20 +358,7 @@ resource "google_cloud_run_domain_mapping" "push" {
 }
 
 # --- Deploy identity grants -------------------------------------------------------------------
-# `cloud-push-deploy.yml` authenticates as the shared production deploy account, because that
-# account is the one the foundation root grants the Cloud SQL rollout lease to; the grant names
-# that account and nothing else, so a dedicated push identity could not take the lease from this
-# root and the gateway's schema rollout could not be serialized against the relay's.
-#
-# The three bindings below are the whole of that account's authority over the *push gateway*, but
-# they are not the whole of what the workflow can do. Adding `push-deploy.yml` to the provider's
-# allowlist in relay-github-actions.tf gives the run the account's entire existing authority:
-# Artifact Registry writer on `orca-cloud`, `roles/run.developer` on the relay director and the
-# fence broker, accessor and version-adder on the relay regional-placement secret, and
-# service-account user on the relay runtime identities. That widening was accepted deliberately
-# as the price of the lease. It is bounded by the provider condition, which admits this exact
-# workflow file on `main` in the `production` environment only, and by the workflow itself, which
-# is dispatch-only behind a typed confirmation.
+# Push deploy authority is isolated from Relay; foundation grants its rollout-lock access.
 
 resource "google_cloud_run_v2_service_iam_member" "github_production_push_developer" {
   count = local.push_gateway_deploy_count
@@ -386,7 +367,7 @@ resource "google_cloud_run_v2_service_iam_member" "github_production_push_develo
   location = var.region
   name     = google_cloud_run_v2_service.push[0].name
   role     = "roles/run.developer"
-  member   = local.relay_github_deploy_service_account_member
+  member   = local.push_deploy_member
 }
 
 resource "google_service_account_iam_member" "github_production_push_runtime_user" {
@@ -394,7 +375,7 @@ resource "google_service_account_iam_member" "github_production_push_runtime_use
 
   service_account_id = google_service_account.push_runtime[0].name
   role               = "roles/iam.serviceAccountUser"
-  member             = local.relay_github_deploy_service_account_member
+  member             = local.push_deploy_member
 }
 
 # Why: the deploy workflow's validate-only FCM send has to exercise the credential the gateway
@@ -406,5 +387,5 @@ resource "google_service_account_iam_member" "github_production_push_runtime_tok
 
   service_account_id = google_service_account.push_runtime[0].name
   role               = "roles/iam.serviceAccountTokenCreator"
-  member             = local.relay_github_deploy_service_account_member
+  member             = local.push_deploy_member
 }

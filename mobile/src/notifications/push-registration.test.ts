@@ -1,3 +1,6 @@
+vi.mock('./desktop-notification-channel', () => ({
+  ensureDesktopNotificationChannel: vi.fn(async () => {})
+}))
 import { AppState } from 'react-native'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RpcClient, SendRequestOptions } from '../transport/rpc-client'

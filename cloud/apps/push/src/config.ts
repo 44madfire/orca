@@ -17,11 +17,17 @@ const EnvSchema = z.object({
   ORCA_PUSH_APNS_KEY: OptionalTextSchema,
   ORCA_PUSH_APNS_KEY_ID: z.preprocess(
     (value) => (value === '' ? undefined : value),
-    z.string().regex(/^[A-Z0-9]{10}$/).optional()
+    z
+      .string()
+      .regex(/^[A-Z0-9]{10}$/)
+      .optional()
   ),
   ORCA_PUSH_APPLE_TEAM_ID: z.preprocess(
     (value) => (value === '' ? undefined : value),
-    z.string().regex(/^[A-Z0-9]{10}$/).optional()
+    z
+      .string()
+      .regex(/^[A-Z0-9]{10}$/)
+      .optional()
   ),
   ORCA_PUSH_APNS_TOPIC: z.string().min(1).max(255).default(PUSH_DEFAULTS.apnsTopic),
   ORCA_PUSH_FCM_PROJECT_ID: z
@@ -66,9 +72,7 @@ function canonicalOrigin(value: string, name: string): string {
 
 // The APNs key, key id, and team id are one credential; a partial set would
 // pass startup and then fail every iOS send at runtime.
-function readApnsCredentials(
-  parsed: z.infer<typeof EnvSchema>
-): ApnsCredentials | undefined {
+function readApnsCredentials(parsed: z.infer<typeof EnvSchema>): ApnsCredentials | undefined {
   const parts = [
     parsed.ORCA_PUSH_APNS_KEY,
     parsed.ORCA_PUSH_APNS_KEY_ID,
@@ -89,7 +93,11 @@ function readApnsCredentials(
 }
 
 export function loadPushConfig(env: NodeJS.ProcessEnv = process.env): PushConfig {
-  const parsed = EnvSchema.parse(env)
+  const parsed = EnvSchema.parse(
+    Object.fromEntries(
+      Object.entries(env).map(([key, value]) => [key, value?.trim() === '' ? undefined : value])
+    )
+  )
   return {
     port: parsed.PORT,
     publicUrl: canonicalOrigin(parsed.ORCA_PUSH_PUBLIC_URL, 'ORCA_PUSH_PUBLIC_URL'),

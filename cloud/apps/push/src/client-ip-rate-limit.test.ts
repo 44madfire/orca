@@ -109,10 +109,12 @@ describe('client ip rate limiter', () => {
     expect((await app.request('/probe', { method: 'POST', headers })).status).toBe(200)
     expect((await app.request('/probe', { method: 'POST', headers })).status).toBe(429)
     expect(
-      (await app.request('/probe', {
-        method: 'POST',
-        headers: { 'x-forwarded-for': '198.51.100.9, 10.0.0.1' }
-      })).status
+      (
+        await app.request('/probe', {
+          method: 'POST',
+          headers: { 'x-forwarded-for': '198.51.100.9, 10.0.0.1' }
+        })
+      ).status
     ).toBe(200)
   })
 
@@ -122,24 +124,26 @@ describe('client ip rate limiter', () => {
     const headers = { 'x-forwarded-for': '203.0.113.7' }
     expect((await app.request('/probe', { method: 'POST', headers })).status).toBe(200)
     expect(
-      (await app.request('/probe', {
-        method: 'POST',
-        headers: { 'x-forwarded-for': '198.51.100.9' }
-      })).status
+      (
+        await app.request('/probe', {
+          method: 'POST',
+          headers: { 'x-forwarded-for': '198.51.100.9' }
+        })
+      ).status
     ).toBe(429)
   })
 
-  it('falls back to x-real-ip and then to a single shared bucket', async () => {
+  it('ignores spoofable x-real-ip and uses a single shared bucket', async () => {
     const app = limiterApp(new ClientIpRateLimiter({ now: () => 1_000, capacity: 1 }))
     expect(
-      (await app.request('/probe', { method: 'POST', headers: { 'x-real-ip': '203.0.113.7' } }))
+      (await app.request('/probe', { method: 'POST', headers: { 'x-real-ip': '198.51.100.9' } }))
         .status
     ).toBe(200)
     expect(
       (await app.request('/probe', { method: 'POST', headers: { 'x-real-ip': '203.0.113.7' } }))
         .status
     ).toBe(429)
-    expect((await app.request('/probe', { method: 'POST' })).status).toBe(200)
+    expect((await app.request('/probe', { method: 'POST' })).status).toBe(429)
     expect((await app.request('/probe', { method: 'POST' })).status).toBe(429)
   })
 })

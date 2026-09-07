@@ -189,4 +189,9 @@ it('does not collapse background dismissals with visible alerts', async () => {
     }
   )
   expect(fake.requests[0]?.headers).not.toHaveProperty('apns-collapse-id')
+  expect(fake.requests[0]?.headers).toMatchObject({
+    'apns-push-type': 'background',
+    'apns-priority': '5'
+  })
+  expect(JSON.parse(fake.requests[0]!.body).aps).toEqual({ 'content-available': 1 })
 })

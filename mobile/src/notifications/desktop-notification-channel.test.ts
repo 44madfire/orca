@@ -24,8 +24,8 @@ beforeEach(() => {
 })
 
 describe('ensureDesktopNotificationChannel', () => {
-  it('creates the channel the gateway payload names', () => {
-    ensureDesktopNotificationChannel()
+  it('creates the channel the gateway payload names', async () => {
+    await ensureDesktopNotificationChannel()
 
     expect(Notifications.setNotificationChannelAsync).toHaveBeenCalledWith(
       'orca-desktop',
@@ -42,10 +42,10 @@ describe('ensureDesktopNotificationChannel', () => {
     expect(Notifications.setNotificationChannelAsync).not.toHaveBeenCalled()
   })
 
-  it('survives a shell whose channel API rejects', () => {
+  it('reports channel failure so registration can retry', async () => {
     vi.mocked(Notifications.setNotificationChannelAsync).mockRejectedValue(new Error('no channels'))
 
-    expect(() => ensureDesktopNotificationChannel()).not.toThrow()
+    await expect(ensureDesktopNotificationChannel()).rejects.toThrow('no channels')
   })
 })
 
@@ -57,6 +57,6 @@ describe('app boot', () => {
     const layout = readFileSync(new URL('../../app/_layout.tsx', import.meta.url), 'utf8')
 
     expect(layout).toContain("from '../src/notifications/desktop-notification-channel'")
-    expect(layout).toMatch(/^ensureDesktopNotificationChannel\(\)$/m)
+    expect(layout).toMatch(/^void ensureDesktopNotificationChannel\(\)\.catch\(/m)
   })
 })

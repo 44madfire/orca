@@ -33,7 +33,7 @@ SplashScreen.preventAutoHideAsync()
 // Why at boot and not only on subscribe: the gateway's FCM payload targets the
 // 'orca-desktop' channel, and a background push can land before any socket has
 // connected. Android drops a notification whose channel does not exist yet.
-ensureDesktopNotificationChannel()
+void ensureDesktopNotificationChannel().catch(() => {})
 void registerPushDismissalTask().catch(() => {})
 
 // Why: without this, expo-notifications silently drops notifications when

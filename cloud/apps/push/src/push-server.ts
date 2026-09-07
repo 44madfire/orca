@@ -118,7 +118,7 @@ export function createPushServer(
   })
 
   app.get('/health', (context) => context.json({ ok: true, pushProtocol: 1, deliveryProtocol: 2 }))
-  app.get('/ready', async (context) =>
+  app.get('/ready', limitUnauthenticatedIp, async (context) =>
     (await ready())
       ? context.json({ ok: true })
       : context.json({ error: 'dependency_unavailable' }, 503)
