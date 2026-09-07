@@ -6,6 +6,7 @@ import {
   createCoordinatorMailRoutingTrigger,
   rememberCurrentRunCoordinatorHandles
 } from './runs/run-coordinator-mail-routing'
+import { repairFederatedAttachmentMailboxRuns } from './federation/federated-attachment-mailbox-run'
 import { createTables } from './schema/create-tables'
 import { migrate } from './schema/migrate'
 
@@ -27,6 +28,8 @@ class OrchestrationDbCore {
     this.db.pragma('synchronous = NORMAL')
     this.db.pragma('busy_timeout = 5000')
     createTables.call(this as unknown as OrchestrationDb)
+    // Why: before migrate, or the version-skew probe reads the misfiled rows and replays from v6.
+    repairFederatedAttachmentMailboxRuns.call(this as unknown as OrchestrationDb)
     migrate.call(this as unknown as OrchestrationDb)
     createCoordinatorMailRoutingTrigger.call(this as unknown as OrchestrationDb)
     rememberCurrentRunCoordinatorHandles.call(this as unknown as OrchestrationDb)

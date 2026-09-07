@@ -3,7 +3,6 @@ import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { formatMessageBanner } from '../../../../orchestration/formatter'
 import { exposeMessages } from './mailbox-message-receipt'
-import { ORCHESTRATION_LEGACY_RUN_ID } from '../../../../../../shared/orchestration-rpc-contract'
 import { routeAllMailboxPages } from '../schemas'
 import { asDispatchFence, callerHoldsDispatchPane, dispatchFenced } from './dispatch-mailbox-fence'
 import type { CheckParams } from '../schemas'
@@ -164,7 +163,8 @@ export async function checkWorkerMailbox(args: {
     }
   }
   await revalidateWorkerMailbox()
-  const deliveryRunId = workerMailbox.runId ?? ORCHESTRATION_LEGACY_RUN_ID
+  const deliveryRunId =
+    workerMailbox.runId ?? db.resolveFederatedMailboxRunId(workerMailbox.dispatchId)
   let acknowledged
   try {
     acknowledged = params.ack

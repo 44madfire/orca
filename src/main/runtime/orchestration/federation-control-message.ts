@@ -81,6 +81,8 @@ export function importFederatedControlMessage(
   }
   db.insertMessage({
     id: params.messageId,
+    // Why: this host holds no Dispatch row, and the legacy Run makes the message inert on restart.
+    runId: db.resolveFederatedMailboxRunId(params.dispatchId),
     from: message.from,
     to: recipient,
     subject: message.subject,

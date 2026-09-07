@@ -7,6 +7,7 @@ import type { DispatchContextStoreMethods } from './dispatch-context/dispatch-co
 import type { DispatchLookupMethods } from './dispatch-context/dispatch-lookup'
 import type { DispatchDepthMethods } from './dispatch-depth'
 import type { WorkerReportSettlementMethods } from './dispatch-context/worker-report-settlement'
+import type { FederatedAttachmentMailboxRunMethods } from './federation/federated-attachment-mailbox-run'
 import type { FederatedDispatchStoreMethods } from './federation/federated-dispatch-store'
 import type { FederatedDispatchObservationFenceMethods } from './federation/federated-dispatch-observation-fence'
 import type { FederationRelayAckMethods } from './federation/federation-relay-ack'
@@ -120,6 +121,7 @@ export type OrchestrationDbMethods = AttemptObservationStoreMethods &
   FederationRelayImportMethods &
   RemoteQuestionStoreMethods &
   FederationRelayItemMethods &
+  FederatedAttachmentMailboxRunMethods &
   StructuredPointerOperationStoreMethods &
   WorkerTerminalResourceStoreMethods &
   WorkerTerminalTransferMethods &

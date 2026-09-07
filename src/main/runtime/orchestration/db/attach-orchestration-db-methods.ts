@@ -7,6 +7,7 @@ import { attachDispatchContextStore } from './dispatch-context/dispatch-context-
 import { attachDispatchLookup } from './dispatch-context/dispatch-lookup'
 import { attachDispatchDepth } from './dispatch-depth'
 import { attachWorkerReportSettlement } from './dispatch-context/worker-report-settlement'
+import { attachFederatedAttachmentMailboxRun } from './federation/federated-attachment-mailbox-run'
 import { attachFederatedDispatchStore } from './federation/federated-dispatch-store'
 import { attachFederatedDispatchObservationFence } from './federation/federated-dispatch-observation-fence'
 import { attachFederationRelayAck } from './federation/federation-relay-ack'
@@ -111,6 +112,7 @@ export function attachOrchestrationDbMethods(ctor: { prototype: object }): void 
   attachWorkerTerminalRecovery(ctor)
   attachWorkerDispatchStop(ctor)
   attachWorkerDispatchAbandon(ctor)
+  attachFederatedAttachmentMailboxRun(ctor)
   attachFederatedDispatchStore(ctor)
   attachFederatedDispatchObservationFence(ctor)
   attachRemoteDispatchAttachmentCreate(ctor)
