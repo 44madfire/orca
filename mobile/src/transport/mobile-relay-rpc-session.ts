@@ -66,12 +66,19 @@ export function connectMobileRelayRpcSession(args: {
   let attachDeadlineAt: number | null = null
   let resumeExpiresAt: number | null = null
   let resumeConfirmation: DeviceResumeConfirmed | null = null
-  let resumeConfirmed: Promise<void> | null = null
   let failure: Error | null = null
   let closed = false
   let logSequence = 0
   const logSessionId = `${Date.now().toString(36)}-${(++relayRpcSessionSequence).toString(36)}`
   const livenessIdentity = {}
+  // Why created here and not at authentication: handing a pre-auth caller an
+  // already-resolved promise would let it read getResumeConfirmation() as null and
+  // treat that as the answer. Every terminal path settles it — the confirm, fail(),
+  // and close() — so awaiting it can never outlive the session.
+  let settleResumeConfirmed!: () => void
+  const resumeConfirmed = new Promise<void>((resolve) => {
+    settleResumeConfirmed = resolve
+  })
   const dialStage = new RelayDialStageTracker()
   const streams = new MobileRelayRpcStreams({
     nextId: () => pending.nextId(),
@@ -143,23 +150,13 @@ export function connectMobileRelayRpcSession(args: {
         livenessWatchdog.probeNow(livenessIdentity, reason === 'app-resume' ? 'resume' : 'nudge')
       }
     },
-    close() {
-      if (closed) {
-        return
-      }
-      closed = true
-      livenessWatchdog.stop(livenessIdentity)
-      link.close()
-      pending.rejectAll(new Error('Client closed'))
-      streams.clear()
-      publishState('disconnected')
-    },
+    close: () => terminate(new Error('Client closed')),
     getDialStage: () => dialStage.getDialStage(),
     onDialStageChange: (listener) => dialStage.onDialStageChange(listener),
     getAttachDeadlineAt: () => attachDeadlineAt,
     getResumeExpiresAt: () => resumeExpiresAt,
     getResumeConfirmation: () => resumeConfirmation,
-    whenResumeConfirmed: () => resumeConfirmed ?? Promise.resolve(),
+    whenResumeConfirmed: () => resumeConfirmed,
     getFailure: () => failure
   }
   const livenessWatchdog = new RpcSessionLivenessWatchdog({
@@ -197,7 +194,7 @@ export function connectMobileRelayRpcSession(args: {
       return
     }
     dialStage.advance('confirming')
-    resumeConfirmed = confirmResume()
+    void confirmResume().then(settleResumeConfirmed, settleResumeConfirmed)
     // Why: an unanswered advisory says nothing, but a frame that never reached the
     // wire proves the socket cannot carry traffic — that alone still fails.
     void settleMobileRuntimeCapabilities((method, params) =>
@@ -319,17 +316,27 @@ export function connectMobileRelayRpcSession(args: {
     }
   }
 
-  function fail(error: Error): void {
+  // One teardown for both endings; only whether the session is to blame differs, and
+  // recording a failure for a caller's close would make the establisher report a
+  // deliberate teardown as a dial error.
+  function terminate(error: Error): void {
     if (closed) {
       return
     }
     closed = true
-    failure = error
+    settleResumeConfirmed()
     livenessWatchdog.stop(livenessIdentity)
     streams.clear()
     link.close()
     pending.rejectAll(error)
     publishState(error instanceof MobileE2EEAuthenticationError ? 'auth-failed' : 'disconnected')
+  }
+
+  function fail(error: Error): void {
+    if (!closed) {
+      failure = error
+    }
+    terminate(error)
   }
 }
 

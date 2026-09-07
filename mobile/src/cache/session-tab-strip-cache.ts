@@ -33,6 +33,11 @@ type StoredFile = { workspaces: StoredWorkspace[] }
 let memoryCache: Map<string, MobileSessionTabStripPreview> | null = null
 let loadPromise: Promise<Map<string, MobileSessionTabStripPreview>> | null = null
 let writeTimer: ReturnType<typeof setTimeout> | null = null
+// Hosts forgotten this session. A save racing the deletion would re-insert the host and
+// the next debounced write would put its tab titles back on disk, so refuse those saves
+// outright. Re-pairing the same host caches again from the next app launch — the cheap
+// direction for a deletion the user asked for.
+const forgottenHosts = new Set<string>()
 
 /**
  * A workspace id ends in a filesystem path, so it is digested rather than stored. The host id
@@ -71,7 +76,8 @@ export function saveCachedSessionTabStrip(
   key: string | null,
   preview: MobileSessionTabStripPreview
 ): void {
-  if (!key) {
+  const hostId = key === null ? null : readHostIdFromKey(key)
+  if (!key || (hostId !== null && forgottenHosts.has(hostId))) {
     return
   }
   const redacted = redactPreview(preview)
@@ -97,6 +103,9 @@ export function saveCachedSessionTabStrip(
  * serializes the forgotten host's tabs straight back to disk.
  */
 export async function deleteCachedSessionTabStripForHost(hostId: string): Promise<void> {
+  // Before the first await: a save landing during the load or the write must not
+  // re-insert the host the caller is in the middle of forgetting.
+  forgottenHosts.add(hostId)
   // Load first so the rewrite below preserves other hosts. If storage is unreadable we still
   // rewrite, which can cost another host its rows — the wrong direction for a cache, the right
   // one for a deletion the user asked for.
@@ -121,6 +130,7 @@ export function resetSessionTabStripCacheForTests(): void {
   }
   memoryCache = null
   loadPromise = null
+  forgottenHosts.clear()
 }
 
 function digestWorkspaceId(worktreeId: string): string {
@@ -188,13 +198,17 @@ function scheduleWrite(cache: Map<string, MobileSessionTabStripPreview>): void {
   }
   writeTimer = setTimeout(() => {
     writeTimer = null
-    void writeFile(cache)
+    // Best effort by design: a dropped cache refresh costs one repaint, and the next
+    // save rewrites the whole map. Only the deletion path needs the failure.
+    void writeFile(cache).catch(() => {})
   }, WRITE_DEBOUNCE_MS)
 }
 
 async function writeFile(cache: Map<string, MobileSessionTabStripPreview>): Promise<void> {
   const workspaces: StoredWorkspace[] = [...cache].map(([key, preview]) => ({ key, preview }))
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ workspaces })).catch(() => {})
+  // Throws on purpose: a deletion that only removed the in-memory rows must not be
+  // reported as a deletion, or the forgotten host's titles stay in plaintext on disk.
+  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ workspaces }))
 }
 
 // Rebuilt field by field so a field later added to the live tab type cannot ride into storage

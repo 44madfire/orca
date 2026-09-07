@@ -13,6 +13,8 @@ export class DirectReturnProbe {
 
   private stopped = false
   private activeProbe: AbortController | null = null
+  // Soonest delay a caller asked for while a dial was in flight.
+  private deferredDelayMs: number | null = null
 
   constructor(
     private readonly deps: {
@@ -39,7 +41,18 @@ export class DirectReturnProbe {
   ) {}
 
   schedule(delayMs = DIRECT_PROBE_INTERVAL_MS): void {
-    if (this.stopped || !this.hooks.canSchedule() || this.timer) {
+    if (this.stopped || !this.hooks.canSchedule()) {
+      return
+    }
+    // Why: the dial no longer holds the supervisor's mutex, so nothing else stops a
+    // second probe from overwriting activeProbe — stop() would then reach only the
+    // newest socket and leave the earlier one dialing for its full 12s budget. The
+    // in-flight probe owns the next slot and re-arms it on the soonest ask.
+    if (this.activeProbe) {
+      this.deferredDelayMs = Math.min(this.deferredDelayMs ?? delayMs, delayMs)
+      return
+    }
+    if (this.timer) {
       return
     }
     this.timer = this.deps.setTimer(() => {
@@ -49,6 +62,7 @@ export class DirectReturnProbe {
   }
 
   clear(): void {
+    this.deferredDelayMs = null
     if (this.timer) {
       this.deps.clearTimer(this.timer)
       this.timer = null
@@ -126,7 +140,9 @@ export class DirectReturnProbe {
       if (owned) {
         this.hooks.afterProbe()
       }
-      this.schedule()
+      const deferred = this.deferredDelayMs
+      this.deferredDelayMs = null
+      this.schedule(deferred ?? undefined)
     }
   }
 }

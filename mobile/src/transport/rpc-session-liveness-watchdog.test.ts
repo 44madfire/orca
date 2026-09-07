@@ -173,4 +173,61 @@ describe('RpcSessionLivenessWatchdog', () => {
     watchdog.probeNow(identity)
     expect(terminate).toHaveBeenCalledWith(identity)
   })
+  function backgroundableFixture() {
+    const sendProbe = vi.fn(() => true)
+    const terminate = vi.fn()
+    const identity = {}
+    const state = { foreground: true }
+    const watchdog = new RpcSessionLivenessWatchdog({
+      transport: 'relay',
+      sendProbe,
+      terminate,
+      shouldIdleProbe: () => state.foreground,
+      now: Date.now
+    })
+    watchdog.start(identity)
+    return { identity, sendProbe, state, terminate, watchdog }
+  }
+
+  it('stops retrying an idle probe once the app backgrounds under it', async () => {
+    const { sendProbe, state, terminate } = backgroundableFixture()
+    await vi.advanceTimersByTimeAsync(LIVENESS_IDLE_MS)
+    expect(sendProbe).toHaveBeenCalledOnce()
+
+    // iOS suspends the socket in the background, so every further miss is evidence
+    // about the app and not about the peer. Retrying would spend the whole budget on
+    // the suspension and terminate a relay that is fine.
+    state.foreground = false
+    await vi.advanceTimersByTimeAsync(LIVENESS_PROBE_TIMEOUT_MS * 4)
+    expect(sendProbe).toHaveBeenCalledOnce()
+    expect(terminate).not.toHaveBeenCalled()
+  })
+
+  it('re-arms the idle sweep with a clean slate after a backgrounded probe', async () => {
+    const { sendProbe, state, terminate } = backgroundableFixture()
+    await vi.advanceTimersByTimeAsync(LIVENESS_IDLE_MS)
+    state.foreground = false
+    await vi.advanceTimersByTimeAsync(LIVENESS_PROBE_TIMEOUT_MS)
+    state.foreground = true
+
+    // The abandoned probe must not be carried forward as a miss: the sweep needs its
+    // full three fair misses again before it may call the session dead.
+    await vi.advanceTimersByTimeAsync(LIVENESS_IDLE_MS)
+    expect(sendProbe).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(LIVENESS_PROBE_TIMEOUT_MS * 2)
+    expect(terminate).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(LIVENESS_PROBE_TIMEOUT_MS)
+    expect(terminate).toHaveBeenCalledOnce()
+  })
+
+  it('still reaches a verdict on a caller probe when the app backgrounds', async () => {
+    // The gate covers the idle sweep only. A nudge or resume probe was asked for on
+    // purpose, and abandoning it would leave a genuinely dead socket unreported.
+    const { identity, state, terminate, watchdog } = backgroundableFixture()
+    watchdog.probeNow(identity)
+    state.foreground = false
+
+    await vi.advanceTimersByTimeAsync(LIVENESS_PROBE_TIMEOUT_MS * 3)
+    expect(terminate).toHaveBeenCalledOnce()
+  })
 })

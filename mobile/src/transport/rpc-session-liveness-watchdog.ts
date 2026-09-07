@@ -38,6 +38,8 @@ export class RpcSessionLivenessWatchdog {
   private identity: RpcSessionIdentity | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
   private probing = false
+  // Whether the probe in flight came from the idle sweep rather than a caller.
+  private idleSweepProbe = false
   private missedProbes = 0
   private lastInboundAt = 0
   private lastVoluntaryProbeAt: number | null = null
@@ -71,6 +73,7 @@ export class RpcSessionLivenessWatchdog {
     this.clearActiveTimer()
     this.identity = identity
     this.probing = false
+    this.idleSweepProbe = false
     this.missedProbes = 0
     this.lastInboundAt = this.now()
     this.lastVoluntaryProbeAt = null
@@ -101,6 +104,7 @@ export class RpcSessionLivenessWatchdog {
     }
     this.missedProbes = 0
     this.probing = false
+    this.idleSweepProbe = false
     this.armIdle(identity)
   }
 
@@ -131,6 +135,7 @@ export class RpcSessionLivenessWatchdog {
     this.clearActiveTimer()
     this.identity = null
     this.probing = false
+    this.idleSweepProbe = false
     this.missedProbes = 0
     this.lastInboundAt = 0
     this.lastVoluntaryProbeAt = null
@@ -155,18 +160,23 @@ export class RpcSessionLivenessWatchdog {
       if (this.idleProbeMs !== null && idleMs < this.idleProbeMs) {
         this.armIdle(identity, Math.max(1, this.idleProbeMs - Math.max(0, idleMs)))
       } else {
-        this.startProbe(identity)
+        this.startProbe(identity, this.ordinaryProfile, true)
       }
     }, delayMs)
   }
 
-  private startProbe(identity: RpcSessionIdentity, profile = this.ordinaryProfile): void {
+  private startProbe(
+    identity: RpcSessionIdentity,
+    profile = this.ordinaryProfile,
+    fromIdleSweep = false
+  ): void {
     if (this.identity !== identity) {
       return
     }
     this.clearActiveTimer()
     this.profile = profile
     this.probing = true
+    this.idleSweepProbe = fromIdleSweep
     const sentAt = this.now()
     let sent = false
     try {
@@ -186,6 +196,16 @@ export class RpcSessionLivenessWatchdog {
     if (this.identity !== identity) {
       return
     }
+    // Why: the idle sweep is foreground-only because iOS suspends sockets in the
+    // background, where a miss is not evidence of a dead peer. Retrying here would
+    // spend the whole miss budget on that suspension and kill a healthy session.
+    if (this.idleSweepProbe && this.options.shouldIdleProbe && !this.options.shouldIdleProbe()) {
+      this.probing = false
+      this.idleSweepProbe = false
+      this.missedProbes = 0
+      this.armIdle(identity)
+      return
+    }
     const profile = this.profile
     const elapsedMs = this.now() - sentAt
     if (elapsedMs < 0 || elapsedMs > profile.timeoutMs * 1.5) {
@@ -194,7 +214,7 @@ export class RpcSessionLivenessWatchdog {
         elapsedMs,
         timeoutMs: profile.timeoutMs
       })
-      this.startProbe(identity, profile)
+      this.startProbe(identity, profile, this.idleSweepProbe)
       return
     }
     this.missedProbes += 1
@@ -207,7 +227,7 @@ export class RpcSessionLivenessWatchdog {
       missedProbes: this.missedProbes,
       missedProbeLimit: profile.missedProbeLimit
     })
-    this.startProbe(identity, profile)
+    this.startProbe(identity, profile, this.idleSweepProbe)
   }
 
   private terminateCurrent(
@@ -220,6 +240,7 @@ export class RpcSessionLivenessWatchdog {
     this.clearActiveTimer()
     this.identity = null
     this.probing = false
+    this.idleSweepProbe = false
     console.log('[net] activity-probe TIMEOUT — forcing reconnect', {
       transport: this.options.transport,
       missedProbes: this.missedProbes,

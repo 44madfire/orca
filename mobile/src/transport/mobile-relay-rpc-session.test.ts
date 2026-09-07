@@ -453,4 +453,57 @@ describe('mobile relay RPC session', () => {
       vi.useRealTimers()
     }
   })
+  it('keeps whenResumeConfirmed() pending until the session has an answer', async () => {
+    // The contract callers rely on is "settles when the confirm has answered or the
+    // session is over". A promise already resolved during the dial would let a caller
+    // read getResumeConfirmation() as null and persist that as the answer.
+    const session = openSession()
+    const settled = vi.fn()
+    void session.whenResumeConfirmed().then(settled)
+    receiveHello()
+    await Promise.resolve()
+    expect(settled).not.toHaveBeenCalled()
+
+    fakes.linkOptions!.onAuthenticated()
+    await Promise.resolve()
+    expect(settled).not.toHaveBeenCalled()
+
+    answerConfirm(sentRequests()[0]!)
+    await session.whenResumeConfirmed()
+    expect(settled).toHaveBeenCalled()
+    expect(session.getResumeConfirmation()).toMatchObject({ reqId: 'confirm-1' })
+  })
+
+  it('settles whenResumeConfirmed() when the session dies before authenticating', async () => {
+    const session = openSession()
+    const settled = vi.fn()
+    void session.whenResumeConfirmed().then(settled)
+
+    // A credential-version mismatch fails the session inside onHello, so no confirm
+    // is ever sent. Awaiting the answer must not hang a caller forever.
+    fakes.linkOptions!.onHello({
+      type: 'relay-hello',
+      ok: true,
+      credentialKind: 'resume',
+      leaseExpiresAt: Date.now() + 60_000,
+      acceptedCredentialVersion: 2,
+      acceptedAs: 'current',
+      resumeExpiresAt: Date.now() + 300_000
+    })
+
+    await session.whenResumeConfirmed()
+    expect(settled).toHaveBeenCalled()
+    expect(session.getState()).toBe('disconnected')
+  })
+
+  it('settles whenResumeConfirmed() when a caller closes an unconfirmed session', async () => {
+    const session = openSession()
+    const settled = vi.fn()
+    void session.whenResumeConfirmed().then(settled)
+
+    session.close()
+
+    await session.whenResumeConfirmed()
+    expect(settled).toHaveBeenCalled()
+  })
 })
