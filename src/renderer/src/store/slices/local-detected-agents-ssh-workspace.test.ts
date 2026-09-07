@@ -30,7 +30,7 @@ const sshWorktree = {
   repoId: 'repo-ssh',
   path: '/home/alice/repo',
   hostId: 'ssh:builder'
-} as Worktree
+} as unknown as Worktree
 
 function createTestStore() {
   const store = create<AppState>()(
@@ -43,7 +43,7 @@ function createTestStore() {
     worktreesByRepo: { 'repo-ssh': [sshWorktree] },
     activeRepoId: 'repo-ssh',
     activeWorktreeId: 'repo-ssh::main'
-  } as Partial<AppState>)
+  } as unknown as Partial<AppState>)
   return store
 }
 
