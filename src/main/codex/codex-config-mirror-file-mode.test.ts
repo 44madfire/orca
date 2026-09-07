@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   utimesSync,
@@ -124,5 +126,54 @@ describe('runtime config.toml mirror idempotence (STA-6706)', () => {
     syncSystemConfigIntoManagedCodexHome()
 
     expect(statSync(path).mtimeMs).toBe(before)
+  })
+})
+
+describe.skipIf(process.platform === 'win32')('runtime config.toml backup mode (STA-6706)', () => {
+  const backupPath = (): string => `${runtimeConfigPath()}.bak`
+
+  it('repairs the rolling backup, which holds the same secret', () => {
+    syncSystemConfigIntoManagedCodexHome()
+    // The trust writer copies the whole file to <config>.bak before replacing
+    // it, so the backup carries the same bearer token as the config.
+    writeFileSync(backupPath(), CONFIG_WITH_SECRET, 'utf-8')
+    chmodSync(backupPath(), 0o644)
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(modeOf(backupPath())).toBe('600')
+    expect(modeOf(runtimeConfigPath())).toBe('600')
+  })
+
+  it('does not fail when no backup exists', () => {
+    expect(() => syncSystemConfigIntoManagedCodexHome()).not.toThrow()
+    expect(existsSync(backupPath())).toBe(false)
+  })
+})
+
+// The home-local rewrite is reached only through the mirror. Proving the helper
+// works in isolation never proves it is wired in — dropping the argument at the
+// two call sites left the whole unit-test suite green.
+describe('home-local rewrite reaches the mirrored file (STA-6706)', () => {
+  it('re-roots a bundled marketplace source in the written runtime config', () => {
+    writeFileSync(
+      systemConfigPath(),
+      [
+        'model = "gpt-5"',
+        '',
+        '[marketplaces.openai-bundled]',
+        `source = "${systemHome()}/.tmp/bundled-marketplaces/openai-bundled"`,
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    const written = readFileSync(runtimeConfigPath(), 'utf-8')
+    // The runtime home, not the standalone one: pointing at ~/.codex is what
+    // silently drops the bundled plugin.
+    expect(written).toContain('codex-runtime-home/home/.tmp/bundled-marketplaces/openai-bundled')
+    expect(written).not.toContain(`${systemHome()}/.tmp/bundled-marketplaces`)
   })
 })

@@ -168,8 +168,11 @@ function getTomlHeaderPath(header: string): string {
 // the plugin from Orca-launched Codex (#18682). Adding such a key to the
 // anchoring set would cement the bug rather than fix it.
 const HOME_LOCAL_PATH_CONFIG_PATTERNS = [
-  /^marketplaces\..+\.source$/,
-  /^mcp_servers\..+\.env\.CODEX_HOME$/
+  // Why the restricted segment rather than `.+`: a greedy match spans dots, so
+  // `[marketplaces.x.auth] source` would also be re-rooted onto a directory the
+  // mirror never copies. Marketplace names are single TOML key segments.
+  /^marketplaces\.[^.]+\.source$/,
+  /^mcp_servers\.[^.]+\.env\.CODEX_HOME$/
 ]
 
 function isHomeLocalPathConfigKey(tablePath: string, key: string): boolean {
@@ -249,10 +252,15 @@ function reRootHomeLocalPath(
   if (!trimmed) {
     return null
   }
-  const expanded = trimmed.startsWith('~/') ? pathPosix.join(homedir(), trimmed.slice(2)) : trimmed
-  const relative = pathPosix.relative(sourceHomePath, expanded)
-  if (relative.startsWith('..') || pathPosix.isAbsolute(relative)) {
+  // Why: both homes are backslash paths on Windows, where posix `relative`
+  // returns `../C:\Users\...` and the guard below rejects every value — the fix
+  // would be a silent no-op. Pick the flavour from the home's shape, exactly as
+  // the relative-path rewrite above does for its source directory.
+  const path = sourceHomePath.startsWith('/') ? pathPosix : pathWin32
+  const expanded = trimmed.startsWith('~/') ? path.join(homedir(), trimmed.slice(2)) : trimmed
+  const relative = path.relative(sourceHomePath, expanded)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
     return null
   }
-  return relative ? pathPosix.join(runtimeHomePath, relative) : runtimeHomePath
+  return relative ? path.join(runtimeHomePath, relative) : runtimeHomePath
 }

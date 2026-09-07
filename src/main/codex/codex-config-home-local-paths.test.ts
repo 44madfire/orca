@@ -62,3 +62,40 @@ describe('home-local config paths (STA-6706)', () => {
     expect(rewriteHomeLocalConfigValues(config, SOURCE_HOME, SOURCE_HOME)).toBe(config)
   })
 })
+
+// Windows homes are backslash paths. The first implementation used posix
+// helpers unconditionally, so `relative()` returned `../C:\Users\...`, the
+// escape guard rejected it, and every value was left verbatim — a silent no-op
+// on the platform, with six passing posix cases hiding it.
+describe('home-local config paths on Windows', () => {
+  const WIN_SOURCE = 'C:\\Users\\dev\\.codex'
+  const WIN_RUNTIME = 'C:\\Users\\dev\\AppData\\Roaming\\orca\\codex-runtime-home\\home'
+
+  it('re-roots a bundled marketplace source across Windows homes', () => {
+    const config = [
+      '[marketplaces.openai-bundled]',
+      `source = '${WIN_SOURCE}\\.tmp\\bundled-marketplaces\\openai-bundled'`
+    ].join('\n')
+
+    const rewritten = rewriteHomeLocalConfigValues(config, WIN_SOURCE, WIN_RUNTIME)
+
+    expect(rewritten).toContain('AppData\\Roaming\\orca\\codex-runtime-home\\home')
+    expect(rewritten).not.toContain(`${WIN_SOURCE}\\.tmp`)
+  })
+
+  it('leaves a Windows path outside the source home untouched', () => {
+    const config = ['[marketplaces.local]', "source = 'D:\\shared\\marketplace'"].join('\n')
+
+    expect(rewriteHomeLocalConfigValues(config, WIN_SOURCE, WIN_RUNTIME)).toBe(config)
+  })
+})
+
+describe('home-local key matching', () => {
+  it('does not re-root a nested table that merely ends in source', () => {
+    // `marketplaces.x.auth.source` is not a marketplace root; re-rooting it
+    // would point at a directory the mirror never copies.
+    const config = ['[marketplaces.x.auth]', "source = '/home/user/.codex/creds'"].join('\n')
+
+    expect(rewriteHomeLocalConfigValues(config, '/home/user/.codex', RUNTIME_HOME)).toBe(config)
+  })
+})

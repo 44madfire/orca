@@ -10,26 +10,56 @@ import { chmodSync, statSync } from 'node:fs'
 export const CODEX_CONFIG_FILE_MODE = 0o600
 
 /**
- * Brings an existing config file up to the owner-only mode.
+ * Brings a config file and its rolling backup up to the owner-only mode.
  *
- * The mirror only rewrites when content changes, so a copy already sitting at a
- * looser mode would otherwise keep it forever. Repairing is the point: the user
- * most in need of this is the one whose file is already world-readable.
+ * The backup matters as much as the primary: every trust write copies the whole
+ * file to `<config>.bak` before replacing it, so the backup holds the same bytes
+ * and the same token. Repairing only the primary leaves the secret readable
+ * beside it while the config looks fixed.
+ *
+ * Repair — rather than write-time enforcement alone — is the point twice over.
+ * The mirror rewrites only when content changes, and the backup is refreshed
+ * only when a trust write changes content, so in steady state neither is ever
+ * rewritten and an already-loose file would keep that mode indefinitely. The
+ * user most in need of this is the one whose files never change.
  *
  * POSIX only — on Windows `chmod` just toggles the read-only bit, so applying it
  * there would claim a protection the platform is not giving.
  */
-export function enforceCodexConfigFileMode(path: string): void {
+export function enforceCodexConfigFileMode(
+  path: string,
+  onWarning?: (message: string) => void
+): void {
   if (process.platform === 'win32') {
     return
   }
+  enforceOneFileMode(path, onWarning)
+  enforceOneFileMode(`${path}.bak`, onWarning)
+}
+
+function enforceOneFileMode(path: string, onWarning?: (message: string) => void): void {
+  let currentMode: number
   try {
-    if ((statSync(path).mode & 0o777) === CODEX_CONFIG_FILE_MODE) {
-      return
+    currentMode = statSync(path).mode & 0o777
+  } catch (error) {
+    // Absence is the normal case for the backup, and a missing config is the
+    // caller's concern rather than this repair's. Anything else is worth saying.
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      onWarning?.(`could not read the mode of ${path}: ${String(error)}`)
     }
+    return
+  }
+  if (currentMode === CODEX_CONFIG_FILE_MODE) {
+    return
+  }
+  try {
     chmodSync(path, CODEX_CONFIG_FILE_MODE)
-  } catch {
-    // A missing or unreadable config is the caller's concern, not this repair's:
-    // it must never be the reason a Codex launch fails.
+  } catch (error) {
+    // Why report: this is a security repair. Failing silently leaves a
+    // world-readable credential file behind while the caller believes the mode
+    // was corrected. It still must never be the reason a Codex launch fails.
+    onWarning?.(
+      `could not restrict ${path} from ${currentMode.toString(8)} to 600: ${String(error)}`
+    )
   }
 }

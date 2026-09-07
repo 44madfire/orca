@@ -139,15 +139,15 @@ export function syncSystemConfigIntoLegacySharedCodexHome(
   const runtimeConfigBeforeMirror =
     runtimeConfigObservation.kind === 'present' ? runtimeConfigObservation.value : null
   if (runtimeConfigBeforeMirror !== null) {
-    enforceCodexConfigFileMode(runtimeConfigPath)
+    enforceCodexConfigFileMode(runtimeConfigPath, warnCodexConfigModeRepair)
   }
   const nextRuntimeConfig =
     runtimeConfigBeforeMirror !== null
       ? mergeSystemCodexConfigIntoRuntime(
           runtimeConfigBeforeMirror,
-          prepareSystemConfigForRuntimeMirror(rawSystemConfig, sourceConfigDir)
+          prepareSystemConfigForRuntimeMirror(rawSystemConfig, sourceConfigDir, null)
         )
-      : prepareSystemConfigForFreshRuntimeMirror(rawSystemConfig, sourceConfigDir)
+      : prepareSystemConfigForFreshRuntimeMirror(rawSystemConfig, sourceConfigDir, null)
   if (runtimeConfigBeforeMirror === nextRuntimeConfig) {
     return
   }
@@ -183,7 +183,7 @@ function syncSystemConfigIntoManagedCodexHomeUnsafe(
   }
   const runtimeConfigExists = runtimeConfigObservation.kind === 'present'
   if (runtimeConfigExists) {
-    enforceCodexConfigFileMode(runtimeConfigPath)
+    enforceCodexConfigFileMode(runtimeConfigPath, warnCodexConfigModeRepair)
   }
   const rawSystemConfig =
     systemConfigObservation.kind === 'present' ? systemConfigObservation.value : ''
@@ -237,18 +237,47 @@ export function resolveCodexConfigMirrorSourceDirectory(
   )
 }
 
+function warnCodexConfigModeRepair(message: string): void {
+  console.warn('[codex-config] config file mode repair failed:', message)
+}
+
+export type CodexConfigMirrorHomes = {
+  sourceHomePath: string
+  runtimeHomePath: string
+}
+
+/**
+ * `homes` is required, not optional: dropping it silently disables the
+ * home-local rewrite — the user-visible half of #18682 — while every unit test
+ * still passes. `null` is the explicit way to say "no home-local rewrite here".
+ */
 function prepareSystemConfigForRuntimeMirror(
   config: string,
   systemConfigDir: string,
-  homes?: { sourceHomePath: string; runtimeHomePath: string }
+  homes: CodexConfigMirrorHomes | null
 ): string {
   const anchored = rewriteRelativePathConfigValues(
     normalizeDeprecatedCodexHookFeatureFlag(config),
     systemConfigDir
   )
-  return homes
-    ? rewriteHomeLocalConfigValues(anchored, homes.sourceHomePath, homes.runtimeHomePath)
-    : anchored
+  if (!homes || !isHomeLocalRewriteSupported(homes)) {
+    return anchored
+  }
+  return rewriteHomeLocalConfigValues(anchored, homes.sourceHomePath, homes.runtimeHomePath)
+}
+
+/**
+ * WSL is out of scope, declared rather than accidental.
+ *
+ * A WSL source home arrives as a Windows-side UNC path while the config is read
+ * inside the distro, and the runtime home on that call is Windows-side too. The
+ * rewrite happens to no-op there today — but had it matched it would have
+ * written a UNC path into a config consumed from inside Linux, which is worse
+ * than leaving the value alone. Re-rooting for WSL needs a Linux-side runtime
+ * home, which this seam does not have.
+ */
+function isHomeLocalRewriteSupported(homes: CodexConfigMirrorHomes): boolean {
+  return !parseWslUncPath(homes.sourceHomePath) && !parseWslUncPath(homes.runtimeHomePath)
 }
 
 // Why: trust blocks reference a hooks.json path, so system-home hook trust
@@ -258,7 +287,7 @@ function prepareSystemConfigForRuntimeMirror(
 export function prepareSystemConfigForFreshRuntimeMirror(
   config: string,
   systemConfigDir: string,
-  homes?: { sourceHomePath: string; runtimeHomePath: string }
+  homes: CodexConfigMirrorHomes | null
 ): string {
   return stripRuntimeOwnedTomlSections(
     prepareSystemConfigForRuntimeMirror(config, systemConfigDir, homes)
