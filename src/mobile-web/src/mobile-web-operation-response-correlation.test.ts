@@ -70,22 +70,22 @@ const CORRELATION_CASES: CorrelationCase[] = [
   },
   {
     name: 'session snapshot workspace',
-    capability: 'session',
-    operation: 'snapshot',
+    capability: 'workspace',
+    operation: 'hostRequest',
     invoke: (client) => client.sessionSnapshot({ workspaceId: WORKSPACE_ID }),
     result: sessionSnapshot({ workspaceId: OTHER_WORKSPACE_ID })
   },
   {
     name: 'session activation tab',
-    capability: 'session',
-    operation: 'activate',
+    capability: 'workspace',
+    operation: 'hostRequest',
     invoke: (client) => client.sessionActivate({ workspaceId: WORKSPACE_ID, tabId: 'tab-1' }),
     result: sessionSnapshot({ activeTabId: 'tab-2', activeTabType: 'terminal' })
   },
   {
     name: 'closed session tab',
-    capability: 'session',
-    operation: 'close',
+    capability: 'workspace',
+    operation: 'hostRequest',
     invoke: (client) => client.sessionClose({ workspaceId: WORKSPACE_ID, tabId: 'tab-1' }),
     result: {
       workspaceId: WORKSPACE_ID,
@@ -214,18 +214,6 @@ const CORRELATION_CASES: CorrelationCase[] = [
       scope: resetScope({ accountId: 'account-2' }),
       snapshot: accountSnapshot(),
       attemptJournalRetained: false
-    }
-  },
-  {
-    name: 'speech configuration',
-    capability: 'speech',
-    operation: 'configure',
-    invoke: (client) => client.speech.configure({ enabled: true }),
-    result: {
-      enabled: false,
-      selectedModelId: 'model-1',
-      dictationMode: 'toggle',
-      models: []
     }
   }
 ]

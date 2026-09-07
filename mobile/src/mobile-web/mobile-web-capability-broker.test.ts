@@ -1,3 +1,4 @@
+import { sessionHostFixture } from './mobile-web-session-host-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import type {
   MobileWebBridgePageMessage,
@@ -10,7 +11,7 @@ import {
   mobileWebBridgeRequestMessage
 } from './mobile-web-bridge-roundtrip-fixture'
 import { MobileWebSpeechAuthority } from './mobile-web-speech-authority'
-const OPAQUE_WORKSPACE_ID = `workspace_0_${'01'.repeat(16)}`
+const OPAQUE_WORKSPACE_ID = `workspace_0_${'02'.repeat(16)}`
 
 describe('mobile web capability broker', () => {
   it('cancels shell-owned speech when the native app leaves foreground', () => {
@@ -55,7 +56,7 @@ describe('mobile web capability broker', () => {
       payload: {
         workspaces: [
           {
-            id: `workspace_0_${'01'.repeat(16)}`,
+            id: OPAQUE_WORKSPACE_ID,
             name: 'One',
             liveTerminalCount: 2
           }
@@ -408,7 +409,7 @@ describe('mobile web capability broker', () => {
         message.type === 'event'
     )
     expect(events.map((event) => event.sequence)).toEqual([0, 1])
-    expect(events[1]?.payload).toEqual({
+    expect((events[1]!.payload as { snapshot: unknown }).snapshot).toEqual({
       workspaceId: OPAQUE_WORKSPACE_ID,
       publicationEpoch: 'epoch-1',
       snapshotVersion: 2,
@@ -576,7 +577,7 @@ function createHarness() {
   const rememberHostRoute = vi.fn()
   const state = { active: true, connected: true }
   let nonce = 0
-  const client = { sendRequest, subscribe } as unknown as RpcClient
+  const client = sessionHostFixture({ sendRequest, subscribe } as unknown as RpcClient)
   const { broker, messages } = createMobileWebBrokerFixture({
     getClient: () => client,
     isConnected: () => state.connected,
@@ -615,9 +616,13 @@ function subscriptionRequestWithIds(
   return mobileWebBridgeRequestMessage({
     requestId,
     subscriptionId,
-    capability: 'session',
-    operation: 'subscribe',
-    payload: { workspaceId: OPAQUE_WORKSPACE_ID }
+    capability: 'workspace',
+    operation: 'hostSubscribe',
+    payload: {
+      workspaceId: OPAQUE_WORKSPACE_ID,
+      method: 'mobileWeb.session.subscribe',
+      params: { workspaceId: OPAQUE_WORKSPACE_ID }
+    }
   })
 }
 

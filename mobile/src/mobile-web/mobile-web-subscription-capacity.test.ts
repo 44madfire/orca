@@ -17,7 +17,7 @@ describe('aggregate subscription admission', () => {
       ledgers: [
         {
           countForOperation: (key: string) =>
-            key === 'session.subscribe'
+            key === 'account.subscribe'
               ? MOBILE_WEB_BRIDGE_MAX_SUBSCRIPTIONS - 2
               : key === 'terminal.subscribe'
                 ? 1

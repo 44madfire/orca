@@ -1,7 +1,13 @@
 import {
-  MobileWebSessionSubscribePayloadSchema,
-  MobileWebWorkspaceSubscribePayloadSchema
-} from '../../../src/shared/mobile-web/bridge-operation-contract'
+  MobileWebSessionChatDraftReadPayloadSchema,
+  MobileWebSessionChatDraftWritePayloadSchema
+} from '../../../src/shared/mobile-web/native-operation-contract'
+import { bindMobileWebBrowserResource } from './mobile-web-browser-resource-binding'
+import {
+  MobileWebBrowserTargetPayloadSchema,
+  MobileWebBrowserStreamPayloadSchema
+} from '../../../src/shared/mobile-web/browser-operation-contract'
+import { MobileWebWorkspaceSubscribePayloadSchema } from '../../../src/shared/mobile-web/bridge-operation-contract'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { MobileWebBridgeCapability } from '../../../src/shared/mobile-web/bridge-operation-registry'
 import { MobileWebSpeechSubscribePayloadSchema } from '../../../src/shared/mobile-web/speech-operation-contract'
@@ -18,7 +24,6 @@ import { executeMobileWebNativeCapabilityOperation } from './mobile-web-native-c
 import { executeMobileWebNativeChatCapability } from './mobile-web-native-chat-capability'
 import { executeMobileWebProviderOperation } from './mobile-web-provider-review-operations'
 import { executeMobileWebProviderReviewDiff } from './mobile-web-provider-review-diff'
-import { executeMobileWebSessionOperation } from './mobile-web-session-operations'
 import { executeMobileWebSourceControlOperation } from './mobile-web-source-control-operations'
 import { executeMobileWebSpeechOperation } from './mobile-web-speech-operations'
 import { executeMobileWebTaskReadOperation } from './mobile-web-task-read-operations'
@@ -40,6 +45,19 @@ function requireSubscribeOperation(request: SubscriptionRequest): void {
 }
 
 async function executeNative(args: Deps, request: OnceRequest): Promise<unknown> {
+  if (
+    request.operation === 'sessionChatDraftRead' ||
+    request.operation === 'sessionChatDraftWrite'
+  ) {
+    const payload = (
+      request.operation === 'sessionChatDraftRead'
+        ? MobileWebSessionChatDraftReadPayloadSchema
+        : MobileWebSessionChatDraftWritePayloadSchema
+    ).parse(request.payload)
+    if (payload.tabId.startsWith('resource_')) {
+      await bindMobileWebBrowserResource(args, payload.workspaceId, payload.tabId)
+    }
+  }
   return executeMobileWebNativeCapabilityOperation({
     operation: request.operation,
     payload: request.payload,
@@ -59,6 +77,8 @@ async function executeNavigation(args: Deps, request: OnceRequest): Promise<unkn
 }
 
 async function executeBrowser(args: Deps, request: OnceRequest): Promise<unknown> {
+  const target = MobileWebBrowserTargetPayloadSchema.strip().parse(request.payload)
+  await bindMobileWebBrowserResource(args, target.workspaceId, target.pageId)
   return executeMobileWebBrowserOperation({
     operation: request.operation,
     payload: request.payload,
@@ -66,29 +86,6 @@ async function executeBrowser(args: Deps, request: OnceRequest): Promise<unknown
     workspaceAuthority: args.workspaceAuthority,
     browserAuthority: args.browserAuthority
   })
-}
-
-async function executeSession(args: Deps, request: OnceRequest): Promise<unknown> {
-  const result = await executeMobileWebSessionOperation({
-    operation: request.operation,
-    payload: request.payload,
-    requestId: request.requestId,
-    client: args.connectedClient(),
-    workspaceAuthority: args.workspaceAuthority,
-    browserAuthority: args.browserAuthority,
-    nativeChatAuthority: args.nativeChatAuthority
-  })
-  if (
-    request.operation === 'create' ||
-    request.operation === 'createAgent' ||
-    request.operation === 'createQuickCommand' ||
-    request.operation === 'createBrowser' ||
-    request.operation === 'activate' ||
-    request.operation === 'close'
-  ) {
-    args.terminalArtifactAuthority.clear()
-  }
-  return result
 }
 
 async function executeTerminal(args: Deps, request: OnceRequest): Promise<unknown> {
@@ -190,7 +187,6 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
     browser: executeBrowser,
     workspace: executeWorkspace,
     settings: executeWorkspace,
-    session: executeSession,
     terminal: executeTerminal,
     file: executeFile,
     provider: executeProvider,
@@ -201,6 +197,8 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
 
 async function subscribeBrowser(args: Deps, request: SubscriptionRequest): Promise<unknown> {
   requireSubscribeOperation(request)
+  const target = MobileWebBrowserStreamPayloadSchema.parse(request.payload)
+  await bindMobileWebBrowserResource(args, target.workspaceId, target.pageId)
   args.browserStreams.start({
     requestId: request.requestId,
     subscriptionId: request.subscriptionId,
@@ -213,7 +211,7 @@ async function subscribeBrowser(args: Deps, request: SubscriptionRequest): Promi
 async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Promise<unknown> {
   if (request.operation === 'hostSubscribe') {
     await args.hostSubscriptions.start({
-      pageSessionId: args.pageSessionId,
+      getPageSessionId: args.getPageSessionId,
       requestId: request.requestId,
       subscriptionId: request.subscriptionId,
       payload: request.payload,
@@ -227,20 +225,6 @@ async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Pro
   args.workspaceSubscriptions.start({
     requestId: request.requestId,
     subscriptionId: request.subscriptionId,
-    client: args.connectedClient()
-  })
-  return null
-}
-
-async function subscribeSession(args: Deps, request: SubscriptionRequest): Promise<unknown> {
-  requireSubscribeOperation(request)
-  const payload = MobileWebSessionSubscribePayloadSchema.parse(request.payload)
-  const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-  args.sessionSubscriptions.start({
-    requestId: request.requestId,
-    subscriptionId: request.subscriptionId,
-    pageWorkspaceId: payload.workspaceId,
-    hostWorkspaceId,
     client: args.connectedClient()
   })
   return null
@@ -274,7 +258,6 @@ export const MOBILE_WEB_SUBSCRIPTION_CAPABILITY_ARMS: Partial<
   account: (args) => executeMobileWebAccountCapability(args),
   browser: subscribeBrowser,
   workspace: subscribeWorkspace,
-  session: subscribeSession,
   terminal: subscribeTerminal,
   speech: subscribeSpeech
 }

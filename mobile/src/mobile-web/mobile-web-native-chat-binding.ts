@@ -1,44 +1,59 @@
+import { z } from 'zod'
+import { readMobileWebNativeResource } from './mobile-web-native-resource-binding'
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import type {
   MobileWebHostNativeChatBinding,
   MobileWebNativeChatAuthority
 } from './mobile-web-native-chat-authority'
-import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
+import type {
+  MobileWebHostWorkspaceId,
+  MobileWebWorkspaceAuthority
+} from './mobile-web-workspace-authority'
 
 export async function resolveFreshMobileWebNativeChatBinding(args: {
   client: RpcClient
-  hostWorkspaceId: string
+  hostWorkspaceId: MobileWebHostWorkspaceId
   sessionId: string
+  getPageSessionId?: () => Promise<string>
+  isActive?: () => boolean
   nativeChatAuthority: MobileWebNativeChatAuthority
   requireTerminal?: boolean
 }): Promise<Readonly<MobileWebHostNativeChatBinding>> {
-  const binding = args.nativeChatAuthority.resolve(args.hostWorkspaceId, args.sessionId)
-  const response = await args.client.sendRequest('session.tabs.list', {
-    worktree: `id:${args.hostWorkspaceId}`
-  })
-  if (!response.ok || !isRecord(response.result) || !Array.isArray(response.result.tabs)) {
-    throw new MobileWebBrokerError('host_error')
-  }
-  const tab = response.result.tabs.find(
-    (value) => isRecord(value) && value.type === 'terminal' && value.id === binding.hostTabId
-  )
-  // Only a successful host snapshot can establish absence; failed reads are unverifiable.
-  const gone =
-    tab === undefined ||
-    !isSameTerminal(tab, binding) ||
-    (hasProviderSession(tab) && !isCurrentBinding(tab, binding))
-  if (gone || (args.requireTerminal && !binding.hostTerminalId)) {
-    args.nativeChatAuthority.revoke(args.sessionId)
+  const generation = args.nativeChatAuthority.captureGeneration()
+  const binding = z
+    .object({
+      hostWorkspaceId: z.literal(args.hostWorkspaceId),
+      hostTabId: z.string().min(1).max(512),
+      hostTerminalId: z.string().min(1).max(512).nullable(),
+      agent: z.string().min(1).max(64),
+      providerSessionId: z.string().min(1).max(512),
+      transcriptPath: z
+        .string()
+        .max(16 * 1024)
+        .optional()
+    })
+    .parse(
+      await readMobileWebNativeResource({
+        ...args,
+        kind: 'sessionChat',
+        resourceId: args.sessionId
+      })
+    )
+  if (args.requireTerminal && !binding.hostTerminalId) {
     throw new MobileWebBrokerError('not_found')
   }
-  args.nativeChatAuthority.assertBinding(args.hostWorkspaceId, args.sessionId, binding)
-  return args.nativeChatAuthority.resolve(args.hostWorkspaceId, args.sessionId)
+  const bound = { ...binding, hostWorkspaceId: args.hostWorkspaceId }
+  args.nativeChatAuthority.assertGeneration(generation)
+  args.nativeChatAuthority.bind(args.sessionId, bound)
+  return bound
 }
 
 export function resolveFreshMobileWebNativeChatPageBinding(
   args: {
     client: RpcClient
+    getPageSessionId?: () => Promise<string>
+    isActive?: () => boolean
     workspaceAuthority: MobileWebWorkspaceAuthority
     nativeChatAuthority: MobileWebNativeChatAuthority
   },
@@ -48,6 +63,8 @@ export function resolveFreshMobileWebNativeChatPageBinding(
 ) {
   return resolveFreshMobileWebNativeChatBinding({
     client: args.client,
+    getPageSessionId: args.getPageSessionId,
+    isActive: args.isActive,
     hostWorkspaceId: args.workspaceAuthority.hostWorkspaceId(pageWorkspaceId),
     sessionId,
     nativeChatAuthority: args.nativeChatAuthority,
@@ -55,61 +72,23 @@ export function resolveFreshMobileWebNativeChatPageBinding(
   })
 }
 
-export function assertCurrentMobileWebNativeChatPageBinding(
+export async function assertCurrentMobileWebNativeChatPageBinding(
   args: {
+    client: RpcClient
+    getPageSessionId?: () => Promise<string>
+    isActive?: () => boolean
     workspaceAuthority: MobileWebWorkspaceAuthority
     nativeChatAuthority: MobileWebNativeChatAuthority
   },
   pageWorkspaceId: string,
   sessionId: string,
   binding: Readonly<MobileWebHostNativeChatBinding>
-): void {
+): Promise<void> {
   args.workspaceAuthority.assertHostWorkspaceBinding(pageWorkspaceId, binding.hostWorkspaceId)
-  args.nativeChatAuthority.assertBinding(binding.hostWorkspaceId, sessionId, binding)
-}
-
-function hasProviderSession(value: unknown): boolean {
-  return (
-    isRecord(value) && isRecord(value.agentStatus) && isRecord(value.agentStatus.providerSession)
-  )
-}
-
-function isSameTerminal(
-  value: unknown,
-  binding: Readonly<MobileWebHostNativeChatBinding>
-): boolean {
-  return (
-    isRecord(value) &&
-    (typeof value.terminal === 'string' ? value.terminal : null) === binding.hostTerminalId
-  )
-}
-
-function isCurrentBinding(
-  value: unknown,
-  binding: Readonly<MobileWebHostNativeChatBinding>
-): boolean {
-  if (
-    !isRecord(value) ||
-    !isRecord(value.agentStatus) ||
-    !isRecord(value.agentStatus.providerSession)
-  ) {
-    return false
+  const current = await resolveFreshMobileWebNativeChatPageBinding(args, pageWorkspaceId, sessionId)
+  args.workspaceAuthority.assertHostWorkspaceBinding(pageWorkspaceId, binding.hostWorkspaceId)
+  if (JSON.stringify(current) !== JSON.stringify(binding)) {
+    throw new MobileWebBrokerError('not_found')
   }
-  const agent =
-    typeof value.agentStatus.agentType === 'string'
-      ? value.agentStatus.agentType
-      : typeof value.launchAgent === 'string'
-        ? value.launchAgent
-        : null
-  const transcriptPath = value.agentStatus.providerSession.transcriptPath
-  return (
-    agent === binding.agent &&
-    value.agentStatus.providerSession.id === binding.providerSessionId &&
-    (typeof transcriptPath === 'string' ? transcriptPath : undefined) === binding.transcriptPath &&
-    (typeof value.terminal === 'string' ? value.terminal : null) === binding.hostTerminalId
-  )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  args.nativeChatAuthority.assertBinding(binding.hostWorkspaceId, sessionId, binding)
 }

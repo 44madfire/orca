@@ -14,15 +14,14 @@ const binding = {
   transcriptPath: '/private/transcript.jsonl'
 }
 const OPERATION_RUNTIME = {
-  terminalClientId: 'mobile-device'
+  terminalClientId: 'mobile-device',
+  getPageSessionId: async () => 'document'
 }
 
 describe('mobile web native chat operations', () => {
   it('persists pending delivery through stable hidden chat authority', async () => {
     const context = operationContext()
-    const sendRequest = vi
-      .fn<RpcClient['sendRequest']>()
-      .mockResolvedValue(success(sessionSnapshot()))
+    const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue(success(binding))
     const sessionChatPendingRead = vi
       .fn<NonNullable<MobileWebNativeCapabilityAuthority['sessionChatPendingRead']>>()
       .mockResolvedValue([{ text: 'pending', expectedOccurrence: 2 }])
@@ -86,33 +85,7 @@ function operationContext() {
     workspaceAuthority,
     nativeChatAuthority,
     pageWorkspaceId: workspaceAuthority.pageWorkspaceId('workspace-1'),
-    pageSessionId: nativeChatAuthority.register(binding)
-  }
-}
-
-function sessionSnapshot(overrides: { providerSessionId?: string; unreachable?: boolean } = {}) {
-  return {
-    worktree: 'workspace-1',
-    tabs: [
-      {
-        type: 'terminal',
-        id: 'tab-1',
-        terminal: 'terminal-secret',
-        launchAgent: 'claude',
-        ...(overrides.unreachable
-          ? {}
-          : {
-              agentStatus: {
-                state: 'waiting',
-                agentType: 'claude',
-                providerSession: {
-                  id: overrides.providerSessionId ?? 'provider-session-secret',
-                  transcriptPath: '/private/transcript.jsonl'
-                }
-              }
-            })
-      }
-    ]
+    pageSessionId: 'resource_session'
   }
 }
 

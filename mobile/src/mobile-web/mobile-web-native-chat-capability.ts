@@ -13,6 +13,8 @@ export async function executeMobileWebNativeChatCapability(
       operation: request.operation,
       payload: request.payload,
       client: args.connectedClient(),
+      getPageSessionId: args.getPageSessionId,
+      isActive: args.isRequestActive,
       terminalClientId: args.terminalClientId,
       workspaceAuthority: args.workspaceAuthority,
       nativeChatAuthority: args.nativeChatAuthority,

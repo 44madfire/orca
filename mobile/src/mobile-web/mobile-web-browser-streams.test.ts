@@ -14,8 +14,9 @@ describe('mobile web browser streams', () => {
     const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
     workspaceAuthority.synchronize([{ workspaceId: 'host-workspace', repoId: 'repo-1' }])
     const workspaceId = workspaceAuthority.pageWorkspaceId('host-workspace')
-    const browserAuthority = new MobileWebBrowserAuthority(randomBytes)
-    const pageId = browserAuthority.register('host-workspace', 'raw-page')
+    const browserAuthority = new MobileWebBrowserAuthority()
+    const pageId = 'resource_browser'
+    browserAuthority.bind(pageId, { hostWorkspaceId: 'host-workspace', hostPageId: 'raw-page' })
     const postEvent = vi.fn(async () => {})
     let onEvent: ((event: unknown) => void) | undefined
     let onFrame: ((frame: BrowserScreencastFrame) => void) | undefined
@@ -50,6 +51,17 @@ describe('mobile web browser streams', () => {
       },
       client: { subscribe } as unknown as RpcClient
     })
+
+    for (let index = 0; index < 600; index++) {
+      browserAuthority.bind(`resource_closed_${index}`, {
+        hostWorkspaceId: 'host-workspace',
+        hostPageId: `closed-${index}`
+      })
+    }
+    expect(browserAuthority.hostPageId('host-workspace', pageId)).toBe('raw-page')
+    expect(() => browserAuthority.hostPageId('host-workspace', 'resource_closed_0')).toThrow(
+      'not_found'
+    )
 
     expect(subscribe).toHaveBeenCalledWith(
       'browser.screencast',

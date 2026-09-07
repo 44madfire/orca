@@ -6,6 +6,10 @@ describe('hosted page route state', () => {
     '/settings',
     '/native-chat-settings',
     '/browser-settings',
+    '/troubleshoot',
+    '/connection-log',
+    '/notifications',
+    '/voice-settings',
     '/terminal-settings',
     '/about'
   ])('roundtrips %s without document-scoped handles', (pathname) => {

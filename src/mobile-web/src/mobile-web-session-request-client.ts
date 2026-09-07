@@ -1,15 +1,15 @@
+import type { z } from 'zod'
+import { requestMobileWebHost } from './mobile-web-host-request-client'
+import { secureMobileWebBridgeRequestId } from './mobile-web-bridge-request-encoding'
+import { projectHostSessionRuntimeCapabilities } from '../../shared/mobile-web/session-runtime-capabilities'
 import { MobileWebSessionTerminalCreation } from './mobile-web-session-terminal-creation'
 import {
-  MobileWebSessionBrowserCreatePayloadSchema,
   MobileWebSessionBrowserCreateResultSchema,
   MobileWebSessionCapabilitiesPayloadSchema,
-  MobileWebSessionCapabilitiesResultSchema,
   MobileWebSessionCloseResultSchema,
   MobileWebSessionHostGatesPayloadSchema,
   MobileWebSessionHostGatesResultSchema,
-  MobileWebSessionSnapshotPayloadSchema,
   MobileWebSessionSnapshotResultSchema,
-  MobileWebSessionTabActionPayloadSchema,
   type MobileWebSessionAgentOptionsPayload,
   type MobileWebSessionAgentOptionsResult,
   type MobileWebSessionBrowserCreatePayload,
@@ -27,10 +27,7 @@ import {
   type MobileWebSessionTabActionPayload
 } from '../../shared/mobile-web/session-operation-contract'
 import {
-  MobileWebQuickCommandLaunchPayloadSchema,
   MobileWebQuickCommandLaunchResultSchema,
-  MobileWebQuickCommandMutationPayloadSchema,
-  MobileWebQuickCommandSnapshotPayloadSchema,
   MobileWebQuickCommandSnapshotResultSchema,
   type MobileWebQuickCommandLaunchPayload,
   type MobileWebQuickCommandLaunchResult,
@@ -49,56 +46,69 @@ export class MobileWebSessionRequestClient {
     this.terminalCreation = new MobileWebSessionTerminalCreation(requests)
   }
 
+  private host<T>(
+    operation:
+      | 'snapshot'
+      | 'activate'
+      | 'close'
+      | 'createBrowser'
+      | 'quickCommands'
+      | 'quickCommandMutate'
+      | 'createQuickCommand',
+    payload: { workspaceId: string },
+    schema: z.ZodType<T>
+  ): Promise<T> {
+    const params =
+      operation === 'createQuickCommand'
+        ? { ...payload, clientMutationId: secureMobileWebBridgeRequestId(), timeoutMs: 15_000 }
+        : { ...payload }
+    return requestMobileWebHost(
+      this.requests,
+      `mobileWeb.session.${operation}`,
+      payload.workspaceId,
+      params
+    ).then((result) => {
+      const parsed = schema.safeParse(result)
+      if (!parsed.success) {
+        throw new MobileWebBridgeClientError('invalid_message', false)
+      }
+      return parsed.data
+    })
+  }
+
   capabilities(
     payload: MobileWebSessionCapabilitiesPayload
   ): Promise<MobileWebSessionCapabilitiesResult> {
-    return this.requests.request(
-      'session',
-      'capabilities',
-      payload,
-      MobileWebSessionCapabilitiesPayloadSchema,
-      MobileWebSessionCapabilitiesResultSchema
+    MobileWebSessionCapabilitiesPayloadSchema.parse(payload)
+    return this.hostGates({ includeHostGates: true }).then((result) =>
+      projectHostSessionRuntimeCapabilities(result.hostCapabilities)
     )
   }
 
   hostGates(payload: MobileWebSessionHostGatesPayload): Promise<MobileWebSessionHostGatesResult> {
-    return this.requests.request(
-      'session',
-      'capabilities',
-      payload,
-      MobileWebSessionHostGatesPayloadSchema,
-      MobileWebSessionHostGatesResultSchema
-    )
+    MobileWebSessionHostGatesPayloadSchema.parse(payload)
+    return requestMobileWebHost(
+      this.requests,
+      'mobileWeb.session.capabilities',
+      undefined,
+      {}
+    ).then((result) => MobileWebSessionHostGatesResultSchema.parse(result))
   }
 
   snapshot(payload: MobileWebSessionSnapshotPayload): Promise<MobileWebSessionSnapshotResult> {
-    return this.requests
-      .request(
-        'session',
-        'snapshot',
-        payload,
-        MobileWebSessionSnapshotPayloadSchema,
-        MobileWebSessionSnapshotResultSchema
-      )
-      .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
+    return this.host('snapshot', payload, MobileWebSessionSnapshotResultSchema).then((result) =>
+      requireEchoedWorkspaceId(payload.workspaceId, result)
+    )
   }
 
   activate(payload: MobileWebSessionTabActionPayload): Promise<MobileWebSessionSnapshotResult> {
-    return this.requests
-      .request(
-        'session',
-        'activate',
-        payload,
-        MobileWebSessionTabActionPayloadSchema,
-        MobileWebSessionSnapshotResultSchema
-      )
-      .then((result) => {
-        requireEchoedWorkspaceId(payload.workspaceId, result)
-        if (result.activeTabId !== payload.tabId) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+    return this.host('activate', payload, MobileWebSessionSnapshotResultSchema).then((result) => {
+      requireEchoedWorkspaceId(payload.workspaceId, result)
+      if (result.activeTabId !== payload.tabId) {
+        throw new MobileWebBridgeClientError('invalid_message', false)
+      }
+      return result
+    })
   }
 
   create(payload: MobileWebSessionCreatePayload): Promise<MobileWebSessionCreateResult> {
@@ -118,70 +128,38 @@ export class MobileWebSessionRequestClient {
   quickCommands(
     payload: MobileWebQuickCommandSnapshotPayload
   ): Promise<MobileWebQuickCommandSnapshotResult> {
-    return this.requests.request(
-      'session',
-      'quickCommands',
-      payload,
-      MobileWebQuickCommandSnapshotPayloadSchema,
-      MobileWebQuickCommandSnapshotResultSchema
-    )
+    return this.host('quickCommands', payload, MobileWebQuickCommandSnapshotResultSchema)
   }
 
   quickCommandMutate(
     payload: MobileWebQuickCommandMutationPayload
   ): Promise<MobileWebQuickCommandSnapshotResult> {
-    return this.requests.request(
-      'session',
-      'quickCommandMutate',
-      payload,
-      MobileWebQuickCommandMutationPayloadSchema,
-      MobileWebQuickCommandSnapshotResultSchema
-    )
+    return this.host('quickCommandMutate', payload, MobileWebQuickCommandSnapshotResultSchema)
   }
 
   createQuickCommand(
     payload: MobileWebQuickCommandLaunchPayload
   ): Promise<MobileWebQuickCommandLaunchResult> {
-    return this.requests
-      .request(
-        'session',
-        'createQuickCommand',
-        payload,
-        MobileWebQuickCommandLaunchPayloadSchema,
-        MobileWebQuickCommandLaunchResultSchema
-      )
-      .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
+    return this.host('createQuickCommand', payload, MobileWebQuickCommandLaunchResultSchema).then(
+      (result) => requireEchoedWorkspaceId(payload.workspaceId, result)
+    )
   }
 
   createBrowser(
     payload: MobileWebSessionBrowserCreatePayload
   ): Promise<MobileWebSessionBrowserCreateResult> {
-    return this.requests
-      .request(
-        'session',
-        'createBrowser',
-        payload,
-        MobileWebSessionBrowserCreatePayloadSchema,
-        MobileWebSessionBrowserCreateResultSchema
-      )
-      .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
+    return this.host('createBrowser', payload, MobileWebSessionBrowserCreateResultSchema).then(
+      (result) => requireEchoedWorkspaceId(payload.workspaceId, result)
+    )
   }
 
   close(payload: MobileWebSessionTabActionPayload): Promise<MobileWebSessionCloseResult> {
-    return this.requests
-      .request(
-        'session',
-        'close',
-        payload,
-        MobileWebSessionTabActionPayloadSchema,
-        MobileWebSessionCloseResultSchema
-      )
-      .then((result) => {
-        requireEchoedWorkspaceId(payload.workspaceId, result)
-        if (result.tabId !== payload.tabId) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+    return this.host('close', payload, MobileWebSessionCloseResultSchema).then((result) => {
+      requireEchoedWorkspaceId(payload.workspaceId, result)
+      if (result.tabId !== payload.tabId) {
+        throw new MobileWebBridgeClientError('invalid_message', false)
+      }
+      return result
+    })
   }
 }

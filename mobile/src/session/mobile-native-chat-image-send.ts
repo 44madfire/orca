@@ -30,7 +30,7 @@ type PasteImagesArgs = {
   readonly deadline?: number
   /** Clears every parked launch-draft line before the image paste. */
   readonly clearInput?: string
-  readonly assertCurrent?: () => void
+  readonly assertCurrent?: () => void | Promise<void>
 }
 
 /** Clears the agent's unsubmitted input line, then pastes each uploaded image
@@ -60,6 +60,7 @@ export async function pasteMobileNativeChatImagePaths({
     clearInput ?? MOBILE_NATIVE_CHAT_CLEAR_UNSUBMITTED_INPUT,
     ...imagePasteWritesFollowedByText(imagePaths.map(buildMobileImagePastePayload), followedByText)
   ]) {
+    await assertCurrent()
     const remainingMs = deadline - Date.now()
     // Why: the budget is the whole sequence's — starting a write it can't fund would
     // let a multi-image paste overrun before the text body even begins its own send.
@@ -67,7 +68,6 @@ export async function pasteMobileNativeChatImagePaths({
     if (remainingMs < MOBILE_NATIVE_CHAT_MIN_WRITE_TIMEOUT_MS) {
       return false
     }
-    assertCurrent()
     const response = await client.sendRequest(
       'terminal.send',
       {

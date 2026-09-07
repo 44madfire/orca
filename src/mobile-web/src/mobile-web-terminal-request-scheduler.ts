@@ -141,18 +141,13 @@ export class MobileWebTerminalRequestScheduler {
   setDisplayMode(mode: 'auto' | 'desktop', viewport: Viewport | null): Promise<boolean> {
     return this.runAction({
       operation: 'displayMode',
-      streamId: this.streamId,
       mode,
       ...(viewport && mode === 'auto' ? { viewport } : {})
     })
   }
 
   clear(): Promise<boolean> {
-    return this.runAction({ operation: 'clear', streamId: this.streamId })
-  }
-
-  rename(title: string): Promise<boolean> {
-    return this.runAction({ operation: 'rename', streamId: this.streamId, title })
+    return this.runAction({ operation: 'clear' })
   }
 
   requestResync(fromSequence: number, reason: 'gap' | 'overflow'): void {

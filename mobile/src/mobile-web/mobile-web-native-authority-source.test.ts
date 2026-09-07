@@ -22,7 +22,16 @@ describe('mobile web native authority source boundaries', () => {
   it('keys hosted native state to paired cryptographic identity', () => {
     const hybridRoute = readFileSync(new URL('../../app/hybrid.tsx', import.meta.url), 'utf8')
 
-    expect(hybridRoute).toContain('hostIdentity: selectedHost.publicKeyB64')
-    expect(hybridRoute).not.toContain('hostIdentity: selectedHost.id')
+    const factory = readFileSync(
+      new URL('./mobile-web-hosted-settings-authority.ts', import.meta.url),
+      'utf8'
+    )
+
+    expect(hybridRoute).toContain(
+      'createSettingsAuthority(selectedHost, page.buildId, clientContext)'
+    )
+    expect(factory).toContain('createMobileWebNativeCapabilityAuthority({')
+    expect(factory).toContain('hostIdentity: host.publicKeyB64')
+    expect(factory).not.toContain('hostIdentity: host.id')
   })
 })

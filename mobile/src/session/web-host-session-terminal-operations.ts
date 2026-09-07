@@ -113,8 +113,18 @@ export function webHostSessionTerminalOperations(
     clear(terminalId) {
       return streams.get(terminalId)?.scheduler?.clear() ?? Promise.resolve(false)
     },
-    rename(terminalId, title) {
-      return streams.get(terminalId)?.scheduler?.rename(title) ?? Promise.resolve(false)
+    async rename(terminalId, title, workspaceId) {
+      try {
+        const action = await client.prepareTerminalActions(
+          workspaceId,
+          terminalId,
+          new AbortController().signal
+        )
+        await action({ operation: 'rename', title })
+        return true
+      } catch {
+        return false
+      }
     },
     pasteClipboard(terminalId, bracketedPaste) {
       return (

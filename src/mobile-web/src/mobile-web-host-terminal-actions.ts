@@ -3,10 +3,13 @@ import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { readMobileWebHostMethods, requestMobileWebHost } from './mobile-web-host-request-client'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
-export type MobileWebTerminalMetadataRequest = Extract<
-  MobileWebTerminalRequest,
-  { operation: 'displayMode' | 'clear' | 'rename' }
->
+type MetadataOperation = 'displayMode' | 'clear' | 'rename'
+export type MobileWebTerminalMetadataRequest = {
+  [Operation in MetadataOperation]: Omit<
+    Extract<MobileWebTerminalRequest, { operation: Operation }>,
+    'streamId'
+  >
+}[MetadataOperation]
 export type MobileWebTerminalMetadataAction = (
   request: MobileWebTerminalMetadataRequest
 ) => Promise<null>
@@ -40,7 +43,7 @@ export async function bindMobileWebHostTerminalActions(
     throw new MobileWebBridgeClientError('invalid_message', false)
   }
   const resourceId = bound.resourceId
-  return async ({ operation, streamId: _streamId, ...fields }) => {
+  return async ({ operation, ...fields }) => {
     const method =
       operation === 'displayMode'
         ? 'terminal.setDisplayMode'

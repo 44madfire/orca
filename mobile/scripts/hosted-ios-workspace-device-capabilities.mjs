@@ -1,3 +1,4 @@
+import { verifyHostedIosProductSettings } from './hosted-ios-product-settings-journey.mjs'
 import { verifyHostedIosTerminalSettings } from './hosted-ios-terminal-settings-journey.mjs'
 import { evidenceStep } from './hosted-webview-e2e-report.mjs'
 import { verifyHostedIosNativeAlertJourney } from './hosted-ios-native-alert-journey.mjs'
@@ -29,12 +30,22 @@ export async function verifyHostedIosWorkspaceDeviceCapabilities(args) {
         })
       )
     : null
+  const productSettings = terminalSettings
+    ? await evidenceStep('hosted About and Voice settings', () =>
+        verifyHostedIosProductSettings({
+          ...args,
+          workspaceDocument: terminalSettings.workspaceDocument
+        })
+      )
+    : null
   return {
+    productSettings,
     nativeAlert,
     terminalSettings,
     browserSettings,
     chatSettings,
     workspaceDocument:
+      productSettings?.workspaceDocument ??
       terminalSettings?.workspaceDocument ??
       browserSettings?.workspaceDocument ??
       chatSettings?.workspaceDocument ??

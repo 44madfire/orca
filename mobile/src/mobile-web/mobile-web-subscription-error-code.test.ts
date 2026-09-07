@@ -1,3 +1,4 @@
+import { sessionHostFixture } from './mobile-web-session-host-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import type {
   MobileWebBridgePageMessage,
@@ -15,13 +16,8 @@ import {
   createMobileWebBrokerFixture,
   mobileWebBridgeRequestMessage
 } from './mobile-web-bridge-roundtrip-fixture'
-import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
-import { MobileWebSessionSubscriptions } from './mobile-web-session-subscriptions'
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
-import {
-  mobileWebHostWorkspaceIdFromHost,
-  MobileWebWorkspaceAuthority
-} from './mobile-web-workspace-authority'
+import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 const randomBytes = (length: number): Uint8Array => new Uint8Array(length).fill(4)
 
@@ -37,20 +33,13 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
   const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
   workspaceAuthority.synchronize([{ workspaceId: 'host-workspace', repoId: 'repo-1' }])
   const pageWorkspaceId = workspaceAuthority.pageWorkspaceId('host-workspace')
-  const browserAuthority = new MobileWebBrowserAuthority(randomBytes)
-  const pageId = browserAuthority.register('host-workspace', 'raw-page')
-  const nativeChatAuthority = new MobileWebNativeChatAuthority(randomBytes)
+  const browserAuthority = new MobileWebBrowserAuthority()
+  const pageId = 'resource_browser'
+  browserAuthority.bind(pageId, { hostWorkspaceId: 'host-workspace', hostPageId: 'raw-page' })
 
   const postClosed = (): void => {}
   const account = new MobileWebAccountSubscriptions({ isActive, postEvent, postClosed })
   const workspace = new MobileWebWorkspaceSubscriptions({ isActive, postEvent, postClosed })
-  const session = new MobileWebSessionSubscriptions({
-    isActive,
-    postEvent,
-    postClosed,
-    browserAuthority,
-    nativeChatAuthority
-  })
   const browser = new MobileWebBrowserStreams({
     isActive,
     workspaceAuthority,
@@ -66,17 +55,6 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
     {
       name: 'workspace',
       start: (subscriptionId) => workspace.start({ requestId: 'r', subscriptionId, client })
-    },
-    {
-      name: 'session',
-      start: (subscriptionId) =>
-        session.start({
-          requestId: 'r',
-          subscriptionId,
-          pageWorkspaceId,
-          hostWorkspaceId: mobileWebHostWorkspaceIdFromHost('host-workspace'),
-          client
-        })
     },
     {
       name: 'browser',
@@ -119,7 +97,10 @@ describe('subscription ledger error codes reach the page unchanged', () => {
 
   it('reports a duplicate subscription ID evicted from the replay ring as invalid_request', async () => {
     const sendRequest = vi.fn()
-    const client = { subscribe: vi.fn(() => () => {}), sendRequest } as unknown as RpcClient
+    const client = sessionHostFixture({
+      subscribe: vi.fn(() => () => {}),
+      sendRequest
+    } as unknown as RpcClient)
     const messages: MobileWebBridgeShellMessage[] = []
     const { broker } = createMobileWebBrokerFixture({
       getClient: () => client,
@@ -174,9 +155,13 @@ function sessionSubscribe(
   return mobileWebBridgeRequestMessage({
     requestId,
     subscriptionId,
-    capability: 'session',
-    operation: 'subscribe',
-    payload: { workspaceId: `workspace_0_${'01'.repeat(16)}` }
+    capability: 'workspace',
+    operation: 'hostSubscribe',
+    payload: {
+      workspaceId: `workspace_0_${'01'.repeat(16)}`,
+      method: 'mobileWeb.session.subscribe',
+      params: { workspaceId: `workspace_0_${'01'.repeat(16)}` }
+    }
   }) as Extract<MobileWebBridgePageMessage, { type: 'request' }>
 }
 

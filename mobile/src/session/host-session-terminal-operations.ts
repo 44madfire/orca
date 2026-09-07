@@ -77,7 +77,7 @@ export type HostSessionTerminalOperations = {
     clientId: string | null
   ): Promise<boolean>
   clear(terminalId: string): Promise<boolean>
-  rename(terminalId: string, title: string): Promise<boolean>
+  rename(terminalId: string, title: string, workspaceId: string): Promise<boolean>
   pasteClipboard?(
     terminalId: string,
     bracketedPaste: boolean

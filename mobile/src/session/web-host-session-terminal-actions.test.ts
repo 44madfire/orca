@@ -54,6 +54,21 @@ function fixture() {
 }
 
 describe('hosted terminal metadata lifecycle', () => {
+  it('renames an inactive tab through a fresh host binding without opening a terminal stream', async () => {
+    const f = fixture()
+    f.resolve(f.run)
+    expect(await f.operations.rename('tab', 'Build', 'workspace')).toBe(true)
+    expect(f.prepareTerminalActions).toHaveBeenCalledWith(
+      'workspace',
+      'tab',
+      expect.any(AbortSignal)
+    )
+    expect(f.run).toHaveBeenCalledExactlyOnceWith({ operation: 'rename', title: 'Build' })
+    expect(f.terminalSubscribe).not.toHaveBeenCalled()
+    f.run.mockRejectedValueOnce(new Error('lost acknowledgement'))
+    expect(await f.operations.rename('tab', 'Other', 'workspace')).toBe(false)
+    expect(f.run).toHaveBeenCalledTimes(2)
+  })
   it('binds terminal identity before opening its stream and sends all metadata through that resource', async () => {
     const f = fixture()
     const cleanup = f.subscribe()
@@ -64,7 +79,7 @@ describe('hosted terminal metadata lifecycle', () => {
     expect(await f.operations.setDisplayMode('tab', 'auto', { cols: 90, rows: 30 }, null)).toBe(
       true
     )
-    expect(await f.operations.rename('tab', 'Build')).toBe(true)
+    expect(await f.operations.rename('tab', 'Build', 'workspace')).toBe(true)
     expect(await f.operations.clear('tab')).toBe(true)
     expect(f.run.mock.calls.map(([request]) => request.operation)).toEqual([
       'displayMode',

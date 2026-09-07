@@ -12,10 +12,6 @@ import {
   type MobileWebAccountEvent
 } from '../../shared/mobile-web/account-operation-contract'
 import {
-  MobileWebSessionSnapshotResultSchema,
-  MobileWebSessionSubscribePayloadSchema,
-  type MobileWebSessionSnapshotResult,
-  type MobileWebSessionSubscribePayload,
   MobileWebWorkspaceChangeSchema,
   MobileWebWorkspaceSubscribePayloadSchema,
   type MobileWebWorkspaceChange
@@ -41,23 +37,6 @@ export type MobileWebBridgeSubscriptionSetup = {
   eventSchema: z.ZodType<unknown>
   onEvent: (value: unknown) => void
   onError: (error: MobileWebBridgeClientError) => void
-}
-
-export function sessionSubscriptionSetup(
-  payload: MobileWebSessionSubscribePayload,
-  onEvent: (event: MobileWebSessionSnapshotResult) => void,
-  onError: (error: MobileWebBridgeClientError) => void
-): MobileWebBridgeSubscriptionSetup {
-  return {
-    capability: 'session',
-    payload,
-    payloadSchema: MobileWebSessionSubscribePayloadSchema,
-    eventSchema: MobileWebSessionSnapshotResultSchema.refine(
-      (event) => event.workspaceId === payload.workspaceId
-    ),
-    onEvent: (value) => onEvent(value as MobileWebSessionSnapshotResult),
-    onError
-  }
 }
 
 export function accountSubscriptionSetup(

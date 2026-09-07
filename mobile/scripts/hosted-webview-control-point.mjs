@@ -4,10 +4,16 @@ import {
   readHostedWebViewState
 } from './hosted-webview-cdp-session.mjs'
 
-export async function readHostedWebViewControlPoint(document, label, WebSocketCtor = WebSocket) {
+export async function readHostedWebViewControlPoint(
+  document,
+  label,
+  WebSocketCtor = WebSocket,
+  options = {}
+) {
   const expression = `(() => {
-    const element = Array.from(document.querySelectorAll('[aria-label]'))
-      .find((candidate) => candidate.getAttribute('aria-label') === ${JSON.stringify(label)});
+    const element = ${options.matchText === true}
+      ? Array.from(document.querySelectorAll('[role=button]')).find((candidate) => candidate.textContent.trim() === ${JSON.stringify(label)})
+      : Array.from(document.querySelectorAll('[aria-label]')).find((candidate) => candidate.getAttribute('aria-label') === ${JSON.stringify(label)});
     if (!(element instanceof HTMLElement)) return '';
     element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const rect = element.getBoundingClientRect();

@@ -4,18 +4,12 @@ import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
 import { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
-import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
-import { MobileWebSessionSubscriptions } from './mobile-web-session-subscriptions'
 import { MobileWebSpeechSubscriptions } from './mobile-web-speech-subscriptions'
 import type { MobileWebSpeechEvent } from '../../../src/shared/mobile-web/speech-operation-contract'
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
-import {
-  mobileWebHostWorkspaceIdFromHost,
-  MobileWebWorkspaceAuthority
-} from './mobile-web-workspace-authority'
+import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 const SUBSCRIPTION_ID = 'subscription-1'
-const HOST_WORKSPACE = mobileWebHostWorkspaceIdFromHost('workspace-1')
 
 type Posts = {
   isActive: () => boolean
@@ -99,33 +93,6 @@ const LEDGER_CASES: LedgerCase[] = [
     }
   },
   {
-    name: 'session',
-    invalidCode: 'invalid_message',
-    invalid: { worktree: 'workspace-other' },
-    valid: {
-      worktree: 'workspace-1',
-      publicationEpoch: 'epoch-1',
-      snapshotVersion: 1,
-      tabs: []
-    },
-    open: async (posts) => {
-      const host = hostClient()
-      const { pageWorkspaceId } = pageWorkspace()
-      new MobileWebSessionSubscriptions({
-        ...posts,
-        browserAuthority: new MobileWebBrowserAuthority(randomBytes),
-        nativeChatAuthority: new MobileWebNativeChatAuthority(randomBytes)
-      }).start({
-        requestId: 'request-1',
-        subscriptionId: SUBSCRIPTION_ID,
-        pageWorkspaceId,
-        hostWorkspaceId: HOST_WORKSPACE,
-        client: host.client
-      })
-      return host.emit
-    }
-  },
-  {
     name: 'browser',
     invalidCode: null,
     invalid: { type: 'bogus' },
@@ -137,7 +104,11 @@ const LEDGER_CASES: LedgerCase[] = [
     open: async (posts) => {
       const host = hostClient()
       const { authority, pageWorkspaceId } = pageWorkspace()
-      const browserAuthority = new MobileWebBrowserAuthority(randomBytes)
+      const browserAuthority = new MobileWebBrowserAuthority()
+      browserAuthority.bind('resource_browser', {
+        hostWorkspaceId: 'workspace-1',
+        hostPageId: 'raw-page'
+      })
       new MobileWebBrowserStreams({
         ...posts,
         workspaceAuthority: authority,
@@ -147,7 +118,7 @@ const LEDGER_CASES: LedgerCase[] = [
         subscriptionId: SUBSCRIPTION_ID,
         payload: {
           workspaceId: pageWorkspaceId,
-          pageId: browserAuthority.register('workspace-1', 'raw-page'),
+          pageId: 'resource_browser',
           format: 'jpeg',
           quality: 72,
           maxWidth: 800,

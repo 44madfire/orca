@@ -60,7 +60,9 @@ describe('native host session terminal operations', () => {
     await expect(
       operations.setDisplayMode('terminal-native-1', 'auto', { cols: 90, rows: 30 }, 'device-1')
     ).resolves.toBe(true)
-    await expect(operations.rename('terminal-native-1', 'Build')).resolves.toBe(true)
+    await expect(
+      operations.rename('terminal-native-1', 'Build', 'workspace-native-1')
+    ).resolves.toBe(true)
     await expect(operations.clear('terminal-native-1')).resolves.toBe(true)
     expect(sendRequest).toHaveBeenCalledWith('terminal.setDisplayMode', {
       terminal: 'terminal-native-1',

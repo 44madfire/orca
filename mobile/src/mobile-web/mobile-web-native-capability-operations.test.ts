@@ -115,7 +115,7 @@ describe('mobile web native capability operations', () => {
   it('resolves opaque workspace authority before reading or writing a shell draft', async () => {
     const harness = createHarness()
     const workspaceAuthority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length))
-    const browserAuthority = new MobileWebBrowserAuthority((length) => new Uint8Array(length))
+    const browserAuthority = new MobileWebBrowserAuthority()
     const workspaceId = workspaceAuthority.registerWorkspace('host-workspace', 'host-repo')
     const sessionChatDraftRead = vi.fn().mockResolvedValue('saved draft')
     const sessionChatDraftWrite = vi.fn().mockResolvedValue(undefined)

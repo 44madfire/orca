@@ -1,3 +1,6 @@
+import type { DiagnosticsDeviceOperations } from '../diagnostics/diagnostics-device-operations'
+import { nativeNotificationSettingsOperations } from '../settings/native-notification-settings-operations'
+import type { NotificationSettingsOperations } from '../settings/notification-settings-operations'
 import { runMobileWebPagePreferences } from './mobile-web-page-preferences-store'
 import type {
   MobileWebPagePreferencesPayload,
@@ -62,6 +65,8 @@ type MobileWebNativeDraftScope = {
 }
 
 export type MobileWebNativeCapabilityAuthority = {
+  diagnosticsDevice?: DiagnosticsDeviceOperations
+  settingsDevice?: NotificationSettingsOperations
   pagePreferences?: (
     payload: MobileWebPagePreferencesPayload
   ) => Promise<MobileWebPagePreferencesResult>
@@ -113,6 +118,7 @@ export function createMobileWebNativeCapabilityAuthority(
 ): MobileWebNativeCapabilityAuthority {
   return {
     alert,
+    settingsDevice: nativeNotificationSettingsOperations,
     pagePreferences: (payload) => runMobileWebPagePreferences(draftScope.hostIdentity, payload),
     hapticFeedback(kind) {
       if (kind === 'selection') {

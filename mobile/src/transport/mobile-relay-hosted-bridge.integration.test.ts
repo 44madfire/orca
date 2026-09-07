@@ -1,3 +1,4 @@
+import { SessionSnapshotFixture } from '../mobile-web/mobile-web-session-snapshot-fixture'
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -146,8 +147,30 @@ describe('hosted mobile bridge over cloud Relay transport', () => {
           )
           return
         }
-        if (request.method === 'session.tabs.list') {
-          reply(rpcSuccess(request.id, relaySessionSnapshot()))
+        if (request.method === 'mobileWeb.page.subscribe') {
+          reply(
+            JSON.stringify({
+              id: request.id,
+              ok: true,
+              streaming: true,
+              result: { type: 'ready', subscriptionId: request.params?.pageSession },
+              _meta: { runtimeId: 'relay-host' }
+            })
+          )
+          return
+        }
+        if (request.method === 'mobileWeb.session.snapshot') {
+          reply(
+            rpcSuccess(
+              request.id,
+              new SessionSnapshotFixture().project(
+                relaySessionSnapshot(),
+                String(request.params?.pageSession),
+                String(request.params?.worktree),
+                String(request.params?.workspaceId)
+              )
+            )
+          )
           return
         }
         if (request.method === 'mobileWeb.host.catalog') {
@@ -396,7 +419,9 @@ describe('hosted mobile bridge over cloud Relay transport', () => {
       'pairing.getEndpoints',
       'runtime.clientCapabilities.update',
       'worktree.ps',
-      'session.tabs.list',
+      'mobileWeb.host.catalog',
+      'mobileWeb.page.subscribe',
+      'mobileWeb.session.snapshot',
       'mobileWeb.host.catalog',
       'mobileWeb.host.catalog',
       'mobileWeb.nativeChat.bind',

@@ -1,10 +1,11 @@
 # Long-lived mobile shell implementation tracker
 
-Final simplification validation passed: all ten code gates, Desktop main rebuild,
-serialized page export, full existing iOS adversarial/settings journey and Android
-adversarial smoke. Desktop adapters retain large-result bounds without shell
-fallbacks or changes to existing native RPCs. Broader domain/settings/CSP work
-remains incomplete; no released-binary certification is claimed.
+Current session/settings/catalog/lifecycle batch is implemented and validated,
+with all ten code gates, Desktop main rebuild, isolated page export, dedicated iOS
+chat/session actions, full iOS settings/adversarial checks and Android smoke passing.
+Coordinator accepted the validation evidence and the user authorized a local commit.
+This validated checkpoint is recorded by the commit containing this tracker update.
+Pause before every queued domain task; the whole long-lived shell effort is not complete.
 
 Owner: Codex. Branch: `mobile-rearch`. Commit locally; never push.
 
@@ -37,9 +38,141 @@ path. Removed 23 obsolete shell operations, dead projections/subscriptions and
 old-shell settings/feature fallbacks. Kept bounds, private IDs, dispatch guards,
 page-state/storage protection, real SSH compatibility and native RPCs.
 
-## Current checkpoint
+## Active completion wave — September 7, 2026
 
-Last reconciled: September 6, 2026, hybrid simplification batch.
+This session/settings/catalog/lifecycle checkpoint supersedes baseline
+`83f35c079b9`; final code and platform evidence is recorded below. Coordinator
+review accepted that evidence, and the authorized local commit containing this
+update records the batch. Run `run_ad7f3ae5a1b0` uses supervised Orca workers;
+the primary coordinates integration and commits, with no push.
+
+| Owner                      | Task / Dispatch                             | Scope                                                                                                             |
+| -------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Session worker             | `ctx_e540cc7dfcc5`                          | Session snapshot/feed/actions (settled; history queued) and Desktop index/catalog integration                     |
+| Settings worker            | `ctx_edb4617fa5ee`                          | Voice, notifications, diagnostics and connection-log presentation; delete replaced host-model speech translations |
+| Testing / inventory worker | `task_e4300d2d51fb` / `ctx_500afd865488`    | Frozen-batch integration and final validation; catalog/startup/rename fixes                                       |
+| Lifecycle worker           | `task_8cdd400ef095` / `ctx_a26d73d8f877`    | Resource retirement and document namespaces (simplicity findings 1/3); settled                                    |
+| Primary                    | `term_9c109bcf-4a37-4049-abb3-8a0aa1d15086` | Review/integration ownership; explicitly grants source freeze and final gates/commit ownership                    |
+
+Queued implementation tasks, not yet started at this checkpoint:
+
+- `task_a1de612cda7b`: remaining Source Control and Review.
+- `task_379f99884a8c`: task/provider/Linear families and opaque target ownership.
+- `task_5d853d3f414b`: workspace inventory/account/creation and Desktop preferences.
+- `task_6e9d4340f410`: files/browser/domain storage after session bindings settle.
+- `task_96dd8736e211`: Agent History snapshot/preview/resume, deliberately untouched this batch.
+- `task_6f0cbcaf2612`: stable Markdown/Mermaid package scripts and native frame policy.
+
+Initial registry census: 207 active shell operations (workspace 35, settings 2,
+account 5, provider 9, task 64, Source Control 24, browser 8, file 9, session 9,
+agent history 3, native 13, native chat 5, speech 8, navigation 3, terminal 10).
+This includes three generic forwarding operations and retained hardware/transport;
+it is not 207 missing migrations. Every operation and concrete client/handler
+family is classified in `/tmp/orca-review2/completion-dispatch/remaining-operations.md`.
+
+Session snapshot/feed/actions and hosted settings presentation are complete in
+this batch. Speech model setup/download/delete/configure now use generic Desktop
+RPC; actual audio capture stays native. Remaining implementation is the queued
+product families above and the explicit follow-ups below. Workspace `settings`
+means Desktop `ui.get/ui.set`, separate from native settings presentation. Native
+navigation retains host picker and pairing repair; product destinations move to
+page routes. Draft/pending/preferences storage remains generic and host-scoped;
+its product schemas should not require APK updates. Browser controls target the
+execution-host browser, not the phone WebView.
+
+Main RNW scripts already load as external verified assets. The remaining CSP
+coupling is native hardcoded hashes for Markdown-editor and Mermaid-frame scripts;
+externalize those under existing isolation rather than relaxing network policy.
+The eventual policy change needs one rebuilt native baseline before frozen-shell OTA.
+
+About/Voice/Notifications/diagnostics and real chat read/feed/send/session actions
+have final current-build rendered proof below. Ordinary frozen-shell OTA A→B
+proof remains queued after native frame-policy work and must preserve installed
+shell bytes and host preferences. One testing owner
+serializes all full gates, exports and simulators after explicit source freeze.
+No source edits during Metro, and no export concurrent with tests/native builds.
+Fixture preparation and exact gaps are recorded in
+`/tmp/orca-review2/completion-dispatch/testing-report.md` (historical preparation);
+final current-wave evidence follows below.
+Extra crash-loop/rollback drill and optional native-process-death improvements
+remain deferred under YAGNI. Existing recovery stays unchanged. Actual released
+binary, physical hardware and real mixed-version SSH certification remain bounded
+environment limitations, not invitations to build new systems.
+
+Session/settings source owners settled. Initial ten gates found stale migration fixtures,
+censuses and malformed-payload handling; those integration fixes are in place. Second
+attempt had nine immediate passes and one untouched federation timing failure; the
+exact root suite retry passed. These passes precede subsequent rendered/lifecycle
+fixes and do not certify final source. Exact records remain in
+`/tmp/orca-ota-e2e/session-settings-gates-attempt2/results.json`.
+
+Dedicated iOS adversarial/settings attempt5 passed on page build
+`a3a2c714dde06296f49e46e7291fc4f4da2e12ad1f90f2a5990813607382ad56`,
+including About build, Voice preference/model drawer, notification presentation,
+populated redacted connection diagnostics, existing preference/recovery consumers,
+SC/review and adversarial isolation. No OS permission prompt, model download or
+external diagnostics submission was exercised. The Voice radio accessibility fix
+and fixture readiness/case fixes followed observed DOM evidence.
+
+Dedicated chat attempt10 passed on page build
+`e2a459804227ad25770b3fc7ab345caef8047ebb0f7736509c01a53d1ffd59d0`:
+real PTY-bound transcript read, live feed, exactly-once submission and host-confirmed
+terminal create/rename/activate/close. Original tab count and chat preference restored.
+Inactive rename now prepares its existing opaque host binding without requiring a
+terminal stream; native RPC payloads stay unchanged. One cancelled lifecycle response
+was captured, with no rate-limited response.
+
+Full iOS settings/adversarial retry and Android smoke passed on that build. The first
+full iOS run timed out locating the native Alert probe; the unchanged production retry
+passed, so the cause remains an unexplained transient. About/Voice/Notifications and
+populated redacted diagnostics screenshots were visually inspected. Existing recovery
+banner follows the incumbent deliberate WebContent restart. Owned platform processes
+and Android emulator-5580 exited; no new recovery drill ran.
+
+Page-owned bounded catalog batching fixes mount concurrency without increasing shell
+ceilings or retrying mutations. Hosted startup waits for first-frame fresh snapshot
+certification instead of a competing eager read, retaining native startup, reconnect
+and polling. Lifecycle task settled and Desktop main rebuild2 passed.
+
+Final ten-gate failures were corrected without suppressions: host type declarations,
+fixtures missing document lifetime, session parity and startup timer ownership.
+All ten commands pass. Mobile:848 files/5,548 tests/3 skipped; root:345 files/2,825
+tests/1 skipped. Root lint retains seven existing warnings. Timer ownership has
+explicit disposal, parity preserves timer/native counts, and native RPC data is unchanged.
+
+Final Desktop rebuild3 and isolated export7 pass; build
+`27c301531aad77323c4654ffb4d1987b0aa1fe68056397d32802add4d51c4199`,
+56 assets/9,818,578 bytes/2,813,330 gzip. On this build, `session-settings-chat-final`,
+`session-settings-ios-complete` and `session-settings-android-complete` all exited0.
+Full chat/About/Voice/Notifications/diagnostics screenshots were visually inspected.
+All owned runtime/Metro/controller processes and emulator-5580 have exited.
+
+Exact ten-command exit records:
+`/tmp/orca-review2/completion-dispatch/session-settings-final-code-gate-results.json`.
+Build/platform exits:
+`/tmp/orca-review2/completion-dispatch/session-settings-platform-exits.json`.
+Failed attempts remain preserved and are not erased by final passes.
+
+The current batch is validated, its evidence accepted by the coordinator, and
+recorded by this user-authorized local commit; **pause before every queued domain
+task**. Nothing was pushed. The completion handoff records the commit SHA and
+final Git status for manual relay if orchestration delivery is unreliable. The obsolete optional host-fix delegation question must not launch an
+overlapping worker: the tester completed those fixes locally.
+
+Native-chat product storage/binding duplication remains queued with
+`task_6e9d4340f410`; diagnostics product feedback assembly stays a small follow-up.
+Final frozen-shell OTA proof follows the queued native frame-policy baseline.
+Actual released binaries, hardware permissions/push/background behavior and real
+mixed-version SSH remain unexercised; no broad certification is claimed.
+
+Details and exact failed/successful attempts:
+`/tmp/orca-review2/completion-dispatch/session-settings-validation-report.md`.
+
+## Historical checkpoint — September 6 hybrid simplification
+
+This section records the earlier checkpoint; its remaining-work statements are
+historical and superseded by the September 7 completion wave above.
+Last reconciled at that checkpoint: September 6, 2026, hybrid simplification batch.
 The **simplification is implemented and validated**. The broader
 long-lived shell implementation remains incomplete.
 
@@ -61,6 +194,8 @@ Source Control/task/review/account/file consumers; Voice/notification/diagnostic
 presentation and CSP/bootstrap externalization. Optional native-process-death
 resume improvements and the extra crash-loop drill remain deferred under YAGNI.
 Existing production rollback stays. No new recovery subsystem is planned.
+
+## Cumulative implementation checkpoints
 
 - [x] Investigate shell/host/page coupling and re-derive host-method census.
 - [x] Pin bridge protocol 2 and installed/cached package admission: `11646f11e0f`.
@@ -84,8 +219,13 @@ Existing production rollback stays. No new recovery subsystem is planned.
 - [x] Bounded Metro script assets: `86215b5dec8`.
 - [x] Full unattended existing adversarial harness on iOS and Android.
 - [x] Migrated Chat/Browser settings persistence and WebView-restart recovery on iOS.
-- [ ] Chat-specific interaction E2E. Additional frozen-shell crash-loop drill deferred (YAGNI).
+- [x] Chat-specific interaction E2E: final current-build read/feed/exact PTY send and session actions.
+      Additional frozen-shell crash-loop drill remains deferred (YAGNI).
 
+### Historical catalog authorization checkpoint
+
+The pending journeys and next steps in this checkpoint describe that earlier
+source state; the September 7 wave above records final chat/settings proof.
 Catalog authorization correction committed as `2b354df1463`; corrected iOS rerun passed.
 Investigation found that advertised `mobileWeb.files.*` and `mobileWeb.nativeChat.*`
 adapters were absent from the static mobile allowlist. Prior platform passes can
@@ -103,7 +243,7 @@ Prior investigation and exact gate tails are currently preserved in
 `/tmp/orca-review2/codex-ota-report.md`. This tracked file is the ongoing status
 source; it must not depend on those temporary files to explain remaining work.
 
-## Current simplification validation
+## Historical simplification validation
 
 | Gate                                           | Result                                             | Evidence                                                                                |
 | ---------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------- |
@@ -165,7 +305,8 @@ failure; all final gates passed after corrections. Failed logs remain under
 - [x] Migrate native-chat TUI send/respond/stop/prepare-commit actions;
       retain native image/clipboard/pending-storage authority.
 - [x] Migrate native-chat readability and file-action adapters: `ed6f610ecc1`.
-- [ ] Migrate session reads and mutations, terminal one-shots and files.
+- [x] Migrate remaining session snapshot/feed/actions; current batch validated.
+- [ ] Complete remaining file/domain operations.
 - [ ] Extend remaining source-control, task, review and account consumers.
 - [ ] Keep errors useful for reconciliation without exposing transport keys,
       raw credentials or native private paths.
@@ -188,7 +329,8 @@ folder and SSH workspaces still use their actual execution owner.
       and event count; enforce aggregate subscription ceilings.
 - [x] Forward domain event shapes without APK-owned projections (source-control file watch and native-chat transcript feed).
 - [x] Migrate native-chat transcript and source-control file-watch feeds.
-- [ ] Migrate remaining session/source-control/account feeds.
+- [x] Migrate session feed; current batch validates startup/reconnect and lifecycle.
+- [ ] Migrate remaining source-control/account feeds.
 - [ ] Preserve terminal binary capability negotiation, acknowledgements,
       backpressure and resync; never silently substitute JSON stream semantics.
 
@@ -220,11 +362,12 @@ components. Reuse presentation; split native dependencies through adapters.
 - [x] Browser preferences, including saved-value consumer and iOS persistence.
 - [x] Terminal settings, including host settings and device preferences: `97c4a050ebe`.
       iOS save/reopen and actual session consumers pass.
-- [ ] Voice and notification settings; native permission/model actions remain
-      explicit capabilities.
+- [x] Voice and notification presentation; current-build iOS verified.
+      Desktop model/setup actions use generic host RPC; native capture/permission stay native.
 - [x] Shared Settings menu with hosted Chat/Browser entries.
-- [x] About uses shared hosted/native presentation (`97c4a050ebe`); rendered proof remains open.
-- [ ] Diagnostics, connection-log and remaining Settings entries.
+- [x] About uses shared hosted/native presentation (`97c4a050ebe`); exact final interface build rendered on iOS.
+- [x] Diagnostics/connection-log presentation and current Settings entries; populated redacted iOS proof.
+- [ ] Move remaining diagnostics product feedback payload assembly out of shell.
 - [ ] Preserve pairing/onboarding bootstrap and minimal offline recovery when
       no trusted healthy page is available.
 - [ ] Deliberately update route ownership, reachability and parity tests.
@@ -261,7 +404,7 @@ existing simulator harnesses are the starting point, not duplicate test apps.
       audits. Evidence: `android-chat-stream.log` (details in progress log).
 - [x] iOS: Chat, Browser and Terminal settings persistence/consumer fixtures at the
       previous integration checkpoint and current simplification checkpoint.
-- [ ] iOS: dedicated native-chat interactions and About rendered proof.
+- [x] iOS: dedicated native-chat read/feed/send, session actions and About rendered proof; final build above.
 - [ ] iOS: reconnect, host switching, page restart, cached-page rollback and
       preference persistence across two desktop-served page builds on one shell.
 - [ ] Compatibility: representative released native client/new Desktop certification.
@@ -298,10 +441,12 @@ configured JDK 17/Android SDK; prebuild Android when required. Run native Swift
 store tests when native package/CSP behavior changes. Format only changed files
 with `pnpm exec oxfmt --write`.
 
-## Progress log
+## Historical progress log
 
-Historical checkpoints below retain their original evidence. Earlier hybrid fallback
-requirements and rollback plans are superseded by the current scope above.
+All checkpoints below retain their original evidence and describe work pending
+at that time, including session/settings migration and rendered chat proof.
+Their status, assignments, fallback requirements and rollback plans are
+superseded by the current completion wave and checklists above.
 
 - Initial checkpoint: two commits above pass all required gates; mobile 831
   files / 5,493 tests, root 315 files / 2,686 tests. No platform journey was
@@ -401,7 +546,7 @@ requirements and rollback plans are superseded by the current scope above.
   skew, two-page OTA replacement/rollback and physical-device behavior remain
   unverified. No push or deployment was performed.
 
-## Resumed implementation
+## Historical resumed implementation
 
 User requested continuing through completion. Investigation of the terminal gate
 now proves native tap delivery, OSC lookup, host path resolution and activation
@@ -691,7 +836,7 @@ remaining native-chat file/readability actions, and `--ota-only` A→B→A deliv
 fixture. Native process-death restoration, session migration, remaining settings
 and CSP bootstrap externalization remain open. No new platform pass claimed.
 
-### Host-settings integration — current verification
+### Historical host-settings integration verification
 
 All four typecheck commands and both lint commands passed. Changed-code-quality
 passed with zero new findings. Root tests passed: 328 files / 2,758 tests.
@@ -709,7 +854,7 @@ auto-restore reads now correctly unwrap `RpcResponse.result`. The route census
 change is deliberate because Terminal now has an actual hosted page. No export
 or simulator result is claimed for this batch yet.
 
-### YAGNI scope and active parallel assignments
+### Historical YAGNI scope and parallel assignments
 
 User asked to prioritize necessary implementation over recovery sophistication.
 Keep existing native rollback; defer the additional crash-loop drill and optional

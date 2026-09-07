@@ -13,6 +13,7 @@ export type HostSessionQuickCommandLaunchResult = {
 }
 
 export type HostSessionTabOperations = {
+  streamFirstStartup?: boolean
   runtimeCapabilities(): Promise<HostSessionRuntimeCapabilities>
   snapshot(workspaceId: string): Promise<SessionTabsResult>
   subscribe(

@@ -11,7 +11,6 @@ import type { MobileWebCommitMessageGeneration } from './mobile-web-commit-messa
 import type { MobileWebNavigationAuthority } from './mobile-web-navigation-operations'
 import type { MobileWebNativeCapabilityAuthority } from './mobile-web-native-capability-authority'
 import type { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
-import type { MobileWebSessionSubscriptions } from './mobile-web-session-subscriptions'
 import type { MobileWebSourceControlBranchComparePager } from './mobile-web-source-control-branch-compare-pager'
 import type { MobileWebSpeechAuthority } from './mobile-web-speech-authority'
 import type { MobileWebTaskTargetAuthority } from './mobile-web-task-target-authority'
@@ -25,7 +24,7 @@ import type { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-sub
 type PageRequest = Extract<MobileWebBridgePageMessage, { type: 'request' }>
 
 export type MobileWebCapabilityExecutionDependencies = {
-  pageSessionId?: string
+  getPageSessionId?: () => Promise<string>
   request: PageRequest
   isRequestActive: () => boolean
   connectedClient: () => RpcClient
@@ -37,7 +36,6 @@ export type MobileWebCapabilityExecutionDependencies = {
   hostSubscriptions: MobileWebHostSubscriptions
   accountSubscriptions: MobileWebAccountSubscriptions
   browserStreams: MobileWebBrowserStreams
-  sessionSubscriptions: MobileWebSessionSubscriptions
   sourceControlBranchCompare: MobileWebSourceControlBranchComparePager
   speechAuthority: MobileWebSpeechAuthority
   workspaceSubscriptions: MobileWebWorkspaceSubscriptions

@@ -1,3 +1,4 @@
+import { sessionHostFixture } from './mobile-web-session-host-fixture'
 import { onTestFinished } from 'vitest'
 import {
   MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
@@ -37,6 +38,7 @@ export function createMobileWebBridgeRoundtripFixture(options: {
   randomBytes?: (length: number) => Uint8Array
 }) {
   const context = options.context ?? MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT
+  const rpcClient = options.rpcClient ? sessionHostFixture(options.rpcClient) : null
   const pageMessages: MobileWebBridgePageMessage[] = []
   const shellMessages: MobileWebBridgeShellMessage[] = []
   let broker: MobileWebCapabilityBroker
@@ -57,7 +59,7 @@ export function createMobileWebBridgeRoundtripFixture(options: {
   })
   broker = new MobileWebCapabilityBroker({
     context,
-    getClient: () => options.rpcClient ?? null,
+    getClient: () => rpcClient,
     isConnected: options.isConnected ?? (() => options.rpcClient != null),
     isActive: options.isActive ?? (() => true),
     nativeAuthority: { ...defaultNativeAuthority(), ...options.nativeAuthority },

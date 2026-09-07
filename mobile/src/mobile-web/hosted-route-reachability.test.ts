@@ -14,7 +14,15 @@ describe('hosted page route reachability', () => {
   const nativeOnlyRoutes = listRoutes(nativeRoot).filter((route) => !hostedRoutes.includes(route))
 
   it('knows which native routes the hosted page does not serve', () => {
-    expect(nativeOnlyRoutes).toContain('/connection-log')
+    expect(nativeOnlyRoutes).toContain('/hybrid')
+    expect(hostedRoutes).toEqual(
+      expect.arrayContaining([
+        '/connection-log',
+        '/troubleshoot',
+        '/notifications',
+        '/voice-settings'
+      ])
+    )
     expect(nativeOnlyRoutes).toContain('/pair-scan')
     expect(hostedRoutes).toContain('/h/[hostId]')
   })

@@ -41,11 +41,6 @@ const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
     'submittedCommentIds',
     'workspaceId'
   ],
-  'session.activate': ['activeTabId', 'workspaceId'],
-  'session.close': ['tabId', 'workspaceId'],
-  'session.createBrowser': ['workspaceId'],
-  'session.createQuickCommand': ['workspaceId'],
-  'session.snapshot': ['workspaceId'],
   'sourceControl.abort': ['operation', 'previousBranch', 'previousHead', 'workspaceId'],
   'sourceControl.branch': ['branch', 'operation', 'previousBranch', 'previousHead', 'workspaceId'],
   'sourceControl.branchCompare': ['baseRef', 'offset', 'revision', 'workspaceId'],
@@ -68,7 +63,6 @@ const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
   'sourceControl.stage': ['operation', 'relativePaths.length', 'workspaceId'],
   'sourceControl.unstage': ['operation', 'relativePaths.length', 'workspaceId'],
   'sourceControl.upstream': ['workspaceId'],
-  'speech.configure': ['dictationMode', 'enabled', 'selectedModelId'],
   'task.loadLinearDetail': ['issue.targetId'],
   'task.loadLinearIssue': ['issue.targetId'],
   'task.projectTable': ['project', 'selectedView.id'],
@@ -302,7 +296,7 @@ describe('mobile web bridge operation echo census', () => {
     )
 
     expect(Object.keys(EXPECTED_ECHO_FIELDS).filter((key) => !registered.has(key))).toEqual([])
-    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(55)
+    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(49)
   })
 
   it('guards the page workspace handle on every workspace-scoped echo it records', () => {

@@ -3,7 +3,17 @@ import { useState } from 'react'
 import { Text } from 'react-native'
 import { colors, typography, spacing } from '../src/theme/mobile-theme'
 import { useRouter } from 'expo-router'
-import { Globe, MessageSquare, Terminal, Info, Shield, LifeBuoy } from 'lucide-react-native'
+import {
+  Globe,
+  MessageSquare,
+  Terminal,
+  Mic,
+  Bell,
+  Activity,
+  Info,
+  Shield,
+  LifeBuoy
+} from 'lucide-react-native'
 import { MobileSettingsFrame, MobileSettingsSection } from '../src/settings/mobile-settings-menu'
 
 export default function HostedSettingsRoute() {
@@ -49,6 +59,24 @@ export default function HostedSettingsRoute() {
             disabled,
             icon: Globe,
             onPress: () => router.push('/browser-settings')
+          },
+          {
+            label: 'Voice',
+            icon: Mic,
+            disabled: !shell.client,
+            onPress: () => router.push('/voice-settings')
+          },
+          {
+            label: 'Notifications',
+            icon: Bell,
+            disabled: !shell.client,
+            onPress: () => router.push('/notifications')
+          },
+          {
+            label: 'Troubleshooting',
+            icon: Activity,
+            disabled: !shell.client,
+            onPress: () => router.push('/troubleshoot')
           },
           { label: 'About', icon: Info, onPress: () => router.push('/about') }
         ]}

@@ -1,3 +1,10 @@
+import { MOBILE_WEB_SESSION_METHODS } from './mobile-web-session'
+import { MOBILE_WEB_SESSION_STREAM_METHODS } from './mobile-web-session-stream'
+import { MOBILE_WEB_SESSION_CAPABILITIES_METHOD } from './mobile-web-session-capabilities'
+import { MOBILE_WEB_SESSION_QUICK_COMMAND_METHODS } from './mobile-web-session-quick-commands'
+import { MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD } from './mobile-web-session-browser-create'
+import { MOBILE_WEB_SESSION_NATIVE_RESOURCE_METHOD } from './mobile-web-session-native-resource'
+import { MOBILE_WEB_PAGE_LIFETIME_METHODS } from './mobile-web-page-lifetime'
 import { MOBILE_WEB_SOURCE_CONTROL_READ_METHODS } from './mobile-web-source-control-reads'
 import { MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS } from './mobile-web-session-terminal-creation'
 import { MOBILE_WEB_NATIVE_CHAT_FILE_METHODS } from './mobile-web-native-chat-files'
@@ -118,6 +125,13 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...MOBILE_WEB_NATIVE_CHAT_METHODS,
   ...MOBILE_WEB_NATIVE_CHAT_FILE_METHODS,
   ...MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS,
+  ...MOBILE_WEB_SESSION_METHODS,
+  ...MOBILE_WEB_SESSION_STREAM_METHODS,
+  MOBILE_WEB_SESSION_CAPABILITIES_METHOD,
+  ...MOBILE_WEB_SESSION_QUICK_COMMAND_METHODS,
+  MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD,
+  MOBILE_WEB_SESSION_NATIVE_RESOURCE_METHOD,
+  ...MOBILE_WEB_PAGE_LIFETIME_METHODS,
   MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD,
   ...MOBILE_WEB_PACKAGE_METHODS
 ]

@@ -25,12 +25,11 @@ describe('page-owned terminal metadata forwarding', () => {
     for (const request of [
       {
         operation: 'displayMode' as const,
-        streamId: 'stream',
         mode: 'auto' as const,
         viewport: { cols: 90, rows: 30 }
       },
-      { operation: 'rename' as const, streamId: 'stream', title: 'Build' },
-      { operation: 'clear' as const, streamId: 'stream' }
+      { operation: 'rename' as const, title: 'Build' },
+      { operation: 'clear' as const }
     ]) {
       await expect(run!(request)).resolves.toBeNull()
     }
@@ -51,11 +50,13 @@ describe('page-owned terminal metadata forwarding', () => {
       }))
     ])
     expect(
-      f.request.mock.calls.every(
-        (call) =>
-          (call as unknown[]).at(-1) &&
-          ((call as unknown[]).at(-1) as { signal: AbortSignal }).signal === f.signal
-      )
+      f.request.mock.calls
+        .filter((call) => call[1] !== 'hostCatalog')
+        .every(
+          (call) =>
+            (call as unknown[]).at(-1) &&
+            ((call as unknown[]).at(-1) as { signal: AbortSignal }).signal === f.signal
+        )
     ).toBe(true)
   })
   it.each(['timeout', 'unsupported_capability', 'host_error'] as const)(
@@ -64,7 +65,7 @@ describe('page-owned terminal metadata forwarding', () => {
       const f = fixture()
       const run = await bindMobileWebHostTerminalActions(f.requests, 'w', 't', f.signal)
       f.request.mockRejectedValueOnce(new MobileWebBridgeClientError(code, true))
-      await expect(run!({ operation: 'clear', streamId: 'stream' })).rejects.toMatchObject({ code })
+      await expect(run!({ operation: 'clear' })).rejects.toMatchObject({ code })
       expect(f.request).toHaveBeenCalledTimes(3)
     }
   )

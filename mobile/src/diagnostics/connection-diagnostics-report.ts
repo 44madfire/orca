@@ -16,7 +16,8 @@ const EVENT_TRUNCATION_MARKER = ' … [truncated]'
 // ask reporters one message at a time (endpoint type, state, attempt count,
 // last-connected, versions, and the reconnect lifecycle log).
 export function buildConnectionDiagnosticsReport(args: {
-  endpoint: string
+  endpoint?: string
+  endpointIsTailscale?: boolean
   state: ConnectionState
   reconnectAttempts: number
   lastConnectedAt: number | null
@@ -33,6 +34,7 @@ export function buildConnectionDiagnosticsReport(args: {
   const entries = args.entries.map(redactConnectionLogEntry)
   const diagnosis = diagnoseConnection({
     endpoint: args.endpoint,
+    endpointIsTailscale: args.endpointIsTailscale,
     state: args.state,
     activePath: args.activePath,
     pendingPath: args.pendingPath,
@@ -45,7 +47,9 @@ export function buildConnectionDiagnosticsReport(args: {
   const desktopAppVersion = normalizeHostAppVersion(args.desktopAppVersion)
   lines.push(`Host Orca version: ${desktopAppVersion ?? 'unknown'}`)
   lines.push('Host: selected paired desktop')
-  lines.push(`Connection path: ${isTailscaleEndpoint(args.endpoint) ? 'Tailscale' : 'Standard'}`)
+  lines.push(
+    `Connection path: ${(args.endpointIsTailscale ?? isTailscaleEndpoint(args.endpoint ?? '')) ? 'Tailscale' : 'Standard'}`
+  )
   lines.push(`State: ${args.state} (reconnect attempts: ${args.reconnectAttempts})`)
   if (args.activePath) {
     lines.push(

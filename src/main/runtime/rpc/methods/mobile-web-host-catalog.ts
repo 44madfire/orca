@@ -21,6 +21,13 @@ const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
     'mobileWeb.nativeChat.fileSearch',
     'mobileWeb.nativeChat.openFile',
     'mobileWeb.nativeChat.readability',
+    'mobileWeb.session.snapshot',
+    'mobileWeb.session.activate',
+    'mobileWeb.session.close',
+    'mobileWeb.session.createBrowser',
+    'mobileWeb.session.quickCommands',
+    'mobileWeb.session.quickCommandMutate',
+    'mobileWeb.session.createQuickCommand',
     'mobileWeb.session.agentOptions',
     'mobileWeb.session.createTerminal'
   ].map((method) => [
@@ -28,7 +35,9 @@ const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
     {
       method,
       workspaceParam: 'worktree',
-      ...(method.startsWith('mobileWeb.nativeChat.') || method.startsWith('mobileWeb.terminal.')
+      ...(method.startsWith('mobileWeb.nativeChat.') ||
+      method.startsWith('mobileWeb.terminal.') ||
+      method.startsWith('mobileWeb.session.')
         ? { pageSessionParam: 'pageSession' }
         : {}),
       maxRequestBytes: method === 'mobileWeb.nativeChat.mutate' ? 600 * 1024 : 16 * 1024,
@@ -37,8 +46,31 @@ const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
   ])
 )
 
-for (const method of ['terminal.getAutoRestoreFit', 'terminal.setAutoRestoreFit']) {
-  PAGE_METHODS.set(method, { method, scope: 'host', maxRequestBytes: 1024, maxResponseBytes: 1024 })
+for (const method of [
+  'terminal.getAutoRestoreFit',
+  'terminal.setAutoRestoreFit',
+  'mobileWeb.session.capabilities'
+]) {
+  PAGE_METHODS.set(method, {
+    method,
+    scope: 'host',
+    maxRequestBytes: 1024,
+    maxResponseBytes: method === 'mobileWeb.session.capabilities' ? 64 * 1024 : 1024
+  })
+}
+
+for (const method of [
+  'speech.models.list',
+  'speech.models.download',
+  'speech.models.delete',
+  'speech.dictation.setup'
+]) {
+  PAGE_METHODS.set(method, {
+    method,
+    scope: 'host',
+    maxRequestBytes: 4096,
+    maxResponseBytes: 64 * 1024
+  })
 }
 
 const fileWatchGrant: MobileWebHostGrant = {
@@ -58,6 +90,13 @@ PAGE_METHODS.set('mobileWeb.nativeChat.subscribe', {
   unsubscribeMethod: 'nativeChat.unsubscribe'
 })
 
+PAGE_METHODS.set('mobileWeb.session.subscribe', {
+  ...fileWatchGrant,
+  method: 'mobileWeb.session.subscribe',
+  pageSessionParam: 'pageSession',
+  unsubscribeMethod: 'mobileWeb.session.unsubscribe'
+})
+
 export const MOBILE_WEB_HOST_CATALOG_METHOD = defineMethod({
   name: 'mobileWeb.host.catalog',
   params: MobileWebHostCatalogPayloadSchema,
@@ -71,6 +110,9 @@ export const MOBILE_WEB_HOST_CATALOG_METHOD = defineMethod({
 
 export function isMobileWebHostRpcMethod(method: string): boolean {
   return (
+    method === 'mobileWeb.resource.resolve' ||
+    method === 'mobileWeb.page.subscribe' ||
+    method === 'mobileWeb.page.unsubscribe' ||
     PAGE_METHODS.has(method) ||
     [...PAGE_METHODS.values()].some((grant) => grant.unsubscribeMethod === method)
   )

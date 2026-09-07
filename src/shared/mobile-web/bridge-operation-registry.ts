@@ -42,17 +42,6 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     creationCreateBlank: 'mutation',
     creationCreateFromSource: 'mutation'
   },
-  session: {
-    capabilities: 'read',
-    snapshot: 'read',
-    subscribe: 'subscription',
-    quickCommands: 'read',
-    quickCommandMutate: 'mutation',
-    createQuickCommand: 'mutation',
-    createBrowser: 'mutation',
-    activate: 'mutation',
-    close: 'mutation'
-  },
   terminal: {
     subscribe: 'subscription',
     input: 'mutation',
@@ -207,15 +196,17 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
   },
   speech: {
     subscribe: 'subscription',
-    setup: 'read',
-    downloadModel: 'mutation',
-    deleteModel: 'mutation',
-    configure: 'mutation',
     start: 'mutation',
     stop: 'mutation',
     cancel: 'mutation'
   },
   native: {
+    notificationPermission: 'mutation',
+    notificationPreference: 'mutation',
+    openSystemSettings: 'mutation',
+    diagnosticsSnapshot: 'read',
+    diagnosticsProbe: 'read',
+    diagnosticsSubmit: 'mutation',
     alert: 'mutation',
     hapticSelection: 'mutation',
     hapticFeedback: 'mutation',

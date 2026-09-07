@@ -2,6 +2,12 @@ import { MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES } from '../../../src/shared/mobil
 import { capabilityGrants, grantLimits } from './mobile-web-production-grant-table'
 
 export const MOBILE_WEB_PRODUCTION_NATIVE_GRANTS = capabilityGrants('native', {
+  diagnosticsSnapshot: grantLimits(256, 512 * 1024, 1, 8, 2),
+  diagnosticsProbe: grantLimits(256, 256, 1, 4, 0.25),
+  diagnosticsSubmit: grantLimits(256 * 1024 + 1024, 4 * 1024, 1, 2, 0.1),
+  notificationPermission: grantLimits(256, 512, 1, 8, 2),
+  notificationPreference: grantLimits(256, 256, 1, 8, 2),
+  openSystemSettings: grantLimits(256, 256, 1, 4, 1),
   alert: grantLimits(32 * 1024, 256, 1, 4, 1),
   clipboardAvailability: grantLimits(256, 256, 1, 8, 2),
   hapticSelection: grantLimits(256, 256, 1, 12, 8),

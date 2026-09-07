@@ -26,6 +26,8 @@ export async function executeMobileWebNativeChatImageOperation(args: {
   operation: string
   payload: unknown
   client: RpcClient
+  getPageSessionId?: () => Promise<string>
+  isActive?: () => boolean
   terminalClientId: string
   workspaceAuthority: MobileWebWorkspaceAuthority
   nativeChatAuthority: MobileWebNativeChatAuthority
@@ -48,7 +50,7 @@ export async function executeMobileWebNativeChatImageOperation(args: {
     if (prepared.status !== 'accepted') {
       return MobileWebNativeChatAttachImageResultSchema.parse({ status: prepared.status })
     }
-    assertCurrentMobileWebNativeChatPageBinding(
+    await assertCurrentMobileWebNativeChatPageBinding(
       args,
       payload.workspaceId,
       payload.sessionId,

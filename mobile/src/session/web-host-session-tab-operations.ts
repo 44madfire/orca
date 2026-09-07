@@ -7,6 +7,7 @@ export function webHostSessionTabOperations(
   client: MobileWebBridgeClient
 ): HostSessionTabOperations {
   return {
+    streamFirstStartup: true,
     runtimeCapabilities() {
       return client.sessionCapabilities({})
     },

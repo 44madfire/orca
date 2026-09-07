@@ -1,3 +1,4 @@
+import { createSettingsAuthority } from '../src/mobile-web/mobile-web-hosted-settings-authority'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MobileWebShellViewRef } from '@orca/expo-mobile-web-shell'
 import * as ExpoCrypto from 'expo-crypto'
@@ -16,7 +17,6 @@ import { useMobileWebPageDocument } from '../src/mobile-web/use-mobile-web-page-
 import { mobileWebShellInitMessage } from '../src/mobile-web/mobile-web-shell-init-message'
 import { MobileWebHealthDeadline } from '../src/mobile-web/mobile-web-health-deadline'
 import { useMobileWebAlertSafePackageSession } from '../src/mobile-web/use-mobile-web-alert-safe-package-session'
-import { createMobileWebNativeCapabilityAuthority } from '../src/mobile-web/mobile-web-native-capability-authority'
 import { MobileWebHybridShellPresentation } from '../src/mobile-web/MobileWebHybridShellPresentation'
 import { mobileWebShellLoadFailureWarning } from '../src/mobile-web/mobile-web-shell-load-failure-warning'
 import { useMobileWebNavigationIntentHandoff } from '../src/mobile-web/use-mobile-web-navigation-intent-handoff'
@@ -34,6 +34,7 @@ import { MobileWebNativeRouteHandoff } from '../src/mobile-web/mobile-web-native
 import { useMobileWebNavigationAuthority } from '../src/mobile-web/use-mobile-web-navigation-authority'
 import { handleMobileWebBrokerMessage } from '../src/mobile-web/mobile-web-broker-message-handoff'
 import {
+  useRpcClientContext,
   useForceReconnect,
   useForgetHostClient,
   useHostClient
@@ -65,6 +66,7 @@ export default function HybridScreen() {
   const resumeRoute = useMobileWebResumeRouteMemory(selectedHostId)
   const e2eHostId = useMobileWebE2eHostSelection(hosts, selectedHostId, selectHost)
   const { client, state } = useHostClient(selectedHostId)
+  const clientContext = useRpcClientContext()
   const closeHostClient = useForgetHostClient()
   const forceReconnectHost = useForceReconnect()
   const reconnects = useReconnectAttempt(selectedHostId)
@@ -188,10 +190,7 @@ export default function HybridScreen() {
           bridgeRuntimeRef.current.state === 'connected',
         isActive: () => activeSessionIdRef.current === page.sessionId,
         postMessage: postToWeb,
-        nativeAuthority: createMobileWebNativeCapabilityAuthority({
-          hostIdentity: selectedHost.publicKeyB64,
-          buildIdentity: page.buildId
-        }),
+        nativeAuthority: createSettingsAuthority(selectedHost, page.buildId, clientContext),
         navigationAuthority,
         terminalClientId: selectedHost.deviceToken,
         onTerminalFlowMetrics: (metrics) =>
@@ -206,6 +205,7 @@ export default function HybridScreen() {
       })
     },
     [
+      clientContext,
       coldResumeRoute.rememberHostRoute,
       navigationAuthority,
       postToWeb,

@@ -21,9 +21,7 @@ const BINDING = {
 describe('mobile web native-chat image operations', () => {
   it('returns an opaque scoped reference instead of the uploaded host path', async () => {
     const context = operationContext()
-    const sendRequest = vi
-      .fn<RpcClient['sendRequest']>()
-      .mockResolvedValue(success(sessionSnapshot()))
+    const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue(success(BINDING))
     vi.mocked(prepareMobileWebNativeChatImageAttachment).mockResolvedValue({
       status: 'accepted',
       hostPath: '/remote/private/orca-image.png',
@@ -67,7 +65,7 @@ function operationContext() {
     workspaceAuthority,
     nativeChatAuthority,
     pageWorkspaceId: workspaceAuthority.pageWorkspaceId(BINDING.hostWorkspaceId),
-    pageSessionId: nativeChatAuthority.register(BINDING)
+    pageSessionId: 'resource_session'
   }
 }
 
@@ -78,31 +76,10 @@ function operationArgs(
   return {
     client: { sendRequest } as unknown as RpcClient,
     terminalClientId: 'mobile-device',
+    getPageSessionId: async () => 'document',
     workspaceAuthority: context.workspaceAuthority,
     nativeChatAuthority: context.nativeChatAuthority,
     nativeAuthority: {}
-  }
-}
-
-function sessionSnapshot() {
-  return {
-    worktree: BINDING.hostWorkspaceId,
-    tabs: [
-      {
-        type: 'terminal',
-        id: BINDING.hostTabId,
-        terminal: BINDING.hostTerminalId,
-        launchAgent: BINDING.agent,
-        agentStatus: {
-          state: 'waiting',
-          agentType: BINDING.agent,
-          providerSession: {
-            id: BINDING.providerSessionId,
-            transcriptPath: BINDING.transcriptPath
-          }
-        }
-      }
-    ]
   }
 }
 

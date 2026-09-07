@@ -35,6 +35,10 @@ export class MobileWebOneShotRequestClient {
     }
   ) {}
 
+  get defaultTimeoutMs(): number {
+    return this.options.requestTimeoutMs ?? MOBILE_WEB_BRIDGE_REQUEST_TIMEOUT_MS
+  }
+
   supports(
     capability: MobileWebBridgeCapability,
     operation: MobileWebBridgeOperationName
@@ -77,18 +81,15 @@ export class MobileWebOneShotRequestClient {
       return Promise.reject(error)
     }
     return new Promise<TResult>((resolve, reject) => {
-      const timer = setTimeout(
-        () => {
-          const pending = this.pending.get(requestId)
-          if (!pending) {
-            return
-          }
-          this.releasePending(requestId, pending)
-          this.postCancel(requestId)
-          reject(new MobileWebBridgeClientError('timeout', true))
-        },
-        options.timeoutMs ?? this.options.requestTimeoutMs ?? MOBILE_WEB_BRIDGE_REQUEST_TIMEOUT_MS
-      )
+      const timer = setTimeout(() => {
+        const pending = this.pending.get(requestId)
+        if (!pending) {
+          return
+        }
+        this.releasePending(requestId, pending)
+        this.postCancel(requestId)
+        reject(new MobileWebBridgeClientError('timeout', true))
+      }, options.timeoutMs ?? this.defaultTimeoutMs)
       this.pending.set(requestId, {
         resolve: (value) => resolve(value as TResult),
         reject,

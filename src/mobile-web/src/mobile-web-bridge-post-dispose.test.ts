@@ -84,7 +84,7 @@ describe('after dispose', () => {
       client,
       'T'.repeat(22),
       onError,
-      (payload) => client.terminalRequest(payload)
+      () => rejection.promise
     )
     scheduler.markHostReady(true)
 
@@ -105,8 +105,8 @@ function createHarness() {
     context: CONTEXT,
     grants: [
       {
-        capability: 'session',
-        operation: 'subscribe',
+        capability: 'workspace',
+        operation: 'hostSubscribe',
         limits: {
           maxRequestBytes: 1024,
           maxResponseBytes: 128 * 1024,
@@ -171,13 +171,16 @@ function sessionEvent(sequence: number): Extract<MobileWebBridgeShellMessage, { 
     subscriptionId: SUBSCRIPTION_ID,
     sequence,
     payload: {
-      workspaceId: 'workspace-1',
-      publicationEpoch: 'epoch-1',
-      snapshotVersion: sequence + 1,
-      activeTabId: null,
-      activeTabType: null,
-      tabs: [],
-      truncated: false
+      type: 'snapshot',
+      snapshot: {
+        workspaceId: 'workspace-1',
+        publicationEpoch: 'epoch-1',
+        snapshotVersion: sequence + 1,
+        activeTabId: null,
+        activeTabType: null,
+        tabs: [],
+        truncated: false
+      }
     }
   }
 }

@@ -77,10 +77,14 @@ describe('mobile web mutation authorization races', () => {
     expect(callsFor(sendRequest, 'github.updateIssue')).toHaveLength(0)
   })
 
-  it('rejects native-chat persistence when tab preflight loses its session authority', async () => {
+  it('rejects native-chat persistence when resource resolution loses its session authority', async () => {
     const workspace = workspaceAuthority()
     const chat = new MobileWebNativeChatAuthority((length) => new Uint8Array(length).fill(5))
-    const sessionId = chat.register(chatBinding)
+    const sessionId = 'resource-session-a'
+    chat.bind(sessionId, {
+      ...chatBinding,
+      hostWorkspaceId: workspace.authority.hostWorkspaceId(workspace.pageId)
+    })
     const tabs = deferredResult()
     const sendRequest = vi.fn(() => tabs.promise)
     const sessionChatPendingWrite = vi.fn().mockResolvedValue(undefined)
@@ -94,6 +98,7 @@ describe('mobile web mutation authorization races', () => {
       client: client(sendRequest),
       workspaceAuthority: workspace.authority,
       nativeChatAuthority: chat,
+      getPageSessionId: async () => 'page-document-a',
       nativeAuthority: { sessionChatPendingWrite },
       terminalClientId: 'mobile-client'
     })
@@ -101,7 +106,7 @@ describe('mobile web mutation authorization races', () => {
 
     await vi.waitFor(() => expect(sendRequest).toHaveBeenCalledTimes(1))
     chat.clear()
-    tabs.resolve(success(sessionSnapshot()))
+    tabs.resolve(success(chatBinding))
 
     await rejection
     expect(sessionChatPendingWrite).not.toHaveBeenCalled()
@@ -124,28 +129,6 @@ function workspaceAuthority() {
     authority,
     pageId: authority.pageWorkspaceId('workspace-a'),
     remove: () => authority.synchronize([])
-  }
-}
-
-function sessionSnapshot() {
-  return {
-    worktree: 'workspace-a',
-    tabs: [
-      {
-        type: 'terminal',
-        id: 'tab-a',
-        terminal: 'terminal-a',
-        launchAgent: 'claude',
-        agentStatus: {
-          state: 'waiting',
-          agentType: 'claude',
-          providerSession: {
-            id: 'provider-session-a',
-            transcriptPath: '/private/transcript.jsonl'
-          }
-        }
-      }
-    ]
   }
 }
 

@@ -22,6 +22,7 @@ import { MobileWebBrokerError } from './mobile-web-broker-error'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 type ScreencastRecord = MobileWebSubscriptionRecord & {
+  releaseBinding: () => void
   frameQueued: boolean
   pendingFrame: BrowserScreencastFrame | null
 }
@@ -51,6 +52,7 @@ export class MobileWebBrowserStreams extends MobileWebSubscriptionLedger<
     const hostPageId = this.config.browserAuthority.hostPageId(hostWorkspaceId, payload.pageId)
     const record: ScreencastRecord = {
       ...this.newRecord(args.requestId),
+      releaseBinding: this.config.browserAuthority.retain(payload.pageId),
       frameQueued: false,
       pendingFrame: null
     }
@@ -85,6 +87,7 @@ export class MobileWebBrowserStreams extends MobileWebSubscriptionLedger<
 
   // Drops the parked image so a retired stream cannot pin a multi-megabyte frame.
   protected override retire(record: ScreencastRecord): void {
+    record.releaseBinding()
     record.pendingFrame = null
   }
 

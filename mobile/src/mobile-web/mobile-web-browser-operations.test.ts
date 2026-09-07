@@ -110,11 +110,15 @@ function authorities(): {
   const randomBytes = (length: number): Uint8Array => new Uint8Array(length).fill(3)
   const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
   workspaceAuthority.synchronize([{ workspaceId: 'host-workspace', repoId: 'repo-1' }])
-  const browserAuthority = new MobileWebBrowserAuthority(randomBytes)
+  const browserAuthority = new MobileWebBrowserAuthority()
+  browserAuthority.bind('resource_browser', {
+    hostWorkspaceId: 'host-workspace',
+    hostPageId: 'raw-page'
+  })
   return {
     workspaceAuthority,
     browserAuthority,
     workspaceId: workspaceAuthority.pageWorkspaceId('host-workspace'),
-    pageId: browserAuthority.register('host-workspace', 'raw-page')
+    pageId: 'resource_browser'
   }
 }

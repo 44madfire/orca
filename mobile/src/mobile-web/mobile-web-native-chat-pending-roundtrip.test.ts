@@ -12,7 +12,7 @@ describe('mobile web native chat pending delivery round trip', () => {
       )
       .mockResolvedValueOnce(success(sessionSnapshot()))
       .mockResolvedValueOnce(success(sessionSnapshot()))
-      .mockResolvedValueOnce(success(sessionSnapshot()))
+      .mockResolvedValue(success(sessionSnapshot()))
     const sessionChatPendingRead = vi
       .fn()
       .mockResolvedValue([{ text: 'restored pending', expectedOccurrence: 1 }])

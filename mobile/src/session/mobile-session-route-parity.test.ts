@@ -25,6 +25,7 @@ const LOGIC_EXPANSION_NAMES = new Set([
   'useMobileSessionLifecycle',
   'useMobileSessionKeyboardState',
   'useMobileSessionStartup',
+  'createSessionStartupTimers',
   'useMobileSessionPreferenceFocus',
   'useMobileSessionTabSwitching',
   'useMobileSessionTerminalWebview',
@@ -66,25 +67,25 @@ const HOST_COMPONENT_NAMES = new Set([
   'View'
 ])
 
-// Activation source fencing adds two hooks; session-tab-activation-source-race tests the behavior.
+// Hosted startup and its timer owner are covered by hosted-session-startup-reconciliation tests.
 const HEAD_MAIN_HOOK_SHA256 = '8a65c402639980ffda9132ce3dba84da8d85998f5c6b933a8c8eb09817a04783'
-const HEAD_HOOK_BINDING_SHA256 = 'e43ab1ae9e6fd0eb126558207868f1da6322ba50bdeb4a6f7132e6a1f29a9474'
+const HEAD_HOOK_BINDING_SHA256 = 'afe7c2061bf68a610aedcda59bd26ab39273d91c0821c1f5f5b5a59f7c98b864'
 const HEAD_CALLBACK_IDENTITY_SHA256 =
   '3ad3c833aa99bbfd3a4038bae70a0247192f51fb938a2fe3df86626dcfa3386e'
 const HEAD_CALLBACK_BODY_SHA256 = '4fd9fef0051a6eacd9c870bd577aeb17e6fac734d998c2a5023800eb335c573b'
-const HEAD_EFFECT_SHA256 = '36e816e2114ad1b21e3bc88fea12f0ffdd8a830a5f2aeff90146ca71e626b2ab'
+const HEAD_EFFECT_SHA256 = '6cf786f264e5c720b98b4a612ded19f2c64adc8b52149225e84ae0887b2ff812'
 const HEAD_CONTENT_HOOK_SHA256 = 'd74431115b27c22dd38c29a510604554ca767cdd2585beaa73ec2e2dae0c5de4'
 // Re-frozen when main's structured Claude chat (#18741) generalized the bare-launch gate
 // from an `agent === 'codex'` literal to isAgentSessionHandleProvider.
 const HEAD_NESTED_FUNCTION_SHA256 =
-  'b2473556b97f3b8f41fbce728e1a0e5a2bb3808e17a9e022515af1fa7dd97ecc'
+  'b5aec5fa278ad38d7492a13950a9b93176ec9f9d6262bb9effada5f3b98df339'
 const HEAD_NATIVE_REGISTRATION_SHA256 =
   '482c1b9df56a02236e8efcc56fab41de0ea525aa5a03785dc5ac4af8f694c457'
 const HEAD_NATIVE_REMOVAL_SHA256 =
   'b9fac2ec79984976e7d9b37312f0895b978ce10590261755d96272173a6bfb23'
 const HEAD_TIMER_CREATION_SHA256 =
-  '688342d48a1b4a46cdffbf0d8953bac245fb6d3c4fe1b5698a1ea6e1e1929bed'
-const HEAD_TIMER_CLEANUP_SHA256 = '8a45ae3c8a01a639a40ffaf3c0fc89a2e0b610623306818c86bad4ef9195b824'
+  '908672dfb0aa99eb6e78afec9990f30cbaa2f4f03289daec26c5bb0a9162339c'
+const HEAD_TIMER_CLEANUP_SHA256 = 'd170b68ffd7eb91842761a720d63b163065fd79357f065412bd06d8e45caef95'
 // Re-frozen when main's structured Claude chat (#18741) dropped the 'codex' literal
 // from the bare-launch gate: one fewer runtime string, same JSX.
 const HEAD_RUNTIME_STRING_SHA256 =
@@ -495,7 +496,7 @@ describe('mobile session route extraction parity', () => {
     expect(contentBindings).toHaveLength(15)
     expect(hash(contentBindings)).toBe(HEAD_CONTENT_HOOK_SHA256)
     const nestedFunctions = readNestedFunctions(definitions)
-    expect(nestedFunctions).toHaveLength(11)
+    expect(nestedFunctions).toHaveLength(10)
     expect(hash(nestedFunctions)).toBe(HEAD_NESTED_FUNCTION_SHA256)
   })
 

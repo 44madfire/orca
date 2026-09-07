@@ -4,6 +4,8 @@ import { TERMINAL_QUERY_METHODS } from './terminal/terminal-query-methods'
 import { TERMINAL_VIEWPORT_METHODS_BEFORE_STREAMS } from './terminal/terminal-viewport-methods'
 import {
   registerMobileWebPageResource,
+  retireMobileWebPageResources,
+  admitMobileWebPageResourceSnapshot,
   resolveMobileWebPageResource
 } from './mobile-web-page-resources'
 
@@ -26,8 +28,51 @@ const actions = new Map(
     .map((method) => [method.name, method])
 )
 
-async function readBinding(context: RpcContext, worktree: string, tabId: string): Promise<Binding> {
-  const snapshot = await context.runtime.listMobileSessionTabs(worktree, context.pairedDeviceId)
+async function readBinding(
+  context: RpcContext,
+  params: z.infer<typeof Scope>,
+  tabId: string
+): Promise<Binding> {
+  const snapshot = await context.runtime.listMobileSessionTabs(
+    params.worktree,
+    context.pairedDeviceId
+  )
+  if (`id:${snapshot.worktree}` !== params.worktree) {
+    throw new Error('selector_not_found')
+  }
+  admitMobileWebPageResourceSnapshot(
+    context,
+    params.pageSession,
+    params.worktree,
+    snapshot.publicationEpoch,
+    snapshot.snapshotVersion
+  )
+  if (
+    !('workspaceTransportState' in snapshot) ||
+    snapshot.workspaceTransportState !== 'unavailable'
+  ) {
+    const identities = new Set(
+      snapshot.tabs.flatMap((value) => {
+        const tab = Tab.safeParse(value)
+        return tab.success
+          ? [
+              JSON.stringify({
+                tabId: tab.data.id,
+                terminal: tab.data.terminal,
+                worktreeId: snapshot.worktree
+              })
+            ]
+          : []
+      })
+    )
+    retireMobileWebPageResources(
+      context,
+      params.pageSession,
+      params.worktree,
+      'terminal',
+      identities
+    )
+  }
   const parsed = Tab.safeParse(snapshot.tabs.find((tab) => tab.id === tabId))
   if (!parsed.success) {
     throw new Error('selector_not_found')
@@ -40,7 +85,7 @@ export const MOBILE_WEB_TERMINAL_ACTION_METHODS = [
     name: 'mobileWeb.terminal.bind',
     params: Scope.extend({ tabId: z.string().min(1).max(512) }),
     handler: async (params, context) => {
-      const binding = await readBinding(context, params.worktree, params.tabId)
+      const binding = await readBinding(context, params, params.tabId)
       return {
         resourceId: registerMobileWebPageResource(context, params.pageSession, {
           kind: 'terminal',
@@ -71,7 +116,7 @@ export const MOBILE_WEB_TERMINAL_ACTION_METHODS = [
         'terminal',
         params.resourceId
       )
-      const current = await readBinding(context, params.worktree, binding.tabId)
+      const current = await readBinding(context, params, binding.tabId)
       if (JSON.stringify(current) !== JSON.stringify(binding)) {
         throw new Error('selector_not_found')
       }

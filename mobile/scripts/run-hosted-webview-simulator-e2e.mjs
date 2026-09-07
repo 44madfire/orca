@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runHostedIosFocusedE2e } from './hosted-ios-focused-e2e.mjs'
 import { verifyHostedIosWorkspaceDeviceCapabilities } from './hosted-ios-workspace-device-capabilities.mjs'
 
 import { mkdirSync } from 'node:fs'
@@ -81,7 +82,7 @@ import {
 import { hostedIosSimulatorAppPreparation } from './hosted-ios-simulator-app-preparation.mjs'
 import {
   installHostedWebViewRouteExceptionCapture,
-  readHostedWebViewRouteExceptionEvidence
+  attachHostedWebViewRouteExceptionEvidence
 } from './hosted-webview-route-exception-evidence.mjs'
 import { captureHostedWebViewSecurityEvidence } from './hosted-webview-security-evidence.mjs'
 import { evidenceStep, printHostedWebViewE2eReport } from './hosted-webview-e2e-report.mjs'
@@ -101,6 +102,14 @@ const orcaSelection = resolveEmulatorOrcaCli({
 })
 
 async function main() {
+  if (options.otaOnly || options.chatOnly) {
+    return runHostedIosFocusedE2e({
+      options,
+      runtimeDirectory,
+      orcaCli: orcaSelection.command,
+      worktree
+    })
+  }
   if (process.platform !== 'darwin') {
     throw new Error('Hosted iOS WebView automation requires macOS and Xcode.')
   }
@@ -293,6 +302,7 @@ async function main() {
       workspaceDocument,
       timeoutMs: options.timeoutMs,
       runtimeDirectory,
+      expectedBuild: options.expectedBuild,
       verifyChatPreferences: options.adversarialContent
     })
     workspaceDocument = deviceCapabilities.workspaceDocument
@@ -561,6 +571,7 @@ async function main() {
       hostedFilesPreview,
       hostedWorkspace,
       nativeAlert: deviceCapabilities.nativeAlert,
+      productSettings: deviceCapabilities.productSettings?.evidence ?? null,
       chatSettings: deviceCapabilities.chatSettings?.evidence ?? null,
       browserSettings: deviceCapabilities.browserSettings?.evidence ?? null,
       terminalSettings: deviceCapabilities.terminalSettings?.evidence ?? null,
@@ -574,16 +585,7 @@ async function main() {
       workspaceDocument
     })
   } catch (error) {
-    const evidence = hostedExceptionDocument
-      ? await readHostedWebViewRouteExceptionEvidence(hostedExceptionDocument).catch(() => [])
-      : []
-    if (evidence.length > 0) {
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)} Hosted exception evidence: ${JSON.stringify(evidence)}`,
-        { cause: error }
-      )
-    }
-    throw error
+    throw await attachHostedWebViewRouteExceptionEvidence(error, hostedExceptionDocument)
   } finally {
     inspector?.stop()
     await stopHostedChildProcess(launcher)

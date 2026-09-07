@@ -67,8 +67,8 @@ describe('mobile web bridge client', () => {
       context: CONTEXT,
       grants: [
         {
-          capability: 'session',
-          operation: 'capabilities',
+          capability: 'workspace',
+          operation: 'hostRequest',
           limits: {
             maxRequestBytes: 256,
             maxResponseBytes: 64 * 1024,
@@ -97,9 +97,9 @@ describe('mobile web bridge client', () => {
       floatingWorkspaceEnabled: true
     })
     expect(messages[0]).toMatchObject({
-      capability: 'session',
-      operation: 'capabilities',
-      payload: { includeHostGates: true }
+      capability: 'workspace',
+      operation: 'hostRequest',
+      payload: { method: 'mobileWeb.session.capabilities', params: {} }
     })
   })
 
@@ -186,8 +186,8 @@ describe('mobile web bridge client', () => {
       context: CONTEXT,
       grants: [
         {
-          capability: 'session',
-          operation: 'subscribe',
+          capability: 'workspace',
+          operation: 'hostSubscribe',
           limits: {
             maxRequestBytes: 1024,
             maxResponseBytes: 1024,
@@ -210,8 +210,8 @@ describe('mobile web bridge client', () => {
       mode: 'subscription',
       requestId: 'Q'.repeat(22),
       subscriptionId: 'S'.repeat(22),
-      capability: 'session',
-      operation: 'subscribe'
+      capability: 'workspace',
+      operation: 'hostSubscribe'
     })
     client.receive(subscriptionResponse())
     await expect(subscription.ready).resolves.toBeUndefined()
@@ -359,21 +359,24 @@ function subscriptionEvent(
     subscriptionId: 'S'.repeat(22),
     sequence,
     payload: {
-      workspaceId,
-      publicationEpoch: 'epoch-1',
-      snapshotVersion,
-      activeTabId: null,
-      activeTabType: null,
-      tabs: [],
-      truncated: false
+      type: 'snapshot',
+      snapshot: {
+        workspaceId,
+        publicationEpoch: 'epoch-1',
+        snapshotVersion,
+        activeTabId: null,
+        activeTabType: null,
+        tabs: [],
+        truncated: false
+      }
     }
   }
 }
 
 function sessionSubscriptionGrant() {
   return {
-    capability: 'session' as const,
-    operation: 'subscribe',
+    capability: 'workspace' as const,
+    operation: 'hostSubscribe',
     limits: {
       maxRequestBytes: 1024,
       maxResponseBytes: 128 * 1024,

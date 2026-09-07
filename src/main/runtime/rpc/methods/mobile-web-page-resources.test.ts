@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { RpcContext } from '../core'
 import {
   registerMobileWebPageResource,
+  openMobileWebPageResources,
   resolveMobileWebPageResource
 } from './mobile-web-page-resources'
 
@@ -9,6 +10,7 @@ function fixture() {
   const cleanups: (() => void)[] = []
   const runtime = { registerSubscriptionCleanup: vi.fn((_id, cleanup) => cleanups.push(cleanup)) }
   const context = { runtime, connectionId: 'connection' } as unknown as RpcContext
+  cleanups.push(openMobileWebPageResources(context, 'page'))
   return { context, cleanups }
 }
 
@@ -40,7 +42,7 @@ describe('host-owned page resources', () => {
     }
   })
 
-  it('retires handles when the owning connection closes', () => {
+  it('rejects handles after explicit namespace cleanup', () => {
     const { context, cleanups } = fixture()
     const handle = registerMobileWebPageResource(context, 'page', {
       kind: 'future',

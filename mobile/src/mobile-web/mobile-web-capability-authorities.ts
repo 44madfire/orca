@@ -27,7 +27,7 @@ export class MobileWebCapabilityAuthorities {
     this.agentHistory = new MobileWebAgentHistoryAuthority(options.randomBytes)
     this.agentHistoryPager = new MobileWebAgentHistoryPager(options.randomBytes)
     this.agentHistoryResume = new MobileWebAgentHistoryResume(options.randomBytes)
-    this.browser = new MobileWebBrowserAuthority(options.randomBytes)
+    this.browser = new MobileWebBrowserAuthority()
     this.nativeChat = new MobileWebNativeChatAuthority(options.randomBytes)
     this.sourceControlBranchCompare = new MobileWebSourceControlBranchComparePager()
     this.terminalArtifact = new MobileWebTerminalArtifactAuthority(options)

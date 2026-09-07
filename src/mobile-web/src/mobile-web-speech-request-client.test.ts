@@ -12,21 +12,6 @@ const CONTEXT = {
 }
 
 describe('mobile web speech request client', () => {
-  it('posts typed setup requests and validates bounded setup responses', async () => {
-    const harness = createHarness(['A'])
-    const result = harness.client.speech.setup()
-    const request = harness.messages[0] as Extract<MobileWebBridgePageMessage, { type: 'request' }>
-
-    expect(request).toMatchObject({
-      mode: 'once',
-      capability: 'speech',
-      operation: 'setup',
-      payload: {}
-    })
-    harness.client.receive(response(request.requestId, setup()))
-    await expect(result).resolves.toEqual(setup())
-  })
-
   it('rejects oversized transcripts returned by the native shell', async () => {
     const harness = createHarness(['A'])
     const result = harness.client.speech.stop()
@@ -67,7 +52,7 @@ describe('mobile web speech request client', () => {
 
 function createHarness(ids: string[]) {
   const messages: MobileWebBridgePageMessage[] = []
-  const operations = ['setup', 'stop', 'subscribe'].map((operation) => ({
+  const operations = ['stop', 'subscribe'].map((operation) => ({
     capability: 'speech' as const,
     operation,
     limits: {
@@ -118,24 +103,5 @@ function event(
     subscriptionId,
     sequence,
     payload
-  }
-}
-
-function setup() {
-  return {
-    enabled: true,
-    selectedModelId: 'model-1',
-    dictationMode: 'toggle',
-    models: [
-      {
-        id: 'model-1',
-        label: 'Model One',
-        provider: 'local',
-        sizeBytes: 1024,
-        recommended: true,
-        status: 'ready',
-        progress: null
-      }
-    ]
   }
 }

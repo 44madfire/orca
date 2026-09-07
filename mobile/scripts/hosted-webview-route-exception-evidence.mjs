@@ -60,3 +60,15 @@ function isExceptionEvidenceEntry(value) {
     value.text.length <= MAX_TEXT_LENGTH
   )
 }
+
+export async function attachHostedWebViewRouteExceptionEvidence(error, document) {
+  const evidence = document
+    ? await readHostedWebViewRouteExceptionEvidence(document).catch(() => [])
+    : []
+  return evidence.length > 0
+    ? new Error(
+        `${error instanceof Error ? error.message : String(error)} Hosted exception evidence: ${JSON.stringify(evidence)}`,
+        { cause: error }
+      )
+    : error
+}

@@ -58,7 +58,7 @@ describe('host-advertised unary forwarding', () => {
       .mockResolvedValueOnce({ ok: true, result: {} })
     await executeMobileWebHostRequest({
       ...args,
-      pageSessionId: 'current-document',
+      getPageSessionId: async () => 'current-document',
       payload: { ...args.payload, params: { pageSession: 'retired-document' } }
     })
     expect(sendRequest).toHaveBeenLastCalledWith(

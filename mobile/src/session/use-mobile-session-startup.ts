@@ -43,6 +43,7 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
     clearTerminalCache,
     fetchTerminals,
     ensureSessionTabs,
+    sessionTabOperations,
     fileDocLifecycleRef,
     markdownDocLifecycleRef,
     setWorkspaceTransportState
@@ -103,8 +104,6 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
     worktreeId
   ])
 
-  // Every setTimeout goes through addTimer into `timers`, which the returned cleanup clears.
-  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup
   useEffect(() => {
     if (connState !== 'connected') {
       return
@@ -116,13 +115,7 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
     // Why: clear the initialized flag so the reconnect scrollback replaces stale content instead of being dropped.
     initializedHandlesRef.current.clear()
     let disposed = false
-    const timers: ReturnType<typeof setTimeout>[] = []
-    function addTimer(fn: () => void, ms: number) {
-      if (disposed) {
-        return
-      }
-      timers.push(setTimeout(fn, ms))
-    }
+    const { schedule: addTimer, dispose: clearTimers } = createSessionStartupTimers()
     void (async () => {
       const reportActivationOutcome = (response: RpcSuccess | null): void => {
         if (!disposed && response && headlessActivationNeedsHostRenderer(response.result)) {
@@ -143,7 +136,9 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
       if (disposed) {
         return
       }
-      await ensureSessionTabs().catch(() => null)
+      if (!sessionTabOperations?.streamFirstStartup) {
+        await ensureSessionTabs().catch(() => null)
+      }
       if (disposed) {
         return
       }
@@ -178,9 +173,7 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
     })()
     return () => {
       disposed = true
-      for (const t of timers) {
-        clearTimeout(t)
-      }
+      clearTimers()
     }
   }, [
     client,
@@ -188,8 +181,33 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
     created,
     fetchTerminals,
     ensureSessionTabs,
+    sessionTabOperations?.streamFirstStartup,
     isFloatingWorkspaceRoute,
     showToast,
     worktreeId
   ])
+}
+
+function createSessionStartupTimers() {
+  let disposed = false
+  const timers = new Set<ReturnType<typeof setTimeout>>()
+  return {
+    schedule(callback: () => void, delayMs: number) {
+      if (disposed) {
+        return
+      }
+      const timer = setTimeout(() => {
+        timers.delete(timer)
+        callback()
+      }, delayMs)
+      timers.add(timer)
+    },
+    dispose() {
+      disposed = true
+      for (const timer of timers) {
+        clearTimeout(timer)
+      }
+      timers.clear()
+    }
+  }
 }

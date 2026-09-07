@@ -1,7 +1,6 @@
+import type { VoiceSettingsOperations } from '../settings/voice-settings-operations'
 import type {
-  MobileWebSpeechConfigurePayload,
   MobileWebSpeechEvent,
-  MobileWebSpeechSetup,
   MobileWebSpeechStartResult,
   MobileWebSpeechStopResult
 } from '../../../src/shared/mobile-web/speech-operation-contract'
@@ -12,10 +11,10 @@ export type HostSessionDictationSubscription = {
 }
 
 export type HostSessionDictationOperations = {
-  loadSetup: () => Promise<MobileWebSpeechSetup>
+  loadSetup: VoiceSettingsOperations['load']
   downloadModel: (modelId: string) => Promise<void>
-  deleteModel: (modelId: string) => Promise<MobileWebSpeechSetup>
-  configure: (payload: MobileWebSpeechConfigurePayload) => Promise<MobileWebSpeechSetup>
+  deleteModel: VoiceSettingsOperations['delete']
+  configure: VoiceSettingsOperations['configure']
   subscribe: (
     onEvent: (event: MobileWebSpeechEvent) => void,
     onError: (error: Error) => void

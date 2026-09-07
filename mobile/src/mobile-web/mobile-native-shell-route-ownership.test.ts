@@ -69,6 +69,10 @@ describe('mobile native shell route ownership', () => {
       'settings',
       'native-chat-settings',
       'browser-settings',
+      'troubleshoot',
+      'connection-log',
+      'notifications',
+      'voice-settings',
       'terminal-settings',
       'about'
     ]

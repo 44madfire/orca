@@ -7,8 +7,6 @@ import type {
 } from './mobile-web-subscription-ledger'
 import type { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
-import { MobileWebSessionSubscriptions } from './mobile-web-session-subscriptions'
-import type { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
 
@@ -16,14 +14,12 @@ export class MobileWebCapabilitySubscriptions {
   readonly host: MobileWebHostSubscriptions
   readonly account: MobileWebAccountSubscriptions
   readonly browser: MobileWebBrowserStreams
-  readonly session: MobileWebSessionSubscriptions
   readonly workspace: MobileWebWorkspaceSubscriptions
   private readonly ledgers: MobileWebSubscriptionLedgerHandle[]
 
   constructor(
     args: MobileWebSubscriptionLedgerConfig<unknown> & {
       browserAuthority: MobileWebBrowserAuthority
-      nativeChatAuthority: MobileWebNativeChatAuthority
       workspaceAuthority: MobileWebWorkspaceAuthority
     }
   ) {
@@ -42,13 +38,8 @@ export class MobileWebCapabilitySubscriptions {
       workspaceAuthority: args.workspaceAuthority,
       browserAuthority: args.browserAuthority
     })
-    this.session = new MobileWebSessionSubscriptions({
-      ...shared,
-      browserAuthority: args.browserAuthority,
-      nativeChatAuthority: args.nativeChatAuthority
-    })
     this.workspace = new MobileWebWorkspaceSubscriptions(shared)
-    this.ledgers = [this.host, this.account, this.browser, this.session, this.workspace]
+    this.ledgers = [this.host, this.account, this.browser, this.workspace]
   }
 
   countForOperation(operationKey: string): number {

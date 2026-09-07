@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebTerminalRequest } from '../../shared/mobile-web/terminal-stream-contract'
 import type { MobileWebBridgeClient } from './mobile-web-bridge-client'
+import type { MobileWebTerminalMetadataRequest } from './mobile-web-host-terminal-actions'
 import { MobileWebTerminalRequestScheduler } from './mobile-web-terminal-request-scheduler'
 
 const STREAM_ID = 'T'.repeat(22)
@@ -78,7 +79,6 @@ describe('MobileWebTerminalRequestScheduler authority lifecycle', () => {
     await expect(harness.scheduler.attachImage('files')).resolves.toBeNull()
     await expect(harness.scheduler.setDisplayMode('auto', null)).resolves.toBe(false)
     await expect(harness.scheduler.clear()).resolves.toBe(false)
-    await expect(harness.scheduler.rename('title')).resolves.toBe(false)
 
     expect(harness.request).not.toHaveBeenCalled()
     expect(harness.deviceInputRequest).not.toHaveBeenCalled()
@@ -87,7 +87,9 @@ describe('MobileWebTerminalRequestScheduler authority lifecycle', () => {
 })
 
 function createHarness(
-  respond: (request: MobileWebTerminalRequest) => Promise<null> = () => Promise.resolve(null)
+  respond: (
+    request: MobileWebTerminalRequest | MobileWebTerminalMetadataRequest
+  ) => Promise<null> = () => Promise.resolve(null)
 ) {
   const request = vi.fn(respond)
   const deviceInputRequest = vi.fn().mockResolvedValue({ status: 'accepted' })
@@ -98,7 +100,7 @@ function createHarness(
   } as unknown as MobileWebBridgeClient
   return {
     scheduler: new MobileWebTerminalRequestScheduler(client, STREAM_ID, onError, (payload) =>
-      client.terminalRequest(payload)
+      request(payload)
     ),
     request,
     deviceInputRequest,

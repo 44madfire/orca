@@ -17,17 +17,17 @@ const HANDLE_RESOLUTION =
  * sites; it does not prove each one sits after the awaited read it guards. */
 const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-agent-history-resume.ts': 1,
+  'mobile-web-browser-resource-binding.ts': 1,
   'mobile-web-file-operations.ts': 1,
   'mobile-web-file-write.ts': 1,
   'mobile-web-host-requests.ts': 3,
   'mobile-web-host-subscriptions.ts': 1,
   'mobile-web-markdown-operations.ts': 2,
-  'mobile-web-native-chat-binding.ts': 1,
+  'mobile-web-native-chat-binding.ts': 2,
   'mobile-web-provider-review-creation.ts': 2,
   'mobile-web-provider-review-management.ts': 1,
   'mobile-web-provider-review-operations.ts': 1,
   'mobile-web-provider-review-submission.ts': 1,
-  'mobile-web-session-quick-command-operations.ts': 2,
   'mobile-web-source-control-commit-operation.ts': 1,
   'mobile-web-source-control-operations.ts': 1,
   'mobile-web-source-control-review-operations.ts': 3,
@@ -39,14 +39,9 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-workspace-creation-create-operations.ts': 2
 }
 
-/** Mutations whose dispatch module resolves a handle but never reauthorizes, because the handle is
- * consumed inside the single awaited host call with no window between check and use. Adding a
- * mutation forces a decision here rather than letting it default to unguarded. */
+// Device-only mutations and handles consumed in one awaited call have no reauthorization window.
 const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'workspace.activate',
-  'session.activate',
-  'session.close',
-  'session.createBrowser',
   'browser.back',
   'browser.dialog',
   'browser.forward',
@@ -59,6 +54,10 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'native.clipboardWrite',
   'native.hapticFeedback',
   'native.hapticSelection',
+  'native.notificationPermission',
+  'native.notificationPreference',
+  'native.openSystemSettings',
+  'native.diagnosticsSubmit',
   'native.openExternal',
   'native.pagePreferences',
   'native.sessionChatDraftWrite',
@@ -167,7 +166,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations().length).toBeGreaterThanOrEqual(117)
+    expect(mutations()).toHaveLength(113)
   })
 
   it('exempts only registered mutations', () => {
@@ -185,6 +184,6 @@ describe('mobile web mutation reauthorization census', () => {
     const capabilities = Object.keys(MOBILE_WEB_BRIDGE_OPERATIONS) as MobileWebBridgeCapability[]
 
     expect([...kinds].sort()).toEqual(['mutation', 'read', 'subscription'])
-    expect(capabilities).toHaveLength(15)
+    expect(capabilities).toHaveLength(14)
   })
 })

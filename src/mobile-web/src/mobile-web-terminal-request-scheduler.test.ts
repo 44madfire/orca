@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebTerminalRequest } from '../../shared/mobile-web/terminal-stream-contract'
 import type { MobileWebBridgeClient } from './mobile-web-bridge-client'
+import type { MobileWebTerminalMetadataRequest } from './mobile-web-host-terminal-actions'
 import { MobileWebTerminalRequestScheduler } from './mobile-web-terminal-request-scheduler'
 
 const STREAM_ID = 'T'.repeat(22)
-type TerminalRequest = Exclude<MobileWebTerminalRequest, { operation: 'subscribe' }>
+type TerminalRequest =
+  | Exclude<MobileWebTerminalRequest, { operation: 'subscribe' }>
+  | MobileWebTerminalMetadataRequest
 
 describe('MobileWebTerminalRequestScheduler', () => {
   it('serializes input and advances its sequence only after success', async () => {
@@ -107,18 +110,15 @@ describe('MobileWebTerminalRequestScheduler', () => {
     await expect(scheduler.clear()).resolves.toBe(false)
     scheduler.markBridgeReady()
     await expect(scheduler.setDisplayMode('auto', { cols: 90, rows: 30 })).resolves.toBe(true)
-    await expect(scheduler.rename('Build')).resolves.toBe(true)
     await expect(scheduler.clear()).resolves.toBe(true)
 
     expect(terminalRequest.mock.calls.map(([request]) => request)).toEqual([
       {
         operation: 'displayMode',
-        streamId: STREAM_ID,
         mode: 'auto',
         viewport: { cols: 90, rows: 30 }
       },
-      { operation: 'rename', streamId: STREAM_ID, title: 'Build' },
-      { operation: 'clear', streamId: STREAM_ID }
+      { operation: 'clear' }
     ])
   })
 
@@ -162,13 +162,13 @@ describe('MobileWebTerminalRequestScheduler', () => {
 })
 
 function createScheduler(
-  terminalRequest: ReturnType<typeof vi.fn>,
+  terminalRequest: ReturnType<typeof vi.fn<(request: TerminalRequest) => Promise<null>>>,
   onError = vi.fn(),
   terminalDeviceInputRequest = vi.fn().mockResolvedValue({ status: 'accepted' })
 ): MobileWebTerminalRequestScheduler {
   const client = { terminalRequest, terminalDeviceInputRequest } as unknown as MobileWebBridgeClient
   return new MobileWebTerminalRequestScheduler(client, STREAM_ID, onError, (payload) =>
-    client.terminalRequest(payload)
+    terminalRequest(payload)
   )
 }
 

@@ -1,12 +1,9 @@
+import { ConnectionDiagnosticsView } from '../src/diagnostics/connection-diagnostics-view'
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { View, Text, Pressable, Platform } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import * as Clipboard from 'expo-clipboard'
 import Constants from 'expo-constants'
-import { ChevronLeft, Copy, Check, Send } from 'lucide-react-native'
-import { colors, spacing } from '../src/theme/mobile-theme'
-import { ConnectionLog } from '../src/components/ConnectionLog'
 import { loadHosts } from '../src/transport/host-store'
 import { connectionLogStore } from '../src/transport/persisted-connection-log-store'
 import { useHostClient, useRpcClientContext } from '../src/transport/client-context'
@@ -45,7 +42,6 @@ export default function ConnectionLogScreen() {
   const clientContext = useRpcClientContext()
   const router = useRouter()
   const params = useLocalSearchParams<{ hostId?: string }>()
-  const insets = useSafeAreaInsets()
   const routeKey = useMemo(() => ({}), [params.hostId])
   const [hosts, setHosts] = useState<HostProfile[]>([])
   const [manualSelection, setManualSelection] = useState<{
@@ -201,98 +197,49 @@ export default function ConnectionLogScreen() {
   ])
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
-      <View style={styles.topRow}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <ChevronLeft size={22} color={colors.textSecondary} />
-        </Pressable>
-        <Text style={styles.heading}>Network diagnostics</Text>
-      </View>
-
-      {hosts.length > 1 && (
-        <View style={styles.hostPicker}>
-          {hosts.map((host) => (
-            <Pressable
-              key={host.id}
-              style={[styles.hostChip, host.id === selectedId && styles.hostChipActive]}
-              onPress={() =>
-                setManualSelection({ hostId: host.id, requestedHostId: params.hostId, routeKey })
-              }
-            >
-              <Text
-                style={[styles.hostChipText, host.id === selectedId && styles.hostChipTextActive]}
-                numberOfLines={1}
-              >
-                {host.name}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-
-      {selected ? (
+    <ConnectionDiagnosticsView
+      hostName={selected?.name ?? null}
+      state={state}
+      reconnectAttempts={reconnectAttempts}
+      copied={copied}
+      copyDiagnostics={copyDiagnostics}
+      diagnosis={diagnosis}
+      submissionState={submissionState}
+      sendDiagnostics={sendDiagnostics}
+      entries={entries}
+      onBack={() => router.back()}
+      hostPicker={
         <>
-          <View style={styles.statusRow}>
-            <Text style={styles.statusText}>
-              {state}
-              {reconnectAttempts > 0 ? ` · attempt ${reconnectAttempts}` : ''}
-            </Text>
-            <Pressable style={styles.copyButton} onPress={() => void copyDiagnostics()}>
-              {copied ? (
-                <Check size={14} color={colors.statusGreen} />
-              ) : (
-                <Copy size={14} color={colors.textSecondary} />
-              )}
-              <Text style={styles.copyButtonText}>{copied ? 'Copied' : 'Copy report'}</Text>
-            </Pressable>
-          </View>
-          {diagnosis && (
-            <View style={styles.diagnosisCard}>
-              <Text style={styles.diagnosisHeading}>What this suggests</Text>
-              <Text style={styles.diagnosisText}>{diagnosis.likelyCause}</Text>
-              <Text style={styles.diagnosisNext}>{diagnosis.nextStep}</Text>
-              {diagnosis.reportability === 'orca-relay' && (
-                <>
-                  <Text style={styles.privacyHint}>
-                    Sends a size-limited redacted report including connection path, versions,
-                    connection state, and events—never terminal contents, host identity, or
-                    credentials.
-                  </Text>
-                  <Pressable
-                    style={styles.sendButton}
-                    onPress={() => void sendDiagnostics()}
-                    disabled={submissionState === 'sending'}
+          {' '}
+          {hosts.length > 1 && (
+            <View style={styles.hostPicker}>
+              {hosts.map((host) => (
+                <Pressable
+                  key={host.id}
+                  style={[styles.hostChip, host.id === selectedId && styles.hostChipActive]}
+                  onPress={() =>
+                    setManualSelection({
+                      hostId: host.id,
+                      requestedHostId: params.hostId,
+                      routeKey
+                    })
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.hostChipText,
+                      host.id === selectedId && styles.hostChipTextActive
+                    ]}
+                    numberOfLines={1}
                   >
-                    {submissionState === 'sent' ? (
-                      <Check size={14} color={colors.statusGreen} />
-                    ) : (
-                      <Send size={14} color={colors.textPrimary} />
-                    )}
-                    <Text style={styles.sendButtonText}>
-                      {submissionState === 'sending'
-                        ? 'Sending…'
-                        : submissionState === 'sent'
-                          ? 'Diagnostics sent'
-                          : submissionState === 'failed'
-                            ? 'Retry sending'
-                            : 'Send diagnostics to Orca'}
-                    </Text>
-                  </Pressable>
-                </>
-              )}
+                    {host.name}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
           )}
-          {entries.length > 0 ? (
-            <ConnectionLog entries={[...entries]} title={selected.name} fillAvailableHeight />
-          ) : (
-            <Text style={styles.emptyText}>
-              No connection events yet. Events appear as the app dials this host.
-            </Text>
-          )}
         </>
-      ) : (
-        <Text style={styles.emptyText}>No paired hosts.</Text>
-      )}
-    </View>
+      }
+    />
   )
 }

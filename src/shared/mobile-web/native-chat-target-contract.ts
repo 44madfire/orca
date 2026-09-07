@@ -1,10 +1,7 @@
 import { z } from 'zod'
-import { matchesMobileWebProtocolToken } from './protocol-token-contract'
 import { MobileWebWorkspaceIdSchema } from './workspace-operation-contract'
 
-export const MobileWebNativeChatSessionIdSchema = z
-  .string()
-  .refine((value) => matchesMobileWebProtocolToken(value, /^native_chat_[a-z0-9]+_[a-f0-9]{32}$/))
+export const MobileWebNativeChatSessionIdSchema = z.string().min(1).max(160)
 
 export const MobileWebNativeChatTargetShape = {
   workspaceId: MobileWebWorkspaceIdSchema,

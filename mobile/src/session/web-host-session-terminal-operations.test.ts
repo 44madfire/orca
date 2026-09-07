@@ -130,17 +130,16 @@ describe('web host session terminal operations', () => {
     await expect(
       operations.setDisplayMode('tab-page-1', 'auto', { cols: 90, rows: 30 }, null)
     ).resolves.toBe(true)
-    await expect(operations.rename('tab-page-1', 'Build')).resolves.toBe(true)
+    await expect(operations.rename('tab-page-1', 'Build', 'workspace-page-1')).resolves.toBe(true)
     await expect(operations.clear('tab-page-1')).resolves.toBe(true)
     expect(harness.metadataAction.mock.calls.map(([request]) => request)).toEqual([
       {
         operation: 'displayMode',
-        streamId: STREAM_ID,
         mode: 'auto',
         viewport: { cols: 90, rows: 30 }
       },
-      { operation: 'rename', streamId: STREAM_ID, title: 'Build' },
-      { operation: 'clear', streamId: STREAM_ID }
+      { operation: 'rename', title: 'Build' },
+      { operation: 'clear' }
     ])
   })
 

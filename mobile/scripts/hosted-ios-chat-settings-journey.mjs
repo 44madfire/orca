@@ -113,3 +113,9 @@ async function waitReady(document, timeoutMs) {
   }
   throw new Error('Chat preferences did not finish loading')
 }
+
+export {
+  checked as readHostedChatPreference,
+  waitChecked as waitHostedChatPreference,
+  waitReady as waitHostedChatPreferenceReady
+}

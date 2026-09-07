@@ -46,7 +46,13 @@ export async function verifyHostedIosNativeAlertJourney(
   })
   const requestId = randomBytes(16).toString('base64url')
   await postNativeAlertProbe(sessionDocument, requestId, evaluate)
-  const title = await waitForLabel(emulator, ALERT_TITLE, timeoutMs)
+  const title = await waitForLabel(emulator, ALERT_TITLE, timeoutMs).catch(async (error) => {
+    const response = await evaluate(
+      sessionDocument,
+      `JSON.stringify(globalThis[${JSON.stringify(ALERT_PROBE_PROPERTY)}]?.responses?.[${JSON.stringify(requestId)}] ?? null)`
+    ).catch(() => 'unavailable')
+    throw new Error(`${error.message}; native Alert bridge response: ${response}`, { cause: error })
+  })
   const button = await tapControl(emulator, 'Keep editing', timeoutMs)
   await waitForLabelToDisappear(emulator, ALERT_TITLE, timeoutMs)
   const response = await waitForNativeAlertResponse(sessionDocument, requestId, timeoutMs, evaluate)

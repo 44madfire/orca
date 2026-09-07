@@ -4,6 +4,10 @@ const HOSTED_PAGE_ROUTES = new Set([
   '/about',
   '/native-chat-settings',
   '/browser-settings',
+  '/troubleshoot',
+  '/connection-log',
+  '/notifications',
+  '/voice-settings',
   '/terminal-settings'
 ])
 

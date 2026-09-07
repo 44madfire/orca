@@ -30,7 +30,7 @@ describe('mobile web bridge operation registry census', () => {
     }
 
     expect(files.length).toBeGreaterThanOrEqual(40)
-    expect(named.size).toBeGreaterThanOrEqual(138)
+    expect(named.size).toBeGreaterThanOrEqual(126)
     expect([...named].filter((pair) => !registered.has(pair))).toEqual([])
   })
 
@@ -61,12 +61,8 @@ describe('mobile web bridge operation registry census', () => {
       }
     }
 
-    // The shell arm for this one discriminates two payload shapes with safeParse, so the page
-    // deliberately reaches it through two contracts. Nothing else may.
-    expect(pairs.size).toBeGreaterThanOrEqual(138)
-    expect([...pairs].filter(([, schemas]) => schemas.size !== 1).map(([key]) => key)).toEqual([
-      'session.capabilities'
-    ])
+    expect(pairs.size).toBeGreaterThanOrEqual(126)
+    expect([...pairs].filter(([, schemas]) => schemas.size !== 1).map(([key]) => key)).toEqual([])
     expect([...pairs.keys()].filter((key) => !registered.has(key))).toEqual([])
     expect(
       [...pairs]

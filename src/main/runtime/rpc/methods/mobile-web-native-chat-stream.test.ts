@@ -1,3 +1,4 @@
+import { openMobileWebPageResources } from './mobile-web-page-resources'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RpcContext } from '../core'
 const subscribe = vi.hoisted(() => vi.fn())
@@ -23,6 +24,8 @@ async function fixture() {
   const runtime = {
     listMobileSessionTabs: vi.fn().mockResolvedValue({
       worktree: 'workspace',
+      publicationEpoch: 'epoch',
+      snapshotVersion: 1,
       tabs: [
         {
           id: 'tab',
@@ -37,6 +40,7 @@ async function fixture() {
     cleanupSubscription: vi.fn()
   }
   const context = { runtime, connectionId: 'connection' } as unknown as RpcContext
+  openMobileWebPageResources(context, 'page')
   const scope = { worktree: 'id:workspace', pageSession: 'page' }
   const resource = await bindMobileWebNativeChat(context, { ...scope, tabId: 'tab' })
   const params = { ...scope, ...resource, read: { limit: 20, subscriptionId: 'forged' } }

@@ -6,7 +6,6 @@ import { MobileWebAccountSubscriptions } from './mobile-web-account-subscription
 import { MobileWebCapabilitySubscriptions } from './mobile-web-capability-subscriptions'
 import { MobileWebBrokerMessageSender } from './mobile-web-broker-message-sender'
 import { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
-import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
 import {
@@ -84,8 +83,7 @@ describe('subscription ledger teardown', () => {
     })
     const subscriptions = new MobileWebCapabilitySubscriptions({
       ...sender.subscriptionPosts(),
-      browserAuthority: new MobileWebBrowserAuthority(randomBytes),
-      nativeChatAuthority: new MobileWebNativeChatAuthority(randomBytes),
+      browserAuthority: new MobileWebBrowserAuthority(),
       workspaceAuthority: new MobileWebWorkspaceAuthority(randomBytes)
     })
     const client = stubClient(() => {})

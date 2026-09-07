@@ -21,6 +21,8 @@ export async function executeMobileWebNativeChatOperation(args: {
   operation: string
   payload: unknown
   client: RpcClient
+  getPageSessionId?: () => Promise<string>
+  isActive?: () => boolean
   terminalClientId: string
   workspaceAuthority: MobileWebWorkspaceAuthority
   nativeChatAuthority: MobileWebNativeChatAuthority
@@ -60,7 +62,7 @@ export async function executeMobileWebNativeChatOperation(args: {
     if (!args.nativeAuthority.sessionChatPendingWrite) {
       throw new MobileWebBrokerError('unsupported_capability')
     }
-    assertCurrentMobileWebNativeChatPageBinding(
+    await assertCurrentMobileWebNativeChatPageBinding(
       args,
       payload.workspaceId,
       payload.sessionId,

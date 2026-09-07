@@ -1,5 +1,6 @@
 import type { MobileWebHostWorkspaceId } from './mobile-web-workspace-authority'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
+import { MobileWebResourceCache } from './mobile-web-resource-cache'
 import { MOBILE_WEB_NATIVE_CHAT_IMAGE_LIMIT } from '../../../src/shared/mobile-web/native-chat-operation-contract'
 
 export type MobileWebHostNativeChatBinding = {
@@ -12,46 +13,41 @@ export type MobileWebHostNativeChatBinding = {
 }
 
 export class MobileWebNativeChatAuthority {
-  private readonly sessionIdByHostKey = new Map<string, string>()
-  private readonly bindingBySessionId = new Map<string, MobileWebHostNativeChatBinding>()
+  private readonly bindingBySessionId = new MobileWebResourceCache<MobileWebHostNativeChatBinding>(
+    (id) => this.imagesBySessionId.has(id)
+  )
   private readonly imagesBySessionId = new Map<string, Map<string, string>>()
-  private nextHandle = 0
   private nextImageHandle = 0
 
   constructor(private readonly randomBytes: (length: number) => Uint8Array) {}
 
-  synchronizeWorkspace(
-    hostWorkspaceId: string,
-    bindings: readonly MobileWebHostNativeChatBinding[]
-  ): void {
-    const currentKeys = new Set(bindings.map(nativeChatHostKey))
-    for (const [hostKey, sessionId] of this.sessionIdByHostKey) {
-      const binding = this.bindingBySessionId.get(sessionId)
-      if (binding?.hostWorkspaceId === hostWorkspaceId && !currentKeys.has(hostKey)) {
-        this.revoke(sessionId)
-      }
-    }
-    bindings.forEach((binding) => this.register(binding))
+  private generation = 0
+
+  captureGeneration(): number {
+    return this.generation
   }
 
-  register(binding: MobileWebHostNativeChatBinding): string {
-    const hostKey = nativeChatHostKey(binding)
-    const existing = this.sessionIdByHostKey.get(hostKey)
-    if (existing) {
-      return existing
+  assertGeneration(generation: number): void {
+    if (this.generation !== generation) {
+      throw new MobileWebBrokerError('not_found')
     }
-    const bytes = this.randomBytes(16)
-    if (bytes.byteLength !== 16) {
-      throw new MobileWebBrokerError('internal')
+  }
+
+  bind(sessionId: string, binding: MobileWebHostNativeChatBinding): void {
+    for (const [id, current] of this.bindingBySessionId) {
+      if (
+        id !== sessionId &&
+        current.hostWorkspaceId === binding.hostWorkspaceId &&
+        current.hostTabId === binding.hostTabId
+      ) {
+        this.revoke(id)
+      }
     }
-    const sessionId = `native_chat_${this.nextHandle.toString(36)}_${Array.from(
-      bytes,
-      byteToHex
-    ).join('')}`
-    this.nextHandle += 1
-    this.sessionIdByHostKey.set(hostKey, sessionId)
     this.bindingBySessionId.set(sessionId, binding)
-    return sessionId
+  }
+
+  retain(sessionId: string): () => void {
+    return this.bindingBySessionId.retain(sessionId)
   }
 
   resolve(hostWorkspaceId: string, sessionId: string): Readonly<MobileWebHostNativeChatBinding> {
@@ -80,7 +76,6 @@ export class MobileWebNativeChatAuthority {
       return
     }
     this.bindingBySessionId.delete(sessionId)
-    this.sessionIdByHostKey.delete(nativeChatHostKey(binding))
     this.imagesBySessionId.delete(sessionId)
   }
 
@@ -131,7 +126,7 @@ export class MobileWebNativeChatAuthority {
   }
 
   clear(): void {
-    this.sessionIdByHostKey.clear()
+    this.generation += 1
     this.bindingBySessionId.clear()
     this.imagesBySessionId.clear()
   }

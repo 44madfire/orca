@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MOBILE_WEB_NATIVE_CHAT_IMAGE_LIMIT } from '../../../src/shared/mobile-web/native-chat-operation-contract'
 import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
 
-function binding(overrides: Partial<Parameters<MobileWebNativeChatAuthority['register']>[0]> = {}) {
+function binding(overrides: Partial<Parameters<MobileWebNativeChatAuthority['bind']>[1]> = {}) {
   return {
     hostWorkspaceId: 'workspace-a',
     hostTabId: 'tab-a',
@@ -17,9 +17,9 @@ function binding(overrides: Partial<Parameters<MobileWebNativeChatAuthority['reg
 describe('mobile web native chat authority', () => {
   it('keeps host transcript and terminal identities behind an opaque session handle', () => {
     const authority = new MobileWebNativeChatAuthority((length) => new Uint8Array(length).fill(7))
-    const sessionId = authority.register(binding())
+    const sessionId = bind(authority, 'resource_first', binding())
 
-    expect(sessionId).toMatch(/^native_chat_0_[a-f0-9]{32}$/)
+    expect(sessionId).toBe('resource_first')
     expect(sessionId).not.toContain('terminal-a')
     expect(sessionId).not.toContain('provider-session-a')
     expect(sessionId).not.toContain('transcript')
@@ -28,13 +28,12 @@ describe('mobile web native chat authority', () => {
     expect(() => authority.resolve('workspace-b', sessionId)).toThrow('not_found')
   })
 
-  it('revokes a handle when the tab session changes or the workspace is retired', () => {
+  it('revokes replaced tab sessions and explicitly released handles', () => {
     const authority = new MobileWebNativeChatAuthority((length) => new Uint8Array(length))
-    const first = authority.register(binding())
-    authority.synchronizeWorkspace('workspace-a', [
-      binding({ providerSessionId: 'provider-session-b', transcriptPath: undefined })
-    ])
-    const second = authority.register(
+    const first = bind(authority, 'resource_first', binding())
+    const second = bind(
+      authority,
+      'resource_second',
       binding({ providerSessionId: 'provider-session-b', transcriptPath: undefined })
     )
 
@@ -42,14 +41,14 @@ describe('mobile web native chat authority', () => {
     expect(() => authority.resolve('workspace-a', first)).toThrow('not_found')
     expect(authority.resolve('workspace-a', second).providerSessionId).toBe('provider-session-b')
 
-    authority.synchronizeWorkspace('workspace-a', [])
+    authority.revoke(second)
 
     expect(() => authority.resolve('workspace-a', second)).toThrow('not_found')
   })
 
   it('clears all handles on shell or client replacement', () => {
     const authority = new MobileWebNativeChatAuthority((length) => new Uint8Array(length))
-    const sessionId = authority.register(binding())
+    const sessionId = bind(authority, 'resource_first', binding())
 
     authority.clear()
 
@@ -59,8 +58,8 @@ describe('mobile web native chat authority', () => {
 
   it('keeps image paths opaque and scoped to one workspace session', () => {
     const authority = new MobileWebNativeChatAuthority((length) => new Uint8Array(length).fill(9))
-    const firstSession = authority.register(binding())
-    const secondSession = authority.register(binding({ hostTabId: 'tab-b' }))
+    const firstSession = bind(authority, 'resource_first', binding())
+    const secondSession = bind(authority, 'resource_second', binding({ hostTabId: 'tab-b' }))
     const imageId = authority.registerImage('workspace-a', firstSession, '/private/image.png')
 
     expect(imageId).toMatch(/^native_chat_image_0_[a-f0-9]{32}$/)
@@ -78,7 +77,7 @@ describe('mobile web native chat authority', () => {
 
   it('bounds and releases session image references', () => {
     const authority = new MobileWebNativeChatAuthority((length) => new Uint8Array(length))
-    const sessionId = authority.register(binding())
+    const sessionId = bind(authority, 'resource_first', binding())
     const imageIds = Array.from({ length: MOBILE_WEB_NATIVE_CHAT_IMAGE_LIMIT }, (_, index) =>
       authority.registerImage('workspace-a', sessionId, `/private/image-${index}.png`)
     )
@@ -95,3 +94,12 @@ describe('mobile web native chat authority', () => {
     )
   })
 })
+
+function bind(
+  authority: MobileWebNativeChatAuthority,
+  id: string,
+  value: ReturnType<typeof binding>
+) {
+  authority.bind(id, value as Parameters<MobileWebNativeChatAuthority['bind']>[1])
+  return id
+}

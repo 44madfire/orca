@@ -39,19 +39,6 @@ const SATURATION_SLOTS: Slot[] = [
   { capability: 'task', operation: 'linearContext', payload: {} },
   { capability: 'task', operation: 'listLinearTeams', payload: {} },
   { capability: 'task', operation: 'selectLinearWorkspace', payload: { workspaceId: WORKSPACE } },
-  { capability: 'session', operation: 'capabilities', payload: {} },
-  { capability: 'session', operation: 'snapshot', payload: { workspaceId: WORKSPACE } },
-  {
-    capability: 'session',
-    operation: 'activate',
-    payload: { workspaceId: WORKSPACE, tabId: 'tab-1' }
-  },
-  { capability: 'session', operation: 'quickCommands', payload: { workspaceId: WORKSPACE } },
-  {
-    capability: 'session',
-    operation: 'close',
-    payload: { workspaceId: WORKSPACE, tabId: 'tab-1' }
-  },
   {
     capability: 'file',
     operation: 'markdownDraftRead',
@@ -72,12 +59,31 @@ const SATURATION_SLOTS: Slot[] = [
     payload: { workspaceId: WORKSPACE }
   },
   { capability: 'sourceControl', operation: 'upstream', payload: { workspaceId: WORKSPACE } },
-  { capability: 'speech', operation: 'setup', payload: {} },
   { capability: 'speech', operation: 'start', payload: {} },
   { capability: 'native', operation: 'clipboardAvailability', payload: {} },
   { capability: 'native', operation: 'clipboardWrite', payload: { text: 'x' } },
   { capability: 'native', operation: 'openExternal', payload: { url: 'https://example.com' } },
   { capability: 'native', operation: 'terminalPreferences', payload: {} },
+  {
+    capability: 'native',
+    operation: 'pagePreferences',
+    payload: { namespace: 'fixture', action: 'read', keys: ['value'] }
+  },
+  {
+    capability: 'native',
+    operation: 'sessionChatDraftWrite',
+    payload: { workspaceId: WORKSPACE, tabId: 'tab-1', text: 'draft' }
+  },
+  {
+    capability: 'native',
+    operation: 'sessionChatDraftRead',
+    payload: { workspaceId: WORKSPACE, tabId: 'tab-1' }
+  },
+  {
+    capability: 'nativeChat',
+    operation: 'pendingRead',
+    payload: { workspaceId: WORKSPACE, sessionId: 'resource_chat' }
+  },
   { capability: 'workspace', operation: 'creationRepositories', payload: {} },
   { capability: 'workspace', operation: 'creationSettings', payload: {} },
   { capability: 'workspace', operation: 'creationTrustedHooks', payload: {} },
@@ -210,6 +216,9 @@ function createHarness(nativeAuthority: Record<string, unknown> = {}) {
       clipboardWrite: park,
       openExternal: park,
       terminalPreferences: park,
+      sessionChatDraftRead: park,
+      sessionChatDraftWrite: park,
+      pagePreferences: park,
       terminalAccessoryPreferences: park,
       ...nativeAuthority
     },

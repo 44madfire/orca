@@ -18,12 +18,13 @@ describe('native-chat generic read migration', () => {
     )
     expect(result.messages[0].blocks[0]).toMatchObject({ type: 'text', text: 'hello' })
     if (host && shell) {
+      const pageSession = boundDocument(f)
       expect(result).toEqual(f.transcript)
       expect(f.sendRequest).toHaveBeenCalledWith(
         'mobileWeb.nativeChat.bind',
         {
           worktree: 'id:host-workspace',
-          pageSession: MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT.shellSessionId,
+          pageSession,
           tabId: 'tab'
         },
         expect.objectContaining({ beforeSend: expect.any(Function) })
@@ -32,7 +33,7 @@ describe('native-chat generic read migration', () => {
         'mobileWeb.nativeChat.read',
         {
           worktree: 'id:host-workspace',
-          pageSession: MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT.shellSessionId,
+          pageSession,
           resourceId: 'opaque-resource',
           read: { limit: 20 }
         },
@@ -75,9 +76,10 @@ describe('native-chat generic read migration', () => {
     f.emit(event)
     await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce())
     if (generic) {
+      const pageSession = boundDocument(f)
       expect(onEvent).toHaveBeenCalledWith(event)
       expect(f.subscribe.mock.calls[0][1]).toMatchObject({
-        pageSession: MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT.shellSessionId,
+        pageSession,
         resourceId: 'opaque-resource'
       })
     }
@@ -116,3 +118,13 @@ describe('native-chat generic read migration', () => {
     expect(onError).not.toHaveBeenCalled()
   })
 })
+
+function boundDocument(f: ReturnType<typeof fixture>): string {
+  const binding = f.sendRequest.mock.calls.find(
+    ([method]) => method === 'mobileWeb.nativeChat.bind'
+  )
+  const { pageSession } = binding![1] as { pageSession: string }
+  expect(pageSession).toMatch(/^document_/)
+  expect(pageSession).not.toBe(MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT.shellSessionId)
+  return pageSession
+}

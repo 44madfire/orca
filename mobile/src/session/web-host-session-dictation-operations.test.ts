@@ -14,8 +14,10 @@ describe('webHostSessionDictationOperations', () => {
       stop: vi.fn().mockResolvedValue({ status: 'no-speech' }),
       cancel: vi.fn().mockResolvedValue(null)
     }
+    const request = vi.fn().mockResolvedValue({ enabled: true, models: [] })
     const operations = webHostSessionDictationOperations({
-      speech
+      speech,
+      host: { request }
     } as unknown as MobileWebBridgeClient)
     const onEvent = vi.fn()
     const onError = vi.fn()
@@ -29,10 +31,12 @@ describe('webHostSessionDictationOperations', () => {
     await operations.stop()
     await operations.cancel()
 
-    expect(speech.setup).toHaveBeenCalledOnce()
-    expect(speech.downloadModel).toHaveBeenCalledWith('model-1')
-    expect(speech.deleteModel).toHaveBeenCalledWith('model-1')
-    expect(speech.configure).toHaveBeenCalledWith({ enabled: true })
+    expect(request.mock.calls.map(([payload]) => payload)).toEqual([
+      { method: 'speech.models.list', params: {} },
+      { method: 'speech.models.download', params: { modelId: 'model-1' } },
+      { method: 'speech.models.delete', params: { modelId: 'model-1' } },
+      { method: 'speech.dictation.setup', params: { enabled: true } }
+    ])
     expect(speech.subscribe).toHaveBeenCalledWith(onEvent, onError)
     expect(speech.start).toHaveBeenCalledOnce()
     expect(speech.stop).toHaveBeenCalledOnce()

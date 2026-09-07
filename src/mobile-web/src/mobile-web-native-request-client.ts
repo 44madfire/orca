@@ -1,3 +1,5 @@
+import { MobileWebSettingsDeviceClient } from './mobile-web-settings-device-client'
+import { MobileWebDiagnosticsDeviceClient } from './mobile-web-diagnostics-device-client'
 import type { MobileWebBridgeOperationName } from '../../shared/mobile-web/bridge-contract'
 import {
   MobileWebPagePreferencesPayloadSchema,
@@ -46,7 +48,12 @@ import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-reques
 const MOBILE_WEB_NATIVE_ALERT_REQUEST_TIMEOUT_MS = 2_147_483_647
 
 export class MobileWebNativeRequestClient {
-  constructor(private readonly requests: MobileWebOneShotRequestClient) {}
+  readonly settingsDevice: MobileWebSettingsDeviceClient
+  readonly diagnosticsDevice: MobileWebDiagnosticsDeviceClient
+  constructor(private readonly requests: MobileWebOneShotRequestClient) {
+    this.settingsDevice = new MobileWebSettingsDeviceClient(requests)
+    this.diagnosticsDevice = new MobileWebDiagnosticsDeviceClient(requests)
+  }
 
   supports(operation: MobileWebBridgeOperationName<'native'>): boolean {
     return this.requests.supports('native', operation)

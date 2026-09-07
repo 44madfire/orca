@@ -103,6 +103,18 @@ describe('hosted WebView simulator E2E options', () => {
     ).toThrow('mutually exclusive')
   })
 
+  it('keeps the real chat/session journey exclusive from OTA and adversarial runs', () => {
+    expect(
+      parseHostedWebViewSimulatorE2eOptions(['--chat-only', '--reuse-native-install'])
+    ).toMatchObject({ chatOnly: true, reuseNativeInstall: true })
+    expect(() => parseHostedWebViewSimulatorE2eOptions(['--chat-only', '--ota-only'])).toThrow(
+      'mutually exclusive'
+    )
+    expect(() =>
+      parseHostedWebViewSimulatorE2eOptions(['--chat-only', '--adversarial-content'])
+    ).toThrow('mutually exclusive')
+  })
+
   it('rejects invalid timeouts and unknown arguments', () => {
     expect(() => parseHostedWebViewSimulatorE2eOptions(['--timeout-ms', '9999'])).toThrow(
       'at least 10000'

@@ -1,3 +1,4 @@
+import { openMobileWebPageResources } from './mobile-web-page-resources'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcContext } from '../core'
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
@@ -7,7 +8,9 @@ const [bind, action] = MOBILE_WEB_TERMINAL_ACTION_METHODS
 function fixture(worktree = 'folder:workspace') {
   const tab = { id: 'tab', type: 'terminal', status: 'ready', terminal: 'private-terminal' }
   const runtime = {
-    listMobileSessionTabs: vi.fn().mockResolvedValue({ worktree, tabs: [tab] }),
+    listMobileSessionTabs: vi
+      .fn()
+      .mockResolvedValue({ worktree, publicationEpoch: 'epoch', snapshotVersion: 1, tabs: [tab] }),
     registerSubscriptionCleanup: vi.fn(),
     renameTerminal: vi.fn().mockResolvedValue({ handle: 'private-terminal' }),
     clearTerminalBuffer: vi.fn().mockResolvedValue({ handle: 'private-terminal' }),
@@ -24,6 +27,7 @@ function fixture(worktree = 'folder:workspace') {
     clientId: 'authenticated',
     pairedDeviceId: 'device'
   } as unknown as RpcContext
+  openMobileWebPageResources(context, 'page')
   const scope = { worktree: `id:${worktree}`, pageSession: 'page', timeoutMs: 15_000 }
   async function bound() {
     return (await bind.handler({ ...scope, tabId: 'tab' }, context)) as { resourceId: string }
@@ -102,7 +106,12 @@ describe('host-owned terminal metadata', () => {
     const controller = new AbortController()
     f.runtime.listMobileSessionTabs.mockImplementationOnce(async () => {
       controller.abort()
-      return { worktree: 'folder:workspace', tabs: [f.tab] }
+      return {
+        worktree: 'folder:workspace',
+        publicationEpoch: 'epoch',
+        snapshotVersion: 1,
+        tabs: [f.tab]
+      }
     })
     await expect(
       action.handler(params, { ...f.context, signal: controller.signal })
@@ -119,7 +128,12 @@ describe('host-owned terminal metadata', () => {
     const resource = await f.bound()
     f.runtime.listMobileSessionTabs.mockImplementationOnce(async () => {
       vi.setSystemTime(20_000)
-      return { worktree: 'folder:workspace', tabs: [f.tab] }
+      return {
+        worktree: 'folder:workspace',
+        publicationEpoch: 'epoch',
+        snapshotVersion: 1,
+        tabs: [f.tab]
+      }
     })
     await expect(
       action.handler(

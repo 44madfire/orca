@@ -1,3 +1,4 @@
+import { MobileWebPageLifetime } from './mobile-web-page-lifetime'
 import { requireMobileWebConnectedClient } from './mobile-web-connected-client'
 import type {
   MobileWebBridgePageMessage,
@@ -48,10 +49,12 @@ export class MobileWebCapabilityBroker {
   private readonly commitMessageGeneration = new MobileWebCommitMessageGeneration()
   private readonly authorities: MobileWebCapabilityAuthorities
   private readonly messages: MobileWebBrokerMessageSender
+  private readonly pageLifetime: MobileWebPageLifetime
   private hostRequestsInFlight = 0
   private disposed = false
 
   constructor(private readonly options: MobileWebCapabilityBrokerOptions) {
+    this.pageLifetime = new MobileWebPageLifetime(options.randomBytes)
     this.rateLimiter = new MobileWebOperationRateLimiter(options.now ?? Date.now)
     this.authorities = new MobileWebCapabilityAuthorities(options)
     this.messages = new MobileWebBrokerMessageSender({
@@ -63,7 +66,6 @@ export class MobileWebCapabilityBroker {
     this.subscriptions = new MobileWebCapabilitySubscriptions({
       ...posts,
       browserAuthority: this.authorities.browser,
-      nativeChatAuthority: this.authorities.nativeChat,
       workspaceAuthority: this.authorities.workspace
     })
     this.terminalStreams = new MobileWebTerminalStreams({
@@ -92,6 +94,7 @@ export class MobileWebCapabilityBroker {
     this.disposed = true
     this.commitMessageGeneration.dispose()
     this.subscriptions.dispose()
+    this.pageLifetime.dispose()
     this.terminalStreams.dispose(this.options.getClient())
     this.speechAuthority.dispose()
     this.authorities.clear()
@@ -106,6 +109,7 @@ export class MobileWebCapabilityBroker {
     // The page document outlives the swap, so every live subscription needs a terminal frame; a
     // silent teardown leaves it waiting on a feed the new client will never resume.
     this.subscriptions.closeAll({ code: 'unavailable', retryable: true })
+    this.pageLifetime.reset()
     this.terminalStreams.dispose(null, MOBILE_WEB_TERMINAL_CLIENT_CLOSURE)
     this.speechAuthority.replaceClient()
     for (const [requestId, pending] of this.pending) {
@@ -143,7 +147,7 @@ export class MobileWebCapabilityBroker {
     }
     return resolveMobileWebHostNavigationRoute(
       hostWorkspaceId,
-      this.connectedClient(),
+      requireMobileWebConnectedClient(this.options),
       this.authorities.workspace
     )
   }
@@ -239,8 +243,8 @@ export class MobileWebCapabilityBroker {
     return executeMobileWebCapabilityRequest({
       request,
       isRequestActive,
-      connectedClient: () => this.connectedClient(),
-      pageSessionId: this.options.context.shellSessionId,
+      connectedClient: () => requireMobileWebConnectedClient(this.options),
+      getPageSessionId: () => this.pageLifetime.get(requireMobileWebConnectedClient(this.options)),
       terminalClientId: this.options.terminalClientId,
       nativeAuthority: this.options.nativeAuthority,
       agentHistoryAuthority: this.authorities.agentHistory,
@@ -248,7 +252,6 @@ export class MobileWebCapabilityBroker {
       agentHistoryResume: this.authorities.agentHistoryResume,
       accountSubscriptions: this.subscriptions.account,
       browserStreams: this.subscriptions.browser,
-      sessionSubscriptions: this.subscriptions.session,
       sourceControlBranchCompare: this.authorities.sourceControlBranchCompare,
       speechAuthority: this.speechAuthority,
       workspaceSubscriptions: this.subscriptions.workspace,
@@ -264,10 +267,6 @@ export class MobileWebCapabilityBroker {
       workspaceSnapshots: this.authorities.workspaceSnapshots,
       navigationAuthority: this.options.navigationAuthority
     })
-  }
-
-  private connectedClient(): RpcClient {
-    return requireMobileWebConnectedClient(this.options)
   }
 
   private async cancel(target: 'request' | 'subscription', id: string): Promise<void> {

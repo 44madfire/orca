@@ -39,7 +39,7 @@ describe('generic requests scoped to a paired host', () => {
       })
       .mockResolvedValue({ ok: true, result: { futureField: { value: 42 } } })
     await expect(
-      executeMobileWebHostRequest({ ...args, pageSessionId: 'active-document' })
+      executeMobileWebHostRequest({ ...args, getPageSessionId: async () => 'active-document' })
     ).resolves.toEqual({ futureField: { value: 42 } })
     expect(sendRequest).toHaveBeenLastCalledWith(
       grant.method,

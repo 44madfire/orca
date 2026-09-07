@@ -141,6 +141,8 @@ export function useMobileSessionTabsReconciliation<Result, Tab>({
     worktreeId
   ])
 
+  const initialStream = useMemo(() => ({ activated: false, seen: false }), [controller])
+
   const {
     activateTerminalInventoryRecovery,
     isCertifiedTerminalSweepDue,
@@ -175,11 +177,15 @@ export function useMobileSessionTabsReconciliation<Result, Tab>({
       const unsubscribe = sessionTabOperations.subscribe(
         worktreeId,
         (snapshot) => {
+          initialStream.seen = true
           const type = initialSnapshotPending ? 'snapshot' : 'updated'
           initialSnapshotPending = false
           subscription.listener({ ...snapshot, type } as Result)
         },
-        () => subscription.listener({ type: 'error' } as Result)
+        () => {
+          initialStream.seen = true
+          subscription.listener({ type: 'error' } as Result)
+        }
       )
       return () => {
         subscription.cancel()
@@ -201,6 +207,7 @@ export function useMobileSessionTabsReconciliation<Result, Tab>({
     connState,
     controller,
     resetPendingTerminalRecovery,
+    initialStream,
     sessionTabOperations,
     worktreeId
   ])
@@ -213,7 +220,7 @@ export function useMobileSessionTabsReconciliation<Result, Tab>({
       }
       activateTerminalInventoryRecovery()
       resetCertifiedTerminalSweep()
-      const refresh = (forceTabs: boolean): void => {
+      const refresh = (forceTabs: boolean, deferTabs = false): void => {
         if (AppState.currentState !== 'active') {
           suspendTerminalInventoryRecovery(true)
           controller.setReconciliationActive(false)
@@ -221,7 +228,11 @@ export function useMobileSessionTabsReconciliation<Result, Tab>({
         }
         activateTerminalInventoryRecovery()
         controller.setReconciliationActive(true)
-        const tabsRequest = forceTabs ? controller.requestReconciliation() : controller.poll()
+        const tabsRequest = deferTabs
+          ? null
+          : forceTabs
+            ? controller.requestReconciliation()
+            : controller.poll()
         const now = Date.now()
         // Why: healthy tab streams own liveness; retain only a slow inventory sweep for stale handles and metadata.
         if (forceTabs || tabsRequest !== null || isCertifiedTerminalSweepDue(now)) {
@@ -241,7 +252,10 @@ export function useMobileSessionTabsReconciliation<Result, Tab>({
       })
       const interval = setInterval(() => refresh(false), RECONCILIATION_INTERVAL_MS)
       resetPendingTerminalRecovery()
-      refresh(true)
+      const deferTabs =
+        sessionTabOperations?.streamFirstStartup && !initialStream.activated && !initialStream.seen
+      initialStream.activated = true
+      refresh(true, deferTabs)
       return () => {
         suspendTerminalInventoryRecovery(true)
         controller.setReconciliationActive(false)
@@ -252,6 +266,8 @@ export function useMobileSessionTabsReconciliation<Result, Tab>({
       activateTerminalInventoryRecovery,
       connState,
       controller,
+      initialStream,
+      sessionTabOperations?.streamFirstStartup,
       isCertifiedTerminalSweepDue,
       refreshTerminalInventory,
       resetPendingTerminalRecovery,

@@ -1,7 +1,7 @@
 import process from 'node:process'
 
 const usage =
-  'Usage: node scripts/run-hosted-webview-simulator-e2e.mjs [--device <name|udid>] [--timeout-ms <ms>] [--expected-build <sha256>] [--accounts-only] [--security-only] [--isolation-only] [--clipboard-image-only] [--photos-revocation-only] [--files-preview-only] [--native-settings-only] [--source-control-only] [--adversarial-content] [--skip-native-build] [--reuse-native-install]'
+  'Usage: node scripts/run-hosted-webview-simulator-e2e.mjs [--device <name|udid>] [--timeout-ms <ms>] [--expected-build <sha256>] [--ota-only] [--chat-only] [--accounts-only] [--security-only] [--isolation-only] [--clipboard-image-only] [--photos-revocation-only] [--files-preview-only] [--native-settings-only] [--source-control-only] [--adversarial-content] [--skip-native-build] [--reuse-native-install]'
 
 export function parseHostedWebViewSimulatorE2eOptions(args) {
   const parsed = {
@@ -29,6 +29,10 @@ export function parseHostedWebViewSimulatorE2eOptions(args) {
       parsed.timeoutMs = Number(args[++index])
     } else if (args[index] === '--expected-build' && args[index + 1]) {
       parsed.expectedBuild = args[++index]
+    } else if (args[index] === '--chat-only') {
+      parsed.chatOnly = true
+    } else if (args[index] === '--ota-only') {
+      parsed.otaOnly = true
     } else if (args[index] === '--accounts-only') {
       parsed.accountsOnly = true
     } else if (args[index] === '--security-only') {
@@ -69,6 +73,8 @@ export function parseHostedWebViewSimulatorE2eOptions(args) {
   }
   if (
     [
+      parsed.chatOnly,
+      parsed.otaOnly,
       parsed.accountsOnly,
       parsed.adversarialContent,
       parsed.clipboardImageOnly,

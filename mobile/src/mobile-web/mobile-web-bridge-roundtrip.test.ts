@@ -272,8 +272,8 @@ describe('mobile web bridge round trip', () => {
         },
         {
           type: 'browser',
-          id: `browser_0_${'01'.repeat(16)}`,
-          browserPageId: `browser_0_${'01'.repeat(16)}`,
+          id: expect.stringMatching(/^resource_/),
+          browserPageId: expect.stringMatching(/^resource_/),
           title: 'Review',
           url: 'https://example.invalid/',
           loading: false,
@@ -319,7 +319,7 @@ describe('mobile web bridge round trip', () => {
       })
     ).resolves.toEqual({
       workspaceId: OPAQUE_WORKSPACE_ID,
-      browserPageId: `browser_1_${'01'.repeat(16)}`
+      browserPageId: expect.stringMatching(/^resource_/)
     })
     expect(sendRequest).toHaveBeenCalledWith('browser.tabCreate', {
       worktree: 'id:workspace-1',

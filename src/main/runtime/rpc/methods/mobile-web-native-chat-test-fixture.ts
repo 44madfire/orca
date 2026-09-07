@@ -1,3 +1,4 @@
+import { openMobileWebPageResources } from './mobile-web-page-resources'
 import { vi, type Mock } from 'vitest'
 import type { RpcContext } from '../core'
 export function nativeChatPageFixture(): {
@@ -17,13 +18,19 @@ export function nativeChatPageFixture(): {
   }
   const listMobileSessionTabs = vi
     .fn()
-    .mockResolvedValue({ worktree: 'host-workspace', tabs: [tab] })
+    .mockResolvedValue({
+      worktree: 'host-workspace',
+      publicationEpoch: 'epoch',
+      snapshotVersion: 1,
+      tabs: [tab]
+    })
   const context = {
     connectionId: 'connection',
     clientId: 'authenticated-device-token',
     pairedDeviceId: 'device',
     runtime: { listMobileSessionTabs, registerSubscriptionCleanup: vi.fn() }
   } as unknown as RpcContext
+  openMobileWebPageResources(context, 'page')
   const scope = { worktree: 'id:host-workspace', pageSession: 'page' }
   return { context, scope, listMobileSessionTabs, tab }
 }

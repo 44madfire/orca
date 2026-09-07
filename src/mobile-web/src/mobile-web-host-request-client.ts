@@ -1,10 +1,9 @@
 import {
-  MobileWebHostCatalogPayloadSchema,
-  MobileWebHostCatalogResultSchema,
   MobileWebHostRequestPayloadSchema,
   MobileWebHostResultSchema,
   type MobileWebHostRequestPayload
 } from '../../shared/mobile-web/host-rpc-contract'
+import { readMobileWebHostCatalog } from './mobile-web-host-catalog-queue'
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
@@ -30,14 +29,7 @@ export function readMobileWebHostMethods(
   methods: string[],
   options?: MobileWebBridgeRequestOptions
 ) {
-  return requests.request(
-    'workspace',
-    'hostCatalog',
-    { methods },
-    MobileWebHostCatalogPayloadSchema,
-    MobileWebHostCatalogResultSchema,
-    options
-  )
+  return readMobileWebHostCatalog(requests, methods, options)
 }
 
 export class MobileWebHostRequestClient {

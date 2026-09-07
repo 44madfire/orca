@@ -1,29 +1,51 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
+import { webVoiceSettingsOperations } from '../settings/web-voice-settings-operations'
+import { MOBILE_WEB_PRODUCTION_GRANTS } from './mobile-web-production-grants'
 import type { RpcClient } from '../transport/rpc-client'
 import {
   createMobileWebBrokerFixture,
+  createMobileWebBridgeRoundtripFixture,
   mobileWebBridgeCancelMessage,
   mobileWebBridgeRequestMessage
 } from './mobile-web-bridge-roundtrip-fixture'
 
 describe('mobile web speech broker', () => {
-  it('serves bounded setup metadata through an authenticated once request', async () => {
-    const harness = createHarness()
-    harness.sendRequest.mockResolvedValue({
-      id: 'rpc',
-      ok: true,
-      result: setup(),
-      _meta: { runtimeId: 'runtime' }
-    })
+  it('loads host-authored setup through the generic catalog without losing future fields', async () => {
+    const result = { ...setup(), futureModelPolicy: { mode: 'desktop-defined' } }
+    const { operations, sendRequest, pageMessages } = createHostHarness(result)
 
-    await harness.broker.handle(request('A', 'once', 'setup', {}))
+    await expect(operations.load()).resolves.toEqual(result)
+    expect(sendRequest).toHaveBeenNthCalledWith(
+      1,
+      'mobileWeb.host.catalog',
+      { methods: ['speech.models.list'] },
+      expect.objectContaining({ budgetSpansConnect: true })
+    )
+    expect(sendRequest).toHaveBeenNthCalledWith(
+      2,
+      'speech.models.list',
+      {},
+      expect.objectContaining({ beforeSend: expect.any(Function), budgetSpansConnect: true })
+    )
+    expect(pageMessages).toEqual([
+      expect.objectContaining({
+        capability: 'workspace',
+        operation: 'hostRequest',
+        payload: { method: 'speech.models.list', params: {} }
+      })
+    ])
+  })
 
-    expect(harness.messages.at(-1)).toMatchObject({
-      type: 'response',
-      status: 'success',
-      payload: setup()
-    })
+  it('rejects setup metadata exceeding the advertised host response budget', async () => {
+    const { operations } = createHostHarness({ ...setup(), future: 'x'.repeat(64 * 1024) })
+    await expect(operations.load()).rejects.toMatchObject({ code: 'too_large' })
+  })
+
+  it('does not dispatch setup when Desktop omits its grant', async () => {
+    const { operations, sendRequest } = createHostHarness(setup(), false)
+    await expect(operations.load()).rejects.toMatchObject({ code: 'unsupported_capability' })
+    expect(sendRequest).toHaveBeenCalledOnce()
   })
 
   it('accounts for the single speech subscription and releases it on cancel', async () => {
@@ -47,12 +69,38 @@ describe('mobile web speech broker', () => {
   it('rejects a speech payload the operation contract does not accept', async () => {
     const harness = createHarness()
 
-    await harness.broker.handle(request('A', 'once', 'configure', { dictationMode: 'shout' }))
+    await harness.broker.handle(request('A', 'once', 'start', { unexpected: true }))
 
     expect(harness.messages.at(-1)).toMatchObject({ status: 'error' })
     expect(harness.sendRequest).not.toHaveBeenCalled()
   })
 })
+
+function createHostHarness(result: unknown, advertised = true) {
+  const sendRequest = vi
+    .fn<RpcClient['sendRequest']>()
+    .mockResolvedValueOnce({
+      ok: true,
+      result: {
+        grants: advertised
+          ? [
+              {
+                method: 'speech.models.list',
+                scope: 'host',
+                maxRequestBytes: 4096,
+                maxResponseBytes: 64 * 1024
+              }
+            ]
+          : []
+      }
+    })
+    .mockResolvedValueOnce({ ok: true, result })
+  const { client, pageMessages } = createMobileWebBridgeRoundtripFixture({
+    grants: MOBILE_WEB_PRODUCTION_GRANTS,
+    rpcClient: { sendRequest } as unknown as RpcClient
+  })
+  return { operations: webVoiceSettingsOperations(client), sendRequest, pageMessages }
+}
 
 function createHarness() {
   const sendRequest = vi.fn<RpcClient['sendRequest']>()

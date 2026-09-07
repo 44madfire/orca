@@ -1,3 +1,5 @@
+import { executeDiagnosticsDeviceOperation } from './mobile-web-diagnostics-device-operations'
+import { executeSettingsDeviceOperation } from './mobile-web-settings-device-operations'
 import {
   MobileWebPagePreferencesPayloadSchema,
   MobileWebPagePreferencesResultSchema
@@ -34,6 +36,24 @@ export async function executeMobileWebNativeCapabilityOperation(args: {
   browserAuthority?: MobileWebBrowserAuthority
   workspaceAuthority?: MobileWebWorkspaceAuthority
 }): Promise<unknown> {
+  if (['diagnosticsSnapshot', 'diagnosticsProbe', 'diagnosticsSubmit'].includes(args.operation)) {
+    return executeDiagnosticsDeviceOperation(
+      args.operation,
+      args.payload,
+      args.authority.diagnosticsDevice
+    )
+  }
+  if (
+    ['notificationPermission', 'notificationPreference', 'openSystemSettings'].includes(
+      args.operation
+    )
+  ) {
+    return executeSettingsDeviceOperation(
+      args.operation,
+      args.payload,
+      args.authority.settingsDevice
+    )
+  }
   if (args.operation === 'pagePreferences') {
     const payload = MobileWebPagePreferencesPayloadSchema.parse(args.payload)
     if (!args.authority.pagePreferences) {

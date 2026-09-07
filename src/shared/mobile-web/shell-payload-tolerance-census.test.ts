@@ -109,8 +109,17 @@ describe('mobile web shell payload tolerance census', () => {
   it('derives the shell-authored schema set from the page instead of a hand list', () => {
     expect(schemas.size).toBeGreaterThanOrEqual(300)
     expect(derived.size).toBeGreaterThanOrEqual(100)
-    expect([...derived]).toContain('MobileWebSessionSnapshotResultSchema')
+    expect([...derived]).toContain('MobileWebNativeAlertResultSchema')
+    expect([...derived]).toContain('MobileWebHostResultSchema')
+    expect([...derived]).not.toContain('MobileWebSessionSnapshotResultSchema')
     expect([...derived].filter((name) => !schemas.has(name))).toEqual([])
+  })
+
+  it('preserves host-authored product fields through the generic shell result', () => {
+    const snapshot = { tabs: [{ kind: 'future-session-kind', future: { enabled: true } }] }
+    expect(
+      tolerantMobileWebShellPayload(schemas.get('MobileWebHostResultSchema')!).parse(snapshot)
+    ).toEqual(snapshot)
   })
 
   // Without this the ratchet below could pass by finding nothing at all.

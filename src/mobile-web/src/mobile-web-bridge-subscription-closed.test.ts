@@ -54,8 +54,8 @@ function createHarness() {
     context: CONTEXT,
     grants: [
       {
-        capability: 'session' as const,
-        operation: 'subscribe',
+        capability: 'workspace' as const,
+        operation: 'hostSubscribe',
         limits: {
           maxRequestBytes: 1024,
           maxResponseBytes: 128 * 1024,
