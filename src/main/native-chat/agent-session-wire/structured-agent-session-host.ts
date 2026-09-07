@@ -38,6 +38,7 @@ import {
   respondToStructuredAgentSessionPrompt,
   sendStructuredAgentSessionTurn,
   setStructuredAgentSessionOption,
+  settleStructuredAgentSessionLateDispatch,
   type StructuredAgentSessionMutationContext
 } from './structured-agent-session-host-mutations'
 import { tearDownStructuredAgentSessionHost } from './structured-agent-session-host-teardown'
@@ -330,21 +331,22 @@ export class StructuredAgentSessionHost {
     )
   }
 
-  history = (
-    request: SessionWire.AgentSessionHistoryRequest
-  ): SessionWire.AgentSessionHistoryResult => this.backgroundTasks.history(request)
+  history: StructuredAgentSessionBackgroundTaskChannel['history'] = (request) =>
+    this.backgroundTasks.history(request)
 
   subscribe = (input: AgentSessionSubscribeInput): (() => void) =>
     this.backgroundTasks.subscribe(input)
+
+  settleLateDispatch = (input: Parameters<typeof settleStructuredAgentSessionLateDispatch>[1]) =>
+    settleStructuredAgentSessionLateDispatch(this.mutationContext(), input)
 
   publishBackgroundTaskState: StructuredAgentSessionBackgroundTaskChannel['publish'] = (...args) =>
     this.backgroundTasks.publish(...args)
   unsubscribe = (sessionId: string, id: string): void => this.subscribers.close(sessionId, id)
 
   /** Every session's projected status for session lists; unlike `subscribe`, retains nothing. */
-  subscribeStatus = (
-    subscriber: Parameters<StructuredAgentSessionStatusFeed['subscribe']>[0]
-  ): (() => void) => this.statusFeed.subscribe(subscriber)
+  subscribeStatus: StructuredAgentSessionStatusFeed['subscribe'] = (subscriber) =>
+    this.statusFeed.subscribe(subscriber)
 
   private requireSession(sessionId: string): StructuredAgentSessionHostSession {
     const session = this.sessions.get(sessionId)
