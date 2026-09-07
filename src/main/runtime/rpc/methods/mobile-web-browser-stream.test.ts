@@ -136,7 +136,7 @@ describe('host-owned browser screencast', () => {
     await f.done
   })
 
-  it('reports an undisplayable frame instead of dropping the stream', async () => {
+  it('ends the stream on a frame the page contract cannot describe', async () => {
     const f = fixture()
     await f.started
 
@@ -153,10 +153,10 @@ describe('host-owned browser screencast', () => {
 
     expect(f.events.at(-1)).toEqual({
       type: 'error',
-      message: 'Browser frame is too large to display safely.'
+      message: 'Browser frame cannot be displayed safely.'
     })
-    f.getHost().signal?.dispatchEvent(new Event('abort'))
     await f.done
+    expect(f.events.filter((event) => (event as { type: string }).type === 'end')).toEqual([])
   })
 
   it('ends the page stream when the host cleanup for this connection runs', async () => {

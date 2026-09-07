@@ -66,8 +66,10 @@ export const MOBILE_WEB_BROWSER_STREAM_METHODS = [
           return true
         }
         const chunks = mobileWebBrowserFrameChunks(frame)
+        // An error retires the stream on this lane, which is the honest end for a producer whose
+        // frames the page contract cannot describe at all.
         if (!chunks) {
-          emit({ type: 'error', message: 'Browser frame is too large to display safely.' })
+          close({ type: 'error', message: 'Browser frame cannot be displayed safely.' })
           return true
         }
         for (const chunk of chunks) {
