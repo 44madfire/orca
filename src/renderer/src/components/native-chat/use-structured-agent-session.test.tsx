@@ -19,6 +19,10 @@ vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call
 }))
 
+vi.mock('./use-structured-agent-session-status-summary', () => ({
+  useStructuredAgentSessionStatusSummary: () => null
+}))
+
 vi.mock('./native-chat-session-option-settings-write', () => ({
   enqueueSessionOptionSettingsWrite: mocks.enqueueSettingsWrite
 }))

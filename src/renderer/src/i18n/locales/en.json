@@ -17155,7 +17155,7 @@
         "busy": "Wait for the current turn, pending messages, approvals, and background work to finish before rewinding.",
         "staleEpoch": "The conversation changed. Review the latest messages before rewinding.",
         "invalidTarget": "This message is no longer a valid rewind point. Review the latest conversation.",
-        "historyLimit": "This conversation is too large to rewind safely.",
+        "historyLimit": "This conversation is too large to rewind safely. Nothing was changed.",
         "providerRefused": "The agent refused to rewind this conversation.",
         "proofMismatch": "Orca could not verify the conversation boundary. Reload the session before trying again.",
         "outcomeUnknown": "The rewind may have completed, but Orca could not confirm it. Sending is blocked until the session is reloaded or the outcome is resolved.",

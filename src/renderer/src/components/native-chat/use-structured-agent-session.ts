@@ -1,3 +1,4 @@
+import { useStructuredAgentSessionStatusSummary } from './use-structured-agent-session-status-summary'
 import { useStructuredAgentSessionMutation } from './use-structured-agent-session-mutation'
 import { useNativeChatRewind } from './use-native-chat-rewind'
 import type {
@@ -49,6 +50,7 @@ export function useStructuredAgentSession(args: {
   isVisible: boolean
 }) {
   const { agent, isVisible, sessionId, target } = args
+  const summary = useStructuredAgentSessionStatusSummary(sessionId, target)
   // Declared first: the hold is what gives a restored session its provider child back, and the
   // read below is useless for sending until it lands.
   useStructuredAgentSessionHold({
@@ -193,6 +195,7 @@ export function useStructuredAgentSession(args: {
   const prompts = pendingStructuredSessionPrompts(state.items)
   const rewind = useNativeChatRewind({
     sessionId,
+    hostBlockedReason: summary?.rewindBlockedReason,
     state,
     support:
       conversationSupport?.sessionId === sessionId && conversationSupport.fence === state.fence

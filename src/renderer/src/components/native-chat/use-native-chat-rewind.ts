@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { ConfirmationDialogContextValue } from '@/components/confirmation-dialog-context'
 import { translate } from '@/i18n/i18n'
 import type {
+  AgentSessionRewindReason,
   AgentSessionRewindResult,
   AgentSessionRewindSupport
 } from '../../../../shared/agent-session-rewind'
@@ -22,6 +23,7 @@ type RewindInput = {
   state: StructuredAgentSessionState
   support: AgentSessionRewindSupport | undefined
   supportResolved: boolean
+  hostBlockedReason?: AgentSessionRewindReason
   blocked: boolean
   send: (
     fields: { itemId: string; expectedEpoch: string },
@@ -43,6 +45,9 @@ export function countNativeChatRewindMessages(
 }
 
 function blockedReason(input: RewindInput): string | null {
+  if (input.hostBlockedReason) {
+    return nativeChatRewindReasonCopy(input.hostBlockedReason)
+  }
   if (input.support?.supported === false) {
     return nativeChatRewindReasonCopy(input.support.reason)
   }
@@ -89,8 +94,9 @@ export function useNativeChatRewind(input: RewindInput) {
       message ? { sessionId: current.sessionId, epoch: current.state.epoch, message } : null
     )
   }
-  const error =
-    failure?.sessionId === input.sessionId && failure.epoch === input.state.epoch
+  const error = input.hostBlockedReason
+    ? nativeChatRewindReasonCopy(input.hostBlockedReason)
+    : failure?.sessionId === input.sessionId && failure.epoch === input.state.epoch
       ? failure.message
       : null
   const awaitingReset =
@@ -106,8 +112,8 @@ export function useNativeChatRewind(input: RewindInput) {
       : blockedReason(input)
   const blockedRef = useRef(false)
   useLayoutEffect(() => {
-    blockedRef.current = pending || awaitingReset
-  }, [pending, awaitingReset])
+    blockedRef.current = pending || awaitingReset || Boolean(input.hostBlockedReason)
+  }, [pending, awaitingReset, input.hostBlockedReason])
 
   const request = useCallback(async (itemId: string, confirm: ConfirmationDialogContextValue) => {
     const captured = latest.current
@@ -185,9 +191,15 @@ export function useNativeChatRewind(input: RewindInput) {
       }
     } finally {
       inFlight.current = false
-      blockedRef.current = keepBlocked
+      blockedRef.current = keepBlocked || Boolean(latest.current.hostBlockedReason)
       setPending(false)
     }
   }, [])
-  return { request, disabledReason, pending: pending || awaitingReset, blockedRef, error }
+  return {
+    request,
+    disabledReason,
+    pending: pending || awaitingReset || Boolean(input.hostBlockedReason),
+    blockedRef,
+    error
+  }
 }

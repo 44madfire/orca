@@ -84,6 +84,25 @@ describe('structured chat rewind', () => {
     expect(view.result.current.pending).toBe(false)
   })
 
+  it('keeps sending blocked after reopening while the host reports an unresolved rewind', async () => {
+    const props: Parameters<typeof useNativeChatRewind>[0] = {
+      ...input(),
+      hostBlockedReason: 'outcome-unknown'
+    }
+    const view = renderHook((value) => useNativeChatRewind(value), { initialProps: props })
+    expect(view.result.current.error).toContain('may have completed')
+    expect(view.result.current.disabledReason).toContain('Sending is blocked')
+    expect(view.result.current.blockedRef.current).toBe(true)
+    expect(view.result.current.pending).toBe(true)
+    const confirm = vi.fn()
+    await act(() => view.result.current.request('user', confirm))
+    expect(confirm).not.toHaveBeenCalled()
+    view.rerender({ ...props, hostBlockedReason: undefined })
+    expect(view.result.current.error).toBeNull()
+    expect(view.result.current.pending).toBe(false)
+    expect(view.result.current.blockedRef.current).toBe(false)
+  })
+
   it('does not execute a confirmation after its pane unmounts', async () => {
     const props = input(),
       confirmation = deferred<boolean>()
@@ -208,12 +227,15 @@ describe('structured chat rewind', () => {
   ])('explains refusal %s', async (rewindReason) => {
     const props = input()
     props.send.mockImplementation(async (_fields, failure) => {
-      failure({ code: 'unsupported', rewindReason })
+      failure({ code: 'agent_session_conflict', rewindReason })
       return null
     })
     const view = renderHook(() => useNativeChatRewind(props))
     await act(() => view.result.current.request('user', async () => true))
     expect(view.result.current.error).toBe(nativeChatRewindReasonCopy(rewindReason))
+    if (rewindReason === 'history-limit') {
+      expect(view.result.current.error).toContain('Nothing was changed')
+    }
     if (rewindReason === 'outcome-unknown') {
       expect(view.result.current.error).toContain('may have completed')
       expect(view.result.current.error).toContain('Sending is blocked')

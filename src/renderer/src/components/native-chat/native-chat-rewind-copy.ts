@@ -30,7 +30,7 @@ const reasonCopy = {
   'history-limit': () =>
     translate(
       'components.native-chat.rewind.historyLimit',
-      'This conversation is too large to rewind safely.'
+      'This conversation is too large to rewind safely. Nothing was changed.'
     ),
   'provider-refused': () =>
     translate(
