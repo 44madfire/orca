@@ -21,7 +21,7 @@ const INCARNATION_ID = 'inc-1'
  * names the pane's PTY and the provider inventory still lists it, but this runtime
  * generation has never attached to it.
  */
-function makeRestartedRuntime(): {
+function makeRestartedRuntime(opts: { publishedByRenderer?: boolean } = {}): {
   runtime: OrcaRuntimeService
   spawn: ReturnType<typeof vi.fn>
 } {
@@ -73,7 +73,34 @@ function makeRestartedRuntime(): {
       }
     ]
   } as never)
-  runtime.syncWindowGraph(0, { tabs: [], leaves: [] } as never)
+  if (opts.publishedByRenderer) {
+    // A desktop-created SSH terminal: the renderer graph lists the tab, so this
+    // runtime is not the only thing that could be attached to the session.
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: TAB_ID,
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'Remote Terminal',
+          activeLeafId: HEADLESS_LEAF_ID,
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: TAB_ID,
+          worktreeId: TEST_WORKTREE_ID,
+          leafId: HEADLESS_LEAF_ID,
+          paneRuntimeId: 1,
+          ptyId: RELAY_PTY_ID,
+          paneTitle: null
+        }
+      ]
+    } as never)
+  } else {
+    runtime.syncWindowGraph(0, { tabs: [], leaves: [] } as never)
+  }
   return { runtime, spawn }
 }
 
@@ -122,6 +149,20 @@ describe('restored runtime-owned terminal reattachment', () => {
     await runtime.activateMobileSessionTab(`id:${TEST_WORKTREE_ID}`, TAB_ID)
 
     expect(spawn).toHaveBeenCalledOnce()
+  })
+
+  it('focuses a renderer-published SSH tab instead of reattaching it', async () => {
+    const { runtime, spawn } = makeRestartedRuntime({ publishedByRenderer: true })
+    const focusTerminal = vi.fn()
+    runtime.setNotifier({ focusTerminal } as never)
+    await runtime.listMobileSessionTabs(`id:${TEST_WORKTREE_ID}`)
+
+    await runtime.activateMobileSessionTab(`id:${TEST_WORKTREE_ID}`, TAB_ID)
+
+    // The renderer graph lists this tab, so the desktop is already attached.
+    // Reattaching would take a live session away from it.
+    expect(spawn).not.toHaveBeenCalled()
+    expect(focusTerminal).toHaveBeenCalled()
   })
 
   it('leaves an inventory-restored local tab alone', async () => {
