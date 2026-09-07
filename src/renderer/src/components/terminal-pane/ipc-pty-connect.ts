@@ -12,6 +12,7 @@ import {
 import { projectIpcPtyConnectResult } from './ipc-pty-connect-result'
 import { waitAtTerminalPtyPreSpawnE2EBarrier } from './terminal-pty-pre-spawn-e2e-barrier'
 import type { IpcPtySessionHandlers } from './ipc-pty-session-handlers'
+import { isSessionNotFoundRefusal } from '../../../../shared/pty-attach-absence-evidence'
 import { isSshSessionGoneError } from './pty-connection/pty-connect-limits'
 import { spawnIpcPty } from './ipc-pty-spawn-request'
 import type { IpcPtyTransportOptions, PtyConnectResult, PtyTransport } from './pty-transport-types'
@@ -180,6 +181,17 @@ function handleConnectError(
     error,
     error instanceof Error ? error.message : String(error)
   )
+  if (
+    options.attachOnly &&
+    options.sessionId &&
+    (isSessionNotFoundRefusal(message) || isSshSessionGoneError(message))
+  ) {
+    // Why: attachOnly forbids main from minting a replacement, so a session its owner proved absent
+    // is this pane's terminal state — the same contract `exitedBeforeAttach` already carries. It is
+    // deliberately not `sessionExpired`, which licenses retiring the binding and respawning. An
+    // unproven failure falls through and stays unverifiable (ssh-execution-boundary.md).
+    return { id: options.sessionId, exitedBeforeAttach: true }
+  }
   if (connectionId && options.sessionId && isSshSessionGoneError(message)) {
     return { id: options.sessionId, sessionExpired: true }
   }

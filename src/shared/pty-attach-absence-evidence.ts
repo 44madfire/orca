@@ -15,3 +15,20 @@ const PROVEN_EXITED_ATTACH_REFUSAL = /PTY ".+" not found \(process exited\)/i
 export function isProvenExitedPtyAttachRefusal(error: unknown): boolean {
   return PROVEN_EXITED_ATTACH_REFUSAL.test(error instanceof Error ? error.message : String(error))
 }
+
+/**
+ * The wording every PTY session owner (daemon host, local provider) mints when the id it was asked
+ * to attach is not in its own session map. Unlike the relay marker above this answer is
+ * unambiguous: the process that owns the session table answered about itself, so absence is
+ * `exited`, never `unverifiable` (docs/reference/ssh-execution-boundary.md).
+ *
+ * It crosses two process boundaries — daemon socket and Electron IPC — which erase the error class,
+ * so the text is the contract. Producers build their message from this constant.
+ */
+export const SESSION_NOT_FOUND_MESSAGE_PREFIX = 'Session not found: '
+
+export function isSessionNotFoundRefusal(error: unknown): boolean {
+  return (error instanceof Error ? error.message : String(error)).includes(
+    SESSION_NOT_FOUND_MESSAGE_PREFIX
+  )
+}

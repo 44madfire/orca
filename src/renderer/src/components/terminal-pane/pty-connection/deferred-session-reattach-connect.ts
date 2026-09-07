@@ -25,6 +25,9 @@ export function startDeferredSessionReattach(
   let expiredReattachError = false
   let paneOwnerUnverified = false
   const coldRestoreStartup = session.buildColdRestoreAgentResumeStartup()
+  // Why: a settled orchestration worker is fenced from resuming; main must attach its live session
+  // or report it absent, never mint a replacement process for this pane.
+  const attachOnly = session.isLegacyWorkerAutomaticResumeBlocked()
   const outputCallbacks = session.captureTransportOutputCallbacks(
     (message) => {
       if (isSshSessionGoneError(message)) {
@@ -48,6 +51,7 @@ export function startDeferredSessionReattach(
     cols: session.cols,
     rows: session.rows,
     sessionId: deferredReattachSessionId,
+    ...(attachOnly ? { attachOnly: true } : {}),
     ...(coldRestoreStartup?.command ? { command: coldRestoreStartup.command } : {}),
     ...(coldRestoreStartup?.env
       ? { env: session.mergeStartupEnvWithPaneIdentity(coldRestoreStartup.env) }

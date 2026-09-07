@@ -1,4 +1,3 @@
-import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { useAppStore } from '@/store'
 import { isRuntimeOwnedSshTargetId } from '../../../../../shared/execution-host'
 import { resolveSshPaneConnectGate } from '../ssh-pane-connect-gate'
@@ -61,8 +60,7 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
     console.warn(
       `[pty-connection] SSH tab=${session.deps.tabId} connectionId=${session.connectionId} pendingSessionId=${pendingSessionId} sshConnected=${gate.sshConnected}`
     )
-    const legacyWorkerOwnsPane = session.isLegacyWorkerAutomaticResumeBlocked()
-    if (gate.enterDeferredFlow && (!legacyWorkerOwnsPane || !gate.sshConnected)) {
+    if (gate.enterDeferredFlow) {
       // Paint main's parked model while SSH recovery continues off the render path.
       session.prepaintParkedSshSnapshot(pendingSessionId)
       void (async () => {
@@ -115,13 +113,6 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
         }
         useAppStore.getState().removeDeferredSshReconnectTarget(session.connectionId)
         if (pendingSessionId) {
-          if (session.isLegacyWorkerAutomaticResumeBlocked()) {
-            if (session.attachRetainedLegacyPty(pendingSessionId)) {
-              useAppStore.getState().removeDeferredSshSessionId(session.deps.tabId)
-              scheduleRuntimeGraphSync()
-            }
-            return
-          }
           console.warn(
             `[pty-connection] Attempting reattach for tab=${session.deps.tabId} sessionId=${pendingSessionId}`
           )
@@ -146,6 +137,7 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
           }
           let expiredReattachError = false
           const coldRestoreStartup = session.buildColdRestoreAgentResumeStartup()
+          const attachOnly = session.isLegacyWorkerAutomaticResumeBlocked()
           session.clearPaneMode2031State()
           session.clearHiddenOutputRestoreState()
           const outputCallbacks = session.captureTransportOutputCallbacks(
@@ -174,6 +166,7 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
             cols: session.cols,
             rows: session.rows,
             sessionId: pendingSessionId,
+            ...(attachOnly ? { attachOnly: true } : {}),
             ...(coldRestoreStartup?.command ? { command: coldRestoreStartup.command } : {}),
             ...(coldRestoreStartup?.env
               ? { env: session.mergeStartupEnvWithPaneIdentity(coldRestoreStartup.env) }

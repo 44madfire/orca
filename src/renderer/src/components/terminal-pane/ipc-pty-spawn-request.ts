@@ -70,6 +70,8 @@ export async function spawnIpcPty(
       : {}),
     ...(connectionId ? { connectionId } : {}),
     ...(admittedSessionId ? { sessionId: admittedSessionId } : {}),
+    // Why: attachOnly is meaningless without the session it fences; main refuses a bare flag.
+    ...(admittedSessionId && connectOptions.attachOnly ? { attachOnly: true } : {}),
     ...(connectOptions.initiallyHidden ? { initiallyHidden: true } : {}),
     worktreeId,
     ...(tabId ? { tabId } : {}),

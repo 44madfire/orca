@@ -2198,6 +2198,12 @@ export function createRemoteRuntimePtyTransport(
           }
         }
 
+        if (options.attachOnly && options.sessionId) {
+          // Why: attachOnly forbids minting a session for this pane. Nothing was adopted above, so
+          // the host has no pane to hand back — report the terminal state the caller already
+          // understands instead of creating a replacement remote terminal behind the fence.
+          return { id: options.sessionId, exitedBeforeAttach: true }
+        }
         const commandToSend = options.command ?? command
         const startupCommandDeliveryToSend =
           options.startupCommandDelivery ?? startupCommandDelivery

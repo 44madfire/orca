@@ -1,5 +1,7 @@
 // Error classes shared across the daemon protocol boundary (client, server,
 // host). Split from types.ts, which is capped for wire-shape declarations.
+import { SESSION_NOT_FOUND_MESSAGE_PREFIX } from '../../shared/pty-attach-absence-evidence'
+
 const ATTACH_CANCELED_PREFIX = 'Attach canceled for session '
 
 export class TerminalAttachCanceledError extends Error {
@@ -56,7 +58,7 @@ export const DAEMON_UNAVAILABLE_RECONNECT_MESSAGE = 'Daemon temporarily unavaila
 
 export class SessionNotFoundError extends Error {
   constructor(sessionId: string) {
-    super(`Session not found: ${sessionId}`)
+    super(`${SESSION_NOT_FOUND_MESSAGE_PREFIX}${sessionId}`)
     this.name = 'SessionNotFoundError'
   }
 }
@@ -87,8 +89,7 @@ export function isDaemonEndpointGoneError(err: unknown): boolean {
 }
 
 export function decodeDaemonResponseError(message: string): Error {
-  const prefix = 'Session not found: '
-  return message.startsWith(prefix)
-    ? new SessionNotFoundError(message.slice(prefix.length))
+  return message.startsWith(SESSION_NOT_FOUND_MESSAGE_PREFIX)
+    ? new SessionNotFoundError(message.slice(SESSION_NOT_FOUND_MESSAGE_PREFIX.length))
     : new DaemonProtocolError(message)
 }

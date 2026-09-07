@@ -1,6 +1,7 @@
 import { isRemoteAgentHooksEnabled } from '../../../../shared/agent-hook-relay'
 import type { AgentSessionOwnerBinding } from '../../../../shared/agent-session-host-authority'
 import { agentSessionOwnerBindingsEqual } from '../../../../shared/claimed-agent-pty-owner'
+import { isSessionNotFoundRefusal } from '../../../../shared/pty-attach-absence-evidence'
 import { addNodePtyRecoveryHint } from '../../../daemon/node-pty-error-hints'
 import { SessionNotFoundError } from '../../../daemon/daemon-errors'
 import type { Store } from '../../../persistence'
@@ -64,7 +65,7 @@ export function isPtyAlreadyGoneError(err: unknown): boolean {
     // Why: the reattach path rewrites the relay's wording to SSH_SESSION_EXPIRED and only this
     // class preserves that the relay itself answered "absent" rather than the link dropping.
     isSshPtyAbsentFromRelayError(err) ||
-    /Session not found/i.test(message)
+    isSessionNotFoundRefusal(message)
   )
 }
 
