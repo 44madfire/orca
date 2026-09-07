@@ -256,10 +256,10 @@ describe('RpcSessionLivenessWatchdog', () => {
     expect(terminate).toHaveBeenCalledOnce()
   })
 
-  it('gives a second resume probe a fresh miss budget too', async () => {
-    // Why: two app-resume nudges ~2 s apart on a cold radio are one observation each, not a
-    // shared budget; otherwise the second inherits the first's miss and one more slow answer
-    // kills a healthy socket.
+  it('still reaches a verdict under repeated resumes on a dead socket', async () => {
+    // Why: a resume replaces the urgent probe in flight but keeps its miss; a burst of
+    // resumes (AppState flaps, a user tapping reconnect) must not zero the budget each time,
+    // or a dead relay socket is never terminated while the user keeps trying.
     const terminate = vi.fn()
     const identity = {}
     const watchdog = new RpcSessionLivenessWatchdog({
@@ -279,6 +279,32 @@ describe('RpcSessionLivenessWatchdog', () => {
     watchdog.probeNow(identity, 'resume')
     await vi.advanceTimersByTimeAsync(2_000)
     expect(terminate).not.toHaveBeenCalled()
+    // The second resume restarts the 2 s clock on the miss already booked.
+    watchdog.probeNow(identity, 'resume')
+    await vi.advanceTimersByTimeAsync(1_000)
+    watchdog.probeNow(identity, 'resume')
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(terminate).toHaveBeenCalledOnce()
+  })
+
+  it('does not let a resume that follows the ordinary profile inherit its miss', async () => {
+    // The profile switch, not the resume itself, is what grants the clean budget.
+    const terminate = vi.fn()
+    const identity = {}
+    const watchdog = new RpcSessionLivenessWatchdog({
+      transport: 'relay',
+      idleProbeMs: 20_000,
+      probeTimeoutMs: 4_000,
+      missedProbeLimit: 2,
+      urgentProbeTimeoutMs: 2_000,
+      urgentMissedProbeLimit: 2,
+      shouldIdleProbe: () => true,
+      sendProbe: () => true,
+      terminate,
+      now: Date.now
+    })
+    watchdog.start(identity)
+    await vi.advanceTimersByTimeAsync(24_000)
     watchdog.probeNow(identity, 'resume')
     await vi.advanceTimersByTimeAsync(2_000)
     expect(terminate).not.toHaveBeenCalled()
