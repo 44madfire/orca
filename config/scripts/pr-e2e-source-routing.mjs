@@ -14,6 +14,26 @@ const NATIVE_IME_HARNESS =
 
 export const PR_E2E_SOURCE_ROUTES = [
   {
+    id: 'ssh.localhost-agent-hooks',
+    specs: ['tests/e2e/ssh-localhost.spec.ts'],
+    matches: (file) =>
+      isProductSource(file) &&
+      /^src\/(?:relay\/(?:agent-hook|relay-agent-hook-runtime|plugin-overlay)|main\/(?:agent-hooks\/|ssh\/ssh-relay-session\.ts$)|shared\/agent-hook)/.test(
+        file
+      )
+  },
+  {
+    id: 'browser-network.ssh-docker-route',
+    specs: ['tests/e2e/ssh-browser-network-execution-route.docker.unit.test.ts'],
+    matches: (file) =>
+      file === 'tests/e2e/ssh-browser-network-execution-route.docker.unit.test.ts' ||
+      /^tests\/e2e\/helpers\/docker-ssh-relay-(?:image|target)\.ts$/.test(file) ||
+      (isProductSource(file) &&
+        /^src\/main\/(?:browser\/(?:ssh-browser-network-execution-route|browser-network-deferred-socket|browser-network-execution-route|system-ssh-socks-client-socket)|ssh\/system-ssh-dynamic-forward-process)\.ts$/.test(
+          file
+        ))
+  },
+  {
     id: 'terminal.windows-wsl-launch-and-paste',
     specs: [
       'tests/e2e/golden-tab-bar-agent-launch.spec.ts',
@@ -21,7 +41,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     ],
     matches: (file) =>
       isProductSource(file) &&
-      /^(?:config\/scripts\/verify-wsl-e2e-participation\.mjs$|src\/main\/(?:wsl[/-]|pty\/.*wsl|providers\/wsl)|src\/shared\/(?:wsl-|windows-terminal-shell)|src\/renderer\/src\/.*(?:terminal-paste|pty-paste)|tests\/e2e\/(?:golden-tab-bar-agent-launch\.spec|terminal-windows-shell-paste-ownership\.spec|helpers\/(?:wsl-golden-stub-agent|golden-stub-agent))|\.github\/(?:actions\/setup-wsl-test-runtime\/|workflows\/windows-wsl-e2e\.yml))/.test(
+      /^(?:config\/scripts\/(?:verify-wsl-e2e-participation|verify-playwright-participation)\.mjs$|src\/main\/(?:wsl[/-]|pty\/.*wsl|providers\/wsl)|src\/shared\/(?:wsl-|windows-terminal-shell)|src\/renderer\/src\/.*(?:terminal-paste|pty-paste)|tests\/e2e\/(?:golden-tab-bar-agent-launch\.spec|terminal-windows-shell-paste-ownership\.spec|helpers\/(?:wsl-golden-stub-agent|golden-stub-agent))|\.github\/(?:actions\/setup-wsl-test-runtime\/|workflows\/windows-wsl-e2e\.yml))/.test(
         file
       )
   },
@@ -37,9 +57,11 @@ export const PR_E2E_SOURCE_ROUTES = [
     id: 'ssh-terminal-source',
     specs: [
       'tests/e2e/pty-input-write-queue-ssh.spec.ts',
+      'tests/e2e/ssh-codex-display-artifacts-repro.spec.ts',
       'tests/e2e/ssh-cold-activation-restore.spec.ts',
       'tests/e2e/ssh-docker-half-open-link.spec.ts',
       'tests/e2e/ssh-docker-reconnect-pane-restore.spec.ts',
+      'tests/e2e/ssh-docker-relay-stall-credential.spec.ts',
       'tests/e2e/ssh-docker-resource-accumulation.spec.ts',
       'tests/e2e/ssh-docker-transport-drop-recovery.spec.ts',
       'tests/e2e/ssh-port-forward-lifecycle.spec.ts',

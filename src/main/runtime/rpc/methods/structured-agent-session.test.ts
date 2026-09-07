@@ -98,6 +98,7 @@ function statusFeed(): StructuredAgentSessionStatusFeed {
         {
           journal: {
             isReadOnly: false,
+            lastActivityAt: () => 2,
             snapshot: () => ({ items: STATUS_ITEMS })
           } as unknown as AgentSessionJournal,
           params: { location: { workspaceId: 'workspace-1' }, provider: 'codex' as const }
@@ -732,6 +733,41 @@ describe('parameter validation', () => {
     })
   })
 
+  it('accepts the maximum fully encoded Claude choice group and retains a finite bound', async () => {
+    const maximumSelections = Array.from({ length: 4 }, (_, questionIndex) => ({
+      questionId: `q${questionIndex + 1}`,
+      optionIds: Array.from(
+        { length: 4 },
+        (_, optionIndex) => `q${questionIndex + 1}:choice-${optionIndex + 1}`
+      )
+    }))
+    const optionId = `question-group:${encodeURIComponent(JSON.stringify(maximumSelections))}`
+    expect(optionId.length).toBe(610)
+
+    const response = await call(
+      'agentSession.respondToQuestion',
+      {
+        envelope: envelope(),
+        itemId: 'item-1',
+        expectedRevision: 1,
+        optionId
+      },
+      STRUCTURED_CLIENT
+    )
+    expect(response).toMatchObject({ ok: true })
+    expect(hostCalls.respondToPrompt).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ optionId })
+    )
+
+    await rejects('agentSession.respondToQuestion', {
+      envelope: envelope(),
+      itemId: 'item-1',
+      expectedRevision: 1,
+      optionId: 'x'.repeat(1025)
+    })
+  })
+
   it('bounds a history page and validates its cursor', async () => {
     await rejects('agentSession.history', {
       sessionId: SESSION,
@@ -780,7 +816,8 @@ describe('agentSession.subscribeStatus', () => {
             workspaceId: 'workspace-1',
             agent: 'codex',
             status: 'working',
-            latestPrompt: 'write a poem'
+            latestPrompt: 'write a poem',
+            updatedAt: 2
           }
         ]
       }
