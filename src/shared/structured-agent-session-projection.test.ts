@@ -20,6 +20,25 @@ function item(
 }
 
 describe('structured agent session status projection', () => {
+  it('preserves reasoning text and identity for desktop and mobile consumers', () => {
+    const blocks = [{ type: 'text' as const, text: 'Inspecting the request' }]
+    expect(
+      projectStructuredItemToNativeChat(
+        item('reasoning-1', 2, {
+          kind: 'message',
+          role: 'reasoning',
+          blocks
+        })
+      )
+    ).toEqual({
+      id: 'reasoning-1',
+      role: 'reasoning',
+      blocks,
+      timestamp: 2,
+      source: 'transcript'
+    })
+  })
+
   it('projects running, attention, and completed lifecycle states', () => {
     const running = item('running', 1, {
       kind: 'status',

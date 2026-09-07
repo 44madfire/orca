@@ -243,7 +243,14 @@ export function codexJournalItem(item: CodexThreadItem): CodexJournalItem {
   if (item.type === 'webSearch') {
     return webSearchItem(item)
   }
-  if (item.type === 'reasoning' || item.type === 'plan') {
+  if (item.type === 'reasoning') {
+    const text =
+      readTextContent(item, 'text') ??
+      readTextContent(item, 'summary') ??
+      readTextContent(item, 'content')
+    return reasoningItem(text)
+  }
+  if (item.type === 'plan') {
     const text =
       readTextContent(item, 'text') ??
       readTextContent(item, 'summary') ??
@@ -273,10 +280,28 @@ export function codexStreamingMessageBody(text: string): AgentJournalItemBody {
   }
 }
 
+function reasoningItem(text: string | null): CodexJournalItem {
+  return {
+    body: text?.trim()
+      ? {
+          kind: 'message',
+          role: 'reasoning',
+          blocks: [
+            { type: 'text', text: boundInlineText(text, DEFAULT_JOURNAL_PAYLOAD_LIMITS).text }
+          ]
+        }
+      : null,
+    handled: true
+  }
+}
+
 /** Snapshot body for any item-level stream, keyed onto its parent item. */
 export function codexStreamingJournalItem(item: CodexThreadItem, text: string): CodexJournalItem {
   if (item.type === 'agentMessage') {
     return { body: codexStreamingMessageBody(text), handled: true }
+  }
+  if (item.type === 'reasoning') {
+    return reasoningItem(text)
   }
   if (item.type === 'commandExecution') {
     return commandItem({ ...item, aggregatedOutput: text })

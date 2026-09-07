@@ -16943,6 +16943,7 @@
       "empty": "No users found"
     },
     "native-chat": {
+      "reasoning": "Reasoning",
       "composer": {
         "imageUnsupported": "Image paste is not supported for this agent.",
         "send": "Send",

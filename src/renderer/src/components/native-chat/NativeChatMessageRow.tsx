@@ -7,6 +7,7 @@ import { translate } from '@/i18n/i18n'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
 import { splitNativeChatBlocks } from './native-chat-tool-fold'
 import { NativeChatToolRun } from './NativeChatToolRun'
+import { NativeChatReasoningRow } from './NativeChatReasoningRow'
 import { nativeChatProseToMarkdown } from './native-chat-prose'
 import {
   NativeChatAgentControls,
@@ -122,17 +123,26 @@ export const MessageRow = memo(function MessageRow({
     )
   }
 
-  // Plain assistant prose is the copyable unit; reasoning/system asides stay
-  // chrome-free. The controls reveal on hover (and on keyboard focus-within).
-  const showControls = !isReasoning && !isSystem && markdown.length > 0
+  if (isReasoning) {
+    return (
+      <div ref={rowRef}>
+        <NativeChatReasoningRow
+          markdown={markdown}
+          onLinkClick={onLinkClick}
+          allowFileUriLinks={allowFileUriLinks}
+        />
+      </div>
+    )
+  }
+
+  // Assistant controls reveal on hover and keyboard focus; system asides stay chrome-free.
+  const showControls = !isSystem && markdown.length > 0
 
   return (
     <div
       ref={rowRef}
       className={cn(
         'group relative max-w-full select-text text-sm leading-relaxed text-foreground',
-        // Reasoning is the agent thinking aloud — quieter, italic, like an aside.
-        isReasoning && 'border-l-2 border-border/60 pl-3 italic text-muted-foreground',
         isSystem && 'text-xs text-muted-foreground'
       )}
     >
