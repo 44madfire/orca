@@ -54,13 +54,8 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     cancel: 'mutation'
   },
   file: {
-    markdownRead: 'read',
-    markdownSave: 'mutation',
     markdownDraftRead: 'read',
-    markdownDraftWrite: 'mutation',
-    resolveTerminalPath: 'read',
-    readTerminalArtifactChunk: 'read',
-    releaseTerminalArtifact: 'mutation'
+    markdownDraftWrite: 'mutation'
   },
   sourceControl: {
     stage: 'mutation',

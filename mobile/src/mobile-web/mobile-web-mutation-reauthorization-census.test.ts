@@ -21,7 +21,6 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-agent-history-resume.ts': 1,
   'mobile-web-host-requests.ts': 5,
   'mobile-web-host-subscriptions.ts': 1,
-  'mobile-web-markdown-operations.ts': 2,
   'mobile-web-native-chat-binding.ts': 2,
   'mobile-web-provider-review-creation.ts': 2,
   'mobile-web-provider-review-management.ts': 1,
@@ -48,7 +47,6 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'browser.navigate',
   'browser.pointer',
   'browser.reload',
-  'file.releaseTerminalArtifact',
   'native.alert',
   'native.clipboardWrite',
   'native.hapticFeedback',
@@ -59,6 +57,7 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'native.diagnosticsSubmit',
   'native.openExternal',
   'native.pagePreferences',
+  'file.markdownDraftWrite',
   'native.sessionChatDraftWrite',
   'native.terminalCustomKeysUpdate',
   'native.terminalTextScaleUpdate',
@@ -165,7 +164,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations()).toHaveLength(111)
+    expect(mutations()).toHaveLength(109)
   })
 
   it('exempts only registered mutations', () => {

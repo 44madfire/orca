@@ -32,8 +32,5 @@ export async function executeWorkspace(
     authority: args.workspaceAuthority,
     snapshots: args.workspaceSnapshots
   })
-  if (request.capability === 'workspace' && request.operation === 'activate') {
-    args.terminalArtifactAuthority.clear()
-  }
   return result
 }

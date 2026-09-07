@@ -9,12 +9,8 @@ const PAGE_DIR = resolve(__dirname, '..', '..', 'mobile-web', 'src')
  * shell that answers one workspace's request with another workspace's payload is caught here, so
  * losing a field silently re-opens that swap. */
 const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
-  'account.consumeResetCredit': ['scope'],
   'file.markdownDraftRead': ['relativePath', 'tabId', 'workspaceId'],
-  'file.markdownRead': ['relativePath', 'tabId', 'workspaceId'],
-  'file.markdownSave': ['relativePath', 'tabId', 'workspaceId'],
-  'file.readTerminalArtifactChunk': ['offset', 'tabId', 'token', 'workspaceId'],
-  'file.resolveTerminalPath': ['workspaceId'],
+  'account.consumeResetCredit': ['scope'],
   'provider.manageReview': ['action', 'provider', 'reviewNumber', 'workspaceId'],
   'provider.mutateReview': ['provider', 'reviewNumber', 'workspaceId'],
   'provider.review': ['branch', 'observedHead', 'workspaceId'],
@@ -295,7 +291,7 @@ describe('mobile web bridge operation echo census', () => {
     )
 
     expect(Object.keys(EXPECTED_ECHO_FIELDS).filter((key) => !registered.has(key))).toEqual([])
-    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(48)
+    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(44)
   })
 
   it('guards the page workspace handle on every workspace-scoped echo it records', () => {
@@ -303,6 +299,6 @@ describe('mobile web bridge operation echo census', () => {
       fields.some((field) => field === 'workspaceId')
     )
 
-    expect(workspaceScoped.length).toBeGreaterThanOrEqual(39)
+    expect(workspaceScoped.length).toBeGreaterThanOrEqual(35)
   })
 })

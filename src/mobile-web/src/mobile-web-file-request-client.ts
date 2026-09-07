@@ -24,7 +24,6 @@ import {
   MobileWebTerminalArtifactChunkPayloadSchema,
   MobileWebTerminalArtifactChunkResultSchema,
   MobileWebTerminalArtifactReleasePayloadSchema,
-  MobileWebTerminalArtifactReleaseResultSchema,
   MobileWebTerminalPathResolvePayloadSchema,
   MobileWebTerminalPathResolveResultSchema,
   type MobileWebTerminalArtifactChunkPayload,
@@ -34,7 +33,6 @@ import {
   type MobileWebTerminalPathResolveResult
 } from '../../shared/mobile-web/terminal-artifact-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
-import { requireEchoedWorkspaceId } from './mobile-web-result-echo'
 import { MobileWebFileReadClient } from './mobile-web-file-read-request-client'
 import { decodeMobileWebFileBytes } from './mobile-web-file-content'
 import { mobileWebFileRevision } from './mobile-web-file-edit-content'
@@ -142,71 +140,104 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
     payload: MobileWebTerminalPathResolvePayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebTerminalPathResolveResult> {
-    return this.requests
-      .request(
-        'file',
-        'resolveTerminalPath',
-        payload,
-        MobileWebTerminalPathResolvePayloadSchema,
-        MobileWebTerminalPathResolveResultSchema,
-        options
-      )
-      .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
+    if (!MobileWebTerminalPathResolvePayloadSchema.safeParse(payload).success) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
+    }
+    return this.requestHost(
+      'mobileWeb.terminal.resolvePath',
+      payload.workspaceId,
+      {
+        tabId: payload.tabId,
+        pathText: payload.pathText,
+        line: payload.line,
+        column: payload.column
+      },
+      // The page owns the location it asked about; only the target comes from the host.
+      (result) => {
+        const parsed = MobileWebTerminalPathResolveResultSchema.safeParse({
+          ...(typeof result === 'object' && result !== null ? result : {}),
+          workspaceId: payload.workspaceId,
+          line: payload.line,
+          column: payload.column
+        })
+        if (!parsed.success) {
+          throw new MobileWebBridgeClientError('invalid_message', false)
+        }
+        return parsed.data
+      },
+      options
+    )
   }
 
   readTerminalArtifactChunk(
     payload: MobileWebTerminalArtifactChunkPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebTerminalArtifactChunkResult> {
-    return this.requests
-      .request(
-        'file',
-        'readTerminalArtifactChunk',
-        payload,
-        MobileWebTerminalArtifactChunkPayloadSchema,
-        MobileWebTerminalArtifactChunkResultSchema,
-        options
-      )
-      .then((result): MobileWebTerminalArtifactChunkResult => {
-        if (
-          result.workspaceId !== payload.workspaceId ||
-          result.tabId !== payload.tabId ||
-          result.token !== payload.token ||
-          result.offset !== payload.offset
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        const bytes = decodeMobileWebFileBytes(
-          result.contentBase64,
-          MOBILE_WEB_FILE_CHUNK_MAX_BYTES
-        )
-        if (bytes.byteLength !== result.bytesRead || result.bytesRead > payload.length) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return {
-          workspaceId: result.workspaceId,
-          tabId: result.tabId,
-          token: result.token,
-          offset: result.offset,
-          bytes,
-          bytesRead: result.bytesRead,
-          eof: result.eof
-        }
-      })
+    if (!MobileWebTerminalArtifactChunkPayloadSchema.safeParse(payload).success) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
+    }
+    return this.requestHost(
+      'mobileWeb.terminal.artifactChunk',
+      payload.workspaceId,
+      {
+        tabId: payload.tabId,
+        token: payload.token,
+        offset: payload.offset,
+        length: payload.length
+      },
+      (result) => projectArtifactChunk(payload, result),
+      options
+    )
   }
 
   releaseTerminalArtifact(
     payload: MobileWebTerminalArtifactReleasePayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<null> {
-    return this.requests.request(
-      'file',
-      'releaseTerminalArtifact',
-      payload,
-      MobileWebTerminalArtifactReleasePayloadSchema,
-      MobileWebTerminalArtifactReleaseResultSchema,
+    if (!MobileWebTerminalArtifactReleasePayloadSchema.safeParse(payload).success) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
+    }
+    return this.requestHost(
+      'mobileWeb.terminal.artifactRelease',
+      payload.workspaceId,
+      { tabId: payload.tabId, token: payload.token },
+      () => null,
       options
     )
+  }
+}
+
+function projectArtifactChunk(
+  payload: MobileWebTerminalArtifactChunkPayload,
+  result: unknown
+): MobileWebTerminalArtifactChunkResult {
+  const chunk =
+    typeof result === 'object' && result !== null ? (result as Record<string, unknown>) : {}
+  const parsed = MobileWebTerminalArtifactChunkResultSchema.safeParse({
+    workspaceId: payload.workspaceId,
+    tabId: payload.tabId,
+    token: chunk.token,
+    offset: chunk.offset,
+    contentBase64: chunk.contentBase64,
+    bytesRead: chunk.bytesRead,
+    eof: chunk.eof
+  })
+  if (
+    !parsed.success ||
+    parsed.data.token !== payload.token ||
+    parsed.data.offset !== payload.offset ||
+    parsed.data.bytesRead > payload.length
+  ) {
+    throw new MobileWebBridgeClientError('invalid_message', false)
+  }
+  return {
+    workspaceId: parsed.data.workspaceId,
+    tabId: parsed.data.tabId,
+    token: parsed.data.token,
+    offset: parsed.data.offset,
+    bytes: decodeMobileWebFileBytes(parsed.data.contentBase64, MOBILE_WEB_FILE_CHUNK_MAX_BYTES),
+    bytesRead: parsed.data.bytesRead,
+    eof: parsed.data.eof
   }
 }
 

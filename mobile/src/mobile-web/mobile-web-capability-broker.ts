@@ -117,7 +117,6 @@ export class MobileWebCapabilityBroker {
   }
   updateConnectionState(state: 'connecting' | 'connected' | 'offline' | 'recovering'): void {
     if (state !== 'connected') {
-      this.authorities.terminalArtifact.clear()
       void this.speechAuthority.cancel('disconnected')
     }
   }
@@ -252,7 +251,6 @@ export class MobileWebCapabilityBroker {
       terminalStreams: this.terminalStreams,
       commitMessageGeneration: this.commitMessageGeneration,
       nativeChatAuthority: this.authorities.nativeChat,
-      terminalArtifactAuthority: this.authorities.terminalArtifact,
       taskTargetAuthority: this.authorities.taskTarget,
       taskProjectTable: this.authorities.taskProjectTable,
       workspaceAuthority: this.authorities.workspace,

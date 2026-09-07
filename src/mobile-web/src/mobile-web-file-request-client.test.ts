@@ -97,7 +97,7 @@ describe('mobile web file request client', () => {
   })
 
   it('resolves, reads, decodes, and releases an opaque terminal artifact', async () => {
-    const harness = createHarness(terminalArtifactGrants())
+    const harness = createHarness()
     const resolve = harness.client.fileResolveTerminalPath({
       workspaceId: WORKSPACE_ID,
       tabId: 'tab-1',
@@ -106,13 +106,17 @@ describe('mobile web file request client', () => {
       column: null
     })
     expect(harness.messages.at(-1)).toMatchObject({
-      capability: 'file',
-      operation: 'resolveTerminalPath'
+      capability: 'workspace',
+      operation: 'hostRequest',
+      payload: {
+        method: 'mobileWeb.terminal.resolvePath',
+        workspaceId: WORKSPACE_ID,
+        params: { tabId: 'tab-1', pathText: '/tmp/report.png', line: null, column: null }
+      }
     })
     harness.client.receive(
       response({
         kind: 'terminal-artifact',
-        workspaceId: WORKSPACE_ID,
         token: ARTIFACT_TOKEN,
         displayName: 'report.png',
         previewKind: 'raster',
@@ -130,15 +134,7 @@ describe('mobile web file request client', () => {
       length: 3
     })
     harness.client.receive(
-      response({
-        workspaceId: WORKSPACE_ID,
-        tabId: 'tab-1',
-        token: ARTIFACT_TOKEN,
-        offset: 4,
-        contentBase64: 'AAH/',
-        bytesRead: 3,
-        eof: true
-      })
+      response({ token: ARTIFACT_TOKEN, offset: 4, contentBase64: 'AAH/', bytesRead: 3, eof: true })
     )
     await expect(read).resolves.toEqual({
       workspaceId: WORKSPACE_ID,
@@ -156,21 +152,17 @@ describe('mobile web file request client', () => {
       token: ARTIFACT_TOKEN
     })
     expect(harness.messages.at(-1)).toMatchObject({
-      capability: 'file',
-      operation: 'releaseTerminalArtifact'
+      capability: 'workspace',
+      operation: 'hostRequest',
+      payload: { method: 'mobileWeb.terminal.artifactRelease' }
     })
     harness.client.receive(response(null))
     await expect(release).resolves.toBeNull()
   })
 
   it('rejects mismatched terminal artifact chunk identities and supports cancellation', async () => {
-    for (const override of [
-      { workspaceId: 'repo-2::/workspace' },
-      { tabId: 'tab-2' },
-      { token: 'U'.repeat(43) },
-      { offset: 5 }
-    ]) {
-      const harness = createHarness(terminalArtifactGrants())
+    for (const override of [{ token: 'U'.repeat(43) }, { offset: 5 }, { bytesRead: 4 }]) {
+      const harness = createHarness()
       const read = harness.client.fileReadTerminalArtifactChunk({
         workspaceId: WORKSPACE_ID,
         tabId: 'tab-1',
@@ -180,8 +172,6 @@ describe('mobile web file request client', () => {
       })
       harness.client.receive(
         response({
-          workspaceId: WORKSPACE_ID,
-          tabId: 'tab-1',
           token: ARTIFACT_TOKEN,
           offset: 4,
           contentBase64: 'AAH/',
@@ -196,7 +186,7 @@ describe('mobile web file request client', () => {
       })
     }
 
-    const harness = createHarness(terminalArtifactGrants())
+    const harness = createHarness()
     const controller = new AbortController()
     controller.abort()
     await expect(
@@ -244,24 +234,6 @@ function writeGrants(): Extract<MobileWebBridgeShellMessage, { type: 'init' }>['
         rateRefillPerSecond: 0.5
       }
     }
-  ]
-}
-
-function terminalArtifactGrants(): Extract<
-  MobileWebBridgeShellMessage,
-  { type: 'init' }
->['grants'] {
-  const limits = {
-    maxRequestBytes: 4096,
-    maxResponseBytes: 192 * 1024,
-    maxConcurrent: 2,
-    rateCapacity: 16,
-    rateRefillPerSecond: 4
-  }
-  return [
-    { capability: 'file', operation: 'resolveTerminalPath', limits },
-    { capability: 'file', operation: 'readTerminalArtifactChunk', limits },
-    { capability: 'file', operation: 'releaseTerminalArtifact', limits }
   ]
 }
 

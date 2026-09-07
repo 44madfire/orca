@@ -9,7 +9,7 @@ import { executeMobileWebAgentHistoryOperation } from './mobile-web-agent-histor
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import { executeMobileWebBrowserOperation } from './mobile-web-browser-operations'
 import type { MobileWebCapabilityExecutionDependencies } from './mobile-web-capability-execution-dependencies'
-import { executeMobileWebMarkdownOperation } from './mobile-web-markdown-operations'
+import { executeMobileWebMarkdownDraftOperation } from './mobile-web-markdown-draft-operations'
 import { executeMobileWebNavigationOperation } from './mobile-web-navigation-operations'
 import { executeMobileWebNativeCapabilityOperation } from './mobile-web-native-capability-operations'
 import { executeMobileWebNativeChatCapability } from './mobile-web-native-chat-capability'
@@ -66,20 +66,12 @@ async function executeTerminal(args: Deps, request: OnceRequest): Promise<unknow
 }
 
 async function executeFile(args: Deps, request: OnceRequest): Promise<unknown> {
-  const client = args.connectedClient()
-  if (request.operation.startsWith('markdown')) {
-    return executeMobileWebMarkdownOperation({ ...args, ...request, client })
-  }
-  if (request.operation === 'resolveTerminalPath') {
-    return args.terminalArtifactAuthority.resolve(request.payload, client, args.workspaceAuthority)
-  }
-  if (request.operation === 'readTerminalArtifactChunk') {
-    return args.terminalArtifactAuthority.readChunk(request.payload, client)
-  }
-  if (request.operation === 'releaseTerminalArtifact') {
-    return args.terminalArtifactAuthority.release(request.payload)
-  }
-  throw new MobileWebBrokerError('unsupported_capability')
+  return executeMobileWebMarkdownDraftOperation({
+    operation: request.operation,
+    payload: request.payload,
+    workspaceAuthority: args.workspaceAuthority,
+    nativeAuthority: args.nativeAuthority
+  })
 }
 
 async function executeProvider(args: Deps, request: OnceRequest): Promise<unknown> {

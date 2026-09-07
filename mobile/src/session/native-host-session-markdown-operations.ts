@@ -4,10 +4,8 @@ import {
   loadMobileSessionMarkdownDraft,
   saveMobileSessionMarkdownDraft
 } from '../storage/mobile-session-markdown-drafts'
-import {
-  buildMarkdownDiskFallbackDoc,
-  shouldReadMarkdownFromDiskAfterReadTabFailure
-} from './mobile-markdown-disk-fallback'
+import { buildMarkdownDiskFallbackDoc } from '../../../src/shared/mobile-markdown-disk-fallback'
+import { shouldReadMarkdownFromDiskAfterReadTabFailure } from './mobile-markdown-disk-fallback'
 import type {
   HostSessionMarkdownOperations,
   HostSessionMarkdownReadRequest,

@@ -1,12 +1,13 @@
 const RASTER_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
 
-export function terminalArtifactPreviewKind(path: string): 'text' | 'raster' {
-  const displayName = displayNameFromTerminalArtifactPath(path)
+export function mobileWebTerminalArtifactPreviewKind(path: string): 'text' | 'raster' {
+  const displayName = mobileWebTerminalArtifactDisplayName(path)
   const extension = displayName.includes('.') ? displayName.split('.').at(-1)?.toLowerCase() : ''
   return extension && RASTER_EXTENSIONS.has(extension) ? 'raster' : 'text'
 }
 
-export function displayNameFromTerminalArtifactPath(path: string): string {
+/** The page renders this label, so it carries no directories and no control characters. */
+export function mobileWebTerminalArtifactDisplayName(path: string): string {
   const basename = path.split(/[\\/]/).at(-1) ?? ''
   const sanitized = [...basename]
     .filter((character) => {
