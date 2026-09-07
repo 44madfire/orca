@@ -22,6 +22,7 @@ import type { AgentSessionContinuationRequest } from '@/lib/agent-session-contin
 import { activateAiVaultStructuredSession } from '@/lib/activate-ai-vault-structured-session'
 import { startStructuredAgentLaunch } from '@/lib/structured-agent-session-launch'
 import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
+import { hasRuntimeRpcErrorCode } from '../../../../shared/runtime-rpc-error-code'
 import {
   aiVaultResumeUnsupportedMessage,
   resolveAiVaultSessionLaunchTarget,
@@ -241,8 +242,7 @@ export function useAiVaultSessionLaunchActions({
  *  cannot find under any account home it recognises. Both are actionable, and neither is the
  *  generic "could not prepare" the terminal resume reports. */
 function notifyAiVaultSessionResumeInChatFailure(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error)
-  if (message.includes('agent_session_conflict')) {
+  if (hasRuntimeRpcErrorCode(error, 'agent_session_conflict')) {
     toast.error(
       translate(
         'auto.components.right.sidebar.AiVaultPanel.resumeInChatConflict',
@@ -251,11 +251,11 @@ function notifyAiVaultSessionResumeInChatFailure(error: unknown): void {
     )
     return
   }
-  if (message.includes('agent_session_identity_required')) {
+  if (hasRuntimeRpcErrorCode(error, 'agent_session_identity_required')) {
     toast.error(
       translate(
         'auto.components.right.sidebar.AiVaultPanel.resumeInChatTranscriptMissing',
-        "This conversation's transcript could not be found, so it cannot be resumed."
+        "This conversation's history could not be loaded, so it cannot be resumed in chat."
       )
     )
     return

@@ -13008,7 +13008,7 @@
             "sessionDeleted": "Session deleted",
             "sessionDeleteFailed": "Couldn't delete the session",
             "resumeInChatConflict": "Another chat is already holding this conversation.",
-            "resumeInChatTranscriptMissing": "This conversation's transcript could not be found, so it cannot be resumed.",
+            "resumeInChatTranscriptMissing": "This conversation's history could not be loaded, so it cannot be resumed in chat.",
             "resumeInChatFailed": "Could not resume this session in a new chat."
           },
           "AiVaultPanelControls": {
