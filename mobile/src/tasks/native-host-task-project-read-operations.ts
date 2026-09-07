@@ -97,7 +97,7 @@ export function nativeHostTaskProjectReadOperations(
   }
 }
 
-async function projectResult<T>(request: Promise<unknown>): Promise<T> {
+export async function projectResult<T>(request: Promise<unknown>): Promise<T> {
   const response = (await request) as {
     ok: boolean
     result?: { ok?: boolean; error?: { message?: string } }
