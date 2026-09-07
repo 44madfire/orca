@@ -38,8 +38,9 @@ export function recordWorkerTerminalUserTakeover(
  * one-way and per resource: the second attempt matches no row, and the pane can join a new
  * ownership population at any moment — a worker whose authority attaches while the user is already
  * typing. Anything remembering an earlier answer would outlive its precondition and let the release
- * close the terminal under them. The attempt costs about 0.1 ms against a live orchestration
- * database, so nothing is worth trading correctness for.
+ * close the terminal under them. An attempt scales with the number of owned worker resources, since
+ * a pane that owns none falls through to a scan of them: tens of microseconds at realistic worker
+ * counts, and a couple of hundred at two hundred owned rows.
  */
 export function recordWorkerTerminalUserTakeoverFromInput(
   runtime: OrcaRuntimeService,

@@ -96,6 +96,26 @@ describe('settled worker terminal: who counts as a user takeover', () => {
     expect(harness.runtime.closeTerminal).not.toHaveBeenCalled()
   })
 
+  // A phone build older than `client.type` sends no client metadata at all; its pane's mobile
+  // driver is the only evidence of who is at the keyboard, and the unary lane must pass it.
+  it('fences the release for a clientless send on a mobile-driven pane', async () => {
+    const worker = await harness.startSettledWorker()
+    stubAcceptedWrite()
+    vi.spyOn(harness.runtime, 'getDriver').mockReturnValue({
+      kind: 'mobile',
+      clientId: 'legacy-phone'
+    })
+
+    await callSend({ terminal: 'term_worker', text: 'ls\r' })
+
+    expect(ownership(worker.dispatchId)).toBe('user_owned')
+    expect(await release(worker.dispatchId)).toMatchObject({
+      state: 'retained',
+      reason: 'user_takeover'
+    })
+    expect(harness.runtime.closeTerminal).not.toHaveBeenCalled()
+  })
+
   it('mobile stream input frames fence the release too', async () => {
     const worker = await harness.startSettledWorker()
     stubAcceptedWrite()

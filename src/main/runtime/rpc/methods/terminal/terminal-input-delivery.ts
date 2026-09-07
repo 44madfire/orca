@@ -149,7 +149,9 @@ export async function sendTerminalStreamInput(
 ): Promise<TerminalStreamInputOutcome> {
   const action = { text: args.text, enter: false, interrupt: false }
   const clientId = args.isMobile ? args.client?.id : undefined
-  const floorClaim = newMobileInputWrite(args, args.isMobile)
+  // Why: a stream's `isMobile` is read off the same `client` it carries, so the metadata-less
+  // legacy phone the unary lane recognises by driver cannot reach this lane at all.
+  const floorClaim = newMobileInputWrite(args, false)
   try {
     if (!clientId) {
       const result = await runtime.sendTerminal(args.terminal, action)
