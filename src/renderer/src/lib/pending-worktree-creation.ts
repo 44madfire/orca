@@ -1,4 +1,5 @@
 import type { TuiAgent } from '../../../shared/tui-agent'
+import { TUI_AGENT_DISPLAY_NAMES } from '../../../shared/tui-agent-display-names'
 import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../../shared/workspace-source'
 import type {
   CreateSparseCheckoutRequest,
@@ -137,6 +138,7 @@ export type PendingWorktreeCreation = {
   provisioningLog?: string
   /** Existing worktree whose uncertain structured launch must be reconciled instead of recreated. */
   structuredLaunchRecoveryWorktreeId?: string
+  startingChatAgent?: 'claude' | 'codex'
   request: WorktreeCreationRequest
 }
 
@@ -167,8 +169,11 @@ export function findPendingLinkedWorkItemCreationId(
  *  loader and the sidebar row so the two never drift. Caller handles the error
  *  case; this only covers the in-progress states. */
 export function getCreationProgressLabel(
-  entry: Pick<PendingWorktreeCreation, 'phase' | 'indeterminate'>
+  entry: Pick<PendingWorktreeCreation, 'phase' | 'indeterminate' | 'startingChatAgent'>
 ): string {
+  if (entry.startingChatAgent) {
+    return `Starting ${TUI_AGENT_DISPLAY_NAMES[entry.startingChatAgent] ?? entry.startingChatAgent} chat…`
+  }
   if (entry.phase === 'provisioning-vm') {
     return 'Provisioning VM…'
   }

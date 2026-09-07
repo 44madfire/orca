@@ -94,11 +94,14 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@/i18n/i18n', () => ({
-  translate: (_key: string, fallback: string) => fallback
+  translate: (_key: string, fallback: string, options?: { agent: string }) =>
+    options ? fallback.replace('{{agent}}', options.agent) : fallback
 }))
 
 import { executeWorktreeCreation } from './worktree-creation-flow-execute'
 import { retryBackgroundWorktreeCreation } from './worktree-creation-flow'
+import { getCreationProgressLabel } from './pending-worktree-creation'
+import { markStructuredWorktreeLaunchUnconfirmed } from './worktree-creation-structured-recovery'
 
 describe('structured worktree creation unknown outcome', () => {
   beforeEach(() => {
@@ -137,6 +140,69 @@ describe('structured worktree creation unknown outcome', () => {
     })
     expect(store.removePendingWorktreeCreation).not.toHaveBeenCalled()
     expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
+  })
+
+  it('keeps the creation panel visible and names the agent throughout a delayed launch', async () => {
+    const setup = { runnerScriptPath: '/tmp/setup.sh', command: 'run-setup', envVars: {} }
+    store.createWorktree.mockResolvedValueOnce({
+      worktree: { id: 'worktree-1', repoId: 'repo-1' },
+      setup
+    })
+    const launch =
+      Promise.withResolvers<Awaited<ReturnType<typeof mocks.launchStructuredWorktreeSession>>>()
+    mocks.launchStructuredWorktreeSession.mockReturnValueOnce(launch.promise)
+    const creation = executeWorktreeCreation('creation-1', request)
+    await vi.waitFor(() => expect(mocks.launchStructuredWorktreeSession).toHaveBeenCalled())
+    expect(store.activePendingCreationId).toBe('creation-1')
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+    expect(mocks.ensureWorktreeHasInitialTerminal).toHaveBeenCalledWith(
+      store,
+      'worktree-1',
+      undefined,
+      setup,
+      undefined,
+      undefined,
+      { activateCreatedTabs: false, callerProvidesSurface: true }
+    )
+    expect(store.removePendingWorktreeCreation).not.toHaveBeenCalled()
+    expect(getCreationProgressLabel(store.pendingWorktreeCreations['creation-1'])).toBe(
+      'Starting Codex chat…'
+    )
+    launch.resolve({
+      accepted: true,
+      cancelled: false,
+      visibilityUnknown: false,
+      activation: false,
+      primaryTabId: null
+    })
+    await creation
+    expect(store.removePendingWorktreeCreation).toHaveBeenCalled()
+  })
+
+  it('uses Claude in the unconfirmed-launch copy and progress label', () => {
+    markStructuredWorktreeLaunchUnconfirmed('creation-1', 'worktree-1', 'claude')
+    expect(store.pendingWorktreeCreations['creation-1'].error).toBe(
+      'Could not confirm whether Claude chat opened. Retry to check again.'
+    )
+    expect(
+      getCreationProgressLabel({
+        phase: 'creating',
+        indeterminate: false,
+        startingChatAgent: 'claude'
+      })
+    ).toBe('Starting Claude chat…')
+  })
+
+  it.each([
+    [null, 'agent'],
+    ['openclaude', 'OpenClaude'],
+    ['grok', 'Grok'],
+    ['omp', 'OMP']
+  ] as const)('does not mislabel %s as Codex in recovery copy', (agent, label) => {
+    markStructuredWorktreeLaunchUnconfirmed('creation-1', 'worktree-1', agent)
+    expect(store.pendingWorktreeCreations['creation-1'].error).toBe(
+      `Could not confirm whether ${label} chat opened. Retry to check again.`
+    )
   })
 
   it('reconciles the created worktree on retry without creating another one', async () => {

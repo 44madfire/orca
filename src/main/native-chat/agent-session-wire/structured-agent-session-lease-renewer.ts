@@ -77,6 +77,23 @@ export class StructuredAgentSessionLeaseRenewer {
           continue
         }
         if (
+          record.lease.runtimeKind === 'native' &&
+          record.lease.leaseDeadlineAt <= now &&
+          isProvenDeadProbe(probe)
+        ) {
+          try {
+            await this.input.store.evictProvenDeadOwner({
+              sessionId: record.sessionId,
+              expectedFence: record.lease.runtimeFence,
+              probe,
+              now
+            })
+          } catch (error) {
+            this.input.onError?.({ sessionId: record.sessionId, error })
+          }
+          continue
+        }
+        if (
           record.lease.runtimeKind === 'tui' &&
           isProvenDeadProbe(probe) &&
           this.input.onDeadTuiOwner

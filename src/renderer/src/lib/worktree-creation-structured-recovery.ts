@@ -1,4 +1,5 @@
 import { translate } from '@/i18n/i18n'
+import { TUI_AGENT_DISPLAY_NAMES } from '../../../shared/tui-agent-display-names'
 import { useAppStore } from '@/store'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { completeWorktreeCreation } from '@/lib/worktree-creation-completion'
@@ -7,13 +8,15 @@ import { launchStructuredWorktreeSession } from '@/lib/worktree-creation-structu
 
 export function markStructuredWorktreeLaunchUnconfirmed(
   creationId: string,
-  worktreeId: string
+  worktreeId: string,
+  agent: WorktreeCreationRequest['agent']
 ): void {
   useAppStore.getState().updatePendingWorktreeCreation(creationId, {
     status: 'error',
     error: translate(
-      'auto.lib.worktree.creation.flow.structured.launch.unknown',
-      'Could not confirm whether Codex chat opened. Retry to check again.'
+      'auto.lib.worktree.creation.flow.structured.launch.unknownAgent',
+      'Could not confirm whether {{agent}} chat opened. Retry to check again.',
+      { agent: agent === null ? 'agent' : (TUI_AGENT_DISPLAY_NAMES[agent] ?? agent) }
     ),
     structuredLaunchRecoveryWorktreeId: worktreeId
   })
@@ -41,7 +44,7 @@ export async function retryStructuredWorktreeLaunch(
     return
   }
   if (structuredSession.visibilityUnknown) {
-    markStructuredWorktreeLaunchUnconfirmed(creationId, worktreeId)
+    markStructuredWorktreeLaunchUnconfirmed(creationId, worktreeId, request.agent)
     return
   }
   await completeWorktreeCreation({

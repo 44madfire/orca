@@ -173,21 +173,18 @@ export async function executeWorktreeCreation(
 
   let activation: ActivateAndRevealResult | false = false
   let primaryTabId: string | null
-  if (shouldActivateOnCompletion) {
+  if (shouldActivateOnCompletion && !structuredLaunch) {
     activation = activateAndRevealWorktree(worktree.id, {
       sidebarRevealBehavior: 'auto',
       ...(result.setup ? { setup: result.setup } : {}),
       ...(result.defaultTabs ? { defaultTabs: result.defaultTabs } : {}),
       ...(startupOpt ? { startup: startupOpt } : {}),
       ...(preparedRequest.issueCommand ? { issueCommand: preparedRequest.issueCommand } : {}),
-      ...(backendSpawned ? { backendStartupTerminalSpawned: true } : {}),
-      ...(structuredLaunch ? { providesInitialSurface: true } : {})
+      ...(backendSpawned ? { backendStartupTerminalSpawned: true } : {})
     })
     primaryTabId = activation === false ? null : activation.primaryTabId
   } else {
-    // The user moved on. Seed the worktree's terminal + setup in the background
-    // (setActiveTab only writes global focus for the active worktree, so this is
-    // safe) without yanking them back to it.
+    // Structured launches retain the pending panel while explicit terminal work runs in the background.
     const hasExplicitTerminalWork = Boolean(
       startupOpt || result.setup || preparedRequest.issueCommand || result.defaultTabs
     )
@@ -211,6 +208,9 @@ export async function executeWorktreeCreation(
 
   let structuredLaunchAccepted = structuredLaunch
   if (structuredLaunch && isAgentSessionHandleProvider(preparedRequest.agent)) {
+    useAppStore.getState().updatePendingWorktreeCreation(creationId, {
+      startingChatAgent: preparedRequest.agent
+    })
     const structuredSession = await launchStructuredWorktreeSession({
       creationId,
       request: preparedRequest,
@@ -227,7 +227,7 @@ export async function executeWorktreeCreation(
       return
     }
     if (structuredSession.visibilityUnknown) {
-      markStructuredWorktreeLaunchUnconfirmed(creationId, worktree.id)
+      markStructuredWorktreeLaunchUnconfirmed(creationId, worktree.id, preparedRequest.agent)
       return
     }
   }

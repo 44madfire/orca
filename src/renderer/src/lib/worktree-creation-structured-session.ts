@@ -57,6 +57,8 @@ export async function launchStructuredWorktreeSession(args: {
     return { accepted, cancelled: true, visibilityUnknown, activation, primaryTabId }
   }
 
+  const initialSelection = useAppStore.getState()
+  let shouldActivate = args.shouldActivateOnCompletion
   const launch = startStructuredAgentLaunch(
     args.worktreeId,
     agent,
@@ -73,6 +75,15 @@ export async function launchStructuredWorktreeSession(args: {
     cancelStructuredAgentLaunch(args.worktreeId, launch.sessionId)
   }
   const unsubscribe = useAppStore.subscribe((state) => {
+    if (
+      state.activeView !== initialSelection.activeView ||
+      state.activeRepoId !== initialSelection.activeRepoId ||
+      state.activeWorktreeId !== initialSelection.activeWorktreeId ||
+      state.activeWorkspaceExecutionHostId !== initialSelection.activeWorkspaceExecutionHostId ||
+      state.activePendingCreationId !== initialSelection.activePendingCreationId
+    ) {
+      shouldActivate = false
+    }
     if (!state.pendingWorktreeCreations[args.creationId]) {
       cancelLaunch()
     }
@@ -111,7 +122,7 @@ export async function launchStructuredWorktreeSession(args: {
     if (cancelled) {
       return
     }
-    if (args.shouldActivateOnCompletion) {
+    if (shouldActivate) {
       const fallbackActivation = activateAndRevealWorktree(args.worktreeId, {
         sidebarRevealBehavior: 'auto',
         createNewTerminalForStartup: true,
@@ -138,7 +149,10 @@ export async function launchStructuredWorktreeSession(args: {
       await retireCancelledStructuredSession(args.worktreeId, launch.sessionId)
       return { accepted, cancelled, visibilityUnknown, activation, primaryTabId }
     }
-    if (args.shouldActivateOnCompletion) {
+    if (shouldActivate) {
+      if (!activation) {
+        activation = activateAndRevealWorktree(args.worktreeId, { providesInitialSurface: true })
+      }
       activateStructuredAgentSessionById({
         worktreeId: args.worktreeId,
         sessionId: receipt.sessionId

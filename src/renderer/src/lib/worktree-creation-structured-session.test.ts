@@ -1,27 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ActivateAndRevealResult } from './worktree-activation'
+
+type SelectionState = {
+  pendingWorktreeCreations: Record<string, unknown>
+  activeView?: string
+  activeRepoId?: string
+  activeWorktreeId?: string
+  activeWorkspaceExecutionHostId?: string
+  activePendingCreationId?: string
+}
 
 const mocks = vi.hoisted(() => ({
-  state: {
-    pendingWorktreeCreations: { 'creation-1': {} } as Record<string, unknown>
-  },
-  listener: null as ((state: { pendingWorktreeCreations: Record<string, unknown> }) => void) | null,
+  state: { pendingWorktreeCreations: { 'creation-1': {} } } as SelectionState,
+  listener: null as ((state: SelectionState) => void) | null,
   unsubscribe: vi.fn(),
   startStructuredAgentLaunch: vi.fn(),
   cancelStructuredAgentLaunch: vi.fn(),
   closeStructuredAgentSession: vi.fn(),
   callRuntimeRpc: vi.fn(),
-  activateStructuredAgentSessionById: vi.fn()
+  activateStructuredAgentSessionById: vi.fn(),
+  activateAndRevealWorktree: vi.fn(),
+  ensureWorktreeHasInitialTerminal: vi.fn()
 }))
 
 vi.mock('@/store', () => ({
   useAppStore: Object.assign(vi.fn(), {
     getState: () => mocks.state,
-    subscribe: vi.fn(
-      (listener: (state: { pendingWorktreeCreations: Record<string, unknown> }) => void) => {
-        mocks.listener = listener
-        return mocks.unsubscribe
-      }
-    )
+    subscribe: vi.fn((listener: (state: SelectionState) => void) => {
+      mocks.listener = listener
+      return mocks.unsubscribe
+    })
   })
 }))
 
@@ -47,11 +55,11 @@ vi.mock('@/lib/structured-agent-session-tab-activation', () => ({
 }))
 
 vi.mock('@/lib/worktree-initial-terminal-seeding', () => ({
-  ensureWorktreeHasInitialTerminal: vi.fn()
+  ensureWorktreeHasInitialTerminal: mocks.ensureWorktreeHasInitialTerminal
 }))
 
 vi.mock('@/lib/worktree-activation', () => ({
-  activateAndRevealWorktree: vi.fn()
+  activateAndRevealWorktree: mocks.activateAndRevealWorktree
 }))
 
 vi.mock('@/lib/agent-trust-preflight', () => ({
@@ -125,7 +133,75 @@ describe('launchStructuredWorktreeSession', () => {
       reason: 'user'
     })
     expect(mocks.activateStructuredAgentSessionById).not.toHaveBeenCalled()
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
     expect(mocks.unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    'unchanged',
+    'already-activated',
+    'background',
+    'activeView',
+    'activeRepoId',
+    'activeWorktreeId',
+    'activeWorkspaceExecutionHostId',
+    'activePendingCreationId',
+    'navigate-away-and-back'
+  ] as const)('respects selection at successful receipt: %s', async (scenario) => {
+    const launch = Promise.withResolvers<{ sessionId: string; fence: number }>()
+    const activation = { primaryTabId: null } as ActivateAndRevealResult
+    mocks.activateAndRevealWorktree.mockReturnValue(activation)
+    mocks.startStructuredAgentLaunch.mockReturnValue({
+      sessionId: 'session-1',
+      launchResult: launch.promise,
+      claimDefinitiveRefusalFallback: vi.fn(() => Promise.resolve(false))
+    })
+    const result = launchStructuredWorktreeSession({
+      creationId: 'creation-1',
+      request: {
+        repoId: 'repo-1',
+        name: 'routing-recovery',
+        setupDecision: 'run',
+        agent: 'codex',
+        pendingFirstAgentMessageRename: false,
+        note: '',
+        startupPlan: null,
+        quickPrompt: '',
+        quickTelemetry: null
+      },
+      worktreeId: 'worktree-1',
+      shouldActivateOnCompletion: scenario !== 'background',
+      fallbackStartupOpt: undefined,
+      activation: scenario === 'already-activated' ? activation : false,
+      primaryTabId: null
+    })
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+    if (scenario.startsWith('active') || scenario === 'navigate-away-and-back') {
+      const initialState = mocks.state
+      const field = scenario === 'navigate-away-and-back' ? 'activeWorktreeId' : scenario
+      mocks.state = { ...mocks.state, [field]: 'other-selection' }
+      mocks.listener?.(mocks.state)
+      if (scenario === 'navigate-away-and-back') {
+        mocks.state = initialState
+        mocks.listener?.(mocks.state)
+      }
+    }
+    launch.resolve({ sessionId: 'session-1', fence: 1 })
+    await result
+    if (scenario === 'unchanged') {
+      expect(mocks.activateAndRevealWorktree).toHaveBeenCalledExactlyOnceWith('worktree-1', {
+        providesInitialSurface: true
+      })
+      expect(mocks.activateAndRevealWorktree.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.activateStructuredAgentSessionById.mock.invocationCallOrder[0]
+      )
+    } else {
+      expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+    }
+    expect(mocks.activateStructuredAgentSessionById).toHaveBeenCalledTimes(
+      scenario === 'unchanged' || scenario === 'already-activated' ? 1 : 0
+    )
+    expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
   })
 
   it('reports an unknown launch without claiming a visible surface', async () => {

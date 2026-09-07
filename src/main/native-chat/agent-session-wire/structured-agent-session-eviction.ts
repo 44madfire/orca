@@ -18,6 +18,7 @@
 // session in place is what makes the next close a real retry instead of a no-op.
 
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
+import { AgentSessionAcquisitionRootExitObservedError } from './structured-agent-session-adapter'
 import type { DeferredStructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
 
 export type StructuredAgentSessionEvictionContext = {
@@ -52,7 +53,16 @@ export const STRUCTURED_AGENT_SESSION_EVICTION_STEPS: readonly StructuredAgentSe
         // An adapter with no close has nothing to stop; anything else must PROVE the exit.
         const stop = context.adapter.disposeSession ?? context.adapter.closeSession
         if (stop) {
-          const stopped = await stop.call(context.adapter, context.sessionId)
+          let stopped: boolean
+          try {
+            stopped = await stop.call(context.adapter, context.sessionId)
+          } catch (error) {
+            // Root-exit proof releases the writer; the adapter retains unverifiable descendant cleanup.
+            if (!(error instanceof AgentSessionAcquisitionRootExitObservedError)) {
+              throw error
+            }
+            stopped = true
+          }
           if (stopped !== true) {
             throw new Error('provider child exit was not proven')
           }

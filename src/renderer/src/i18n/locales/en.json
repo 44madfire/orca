@@ -828,7 +828,7 @@
           "flow": {
             "structured": {
               "launch": {
-                "unknown": "Could not confirm whether Codex chat opened. Retry to check again."
+                "unknownAgent": "Could not confirm whether {{agent}} chat opened. Retry to check again."
               }
             }
           }

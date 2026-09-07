@@ -222,6 +222,7 @@ export type WorktreeSlice = {
       request?: PendingWorktreeCreation['request']
       provisioningLog?: string
       structuredLaunchRecoveryWorktreeId?: string
+      startingChatAgent?: 'claude' | 'codex'
     }
   ) => void
   /** Drop a pending entry, clearing the active surface if it pointed at this

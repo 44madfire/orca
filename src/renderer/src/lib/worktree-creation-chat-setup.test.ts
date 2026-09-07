@@ -7,7 +7,7 @@ import {
   seedEmptyActivatableWorktree
 } from './worktree-activation-created-agent-test-state'
 import { registerWorktreeActivationReset } from './worktree-activation-test-harness'
-import type { WorktreeCreationRequest } from './pending-worktree-creation'
+import { getCreationProgressLabel, type WorktreeCreationRequest } from './pending-worktree-creation'
 
 vi.mock('./worktree-creation-structured-session', () => ({
   launchStructuredWorktreeSession: vi.fn(async (args) => ({
@@ -27,10 +27,11 @@ afterEach(() => {
   useAppStore.setState(initialState, true)
 })
 
-describe('native chat creation completed in the background', () => {
+describe.each(['terminal', 'tasks'] as const)('native chat creation from %s', (activeView) => {
   it.each(['claude', 'codex'] as const)(
-    'runs setup once without an idle shell or focus change for %s',
+    'runs new-tab setup once without an idle shell or premature focus change for %s',
     async (agent) => {
+      vi.clearAllMocks()
       const worktree = makeCreatedAgentWorktree()
       seedEmptyActivatableWorktree(worktree)
       const request: WorktreeCreationRequest = {
@@ -47,7 +48,8 @@ describe('native chat creation completed in the background', () => {
       }
       const setup = { runnerScriptPath: '/tmp/setup-runner.sh', envVars: {} }
       useAppStore.setState({
-        activeView: 'tasks',
+        activeView,
+        activePendingCreationId: 'creation-1',
         activeWorktreeId: 'previous-worktree',
         activeTabId: 'previous-tab',
         createWorktree: vi.fn().mockResolvedValue({ worktree, setup }),
@@ -64,7 +66,11 @@ describe('native chat creation completed in the background', () => {
         }
       })
 
-      await executeWorktreeCreation('creation-1', request)
+      const launch =
+        Promise.withResolvers<Awaited<ReturnType<typeof launchStructuredWorktreeSession>>>()
+      vi.mocked(launchStructuredWorktreeSession).mockReturnValueOnce(launch.promise)
+      const creation = executeWorktreeCreation('creation-1', request)
+      await vi.waitFor(() => expect(launchStructuredWorktreeSession).toHaveBeenCalled())
 
       const state = useAppStore.getState()
       const tabs = state.tabsByWorktree[worktree.id]
@@ -73,12 +79,29 @@ describe('native chat creation completed in the background', () => {
       expect(state.pendingStartupByTabId[tabs[0].id]).toMatchObject({
         command: 'bash /tmp/setup-runner.sh'
       })
-      expect(state.activeView).toBe('tasks')
+      expect(state.settings?.setupScriptLaunchMode).toBe('new-tab')
+      expect(state.activeView).toBe(activeView)
+      expect(state.activePendingCreationId).toBe('creation-1')
+      expect(getCreationProgressLabel(state.pendingWorktreeCreations['creation-1'])).toBe(
+        `Starting ${agent === 'claude' ? 'Claude' : 'Codex'} chat…`
+      )
       expect(state.activeWorktreeId).toBe('previous-worktree')
       expect(state.activeTabId).toBe('previous-tab')
       expect(launchStructuredWorktreeSession).toHaveBeenCalledWith(
-        expect.objectContaining({ primaryTabId: null, shouldActivateOnCompletion: false })
+        expect.objectContaining({
+          primaryTabId: null,
+          shouldActivateOnCompletion: activeView === 'terminal'
+        })
       )
+      launch.resolve({
+        accepted: true,
+        cancelled: false,
+        visibilityUnknown: false,
+        activation: false,
+        primaryTabId: null
+      })
+      await creation
+      expect(useAppStore.getState().tabsByWorktree[worktree.id]).toHaveLength(1)
     }
   )
 })
