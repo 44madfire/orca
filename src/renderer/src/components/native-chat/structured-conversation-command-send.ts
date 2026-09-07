@@ -39,3 +39,10 @@ export async function sendStructuredConversationCommand(input: {
     input.pending.current = false
   }
 }
+
+export function isUnconfirmedConversationCommand(method: string, value: unknown): boolean {
+  return (
+    method === 'agentSession.conversationCommand' &&
+    (value as AgentSessionConversationCommandResult).state === 'unknown'
+  )
+}

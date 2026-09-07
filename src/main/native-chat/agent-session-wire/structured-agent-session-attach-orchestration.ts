@@ -9,7 +9,8 @@ import { recoverInterruptedCompaction } from './structured-compaction-recovery'
 import { randomUUID } from 'node:crypto'
 import type {
   AgentSessionAttachResult,
-  AgentSessionMutationResult
+  AgentSessionMutationResult,
+  AgentSessionTurnActivity
 } from '../../../shared/agent-session-wire'
 import type { AgentSessionAttachParams } from './structured-agent-session-attach'
 import { performAttach } from './structured-agent-session-attach-flow'
@@ -97,8 +98,8 @@ export function attachStructuredAgentSession(
         // Site 8: the provisional journal has no owner until the map takes it,
         // and the barrier below throws by design.
         try {
-          await bindAndDrain(eventSink, attached.journal, fence, () =>
-            context.subscribers.publish(sessionId, attached.journal)
+          await bindAndDrain(eventSink, attached.journal, fence, (activity) =>
+            context.subscribers.publish(sessionId, attached.journal, activity)
           )
         } catch (error) {
           await agentSessionJournalCloseRetries.closeOrRetain(attached.journal)
@@ -150,7 +151,7 @@ async function bindAndDrain(
   eventSink: DeferredStructuredAgentSessionEventSink,
   journal: AgentSessionJournal,
   fence: number,
-  publish: () => void
+  publish: (activity?: AgentSessionTurnActivity | null) => void
 ): Promise<void> {
   eventSink.bind({ journal, fence, publish })
   const barrier = await eventSink.drained()

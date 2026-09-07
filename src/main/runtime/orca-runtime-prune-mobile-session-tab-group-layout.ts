@@ -26,6 +26,8 @@ import type { SleepingAgentLaunchConfig } from '../../shared/agent-session-resum
 import { copySleepingAgentLaunchConfig } from './runtime-agent-launch-resolution'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import { replaceConversationInSnapshot } from './structured-conversation-tab-replacement'
+import { resolveStructuredWorkerAuthority } from './structured-worker-authority'
+import { structuredWorkerAgentStatus } from './orchestration/structured-worker-group-addressing'
 
 export class OrcaRuntimeWithPruneMobileSessionTabGroupLayout extends OrcaRuntimeWithScheduleMobileSessionTabsChanged {
   protected pruneMobileSessionTabGroupLayout(
@@ -194,6 +196,12 @@ export class OrcaRuntimeWithPruneMobileSessionTabGroupLayout extends OrcaRuntime
 
   // Why: group address resolution (Section 4.5) queries per-handle status and must not throw on stale handles; return null on any error.
   getAgentStatusForHandle(handle: string): string | null {
+    // A structured worker has no pane and no title, so every PTY probe below answers null and
+    // `@idle` would enumerate it and then silently drop it. Its status is the journal's.
+    const structured = resolveStructuredWorkerAuthority(handle, this._orchestrationDb)
+    if (structured) {
+      return structuredWorkerAgentStatus(structured.identity.sessionId)
+    }
     try {
       const ptyId = this.getTerminalAgentStatusPtyId(handle)
       return this.getTerminalAgentStatusSnapshot(handle, ptyId).titleStatus
@@ -209,7 +217,7 @@ export class OrcaRuntimeWithPruneMobileSessionTabGroupLayout extends OrcaRuntime
     if (!handle) {
       return undefined
     }
-    return this.agentOrchestrationProjection.getForHandle(handle)
+    return this.agentOrchestrationProjection.getForHandle(handle, undefined, { paneKey })
   }
 
   getAgentStatusTerminalHandleForPaneKey(paneKey: string): string | undefined {
