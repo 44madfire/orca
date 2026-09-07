@@ -346,30 +346,34 @@ export function NativeChatToolRun({
             {callCount}×
           </span>
           {summaryMembers.length > 0 ? (
-            /* Wraps rather than truncates: a clipped member name is the one thing
-               the header cannot afford to lose. */
-            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-              {keyedSummaryMembers.map((member) => (
-                <span
-                  key={member.key}
-                  className="flex min-w-0 max-w-72 items-center gap-1 rounded-sm bg-accent px-1.5 py-px font-mono text-[11px] text-foreground/80"
-                >
-                  <NativeChatToolIcon
-                    rowWord={member.name}
-                    mcpIdentity={member.mcpIdentity}
-                    className="size-3.5 text-muted-foreground"
-                  />
-                  {/* Name and argument share one text run so the pill still reads
-                      as `name arg` to a screen reader and to a text selection. */}
-                  <span className="truncate">
+            <>
+              {/* Each member is led by its own category glyph, which is what marks
+                  the boundary. A separator character cannot: `·` occurs inside
+                  `browser.open` and `tools/read`. The list stays one line and
+                  truncates as a whole rather than wrapping into a block — a
+                  header that grows to three rows stops reading as a header. */}
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
+                {keyedSummaryMembers.map((member, index) => (
+                  <span
+                    key={member.key}
+                    data-tool-run-member
+                    className={cn(index > 0 && 'ml-3')}
+                  >
+                    <NativeChatToolIcon
+                      rowWord={member.name}
+                      mcpIdentity={member.mcpIdentity}
+                      className="mr-1 inline-flex size-3.5 align-middle"
+                    />
                     {member.name}
                     {member.arg ? (
-                      <span className="text-muted-foreground">{` ${member.arg}`}</span>
+                      <span className="text-muted-foreground/70">{` ${member.arg}`}</span>
                     ) : null}
                   </span>
-                </span>
-              ))}
+                ))}
+              </span>
               {hiddenCallCount > 0 ? (
+                /* Outside the truncating span, so the count of what is not shown
+                   survives a list the pane is too narrow to print. */
                 <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                   {translate(
                     'components.native-chat.tool.moreCalls',
@@ -378,7 +382,7 @@ export function NativeChatToolRun({
                   )}
                 </span>
               ) : null}
-            </span>
+            </>
           ) : (
             <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
               {fallbackLabel}

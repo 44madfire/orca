@@ -272,10 +272,10 @@ describe('NativeChatToolRun', () => {
       }
     ]
 
-    it('gives each member its own bounded pill instead of one joined string', () => {
+    it('gives each member its own glyph-led segment instead of one joined string', () => {
       const { container } = render(<NativeChatToolRun blocks={batch} expandSignal={false} />)
 
-      const pills = runHeader(container).querySelectorAll('.bg-accent')
+      const pills = runHeader(container).querySelectorAll('[data-tool-run-member]')
       expect([...pills].map((pill) => pill.textContent)).toEqual([
         'mcp__linear__list_issues todo',
         'Bash ls -la',
@@ -297,8 +297,8 @@ describe('NativeChatToolRun', () => {
       const { container } = render(<NativeChatToolRun blocks={batch} expandSignal={false} />)
 
       const header = runHeader(container)
-      expect(header.querySelector('.bg-accent .lucide-plug')).toBeInTheDocument()
-      expect(header.querySelector('.bg-accent .lucide-square-terminal')).toBeInTheDocument()
+      expect(header.querySelector('[data-tool-run-member] .lucide-plug')).toBeInTheDocument()
+      expect(header.querySelector('[data-tool-run-member] .lucide-square-terminal')).toBeInTheDocument()
       // The run-wide glyph still reads generic, the categories being mixed.
       expect(header.firstElementChild?.querySelector('.lucide-wrench')).toBeInTheDocument()
     })
@@ -313,7 +313,7 @@ describe('NativeChatToolRun', () => {
       const { container } = render(<NativeChatToolRun blocks={wide} expandSignal={false} />)
 
       expect(runHeader(container)).toHaveTextContent('+2 more')
-      expect(runHeader(container).querySelectorAll('.bg-accent')).toHaveLength(3)
+      expect(runHeader(container).querySelectorAll('[data-tool-run-member]')).toHaveLength(3)
     })
 
     it('leaves no remainder marker when every member is shown', () => {
