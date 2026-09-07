@@ -1,4 +1,7 @@
-import { structuredAgentSessionForkAvailable } from '@/runtime/structured-agent-session-client'
+import {
+  callStructuredAgentSession,
+  structuredAgentSessionForkAvailable
+} from '@/runtime/structured-agent-session-client'
 import * as forkState from './structured-agent-session-fork-state'
 import * as conversationCommands from './structured-conversation-command-send'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -18,7 +21,6 @@ import {
 } from '../../../../shared/structured-agent-session-options'
 import { activeStructuredAgentSessionTurnId } from '../../../../shared/structured-agent-session-projection'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
-import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import {
   structuredSessionOperationId,
   useStructuredAgentSessionOutbox
@@ -164,9 +166,7 @@ export function useStructuredAgentSession(args: {
     void callStructuredAgentSession<SessionWire.AgentSessionOptionsResult>(
       target,
       'agentSession.options',
-      {
-        sessionId
-      }
+      { sessionId }
     )
       .then(async (result) => {
         const forkAvailable =

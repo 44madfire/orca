@@ -1,10 +1,12 @@
 import type { CodexSession } from './codex-structured-session-state'
-import type { AgentSessionForkSupport } from '../../shared/agent-session-fork'
+import type {
+  AgentSessionForkSupport,
+  AgentSessionForkTarget
+} from '../../shared/agent-session-fork'
 import {
   assertCodexForkedIdentities,
   assertCodexForkedTurnIds
 } from './codex-structured-fork-identity'
-import type { AgentSessionForkTarget } from '../../shared/agent-session-fork'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import { verifyCodexRevertedHistory } from './codex-structured-rewind'
 
