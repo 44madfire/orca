@@ -1,3 +1,4 @@
+import { readWorkspaceSessionResumeFences } from '../../shared/workspace-session-resume-fences'
 import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../shared/execution-host'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
 import { retireTerminalSurfaceFromPersistence } from './mobile-session-terminal-persistence-retirement'
@@ -84,7 +85,7 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
     try {
       for (const [hostId, fenced] of fencedByHost) {
         const current = store.getWorkspaceSession(hostId)
-        if (!current || sameFenceSet(current.legacyWorkerResumeFencesByPaneKey, fenced)) {
+        if (!current || sameFenceSet(current, fenced)) {
           continue
         }
         store.setWorkspaceSession({ ...current, legacyWorkerResumeFencesByPaneKey: fenced }, hostId)
@@ -213,14 +214,18 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
 
 /** Identity is not enough: `prepare` rebuilds the set every pass, so compare by content or every
  *  pass would rewrite the session and wake every session subscriber. */
-function sameFenceSet(
-  current: Record<string, true> | undefined,
-  next: Record<string, true>
-): boolean {
-  const currentKeys = Object.keys(current ?? {})
+function sameFenceSet(session: WorkspaceSessionState, next: Record<string, true>): boolean {
+  const current = session.legacyWorkerResumeFencesByPaneKey
+  // An untouched partition needs no write; legacy record protection still needs explicit retirement.
+  if (current === undefined) {
+    return (
+      Object.keys(next).length === 0 &&
+      Object.keys(readWorkspaceSessionResumeFences(session)).length === 0
+    )
+  }
+  const currentKeys = Object.keys(current)
   const nextKeys = Object.keys(next)
   return (
-    current !== undefined &&
     currentKeys.length === nextKeys.length &&
     nextKeys.every((paneKey) => current?.[paneKey] === true)
   )

@@ -32,7 +32,7 @@ vi.mock('@/lib/agent-status', async (importOriginal) => {
 
 const mockApi = createStoreCascadesMockApi()
 
-describe('review writer fence race', () => {
+describe('resume fences during asynchronous sleep writes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     clearRuntimeCompatibilityCacheForTests()

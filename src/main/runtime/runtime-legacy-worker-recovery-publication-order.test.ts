@@ -57,7 +57,7 @@ function harness() {
     }
   }
 }
-it('round1 stale recovery result cannot reinstall a retired fence', async () => {
+it('a stale recovery result cannot reinstall a retired fence', async () => {
   const h = harness()
   let release!: (x: ReadonlySet<string>) => void
   h.ports.persist = () =>
@@ -75,7 +75,7 @@ it('round1 stale recovery result cannot reinstall a retired fence', async () => 
   h.p.prepare()
   expect(h.fences()).toEqual({})
 })
-it('round1 failed staging does not publish an untracked fence', async () => {
+it('failed staging does not publish an untracked fence', async () => {
   const h = harness()
   h.fail(true)
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})

@@ -55,3 +55,55 @@ it('announces a successfully written host when a sibling fails and disappears be
   p.prepare()
   expect(notify).toHaveBeenCalled()
 })
+
+it.each([true, false])(
+  'publishes canonical authority for a legacy-only record (fenced=%s)',
+  (fenced) => {
+    const paneKey = 'worker:11111111-2222-4333-8444-555555555555'
+    let session: WorkspaceSessionState = {
+      ...getDefaultWorkspaceSession(),
+      sleepingAgentSessionsByPaneKey: {
+        [paneKey]: {
+          paneKey,
+          tabId: 'worker',
+          worktreeId: 'folder:worker',
+          agent: 'codex',
+          providerSession: { key: 'session_id', id: 'provider' },
+          prompt: '',
+          state: 'done',
+          capturedAt: 1,
+          updatedAt: 1,
+          origin: 'live',
+          automaticResumeBlockedBy: 'legacy-orchestration-worker'
+        }
+      }
+    }
+    const notify = vi.fn()
+    const setWorkspaceSession = vi.fn((next: WorkspaceSessionState) => {
+      session = next
+    })
+    const persistence = new RuntimeLegacyWorkerTerminalRecoveryPersistence(
+      () =>
+        ({ getWorkspaceSession: () => session, setWorkspaceSession }) as unknown as RuntimeStore,
+      () => null as never,
+      () => 'local',
+      notify
+    )
+    vi.spyOn(
+      persistence as unknown as { getPlan: () => LegacyWorkerTerminalRecoveryPlan },
+      'getPlan'
+    ).mockReturnValue({
+      blockedPanes: fenced
+        ? [{ paneKey, worktreeId: 'folder:worker', contractVersion: 1, settled: true }]
+        : [],
+      candidates: [],
+      ambiguousDispatchIds: []
+    })
+    persistence.prepare()
+    expect(setWorkspaceSession).toHaveBeenCalledOnce()
+    expect(session.legacyWorkerResumeFencesByPaneKey).toEqual(fenced ? { [paneKey]: true } : {})
+    expect(notify).toHaveBeenCalledOnce()
+    persistence.prepare()
+    expect(setWorkspaceSession).toHaveBeenCalledOnce()
+  }
+)
