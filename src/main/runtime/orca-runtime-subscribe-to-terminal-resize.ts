@@ -173,6 +173,7 @@ export class OrcaRuntimeWithSubscribeToTerminalResize extends OrcaRuntimeWithApp
   ): Promise<'live' | 'exited' | 'unverifiable'> {
     const hostScope = parseWorkerTerminalHostScope(serializedHostScope)
     if (!hostScope || !this.ptyController?.listProcesses) {
+      console.log('[worker-release-verdict]', { processIncarnation, serializedHostScope, reason: 'unavailable' })
       return 'unverifiable'
     }
     const listed = await withTimeoutResult(
@@ -180,9 +181,12 @@ export class OrcaRuntimeWithSubscribeToTerminalResize extends OrcaRuntimeWithApp
       PTY_CONTROLLER_LIST_TIMEOUT_MS
     )
     if (!listed.ok) {
+      console.log('[worker-release-verdict]', { processIncarnation, serializedHostScope, reason: 'unavailable' })
       return 'unverifiable'
     }
-    return classifyWorkerTerminalProcessIncarnation(processIncarnation, listed.value)
+    const verdict = classifyWorkerTerminalProcessIncarnation(processIncarnation, listed.value)
+    console.log('[worker-release-verdict]', { processIncarnation, serializedHostScope, verdict, inventory: listed.value })
+    return verdict
   }
 
   protected getTerminalTopologyRevision(worktreeId: string): number {
