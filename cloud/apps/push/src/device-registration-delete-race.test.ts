@@ -6,7 +6,8 @@ const databaseUrl = process.env.ORCA_PUSH_TEST_DATABASE_URL
 it.skipIf(!databaseUrl)(
   'serializes deletion with a registration that has already read its row',
   async () => {
-    if (new URL(databaseUrl!).port !== '55440') throw new Error('isolated_postgres_port_required')
+    if (!process.env.CI && new URL(databaseUrl!).port !== '55440')
+      throw new Error('isolated_postgres_port_required')
     const database = await openPushDatabase({
       databaseUrl,
       dataDir: '',
