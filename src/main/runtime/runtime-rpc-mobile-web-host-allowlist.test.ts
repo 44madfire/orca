@@ -53,6 +53,7 @@ it('admits every allowlisted method and cancel through authenticated mobile disp
     }
     expect(MOBILE_WEB_HOST_RPC_CANCEL_METHODS).toEqual(
       new Set([
+        'mobileWeb.browser.unsubscribe',
         'mobileWeb.files.unwatch',
         'mobileWeb.nativeChat.unsubscribe',
         'mobileWeb.session.unsubscribe'
