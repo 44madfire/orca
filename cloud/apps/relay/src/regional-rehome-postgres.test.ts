@@ -81,6 +81,107 @@ describePostgres('PostgreSQL regional rehoming', () => {
     expect(await context.store.claimRegionalRehome()).not.toBeNull()
   })
 
+  it('moves a us-central1 host onto a cell in its preferred asia-east2 region', async () => {
+    const context = await fixture()
+
+    const attempt = await context.store.claimRegionalRehome()
+    expect(attempt).toMatchObject({
+      preferredRegion: 'asia-east2',
+      sourceCellId: context.source.id,
+      targetCellId: context.target.id
+    })
+    expect(await primary.query(
+      `SELECT preferred_region, source_cell_id, target_cell_id
+       FROM relay_region_rehome_attempts WHERE user_id = ?`,
+      [context.identity.userId]
+    )).toEqual([{
+      preferred_region: 'asia-east2',
+      source_cell_id: context.source.id,
+      target_cell_id: context.target.id
+    }])
+  })
+
+  it('moves an asia-east2 host back onto a cell in its preferred us-central1 region', async () => {
+    const context = await fixture({
+      sourceRegion: 'asia-east2',
+      targetRegion: 'us-central1'
+    })
+
+    const attempt = await context.store.claimRegionalRehome()
+    expect(attempt).toMatchObject({
+      preferredRegion: 'us-central1',
+      sourceCellId: context.source.id,
+      targetCellId: context.target.id
+    })
+    // The durable attempt row must accept the reverse direction too.
+    expect(await primary.query(
+      `SELECT preferred_region, source_cell_id, target_cell_id
+       FROM relay_region_rehome_attempts WHERE user_id = ?`,
+      [context.identity.userId]
+    )).toEqual([{
+      preferred_region: 'us-central1',
+      source_cell_id: context.source.id,
+      target_cell_id: context.target.id
+    }])
+    expect(await primary.query(
+      `SELECT cell_id FROM relay_assignments WHERE user_id = ?`,
+      [context.identity.userId]
+    )).toEqual([{ cell_id: context.target.id }])
+  })
+
+  it('leaves a host whose preference already matches its own region', async () => {
+    const context = await fixture({ preferredRegion: 'us-central1' })
+
+    await expect(context.store.claimRegionalRehome()).resolves.toBeNull()
+    await expect(context.store.inspectRegionalRehomeControl()).resolves.toMatchObject({
+      generation: 1,
+      enabled: true
+    })
+    expect(await attemptAndMigrationCounts(context.identity)).toEqual({
+      attempts: 0,
+      migrations: 0
+    })
+  })
+
+  it('leaves a host whose preference is older than the configured max age', async () => {
+    const context = await fixture()
+    await primary.query(
+      `UPDATE relay_assignment_region_preferences SET observed_at = ?
+       WHERE user_id = ? AND relay_host_id = ?`,
+      [
+        context.now() - 24 * 60 * 60_000 - 1,
+        context.identity.userId,
+        context.identity.relayHostId
+      ]
+    )
+
+    await expect(context.store.claimRegionalRehome()).resolves.toBeNull()
+    await expect(context.store.inspectRegionalRehomeControl()).resolves.toMatchObject({
+      generation: 1,
+      enabled: true
+    })
+    expect(await attemptAndMigrationCounts(context.identity)).toEqual({
+      attempts: 0,
+      migrations: 0
+    })
+  })
+
+  it('leaves a host whose preferred region holds no drainable cell', async () => {
+    // A cell that cannot be drained cannot be a target: the host would land
+    // where no later rehome could move it out again.
+    const context = await fixture({ targetProtocol: 0 })
+
+    await expect(context.store.claimRegionalRehome()).resolves.toBeNull()
+    await expect(context.store.inspectRegionalRehomeControl()).resolves.toMatchObject({
+      generation: 1,
+      enabled: true
+    })
+    expect(await attemptAndMigrationCounts(context.identity)).toEqual({
+      attempts: 0,
+      migrations: 0
+    })
+  })
+
   it('skips an unclean cell without latching the control off', async () => {
     const context = await fixture()
     await primary.query(
@@ -281,7 +382,7 @@ describePostgres('PostgreSQL regional rehoming', () => {
       context.store,
       context.target,
       '22222222-2222-4222-8222-222222222222',
-      0,
+      1,
       900_000,
       2
     )
@@ -322,7 +423,7 @@ describePostgres('PostgreSQL regional rehoming', () => {
       context.store,
       context.target,
       '44444444-4444-4444-8444-444444444444',
-      0,
+      1,
       context.now()
     )
 
@@ -341,7 +442,7 @@ describePostgres('PostgreSQL regional rehoming', () => {
       context.store,
       context.target,
       '22222222-2222-4222-8222-222222222222',
-      0,
+      1,
       900_000,
       2
     )
@@ -414,6 +515,26 @@ describePostgres('PostgreSQL regional rehoming', () => {
     })
   })
 
+  async function attemptAndMigrationCounts(identity: {
+    userId: string
+    relayHostId: string
+  }): Promise<{ attempts: number; migrations: number }> {
+    const attempts = await primary.query(
+      `SELECT COUNT(*) AS count FROM relay_region_rehome_attempts
+       WHERE user_id = ? AND relay_host_id = ?`,
+      [identity.userId, identity.relayHostId]
+    )
+    const migrations = await primary.query(
+      `SELECT COUNT(*) AS count FROM relay_assignment_migrations
+       WHERE user_id = ? AND relay_host_id = ?`,
+      [identity.userId, identity.relayHostId]
+    )
+    return {
+      attempts: Number(attempts[0]!.count),
+      migrations: Number(migrations[0]!.count)
+    }
+  }
+
   async function controlAccounting(identity: {
     userId: string
     relayHostId: string
@@ -436,12 +557,15 @@ describePostgres('PostgreSQL regional rehoming', () => {
     }
   }
 
-  async function fixture() {
+  async function fixture(options: FixtureOptions = {}) {
     sequence++
     let now = 1_000_000
     const suffix = String(sequence)
-    const source = cell(suffix, 'source', 'us-central1')
-    const target = cell(suffix, 'target', 'asia-east2')
+    const sourceRegion = options.sourceRegion ?? 'us-central1'
+    const targetRegion = options.targetRegion ?? 'asia-east2'
+    const preferredRegion = options.preferredRegion ?? targetRegion
+    const source = cell(suffix, 'source', sourceRegion)
+    const target = cell(suffix, 'target', targetRegion)
     const store = new RelayAssignmentStore(primary, () => now, storeOptions)
     const competingStore = new RelayAssignmentStore(secondary, () => now, storeOptions)
     await store.inspectRegionalRehomeControl()
@@ -466,21 +590,22 @@ describePostgres('PostgreSQL regional rehoming', () => {
       store,
       target,
       '22222222-2222-4222-8222-222222222222',
-      0,
+      options.targetProtocol ?? 1,
       900_000
     )
     const identity = {
       userId: `pg-rehome-user-${suffix}`,
       relayHostId: `rehomehost${suffix.padStart(6, '0')}`
     }
-    const assignment = await store.assign(identity, undefined, 'us-central1')
+    const assignment = await store.assign(identity, undefined, sourceRegion)
     const sourceControl = await store.activateControl(identity, {
       cellId: source.id,
       assignmentEpoch: assignment.assignmentEpoch,
       generation: 1
     })
-    await store.assign(identity, 'asia-east2')
+    await store.assign(identity, preferredRegion)
     return {
+      preferredRegion,
       store,
       competingStore,
       identity,
@@ -500,7 +625,15 @@ const storeOptions = {
   heartbeatTtlMs: 45_000
 }
 
-function cell(suffix: string, role: string, region: 'us-central1' | 'asia-east2') {
+type Region = 'us-central1' | 'asia-east2'
+type FixtureOptions = {
+  sourceRegion?: Region
+  targetRegion?: Region
+  preferredRegion?: Region
+  targetProtocol?: number
+}
+
+function cell(suffix: string, role: string, region: Region) {
   return {
     id: `pg-rehome-cell-${suffix}-${role}`,
     url: `https://pg-rehome-${suffix}-${role}.example.test`,

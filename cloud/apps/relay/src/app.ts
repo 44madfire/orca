@@ -606,8 +606,9 @@ export function createRelayApp(
       const source = await operations.assignments.cellDeploymentStatus(
         body.data.sourceCellId
       )
+      // Any cell that can be drained can be a rehome source, in either
+      // direction, so the probe is gated on the protocol and not on a region.
       if (
-        source.region !== RELAY_DEFAULT_REGION ||
         !source.runtime ||
         source.runtime.cellIncarnation !== body.data.sourceCellIncarnation ||
         !source.runtime.ready ||

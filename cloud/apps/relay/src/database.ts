@@ -212,7 +212,9 @@ CREATE TABLE IF NOT EXISTS relay_region_rehome_attempts (
   attempt_id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   relay_host_id TEXT NOT NULL,
-  preferred_region TEXT NOT NULL CHECK (preferred_region = 'asia-east2'),
+  preferred_region TEXT NOT NULL
+    CONSTRAINT relay_region_rehome_attempts_preferred_region_valid
+    CHECK (preferred_region IN ('us-central1', 'asia-east2')),
   source_cell_id TEXT NOT NULL,
   source_cell_incarnation TEXT NOT NULL,
   target_cell_id TEXT NOT NULL,
@@ -579,6 +581,18 @@ CREATE TABLE IF NOT EXISTS relay_audit_events (
 );
 CREATE INDEX IF NOT EXISTS relay_audit_events_at ON relay_audit_events(at);
 `
+
+// Rehoming is bidirectional, but tables created before that carry the
+// original single-region column check. The old constraint is the one Postgres
+// auto-named; the replacement is named, so both statements are no-ops on a
+// database the current schema created and neither can drop the other.
+export const POSTGRES_SCHEMA_MIGRATIONS = [
+  `ALTER TABLE relay_region_rehome_attempts
+     DROP CONSTRAINT IF EXISTS relay_region_rehome_attempts_preferred_region_check`,
+  `ALTER TABLE relay_region_rehome_attempts
+     ADD CONSTRAINT relay_region_rehome_attempts_preferred_region_valid
+     CHECK (preferred_region IN ('us-central1', 'asia-east2'))`
+]
 
 function postgresSql(sql: string): string {
   let index = 0
@@ -1009,7 +1023,10 @@ async function applySchemaOnUntimedPool(
   const database = new PostgresDatabase(pool)
   try {
     await applyPostgresSchema(
-      SCHEMA.split(';').filter((statement) => statement.trim()),
+      [
+        ...SCHEMA.split(';').filter((statement) => statement.trim()),
+        ...POSTGRES_SCHEMA_MIGRATIONS
+      ],
       async (statement) => await database.query(statement)
     )
   } finally {
