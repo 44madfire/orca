@@ -62,9 +62,11 @@ export function installSleepingRecordAccess(session: ConnectPanePtySession): voi
     const [paneKey, record] = selectedLegacyMatch
     return { paneKey, record }
   }
-  session.isLegacyWorkerAutomaticResumeBlocked = (): boolean =>
-    session.getSleepingRecordForPane(useAppStore.getState())?.record.automaticResumeBlockedBy ===
-    'legacy-orchestration-worker'
+  session.isLegacyWorkerAutomaticResumeBlocked = (): boolean => {
+    const state = useAppStore.getState()
+    const paneKey = session.getSleepingRecordForPane(state)?.paneKey
+    return paneKey !== undefined && state.legacyWorkerResumeFencesByPaneKey[paneKey] === true
+  }
   session.clearSleepingRecordProviderDuplicates = (
     state: ReturnType<typeof useAppStore.getState>,
     consumed: { paneKey: string; record: SleepingAgentSessionRecord }

@@ -18,7 +18,7 @@ import {
   listRuntimeTerminals,
   readCompletedWorkerDispatchCapability,
   readCompletedWorkerLedger,
-  readPersistedWorkerRecoveryRecord,
+  readPersistedWorkerResumeFence,
   seedCurrentCodexTranscript
 } from './helpers/completed-worker-retirement-fixture'
 import { RuntimeClient } from '../../src/cli/runtime-client'
@@ -263,27 +263,27 @@ test('a settled orchestration worker keeps its resume fence across restart and r
       { orchestrationCapability: dispatchCapability }
     )
     expect(completed.result.message.type).toBe('worker_done')
-    // The settlement sweep stamps the resume fence on the renderer's record before the tab closes.
+    // The settlement sweep writes the runtime-authored fence set, and main's invalidation ping
+    // makes the live renderer re-read it while the tab is still open.
     await expect
       .poll(
         () =>
           first.page.evaluate(
             (paneKey) =>
-              window.__store?.getState().sleepingAgentSessionsByPaneKey[paneKey]
-                ?.automaticResumeBlockedBy ?? null,
+              window.__store?.getState().legacyWorkerResumeFencesByPaneKey[paneKey] === true,
             workerPaneKey
           ),
         { timeout: 30_000, message: 'settled worker pane was never fenced' }
       )
-      .toBe('legacy-orchestration-worker')
+      .toBe(true)
 
     await session.close(firstApp)
     firstApp = null
     await expect
-      .poll(() => readPersistedWorkerRecoveryRecord(session.userDataDir, workerPaneKey), {
-        message: 'the settled worker record never reached disk carrying its fence'
+      .poll(() => readPersistedWorkerResumeFence(session.userDataDir, workerPaneKey), {
+        message: 'the runtime-authored fence never reached disk'
       })
-      .toMatchObject({ automaticResumeBlockedBy: 'legacy-orchestration-worker' })
+      .toBe(true)
     expect(readCompletedWorkerLedger().filter((event) => event.event === 'normal-exit')).toEqual([])
 
     const second = await session.launch()
@@ -308,9 +308,9 @@ test('a settled orchestration worker keeps its resume fence across restart and r
       )
     ).toBe(true)
 
-    // The record is the fence's durable home. Deriving it from the renderer's volatile blocked-pane
-    // map alone let the first status write after any restart erase it, and worktree activation then
-    // relaunched the settled worker with `--resume` over its still-live PTY (#16904 regression).
+    // No record writer can erase the fence, because no record carries it: the pre-fix bug was a
+    // rebuilt record dropping the flag, after which worktree activation relaunched the settled
+    // worker with `--resume` over its still-live PTY (#16904). Drive the same status write.
     await second.page.evaluate(
       ({ paneKey, providerSessionId, tabId, terminalHandle, transcriptPath, worktreeId }) => {
         window.__store?.getState().setAgentStatus(
@@ -339,16 +339,14 @@ test('a settled orchestration worker keeps its resume fence across restart and r
     )
     expect(
       await second.page.evaluate(
-        (paneKey) =>
-          window.__store?.getState().sleepingAgentSessionsByPaneKey[paneKey]
-            ?.automaticResumeBlockedBy ?? null,
+        (paneKey) => window.__store?.getState().legacyWorkerResumeFencesByPaneKey[paneKey] === true,
         workerPaneKey
       ),
       'a status write after restart must not erase the fence'
-    ).toBe('legacy-orchestration-worker')
+    ).toBe(true)
 
-    // A renderer reload starts `automaticResumeBlockedPaneKeys` empty, so main must hand the fenced
-    // pane set back on the startup handshake; a once-per-process push never survives the reload.
+    // A renderer reload rebuilds the store from the session, and the fence is a field of it, so it
+    // comes back with ordinary hydration rather than a handshake reply the reload could lose.
     await second.page.reload()
     await waitForSessionReady(second.page)
     await expect
@@ -356,7 +354,7 @@ test('a settled orchestration worker keeps its resume fence across restart and r
         () =>
           second.page.evaluate(
             (paneKey) =>
-              window.__store?.getState().automaticResumeBlockedPaneKeys[paneKey] === true,
+              window.__store?.getState().legacyWorkerResumeFencesByPaneKey[paneKey] === true,
             workerPaneKey
           ),
         { timeout: 60_000, message: 'the reloaded renderer never re-seeded the resume fence' }

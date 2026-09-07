@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     runtimePaneTitlesByTabId: {} as Record<string, Record<number, string>>,
     settings: {} as Record<string, unknown>,
     terminalLayoutsByTabId: {} as Record<string, { ptyIdsByLeafId?: Record<string, string> }>,
+    legacyWorkerResumeFencesByPaneKey: {} as Record<string, true>,
     sleepingAgentSessionsByPaneKey: {} as Record<
       string,
       { paneKey: string; tabId?: string; worktreeId: string }
@@ -544,9 +545,11 @@ describe('useTerminalTabColdParking measure-clock contract', () => {
       'tab-2:22222222-2222-4222-8222-222222222222': {
         paneKey: 'tab-2:22222222-2222-4222-8222-222222222222',
         tabId: 'tab-2',
-        worktreeId: WORKTREE_ID,
-        automaticResumeBlockedBy: 'legacy-orchestration-worker'
+        worktreeId: WORKTREE_ID
       } as never
+    }
+    mocks.storeState.legacyWorkerResumeFencesByPaneKey = {
+      'tab-2:22222222-2222-4222-8222-222222222222': true
     }
     act(() => {
       rerender(hookArgs(false))

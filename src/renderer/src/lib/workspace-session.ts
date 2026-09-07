@@ -60,6 +60,8 @@ export type WorkspaceSessionSnapshot = Pick<
 > & {
   activeWorkspaceExecutionHostId?: AppState['activeWorkspaceExecutionHostId']
   sleepingAgentSessionsByPaneKey?: AppState['sleepingAgentSessionsByPaneKey']
+  /** Read-only input to the record projection; never emitted, since main owns this field. */
+  legacyWorkerResumeFencesByPaneKey?: AppState['legacyWorkerResumeFencesByPaneKey']
   clientHostedBrowserCloseIntentsByEnvironment?: AppState['clientHostedBrowserCloseIntentsByEnvironment']
   /** Optional so the many partial snapshot fixtures keep type-checking; see buildTerminalSessionData. */
   pendingReconnectPtyIdByTabId?: AppState['pendingReconnectPtyIdByTabId']
@@ -100,6 +102,7 @@ export const SESSION_RELEVANT_FIELDS = [
   'defaultTerminalTabsAppliedByWorktreeId',
   'closedTerminalTabTombstonesByTabId',
   'sleepingAgentSessionsByPaneKey',
+  'legacyWorkerResumeFencesByPaneKey',
   'clientHostedBrowserCloseIntentsByEnvironment',
   'pendingReconnectPtyIdByTabId',
   'deferredSshSessionIdsByTabId'

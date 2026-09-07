@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import { getAppEnvironment } from '../../shared/app-environment'
 import type { LegacyWorkerTerminalRecoveryPlan } from './orchestration/orchestration-legacy-worker-terminal-recovery'
 import type { LegacyWorkerTerminalRecoveryResult } from './runtime-legacy-worker-terminal-recovery-types'
+import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import { makePaneKey } from '../../shared/stable-pane-id'
 import { runtimeWorktreeIdsEqual } from './runtime-worktree-path-identity'
 
@@ -169,6 +170,18 @@ export class OrcaRuntimeWithFenceAutomationOwner extends OrcaRuntimeWithPtyForeg
 
   prepareLegacyWorkerTerminalRecovery(): LegacyWorkerTerminalRecoveryPlan {
     return this.legacyWorkerRecovery.prepare()
+  }
+
+  /** The fenced-pane set across every host, unioned: pane keys are tab-scoped UUIDs, so they
+   *  cannot collide between hosts, and the renderer asks about a pane without knowing its host. */
+  getLegacyWorkerResumeFences(): Record<string, true> {
+    const store = this.store
+    const hostIds = store?.getWorkspaceSessionHostIds?.() ?? [LOCAL_EXECUTION_HOST_ID]
+    const fences: Record<string, true> = {}
+    for (const hostId of hostIds) {
+      Object.assign(fences, store?.getWorkspaceSession?.(hostId)?.legacyWorkerResumeFencesByPaneKey)
+    }
+    return fences
   }
 
   protected async flushWorkspaceSessionOrThrowAsync(): Promise<void> {

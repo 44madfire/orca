@@ -526,9 +526,7 @@ describe('OrcaRuntimeService', () => {
     })
     expect(flushPendingOrThrowAsync).toHaveBeenCalledTimes(2)
     expect(revealTerminalSession).toHaveBeenCalledOnce()
-    expect(
-      getSession().sleepingAgentSessionsByPaneKey?.[workerPaneKey]?.automaticResumeBlockedBy
-    ).toBe('legacy-orchestration-worker')
+    expect(getSession().legacyWorkerResumeFencesByPaneKey?.[workerPaneKey]).toBe(true)
     expect(getSession().sleepingAgentSessionsByPaneKey?.[concurrentPaneKey]?.tabId).toBe(
       'concurrent-tab'
     )

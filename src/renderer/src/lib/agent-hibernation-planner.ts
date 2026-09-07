@@ -146,7 +146,7 @@ export function planAgentHibernationCandidates(
           layout,
           livePtyIds: new Set(tabLivePtyIds),
           sleepingAgentSessionsByPaneKey: snapshot.sleepingAgentSessionsByPaneKey,
-          automaticResumeBlockedPaneKeys: snapshot.automaticResumeBlockedPaneKeys ?? {},
+          legacyWorkerResumeFencesByPaneKey: snapshot.legacyWorkerResumeFencesByPaneKey ?? {},
           lastTerminalInputAtByPaneKey: snapshot.lastTerminalInputAtByPaneKey,
           foregroundTerminalLastSeenAtByTabId: snapshot.foregroundTerminalLastSeenAtByTabId,
           ptyBindingFirstSeenAtByPaneKey: snapshot.ptyBindingFirstSeenAtByPaneKey ?? {},

@@ -210,7 +210,7 @@ export function resumeSleepingAgentSessionsForWorktree(
     if (options?.skipClaimKeys?.has(claimKey)) {
       continue
     }
-    if (record.automaticResumeBlockedBy === 'legacy-orchestration-worker') {
+    if (currentState.legacyWorkerResumeFencesByPaneKey[record.paneKey]) {
       continue
     }
     if (isInvalidWorktreeActivationRecord(record)) {

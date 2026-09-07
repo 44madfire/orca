@@ -61,15 +61,11 @@ export const agentStatusApi = {
     ipcRenderer.on('agentStatus:legacyWorkerTerminalRecovery', listener)
     return () => ipcRenderer.removeListener('agentStatus:legacyWorkerTerminalRecovery', listener)
   },
-  onLegacyWorkerTerminalResumeFence: (
-    callback: (data: { paneKey: string; blocked: boolean; generation?: number }) => void
-  ): (() => void) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      data: { paneKey: string; blocked: boolean; generation?: number }
-    ) => callback(data)
-    ipcRenderer.on('agentStatus:legacyWorkerTerminalResumeFence', listener)
-    return () => ipcRenderer.removeListener('agentStatus:legacyWorkerTerminalResumeFence', listener)
+  onLegacyWorkerTerminalResumeFencesChanged: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('agentStatus:legacyWorkerTerminalResumeFencesChanged', listener)
+    return () =>
+      ipcRenderer.removeListener('agentStatus:legacyWorkerTerminalResumeFencesChanged', listener)
   },
   getMigrationUnsupportedSnapshot: (): Promise<MigrationUnsupportedPtyEntry[]> =>
     ipcRenderer.invoke('agentStatus:getMigrationUnsupportedSnapshot'),

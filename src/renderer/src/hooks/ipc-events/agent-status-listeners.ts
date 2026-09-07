@@ -8,6 +8,7 @@ import {
   rollbackLegacyWorkerTerminalSurfaceInStore
 } from '../legacy-worker-terminal-recovery-event'
 import { useAppStore } from '../../store'
+import { refreshLegacyWorkerResumeFences } from '../../lib/legacy-worker-resume-fence-refresh'
 import { resolvePaneKey } from './agent-status-routing'
 import type { PendingAgentStatusEvent } from './agent-status-bridge-types'
 
@@ -126,9 +127,9 @@ export function registerAgentStatusListeners(args: {
   if (unsubscribeLegacyWorkerTerminalRecovery) {
     unsubs.push(unsubscribeLegacyWorkerTerminalRecovery)
   }
-  const unsubscribeResumeFence = window.api.agentStatus.onLegacyWorkerTerminalResumeFence?.(
-    ({ paneKey, blocked, generation }) => {
-      useAppStore.getState().setSleepingAgentAutomaticResumeBlocked(paneKey, blocked, generation)
+  const unsubscribeResumeFence = window.api.agentStatus.onLegacyWorkerTerminalResumeFencesChanged?.(
+    () => {
+      void refreshLegacyWorkerResumeFences()
     }
   )
   if (unsubscribeResumeFence) {

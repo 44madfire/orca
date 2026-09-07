@@ -57,6 +57,50 @@ describe('preserving runtime-authored workspace session fields', () => {
     expect(next.clientHostedBrowserPagesByWorktree).toEqual({ 'repo-1::wt-a': [row] })
   })
 
+  // The settled-worker resume fence is the second runtime-authored field, and this is the property
+  // the whole design rests on: `sleepingAgentSessionsByPaneKey` is a field the renderer co-authors,
+  // so storing the fence there let an ordinary session write erase it on disk. Here the renderer
+  // cannot name the field at all, and a write that omits it inherits the runtime's set.
+  it('carries the settled-worker resume fences across a renderer write', () => {
+    const fences = { 'tab-1:leaf-1': true } as const
+    const prior: WorkspaceSessionState = {
+      ...session(),
+      legacyWorkerResumeFencesByPaneKey: { ...fences }
+    }
+
+    const next = preserveRuntimeAuthoredWorkspaceSessionFields(session(), prior)
+
+    expect(next.legacyWorkerResumeFencesByPaneKey).toEqual(fences)
+  })
+
+  it('lets the runtime retire a fence by writing an empty set', () => {
+    const prior: WorkspaceSessionState = {
+      ...session(),
+      legacyWorkerResumeFencesByPaneKey: { 'tab-1:leaf-1': true }
+    }
+    const cleared: WorkspaceSessionState = {
+      ...session(),
+      legacyWorkerResumeFencesByPaneKey: {}
+    }
+
+    expect(
+      preserveRuntimeAuthoredWorkspaceSessionFields(cleared, prior)
+        .legacyWorkerResumeFencesByPaneKey
+    ).toEqual({})
+  })
+
+  it('preserves both runtime-authored fields in one write', () => {
+    const prior: WorkspaceSessionState = {
+      ...session({ 'repo-1::wt-a': [row] }),
+      legacyWorkerResumeFencesByPaneKey: { 'tab-1:leaf-1': true }
+    }
+
+    const next = preserveRuntimeAuthoredWorkspaceSessionFields(session(), prior)
+
+    expect(next.clientHostedBrowserPagesByWorktree).toEqual({ 'repo-1::wt-a': [row] })
+    expect(next.legacyWorkerResumeFencesByPaneKey).toEqual({ 'tab-1:leaf-1': true })
+  })
+
   it('leaves an untouched write alone rather than inventing a field', () => {
     const next = session()
 

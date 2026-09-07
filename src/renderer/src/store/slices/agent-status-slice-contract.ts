@@ -25,7 +25,6 @@ import type {
   MigrationUnsupportedPtyEntry
 } from '../../../../shared/agent-status-types'
 import type {
-  LegacyWorkerResumeFenceSnapshot,
   ResumableTuiAgent,
   SleepingAgentLaunchConfig,
   SleepingAgentSessionRecord
@@ -52,13 +51,9 @@ export type AgentStatusSlice = {
   /** Durable agent sessions captured on sleep (not live rows); power the one-click CLI resume on wake. */
   sleepingAgentSessionsByPaneKey: Record<string, SleepingAgentSessionRecord>
 
-  /** Panes the runtime fenced against automatic resume. Held separately because a worker can
-   *  settle while its tab is open, before the sleeping record the fence belongs on exists. */
-  automaticResumeBlockedPaneKeys: Record<string, true>
-
-  /** Highest main fence-commit generation this renderer has applied, so a startup reply that lost
-   *  a race with a later lift is dropped instead of reapplying a retired fence. */
-  automaticResumeFenceGeneration: number
+  /** Runtime-authored: panes the orchestration authority fenced against automatic resume. Read
+   *  from the workspace session and refreshed on main's invalidation ping; never written here. */
+  legacyWorkerResumeFencesByPaneKey: Record<string, true>
 
   /** Ephemeral launch snapshots keyed by pane; hook payloads lack Orca launch settings, so the renderer supplies them from startup. */
   agentLaunchConfigByPaneKey: Record<string, AgentLaunchConfigRegistryEntry>
@@ -167,13 +162,8 @@ export type AgentStatusSlice = {
   captureAllSleepingAgentSessions: (mode: AllAgentSessionCaptureMode) => void
   clearSleepingAgentSession: (paneKey: string) => void
   clearSleepingAgentSessionsByPaneKey: (paneKeys: readonly string[]) => void
-  setSleepingAgentAutomaticResumeBlocked: (
-    paneKey: string,
-    blocked: boolean,
-    generation?: number
-  ) => void
-  /** Replace the blocked-pane set with main's committed fence state from the startup handshake. */
-  applyLegacyWorkerResumeFenceSnapshot: (snapshot: LegacyWorkerResumeFenceSnapshot) => void
+  /** Install main's fenced-pane set wholesale. The only writer, and level-triggered. */
+  setLegacyWorkerResumeFences: (fences: Record<string, true>) => void
   clearSleepingAgentSessionsByWorktree: (worktreeId: string) => void
   pruneSleepingAgentSessions: (validWorktreeIds: Set<string>) => void
 

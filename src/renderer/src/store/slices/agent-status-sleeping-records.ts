@@ -1,7 +1,6 @@
 import type { AppState } from '../types'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import {
-  agentProviderSessionsEqual,
   getAgentResumeArgv,
   isResumableTuiAgent,
   type SleepingAgentLaunchConfig,
@@ -17,51 +16,6 @@ export function copyLaunchConfig(config: SleepingAgentLaunchConfig): SleepingAge
     agentEnv: { ...config.agentEnv },
     ...(config.ompResumeFilePath ? { ompResumeFilePath: config.ompResumeFilePath } : {})
   }
-}
-
-/**
- * The record is the fence's durable home. `automaticResumeBlockedPaneKeys` only covers the window
- * between a worker settling with its tab still open and the record being minted, and main re-seeds
- * it on every renderer start — so a rebuild must never drop a flag the record already carries.
- * Session identity gates the carry-over: a new provider session is new work, not fenced work.
- */
-export function carriesAutomaticResumeBlock(
-  state: Pick<AppState, 'automaticResumeBlockedPaneKeys' | 'sleepingAgentSessionsByPaneKey'>,
-  next: Pick<SleepingAgentSessionRecord, 'paneKey' | 'agent' | 'providerSession'>
-): boolean {
-  if (state.automaticResumeBlockedPaneKeys?.[next.paneKey]) {
-    return true
-  }
-  const previous = state.sleepingAgentSessionsByPaneKey?.[next.paneKey]
-  return (
-    previous?.automaticResumeBlockedBy === 'legacy-orchestration-worker' &&
-    previous.agent === next.agent &&
-    agentProviderSessionsEqual(next.agent, previous.providerSession, next.providerSession)
-  )
-}
-
-/** Async stops (manual sleep, hibernation rollback) commit a capture taken before the await, so a
- *  fence delivered or retired during the stop has to be re-read from state at commit time. */
-export function withCurrentAutomaticResumeBlock(
-  state: Pick<AppState, 'automaticResumeBlockedPaneKeys' | 'sleepingAgentSessionsByPaneKey'>,
-  records: Readonly<Record<string, SleepingAgentSessionRecord>>
-): Record<string, SleepingAgentSessionRecord> {
-  const next: Record<string, SleepingAgentSessionRecord> = {}
-  for (const [paneKey, record] of Object.entries(records)) {
-    const blocked = carriesAutomaticResumeBlock(state, record)
-    if (blocked === (record.automaticResumeBlockedBy === 'legacy-orchestration-worker')) {
-      next[paneKey] = record
-      continue
-    }
-    const updated = { ...record }
-    if (blocked) {
-      updated.automaticResumeBlockedBy = 'legacy-orchestration-worker'
-    } else {
-      delete updated.automaticResumeBlockedBy
-    }
-    next[paneKey] = updated
-  }
-  return next
 }
 
 export function sleepingRecordFromEntry(args: {
@@ -104,14 +58,7 @@ export function sleepingRecordFromEntry(args: {
       : {}),
     ...(args.launchConfig ? { launchConfig: copyLaunchConfig(args.launchConfig) } : {}),
     ...(args.entry.interrupted ? { interrupted: true } : {}),
-    ...(args.origin ? { origin: args.origin } : {}),
-    ...(carriesAutomaticResumeBlock(args.state, {
-      paneKey: args.entry.paneKey,
-      agent,
-      providerSession: args.entry.providerSession
-    })
-      ? { automaticResumeBlockedBy: 'legacy-orchestration-worker' as const }
-      : {})
+    ...(args.origin ? { origin: args.origin } : {})
   }
 }
 

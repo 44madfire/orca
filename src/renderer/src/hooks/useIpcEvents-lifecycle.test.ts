@@ -5,7 +5,7 @@ import { createHarnessStoreState } from './ipc-events-test-harness'
 const EXPECTED_DIRECT_CALLBACK_METHODS = [
   'agentStatus.onClear',
   'agentStatus.onLegacyWorkerTerminalRecovery',
-  'agentStatus.onLegacyWorkerTerminalResumeFence',
+  'agentStatus.onLegacyWorkerTerminalResumeFencesChanged',
   'agentStatus.onMigrationUnsupported',
   'agentStatus.onMigrationUnsupportedClear',
   'agentStatus.onSet',
@@ -199,7 +199,7 @@ const EXPECTED_CALLBACK_REGISTRATION_SEQUENCE = [
   'agentStatus.onMigrationUnsupported',
   'agentStatus.onMigrationUnsupportedClear',
   'agentStatus.onLegacyWorkerTerminalRecovery',
-  'agentStatus.onLegacyWorkerTerminalResumeFence',
+  'agentStatus.onLegacyWorkerTerminalResumeFencesChanged',
   'runtime.onTerminalFitOverrideChanged',
   'runtime.onTerminalDriverChanged',
   'runtime.onNativeChatLaunchDraftResolved',

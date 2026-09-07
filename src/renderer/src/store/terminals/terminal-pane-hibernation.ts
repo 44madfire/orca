@@ -9,8 +9,7 @@ import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
 import {
   collectHibernatedCompletionEvidenceForWorktree,
-  collectSleepingAgentSessionRecordsForWorktree,
-  withCurrentAutomaticResumeBlock
+  collectSleepingAgentSessionRecordsForWorktree
 } from '../slices/agent-status'
 import type { TerminalSlice, TerminalStoreGet, TerminalStoreSet } from './terminal-state'
 import { equalStringSets, sortedUniquePtyIds } from './terminal-pty-identities'
@@ -70,8 +69,7 @@ export function createTerminalPaneHibernationActions(
         const current = get()
         if (
           !isAutomaticHibernationAllowed({
-            record: current.sleepingAgentSessionsByPaneKey[opts.paneKey],
-            automaticResumeBlockedPaneKeys: current.automaticResumeBlockedPaneKeys,
+            legacyWorkerResumeFencesByPaneKey: current.legacyWorkerResumeFencesByPaneKey,
             paneKey: opts.paneKey
           })
         ) {
@@ -106,11 +104,8 @@ export function createTerminalPaneHibernationActions(
             delete next[ptyId]
           }
           const nextSleeping = { ...s.sleepingAgentSessionsByPaneKey }
-          // Why re-read: a fence can arrive or retire while the kill is in flight, and restoring
-          // the pre-kill record verbatim would roll that back with it.
-          const restored = withCurrentAutomaticResumeBlock(s, replacedSleepingRecords)
           for (const key of sleepingRecordKeys) {
-            const replaced = restored[key]
+            const replaced = replacedSleepingRecords[key]
             if (replaced) {
               nextSleeping[key] = replaced
             } else {
@@ -127,7 +122,7 @@ export function createTerminalPaneHibernationActions(
         },
         sleepingAgentSessionsByPaneKey: {
           ...s.sleepingAgentSessionsByPaneKey,
-          ...withCurrentAutomaticResumeBlock(s, sleepingAgentSessionRecords)
+          ...sleepingAgentSessionRecords
         }
       }))
       if (expectedRuntimePtyIds.length > 0) {

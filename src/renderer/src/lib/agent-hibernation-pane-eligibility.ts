@@ -61,7 +61,7 @@ export function getEligiblePane(args: {
   layout: TerminalLayoutSnapshot | undefined
   livePtyIds: Set<string>
   sleepingAgentSessionsByPaneKey: AgentHibernationPlannerSnapshot['sleepingAgentSessionsByPaneKey']
-  automaticResumeBlockedPaneKeys: Record<string, true | undefined>
+  legacyWorkerResumeFencesByPaneKey: Record<string, true>
   lastTerminalInputAtByPaneKey: AgentHibernationPlannerSnapshot['lastTerminalInputAtByPaneKey']
   foregroundTerminalLastSeenAtByTabId: AgentHibernationPlannerSnapshot['foregroundTerminalLastSeenAtByTabId']
   ptyBindingFirstSeenAtByPaneKey: Record<string, number | undefined>
@@ -76,7 +76,7 @@ export function getEligiblePane(args: {
     layout,
     livePtyIds,
     sleepingAgentSessionsByPaneKey,
-    automaticResumeBlockedPaneKeys,
+    legacyWorkerResumeFencesByPaneKey,
     lastTerminalInputAtByPaneKey,
     foregroundTerminalLastSeenAtByTabId,
     ptyBindingFirstSeenAtByPaneKey,
@@ -100,8 +100,7 @@ export function getEligiblePane(args: {
     (sleepingRecord && !hasOnlyLiveResumeAnchor) ||
     // Why: a fenced worker must never be auto-relaunched; the kill would strand it.
     !isAutomaticHibernationAllowed({
-      record: sleepingRecord,
-      automaticResumeBlockedPaneKeys,
+      legacyWorkerResumeFencesByPaneKey,
       paneKey: entry.paneKey
     })
   ) {

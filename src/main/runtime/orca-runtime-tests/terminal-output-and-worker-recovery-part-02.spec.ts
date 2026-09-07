@@ -527,9 +527,7 @@ describe('OrcaRuntimeService', () => {
     } as never)
 
     runtime.prepareLegacyWorkerTerminalRecovery()
-    expect(
-      getSession().sleepingAgentSessionsByPaneKey?.[workerPaneKey]?.automaticResumeBlockedBy
-    ).toBe('legacy-orchestration-worker')
+    expect(getSession().legacyWorkerResumeFencesByPaneKey?.[workerPaneKey]).toBe(true)
 
     const recovered = await runtime.reconcileLegacyWorkerTerminals({
       materializeRenderer: true

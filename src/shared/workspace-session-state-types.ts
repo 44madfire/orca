@@ -112,6 +112,13 @@ export type WorkspaceSessionState = {
   defaultTerminalTabsAppliedByWorktreeId?: Record<string, true>
   /** Provider-session resume records captured when workspaces sleep. */
   sleepingAgentSessionsByPaneKey?: Record<string, SleepingAgentSessionRecord>
+  /**
+   * Runtime-authored: panes the orchestration authority fenced against automatic resume, keyed by
+   * pane key. Written only by the runtime that owns the orchestration DB and never by a renderer,
+   * so a renderer's ordinary session write cannot erase a fence. Present whether or not the pane
+   * has a sleeping record yet, which is the case a settled worker with its tab still open is in.
+   */
+  legacyWorkerResumeFencesByPaneKey?: Record<string, true>
   /** Host-issued process incarnation for each durable terminal surface. */
   terminalPtyIncarnationsByPaneKey?: Record<string, string>
   /** Monotonic host authority watermark for terminal membership in each repo. */

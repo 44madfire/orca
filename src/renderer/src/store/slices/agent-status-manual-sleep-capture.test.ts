@@ -141,34 +141,29 @@ describe('manual sleep agent session capture', () => {
     expect(records['tab-1:working'].restoreOnTabOpenOnly).toBeUndefined()
   })
 
-  it('carries a blocked legacy-orchestration-worker flag onto the replacement record', () => {
+  // The fence is runtime-authored session state, so a manual-sleep recapture cannot drop it: no
+  // record writer touches it, and the replacement record carries no flag to lose.
+  it('leaves the runtime fence untouched while replacing the record', () => {
     vi.useFakeTimers()
     vi.setSystemTime(NOW)
     const store = createTestStore()
     seedTabs(store)
     store.setState({
-      agentStatusByPaneKey: {
-        'tab-1:leaf-1': makeAgentEntry(),
-        'tab-1:leaf-2': makeAgentEntry({ paneKey: 'tab-1:leaf-2' })
-      },
+      agentStatusByPaneKey: { 'tab-1:leaf-1': makeAgentEntry() },
       sleepingAgentSessionsByPaneKey: {
         'tab-1:leaf-1': makeSleepingRecord({
-          providerSession: { key: 'session_id', id: 'session-tab-1:leaf-1' },
-          automaticResumeBlockedBy: 'legacy-orchestration-worker'
-        }),
-        'tab-1:leaf-2': makeSleepingRecord({
-          paneKey: 'tab-1:leaf-2',
-          automaticResumeBlockedBy: 'legacy-orchestration-worker'
+          providerSession: { key: 'session_id', id: 'session-tab-1:leaf-1' }
         })
-      }
+      },
+      legacyWorkerResumeFencesByPaneKey: { 'tab-1:leaf-1': true }
     } as Partial<AppState>)
 
     store.getState().captureSleepingAgentSessionsByWorktree('wt-1')
 
-    const records = store.getState().sleepingAgentSessionsByPaneKey
-    expect(records['tab-1:leaf-1'].automaticResumeBlockedBy).toBe('legacy-orchestration-worker')
-    // Different provider session: the block belonged to a session that is no longer running here.
-    expect(records['tab-1:leaf-2'].automaticResumeBlockedBy).toBeUndefined()
+    expect(store.getState().legacyWorkerResumeFencesByPaneKey).toEqual({ 'tab-1:leaf-1': true })
+    expect(
+      store.getState().sleepingAgentSessionsByPaneKey['tab-1:leaf-1'].automaticResumeBlockedBy
+    ).toBeUndefined()
   })
 
   it('preserves retained completed sessions as intentional sleep records', () => {

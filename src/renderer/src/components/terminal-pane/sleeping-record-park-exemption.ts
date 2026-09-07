@@ -13,7 +13,8 @@ const EMPTY_TAB_IDS: ReadonlySet<string> = new Set()
  *  `Object.values` would allocate every record on every store write. */
 export function selectSleepingRecordParkExemptTabIds(
   sleepingAgentSessionsByPaneKey: Record<string, SleepingAgentSessionRecord> | undefined,
-  worktreeId: string
+  worktreeId: string,
+  legacyWorkerResumeFencesByPaneKey: Record<string, true>
 ): ReadonlySet<string> {
   if (!sleepingAgentSessionsByPaneKey) {
     return EMPTY_TAB_IDS
@@ -24,7 +25,10 @@ export function selectSleepingRecordParkExemptTabIds(
     if (!record || record.worktreeId !== worktreeId) {
       continue
     }
-    if (record.automaticResumeBlockedBy || isPassiveCompletedHibernationEvidence(record)) {
+    if (
+      legacyWorkerResumeFencesByPaneKey[paneKey] ||
+      isPassiveCompletedHibernationEvidence(record)
+    ) {
       continue
     }
     // Why: malformed pane keys must yield no owner instead of a truncated tab id.

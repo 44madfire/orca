@@ -757,15 +757,14 @@ describe('live resume anchors do not block hibernation (#10238 regression)', () 
   it('still refuses a pane fenced against automatic resume', () => {
     const providerSession = { key: 'session_id' as const, id: 'claude-session-1' }
     const agentEntry = entry({ agentType: 'claude', providerSession })
-    const fenced = {
-      ...liveAnchor('claude', providerSession),
-      automaticResumeBlockedBy: 'legacy-orchestration-worker'
-    }
     expect(
       plannedPaneKeys(
         snapshot({
           agentStatusByPaneKey: { [agentEntry.paneKey]: agentEntry },
-          sleepingAgentSessionsByPaneKey: { [agentEntry.paneKey]: fenced as never },
+          sleepingAgentSessionsByPaneKey: {
+            [agentEntry.paneKey]: liveAnchor('claude', providerSession) as never
+          },
+          legacyWorkerResumeFencesByPaneKey: { [agentEntry.paneKey]: true },
           ptyBindingFirstSeenAtByPaneKey: { [agentEntry.paneKey]: OLD }
         })
       )

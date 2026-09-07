@@ -105,9 +105,6 @@ export async function runLegacyWorkerTerminalRecovery(
   }
   const result = {
     blockedPaneCount: plan.blockedPanes.length,
-    // Why re-read: `plan` predates the awaits above, and a release/retain/takeover sweep can retire
-    // a fence inside that window. Reporting the stale plan would re-fence a retired pane.
-    fenceSnapshot: ports.committedFenceSnapshot(),
     adoptedDispatchIds,
     exitedDispatchIds,
     deferredDispatchIds: [...deferredDispatchIds]

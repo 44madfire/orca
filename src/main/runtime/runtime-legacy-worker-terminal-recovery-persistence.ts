@@ -1,4 +1,3 @@
-import type { LegacyWorkerResumeFenceSnapshot } from '../../shared/agent-session-resume'
 import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../shared/execution-host'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
 import { retireTerminalSurfaceFromPersistence } from './mobile-session-terminal-persistence-retirement'
@@ -20,158 +19,87 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
     private readonly getStore: () => RuntimeStore | null,
     private readonly getDb: () => OrchestrationDb,
     private readonly getHostId: (worktreeId: string) => ExecutionHostId | null,
-    /** The store write only reaches the next app start; a live renderer holds its own copy. */
-    private readonly notifyFenceChanged?: (
-      paneKey: string,
-      blocked: boolean,
-      generation: number
-    ) => void
+    /** Invalidation only. The state itself lives in the session field; a push that carried it is
+     *  what made the fence lossy across renderer reloads. */
+    private readonly notifyFenceChanged?: () => void
   ) {}
 
-  /** The blocked set this object has actually committed and published, which is what a startup
-   *  reply must report — the raw plan is not, because a pass whose session write threw published
-   *  nothing. It also supplies the lift edge for a pane with no sleeping record, which
-   *  `liftRetiredFences` cannot sweep. */
-  private lastPlanBlockedPaneKeys: ReadonlySet<string> = new Set()
-
-  /** Counts commits so a startup reply can be ordered against the live pushes. */
-  private fenceGeneration = 0
-
-  committedFenceSnapshot(): LegacyWorkerResumeFenceSnapshot {
-    return { generation: this.fenceGeneration, blockedPaneKeys: [...this.lastPlanBlockedPaneKeys] }
-  }
-
+  /**
+   * Writes the whole fenced-pane set for every host on every pass. Level-triggered on purpose:
+   * there is no edge to miss, nothing to announce once, and no bookkeeping to keep in step with
+   * the store, so a renderer that reloads simply reads the field again.
+   *
+   * `legacyWorkerResumeFencesByPaneKey` is runtime-authored and absent from the renderer's patch
+   * builder, so this write is the only author and a renderer session write cannot erase it.
+   */
   prepare(): LegacyWorkerTerminalRecoveryPlan {
     const plan = this.getPlan()
     if (!plan) {
-      // An unreadable plan is not evidence that any pane stopped needing its fence: stamp
-      // nothing, lift nothing, retry on the next pass.
+      // An unreadable plan is not evidence that any pane stopped needing its fence: write nothing
+      // and retry on the next pass, leaving the previously written set in place.
       return { blockedPanes: [], candidates: [], ambiguousDispatchIds: [] }
     }
     const store = this.getStore()
-    if (
-      !store?.getWorkspaceSession ||
-      !store.setWorkspaceSession ||
-      (!store.flushPendingOrThrowAsync && !store.flushOrThrow)
-    ) {
+    if (!store?.getWorkspaceSession || !store.setWorkspaceSession) {
       return plan
     }
-    const sessions = new Map<
-      ExecutionHostId,
-      { current: WorkspaceSessionState; next: WorkspaceSessionState }
-    >()
-    const changedHostIds = new Set<ExecutionHostId>()
-    const blockedPaneKeys = new Set(plan.blockedPanes.map((blocked) => blocked.paneKey))
-    const fenceChanges = new Map<string, boolean>()
+    const hostIds = store.getWorkspaceSessionHostIds?.() ?? [LOCAL_EXECUTION_HOST_ID]
+    // Why seeded from the listed hosts: a host that no longer owns any fenced pane still has to be
+    // written with an empty set, or its last set would stay pinned forever.
+    const fencedByHost = new Map<ExecutionHostId, Record<string, true>>(
+      hostIds.map((hostId) => [hostId, {}])
+    )
     for (const blocked of plan.blockedPanes) {
-      // A worker can settle while its tab is still open, so there is no sleeping record to stamp
-      // yet. Tell the live renderer anyway: it mints the record on close and must fence it there.
-      // Announced every pass because the renderer's map is volatile — a once-per-process push
-      // dies on reload and never reaches a client that pairs later. The renderer is idempotent.
-      fenceChanges.set(blocked.paneKey, true)
-      let hostIds: ExecutionHostId[]
+      let owners: ExecutionHostId[]
       try {
         const hostId = this.getHostId(blocked.worktreeId)
         if (!hostId) {
           throw new Error('folder_workspace_not_found')
         }
-        hostIds = [hostId]
+        owners = [hostId]
       } catch (error) {
+        // An owner this store cannot name is written to whichever partition already retains this
+        // pane, and to every host only when none does. Losing the fence relaunches a worker that
+        // is still running, so the fallback widens rather than skipping.
         console.warn('[orchestration] legacy worker resume fence owner is unavailable', {
           worktreeId: blocked.worktreeId,
           error
         })
-        hostIds = store.getWorkspaceSessionHostIds?.() ?? [LOCAL_EXECUTION_HOST_ID]
+        const retaining = hostIds.filter((hostId) => {
+          const session = store.getWorkspaceSession?.(hostId)
+          return (
+            session?.sleepingAgentSessionsByPaneKey?.[blocked.paneKey] !== undefined ||
+            session?.legacyWorkerResumeFencesByPaneKey?.[blocked.paneKey] === true
+          )
+        })
+        owners = retaining.length > 0 ? retaining : hostIds
       }
-      for (const hostId of hostIds) {
-        let state = sessions.get(hostId)
-        if (!state) {
-          const current = store.getWorkspaceSession(hostId)
-          if (!current) {
-            continue
-          }
-          state = { current, next: structuredClone(current) }
-          sessions.set(hostId, state)
-        }
-        const record = state.next.sleepingAgentSessionsByPaneKey?.[blocked.paneKey]
-        if (
-          !record ||
-          !runtimeWorktreeIdsEqual(record.worktreeId, blocked.worktreeId) ||
-          record.automaticResumeBlockedBy === 'legacy-orchestration-worker'
-        ) {
-          continue
-        }
-        state.next.sleepingAgentSessionsByPaneKey = {
-          ...state.next.sleepingAgentSessionsByPaneKey,
-          [blocked.paneKey]: { ...record, automaticResumeBlockedBy: 'legacy-orchestration-worker' }
-        }
-        changedHostIds.add(hostId)
+      for (const hostId of owners) {
+        // An owner outside the listed hosts still gets its own entry; the list is a floor.
+        const fenced = fencedByHost.get(hostId) ?? {}
+        fenced[blocked.paneKey] = true
+        fencedByHost.set(hostId, fenced)
       }
     }
-    this.liftRetiredFences(store, blockedPaneKeys, sessions, changedHostIds, fenceChanges)
-    const changed = [...sessions].filter(([hostId]) => changedHostIds.has(hostId))
+    let changed = false
     try {
-      for (const [hostId, state] of changed) {
-        store.setWorkspaceSession(state.next, hostId)
+      for (const [hostId, fenced] of fencedByHost) {
+        const current = store.getWorkspaceSession(hostId)
+        if (!current || sameFenceSet(current.legacyWorkerResumeFencesByPaneKey, fenced)) {
+          continue
+        }
+        store.setWorkspaceSession({ ...current, legacyWorkerResumeFencesByPaneKey: fenced }, hostId)
+        changed = true
       }
     } catch (error) {
-      // Why after the write: a staging failure must not consume the announce or the lift edge,
-      // or a record-less pane would keep a fence no later pass could ever deliver or retire.
-      console.warn('[orchestration] failed to stage legacy worker resume fence', error)
+      // A failed write publishes nothing, and the next pass rewrites the same level.
+      console.warn('[orchestration] failed to write legacy worker resume fences', error)
       return plan
     }
-    this.lastPlanBlockedPaneKeys = blockedPaneKeys
-    this.fenceGeneration += 1
-    for (const [paneKey, blocked] of fenceChanges) {
-      this.notifyFenceChanged?.(paneKey, blocked, this.fenceGeneration)
+    if (changed) {
+      this.notifyFenceChanged?.()
     }
     return plan
-  }
-
-  /** A fence that outlives its dispatch leaves a pane that can never spawn again, so release,
-   *  retain, user takeover and dispatch pruning — each of which drops the row from the plan —
-   *  retire it here. An unreadable plan yields no blocked panes, so callers must not sweep. */
-  private liftRetiredFences(
-    store: RuntimeStore,
-    blockedPaneKeys: ReadonlySet<string>,
-    sessions: Map<ExecutionHostId, { current: WorkspaceSessionState; next: WorkspaceSessionState }>,
-    changedHostIds: Set<ExecutionHostId>,
-    fenceChanges: Map<string, boolean>
-  ): void {
-    for (const paneKey of this.lastPlanBlockedPaneKeys) {
-      if (!blockedPaneKeys.has(paneKey)) {
-        fenceChanges.set(paneKey, false)
-      }
-    }
-    for (const hostId of store.getWorkspaceSessionHostIds?.() ?? [LOCAL_EXECUTION_HOST_ID]) {
-      const staged = sessions.get(hostId)
-      const session = staged?.next ?? store.getWorkspaceSession?.(hostId)
-      const retired = Object.entries(session?.sleepingAgentSessionsByPaneKey ?? {}).filter(
-        ([paneKey, record]) =>
-          record.automaticResumeBlockedBy === 'legacy-orchestration-worker' &&
-          !blockedPaneKeys.has(paneKey)
-      )
-      if (retired.length === 0) {
-        continue
-      }
-      let state = staged
-      if (!state) {
-        const current = store.getWorkspaceSession?.(hostId)
-        if (!current) {
-          continue
-        }
-        state = { current, next: structuredClone(current) }
-        sessions.set(hostId, state)
-      }
-      const next = { ...state.next.sleepingAgentSessionsByPaneKey }
-      for (const [paneKey, record] of retired) {
-        const { automaticResumeBlockedBy: _retired, ...unfenced } = record
-        next[paneKey] = unfenced
-        fenceChanges.set(paneKey, false)
-      }
-      state.next.sleepingAgentSessionsByPaneKey = next
-      changedHostIds.add(hostId)
-    }
   }
 
   async persist(
@@ -285,4 +213,18 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
     }
     throw new Error('workspace_session_persistence_unavailable')
   }
+}
+
+/** Identity is not enough: `prepare` rebuilds the set every pass, so compare by content or every
+ *  pass would rewrite the session and wake every session subscriber. */
+function sameFenceSet(
+  current: Record<string, true> | undefined,
+  next: Record<string, true>
+): boolean {
+  const currentKeys = Object.keys(current ?? {})
+  const nextKeys = Object.keys(next)
+  return (
+    currentKeys.length === nextKeys.length &&
+    nextKeys.every((paneKey) => current?.[paneKey] === true)
+  )
 }

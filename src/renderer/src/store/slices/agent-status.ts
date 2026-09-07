@@ -51,10 +51,7 @@ export {
   collectSleepingAgentSessionRecordsForWorktree,
   collectHibernatedCompletionEvidenceForWorktree
 } from './agent-status-recovery-collection'
-export {
-  removeSleepingRecordsReplacedByManualWorktreeSleep,
-  withCurrentAutomaticResumeBlock
-} from './agent-status-sleeping-records'
+export { removeSleepingRecordsReplacedByManualWorktreeSleep } from './agent-status-sleeping-records'
 export {
   buildAgentStatusTabPrefixDropPatch,
   type AgentStatusTabPrefixDropState
@@ -103,8 +100,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
     transientClearedAgentStatusConnectionIds: {},
     retainedAgentsByPaneKey: {},
     sleepingAgentSessionsByPaneKey: {},
-    automaticResumeBlockedPaneKeys: {},
-    automaticResumeFenceGeneration: 0,
+    legacyWorkerResumeFencesByPaneKey: {},
     agentLaunchConfigByPaneKey: {},
     retentionSuppressedPaneKeys: {},
     recentlyClosedAgentStatusTabIds: {},

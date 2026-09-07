@@ -291,6 +291,10 @@ export const workspaceSessionStateSchema: z.ZodType<WorkspaceSessionState> = z.o
     'sleepingAgentSessionsByPaneKey',
     sleepingAgentSessionsByPaneKeySchema
   ),
+  legacyWorkerResumeFencesByPaneKey: salvagedOptional(
+    'legacyWorkerResumeFencesByPaneKey',
+    salvagingRecord(z.string(), z.literal(true))
+  ),
   terminalPtyIncarnationsByPaneKey: salvagedOptional(
     'terminalPtyIncarnationsByPaneKey',
     salvagingRecord(z.string(), z.string().min(1).max(128))

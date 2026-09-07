@@ -194,6 +194,9 @@ export function createWorkspaceTerminalHydrationActions(
           closedTerminalTabTombstonesByTabId: session.closedTerminalTabTombstonesByTabId ?? {},
           automaticAgentResumeClaimsByTabId: {},
           sleepingAgentSessionsByPaneKey,
+          // Runtime-authored: installed exactly as the session holds it, never merged with local
+          // state, because main is its only author and this read is the whole truth.
+          legacyWorkerResumeFencesByPaneKey: session.legacyWorkerResumeFencesByPaneKey ?? {},
           pendingReconnectWorktreeIds,
           pendingReconnectTabByWorktree,
           pendingReconnectPtyIdByTabId,

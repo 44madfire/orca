@@ -39,6 +39,12 @@ export function registerMainProcessIpcHandlers(): void {
       }
     })
   )
+  // Why a pull rather than a push payload: the fenced-pane set is runtime-authored session state,
+  // and a push that carried it could arrive out of order with the session the renderer hydrated.
+  ipcMain.handle(
+    'app:getLegacyWorkerResumeFences',
+    () => state.runtime?.getLegacyWorkerResumeFences() ?? {}
+  )
   // Why: the renderer pulls this once its ui:openSettings listener attaches, so a Settings request queued before mount isn't lost.
   ipcMain.handle('ui:consumePendingOpenSettings', (event) =>
     state.pendingOpenSettings.matches(event.sender.id, { consume: true })

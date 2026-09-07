@@ -448,10 +448,10 @@ describe('connectPanePty', () => {
           prompt: 'finish the task',
           state: 'working',
           capturedAt: 1,
-          updatedAt: 1,
-          automaticResumeBlockedBy: 'legacy-orchestration-worker'
+          updatedAt: 1
         }
-      }
+      },
+      legacyWorkerResumeFencesByPaneKey: { [paneKey]: true }
     } as StoreState
 
     connectPanePty(
@@ -503,10 +503,10 @@ describe('connectPanePty', () => {
           prompt: 'finish the task',
           state: 'working',
           capturedAt: 1,
-          updatedAt: 1,
-          automaticResumeBlockedBy: 'legacy-orchestration-worker'
+          updatedAt: 1
         }
-      }
+      },
+      legacyWorkerResumeFencesByPaneKey: { [paneKey]: true }
     } as StoreState
     const deps = createDeps({
       restoredLeafId: LEAF_1,
@@ -554,10 +554,10 @@ describe('connectPanePty', () => {
           prompt: 'finish the task',
           state: 'working',
           capturedAt: 1,
-          updatedAt: 1,
-          automaticResumeBlockedBy: 'legacy-orchestration-worker'
+          updatedAt: 1
         }
-      }
+      },
+      legacyWorkerResumeFencesByPaneKey: { [paneKey]: true }
     } as StoreState
     const deps = createDeps({
       restoredLeafId: LEAF_1,

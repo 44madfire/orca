@@ -26,14 +26,14 @@ describe('selectSleepingRecordParkExemptTabIds', () => {
   ])('derives the owner from a valid pane key (%s)', (paneKey, tabId) => {
     const records = { [paneKey]: sleepingRecord({ paneKey }) }
 
-    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1')]).toEqual([tabId])
+    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1', {})]).toEqual([tabId])
   })
 
   it('prefers the persisted tab id over the pane key owner', () => {
     const paneKey = `tab-stale:${LEAF_ID}`
     const records = { [paneKey]: sleepingRecord({ paneKey, tabId: 'tab-current' }) }
 
-    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1')]).toEqual(['tab-current'])
+    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1', {})]).toEqual(['tab-current'])
   })
 
   it('does not invent an owner for a delimiter-less pane key', () => {
@@ -41,7 +41,7 @@ describe('selectSleepingRecordParkExemptTabIds', () => {
       'orphan-pane-key': sleepingRecord({ paneKey: 'orphan-pane-key' })
     }
 
-    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1')]).toEqual([])
+    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1', {})]).toEqual([])
   })
 
   it('skips records that cannot resume in this worktree', () => {
@@ -50,13 +50,21 @@ describe('selectSleepingRecordParkExemptTabIds', () => {
         paneKey: `tab-other:${LEAF_ID}`,
         worktreeId: 'wt-2'
       }),
-      [`tab-done:${LEAF_ID}`]: sleepingRecord({ paneKey: `tab-done:${LEAF_ID}`, state: 'done' }),
-      [`tab-blocked:${LEAF_ID}`]: sleepingRecord({
-        paneKey: `tab-blocked:${LEAF_ID}`,
-        automaticResumeBlockedBy: 'legacy-orchestration-worker'
-      })
+      [`tab-done:${LEAF_ID}`]: sleepingRecord({ paneKey: `tab-done:${LEAF_ID}`, state: 'done' })
     }
 
-    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1')]).toEqual([])
+    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1', {})]).toEqual([])
+  })
+
+  // The fence is runtime-authored session state, not a record field: a fenced pane can never cold
+  // restore, so exempting its tab from the park would pin a hidden pane mounted forever.
+  it('skips a pane the runtime has fenced', () => {
+    const paneKey = `tab-fenced:${LEAF_ID}`
+    const records = { [paneKey]: sleepingRecord({ paneKey }) }
+
+    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1', {})]).toEqual(['tab-fenced'])
+    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1', { [paneKey]: true })]).toEqual(
+      []
+    )
   })
 })

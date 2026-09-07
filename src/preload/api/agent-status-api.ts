@@ -28,10 +28,8 @@ export type AgentStatusApi = {
       ptyId?: string
     }) => void
   ) => () => void
-  /** Listen for the automatic-resume fence a settled worker's pane gains or loses mid-session. */
-  onLegacyWorkerTerminalResumeFence: (
-    callback: (data: { paneKey: string; blocked: boolean; generation?: number }) => void
-  ) => () => void
+  /** Invalidation ping: the runtime-authored fenced-pane set changed. Carries no state. */
+  onLegacyWorkerTerminalResumeFencesChanged: (callback: () => void) => () => void
   getMigrationUnsupportedSnapshot: () => Promise<MigrationUnsupportedPtyEntry[]>
   /** Drop a paneKey from the main-process hook cache and on-disk last-status file. Fire-and-forget. */
   drop: (paneKey: string) => void

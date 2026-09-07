@@ -329,9 +329,7 @@ describe('OrcaRuntimeService', () => {
     } as never)
 
     runtime.prepareLegacyWorkerTerminalRecovery()
-    expect(
-      getSession().sleepingAgentSessionsByPaneKey?.[workerPaneKey]?.automaticResumeBlockedBy
-    ).toBe('legacy-orchestration-worker')
+    expect(getSession().legacyWorkerResumeFencesByPaneKey?.[workerPaneKey]).toBe(true)
 
     await expect(runtime.reconcileLegacyWorkerTerminals()).resolves.toMatchObject({
       adoptedDispatchIds: ['dispatch-exited-two'],
@@ -445,9 +443,7 @@ describe('OrcaRuntimeService', () => {
         exitedDispatchIds: [],
         deferredDispatchIds: ['dispatch-inventory-unavailable']
       })
-      expect(
-        getSession().sleepingAgentSessionsByPaneKey?.[workerPaneKey]?.automaticResumeBlockedBy
-      ).toBe('legacy-orchestration-worker')
+      expect(getSession().legacyWorkerResumeFencesByPaneKey?.[workerPaneKey]).toBe(true)
       expect(resolveLegacyWorkerTerminalRecovery).not.toHaveBeenCalled()
       expect(listProcesses).toHaveBeenCalledOnce()
       expect(getSession().tabsByWorktree[TEST_WORKTREE_ID]).toEqual([])
@@ -478,7 +474,6 @@ describe('OrcaRuntimeService', () => {
       const runtime = new OrcaRuntimeService(store)
       const reconcile = vi.spyOn(runtime, 'reconcileLegacyWorkerTerminals').mockResolvedValue({
         blockedPaneCount: 1,
-        fenceSnapshot: { generation: 0, blockedPaneKeys: [] },
         adoptedDispatchIds: [],
         exitedDispatchIds: [],
         deferredDispatchIds: []

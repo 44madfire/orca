@@ -109,6 +109,13 @@ export const WORKSPACE_SESSION_FIELD_DISPOSITION = {
   // the record's worktreeId on worktree and project removal. Moving a project between profiles runs
   // removeSourceRepo, which has no owner scan, so these records leak there.
   sleepingAgentSessionsByPaneKey: { onRepoRemoval: 'notRepoScoped', onTransfer: 'notTransferred' },
+  // Why not transferred: the fence is a projection of the source profile's orchestration DB, and a
+  // transferred project carries no dispatch rows to re-derive it from. The destination runtime
+  // re-stamps whatever its own DB still claims on its first recovery pass.
+  legacyWorkerResumeFencesByPaneKey: {
+    onRepoRemoval: 'prunedByBespokeRule',
+    onTransfer: 'notTransferred'
+  },
   terminalPtyIncarnationsByPaneKey: {
     onRepoRemoval: 'prunedByBespokeRule',
     onTransfer: 'copiedByBespokeRule'

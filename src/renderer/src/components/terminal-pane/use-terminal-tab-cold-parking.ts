@@ -120,7 +120,11 @@ export function useTerminalTabColdParking(args: {
   // subscribing to it re-rendered this worktree on every other worktree's write.
   const sleepingRecordOwnedTabIds = useAppStore(
     useShallow((state) =>
-      selectSleepingRecordParkExemptTabIds(state.sleepingAgentSessionsByPaneKey, worktreeId)
+      selectSleepingRecordParkExemptTabIds(
+        state.sleepingAgentSessionsByPaneKey,
+        worktreeId,
+        state.legacyWorkerResumeFencesByPaneKey
+      )
     )
   )
   const terminalTabHiddenSinceRef = useRef(new Map<string, number>())

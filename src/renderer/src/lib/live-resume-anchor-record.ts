@@ -52,18 +52,15 @@ export function isCompletedPiCompatibleAgentWithLiveRecoveryRecord(
 }
 
 /**
- * A durable orchestration fence against automatic provider relaunch; hibernating a fenced pane
- * would strand it. The record is the fence's home, but a worker that settles while its tab is
- * still open is fenced before any record exists — `automaticResumeBlockedPaneKeys` holds it for
- * that window, so the planner must read both.
+ * A fence against automatic provider relaunch; hibernating a fenced pane would strand it. The
+ * orchestration authority is the only writer, and it publishes the whole fenced-pane set as
+ * runtime-authored session state — including panes whose worker settled with the tab still open,
+ * which have no sleeping record to carry a flag. `automaticResumeBlockedBy` on the record is an
+ * outbound projection of this set for older clients, never the thing a decision reads.
  */
 export function isAutomaticHibernationAllowed(pane: {
-  record: SleepingAgentSessionRecord | undefined
-  automaticResumeBlockedPaneKeys: Record<string, true | undefined>
+  legacyWorkerResumeFencesByPaneKey: Record<string, true>
   paneKey: string
 }): boolean {
-  return (
-    !pane.record?.automaticResumeBlockedBy &&
-    pane.automaticResumeBlockedPaneKeys[pane.paneKey] !== true
-  )
+  return pane.legacyWorkerResumeFencesByPaneKey[pane.paneKey] !== true
 }

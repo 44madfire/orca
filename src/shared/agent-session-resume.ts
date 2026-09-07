@@ -73,15 +73,6 @@ export type SleepingAgentSessionRecord = {
   restoreOnTabOpenOnly?: boolean
 }
 
-/** The committed fenced-pane set main hands a starting renderer. The renderer's own blocked-pane
- *  map is volatile — it starts empty on every renderer boot — so it must be re-derived here, not
- *  pushed. `generation` counts main's fence commits: it orders this reply against the live pushes
- *  so a reply that lost a race with a later lift is dropped instead of reapplying a retired fence. */
-export type LegacyWorkerResumeFenceSnapshot = {
-  generation: number
-  blockedPaneKeys: string[]
-}
-
 const RESUMABLE_TUI_AGENT_SET: ReadonlySet<string> = new Set(RESUMABLE_TUI_AGENTS)
 const PROVIDER_SESSION_ID_MAX_LENGTH = 512
 

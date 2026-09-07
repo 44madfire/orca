@@ -195,6 +195,26 @@ export async function listRuntimeTerminals(
   return (await client.call<RuntimeTerminalListResult>('terminal.list')).result.terminals
 }
 
+/** The runtime-authored fence, read from the profile's persisted session. */
+export function readPersistedWorkerResumeFence(
+  userDataDir: string,
+  paneKey: string
+): true | undefined {
+  const dataPath = path.join(
+    userDataDir,
+    'profiles',
+    DEFAULT_LOCAL_ORCA_PROFILE_ID,
+    'orca-data.json'
+  )
+  if (!existsSync(dataPath)) {
+    return undefined
+  }
+  const data = JSON.parse(readFileSync(dataPath, 'utf8')) as {
+    workspaceSession?: { legacyWorkerResumeFencesByPaneKey?: Record<string, true> }
+  }
+  return data.workspaceSession?.legacyWorkerResumeFencesByPaneKey?.[paneKey]
+}
+
 export function readPersistedWorkerRecoveryRecord(userDataDir: string, paneKey: string) {
   const dataPath = path.join(
     userDataDir,

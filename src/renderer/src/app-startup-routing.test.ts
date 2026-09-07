@@ -224,7 +224,7 @@ describe('renderer startup runtime routing', () => {
       degradedStart
     )
     const recoveryIndex = source.indexOf(
-      'recoverLegacyWorkerTerminalsAndSeedResumeFences()',
+      'window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()',
       servicesIndex
     )
     const capabilityRefreshIndex = source.indexOf(
@@ -238,11 +238,6 @@ describe('renderer startup runtime routing', () => {
     expect(recoveryIndex).toBeGreaterThan(servicesIndex)
     expect(capabilityRefreshIndex).toBeGreaterThan(recoveryIndex)
     expect(reconnectIndex).toBeGreaterThan(capabilityRefreshIndex)
-    // The helper is what still reaches main, so the ordering above only means something while it
-    // owns the pull. Assert the indirection instead of letting the rename hollow the gate out.
-    expect(readSource('src/renderer/src/startup/legacy-worker-resume-fence-seed.ts')).toContain(
-      'window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()'
-    )
   })
 
   it('keeps the persisted Automations view from starting its own bootstrap worktree scan', () => {

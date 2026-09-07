@@ -1,4 +1,3 @@
-import type { LegacyWorkerResumeFenceSnapshot } from '../../shared/agent-session-resume'
 import { ipcRenderer } from 'electron'
 import type { AppIdentity } from '../../shared/app-identity'
 import type { FloatingTerminalCwdRequest } from '../../shared/ui-chrome-types'
@@ -48,8 +47,10 @@ export const appApi = {
     ipcRenderer.invoke('app:awaitGitEnvironmentStartupBarrier'),
   prepareTerminalStartupRestoration: (): Promise<void> =>
     ipcRenderer.invoke('app:prepareTerminalStartupRestoration'),
-  recoverLegacyWorkerTerminalsForRendererStartup: (): Promise<LegacyWorkerResumeFenceSnapshot> =>
+  recoverLegacyWorkerTerminalsForRendererStartup: (): Promise<void> =>
     ipcRenderer.invoke('app:recoverLegacyWorkerTerminalsForRendererStartup'),
+  getLegacyWorkerResumeFences: (): Promise<Record<string, true>> =>
+    ipcRenderer.invoke('app:getLegacyWorkerResumeFences'),
   startupDiagnostic: (event: string, details?: Record<string, unknown>): Promise<void> =>
     startupDiagnosticsEnabled
       ? ipcRenderer.invoke('app:startupDiagnostic', event, details)

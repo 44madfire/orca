@@ -50,6 +50,7 @@ const PERSISTED_WORKSPACE_SESSION_FIELDS = {
   lastVisitedAtByWorktreeId: true,
   defaultTerminalTabsAppliedByWorktreeId: true,
   sleepingAgentSessionsByPaneKey: true,
+  legacyWorkerResumeFencesByPaneKey: true,
   terminalPtyIncarnationsByPaneKey: true,
   terminalTopologyRevisionByRepoId: true,
   terminalSurfaceTombstonesByPaneKey: true,

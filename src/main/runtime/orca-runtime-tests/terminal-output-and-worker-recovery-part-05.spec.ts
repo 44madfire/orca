@@ -150,10 +150,9 @@ describe('OrcaRuntimeService', () => {
     expect(listProcesses).toHaveBeenCalledOnce()
     expect(listProcesses).toHaveBeenCalledWith(null, LIST_PROVIDER_DEADLINE)
     for (const { name, leafId } of cases.slice(0, 2)) {
-      expect(
-        getSession().sleepingAgentSessionsByPaneKey?.[`legacy-${name}:${leafId}`]
-          ?.automaticResumeBlockedBy
-      ).toBe('legacy-orchestration-worker')
+      expect(getSession().legacyWorkerResumeFencesByPaneKey?.[`legacy-${name}:${leafId}`]).toBe(
+        true
+      )
     }
     for (const { name, leafId } of cases.slice(2)) {
       expect(
@@ -377,9 +376,7 @@ describe('OrcaRuntimeService', () => {
       expect(runtime.prepareLegacyWorkerTerminalRecovery()).toMatchObject({
         blockedPanes: [expect.objectContaining({ paneKey: workerPaneKey })]
       })
-      expect(
-        sshSession.sleepingAgentSessionsByPaneKey?.[workerPaneKey]?.automaticResumeBlockedBy
-      ).toBe('legacy-orchestration-worker')
+      expect(sshSession.legacyWorkerResumeFencesByPaneKey?.[workerPaneKey]).toBe(true)
       expect(localSession.sleepingAgentSessionsByPaneKey?.[workerPaneKey]).toBeUndefined()
       await expect(
         runtime.reconcileLegacyWorkerTerminals({
@@ -485,9 +482,7 @@ describe('OrcaRuntimeService', () => {
     expect(runtime.prepareLegacyWorkerTerminalRecovery()).toMatchObject({
       blockedPanes: [expect.objectContaining({ paneKey: workerPaneKey, worktreeId })]
     })
-    expect(
-      remoteSession.sleepingAgentSessionsByPaneKey?.[workerPaneKey]?.automaticResumeBlockedBy
-    ).toBe('legacy-orchestration-worker')
+    expect(remoteSession.legacyWorkerResumeFencesByPaneKey?.[workerPaneKey]).toBe(true)
     expect(localSession.sleepingAgentSessionsByPaneKey?.[workerPaneKey]).toBeUndefined()
     expect(setWorkspaceSession).toHaveBeenCalledOnce()
     expect(setWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), `ssh:${connectionId}`)

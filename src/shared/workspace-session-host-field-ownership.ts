@@ -47,6 +47,9 @@ export const WORKSPACE_SESSION_FIELD_OWNERSHIP = {
   browserPagesByWorkspace: 'browserWorkspaceKeyed',
   markdownFrontmatterVisible: 'fileKeyed',
   sleepingAgentSessionsByPaneKey: 'sleepingAgentKeyed',
+  // Runtime-authored like clientHostedBrowserPagesByWorktree, and pane-keyed so a merged read
+  // routes each pane's fence back to the host whose orchestration DB issued it.
+  legacyWorkerResumeFencesByPaneKey: 'paneKeyed',
   terminalPtyIncarnationsByPaneKey: 'paneKeyed',
   // Why: this host-issued fence must never collide while unified renderer state merges equal repo ids across hosts.
   terminalTopologyRevisionByRepoId: 'hostPrivate',

@@ -1,4 +1,3 @@
-import type { LegacyWorkerResumeFenceSnapshot } from '../../shared/agent-session-resume'
 import type { FolderWorkspace } from '../../shared/folder-workspace-types'
 import type { Repo } from '../../shared/repo-types'
 import type { LegacyWorkerTerminalRecoveryPlan } from './orchestration/orchestration-legacy-worker-terminal-recovery'
@@ -7,9 +6,6 @@ import type { ResolvedWorktree } from './runtime-worktree-path-identity'
 
 export type LegacyWorkerTerminalRecoveryResult = {
   blockedPaneCount: number
-  /** Main's committed fence state as of the END of this pass, so a renderer seeding from it cannot
-   *  reapply a fence a release/takeover retired while the pass was awaiting its terminal work. */
-  fenceSnapshot: LegacyWorkerResumeFenceSnapshot
   adoptedDispatchIds: string[]
   exitedDispatchIds: string[]
   deferredDispatchIds: string[]
@@ -44,8 +40,6 @@ export type LegacyWorkerRecoveryInventory = PtyControllerInventory
 
 export type LegacyWorkerRecoveryPorts = {
   preparePlan: () => LegacyWorkerTerminalRecoveryPlan
-  /** Read after the pass finishes; never derived from the plan the pass started with. */
-  committedFenceSnapshot: () => LegacyWorkerResumeFenceSnapshot
   resolveWorkspace: (
     candidate: LegacyWorkerRecoveryCandidate
   ) => Promise<LegacyWorkerRecoveryWorkspace>

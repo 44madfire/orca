@@ -80,7 +80,8 @@ export type RuntimeNotifier = {
     ptyId?: string
   ): void
   /** The fence lives in the workspace session, which a live renderer only re-reads at startup. */
-  setLegacyWorkerTerminalResumeFence?(paneKey: string, blocked: boolean, generation: number): void
+  /** Invalidation ping: the fenced-pane set changed, re-read it. Carries no state. */
+  legacyWorkerTerminalResumeFencesChanged?(): void
   splitTerminal(
     tabId: string,
     paneRuntimeId: number,
