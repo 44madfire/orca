@@ -169,7 +169,7 @@ describe('orchestration kernel', () => {
       '`projection.attention` categories, `projection.attention.requiresAction`, and literal `projection.nextAction` argv'
     )
     expect(kernel).toContain(
-      'An `inspect` `nextAction` on a `live` row with `attention.requiresAction` false is informational, not a command to re-run: keep waiting with `check --wait`'
+      'A `none` `nextAction` has no argv to run: read `liveness.reason` and keep waiting with `check --wait`. Every `unverifiable` row reports it, `requiresAction` or not'
     )
     expect(kernel).toContain('choose `worker-stop` or `worker-abandon`')
   })

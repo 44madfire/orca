@@ -117,6 +117,28 @@ describe('pre-v3 dispatch rows in worker-list', () => {
     })
     expect(worker.projection.attention.categories).toContain('unverifiable')
     expect(worker.projection.attention.requiresAction).toBe(true)
-    expect(worker.projection.nextAction.kind).toBe('inspect')
+    // Absence still requires the coordinator's attention, but no command can settle it.
+    expect(worker.projection.nextAction).toEqual({ kind: 'none', argv: [] })
+  })
+
+  // The guide tells an agent to run a row's literal `nextAction` argv whenever `requiresAction`
+  // is true. `worker-show` republishes this same projection, so `inspect` here never terminated.
+  it('does not recommend a command that only republishes an unverifiable row', async () => {
+    h.setup()
+    const dispatched = createLegacyDispatch('dispatched')
+
+    const seen: { kind: string; argv: string[] }[] = []
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const shown = (await h.call('orchestration.workerShow', {
+        dispatch: dispatched
+      })) as { projection: ListedWorker['projection'] | null }
+      expect(shown.projection?.liveness.verdict).toBe('unverifiable')
+      seen.push(shown.projection!.nextAction)
+    }
+
+    for (const nextAction of seen) {
+      expect(nextAction).toEqual({ kind: 'none', argv: [] })
+      expect(nextAction.argv).not.toContain('worker-show')
+    }
   })
 })

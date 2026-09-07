@@ -176,6 +176,12 @@ export function projectFleetNextAction(
   ) {
     return { kind: 'none', argv: [] }
   }
+  // `unverifiable` is absence, and worker-show republishes this same projection, so `inspect` was
+  // a fixed point: an agent running the literal argv re-derived the identical recommendation
+  // forever. Nothing this row owes can be settled by a command; the reason rides on `liveness`.
+  if (liveness.verdict === 'unverifiable' && !worker.pendingInput && !worker.pendingApproval) {
+    return { kind: 'none', argv: [] }
+  }
   return {
     kind: 'inspect',
     argv: ['orchestration', 'worker-show', '--dispatch', worker.dispatchId]

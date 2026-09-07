@@ -137,7 +137,7 @@ describe('orchestration fleet projection', () => {
       host: { kind: 'local' },
       liveness: { verdict: 'unverifiable', reason: 'missing_status' },
       resource: { state: 'absent', reason: 'unsupervised' },
-      nextAction: { kind: 'inspect' }
+      nextAction: { kind: 'none' }
     })
   })
 
@@ -487,7 +487,8 @@ describe('fleet liveness and attention after a host verdict', () => {
       verdict: 'unverifiable',
       reason: 'missing_status'
     })
-    expect(projected.workers[0]!.nextAction.kind).toBe('inspect')
+    // `recover` is reserved for a proven exit; worker-show would only restate this row.
+    expect(projected.workers[0]!.nextAction).toEqual({ kind: 'none', argv: [] })
   })
 
   it('certifies a process_exited stage whose exit was observed', () => {
@@ -519,15 +520,20 @@ describe('fleet liveness and attention after a host verdict', () => {
     expect(projected.workers[0]!.nextAction).toEqual({ kind: 'none', argv: [] })
   })
 
-  it('keeps an unverifiable worker on inspect: absence is never authority to stop', () => {
+  // worker-show republishes this projection, so `inspect` was a fixed point an agent following
+  // the guide's literal-argv rule could never leave. Absence still authorizes nothing.
+  it('asks nothing of an unverifiable worker instead of looping on worker-show', () => {
     const now = 10 * AGENT_STATUS_STALE_AFTER_MS
     const projected = projectOrchestrationFleet({
       workers: [worker('1')],
       statuses: [status('1', now - AGENT_STATUS_STALE_AFTER_MS - 60_000)],
       now
     })
-    expect(projected.workers[0]!.liveness.verdict).toBe('unverifiable')
-    expect(projected.workers[0]!.nextAction.kind).toBe('inspect')
+    expect(projected.workers[0]!.liveness).toMatchObject({
+      verdict: 'unverifiable',
+      reason: 'stale_status'
+    })
+    expect(projected.workers[0]!.nextAction).toEqual({ kind: 'none', argv: [] })
   })
 
   it('leaves a worker blocked on a question inspectable rather than recoverable', () => {
