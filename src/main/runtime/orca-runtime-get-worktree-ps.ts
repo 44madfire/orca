@@ -26,6 +26,7 @@ import { resolveStartupShell, tokenizeStartupCommand } from '../../shared/tui-ag
 import { resolveCodexStructuredAppServerArgs } from '../codex/codex-structured-app-server-args'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 import type { RuntimeMobileSessionTabsSnapshot } from '../../shared/runtime-types'
+import { defaultAgentChatLabel } from '../../shared/agent-session-chat-label'
 import { hostname } from 'node:os'
 import { claudeStructuredAuthPolicyForSettings } from '../claude-accounts/claude-structured-auth-policy'
 import { probeAgentSessionProcessIdentity } from './agent-session-process-identity-probe'
@@ -208,24 +209,32 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
     )
   }
 
-  /** Relabels a published chat tab once its provider names the conversation. The
-   *  user's own rename lives on the client tab, which never reads this field. */
+  /** Relabels a published chat tab once its provider names the conversation, and
+   *  restores the placeholder when the provider says the name is gone. The user's
+   *  own rename lives on the client tab, which never reads this field.
+   *
+   *  `title` is a REQUIRED string on the published tab: a null here reaches every
+   *  client's snapshot builder and throws on `tab.title.trim()`. This file is
+   *  `@ts-nocheck`, so nothing but this line stops that. */
   applyStructuredAgentSessionConversationName(input: {
     workspaceId: string
     sessionId: string
-    conversationName: string
+    conversationName: string | null
   }): void {
     const existing = this.mobileSessionTabsByWorktree.get(input.workspaceId)
     const id = `agent-session:${input.sessionId}`
-    if (!existing?.tabs.some((tab) => tab.id === id && tab.title !== input.conversationName)) {
+    const target = existing?.tabs.find((tab) => tab.id === id)
+    if (!target) {
+      return
+    }
+    const title = input.conversationName ?? defaultAgentChatLabel(target.agent)
+    if (target.title === title) {
       return
     }
     const snapshot: RuntimeMobileSessionTabsSnapshot = {
       ...existing,
       snapshotVersion: existing.snapshotVersion + 1,
-      tabs: existing.tabs.map((tab) =>
-        tab.id === id ? { ...tab, title: input.conversationName } : tab
-      )
+      tabs: existing.tabs.map((tab) => (tab.id === id ? { ...tab, title } : tab))
     }
     this.storeMobileSessionSnapshot(input.workspaceId, snapshot)
     this.emitMobileSessionTabsSnapshot(snapshot)

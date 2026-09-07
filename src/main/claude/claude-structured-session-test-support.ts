@@ -81,7 +81,7 @@ export function fakeClaude(
       closeCount: 0,
       pid: 4321,
       closed: false,
-      generateSessionTitle: async () => null,
+      generateSessionTitle: async () => ({ outcome: 'declined' as const }),
       initializationResult: async () => {
         connection.calls.push({ subtype: 'initialize' })
         if (options.exitBeforeInit) {

@@ -5,7 +5,8 @@ import type { AgentSessionRecord } from '../../shared/agent-session-record'
  *
  * Unfenced on purpose: a name is display metadata, not ownership, so a reader
  * that learned it must not have to win the lease to keep it. An unchanged value
- * is returned as-is, so a re-read costs no durable write.
+ * is returned as-is, so the RECORD is not rewritten — the store still opens a
+ * transaction, so callers skip the call rather than relying on this.
  *
  * `null` clears: a user who deletes the name in another client must not have it
  * linger here and keep rendering.

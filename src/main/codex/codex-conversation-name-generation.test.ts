@@ -52,7 +52,7 @@ function fakeConnection(
 function run(
   connection: Pick<CodexAppServerConnection, 'request'>,
   answer: string | null
-): Promise<string | null> {
+): Promise<{ name: string | null; settled: boolean }> {
   let collector: ReturnType<typeof createCodexNamingTurnCollector> | null = null
   const done = generateAndSetCodexConversationName({
     connection,
@@ -121,9 +121,9 @@ describe('generateAndSetCodexConversationName', () => {
   it('names the thread from a turn on a throwaway ephemeral thread', async () => {
     const { connection, calls } = fakeConnection()
 
-    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toBe(
-      'Fix flaky lease probe'
-    )
+    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toMatchObject({
+      name: 'Fix flaky lease probe'
+    })
 
     const started = calls.find((call) => call.method === 'thread/start')
     // The naming turn must never run on the user's own thread.
@@ -155,7 +155,9 @@ describe('generateAndSetCodexConversationName', () => {
   it('leaves a thread named while it was generating alone', async () => {
     const { connection, calls } = fakeConnection({ nameOnReRead: 'A person named this' })
 
-    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toBeNull()
+    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toMatchObject({
+      name: null
+    })
 
     // The re-read is what makes the concurrent rename win; without it this sets.
     expect(calls.some((call) => call.method === 'thread/read')).toBe(true)
@@ -165,7 +167,7 @@ describe('generateAndSetCodexConversationName', () => {
   it('sets nothing when the turn produced no usable title', async () => {
     const { connection, calls } = fakeConnection()
 
-    await expect(run(connection, 'I could not think of one')).resolves.toBeNull()
+    await expect(run(connection, 'I could not think of one')).resolves.toMatchObject({ name: null })
 
     expect(calls.some((call) => call.method === 'thread/name/set')).toBe(false)
     // No title also means no reason to have re-read the thread.
@@ -185,7 +187,9 @@ describe('generateAndSetCodexConversationName', () => {
       })
     }
 
-    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toBeNull()
+    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toMatchObject({
+      name: null
+    })
 
     expect(calls.map((call) => call.method)).toEqual(['thread/start'])
   })
@@ -193,7 +197,7 @@ describe('generateAndSetCodexConversationName', () => {
   it('gives up when the turn ends without an answer', async () => {
     const { connection, calls } = fakeConnection()
 
-    await expect(run(connection, null)).resolves.toBeNull()
+    await expect(run(connection, null)).resolves.toMatchObject({ name: null })
 
     expect(calls.some((call) => call.method === 'thread/name/set')).toBe(false)
   })
@@ -232,7 +236,9 @@ describe('naming-turn cleanup and fail-closed re-read', () => {
     async (_label, reply) => {
       const { connection, calls } = fakeConnection({ threadReadReply: reply })
 
-      await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toBeNull()
+      await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toMatchObject({
+        name: null
+      })
 
       // Fails CLOSED. Skipping a name is a non-event; clobbering a rename is not.
       expect(calls.some((call) => call.method === 'thread/name/set')).toBe(false)
@@ -242,9 +248,9 @@ describe('naming-turn cleanup and fail-closed re-read', () => {
   it('still names a thread a readable reply shows as unnamed', async () => {
     const { connection, calls } = fakeConnection()
 
-    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toBe(
-      'Fix flaky lease probe'
-    )
+    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toMatchObject({
+      name: 'Fix flaky lease probe'
+    })
 
     expect(calls.find((call) => call.method === 'thread/name/set')?.params).toEqual({
       threadId: THREAD,
@@ -268,5 +274,44 @@ describe('isTerminalCodexTurnError', () => {
   it('ignores anything that is not an error frame', () => {
     expect(isTerminalCodexTurnError('turn/started', { willRetry: false })).toBe(false)
     expect(isTerminalCodexTurnError('error', null)).toBe(false)
+  })
+})
+
+describe('settled vs unsettled outcomes', () => {
+  it('is UNSETTLED when no throwaway thread could be opened', async () => {
+    const connection: Pick<CodexAppServerConnection, 'request'> = {
+      request: vi.fn(async () => ({}))
+    }
+
+    // A host that cannot be asked must stay askable; marking it would forfeit
+    // naming for this conversation permanently.
+    await expect(run(connection, '{"title":"x"}')).resolves.toEqual({
+      name: null,
+      settled: false
+    })
+  })
+
+  it('is UNSETTLED when the turn never answered', async () => {
+    const { connection } = fakeConnection()
+
+    await expect(run(connection, null)).resolves.toEqual({ name: null, settled: false })
+  })
+
+  it('is SETTLED when the model answered without a usable title', async () => {
+    const { connection } = fakeConnection()
+
+    await expect(run(connection, 'I could not think of one')).resolves.toEqual({
+      name: null,
+      settled: true
+    })
+  })
+
+  it('is SETTLED when it named the thread', async () => {
+    const { connection } = fakeConnection()
+
+    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toEqual({
+      name: 'Fix flaky lease probe',
+      settled: true
+    })
   })
 })

@@ -124,7 +124,9 @@ describe('Codex structured conversation name', () => {
 })
 
 /** A fake app-server that also serves the naming flow's requests. */
-function namingCodex(options: { answer?: string; existingName?: string } = {}) {
+function namingCodex(
+  options: { answer?: string; existingName?: string; hangNamingTurn?: boolean } = {}
+) {
   const connections: FakeConnection[] = []
   const calls: { method: string; params: Record<string, unknown> }[] = []
   const replies: { id: number | string; result?: unknown; code?: number; message?: string }[] = []
@@ -139,6 +141,11 @@ function namingCodex(options: { answer?: string; existingName?: string } = {}) {
       request: async (method: string, params?: Record<string, unknown>) => {
         calls.push({ method, params: params ?? {} })
         if (method === 'thread/start' && params?.ephemeral === true) {
+          // Leaves the naming turn in flight: the thread id is known, but nothing
+          // ever settles the collector, which is the window sub-agents run in.
+          if (options.hangNamingTurn) {
+            return { thread: { id: NAMING_THREAD, ephemeral: true } }
+          }
           // The naming turn's frames arrive on this same connection.
           queueMicrotask(() => {
             handlers.onNotification?.('item/completed', {
@@ -300,7 +307,10 @@ describe('Codex conversation-name generation', () => {
     expect(codex.calls.some((call) => call.method === 'thread/name/set')).toBe(false)
   })
 
-  it('does not clobber a name set while it was generating', async () => {
+  // NOTE: this holds under the old fail-open predicate too — the thread has a
+  // name either way. The it.each in codex-conversation-name-generation.test.ts
+  // is what binds the fail-closed change; this covers the end-to-end wiring.
+  it('reports no name when the thread was named while it was generating', async () => {
     const codex = namingCodex({ existingName: 'A person named this' })
     const { onConversationName } = await dispatchedAdapter(codex)
     await settle()
@@ -383,5 +393,108 @@ describe('Codex naming-turn isolation', () => {
 
     expect(events).toHaveLength(settled)
     expect(JSON.stringify(events)).not.toContain('Late leak')
+  })
+})
+
+const SUBAGENT_THREAD = 'thread-subagent'
+
+describe('Codex marks attempted only on a settled answer', () => {
+  it('does NOT mark when the host could not open a throwaway thread', async () => {
+    const markNamingAttempted = vi.fn()
+    // `thread/start {ephemeral}` never yields a usable thread: a host that could
+    // not be asked must stay askable, or upgrading it rescues nothing.
+    const codex = namingCodex()
+    const openConnection = codex.openConnection
+    const stalled = {
+      ...codex,
+      openConnection: (async (...args: Parameters<typeof openCodexAppServerConnection>) => {
+        const connection = (await openConnection(...args)) as FakeConnection
+        const inner = connection.request
+        connection.request = (async (method: string, params?: Record<string, unknown>) =>
+          method === 'thread/start' && params?.ephemeral === true
+            ? {}
+            : inner(method, params)) as FakeConnection['request']
+        return connection
+      }) as typeof openCodexAppServerConnection
+    }
+
+    await dispatchedAdapter(stalled, { markNamingAttempted })
+    await settle()
+
+    expect(markNamingAttempted).not.toHaveBeenCalled()
+  })
+
+  it('DOES mark when the model answered without a usable title', async () => {
+    const markNamingAttempted = vi.fn()
+
+    await dispatchedAdapter(namingCodex({ answer: 'I could not think of one' }), {
+      markNamingAttempted
+    })
+    await settle()
+
+    expect(markNamingAttempted).toHaveBeenCalledWith(SESSION)
+  })
+})
+
+describe('Codex sub-agent threads survive the naming window', () => {
+  /** Every thread id the adapter emitted for the user's session. */
+  function emittedThreads(events: unknown[]): string[] {
+    return events.map((event) => String((event as { threadId?: string }).threadId))
+  }
+
+  it('journals a sub-agent turn that runs while naming is in flight', async () => {
+    const codex = namingCodex({ hangNamingTurn: true })
+    const { events } = await dispatchedAdapter(codex)
+    await settle()
+
+    codex.connections[0]!.handlers.onNotification?.('item/completed', {
+      threadId: SUBAGENT_THREAD,
+      item: { type: 'agentMessage', text: 'subagent finished its work' }
+    })
+    await settle()
+
+    // A sub-agent runs its own thread over this same connection. Treating it as
+    // a naming frame would drop its rows from the transcript entirely.
+    expect(emittedThreads(events)).toContain(SUBAGENT_THREAD)
+    expect(JSON.stringify(events)).toContain('subagent finished its work')
+  })
+
+  it('prompts the user for a sub-agent approval instead of auto-refusing it', async () => {
+    const codex = namingCodex({ hangNamingTurn: true })
+    const { events } = await dispatchedAdapter(codex)
+    await settle()
+
+    codex.connections[0]!.handlers.onServerRequest?.({
+      id: 91,
+      method: 'item/commandExecution/requestApproval',
+      params: { threadId: SUBAGENT_THREAD, command: 'pnpm test' }
+    })
+    await settle()
+
+    // Auto-refusing here denies a tool the user's OWN agent asked to run, with a
+    // reason that is untrue. Asserted on the MESSAGE: -32001 is also the code the
+    // normal prompt path uses when a journal admission fails, so the code alone
+    // would not tell the two apart.
+    const refusals = codex.replies.filter((reply) =>
+      String(reply.message ?? '').includes('conversation-naming turn')
+    )
+    expect(refusals).toEqual([])
+    expect(emittedThreads(events)).toContain(SUBAGENT_THREAD)
+  })
+
+  it('still keeps the naming thread out once its id is known', async () => {
+    const codex = namingCodex({ hangNamingTurn: true })
+    const { events } = await dispatchedAdapter(codex)
+    await settle()
+    const before = events.length
+
+    codex.connections[0]!.handlers.onNotification?.('item/completed', {
+      threadId: NAMING_THREAD,
+      item: { type: 'agentMessage', text: '{"title":"Still hidden"}' }
+    })
+    await settle()
+
+    expect(events).toHaveLength(before)
+    expect(JSON.stringify(events)).not.toContain('Still hidden')
   })
 })

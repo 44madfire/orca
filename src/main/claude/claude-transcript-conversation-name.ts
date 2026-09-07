@@ -14,16 +14,26 @@
 import { normalizeTitleText, parseJsonObject } from '../ai-vault/session-scanner-values'
 import { claudeTranscriptTailLines } from './claude-transcript-tail-scan'
 
+/** What the transcript's tail says about this conversation's name. */
+export type ClaudeTranscriptConversationName =
+  | { kind: 'named'; title: string }
+  /** The newest title record positively removes the name. */
+  | { kind: 'cleared' }
+  /** No title record in the tail. NOT evidence the conversation is unnamed: the
+   *  scan is bounded, so an older record simply is not visible from here. */
+  | { kind: 'unknown' }
+
 /**
- * The transcript's stored name, or null when its tail holds none.
+ * The transcript's stored name.
  *
  * A user's own `custom-title` outranks the generated `ai-title`, matching the
  * precedence the CLI itself applies. Read newest-first, so the first record of
- * each kind is the current one.
+ * each kind is the current one — and an emptied `custom-title` is the user
+ * deleting the name, which must not read the same as never having had one.
  */
 export async function readClaudeTranscriptConversationName(
   transcriptPath: string
-): Promise<string | null> {
+): Promise<ClaudeTranscriptConversationName> {
   let generated: string | null = null
   for await (const line of claudeTranscriptTailLines(transcriptPath)) {
     if (!line.includes('-title')) {
@@ -35,23 +45,23 @@ export async function readClaudeTranscriptConversationName(
     }
     if (record.type === 'custom-title') {
       const title = normalizeTitleText(String(record.customTitle ?? ''))
-      if (title) {
-        return title
-      }
+      return title ? { kind: 'named', title } : { kind: 'cleared' }
     }
     if (record.type === 'ai-title' && !generated) {
       generated = normalizeTitleText(String(record.aiTitle ?? '')) || null
     }
   }
-  return generated
+  return generated ? { kind: 'named', title: generated } : { kind: 'unknown' }
 }
 
 export type ClaudeConversationNameReporter = {
   readTranscriptConversationName?: (input: {
     providerSessionId: string
     claudeConfigDir: string
-  }) => Promise<string | null>
+  }) => Promise<ClaudeTranscriptConversationName>
   onConversationName?: (sessionId: string, conversationName: string) => void
+  onConversationNameCleared?: (sessionId: string) => void
+  onError?: (scope: string, error: unknown) => void
 }
 
 /**
@@ -75,16 +85,19 @@ export function reportPersistedClaudeConversationName(
     providerSessionId: session.providerSessionId,
     claudeConfigDir: session.claudeConfigDir
   })
-    .then((name) => {
-      if (!name) {
+    .then((found) => {
+      if (found.kind === 'cleared') {
+        // The user deleted the name in the CLI; a stale one here keeps rendering.
+        deps.onConversationNameCleared?.(sessionId)
+        return
+      }
+      if (found.kind !== 'named') {
         return
       }
       // A transcript that already holds a name is a conversation that is already
       // named; nothing should generate another one for it.
-      if (session) {
-        session.namingAttempted = true
-      }
-      deps.onConversationName?.(sessionId, name)
+      session.namingAttempted = true
+      deps.onConversationName?.(sessionId, found.title)
     })
-    .catch(() => undefined)
+    .catch((error: unknown) => deps.onError?.('claude-transcript-name', error))
 }

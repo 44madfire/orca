@@ -63,16 +63,25 @@ export type CodexNamingState = {
 /**
  * Whether a frame belongs to a naming turn rather than the user's conversation.
  *
- * Two conditions, because the throwaway thread's id is unknown for a window: any
- * OTHER thread while a naming turn is in flight, and — for the whole life of the
- * session — a thread this session opened for naming. A frame naming no thread
- * cannot be attributed and passes through, as it always has.
+ * Normally an exact match against a thread this session opened for naming, held
+ * for the session's life. The broad "any other thread" rule applies ONLY in the
+ * window before `thread/start` has returned that id — while no naming thread is
+ * known yet — because a Codex SUB-AGENT runs on its own thread over this same
+ * connection. Treating those as naming frames would drop the sub-agent's rows
+ * from the transcript, feed its reply to the collector as the naming answer, and
+ * auto-refuse an approval the user's own agent asked for.
+ *
+ * A frame naming no thread cannot be attributed and passes through, as it always
+ * has.
  */
 export function isCodexNamingFrame(state: CodexNamingState, frameThreadId: string | null): boolean {
   if (frameThreadId === null || frameThreadId === state.threadId) {
     return false
   }
-  return state.namingThreadIds.has(frameThreadId) || state.naming !== null
+  if (state.namingThreadIds.has(frameThreadId)) {
+    return true
+  }
+  return state.naming !== null && state.namingThreadIds.size === 0
 }
 
 /** Collects one ephemeral naming turn's frames and reports its answer. */
@@ -204,12 +213,25 @@ export type CodexConversationNameGeneration = {
 }
 
 /**
+ * What one naming attempt concluded.
+ *
+ * `settled` separates "we asked and got an answer" from "this host could not
+ * ask": only the former may durably mark the conversation as attempted. Marking
+ * a host failure would forfeit naming forever — including after the user
+ * upgrades the CLI or app-server that could not do it.
+ */
+export type CodexConversationNameOutcome = {
+  name: string | null
+  settled: boolean
+}
+
+/**
  * Generates a name for one thread and sets it, unless the thread acquired a name
- * while this was running. Returns the name it set, or null when it set none.
+ * while this was running.
  */
 export async function generateAndSetCodexConversationName(
   input: CodexConversationNameGeneration
-): Promise<string | null> {
+): Promise<CodexConversationNameOutcome> {
   const { connection, timeoutMs } = input
   const collector = input.openNamingTurn()
   let answer: string | null
@@ -221,13 +243,16 @@ export async function generateAndSetCodexConversationName(
       { timeoutMs }
     )
     const namingThreadId = readCodexThreadId(opened)
+    // No usable throwaway thread is a host that could not be asked, not a decline.
     // An app-server that ignored `ephemeral` hands back a NEW PERSISTED thread,
     // not the user's — so the id check below is not what protects them; the
     // delete in the finally block is. The check covers only a reply that names
     // the session's own thread, which would put this turn straight into the
-    // user's chat.
+    // user's chat. A reply naming some OTHER pre-existing thread of the user's
+    // is not guarded and is not treated as a real risk: `thread/start` returns
+    // the thread it just opened.
     if (!namingThreadId || namingThreadId === input.threadId) {
-      return null
+      return { name: null, settled: false }
     }
     input.retainNamingThread(namingThreadId)
     // Only when `ephemeral` was NOT honoured. A truly ephemeral thread refuses
@@ -258,9 +283,14 @@ export async function generateAndSetCodexConversationName(
         .catch((error: unknown) => input.onError?.('delete-naming-thread', error))
     }
   }
+  // A turn that ended with no usable title is a decline and settles; one that
+  // never answered at all (the collector's timeout) did not.
+  if (answer === null) {
+    return { name: null, settled: false }
+  }
   const title = readCodexGeneratedTitle(answer)
   if (!title) {
-    return null
+    return { name: null, settled: true }
   }
   // Re-read LAST: generation takes seconds, and a name a person chose in that
   // window outranks this one. Losing the race means doing nothing, not retrying.
@@ -269,16 +299,21 @@ export async function generateAndSetCodexConversationName(
     { threadId: input.threadId },
     { timeoutMs }
   )
+  // Asymmetry worth knowing: a user who NAMES the thread during the window wins
+  // here, but one who CLEARS a name during it loses — the re-read sees it unnamed
+  // and this sets. Narrow: first turn only, and the durable attempted marker means
+  // it cannot recur for that conversation.
+  //
   // Fails CLOSED. Only a reply this build can positively read as unnamed permits
   // the write: a shape it does not recognise would otherwise read as "unnamed"
   // and clobber a name a person chose. Skipping a name is a non-event.
   if (!isCodexThreadReadablyUnnamed(current)) {
-    return null
+    return { name: null, settled: true }
   }
   await connection.request(
     'thread/name/set',
     { threadId: input.threadId, name: title },
     { timeoutMs }
   )
-  return title
+  return { name: title, settled: true }
 }

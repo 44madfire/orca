@@ -18,8 +18,12 @@ export function agentSessionNamingPromptText(body: AgentJournalMessageItem): str
     return null
   }
   const text = (body.blocks as NativeChatBlock[])
-    .filter((block): block is Extract<NativeChatBlock, { type: 'text' }> => block.type === 'text')
-    .map((block) => block.text)
+    .filter(
+      (block): block is Extract<NativeChatBlock, { type: 'text' }> =>
+        // Elements are as unverified as the array itself; a null here would throw.
+        typeof block === 'object' && block !== null && block.type === 'text'
+    )
+    .map((block) => (typeof block.text === 'string' ? block.text : ''))
     .join('\n')
     .trim()
   if (!text) {

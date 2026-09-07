@@ -27,7 +27,10 @@ async function settle(): Promise<void> {
 
 describe('startClaudeConversationNaming', () => {
   it('asks the CLI to generate and persist a title, then reports it', async () => {
-    const generateSessionTitle = vi.fn(async () => 'Lease probe flake')
+    const generateSessionTitle = vi.fn(async () => ({
+      outcome: 'named' as const,
+      title: 'Lease probe flake'
+    }))
     const session = sessionWith(generateSessionTitle)
     const onConversationName = vi.fn()
 
@@ -44,7 +47,10 @@ describe('startClaudeConversationNaming', () => {
   })
 
   it('passes the user text alone, imposing no title style of its own', async () => {
-    const generateSessionTitle = vi.fn(async () => 'Lease probe flake')
+    const generateSessionTitle = vi.fn(async () => ({
+      outcome: 'named' as const,
+      title: 'Lease probe flake'
+    }))
 
     startClaudeConversationNaming(SESSION, sessionWith(generateSessionTitle), USER_TURN, {
       onConversationName: vi.fn()
@@ -60,7 +66,7 @@ describe('startClaudeConversationNaming', () => {
   })
 
   it('asks only once across a re-acquisition, which builds a NEW session object', async () => {
-    const generateSessionTitle = vi.fn(async () => null)
+    const generateSessionTitle = vi.fn(async () => ({ outcome: 'declined' as const }))
     // Passing the same object twice could only prove the in-memory flag; an
     // eviction hands the next send a fresh session, which is the real case.
     let attempted = false
@@ -83,9 +89,14 @@ describe('startClaudeConversationNaming', () => {
   it('reports nothing when the title request answers null', async () => {
     const onConversationName = vi.fn()
 
-    startClaudeConversationNaming(SESSION, sessionWith(vi.fn(async () => null)), USER_TURN, {
-      onConversationName
-    })
+    startClaudeConversationNaming(
+      SESSION,
+      sessionWith(vi.fn(async () => ({ outcome: 'declined' as const }))),
+      USER_TURN,
+      {
+        onConversationName
+      }
+    )
     await settle()
 
     expect(onConversationName).not.toHaveBeenCalled()
@@ -108,7 +119,7 @@ describe('startClaudeConversationNaming', () => {
   })
 
   it('does nothing when the submission carries no text to title', async () => {
-    const generateSessionTitle = vi.fn(async () => 'x')
+    const generateSessionTitle = vi.fn(async () => ({ outcome: 'named' as const, title: 'x' }))
 
     startClaudeConversationNaming(
       SESSION,
@@ -141,7 +152,10 @@ describe('startClaudeConversationNaming robustness', () => {
 
 describe('startClaudeConversationNaming across re-acquisitions', () => {
   it('does not retitle a conversation the record already names', async () => {
-    const generateSessionTitle = vi.fn(async () => 'A second, different title')
+    const generateSessionTitle = vi.fn(async () => ({
+      outcome: 'named' as const,
+      title: 'A second, different title'
+    }))
     // Claude rebuilds its session on every acquisition, so this fresh object is
     // exactly what an evict-then-reacquire hands the next send.
     const reacquired = sessionWith(generateSessionTitle)
@@ -156,7 +170,10 @@ describe('startClaudeConversationNaming across re-acquisitions', () => {
   })
 
   it('still names a conversation the record has never named', async () => {
-    const generateSessionTitle = vi.fn(async () => 'Lease probe flake')
+    const generateSessionTitle = vi.fn(async () => ({
+      outcome: 'named' as const,
+      title: 'Lease probe flake'
+    }))
     const onConversationName = vi.fn()
 
     startClaudeConversationNaming(SESSION, sessionWith(generateSessionTitle), USER_TURN, {
@@ -166,5 +183,59 @@ describe('startClaudeConversationNaming across re-acquisitions', () => {
     await settle()
 
     expect(onConversationName).toHaveBeenCalledExactlyOnceWith(SESSION, 'Lease probe flake')
+  })
+})
+
+describe('startClaudeConversationNaming host failures stay askable', () => {
+  function attemptTracker() {
+    let attempted = false
+    return {
+      deps: (generateSessionTitle: ReturnType<typeof vi.fn>) => ({
+        onConversationName: vi.fn(),
+        readNamingState: () => ({ conversationName: null, namingAttempted: attempted }),
+        markNamingAttempted: () => {
+          attempted = true
+        },
+        session: sessionWith(generateSessionTitle)
+      }),
+      wasAttempted: () => attempted
+    }
+  }
+
+  it('does NOT mark a CLI that has no title request, so an upgrade can still name it', async () => {
+    const tracker = attemptTracker()
+    const generateSessionTitle = vi.fn(async () => ({ outcome: 'unsupported' as const }))
+    const { session, ...deps } = tracker.deps(generateSessionTitle)
+
+    startClaudeConversationNaming(SESSION, session, USER_TURN, deps)
+    await settle()
+
+    // Marking here would forfeit naming for every conversation started on that
+    // build, permanently, even after the user upgrades.
+    expect(tracker.wasAttempted()).toBe(false)
+  })
+
+  it('does NOT mark when the request itself failed', async () => {
+    const tracker = attemptTracker()
+    const generateSessionTitle = vi.fn(async () => {
+      throw new Error('claude generate_session_title request timed out')
+    })
+    const { session, ...deps } = tracker.deps(generateSessionTitle)
+
+    startClaudeConversationNaming(SESSION, session, USER_TURN, deps)
+    await settle()
+
+    expect(tracker.wasAttempted()).toBe(false)
+  })
+
+  it('DOES mark a model that answered without a title', async () => {
+    const tracker = attemptTracker()
+    const generateSessionTitle = vi.fn(async () => ({ outcome: 'declined' as const }))
+    const { session, ...deps } = tracker.deps(generateSessionTitle)
+
+    startClaudeConversationNaming(SESSION, session, USER_TURN, deps)
+    await settle()
+
+    expect(tracker.wasAttempted()).toBe(true)
   })
 })

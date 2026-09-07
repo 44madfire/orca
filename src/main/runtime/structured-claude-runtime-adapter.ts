@@ -42,6 +42,7 @@ export type StructuredClaudeRuntimeAdapterDeps = {
   }
   markNamingAttempted?: (sessionId: string) => void
   onNamingError?: (scope: string, error: unknown) => void
+  onConversationNameCleared?: (sessionId: string) => void
 }
 
 export function createStructuredClaudeRuntimeAdapter(
@@ -89,11 +90,18 @@ export function createStructuredClaudeRuntimeAdapter(
     ...(deps.readNamingState ? { readNamingState: deps.readNamingState } : {}),
     ...(deps.markNamingAttempted ? { markNamingAttempted: deps.markNamingAttempted } : {}),
     ...(deps.onNamingError ? { onNamingError: deps.onNamingError } : {}),
+    ...(deps.onConversationNameCleared
+      ? { onConversationNameCleared: deps.onConversationNameCleared }
+      : {}),
+    ...(deps.onNamingError ? { onError: deps.onNamingError } : {}),
     readTranscriptConversationName: async ({ providerSessionId, claudeConfigDir }) => {
       const transcriptPath = await resolveSessionFilePath('claude', providerSessionId, {
         claudeProjectsDir: join(claudeConfigDir, 'projects')
       })
-      return transcriptPath ? await readClaudeTranscriptConversationName(transcriptPath) : null
+      // No transcript is no evidence either way, never a cleared name.
+      return transcriptPath
+        ? await readClaudeTranscriptConversationName(transcriptPath)
+        : { kind: 'unknown' as const }
     },
     onEvent: (event) => {
       if (

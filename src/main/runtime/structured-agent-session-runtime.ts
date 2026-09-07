@@ -38,6 +38,13 @@ import { recordAgentSessionProviderHandle } from './agent-session-provider-handl
 import type { ClaudeStructuredAuthPolicy } from '../claude-accounts/claude-structured-auth-policy'
 import { createStructuredClaudeRuntimeAdapter } from './structured-claude-runtime-adapter'
 
+/** An app-server can echo the request it rejected, so only the message is logged:
+ *  the raw error object could carry part of the user's prompt into the log. */
+function warnConversationNamingFailed(scope: string, error: unknown): void {
+  const detail = error instanceof Error ? error.message : String(error)
+  console.warn(`[agent-session] conversation naming failed (${scope}): ${detail}`)
+}
+
 /** Sibling of the journal tree rather than inside it: one file adjudicates every
  *  session's lease, while a journal is per session. */
 const RECORD_STORE_DIR_NAME = 'agent-sessions'
@@ -232,8 +239,7 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
           deps.onConversationName?.({ sessionId, workspaceId, conversationName })
         }
       },
-      onError: (scope, error) =>
-        console.warn(`[agent-session] conversation naming failed (${scope})`, error)
+      onError: (scope, error) => warnConversationNamingFailed(scope, error)
     })
     const codex = new CodexStructuredSessionAdapter({
       resolveLaunch: createCodexStructuredLaunchResolver({
@@ -249,8 +255,7 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       onConversationNameCleared: (sessionId) => void conversationNames.clear(sessionId),
       readNamingAttempted: (sessionId) => conversationNames.read(sessionId).namingAttempted,
       markNamingAttempted: (sessionId) => void conversationNames.markAttempted(sessionId),
-      onNamingError: (scope, error) =>
-        console.warn(`[agent-session] conversation naming failed (${scope})`, error),
+      onNamingError: (scope, error) => warnConversationNamingFailed(scope, error),
       onEvent: (event) => {
         if (event.type !== 'ended' || !('cause' in event) || event.cause !== 'unexpected-exit') {
           return
@@ -294,10 +299,10 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
         host?.publishBackgroundTaskState(sessionId, state),
       onConversationName: (sessionId, conversationName) =>
         void conversationNames.publish(sessionId, conversationName),
+      onConversationNameCleared: (sessionId) => void conversationNames.clear(sessionId),
       readNamingState: (sessionId) => conversationNames.read(sessionId),
       markNamingAttempted: (sessionId) => void conversationNames.markAttempted(sessionId),
-      onNamingError: (scope, error) =>
-        console.warn(`[agent-session] conversation naming failed (${scope})`, error),
+      onNamingError: (scope, error) => warnConversationNamingFailed(scope, error),
       ...(deps.openClaudeConnection ? { openClaudeConnection: deps.openClaudeConnection } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
     })

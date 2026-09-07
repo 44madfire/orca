@@ -1,4 +1,5 @@
 import type { AgentSessionJournalIdentity } from '../../shared/agent-session-journal-types'
+import type { ClaudeTranscriptConversationName } from './claude-transcript-conversation-name'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import type {
   ClaudeStreamJsonConnection,
@@ -76,6 +77,8 @@ export type ClaudeStructuredSessionAdapterDeps = {
   }) => Promise<void>
   /** Claude named (or the user renamed) the conversation behind this session. */
   onConversationName?: (sessionId: string, conversationName: string) => void
+  /** The user deleted the name in the CLI. */
+  onConversationNameCleared?: (sessionId: string) => void
   /** The durable naming state, so a re-acquisition does not retitle. */
   readNamingState?: (sessionId: string) => {
     conversationName: string | null
@@ -88,7 +91,7 @@ export type ClaudeStructuredSessionAdapterDeps = {
   readTranscriptConversationName?: (input: {
     providerSessionId: string
     claudeConfigDir: string
-  }) => Promise<string | null>
+  }) => Promise<ClaudeTranscriptConversationName>
   /** Read the durable transcript branch after a child has flushed its final rows. */
   readTranscriptLeaf?: (input: {
     providerSessionId: string

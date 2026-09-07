@@ -59,3 +59,22 @@ describe('agentSessionNamingPromptText hostile input', () => {
     expect(agentSessionNamingPromptText(body as unknown as AgentJournalMessageItem)).toBeNull()
   })
 })
+
+describe('agentSessionNamingPromptText hostile elements', () => {
+  it.each([
+    ['a null element', [null, { type: 'text', text: 'keep me' }]],
+    ['a string element', ['raw', { type: 'text', text: 'keep me' }]],
+    ['an element with no type', [{ text: 'nope' }, { type: 'text', text: 'keep me' }]],
+    ['a text block whose text is not a string', [{ type: 'text', text: 7 }]]
+  ])('survives %s', (_label, blocks) => {
+    // The array guard alone does not cover its contents; a null element would
+    // throw at `block.type` on the send path.
+    expect(() => agentSessionNamingPromptText(body(blocks as unknown[]))).not.toThrow()
+  })
+
+  it('still returns the usable text beside a hostile element', () => {
+    expect(agentSessionNamingPromptText(body([null, { type: 'text', text: 'keep me' }]))).toBe(
+      'keep me'
+    )
+  })
+})

@@ -54,8 +54,7 @@ export function startCodexConversationNaming(input: CodexConversationNamingInput
       if (!prompt) {
         return
       }
-      input.markNamingAttempted?.(sessionId)
-      const name = await generateAndSetCodexConversationName({
+      const outcome = await generateAndSetCodexConversationName({
         connection: session.connection,
         cwd: session.cwd,
         threadId: session.threadId,
@@ -72,12 +71,18 @@ export function startCodexConversationNaming(input: CodexConversationNamingInput
           session.naming = null
         }
       })
+      // Marked only on a SETTLED answer, and only after the fact: a host that
+      // could not be asked must stay askable, or upgrading the app-server would
+      // never rescue the conversations it failed on.
+      if (outcome.settled) {
+        input.markNamingAttempted?.(sessionId)
+      }
       // `thread/name/set` echoes back as `thread/name/updated`, but only while
       // this session still holds the connection; report directly so a name set
       // just before a close is not lost.
-      if (name && session.conversationName !== name) {
-        session.conversationName = name
-        input.onConversationName?.(sessionId, name)
+      if (outcome.name && session.conversationName !== outcome.name) {
+        session.conversationName = outcome.name
+        input.onConversationName?.(sessionId, outcome.name)
       }
     })
     .catch((error: unknown) => {

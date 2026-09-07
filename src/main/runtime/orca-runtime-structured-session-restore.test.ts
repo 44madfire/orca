@@ -504,6 +504,55 @@ describe('structured session cold restoration', () => {
     expect(snapshot.tabs[0]).toMatchObject({ title: 'Codex Chat' })
   })
 
+  it('returns a cleared chat to its placeholder rather than a null title', async () => {
+    const runtime = new OrcaRuntimeService()
+    setStructuredAgentSessionHost({
+      setSessionTabVisibility: async () => undefined,
+      readConversationName: () => 'Fix the lease probe'
+    } as never)
+    await runtime.publishStructuredAgentSessionTab({
+      workspaceId: 'workspace-1',
+      sessionId: 'cleared-codex',
+      agent: 'codex',
+      activate: true
+    })
+
+    runtime.applyStructuredAgentSessionConversationName({
+      workspaceId: 'workspace-1',
+      sessionId: 'cleared-codex',
+      conversationName: null
+    })
+
+    // `title` is a required string on the published tab; a null reaches every
+    // client's snapshot builder and throws on `tab.title.trim()`.
+    const snapshot = await runtime.listMobileSessionTabs('id:workspace-1')
+    expect(snapshot.tabs[0]).toMatchObject({ title: 'Codex Chat' })
+    expect(typeof snapshot.tabs[0]?.title).toBe('string')
+  })
+
+  it('returns a cleared Claude chat to the Claude placeholder', async () => {
+    const runtime = new OrcaRuntimeService()
+    setStructuredAgentSessionHost({
+      setSessionTabVisibility: async () => undefined,
+      readConversationName: () => 'Lease probe flake'
+    } as never)
+    await runtime.publishStructuredAgentSessionTab({
+      workspaceId: 'workspace-1',
+      sessionId: 'cleared-claude',
+      agent: 'claude',
+      activate: true
+    })
+
+    runtime.applyStructuredAgentSessionConversationName({
+      workspaceId: 'workspace-1',
+      sessionId: 'cleared-claude',
+      conversationName: null
+    })
+
+    const snapshot = await runtime.listMobileSessionTabs('id:workspace-1')
+    expect(snapshot.tabs[0]).toMatchObject({ title: 'Claude Chat' })
+  })
+
   it('commits the host close when the renderer already removed the structured tab', async () => {
     const runtime = new OrcaRuntimeService()
     runtime.setNotifier({

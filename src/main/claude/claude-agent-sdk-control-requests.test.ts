@@ -26,13 +26,16 @@ describe('createClaudeControlSurface stopTask', () => {
 })
 
 describe('createClaudeControlSurface generateSessionTitle', () => {
-  it('answers null when the CLI exposes no title request at all', async () => {
+  it('reports UNSUPPORTED when the CLI exposes no title request at all', async () => {
     // The real degradation path: the shipped Query declaration omits the method,
-    // and an older CLI genuinely does not have it. The surface still exposes the
-    // method so callers never probe, and answers null rather than throwing.
+    // and an older CLI genuinely does not have it. Distinguished from a decline
+    // so a caller never records "we already asked" against a CLI that could not
+    // be asked — which would forfeit naming even after the user upgrades.
     const surface = createClaudeControlSurface({} as unknown as Query)
 
-    await expect(surface.generateSessionTitle('fix the lease probe')).resolves.toBeNull()
+    await expect(surface.generateSessionTitle('fix the lease probe')).resolves.toEqual({
+      outcome: 'unsupported'
+    })
   })
 
   it('asks the CLI to persist the title and trims what comes back', async () => {
@@ -41,15 +44,17 @@ describe('createClaudeControlSurface generateSessionTitle', () => {
 
     await expect(
       surface.generateSessionTitle('fix the lease probe', { persist: true })
-    ).resolves.toBe('Lease probe flake')
+    ).resolves.toEqual({ outcome: 'named', title: 'Lease probe flake' })
     expect(generateSessionTitle).toHaveBeenCalledWith('fix the lease probe', { persist: true })
   })
 
-  it('treats a blank title as no title', async () => {
+  it('treats a blank title as a decline, which a CLI that CAN be asked produced', async () => {
     const surface = createClaudeControlSurface({
       generateSessionTitle: async () => '   '
     } as unknown as Query)
 
-    await expect(surface.generateSessionTitle('fix the lease probe')).resolves.toBeNull()
+    await expect(surface.generateSessionTitle('fix the lease probe')).resolves.toEqual({
+      outcome: 'declined'
+    })
   })
 })

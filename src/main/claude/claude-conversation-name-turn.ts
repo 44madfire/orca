@@ -55,13 +55,19 @@ export function startClaudeConversationNaming(
       if (!description) {
         return
       }
-      deps.markNamingAttempted?.(sessionId)
-      const title = await session.connection.generateSessionTitle(description, {
+      const result = await session.connection.generateSessionTitle(description, {
         persist: true,
         ...(deps.requestTimeoutMs ? { timeoutMs: deps.requestTimeoutMs } : {})
       })
-      if (title) {
-        deps.onConversationName?.(sessionId, title)
+      // A CLI with no title request must stay askable: marking it here would
+      // mean none of this build's conversations could ever be named, even after
+      // the user upgrades. A thrown request is likewise left unmarked.
+      if (result.outcome === 'unsupported') {
+        return
+      }
+      deps.markNamingAttempted?.(sessionId)
+      if (result.outcome === 'named') {
+        deps.onConversationName?.(sessionId, result.title)
       }
     })
     .catch((error: unknown) => deps.onError?.('claude-conversation-naming', error))
