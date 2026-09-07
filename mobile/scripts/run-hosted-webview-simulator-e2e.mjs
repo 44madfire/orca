@@ -52,10 +52,7 @@ import {
   alignHostedIosSessionPoint,
   verifyHostedIosAdversarialTerminalLinks
 } from './hosted-ios-adversarial-terminal-links.mjs'
-import {
-  tapHostedIosAccessibilityControlByLabelPrefix,
-  tapHostedIosPoint
-} from './hosted-ios-emulator-accessibility.mjs'
+import { tapHostedIosPoint } from './hosted-ios-emulator-accessibility.mjs'
 import { openHostedIosHybridRoute } from './hosted-ios-hybrid-route-handoff.mjs'
 import {
   startHostedIosMobileLauncher,
@@ -67,7 +64,7 @@ import {
   resolveHostedIosSimulatorUdid
 } from './hosted-ios-simulator-device.mjs'
 import { verifyHostedSourceControlReviewJourney } from './hosted-ios-source-control-review-journey.mjs'
-import { verifyHostedHostOriginSourceControlJourney } from './hosted-ios-host-origin-source-control-journey.mjs'
+import { runHostedHostOriginSourceControlStep } from './hosted-ios-host-origin-source-control-journey.mjs'
 import { captureNativeSourceControlReviewBaselines } from './hosted-ios-source-control-review-parity.mjs'
 import { resetHostedIosPhotosPermission } from './hosted-ios-photo-permission-denial.mjs'
 import { verifyHostedIosTerminalInputJourney } from './hosted-ios-terminal-device-input-journey.mjs'
@@ -454,21 +451,16 @@ async function main() {
         : await evidenceStep('Source Control and Review journey', async () => {
             let hostOrigin
             if (options.sourceControlOnly) {
-              hostOrigin = await evidenceStep('host-origin Source Control journey', () =>
-                verifyHostedHostOriginSourceControlJourney({
-                  discoveryUrl,
-                  emulator,
-                  nativeBaseline: nativeSourceControlReview?.sourceControl,
-                  timeoutMs: options.timeoutMs,
-                  workspaceName: adversarialFixture?.workspaceRowName ?? expectedWorkspace
-                })
-              )
-              workspaceDocument = hostOrigin.workspaceDocument
-              await tapHostedIosAccessibilityControlByLabelPrefix(
+              hostOrigin = await runHostedHostOriginSourceControlStep({
+                adversarialFixture,
+                discoveryUrl,
                 emulator,
-                adversarialFixture?.workspaceRowName ?? expectedWorkspace,
-                options.timeoutMs
-              )
+                evidenceStep,
+                expectedWorkspace,
+                nativeBaseline: nativeSourceControlReview?.sourceControl,
+                timeoutMs: options.timeoutMs
+              })
+              workspaceDocument = hostOrigin.workspaceDocument
             }
             let sessionDocument = await waitForVisibleHostedWebView({
               discoveryUrl: `http://127.0.0.1:${inspectorPort}`,
