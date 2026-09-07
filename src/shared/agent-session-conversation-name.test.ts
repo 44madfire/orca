@@ -75,3 +75,38 @@ describe('normalizeAgentSessionConversationName hostile text', () => {
     )
   })
 })
+
+describe('normalizeAgentSessionConversationName joiners', () => {
+  // U+200C/U+200D carry meaning: stripping them as "format characters" splits a
+  // family emoji into three people and breaks Persian and Hindi orthography.
+  // The naming prompt asks for the user's own language, so this is normal input.
+  const ZWJ = '\u200D'
+  const ZWNJ = '\u200C'
+
+  it.each([
+    ['family emoji', `Fix \u{1F468}${ZWJ}\u{1F469}${ZWJ}\u{1F467} layout`],
+    ['flag emoji', `Ship \u{1F3F3}\uFE0F${ZWJ}\u{1F308} theme`],
+    ['profession emoji', `Add \u{1F469}${ZWJ}\u{1F4BB} avatar`],
+    ['Persian ZWNJ', `می${ZWNJ}خواهم تست`],
+    ['Hindi ZWNJ conjunct', `क्${ZWNJ}ष ठीक`]
+  ])('keeps the joiners in a %s name', (_label, name) => {
+    expect(normalizeAgentSessionConversationName(name)).toBe(name)
+  })
+
+  // Kept from the hardening: allowing the joiners must not readmit these.
+  it.each([
+    ['bidi override', 'Fix\u202Egnp.exe probe', 'Fix gnp.exe probe'],
+    ['isolate pair', 'Fix\u2066the\u2069 probe', 'Fix the probe'],
+    ['Arabic letter mark', 'Fix\u061Cthe probe', 'Fix the probe'],
+    ['soft hyphen', 'Fix\u00ADthe probe', 'Fix the probe'],
+    ['word joiner', 'Fix\u2060the probe', 'Fix the probe'],
+    ['zero-width space', 'Fix\u200Bthe probe', 'Fix the probe'],
+    ['byte order mark', 'Fix\uFEFFthe probe', 'Fix the probe']
+  ])('still strips a %s', (_label, name, expected) => {
+    expect(normalizeAgentSessionConversationName(name)).toBe(expected)
+  })
+
+  it('rejects a name that is only invisible controls', () => {
+    expect(normalizeAgentSessionConversationName('\u202E\u200B\u2060')).toBeNull()
+  })
+})
