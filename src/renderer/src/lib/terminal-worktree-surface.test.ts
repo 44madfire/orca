@@ -28,6 +28,16 @@ describe('hasRenderableTerminalWorktreeSurface', () => {
     }
   })
 
+  it('accepts a paired-runtime row that carries only its environment owner', () => {
+    const store = state({
+      repos: [{ id: 'repo-1', executionHostId: 'runtime:hub' }],
+      worktreesByRepo: {
+        'repo-1': [{ id: 'repo-1::/workspace', repoId: 'repo-1', runtimeOwnerEnvironmentId: 'hub' }]
+      }
+    } as unknown as Partial<AppState>)
+    expect(hasRenderableTerminalWorktreeSurface(store, 'repo-1::/workspace')).toBe(true)
+  })
+
   it('rejects a hidden detected worktree even when its repo is registered', () => {
     const store = state({
       detectedWorktreesByRepo: {

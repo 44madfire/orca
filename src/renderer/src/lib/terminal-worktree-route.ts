@@ -1,6 +1,10 @@
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 import { isEphemeralSetupTerminalWorktreeId } from '../../../shared/ephemeral-setup-terminal-worktree-id'
-import { parseExecutionHostId } from '../../../shared/execution-host'
+import {
+  parseExecutionHostId,
+  toRuntimeExecutionHostId,
+  type ExecutionHostId
+} from '../../../shared/execution-host'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import type { AppState } from '@/store/types'
 import { getIndexedWorktreesById } from '@/store/worktree-repo-index'
@@ -24,6 +28,21 @@ export type TerminalWorktreeRoute = {
   runtimeEnvironmentId: string | null
 }
 
+/** The catalog host whose rows can render this worktree, or null when ownership is unresolved. */
+export function resolveTerminalWorktreeCatalogHostId(
+  state: AppState,
+  worktreeId: string
+): ExecutionHostId | null {
+  const route = resolveWorktreeOperationRoute(state, worktreeId)
+  if (!route) {
+    return null
+  }
+  // Why: a paired-HUB row can publish only its environment owner, leaving the physical host null.
+  return route.runtimeEnvironmentId
+    ? toRuntimeExecutionHostId(route.runtimeEnvironmentId)
+    : route.executionHostId
+}
+
 export function hasRenderableTerminalWorktreeSurface(
   state: AppState,
   worktreeId: string | null | undefined
@@ -41,15 +60,11 @@ export function hasRenderableTerminalWorktreeSurface(
     )
   }
   // Only the workbench's row index can host new tabs; detected rows and inline setup ids cannot.
-  const route = resolveWorktreeOperationRoute(state, worktreeId)
-  const hostId = route?.executionHostId
-  if (!hostId) {
+  const catalogHostId = resolveTerminalWorktreeCatalogHostId(state, worktreeId)
+  if (!catalogHostId) {
     return false
   }
   const repoId = getRepoIdFromWorktreeId(worktreeId)
-  const catalogHostId = route.runtimeEnvironmentId
-    ? (`runtime:${encodeURIComponent(route.runtimeEnvironmentId)}` as const)
-    : hostId
   const matchOptions = worktreeHostMatchOptions(state, repoId, catalogHostId)
   return state.worktreesByRepo
     ? getIndexedWorktreesById(state.worktreesByRepo, worktreeId).some((row) =>

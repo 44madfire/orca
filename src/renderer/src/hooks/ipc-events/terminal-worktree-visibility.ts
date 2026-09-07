@@ -1,6 +1,8 @@
-import { hasRenderableTerminalWorktreeSurface as hasTerminalWorktreeRow } from '@/lib/terminal-worktree-route'
+import {
+  hasRenderableTerminalWorktreeSurface as hasTerminalWorktreeRow,
+  resolveTerminalWorktreeCatalogHostId
+} from '@/lib/terminal-worktree-route'
 import { importNewExternalWorktreeInboxPaths } from '@/components/sidebar/new-external-worktrees-inbox-actions'
-import { resolveWorktreeOperationRoute } from '@/lib/worktree-operation-route'
 import { findRepoForHost, getRepoHostIdentity } from '@/store/slices/repo-host-identity'
 import { getRepoIdFromWorktreeId } from '@/store/slices/worktree-helpers'
 import {
@@ -22,10 +24,7 @@ export async function ensureTerminalWorktreeVisible(worktreeId: string): Promise
   if (hasTerminalWorktreeRow(state, worktreeId)) {
     return
   }
-  const route = resolveWorktreeOperationRoute(state, worktreeId)
-  const hostId = route?.runtimeEnvironmentId
-    ? (`runtime:${encodeURIComponent(route.runtimeEnvironmentId)}` as const)
-    : route?.executionHostId
+  const hostId = resolveTerminalWorktreeCatalogHostId(state, worktreeId)
   if (!hostId) {
     throw hiddenTerminalWorktreeError()
   }
