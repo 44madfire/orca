@@ -29,8 +29,6 @@ export const MobileWebTaskItemMetadataPayloadSchema = z
   })
   .strict()
 
-export const MobileWebTaskItemMutationResultSchema = z.null()
-
 export type MobileWebTaskItemMetadataUpdates = z.infer<
   typeof MobileWebTaskItemMetadataUpdatesSchema
 >

@@ -1,9 +1,4 @@
 import { z } from 'zod'
-import {
-  MobileWebTaskGitHubDetailResultSchema,
-  MobileWebTaskGitHubLabelsResultSchema,
-  MobileWebTaskGitHubUsersResultSchema
-} from './task-detail-contract'
 
 export const MobileWebTaskProjectSlugPayloadSchema = z
   .object({
@@ -23,10 +18,6 @@ export const MobileWebTaskProjectAssignableUsersPayloadSchema =
   MobileWebTaskProjectSlugPayloadSchema.extend({
     seedLogins: z.array(z.string().min(1).max(160)).max(1_000).optional()
   }).strict()
-
-export const MobileWebTaskProjectItemDetailResultSchema = MobileWebTaskGitHubDetailResultSchema
-export const MobileWebTaskProjectLabelsResultSchema = MobileWebTaskGitHubLabelsResultSchema
-export const MobileWebTaskProjectAssignableUsersResultSchema = MobileWebTaskGitHubUsersResultSchema
 
 export const MobileWebTaskProjectIssueTypesResultSchema = z
   .object({

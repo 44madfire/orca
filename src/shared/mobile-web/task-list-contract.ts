@@ -103,10 +103,6 @@ export const MobileWebTaskGitHubListResultSchema = z
 export const MobileWebTaskGitHubCountPayloadSchema = z
   .object({ repoId: RepoIdSchema, query: z.string().max(2_000) })
   .strict()
-export const MobileWebTaskGitHubCountResultSchema = z
-  .object({ count: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) })
-  .strict()
-
 const GitLabWorkItemSchema = z
   .object({
     id: z.string().min(1).max(240),
@@ -242,10 +238,6 @@ export const MobileWebTaskLinearListPayloadSchema = z
   })
   .strict()
   .refine((value) => Boolean(value.query) !== Boolean(value.filter))
-export const MobileWebTaskLinearListResultSchema = z
-  .object({ items: z.array(MobileWebTaskLinearIssueSchema).max(250) })
-  .strict()
-
 export type MobileWebTaskGitHubListPayload = z.infer<typeof MobileWebTaskGitHubListPayloadSchema>
 export type MobileWebTaskGitHubListResult = z.infer<typeof MobileWebTaskGitHubListResultSchema>
 export type MobileWebTaskGitHubCountPayload = z.infer<typeof MobileWebTaskGitHubCountPayloadSchema>
