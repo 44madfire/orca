@@ -21,7 +21,8 @@ cat > "$ORCA_E2E_NESTED_FOCUS_CMD" <<'FOCUS'
 set -euo pipefail
 exec 2>> "$ORCA_NESTED_EVIDENCE/focus.log"
 set -x
-mapfile -t windows < <(xdotool search --name '^gnome-shell$')
+printf 'Display: %s\n' "$DISPLAY" >&2
+mapfile -t windows < <(xwininfo -root -tree | awk '$2 == "\"gnome-shell\":" {print $1}')
 printf 'Compositor candidates: %s\n' "${windows[*]}" >&2
 for candidate in "${windows[@]}"; do xwininfo -id "$candidate" >&2; done
 [[ ${#windows[@]} -eq 1 ]]
