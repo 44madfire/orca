@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { AgentSessionStatusEvent } from '../../../shared/agent-session-wire'
 import { createClaudeJournalTranslator } from '../../claude/claude-structured-journal-translation'
 import { publishCodexTurnLifecycle } from '../../codex/codex-structured-journal-translation-turns'
@@ -60,6 +61,7 @@ function indexed(session: { journal: Awaited<ReturnType<typeof openJournal>> }) 
 
 function feedFor(
   sessions: Map<string, { journal: Awaited<ReturnType<typeof openJournal>> }>,
+  record: Partial<AgentSessionRecord> | null = null,
   onStatusChanged?: StructuredAgentSessionStatusFeedDeps['onStatusChanged']
 ) {
   let now = 1_000
@@ -76,7 +78,7 @@ function feedFor(
         }
       }
     } as unknown as ReadonlyMap<string, ReturnType<typeof indexed>>,
-    getRecord: () => null,
+    getRecord: () => record as AgentSessionRecord | null,
     now: () => (now += 1)
   })
   const events: AgentSessionStatusEvent[] = []
@@ -140,6 +142,43 @@ describe('StructuredAgentSessionStatusFeed', () => {
       session: expect.objectContaining({ sessionId: SESSION, status: 'idle' })
     })
     expect(events).toHaveLength(3)
+  })
+
+  it('carries the record model and the running tool line the sidebar row shows', async () => {
+    const journal = await openJournal()
+    const { feed, events } = feedFor(new Map([[SESSION, { journal }]]), {
+      options: { model: 'gpt-5-codex' },
+      providerHandleChain: []
+    })
+    await journal.appendItem(
+      USER_IDENTITY,
+      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'run the tests' }] },
+      { fence: 1 }
+    )
+    await journal.appendItem(
+      TURN_IDENTITY,
+      { kind: 'status', text: 'Working', turnLifecycle: { turnId: 'turn-1', state: 'running' } },
+      { fence: 1 }
+    )
+    feed.publish(SESSION)
+    expect(events.at(-1)).toEqual({
+      type: 'status',
+      session: expect.objectContaining({ status: 'working', model: 'gpt-5-codex' })
+    })
+
+    await journal.appendItem(
+      { ...USER_IDENTITY, ordinal: 2 },
+      { kind: 'tool-call', name: 'shell', input: { command: 'pnpm test' }, state: 'running' },
+      { fence: 1 }
+    )
+    feed.publish(SESSION)
+
+    // A tool boundary changes nothing else about the session, so only comparing the new
+    // fields keeps it from being deduped away as an unchanged projection.
+    expect(events.at(-1)).toEqual({
+      type: 'status',
+      session: expect.objectContaining({ toolName: 'shell', toolInput: 'pnpm test' })
+    })
   })
 
   it('reports a pending approval as attention', async () => {
@@ -252,7 +291,7 @@ describe('StructuredAgentSessionStatusFeed', () => {
   it('reports each projection change to the host observer, marking re-projections as replay', async () => {
     const journal = await openJournal()
     const seen: { status: string | null; prompt: string; replay: boolean }[] = []
-    const { feed } = feedFor(new Map([[SESSION, { journal }]]), (summary, options) =>
+    const { feed } = feedFor(new Map([[SESSION, { journal }]]), null, (summary, options) =>
       seen.push({ status: summary.status, prompt: summary.latestPrompt, replay: options.replay })
     )
     await journal.appendItem(
@@ -294,7 +333,7 @@ describe('StructuredAgentSessionStatusFeed', () => {
         { fence: 1 }
       )
       const seen: (string | null)[] = []
-      const { feed } = feedFor(new Map([[SESSION, { journal }]]), (summary) =>
+      const { feed } = feedFor(new Map([[SESSION, { journal }]]), null, (summary) =>
         seen.push(summary.status)
       )
       const deferred = createDeferredStructuredAgentSessionEventSink()
@@ -341,17 +380,23 @@ describe('StructuredAgentSessionStatusFeed', () => {
       }
       // This queue is also reached while a previous asynchronous journal write is pending.
       let publications = 0
+      let activityPublications = 0
       deferred.bind({
         journal,
         fence: 1,
-        publish: () => {
-          publications += 1
+        publish: (activity) => {
+          if (activity === undefined) {
+            publications += 1
+          } else {
+            activityPublications += 1
+          }
           feed.publish(SESSION, journal)
         }
       })
       expect(await deferred.drained()).toEqual({ ok: true })
       expect(seen).toEqual(['idle', 'working', 'idle'])
       expect(publications).toBe(2)
+      expect(activityPublications).toBe(agent === 'claude' ? 1 : 0)
       expect(deferred.state()).toMatchObject({ queuedBytes: 0, queuedOperations: 0 })
       deferred.close()
     }
@@ -359,7 +404,7 @@ describe('StructuredAgentSessionStatusFeed', () => {
 
   it('keeps publishing to subscribers when the host observer throws', async () => {
     const journal = await openJournal()
-    const { feed, events } = feedFor(new Map([[SESSION, { journal }]]), () => {
+    const { feed, events } = feedFor(new Map([[SESSION, { journal }]]), null, () => {
       throw new Error('observer exploded')
     })
     await journal.appendItem(
