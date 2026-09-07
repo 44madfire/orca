@@ -41,6 +41,7 @@ import { useNow } from '@/hooks/use-now'
 type PaletteLiveStatus = {
   liveAgentStatusByWorktreeId: ReadonlyMap<string, LiveAgentWorktreeStatus>
   agentStatusPaneIdsByTabId: Record<string, ReadonlySet<string>>
+  stalePaneIdsByTabId: Record<string, ReadonlySet<string>>
   paneSources: TabPaneInputSources
   tabsByWorktree: Record<string, TerminalTab[]>
   browserTabsByWorktree: Record<string, BrowserWorkspace[]>
@@ -98,13 +99,15 @@ export function PaletteLiveStatusProvider({
       agentStatusByPaneKey,
       migrationUnsupportedByPtyId
     )
+    const livePaneIds = buildLiveAgentStatusPaneIdsByTabId(entriesByTabId, now)
     return {
       liveAgentStatusByWorktreeId: getLiveAgentStatusByWorktreeId(
         agentStatusByPaneKey,
         tabsByWorktree,
         now
       ),
-      agentStatusPaneIdsByTabId: buildLiveAgentStatusPaneIdsByTabId(entriesByTabId, now),
+      agentStatusPaneIdsByTabId: livePaneIds.paneIdsByTabId,
+      stalePaneIdsByTabId: livePaneIds.stalePaneIdsByTabId,
       paneSources: {
         entriesByTabId,
         ptyIdsByTabId,
@@ -137,30 +140,46 @@ export function PaletteLiveStatusProvider({
   )
 }
 
+/**
+ * Split each tab's explicit rows into fresh and stale pane ids. Fresh rows suppress every title
+ * heuristic; stale rows suppress `permission` only, because Orca writes its own one-shot
+ * "<Agent> - action required" title and never refreshes it — a stale row that registered nothing
+ * let that string outlive the row and assert a question the agent had stopped asking.
+ */
 function buildLiveAgentStatusPaneIdsByTabId(
   entriesByTabId: ReadonlyMap<string, readonly AgentStatusEntry[]>,
   now: number
-): Record<string, ReadonlySet<string>> {
+): {
+  paneIdsByTabId: Record<string, ReadonlySet<string>>
+  stalePaneIdsByTabId: Record<string, ReadonlySet<string>>
+} {
   const paneIdsByTabId: Record<string, ReadonlySet<string>> = {}
+  const stalePaneIdsByTabId: Record<string, ReadonlySet<string>> = {}
   for (const [tabId, entries] of entriesByTabId) {
     const paneIds = new Set<string>()
+    const stalePaneIds = new Set<string>()
     for (const entry of entries) {
+      const paneId = parsePaneKey(entry.paneKey)?.leafId
+      if (!paneId) {
+        continue
+      }
       if (
         entry.restoredUnconfirmed !== true &&
         !isExplicitAgentStatusFresh(entry, now, AGENT_STATUS_STALE_AFTER_MS)
       ) {
+        stalePaneIds.add(paneId)
         continue
       }
-      const paneId = parsePaneKey(entry.paneKey)?.leafId
-      if (paneId) {
-        paneIds.add(paneId)
-      }
+      paneIds.add(paneId)
     }
     if (paneIds.size > 0) {
       paneIdsByTabId[tabId] = paneIds
     }
+    if (stalePaneIds.size > 0) {
+      stalePaneIdsByTabId[tabId] = stalePaneIds
+    }
   }
-  return paneIdsByTabId
+  return { paneIdsByTabId, stalePaneIdsByTabId }
 }
 
 const EMPTY_LIVE_INPUTS = Object.freeze({
@@ -199,7 +218,8 @@ export function PaletteWorktreeStatusDot({
     live.paneSources.runtimePaneTitlesByTabId,
     {
       liveAgentStatus: live.liveAgentStatusByWorktreeId.get(worktree.id),
-      agentStatusPaneIdsByTabId: live.agentStatusPaneIdsByTabId
+      agentStatusPaneIdsByTabId: live.agentStatusPaneIdsByTabId,
+      stalePaneIdsByTabId: live.stalePaneIdsByTabId
     }
   )
   return (

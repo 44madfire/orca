@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type { AppState } from '@/store/types'
-import type { AgentStatusEntry, AgentStatusState } from '../../../../shared/agent-status-types'
+import {
+  AGENT_STATUS_STALE_AFTER_MS,
+  type AgentStatusEntry,
+  type AgentStatusState
+} from '../../../../shared/agent-status-types'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
 import {
@@ -131,6 +135,30 @@ describe('palette live status', () => {
       )
     })
   }
+
+  // Why: Orca injects its own "<Agent> - action required" OSC title on a blocked/waiting hook and
+  // classifies that title back as evidence. Once the pane's row aged out it stopped registering its
+  // identity, so the self-authored title outranked the pane's own `done` row and the palette dot
+  // claimed a question nobody was asking.
+  it('does not paint a stale self-authored action-required title as a live question', async () => {
+    const staleAt = Date.now() - AGENT_STATUS_STALE_AFTER_MS - 1
+    useAppStore.setState((s) => ({
+      tabsByWorktree: {
+        'wt-a': [{ ...makeTerminalTab('term-a', 'wt-a'), title: 'Codex - action required' }]
+      },
+      agentStatusByPaneKey: {
+        [makePaneKey('term-a', LEAF)]: makeAgentEntry('term-a', 'done', {
+          updatedAt: staleAt,
+          stateStartedAt: staleAt
+        })
+      },
+      agentStatusEpoch: s.agentStatusEpoch + 1
+    }))
+
+    await render()
+
+    expect(dotLabels()).not.toContain('Needs permission')
+  })
 
   it('updates a worktree dot when the agent transitions', async () => {
     setAgentState('working')

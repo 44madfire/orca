@@ -23,6 +23,13 @@ export type WorktreeStatus =
 type WorktreeStatusHeuristicOptions = {
   liveAgentStatus?: LiveAgentWorktreeStatus
   agentStatusPaneIdsByTabId?: Record<string, ReadonlySet<string>>
+  /**
+   * Panes whose explicit row has gone stale. They suppress `permission` titles only: Orca writes
+   * its own "<Agent> - action required" title once per blocked/waiting hook and never refreshes it,
+   * so a stale row leaves that one-shot string asserting a question the agent stopped asking. A
+   * working title keeps its stale-row fallback — a spinner re-renders, so it is live evidence.
+   */
+  stalePaneIdsByTabId?: Record<string, ReadonlySet<string>>
   terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot | undefined>
   terminalLayoutRootsByTabId?: Record<string, TerminalPaneLayoutNode | null | undefined>
 }
@@ -73,7 +80,7 @@ function tabHasStatus(
   status: 'permission' | 'working',
   options: WorktreeStatusHeuristicOptions
 ): boolean {
-  const agentStatusPaneIds = options.agentStatusPaneIdsByTabId?.[tab.id]
+  const agentStatusPaneIds = suppressingPaneIds(tab.id, status, options)
   const paneTitles = runtimePaneTitlesByTabId[tab.id]
   if (paneTitles && Object.keys(paneTitles).length > 0) {
     const tabLayoutRoot =
@@ -110,6 +117,30 @@ function tabHasStatus(
   )
 }
 
+/**
+ * Pane ids whose title must not drive `status` for this tab. Fresh rows suppress every heuristic;
+ * stale rows suppress `permission` only (see `stalePaneIdsByTabId`). Returns the fresh set itself
+ * when there is nothing to add, so the common path allocates nothing.
+ */
+function suppressingPaneIds(
+  tabId: string,
+  status: 'permission' | 'working',
+  options: WorktreeStatusHeuristicOptions
+): ReadonlySet<string> | undefined {
+  const fresh = options.agentStatusPaneIdsByTabId?.[tabId]
+  if (status !== 'permission') {
+    return fresh
+  }
+  const stale = options.stalePaneIdsByTabId?.[tabId]
+  if (!stale || stale.size === 0) {
+    return fresh
+  }
+  if (!fresh || fresh.size === 0) {
+    return stale
+  }
+  return new Set([...fresh, ...stale])
+}
+
 // Why: require agent attribution so a bare never-cleared spinner title can't spin the dot "0 agents" forever with no matching sidebar row.
 function titleStatusIsAgentAttributable(title: string, launchAgent?: TuiAgent | null): boolean {
   if (resolveAgentTypeFromTerminalTitle(title) !== null) {
@@ -139,6 +170,7 @@ export function resolveWorktreeStatus(args: {
   ptyIdsByTabId: Record<string, string[]>
   runtimePaneTitlesByTabId?: Record<string, Record<number, string>>
   agentStatusPaneIdsByTabId?: Record<string, ReadonlySet<string>>
+  stalePaneIdsByTabId?: Record<string, ReadonlySet<string>>
   terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot | undefined>
   terminalLayoutRootsByTabId?: Record<string, TerminalPaneLayoutNode | null | undefined>
   hasPermission: boolean
@@ -155,6 +187,7 @@ export function resolveWorktreeStatus(args: {
     args.runtimePaneTitlesByTabId ?? {},
     {
       agentStatusPaneIdsByTabId: args.agentStatusPaneIdsByTabId,
+      stalePaneIdsByTabId: args.stalePaneIdsByTabId,
       terminalLayoutsByTabId: args.terminalLayoutsByTabId,
       terminalLayoutRootsByTabId: args.terminalLayoutRootsByTabId
     }
