@@ -87,10 +87,18 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     )
   })
 
-  it.each(['claude', 'codex'] as const)(
-    'renames %s on live work without a subscriber, preserving replay, dedupe and retries',
-    async (agent) => {
-      const { deps, setDisplayName } = makeDeps()
+  it.each([
+    ['claude', WORKTREE_ID],
+    ['codex', WORKTREE_ID],
+    ['claude', FOLDER_WORKTREE_ID],
+    ['codex', FOLDER_WORKTREE_ID]
+  ] as const)(
+    'renames %s workspace %s on live work without a subscriber, preserving replay, dedupe and retries',
+    async (agent, workspaceId) => {
+      const { deps, setDisplayName } = makeDeps({
+        getFolderWorkspacePath: () => '/workspace/platform',
+        isPendingFirstAgentMessageRename: () => true
+      })
       const items: AgentJournalRenderItem[] = []
       const journal = {
         snapshot: () => ({ items }),
@@ -105,10 +113,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
       })
       const feed = new StructuredAgentSessionStatusFeed({
         sessions: new Map([
-          [
-            'session',
-            { journal, params: { location: { workspaceId: WORKTREE_ID }, provider: agent } }
-          ]
+          ['session', { journal, params: { location: { workspaceId }, provider: agent } }]
         ]),
         getRecord: () => null,
         now: () => 1,
@@ -149,13 +154,62 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
       feed.publish('session', journal)
       await Promise.all(pending)
       expect(generateBranchNameMock).toHaveBeenCalledTimes(2)
-      expect(setDisplayName).toHaveBeenCalledWith(WORKTREE_ID, 'Fix auth')
-      expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-        ['branch', '-m', 'you/fix-auth'],
-        expect.anything()
-      )
+      expect(setDisplayName).toHaveBeenCalledWith(workspaceId, 'Fix auth')
+      if (workspaceId === FOLDER_WORKTREE_ID) {
+        expect(gitExecFileAsyncMock).not.toHaveBeenCalled()
+      } else {
+        expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
+          ['branch', '-m', 'you/fix-auth'],
+          expect.anything()
+        )
+      }
     }
   )
+
+  it('does not probe git for a folder-project structured session with a synthetic worktree id', async () => {
+    const workspaceId = `${REPO_ID}::/workspace/platform::workspace:123e4567-e89b-12d3-a456-426614174000`
+    const { deps, setDisplayName, setRenameError } = makeDeps({
+      getRepo: () => ({ id: REPO_ID, kind: 'folder', path: '/workspace/platform' }) as Repo
+    })
+    const journal = {
+      isReadOnly: false,
+      snapshot: () => ({
+        items: [
+          { body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'Fix auth' }] } },
+          {
+            body: {
+              kind: 'status',
+              text: 'Working',
+              turnLifecycle: { turnId: 'turn-1', state: 'running' }
+            }
+          }
+        ]
+      })
+    } as unknown as AgentSessionJournal
+    const location = { workspaceId, workspaceKind: 'git-worktree' as const }
+    const pending: Promise<void>[] = []
+    const feed = new StructuredAgentSessionStatusFeed({
+      sessions: new Map([['session', { journal, params: { location, provider: 'codex' } }]]),
+      getRecord: () => null,
+      now: () => 1,
+      onStatusChanged: (summary, options) => {
+        expect(summary.workspaceId).toBe(workspaceId)
+        const work = maybeAutoRenameWorkspaceOnFirstStructuredTurn(summary, options, deps)
+        if (work) {
+          pending.push(work)
+        }
+      }
+    })
+
+    feed.publish('session', journal)
+    await Promise.all(pending)
+
+    expect(gitExecFileAsyncMock).not.toHaveBeenCalled()
+    expect(getSshGitProviderMock).not.toHaveBeenCalled()
+    expect(generateBranchNameMock).not.toHaveBeenCalled()
+    expect(setDisplayName).not.toHaveBeenCalled()
+    expect(setRenameError).toHaveBeenCalledWith(workspaceId, null)
+  })
 
   it('keeps incidental work-item markers from overriding the generated display name', async () => {
     const { deps, onRenamed, setDisplayName } = makeDeps()
