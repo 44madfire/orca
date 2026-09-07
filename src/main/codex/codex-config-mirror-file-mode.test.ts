@@ -2,11 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
+  unlinkSync,
   utimesSync,
   writeFileSync
 } from 'node:fs'
@@ -95,6 +98,29 @@ describe.skipIf(process.platform === 'win32')('runtime config.toml file mode (ST
     // on a rewrite — the user most needing this has a file that never changes.
     syncSystemConfigIntoManagedCodexHome()
 
+    expect(modeOf(runtimeConfigPath())).toBe('600')
+  })
+
+  // A dangling runtime symlink used to throw out of the mode repair, land in this lane's catch,
+  // and return before any mirror ran — permanently, on every later pass, with nothing that
+  // self-corrects. Covering the repair helper alone would not have caught it: the helper is
+  // shared with the legacy lane, which does not regress, and the damage is what the throw does
+  // to THIS lane's control flow.
+  it('still mirrors when the runtime config is a dangling symlink', () => {
+    syncSystemConfigIntoManagedCodexHome()
+    unlinkSync(runtimeConfigPath())
+    symlinkSync(join(userDataDir, 'target-that-does-not-exist.toml'), runtimeConfigPath())
+    expect(lstatSync(runtimeConfigPath()).isSymbolicLink()).toBe(true)
+    expect(existsSync(runtimeConfigPath())).toBe(false)
+
+    writeFileSync(systemConfigPath(), `${CONFIG_WITH_SECRET}new_setting = true\n`, 'utf-8')
+    syncSystemConfigIntoManagedCodexHome()
+
+    // The dangling link is replaced with a real file carrying the new setting, which is what the
+    // lane did before this PR. Asserting the content, not just the absence of a throw: a mirror
+    // that returns quietly without writing is the failure being guarded against.
+    expect(lstatSync(runtimeConfigPath()).isSymbolicLink()).toBe(false)
+    expect(readFileSync(runtimeConfigPath(), 'utf-8')).toContain('new_setting = true')
     expect(modeOf(runtimeConfigPath())).toBe('600')
   })
 
