@@ -88,21 +88,23 @@ index 497afcf535f3eaca00889525a77e15eb633ccd96..96d499b34605f860608382114c3fbdc0
  
  export interface IBrowser {
 diff --git a/src/browser/input/CompositionHelper.ts b/src/browser/input/CompositionHelper.ts
-index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe0c516b06 100644
+index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..fe3c4273ff1f06ec906eb9e64a249e90af58f612 100644
 --- a/src/browser/input/CompositionHelper.ts
 +++ b/src/browser/input/CompositionHelper.ts
-@@ -3,8 +3,9 @@
+@@ -3,8 +3,10 @@
   * @license MIT
   */
  
 -import { IRenderService } from '../services/Services';
+-import { IBufferService, ICoreService, IOptionsService } from '../../common/services/Services';
 +import { IRenderService, IThemeService } from '../services/Services';
- import { IBufferService, ICoreService, IOptionsService } from '../../common/services/Services';
++import { IBufferService, ICoreService, IOptionsService, IUnicodeService } from '../../common/services/Services';
++import { UnicodeService } from '../../common/services/UnicodeService';
 +import { color } from '../../common/Color';
  import { C0 } from '../../common/data/EscapeSequences';
  
  interface IPosition {
-@@ -12,6 +13,27 @@ interface IPosition {
+@@ -12,6 +14,27 @@ interface IPosition {
    end: number;
  }
  
@@ -130,7 +132,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
  /**
   * Encapsulates the logic for handling compositionstart, compositionupdate and compositionend
   * events, displaying the in-progress composition to the UI and forwarding the final composition
-@@ -24,6 +46,15 @@ export class CompositionHelper {
+@@ -24,6 +47,15 @@ export class CompositionHelper {
     */
    private _isComposing: boolean;
    public get isComposing(): boolean { return this._isComposing; }
@@ -146,7 +148,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
  
    /**
     * The position within the input textarea's value of the current composition.
-@@ -36,52 +67,144 @@ export class CompositionHelper {
+@@ -36,52 +68,145 @@ export class CompositionHelper {
     */
    private _compositionSuffix: string;
  
@@ -237,7 +239,8 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
      @ICoreService private readonly _coreService: ICoreService,
 -    @IRenderService private readonly _renderService: IRenderService
 +    @IRenderService private readonly _renderService: IRenderService,
-+    @IThemeService private readonly _themeService?: IThemeService
++    @IThemeService private readonly _themeService?: IThemeService,
++    @IUnicodeService private readonly _unicodeService?: IUnicodeService
    ) {
      this._isComposing = false;
 -    this._isSendingComposition = false;
@@ -301,7 +304,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
    }
  
    /**
-@@ -89,22 +212,93 @@ export class CompositionHelper {
+@@ -89,22 +214,93 @@ export class CompositionHelper {
     * @param ev The event.
     */
    public compositionupdate(ev: Pick<CompositionEvent, 'data'>): void {
@@ -404,7 +407,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
    }
  
    /**
-@@ -113,7 +307,19 @@ export class CompositionHelper {
+@@ -113,7 +309,19 @@ export class CompositionHelper {
     * @returns Whether the Terminal should continue processing the keydown event.
     */
    public keydown(ev: KeyboardEvent): boolean {
@@ -425,7 +428,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
        if (ev.keyCode === 20 || ev.keyCode === 229) {
          // 20 is CapsLock, 229 is Enter
          // Continue composing if the keyCode is the "composition character"
-@@ -128,6 +334,10 @@ export class CompositionHelper {
+@@ -128,6 +336,10 @@ export class CompositionHelper {
        this._finalizeComposition(false);
      }
  
@@ -436,7 +439,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
      if (ev.keyCode === 229) {
        // If the "composition character" is used but gets to this point it means a non-composition
        // character (eg. numbers and punctuation) was pressed when the IME was active.
-@@ -138,6 +348,74 @@ export class CompositionHelper {
+@@ -138,6 +350,74 @@ export class CompositionHelper {
      return true;
    }
  
@@ -511,7 +514,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
    /**
     * Finalizes the composition, resuming regular input actions. This is called when a composition
     * is ending.
-@@ -146,23 +424,52 @@ export class CompositionHelper {
+@@ -146,23 +426,52 @@ export class CompositionHelper {
     *   compositionend event is triggered, such as enter, so that the composition is sent before
     *   the command is executed.
     */
@@ -575,7 +578,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
  
        // Since composition* events happen before the changes take place in the textarea on most
        // browsers, use a setTimeout with 0ms time to allow the native compositionend event to
-@@ -172,37 +479,315 @@ export class CompositionHelper {
+@@ -172,35 +481,313 @@ export class CompositionHelper {
        // - The last compositionupdate event's data property does not always accurately describe
        //   the character, a counter example being Korean where an ending consonsant can move to
        //   the following character if the following input is a vowel.
@@ -615,9 +618,9 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
 +          this._sendPendingComposition(pending, true);
 +        }
 +      });
-     }
-   }
- 
++    }
++  }
++
 +  private _sendPendingComposition(
 +    pending: IPendingComposition,
 +    includeFollowingInput: boolean = false
@@ -625,7 +628,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
 +    this._cancelPendingFinalizer(pending);
 +    if (this._pendingComposition === pending) {
 +      this._pendingComposition = undefined;
-+    }
+     }
 +    const textareaInput = this._getPendingTextareaInput(pending, includeFollowingInput);
 +    const observedInput = this._removeAlreadySentData(
 +      pending.inputData || pending.keypressData,
@@ -913,12 +916,10 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
 +    }
 +    clearTimeout(timer);
 +    this._compositionTimers.delete(timer);
-+  }
-+
+   }
+ 
    /**
-    * Apply any changes made to the textarea after the current event chain is allowed to complete.
-    * This should be called when not currently composing but a keydown event with the "composition
-@@ -222,6 +807,9 @@ export class CompositionHelper {
+@@ -222,6 +809,9 @@ export class CompositionHelper {
  
          const diff = newValue.replace(oldValue, '');
  
@@ -928,7 +929,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
          this._dataAlreadySent = diff;
  
          if (newValue.length > oldValue.length) {
-@@ -236,6 +824,101 @@ export class CompositionHelper {
+@@ -236,6 +826,137 @@ export class CompositionHelper {
      }, 0);
    }
  
@@ -943,8 +944,6 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
 +      this._resetCompositionView();
 +      return;
 +    }
-+    // Keep DOM order LTR so the insertion caret follows the preedit.
-+    const preeditText = `‎${data}‎`;
 +    this._compositionViewData = data;
 +    const doc = this._compositionView.ownerDocument;
 +    const preedit = doc.createElement('span');
@@ -952,7 +951,8 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
 +    // Underlined so the composing text stays distinguishable from the tail it pushed right.
 +    preedit.style.flexShrink = '0';
 +    preedit.style.textDecoration = 'underline';
-+    preedit.textContent = preeditText;
++    preedit.style.whiteSpace = 'pre';
++    this._renderPreeditCells(preedit, data);
 +    const caret = doc.createElement('span');
 +    caret.className = 'xterm-composition-caret';
 +    caret.setAttribute('aria-hidden', 'true');
@@ -972,6 +972,43 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
 +    this._compositionCaret = caret;
 +    this._compositionRemainder = remainder;
 +    this._styleCompositionCaret();
++  }
++
++  private _renderPreeditCells(preedit: HTMLElement, data: string): void {
++    if (!this._unicodeService) {
++      preedit.textContent = `‎${data}‎`;
++      return;
++    }
++    const doc = preedit.ownerDocument;
++    preedit.style.display = 'inline-block';
++    preedit.style.position = 'relative';
++    // Keep DOM order LTR so the insertion caret follows the preedit.
++    preedit.appendChild(doc.createTextNode('‎'));
++    let precedingInfo = 0;
++    let columns = 0;
++    let cell: HTMLElement | undefined;
++    // Use the buffer's joining rules so combining marks stay with their base glyph.
++    for (const char of data) {
++      const info = this._unicodeService.charProperties(char.codePointAt(0)!, precedingInfo);
++      if (cell && UnicodeService.extractShouldJoin(info)) {
++        cell.textContent += char;
++        columns -= UnicodeService.extractWidth(precedingInfo);
++      } else {
++        cell = doc.createElement('span');
++        cell.style.position = 'absolute';
++        cell.style.top = '0';
++        cell.style.left = `calc(var(--xterm-composition-cell-width) * ${columns})`;
++        cell.style.textDecoration = 'inherit';
++        cell.textContent = char;
++        preedit.appendChild(cell);
++      }
++      // Fix the advance, not the glyph size, to the active renderer's device-pixel grid.
++      cell.style.width = `calc(var(--xterm-composition-cell-width) * ${UnicodeService.extractWidth(info)})`;
++      columns += UnicodeService.extractWidth(info);
++      precedingInfo = info;
++    }
++    preedit.style.width = `calc(var(--xterm-composition-cell-width) * ${columns})`;
++    preedit.appendChild(doc.createTextNode('‎'));
 +  }
 +
 +  /** The committed row text from the cursor rightwards — what a mid-line preedit would cover. */
@@ -1030,7 +1067,7 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
    /**
     * Positions the composition view on top of the cursor and the textarea just below it (so the
     * IME helper dialog is positioned correctly).
-@@ -243,10 +926,23 @@ export class CompositionHelper {
+@@ -243,10 +964,23 @@ export class CompositionHelper {
     *   necessary as the IME events across browsers are not consistently triggered.
     */
    public updateCompositionElements(dontRecurse?: boolean): void {
@@ -1055,7 +1092,15 @@ index c9ec396ab66cb966d49aa63bed09cdf9cd6c4246..d4d5106d8dd723eceed87310c193ccfe
      if (this._bufferService.buffer.isCursorInViewport) {
        const cursorX = Math.min(this._bufferService.buffer.x, this._bufferService.cols - 1);
  
-@@ -265,20 +961,38 @@ export class CompositionHelper {
+@@ -254,6 +988,7 @@ export class CompositionHelper {
+       const cursorTop = this._bufferService.buffer.y * this._renderService.dimensions.css.cell.height;
+       const cursorLeft = cursorX * this._renderService.dimensions.css.cell.width;
+ 
++      this._compositionView.style.setProperty('--xterm-composition-cell-width', this._renderService.dimensions.css.cell.width + 'px');
+       this._compositionView.style.left = cursorLeft + 'px';
+       this._compositionView.style.top = cursorTop + 'px';
+       this._compositionView.style.height = cellHeight + 'px';
+@@ -265,20 +1000,38 @@ export class CompositionHelper {
        const maxWidth = this._bufferService.cols * this._renderService.dimensions.css.cell.width - cursorLeft;
        this._compositionView.style.maxWidth = maxWidth + 'px';
        this._compositionView.style.overflow = 'hidden';

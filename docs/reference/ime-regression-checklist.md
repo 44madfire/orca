@@ -12,6 +12,20 @@ one machine.
 | [#16950](https://github.com/stablyai/orca/issues/16950) typing diagnostic records no CJK samples                              | The probe observes echoing keydowns but not reconciled composition commits, then guesses which queued input owns opaque TUI output.                                                        | A reconciled composition is observed even when `compositionend.data` is empty; only an isolated input enters exact percentiles, while overlap or a dropped-input gap produces one aggregate ambiguous burst.                                                                                                                                                    | Recorded Linux IBus empty-data commit, isolated direct and IME samples, mixed-source ambiguity, timeout/cap gaps, UTF-8 output bytes, and stop/drain cleanup are covered.                                                                                                                                    |
 | [#17104](https://github.com/stablyai/orca/issues/17104) Korean preedit repeats the Codex placeholder                          | Generic xterm row-tail reproduction exposed an application-semantic Codex or Claude composer placeholder that presentation style cannot identify safely.                                   | Xterm always preserves generic covered row text. Orca's existing structural composer classifier masks only a verified placeholder during the exact active composition session; repaint reclassification runs only while composing, and end, blur, or disposal clears ownership, class, and listeners. Arbitrary dim output and shell lookalikes remain visible. | Codex prompt/footer and Claude prompt/frame classification, arbitrary all-dim and shell-lookalike negatives, repaint entry and exit, end/blur/disposal cleanup, and rendered Electron proof at cursor column 2 preserving generic row text are covered.                                                      |
 
+## Preedit cell advances (#19315)
+
+The preedit uses the active xterm Unicode provider's cell widths and joining
+rules, and the active renderer's CSS cell width. Font advances must not accumulate
+drift against the committed grid. Keep glyphs unscaled, combining marks attached,
+spaces intact, the underline visible, and the caret and candidate textarea at the
+end of the preedit. Renderer metric changes must update an open composition.
+
+`terminal-ime-xterm-preedit-cell-grid.test.ts` compares preedit cells with committed
+buffer cells. `terminal-ime-preedit-cell-grid.spec.ts` checks rendered glyph origins,
+caret/textarea geometry, and underlines at DPR 1, 1.25, and 2, with WebGL on/off,
+odd/even font sizes, letter spacing, and mixed Latin/CJK text. These checks use
+Chromium composition through CDP; they do not replace native OS IME evidence.
+
 ## Bounded-state and ownership contracts
 
 Every transient collection and ownership tracker must have an explicit lifetime and bound:
