@@ -198,6 +198,9 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
         : event.type === 'message'
           ? (session?.backgroundTasks.observe(event.message, event.startsTurn === true) ?? false)
           : false
+    if (event.type === 'message' && session?.commands.observe(event.message)) {
+      session.events?.publish()
+    }
     observeClaudeCompaction(this.compactions, event, session?.translator)
     this.deps.onEvent?.(event)
     if (backgroundTasksChanged) {
@@ -273,6 +276,8 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     const session = this.sessions.get(sessionId)
     return session ? backgroundTaskState(session) : undefined
   }
+  readCommands: NonNullable<StructuredAgentSessionAdapter['readCommands']> = (sessionId) =>
+    this.sessions.get(sessionId)?.commands.commands
   answerPrompt: StructuredAgentSessionAdapter['answerPrompt'] = (input) =>
     answerClaudePrompt(this.session(input.sessionId), input)
   setOption: StructuredAgentSessionAdapter['setOption'] = (input) =>

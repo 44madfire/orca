@@ -306,6 +306,7 @@ export function useStructuredAgentSession(args: {
       ),
     optionSnapshot,
     optionSurface,
+    sessionCommands: state.commands ?? undefined,
     setStructuredOption
   }
 }

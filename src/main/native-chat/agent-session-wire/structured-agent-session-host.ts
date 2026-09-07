@@ -70,6 +70,7 @@ export class StructuredAgentSessionHost {
     onStatusChanged: (summary, options) => this.deps.onSessionStatusChanged?.(summary, options)
   })
   private readonly subscribers = new AgentSessionSubscribers({
+    readCommands: (sessionId) => this.deps.adapter.readCommands?.(sessionId),
     onJournalPublished: (sessionId, journal) => this.statusFeed.publish(sessionId, journal)
   })
   private readonly tasks = new StructuredAgentSessionTaskQueue()
@@ -309,6 +310,10 @@ export class StructuredAgentSessionHost {
   conversationCommand = (...args: Parameters<StructuredConversationCommandController['run']>) =>
     this.conversationCommands.run(...args)
   conversationReplacements = () => this.conversationCommands.replacements()
+  /** Undefined means unavailable; an empty array is an authoritative catalog. */
+  readCommands = (sessionId: string): SessionWire.AgentSessionCommandsResult => ({
+    commands: this.deps.adapter.readCommands?.(sessionId)
+  })
 
   async handoffStatus(sessionId: string): Promise<SessionWire.AgentSessionHandoffStatus> {
     this.requireSession(sessionId)
@@ -317,9 +322,8 @@ export class StructuredAgentSessionHost {
     )
   }
 
-  history = (
-    request: SessionWire.AgentSessionHistoryRequest
-  ): SessionWire.AgentSessionHistoryResult => this.backgroundTasks.history(request)
+  history: StructuredAgentSessionBackgroundTaskChannel['history'] = (request) =>
+    this.backgroundTasks.history(request)
 
   /** The fully reduced timeline, for readers that cannot tolerate a page's ambiguity — a settled
    *  turn is tombstoned, so an item's ABSENCE from a bounded page proves nothing. */
@@ -332,16 +336,13 @@ export class StructuredAgentSessionHost {
   settleLateDispatch = (input: Parameters<typeof settleStructuredAgentSessionLateDispatch>[1]) =>
     settleStructuredAgentSessionLateDispatch(this.mutationContext(), input)
 
-  publishBackgroundTaskState: StructuredAgentSessionBackgroundTaskChannel['publish'] = (
-    sessionId,
-    state
-  ) => this.backgroundTasks.publish(sessionId, state)
+  publishBackgroundTaskState: StructuredAgentSessionBackgroundTaskChannel['publish'] = (...args) =>
+    this.backgroundTasks.publish(...args)
   unsubscribe = (sessionId: string, id: string): void => this.subscribers.close(sessionId, id)
 
   /** Every session's projected status for session lists; unlike `subscribe`, retains nothing. */
-  subscribeStatus = (
-    subscriber: Parameters<StructuredAgentSessionStatusFeed['subscribe']>[0]
-  ): (() => void) => this.statusFeed.subscribe(subscriber)
+  subscribeStatus: StructuredAgentSessionStatusFeed['subscribe'] = (subscriber) =>
+    this.statusFeed.subscribe(subscriber)
 
   private requireSession(sessionId: string): StructuredAgentSessionHostSession {
     const session = this.sessions.get(sessionId)
