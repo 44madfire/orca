@@ -116,18 +116,27 @@ function configureHangulEngine() {
 }
 
 async function waitForHangulEngine(ibusProcess) {
+  let lastError = ''
   const deadline = Date.now() + 15_000
   while (Date.now() < deadline) {
     if (ibusProcess.exitCode !== null) {
       throw new Error(`ibus-daemon exited early with code ${ibusProcess.exitCode}`)
     }
-    const result = spawnSync('ibus', ['engine', 'hangul'], { stdio: 'pipe' })
+    if (
+      nestedWayland &&
+      !existsSync(path.join(process.env.XDG_RUNTIME_DIR, process.env.WAYLAND_DISPLAY))
+    ) {
+      await delay(100)
+      continue
+    }
+    const result = spawnSync('ibus', ['engine', 'hangul'], { encoding: 'utf8' })
+    lastError = result.stderr?.trim() || String(result.error ?? result.status)
     if (result.status === 0) {
       return
     }
     await delay(100)
   }
-  throw new Error('Timed out while selecting the IBus Hangul engine')
+  throw new Error(`Timed out while selecting the IBus Hangul engine: ${lastError}`)
 }
 
 async function runInsideSession(evidenceDir) {
