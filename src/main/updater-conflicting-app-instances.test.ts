@@ -1,0 +1,113 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  describeConflictingAppInstances,
+  findConflictingAppInstancePids,
+  parseRunningApplicationPids
+} from './updater-conflicting-app-instances'
+
+const APP_EXECUTABLE = '/Applications/Orca.app/Contents/MacOS/Orca'
+
+function darwinDeps(overrides: Parameters<typeof findConflictingAppInstancePids>[0] = {}) {
+  return {
+    platform: 'darwin' as NodeJS.Platform,
+    executablePath: APP_EXECUTABLE,
+    currentPid: 100,
+    ...overrides
+  }
+}
+
+describe('parseRunningApplicationPids', () => {
+  it('keeps pids and drops the querying process', () => {
+    expect(parseRunningApplicationPids('270\n100\n811\n', 100)).toEqual([270, 811])
+  })
+
+  it('ignores blank and non-numeric lines', () => {
+    expect(parseRunningApplicationPids('\n270\nnot-a-pid\n  \n', 100)).toEqual([270])
+  })
+})
+
+describe('findConflictingAppInstancePids', () => {
+  it('reports other instances of this same executable', async () => {
+    const read = vi.fn().mockResolvedValue('270\n811\n')
+
+    expect(
+      await findConflictingAppInstancePids(darwinDeps({ readRunningApplicationPids: read }))
+    ).toEqual([270, 811])
+    expect(read).toHaveBeenCalledWith(APP_EXECUTABLE, 100)
+  })
+
+  it('reports nothing when this is the only instance', async () => {
+    const read = vi.fn().mockResolvedValue('')
+
+    expect(
+      await findConflictingAppInstancePids(darwinDeps({ readRunningApplicationPids: read }))
+    ).toEqual([])
+  })
+
+  it('fails open when the query throws', async () => {
+    const read = vi.fn().mockRejectedValue(new Error('osascript unavailable'))
+
+    expect(
+      await findConflictingAppInstancePids(darwinDeps({ readRunningApplicationPids: read }))
+    ).toEqual([])
+  })
+
+  it('does not query off darwin, where the installers manage running instances', async () => {
+    const read = vi.fn().mockResolvedValue('270\n')
+
+    for (const platform of ['win32', 'linux'] as const) {
+      expect(
+        await findConflictingAppInstancePids(
+          darwinDeps({ platform, readRunningApplicationPids: read })
+        )
+      ).toEqual([])
+    }
+    expect(read).not.toHaveBeenCalled()
+  })
+})
+
+describe('describeConflictingAppInstances', () => {
+  it('names a single blocking pid', () => {
+    expect(describeConflictingAppInstances([270])).toBe(
+      'Another copy of Orca is running (PID 270). macOS cannot replace the app while they are open — quit them, then try again.'
+    )
+  })
+
+  it('caps how many pids it lists', () => {
+    expect(describeConflictingAppInstances([1, 2, 3, 4, 5, 6])).toContain(
+      '6 other copies of Orca are running (PIDs 1, 2, 3, 4, 5, …)'
+    )
+  })
+})
+
+// Why this is a source assertion and not a behavioural one: the behaviour under
+// test lives inside the AppKit query, so any test that injects a pid reader
+// bypasses exactly the logic that must not regress.
+describe('conflicting-instance detection strategy', () => {
+  const source = readFileSync(
+    path.join(import.meta.dirname, 'updater-conflicting-app-instances.ts'),
+    'utf8'
+  )
+
+  it('identifies blockers by bundle identity, so Orca CLI processes are not counted', () => {
+    // The Orca CLI runs from the SAME bundle executable under
+    // ELECTRON_RUN_AS_NODE, so `ps`-style matching on the executable path
+    // reports every CLI invocation as a blocking app instance and refuses the
+    // update outright on any machine that uses the CLI. AppKit gives those
+    // processes no bundle identity and Squirrel does not wait for them, so the
+    // non-null bundleIdentifier requirement is what makes this set match
+    // Squirrel's. Measured on a live machine: three processes shared the bundle
+    // executable path (the app plus two `ELECTRON_RUN_AS_NODE` CLI processes)
+    // and this query returned only the app.
+    expect(source).toContain('NSWorkspace')
+    expect(source).toContain('bundleIdentifier')
+    expect(source).toMatch(/if\s*\(\s*\n?\s*executableUrl\s*&&\s*\n?\s*bundleIdentifier/)
+  })
+
+  it('never enumerates blockers from the process table', () => {
+    expect(source).not.toMatch(/['"`]\/bin\/ps['"`]/)
+    expect(source).not.toMatch(/\bpgrep\b/)
+  })
+})
