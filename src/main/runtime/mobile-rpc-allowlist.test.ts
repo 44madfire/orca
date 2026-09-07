@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ALL_RPC_METHODS } from './rpc/methods'
+import { isMobileWebHostRpcMethod } from './rpc/methods/mobile-web-host-rpc-allowlist'
 
 const MOBILE_DYNAMIC_RPC_METHODS = [
   // Why: computed sendRequest method names do not appear as literals in the
@@ -147,8 +148,11 @@ describe('mobile RPC allowlist', () => {
   it('allows every RPC method used by the mobile app', () => {
     // Why: mobile-scoped runtime tokens are checked before dispatch. A mobile
     // feature can compile and still fail at runtime if its method is missing here.
+    // The socket gate admits a method from either set; the hosted page shares the mobile tree.
     const allowed = mobileRpcAllowlist()
-    const missing = mobileRpcMethods().filter((method) => !allowed.has(method))
+    const missing = mobileRpcMethods().filter(
+      (method) => !allowed.has(method) && !isMobileWebHostRpcMethod(method)
+    )
 
     expect(missing).toEqual([])
   })
