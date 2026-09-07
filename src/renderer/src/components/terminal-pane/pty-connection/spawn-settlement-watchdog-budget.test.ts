@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { LOCAL_PTY_STARTUP_FAIL_OPEN_TIMEOUT_MS } from '../../../../../main/startup/first-window-startup-services'
 import {
+  CONNECTION_ATTEMPT_WAIT_MS,
+  REQUEST_TIMEOUT_MS
+} from '../../../../../main/daemon/rpc-timeouts'
+import {
   REMOTE_RUNTIME_SPAWN_SETTLEMENT_WATCHDOG_MS,
   SPAWN_SETTLEMENT_WATCHDOG_MS
 } from './pty-connect-limits'
@@ -13,12 +17,8 @@ import { REMOTE_RUNTIME_AUTO_RECOVERY_TIMEOUT_MS } from '../remote-runtime-pty-r
 describe('spawn settlement watchdog budget', () => {
   // Sequential, not overlapping: pty:spawn awaits the startup gate, and only then
   // does the daemon client spend its connection-attempt wait plus one request timeout.
-  const DAEMON_CONNECTION_ATTEMPT_WAIT_MS = 5_000 * 4
-  const DAEMON_REQUEST_TIMEOUT_MS = 30_000
   const worstLegitimateLocalSettleMs =
-    LOCAL_PTY_STARTUP_FAIL_OPEN_TIMEOUT_MS +
-    DAEMON_CONNECTION_ATTEMPT_WAIT_MS +
-    DAEMON_REQUEST_TIMEOUT_MS
+    LOCAL_PTY_STARTUP_FAIL_OPEN_TIMEOUT_MS + CONNECTION_ATTEMPT_WAIT_MS + REQUEST_TIMEOUT_MS
 
   it('outlasts the slowest settle a local cold start can legitimately take', () => {
     expect(SPAWN_SETTLEMENT_WATCHDOG_MS).toBeGreaterThan(worstLegitimateLocalSettleMs)
@@ -26,7 +26,7 @@ describe('spawn settlement watchdog budget', () => {
 
   it('keeps real headroom over that worst case rather than racing it', () => {
     expect(SPAWN_SETTLEMENT_WATCHDOG_MS - worstLegitimateLocalSettleMs).toBeGreaterThanOrEqual(
-      DAEMON_REQUEST_TIMEOUT_MS
+      REQUEST_TIMEOUT_MS
     )
   })
 
