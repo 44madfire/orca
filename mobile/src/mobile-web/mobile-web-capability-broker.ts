@@ -245,8 +245,6 @@ export class MobileWebCapabilityBroker {
       commitMessageGeneration: this.commitMessageGeneration,
       nativeChatAuthority: this.authorities.nativeChat,
       terminalArtifactAuthority: this.authorities.terminalArtifact,
-      taskTargetAuthority: this.authorities.taskTarget,
-      taskProjectTable: this.authorities.taskProjectTable,
       workspaceAuthority: this.authorities.workspace,
       workspaceSnapshots: this.authorities.workspaceSnapshots,
       navigationAuthority: this.options.navigationAuthority

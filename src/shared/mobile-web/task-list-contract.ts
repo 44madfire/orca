@@ -59,8 +59,7 @@ const GitHubWorkItemSchema = z
       .strict()
       .optional(),
     mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']).optional(),
-    mergeStateStatus: z.string().max(80).nullable().optional(),
-    targetId: z.string().min(1).max(128).optional()
+    mergeStateStatus: z.string().max(80).nullable().optional()
   })
   .strip()
 
@@ -100,10 +99,6 @@ export const MobileWebTaskGitHubListResultSchema = z
 export const MobileWebTaskGitHubCountPayloadSchema = z
   .object({ repoId: RepoIdSchema, query: z.string().max(2_000) })
   .strict()
-export const MobileWebTaskGitHubCountResultSchema = z
-  .object({ count: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) })
-  .strict()
-
 const GitLabWorkItemSchema = z
   .object({
     id: z.string().min(1).max(240),
@@ -117,8 +112,7 @@ const GitLabWorkItemSchema = z
     author: z.string().max(160).nullable(),
     branchName: z.string().max(512).optional(),
     baseRefName: z.string().max(512).optional(),
-    isCrossRepository: z.boolean().optional(),
-    targetId: z.string().min(1).max(128).optional()
+    isCrossRepository: z.boolean().optional()
   })
   .strip()
 
@@ -171,7 +165,6 @@ export const MobileWebTaskGitLabTodosResultSchema = z
 export const MobileWebTaskLinearIssueSchema = z
   .object({
     id: z.string().min(1).max(160),
-    targetId: z.string().min(1).max(128).optional(),
     workspaceId: z.string().min(1).max(160).optional(),
     workspaceName: z.string().max(240).optional(),
     identifier: z.string().min(1).max(160),
@@ -206,7 +199,6 @@ export const MobileWebTaskLinearIssueSchema = z
         z
           .object({
             id: z.string().min(1).max(160),
-            targetId: z.string().min(1).max(128).optional(),
             identifier: z.string().max(160),
             title: z.string().max(2_000),
             url: UrlSchema
@@ -239,10 +231,6 @@ export const MobileWebTaskLinearListPayloadSchema = z
   })
   .strict()
   .refine((value) => Boolean(value.query) !== Boolean(value.filter))
-export const MobileWebTaskLinearListResultSchema = z
-  .object({ items: z.array(MobileWebTaskLinearIssueSchema).max(250) })
-  .strict()
-
 export type MobileWebTaskGitHubListPayload = z.infer<typeof MobileWebTaskGitHubListPayloadSchema>
 export type MobileWebTaskGitHubListResult = z.infer<typeof MobileWebTaskGitHubListResultSchema>
 export type MobileWebTaskGitHubCountPayload = z.infer<typeof MobileWebTaskGitHubCountPayloadSchema>

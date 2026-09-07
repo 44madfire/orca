@@ -33,11 +33,6 @@ const SATURATION_SLOTS: Slot[] = [
   { capability: 'settings', operation: 'update', payload: {} },
   { capability: 'account', operation: 'snapshot', payload: {} },
   { capability: 'account', operation: 'resetCreditCapability', payload: {} },
-  { capability: 'task', operation: 'bootstrap', payload: {} },
-  { capability: 'task', operation: 'repositories', payload: {} },
-  { capability: 'task', operation: 'linearContext', payload: {} },
-  { capability: 'task', operation: 'listLinearTeams', payload: {} },
-  { capability: 'task', operation: 'selectLinearWorkspace', payload: { workspaceId: WORKSPACE } },
   {
     capability: 'file',
     operation: 'markdownDraftRead',

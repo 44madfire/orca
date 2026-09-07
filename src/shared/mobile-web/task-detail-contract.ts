@@ -68,12 +68,10 @@ export const MobileWebTaskGitHubDetailCheckSchema = z
   })
   .strip()
 
-export const MobileWebTaskGitHubLabelsPayloadSchema = z.object({ repoId: RepoIdSchema }).strict()
 export const MobileWebTaskGitHubLabelsResultSchema = z
   .object({ labels: z.array(z.string().max(240)).max(1_000) })
   .strict()
 
-export const MobileWebTaskGitHubUsersPayloadSchema = z.object({ repoId: RepoIdSchema }).strict()
 export const MobileWebTaskGitHubUsersResultSchema = z
   .object({ users: z.array(MobileWebTaskGitHubUserSchema).max(1_000) })
   .strict()
@@ -112,9 +110,6 @@ export const MobileWebTaskGitHubDetailResultSchema = z
   })
   .strict()
 
-export const MobileWebTaskGitLabDetailPayloadSchema = z
-  .object({ targetId: z.string().min(1).max(128) })
-  .strict()
 export const MobileWebTaskGitLabDetailResultSchema = z
   .object({
     body: BoundedBodySchema,
@@ -150,9 +145,6 @@ export const MobileWebTaskGitLabDetailResultSchema = z
   })
   .strict()
 
-export const MobileWebTaskLinearDetailPayloadSchema = z
-  .object({ targetId: z.string().min(1).max(128) })
-  .strict()
 export const MobileWebTaskLinearDetailResultSchema = z
   .object({
     issue: MobileWebTaskLinearIssueSchema,
@@ -167,7 +159,4 @@ export type MobileWebTaskGitHubDetailPayload = z.infer<
 >
 export type MobileWebTaskGitHubDetailResult = z.infer<typeof MobileWebTaskGitHubDetailResultSchema>
 export type MobileWebTaskGitLabDetailResult = z.infer<typeof MobileWebTaskGitLabDetailResultSchema>
-export type MobileWebTaskLinearDetailPayload = z.infer<
-  typeof MobileWebTaskLinearDetailPayloadSchema
->
 export type MobileWebTaskLinearDetailResult = z.infer<typeof MobileWebTaskLinearDetailResultSchema>

@@ -12,6 +12,7 @@ import { MOBILE_WEB_SOURCE_CONTROL_REVIEW_LINK_METHODS } from './mobile-web-sour
 import { MOBILE_WEB_SOURCE_CONTROL_REVIEW_DIFF_METHODS } from './mobile-web-source-control-review-diff'
 import { MOBILE_WEB_SOURCE_CONTROL_REVIEW_TERMINAL_METHODS } from './mobile-web-source-control-review-terminal-send'
 import { MOBILE_WEB_REVIEW_METHODS } from './mobile-web-review-methods'
+import { MOBILE_WEB_TASK_PROJECT_TABLE_METHOD } from './mobile-web-task-project-table'
 import { MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS } from './mobile-web-session-terminal-creation'
 import { MOBILE_WEB_NATIVE_CHAT_FILE_METHODS } from './mobile-web-native-chat-files'
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
@@ -135,6 +136,7 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...MOBILE_WEB_SOURCE_CONTROL_REVIEW_DIFF_METHODS,
   ...MOBILE_WEB_SOURCE_CONTROL_REVIEW_TERMINAL_METHODS,
   ...MOBILE_WEB_REVIEW_METHODS,
+  MOBILE_WEB_TASK_PROJECT_TABLE_METHOD,
   MOBILE_WEB_FILE_WATCH_METHOD,
   ...MOBILE_WEB_TERMINAL_ACTION_METHODS,
   ...MOBILE_WEB_NATIVE_CHAT_METHODS,

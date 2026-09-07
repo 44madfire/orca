@@ -25,10 +25,6 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-host-subscriptions.ts': 1,
   'mobile-web-markdown-operations.ts': 2,
   'mobile-web-native-chat-binding.ts': 2,
-  'mobile-web-task-item-file-operations.ts': 1,
-  'mobile-web-task-item-mutation-operations.ts': 1,
-  'mobile-web-task-item-review-operations.ts': 1,
-  'mobile-web-task-project-mutation-operations.ts': 1,
   'mobile-web-workspace-creation-create-operations.ts': 2
 }
 
@@ -56,16 +52,6 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'settings.update',
   'sourceControl.cancelCommitMessageGeneration',
   'sourceControl.generateCommitMessage',
-  'task.addLinearIssueComment',
-  'task.connectLinear',
-  'task.createLinearIssue',
-  'task.createLinearSubIssue',
-  'task.createProviderIssue',
-  'task.selectLinearWorkspace',
-  'task.updateIssueSource',
-  'task.updateLinearIssueState',
-  'task.updateResume',
-  'task.updateSettings',
   'terminal.attachImage',
   'terminal.clipboardPaste',
   'workspace.creationPersistTrust',

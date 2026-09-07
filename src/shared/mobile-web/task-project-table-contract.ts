@@ -112,7 +112,6 @@ const ProjectFieldValueSchema = z.discriminatedUnion('kind', [
 export const MobileWebTaskProjectRowSchema = z
   .object({
     id: IdentifierSchema,
-    targetId: z.string().min(1).max(128).optional(),
     itemType: z.enum(['ISSUE', 'PULL_REQUEST', 'DRAFT_ISSUE', 'REDACTED']),
     content: z
       .object({

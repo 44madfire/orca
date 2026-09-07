@@ -5,7 +5,6 @@ export type HostTaskGitHubItemTarget = {
   repoId: string
   number: number
   type: 'issue' | 'pr'
-  targetId?: string
 }
 
 export type HostTaskGitLabItemTarget = {
@@ -14,7 +13,6 @@ export type HostTaskGitLabItemTarget = {
   number: number
   type: 'issue' | 'mr'
   projectRef?: { host: string; path: string }
-  targetId?: string
 }
 
 export type HostTaskItemMutationTarget = HostTaskGitHubItemTarget | HostTaskGitLabItemTarget

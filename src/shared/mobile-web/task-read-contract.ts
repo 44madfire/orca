@@ -2,7 +2,6 @@ import { z } from 'zod'
 
 import { MobileWebCreationTrustedHooksResultSchema } from './workspace-creation-read-contract'
 
-const EmptyPayloadSchema = z.object({}).strict()
 const TaskProviderSchema = z.enum(['github', 'gitlab', 'linear'])
 const GitHubPresetSchema = z.enum(['issues', 'my-issues', 'prs', 'my-prs', 'review', 'all'])
 const LinearPresetSchema = z.enum(['assigned', 'created', 'all', 'completed'])
@@ -86,7 +85,6 @@ const LinearStatusSchema = z
   })
   .strict()
 
-export const MobileWebTaskBootstrapPayloadSchema = EmptyPayloadSchema
 export const MobileWebTaskBootstrapResultSchema = z
   .object({
     supported: z.boolean(),
@@ -98,7 +96,6 @@ export const MobileWebTaskBootstrapResultSchema = z
   })
   .strict()
 
-export const MobileWebTaskRepositoriesPayloadSchema = EmptyPayloadSchema
 export const MobileWebTaskRepositoriesResultSchema = z
   .object({
     repositories: z
@@ -119,7 +116,6 @@ export const MobileWebTaskRepositoriesResultSchema = z
   })
   .strict()
 
-export const MobileWebTaskLinearContextPayloadSchema = EmptyPayloadSchema
 export const MobileWebTaskLinearContextResultSchema = z
   .object({
     status: LinearStatusSchema,
@@ -170,8 +166,6 @@ export const MobileWebTaskSettingsUpdatePayloadSchema = z
   })
   .strict()
   .refine((value) => Object.values(value).some((entry) => entry !== undefined))
-export const MobileWebTaskPreferenceUpdateResultSchema = z.null()
-
 export type MobileWebTaskBootstrapResult = z.infer<typeof MobileWebTaskBootstrapResultSchema>
 export type MobileWebTaskRepositoriesResult = z.infer<typeof MobileWebTaskRepositoriesResultSchema>
 export type MobileWebTaskLinearContextResult = z.infer<

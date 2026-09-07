@@ -53,7 +53,6 @@ import { MobileWebSourceControlRequestClient } from './mobile-web-source-control
 import type { MobileWebSourceControlReviewRequestClient } from './mobile-web-source-control-review-request-client'
 import { MobileWebSourceControlSyncRequestClient } from './mobile-web-source-control-sync-request-client'
 import { MobileWebSpeechRequestClient } from './mobile-web-speech-request-client'
-import { MobileWebTaskRequestClient } from './mobile-web-task-request-client'
 import * as terminal from './mobile-web-terminal-request-client'
 import { mobileWebWorkspaceClientBindings } from './mobile-web-workspace-client-bindings'
 import { MobileWebWorkspaceRequestClient } from './mobile-web-workspace-request-client'
@@ -146,7 +145,6 @@ export class MobileWebBridgeClient {
   readonly account: MobileWebAccountRequestClient
   readonly agentHistory: MobileWebAgentHistoryRequestClient
   readonly speech: MobileWebSpeechRequestClient
-  readonly task: MobileWebTaskRequestClient
   readonly prepareTerminalActions!: terminal.MobileWebTerminalRequestClient['prepareActions']
   readonly terminalRequest!: terminal.MobileWebTerminalRequestClient['request']
   readonly terminalDeviceInputRequest!: terminal.MobileWebTerminalRequestClient['deviceInput']
@@ -228,7 +226,6 @@ export class MobileWebBridgeClient {
     this.account = new MobileWebAccountRequestClient(this.requests, this.subscriptions)
     this.agentHistory = new MobileWebAgentHistoryRequestClient(this.requests)
     this.speech = new MobileWebSpeechRequestClient(this.requests, this.subscriptions)
-    this.task = new MobileWebTaskRequestClient(this.requests)
   }
 
   workspaceSubscribe(

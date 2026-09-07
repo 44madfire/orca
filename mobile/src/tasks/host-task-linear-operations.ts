@@ -10,7 +10,6 @@ export type HostTaskLinearTarget = {
   workspaceId?: string
   teamId: string
   projectId?: string
-  targetId?: string
 }
 
 export type HostTaskLinearOperations = {

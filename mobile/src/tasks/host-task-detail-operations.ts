@@ -11,13 +11,11 @@ export type HostTaskGitLabDetailPayload = {
   number: number
   type: 'issue' | 'mr'
   projectRef?: { host: string; path: string }
-  targetId?: string
 }
 
 export type HostTaskLinearDetailPayload = {
   issueId: string
   workspaceId?: string
-  targetId?: string
 }
 
 export type HostTaskDetailOperations = {

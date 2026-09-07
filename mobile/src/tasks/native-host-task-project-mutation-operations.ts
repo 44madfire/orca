@@ -3,7 +3,7 @@ import type {
   HostTaskProjectItemTarget,
   HostTaskProjectMutationOperations
 } from './host-task-project-mutation-operations'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 import {
   fetchAddIssueComment,
   fetchAddPRReviewCommentReply,
@@ -17,7 +17,7 @@ import {
 const PROJECT_PR_MUTATION_TIMEOUT_MS = 60_000
 
 export function nativeHostTaskProjectMutationOperations(
-  client: RpcClient
+  client: RpcRequestSender
 ): HostTaskProjectMutationOperations {
   return {
     async updateItem(target, updates) {
@@ -154,7 +154,7 @@ function slugPayload(target: HostTaskProjectItemTarget) {
 }
 
 async function projectMutation<T extends object = object>(
-  client: RpcClient,
+  client: RpcRequestSender,
   method: string,
   payload: object
 ): Promise<T> {

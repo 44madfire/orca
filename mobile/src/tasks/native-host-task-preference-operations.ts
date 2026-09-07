@@ -1,9 +1,9 @@
 import { persistSetupHookTrustApproval } from './setup-hook-trust'
 import type { HostTaskPreferenceOperations } from './host-task-preference-operations'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 
 export function nativeHostTaskPreferenceOperations(
-  client: RpcClient
+  client: RpcRequestSender
 ): HostTaskPreferenceOperations {
   return {
     async updateResume(taskResumeState) {

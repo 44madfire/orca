@@ -2,7 +2,6 @@ import type { MobileWebTaskDetailComment } from '../../../src/shared/mobile-web/
 import type { MobileWebTaskProjectFieldMutationValue } from '../../../src/shared/mobile-web/task-project-table-contract'
 
 export type HostTaskProjectItemTarget = {
-  targetId?: string
   owner: string
   repo: string
   host: string

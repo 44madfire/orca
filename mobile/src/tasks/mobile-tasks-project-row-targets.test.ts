@@ -12,7 +12,6 @@ function row(overrides: Partial<GitHubProjectRow>): GitHubProjectRow {
   return {
     id: 'item-1',
     itemType: 'ISSUE',
-    targetId: 'target-1',
     content: { repository: 'orca/orca', number: 42 },
     ...overrides
   } as GitHubProjectRow
@@ -30,8 +29,7 @@ describe('project row mutation targets', () => {
       repo: 'orca',
       host: HOST,
       number: 42,
-      type: 'issue',
-      targetId: 'target-1'
+      type: 'issue'
     })
     expect(projectRowMutationTarget(DRAFT_ROW, HOST)).toBeNull()
   })
@@ -45,8 +43,7 @@ describe('project row mutation targets', () => {
       repo: '',
       host: HOST,
       number: 0,
-      type: 'issue',
-      targetId: 'target-1'
+      type: 'issue'
     })
   })
 

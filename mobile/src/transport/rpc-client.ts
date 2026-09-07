@@ -18,6 +18,22 @@ export type SendRequestOptions = {
   beforeSend?: () => void
 }
 
+/** A unary reply as its caller reads it. The hosted page answers over the capability bridge, which
+ * carries no request id or runtime metadata, so those stay on the transport's own `RpcResponse`. */
+export type RpcRequestReply =
+  | { ok: true; result: unknown }
+  | { ok: false; error?: { code?: string; message?: string } }
+
+/** The only surface a unary caller needs, so the same operation modules serve the native app over a
+ * socket and the hosted page over the bridge. */
+export type RpcRequestSender = {
+  sendRequest: (
+    method: string,
+    params?: unknown,
+    options?: SendRequestOptions
+  ) => Promise<RpcRequestReply>
+}
+
 type StreamingListener = (result: unknown) => void
 
 export type RpcClient = {

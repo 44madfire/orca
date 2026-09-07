@@ -244,6 +244,19 @@ edges still meet the device and keep their measured values.
   cancel id; the browser's own `ready` is the one that carries tab state. The
   released native app keeps calling the raw `browser.*` methods and
   `browser.screencast` unchanged.
+  page addresses host tabs, browser pages, provider sessions, repositories and
+  work items by their host ids. Generic subscriptions, native-chat domain
+  actions, file reads, Source Control reads/watch, session snapshot/feed/actions,
+  terminal metadata and every Hosted Tasks read and write use this path.
+- Hosted Tasks runs the operation modules the native app runs
+  (`mobile/src/tasks/native-host-task-*.ts`) over a page-side sender that
+  forwards `sendRequest` as `workspace.hostRequest`
+  (`web-host-task-rpc-sender.ts`). Those methods are already on the released
+  native app's socket allowlist, so the socket gate admits them with no
+  `mobileWeb.*` wrapper. The one exception is the GitHub project table: a view
+  holds up to 500 items and can exceed the envelope, so
+  `mobileWeb.tasks.projectTable` returns one row window plus a `nextRowOffset`
+  and the page reassembles the table.
 - Decisions behind the generic lane and its 2026-09-07 simplification are in
   [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.

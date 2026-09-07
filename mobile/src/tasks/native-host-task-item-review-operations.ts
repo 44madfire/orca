@@ -1,10 +1,10 @@
 import type { MobileWebTaskDetailComment } from '../../../src/shared/mobile-web/task-detail-contract'
 import type { HostTaskItemMutationTarget } from './host-task-item-mutation-operations'
 import type { HostTaskItemReviewOperations } from './host-task-item-review-operations'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 
 export function nativeHostTaskItemReviewOperations(
-  client: RpcClient
+  client: RpcRequestSender
 ): HostTaskItemReviewOperations {
   return {
     async addComment(target, body) {
@@ -89,7 +89,7 @@ export function nativeHostTaskItemReviewOperations(
 }
 
 function addGitLabComment(
-  client: RpcClient,
+  client: RpcRequestSender,
   target: Extract<HostTaskItemMutationTarget, { provider: 'gitlab' }>,
   body: string
 ) {
@@ -117,11 +117,11 @@ function addGitLabComment(
 }
 
 function mutationComment(
-  response: Awaited<ReturnType<RpcClient['sendRequest']>>,
+  response: Awaited<ReturnType<RpcRequestSender['sendRequest']>>,
   fallback: string
 ): MobileWebTaskDetailComment | undefined {
   if (!response.ok) {
-    throw new Error(response.error.message)
+    throw new Error(response.error?.message ?? 'Task request failed')
   }
   const result = response.result as {
     ok?: boolean
@@ -135,11 +135,11 @@ function mutationComment(
 }
 
 function assertMutation(
-  response: Awaited<ReturnType<RpcClient['sendRequest']>>,
+  response: Awaited<ReturnType<RpcRequestSender['sendRequest']>>,
   fallback: string
 ): void {
   if (!response.ok) {
-    throw new Error(response.error.message)
+    throw new Error(response.error?.message ?? 'Task request failed')
   }
   const result = response.result as { ok?: boolean; error?: string }
   if (result.ok === false) {

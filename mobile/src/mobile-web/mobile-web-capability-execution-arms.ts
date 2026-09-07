@@ -13,7 +13,6 @@ import { executeMobileWebNavigationOperation } from './mobile-web-navigation-ope
 import { executeMobileWebNativeCapabilityOperation } from './mobile-web-native-capability-operations'
 import { executeMobileWebNativeChatCapability } from './mobile-web-native-chat-capability'
 import { executeMobileWebSpeechOperation } from './mobile-web-speech-operations'
-import { executeMobileWebTaskReadOperation } from './mobile-web-task-read-operations'
 
 type PageRequest = Extract<MobileWebBridgePageMessage, { type: 'request' }>
 type OnceRequest = Extract<PageRequest, { mode: 'once' }>
@@ -102,17 +101,6 @@ async function executeSpeech(args: Deps, request: OnceRequest): Promise<unknown>
   })
 }
 
-async function executeTask(args: Deps, request: OnceRequest): Promise<unknown> {
-  return executeMobileWebTaskReadOperation({
-    operation: request.operation,
-    payload: request.payload,
-    client: args.connectedClient(),
-    authority: args.workspaceAuthority,
-    targetAuthority: args.taskTargetAuthority,
-    projectTable: args.taskProjectTable
-  })
-}
-
 export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapability, OnceArm>> =
   {
     native: executeNative,
@@ -125,8 +113,7 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
     terminal: executeTerminal,
     file: executeFile,
     sourceControl: executeSourceControl,
-    speech: executeSpeech,
-    task: executeTask
+    speech: executeSpeech
   }
 
 async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Promise<unknown> {

@@ -61,8 +61,7 @@ export function useMobileTasksItemDetailLoading(model: ItemDetailMetadataEffects
           repoId: actionItem.source.repoId,
           number: actionItem.source.number,
           type: actionItem.source.type,
-          projectRef: actionItem.source.projectRef,
-          targetId: actionItem.source.targetId
+          projectRef: actionItem.source.projectRef
         })
         if (!stale) {
           setDetailPayload({
@@ -114,8 +113,7 @@ export function useMobileTasksItemDetailLoading(model: ItemDetailMetadataEffects
 
       const { issue, comments } = await taskDetailOperations.loadLinear({
         issueId: actionItem.source.id,
-        workspaceId: actionItem.source.workspaceId,
-        targetId: actionItem.source.targetId
+        workspaceId: actionItem.source.workspaceId
       })
       if (!stale) {
         setDetailPayload({

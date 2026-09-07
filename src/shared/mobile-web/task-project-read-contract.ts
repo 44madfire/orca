@@ -47,7 +47,6 @@ export const MobileWebTaskProjectListResultSchema = z
   })
   .strict()
 
-export const MobileWebTaskProjectViewsPayloadSchema = MobileWebTaskProjectRefSchema
 export const MobileWebTaskProjectViewsResultSchema = z
   .object({
     views: z

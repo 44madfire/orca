@@ -3,9 +3,6 @@ import type { RpcClient } from '../transport/rpc-client'
 import { executeMobileWebFileWrite } from './mobile-web-file-write'
 import { executeMobileWebNativeChatOperation } from './mobile-web-native-chat-operations'
 import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
-import { executeMobileWebTaskItemMutationOperation } from './mobile-web-task-item-mutation-operations'
-import { taskRoundtripHostResponse } from './mobile-web-task-roundtrip-host-fixtures'
-import { MobileWebTaskTargetAuthority } from './mobile-web-task-target-authority'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 describe('mobile web mutation authorization races', () => {
@@ -42,39 +39,6 @@ describe('mobile web mutation authorization races', () => {
 
     await rejection
     expect(callsFor(sendRequest, 'files.writeIfUnchanged')).toHaveLength(0)
-  })
-
-  it('rejects a task update when provider preflight loses its opaque target', async () => {
-    const authority = new MobileWebTaskTargetAuthority((length) => new Uint8Array(length).fill(3))
-    const targetId = authority.registerGitHub({
-      repoId: 'host-repo-private',
-      number: 7,
-      type: 'issue'
-    })
-    const details = deferredResult()
-    const sendRequest = vi.fn((method: string) => {
-      if (method === 'github.workItemDetails') {
-        return details.promise
-      }
-      if (method === 'github.updateIssue') {
-        return Promise.resolve(success({ ok: true }))
-      }
-      return Promise.resolve(failure())
-    })
-    const pending = executeMobileWebTaskItemMutationOperation({
-      operation: 'updateHostedTaskStatus',
-      payload: { targetId, closed: true },
-      client: client(sendRequest),
-      targetAuthority: authority
-    })
-    const rejection = expect(pending).rejects.toMatchObject({ code: 'not_found' })
-
-    await vi.waitFor(() => expect(callsFor(sendRequest, 'github.workItemDetails')).toHaveLength(1))
-    authority.clear()
-    details.resolve(taskRoundtripHostResponse('github.workItemDetails'))
-
-    await rejection
-    expect(callsFor(sendRequest, 'github.updateIssue')).toHaveLength(0)
   })
 
   it('rejects native-chat persistence when the tab lookup loses its workspace authority', async () => {

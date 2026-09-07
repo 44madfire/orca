@@ -105,7 +105,6 @@ export type GitHubProjectFieldMutationValue =
 
 export type GitHubProjectRow = {
   id: string
-  targetId?: string
   itemType: 'ISSUE' | 'PULL_REQUEST' | 'DRAFT_ISSUE' | 'REDACTED'
   content: {
     number: number | null

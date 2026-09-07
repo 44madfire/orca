@@ -1,6 +1,5 @@
 export type LinearMobileIssue = {
   id: string
-  targetId?: string
   workspaceId?: string
   workspaceName?: string
   identifier: string
@@ -12,7 +11,6 @@ export type LinearMobileIssue = {
   project?: { id: string; name: string; url?: string; color?: string }
   subIssues?: {
     id: string
-    targetId?: string
     identifier: string
     title: string
     url: string
