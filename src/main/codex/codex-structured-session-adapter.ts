@@ -4,6 +4,10 @@ import type {
 } from '../../shared/agent-session-journal-types'
 import { StructuredSessionCompaction } from '../native-chat/agent-session-wire/structured-session-compaction'
 import { isCodexAppServerRequestError } from './codex-app-server-connection'
+import {
+  createCodexBackgroundTerminalChannel,
+  type CodexBackgroundTerminalChannel
+} from './codex-structured-background-terminals'
 import type {
   AgentSessionAcquisition,
   AgentSessionDispatchOutcome,
@@ -51,10 +55,16 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
   private readonly compactions = new StructuredSessionCompaction()
   private readonly sessions = new Map<string, CodexSession>()
   private readonly acquisitions = new CodexAcquisitionRegistry()
+  private readonly backgroundTerminals: CodexBackgroundTerminalChannel
   private readonly turnCancellation: CodexStructuredTurnCancellation
   private readonly notificationRetries: ReturnType<typeof createCodexStructuredNotificationRetry>
 
   constructor(private readonly deps: CodexStructuredSessionAdapterDeps) {
+    this.backgroundTerminals = createCodexBackgroundTerminalChannel({
+      sessions: this.sessions,
+      requestTimeoutMs: deps.requestTimeoutMs,
+      onChanged: (sessionId, state) => deps.onBackgroundTasksChanged?.(sessionId, state)
+    })
     this.notificationRetries = createCodexStructuredNotificationRetry({
       sessionFor: (sessionId) => this.sessions.get(sessionId),
       translate: (sessionId, session, method, params) =>
@@ -137,9 +147,11 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     }
     if (event.type === 'notification') {
       this.compactions.codex(event.sessionId, event.method, event.params)
+      this.backgroundTerminals.observe(session, event)
     }
     if (event.type === 'ended') {
       this.compactions.ended(event.sessionId)
+      this.deps.onBackgroundTasksChanged?.(event.sessionId, null)
     }
     this.deps.onEvent?.(event)
     return admission
@@ -189,6 +201,12 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     const turnId = this.compactions.providerTurnId(input.sessionId, input.turnId)
     return turnId ? this.turnCancellation.cancel(session, turnId) : { cancelled: false }
   }
+
+  backgroundTaskState = (sessionId: string) => this.backgroundTerminals.state(sessionId)
+
+  stopBackgroundTasks: NonNullable<StructuredAgentSessionAdapter['stopBackgroundTasks']> = (
+    input
+  ) => this.backgroundTerminals.stop(input)
 
   compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) => {
     const session = this.session(input.sessionId)
