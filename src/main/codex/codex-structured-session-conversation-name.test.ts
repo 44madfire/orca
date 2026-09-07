@@ -467,19 +467,20 @@ describe('Codex sub-agent threads survive the naming window', () => {
     codex.connections[0]!.handlers.onServerRequest?.({
       id: 91,
       method: 'item/commandExecution/requestApproval',
-      params: { threadId: SUBAGENT_THREAD, command: 'pnpm test' }
+      // `itemId` is what makes this a durable PROMPT rather than a request the
+      // registry declines; without it the assertion below would pass on a
+      // different refusal and prove nothing about reaching the user.
+      params: { threadId: SUBAGENT_THREAD, itemId: 'item-subagent-1', command: 'pnpm test' }
     })
     await settle()
 
-    // Auto-refusing here denies a tool the user's OWN agent asked to run, with a
-    // reason that is untrue. Asserted on the MESSAGE: -32001 is also the code the
-    // normal prompt path uses when a journal admission fails, so the code alone
-    // would not tell the two apart.
-    const refusals = codex.replies.filter((reply) =>
-      String(reply.message ?? '').includes('conversation-naming turn')
-    )
-    expect(refusals).toEqual([])
-    expect(emittedThreads(events)).toContain(SUBAGENT_THREAD)
+    expect(codex.replies).toEqual([])
+    // It reaches the user as a prompt, which is the behaviour the narrowed gate
+    // restored — not merely "some event was emitted".
+    const prompts = events.filter((event) => (event as { type?: string }).type === 'prompt')
+    expect(prompts).toEqual([
+      expect.objectContaining({ threadId: SUBAGENT_THREAD, codexItemId: 'item-subagent-1' })
+    ])
   })
 
   it('still keeps the naming thread out once its id is known', async () => {

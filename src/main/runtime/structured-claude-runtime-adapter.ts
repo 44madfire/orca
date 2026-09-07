@@ -93,7 +93,6 @@ export function createStructuredClaudeRuntimeAdapter(
     ...(deps.onConversationNameCleared
       ? { onConversationNameCleared: deps.onConversationNameCleared }
       : {}),
-    ...(deps.onNamingError ? { onError: deps.onNamingError } : {}),
     readTranscriptConversationName: async ({ providerSessionId, claudeConfigDir }) => {
       const transcriptPath = await resolveSessionFilePath('claude', providerSessionId, {
         claudeProjectsDir: join(claudeConfigDir, 'projects')
