@@ -45,3 +45,33 @@ describe('isAgentSessionConversationName', () => {
     expect(isAgentSessionConversationName(7)).toBe(false)
   })
 })
+
+describe('normalizeAgentSessionConversationName hostile text', () => {
+  it('strips control characters and bidi overrides', () => {
+    // U+202E renders what follows right-to-left, so a tab could show a label
+    // that reads as text the name does not contain.
+    expect(normalizeAgentSessionConversationName('Fix\u202Egnp.exe probe')).toBe(
+      'Fix gnp.exe probe'
+    )
+    expect(normalizeAgentSessionConversationName('Fix\u0007the probe')).toBe('Fix the probe')
+    expect(normalizeAgentSessionConversationName('Fix\u200Bthe probe')).toBe('Fix the probe')
+    expect(normalizeAgentSessionConversationName('\u202E\u200B ')).toBeNull()
+  })
+
+  it('never truncates through a surrogate pair', () => {
+    const name = `${'a'.repeat(AGENT_SESSION_CONVERSATION_NAME_MAX_LENGTH - 1)}\u{1F600}tail`
+
+    const normalized = normalizeAgentSessionConversationName(name)
+
+    // A raw slice would leave the emoji's lone high surrogate, which renders as
+    // U+FFFD on every surface that shows the name.
+    expect(normalized).toBe('a'.repeat(AGENT_SESSION_CONVERSATION_NAME_MAX_LENGTH - 1))
+    expect(normalized).not.toContain('\uFFFD')
+  })
+
+  it('keeps a legitimate non-ASCII name intact', () => {
+    expect(normalizeAgentSessionConversationName('R\u00E9sum\u00E9 du fil \u2615')).toBe(
+      'R\u00E9sum\u00E9 du fil \u2615'
+    )
+  })
+})
