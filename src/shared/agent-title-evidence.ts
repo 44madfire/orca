@@ -17,6 +17,7 @@ import {
   stripBareNameDecoration
 } from './agent-title-name-anchoring'
 import { isOpenCodeNativeTitle } from './opencode-terminal-title'
+import { memoizeTitleClassification } from './terminal-title-classification-memo'
 import { stripLeadingAgentTitleDecorationOrEmpty } from './agent-title-decoration'
 import { getPiCompatibleSyntheticAgentLabel } from './pi-compatible-synthetic-title'
 import {
@@ -263,4 +264,49 @@ export function collectAgentTitleEvidence(title: string): AgentTitleEvidence {
     agent: null,
     reason: freeTextNames.length > 0 ? 'free-text-only' : 'no-evidence'
   }
+}
+
+/** Pure in `title`; the tab strip asks this per pane per render, so keep it off the regex ladder. */
+const collectMemoizedAgentTitleEvidence = memoizeTitleClassification(collectAgentTitleEvidence)
+
+/**
+ * Whether a segment puts `agent`'s name in an identity POSITION: the whole undecorated remainder,
+ * or the head of a `Name:` frame.
+ */
+function segmentPresentsAgentByPosition(segment: string, agent: TuiAgent): boolean {
+  const undecorated = stripLeadingAgentTitleDecorationOrEmpty(segment).trim()
+  if (!undecorated) {
+    return false
+  }
+  if (agentForBareName(undecorated) === agent) {
+    return true
+  }
+  // Why the colon specifically: it is what separates `Codex: fix cursor offsets` — a frame and
+  // then its task — from `Claude Code compare Opencode`, one sentence that happens to open with
+  // a name. Without it, any task text beginning with an agent's name would read as identity.
+  const frameEnd = undecorated.indexOf(':')
+  return frameEnd > 0 && agentForBareName(undecorated.slice(0, frameEnd)) === agent
+}
+
+/**
+ * Whether `title` PRESENTS `agent` as the pane's identity rather than merely mentioning it. This
+ * is the gate a title must pass before it may take a pane away from a known owner (#8940) — for
+ * every agent, not only Claude.
+ *
+ * Deliberate, test-pinned divergence from `collectAgentTitleEvidence`: the parser answers "who
+ * does this title name, given no owner", so it must refuse any name an ordinary task sentence
+ * could forge. Here the agent is supplied rather than inferred, so the title need only put that
+ * one name in an identity position. That admits `⠋ Codex`, which the parser files as
+ * `free-text-only` because codex sets `synthesizeWorkingTitle: false` in synthetic-agent-title.ts
+ * — Codex emits its own working titles, so Orca never synthesizes one for the parser to anchor
+ * against. Task text still cannot pass: `⠋ Fix the codex plugin launcher` puts the name
+ * mid-sentence, and `. Claude Code compare Opencode` trails task text past it.
+ */
+export function titlePresentsAgent(title: string, agent: TuiAgent): boolean {
+  if (collectMemoizedAgentTitleEvidence(title).anchoredNames.includes(agent)) {
+    return true
+  }
+  return getEvidenceTitleSegments(title).some((segment) =>
+    segmentPresentsAgentByPosition(segment, agent)
+  )
 }
