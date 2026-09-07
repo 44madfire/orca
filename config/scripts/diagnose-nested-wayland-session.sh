@@ -17,7 +17,7 @@ export ORCA_E2E_NESTED_FOCUS_CMD="$RUNNER_TEMP/orca-focus-nested.sh"
 cat > "$ORCA_E2E_NESTED_FOCUS_CMD" <<'FOCUS'
 #!/usr/bin/env bash
 set -euo pipefail
-mapfile -t windows < <(xdotool search --onlyvisible --class gnome-shell)
+mapfile -t windows < <(xdotool search --onlyvisible --name '^gnome-shell$')
 [[ ${#windows[@]} -eq 1 ]]
 xdotool windowfocus --sync "${windows[0]}"
 FOCUS
