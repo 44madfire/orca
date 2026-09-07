@@ -43,8 +43,8 @@ for (const asset of manifest.assets) {
 }
 
 const roles = countRoles(manifest.assets)
-if (roles.document !== 2 || roles.script !== 1 || roles.style > 1) {
-  throw new Error('RNW package must contain two documents, one script, and at most one style')
+if (roles.document !== 2 || !(roles.script >= 1) || roles.style > 1) {
+  throw new Error('RNW package must contain two documents, scripts, and at most one style')
 }
 
 const scriptBytes = bytesForRole(manifest.assets, 'script')
@@ -101,6 +101,20 @@ for (const match of html.matchAll(/\b(?:src|href)=["']([^"']+)["']/g)) {
   if (!declaredPaths.includes(reference.slice(2))) {
     throw new Error(`RNW document references an undeclared asset: ${reference}`)
   }
+}
+
+const documentScripts = [...html.matchAll(/<script src="\.\/([^"]+)" defer><\/script>/g)].map(
+  (match) => match[1]
+)
+const packagedScripts = manifest.assets
+  .filter((asset) => asset.role === 'script')
+  .map((asset) => asset.path)
+if (
+  new Set(documentScripts).size !== documentScripts.length ||
+  documentScripts.length !== packagedScripts.length ||
+  packagedScripts.some((assetPath) => !documentScripts.includes(assetPath))
+) {
+  throw new Error('RNW document must reference every packaged script exactly once with defer')
 }
 
 const mermaidFrame = await readFile(path.join(outputRoot, MOBILE_WEB_MERMAID_FRAME_PATH), 'utf8')

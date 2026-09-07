@@ -14,6 +14,7 @@ import {
   buildMobileWebMermaidFrameDocument
 } from '../../src/shared/mobile-web/mermaid-frame-document.ts'
 import { colors } from '../../mobile/src/theme/mobile-theme.ts'
+import { splitMobileWebRnwScript } from './mobile-web-rnw-script-chunks.mjs'
 import { assertMobileWebRnwExecutablePolicy } from './mobile-web-rnw-executable-policy.mjs'
 
 const args = parseArgs(process.argv.slice(2))
@@ -58,11 +59,14 @@ script = replaceReferences(script, replacements)
 script = disableRuntimeCodeGeneration(script)
 assertSafeExecutable(script)
 assertNoExportAssetReferences(script, sourceFiles)
-const scriptBytes = Buffer.from(script)
-const scriptPath = contentAddressedPath(scriptBytes, '.js')
-packaged.set(scriptPath, scriptBytes)
+const scriptPaths = splitMobileWebRnwScript(script).map((chunk) => {
+  const bytes = Buffer.from(chunk)
+  const assetPath = contentAddressedPath(bytes, '.js')
+  packaged.set(assetPath, bytes)
+  return assetPath
+})
 
-const document = mobileWebDocument({ scriptPath, stylePath })
+const document = mobileWebDocument({ scriptPaths, stylePath })
 const documentBytes = Buffer.from(document)
 packaged.set('index.html', documentBytes)
 const mermaidFrame = buildMobileWebMermaidFrameDocument({
@@ -164,7 +168,7 @@ function replaceReferences(source, replacements) {
   return output
 }
 
-function mobileWebDocument({ scriptPath, stylePath }) {
+function mobileWebDocument({ scriptPaths, stylePath }) {
   const csp = mobileWebDocumentCsp(MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH)
   return `<!doctype html>
 <html lang="en">
@@ -178,7 +182,7 @@ function mobileWebDocument({ scriptPath, stylePath }) {
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
-    <script src="./${scriptPath}" defer></script>
+${scriptPaths.map((scriptPath) => `    <script src="./${scriptPath}" defer></script>`).join('\n')}
   </body>
 </html>
 `
