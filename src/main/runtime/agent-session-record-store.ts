@@ -13,7 +13,6 @@ import {
   admitAgentSessionOperationRow,
   type AgentSessionOperationAdmission
 } from './agent-session-operation-admission'
-import type { AgentSessionOwnerProbe } from '../../shared/agent-session-lease-adjudication'
 import { classifyObservedAgentSessionSpawnToken } from '../../shared/agent-session-lease-adjudication'
 import type { AgentSessionProviderHandleLink } from '../../shared/agent-session-provider-handle'
 import {
@@ -28,7 +27,8 @@ import {
   evictAgentSessionOwner,
   proveAgentSessionOwner,
   setAgentSessionJournalCheckpoint,
-  type AgentSessionProcessIdentityCommit
+  type AgentSessionProcessIdentityCommit,
+  type EvictAgentSessionOwnerInput
 } from './agent-session-lease-transitions'
 import {
   settleFailedAgentSessionAcquisition,
@@ -248,12 +248,9 @@ export class AgentSessionRecordStore {
     )
   }
 
-  async evictProvenDeadOwner(args: {
-    sessionId: string
-    expectedFence: number
-    probe: AgentSessionOwnerProbe
-    now: number
-  }): Promise<AgentSessionRecord> {
+  async evictProvenDeadOwner(
+    args: Omit<EvictAgentSessionOwnerInput, 'record' | 'journalSettlement'> & { sessionId: string }
+  ): Promise<AgentSessionRecord> {
     return this.mutate(args.sessionId, (record) =>
       evictAgentSessionOwner({ ...args, record, journalSettlement: 'required' })
     )

@@ -6,6 +6,7 @@ import {
   agentSessionLeaseFixture,
   agentSessionRecordFixture
 } from '../../../shared/agent-session-record.test-fixture'
+import { stopStoredAgentSessionOwnerForHandoff } from '../../runtime/agent-session-handoff-record-transitions'
 import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import { StructuredAgentSessionLeaseRenewer } from './structured-agent-session-lease-renewer'
 
@@ -262,6 +263,58 @@ describe('structured agent-session lease renewal', () => {
 
     expect(probe).not.toHaveBeenCalled()
     expect(store.getRecord('session-renewal')?.lease.lastRenewedAt).toBe(NOW)
+  })
+
+  it('does not preempt a native owner handoff after the child stops', async () => {
+    const store = await liveStore()
+    const initialFence = store.getRecord('session-renewal')!.lease.runtimeFence
+    const probeStarted = Promise.withResolvers<void>()
+    const deadProbe = Promise.withResolvers<{ outcome: 'pid-absent' }>()
+    const onError = vi.fn()
+    const renewer = new StructuredAgentSessionLeaseRenewer({
+      store,
+      probe: async () => {
+        probeStarted.resolve()
+        return deadProbe.promise
+      },
+      now: () => NOW + 10_000,
+      onError
+    })
+    const renewal = renewer.renewNow()
+    await probeStarted.promise
+    await store.transitionHandoff('session-renewal', (record) => ({
+      ...record,
+      lease: {
+        ...record.lease,
+        handoffStage: 'preparing',
+        handoffOperationId: 'handoff-1'
+      }
+    }))
+    deadProbe.resolve({ outcome: 'pid-absent' })
+    await renewal
+
+    expect(store.getRecord('session-renewal')?.lease).toMatchObject({
+      runtimeFence: initialFence,
+      handoffStage: 'preparing',
+      handoffOperationId: 'handoff-1',
+      claimStatus: 'live'
+    })
+    expect(onError).toHaveBeenCalledWith({
+      sessionId: 'session-renewal',
+      error: expect.objectContaining({ message: 'agent_session_checkpoint_stale' })
+    })
+    const stopped = await stopStoredAgentSessionOwnerForHandoff(store, {
+      sessionId: 'session-renewal',
+      expectedFence: initialFence,
+      operationId: 'handoff-1',
+      now: NOW + 10_001
+    })
+    expect(stopped.lease).toMatchObject({
+      runtimeFence: initialFence + 1,
+      handoffStage: 'old-owner-stopped',
+      handoffOperationId: 'handoff-1',
+      claimStatus: 'released'
+    })
   })
 
   it('routes a proven dead TUI owner into handoff recovery', async () => {

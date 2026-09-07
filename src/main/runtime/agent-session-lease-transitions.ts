@@ -203,15 +203,25 @@ export function renewAgentSessionLease(args: {
 }
 
 /** Proven eviction — the only other thing besides acquisition that may move the fence. */
-export function evictAgentSessionOwner(args: {
+export type EvictAgentSessionOwnerInput = {
   record: AgentSessionRecord
   expectedFence: number
+  /** Compare-and-swap guard: a stage that drifted since the scan must not be clobbered. */
+  expectedHandoffStage?: AgentSessionRecord['lease']['handoffStage']
   probe: AgentSessionOwnerProbe
   now: number
   journalSettlement: 'required' | 'not-required'
-}): AgentSessionRecord {
+}
+
+export function evictAgentSessionOwner(args: EvictAgentSessionOwnerInput): AgentSessionRecord {
   const { record } = args
   assertFence(record.lease, args.expectedFence)
+  if (
+    args.expectedHandoffStage !== undefined &&
+    record.lease.handoffStage !== args.expectedHandoffStage
+  ) {
+    throw new Error('agent_session_checkpoint_stale')
+  }
   if (record.lease.settlementRetryRequired) {
     throw new Error('agent_session_ownership_unknown')
   }

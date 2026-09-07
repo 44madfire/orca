@@ -76,13 +76,18 @@ export class StructuredAgentSessionLeaseRenewer {
         if (!probe) {
           continue
         }
-        // Positive death evidence settles it; the deadline only guards a live owner that has not
-        // renewed yet. Matches the dead-TUI-owner branch below, which never waits for expiry.
-        if (record.lease.runtimeKind === 'native' && isProvenDeadProbe(probe)) {
+        // Positive death evidence settles an idle owner without waiting for expiry. An active
+        // handoff owns its stop transition and fence; the renewer must not preempt it.
+        if (
+          record.lease.runtimeKind === 'native' &&
+          record.lease.handoffStage === null &&
+          isProvenDeadProbe(probe)
+        ) {
           try {
             await this.input.store.evictProvenDeadOwner({
               sessionId: record.sessionId,
               expectedFence: record.lease.runtimeFence,
+              expectedHandoffStage: null,
               probe,
               now
             })
