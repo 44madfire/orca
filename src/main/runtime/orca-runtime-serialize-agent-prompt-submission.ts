@@ -74,11 +74,12 @@ export class OrcaRuntimeWithSerializeAgentPromptSubmission extends OrcaRuntimeWi
     const handle = this.handleByPtyId.get(ptyId)
     if (
       recoverCompletedHook &&
-      (!handle || this.getFreshExplicitAgentStatusForHandle(handle)?.status !== 'idle')
+      (!handle || this.getFreshExplicitAgentStatusForPty(handle, ptyId)?.status !== 'idle')
     ) {
       return
     }
     const incarnationId = pty?.incarnationId
+    const generation = recoverCompletedHook ? this.getPtyLifecycleGeneration(ptyId) : null
     const titleObservedAt = pty?.lastOscTitleAt ?? null
     const foregroundRead = this.readPtyForegroundProcessFromController(ptyId, titleObservedAt ?? 0)
     if (!pty?.connected || !foregroundRead) {
@@ -89,7 +90,12 @@ export class OrcaRuntimeWithSerializeAgentPromptSubmission extends OrcaRuntimeWi
     }
     void foregroundRead.then((result) => {
       const current = this.ptysById.get(ptyId)
-      if (current !== pty || !current.connected || current.incarnationId !== incarnationId) {
+      if (
+        current !== pty ||
+        !current.connected ||
+        current.incarnationId !== incarnationId ||
+        (recoverCompletedHook && this.getPtyLifecycleGeneration(ptyId) !== generation)
+      ) {
         return
       }
       if (current.lastOscTitleAt !== titleObservedAt && current.lastAgentStatus !== null) {
@@ -98,7 +104,7 @@ export class OrcaRuntimeWithSerializeAgentPromptSubmission extends OrcaRuntimeWi
       if (
         recoverCompletedHook &&
         (!current.lastAgentStatusObservedLive ||
-          this.getFreshExplicitAgentStatusForHandle(handle)?.status !== 'idle')
+          this.getFreshExplicitAgentStatusForPty(handle, ptyId)?.status !== 'idle')
       ) {
         return
       }
@@ -189,13 +195,8 @@ export class OrcaRuntimeWithSerializeAgentPromptSubmission extends OrcaRuntimeWi
   ): AgentPromptActivity {
     this.assertLiveTerminalHandleTargetsPty(handle, ptyId)
     const outputSequence = this.getPtyOutputSequence(ptyId)
-    const explicitCandidate = this.getFreshExplicitAgentStatusForHandle(handle)
+    const explicit = this.getFreshExplicitAgentStatusForPty(handle, ptyId)
     const explicitFloor = this.agentPromptExplicitStatusFloorByPtyId.get(ptyId)
-    const explicit =
-      explicitCandidate &&
-      (explicitFloor === undefined || explicitCandidate.updatedAt > explicitFloor)
-        ? explicitCandidate
-        : null
     const lifecycle = this.agentPromptLifecycleByPtyId.get(ptyId)
     const ptyStatus =
       lifecycle || explicitFloor === undefined
@@ -237,5 +238,11 @@ export class OrcaRuntimeWithSerializeAgentPromptSubmission extends OrcaRuntimeWi
     return (
       this.resolveAuthoritativeTerminalWaitPermission(terminal, explicitStatus, lifecycle) !== null
     )
+  }
+
+  protected getFreshExplicitAgentStatusForPty(handle: string, ptyId: string) {
+    const explicit = this.getFreshExplicitAgentStatusForHandle(handle)
+    const floor = this.agentPromptExplicitStatusFloorByPtyId.get(ptyId)
+    return explicit && (floor === undefined || explicit.updatedAt > floor) ? explicit : null
   }
 }
