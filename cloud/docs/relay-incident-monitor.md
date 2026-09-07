@@ -133,7 +133,7 @@ with every existing bar green.
 | --- | ---: |
 | Orca Relay: far-cell phone accept latency | per cell, median 30-second `clientAcceptTotalMsP95` over 15 minutes above 2,000 ms with at least 20 completed accepts |
 | Orca Relay: cell control round trip | per cell, median `controlRttMsP50` over one hour above 150 ms with at least 500 samples |
-| Orca Relay: region hint skew | fleet-wide, `asia-east2` share of `requestedRegionsDelta` over one hour above 40% with at least 500 hints |
+| Orca Relay: region hint skew | fleet-wide, asia-east2 share of hinted requests over one hour more than 2x and more than 15 points above its share of actual placements, with at least 500 hinted requests |
 
 Threshold basis:
 
@@ -146,28 +146,46 @@ Threshold basis:
   asia-east2 cell is 200 ms or more. Only the p50 is used. The desktop echoes
   the pong on its main thread, so the published p95 and max track renderer
   stalls rather than distance. 500 samples per hour is about two
-  continuously connected hosts at the 15-second control ping.
-- Region hint skew. Measured from `requestedRegionsDelta` over six hours on
-  2026-09-07, while the desktop region probe was still mis-picking:
-  `asia-east2` was 23.8% of 24,909 hints, and only 7.8% of assignments
-  actually selected `asia-east2`. 40% is a regression bar above that live
-  baseline, and the intended direction is downward toward the true APAC
-  share once the desktop probe is fixed. Retune it down after a steady
-  post-fix baseline, not up.
+  continuously connected hosts at the 15-second control ping. Tuning risk: EU
+  desktops on us-central1 sit at 100-130 ms, so a cell whose population is
+  mostly European can approach the bar while correctly homed. Check where the
+  hosts are before reading a first breach as mis-homing.
+- Region hint skew. This compares two shares of the same hour rather than
+  testing one absolute share, because an absolute bar is wrong at both ends.
+  Measured over twelve hours on 2026-09-07, while the desktop region probe
+  was still mis-picking: asia-east2 was 33.8% of the 33,800 hinted requests
+  and only 7.9% of the 45,364 assignments, a divergence of 4.27x and a gap of
+  25.9 points. A fixed 40% bar would have stayed silent through that, and
+  once the probe is fixed the genuine APAC share climbs past any such bar and
+  pages forever on the correct end state. The 2x and 15-point bars sit inside
+  the broken state and outside a healthy one. `unhinted` requests are
+  excluded from the denominator: they were 27% of all requests, so a client
+  change that always sends a hint would move the number with no behaviour
+  change at all.
+
+Expect the skew alert to stay lit after a client fix until the mis-homed
+backlog is rehomed. Sticky assignment never re-consults the hint, so a
+desktop already on an asia cell keeps being placed there whatever it now
+asks for; the ratio clears only once the rehome sweep has drained.
 
 All three conditions are written in MQL rather than the metric filters the
 other relay policies use. Every runtime metric is a DELTA DISTRIBUTION, and
 the only scalar aligners a filter condition can apply to one are percentiles;
 each of these alerts needs the sum of the extracted values as a volume floor,
-which is `sum(value.<metric>)` in MQL and unreachable otherwise. The queries
-were checked against live production data on 2026-09-07 before they were
-committed.
+which is `sum(value.<metric>)` in MQL and unreachable otherwise. None of the
+metrics they read exists in the project yet, so what was checked against
+production is the query shape: the same MQL run over existing metrics of the
+same kind confirmed the distribution sum, the join arity, the unit literals,
+and the condition clause.
 
-The skew denominator is one log-based metric per hint key, listed as
-`relay_region_hint_keys` in Terraform and pinned to relay-contract's
-`RELAY_REGIONS` by `dev/scripts/relay-region-hint-metrics.test.mjs`. A new
-relay region without a matching metric shrinks the denominator, which biases
-the alert toward firing rather than toward silence.
+The skew shares are built from one log-based metric per region for hints and
+one per region for placements. They read flat `requestedRegion<Region>Delta`
+and `selectedRegion<Region>Delta` fields that the relay publishes as zeros in
+every interval, not the nested region maps: a log-based metric would need a
+quoted field path to reach a hyphenated map key, and an absent key would drop
+a series out of the inner join. The region list lives in Terraform as
+`relay_region_keys` and is pinned to relay-contract's `RELAY_REGIONS` by
+`dev/scripts/relay-region-hint-metrics.test.mjs`.
 
 ## Implementation log
 

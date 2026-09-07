@@ -94,42 +94,73 @@ locals {
     db_wait_ms_max                     = { field = "databasePoolWaitMsMax", description = "Maximum PostgreSQL pool wait during the interval." }
   }
 
-  # Region hint keys the director can report inside `requestedRegionsDelta`: every relay region
-  # plus the `unhinted` bucket for assignment requests that carried no preferredRegion. Pinned to
-  # relay-contract's RELAY_REGIONS by dev/scripts/relay-region-hint-metrics.test.mjs. A key missing
-  # here shrinks the skew denominator, which biases the alert toward firing, never toward silence.
-  relay_region_hint_keys = ["us-central1", "asia-east2", "unhinted"]
-  # Map keys carry hyphens, metric names cannot; the log field path keeps the quoted original.
-  relay_region_request_metrics = {
-    for key in local.relay_region_hint_keys :
-    "requested_regions_${replace(key, "-", "_")}" => {
-      field       = "requestedRegionsDelta.\"${key}\""
-      description = key == "unhinted" ? "Assignment requests that carried no region hint." : "Assignment requests that hinted ${key}."
-    }
+  # Regions the director can hint or select. Pinned to relay-contract's RELAY_REGIONS by
+  # dev/scripts/relay-region-hint-metrics.test.mjs, which also checks the flat field names below
+  # against the emitter. A region missing here drops out of both shares the skew alert compares.
+  relay_region_keys = ["us-central1", "asia-east2"]
+  # Flat emitter fields, not the nested `requestedRegionsDelta` map: a log-based metric would need
+  # a quoted field path to reach a hyphenated map key, and the relay publishes these as zeros in
+  # every interval so no series can drop out of the alert's inner join.
+  relay_region_field_segments = {
+    for key in local.relay_region_keys :
+    key => join("", [for part in split("-", key) : title(part)])
   }
-  relay_region_hint_columns = [for key in local.relay_region_hint_keys : replace(key, "-", "_")]
-  relay_region_hint_total   = join(" + ", local.relay_region_hint_columns)
-  # MQL, not a filter condition: every runtime metric is a DELTA DISTRIBUTION, and the only
-  # scalar aligners a `condition_threshold` can apply to one are percentiles. A share needs the
-  # sum of the extracted values, which is `sum(value.<metric>)` in MQL and unreachable otherwise.
-  # `join` is an inner join, so an hour with zero asia hints drops the row and cannot alert; that
-  # is the wanted direction. Verified against live production data on 2026-09-07.
+  relay_region_columns = { for key in local.relay_region_keys : key => replace(key, "-", "_") }
+  relay_region_share_metrics = merge(
+    {
+      for key in local.relay_region_keys :
+      "requested_regions_${local.relay_region_columns[key]}" => {
+        field       = "requestedRegion${local.relay_region_field_segments[key]}Delta"
+        description = "Assignment requests that hinted ${key}."
+      }
+    },
+    {
+      for key in local.relay_region_keys :
+      "selected_regions_${local.relay_region_columns[key]}" => {
+        field       = "selectedRegion${local.relay_region_field_segments[key]}Delta"
+        description = "Assignments that placed a host in ${key}."
+      }
+    }
+  )
+  relay_region_hinted_total   = join(" + ", [for key in local.relay_region_keys : "req_${local.relay_region_columns[key]}"])
+  relay_region_selected_total = join(" + ", [for key in local.relay_region_keys : "sel_${local.relay_region_columns[key]}"])
+  # MQL, not a filter condition: every runtime metric is a DELTA DISTRIBUTION, and the only scalar
+  # aligners a `condition_threshold` can apply to one are percentiles. Both shares need the sum of
+  # the extracted values, which is `sum(value.<metric>)` in MQL and unreachable otherwise.
   relay_region_hint_skew_query = join("\n", concat(
     ["{"],
-    [
-      for index, column in local.relay_region_hint_columns :
-      join("\n", [
+    flatten([
+      for index, entry in [
+        for key in local.relay_region_keys : { metric = "requested_regions_${local.relay_region_columns[key]}", column = "req_${local.relay_region_columns[key]}" }
+        ] : [
         index == 0 ? "" : ";",
-        "  fetch cloud_run_revision::logging.googleapis.com/user/orca_relay_requested_regions_${column}",
+        "  fetch cloud_run_revision::logging.googleapis.com/user/orca_relay_${entry.metric}",
         "  | align delta(1h) | every 1h",
-        "  | group_by [], [${column}: sum(value.orca_relay_requested_regions_${column})]"
-      ])
-    ],
+        "  | group_by [], [${entry.column}: sum(value.orca_relay_${entry.metric})]"
+      ]
+    ]),
+    flatten([
+      for key in local.relay_region_keys : [
+        ";",
+        "  fetch cloud_run_revision::logging.googleapis.com/user/orca_relay_selected_regions_${local.relay_region_columns[key]}",
+        "  | align delta(1h) | every 1h",
+        "  | group_by [], [sel_${local.relay_region_columns[key]}: sum(value.orca_relay_selected_regions_${local.relay_region_columns[key]})]"
+      ]
+    ]),
     [
       "}",
       "| join",
-      "| value [asia_hint_share: asia_east2 / (${local.relay_region_hint_total}), region_hints: ${local.relay_region_hint_total}]",
-      "| condition asia_hint_share > 0.4 '1' && region_hints > 500 '1'"
+      "| value [",
+      "    hint_share: req_asia_east2 / (${local.relay_region_hinted_total}),",
+      "    placement_share: sel_asia_east2 / (${local.relay_region_selected_total}),",
+      "    hinted_requests: ${local.relay_region_hinted_total}",
+      "  ]",
+      "| value [",
+      "    divergence: hint_share / placement_share,",
+      "    gap: hint_share - placement_share,",
+      "    hinted_requests: hinted_requests",
+      "  ]",
+      "| condition divergence > 2 '1' && gap > 0.15 '1' && hinted_requests > 500 '1'"
     ]
   ))
   relay_custom_alerts = {
@@ -255,7 +286,7 @@ locals {
 resource "google_logging_metric" "relay_snapshot" {
   # Region-request metrics ride the same event and shape; merging adds map entries only, so the
   # existing metric instances are untouched (a label change, not a new key, is what recreates them).
-  for_each = merge(local.relay_runtime_metrics, local.relay_region_request_metrics)
+  for_each = merge(local.relay_runtime_metrics, local.relay_region_share_metrics)
 
   project         = var.project_id
   name            = "orca_relay_${each.key}"
@@ -733,7 +764,9 @@ resource "google_monitoring_alert_policy" "relay_cell_process_exit" {
 # `join` is an inner join and the relay omits its percentile fields on an empty interval, so an
 # idle cell drops out rather than alerting on nothing. The per-cell arms fetch `gce_instance`
 # only: production runs no Cloud Run cells (`relay_cells` is empty), and a future one would need
-# its own arm here.
+# its own arm here. None of the metrics these query exist in the project yet, so what was checked
+# against production is the query shape: the same MQL run over existing metrics of the same kind
+# confirmed the distribution sum, the join arity, the unit literals, and the condition clause.
 resource "google_monitoring_alert_policy" "relay_far_cell_accept_latency" {
   project               = var.project_id
   display_name          = "Orca Relay: far-cell phone accept latency"
@@ -811,7 +844,7 @@ resource "google_monitoring_alert_policy" "relay_cell_control_rtt" {
   }
 
   documentation {
-    content   = "The median desktop on this cell is more than 150 ms away from it, which is a mis-homed population rather than a cell fault: an in-region control ping is tens of milliseconds and a US desktop on an asia-east2 cell is 200 ms or more. This is the signal that was missing while roughly 226 of 332 hosts on the asia cells were non-APAC for weeks in 2026-08. Confirm with the assignment table which regions those hosts requested, then rehome; do not restart or drain the cell on this alert alone. The 500-sample floor is about two continuously connected hosts at the 15-second control ping, so a nearly idle cell cannot alert on one desktop."
+    content   = "The median desktop on this cell is more than 150 ms away from it, which is a mis-homed population rather than a cell fault: an in-region control ping is tens of milliseconds and a US desktop on an asia-east2 cell is 200 ms or more. This is the signal that was missing while roughly 226 of 332 hosts on the asia cells were non-APAC for weeks in 2026-08. Confirm with the assignment table which regions those hosts requested, then rehome; do not restart or drain the cell on this alert alone. The 500-sample floor is about two continuously connected hosts at the 15-second control ping, so a nearly idle cell cannot alert on one desktop. Tuning risk: EU desktops on us-central1 sit at 100-130 ms, so a cell whose population is mostly European can approach 150 ms while correctly homed. Check where the hosts are before treating a first breach as mis-homing, and raise the bar only with that evidence."
     mime_type = "text/markdown"
   }
 
@@ -826,7 +859,7 @@ resource "google_monitoring_alert_policy" "relay_region_hint_skew" {
   notification_channels = var.relay_alert_notification_channels
 
   conditions {
-    display_name = "asia-east2 hint share above 40% for an hour"
+    display_name = "asia-east2 hint share above 2x its placement share for an hour"
 
     condition_monitoring_query_language {
       query    = local.relay_region_hint_skew_query
@@ -839,7 +872,7 @@ resource "google_monitoring_alert_policy" "relay_region_hint_skew" {
   }
 
   documentation {
-    content   = "Desktops are asking the director for asia-east2 far more often than the user base justifies, which is what silently homed US desktops on asia cells through 2026-08. Baseline measured from `requestedRegionsDelta` over six hours on 2026-09-07, while the desktop region probe was still mis-picking: asia-east2 was 23.8% of 24,909 hints and only 7.8% of the assignments actually selected asia-east2. The intended direction is downward toward the true APAC share once the desktop probe is fixed, so 40% is a regression bar, not a target; retune it down rather than up once the fixed probe has a steady baseline. The 500-hint floor keeps a quiet hour off the pager. Investigate the desktop region probe first, not relay placement."
+    content   = "Desktops are asking the director for asia-east2 far more often than the director actually places them there, which is what silently homed US desktops on asia cells through 2026-08. The alert compares two shares of the same hour and never an absolute share, because an absolute bar is wrong at both ends: measured over twelve hours on 2026-09-07, while the desktop region probe was still mis-picking, asia-east2 was 33.8% of the 33,800 hinted requests but only 7.9% of the 45,364 assignments, and once the probe is fixed the genuine APAC share will climb past any fixed bar that would have caught this. Divergence was 4.27x with a 25.9-point gap, so the 2x and 15-point bars sit well inside the broken state and well outside a healthy one. `unhinted` requests are excluded from the denominator: they were 27% of all requests, and a client change that always sends a hint would move this number without any behaviour changing. Expect this to stay lit until the mis-homed backlog is rehomed, because sticky assignment never re-consults the hint, so a desktop already on an asia cell keeps being placed there no matter what it now asks for. Investigate the desktop region probe first, not relay placement."
     mime_type = "text/markdown"
   }
 
