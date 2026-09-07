@@ -2,32 +2,43 @@ import { z } from 'zod'
 import { isMobileWebGitObjectId } from './protocol-token-contract'
 import { MobileWebGitRefNameSchema } from './source-control-history-contract'
 import { MobileWebWorkspaceIdSchema } from './workspace-operation-contract'
+import {
+  MobileWebProviderReviewHostScope,
+  MobileWebProviderReviewPageScope
+} from './provider-review-contract'
 
 const ProviderSchema = z.enum(['github', 'gitlab', 'bitbucket', 'azure-devops', 'gitea'])
 const HeadSchema = z.string().refine(isMobileWebGitObjectId)
 const PositiveIntegerSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
 const NullableTextSchema = (limit: number) => z.string().max(limit).nullable()
 
-const QueryIdentityShape = {
-  workspaceId: MobileWebWorkspaceIdSchema,
-  expectedHead: HeadSchema,
-  expectedBranch: MobileWebGitRefNameSchema,
-  provider: ProviderSchema,
-  reviewNumber: PositiveIntegerSchema
-} as const
+export function buildMobileWebProviderReviewQueryPayload<T extends z.ZodRawShape>(scope: T) {
+  const base = {
+    ...scope,
+    expectedHead: HeadSchema,
+    expectedBranch: MobileWebGitRefNameSchema,
+    provider: ProviderSchema,
+    reviewNumber: PositiveIntegerSchema
+  } as const
+  return z.discriminatedUnion('query', [
+    z.object({ ...base, query: z.literal('assignableUsers') }).strict(),
+    z
+      .object({
+        ...base,
+        query: z.literal('checkDetails'),
+        checkRunId: PositiveIntegerSchema.optional(),
+        workflowRunId: PositiveIntegerSchema.optional(),
+        checkName: z.string().min(1).max(256)
+      })
+      .strict()
+  ])
+}
 
-export const MobileWebProviderReviewQueryPayloadSchema = z.discriminatedUnion('query', [
-  z.object({ ...QueryIdentityShape, query: z.literal('assignableUsers') }).strict(),
-  z
-    .object({
-      ...QueryIdentityShape,
-      query: z.literal('checkDetails'),
-      checkRunId: PositiveIntegerSchema.optional(),
-      workflowRunId: PositiveIntegerSchema.optional(),
-      checkName: z.string().min(1).max(256)
-    })
-    .strict()
-])
+export const MobileWebProviderReviewQueryPayloadSchema = buildMobileWebProviderReviewQueryPayload(
+  MobileWebProviderReviewPageScope
+)
+export const MobileWebProviderReviewQueryHostParamsSchema =
+  buildMobileWebProviderReviewQueryPayload(MobileWebProviderReviewHostScope)
 
 const UserSchema = z
   .object({

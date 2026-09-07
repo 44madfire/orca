@@ -4,6 +4,10 @@ import {
   MobileWebWorkspaceIdSchema
 } from './bridge-operation-contract'
 import {
+  MobileWebProviderReviewHostScope,
+  MobileWebProviderReviewPageScope
+} from './provider-review-contract'
+import {
   MobileWebProviderReviewHeadSchema,
   MobileWebProviderReviewProviderSchema
 } from './provider-review-contract'
@@ -23,34 +27,43 @@ const MobileWebProviderReviewDiffIdentityShape = {
   path: MobileWebRelativePathSchema
 } as const
 
+const diffPageFields = {
+  expectedHead: MobileWebProviderReviewHeadSchema,
+  expectedBranch: MobileWebGitRefNameSchema,
+  provider: MobileWebProviderReviewProviderSchema,
+  reviewNumber: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  expectedReviewHead: MobileWebProviderReviewHeadSchema,
+  path: MobileWebRelativePathSchema,
+  offset: z.number().int().min(0).max(MOBILE_WEB_DIFF_MAX_ROWS).default(0),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(MOBILE_WEB_DIFF_PAGE_LIMIT)
+    .default(MOBILE_WEB_DIFF_PAGE_LIMIT),
+  expectedRevision: z.string().refine(isMobileWebSha256).optional(),
+  focusLine: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional()
+} as const
+
+/** Centring on a line rewrites the offset, so it only makes sense on a first, unpinned page. */
+function refineDiffPaging(
+  value: { focusLine?: number; offset: number; expectedRevision?: string },
+  context: z.RefinementCtx
+): void {
+  if (value.focusLine !== undefined && (value.offset !== 0 || value.expectedRevision)) {
+    context.addIssue({ code: 'custom', message: 'focusLine is only valid for an initial page' })
+  }
+}
+
 export const MobileWebProviderReviewDiffPayloadSchema = z
-  .object({
-    workspaceId: MobileWebWorkspaceIdSchema,
-    expectedHead: MobileWebProviderReviewHeadSchema,
-    expectedBranch: MobileWebGitRefNameSchema,
-    provider: MobileWebProviderReviewProviderSchema,
-    reviewNumber: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-    expectedReviewHead: MobileWebProviderReviewHeadSchema,
-    path: MobileWebRelativePathSchema,
-    offset: z.number().int().min(0).max(MOBILE_WEB_DIFF_MAX_ROWS).default(0),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(MOBILE_WEB_DIFF_PAGE_LIMIT)
-      .default(MOBILE_WEB_DIFF_PAGE_LIMIT),
-    expectedRevision: z.string().refine(isMobileWebSha256).optional(),
-    focusLine: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional()
-  })
+  .object({ ...MobileWebProviderReviewPageScope, ...diffPageFields })
   .strict()
-  .superRefine((value, context) => {
-    if (value.focusLine !== undefined && (value.offset !== 0 || value.expectedRevision)) {
-      context.addIssue({
-        code: 'custom',
-        message: 'focusLine is only valid for an initial page'
-      })
-    }
-  })
+  .superRefine(refineDiffPaging)
+
+export const MobileWebProviderReviewDiffHostParamsSchema = z
+  .object({ ...MobileWebProviderReviewHostScope, ...diffPageFields })
+  .strict()
+  .superRefine(refineDiffPaging)
 
 const MobileWebProviderReviewDiffResultIdentityShape = {
   ...MobileWebProviderReviewDiffIdentityShape,

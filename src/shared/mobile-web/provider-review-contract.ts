@@ -26,15 +26,29 @@ export const MobileWebProviderReviewProviderSchema = z.enum([
 
 export const MobileWebProviderReviewHeadSchema = z.string().refine(isMobileWebGitObjectId)
 
-const MobileWebProviderReviewIdentityShape = {
-  workspaceId: MobileWebWorkspaceIdSchema,
+/** Who a review request is addressed to. The page names its own opaque workspace handle; the shell
+ *  replaces it with the host worktree before the desktop sees it, so each payload is built once
+ *  per scope instead of one side pretending to be the other. */
+export const MobileWebProviderReviewPageScope = { workspaceId: MobileWebWorkspaceIdSchema } as const
+export const MobileWebProviderReviewHostScope = {
+  worktree: z.string().min(1).max(4096)
+} as const
+
+const MobileWebProviderReviewRepositoryShape = {
   expectedHead: MobileWebProviderReviewHeadSchema,
   expectedBranch: MobileWebGitRefNameSchema
 } as const
 
-export const MobileWebProviderReviewPayloadSchema = z
-  .object(MobileWebProviderReviewIdentityShape)
-  .strict()
+export function buildMobileWebProviderReviewPayload<T extends z.ZodRawShape>(scope: T) {
+  return z.object({ ...scope, ...MobileWebProviderReviewRepositoryShape }).strict()
+}
+
+export const MobileWebProviderReviewPayloadSchema = buildMobileWebProviderReviewPayload(
+  MobileWebProviderReviewPageScope
+)
+export const MobileWebProviderReviewHostParamsSchema = buildMobileWebProviderReviewPayload(
+  MobileWebProviderReviewHostScope
+)
 
 export const MobileWebProviderReviewCommentSchema = z
   .object({
@@ -190,57 +204,51 @@ export const MobileWebProviderReviewResultSchema = z
   })
   .strict()
 
-const MobileWebProviderReviewMutationBaseShape = {
-  ...MobileWebProviderReviewIdentityShape,
-  provider: MobileWebProviderReviewProviderSchema,
-  reviewNumber: z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
-} as const
+export function buildMobileWebProviderReviewMutationPayload<T extends z.ZodRawShape>(scope: T) {
+  const base = {
+    ...scope,
+    ...MobileWebProviderReviewRepositoryShape,
+    provider: MobileWebProviderReviewProviderSchema,
+    reviewNumber: z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+  } as const
+  const body = z.string().trim().min(1).max(MOBILE_WEB_PROVIDER_COMMENT_BODY_MAX_CHARACTERS)
+  return z.discriminatedUnion('action', [
+    z.object({ ...base, action: z.literal('comment'), body }).strict(),
+    z
+      .object({
+        ...base,
+        action: z.literal('reply'),
+        commentId: z.string().min(1).max(128),
+        threadId: z.string().min(1).max(256),
+        body
+      })
+      .strict(),
+    z
+      .object({
+        ...base,
+        action: z.literal('inlineComment'),
+        expectedReviewHead: MobileWebProviderReviewHeadSchema,
+        path: MobileWebRelativePathSchema,
+        line: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        startLine: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+        body
+      })
+      .strict(),
+    z
+      .object({
+        ...base,
+        action: z.literal('setThreadResolved'),
+        threadId: z.string().min(1).max(256),
+        resolved: z.boolean()
+      })
+      .strict()
+  ])
+}
 
-const MobileWebProviderReviewCommentMutationPayloadSchema = z
-  .object({
-    ...MobileWebProviderReviewMutationBaseShape,
-    action: z.literal('comment'),
-    body: z.string().trim().min(1).max(MOBILE_WEB_PROVIDER_COMMENT_BODY_MAX_CHARACTERS)
-  })
-  .strict()
-
-const MobileWebProviderReviewReplyMutationPayloadSchema = z
-  .object({
-    ...MobileWebProviderReviewMutationBaseShape,
-    action: z.literal('reply'),
-    commentId: z.string().min(1).max(128),
-    threadId: z.string().min(1).max(256),
-    body: z.string().trim().min(1).max(MOBILE_WEB_PROVIDER_COMMENT_BODY_MAX_CHARACTERS)
-  })
-  .strict()
-
-const MobileWebProviderReviewInlineCommentMutationPayloadSchema = z
-  .object({
-    ...MobileWebProviderReviewMutationBaseShape,
-    action: z.literal('inlineComment'),
-    expectedReviewHead: MobileWebProviderReviewHeadSchema,
-    path: MobileWebRelativePathSchema,
-    line: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-    startLine: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
-    body: z.string().trim().min(1).max(MOBILE_WEB_PROVIDER_COMMENT_BODY_MAX_CHARACTERS)
-  })
-  .strict()
-
-const MobileWebProviderReviewThreadMutationPayloadSchema = z
-  .object({
-    ...MobileWebProviderReviewMutationBaseShape,
-    action: z.literal('setThreadResolved'),
-    threadId: z.string().min(1).max(256),
-    resolved: z.boolean()
-  })
-  .strict()
-
-export const MobileWebProviderReviewMutationPayloadSchema = z.discriminatedUnion('action', [
-  MobileWebProviderReviewCommentMutationPayloadSchema,
-  MobileWebProviderReviewReplyMutationPayloadSchema,
-  MobileWebProviderReviewInlineCommentMutationPayloadSchema,
-  MobileWebProviderReviewThreadMutationPayloadSchema
-])
+export const MobileWebProviderReviewMutationPayloadSchema =
+  buildMobileWebProviderReviewMutationPayload(MobileWebProviderReviewPageScope)
+export const MobileWebProviderReviewMutationHostParamsSchema =
+  buildMobileWebProviderReviewMutationPayload(MobileWebProviderReviewHostScope)
 
 const MobileWebProviderReviewMutationResultBaseShape = {
   workspaceId: MobileWebWorkspaceIdSchema,
