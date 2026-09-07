@@ -3,6 +3,7 @@ import {
   MOBILE_WEB_WORKSPACE_LIST_LIMIT,
   MOBILE_WEB_WORKSPACE_SNAPSHOT_LIMIT
 } from '../../../src/shared/mobile-web/bridge-operation-contract'
+import { normalizeExecutionHostId } from '../../../src/shared/execution-host'
 import { mobileWebWorkspacePresentations } from './mobile-web-workspace-presentation'
 import type { HostWorkspaceOperations } from './host-workspace-operations'
 
@@ -17,7 +18,14 @@ export function webHostWorkspaceOperations(client: MobileWebBridgeClient): HostW
     },
     async listRepos() {
       const result = await client.workspaceRepositories()
-      return result.repositories
+      return result.repositories.map((repo) => ({
+        id: repo.id,
+        displayName: repo.displayName,
+        connectionId: repo.connectionId ?? null,
+        executionHostId: normalizeExecutionHostId(repo.executionHostId),
+        ...(repo.badgeColor ? { badgeColor: repo.badgeColor } : {}),
+        repoIcon: repo.repoIcon ?? null
+      }))
     },
     async listWorkspaces(limit) {
       const requested = Math.min(Math.max(0, limit), MOBILE_WEB_WORKSPACE_LIST_LIMIT)

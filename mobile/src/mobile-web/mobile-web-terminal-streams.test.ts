@@ -687,7 +687,7 @@ function createHarness(
   const leaseUnsubscribe = vi.fn()
   const multiplexUnsubscribe = vi.fn()
   const workspaceAuthority = new MobileWebWorkspaceAuthority(() => new Uint8Array(16).fill(9))
-  workspaceAuthority.synchronize([{ workspaceId: HOST_WORKSPACE_ID, repoId: '/secret/repo' }])
+  workspaceAuthority.synchronize([HOST_WORKSPACE_ID])
   const client = {
     sendRequest: vi.fn().mockResolvedValue({
       ok: true,

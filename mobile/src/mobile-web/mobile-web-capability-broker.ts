@@ -247,7 +247,6 @@ export class MobileWebCapabilityBroker {
       browserStreams: this.subscriptions.browser,
       sourceControlBranchCompare: this.authorities.sourceControlBranchCompare,
       speechAuthority: this.speechAuthority,
-      workspaceSubscriptions: this.subscriptions.workspace,
       hostSubscriptions: this.subscriptions.host,
       terminalStreams: this.terminalStreams,
       commitMessageGeneration: this.commitMessageGeneration,

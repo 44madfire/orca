@@ -1,5 +1,4 @@
 import { MobileWebBrowserStreamPayloadSchema } from '../../../src/shared/mobile-web/browser-operation-contract'
-import { MobileWebWorkspaceSubscribePayloadSchema } from '../../../src/shared/mobile-web/bridge-operation-contract'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { MobileWebBridgeCapability } from '../../../src/shared/mobile-web/bridge-operation-registry'
 import { MobileWebSpeechSubscribePayloadSchema } from '../../../src/shared/mobile-web/speech-operation-contract'
@@ -160,7 +159,6 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
     account: (args) => executeMobileWebAccountCapability(args),
     browser: executeBrowser,
     workspace: executeWorkspace,
-    settings: executeWorkspace,
     terminal: executeTerminal,
     file: executeFile,
     provider: executeProvider,
@@ -182,22 +180,15 @@ async function subscribeBrowser(args: Deps, request: SubscriptionRequest): Promi
 }
 
 async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Promise<unknown> {
-  if (request.operation === 'hostSubscribe') {
-    args.hostSubscriptions.start({
-      requestId: request.requestId,
-      subscriptionId: request.subscriptionId,
-      payload: request.payload,
-      client: args.connectedClient(),
-      isActive: args.isRequestActive
-    })
-    return null
+  if (request.operation !== 'hostSubscribe') {
+    throw new MobileWebBrokerError('unsupported_capability')
   }
-  requireSubscribeOperation(request)
-  MobileWebWorkspaceSubscribePayloadSchema.parse(request.payload)
-  args.workspaceSubscriptions.start({
+  args.hostSubscriptions.start({
     requestId: request.requestId,
     subscriptionId: request.subscriptionId,
-    client: args.connectedClient()
+    payload: request.payload,
+    client: args.connectedClient(),
+    isActive: args.isRequestActive
   })
   return null
 }

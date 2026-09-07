@@ -83,13 +83,12 @@ export const MobileWebWorkspaceActivationPayloadSchema = z
   .object({ workspaceId: MobileWebWorkspaceIdSchema })
   .strict()
 
-export const MobileWebWorkspaceActivationResultSchema = z
-  .object({
-    workspaceId: MobileWebWorkspaceIdSchema,
-    activated: z.literal(true),
-    sleepingAgentWake: z.enum(['requested', 'unsupported-headless', 'not-applicable'])
-  })
-  .strict()
+// Read straight off `worktree.activate`, so desktop fields the page has no use for are stripped.
+export const MobileWebWorkspaceActivationResultSchema = z.object({
+  workspaceId: MobileWebWorkspaceIdSchema,
+  activated: z.literal(true),
+  sleepingAgentWake: z.enum(['requested', 'unsupported-headless', 'not-applicable'])
+})
 
 export type MobileWebWorkspaceAgent = z.infer<typeof MobileWebWorkspaceAgentSchema>
 export type MobileWebWorkspaceSnapshotPayload = z.infer<

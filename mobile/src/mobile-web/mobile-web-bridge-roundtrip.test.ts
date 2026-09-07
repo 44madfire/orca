@@ -178,7 +178,7 @@ describe('mobile web bridge round trip', () => {
       workspaces: [
         {
           id: `workspace_0_${'01'.repeat(16)}`,
-          repoId: `repo_1_${'01'.repeat(16)}`,
+          repoId: 'workspace-repo:workspace-1',
           workspaceKind: 'git',
           name: 'Primary workspace',
           repo: 'repo',
@@ -226,11 +226,11 @@ describe('mobile web bridge round trip', () => {
       activated: true,
       sleepingAgentWake: 'not-applicable'
     })
-    expect(sendRequest).toHaveBeenCalledWith('worktree.activate', {
-      worktree: 'id:workspace-1',
-      notifyClients: false,
-      navigation: 'caller'
-    })
+    expect(sendRequest).toHaveBeenCalledWith(
+      'worktree.activate',
+      { worktree: 'id:workspace-1', notifyClients: false, navigation: 'caller' },
+      expect.anything()
+    )
 
     await expect(client.sessionSnapshot({ workspaceId: OPAQUE_WORKSPACE_ID })).resolves.toEqual({
       workspaceId: OPAQUE_WORKSPACE_ID,

@@ -6,7 +6,6 @@ import { MobileWebAccountSubscriptions } from './mobile-web-account-subscription
 import { MobileWebCapabilitySubscriptions } from './mobile-web-capability-subscriptions'
 import { MobileWebBrokerMessageSender } from './mobile-web-broker-message-sender'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
-import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
 import {
   createMobileWebBrokerFixture,
   MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT,
@@ -86,7 +85,13 @@ describe('subscription ledger teardown', () => {
     })
     const client = stubClient(() => {})
     subscriptions.account.start({ requestId: 'r1', subscriptionId: 'account-1', client })
-    subscriptions.workspace.start({ requestId: 'r2', subscriptionId: 'workspace-1', client })
+    subscriptions.host.start({
+      requestId: 'r2',
+      subscriptionId: 'host-1',
+      payload: { method: 'mobileWeb.workspace.subscribe', params: {} },
+      client,
+      isActive: () => true
+    })
 
     subscriptions.closeAll({ code: 'unavailable', retryable: true })
 
@@ -95,12 +100,12 @@ describe('subscription ledger teardown', () => {
       'subscriptionClosed'
     ])
     expect(subscriptions.cancel('account-1')).toBeNull()
-    expect(subscriptions.cancel('workspace-1')).toBeNull()
+    expect(subscriptions.cancel('host-1')).toBeNull()
   })
 
   it('keeps a bare ledger cancel silent so a page-driven cancel gets no closure echo', () => {
     const postClosed = vi.fn()
-    const ledger = new MobileWebWorkspaceSubscriptions({
+    const ledger = new MobileWebAccountSubscriptions({
       isActive: () => true,
       postEvent: async () => {},
       postClosed
@@ -120,7 +125,7 @@ describe('broker client lifecycle', () => {
   it('closes live subscriptions toward the page when the RPC client is replaced', async () => {
     const client = stubClient(() => {})
     const { broker, messages } = createMobileWebBrokerFixture({ getClient: () => client })
-    await broker.handle(workspaceSubscribe())
+    await broker.handle(accountSubscribe())
     messages.length = 0
 
     broker.replaceClient(null)
@@ -137,7 +142,7 @@ describe('broker client lifecycle', () => {
   it('stays silent toward the page when the broker itself is disposed', async () => {
     const client = stubClient(() => {})
     const { broker, messages } = createMobileWebBrokerFixture({ getClient: () => client })
-    await broker.handle(workspaceSubscribe())
+    await broker.handle(accountSubscribe())
     messages.length = 0
 
     broker.dispose()
@@ -146,11 +151,11 @@ describe('broker client lifecycle', () => {
   })
 })
 
-function workspaceSubscribe(): ReturnType<typeof mobileWebBridgeRequestMessage> {
+function accountSubscribe(): ReturnType<typeof mobileWebBridgeRequestMessage> {
   return mobileWebBridgeRequestMessage({
     requestId: bridgeId(1),
     subscriptionId: bridgeId(2),
-    capability: 'workspace',
+    capability: 'account',
     operation: 'subscribe',
     payload: {}
   })

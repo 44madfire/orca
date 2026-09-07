@@ -1,5 +1,6 @@
 import { MOBILE_WEB_SESSION_METHODS } from './mobile-web-session'
 import { MOBILE_WEB_SESSION_STREAM_METHODS } from './mobile-web-session-stream'
+import { MOBILE_WEB_WORKSPACE_STREAM_METHODS } from './mobile-web-workspace-stream'
 import { MOBILE_WEB_SESSION_CAPABILITIES_METHOD } from './mobile-web-session-capabilities'
 import { MOBILE_WEB_SESSION_QUICK_COMMAND_METHODS } from './mobile-web-session-quick-commands'
 import { MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD } from './mobile-web-session-browser-create'
@@ -123,6 +124,7 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS,
   ...MOBILE_WEB_SESSION_METHODS,
   ...MOBILE_WEB_SESSION_STREAM_METHODS,
+  ...MOBILE_WEB_WORKSPACE_STREAM_METHODS,
   MOBILE_WEB_SESSION_CAPABILITIES_METHOD,
   ...MOBILE_WEB_SESSION_QUICK_COMMAND_METHODS,
   MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD,

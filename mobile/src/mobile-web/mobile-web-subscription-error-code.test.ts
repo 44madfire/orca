@@ -15,7 +15,6 @@ import {
   createMobileWebBrokerFixture,
   mobileWebBridgeRequestMessage
 } from './mobile-web-bridge-roundtrip-fixture'
-import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 const randomBytes = (length: number): Uint8Array => new Uint8Array(length).fill(4)
@@ -30,13 +29,12 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
   const isActive = (): boolean => true
   const client = stubClient()
   const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
-  workspaceAuthority.synchronize([{ workspaceId: 'host-workspace', repoId: 'repo-1' }])
+  workspaceAuthority.synchronize(['host-workspace'])
   const pageWorkspaceId = workspaceAuthority.pageWorkspaceId('host-workspace')
   const pageId = 'raw-page'
 
   const postClosed = (): void => {}
   const account = new MobileWebAccountSubscriptions({ isActive, postEvent, postClosed })
-  const workspace = new MobileWebWorkspaceSubscriptions({ isActive, postEvent, postClosed })
   const browser = new MobileWebBrowserStreams({
     isActive,
     workspaceAuthority,
@@ -47,10 +45,6 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
     {
       name: 'account',
       start: (subscriptionId) => account.start({ requestId: 'r', subscriptionId, client })
-    },
-    {
-      name: 'workspace',
-      start: (subscriptionId) => workspace.start({ requestId: 'r', subscriptionId, client })
     },
     {
       name: 'browser',

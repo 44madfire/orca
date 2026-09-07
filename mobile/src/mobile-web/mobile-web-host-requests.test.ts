@@ -12,7 +12,7 @@ const METHOD = 'future.domainRead'
 
 function fixture() {
   const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length).fill(1))
-  authority.synchronize([{ workspaceId: 'host-workspace', repoId: 'host-repo' }])
+  authority.synchronize(['host-workspace'])
   const sendRequest = vi.fn<RpcClient['sendRequest']>()
   const args = {
     authority,

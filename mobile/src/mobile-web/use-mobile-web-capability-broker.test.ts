@@ -28,7 +28,7 @@ describe('useMobileWebCapabilityBroker', () => {
     renderer = null
   })
 
-  it('caps a single page at one concurrent workspace subscription', async () => {
+  it('caps a single page at one concurrent account subscription', async () => {
     await mount(0)
 
     await handle(subscribeRequest('A', 'Z'))
@@ -170,7 +170,7 @@ function subscribeRequest(
     mode: 'subscription',
     requestId: requestId.repeat(22),
     subscriptionId: subscriptionId.repeat(22),
-    capability: 'workspace',
+    capability: 'account',
     operation: 'subscribe',
     payload: {}
   }

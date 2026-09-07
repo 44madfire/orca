@@ -5,7 +5,6 @@ import { MobileWebAccountSubscriptions } from './mobile-web-account-subscription
 import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import { MobileWebSpeechSubscriptions } from './mobile-web-speech-subscriptions'
 import type { MobileWebSpeechEvent } from '../../../src/shared/mobile-web/speech-operation-contract'
-import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 const SUBSCRIPTION_ID = 'subscription-1'
@@ -56,7 +55,7 @@ function hostClient(): { client: RpcClient; emit: (value: unknown) => void } {
 
 function pageWorkspace(): { authority: MobileWebWorkspaceAuthority; pageWorkspaceId: string } {
   const authority = new MobileWebWorkspaceAuthority(randomBytes)
-  authority.synchronize([{ workspaceId: 'workspace-1', repoId: 'repo-1' }])
+  authority.synchronize(['workspace-1'])
   return { authority, pageWorkspaceId: authority.pageWorkspaceId('workspace-1') }
 }
 
@@ -69,21 +68,6 @@ const LEDGER_CASES: LedgerCase[] = [
     open: async (posts) => {
       const host = hostClient()
       new MobileWebAccountSubscriptions(posts).start({
-        requestId: 'request-1',
-        subscriptionId: SUBSCRIPTION_ID,
-        client: host.client
-      })
-      return host.emit
-    }
-  },
-  {
-    name: 'workspace',
-    invalidCode: 'invalid_message',
-    invalid: { type: 'bogus' },
-    valid: { type: 'end' },
-    open: async (posts) => {
-      const host = hostClient()
-      new MobileWebWorkspaceSubscriptions(posts).start({
         requestId: 'request-1',
         subscriptionId: SUBSCRIPTION_ID,
         client: host.client

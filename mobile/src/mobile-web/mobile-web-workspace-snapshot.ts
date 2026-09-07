@@ -170,18 +170,7 @@ export function mobileWebWorkspaceSnapshotPage(
       value.worktreeId.length <= 512
   )
   const invalidRows = rawWorkspaces.length !== result.worktrees.length
-  const hostRepoIdByWorkspaceId = new Map(
-    rawWorkspaces.map((value) => [
-      value.worktreeId,
-      boundedText(value.repoId, 512, `workspace-repo:${value.worktreeId}`)
-    ])
-  )
-  authority.synchronize(
-    rawWorkspaces.map((value) => ({
-      workspaceId: value.worktreeId,
-      repoId: hostRepoIdByWorkspaceId.get(value.worktreeId)!
-    }))
-  )
+  authority.synchronize(rawWorkspaces.map((value) => value.worktreeId))
   const byHostId = new Map(rawWorkspaces.map((value) => [value.worktreeId, value]))
   const parentByWorkspaceId = new Map(
     rawWorkspaces.map((value) => [value.worktreeId, validParentWorkspaceId(value, byHostId)])
@@ -206,7 +195,7 @@ export function mobileWebWorkspaceSnapshotPage(
       : parentByWorkspaceId.get(value.worktreeId)
     const workspace: MobileWebWorkspaceSummary = {
       id,
-      repoId: authority.pageRepoId(hostRepoIdByWorkspaceId.get(value.worktreeId)!),
+      repoId: boundedText(value.repoId, 512, `workspace-repo:${value.worktreeId}`),
       workspaceKind: value.workspaceKind === 'folder-workspace' ? 'folder-workspace' : 'git',
       name: boundedText(value.displayName, 160, 'Workspace'),
       repo: displayRepo(value.repo),

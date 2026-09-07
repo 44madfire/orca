@@ -25,15 +25,10 @@ export function mobileWebHostRepoIdFromHost(value: string): MobileWebHostRepoId 
   return value as MobileWebHostRepoId
 }
 
-export type MobileWebHostWorkspaceBinding = {
-  workspaceId: string
-  repoId: string
-}
-
 export class MobileWebWorkspaceAuthority {
   private readonly pageWorkspaceIdByHostId = new Map<string, string>()
   private readonly hostWorkspaceIdByPageId = new Map<string, string>()
-  private hostRepoIdByHostWorkspaceId = new Map<string, string>()
+  private readonly hostRepoIdByHostWorkspaceId = new Map<string, string>()
   private readonly pageRepoIdByHostId = new Map<string, string>()
   private readonly hostRepoIdByPageId = new Map<string, string>()
   private catalogRepoIds = new Set<string>()
@@ -44,10 +39,10 @@ export class MobileWebWorkspaceAuthority {
 
   constructor(private readonly randomBytes: (length: number) => Uint8Array) {}
 
-  synchronize(bindings: readonly MobileWebHostWorkspaceBinding[]): void {
-    const workspaceIds = new Set(bindings.map((binding) => binding.workspaceId))
+  synchronize(hostWorkspaceIds: readonly string[]): void {
+    const present = new Set(hostWorkspaceIds)
     for (const hostWorkspaceId of this.pageWorkspaceIdByHostId.keys()) {
-      if (!workspaceIds.has(hostWorkspaceId)) {
+      if (!present.has(hostWorkspaceId)) {
         const pageWorkspaceId = this.pageWorkspaceIdByHostId.get(hostWorkspaceId)
         this.pageWorkspaceIdByHostId.delete(hostWorkspaceId)
         if (pageWorkspaceId) {
@@ -55,12 +50,9 @@ export class MobileWebWorkspaceAuthority {
         }
       }
     }
-    this.hostRepoIdByHostWorkspaceId = new Map(
-      bindings.map((binding) => [binding.workspaceId, binding.repoId])
-    )
-    for (const binding of bindings) {
-      this.rememberWorkspace(binding.workspaceId)
-      this.rememberRepo(binding.repoId)
+    this.hostRepoIdByHostWorkspaceId.clear()
+    for (const hostWorkspaceId of hostWorkspaceIds) {
+      this.rememberWorkspace(hostWorkspaceId)
     }
     this.revokeUnreferencedRepos()
   }

@@ -7,13 +7,11 @@ import type {
 } from './mobile-web-subscription-ledger'
 import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
-import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
 
 export class MobileWebCapabilitySubscriptions {
   readonly host: MobileWebHostSubscriptions
   readonly account: MobileWebAccountSubscriptions
   readonly browser: MobileWebBrowserStreams
-  readonly workspace: MobileWebWorkspaceSubscriptions
   private readonly ledgers: MobileWebSubscriptionLedgerHandle[]
 
   constructor(
@@ -35,8 +33,7 @@ export class MobileWebCapabilitySubscriptions {
       ...shared,
       workspaceAuthority: args.workspaceAuthority
     })
-    this.workspace = new MobileWebWorkspaceSubscriptions(shared)
-    this.ledgers = [this.host, this.account, this.browser, this.workspace]
+    this.ledgers = [this.host, this.account, this.browser]
   }
 
   countForOperation(operationKey: string): number {

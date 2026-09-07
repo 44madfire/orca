@@ -99,7 +99,7 @@ function authorities(): {
 } {
   const randomBytes = (length: number): Uint8Array => new Uint8Array(length).fill(3)
   const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
-  workspaceAuthority.synchronize([{ workspaceId: 'host-workspace', repoId: 'repo-1' }])
+  workspaceAuthority.synchronize(['host-workspace'])
   return {
     workspaceAuthority,
     workspaceId: workspaceAuthority.pageWorkspaceId('host-workspace'),

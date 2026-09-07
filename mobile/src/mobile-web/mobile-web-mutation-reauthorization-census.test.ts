@@ -42,7 +42,6 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
 
 // Device-only mutations and handles consumed in one awaited call have no reauthorization window.
 const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
-  'workspace.activate',
   'browser.back',
   'browser.dialog',
   'browser.forward',
@@ -68,7 +67,6 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'nativeChat.pasteImages',
   'nativeChat.pendingWrite',
   'nativeChat.releaseImages',
-  'settings.update',
   'sourceControl.cancelCommitMessageGeneration',
   'sourceControl.generateCommitMessage',
   'task.addLinearIssueComment',
@@ -85,9 +83,7 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'terminal.clipboardPaste',
   'workspace.creationPersistTrust',
   'workspace.creationSaveSparsePreset',
-  'workspace.creationSshConnect',
-  'workspace.remove',
-  'workspace.update'
+  'workspace.creationSshConnect'
 ]
 
 function shellSources(): Map<string, string> {
@@ -167,7 +163,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations()).toHaveLength(113)
+    expect(mutations()).toHaveLength(109)
   })
 
   it('exempts only registered mutations', () => {
@@ -185,6 +181,6 @@ describe('mobile web mutation reauthorization census', () => {
     const capabilities = Object.keys(MOBILE_WEB_BRIDGE_OPERATIONS) as MobileWebBridgeCapability[]
 
     expect([...kinds].sort()).toEqual(['mutation', 'read', 'subscription'])
-    expect(capabilities).toHaveLength(14)
+    expect(capabilities).toHaveLength(13)
   })
 })

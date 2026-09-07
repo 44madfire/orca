@@ -9,11 +9,6 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     hostSubscribe: 'subscription',
     hostRequest: 'mutation',
     snapshot: 'read',
-    repositories: 'read',
-    subscribe: 'subscription',
-    activate: 'mutation',
-    update: 'mutation',
-    remove: 'mutation',
     creationRepositories: 'read',
     creationRetiredNames: 'read',
     creationSettings: 'read',
@@ -188,10 +183,6 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     snapshot: 'read',
     preview: 'read',
     resume: 'mutation'
-  },
-  settings: {
-    snapshot: 'read',
-    update: 'mutation'
   },
   speech: {
     subscribe: 'subscription',

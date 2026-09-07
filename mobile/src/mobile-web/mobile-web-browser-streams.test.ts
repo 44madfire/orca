@@ -11,7 +11,7 @@ describe('mobile web browser streams', () => {
   it('chunks frames below the bridge limit and cleans up', async () => {
     const randomBytes = (length: number): Uint8Array => new Uint8Array(length).fill(4)
     const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
-    workspaceAuthority.synchronize([{ workspaceId: 'host-workspace', repoId: 'repo-1' }])
+    workspaceAuthority.synchronize(['host-workspace'])
     const workspaceId = workspaceAuthority.pageWorkspaceId('host-workspace')
     const pageId = 'raw-page'
     const postEvent = vi.fn(async () => {})

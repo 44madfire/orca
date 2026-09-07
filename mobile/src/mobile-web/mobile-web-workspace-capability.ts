@@ -21,19 +21,14 @@ export async function executeWorkspace(
       isActive: args.isRequestActive
     })
   }
-  if (request.capability !== 'workspace' && request.capability !== 'settings') {
+  if (request.capability !== 'workspace') {
     throw new MobileWebBrokerError('unsupported_capability')
   }
-  const result = await executeMobileWebWorkspaceOperation({
-    capability: request.capability,
+  return executeMobileWebWorkspaceOperation({
     operation: request.operation,
     payload: request.payload,
     client: args.connectedClient(),
     authority: args.workspaceAuthority,
     snapshots: args.workspaceSnapshots
   })
-  if (request.capability === 'workspace' && request.operation === 'activate') {
-    args.terminalArtifactAuthority.clear()
-  }
-  return result
 }

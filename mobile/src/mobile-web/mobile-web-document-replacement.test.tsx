@@ -264,7 +264,7 @@ function subscribeRequest(
     mode: 'subscription',
     requestId: requestId.repeat(22),
     subscriptionId: subscriptionId.repeat(22),
-    capability: 'workspace',
+    capability: 'account',
     operation: 'subscribe',
     payload: {}
   }

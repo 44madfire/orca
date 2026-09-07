@@ -17,16 +17,7 @@ export const MOBILE_WEB_PRODUCTION_GRANTS = [
   ...capabilityGrants('workspace', {
     hostSubscribe: grantLimits(600 * 1024, 1024, 8, 8, 2),
     hostRequest: grantLimits(600 * 1024, 600 * 1024, 16, 32, 4),
-    snapshot: grantLimits(1 * 1024, 128 * 1024, 2, 4, 1),
-    repositories: grantLimits(256, 128 * 1024, 2, 4, 1),
-    subscribe: grantLimits(256, 1 * 1024, 1, 4, 1),
-    activate: grantLimits(1 * 1024, 1 * 1024, 1, 6, 2),
-    update: grantLimits(1 * 1024, 1 * 1024, 2, 12, 4),
-    remove: grantLimits(1 * 1024, 1 * 1024, 1, 4, 0.5)
-  }),
-  ...capabilityGrants('settings', {
-    snapshot: grantLimits(256, 32 * 1024, 2, 4, 1),
-    update: grantLimits(32 * 1024, 256, 1, 8, 2)
+    snapshot: grantLimits(1 * 1024, 128 * 1024, 2, 4, 1)
   }),
   ...capabilityGrants('account', {
     snapshot: grantLimits(256, 96 * 1024, 2, 6, 1)

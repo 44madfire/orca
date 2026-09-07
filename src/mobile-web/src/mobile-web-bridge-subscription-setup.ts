@@ -11,11 +11,6 @@ import {
   MobileWebAccountSubscribePayloadSchema,
   type MobileWebAccountEvent
 } from '../../shared/mobile-web/account-operation-contract'
-import {
-  MobileWebWorkspaceChangeSchema,
-  MobileWebWorkspaceSubscribePayloadSchema,
-  type MobileWebWorkspaceChange
-} from '../../shared/mobile-web/bridge-operation-contract'
 import type { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import {
   MobileWebBrowserEventSchema,
@@ -78,20 +73,6 @@ export function browserSubscriptionSetup(
     payloadSchema: MobileWebBrowserStreamPayloadSchema,
     eventSchema: MobileWebBrowserEventSchema,
     onEvent: (value) => onEvent(value as MobileWebBrowserEvent),
-    onError
-  }
-}
-
-export function workspaceSubscriptionSetup(
-  onEvent: (event: MobileWebWorkspaceChange) => void,
-  onError: (error: MobileWebBridgeClientError) => void
-): MobileWebBridgeSubscriptionSetup {
-  return {
-    capability: 'workspace',
-    payload: {},
-    payloadSchema: MobileWebWorkspaceSubscribePayloadSchema,
-    eventSchema: MobileWebWorkspaceChangeSchema,
-    onEvent: (value) => onEvent(value as MobileWebWorkspaceChange),
     onError
   }
 }

@@ -181,15 +181,11 @@ describe('mobile web cross-workspace mutation races', () => {
 
 function raceHarness() {
   const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length).fill(7))
-  authority.synchronize([
-    { workspaceId: HOST_WORKSPACE_A, repoId: 'repo-a' },
-    { workspaceId: HOST_WORKSPACE_B, repoId: 'repo-b' }
-  ])
+  authority.synchronize([HOST_WORKSPACE_A, HOST_WORKSPACE_B])
   return {
     authority,
     pageWorkspaceA: authority.pageWorkspaceId(HOST_WORKSPACE_A),
-    removeWorkspaceA: () =>
-      authority.synchronize([{ workspaceId: HOST_WORKSPACE_B, repoId: 'repo-b' }])
+    removeWorkspaceA: () => authority.synchronize([HOST_WORKSPACE_B])
   }
 }
 

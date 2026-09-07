@@ -49,7 +49,7 @@ describe('mobile web capability dispatch census', () => {
     })
 
     expect(unresolved.map(({ capability, operation }) => `${capability}.${operation}`)).toEqual([])
-    expect(registeredOperations()).toHaveLength(199)
+    expect(registeredOperations()).toHaveLength(192)
   })
 
   it('carries a dispatch arm for exactly the capabilities that own operations of that mode', () => {
@@ -57,9 +57,5 @@ describe('mobile web capability dispatch census', () => {
     expect(Object.keys(MOBILE_WEB_SUBSCRIPTION_CAPABILITY_ARMS).sort()).toEqual(
       capabilitiesOwning('subscription')
     )
-  })
-
-  it('routes workspace and settings one-shot requests through the same adapter', () => {
-    expect(MOBILE_WEB_ONCE_CAPABILITY_ARMS.settings).toBe(MOBILE_WEB_ONCE_CAPABILITY_ARMS.workspace)
   })
 })

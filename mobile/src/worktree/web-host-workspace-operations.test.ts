@@ -8,7 +8,14 @@ describe('webHostWorkspaceOperations', () => {
     const operations = webHostWorkspaceOperations(client as unknown as MobileWebBridgeClient)
 
     await expect(operations.listRepos()).resolves.toEqual([
-      { id: 'repo-page-1', displayName: 'Orca', badgeColor: '#737373' }
+      {
+        id: 'repo-page-1',
+        displayName: 'Orca',
+        badgeColor: '#737373',
+        connectionId: null,
+        executionHostId: null,
+        repoIcon: null
+      }
     ])
     await expect(operations.listWorkspaces(10_000)).resolves.toEqual([
       expect.objectContaining({

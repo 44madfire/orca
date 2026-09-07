@@ -18,7 +18,6 @@ import type { MobileWebTerminalArtifactAuthority } from './mobile-web-terminal-a
 import type { MobileWebTerminalStreams } from './mobile-web-terminal-streams'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 import type { MobileWebWorkspaceSnapshotPager } from './mobile-web-workspace-snapshot-pager'
-import type { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
 
 type PageRequest = Extract<MobileWebBridgePageMessage, { type: 'request' }>
 
@@ -36,7 +35,6 @@ export type MobileWebCapabilityExecutionDependencies = {
   browserStreams: MobileWebBrowserStreams
   sourceControlBranchCompare: MobileWebSourceControlBranchComparePager
   speechAuthority: MobileWebSpeechAuthority
-  workspaceSubscriptions: MobileWebWorkspaceSubscriptions
   terminalStreams: MobileWebTerminalStreams
   commitMessageGeneration: MobileWebCommitMessageGeneration
   terminalArtifactAuthority: MobileWebTerminalArtifactAuthority

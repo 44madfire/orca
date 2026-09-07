@@ -1,4 +1,5 @@
 import { subscribeHostSession } from './mobile-web-session-host-subscription'
+import { subscribeMobileWebHostWorkspace } from './mobile-web-host-workspace-subscription'
 import { hostSubscriptionSetup } from './mobile-web-host-subscription-setup'
 import type {
   MobileWebBridgeCapability,
@@ -21,7 +22,6 @@ import {
   terminalSubscriptionSetup,
   browserSubscriptionSetup,
   speechSubscriptionSetup,
-  workspaceSubscriptionSetup,
   type MobileWebBridgeSubscriptionSetup
 } from './mobile-web-bridge-subscription-setup'
 import { mobileWebSubscriptionSetupError } from './mobile-web-subscription-setup-error'
@@ -74,7 +74,7 @@ export class MobileWebBridgeSubscriptionClient {
     onEvent: (event: MobileWebWorkspaceChange) => void,
     onError: (error: MobileWebBridgeClientError) => void
   ): MobileWebBridgeSubscription {
-    return this.subscribeWith(workspaceSubscriptionSetup(onEvent, onError))
+    return subscribeMobileWebHostWorkspace(this, onEvent, onError)
   }
 
   subscribeAccount(...args: Parameters<typeof accountSubscriptionSetup>) {

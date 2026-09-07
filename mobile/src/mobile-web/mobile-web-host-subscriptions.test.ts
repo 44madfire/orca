@@ -6,7 +6,7 @@ import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 const METHOD = 'future.feed.subscribe'
 function fixture() {
   const authority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length))
-  authority.synchronize([{ workspaceId: 'host-workspace', repoId: 'host-repo' }])
+  authority.synchronize(['host-workspace'])
   const postEvent = vi.fn().mockResolvedValue(undefined)
   const postClosed = vi.fn()
   const unsubscribe = vi.fn()
