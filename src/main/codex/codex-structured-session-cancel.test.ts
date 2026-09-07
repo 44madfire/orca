@@ -96,6 +96,8 @@ async function acquired(
     readProcessStartTime: async () => 1_700_000_000_000,
     captureTurnProcesses: async () => ({ platform: 'win32', identities: new Map() }),
     terminateTurnProcesses: async () => true,
+    // No translator here, so no echo ever arrives; keep the fallback grace short.
+    dispatchEchoAckTimeoutMs: 25,
     ...processControl
   })
   await adapter.acquire({ identity: identity(), fence: 7, spawnToken: 'spawn-9' })

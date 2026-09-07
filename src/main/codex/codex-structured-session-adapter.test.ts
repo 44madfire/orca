@@ -124,6 +124,9 @@ function adapterFor(
     terminateTurnProcesses: async () => true,
     now: () => 1_700_000_000_500,
     mintAcquisitionGeneration: () => `generation-${++acquisitionGeneration}`,
+    // Most tests run without a translator, so no echo ever arrives; keep the
+    // fresh-turn fallback grace short instead of the production 2.5s.
+    dispatchEchoAckTimeoutMs: 25,
     ...processControl
   })
 }
@@ -466,6 +469,67 @@ describe('CodexStructuredSessionAdapter.dispatch', () => {
     })
   })
 
+  it('adopts the ordinal Codex echoes for a send coalesced into the running turn', async () => {
+    const codex = fakeCodex()
+    const adapter = adapterFor(codex)
+    const sink = { appendItem: () => {}, appendTombstone: () => {}, publish: () => {} }
+    await adapter.acquire({
+      identity: identityFor('session-1'),
+      fence: 7,
+      spawnToken: 'spawn-9',
+      events: sink
+    })
+    let sends = 0
+    codex.routes['turn/start'] = (params) => {
+      const clientId = params?.clientUserMessageId ?? null
+      const notify = codex.connections[0].handlers.onNotification
+      if (++sends === 1) {
+        notify?.('turn/started', { threadId: THREAD_ID, turn: { id: 'turn-1' } })
+        notify?.('item/started', {
+          threadId: THREAD_ID,
+          turnId: 'turn-1',
+          item: { type: 'userMessage', id: 'item-user-a', clientId }
+        })
+      } else {
+        // Coalesced: the running turn answers, no second `turn/started`, and
+        // the echo lands after the agent reply — message ordinal 2, not 0.
+        notify?.('item/started', {
+          threadId: THREAD_ID,
+          turnId: 'turn-1',
+          item: { type: 'agentMessage', id: 'item-reply', text: 'working on it' }
+        })
+        notify?.('item/started', {
+          threadId: THREAD_ID,
+          turnId: 'turn-1',
+          item: { type: 'userMessage', id: 'item-user-b', clientId }
+        })
+      }
+      return { turn: { id: 'turn-1' } }
+    }
+
+    const first = await adapter.dispatch({
+      sessionId: 'session-1',
+      clientMessageId: 'client-a',
+      body: USER_MESSAGE,
+      fence: 7
+    })
+    const second = await adapter.dispatch({
+      sessionId: 'session-1',
+      clientMessageId: 'client-b',
+      body: USER_MESSAGE,
+      fence: 7
+    })
+
+    expect(first).toEqual({
+      state: 'accepted',
+      providerIdentity: { provider: 'codex', threadId: THREAD_ID, turnId: 'turn-1', ordinal: 0 }
+    })
+    expect(second).toEqual({
+      state: 'accepted',
+      providerIdentity: { provider: 'codex', threadId: THREAD_ID, turnId: 'turn-1', ordinal: 2 }
+    })
+  })
+
   it('accepts a turn named only by the notification that raced the ack', async () => {
     const codex = fakeCodex()
     const events: CodexStructuredSessionEvent[] = []
@@ -534,7 +598,8 @@ describe('CodexStructuredSessionAdapter.dispatch', () => {
         body: USER_MESSAGE,
         fence: 7
       })
-      await vi.advanceTimersByTimeAsync(10_000)
+      // 10s turn-id wait, then the full echo window before settling unknown.
+      await vi.advanceTimersByTimeAsync(40_000)
 
       expect(await dispatching).toEqual({
         state: 'unknown',

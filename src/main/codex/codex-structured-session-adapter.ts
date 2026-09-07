@@ -35,7 +35,8 @@ import {
 import {
   deliverCodexNotification,
   deliverCodexServerRequest,
-  deliverCodexUnhandledFrame
+  deliverCodexUnhandledFrame,
+  trackCodexActiveTurn
 } from './codex-structured-provider-events'
 import { CodexStructuredTurnCancellation } from './codex-structured-turn-cancellation'
 import { createCodexStructuredNotificationRetry } from './codex-structured-notification-retry'
@@ -119,6 +120,8 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     method: string,
     params: unknown
   ): CodexJournalTranslationAdmission {
+    // Before the cancellation branch, which may consume the frame outright.
+    trackCodexActiveTurn(session, method, params)
     if (this.turnCancellation.handleNotification(sessionId, session, method, params)) {
       return { accepted: true }
     }
@@ -178,7 +181,12 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
   }): Promise<AgentSessionDispatchOutcome> {
     const session = this.session(input.sessionId)
     await this.turnCancellation.captureBaseline(session)
-    return dispatchCodexTurn(session, input, this.deps.requestTimeoutMs)
+    return dispatchCodexTurn(
+      session,
+      input,
+      this.deps.requestTimeoutMs,
+      this.deps.dispatchEchoAckTimeoutMs
+    )
   }
 
   async cancelTurn(input: {

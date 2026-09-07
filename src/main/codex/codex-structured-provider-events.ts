@@ -9,6 +9,24 @@ type EmitCodexEvent = (
   event: CodexStructuredSessionEvent
 ) => CodexJournalTranslationAdmission
 
+/** Wire truth, kept regardless of journal admission or cancellation consuming
+ *  the frame: dispatch classifies a coalesced re-send against this set. */
+export function trackCodexActiveTurn(session: CodexSession, method: string, params: unknown): void {
+  const threadId = readCodexThreadId(params) ?? session.threadId
+  if (threadId !== session.threadId) {
+    return
+  }
+  const turnId = readCodexTurnId(params)
+  if (!turnId) {
+    return
+  }
+  if (method === 'turn/started') {
+    session.activeTurnIds.add(turnId)
+  } else if (method === 'turn/completed') {
+    session.activeTurnIds.delete(turnId)
+  }
+}
+
 export function deliverCodexNotification(
   sessionId: string,
   session: CodexSession | undefined,
