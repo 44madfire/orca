@@ -109,6 +109,7 @@ export class OrcaRuntimeWithSerializeHeadlessTerminalBuffer extends OrcaRuntimeW
   // still awaiting their first PTY (ptyId null) may adopt it, which preserves
   // the mobile pre-spawn subscribe flow.
   resolveLiveLeafForHandle(handle: string): { ptyId: string | null } | null {
+    this.getLivePtyForHandle(handle)
     const record = this.handles.get(handle)
     if (!record) {
       return null
