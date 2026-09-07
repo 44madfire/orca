@@ -244,3 +244,123 @@ describe('legacy shared home gets the same home-local rewrite (STA-6706)', () =>
     expect(written).not.toContain(`${systemHome()}/${bundled}`)
   })
 })
+
+// The retired home has no other repairer, so its mode guarantees need holding
+// here or nothing holds them.
+describe.skipIf(process.platform === 'win32')('legacy shared home file mode (STA-6706)', () => {
+  const legacyHome = (): string => join(userDataDir, 'legacy-shared-home')
+  const legacyConfig = (): string => join(legacyHome(), 'config.toml')
+  const syncLegacy = (): void =>
+    syncSystemConfigIntoLegacySharedCodexHome({
+      runtimeHomePath: legacyHome(),
+      systemHomePath: systemHome()
+    })
+
+  beforeEach(() => mkdirSync(legacyHome(), { recursive: true }))
+
+  it('writes a fresh legacy config owner-only', () => {
+    syncLegacy()
+
+    expect(modeOf(legacyConfig())).toBe('600')
+  })
+
+  it('repairs a loose primary and its identical-bytes backup', () => {
+    syncLegacy()
+    const bytes = readFileSync(legacyConfig(), 'utf-8')
+    writeFileSync(`${legacyConfig()}.bak`, bytes, 'utf-8')
+    chmodSync(legacyConfig(), 0o644)
+    chmodSync(`${legacyConfig()}.bak`, 0o644)
+
+    // Identical bytes means no rewrite, so only the repair pass can fix these.
+    syncLegacy()
+
+    expect(modeOf(legacyConfig())).toBe('600')
+    expect(modeOf(`${legacyConfig()}.bak`)).toBe('600')
+  })
+
+  it.each([
+    ['an absent source', null],
+    ['a 0-byte cloud-synced source', '']
+  ])('still repairs when the mirror cannot run: %s', (_case, source) => {
+    syncLegacy()
+    chmodSync(legacyConfig(), 0o644)
+    writeFileSync(`${legacyConfig()}.bak`, 'model = "x"\n', 'utf-8')
+    chmodSync(`${legacyConfig()}.bak`, 0o644)
+    if (source === null) {
+      rmSync(systemConfigPath())
+    } else {
+      writeFileSync(systemConfigPath(), source, 'utf-8')
+    }
+
+    syncLegacy()
+
+    // The mirror returns early here; the repair must not be behind that return.
+    expect(modeOf(legacyConfig())).toBe('600')
+    expect(modeOf(`${legacyConfig()}.bak`)).toBe('600')
+  })
+})
+
+// The conditional rewrite can only ever land on a pass where the runtime home
+// already has the bundled directory — which is never the first pass, because
+// Codex materialises it. So the merge branch is the only path by which this
+// fix reaches a user, and it is the one that most needs holding.
+describe('the merge branch carries the home-local rewrite (STA-6706)', () => {
+  const BUNDLED = '.tmp/bundled-marketplaces/openai-bundled'
+  const marketplaceConfig = (): string =>
+    [
+      'model = "gpt-5"',
+      '',
+      '[marketplaces.openai-bundled]',
+      `source = "${systemHome()}/${BUNDLED}"`,
+      ''
+    ].join('\n')
+
+  it('re-roots on a later managed pass, not only on the first', () => {
+    writeFileSync(systemConfigPath(), marketplaceConfig(), 'utf-8')
+    // First pass: the directory does not exist yet, so the rewrite declines and
+    // a runtime config is written. This is the real-world sequence.
+    syncSystemConfigIntoManagedCodexHome()
+    expect(readFileSync(runtimeConfigPath(), 'utf-8')).toContain(`${systemHome()}/${BUNDLED}`)
+
+    mkdirSync(join(userDataDir, 'codex-runtime-home', 'home', BUNDLED), { recursive: true })
+    writeFileSync(systemConfigPath(), `${marketplaceConfig()}\napproval_policy = "on-request"\n`)
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(readFileSync(runtimeConfigPath(), 'utf-8')).toContain(
+      `codex-runtime-home/home/${BUNDLED}`
+    )
+  })
+
+  it('re-roots on a later legacy pass too', () => {
+    const legacyHome = join(userDataDir, 'legacy-merge-home')
+    mkdirSync(legacyHome, { recursive: true })
+    const sync = (): void =>
+      syncSystemConfigIntoLegacySharedCodexHome({
+        runtimeHomePath: legacyHome,
+        systemHomePath: systemHome()
+      })
+    writeFileSync(systemConfigPath(), marketplaceConfig(), 'utf-8')
+    sync()
+    expect(readFileSync(join(legacyHome, 'config.toml'), 'utf-8')).toContain(
+      `${systemHome()}/${BUNDLED}`
+    )
+
+    mkdirSync(join(legacyHome, BUNDLED), { recursive: true })
+    writeFileSync(systemConfigPath(), `${marketplaceConfig()}\napproval_policy = "on-request"\n`)
+    sync()
+
+    expect(readFileSync(join(legacyHome, 'config.toml'), 'utf-8')).toContain(
+      `${legacyHome}/${BUNDLED}`
+    )
+  })
+
+  it('keeps the merged managed write owner-only', () => {
+    writeFileSync(systemConfigPath(), marketplaceConfig(), 'utf-8')
+    syncSystemConfigIntoManagedCodexHome()
+    writeFileSync(systemConfigPath(), `${marketplaceConfig()}\napproval_policy = "on-request"\n`)
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(modeOf(runtimeConfigPath())).toBe('600')
+  })
+})

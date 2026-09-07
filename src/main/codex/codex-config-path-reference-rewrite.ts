@@ -293,6 +293,13 @@ function rewriteHomeLocalConfigLine(
   // Why the existence check: see rewriteHomeLocalConfigValues. Pointing at a
   // directory that was never materialised is worse than the wrong-home path it
   // would replace, because that one at least resolves.
+  //
+  // Deliberately a presence test, not a directory test: a regular file sitting
+  // at the target would satisfy it. Nothing Orca or Codex writes puts a file
+  // there, and tightening it would trade a real guarantee for a hypothetical.
+  // Note also that for `mcp_servers.*.env.CODEX_HOME` the target IS the runtime
+  // home, which always exists — so that key is re-rooted unconditionally, and
+  // the no-worse-than-today guarantee covers `marketplaces.*.source` alone.
   if (moved === null || !targetExists(moved)) {
     return line
   }

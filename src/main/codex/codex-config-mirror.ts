@@ -126,6 +126,11 @@ export function syncSystemConfigIntoLegacySharedCodexHome(
   }
   const rawSystemConfig =
     systemConfigObservation.kind === 'present' ? systemConfigObservation.value : ''
+  // Before the blank-source return, not after: this lane is the only repairer
+  // of the retired home, and an absent or 0-byte source is exactly when it must
+  // still run. Both the config and its backup are full-content copies, so a
+  // missing source would otherwise leave two world-readable ones indefinitely.
+  enforceCodexConfigFileMode(runtimeConfigPath, warnCodexConfigModeRepair)
   // Why: a missing cloud-synced source is not proof the user cleared config.
   if (rawSystemConfig.trim() === '') {
     return
@@ -138,10 +143,6 @@ export function syncSystemConfigIntoLegacySharedCodexHome(
   }
   const runtimeConfigBeforeMirror =
     runtimeConfigObservation.kind === 'present' ? runtimeConfigObservation.value : null
-  // Unconditional: a deleted config.toml can leave an orphan config.toml.bak
-  // holding the same secret, and gating on the primary would never repair it.
-  // Both paths no-op on ENOENT, so asking costs nothing.
-  enforceCodexConfigFileMode(runtimeConfigPath, warnCodexConfigModeRepair)
   const nextRuntimeConfig =
     runtimeConfigBeforeMirror !== null
       ? mergeSystemCodexConfigIntoRuntime(
