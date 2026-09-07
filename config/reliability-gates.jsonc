@@ -18544,7 +18544,7 @@
           "result": "passed",
           "command": "gh run view 34069063016 --log",
           "durationSeconds": 120,
-          "summary": "Both unmodified compatibility cases passed three times at 5a99f935 with published1.4.188 and main f7d52160162; retries0. Final permanent workflow verification remains pending."
+          "summary": "Both unmodified compatibility cases passed three times at 5a99f935 with published1.4.188 and main f7d52160162; retries0. Final workflow34069429156 also passed6/6; its downloaded JSON passed the same participation verifier."
         }
       ],
       "runtimeBudget": {
