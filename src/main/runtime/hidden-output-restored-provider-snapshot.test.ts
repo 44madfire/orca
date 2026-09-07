@@ -76,7 +76,16 @@ describe('hidden-output recovery after provider reattach', () => {
   it('falls back to retained renderer history when a deep provider request stalls', async () => {
     vi.useFakeTimers()
     const runtime = createRuntime()
-    const serializeProviderBuffer = vi.fn(() => new Promise<never>(() => {}))
+    let settleProvider!: (value: null) => void
+    const serializeProviderBuffer = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<null>((resolve) => {
+            settleProvider = resolve
+          })
+      )
+      .mockResolvedValue({ data: 'provider recovered', cols: 80, rows: 24, seq: 10 })
     runtime.setPtyController({
       write: () => true,
       kill: () => true,
@@ -94,9 +103,20 @@ describe('hidden-output recovery after provider reattach', () => {
       source: 'renderer'
     })
     const retry = runtime.serializeHiddenOutputRecoveryBuffer('pty-1', { scrollbackRows: 100000 })
-    await vi.advanceTimersByTimeAsync(AUTHORITATIVE_TERMINAL_SNAPSHOT_TIMEOUT_MS)
+    let retrySettled = false
+    void retry.then(() => {
+      retrySettled = true
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(retrySettled).toBe(true)
     await expect(retry).resolves.toMatchObject({ data: 'retained SSH history' })
     expect(serializeProviderBuffer).toHaveBeenCalledTimes(1)
+    settleProvider(null)
+    await vi.advanceTimersByTimeAsync(0)
+    await expect(
+      runtime.serializeHiddenOutputRecoveryBuffer('pty-1', { scrollbackRows: 100000 })
+    ).resolves.toMatchObject({ data: 'provider recovered' })
+    expect(serializeProviderBuffer).toHaveBeenCalledTimes(2)
   })
 
   it('uses retained provider modes instead of the pre-attach redraw suffix', async () => {

@@ -61,7 +61,8 @@ export class OrcaRuntimeWithSerializeTerminalBufferFromAvailableState extends Or
     }
     // Bound optional deep-history acquisition without duplicating an outstanding provider request.
     const provider = await this.serializeProviderTerminalBuffer(ptyId, opts, {
-      timeoutMs: AUTHORITATIVE_TERMINAL_SNAPSHOT_TIMEOUT_MS
+      timeoutMs: AUTHORITATIVE_TERMINAL_SNAPSHOT_TIMEOUT_MS,
+      retireOnTimeout: true
     })
     if (provider) {
       return provider
