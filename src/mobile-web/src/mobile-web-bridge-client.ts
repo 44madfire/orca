@@ -47,7 +47,7 @@ import { mobileWebReviewClientBindings } from './mobile-web-review-client-bindin
 import { mobileWebSessionClientBindings } from './mobile-web-session-client-bindings'
 import { MobileWebSessionRequestClient } from './mobile-web-session-request-client'
 import { mobileWebSourceControlClientBindings } from './mobile-web-source-control-client-bindings'
-import { MobileWebCommitMessageRequestClient } from './mobile-web-source-control-commit-message-client'
+import { MobileWebCommitMessageRequestClient } from './mobile-web-commit-message-request-client'
 import { MobileWebSourceControlRequestClient } from './mobile-web-source-control-request-client'
 import type { MobileWebSourceControlReviewRequestClient } from './mobile-web-source-control-review-request-client'
 import { MobileWebSourceControlSyncRequestClient } from './mobile-web-source-control-sync-request-client'

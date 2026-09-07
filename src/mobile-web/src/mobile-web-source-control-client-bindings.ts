@@ -1,4 +1,4 @@
-import type { MobileWebCommitMessageRequestClient } from './mobile-web-source-control-commit-message-client'
+import type { MobileWebCommitMessageRequestClient } from './mobile-web-commit-message-request-client'
 import type { MobileWebSourceControlRequestClient } from './mobile-web-source-control-request-client'
 import type { MobileWebSourceControlSyncRequestClient } from './mobile-web-source-control-sync-request-client'
 

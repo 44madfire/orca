@@ -209,8 +209,14 @@ edges still meet the device and keep their measured values.
   its host-work slot until the host call settles. The Desktop is trusted, so the
   page addresses host tabs, browser pages and provider sessions by their host
   ids. Generic subscriptions, native-chat domain actions, file reads, Source
-  Control reads/watch, session snapshot/feed/actions and terminal metadata use
-  this path.
+  Control (status, diff, history, branches, compares, review metadata and the
+  Git writes), session snapshot/feed/actions and terminal metadata use this
+  path. A Source Control result the Desktop cannot bound in its own shape is
+  projected and clipped by a `mobileWeb.sourceControl.*` wrapper before it
+  crosses the bridge; the writes the page reaches are the Git methods
+  themselves. Only commit-message generation still runs as a shell operation,
+  because it outlives the host lane's fifteen-second request deadline and the
+  page cancels it while it runs.
 - Decisions behind the generic lane and its 2026-09-07 simplification are in
   [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.

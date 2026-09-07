@@ -113,15 +113,15 @@ async function executeSourceControl(args: Deps, request: OnceRequest): Promise<u
       args.workspaceAuthority
     )
   }
-  if (request.operation !== 'generateCommitMessage') {
-    throw new MobileWebBrokerError('unsupported_capability')
+  if (request.operation === 'generateCommitMessage') {
+    return args.commitMessageGeneration.generate({
+      requestId: request.requestId,
+      payload: request.payload,
+      client: args.connectedClient(),
+      workspaceAuthority: args.workspaceAuthority
+    })
   }
-  return args.commitMessageGeneration.generate({
-    requestId: request.requestId,
-    payload: request.payload,
-    client: args.connectedClient(),
-    workspaceAuthority: args.workspaceAuthority
-  })
+  throw new MobileWebBrokerError('unsupported_capability')
 }
 
 async function executeSpeech(args: Deps, request: OnceRequest): Promise<unknown> {

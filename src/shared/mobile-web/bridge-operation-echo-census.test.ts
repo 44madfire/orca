@@ -41,28 +41,8 @@ const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
     'submittedCommentIds',
     'workspaceId'
   ],
-  'sourceControl.abort': ['operation', 'previousBranch', 'previousHead', 'workspaceId'],
-  'sourceControl.branch': ['branch', 'operation', 'previousBranch', 'previousHead', 'workspaceId'],
-  'sourceControl.branchCompare': ['baseRef', 'offset', 'revision', 'workspaceId'],
-  'sourceControl.branches': ['workspaceId'],
   'sourceControl.cancelCommitMessageGeneration': ['workspaceId'],
-  'sourceControl.commit': ['previousHead', 'workspaceId'],
-  'sourceControl.commitCompare': ['commitId', 'workspaceId'],
-  'sourceControl.discard': ['operation', 'relativePaths.length', 'workspaceId'],
-  'sourceControl.fetch': ['operation', 'previousBranch', 'previousHead', 'workspaceId'],
   'sourceControl.generateCommitMessage': ['previousHead', 'workspaceId'],
-  'sourceControl.history': ['limit', 'workspaceId'],
-  'sourceControl.pull': ['operation', 'previousBranch', 'previousHead', 'workspaceId'],
-  'sourceControl.push': ['operation', 'previousBranch', 'previousHead', 'workspaceId'],
-  'sourceControl.rebase': ['operation', 'previousBranch', 'previousHead', 'workspaceId'],
-  'sourceControl.reviewDiff': ['relativePath', 'scope', 'workspaceId'],
-  'sourceControl.reviewLink': ['workspaceId'],
-  'sourceControl.reviewLinkUpdate': ['workspaceId'],
-  'sourceControl.reviewMetadata': ['workspaceId'],
-  'sourceControl.reviewMetadataUpdate': ['workspaceId'],
-  'sourceControl.stage': ['operation', 'relativePaths.length', 'workspaceId'],
-  'sourceControl.unstage': ['operation', 'relativePaths.length', 'workspaceId'],
-  'sourceControl.upstream': ['workspaceId'],
   'task.loadLinearDetail': ['issue.targetId'],
   'task.loadLinearIssue': ['issue.targetId'],
   'task.projectTable': ['project', 'selectedView.id'],
@@ -296,7 +276,7 @@ describe('mobile web bridge operation echo census', () => {
     )
 
     expect(Object.keys(EXPECTED_ECHO_FIELDS).filter((key) => !registered.has(key))).toEqual([])
-    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(49)
+    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(29)
   })
 
   it('guards the page workspace handle on every workspace-scoped echo it records', () => {
@@ -304,6 +284,6 @@ describe('mobile web bridge operation echo census', () => {
       fields.some((field) => field === 'workspaceId')
     )
 
-    expect(workspaceScoped.length).toBeGreaterThanOrEqual(40)
+    expect(workspaceScoped.length).toBeGreaterThanOrEqual(20)
   })
 })
