@@ -28,6 +28,8 @@ for candidate in "${windows[@]}"; do xwininfo -id "$candidate" >&2; done
 [[ ${#windows[@]} -eq 1 ]]
 xdotool windowmap --sync "${windows[0]}"
 xdotool windowfocus --sync "${windows[0]}"
+read -r width height < <(xwininfo -id "${windows[0]}" | awk '$1 == "Width:" {w=$2} $1 == "Height:" {print w,$2}')
+xdotool mousemove --sync --window "${windows[0]}" "$((width / 2))" "$((height / 2))" click 1
 FOCUS
 chmod +x "$ORCA_E2E_NESTED_FOCUS_CMD"
 gsettings set org.freedesktop.ibus.engine.hangul initial-input-mode hangul
