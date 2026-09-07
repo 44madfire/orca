@@ -101,7 +101,11 @@ describe('Codex structured session close lifecycle', () => {
       prompts: { clear: vi.fn() } as unknown as CodexSession['prompts'],
       options: new Map(),
       reportedOptions: {},
-      turnIdWaiters: []
+      turnIdWaiters: [],
+      translator: {
+        handle: vi.fn().mockReturnValue({ accepted: true }),
+        dispose: vi.fn()
+      } as unknown as NonNullable<CodexSession['translator']>
     } as CodexSession
 
     handleCodexSessionExit({
