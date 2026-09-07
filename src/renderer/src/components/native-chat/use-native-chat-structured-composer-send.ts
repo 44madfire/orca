@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef } from 'react'
 import { emitNativeChatMessageSent } from '@/lib/native-chat-telemetry'
 import { isStructuredAgentSessionComposerCommand } from '../../../../shared/structured-agent-session-composer'
 import type { AgentType } from '../../../../shared/agent-status-types'
@@ -36,7 +36,9 @@ export function useNativeChatStructuredComposerSend({
   attachments?: readonly NativeChatComposerImageAttachment[]
 ) => void {
   const composition = useRef({ draft, imageAttachments })
-  composition.current = { draft, imageAttachments }
+  useLayoutEffect(() => {
+    composition.current = { draft, imageAttachments }
+  }, [draft, imageAttachments])
   return useCallback(
     (text: string, attachments = imageAttachments): void => {
       if (!structuredTransport) {

@@ -55,22 +55,33 @@ export class StructuredConversationCommandController {
     const store = this.context().deps.store
     const records = store.listRecords()
     const visible = new Set(store.listVisibleSessionIds())
-    return records.flatMap((record) => {
-      let command = record.conversationCommand
-      let sessionId: string | undefined
-      const visited = new Set([record.sessionId])
-      while (
-        command?.command === 'clear' &&
-        command.phase === 'committed' &&
-        command.replacementSessionId
-      ) {
-        sessionId = command.replacementSessionId
-        if (visited.has(sessionId)) {
-          return []
+    const byId = new Map(records.map((record) => [record.sessionId, record]))
+    const destinations = new Map<string, string | null>()
+    const destination = (source: string): string | null => {
+      const path = new Set<string>()
+      let current = source
+      while (!destinations.has(current) && !path.has(current)) {
+        path.add(current)
+        const command = byId.get(current)?.conversationCommand
+        if (
+          command?.command !== 'clear' ||
+          command.phase !== 'committed' ||
+          !command.replacementSessionId
+        ) {
+          destinations.set(current, current)
+          break
         }
-        visited.add(sessionId)
-        command = store.getRecord(sessionId)?.conversationCommand
+        current = command.replacementSessionId
       }
+      const target = destinations.get(current) ?? null
+      for (const id of path) {
+        destinations.set(id, target)
+      }
+      return target
+    }
+    return records.flatMap((record) => {
+      const target = destination(record.sessionId)
+      const sessionId = target !== record.sessionId ? target : null
       // Explicit history reveals remain readable; closed replacements stay closed.
       return sessionId && visible.has(sessionId) && !visible.has(record.sessionId)
         ? [

@@ -11,12 +11,9 @@ export function callStructuredAgentSession<TResult>(
   method: string,
   params?: unknown
 ): Promise<TResult> {
-  return callRuntimeRpc<TResult>(
-    target,
-    method,
-    params,
-    method === 'agentSession.conversationCommand' ? { timeoutMs: 195_000 } : undefined
-  )
+  return method === 'agentSession.conversationCommand'
+    ? callRuntimeRpc<TResult>(target, method, params, { timeoutMs: 195_000 })
+    : callRuntimeRpc<TResult>(target, method, params)
 }
 
 async function subscribeStructuredAgentSessionMethod<TEvent>(
