@@ -168,7 +168,8 @@ itself, which is dispatch-only behind a typed confirmation.
 
 The run, in order:
 
-1. Builds `apps/push/Dockerfile` with the `cloud/` build context and pushes to the existing
+1. Fetches the reviewed full `source_sha` input while the workflow and rollout lease remain on `main`.
+   Builds `apps/push/Dockerfile` with that commit’s `cloud/` build context and pushes to the existing
    `orca-cloud` Artifact Registry repository as `push:sha-<commit>`, then resolves the digest.
    This happens **before** the lease is taken. Artifact Registry is not the Cloud SQL instance,
    and a multi-minute build inside the lease would block every relay deploy and rehome for its

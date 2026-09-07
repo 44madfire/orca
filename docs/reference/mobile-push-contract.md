@@ -301,13 +301,13 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 - Cloud Run service `orca-cloud-push`, region `us-central1`, project from the environment tfvars, runtime
   SA `orca-cloud-push@<project>.iam.gserviceaccount.com` (exists in prod; declare and import), the three
   secrets mounted as env (exist; declare and import), Cloud SQL connector to the shared instance with its
-  own database `orca_push`, min instances 1, max 4, concurrency 80, ingress all, unauthenticated invoke.
+  own database `orca_push`, min instances 1, max 2 in production, concurrency 80, ingress all, unauthenticated invoke.
 - IAM: `roles/firebasecloudmessaging.admin` and `roles/serviceusage.serviceUsageConsumer` on the runtime
   SA (exist in prod; declare and import). Secret accessor per secret.
 - Hostname `push.onorca.dev`. The DNS zone lives in the apps root in `stablyai/orca-cloud`; add the
   Cloud Run domain mapping here and leave a TODO comment naming the record the other repo must add.
 - Workflow `.github/workflows/cloud-push-deploy.yml`: gated on `vars.ORCA_CLOUD_OPERATIONS_ENABLED`,
-  Workload Identity like `cloud-relay-*`, builds the image, deploys with `--no-traffic`, probes the new
+  Workload Identity like `cloud-relay-*`, builds a reviewed full `source_sha`, deploys with `--no-traffic`, probes the new
   revision's `/ready` and a validate-only FCM send, then shifts 100% traffic. Uses
   `.github/actions/cloud-sql-rollout-lease` around the schema step.
 - Add the new root files to `cloud/dev/contracts` and `cloud/dev/fixtures` partitions so
@@ -316,7 +316,7 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 ## Non-goals for this release
 
 Ack gate, generic-alert mode, staging gateway, iOS Notification Service Extension, Android data-only
-messages, Live Activities, account-based quota tiers.
+alert messages, Live Activities, account-based quota tiers.
 
 ### Device delivery preferences
 

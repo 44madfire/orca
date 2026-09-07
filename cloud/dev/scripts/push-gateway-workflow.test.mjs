@@ -153,7 +153,8 @@ test('the candidate is probed on its own URL before any traffic moves', () => {
   assert.ok(probe < indexOfStep('Shift all traffic to the verified candidate'))
   assert.match(workflow, /"\$\{CANDIDATE_URL\}\/ready"/)
   assert.match(workflow, /test "\$\{code\}" = 200/)
-  assert.doesNotMatch(workflow, /\$\{CANDIDATE_URL\}\/health/, 'liveness is not readiness')
+  assert.ok(workflow.indexOf('${CANDIDATE_URL}/ready') < workflow.indexOf('${CANDIDATE_URL}/health'))
+  assert.match(workflow, /\.deliveryProtocol == 2/, 'verify the durable gateway after readiness')
 })
 
 // Why: a gateway that answers /ready can still hold no usable FCM credential. The probe must be
