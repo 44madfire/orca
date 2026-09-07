@@ -70,13 +70,12 @@ describe('host-projected Source Control subscription', () => {
     expect(h.events).toEqual([])
   })
 
-  it('keeps a normal end-of-watch retryable so the page subscription is not closed', () => {
+  it('reports a normal end-of-watch as retryable', () => {
     const h = harness()
 
     h.deliver({ type: 'end' })
 
     expect(h.errors).toEqual([{ code: 'unavailable', retryable: true }])
-    expect(h.unsubscribe).not.toHaveBeenCalled()
   })
 
   it('rejects a malformed payload before it reaches the host', async () => {

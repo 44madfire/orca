@@ -75,6 +75,42 @@ function createHarness() {
 }
 
 describe('subscriptionClosed', () => {
+  it.each(['end', 'error'])('retires a host stream after delivering %s', async (type) => {
+    const { client, messages } = createHarness()
+    const onEvent = vi.fn()
+    const onError = vi.fn()
+    const subscription = client.hostSubscribe(
+      { method: 'mobileWeb.files.watch', params: {} },
+      onEvent,
+      onError
+    )
+    client.receive(subscriptionResponse())
+    await subscription.ready
+    const event: MobileWebBridgeShellMessage = {
+      ...envelope(),
+      type: 'event',
+      subscriptionId: SUBSCRIPTION_ID,
+      sequence: 0,
+      payload: { type }
+    }
+
+    client.receive(event)
+    client.receive({ ...event, sequence: 1 })
+    client.receive(subscriptionClosed('unavailable', true))
+
+    expect(onEvent).toHaveBeenCalledExactlyOnceWith({ type })
+    expect(onError).not.toHaveBeenCalled()
+    expect(messages.at(-1)).toMatchObject({
+      type: 'cancel',
+      target: 'subscription',
+      id: SUBSCRIPTION_ID
+    })
+    const count = messages.length
+    subscription.unsubscribe()
+    client.dispose()
+    expect(messages).toHaveLength(count)
+  })
+
   it('rejects readiness and cancels the subscription on an invalid acknowledgement', async () => {
     const { client, messages } = createHarness()
     const onError = vi.fn()

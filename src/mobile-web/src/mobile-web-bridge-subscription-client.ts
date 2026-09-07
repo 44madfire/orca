@@ -1,6 +1,9 @@
 import { subscribeHostSession } from './mobile-web-session-host-subscription'
 import { subscribeMobileWebHostWorkspace } from './mobile-web-host-workspace-subscription'
-import { hostSubscriptionSetup } from './mobile-web-host-subscription-setup'
+import {
+  hostSubscriptionSetup,
+  isMobileWebHostSubscriptionEnd
+} from './mobile-web-host-subscription-setup'
 import type {
   MobileWebBridgeCapability,
   MobileWebBridgePageMessage,
@@ -135,7 +138,16 @@ export class MobileWebBridgeSubscriptionClient {
       requestId,
       nextSequence: 0,
       eventSchema: setup.eventSchema,
-      onEvent: setup.onEvent,
+      onEvent: (event) => {
+        try {
+          setup.onEvent(event)
+        } finally {
+          // The shell retires host streams after their terminal frame, even if the screen stays mounted.
+          if (setup.operation === 'hostSubscribe' && isMobileWebHostSubscriptionEnd(event)) {
+            this.unsubscribe(subscriptionId, subscription)
+          }
+        }
+      },
       onError: setup.onError
     }
     this.active.set(subscriptionId, subscription)
