@@ -4,6 +4,7 @@ import {
   MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH,
   buildMobileWebMermaidFrameDocument
 } from './mermaid-frame-document'
+import { mobileWebEmbeddedFrameCsp } from '../../mobile-web/embedded-frame-csp'
 import { colors } from '../../theme/mobile-theme'
 import {
   MERMAID_WEBVIEW_ENGINE_CSP_HASH,
@@ -23,14 +24,16 @@ const theme = {
 }
 
 export function buildMermaidDiagramDocument(source: string, token = ''): string {
-  const document = buildMobileWebMermaidFrameDocument({
+  return buildMobileWebMermaidFrameDocument({
     theme,
+    // The in-app WebView inlines both the engine and the frame script, so both are hashed.
+    script: {
+      inlineCsp: mobileWebEmbeddedFrameCsp(
+        `${MERMAID_WEBVIEW_ENGINE_CSP_HASH} ${MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH}`
+      )
+    },
     embeddedEngine: MERMAID_WEBVIEW_ENGINE_GZIP_BASE64,
     encodedSource: Buffer.from(source, 'utf8').toString('base64'),
     encodedToken: Buffer.from(token, 'utf8').toString('base64')
   })
-  return document.replace(
-    `script-src ${MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH} blob:`,
-    `script-src ${MERMAID_WEBVIEW_ENGINE_CSP_HASH} ${MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH}`
-  )
 }

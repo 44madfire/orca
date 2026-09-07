@@ -5,11 +5,9 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MobileWebPackageAssets } from '../../src/main/runtime/rpc/mobile-web-package-assets'
 import { MOBILE_WEB_PACKAGE_BRIDGE_RANGE } from '../../src/shared/mobile-web/bridge-limits'
+import { MOBILE_WEB_MARKDOWN_EDITOR_PATH } from '../../mobile/src/components/markdown-editor-document'
 import { MobileWebManifestSchema } from '../../src/shared/mobile-web/manifest-contract'
-import {
-  MOBILE_WEB_MERMAID_FRAME_PATH,
-  MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH
-} from '../../mobile/src/components/pr-sidebar/mermaid-frame-document'
+import { MOBILE_WEB_MERMAID_FRAME_PATH } from '../../mobile/src/components/pr-sidebar/mermaid-frame-document'
 
 const execFileAsync = promisify(execFile)
 const temporaryRoots: string[] = []
@@ -73,6 +71,10 @@ describe('RNW mobile web packager', () => {
     )
     const document = await readFile(path.join(output, 'index.html'), 'utf8')
     const mermaidFrame = await readFile(path.join(output, MOBILE_WEB_MERMAID_FRAME_PATH), 'utf8')
+    const markdownEditor = await readFile(
+      path.join(output, MOBILE_WEB_MARKDOWN_EDITOR_PATH),
+      'utf8'
+    )
     expect(script).not.toMatch(/\beval\s*\(|\bnew\s+Function\s*\(/)
     expect(script).not.toContain('/assets/icon.hash.png')
     expect(script).toMatch(/\.\/assets\/[a-f0-9]{64}\.png/)
@@ -83,11 +85,16 @@ describe('RNW mobile web packager', () => {
     expect(document).not.toContain('Content-Security-Policy')
     expect(document).toContain('maximum-scale=1,user-scalable=no')
     expect(document).toContain('viewport-fit=cover')
-    expect(mermaidFrame).toContain(`script-src ${MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH} blob:`)
-    expect(mermaidFrame).toContain("frame-ancestors 'self'")
+    // No served document may carry an inline script, or a native CSP would have to pin its hash.
+    for (const served of [document, mermaidFrame, markdownEditor]) {
+      expect(served).not.toMatch(/<script(?![^>]*\bsrc=)/)
+      expect(served).not.toContain('sha256-')
+      expect(served).not.toContain('Content-Security-Policy')
+      expect(served).toMatch(/<script src="\.\/assets\/[a-f0-9]{64}\.js"/)
+    }
     expect(mermaidFrame).not.toContain(MOBILE_WEB_MERMAID_FRAME_PATH)
-    expect(manifest.assets).toHaveLength(5)
-    expect(manifest.assets.filter((asset) => asset.role === 'document')).toHaveLength(2)
+    expect(manifest.assets).toHaveLength(8)
+    expect(manifest.assets.filter((asset) => asset.role === 'document')).toHaveLength(3)
     expect(manifest.bridge).toEqual(MOBILE_WEB_PACKAGE_BRIDGE_RANGE)
 
     const packageAssets = new MobileWebPackageAssets({ resolveRoot: () => output })

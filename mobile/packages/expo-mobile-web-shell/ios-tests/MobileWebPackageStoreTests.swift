@@ -193,6 +193,7 @@ enum MobileWebPackageStoreTests {
     let valid = [
       ("index.html", hash, "text/html; charset=utf-8", "document"),
       ("mermaid-frame.html", hash, "text/html; charset=utf-8", "document"),
+      ("markdown-editor.html", hash, "text/html; charset=utf-8", "document"),
       ("assets/\(hash).css", hash, "text/css; charset=utf-8", "style"),
       ("assets/\(hash).js", hash, "text/javascript; charset=utf-8", "script"),
       ("assets/\(hash).png", hash, "image/png", "image"),

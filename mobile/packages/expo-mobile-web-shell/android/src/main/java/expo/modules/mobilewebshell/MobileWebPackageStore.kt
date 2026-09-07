@@ -746,6 +746,9 @@ internal fun isSafeMobileWebAssetPath(path: String): Boolean =
 
 internal fun isMobileWebSha256(value: String): Boolean = SHA256_PATTERN.matches(value)
 
+private val MOBILE_WEB_DOCUMENT_PATHS =
+  setOf("index.html", "markdown-editor.html", "mermaid-frame.html")
+
 internal fun isValidMobileWebAssetMetadata(
   path: String,
   hash: String,
@@ -754,8 +757,7 @@ internal fun isValidMobileWebAssetMetadata(
 ): Boolean {
   if (!isSafeMobileWebAssetPath(path) || !isMobileWebSha256(hash)) return false
   if (role == "document") {
-    return (path == "index.html" || path == "mermaid-frame.html") &&
-      contentType == "text/html; charset=utf-8"
+    return path in MOBILE_WEB_DOCUMENT_PATHS && contentType == "text/html; charset=utf-8"
   }
   val components = path.split('/')
   if (components.size != 2 || components[0] != "assets") return false

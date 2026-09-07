@@ -1,11 +1,14 @@
-import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from './markdown-editor-csp'
+import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from './markdown-editor-document'
 import { colors } from '../theme/mobile-theme'
 import { MOBILE_RICH_MARKDOWN_EDITOR_DOCUMENT_BODY } from './mobile-rich-markdown-editor-document-body'
 import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT } from './mobile-rich-markdown-editor-script'
 
 export { escapeInjectedJavaScriptString } from './mobile-rich-markdown-editor-script-string'
 export { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT } from './mobile-rich-markdown-editor-script'
-export { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from './markdown-editor-csp'
+export {
+  MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH,
+  MOBILE_WEB_MARKDOWN_EDITOR_PATH
+} from './markdown-editor-document'
 
 // Why: `https:` keeps the remote markdown images main rendered; plaintext `http:` stays blocked.
 const MOBILE_RICH_MARKDOWN_EDITOR_FRAME_CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH}; style-src 'unsafe-inline'; img-src data: https:; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; base-uri 'none'; form-action 'none'" />`

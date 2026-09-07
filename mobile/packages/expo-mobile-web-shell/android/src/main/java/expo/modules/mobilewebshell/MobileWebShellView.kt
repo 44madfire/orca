@@ -27,11 +27,14 @@ internal const val MOBILE_WEB_ORIGIN_HOST = "orca-mobile-web.invalid"
 internal const val MOBILE_WEB_ORIGIN = "$MOBILE_WEB_ORIGIN_SCHEME://$MOBILE_WEB_ORIGIN_HOST"
 private const val MOBILE_WEB_BRIDGE_NAME = "OrcaNative"
 private const val MOBILE_WEB_MERMAID_FRAME_PATH = "mermaid-frame.html"
+private const val MOBILE_WEB_MARKDOWN_EDITOR_PATH = "markdown-editor.html"
+private val MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS =
+  setOf(MOBILE_WEB_MERMAID_FRAME_PATH, MOBILE_WEB_MARKDOWN_EDITOR_PATH)
 private const val MOBILE_WEB_MESSAGE_BYTE_LIMIT = 640 * 1024
 private const val MOBILE_WEB_PENDING_MESSAGE_LIMIT = 32
 private val MOBILE_WEB_CSP = listOf(
   "default-src 'none'",
-  "script-src 'self' 'sha256-9WQo6QEeDR1Qf5aOmvWdM6FJv6hDF22Gbk7IKakIW4A='",
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self'",
@@ -45,9 +48,11 @@ private val MOBILE_WEB_CSP = listOf(
   "form-action 'none'",
   "frame-ancestors 'none'"
 ).joinToString("; ")
-private val MOBILE_WEB_MERMAID_FRAME_CSP = listOf(
+// The embedded frames are sandboxed, so their origin is opaque and WebKit resolves `'self'`
+// against it. The package origin is named outright so each frame can load its own script.
+private fun mobileWebEmbeddedFrameCsp(origin: String): String = listOf(
   "default-src 'none'",
-  "script-src 'sha256-JHwlo5V7HtwqexHUhXguW04dF71kAVlQOX1QdtyCkjg=' blob:",
+  "script-src $origin blob:",
   "style-src 'unsafe-inline'",
   "img-src data:",
   "font-src 'none'",
@@ -409,7 +414,11 @@ internal class MobileWebShellView(
     )
     if (asset.isDocument) {
       headers["Content-Security-Policy"] =
-        if (path == MOBILE_WEB_MERMAID_FRAME_PATH) MOBILE_WEB_MERMAID_FRAME_CSP else MOBILE_WEB_CSP
+        if (path in MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS) {
+          mobileWebEmbeddedFrameCsp(mobileWebOriginForSession(sessionId))
+        } else {
+          MOBILE_WEB_CSP
+        }
     }
     return WebResourceResponse(
       contentTypeParts[0],
@@ -443,9 +452,10 @@ internal class MobileWebShellView(
 
   private fun isAllowedEmbeddedDocumentUrl(url: Uri): Boolean {
     val sessionId = activeSessionId ?: return false
+    val path = url.path.orEmpty().removePrefix("/")
     return isMobileWebOriginForSession(url, sessionId) &&
-      url.path == "/$MOBILE_WEB_MERMAID_FRAME_PATH" &&
-      url.encodedPath == "/$MOBILE_WEB_MERMAID_FRAME_PATH" &&
+      path in MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS &&
+      url.encodedPath == "/$path" &&
       url.query == null &&
       url.fragment == null &&
       url.toString().length <= 8 * 1024

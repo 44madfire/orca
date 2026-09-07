@@ -6,6 +6,8 @@ import {
   MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH
 } from './mobile-rich-markdown-editor-html'
 
+const MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_SELECTOR = '<main id="editor" contenteditable="true"'
+
 function editorScript(): string {
   const html = buildMobileRichMarkdownEditorHtml()
   const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1]
@@ -230,6 +232,16 @@ describe('mobile rich markdown editor HTML', () => {
     expect(nativeScript).toContain("message.direction !== 'host-to-editor'")
     expect(nativeScript).toContain('Number.isSafeInteger(payload.generation)')
     expect(() => new Function(nativeScript)).not.toThrow()
+  })
+
+  it('serves the packaged editor document without an inline script or a pinned policy', () => {
+    const packaged = buildMobileRichMarkdownEditorHtml({ src: './assets/editor.js' })
+
+    expect(packaged).toContain('<script src="./assets/editor.js"></script>')
+    expect(packaged).not.toMatch(/<script(?![^>]*\bsrc=)/)
+    expect(packaged).not.toContain('Content-Security-Policy')
+    expect(packaged).not.toContain('sha256-')
+    expect(packaged).toContain(MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_SELECTOR)
   })
 
   it('renders the Markdown XSS corpus as inert content and rejects active URL schemes', () => {

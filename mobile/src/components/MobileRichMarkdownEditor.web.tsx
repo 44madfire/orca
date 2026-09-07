@@ -5,7 +5,7 @@ import type {
   MobileRichMarkdownEditorTransport
 } from './mobile-rich-markdown-editor-contract'
 import { MOBILE_RICH_MARKDOWN_EDITOR_CHANNEL } from './mobile-rich-markdown-editor-contract'
-import { buildMobileRichMarkdownEditorHtml } from './mobile-rich-markdown-editor-html'
+import { MOBILE_WEB_MARKDOWN_EDITOR_PATH } from './markdown-editor-document'
 import {
   MobileRichMarkdownEditorPresentation,
   mobileRichMarkdownEditorSurfaceStyle
@@ -27,14 +27,6 @@ function MobileRichMarkdownEditorWeb({
 }: MobileRichMarkdownEditorProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const frameToken = useMemo(() => createFrameToken(), [])
-  const documentUrl = useMemo(
-    () =>
-      `data:text/html;charset=utf-8,${encodeURIComponent(
-        buildMobileRichMarkdownEditorHtml({ inline: true })
-      )}`,
-    []
-  )
-
   const postToEditor = useCallback(
     (
       payload: Extract<
@@ -105,7 +97,7 @@ function MobileRichMarkdownEditorWeb({
           ref={frameRef}
           title="Markdown editor"
           aria-label="Markdown editor"
-          src={documentUrl}
+          src={`/${MOBILE_WEB_MARKDOWN_EDITOR_PATH}`}
           name={frameToken}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"

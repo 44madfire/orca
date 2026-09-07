@@ -30,9 +30,9 @@ describe('mobile rich markdown editor web source', () => {
     expect(webEditor).not.toContain("label: 'Body'")
   })
 
-  it('runs the exact editor document in an isolated data frame', () => {
-    expect(webEditor).toContain('buildMobileRichMarkdownEditorHtml({ inline: true })')
-    expect(webEditor).toContain('data:text/html;charset=utf-8,')
+  it('runs the packaged editor document in an isolated frame', () => {
+    expect(webEditor).toContain('src={`/${MOBILE_WEB_MARKDOWN_EDITOR_PATH}`}')
+    expect(webEditor).not.toContain('data:text/html;charset=utf-8,')
     expect(webEditor).toContain('sandbox="allow-scripts"')
     expect(webEditor).toContain('name={frameToken}')
     expect(webEditor).not.toContain('allow-same-origin')
