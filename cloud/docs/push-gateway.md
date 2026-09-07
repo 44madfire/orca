@@ -336,3 +336,9 @@ and cancel matching unsent alerts. Mobile OS delivery/execution is not guarantee
 Shutdown stops admission and new claims; unfinished leases remain recoverable. Provider acceptance
 and SQL completion cannot be atomic, so repeated transport delivery remains possible after a crash.
 Stable collapse identities reduce duplicates without promising exactly-once visible delivery.
+
+### Dedicated database preparation
+
+`push_dedicated_database_enabled` provisions an independent HA PostgreSQL instance without changing
+the live gateway attachment. It defaults to false. Follow [the database cutover runbook](./push-database-cutover.md)
+before enabling it or switching stores; preserve device registrations and durable queue state.

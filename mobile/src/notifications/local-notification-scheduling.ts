@@ -7,7 +7,7 @@ import { loadPushNotificationsEnabled } from '../storage/preferences'
 import { DESKTOP_NOTIFICATION_CHANNEL_ID } from './desktop-notification-channel'
 import { buildLocalNotificationData, type DesktopNotificationSource } from './notification-routing'
 import { ensureNotificationPermissions } from './notification-permissions'
-import { dismissPresentedPushNotification } from './push-tray-dismissal'
+import { dismissHostPushNotification } from './push-socket-dismissal'
 
 export type NotificationEvent = {
   type: 'notification'
@@ -201,7 +201,7 @@ export async function dismissLocalNotification(
   }
   // Why first and unconditionally: a push the OS presented while Orca was closed has
   // no entry below, so the local registry alone would leave it in the tray forever.
-  await dismissPresentedPushNotification(event.notificationId)
+  await dismissHostPushNotification(event, hostId)
   const storedKey = getStoredNotificationKey(hostId, event.notificationId)
   const state = scheduledNotificationsByHostAndNotificationId.get(storedKey)
   if (!state) {

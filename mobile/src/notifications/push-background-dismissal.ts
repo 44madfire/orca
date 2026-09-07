@@ -1,3 +1,4 @@
+import { wasPushDismissed } from './push-dismissal-watermarks'
 import * as TaskManager from 'expo-task-manager'
 import * as Notifications from 'expo-notifications'
 import { readOrcaPushPayload } from './push-payload'
@@ -20,7 +21,10 @@ TaskManager.defineTask<Notifications.NotificationTaskPayload>(
       }
     }
     const payload = readOrcaPushPayload(raw)
-    if (payload?.kind === 'dismiss' && payload.notificationId) {
+    if (
+      payload?.notificationId &&
+      (payload.kind === 'dismiss' || (await wasPushDismissed(payload)))
+    ) {
       await dismissPresentedPushNotification(
         payload.notificationId,
         payload.hostFingerprint,

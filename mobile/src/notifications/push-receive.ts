@@ -1,3 +1,4 @@
+import { wasPushDismissed } from './push-dismissal-watermarks'
 import { dismissPresentedPushNotification } from './push-tray-dismissal'
 import { allowsLocalNotification } from './notification-viewing-policy'
 import { loadPushNotificationsEnabled, loadRemotePushEnabled } from '../storage/preferences'
@@ -37,6 +38,9 @@ export async function shouldSuppressForegroundPush(data: unknown): Promise<boole
         payload
       )
     }
+    return true
+  }
+  if (await wasPushDismissed(payload)) {
     return true
   }
   const hostId = await resolvePushHostId(payload)

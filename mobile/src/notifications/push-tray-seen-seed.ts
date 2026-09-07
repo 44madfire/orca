@@ -1,3 +1,4 @@
+import { wasPushDismissed } from './push-dismissal-watermarks'
 import { readNativeNotificationData } from './native-notification-data'
 import * as Notifications from 'expo-notifications'
 import { loadHostCatalog } from '../transport/host-store'
@@ -12,8 +13,6 @@ import { readOrcaPushPayload } from './push-payload'
  * foreground handler, so nothing in this process claimed its key. The reconnect
  * catch-up then replays that same event and shows a second banner for it.
  *
- * Kept separate from push-tray-dismissal.ts, which must stay free of the host
- * store (and its native keychain deps) because it runs on the socket dismiss path.
  */
 export type PresentedPushSeenKey = { readonly key: string; readonly epoch: string | undefined }
 
@@ -35,6 +34,12 @@ export async function readPresentedPushSeenKeys(
         continue
       }
       if (resolveHostIdForFingerprint(payload.hostFingerprint, hosts) !== hostId) {
+        continue
+      }
+      if (await wasPushDismissed(payload)) {
+        await Notifications.dismissNotificationAsync(notification.request.identifier).catch(
+          () => {}
+        )
         continue
       }
       const key = seenKeyForEvent(payload)

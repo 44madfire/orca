@@ -1,0 +1,55 @@
+import { beforeEach, expect, it, vi } from 'vitest'
+const storage = vi.hoisted(() => new Map<string, string>())
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: {
+    getItem: async (key: string) => storage.get(key) ?? null,
+    setItem: async (key: string, value: string) => {
+      storage.set(key, value)
+    }
+  }
+}))
+import { rememberPushDismissal, wasPushDismissed } from './push-dismissal-watermarks'
+const payload = {
+  hostFingerprint: 'host-a',
+  notificationEpoch: 'epoch-a',
+  notificationId: 'note',
+  notificationSeq: 2
+}
+beforeEach(() => {
+  storage.clear()
+  vi.useRealTimers()
+})
+
+it('persists dismissal through restart while preserving newer alerts and other hosts or epochs', async () => {
+  await rememberPushDismissal(payload)
+  vi.resetModules()
+  const restarted = await import('./push-dismissal-watermarks')
+  expect(await restarted.wasPushDismissed({ ...payload, notificationSeq: 1 })).toBe(true)
+  expect(await restarted.wasPushDismissed({ ...payload, notificationSeq: 3 })).toBe(false)
+  expect(await restarted.wasPushDismissed({ ...payload, hostFingerprint: 'host-b' })).toBe(false)
+  expect(await restarted.wasPushDismissed({ ...payload, notificationEpoch: 'epoch-b' })).toBe(false)
+})
+
+it('serializes concurrent dismissals and never lowers a watermark', async () => {
+  await Promise.all([
+    rememberPushDismissal({ ...payload, notificationSeq: 5 }),
+    rememberPushDismissal(payload),
+    rememberPushDismissal({ ...payload, notificationId: 'other' })
+  ])
+  expect(await wasPushDismissed({ ...payload, notificationSeq: 5 })).toBe(true)
+  expect(await wasPushDismissed({ ...payload, notificationId: 'other' })).toBe(true)
+})
+
+it('expires retained metadata and ignores unversioned dismissals', async () => {
+  vi.useFakeTimers()
+  await rememberPushDismissal(payload)
+  vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000)
+  expect(await wasPushDismissed(payload)).toBe(false)
+  await rememberPushDismissal({ ...payload, notificationEpoch: undefined })
+  expect(await wasPushDismissed(payload)).toBe(false)
+})
+
+it('does not discard a summary representing other undismissed alerts', async () => {
+  await rememberPushDismissal(payload)
+  expect(await wasPushDismissed({ ...payload, coalescedCount: 3 })).toBe(false)
+})
