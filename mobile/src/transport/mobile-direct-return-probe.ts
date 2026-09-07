@@ -169,7 +169,11 @@ export class DirectReturnProbe {
         // caught: a genuine failure is reported to the supervisor's log instead,
         // and the finally reschedules the probe either way.
         if (!this.stopped && !abortCutover()) {
-          this.hooks.onCutoverFailure(error instanceof Error ? error : new Error(String(error)))
+          try {
+            this.hooks.onCutoverFailure(error instanceof Error ? error : new Error(String(error)))
+          } catch {
+            // The reporter is diagnostics; it must not turn into the rejection it exists to avoid.
+          }
         }
         return
       }

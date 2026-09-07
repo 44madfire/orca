@@ -39,7 +39,7 @@ function fixture(
       migrate: overrides.migrate ?? (async () => {}),
       onDirectMigrated: async () => {},
       afterProbe: () => {},
-      onCutoverFailure: (error) => cutoverFailures.push(error)
+      onCutoverFailure: overrides.onCutoverFailure ?? ((error) => cutoverFailures.push(error))
     }
   )
   return { opened, probe, cutoverFailures }
@@ -146,4 +146,30 @@ it('stays quiet when the cutover was withdrawn because relay won the race', asyn
 
   expect(cutoverFailures).toEqual([])
   probe.stop()
+})
+
+it('contains a reporter that throws, so the timer promise still settles cleanly', async () => {
+  const unhandled = vi.fn()
+  process.on('unhandledRejection', unhandled)
+  try {
+    const { opened, probe } = fixture({
+      adoptsOutright: () => true,
+      migrate: async () => {
+        throw new Error('direct session dropped before cutover')
+      },
+      onCutoverFailure: () => {
+        throw new Error('reporter exploded')
+      }
+    })
+    probe.schedule(0)
+    await vi.advanceTimersByTimeAsync(0)
+    opened[0]!.publishState('connected')
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(unhandled).not.toHaveBeenCalled()
+    probe.stop()
+  } finally {
+    process.off('unhandledRejection', unhandled)
+  }
 })
