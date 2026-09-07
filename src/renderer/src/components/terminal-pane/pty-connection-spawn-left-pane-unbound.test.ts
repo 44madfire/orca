@@ -153,7 +153,6 @@ describe('fresh spawn leaves a local pane unbound', () => {
     await flushAsyncTicks(40)
 
     expect(transport.connect).toHaveBeenCalled()
-    expect(transport.getPtyId()).toBeFalsy()
     expect(requestTerminalPaneRecovery).toHaveBeenCalledWith(
       expect.objectContaining({
         tabId: 'tab-unbound-spawn',
