@@ -124,16 +124,10 @@ test.describe('SSH reconnect tab destruction', () => {
         'the tab survived but its pane manager did not'
       ).toBeGreaterThanOrEqual(1)
 
-      // NOT asserted: that the surviving pane reaches its shell again.
-      //
-      // Measured at 3 runs in 4 — the tab survives every time, the reattach behind it does not. So
-      // preserving the tab is a real fix and an incomplete one: the store keeps the tab, the tab bar
-      // renders it, and the pane sometimes never rebinds, which is the "frozen tab" shape the
-      // original report described. Asserting it here would put a one-in-four flake into the CI lane
-      // that exists to catch this class, which is worse than saying plainly that it is unfixed.
-      //
-      // The reattach gap is tracked separately; do not add a liveness assertion here until it is
-      // deterministic, or the lane stops being trusted.
+      // NOT asserted here: that the surviving pane reaches its shell again. That is a different
+      // failure with a different cause — the disposed first transport killing the PTY its remounted
+      // successor was handed (disposed-spawn-retention.ts) — and it is asserted over enough rounds to
+      // separate a fix from luck in ssh-reconnect-new-tab-liveness.spec.ts.
     } finally {
       if (target) {
         cleanupDockerSshRelayTarget(target)

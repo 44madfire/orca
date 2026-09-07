@@ -129,7 +129,31 @@ the renderer retries.
 The SSH e2e lane must be green and triggering on **source** changes before any of this is attempted.
 It was skipping for 15 specs; four regressions reached a user during that window.
 
-## Open: the pane behind a preserved tab does not always rebind
+## RESOLVED: the pane behind a preserved tab did not always rebind
+
+Measured on the Docker-SSH lane with a multi-round probe (four independent 10-round runs before the
+fix; 30 rounds after). The failure needed no second reconnect: a tab opened right after ONE reconnect
+failed 4-5 rounds in 10, and it presented both ways — the tab deleted outright, or kept with a bound
+PTY and a painted prompt that never answered input.
+
+The cause was not the reattach path this section guessed at. The reconnect's pane-retry ledger
+(`retryDirectSshTerminalPanes`) bumps `tab.generation` on every target tab that has no PTY yet, and
+a tab created seconds after the reconnect is exactly that. The bump remounts the pane while its
+first spawn is still in flight; main's pane-spawn reservation (`spawn-begin.ts`) hands the remounted
+pane the SAME PTY the first spawn is about to receive; and the disposed first transport then killed
+that PTY as an orphan (`ipc-pty-connect.ts` `retireFreshSpawn`). One kill, two symptoms: when the
+relay reported a proven exit the tab closed on `pty-exit`; when only the synthetic `-1` arrived the
+tab stayed bound to a dead shell.
+
+The fix keeps the kill for a genuinely ownerless PTY and skips it while the pane surface still
+exists (`disposed-spawn-retention.ts`): the tab is present and, if a layout exists, still names the
+leaf. Direction is deliberately leak-over-kill. `ssh-reconnect-new-tab-liveness.spec.ts` asserts
+liveness over six rounds.
+
+The paragraphs below are the pre-fix record, kept because the measurement method is still the right
+one for this class of bug.
+
+### Original note
 
 The merge now keeps a local tab the host has never been told about, so the tab and its title survive
 a reconnect. The reattach behind it does not, reliably — measured at three runs in four against the

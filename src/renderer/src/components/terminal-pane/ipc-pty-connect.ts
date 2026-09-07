@@ -38,7 +38,7 @@ export async function connectIpcPty(
   context: IpcPtyConnectContext
 ): Promise<void | string | PtyConnectResult> {
   const { transportOptions, handlers } = context
-  const { onPtySpawn } = transportOptions
+  const { onPtySpawn, retainDisposedSpawn } = transportOptions
   context.setCallbacks(options.callbacks)
   ensurePtyDispatcher()
 
@@ -90,10 +90,13 @@ export async function connectIpcPty(
     const spawnResult = await spawnIpcPty(transportOptions, options, admittedSessionId)
     const retireFreshSpawn = async (): Promise<void> => {
       // A newer generation may already own a recycled id; an id-only kill would retire its PTY.
+      // A pane remounted mid-spawn is handed this same id by main's pane-spawn reservation, so the
+      // kill would land on the successor's shell — the surface owner decides, not this transport.
       if (
         !spawnResult.isReattach &&
         !spawnResult.coldRestore &&
-        !context.ownsPtyId(spawnResult.id)
+        !context.ownsPtyId(spawnResult.id) &&
+        retainDisposedSpawn?.() !== true
       ) {
         await window.api.pty.kill(spawnResult.id)
       }
