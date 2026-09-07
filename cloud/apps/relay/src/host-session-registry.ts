@@ -14,6 +14,7 @@ import {
   HostChallengeAckSchema,
   HostHelloSchema,
   InviteCreateSchema,
+  RELAY_HOST_CAPABILITY_PENDING_CONN_DETAILS,
   RELAY_PROTOCOL_LIMITS,
   RELAY_CLOSE_CODE,
   type RelayHostCloseReason,
@@ -89,6 +90,8 @@ export type HostSession = {
   orphanTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setInterval> | null
   lastPongAt: number
+  // The `t` of the ping still waiting for its echo; null once one has answered it.
+  pendingPingAt: number | null
   controlRttSamplesMs: number[]
   controlRttLoggedAt: number | null
   activityRenewalDueAt: number
@@ -178,6 +181,7 @@ export class HostSessionRegistry {
   // but a signed-out desktop never comes back, so the phone that asks minutes
   // later would otherwise find nothing to explain its rejection with.
   private readonly hostCloseReasons = new HostCloseReasonMemory(() => this.now())
+  private readonly hostCapabilities = new WeakMap<WebSocket, ReadonlySet<string>>()
   private draining = false
 
   constructor(
@@ -519,10 +523,13 @@ export class HostSessionRegistry {
     }
   }
 
-  // Every desktop build already echoes the ping's `t`; anything else is dropped
-  // rather than trusted, so no new wire field is required.
+  // Every desktop build already echoes the ping's `t`, so a pong is only timed when
+  // it answers the outstanding ping: at most one sample per ping this cell sent,
+  // however many a host floods. A pong that lost the race to the next ping is
+  // dropped here but still counts as proof of life for the silence watchdog.
   private recordControlRtt(session: HostSession, echoedPingAt: unknown): void {
-    if (typeof echoedPingAt !== 'number' || !Number.isFinite(echoedPingAt)) return
+    if (typeof echoedPingAt !== 'number' || echoedPingAt !== session.pendingPingAt) return
+    session.pendingPingAt = null
     const now = this.now()
     const rttMs = now - echoedPingAt
     if (rttMs < 0 || rttMs > CONTROL_RTT_MAX_PLAUSIBLE_MS) return
@@ -552,8 +559,12 @@ export class HostSessionRegistry {
   acceptControl(
     socket: WebSocket,
     identity: RelayTokenClaims,
-    connectionInclusionWatermark?: number
+    connectionInclusionWatermark?: number,
+    hostCapabilities?: ReadonlySet<string>
   ): void {
+    // Keyed by socket, not session: a rebind swaps the session's socket, and the
+    // successor's own advertisement is the only one that describes its decoder.
+    if (hostCapabilities?.size) this.hostCapabilities.set(socket, hostCapabilities)
     if (this.draining) {
       socket.close(RELAY_CLOSE_CODE.DRAINING, 'relay draining')
       return
@@ -912,6 +923,7 @@ export class HostSessionRegistry {
       existing.appVersion = appVersion
       existing.leaseExpiresAt = this.controlLeaseExpiresAt()
       existing.lastPongAt = this.now()
+      existing.pendingPingAt = null
       existing.activityRenewalDueAt =
         this.now() + RELAY_PROTOCOL_LIMITS.controlPingIntervalMs
       this.wireActiveControl(existing)
@@ -965,6 +977,7 @@ export class HostSessionRegistry {
       orphanTimer: null,
       heartbeatTimer: null,
       lastPongAt: this.now(),
+      pendingPingAt: null,
       controlRttSamplesMs: [],
       controlRttLoggedAt: null,
       activityRenewalDueAt: this.now() + RELAY_PROTOCOL_LIMITS.controlPingIntervalMs,
@@ -1172,11 +1185,18 @@ export class HostSessionRegistry {
       session.socket.close(RELAY_CLOSE_CODE.DRAINING, 'control lease expired')
       return
     }
+    session.pendingPingAt = now
     send(session.socket, 'ping', { t: now })
   }
 
   private sendHelloAck(session: HostSession): void {
     if (!session.socket) return
+    // Without these a host that missed the conn-open cannot dial the pending
+    // connection: it would have to guess the pairing kind and the device the
+    // relay authorized. Only sent to a host that said it can read them.
+    const details = this.hostCapabilities
+      .get(session.socket)
+      ?.has(RELAY_HOST_CAPABILITY_PENDING_CONN_DETAILS)
     send(session.socket, 'host-hello-ack', {
       v: 1,
       generation: session.generation,
@@ -1185,7 +1205,13 @@ export class HostSessionRegistry {
       activeConnIds: [...session.activeConnIds],
       pendingConns: [...session.pendingConns.values()].map((pending) => ({
         connId: pending.connId,
-        connTicket: pending.connTicket
+        connTicket: pending.connTicket,
+        ...(details
+          ? {
+              kind: pending.reservation.credentialKind,
+              relayDeviceId: pending.reservation.relayDeviceId
+            }
+          : {})
       }))
     })
   }
