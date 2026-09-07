@@ -52,6 +52,16 @@ const MAX_DELAY_MS = 3_600_000
 
 // ---------- one relay dial, phone-shaped ----------
 // Resolves once e2ee_authenticated lands, with timings and an rpc() bound to the live socket.
+// JSON.parse quotes a fragment of its input in the SyntaxError, and every input here is peer,
+// desktop, or credential text, so the failure names only what was being parsed.
+export function parsePeerJson(text, what) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error(`${what}: not valid JSON`)
+  }
+}
+
 export function dialRelay({
   cellUrl,
   relayHostId,
@@ -128,7 +138,7 @@ export function dialRelay({
     ws.on('message', (raw, isBinary) => {
       try {
         if (stage === 'awaiting-hello') {
-          const hello = JSON.parse(raw.toString())
+          const hello = parsePeerJson(raw.toString(), 'relay hello')
           handle.hello = hello
           mark('relayHello')
           if (!hello.ok) {
@@ -145,7 +155,7 @@ export function dialRelay({
           return
         }
         if (stage === 'awaiting-ready') {
-          e2ee.acceptReady(JSON.parse(raw.toString()))
+          e2ee.acceptReady(parsePeerJson(raw.toString(), 'relay ready'))
           mark('e2eeReady')
           stage = 'awaiting-authenticated'
           ws.send(
@@ -167,7 +177,7 @@ export function dialRelay({
         }
         const text = e2ee.openText(raw.toString())
         if (stage === 'awaiting-authenticated') {
-          const msg = JSON.parse(text)
+          const msg = parsePeerJson(text, 'desktop authentication')
           if (msg.type !== 'e2ee_authenticated') {
             // Type only: the plaintext is the desktop's and would land in row.error.
             throw new Error(`auth rejected: desktop sent ${describeUntrustedText(msg.type)}`)
@@ -179,7 +189,7 @@ export function dialRelay({
           resolve(handle)
           return
         }
-        const msg = JSON.parse(text)
+        const msg = parsePeerJson(text, 'desktop frame')
         const waiter = msg.id && pending.get(msg.id)
         if (waiter) {
           clearTimeout(waiter.timer)
@@ -226,7 +236,7 @@ export function decodeOffer(pairingUrl) {
   }
   let offer
   try {
-    offer = JSON.parse(Buffer.from(code, 'base64url').toString('utf8'))
+    offer = parsePeerJson(Buffer.from(code, 'base64url').toString('utf8'), 'pairing offer')
   } catch {
     throw new Error('pairing link code did not decode to JSON')
   }
@@ -239,10 +249,13 @@ export function decodeOffer(pairingUrl) {
 async function resolveCell(relay, resumeToken) {
   const started = performance.now()
   try {
+    // redirect: 'error': the body carries the resume token, and a redirect would replay it
+    // to a destination that was never vetted, possibly over plain http.
     const res = await fetch(`${relay.directorUrl}/v1/resolve`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ v: 1, relayHostId: relay.relayHostId, resumeToken }),
+      redirect: 'error',
       signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS)
     })
     const body = await res.json().catch(() => null)
@@ -363,7 +376,8 @@ export async function vetCellUrl(cellUrl, deps) {
 }
 
 async function loadState(statePath) {
-  const state = JSON.parse(readSecretFile(statePath))
+  // A fixed message: a SyntaxError quotes the offending text, and this file holds the token.
+  const state = parsePeerJson(readSecretFile(statePath), 'state file')
   for (const field of ['relayHostId', 'cellUrl', 'directorUrl']) {
     if (!state.relay?.[field]) {
       throw new Error(`${statePath} has no relay.${field}; re-run pair`)
@@ -661,7 +675,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   // A bad state file or a refused destination is operator input, not a crash; say what is wrong
   // without spilling the credential-bearing stack.
   await main(process.argv.slice(2)).catch((err) => {
-    console.error(err.message)
+    // Our own messages are already scrubbed; a library error (DNS, TLS, ws) is not.
+    console.error(describeUntrustedText(err.message))
     process.exitCode = 1
   })
 }

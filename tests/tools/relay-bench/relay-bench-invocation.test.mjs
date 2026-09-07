@@ -169,6 +169,8 @@ describe('classifyPublicHttpsOrigin', () => {
     ['https://[64:ff9b::7f00:1]/', 'loopback, link-local, or private'],
     ['https://[64:ff9b::a9fe:a9fe]/', 'loopback, link-local, or private'],
     ['https://[64:ff9b:1::7f00:1]/', 'loopback, link-local, or private'],
+    ['https://[64:ff9b:1:808:8:800::]/', 'loopback, link-local, or private'],
+    ['https://[64:ff9b:1:a00:0:100:808:808]/', 'loopback, link-local, or private'],
     ['https://[2002:7f00:1::]/', 'loopback, link-local, or private'],
     ['https://[2002:c0a8:101::1]/', 'loopback, link-local, or private'],
     ['https://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/', 'loopback, link-local, or private'],

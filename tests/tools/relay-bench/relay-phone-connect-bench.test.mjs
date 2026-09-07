@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   decodeOffer,
   describeRemoteErrorCode,
+  parsePeerJson,
   vetCellUrl,
   vetRelayEndpoint
 } from './relay-phone-connect-bench.mjs'
@@ -108,5 +109,21 @@ describe('describeRemoteErrorCode', () => {
       'non-string code (object)'
     )
     expect(describeRemoteErrorCode(undefined)).toBe('unknown')
+  })
+})
+
+describe('parsePeerJson', () => {
+  it('never lets the parser quote the peer bytes in the failure', () => {
+    // JSON.parse's SyntaxError includes a fragment of its input; the relay chose that input.
+    expect(() => parsePeerJson('x\u001b[2J', 'relay hello')).toThrow(
+      /^relay hello: not valid JSON$/
+    )
+    expect(() => parsePeerJson('{"resumeToken":"secret"', 'state file')).toThrow(
+      /^state file: not valid JSON$/
+    )
+  })
+
+  it('parses valid JSON unchanged', () => {
+    expect(parsePeerJson('{"ok":true}', 'relay hello')).toEqual({ ok: true })
   })
 })

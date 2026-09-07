@@ -209,14 +209,16 @@ function isPublicIpv6(bytes) {
     return false
   }
   // Transition prefixes that reach an embedded v4 address: judge that address.
-  // NAT64 64:ff9b::/96 and 64:ff9b:1::/48 (v4 in the last 32 bits), 6to4 2002::/16
-  // (v4 in bits 16-47). Teredo 2001:0::/32 embeds the client v4 inverted, so it is refused.
+  // NAT64 64:ff9b::/96 puts the v4 in the last 32 bits; 6to4 2002::/16 in bits 16-47.
+  // 64:ff9b:1::/48 (NAT64 local) embeds it at a position set by the deployment's prefix
+  // length, which this harness cannot know, so it is refused. Teredo 2001:0::/32 embeds the
+  // client v4 inverted, so it is refused too.
   const nat64 = bytes[0] === 0x00 && bytes[1] === 0x64 && bytes[2] === 0xff && bytes[3] === 0x9b
-  if (
-    nat64 &&
-    (bytes.slice(4, 12).every((byte) => byte === 0) || (bytes[4] === 0 && bytes[5] === 1))
-  ) {
+  if (nat64 && bytes.slice(4, 12).every((byte) => byte === 0)) {
     return isPublicIpv4(v4At(bytes, 12))
+  }
+  if (nat64 && bytes[4] === 0 && bytes[5] === 1) {
+    return false
   }
   if (bytes[0] === 0x20 && bytes[1] === 0x02) {
     return isPublicIpv4(v4At(bytes, 2))
