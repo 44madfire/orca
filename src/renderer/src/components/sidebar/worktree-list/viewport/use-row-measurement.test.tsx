@@ -49,9 +49,20 @@ const DRIFTED_OFFSET = 70
 function createScrollElement(scrollTop: number): HTMLDivElement {
   const element = document.createElement('div')
   document.body.append(element)
-  // The scroll-anchor listener writes this once from a layout effect, after the render that
-  // computes the sticky index, so it cannot reach the assertion.
-  element.scrollTop = scrollTop
+  // Models the defect's defining property: the list is too short to scroll, so the browser clamps
+  // any write and the element never moves. That immovability is precisely why the virtualizer's
+  // remembered offset can drift away and never resync — nothing fires a scroll event to correct it.
+  //
+  // Honest about its reach: the current assertions do not observe this. The scroll-anchor listener
+  // writes scrollTop once from a layout effect, after the render that computes the sticky index,
+  // so a plain writable property passes these tests identically. It is kept because a fixture
+  // whose element CAN move is the one least likely to catch the half of this defect that is still
+  // open — the range start is still chosen from the drifted offset.
+  Object.defineProperty(element, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTop,
+    set: () => undefined
+  })
   return element
 }
 
