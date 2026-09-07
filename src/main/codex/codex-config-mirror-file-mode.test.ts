@@ -25,7 +25,10 @@ vi.mock('node:os', async () => {
   return { ...actual, homedir: homedirMock }
 })
 
-import { syncSystemConfigIntoManagedCodexHome } from './codex-config-mirror'
+import {
+  syncSystemConfigIntoLegacySharedCodexHome,
+  syncSystemConfigIntoManagedCodexHome
+} from './codex-config-mirror'
 
 // A config shaped like the one in the report: an MCP server whose bearer token
 // lives literally in the file. Whether a given user's config carries one is up
@@ -207,5 +210,37 @@ describe('home-local rewrite reaches the mirrored file (STA-6706)', () => {
     const written = readFileSync(runtimeConfigPath(), 'utf-8')
     expect(written).toContain(`${systemHome()}/${BUNDLED}`)
     expect(written).not.toContain(`codex-runtime-home/home/${BUNDLED}`)
+  })
+})
+
+// The retired shared home is still a CODEX_HOME that a surviving pane reads,
+// and `[marketplaces.*]` is not runtime-preserved — so a legacy lane that
+// skipped the rewrite would keep rebuilding the un-rewritten value on every
+// pass, and that pane would keep losing the bundled marketplace.
+describe('legacy shared home gets the same home-local rewrite (STA-6706)', () => {
+  it('re-roots a bundled marketplace source in the retired home too', () => {
+    const legacyHome = join(userDataDir, 'legacy-shared-home')
+    const bundled = '.tmp/bundled-marketplaces/openai-bundled'
+    mkdirSync(join(legacyHome, bundled), { recursive: true })
+    writeFileSync(
+      systemConfigPath(),
+      [
+        'model = "gpt-5"',
+        '',
+        '[marketplaces.openai-bundled]',
+        `source = "${systemHome()}/${bundled}"`,
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+
+    syncSystemConfigIntoLegacySharedCodexHome({
+      runtimeHomePath: legacyHome,
+      systemHomePath: systemHome()
+    })
+
+    const written = readFileSync(join(legacyHome, 'config.toml'), 'utf-8')
+    expect(written).toContain(`${legacyHome}/${bundled}`)
+    expect(written).not.toContain(`${systemHome()}/${bundled}`)
   })
 })
