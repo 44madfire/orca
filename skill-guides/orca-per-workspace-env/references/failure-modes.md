@@ -55,8 +55,9 @@ Streams are redacted and capped at both ends, keeping the start and the failure.
 
 ## Environment lifecycle
 
-- **`known_hosts` host-key churn on local Docker.** Each ephemeral container regenerated its own SSH
-  host key, and they collide on `127.0.0.1` as the published port rotates.
+- **`known_hosts` mismatch on local Docker.** A new container may reuse an old container's port.
+  Read its public key through trusted local Docker access, verify the container identity, then
+  replace only that endpoint's recorded key. Never reuse private host keys across workspace images.
 - **Snapshot expired or evicted.** `create` hit an unknown snapshot id. Re-run the base and auth
   snapshot phases and update `snapshotId` in state.
 - **Docker auth image exits immediately.** Read `docker image inspect … .Config.Entrypoint` and

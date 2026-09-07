@@ -10,49 +10,14 @@ description: >-
 
 # Orca Linear
 
-**Result:** the current ticket's context loaded before you plan, or a ticket whose state,
-attachments, and comments reflect the work just done.
-
-**Done:** the branch you took reached its outcome.
-
-- Read: you have the issue's state, comments, and `inlineMedia`, and you say which you used.
-- Complete: the PR/MR link is attached, exactly one completion comment is posted, and status
-  is moved or left unchanged with the reason in that comment.
-- Move status: the target state was named by the user or resolved deterministically, and the
-  move does not regress the ticket.
-- Search: you report the matches and the `truncated` value you checked before quoting a count.
-- Follow-up: the parented issue exists and you report its identifier.
-
-**Safe failure:** when a write is still unconfirmed after its one retry or read-back, the target
-state is ambiguous, or the installed CLI disagrees with this guide, stop and report. Leave Linear
-unchanged rather than guess.
-
 Use `ORCA linear` when Linear is the source of task context or ticket updates.
 
-`ORCA` is a placeholder for the executable you used to run `skills get`. Substitute it before
-running; do not make a shell variable or run `ORCA` literally.
+`ORCA` is a placeholder for the executable you resolved in the stub; substitute it before running.
 
 `orca-linear` and `linear-tickets` are skill names, not CLI namespaces. Always run
 `ORCA linear ...` commands.
 
 Prefer `--json` for agent-driven calls. Use plain chat updates when no Linear-linked task exists or when the user did not ask to touch Linear.
-
-## Preconditions
-
-```bash
-ORCA status --json
-ORCA linear --help
-```
-
-If Orca is not running, start it:
-
-```bash
-ORCA open --json
-ORCA status --json
-```
-
-`ORCA linear --help` and each verb's `--help` are the authority on the command surface. Where
-they disagree with this guide, trust them and tell the user the guide may be stale.
 
 ## Read First
 
@@ -84,6 +49,9 @@ Each `inlineMedia` item includes the source (`description`, `comment`, or `child
 Do not use `ORCA linear attach` to read screenshots. That command creates link attachments, such as PR/MR links, and does not retrieve inline media files.
 
 ## Discovery And Triage
+
+For operations not shown here, run `ORCA linear --help`, then `ORCA linear <command> --help`
+before choosing flags.
 
 Use discovery before mutating fields when you do not already have stable IDs. Run only the command for the metadata you need; do not execute the entire block:
 
@@ -192,7 +160,3 @@ If the retry or the read-back also fails, stop and report the uncertainty to the
 - `linear_write_unconfirmed`: follow the payload rules above — retry once when `error.data.writeId` is present, otherwise read back first.
 - `linear_invalid_workspace`: rerun with the workspace id returned by search or issue context.
 - `linear_body_too_large`: shorten the comment/body and retry once.
-
-## Next Action
-
-Confirm `ORCA status --json` unless already checked this turn, then read the current issue with `ORCA linear issue --current --full --json`. For completion, attach the PR/MR link, add one completion comment, and move status only when the target state is deterministic and non-regressive.

@@ -8,12 +8,33 @@ create|exec|snapshot|remove`. Adapt the names and verify every flag against
 This is the Orca-server connection mode: the recipe emits a pairing URL. If the user chose SSH in
 the interview, use `references/ssh-host.md` instead.
 
+## Snapshot cleanup
+
+The base and auth excerpts each belong to one `set -euo pipefail` script. Include this function
+in both scripts and arm the trap before creating their temporary sandbox. Keep it armed through
+verification, snapshot creation, and writing state; cleanup failure must remain visible.
+
+```bash
+cleanup_snapshot() {
+  snapshot_exit=$?
+  trap - EXIT
+  if ! vercel sandbox remove "$1" "${vercel_args[@]}" >&2; then
+    echo "Sandbox cleanup failed for $1; inspect and remove it before continuing" >&2
+    snapshot_exit=1
+  fi
+  exit "$snapshot_exit"
+}
+```
+
+Use fresh sandbox names for these scripts so cleanup cannot remove an existing environment.
+
 ## Base snapshot
 
 Provision, install tools and clone, build headless, then snapshot.
 
 ```bash
-# provision a fresh build sandbox (retain a couple of snapshots); trap-remove on error
+# provision a fresh build sandbox (retain a couple of snapshots)
+trap 'cleanup_snapshot "$base"' EXIT
 vercel sandbox create --name "$base" --runtime node24 --timeout 30m --vcpus 4 --publish-port "$port" \
   --snapshot-expiration 30d --keep-last-snapshots 2 "${vercel_args[@]}" >&2
 # remote build (long timeout): install pkgs+gh+pnpm+agent CLI, clone with GIT_ASKPASS (the helper's
@@ -24,6 +45,7 @@ vercel sandbox exec "$base" "${vercel_args[@]}" --timeout 25m --env "GH_TOKEN=$g
 # snapshot the STOPPED sandbox and parse the id from CLI output (fail if unparseable)
 out="$(vercel sandbox snapshot "$base" --stop --expiration 30d "${vercel_args[@]}" 2>&1)"; printf '%s\n' "$out" >&2
 snapshot_id="$(printf '%s\n' "$out" | sed -nE 's/.*(snap_[A-Za-z0-9]+).*/\1/p' | tail -1)"
+[ -n "$snapshot_id" ] || { echo "snapshot id missing" >&2; exit 1; }
 # merge { baseName, snapshotId, scope, project, port, repoUrl, repoRef, projectRoot } into state; print state JSON
 ```
 
@@ -33,6 +55,7 @@ Boot the base, let the user log the agent in, verify, then re-snapshot. `codex` 
 substitute the user's chosen agent's login and status verbs.
 
 ```bash
+trap 'cleanup_snapshot "$auth"' EXIT
 vercel sandbox create --name "$auth" --snapshot "$snapshot_id" --timeout 30m --publish-port "$port" "${vercel_args[@]}" >&2
 # The USER runs this in their own terminal and completes the URL/code on the HOST.
 vercel sandbox exec --interactive --tty "$auth" "${vercel_args[@]}" -- bash -lc 'codex login --device-auth'
@@ -65,6 +88,7 @@ Then re-snapshot and record the new id:
 ```bash
 out="$(vercel sandbox snapshot "$auth" --stop --expiration 30d "${vercel_args[@]}" 2>&1)"; printf '%s\n' "$out" >&2
 new_id="$(printf '%s\n' "$out" | sed -nE 's/.*(snap_[A-Za-z0-9]+).*/\1/p' | tail -1)"
+[ -n "$new_id" ] || { echo "authenticated snapshot id missing" >&2; exit 1; }
 # overwrite state.snapshotId = new_id, record authSourceSnapshotId = snapshot_id; remove the auth sandbox
 ```
 
@@ -101,10 +125,11 @@ vercel sandbox exec "$name" "${vercel_args[@]}" --timeout 20m \
   --env "GH_TOKEN=$gh_token" --env "ORCA_PROJECT_ROOT=$project_root" \
   --env "ORCA_REPO_URL=$repo_url" --env "ORCA_REPO_REF=$repo_ref" \
   -- bash -lc 'set -euo pipefail; cd "$ORCA_PROJECT_ROOT"; \
+    export GIT_TERMINAL_PROMPT=0; \
     # Escaping is load-bearing here: re-test the fetch after any edit to the nested quoting.
     if [ -n "${GH_TOKEN:-}" ]; then \
       printf "%s\n" "#!/usr/bin/env bash" "case \"\$1\" in *Username*) echo x-access-token;; *Password*) echo \"\$GH_TOKEN\";; esac" > /tmp/askpass.sh; \
-      chmod 700 /tmp/askpass.sh; export GIT_ASKPASS=/tmp/askpass.sh GIT_TERMINAL_PROMPT=0; fi; \
+      chmod 700 /tmp/askpass.sh; export GIT_ASKPASS=/tmp/askpass.sh; fi; \
     git fetch origin "$ORCA_REPO_REF"; \
     git checkout -B "$ORCA_REPO_REF" FETCH_HEAD; \
     rm -f /tmp/askpass.sh; \

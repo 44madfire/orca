@@ -169,12 +169,12 @@ describe('skill guides only name commands and flags the CLI defines', () => {
     invocationSpans(readFileSync(file, 'utf8'), file)
   )
 
-  it('extracts invocations from every guide and reference', () => {
+  it('extracts a nonempty invocation corpus across guides and references', () => {
     expect(invocations.length).toBeGreaterThan(150)
     expect(new Set(invocations.map((invocation) => invocation.file)).size).toBeGreaterThan(8)
   })
 
-  it('resolves every ORCA invocation against COMMAND_SPECS', () => {
+  it('checks extracted ORCA command paths and flags against COMMAND_SPECS', () => {
     expect(invocations.flatMap(parityFailures)).toEqual([])
   })
 

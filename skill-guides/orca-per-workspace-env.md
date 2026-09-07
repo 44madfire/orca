@@ -11,24 +11,9 @@ description: >-
 
 # Per-Workspace Environments
 
-**Result:** a repo-owned `environmentRecipes` entry in `orca.yaml`, the provider lifecycle
-scripts under `scripts/orca-vm/` it points at, and an authenticated base snapshot recorded in a
-state file.
-
-**Next consumer:** the Orca workspace composer. It reads `environmentRecipes` from the project's
-registered checkout, offers the recipe as a "Run on" target, and runs
-`create`/`suspend`/`resume`/`destroy` against it.
-
-**Done:** `ORCA vm recipe doctor <recipe-id> --repo-path <repo> --provision --json` returns
-`ok: true` with no check at `warn` (a `warn` keeps `ok` true, so read the checks), and the recipe
-is on the project's primary branch. Only the user can defer that, and only by saying so.
-
-**Safe failure:** stop and report the provider's own error text and the command that produced it.
-Never paraphrase a provider error, and never leave a paid resource running.
-
-`ORCA` in every example is the executable you used to run `skills get`. Substitute it before
-running; do not make a shell variable or run `ORCA` literally. Inside the lifecycle scripts the
-placeholder does not apply: `orca serve` written there runs on the remote machine's own binary.
+`ORCA` is a placeholder for the executable you resolved in the stub; substitute it before running.
+Inside the lifecycle scripts the placeholder does not apply: `orca serve` written there runs on
+the remote machine's own binary.
 
 ## Autonomy envelope
 
@@ -37,9 +22,12 @@ login state, scaffold and edit files under `scripts/orca-vm/`, and run `ORCA vm 
 without `--provision`. Get an explicit OK before each paid step: the base snapshot, the auth
 snapshot, and `--provision`. One OK covers the whole `--provision` fix-and-rerun loop. Stop for
 the interactive agent login, which you cannot drive; the user runs it and tells you when it is
-done. Never create an Orca workspace except for the step-10 test the user asked for. Never
-commit, choose a plan or region, invent a scope, project, or billing id, or write a credential
-into a script, `userData`, the state file, or a commit.
+done. Never create an Orca workspace except for the step-10 test the user asked for. Do not create
+Git commits unless asked. Never choose a plan or region, invent a scope, project, or billing id, or
+write a credential into a script, `userData`, the state file, or a commit.
+
+Preserve actionable provider errors and the failing command, redact secrets, and clean up resources
+created by a failed step.
 
 ## The branch that shapes everything
 
@@ -126,7 +114,10 @@ Provisioning and building often takes 20 to 30 minutes.
   box's logs, terminal history, and orchestration database. Two VMs from one such snapshot emitted
   identical `deviceToken` and `pairedDeviceId`. Snapshot before the runtime has ever run, or delete
   the resolved user-data directory first:
-  `orca_user_data_path="${ORCA_USER_DATA_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/orca}"; rm -rf -- "$orca_user_data_path"`.
+  `orca_user_data_path="${ORCA_USER_DATA_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/orca}"`.
+  Resolve symlinks and inspect that path before deleting it: it must be an absolute directory
+  dedicated to Orca runtime data, never `/`, the home directory, or an ancestor of home. Refuse
+  empty or relative paths. Remove only that verified directory, not an unchecked environment value.
   That matches Orca's Linux precedence for custom and default paths; deleting a named file list
   drifts as Orca adds state.
 - Snapshot the stopped environment, parse the snapshot id, and write it plus scope, project, port,
