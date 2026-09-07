@@ -4442,7 +4442,9 @@
           "a30e34eb5c": "关闭工作区板",
           "25a95899c9": "添加项目",
           "spaces": "空间",
-          "views": "侧边栏视图"
+          "views": "侧边栏视图",
+          "createMenu": "创建",
+          "addProject": "添加项目"
         },
         "SidebarNav": {
           "80611a8b10": "搜索",

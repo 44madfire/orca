@@ -4413,7 +4413,9 @@
           "a30e34eb5c": "Cerrar tablero del espacio de trabajo",
           "25a95899c9": "Agregar proyecto",
           "spaces": "Espacios",
-          "views": "Vista de la barra lateral"
+          "views": "Vista de la barra lateral",
+          "createMenu": "Crear",
+          "addProject": "Agregar proyecto"
         },
         "SidebarNav": {
           "80611a8b10": "Buscar",

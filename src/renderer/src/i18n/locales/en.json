@@ -1489,7 +1489,7 @@
       "Landing": {
         "76a95f7f47": "Create",
         "f05d237049": "Add a project first",
-        "f9eaa9e12d": "Add Project",
+        "f9eaa9e12d": "Add project",
         "6ca6ff404e": "ORCA",
         "520304a067": "Orca logo",
         "ce44fad849": "Missing dependencies",
@@ -5300,7 +5300,9 @@
           "ca6f729da2": "New workspace ({{value0}})",
           "a30e34eb5c": "Close workspace board",
           "views": "Sidebar view",
-          "moreActions": "More workspace actions"
+          "moreActions": "More workspace actions",
+          "createMenu": "Create",
+          "addProject": "Add project"
         },
         "SidebarNav": {
           "80611a8b10": "Search",
@@ -13613,7 +13615,7 @@
           },
           "ProjectCombobox": {
             "empty": "No projects match your search.",
-            "addProject": "Add a new project",
+            "addProject": "Add project",
             "label": "Project",
             "browse": "Browse projects",
             "listLabel": "Projects",

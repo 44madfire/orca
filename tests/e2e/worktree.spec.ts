@@ -1,3 +1,4 @@
+import { openSidebarWorkspaceComposer } from './helpers/sidebar-project-dialog'
 /**
  * E2E tests for the "Create Workspace" flow in Orca.
  *
@@ -59,7 +60,7 @@ test.describe('Create Workspace', () => {
     try {
       // 1. Open the composer through the visible affordance so the lazy modal
       // mount path stays covered along with the composer body.
-      await orcaPage.getByRole('button', { name: 'New workspace', exact: true }).click()
+      await openSidebarWorkspaceComposer(orcaPage)
 
       const dialog = orcaPage.getByRole('dialog', { name: /Create (Workspace|Worktree)/i })
       await expect(dialog).toBeVisible()
@@ -156,7 +157,7 @@ test.describe('Create Workspace', () => {
     const workspaceName = '🚀🧪✨'
 
     try {
-      await orcaPage.getByRole('button', { name: 'New workspace', exact: true }).click()
+      await openSidebarWorkspaceComposer(orcaPage)
 
       const dialog = orcaPage.getByRole('dialog', { name: /Create (Workspace|Worktree)/i })
       await expect(dialog).toBeVisible()
@@ -192,7 +193,7 @@ test.describe('Create Workspace', () => {
 
   test('enters the Korean flag with the flag_kr shortcode suggestion', async ({ orcaPage }) => {
     try {
-      await orcaPage.getByRole('button', { name: 'New workspace', exact: true }).click()
+      await openSidebarWorkspaceComposer(orcaPage)
 
       const dialog = orcaPage.getByRole('dialog', { name: /Create (Workspace|Worktree)/i })
       const nameInput = dialog.getByPlaceholder(/Type a name/i)
@@ -251,7 +252,7 @@ test.describe('Create Workspace', () => {
     try {
       const workspaceName = `e2e-create-failure-${Date.now()}`
 
-      await orcaPage.getByRole('button', { name: 'New workspace', exact: true }).click()
+      await openSidebarWorkspaceComposer(orcaPage)
 
       const dialog = orcaPage.getByRole('dialog', { name: /Create (Workspace|Worktree)/i })
       await expect(dialog).toBeVisible()
@@ -298,7 +299,7 @@ test.describe('Create Workspace', () => {
     const linkedWorkspacePattern = new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
 
     try {
-      await orcaPage.getByRole('button', { name: 'New workspace', exact: true }).click()
+      await openSidebarWorkspaceComposer(orcaPage)
 
       const dialog = orcaPage.getByRole('dialog', { name: /Create (Workspace|Worktree)/i })
       await expect(dialog).toBeVisible()
@@ -415,7 +416,7 @@ test.describe('Create Workspace', () => {
     const linkedWorkspacePattern = new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
 
     try {
-      await orcaPage.getByRole('button', { name: 'New workspace', exact: true }).click()
+      await openSidebarWorkspaceComposer(orcaPage)
 
       const dialog = orcaPage.getByRole('dialog', { name: /Create (Workspace|Worktree)/i })
       await expect(dialog).toBeVisible()

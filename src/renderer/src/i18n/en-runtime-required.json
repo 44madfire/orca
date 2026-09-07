@@ -1866,9 +1866,12 @@
           "dcaa645da5": "ok"
         },
         "SidebarHeader": {
+          "25a95899c9": "Add Project",
           "49f62c5665": "Workspace board",
           "5c9c7c16aa": "Add a project to create workspaces",
           "a30e34eb5c": "Close workspace board",
+          "ca6f729da2": "New workspace ({{value0}})",
+          "moreActions": "More workspace actions",
           "projects": "Projects",
           "spaces": "Spaces",
           "views": "Sidebar view"
