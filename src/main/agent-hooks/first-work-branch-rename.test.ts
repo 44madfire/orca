@@ -102,8 +102,8 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
       const items: AgentJournalRenderItem[] = []
       const journal = {
         snapshot: () => ({ items }),
-        isReadOnly: false,
-        lastActivityAt: () => 1
+        lastActivityAt: () => 1,
+        isReadOnly: false
       } as unknown as AgentSessionJournal
       const pending: Promise<void>[] = []
       const observe = vi.fn((summary, options) => {
