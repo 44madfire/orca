@@ -97,10 +97,9 @@ function frontmatterBlock(markdown, sourcePath) {
 // guide's — it is the unchanged discovery surface — so we reuse the guide's own block and
 // replace only the body. The body is the per-topic stub with its shared markers expanded,
 // normalized to LF with exactly one trailing newline.
-function composeStubProjection(guideMarkdown, stubBody, sourcePath, { topic, sharedBlocks }) {
+function composeStubProjection(guideMarkdown, stubBody, sourcePath, { sharedBlocks }) {
   const block = frontmatterBlock(guideMarkdown, sourcePath)
   const composed = renderSharedStubBody(normalizeMarkdown(stubBody), {
-    topic,
     blocks: sharedBlocks,
     sourcePath
   })
@@ -335,10 +334,7 @@ async function buildArtifacts(repoRoot = REPO_ROOT) {
           markdown,
           await readFile(stubPath, 'utf8'),
           `skill-stubs/${name}.md`,
-          {
-            topic: name,
-            sharedBlocks
-          }
+          { sharedBlocks }
         )
       : markdown
     projections.push({

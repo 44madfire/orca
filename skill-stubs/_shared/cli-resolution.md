@@ -1,7 +1,4 @@
-<!-- Single-authored blocks shared by every skill-stubs/<topic>.md projection.
-     Insert one with a line reading `<!-- shared: <id> -->`; every block below must be
-     inserted exactly once by every stub. `reflow` re-wraps the block after {{topic}}
-     substitution, because the substituted name changes where the lines break. -->
+<!-- Single-authored blocks shared by every skill stub. -->
 
 <!-- block: resolver -->
 
@@ -26,22 +23,7 @@ to another executable, which could silently target a different Orca build.
 
 <!-- block: no-guessing -->
 
-Don't guess subcommands or flags from memory or from a cached copy of this stub. They
-change between Orca releases, and this file deliberately no longer lists them. Confirm the
-app is up with `ORCA status --json` (start it with `ORCA open --json` if needed), and
-prefer `--json` for agent-driven calls.
-
-<!-- block: older-binary-intro -->
-
-## If an older Orca does not recognize `skills get`
-
-Use this fallback only when the selected binary explicitly reports that `skills get` is an
-unknown command. Another failure is not proof of an older binary; report it rather than
-guessing or changing executables. For a confirmed pre-guide binary, use only this bounded,
-read-only bootstrap to orient. Do not dead-end and do not invent commands:
-
-<!-- block: older-binary-outro reflow -->
-
-Then tell the user that updating Orca restores the full, version-matched guide via
-`ORCA skills get {{topic}}`. Beyond these commands, ask the user rather than guessing a
-command surface this older binary may not support.
+Prefer `--json`. Use the selected executable's `--help` for commands or flags the guide does
+not cover. If a command reports that Orca is not running, start it with `ORCA open --json`
+and retry. If `skills get` is unknown, explain that updating Orca restores the guide; use
+`--help` for read-only discovery and do not guess unsupported commands.

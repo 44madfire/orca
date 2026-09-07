@@ -1,51 +1,25 @@
 ---
 name: orca-cli
 description: >-
-  Use the public `orca` CLI to operate Orca-managed worktrees, folder contexts,
-  terminals, repos, automations, artifacts, skill sharing, worktree comments, and the browser
-  embedded inside the Orca app. Use when the user says "$orca-cli", "use orca cli",
-  "Orca worktree", "child worktree", "cardStatus", "spawn codex/claude in a worktree",
-  "read/wait/send Orca terminal", "terminal send", "full handoff", "handover",
-  "give this to another agent", "another worktree", "Orca browser", "orca artifacts",
-  "share HTML/Markdown", "public artifact link", "share skills", or "control the browser inside
-  Orca". Prefer this over raw `git worktree`, ad hoc
-  PTYs, Playwright, or Computer Use when the task touches Orca-managed state.
-  Use Computer Use for external browser windows, webviews, or desktop UI only
-  when the task requires OS/window-level control such as focus, menus, dialogs,
-  coordinates, or screenshots. Use `orca-cli` for Orca's embedded pages and a
-  page-automation tool such as Playwright or CDP for external pages.
+  Operate Orca-managed worktrees, folder contexts, terminals, repos, automations, artifacts,
+  skill sharing, worktree comments, and Orca's embedded browser through the `orca` CLI. Use
+  when the user says "$orca-cli", "Orca worktree", "child worktree", "spawn codex/claude in a
+  worktree", "read/wait/send Orca terminal", "handoff" / "handover" / "give this to another
+  agent", "Orca browser", "orca artifacts", or "share skills". Prefer it over raw git
+  worktree, ad hoc PTYs, or Computer Use when Orca state is involved. Use Computer Use only
+  for external windows or desktop UI that needs OS-level control, and Playwright or CDP for
+  external pages.
 ---
 
 # Orca CLI
 
 Use `orca` when Orca's running editor/runtime is the source of truth. Use plain shell tools when Orca state does not matter.
 
-## Outcome
-
-**Result:** the Orca state you were asked to read or change, plus the receipt that proves it: a worktree id, an agent handle, or the command's JSON result.
-
-**Done:** you reported that receipt. Handoffs have one more condition, under `## Full Handoffs`.
-
-**Safe failure:** no receipt, or an unsatisfied wait, means unproven. Report it that way and stop. A timeout, a quiet terminal, or a lost host never proves that input landed or that a process exited.
-
 ## Start Here
 
-`ORCA` in every example is the executable you used to run `skills get`. Keep using that executable. Substitute it before running anything; do not make a shell variable or run `ORCA` literally. This holds in POSIX shells, PowerShell, and cmd.exe.
+`ORCA` is a placeholder for the executable you resolved in the stub; substitute it before running.
 
 **Dev builds (`pnpm dev`):** after `pnpm build:cli` the dev CLI is `orca-dev`, and `./config/scripts/orca-dev.mjs` invokes it worktree-locally without depending on the /usr/local/bin symlink. Plain `orca` targets any installed production Orca.
-
-```text
-ORCA status --json
-ORCA worktree ps --json
-ORCA terminal list --json
-```
-
-If Orca is not running, start it:
-
-```text
-ORCA open --json
-ORCA status --json
-```
 
 Prefer `--json` for agent-driven calls. If the CLI is missing, say so explicitly instead of inspecting source files first.
 
@@ -67,7 +41,7 @@ Use `--no-parent` and omit `--base-branch` for independent top-level handoffs un
 
 Custom Codex model/effort handoff:
 
-`worktree create --agent codex` does not take Codex's own `--model` or `-c model_reasoning_effort=...` flags. For a request such as `gpt-5.5 xhigh`, create the worktree, launch Codex there with those flags, wait for TUI readiness so the prompt is not lost, then send the prompt and stop.
+`worktree create --agent codex` uses Orca's configured launcher; it has no per-call model/effort flags or arbitrary Codex argument forwarding. For a request such as `gpt-6-astra xhigh`, create the worktree, launch Codex through `terminal create --command` with `--model` and `-c model_reasoning_effort=...`, wait for TUI readiness, then send the prompt. For a full handoff, stop after confirming the send was accepted.
 
 **Extra first terminal:** when no repo default-terminal configuration supplies a primary terminal, bare `worktree create` (no `--agent`) opens a fallback shell before the later `terminal create --command ...` adds the agent. Configured default tabs are materialized instead and may run real commands. Prefer `--agent` whenever the built-in launcher is enough. When custom argv forces the two-step path, close a prior terminal only after `terminal list` or `terminal show` confirms it is an unused shell.
 
@@ -75,7 +49,7 @@ The create result's `worktree.id` already contains both pieces Orca needs: `<rep
 
 ```text
 ORCA worktree create --name <task-name> --no-parent --json
-ORCA terminal create --worktree id:<repoId>::<newWorktreePath> --title <task-name> --command 'codex --model gpt-5.5 -c model_reasoning_effort="xhigh"' --json
+ORCA terminal create --worktree id:<repoId>::<newWorktreePath> --title <task-name> --command 'codex --model gpt-6-astra -c model_reasoning_effort="xhigh"' --json
 ORCA terminal wait --terminal <handle> --for tui-idle --timeout-ms 60000 --json
 ORCA terminal send --terminal <handle> --text "<task brief>" --enter --json
 ```
@@ -199,7 +173,7 @@ Terminal rules:
 - `terminal list --json` omits `visualLayouts` to keep the common agent payload bounded. Add `--include-visual-layouts` only when tab and pane topology is required.
 - Use `terminal read` before `terminal send` unless the next input is obvious.
 - Use `terminal send` only for direct terminal input or one-off prompts where no task state, inbox, or reply tracking is needed.
-- `accepted: true` on a send means the bytes reached the terminal, not that the agent started a turn. Confirm the turn with `terminal read` or `terminal wait --for tui-idle`. Never resend on silence.
+- `accepted: true` proves input acceptance, not a started turn. Use the receipt's `turn_started` stage when submission proof is needed; never resend on silence.
 - A text-plus-Enter agent prompt returns a durable request ID and additive stages: `input_accepted`, then `turn_started` once the agent's turn is proven. Raw text-only, bare Enter, interrupt, and terminal query replies keep their existing direct-input behavior.
 - A default send observes for 0 seconds, so a receipt that stops at `input_accepted` is expected and its warning means "unproven", not "failed". Pass `--wait-submit` when you need proof of submission.
 - `--wait-submit <seconds>` only observes the same accepted prompt. A timeout returns queued/input-accepted truth without resending; after an ambiguous transport failure, repeat the exact command with the reported `--retry-request <id>`. Both text and `--json` receipts carry the same `warnings`.
@@ -245,7 +219,3 @@ This guide covers worktrees, terminals, and handoffs on its own. At a gate below
 | Creating, editing, running, or inspecting scheduled automations | `references/automations.md` |
 | Publishing or revoking an artifact link, or publishing installed skills | `references/publishing.md` |
 | Mobile emulator taps, gestures, typing, buttons, camera, or permissions | invoke the `orca-emulator` skill |
-
-## Next Action
-
-Confirm `ORCA status --json` unless already checked this turn, then run the narrowest command for the job: `worktree ps/current/create`, `terminal list/read/wait/send`, or `worktree set --comment/--workspace-status`. For anything in the table above, load its row first.
