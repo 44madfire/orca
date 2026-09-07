@@ -26,8 +26,9 @@ import type { NativeChatEditFile } from '../../../../shared/native-chat-edit-mod
 import {
   countToolCalls,
   createToolInputDisplay,
-  summarizeToolRun,
-  truncateToolDetail
+  toolRunSummaryMembers,
+  truncateToolDetail,
+  type ToolRunMember
 } from './native-chat-tool-summary'
 import {
   NATIVE_CHAT_TOOL_ACTIVITY_COPY,
@@ -237,7 +238,22 @@ export function NativeChatToolRun({
     .filter(isRenderableSubagentGroup)
     .map((group) => <NativeChatSubagentRun key={group.groupId} block={group} />)
   const callCount = countToolCalls(blocks) || blocks.length
-  const summary = summarizeToolRun(blocks)
+  // Members stay separate all the way to the markup: joining them into one
+  // string is what made a run read as a single call, because the separator also
+  // occurs inside tool names like `browser.open` and `tools/read`.
+  const summaryMembers = toolRunSummaryMembers(blocks)
+  const hiddenCallCount = Math.max(0, callCount - summaryMembers.length)
+  // Same content-signature keying the member rows below use: two identical calls
+  // in one run are distinguished by occurrence, never by list position.
+  const keyedSummaryMembers = ((): (ToolRunMember & { key: string })[] => {
+    const seen = new Map<string, number>()
+    return summaryMembers.map((member) => {
+      const signature = `${member.name}:${member.arg}`
+      const occurrence = seen.get(signature) ?? 0
+      seen.set(signature, occurrence + 1)
+      return { ...member, key: `${signature}:${occurrence}` }
+    })
+  })()
   const latestActiveCall = structuredActivityUi
     ? selectActiveToolCall(blocks, { activeTurnIsWorking })
     : null
@@ -251,7 +267,7 @@ export function NativeChatToolRun({
     () => (open ? buildEditCards(blocks) : NO_EDIT_CARDS),
     [open, blocks]
   )
-  // Only the settled header reads this. It stands over `summary`, which speaks
+  // Only the settled header reads this. It stands over `summaryMembers`, which speaks
   // for the run's first calls rather than its last, so a glyph taken from one
   // call would assert a category the text beside it doesn't describe. A run that
   // spans categories therefore heads with the generic tool glyph. The glyph is
@@ -329,9 +345,45 @@ export function NativeChatToolRun({
           <span className="shrink-0 font-mono text-[11px] font-bold text-muted-foreground transition-colors group-hover:text-foreground/80">
             {callCount}×
           </span>
-          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
-            {summary || fallbackLabel}
-          </span>
+          {summaryMembers.length > 0 ? (
+            /* Wraps rather than truncates: a clipped member name is the one thing
+               the header cannot afford to lose. */
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+              {keyedSummaryMembers.map((member) => (
+                <span
+                  key={member.key}
+                  className="flex min-w-0 max-w-72 items-center gap-1 rounded-sm bg-accent px-1.5 py-px font-mono text-[11px] text-foreground/80"
+                >
+                  <NativeChatToolIcon
+                    rowWord={member.name}
+                    mcpIdentity={member.mcpIdentity}
+                    className="size-3.5 text-muted-foreground"
+                  />
+                  {/* Name and argument share one text run so the pill still reads
+                      as `name arg` to a screen reader and to a text selection. */}
+                  <span className="truncate">
+                    {member.name}
+                    {member.arg ? (
+                      <span className="text-muted-foreground">{` ${member.arg}`}</span>
+                    ) : null}
+                  </span>
+                </span>
+              ))}
+              {hiddenCallCount > 0 ? (
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                  {translate(
+                    'components.native-chat.tool.moreCalls',
+                    NATIVE_CHAT_TOOL_ACTIVITY_COPY.moreCalls,
+                    { value0: hiddenCallCount }
+                  )}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
+              {fallbackLabel}
+            </span>
+          )}
           {/* Completion reads as a trailing mark so the leading glyph can stay fixed. */}
           {structuredActivityUi ? (
             <Check aria-hidden className="size-3 shrink-0 text-muted-foreground" />
@@ -346,7 +398,10 @@ export function NativeChatToolRun({
         </button>
       )}
       {open ? (
-        <div className="mt-1">
+        // Members are indented under the header because nothing else marks the
+        // run's extent — flush rows are indistinguishable from the blocks after
+        // them, so the batch has no visible end.
+        <div className="mt-1 pl-4">
           {(() => {
             const seen = new Map<string, number>()
             return blocks.map((block) => {
