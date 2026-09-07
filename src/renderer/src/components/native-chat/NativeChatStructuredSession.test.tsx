@@ -9,6 +9,8 @@ import { decodeAgentSessionQuestionAnswers } from '../../../../shared/agent-sess
 import type { NativeChatQuestionCardProps } from './NativeChatQuestionCard'
 
 const mocks = vi.hoisted(() => ({
+  epoch: 'epoch-1',
+  rewind: { disabledReason: null, pending: false, request: vi.fn() },
   call: vi.fn(),
   fileLinkClick: vi.fn(),
   mode: 'static' as 'static' | 'outbox',
@@ -32,6 +34,10 @@ const mocks = vi.hoisted(() => ({
   supportsBackgroundTaskStop: false,
   backgroundTasks: [] as AgentSessionBackgroundTask[],
   stopBackgroundTask: vi.fn()
+}))
+
+vi.mock('@/components/confirmation-dialog-context', () => ({
+  useConfirmationDialog: () => vi.fn()
 }))
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
@@ -64,6 +70,8 @@ vi.mock('./use-structured-agent-session', async () => {
                   blocks: [{ type: 'text', text: '[file](file:///repo/src/main.ts)' }]
                 }
               ],
+        epoch: mocks.epoch,
+        rewind: mocks.rewind,
         status: 'ready' as const,
         error: outbox.error,
         hasOlder: false,

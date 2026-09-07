@@ -1,3 +1,9 @@
+import { useStructuredAgentSessionMutation } from './use-structured-agent-session-mutation'
+import { useNativeChatRewind } from './use-native-chat-rewind'
+import type {
+  AgentSessionRewindResult,
+  AgentSessionRewindSupport
+} from '../../../../shared/agent-session-rewind'
 import * as conversationCommands from './structured-conversation-command-send'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
@@ -6,15 +12,12 @@ import type {
 } from '../../../../shared/agent-session-conversation-command'
 import type { AgentType } from '../../../../shared/agent-status-types'
 import type {
-  AgentSessionMutationResult,
   AgentSessionOptionResult,
   AgentSessionOptionsResult,
   AgentSessionPromptResult
 } from '../../../../shared/agent-session-wire'
 import { getAgentSessionOptionCatalog } from '../../../../shared/agent-session-option-catalog'
 import type { SessionOptionsSurface } from '../../../../shared/native-chat-session-options'
-import { agentSessionRefusalOperationState } from '../../../../shared/agent-session-refusal-retry'
-import { structuredAgentSessionPayloadFingerprint } from '../../../../shared/structured-agent-session-mutation'
 import {
   applyStructuredAgentSessionOptions,
   canSetStructuredAgentSessionOption,
@@ -26,10 +29,7 @@ import {
 import { activeStructuredAgentSessionTurnId } from '../../../../shared/structured-agent-session-projection'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
-import {
-  structuredSessionOperationId,
-  useStructuredAgentSessionOutbox
-} from './use-structured-agent-session-outbox'
+import { useStructuredAgentSessionOutbox } from './use-structured-agent-session-outbox'
 import { useStructuredAgentSessionHold } from './use-structured-agent-session-hold'
 import { useStructuredAgentSessionRead } from './use-structured-agent-session-read'
 import {
@@ -57,17 +57,17 @@ export function useStructuredAgentSession(args: {
     surface: 'desktop-chat',
     enabled: isVisible
   })
-  const { state, loadingOlder, loadOlder } = useStructuredAgentSessionRead({
+  const { state, loadingOlder, loadOlder, refresh } = useStructuredAgentSessionRead({
     sessionId,
     target,
     isVisible
   })
-  const stateRef = useRef(state)
-  const [writeError, setWriteError] = useState<string | null>(null)
-  const operationIds = useRef(new Map<string, string>())
+  const { mutate, writeError } = useStructuredAgentSessionMutation(sessionId, target, state.fence)
   const [conversationSupport, setConversationSupport] = useState<{
     sessionId: string
     commands: readonly AgentSessionConversationCommand[]
+    rewind?: AgentSessionRewindSupport
+    fence: number | null
   } | null>(null)
   const commandPending = useRef(false)
   const [optionState, setOptionState] = useState(() =>
@@ -83,74 +83,10 @@ export function useStructuredAgentSession(args: {
   })
 
   useEffect(() => {
-    stateRef.current = state
-  }, [state])
-
-  useEffect(() => {
     const next = createStructuredAgentSessionOptionState(agent)
     activeOptionRecordRef.current = next.record
     setOptionState(next)
   }, [agent, sessionId, state.fence])
-
-  const mutate = useCallback(
-    async <T>(
-      method: string,
-      fingerprintMethod: string,
-      fields: Record<string, unknown>,
-      operationIdOverride?: string | null
-    ): Promise<T | null> => {
-      if (stateRef.current.fence === null) {
-        return null
-      }
-      const targetFence = stateRef.current.fence
-      const key = `${sessionId}:${fingerprintMethod}:${JSON.stringify(fields)}`
-      const clientOperationId =
-        operationIdOverride ?? operationIds.current.get(key) ?? structuredSessionOperationId()
-      operationIds.current.set(key, clientOperationId)
-      let result: AgentSessionMutationResult<T>
-      try {
-        result = await callStructuredAgentSession<AgentSessionMutationResult<T>>(target, method, {
-          envelope: {
-            sessionId,
-            clientOperationId,
-            expectedRuntimeFence: targetFence,
-            payloadFingerprint: structuredAgentSessionPayloadFingerprint({
-              method: fingerprintMethod,
-              sessionId,
-              fields
-            })
-          },
-          ...fields
-        })
-      } catch (error) {
-        if (stateRef.current.fence === targetFence) {
-          setWriteError(error instanceof Error ? error.message : 'Request was not sent')
-        }
-        return null
-      }
-      if (!result.ok) {
-        if (
-          agentSessionRefusalOperationState(fingerprintMethod, result.refusal.code) ===
-          'settled-rejected'
-        ) {
-          operationIds.current.delete(key)
-        }
-        if (stateRef.current.fence === targetFence) {
-          setWriteError(result.refusal.message)
-        }
-        return null
-      }
-      if (stateRef.current.fence !== targetFence) {
-        return null
-      }
-      if (!conversationCommands.isUnconfirmedConversationCommand(fingerprintMethod, result.value)) {
-        operationIds.current.delete(key)
-      }
-      setWriteError(null)
-      return result.value
-    },
-    [sessionId, target]
-  )
 
   // Refresh options each turn to confirm which model the provider actually selected.
   const turnId = activeStructuredAgentSessionTurnId(state.items)
@@ -171,7 +107,12 @@ export function useStructuredAgentSession(args: {
     })
       .then((result) => {
         if (!stale) {
-          setConversationSupport({ sessionId, commands: result.conversationCommands ?? [] })
+          setConversationSupport({
+            sessionId,
+            commands: result.conversationCommands ?? [],
+            rewind: result.rewind,
+            fence: state.fence
+          })
           setOptionState((current) =>
             current.record === activeOptionRecordRef.current
               ? applyStructuredAgentSessionOptions(current, optionCatalog, result)
@@ -250,7 +191,35 @@ export function useStructuredAgentSession(args: {
   )
 
   const prompts = pendingStructuredSessionPrompts(state.items)
+  const rewind = useNativeChatRewind({
+    sessionId,
+    state,
+    support:
+      conversationSupport?.sessionId === sessionId && conversationSupport.fence === state.fence
+        ? conversationSupport.rewind
+        : undefined,
+    supportResolved:
+      conversationSupport?.sessionId === sessionId && conversationSupport.fence === state.fence,
+    blocked: Boolean(
+      turnId ||
+      prompts.length ||
+      isMonitoringBackgroundTasks ||
+      outboxController.outbox.length ||
+      commandPending.current
+    ),
+    send: (fields, onFailure) =>
+      mutate<AgentSessionRewindResult>(
+        'agentSession.rewind',
+        'agentSession.rewind',
+        fields,
+        undefined,
+        onFailure
+      ),
+    refresh
+  })
   return {
+    epoch: state.epoch,
+    rewind,
     conversationCommands:
       conversationSupport?.sessionId === sessionId ? conversationSupport.commands : [],
     runConversationCommand: (command: AgentSessionConversationCommand) =>
@@ -258,7 +227,11 @@ export function useStructuredAgentSession(args: {
         command,
         pending: commandPending,
         blocked: Boolean(
-          turnId || prompts.length || isMonitoringBackgroundTasks || outboxController.outbox.length
+          turnId ||
+          prompts.length ||
+          isMonitoringBackgroundTasks ||
+          outboxController.outbox.length ||
+          rewind.blockedRef.current
         ),
         send: (command) =>
           mutate<AgentSessionConversationCommandResult>(
@@ -273,7 +246,7 @@ export function useStructuredAgentSession(args: {
       state.submissions
     ),
     status: state.status,
-    error: state.error ?? writeError ?? outboxController.error,
+    error: rewind.error ?? state.error ?? writeError ?? outboxController.error,
     hasOlder: state.hasOlder,
     loadingOlder,
     loadOlder,
@@ -281,7 +254,7 @@ export function useStructuredAgentSession(args: {
     outbox: outboxController.outbox,
     blockedClientMessageId: outboxController.blockedClientMessageId,
     send: (...input: Parameters<typeof outboxController.send>) =>
-      !commandPending.current && outboxController.send(...input),
+      !commandPending.current && !rewind.blockedRef.current && outboxController.send(...input),
     retry: outboxController.retry,
     isWorking: turnId !== null,
     turnActivity,

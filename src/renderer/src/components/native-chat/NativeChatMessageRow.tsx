@@ -1,3 +1,5 @@
+import { NativeChatRewindAction } from './NativeChatRewindAction'
+import type { NativeChatRewindSurface } from './use-native-chat-rewind'
 import { memo, useCallback, useMemo, useRef } from 'react'
 import CommentMarkdown, {
   type CommentMarkdownLinkClickHandler
@@ -30,7 +32,8 @@ export const MessageRow = memo(function MessageRow({
   deliveryFailed = false,
   activityExpandOverride,
   structuredActivityUi = true,
-  runtimeContext
+  runtimeContext,
+  rewind
 }: {
   message: NativeChatMessage
   expandSignal: boolean
@@ -42,6 +45,7 @@ export const MessageRow = memo(function MessageRow({
   deliveryFailed?: boolean
   activityExpandOverride?: boolean
   structuredActivityUi?: boolean
+  rewind?: NativeChatRewindSurface
   runtimeContext?: RuntimeFileOperationArgs | null
 }): React.JSX.Element | null {
   const rowRef = useRef<HTMLDivElement | null>(null)
@@ -83,7 +87,7 @@ export const MessageRow = memo(function MessageRow({
 
   if (isUser) {
     return (
-      <div ref={rowRef} className="flex flex-col items-end gap-0.5">
+      <div ref={rowRef} className="group relative flex flex-col items-end gap-0.5">
         {/* User turns get a distinct muted fill (not the card/canvas color) so
             the prompt reads apart from the assistant's body copy. */}
         <div className="max-w-[85%] rounded-lg rounded-tr-sm bg-muted px-3.5 py-2.5 text-sm text-foreground">
@@ -110,6 +114,11 @@ export const MessageRow = memo(function MessageRow({
             />
           )}
         </div>
+        {rewind ? (
+          <div className="pointer-events-none flex items-center gap-1 select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+            <NativeChatRewindAction itemId={message.id} rewind={rewind} />
+          </div>
+        ) : null}
         {deliveryFailed ? (
           <div className="max-w-[85%] text-[11px] text-destructive/80">
             {translate(
