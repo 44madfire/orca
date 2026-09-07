@@ -126,8 +126,18 @@ export function agentForWholeTitle(text: string): TuiAgent | null {
 /** Status words an agent appends to its own name in a title frame. */
 const IDENTITY_FRAME_STATUS_RE = /\s+(?:ready|idle|done|working|thinking|running|waiting|blocked)$/i
 const IDENTITY_FRAME_ACTION_RE = /\s*[-–—]\s*action required$/i
-/** The frame head: everything before the first separator an agent puts after its own name. */
-const IDENTITY_FRAME_HEAD_RE = /^([^:>—–|]+?)(?:\s*[:>—–|]|$)/
+/**
+ * The frame head: everything before the first separator an agent puts after its own name.
+ *
+ * Deliberately excludes '|'. Wrappers PREFIX the pane's title and the innermost title comes LAST
+ * (terminal-title-wrapper-segments.ts), so a name before a '|' is a tmux window or ssh host, not
+ * the pane — reading it as identity hands a Codex pane in a window named `claude` to Claude, which
+ * is this change's own bug inverted. Wrapper-joined titles reach the real pane title through
+ * getEvidenceTitleSegments' suffix splitting instead, which is what resolves `ssh host | opencode
+ * ready`. '>' is excluded for the same reason it is unnecessary: Pi's native `π > session` form is
+ * matched by the branch above, before this regex runs.
+ */
+const IDENTITY_FRAME_HEAD_RE = /^([^:—–]+?)(?:\s*[:—–]|$)/
 
 /**
  * The agent a single title segment PRESENTS by putting its name in an identity position, as
@@ -136,9 +146,9 @@ const IDENTITY_FRAME_HEAD_RE = /^([^:>—–|]+?)(?:\s*[:>—–|]|$)/
  * This generalizes the grammar `isClaudeIdentityFrameSegment` has always described — a name, an
  * optional status word, an optional "- action required" — which was agent-neutral in shape and
  * applied only to Claude. Every route `computeAgentLabel` mints identity from is a case of it:
- * a bare name, `Codex: …`, `⠉ Codex — refactoring`, `codex working`, `aider.ps1 ready`, and a
- * name at the head of a "|"-joined title. What it will not match is a name in the middle of a
- * sentence, which is the only forgeable route and the whole reason this gate exists.
+ * a bare name, `Codex: …`, `⠉ Codex — refactoring`, `codex working` and `aider.ps1 ready`. What
+ * it will not match is a name in the middle of a sentence, nor a name in a wrapper prefix —
+ * the two forgeable routes, and the whole reason this gate exists.
  */
 export function agentForIdentityFrame(segment: string): TuiAgent | null {
   // Pi and OMP print their own native format, which is not a name-plus-decoration shape at all.
