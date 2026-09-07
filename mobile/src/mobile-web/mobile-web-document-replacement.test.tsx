@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { createElement, useRef, type FunctionComponent } from 'react'
+import { createElement, type FunctionComponent } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -10,7 +10,6 @@ import {
 } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebCapabilityBroker } from './mobile-web-capability-broker'
-import { MobileWebHealthDeadline } from './mobile-web-health-deadline'
 import { MobileWebHybridShellPresentation } from './MobileWebHybridShellPresentation'
 import { useMobileWebCapabilityBroker } from './use-mobile-web-capability-broker'
 import { useMobileWebPageDocument } from './use-mobile-web-page-document'
@@ -210,12 +209,7 @@ function createHarness() {
     Shell: undefined as unknown as FunctionComponent<{ hostedViewActive: boolean }>
   }
   state.Shell = ({ hostedViewActive }) => {
-    const healthDeadlineRef = useRef(new MobileWebHealthDeadline(10_000))
-    const pageDocument = useMobileWebPageDocument({
-      sessionId: SESSION_ID,
-      viewEpoch: 0,
-      healthDeadlineRef
-    })
+    const pageDocument = useMobileWebPageDocument({ sessionId: SESSION_ID, viewEpoch: 0 })
     useMobileWebCapabilityBroker({
       brokerRef,
       sessionId: SESSION_ID,
@@ -237,10 +231,6 @@ function createHarness() {
       hostedViewActive,
       onBack: noop,
       onShowHosts: noop,
-      onRetryRecovery: noop,
-      onUsePrevious: noop,
-      onClearCache: noop,
-      onRecoveryFailure: noop,
       onBridgeMessage: noop,
       onDocumentLoadStarted: pageDocument.onLoadStart,
       onPageLoaded: pageDocument.onLoaded,

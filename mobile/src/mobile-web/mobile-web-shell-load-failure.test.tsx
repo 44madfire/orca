@@ -2,7 +2,6 @@ import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MobileWebHybridShellPresentation } from './MobileWebHybridShellPresentation'
-import { mobileWebShellLoadFailureWarning } from './mobile-web-shell-load-failure-warning'
 
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
@@ -52,10 +51,6 @@ describe('hosted shell document load failures', () => {
           hostedViewActive: true,
           onBack: noop,
           onShowHosts: noop,
-          onRetryRecovery: noop,
-          onUsePrevious: noop,
-          onClearCache: noop,
-          onRecoveryFailure: noop,
           onBridgeMessage: noop,
           onDocumentLoadStarted: noop,
           onPageLoaded: loaded,
@@ -75,20 +70,5 @@ describe('hosted shell document load failures', () => {
 
     expect(failures).toEqual(['mobile_web_document_http_403'])
     expect(loaded).not.toHaveBeenCalled()
-  })
-
-  it('names the failure in copy the hosted shell can show', () => {
-    expect(mobileWebShellLoadFailureWarning('mobile_web_document_http_403')).toEqual({
-      message: 'Couldn’t open Orca.',
-      code: 'mobile_web_document_http_403'
-    })
-    expect(mobileWebShellLoadFailureWarning('mobile_web_generation_invalid')).toEqual({
-      message: 'Couldn’t open the last version that worked.',
-      code: 'mobile_web_generation_invalid'
-    })
-    expect(mobileWebShellLoadFailureWarning(undefined)).toEqual({
-      message: 'Couldn’t open Orca.',
-      code: undefined
-    })
   })
 })

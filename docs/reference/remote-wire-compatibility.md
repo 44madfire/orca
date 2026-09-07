@@ -85,7 +85,7 @@ framing changed:
 
 - the host advertises `MOBILE_WEB_PACKAGE_RANGE_RUNTIME_CAPABILITY`
   (`mobileWeb.package.range.v1`) in `RUNTIME_CAPABILITIES`;
-- `useMobileWebPackageCapability` reads it off the same probe that already gates
+- `useMobileWebPackageSession` reads it off the same probe that already gates
   `mobileWeb.package.gzip.v1`, and only then does the downloader send `length`;
 - a host that answers without the capability keeps getting one-chunk reads, and the
   response it returns still validates against the old client's chunk schema.

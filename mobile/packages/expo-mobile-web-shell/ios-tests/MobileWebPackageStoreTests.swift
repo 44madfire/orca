@@ -98,8 +98,12 @@ enum MobileWebPackageStoreTests {
     let store = MobileWebPackageStore(cacheRoot: root)
     let valid = try mobileWebStoreFixture()
     let invalid = [
-      // The build id is the hash of these exact bytes, so any reserialization must be refused.
-      mobileWebStoreFixtureRebuilt(from: valid, manifestJson: valid.manifestJson + " "),
+      // The build id names these exact bytes, so a reserialization no longer matches it.
+      MobileWebStoreFixture(
+        bytes: valid.bytes,
+        manifestJson: valid.manifestJson + " ",
+        buildId: valid.buildId
+      ),
       MobileWebStoreFixture(
         bytes: valid.bytes,
         manifestJson: valid.manifestJson,
@@ -115,6 +119,7 @@ enum MobileWebPackageStoreTests {
         from: valid,
         manifestJson: String(valid.manifestJson.dropLast()) + ",\"buildId\":\"\(valid.buildId)\"}"
       ),
+      try mobileWebStoreFixture { $0["schemaVersion"] = 2 },
       try mobileWebStoreFixture { manifest in
         mobileWebStoreMutateAsset(&manifest) { $0["path"] = "../index.html" }
       },

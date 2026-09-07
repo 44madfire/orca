@@ -70,8 +70,6 @@ export function buildConnectionDiagnosticsReport(args: {
     lines.push(`Build: ${diagnostics.buildId?.slice(0, 12) ?? 'none'}`)
     lines.push(`Activation: ${formatDuration(diagnostics.activationMs)}`)
     lines.push(`Refresh: ${formatDuration(diagnostics.refreshMs)}`)
-    lines.push(`Health: ${diagnostics.healthStatus}`)
-    lines.push(`Recoveries: ${diagnostics.recoveryCount}`)
     lines.push(
       `Terminal resyncs: ${diagnostics.terminalResyncCount} (last: ${diagnostics.terminalLastResyncReason ?? 'none'})`
     )

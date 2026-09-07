@@ -32,7 +32,7 @@ type Fixture = {
 }
 
 describe('mobile web package download pipelining', () => {
-  it('overlaps chunk reads while staging them in ascending offset order', async () => {
+  it('overlaps chunk reads while reassembling each asset in ascending offset order', async () => {
     const fixture = createFixture()
     const stager = createStager()
 
@@ -42,7 +42,7 @@ describe('mobile web package download pipelining', () => {
     })
 
     expect(fixture.peakInFlight()).toBe(4)
-    expectStagedInOrder(fixture, stager)
+    expectStagedAssets(fixture, stager)
   })
 
   it('defaults to the host per-connection read budget', async () => {
@@ -85,7 +85,7 @@ describe('mobile web package download pipelining', () => {
     })
 
     expect(fixture.paramsByCall.length).toBeGreaterThan(chunkCount(fixture.manifest))
-    expectStagedInOrder(fixture, stager)
+    expectStagedAssets(fixture, stager)
   })
 
   it('gives up on a host that never stops limiting reads', async () => {
@@ -102,7 +102,7 @@ describe('mobile web package download pipelining', () => {
     const fixture = createFixture()
     const stager = createStager()
     const controller = new AbortController()
-    stager.writeAssetChunk.mockImplementation(async () => controller.abort())
+    stager.writeAsset.mockImplementation(async () => controller.abort())
 
     await expect(
       downloadMobileWebPackage(fixture.request, stager, {
@@ -120,7 +120,7 @@ describe('mobile web package download pipelining', () => {
     expect(fixture.paramsByCall[0]?.offset).toBe(0)
   })
 
-  it('requests a multi-chunk gzip range and stages it one chunk at a time', async () => {
+  it('requests a multi-chunk gzip range and stages the whole asset once', async () => {
     const fixture = createFixture()
     const stager = createStager()
 
@@ -134,12 +134,8 @@ describe('mobile web package download pipelining', () => {
       fixture.paramsByCall.every((params) => params.length === MOBILE_WEB_PACKAGE_MAX_RANGE_BYTES)
     ).toBe(true)
     expect(fixture.paramsByCall.length).toBeLessThan(chunkCount(fixture.manifest))
-    expectStagedInOrder(fixture, stager)
-    expect(
-      stager.writeAssetChunk.mock.calls.every(
-        (call) => call[2].byteLength <= MOBILE_WEB_PACKAGE_CHUNK_BYTES
-      )
-    ).toBe(true)
+    expectStagedAssets(fixture, stager)
+    expect(stager.writeAsset).toHaveBeenCalledTimes(fixture.manifest.assets.length)
   })
 
   it('omits the range length unless the host advertised range reads', async () => {
@@ -178,7 +174,7 @@ describe('mobile web package download pipelining', () => {
     })
 
     expect(stager.abort).not.toHaveBeenCalled()
-    expectStagedInOrder(fixture, stager)
+    expectStagedAssets(fixture, stager)
   })
 
   it('rejects a ranged asset whose bytes do not hash to the manifest entry', async () => {
@@ -196,16 +192,16 @@ describe('mobile web package download pipelining', () => {
   })
 })
 
-function expectStagedInOrder(fixture: Fixture, stager: ReturnType<typeof createStager>): void {
-  const stagedByPath = new Map<string, Buffer[]>()
-  for (const [asset, offset, bytes] of stager.writeAssetChunk.mock.calls) {
-    const staged = stagedByPath.get(asset.path) ?? []
-    expect(offset).toBe(staged.reduce((total, part) => total + part.byteLength, 0))
-    staged.push(Buffer.from(bytes))
-    stagedByPath.set(asset.path, staged)
+// Overlapping reads still reassemble into one whole, correct asset per manifest entry.
+function expectStagedAssets(fixture: Fixture, stager: ReturnType<typeof createStager>): void {
+  const stagedByPath = new Map<string, Buffer>()
+  for (const [buildId, asset, bytes] of stager.writeAsset.mock.calls) {
+    expect(buildId).toBe(fixture.manifest.buildId)
+    expect(stagedByPath.has(asset.path)).toBe(false)
+    stagedByPath.set(asset.path, Buffer.from(bytes))
   }
   for (const [path, staged] of stagedByPath) {
-    expect(Buffer.concat(staged)).toEqual(Buffer.from(fixture.bytesByPath.get(path)!))
+    expect(staged).toEqual(Buffer.from(fixture.bytesByPath.get(path)!))
   }
   expect([...stagedByPath.keys()].sort()).toEqual(
     fixture.manifest.assets.map((asset) => asset.path).sort()
@@ -315,9 +311,7 @@ function createFixture(
 
 function createStager() {
   return {
-    begin: vi.fn(async () => {}),
-    writeAssetChunk: vi.fn(async () => {}),
-    finishAsset: vi.fn(async () => {}),
+    writeAsset: vi.fn(async () => {}),
     commit: vi.fn(async (manifest: MobileWebManifest) => ({ generation: manifest.buildId })),
     abort: vi.fn(async () => {})
   } satisfies MobileWebPackageStager<{ generation: string }>

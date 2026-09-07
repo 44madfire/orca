@@ -11,8 +11,6 @@ import type { ConnectionState, HostProfile } from '../transport/types'
 
 const native = vi.hoisted(() => ({
   openSession: vi.fn(),
-  recoverSession: vi.fn(),
-  markSessionHealthy: vi.fn(),
   closeSession: vi.fn()
 }))
 const downloadPackage = vi.hoisted(() => vi.fn())
@@ -33,7 +31,6 @@ import {
   useMobileWebPackageSession,
   type MobileWebPackageSession
 } from './use-mobile-web-package-session'
-import { mobileWebDiagnosticsStore } from './mobile-web-diagnostics-store'
 
 const HOST: HostProfile = {
   id: 'host-1',
@@ -49,26 +46,22 @@ const CLIENT = { sendRequest } as unknown as RpcClient
 const SESSION_A = {
   sessionId: 'session-a',
   buildId: 'a'.repeat(64),
-  url: 'orca-mobile-web://session-a/index.html'
+  url: 'orca-mobile-web://session-a/'
 }
 const SESSION_B = {
   sessionId: 'session-b',
   buildId: 'b'.repeat(64),
-  url: 'orca-mobile-web://session-b/index.html'
+  url: 'orca-mobile-web://session-b/'
 }
 
 describe('useMobileWebPackageSession', () => {
   let renderer: ReactTestRenderer | null = null
   let packageSession: MobileWebPackageSession | null = null
-  let beforeSessionReplacement: (() => Promise<void>) | undefined
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     packageSession = null
-    beforeSessionReplacement = undefined
     native.openSession.mockReset()
-    native.recoverSession.mockReset()
-    native.markSessionHealthy.mockReset().mockResolvedValue({ buildId: SESSION_A.buildId })
     native.closeSession.mockReset().mockResolvedValue(undefined)
     removeHostCache.mockReset().mockResolvedValue(undefined)
     downloadPackage.mockReset()
@@ -99,8 +92,7 @@ describe('useMobileWebPackageSession', () => {
     packageSession = useMobileWebPackageSession({
       client: state === 'connected' ? CLIENT : null,
       host: host ?? undefined,
-      state,
-      beforeSessionReplacement
+      state
     })
     return null
   }
@@ -123,82 +115,85 @@ describe('useMobileWebPackageSession', () => {
     }
   }
 
-  it('keeps the cached session mounted across connection-state changes', async () => {
+  async function update(state: ConnectionState, host?: HostProfile | null): Promise<void> {
+    await act(async () => {
+      renderer?.update(createElement(Harness, { state, host }))
+      await flushPromises()
+    })
+  }
+
+  it('opens the single committed generation and keeps it across connection changes', async () => {
     native.openSession.mockResolvedValue(SESSION_A)
+
     await mount('disconnected')
+
     expect(packageSession?.session).toEqual(SESSION_A)
     expect(native.openSession).toHaveBeenCalledWith(
       HOST.publicKeyB64,
       null,
       MOBILE_WEB_BRIDGE_PROTOCOL_VERSION
     )
-
-    await act(async () => {
-      renderer?.update(createElement(Harness, { state: 'reconnecting' }))
-      await flushPromises()
-    })
-
+    await update('reconnecting')
     expect(packageSession?.session).toEqual(SESSION_A)
     expect(native.closeSession).not.toHaveBeenCalledWith(SESSION_A.sessionId)
   })
 
-  it('keeps a supported session mounted when the host disconnects', async () => {
+  it('opens the cache once per mount rather than twice', async () => {
     native.openSession.mockResolvedValue(SESSION_A)
-    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_A.buildId } })
-    await mount('connected')
-    expect(packageSession?.session).toEqual(SESSION_A)
 
-    await act(async () => {
-      renderer?.update(createElement(Harness, { state: 'disconnected' }))
-      await flushPromises()
-    })
+    await mount('disconnected')
 
-    expect(packageSession?.session).toEqual(SESSION_A)
-    expect(native.closeSession).not.toHaveBeenCalledWith(SESSION_A.sessionId)
     expect(native.openSession).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps a supported session mounted while a reconnected client is probed', async () => {
-    native.openSession.mockResolvedValue(SESSION_A)
-    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_A.buildId } })
-    await mount('connected')
-    expect(packageSession?.session).toEqual(SESSION_A)
-
-    await act(async () => {
-      renderer?.update(createElement(Harness, { state: 'disconnected' }))
-      await flushPromises()
-    })
-    const status = deferred<Awaited<ReturnType<RpcClient['sendRequest']>>>()
-    sendRequest.mockReturnValue(status.promise)
-    await act(async () => {
-      renderer?.update(createElement(Harness, { state: 'connected' }))
-      await flushPromises()
-    })
-
-    expect(packageSession?.session).toEqual(SESSION_A)
-    expect(native.closeSession).not.toHaveBeenCalledWith(SESSION_A.sessionId)
-    await act(async () => {
-      status.resolve({
-        ok: true,
-        result: {
-          capabilities: [
-            MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY,
-            MOBILE_WEB_HYBRID_BASELINE_RUNTIME_CAPABILITY
-          ]
-        }
-      })
-      await status.promise
-      await flushPromises()
-    })
-    expect(packageSession?.session).toEqual(SESSION_A)
-    expect(native.openSession).toHaveBeenCalledTimes(1)
-  })
-
-  it('does not open cache or request package RPCs while capability status is pending', async () => {
-    const status = deferred<Awaited<ReturnType<RpcClient['sendRequest']>>>()
-    sendRequest.mockReturnValue(status.promise)
-    native.openSession.mockResolvedValue(SESSION_A)
+  it('publishes the refreshed build and closes the generation it replaced', async () => {
+    native.openSession.mockImplementation((_host: string, buildId: string | null) =>
+      Promise.resolve(buildId ? SESSION_B : SESSION_A)
+    )
     downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_B.buildId } })
+
+    await mount('connected')
+
+    expect(packageSession?.session).toEqual(SESSION_B)
+    expect(packageSession?.packageLoading).toBe(false)
+    expect(native.openSession).toHaveBeenCalledWith(
+      HOST.publicKeyB64,
+      SESSION_B.buildId,
+      MOBILE_WEB_BRIDGE_PROTOCOL_VERSION
+    )
+    expect(native.closeSession).toHaveBeenCalledWith(SESSION_A.sessionId)
+  })
+
+  it('does not download again when the cached generation already is the host build', async () => {
+    native.openSession.mockResolvedValue(SESSION_A)
+    downloadPackage.mockImplementation(async (_request, _stager, options) => {
+      const reused = await options.reuseVerifiedBuild(SESSION_A.buildId)
+      return { commit: reused ? null : { buildId: SESSION_A.buildId }, reusedVerifiedBuild: reused }
+    })
+
+    await mount('connected')
+
+    expect(packageSession?.session).toEqual(SESSION_A)
+    expect(native.openSession).toHaveBeenCalledTimes(1)
+    expect(packageSession?.packageLoading).toBe(false)
+  })
+
+  it('keeps a refresh from restarting when a connected render changes nothing', async () => {
+    native.openSession.mockResolvedValue(SESSION_A)
+    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_A.buildId } })
+    await mount('connected')
+    const downloads = downloadPackage.mock.calls.length
+    expect(downloads).toBe(1)
+
+    await update('connected')
+
+    expect(downloadPackage).toHaveBeenCalledTimes(downloads)
+  })
+
+  it('does not touch the cache or the package RPCs while capability is pending', async () => {
+    const status = deferred<Awaited<ReturnType<RpcClient['sendRequest']>>>()
+    sendRequest.mockReturnValue(status.promise)
+    native.openSession.mockResolvedValue(SESSION_A)
 
     await mount('connected')
 
@@ -206,22 +201,6 @@ describe('useMobileWebPackageSession', () => {
     expect(packageSession?.packageLoading).toBe(true)
     expect(native.openSession).not.toHaveBeenCalled()
     expect(downloadPackage).not.toHaveBeenCalled()
-    expect(sendRequest).toHaveBeenCalledWith('status.get')
-  })
-
-  it('does not restart package refresh when a connected render has no capability change', async () => {
-    native.openSession.mockResolvedValue(SESSION_A)
-    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_B.buildId } })
-    await mount('connected')
-    const refreshCount = downloadPackage.mock.calls.length
-    expect(refreshCount).toBeGreaterThan(0)
-
-    await act(async () => {
-      renderer?.update(createElement(Harness, { state: 'connected' }))
-      await flushPromises()
-    })
-
-    expect(downloadPackage).toHaveBeenCalledTimes(refreshCount)
   })
 
   it.each([
@@ -230,16 +209,13 @@ describe('useMobileWebPackageSession', () => {
       name: 'package support without the hybrid baseline',
       capabilities: [MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY]
     }
-  ])('removes cached UI and requires a Desktop update for $name', async ({ capabilities }) => {
+  ])('drops the cached interface and asks for a Desktop update for $name', async (scenario) => {
     native.openSession.mockResolvedValue(SESSION_A)
     await mount('disconnected')
     expect(packageSession?.session).toEqual(SESSION_A)
 
-    sendRequest.mockResolvedValue({ ok: true, result: { capabilities } })
-    await act(async () => {
-      renderer?.update(createElement(Harness, { state: 'connected' }))
-      await flushPromises()
-    })
+    sendRequest.mockResolvedValue({ ok: true, result: { capabilities: scenario.capabilities } })
+    await update('connected')
 
     expect(packageSession?.session).toBeNull()
     expect(packageSession?.packageLoading).toBe(false)
@@ -249,25 +225,136 @@ describe('useMobileWebPackageSession', () => {
     })
     expect(native.closeSession).toHaveBeenCalledWith(SESSION_A.sessionId)
     expect(downloadPackage).not.toHaveBeenCalled()
-    expect(sendRequest).toHaveBeenCalledTimes(1)
   })
 
-  it('rejects malformed status capabilities before cache or package access', async () => {
-    sendRequest.mockResolvedValue({
-      ok: true,
-      result: { capabilities: [MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY, 42] }
-    })
+  it('reports a refresh failure without discarding the cached interface', async () => {
     native.openSession.mockResolvedValue(SESSION_A)
+    downloadPackage.mockRejectedValue(new Error('host detail'))
+    downloadFailure.code = 'host_error'
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     await mount('connected')
 
-    expect(packageSession?.session).toBeNull()
+    expect(packageSession?.session).toEqual(SESSION_A)
+    expect(packageSession?.packageLoading).toBe(false)
     expect(packageSession?.packageWarning).toEqual({
-      message: 'Update Orca on Desktop to continue.',
-      code: 'host_update_required'
+      message: 'Couldn’t update from Desktop. Showing the last version that worked.',
+      code: 'host_error'
     })
-    expect(native.openSession).not.toHaveBeenCalled()
-    expect(downloadPackage).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('drops the host cache and downloads again when the page cannot load', async () => {
+    native.openSession.mockResolvedValue(SESSION_A)
+    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_A.buildId } })
+    await mount('connected')
+    expect(packageSession?.session).toEqual(SESSION_A)
+    const downloads = downloadPackage.mock.calls.length
+
+    await act(async () => {
+      packageSession?.handleLoadFailure('mobile_web_document_http_403')
+      await flushPromises()
+    })
+
+    expect(removeHostCache).toHaveBeenCalledWith(HOST.publicKeyB64)
+    expect(native.closeSession).toHaveBeenCalledWith(SESSION_A.sessionId)
+    expect(downloadPackage.mock.calls.length).toBeGreaterThan(downloads)
+    // The redownload succeeded, so the shell is serving a generation again with no notice left.
+    expect(packageSession?.session).toEqual(SESSION_A)
+    expect(packageSession?.packageWarning).toBeUndefined()
+  })
+
+  it('removes the cache before reopening it, never the other way round', async () => {
+    native.openSession.mockResolvedValue(SESSION_A)
+    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_A.buildId } })
+    await mount('connected')
+    const order: string[] = []
+    removeHostCache.mockImplementation(async () => {
+      order.push('remove')
+    })
+    native.openSession.mockImplementation(async () => {
+      order.push('open')
+      return SESSION_A
+    })
+
+    await act(async () => {
+      packageSession?.handleLoadFailure('mobile_web_generation_invalid')
+      await flushPromises()
+    })
+
+    expect(order[0]).toBe('remove')
+  })
+
+  it('re-downloads once per host selection, not once per failed load', async () => {
+    native.openSession.mockResolvedValue(SESSION_A)
+    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_A.buildId } })
+    await mount('connected')
+
+    await act(async () => {
+      packageSession?.handleLoadFailure('mobile_web_generation_invalid')
+      await flushPromises()
+    })
+    removeHostCache.mockClear()
+    await act(async () => {
+      packageSession?.handleLoadFailure('mobile_web_generation_invalid')
+      await flushPromises()
+    })
+
+    expect(removeHostCache).not.toHaveBeenCalled()
+    expect(packageSession?.packageWarning).toEqual({
+      message: 'Couldn’t open Orca.',
+      code: 'mobile_web_generation_invalid'
+    })
+  })
+
+  it('allows another drop after the host is selected again', async () => {
+    native.openSession.mockResolvedValue(SESSION_A)
+    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_A.buildId } })
+    await mount('connected')
+    await act(async () => {
+      packageSession?.handleLoadFailure('mobile_web_generation_invalid')
+      await flushPromises()
+    })
+
+    await update('connected', HOST_B)
+    removeHostCache.mockClear()
+    await act(async () => {
+      packageSession?.handleLoadFailure('mobile_web_generation_invalid')
+      await flushPromises()
+    })
+
+    expect(removeHostCache).toHaveBeenCalledWith(HOST_B.publicKeyB64)
+  })
+
+  it('restarts the view in place when the WebView process is lost', async () => {
+    native.openSession.mockResolvedValue(SESSION_A)
+    await mount('disconnected')
+    expect(packageSession?.viewEpoch).toBe(0)
+
+    await act(async () => {
+      packageSession?.handleProcessTerminated(SESSION_A.sessionId)
+      await flushPromises()
+    })
+
+    expect(packageSession?.viewEpoch).toBe(1)
+    expect(packageSession?.session).toEqual(SESSION_A)
+    expect(packageSession?.packageWarning).toEqual({
+      message: 'Orca stopped unexpectedly and restarted.'
+    })
+    expect(removeHostCache).not.toHaveBeenCalled()
+  })
+
+  it('ignores a process loss reported for a session it no longer owns', async () => {
+    native.openSession.mockResolvedValue(SESSION_A)
+    await mount('disconnected')
+
+    await act(async () => {
+      packageSession?.handleProcessTerminated(SESSION_B.sessionId)
+      await flushPromises()
+    })
+
+    expect(packageSession?.viewEpoch).toBe(0)
+    expect(packageSession?.packageWarning).toBeUndefined()
   })
 
   it('does not let a delayed cache open replace a refreshed build', async () => {
@@ -278,16 +365,6 @@ describe('useMobileWebPackageSession', () => {
     downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_B.buildId } })
     await mount('connected')
     expect(packageSession?.session).toEqual(SESSION_B)
-    expect(downloadPackage).toHaveBeenCalledWith(
-      expect.any(Function),
-      expect.any(Object),
-      expect.objectContaining({ shellBridgeVersion: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION })
-    )
-    expect(native.openSession).toHaveBeenCalledWith(
-      HOST.publicKeyB64,
-      SESSION_B.buildId,
-      MOBILE_WEB_BRIDGE_PROTOCOL_VERSION
-    )
 
     await act(async () => {
       cached.resolve(SESSION_A)
@@ -299,313 +376,37 @@ describe('useMobileWebPackageSession', () => {
     expect(native.closeSession).toHaveBeenCalledWith(SESSION_A.sessionId)
   })
 
-  it('ignores a late health result after the owned session generation changes', async () => {
+  it('closes the previous host session when the selected host changes', async () => {
     native.openSession.mockResolvedValue(SESSION_A)
     await mount('disconnected')
-    const delayedHealth = deferred<{ buildId: string }>()
-    native.markSessionHealthy.mockReturnValue(delayedHealth.promise)
-    const health = packageSession?.markHealthy(SESSION_A.sessionId)
-
     native.openSession.mockResolvedValue(SESSION_B)
-    await act(async () => {
-      renderer?.update(createElement(Harness, { state: 'disconnected', host: HOST_B }))
-      await flushPromises()
-    })
+
+    await update('disconnected', HOST_B)
+
     expect(packageSession?.session).toEqual(SESSION_B)
-
-    await act(async () => {
-      delayedHealth.resolve({ buildId: SESSION_A.buildId })
-      await health
-    })
-
-    expect(mobileWebDiagnosticsStore.get(HOST.id)).not.toMatchObject({ healthStatus: 'healthy' })
-  })
-
-  it('skips staging and replacement activation when cache verification finishes first', async () => {
-    const manifestReady = deferred<void>()
-    native.openSession.mockResolvedValue(SESSION_A)
-    downloadPackage.mockImplementation(async (_request, _stager, options) => {
-      await manifestReady.promise
-      const reused = await options.reuseVerifiedBuild(SESSION_A.buildId)
-      return {
-        manifest: { buildId: SESSION_A.buildId },
-        commit: reused ? null : { buildId: SESSION_A.buildId },
-        reusedVerifiedBuild: reused
-      }
-    })
-
-    await mount('connected')
-    expect(packageSession?.session).toEqual(SESSION_A)
-
-    await act(async () => {
-      manifestReady.resolve()
-      await manifestReady.promise
-      await flushPromises()
-    })
-
-    expect(native.openSession).toHaveBeenCalledTimes(1)
-    expect(native.openSession).toHaveBeenCalledWith(
-      HOST.publicKeyB64,
+    expect(packageSession?.sessionHostId).toBe(HOST_B.id)
+    expect(native.closeSession).toHaveBeenCalledWith(SESSION_A.sessionId)
+    expect(native.openSession).toHaveBeenLastCalledWith(
+      HOST_B.publicKeyB64,
       null,
       MOBILE_WEB_BRIDGE_PROTOCOL_VERSION
     )
-    expect(packageSession?.packageLoading).toBe(false)
   })
 
-  it('waits for cache verification when the manifest finishes first', async () => {
-    const cached = deferred<typeof SESSION_A>()
-    let reuseCheckStarted = false
-    native.openSession.mockReturnValue(cached.promise)
-    downloadPackage.mockImplementation(async (_request, _stager, options) => {
-      reuseCheckStarted = true
-      const reused = await options.reuseVerifiedBuild(SESSION_A.buildId)
-      return {
-        manifest: { buildId: SESSION_A.buildId },
-        commit: reused ? null : { buildId: SESSION_A.buildId },
-        reusedVerifiedBuild: reused
-      }
-    })
-
-    await mount('connected')
-    expect(reuseCheckStarted).toBe(true)
-    expect(packageSession?.session).toBeNull()
-
-    await act(async () => {
-      cached.resolve(SESSION_A)
-      await cached.promise
-      await flushPromises()
-    })
-
-    expect(packageSession?.session).toEqual(SESSION_A)
-    expect(native.openSession).toHaveBeenCalledTimes(1)
-    expect(packageSession?.packageLoading).toBe(false)
-  })
-
-  it('keeps the current session published until replacement is safe', async () => {
-    const safe = deferred<void>()
-    beforeSessionReplacement = () => safe.promise
-    native.openSession.mockImplementation((_host: string, buildId: string | null) =>
-      Promise.resolve(buildId ? SESSION_B : SESSION_A)
-    )
-    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_B.buildId } })
-
-    await mount('connected')
-
-    expect(packageSession?.session).toEqual(SESSION_A)
-    expect(native.openSession).toHaveBeenCalledWith(
-      HOST.publicKeyB64,
-      SESSION_B.buildId,
-      MOBILE_WEB_BRIDGE_PROTOCOL_VERSION
-    )
-    expect(native.closeSession).not.toHaveBeenCalledWith(SESSION_A.sessionId)
-
-    await act(async () => {
-      safe.resolve()
-      await safe.promise
-      await flushPromises()
-    })
-
-    expect(packageSession?.session).toEqual(SESSION_B)
-    expect(native.closeSession).toHaveBeenCalledWith(SESSION_A.sessionId)
-  })
-
-  it('rejects a replacement whose host becomes stale while activation waits', async () => {
-    const safe = deferred<void>()
-    beforeSessionReplacement = () => safe.promise
-    native.openSession.mockImplementation((_host: string, buildId: string | null) =>
-      Promise.resolve(buildId ? SESSION_B : SESSION_A)
-    )
-    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_B.buildId } })
-
-    await mount('connected')
-    expect(packageSession?.session).toEqual(SESSION_A)
-
-    await act(async () => {
-      renderer?.update(createElement(Harness, { state: 'connected', host: null }))
-      await flushPromises()
-    })
-    await act(async () => {
-      safe.resolve()
-      await safe.promise
-      await flushPromises()
-    })
-
-    expect(packageSession?.session).toBeNull()
-    expect(native.closeSession).toHaveBeenCalledWith(SESSION_B.sessionId)
-  })
-
-  it('keeps the loading state while a first desktop refresh is active', async () => {
-    const refresh = deferred<{ commit: { buildId: string } }>()
-    let reportProgress:
-      | ((progress: { phase: 'downloading'; completedBytes: number; totalBytes: number }) => void)
-      | undefined
-    native.openSession.mockRejectedValue(new Error('cache unavailable'))
-    downloadPackage.mockImplementation((_request, _stager, options) => {
-      reportProgress = options.onProgress
-      return refresh.promise
-    })
-
-    await mount('connected')
-
-    expect(packageSession?.session).toBeNull()
-    expect(packageSession?.packageLoading).toBe(true)
-    expect(packageSession?.packageWarning).toBeUndefined()
-
-    await act(async () => {
-      reportProgress?.({ phase: 'downloading', completedBytes: 50, totalBytes: 100 })
-      await flushPromises()
-    })
-    expect(packageSession?.packageProgress).toEqual({
-      phase: 'downloading',
-      completedBytes: 50,
-      totalBytes: 100
-    })
-
-    await act(async () => {
-      refresh.reject(new Error('refresh failed'))
-      await refresh.promise.catch(() => {})
-      await flushPromises()
-    })
-  })
-
-  it('recovers a session that misses its interactive health deadline', async () => {
-    native.openSession.mockResolvedValue(SESSION_B)
-    native.recoverSession.mockResolvedValue(SESSION_A)
-    await mount('disconnected')
-
-    await act(async () => {
-      await packageSession?.handleHealthTimeout(SESSION_B.sessionId)
-    })
-
-    expect(native.recoverSession).toHaveBeenCalledWith(SESSION_B.sessionId)
-    expect(packageSession?.session).toEqual(SESSION_A)
-    expect(mobileWebDiagnosticsStore.get(HOST.id)).toMatchObject({
-      buildId: SESSION_A.buildId,
-      packageSource: 'verified-cache',
-      healthStatus: 'recovered',
-      recoveryCount: 1,
-      lastFailureCode: 'health_timeout'
-    })
-  })
-
-  // Reloading the view restarts the deadline that expired, so an unbounded restart livelocks a
-  // page that simply needs longer than one deadline: it never gets to finish loading.
-  it('keeps the page mounted when a health timeout has nothing to recover to', async () => {
-    native.openSession.mockResolvedValue(SESSION_B)
-    native.recoverSession.mockRejectedValue(new Error('no previous generation'))
-    await mount('disconnected')
-
-    await act(async () => {
-      await packageSession?.handleHealthTimeout(SESSION_B.sessionId)
-      await packageSession?.handleHealthTimeout(SESSION_B.sessionId)
-    })
-
-    expect(packageSession?.viewEpoch).toBe(0)
-    expect(packageSession?.session).toEqual(SESSION_B)
-    expect(packageSession?.packageWarning).toEqual({
-      message:
-        'Orca is taking longer than usual to start. There’s no earlier version to go back to.',
-      code: 'no_previous_version'
-    })
-  })
-
-  it.each([
-    ['incompatible_bridge', 'Update Orca Mobile to get the latest from Desktop.'],
-    ['test_failure', 'Couldn’t update from Desktop. Showing the last version that worked.']
-  ])('retains a cached session after %s package refresh failure', async (code, warning) => {
+  it('surfaces a shell warning without touching the package', async () => {
     native.openSession.mockResolvedValue(SESSION_A)
-    downloadFailure.code = code
-    downloadPackage.mockRejectedValue(new Error(code))
-
-    await mount('connected')
-
-    expect(packageSession?.session).toEqual(SESSION_A)
-    expect(packageSession?.packageWarning).toEqual({ message: warning, code })
-  })
-
-  it.each([
-    ['incompatible_bridge', 'Update Orca Mobile to open Desktop.'],
-    ['test_failure', 'Couldn’t load Desktop.']
-  ])('reports %s package refresh failure without a cached session', async (code, warning) => {
-    native.openSession.mockRejectedValue(new Error('cache unavailable'))
-    downloadFailure.code = code
-    downloadPackage.mockRejectedValue(new Error(code))
-
-    await mount('connected')
-
-    expect(packageSession?.session).toBeNull()
-    expect(packageSession?.packageLoading).toBe(false)
-    expect(packageSession?.packageWarning).toEqual({ message: warning, code })
-  })
-
-  it('remounts after isolated process loss and rolls back a crash loop', async () => {
-    native.openSession.mockResolvedValue(SESSION_B)
-    native.recoverSession.mockResolvedValue(SESSION_A)
     await mount('disconnected')
 
     await act(async () => {
-      await packageSession?.handleProcessTerminated(SESSION_B.sessionId)
-      await packageSession?.markHealthy(SESSION_B.sessionId)
-    })
-    expect(packageSession?.viewEpoch).toBe(1)
-    expect(packageSession?.packageWarning).toEqual({
-      message: 'Orca stopped unexpectedly and restarted.'
-    })
-    expect(native.recoverSession).not.toHaveBeenCalled()
-
-    await act(async () => {
-      await packageSession?.handleProcessTerminated(SESSION_B.sessionId)
-      await packageSession?.handleProcessTerminated(SESSION_B.sessionId)
-    })
-
-    expect(native.recoverSession).toHaveBeenCalledWith(SESSION_B.sessionId)
-    expect(packageSession?.session).toEqual(SESSION_A)
-    expect(mobileWebDiagnosticsStore.get(HOST.id)).toMatchObject({
-      buildId: SESSION_A.buildId,
-      healthStatus: 'recovered',
-      recoveryCount: 1,
-      lastFailureCode: 'webview_crash_loop'
-    })
-  })
-
-  it('lets the native recovery UI restore the previous generation', async () => {
-    native.openSession.mockResolvedValue(SESSION_B)
-    native.recoverSession.mockResolvedValue(SESSION_A)
-    await mount('disconnected')
-
-    await act(async () => {
-      await packageSession?.recoverPrevious()
-    })
-
-    expect(native.recoverSession).toHaveBeenCalledWith(SESSION_B.sessionId)
-    expect(packageSession?.session).toEqual(SESSION_A)
-    expect(packageSession?.packageWarning).toEqual({
-      message: 'Went back to the last version that worked.'
-    })
-  })
-
-  it('clears only the selected host cache and downloads it again', async () => {
-    native.openSession.mockImplementation((_host: string, buildId: string | null) =>
-      Promise.resolve(buildId ? SESSION_B : SESSION_A)
-    )
-    downloadPackage.mockResolvedValue({ commit: { buildId: SESSION_B.buildId } })
-    await mount('disconnected')
-
-    await act(async () => {
-      await packageSession?.clearCache()
-    })
-
-    expect(native.closeSession).toHaveBeenCalledWith(SESSION_A.sessionId)
-    expect(removeHostCache).toHaveBeenCalledWith(HOST.publicKeyB64)
-    expect(packageSession?.session).toBeNull()
-
-    await act(async () => {
-      renderer?.update(createElement(Harness, { state: 'connected' }))
+      packageSession?.showWarning('That link can’t be opened here.')
       await flushPromises()
     })
 
-    expect(downloadPackage).toHaveBeenCalled()
-    expect(packageSession?.session).toEqual(SESSION_B)
+    expect(packageSession?.packageWarning).toEqual({
+      message: 'That link can’t be opened here.',
+      code: undefined
+    })
+    expect(packageSession?.session).toEqual(SESSION_A)
   })
 })
 
@@ -624,7 +425,7 @@ function deferred<T>(): {
 }
 
 async function flushPromises(): Promise<void> {
-  await Promise.resolve()
-  await Promise.resolve()
-  await Promise.resolve()
+  for (let index = 0; index < 6; index += 1) {
+    await Promise.resolve()
+  }
 }

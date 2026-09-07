@@ -10,7 +10,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors } from '../theme/mobile-theme'
 import type { HostProfile } from '../transport/types'
 import { hybridShellStyles as styles } from './hybrid-shell-styles'
-import { MobileWebRecoveryActions } from './MobileWebRecoveryActions'
 import { MobileWebPackageProgress } from './MobileWebPackageProgress'
 import {
   mobileWebShellPresentationState,
@@ -30,10 +29,6 @@ type MobileWebHybridShellPresentationProps = {
   hostedViewActive: boolean
   onBack: () => void
   onShowHosts: () => void
-  onRetryRecovery: () => void | Promise<void>
-  onUsePrevious: () => void | Promise<void>
-  onClearCache: () => void | Promise<void>
-  onRecoveryFailure: () => void
   onBridgeMessage: (message: string) => void
   onDocumentLoadStarted: () => void
   onPageLoaded: () => void
@@ -53,10 +48,6 @@ export function MobileWebHybridShellPresentation({
   hostedViewActive,
   onBack,
   onShowHosts,
-  onRetryRecovery,
-  onUsePrevious,
-  onClearCache,
-  onRecoveryFailure,
   onBridgeMessage,
   onDocumentLoadStarted,
   onPageLoaded,
@@ -126,15 +117,6 @@ export function MobileWebHybridShellPresentation({
               {packageWarning.code ? (
                 <Text style={styles.noticeCode}>Error: {packageWarning.code}</Text>
               ) : null}
-              <MobileWebRecoveryActions
-                canUsePrevious
-                align="start"
-                onClearCache={onClearCache}
-                onFailure={onRecoveryFailure}
-                onRetry={onRetryRecovery}
-                onShowHosts={onShowHosts}
-                onUsePrevious={onUsePrevious}
-              />
             </View>
           ) : null}
           <MobileWebShellView
@@ -182,16 +164,6 @@ export function MobileWebHybridShellPresentation({
           )}
           {packageWarning?.code ? (
             <Text style={styles.noticeCode}>Error: {packageWarning.code}</Text>
-          ) : null}
-          {packageWarning ? (
-            <MobileWebRecoveryActions
-              canUsePrevious={false}
-              onClearCache={onClearCache}
-              onFailure={onRecoveryFailure}
-              onRetry={onRetryRecovery}
-              onShowHosts={onShowHosts}
-              onUsePrevious={onUsePrevious}
-            />
           ) : null}
         </View>
       )}

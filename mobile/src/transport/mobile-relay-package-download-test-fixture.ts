@@ -20,7 +20,7 @@ export type RelayMobileWebPackageFixture = {
 
 export type RecordingRelayPackageStager = MobileWebPackageStager<{ buildId: string }> & {
   events: string[]
-  writes: { path: string; offset: number; bytes: Uint8Array }[]
+  writes: { path: string; bytes: Uint8Array }[]
 }
 
 export function createRelayMobileWebPackageFixture(): RelayMobileWebPackageFixture {
@@ -79,22 +79,16 @@ export function createRecordingRelayPackageStager(): RecordingRelayPackageStager
   return {
     events,
     writes,
-    async begin() {
-      events.push('begin')
-    },
-    async writeAssetChunk(asset, offset, bytes) {
-      events.push(`write:${asset.path}:${offset}`)
-      writes.push({ path: asset.path, offset, bytes: Uint8Array.from(bytes) })
-    },
-    async finishAsset(asset) {
-      events.push(`finish:${asset.path}`)
+    async writeAsset(buildId, asset, bytes) {
+      events.push(`write:${buildId}:${asset.path}`)
+      writes.push({ path: asset.path, bytes: Uint8Array.from(bytes) })
     },
     async commit(manifest) {
       events.push('commit')
       return { buildId: manifest.buildId }
     },
-    async abort() {
-      events.push('abort')
+    async abort(buildId) {
+      events.push(`abort:${buildId}`)
     }
   }
 }

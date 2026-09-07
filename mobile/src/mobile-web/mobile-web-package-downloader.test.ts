@@ -44,14 +44,14 @@ describe('mobile web package downloader', () => {
 
     expect(result.manifest).toEqual(fixture.manifest)
     expect(result.commit).toEqual({ generation: fixture.manifest.buildId })
-    expect(stager.begin).toHaveBeenCalledOnce()
-    expect(stager.finishAsset).toHaveBeenCalledTimes(fixture.manifest.assets.length)
+    expect(stager.writeAsset).toHaveBeenCalledTimes(fixture.manifest.assets.length)
     expect(stager.commit).toHaveBeenCalledOnce()
     expect(stager.abort).not.toHaveBeenCalled()
-    const written = Buffer.concat(
-      stager.writeAssetChunk.mock.calls.map((call) => Buffer.from(call[2]))
-    )
+    const written = Buffer.concat(stager.writeAsset.mock.calls.map((call) => Buffer.from(call[2])))
     expect(written.byteLength).toBe(fixture.manifest.totalBytes)
+    expect(stager.writeAsset.mock.calls.every((call) => call[0] === fixture.manifest.buildId)).toBe(
+      true
+    )
   })
 
   it('decodes and stages gzip package chunks when the host advertises gzip', async () => {
@@ -68,7 +68,7 @@ describe('mobile web package downloader', () => {
       'mobileWeb.package.asset.gzip',
       expect.objectContaining({ path: 'index.html', offset: 0 })
     )
-    expect(stager.writeAssetChunk).toHaveBeenCalledTimes(3)
+    expect(stager.writeAsset).toHaveBeenCalledTimes(fixture.manifest.assets.length)
   })
 
   it('reports source-byte progress through verification and activation', async () => {
@@ -134,8 +134,7 @@ describe('mobile web package downloader', () => {
     })
     expect(reuseVerifiedBuild).toHaveBeenCalledWith(fixture.manifest.buildId)
     expect(fixture.request).toHaveBeenCalledTimes(1)
-    expect(stager.begin).not.toHaveBeenCalled()
-    expect(stager.writeAssetChunk).not.toHaveBeenCalled()
+    expect(stager.writeAsset).not.toHaveBeenCalled()
     expect(stager.commit).not.toHaveBeenCalled()
   })
 
@@ -151,7 +150,7 @@ describe('mobile web package downloader', () => {
       })
     ).rejects.toMatchObject({ code: 'invalid_manifest' })
     expect(reuseVerifiedBuild).not.toHaveBeenCalled()
-    expect(stager.begin).not.toHaveBeenCalled()
+    expect(stager.writeAsset).not.toHaveBeenCalled()
   })
 
   it('rejects a package requiring a newer native bridge before staging', async () => {
@@ -166,7 +165,7 @@ describe('mobile web package downloader', () => {
       })
     ).rejects.toMatchObject({ code: 'incompatible_bridge' })
     expect(reuseVerifiedBuild).not.toHaveBeenCalled()
-    expect(stager.begin).not.toHaveBeenCalled()
+    expect(stager.writeAsset).not.toHaveBeenCalled()
   })
 
   it('rejects a package not tested through the current native bridge before staging', async () => {
@@ -176,7 +175,7 @@ describe('mobile web package downloader', () => {
     await expect(
       downloadMobileWebPackage(fixture.request, stager, { shellBridgeVersion: 2 })
     ).rejects.toMatchObject({ code: 'incompatible_bridge' })
-    expect(stager.begin).not.toHaveBeenCalled()
+    expect(stager.writeAsset).not.toHaveBeenCalled()
   })
 
   it('aborts staging when a chunk fails integrity validation', async () => {
@@ -198,10 +197,10 @@ describe('mobile web package downloader', () => {
       downloadMobileWebPackage(fixture.request, stager, { shellBridgeVersion: 1 })
     ).rejects.toMatchObject({ code: 'asset_integrity_failed' })
     expect(stager.abort).toHaveBeenCalledOnce()
-    expect(stager.finishAsset).not.toHaveBeenCalled()
+    expect(stager.writeAsset).not.toHaveBeenCalled()
   })
 
-  it.each(['writeAssetChunk', 'finishAsset', 'commit'] as const)(
+  it.each(['writeAsset', 'commit'] as const)(
     'aborts partial staging when %s fails',
     async (method) => {
       const fixture = createFixture()
@@ -396,11 +395,9 @@ function createFixture(
   return { manifest, bytesByPath, request }
 }
 
-function createStager() {
+function createStager(onAssetWritten: () => void = () => {}) {
   return {
-    begin: vi.fn(async () => {}),
-    writeAssetChunk: vi.fn(async () => {}),
-    finishAsset: vi.fn(async () => {}),
+    writeAsset: vi.fn(async () => onAssetWritten()),
     commit: vi.fn(async (manifest: MobileWebManifest) => ({ generation: manifest.buildId })),
     abort: vi.fn(async () => {})
   } satisfies MobileWebPackageStager<{ generation: string }>

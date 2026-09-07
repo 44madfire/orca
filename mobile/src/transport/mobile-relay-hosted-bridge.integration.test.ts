@@ -21,10 +21,7 @@ import { MobileSocketWiring } from '../../../src/main/runtime/rpc/mobile-socket-
 import { CloudRelayTransport } from '../../../src/main/runtime/rpc/relay-transport'
 import { deriveRelayHostId } from '../../../src/main/runtime/relay/relay-http-client'
 import { MobileWebPackageAssets } from '../../../src/main/runtime/rpc/mobile-web-package-assets'
-import {
-  MOBILE_WEB_PACKAGE_CHUNK_BYTES,
-  type MobileWebManifest
-} from '../../../src/shared/mobile-web/manifest-contract'
+import type { MobileWebManifest } from '../../../src/shared/mobile-web/manifest-contract'
 import type { MobileWebPackageAssetParams } from '../../../src/shared/mobile-web/package-rpc-contract'
 import { downloadMobileWebPackage } from '../mobile-web/mobile-web-package-downloader'
 import {
@@ -441,19 +438,13 @@ function expectPackageStaging(
   bytesByPath: ReadonlyMap<string, Uint8Array>,
   stager: ReturnType<typeof createRecordingRelayPackageStager>
 ): void {
-  const expectedEvents = ['begin']
+  const expectedEvents: string[] = []
   for (const asset of manifest.assets) {
     const writes = stager.writes.filter((write) => write.path === asset.path)
-    const expectedOffsets: number[] = []
-    for (let offset = 0; offset < asset.byteLength; offset += MOBILE_WEB_PACKAGE_CHUNK_BYTES) {
-      expectedOffsets.push(offset)
-      expectedEvents.push(`write:${asset.path}:${offset}`)
-    }
-    expectedEvents.push(`finish:${asset.path}`)
-    expect(writes.map((write) => write.offset)).toEqual(expectedOffsets)
-    expect(Buffer.concat(writes.map((write) => Buffer.from(write.bytes)))).toEqual(
-      Buffer.from(bytesByPath.get(asset.path)!)
-    )
+    expectedEvents.push(`write:${manifest.buildId}:${asset.path}`)
+    // Every asset reaches the store exactly once, whole.
+    expect(writes).toHaveLength(1)
+    expect(Buffer.from(writes[0]!.bytes)).toEqual(Buffer.from(bytesByPath.get(asset.path)!))
   }
   expectedEvents.push('commit')
   expect(stager.events).toEqual(expectedEvents)

@@ -27,9 +27,9 @@ const MOBILE_WEB_PACKAGE_CUTOVER_BACKOFF_MS = 250
 type ChunkTask = { asset: MobileWebAsset; offset: number; expectedLength: number }
 type SettledChunk = { bytes: Uint8Array } | { failure: unknown }
 
-// The native stage appends each asset chunk at the file's current length, so chunks must reach
-// the stager in offset order even though the reads themselves overlap.
-export async function downloadAssetChunks<TCommit>(args: {
+// Each asset is reassembled in memory — the manifest caps one at 10 MiB — and handed to the store
+// once, complete and verified, so the native side never sees a partial file.
+export async function downloadAssets<TCommit>(args: {
   request: MobileWebPackageRequest
   stager: MobileWebPackageStager<TCommit>
   manifest: MobileWebManifest
@@ -38,21 +38,20 @@ export async function downloadAssetChunks<TCommit>(args: {
   useGzip: boolean
   rangeBytes: number
   maxConcurrentRequests: number
-  onChunkWritten: (bytes: number) => void
+  onBytesDownloaded: (bytes: number) => void
 }): Promise<void> {
   const tasks = planChunkTasks(args.manifest, args.rangeBytes)
   const inFlight = new Map<number, Promise<SettledChunk>>()
   let window = clampWindow(args.maxConcurrentRequests)
   let issued = 0
-  let assetHash = sha256.create()
+  let assetBytes = new Uint8Array(0)
 
   const shrinkWindow = (): void => {
     window = Math.max(1, window - 1)
   }
   for (let drained = 0; drained < tasks.length; drained += 1) {
     while (issued < tasks.length && issued - drained < window) {
-      const task = tasks[issued]!
-      inFlight.set(issued, fetchChunk(args, task, shrinkWindow))
+      inFlight.set(issued, fetchChunk(args, tasks[issued]!, shrinkWindow))
       issued += 1
     }
     const settled = await inFlight.get(drained)!
@@ -62,21 +61,18 @@ export async function downloadAssetChunks<TCommit>(args: {
     }
     throwIfAborted(args.signal)
     const task = tasks[drained]!
-    assetHash.update(settled.bytes)
-    // A ranged read answers several stage chunks at once; the native stage still appends
-    // one 48 KiB chunk at a time.
-    for (let written = 0; written < settled.bytes.byteLength; written += args.chunkBytes) {
-      const slice = settled.bytes.subarray(written, written + args.chunkBytes)
-      await args.stager.writeAssetChunk(task.asset, task.offset + written, slice)
-      args.onChunkWritten(slice.byteLength)
+    if (task.offset === 0) {
+      assetBytes = new Uint8Array(task.asset.byteLength)
     }
-    if (task.offset + task.expectedLength === task.asset.byteLength) {
-      if (Buffer.from(assetHash.digest()).toString('hex') !== task.asset.sha256) {
-        throw new MobileWebPackageDownloadError('asset_integrity_failed')
-      }
-      assetHash = sha256.create()
-      await args.stager.finishAsset(task.asset)
+    assetBytes.set(settled.bytes, task.offset)
+    args.onBytesDownloaded(settled.bytes.byteLength)
+    if (task.offset + task.expectedLength !== task.asset.byteLength) {
+      continue
     }
+    if (sha256Hex(assetBytes) !== task.asset.sha256) {
+      throw new MobileWebPackageDownloadError('asset_integrity_failed')
+    }
+    await args.stager.writeAsset(args.manifest.buildId, task.asset, assetBytes)
   }
 }
 
@@ -120,9 +116,9 @@ async function fetchChunk<TCommit>(
     request: MobileWebPackageRequest
     stager: MobileWebPackageStager<TCommit>
     manifest: MobileWebManifest
+    chunkBytes: number
     signal: AbortSignal | undefined
     useGzip: boolean
-    chunkBytes: number
     rangeBytes: number
   },
   task: ChunkTask,
@@ -177,6 +173,10 @@ async function fetchChunk<TCommit>(
       return { failure: error }
     }
   }
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  return Buffer.from(sha256(bytes)).toString('hex')
 }
 
 function sleep(durationMs: number): Promise<void> {

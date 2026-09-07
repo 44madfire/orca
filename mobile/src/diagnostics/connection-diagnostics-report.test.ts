@@ -156,8 +156,6 @@ describe('buildConnectionDiagnosticsReport', () => {
         packageStatus: 'warning',
         activationMs: 148,
         refreshMs: 973,
-        healthStatus: 'recovered',
-        recoveryCount: 2,
         terminalResyncCount: 3,
         terminalOverflowCount: 1,
         terminalAckLagMaxMs: 47,
@@ -172,10 +170,8 @@ describe('buildConnectionDiagnosticsReport', () => {
     expect(report).toContain('Package: warning (verified-cache)')
     expect(report).toContain('Build: aaaaaaaaaaaa')
     expect(report).not.toContain('a'.repeat(64))
-    expect(report).toContain('Health: recovered')
     expect(report).toContain('Activation: 148 ms')
     expect(report).toContain('Refresh: 973 ms')
-    expect(report).toContain('Recoveries: 2')
     expect(report).toContain('Terminal resyncs: 3 (last: flow-overflow)')
     expect(report).toContain('Terminal flow overflows: 1')
     expect(report).toContain('Terminal max ACK lag: 47 ms')
