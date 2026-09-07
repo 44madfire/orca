@@ -7,6 +7,7 @@ import { orderNativeChatMessages } from './native-chat-message-grouping'
 import { stripNoiseMessages } from './native-chat-noise'
 import { foldToolMessages } from './native-chat-tool-fold'
 import { isNearBottom, shouldShowJumpToLatest, type ScrollGeometry } from './native-chat-autoscroll'
+import { nativeChatTaskListPredecessors } from './native-chat-task-list-history'
 import { MessageRow } from './NativeChatMessageRow'
 import { shouldShowNativeChatTypingIndicator } from './native-chat-typing-indicator'
 import { NativeChatWorkingStatus } from './NativeChatWorkingStatus'
@@ -84,6 +85,7 @@ export function NativeChatMessageList({
     () => stripNoiseMessages(foldToolMessages(orderNativeChatMessages(session.messages))),
     [session.messages]
   )
+  const taskListPredecessors = useMemo(() => nativeChatTaskListPredecessors(messages), [messages])
   const showTypingIndicator = showTurnStatus
     ? isWorking
     : shouldShowNativeChatTypingIndicator({ messages, isWorking })
@@ -231,6 +233,8 @@ export function NativeChatMessageList({
               <Fragment key={message.id}>
                 <MessageRow
                   message={message}
+                  previousTodoWrite={taskListPredecessors.get(message.id)?.todowrite}
+                  previousUpdatePlan={taskListPredecessors.get(message.id)?.update_plan}
                   expandSignal={expandSignal}
                   // A missing transcript lifecycle is not evidence that the turn
                   // ended. Structured sessions and legacy live hooks still expose

@@ -560,3 +560,64 @@ describe('NativeChatMessageList assistant messages', () => {
     )
   })
 })
+
+describe('NativeChatMessageList task list history', () => {
+  it('updates a memoized row when pagination supplies a predecessor and resets between sessions', () => {
+    const first = {
+      id: 'first-list',
+      role: 'assistant' as const,
+      timestamp: 1,
+      source: 'transcript' as const,
+      blocks: [
+        {
+          type: 'tool-call' as const,
+          name: 'TodoWrite',
+          input: {
+            todos: [
+              { content: 'Read', status: 'pending' },
+              { content: 'Test', status: 'pending' }
+            ]
+          }
+        }
+      ]
+    }
+    const last = {
+      ...first,
+      id: 'last-list',
+      timestamp: 3,
+      blocks: [
+        { type: 'text' as const, text: 'Ready for verification' },
+        {
+          type: 'tool-call' as const,
+          name: 'TodoWrite',
+          input: {
+            todos: [
+              { content: 'Read', status: 'completed' },
+              { content: 'Test', status: 'pending' }
+            ]
+          }
+        }
+      ]
+    }
+    const renderSession = (messages: NativeChatLiveSession['messages'], sessionId = 'one') => (
+      <NativeChatMessageList
+        session={{ ...session, messages, sessionId }}
+        isWorking={false}
+        expandSignal
+        fontScale={1}
+        showTurnStatus={false}
+      />
+    )
+    const { rerender } = render(renderSession([last]))
+    expect(screen.queryByText('Completed Read')).toBeNull()
+    rerender(renderSession([first, last]))
+    expect(screen.getByText('Completed Read')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Full task list' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+    rerender(renderSession([last], 'two'))
+    expect(screen.queryByText('Completed Read')).toBeNull()
+    expect(screen.getByText('Read')).toHaveClass('line-through')
+  })
+})

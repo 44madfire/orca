@@ -4,7 +4,10 @@ import CommentMarkdown, {
 } from '@/components/sidebar/CommentMarkdown'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
-import type { NativeChatMessage } from '../../../../shared/native-chat-types'
+import type {
+  NativeChatMessage,
+  NativeChatToolCallBlock
+} from '../../../../shared/native-chat-types'
 import { splitNativeChatBlocks } from './native-chat-tool-fold'
 import { NativeChatToolRun } from './NativeChatToolRun'
 import { nativeChatProseToMarkdown } from './native-chat-prose'
@@ -22,6 +25,8 @@ import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
  *  keep their block identity, so only the changed row re-renders. */
 export const MessageRow = memo(function MessageRow({
   message,
+  previousTodoWrite,
+  previousUpdatePlan,
   expandSignal,
   activeTurnIsWorking,
   onScrollMessageToTop,
@@ -33,6 +38,8 @@ export const MessageRow = memo(function MessageRow({
   runtimeContext
 }: {
   message: NativeChatMessage
+  previousTodoWrite?: NativeChatToolCallBlock
+  previousUpdatePlan?: NativeChatToolCallBlock
   expandSignal: boolean
   activeTurnIsWorking?: boolean
   /** Align this message's top to the top of the scroll viewport. */
@@ -154,6 +161,8 @@ export const MessageRow = memo(function MessageRow({
       {tools.length > 0 ? (
         <NativeChatToolRun
           blocks={tools}
+          previousTodoWrite={previousTodoWrite}
+          previousUpdatePlan={previousUpdatePlan}
           expandSignal={expandSignal}
           expandOverride={activityExpandOverride}
           activeTurnIsWorking={activeTurnIsWorking}

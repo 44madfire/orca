@@ -80,6 +80,7 @@ const CATEGORY_BY_ROW_WORD = new Map<string, NativeChatToolCategory>([
   ['task', 'subAgentActivity'],
   ['webfetch', 'webSearch'],
   ['todowrite', 'todoList'],
+  ['update_plan', 'todoList'],
   ['web search', 'webSearch'],
   ['websearch', 'webSearch']
 ])
