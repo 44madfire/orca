@@ -16,14 +16,20 @@ type PaletteFilterFixture = {
 
 async function seedPaletteFilterFixture(page: Page): Promise<PaletteFilterFixture> {
   return page.evaluate(
-    ({ localProject, remoteHost, remoteProject, remoteWorkspace }) => {
+    async ({ localProject, remoteHost, remoteProject, remoteWorkspace }) => {
       const store = window.__store
       if (!store) {
         throw new Error('window.__store is unavailable')
       }
 
+      const sourceRepo = store.getState().repos[0]
+      if (
+        !sourceRepo ||
+        !(await store.getState().updateRepo(sourceRepo.id, { displayName: localProject }))
+      ) {
+        throw new Error('Failed to persist the local palette fixture name')
+      }
       const state = store.getState()
-      const sourceRepo = state.repos[0]
       const sourceWorktree = Object.values(state.worktreesByRepo)
         .flat()
         .find((worktree) => worktree.repoId === sourceRepo?.id && !worktree.isArchived)
@@ -60,12 +66,7 @@ async function seedPaletteFilterFixture(page: Page): Promise<PaletteFilterFixtur
       const sshTargetLabels = new Map(state.sshTargetLabels)
       sshTargetLabels.set(remoteConnectionId, remoteHost)
       store.setState({
-        repos: [
-          ...state.repos.map((repo) =>
-            repo.id === sourceRepo.id ? { ...repo, displayName: localProject } : repo
-          ),
-          remoteRepo
-        ],
+        repos: [...state.repos, remoteRepo],
         sshTargetLabels,
         worktreesByRepo: {
           ...state.worktreesByRepo,
