@@ -65,7 +65,8 @@ describe('a Task whose supervised worker is stopping', () => {
     runId: string,
     dispatchId: string,
     sequence: number,
-    kind: 'status' | 'done'
+    kind: 'status' | 'done',
+    outcome: 'succeeded' | 'failed' = 'succeeded'
   ) {
     return {
       dispatchId,
@@ -82,12 +83,7 @@ describe('a Task whose supervised worker is stopping', () => {
       },
       lifecycle:
         kind === 'done'
-          ? {
-              kind: 'worker_report' as const,
-              taskId,
-              outcome: 'succeeded' as const,
-              result: 'the real answer'
-            }
+          ? { kind: 'worker_report' as const, taskId, outcome, result: 'the real answer' }
           : { kind: 'none' as const }
     }
   }
@@ -193,6 +189,24 @@ describe('a Task whose supervised worker is stopping', () => {
 
       expect(run.failedTasks).toEqual([])
       expect(db.getUnreadMessages(`run:${task.run_id}`)).toEqual([])
+    })
+
+    // The graph accepts stopping -> failed, so this report is the other half of the guard: it
+    // must settle from the state the worker is actually in. A hardcoded `ready` precondition
+    // throws here and wedges the very relay batch the success case proves is safe.
+    it('settles a failed report the graph does accept from a stopping worker', () => {
+      const { task, dispatch } = federatedWorker()
+      wedgeTaskDispatchedUnderStoppingWorker(task.id, dispatch.id)
+
+      const imported = db.importFederatedRelayItem(
+        relayItem(task.id, task.run_id, dispatch.id, 1, 'done', 'failed')
+      )
+
+      expect(imported.lifecycle).toMatchObject({ action: 'settled', outcome: 'failed' })
+      expect(db.getFederatedDispatch(dispatch.id)?.to_home_imported_sequence).toBe(1)
+      expect(db.getWorkerDispatch(dispatch.id)?.state).toBe('failed')
+      expect(db.getTask(task.id)?.status).toBe('failed')
+      expect(db.getDispatchContextById(dispatch.id)?.status).toBe('failed')
     })
 
     it('control: a ready worker still settles its Task', () => {

@@ -6,11 +6,19 @@ const PANE = 'tab_w:11111111-1111-4111-8111-111111111111'
 /**
  * A worker report arrives inside a federated relay import and inside the coordinator's message
  * sweep, and a throw rolls both back — the relay cursor never advances again and the run is
- * marked failed with its batch unread (#16904). So `settleWorkerReport` must answer every
- * reachable (Dispatch, Task, worker) triple with a settlement or a structured rejection.
+ * marked failed with its batch unread (#16904). So `settleWorkerReport` must answer with a
+ * settlement or a structured rejection, not an exception.
  *
- * The search drives the real public operations and memoizes on the resulting triple, so it stays
- * a state-space proof rather than a list of cases someone remembered to write down.
+ * Scope, so the green tick is not read for more than it covers. The search seeds one federated
+ * starting dispatch and applies the operations below breadth-first to depth five, memoizing on
+ * the (Dispatch status, Task status, worker state) triple alone. It therefore does not enumerate
+ * a second dispatch, an unsupervised dispatch, sibling settlement, or retry worker-start; it
+ * calls settlement directly rather than through the relay import or the coordinator sweep, which
+ * fixed examples in db-stopping-worker-report-settlement.test.ts cover; and states that differ
+ * only in authority, capability, epoch, failure reason, or observation facts collapse into one
+ * memo entry and are not expanded. Refused operations are swallowed, so a sequence explores only
+ * the states it actually reached. Depth five is where the triple set stopped growing when this
+ * was written; the test does not re-derive that each run.
  */
 const OPERATIONS = [
   'prepareAuthority',
@@ -31,6 +39,7 @@ const OPERATIONS = [
   'failDispatch',
   'failDispatch:exited',
   'completeDispatch',
+  'taskUpdate:pending',
   'taskUpdate:ready',
   'taskUpdate:blocked',
   'taskUpdate:dispatched',
@@ -128,6 +137,9 @@ function replay(sequence: readonly string[]): Probe {
       case 'completeDispatch':
         db.completeDispatch(id)
         return
+      case 'taskUpdate:pending':
+        db.updateTaskStatus(task.id, 'pending')
+        return
       case 'taskUpdate:ready':
         db.updateTaskStatus(task.id, 'ready')
         return
@@ -205,7 +217,7 @@ function reachableTriples(maxDepth: number): Map<string, string[]> {
 
 describe('worker report settlement over the reachable lifecycle state space', () => {
   it('answers every reachable state without throwing', () => {
-    // Five is where the triple set saturates: a sixth round of all 27 operations adds none.
+    // Depth five: see the scope note above.
     const reachable = reachableTriples(5)
     const throwing: string[] = []
 

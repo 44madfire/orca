@@ -99,6 +99,22 @@ describe('legacy worker recovery: certifying that a worker PTY exited', () => {
     expect(deferredDispatchIds.size).toBe(0)
   })
 
+  it('defers when the pre-adoption refresh loses the PTY without an absence proof', async () => {
+    // A relay that restarts between the plan's inventory and the adoption re-list omits every id
+    // the previous one minted; adopting or retiring on that omission is the same unsound step.
+    const refreshInventory = vi.fn().mockResolvedValue(listingWithoutThePty)
+    const { pendingResolutions, deferredDispatchIds, ports, onPtyExit } = await reconcile({
+      inventory: listingWithThePty,
+      isPtyProvenAbsent: async () => false,
+      refreshInventory: refreshInventory as never
+    })
+
+    expect(pendingResolutions).toEqual([])
+    expect([...deferredDispatchIds]).toEqual(['dispatch_1'])
+    expect(ports.adopt).not.toHaveBeenCalled()
+    expect(onPtyExit).not.toHaveBeenCalled()
+  })
+
   it('defers when the PTY leaves the listing after adoption without an absence proof', async () => {
     const refreshInventory = vi
       .fn()
