@@ -202,6 +202,7 @@ describe('useMobileNativeChatController handleNativeChatSend', () => {
       activeSessionTabId: (tab as { id?: string } | null)?.id ?? 'tab-1',
       activeHandleRef: { current: activeHandle },
       deviceTokenRef: { current: null },
+      nativeChatTranscriptIsLocalReadable: true,
       nativeChatInputLeaseReady: inputLeaseReady,
       onSendError,
       onSendResolved

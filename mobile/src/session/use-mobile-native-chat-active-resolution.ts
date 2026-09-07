@@ -20,6 +20,7 @@ export function useMobileNativeChatActiveResolution(args: {
   activeSessionTabId: string | null
   activeHandleRef: MutableRefObject<string | null>
   connected: boolean
+  nativeChatTranscriptIsLocalReadable: boolean
 }): {
   isTabChatView: (tabId: string) => boolean
   toggleTabChatView: (tabId: string) => void
@@ -35,8 +36,15 @@ export function useMobileNativeChatActiveResolution(args: {
   streamIdentity: string
   streamScopeKey: string
 } {
-  const { activeHandleRef, activeSessionTab, activeSessionTabId, connected, hostId, worktreeId } =
-    args
+  const {
+    activeHandleRef,
+    activeSessionTab,
+    activeSessionTabId,
+    connected,
+    hostId,
+    nativeChatTranscriptIsLocalReadable,
+    worktreeId
+  } = args
   const { isTabChatView, toggleTabChatView } = useMobileSessionViewMode({ hostId, worktreeId })
 
   const structuredTab = activeSessionTab?.type === 'agent-session'
@@ -44,7 +52,7 @@ export function useMobileNativeChatActiveResolution(args: {
     structuredTab || (activeSessionTabId ? isTabChatView(activeSessionTabId) : false)
   const currentChatResolution =
     activeSessionTab && activeSessionTabId && chatViewSelected
-      ? resolveMobileNativeChat(activeSessionTab)
+      ? resolveMobileNativeChat(activeSessionTab, nativeChatTranscriptIsLocalReadable)
       : null
   const disconnectRetentionRef = useRef<MobileNativeChatDisconnectRetention | null>(null)
   const retainedChat = resolveMobileNativeChatDuringDisconnect({

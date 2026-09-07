@@ -12,6 +12,7 @@ export function getMobileNativeChatToggleActions(args: {
   terminalHandle: string | null
   tabs: readonly ToggleTab[]
   isTabChatView: (tabId: string) => boolean
+  nativeChatTranscriptIsLocalReadable: boolean
   onClose: () => void
   onToggle: (tabId: string) => void
 }): ActionSheetAction[] {
@@ -19,7 +20,7 @@ export function getMobileNativeChatToggleActions(args: {
   const tab = terminalHandle
     ? tabs.find((candidate) => candidate.terminal === terminalHandle)
     : null
-  if (!tab || !resolveMobileNativeChat(tab)) {
+  if (!tab || !resolveMobileNativeChat(tab, args.nativeChatTranscriptIsLocalReadable)) {
     return []
   }
   const isChat = isTabChatView(tab.id)

@@ -188,6 +188,7 @@ function imageOperations(
   overrides: Partial<HostSessionNativeChatOperations>
 ): HostSessionNativeChatOperations {
   return {
+    readability: async () => true,
     subscribe: () => () => {},
     read: async () => ({ messages: [] }),
     sendMessage: async () => 'accepted',

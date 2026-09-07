@@ -68,10 +68,8 @@ const HOST_COMPONENT_NAMES = new Set([
 ])
 
 // Hosted startup and its timer owner are covered by hosted-session-startup-reconciliation tests.
-// Re-frozen when the constant-true native-chat readability probe and its
-// nativeChatTranscriptIsLocalReadable prop were deleted.
-const HEAD_MAIN_HOOK_SHA256 = '1656885e4690cbc19ecfb113aaac7cc92719d68469061f91e867e1c66be613bf'
-const HEAD_HOOK_BINDING_SHA256 = '38009ea4a5c498200eb833f206edd2f50348ae98620376501761fa26605af7b0'
+const HEAD_MAIN_HOOK_SHA256 = '8a65c402639980ffda9132ce3dba84da8d85998f5c6b933a8c8eb09817a04783'
+const HEAD_HOOK_BINDING_SHA256 = 'afe7c2061bf68a610aedcda59bd26ab39273d91c0821c1f5f5b5a59f7c98b864'
 const HEAD_CALLBACK_IDENTITY_SHA256 =
   '3ad3c833aa99bbfd3a4038bae70a0247192f51fb938a2fe3df86626dcfa3386e'
 const HEAD_CALLBACK_BODY_SHA256 = '4fd9fef0051a6eacd9c870bd577aeb17e6fac734d998c2a5023800eb335c573b'
@@ -96,7 +94,7 @@ const HEAD_RUNTIME_STRING_SHA256 =
 // handleAccessoryKey call: startAccessoryRepeat already sends at press time, so every
 // tap emitted the key twice. Same element count, one attribute body changed.
 const HEAD_HOST_JSX_SHA256 = '5b6acbcb34eaa59aa0020f7d6337ccbeb40b3195ff0d798911d9c035d49042fa'
-const HEAD_LEAF_JSX_SHA256 = '6393d6fe74c5a6fe05e742d90149b2cea8962eada044e182cfce98153c522197'
+const HEAD_LEAF_JSX_SHA256 = '7551bacf163f59c150cc8a9150c443df9804a882365f459053d3ab73ac557f42'
 const HEAD_STYLE_REFERENCE_SHA256 =
   '3e4f57e5c8691d443187ffe306eae28506d5505276ea3de7a4f2f1df1cfa3885'
 const HEAD_IDENTITY_FIELD_SHA256 =
@@ -487,7 +485,7 @@ describe('mobile session route extraction parity', () => {
     const contentBindings = CONTENT_COMPONENT_NAMES.flatMap(
       (name) => readHookFacts(name, definitions).bindings
     )
-    expect(main.hooks).toHaveLength(289)
+    expect(main.hooks).toHaveLength(290)
     expect(hash(main.hooks)).toBe(HEAD_MAIN_HOOK_SHA256)
     expect(hash(main.bindings)).toBe(HEAD_HOOK_BINDING_SHA256)
     expect(main.callbacks).toHaveLength(84)

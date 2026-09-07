@@ -10,6 +10,7 @@ import {
   isDictationSetupRequiredError
 } from '../dictation/mobile-dictation-setup'
 import { useMobileNativeChatController } from './use-mobile-native-chat-controller'
+import { useMobileNativeChatReadability } from './use-mobile-native-chat-readability'
 import { useMobileNativeChatInputLease } from './use-mobile-native-chat-input-lease'
 import { useMobileNativeChatSendError } from './use-mobile-native-chat-send-error'
 import { mobileNativeChatScopeKey } from './mobile-native-chat-scope-key'
@@ -55,6 +56,10 @@ export function useMobileSessionNativeChatDictation(
     scopeKey: nativeChatScopeKey,
     showToast
   })
+  const nativeChatTranscriptIsLocalReadable = useMobileNativeChatReadability(
+    sessionNativeChatOperations,
+    worktreeId
+  )
   const nativeChatTransportConnected =
     connState === 'connected' && workspaceTransportState === 'available'
   const {
@@ -79,6 +84,7 @@ export function useMobileSessionNativeChatDictation(
     activeSessionTabId,
     activeHandleRef,
     deviceTokenRef,
+    nativeChatTranscriptIsLocalReadable,
     nativeChatInputLeaseReady,
     onSendError: nativeChatSendError.show,
     onSendResolved: nativeChatSendError.clear
@@ -226,6 +232,7 @@ export function useMobileSessionNativeChatDictation(
   return {
     nativeChatScopeKey,
     nativeChatSendError,
+    nativeChatTranscriptIsLocalReadable,
     nativeChatInputLeaseReady,
     nativeChatInputLeaseReadyRef,
     nativeChatInputLockReason,

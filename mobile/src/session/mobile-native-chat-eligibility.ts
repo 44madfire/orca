@@ -1,6 +1,16 @@
 import { isAgentSessionHandleProvider } from '../../../src/shared/agent-session-provider-handle'
 import type { MobileWebNativeChatAgentStatus } from '../../../src/shared/mobile-web/native-chat-operation-contract'
-import { isNativeChatSupportedAgent } from '../../../src/shared/native-chat-agent-support'
+import { isRuntimeOwnedSshTargetId } from '../../../src/shared/execution-host'
+import {
+  isNativeChatSupportedAgent,
+  nativeChatRequiresLocalTranscript
+} from '../../../src/shared/native-chat-agent-support'
+
+export function isMobileNativeChatTranscriptReadable(
+  connectionId: string | null | undefined
+): boolean {
+  return connectionId === null || isRuntimeOwnedSshTargetId(connectionId)
+}
 
 export type MobileNativeChatResolution = {
   agent: string
@@ -34,11 +44,12 @@ export type MobileNativeChatAgentStatusWithProvider = MobileWebNativeChatAgentSt
 }
 
 /** Resolve a session tab to the transcript identity native chat needs, or
- *  null when the tab can't show native chat (not a terminal or no agent).
- *  Agent comes from the launch hint or the live status; session id from the
- *  captured provider session. */
+ *  null when the tab can't show native chat (not a terminal, no agent, or an
+ *  agent whose transcript the host can't read). Agent comes from the launch
+ *  hint or the live status; session id from the captured provider session. */
 export function resolveMobileNativeChat(
-  tab: MobileNativeChatTab | null
+  tab: MobileNativeChatTab | null,
+  nativeChatTranscriptIsLocalReadable = false
 ): MobileNativeChatResolution | null {
   if (!tab) {
     return null
@@ -62,6 +73,9 @@ export function resolveMobileNativeChat(
   if (!agent || !isNativeChatSupportedAgent(agent)) {
     return null
   }
+  if (nativeChatRequiresLocalTranscript(agent) && !nativeChatTranscriptIsLocalReadable) {
+    return null
+  }
   return {
     agent,
     sessionId: tab.nativeChatSessionId ?? tab.agentStatus?.providerSession?.id ?? null,
@@ -70,8 +84,11 @@ export function resolveMobileNativeChat(
 }
 
 /** Whether the tab can toggle into native chat — gates the long-press item. */
-export function canShowMobileNativeChat(tab: MobileNativeChatTab | null): boolean {
-  return resolveMobileNativeChat(tab) !== null
+export function canShowMobileNativeChat(
+  tab: MobileNativeChatTab | null,
+  nativeChatTranscriptIsLocalReadable = false
+): boolean {
+  return resolveMobileNativeChat(tab, nativeChatTranscriptIsLocalReadable) !== null
 }
 
 export function resolveMobileNativeChatFileSessionId(
