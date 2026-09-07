@@ -6,8 +6,11 @@ import { FakeSession, host } from './mobile-endpoint-supervisor-test-fakes'
 vi.mock('react-native', () => ({ Platform: { OS: 'ios' } }))
 
 // A LAN that never answers: every dial sits open until the probe's own 12s budget.
-function fixture() {
+function fixture(
+  overrides: { migrate?: () => Promise<void>; adoptsOutright?: () => boolean } = {}
+) {
   const opened: FakeSession[] = []
+  const cutoverFailures: Error[] = []
   const probe = new DirectReturnProbe(
     {
       now: Date.now,
@@ -31,14 +34,15 @@ function fixture() {
       canDial: () => true,
       canAttempt: () => true,
       // These cases model a live relay session, so hysteresis still arbitrates.
-      adoptsOutright: () => false,
+      adoptsOutright: overrides.adoptsOutright ?? (() => false),
       beginOperation: () => {},
-      migrate: async () => {},
+      migrate: overrides.migrate ?? (async () => {}),
       onDirectMigrated: async () => {},
-      afterProbe: () => {}
+      afterProbe: () => {},
+      onCutoverFailure: (error) => cutoverFailures.push(error)
     }
   )
-  return { opened, probe }
+  return { opened, probe, cutoverFailures }
 }
 
 beforeEach(() => vi.useFakeTimers())
@@ -92,5 +96,54 @@ it('falls back to the ordinary interval when nothing asked for a sooner probe', 
   expect(opened).toHaveLength(1)
   await vi.advanceTimersByTimeAsync(1)
   expect(opened).toHaveLength(2)
+  probe.stop()
+})
+
+it('reports a cutover that fails after authentication instead of rejecting unhandled', async () => {
+  // Why: probe() runs from a timer that discards its promise. During a reconnect
+  // race the abort predicate stays false while nothing is connected, so a candidate
+  // that drops between authentication and the swap used to escape as an unhandled
+  // rejection on every such reconnect.
+  const unhandled = vi.fn()
+  process.on('unhandledRejection', unhandled)
+  try {
+    const { opened, probe, cutoverFailures } = fixture({
+      adoptsOutright: () => true,
+      migrate: async () => {
+        throw new Error('direct session dropped before cutover')
+      }
+    })
+    probe.schedule(0)
+    await vi.advanceTimersByTimeAsync(0)
+    opened[0]!.publishState('connected')
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(cutoverFailures.map((error) => error.message)).toEqual([
+      'direct session dropped before cutover'
+    ])
+    expect(unhandled).not.toHaveBeenCalled()
+    probe.stop()
+  } finally {
+    process.off('unhandledRejection', unhandled)
+  }
+})
+
+it('stays quiet when the cutover was withdrawn because relay won the race', async () => {
+  let relayWon = false
+  const { opened, probe, cutoverFailures } = fixture({
+    adoptsOutright: () => !relayWon,
+    migrate: async () => {
+      relayWon = true
+      throw new Error('migration superseded')
+    }
+  })
+  probe.schedule(0)
+  await vi.advanceTimersByTimeAsync(0)
+  opened[0]!.publishState('connected')
+  await vi.advanceTimersByTimeAsync(0)
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(cutoverFailures).toEqual([])
   probe.stop()
 })

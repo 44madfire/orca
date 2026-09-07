@@ -46,6 +46,10 @@ export class DirectReturnProbe {
       ) => Promise<void>
       onDirectMigrated: () => Promise<void>
       afterProbe: () => void
+      // A cutover that failed for a reason other than losing the race: the
+      // candidate dropped between authentication and the swap, or the logical
+      // client closed. Nothing above this can handle it, so it is reported here.
+      onCutoverFailure: (error: Error) => void
     }
   ) {}
 
@@ -161,12 +165,13 @@ export class DirectReturnProbe {
       } catch (error) {
         // Why: a withdrawn cutover is the ordinary end of a lost race, and
         // migrateTo has already closed the candidate. Only the timer calls this
-        // method, and it discards the promise, so rethrowing here would surface
-        // a routine loss as an unhandled rejection.
-        if (this.stopped || abortCutover()) {
-          return
+        // method, and it discards the promise, so nothing thrown here is ever
+        // caught: a genuine failure is reported to the supervisor's log instead,
+        // and the finally reschedules the probe either way.
+        if (!this.stopped && !abortCutover()) {
+          this.hooks.onCutoverFailure(error instanceof Error ? error : new Error(String(error)))
         }
-        throw error
+        return
       }
       if (this.stopped) {
         return

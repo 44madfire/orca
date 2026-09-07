@@ -155,7 +155,9 @@ export class MobileEndpointSupervisor {
         if (queued || this.relayRotationPending || this.logical.getState() !== 'connected') {
           void this.recoverRelay(this.relayRotationPending)
         }
-      }
+      },
+      onCutoverFailure: (error) =>
+        this.logRelay('direct cutover failed after authentication', error.message.slice(0, 80))
     })
     this.backgroundGrace = new MobileRelayBackgroundGrace(
       dependencies,
