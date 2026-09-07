@@ -58,7 +58,12 @@ describe('notice rows', () => {
       providerFrame: {
         provider: 'codex',
         kind: 'notification:warning',
-        payload: { head: '{"message":"Check the configuration"}', byteLength: 37, truncated: false }
+        payload: {
+          head: '{"message":"Check the configuration"}',
+          byteLength: 37,
+          digest: 'digest',
+          truncated: false
+        }
       }
     })
     expect(screen.getAllByText('Check the configuration')).toHaveLength(1)
