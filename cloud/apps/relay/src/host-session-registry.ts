@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   ASSIGNMENT_LIMITS,
+  RELAY_DEFAULT_REGION,
   AuthRefreshSchema,
   buildHostChallengePlaintext,
   buildHostProofMacInput,
@@ -15,7 +16,8 @@ import {
   InviteCreateSchema,
   RELAY_PROTOCOL_LIMITS,
   RELAY_CLOSE_CODE,
-  type RelayHostCloseReason
+  type RelayHostCloseReason,
+  type RelayRegion
 } from '@orca-cloud/relay-contract'
 import nacl from 'tweetnacl'
 import type WebSocket from 'ws'
@@ -57,6 +59,12 @@ const CONTROL_RTT_LOG_SAMPLE_THRESHOLD = 4
 const CONTROL_RTT_LOG_INTERVAL_MS = 60 * 60 * 1000
 // A pong claiming a multi-minute round trip is clock skew, not distance.
 const CONTROL_RTT_MAX_PLAUSIBLE_MS = 120_000
+
+// Wall clock can step backwards mid-accept; a negative latency would poison the
+// percentiles it feeds.
+function nonNegativeMs(elapsedMs: number): number {
+  return Math.max(0, elapsedMs)
+}
 
 const CONTROL_ACTIVITY_RENEWAL_INTERVAL_MS = RELAY_PROTOCOL_LIMITS.controlPingIntervalMs * 2
 // Preserve the existing 75s renewal runway after doubling the successful-call interval.
@@ -328,7 +336,9 @@ export class HostSessionRegistry {
       attachTimer,
       credentialActivityId,
       capacityReservation,
-      timing: { startedAt: acceptStartedAt, connOpenAt: this.now(), stageMs }
+      // Attach starts where the activity stage ended, so the conn-open send is
+      // charged to it and no wall-clock gap goes unattributed.
+      timing: { startedAt: acceptStartedAt, connOpenAt: stageCursor, stageMs }
     }
     capacityReservation?.bind(connId)
     session.pendingConns.set(connId, pending)
@@ -449,6 +459,7 @@ export class HostSessionRegistry {
       close()
       return false
     }
+    const helloAt = this.now()
     send(pending.client, 'relay-hello', {
       ok: true,
       credentialKind: pending.reservation.credentialKind,
@@ -464,30 +475,48 @@ export class HostSessionRegistry {
           }
         : {})
     })
-    this.recordClientAcceptCompleted(session, pending, attachedAt)
+    this.recordClientAcceptCompleted(session, pending, attachedAt, helloAt)
     return true
   }
 
+  // The stages tile the whole accept, so their sum is the total minus only the
+  // clamping above: `basis` is the splice lease and connection-basis writes that
+  // land between the host data leg and relay-hello.
   private recordClientAcceptCompleted(
     session: HostSession,
     pending: PendingConnection,
-    attachedAt: number
+    attachedAt: number,
+    helloAt: number
   ): void {
     const stageMs: Record<RelayClientAcceptTimedStage, number> = {
-      ...pending.timing.stageMs,
-      attach: attachedAt - pending.timing.connOpenAt
+      assignment: nonNegativeMs(pending.timing.stageMs.assignment),
+      credential: nonNegativeMs(pending.timing.stageMs.credential),
+      activity: nonNegativeMs(pending.timing.stageMs.activity),
+      attach: nonNegativeMs(attachedAt - pending.timing.connOpenAt),
+      basis: nonNegativeMs(helloAt - attachedAt)
     }
-    const totalMs = this.now() - pending.timing.startedAt
+    const totalMs = nonNegativeMs(helloAt - pending.timing.startedAt)
     this.observer.recordClientAcceptCompleted?.({ totalMs, stageMs })
     console.log(
       JSON.stringify({
         event: 'orca_relay_client_accept_completed',
+        ...this.logIdentity(),
         credentialKind: pending.reservation.credentialKind,
         stageMs,
         totalMs,
         relayHostIdDigest: relayHostLogDigest(session.relayHostId)
       })
     )
+  }
+
+  // Matches the runtime metrics event so a log line and a metric point can be
+  // joined back to the process that emitted them.
+  private logIdentity(): { role: string; cellId: string; region: RelayRegion } {
+    return {
+      role: this.config.role,
+      cellId: this.config.cellId,
+      region: this.config.region ?? RELAY_DEFAULT_REGION
+    }
   }
 
   // Every desktop build already echoes the ping's `t`; anything else is dropped
@@ -512,6 +541,7 @@ export class HostSessionRegistry {
     console.log(
       JSON.stringify({
         event: 'orca_relay_host_control_rtt',
+        ...this.logIdentity(),
         relayHostIdDigest: relayHostLogDigest(session.relayHostId),
         rttMsMedian: percentile(samples, 0.5),
         sampleCount: samples.length

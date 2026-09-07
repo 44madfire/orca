@@ -374,28 +374,35 @@ describe('successful client accept timing', () => {
       expect(accepted).toBe(true)
       expect(h.observer.recordClientAcceptCompleted).toHaveBeenCalledWith({
         totalMs: 49,
-        stageMs: { assignment: 5, credential: 7, activity: 11, attach: 23 }
+        stageMs: { assignment: 5, credential: 7, activity: 11, attach: 23, basis: 3 }
       })
       const line = log.mock.calls
         .map((call) => String(call[0]))
         .find((entry) => entry.includes('orca_relay_client_accept_completed'))
       expect(line).toBeDefined()
       const event = JSON.parse(line!) as {
+        role: string
+        cellId: string
+        region: string
         credentialKind: string
         stageMs: Record<string, number>
         totalMs: number
         relayHostIdDigest: string
       }
       expect(event.credentialKind).toBe('resume')
+      // Joins the line back to the emitting process, like the runtime metrics event.
+      expect(event).toMatchObject({ role: 'cell', cellId: config.cellId, region: 'us-central1' })
       expect(Object.keys(event.stageMs).sort()).toEqual([
         'activity',
         'assignment',
         'attach',
+        'basis',
         'credential'
       ])
       for (const stage of Object.values(event.stageMs)) expect(stage).toBeGreaterThanOrEqual(0)
+      // The stages tile the accept end to end: every millisecond is attributed.
       const summed = Object.values(event.stageMs).reduce((total, stage) => total + stage, 0)
-      expect(event.totalMs).toBeGreaterThanOrEqual(summed)
+      expect(summed).toBe(event.totalMs)
       expect(event.relayHostIdDigest).toMatch(/^[0-9a-f]{12}$/)
       expect(line).not.toContain(identity.relayHostId)
     } finally {
@@ -446,6 +453,9 @@ describe('control round-trip sampling', () => {
       expect(rttLines()).toHaveLength(1)
       expect(JSON.parse(rttLines()[0]!)).toMatchObject({
         event: 'orca_relay_host_control_rtt',
+        role: 'cell',
+        cellId: config.cellId,
+        region: 'us-central1',
         rttMsMedian: 40,
         sampleCount: 4
       })

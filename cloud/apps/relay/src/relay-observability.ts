@@ -72,15 +72,17 @@ export interface RelayRuntimeObserver {
 // Which serialized accept step the phone had already hung up behind.
 export type RelayClientAcceptStage = 'assignment' | 'credential' | 'activity'
 
-// The attach window is only measurable once the host data leg lands, so it joins
-// the serialized pre-attach steps on completed accepts only.
-export type RelayClientAcceptTimedStage = RelayClientAcceptStage | 'attach'
+// The attach window and the basis writes that follow it are only measurable once
+// the host data leg lands, so they join the serialized pre-attach steps on
+// completed accepts only.
+export type RelayClientAcceptTimedStage = RelayClientAcceptStage | 'attach' | 'basis'
 
 export const RELAY_CLIENT_ACCEPT_TIMED_STAGES = [
   'assignment',
   'credential',
   'activity',
-  'attach'
+  'attach',
+  'basis'
 ] as const satisfies readonly RelayClientAcceptTimedStage[]
 
 export type RelayClientAcceptSample = {
@@ -146,7 +148,13 @@ const emptyDeltas = (): RelayMetricDeltas => ({
   clientAcceptsAbandonedByStage: {},
   clientAcceptAbandonedMsMax: 0,
   clientAcceptTotalsMs: [],
-  clientAcceptStageSamplesMs: { assignment: [], credential: [], activity: [], attach: [] },
+  clientAcceptStageSamplesMs: {
+    assignment: [],
+    credential: [],
+    activity: [],
+    attach: [],
+    basis: []
+  },
   controlRttSamplesMs: [],
   controlRenewalLatenciesMs: [],
   controlRenewalsByOutcome: {},
@@ -164,11 +172,13 @@ function roundMs(value: number): number {
   return Number(value.toFixed(3))
 }
 
+// Spreading a window into Math.max blows the stack once a busy cell samples
+// enough of it, so the maximum is folded instead.
 function latencySummary(samples: number[]): { p50: number; p95: number; max: number } {
   return {
     p50: roundMs(percentile(samples, 0.5)),
     p95: roundMs(percentile(samples, 0.95)),
-    max: roundMs(Math.max(0, ...samples))
+    max: roundMs(samples.reduce((highest, sample) => Math.max(highest, sample), 0))
   }
 }
 
@@ -325,6 +335,8 @@ export class RelayObservability implements RelayRuntimeObserver {
     }
     this.deltas = emptyDeltas()
     const acceptTotals = latencySummary(deltas.clientAcceptTotalsMs)
+    const acceptStageP95 = (stage: RelayClientAcceptTimedStage): number =>
+      roundMs(percentile(deltas.clientAcceptStageSamplesMs[stage], 0.95))
     const controlRtt = latencySummary(deltas.controlRttSamplesMs)
     const controlRenewal = latencySummary(deltas.controlRenewalLatenciesMs)
     const memory = process.memoryUsage()
@@ -358,19 +370,28 @@ export class RelayObservability implements RelayRuntimeObserver {
       clientAcceptsAbandonedByStageDelta: deltas.clientAcceptsAbandonedByStage,
       clientAcceptAbandonedMsMax: roundMs(deltas.clientAcceptAbandonedMsMax),
       clientAcceptCompletedDelta: deltas.clientAcceptTotalsMs.length,
-      clientAcceptTotalMsP50: acceptTotals.p50,
-      clientAcceptTotalMsP95: acceptTotals.p95,
-      clientAcceptTotalMsMax: acceptTotals.max,
-      clientAcceptStageMsP95: {
-        assignment: roundMs(percentile(deltas.clientAcceptStageSamplesMs.assignment, 0.95)),
-        credential: roundMs(percentile(deltas.clientAcceptStageSamplesMs.credential, 0.95)),
-        activity: roundMs(percentile(deltas.clientAcceptStageSamplesMs.activity, 0.95)),
-        attach: roundMs(percentile(deltas.clientAcceptStageSamplesMs.attach, 0.95))
-      },
+      // Accepts are sparse: publishing a zero percentile for every empty window
+      // would pin the p50 at 0 forever and collapse the p95 at low accept rates.
+      ...(deltas.clientAcceptTotalsMs.length === 0
+        ? {}
+        : {
+            clientAcceptTotalMsP50: acceptTotals.p50,
+            clientAcceptTotalMsP95: acceptTotals.p95,
+            clientAcceptTotalMsMax: acceptTotals.max,
+            clientAcceptAssignmentMsP95: acceptStageP95('assignment'),
+            clientAcceptCredentialMsP95: acceptStageP95('credential'),
+            clientAcceptActivityMsP95: acceptStageP95('activity'),
+            clientAcceptAttachMsP95: acceptStageP95('attach'),
+            clientAcceptBasisMsP95: acceptStageP95('basis')
+          }),
       controlRttSamplesDelta: deltas.controlRttSamplesMs.length,
-      controlRttMsP50: controlRtt.p50,
-      controlRttMsP95: controlRtt.p95,
-      controlRttMsMax: controlRtt.max,
+      ...(deltas.controlRttSamplesMs.length === 0
+        ? {}
+        : {
+            controlRttMsP50: controlRtt.p50,
+            controlRttMsP95: controlRtt.p95,
+            controlRttMsMax: controlRtt.max
+          }),
       sqlQueriesDelta: deltas.sqlQueries,
       sqlFailuresDelta: deltas.sqlFailures,
       sqlLatencyMsMax: roundMs(deltas.sqlLatencyMsMax),

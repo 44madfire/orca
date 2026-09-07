@@ -22,6 +22,12 @@ const counts: RelayProcessCounts = {
   databasePoolWaitMsMax: 1_250
 }
 
+// An accept stage is named `credential`, so the leak guard has to see past the
+// bucket name to the values it exists to police.
+function scrubStageNames(entries: Array<Record<string, unknown>>): string {
+  return JSON.stringify(entries).replaceAll('"credential":', '"stage":')
+}
+
 describe('relay observability', () => {
   it('emits safe readiness dependency outcomes', () => {
     const entries: Array<Record<string, unknown>> = []
@@ -181,12 +187,7 @@ describe('relay observability', () => {
       controlActivityRecoveryFailuresDelta: 0,
       httpLatencyMsMax: 0
     })
-    expect(JSON.stringify(entries)).not.toMatch(/token|userId|relayHostId/)
-    // `credential` survives only as an accept-stage latency name; a leaked credential
-    // would be a string, so pinning the type is what the guard is actually for.
-    expect(entries[0]).toMatchObject({
-      clientAcceptStageMsP95: { credential: expect.any(Number) }
-    })
+    expect(scrubStageNames(entries)).not.toMatch(/token|credential|userId|relayHostId/)
   })
 
   it('aggregates control and splice closes as bounded per-reason deltas', () => {
@@ -228,11 +229,11 @@ describe('relay observability', () => {
     )
     observability.recordClientAcceptCompleted({
       totalMs: 812.4567,
-      stageMs: { assignment: 120, credential: 90, activity: 40, attach: 500 }
+      stageMs: { assignment: 120, credential: 90, activity: 40, attach: 500, basis: 62 }
     })
     observability.recordClientAcceptCompleted({
       totalMs: 6_400,
-      stageMs: { assignment: 4_100, credential: 95, activity: 60, attach: 2_000 }
+      stageMs: { assignment: 4_100, credential: 95, activity: 60, attach: 2_000, basis: 145 }
     })
     observability.recordControlRtt(28)
     observability.recordControlRtt(240)
@@ -245,12 +246,11 @@ describe('relay observability', () => {
       clientAcceptTotalMsP50: 812.457,
       clientAcceptTotalMsP95: 6_400,
       clientAcceptTotalMsMax: 6_400,
-      clientAcceptStageMsP95: {
-        assignment: 4_100,
-        credential: 95,
-        activity: 60,
-        attach: 2_000
-      },
+      clientAcceptAssignmentMsP95: 4_100,
+      clientAcceptCredentialMsP95: 95,
+      clientAcceptActivityMsP95: 60,
+      clientAcceptAttachMsP95: 2_000,
+      clientAcceptBasisMsP95: 145,
       controlRttSamplesDelta: 3,
       controlRttMsP50: 31,
       controlRttMsP95: 240,
@@ -263,18 +263,26 @@ describe('relay observability', () => {
       clientAcceptsAbandonedByStageDelta: {},
       clientAcceptAbandonedMsMax: 0
     })
-    expect(entries[1]).toMatchObject({
-      clientAcceptCompletedDelta: 0,
-      clientAcceptTotalMsP50: 0,
-      clientAcceptTotalMsP95: 0,
-      clientAcceptTotalMsMax: 0,
-      clientAcceptStageMsP95: { assignment: 0, credential: 0, activity: 0, attach: 0 },
-      controlRttSamplesDelta: 0,
-      controlRttMsP50: 0,
-      controlRttMsP95: 0,
-      controlRttMsMax: 0
-    })
-    expect(JSON.stringify(entries)).not.toMatch(/token|userId|relayHostId/)
+    // An empty window publishes counts only: a zero percentile point is
+    // indistinguishable from a real zero once Cloud Logging aggregates it.
+    expect(entries[1]).toMatchObject({ clientAcceptCompletedDelta: 0, controlRttSamplesDelta: 0 })
+    for (const omitted of [
+      'clientAcceptTotalMsP50',
+      'clientAcceptTotalMsP95',
+      'clientAcceptTotalMsMax',
+      'clientAcceptAssignmentMsP95',
+      'clientAcceptCredentialMsP95',
+      'clientAcceptActivityMsP95',
+      'clientAcceptAttachMsP95',
+      'clientAcceptBasisMsP95',
+      'controlRttMsP50',
+      'controlRttMsP95',
+      'controlRttMsMax'
+    ]) {
+      expect(entries[1]).not.toHaveProperty(omitted)
+      expect(entries[0]).toHaveProperty(omitted)
+    }
+    expect(scrubStageNames(entries)).not.toMatch(/token|credential|userId|relayHostId/)
   })
 
   it('observes successful and failed database calls including transactions', async () => {
