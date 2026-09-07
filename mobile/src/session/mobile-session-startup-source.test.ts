@@ -160,8 +160,13 @@ describe('mobile session startup', () => {
     expect(startupEffect).toContain('notifyClients: false')
     expect(startupEffect).toContain("navigation: 'caller'")
     expect(startupEffect).not.toContain("await client\n          .sendRequest('worktree.activate'")
+    expect(startupEffect).toContain('await Promise.all([')
+    const parallelReads = sliceBetween('await Promise.all([', '])', startupEffect)
+    // Why: ensureSessionTabs can reject, and must not strand the follow-up refreshes.
+    expect(parallelReads).toContain('ensureSessionTabs().catch(() => null)')
+    expect(parallelReads).toContain('fetchTerminals({ allowEmptyLoaded: false })')
     expect(startupEffect.indexOf("sendRequest('worktree.activate'")).toBeLessThan(
-      startupEffect.indexOf('await ensureSessionTabs()')
+      startupEffect.indexOf('await Promise.all([')
     )
     expect(startupEffect).toContain('headlessActivationNeedsHostRenderer(response.result)')
     expect(startupEffect).toContain("showToast('Open Orca on the host to wake sleeping agents.'")
