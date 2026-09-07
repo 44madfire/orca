@@ -129,7 +129,7 @@ function unblockRemoteWorkspaceGet(
   saved: string
 ): void {
   // Detached: a FIFO write blocks until the reader drains it, which must not stall the test.
-  spawnSync('docker', [
+  const release = spawnSync('docker', [
     'exec',
     '-d',
     target.containerName,
@@ -137,8 +137,9 @@ function unblockRemoteWorkspaceGet(
     '--noprofile',
     '--norc',
     '-c',
-    `printf '%s' ${shellQuote(saved)} > ${snapshotPath} && rm -f ${snapshotPath} && printf '%s' ${shellQuote(saved)} > ${snapshotPath}`
+    `echo started > /tmp/snapshot-release-receipt; printf '%s' ${shellQuote(saved)} > ${snapshotPath} && echo drained >> /tmp/snapshot-release-receipt && rm -f ${snapshotPath} && printf '%s' ${shellQuote(saved)} > ${snapshotPath} && echo restored >> /tmp/snapshot-release-receipt`
   ])
+  console.log('[snapshot-release]', { status: release.status, error: release.error?.message, stderr: release.stderr?.toString() })
 }
 
 async function connectAndSeedTabs(
@@ -230,12 +231,18 @@ test.describe('SSH cold hydration gap tab seeding', () => {
       const duringStall = await waitForSettledTabIds(page, remote.worktreeId)
 
       unblockRemoteWorkspaceGet(target, snapshotPath, saved)
+      try {
       await expect
         .poll(() => isTargetHydrated(page, remote.targetId), {
           timeout: 120_000,
           message: 'the target never hydrated after the snapshot was released'
         })
         .toBe(true)
+      } finally {
+        console.log('[snapshot-release-receipt]', execDockerSshRelayTargetControlCommand(target,
+          `cat /tmp/snapshot-release-receipt; stat -c '%F %s' ${snapshotPath}; ps -eo pid,ppid,stat,wchan:24,args | head -60`))
+        console.log('[snapshot-sync-phase]', await readTargetSyncPhase(page, remote.targetId))
+      }
       const afterHydration = await waitForSettledTabIds(page, remote.worktreeId)
 
       const growth = `baseline=${remote.tabIds.length} duringStall=${duringStall.length} afterHydration=${afterHydration.length}`
