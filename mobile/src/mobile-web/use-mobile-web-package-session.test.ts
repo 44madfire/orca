@@ -149,6 +149,30 @@ describe('useMobileWebPackageSession', () => {
     expect(native.openSession).toHaveBeenCalledTimes(1)
   })
 
+  it('finishes loading when offline and no cached package opens', async () => {
+    native.openSession.mockRejectedValue(new Error('mobile_web_generation_missing'))
+
+    await mount('disconnected')
+
+    expect(packageSession?.session).toBeNull()
+    expect(packageSession?.packageLoading).toBe(false)
+  })
+
+  it('does not let an offline cache probe settle a connected download', async () => {
+    const cached = deferred<typeof SESSION_A>()
+    native.openSession.mockReturnValue(cached.promise)
+    downloadPackage.mockReturnValue(new Promise(() => {}))
+    await mount('disconnected')
+    await update('connected')
+
+    await act(async () => {
+      cached.reject(new Error('mobile_web_generation_missing'))
+      await flushPromises()
+    })
+
+    expect(packageSession?.packageLoading).toBe(true)
+  })
+
   it('publishes the refreshed build and closes the generation it replaced', async () => {
     native.openSession.mockImplementation((_host: string, buildId: string | null) =>
       Promise.resolve(buildId ? SESSION_B : SESSION_A)

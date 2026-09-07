@@ -101,8 +101,7 @@ export function useMobileWebPackageSession({
   }, [client, connectionId, host?.id, state])
 
   useEffect(() => {
-    const hostEpoch = hostEpochRef.current + 1
-    hostEpochRef.current = hostEpoch
+    const hostEpoch = ++hostEpochRef.current
     if (droppedHostRef.current !== host?.id) {
       droppedHostRef.current = host?.id
       droppedGenerationRef.current = null
@@ -174,7 +173,7 @@ export function useMobileWebPackageSession({
   }, [host?.id, host?.publicKeyB64, loadEpoch, packageAccessAllowed, publishSession])
 
   useEffect(() => {
-    if (!host || !client || state !== 'connected' || capability.status !== 'supported') {
+    if (!host) {
       return
     }
     const hostEpoch = hostEpochRef.current
@@ -182,6 +181,17 @@ export function useMobileWebPackageSession({
     const controller = new AbortController()
     const isCurrent = (): boolean =>
       !controller.signal.aborted && hostEpochRef.current === hostEpoch
+    if (state !== 'connected') {
+      void cachedBuild.then(() => {
+        if (isCurrent()) {
+          dispatch({ type: 'download-settled' })
+        }
+      })
+      return () => controller.abort()
+    }
+    if (!client || capability.status !== 'supported') {
+      return
+    }
     // A host change or a dropped generation both start the backoff ladder over.
     if (retryRef.current.hostId !== host.id || retryRef.current.loadEpoch !== loadEpoch) {
       retryRef.current = { hostId: host.id, loadEpoch, attempts: 0 }
@@ -298,17 +308,6 @@ export function useMobileWebPackageSession({
       handleProcessTerminated,
       showWarning
     }),
-    [
-      capability.status,
-      handleLoadFailure,
-      handleProcessTerminated,
-      packageState.loading,
-      packageState.progress,
-      packageState.session,
-      packageState.sessionHostId,
-      packageState.viewEpoch,
-      packageState.warning,
-      showWarning
-    ]
+    [capability.status, handleLoadFailure, handleProcessTerminated, packageState, showWarning]
   )
 }
