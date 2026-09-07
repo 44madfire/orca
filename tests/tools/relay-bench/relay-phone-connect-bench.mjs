@@ -191,13 +191,14 @@ export function dialRelay({
       }
     })
     ws.on('close', (code, reason) => {
+      // Scrubbed where it is stored: the hold row prints this object verbatim.
       handle.closed = {
         code,
-        reason: reason.toString(),
+        reason: describeUntrustedText(reason.toString()),
         atMs: Math.round(performance.now() - timings.start)
       }
       if (!settled) {
-        fail(new Error(`closed ${code} ${describeUntrustedText(reason.toString())}`))
+        fail(new Error(`closed ${code} ${handle.closed.reason}`))
         return
       }
       clearTimeout(dialTimer)
@@ -464,7 +465,7 @@ async function run(statePath, runs, opts) {
     try {
       const dial = await resumeDial(state)
       row.dial = dial.timings
-      row.acceptedAs = dial.hello.acceptedAs
+      row.acceptedAs = describeUntrustedText(dial.hello.acceptedAs)
       const { rpc } = await runConnectedSequence(dial)
       row.rpc = rpc
       row.totalToConnectedMs = connectedMs(dial, rpc)
@@ -519,7 +520,7 @@ async function foreground(statePath, opts) {
   }
   const dial = await resumeDial(state)
   row.dial = dial.timings
-  row.acceptedAs = dial.hello.acceptedAs
+  row.acceptedAs = describeUntrustedText(dial.hello.acceptedAs)
   const { rpc } = await runConnectedSequence(dial)
   row.rpc = rpc
   row.totalToConnectedMs = connectedMs(dial, rpc)
