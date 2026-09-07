@@ -1,3 +1,4 @@
+import * as codexRewind from './codex-structured-rewind'
 import type {
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
@@ -84,7 +85,8 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     })
   }
 
-  supportsLocation = supportsCodexStructuredLocation
+  supportsLocation = (location: Parameters<typeof supportsCodexStructuredLocation>[0]): boolean =>
+    supportsCodexStructuredLocation(location, this.deps.isWindowsProcessStartTimeAvailable)
 
   acquire = (input: StructuredAgentSessionAcquireInput): Promise<AgentSessionAcquisition> =>
     acquireCodexStructuredSession({
@@ -128,6 +130,7 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     method: string,
     params: unknown
   ): CodexJournalTranslationAdmission {
+    codexRewind.observeCodexRewindActivity(session, method, params)
     if (this.turnCancellation.handleNotification(sessionId, session, method, params)) {
       return { accepted: true }
     }
@@ -188,8 +191,13 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     fence: number
   }): Promise<AgentSessionDispatchOutcome> {
     const session = this.session(input.sessionId)
-    await this.turnCancellation.captureBaseline(session)
-    return dispatchCodexTurn(session, input, this.deps.requestTimeoutMs)
+    session.dispatchPending = true
+    try {
+      await this.turnCancellation.captureBaseline(session)
+      return await dispatchCodexTurn(session, input, this.deps.requestTimeoutMs)
+    } finally {
+      session.dispatchPending = false
+    }
   }
 
   async cancelTurn(input: {
@@ -207,6 +215,17 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
   stopBackgroundTasks: NonNullable<StructuredAgentSessionAdapter['stopBackgroundTasks']> = (
     input
   ) => this.backgroundTerminals.stop(input)
+
+  rewindSupport: NonNullable<StructuredAgentSessionAdapter['rewindSupport']> = (sessionId) =>
+    this.sessions.get(sessionId)?.historyMode === 'legacy'
+      ? { supported: false, reason: 'history-not-paginated' }
+      : { supported: true }
+
+  rewind: NonNullable<StructuredAgentSessionAdapter['rewind']> = (input) =>
+    codexRewind.rewindCodexSession(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
+
+  recoverRewind: NonNullable<StructuredAgentSessionAdapter['recoverRewind']> = (input) =>
+    codexRewind.recoverCodexRewind(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
 
   compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) => {
     const session = this.session(input.sessionId)
