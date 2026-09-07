@@ -31,7 +31,7 @@ describe('mobile rich markdown editor web source', () => {
   })
 
   it('runs the exact editor document in an isolated data frame', () => {
-    expect(webEditor).toContain('buildMobileRichMarkdownEditorHtml({ isolatedFrame: true })')
+    expect(webEditor).toContain('buildMobileRichMarkdownEditorHtml({ inline: true })')
     expect(webEditor).toContain('data:text/html;charset=utf-8,')
     expect(webEditor).toContain('sandbox="allow-scripts"')
     expect(webEditor).toContain('name={frameToken}')

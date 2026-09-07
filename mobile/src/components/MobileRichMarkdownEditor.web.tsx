@@ -30,7 +30,7 @@ function MobileRichMarkdownEditorWeb({
   const documentUrl = useMemo(
     () =>
       `data:text/html;charset=utf-8,${encodeURIComponent(
-        buildMobileRichMarkdownEditorHtml({ isolatedFrame: true })
+        buildMobileRichMarkdownEditorHtml({ inline: true })
       )}`,
     []
   )

@@ -212,26 +212,24 @@ describe('mobile rich markdown editor HTML', () => {
     expect(() => new Function(script)).not.toThrow()
   })
 
-  it('isolates the hosted editor document and authenticates its frame messages', () => {
+  it('isolates the in-app editor document and authenticates its frame messages', () => {
     const nativeHtml = buildMobileRichMarkdownEditorHtml()
-    const hostedHtml = buildMobileRichMarkdownEditorHtml({ isolatedFrame: true })
-    const hostedScript = hostedHtml.match(/<script>([\s\S]*)<\/script>/)?.[1] ?? ''
-    const scriptHash = `'sha256-${createHash('sha256').update(hostedScript).digest('base64')}'`
+    const nativeScript = nativeHtml.match(/<script>([\s\S]*)<\/script>/)?.[1] ?? ''
+    const scriptHash = `'sha256-${createHash('sha256').update(nativeScript).digest('base64')}'`
 
     expect(nativeHtml).toContain("default-src 'none'")
     expect(nativeHtml).toContain("connect-src 'none'")
-    expect(hostedHtml).toContain("default-src 'none'")
-    expect(hostedHtml).toContain('img-src data: https:')
-    expect(hostedHtml).toContain("frame-src 'none'")
+    expect(nativeHtml).toContain('img-src data: https:')
+    expect(nativeHtml).toContain("frame-src 'none'")
     expect(MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH).toBe(scriptHash)
-    expect(hostedHtml).toContain(`script-src ${scriptHash}`)
-    expect(hostedScript).toContain("direction: 'editor-to-host'")
-    expect(hostedScript).toContain("var frameToken = window.parent === window ? '' : window.name")
-    expect(hostedScript).toContain('message.frameToken !== frameToken')
-    expect(hostedScript).not.toContain('event.source !== window.parent')
-    expect(hostedScript).toContain("message.direction !== 'host-to-editor'")
-    expect(hostedScript).toContain('Number.isSafeInteger(payload.generation)')
-    expect(() => new Function(hostedScript)).not.toThrow()
+    expect(nativeHtml).toContain(`script-src ${scriptHash}`)
+    expect(nativeScript).toContain("direction: 'editor-to-host'")
+    expect(nativeScript).toContain("var frameToken = window.parent === window ? '' : window.name")
+    expect(nativeScript).toContain('message.frameToken !== frameToken')
+    expect(nativeScript).not.toContain('event.source !== window.parent')
+    expect(nativeScript).toContain("message.direction !== 'host-to-editor'")
+    expect(nativeScript).toContain('Number.isSafeInteger(payload.generation)')
+    expect(() => new Function(nativeScript)).not.toThrow()
   })
 
   it('renders the Markdown XSS corpus as inert content and rejects active URL schemes', () => {
