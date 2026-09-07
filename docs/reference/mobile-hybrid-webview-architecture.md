@@ -187,17 +187,22 @@ edges still meet the device and keep their measured values.
 - The shell grants named operation/capability pairs with request, response,
   concurrency, subscription, rate, and message limits.
 - The page can use `workspace.hostRequest` for desktop-advertised unary methods.
-  The shell queries `mobileWeb.host.catalog` over the authenticated connection,
+  The shell reads `mobileWeb.host.catalog` once per method per connection,
   resolves the existing opaque workspace handle, and forwards bounded domain
   JSON without a shell-owned response schema. Hybrid requires package support
   and `mobileWeb.hybrid.v1`; older Desktop builds show Update Desktop. Completed
   generic slices have no fallback to superseded shell domain operations.
 - Generic forwarding retains byte, depth, node-count, rate and actual in-flight
-  limits. Cancelling a page request does not release its host-work slot until
-  the host call settles. Catalog authors must grant only page-safe results;
-  methods returning private identifiers need an opaque mapping before adoption.
-  Generic subscriptions, native-chat domain actions, file reads, Source Control
-  reads/watch, session terminal creation and terminal metadata use this path.
+  limits; the grant's `maxConcurrent` is the only source of the in-flight
+  ceiling, and advertised byte limits cannot exceed the bridge envelope.
+  Cancelling a page request does not release its host-work slot until the host
+  call settles. The Desktop is trusted, so the page addresses host tabs,
+  browser pages and provider sessions by their host ids; the catalog is the
+  only allowlist. Generic subscriptions, native-chat domain actions, file
+  reads, Source Control reads/watch, session snapshot/feed/actions and terminal
+  metadata use this path.
+- Decisions behind the generic lane and its 2026-09-07 simplification are in
+  [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.
 - Hybrid has no released users; intermediate PR shells/pages are unsupported.
   Released native mobile RPC compatibility and SSH runtime negotiation remain.
