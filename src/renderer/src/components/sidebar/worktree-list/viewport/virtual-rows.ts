@@ -190,6 +190,15 @@ function getHostStickyIndexes(rows: readonly RenderRow[], sticky: readonly numbe
  * Reading the element keeps the pinned header tied to what is actually on
  * screen. The remembered offset stays as the fallback for the pre-mount pass,
  * where there is no element to ask.
+ *
+ * On cost: this is a render-phase DOM read, which is only cheap while layout is
+ * clean at that point. What keeps it clean is not that nothing above it touches
+ * the DOM — `useVirtualRowMeasurementSync`'s own layout effect can re-render
+ * synchronously through `measureElement` — it is that `measureElement` already
+ * calls `getBoundingClientRect()` on the same pass, so layout has been forced
+ * before this read reaches it. There are no production `scrollTop` writes in the
+ * viewport or the scroll-anchor hook, so nothing creates a write-read interleave.
+ * Adding a DOM write above this read would invalidate that, not the ordering.
  */
 export function resolveStickyScrollOffset(args: {
   element: Pick<HTMLElement, 'scrollTop'> | null
