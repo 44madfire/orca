@@ -28,7 +28,7 @@ export function NativeChatReasoningRow({
         <span className="sr-only">{label}: </span>
         <span className="truncate">{summary}</span>
       </CollapsibleTrigger>
-      <CollapsibleContent className="pt-1 italic">
+      <CollapsibleContent className="pt-1 pl-5 italic">
         <CommentMarkdown
           content={markdown}
           variant="document"
