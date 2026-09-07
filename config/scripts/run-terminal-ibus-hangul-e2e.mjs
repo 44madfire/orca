@@ -115,12 +115,12 @@ function configureHangulEngine() {
   }
 }
 
-async function waitForHangulEngine(ibusProcess) {
+async function waitForHangulEngine(sessionProcess) {
   let lastError = ''
   const deadline = Date.now() + 15_000
   while (Date.now() < deadline) {
-    if (ibusProcess.exitCode !== null) {
-      throw new Error(`ibus-daemon exited early with code ${ibusProcess.exitCode}`)
+    if (sessionProcess.exitCode !== null) {
+      throw new Error(`IME session process exited early with code ${sessionProcess.exitCode}`)
     }
     if (
       nestedWayland &&
@@ -292,7 +292,7 @@ async function runInsideSession(evidenceDir) {
     testExitCode = await waitForExit(testProcess)
   } finally {
     if (ibusProcess?.pid) {
-      evidence.ibusGroupBeforeCleanup = ibusProcess?.pid ? processGroupMembers(ibusProcess.pid) : []
+      evidence.ibusGroupBeforeCleanup = processGroupMembers(ibusProcess.pid)
       evidence.ibusGroupAfterCleanup = await stopOwnedProcessGroup(ibusProcess.pid)
     }
     if (windowManagerProcess?.pid) {
@@ -384,7 +384,7 @@ async function runInsideSession(evidenceDir) {
 
 async function runOuter() {
   if (process.platform !== 'linux') {
-    throw new Error('The native IBus Hangul E2E runner requires Linux/X11')
+    throw new Error('The native IBus Hangul E2E runner requires Linux')
   }
 
   const evidenceDir = mkdtempSync(path.join(os.tmpdir(), 'orca-terminal-ime-e2e-'))
@@ -437,11 +437,11 @@ async function runOuter() {
   if (!sessionProcess.pid) {
     throw new Error('xvfb-run did not return a PID')
   }
-  console.error(`[terminal-ime] started isolated X11 session PID ${sessionProcess.pid}`)
+  console.error(`[terminal-ime] started isolated display session PID ${sessionProcess.pid}`)
   const exitCode = await waitForExit(sessionProcess)
   const remaining = await stopOwnedProcessGroup(sessionProcess.pid)
   if (remaining.length > 0) {
-    throw new Error(`Owned X11 session processes survived cleanup: ${remaining.join('; ')}`)
+    throw new Error(`Owned display session processes survived cleanup: ${remaining.join('; ')}`)
   }
   return exitCode
 }
