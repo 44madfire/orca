@@ -1,4 +1,4 @@
-import { RELAY_REGIONS } from '@orca-cloud/relay-contract'
+import { RELAY_REGION_METRIC_SEGMENTS, RELAY_REGIONS } from '@orca-cloud/relay-contract'
 import { describe, expect, it, vi } from 'vitest'
 import type { RelayDatabase } from './database.js'
 import { observeRelayDatabase } from './observed-relay-database.js'
@@ -133,14 +133,11 @@ describe('relay observability', () => {
     })
     // A region added to the contract has to reach the flat keys, or the skew alert's
     // denominator silently misses it.
-    for (const region of RELAY_REGIONS) {
-      const segment = region
-        .split('-')
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join('')
+    for (const segment of Object.values(RELAY_REGION_METRIC_SEGMENTS)) {
       expect(entries[0]).toHaveProperty(`requestedRegion${segment}Delta`)
       expect(entries[0]).toHaveProperty(`selectedRegion${segment}Delta`)
     }
+    expect(Object.keys(RELAY_REGION_METRIC_SEGMENTS).sort()).toEqual([...RELAY_REGIONS].sort())
   })
 
   it('emits bounded aggregate runtime signals without identities or credentials', () => {

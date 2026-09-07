@@ -19,7 +19,6 @@ const contractRegions = (() => {
 })()
 
 const terraform = read('../../infra/terraform/relay-observability.tf')
-const emitter = read('../../apps/relay/src/relay-observability.ts')
 
 const terraformRegions = (() => {
   const literal = /relay_region_keys = \[([^\]]*)\]/.exec(terraform)
@@ -27,26 +26,35 @@ const terraformRegions = (() => {
   return [...literal[1].matchAll(/"([^"]+)"/g)].map((match) => match[1])
 })()
 
+// Both sides now spell the field-name segments out, so the test compares the two declared maps
+// rather than two source expressions. Reformatting either file cannot break this, and a literal
+// expected value below still catches an identical wrong edit made to both.
+const declaredSegments = (source, open, close) => {
+  const body = source.slice(source.indexOf(open) + open.length, source.indexOf(close, source.indexOf(open)))
+  return Object.fromEntries(
+    [...body.matchAll(/'?"?([a-z0-9-]+)'?"?\s*[:=]\s*'?"?([A-Za-z0-9]+)'?"?/g)].map((match) => [
+      match[1],
+      match[2]
+    ])
+  )
+}
+
+const terraformSegments = declaredSegments(terraform, 'relay_region_field_segments = {', '}')
+const contractSegments = declaredSegments(
+  read('../../packages/relay-contract/src/relay-regions.ts'),
+  'RELAY_REGION_METRIC_SEGMENTS = {',
+  '}'
+)
+
 test('terraform covers exactly the regions the contract can hint or select', () => {
   assert.deepEqual([...terraformRegions].sort(), [...contractRegions].sort())
 })
 
-test('terraform and the emitter derive the same flat field names', () => {
-  // Both build `<prefix><Segment>Delta` from the hyphenated region id: Terraform title-cases each
-  // dash-separated part, the emitter upper-cases each part's first character. Same result, two
-  // languages, so the rules are pinned rather than the rendered names.
-  assert.match(collapse(terraform), /join\("", \[for part in split\("-", key\) : title\(part\)\]\)/)
-  assert.match(
-    collapse(emitter),
-    /\.split\('-'\) \.map\(\(part\) => part\.charAt\(0\)\.toUpperCase\(\) \+ part\.slice\(1\)\)/
-  )
-  for (const prefix of ['requestedRegion', 'selectedRegion']) {
-    assert.ok(
-      terraform.includes(`${prefix}\${local.relay_region_field_segments[key]}Delta`),
-      `terraform does not build ${prefix}<Segment>Delta`
-    )
-    assert.ok(emitter.includes(`'${prefix}'`), `the emitter does not publish ${prefix} counters`)
-  }
+test('terraform and the contract declare the same flat field segments', () => {
+  assert.deepEqual(terraformSegments, contractSegments)
+  // Pinned literally so the same wrong edit applied to both sides still fails.
+  assert.deepEqual(terraformSegments, { 'us-central1': 'UsCentral1', 'asia-east2': 'AsiaEast2' })
+  assert.deepEqual(Object.keys(terraformSegments).sort(), [...contractRegions].sort())
 })
 
 test('the skew query compares a catalogued region against itself', () => {
@@ -56,6 +64,16 @@ test('the skew query compares a catalogued region against itself', () => {
   assert.ok(hint && placement, 'skew query share columns not found')
   assert.equal(hint[1], placement[1], 'the two shares must be about the same region')
   assert.ok(columns.includes(hint[1]), `${hint[1]} is not one of ${columns.join(', ')}`)
+})
+
+test('the skew condition never divides by the placement share', () => {
+  // A zero-placement hour is the worst skew there is; MQL drops the row on x/0, so the ratio form
+  // silences exactly the case the alert exists for.
+  assert.ok(
+    !/hint_share \/ placement_share/.test(terraform),
+    'cross-multiply instead: hint_share > 2 * placement_share'
+  )
+  assert.match(collapse(terraform), /condition hint_share > 2 \* placement_share/)
 })
 
 test('the unhinted bucket stays out of the skew denominators', () => {

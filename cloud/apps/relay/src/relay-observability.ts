@@ -1,5 +1,5 @@
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks'
-import { RELAY_REGIONS, type RelayRegion } from '@orca-cloud/relay-contract'
+import { RELAY_REGION_METRIC_SEGMENTS, type RelayRegion } from '@orca-cloud/relay-contract'
 import type { ControlRenewalOutcome } from './assignment-store.js'
 import type { CellInventoryHoldCounts } from './cell-inventory-hold-samples.js'
 import type { PostgresPoolPressureCounts } from './postgres-pool-pressure.js'
@@ -419,20 +419,13 @@ export class RelayObservability implements RelayRuntimeObserver {
 // A log-based metric cannot reach `requestedRegionsDelta."asia-east2"` without a quoted field
 // path, and an absent key would drop a series out of the inner join the region-skew alert does.
 // The maps stay authoritative and keep carrying anything outside the catalog, such as `unhinted`.
-function regionFieldSegment(region: RelayRegion): string {
-  return region
-    .split('-')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('')
-}
-
 function regionCounterFields(
   prefix: 'requestedRegion' | 'selectedRegion',
   counts: Record<string, number>
 ): Record<string, number> {
   return Object.fromEntries(
-    RELAY_REGIONS.map((region) => [
-      `${prefix}${regionFieldSegment(region)}Delta`,
+    Object.entries(RELAY_REGION_METRIC_SEGMENTS).map(([region, segment]) => [
+      `${prefix}${segment}Delta`,
       counts[region] ?? 0
     ])
   )

@@ -161,7 +161,11 @@ Threshold basis:
   the broken state and outside a healthy one. `unhinted` requests are
   excluded from the denominator: they were 27% of all requests, so a client
   change that always sends a hint would move the number with no behaviour
-  change at all.
+  change at all. The two bars are cross-multiplied rather than divided. An
+  hour that placed nobody in the region is the most extreme skew there is,
+  and it happens whenever the region is drained, fenced, or at capacity, but
+  dividing by that zero placement share makes MQL drop the row and lose the
+  series before any other clause runs.
 
 Expect the skew alert to stay lit after a client fix until the mis-homed
 backlog is rehomed. Sticky assignment never re-consults the hint, so a
@@ -185,7 +189,10 @@ every interval, not the nested region maps: a log-based metric would need a
 quoted field path to reach a hyphenated map key, and an absent key would drop
 a series out of the inner join. The region list lives in Terraform as
 `relay_region_keys` and is pinned to relay-contract's `RELAY_REGIONS` by
-`dev/scripts/relay-region-hint-metrics.test.mjs`.
+`dev/scripts/relay-region-hint-metrics.test.mjs`. Both sides spell the field
+name segments out as literal maps rather than deriving them, so the same test
+compares the two declarations directly. Adding a region to the contract
+without its segment is a compile error in relay-contract, not a silent gap.
 
 ## Implementation log
 

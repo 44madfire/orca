@@ -100,10 +100,12 @@ locals {
   relay_region_keys = ["us-central1", "asia-east2"]
   # Flat emitter fields, not the nested `requestedRegionsDelta` map: a log-based metric would need
   # a quoted field path to reach a hyphenated map key, and the relay publishes these as zeros in
-  # every interval so no series can drop out of the alert's inner join.
+  # every interval so no series can drop out of the alert's inner join. Spelled out rather than
+  # derived, so this literal and relay-contract's RELAY_REGION_METRIC_SEGMENTS can be compared
+  # directly; reformatting either side cannot break the check and neither can drift alone.
   relay_region_field_segments = {
-    for key in local.relay_region_keys :
-    key => join("", [for part in split("-", key) : title(part)])
+    "us-central1" = "UsCentral1"
+    "asia-east2"  = "AsiaEast2"
   }
   relay_region_columns = { for key in local.relay_region_keys : key => replace(key, "-", "_") }
   relay_region_share_metrics = merge(
@@ -155,12 +157,14 @@ locals {
       "    placement_share: sel_asia_east2 / (${local.relay_region_selected_total}),",
       "    hinted_requests: ${local.relay_region_hinted_total}",
       "  ]",
-      "| value [",
-      "    divergence: hint_share / placement_share,",
-      "    gap: hint_share - placement_share,",
-      "    hinted_requests: hinted_requests",
-      "  ]",
-      "| condition divergence > 2 '1' && gap > 0.15 '1' && hinted_requests > 500 '1'"
+      # Cross-multiplied, never a plain ratio of the two shares: an hour that placed nobody in the
+      # region makes that ratio 0/0 or x/0, and MQL drops the row instead of yielding a number, so
+      # the whole series vanishes before the other clauses run. That hour is the worst skew there
+      # is - every desktop asking for a region the director is putting nobody in - and it happens
+      # whenever the region is drained, fenced, or at capacity. Both forms were run read-only
+      # against production surrogates with a zero denominator: the ratio returned no rows, this
+      # returned the series with the condition true.
+      "| condition hint_share > 2 * placement_share && hint_share - placement_share > 0.15 '1' && hinted_requests > 500 '1'"
     ]
   ))
   relay_custom_alerts = {
