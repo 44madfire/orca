@@ -166,6 +166,80 @@
       "demotionRule": "Keep experimental until CI soak; investigate output, offset, carry or search-budget failures without relaxing the oracle."
     },
     {
+      "id": "terminal-performance.status-heartbeat-projection-budget",
+      "title": "Unchanged status heartbeats reuse the aggregate workspace projection",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "workspace-runtime",
+      "layer": "shared-and-renderer-unit",
+      "surfaces": ["desktop runtime graph subscriber", "terminal status heartbeat projection"],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "daemon", "ssh", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local", "daemon", "ssh", "remote-runtime"],
+      "coverageNotes": "The always-mounted desktop subscriber is covered through pure projection/reference and graph-sync contracts. All providers use the same serialized fields. WSL, platform launch, liveness, transport and mobile rendering are unaffected.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/blob/main/src/renderer/src/runtime/sync-runtime-graph-agent-status-projection-join.test.ts"
+      ],
+      "invariant": "The desktop agent-status comparison projection remains identical for every serialized field, key membership and freshness bucket while avoiding a full aggregate join when per-entry serialized content is unchanged.",
+      "oracle": "500 statuses with accumulated assistant previews receive 50 same-bucket heartbeat replacements with zero aggregate joins. A bucket boundary and assistant-detail change invalidate the projection. Existing reference comparisons cover field content, ordering, insertion/removal and subscriber decisions.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/renderer/src/runtime/sync-runtime-graph-agent-status-projection-join.test.ts src/renderer/src/runtime/sync-runtime-graph-agent-status-projection.test.ts src/renderer/src/runtime/sync-runtime-graph-projection-hot-path.test.ts src/renderer/src/runtime/sync-runtime-graph.test.ts"
+      ],
+      "testFiles": [
+        "src/renderer/src/runtime/sync-runtime-graph-agent-status-projection-join.test.ts",
+        "src/renderer/src/runtime/sync-runtime-graph-agent-status-projection.test.ts",
+        "src/renderer/src/runtime/sync-runtime-graph-projection-hot-path.test.ts",
+        "src/renderer/src/runtime/sync-runtime-graph.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/renderer/src/runtime/sync-runtime-graph-agent-status-projection-join.test.ts",
+          "assertions": [
+            "does not rejoin accumulated previews for timestamp-only heartbeats",
+            "still rebuilds when an entry changes",
+            "still rebuilds when a pane is removed, even though every survivor is reused",
+            "still rebuilds when a pane is added"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/renderer/src/runtime/sync-runtime-graph-agent-status-projection-join.test.ts src/renderer/src/runtime/sync-runtime-graph-agent-status-projection.test.ts src/renderer/src/runtime/sync-runtime-graph-projection-hot-path.test.ts src/renderer/src/runtime/sync-runtime-graph.test.ts",
+          "result": "passed",
+          "summary": "38 tests passed across four projection and graph-sync files; renderer typecheck passed.",
+          "durationSeconds": 2.7
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 60,
+        "scope": "Focused unit/provider-contract suite; local runtime budget, not an established p95."
+      },
+      "flakeHistory": {
+        "status": "not-started",
+        "evidence": "Initial local validation; no CI soak history."
+      },
+      "redGreenEvidence": {
+        "status": "complete",
+        "evidence": "The new heartbeat fixture failed on baseline with 50 aggregate joins; candidate performs zero and still invalidates on the next freshness bucket and new assistant detail."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "50 redundant aggregate joins fall to zero. Paired production projection/equality benchmark: 500 agents with 8 KB previews improves 1.716 to 0.089 ms/update; 1000 improves 3.601 to 0.123 ms/update. Avoids rebuilding 5.06/10.11 million-character aggregate strings. Entry serialization and sorting remain bounded by the current status map; no new cache, polling or asynchronous work."
+      },
+      "knownGaps": [
+        "Measured production projection self-time excludes store updates and rendering; no whole-app input-latency claim.",
+        "Native platforms, live SSH/relay and older clients were not launched. This changes only equality-preserving cache reuse, with no wire or persisted schema change."
+      ],
+      "promotionCriteria": [
+        "Complete CI soak with zero unexplained flakes and preserve the observable oracle."
+      ],
+      "demotionRule": "Keep experimental until CI soak; investigate failures without relaxing fidelity, liveness or resource-count assertions."
+    },
+    {
       "id": "terminal-performance.padded-fullscreen-redraw",
       "title": "Fullscreen redraw padding does not stall terminal delivery",
       "maturity": "experimental",
