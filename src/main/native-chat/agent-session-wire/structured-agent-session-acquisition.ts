@@ -1,24 +1,26 @@
+import {
+  beginStructuredForkAttempt,
+  proveStructuredForkAcquisition
+} from './structured-agent-session-fork-lifecycle'
 import { isDeepStrictEqual } from 'node:util'
+import { claudeRewindAcquisitionProofs } from './structured-rewind-claude-proof'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
-import type { AttachFlowInput } from './structured-agent-session-attach-flow'
-import { journalIdentityFor } from './structured-agent-session-attach'
 import {
   AgentSessionPreSpawnError,
   isAgentSessionPreSpawnError,
   rethrowAfterAgentSessionAcquisitionCleanup
 } from './structured-agent-session-adapter'
-import {
-  beginStructuredForkAttempt,
-  proveStructuredForkAcquisition
-} from './structured-agent-session-fork-lifecycle'
+import { journalIdentityFor } from './structured-agent-session-attach'
+import type { AttachFlowInput } from './structured-agent-session-attach-flow'
 import { readNativeSessionOptions } from './structured-agent-session-option-restoration'
 
 /** A reservation with no process behind it is only a promise to spawn; the
- *  adapter makes it real and the store then grants the writer. */
-export async function acquireStructuredAgentSessionOwner(
+ * adapter makes it real and the store then grants the writer. */
+export async function acquireOwner(
   input: AttachFlowInput,
   record: AgentSessionRecord
 ): Promise<{ record: AgentSessionRecord; acquisitionGeneration: string | null }> {
+  const { store, rewind, now } = input
   const fence = record.lease.runtimeFence
   const spawnToken = record.lease.reservedSpawnToken
   if (!spawnToken) {
@@ -42,6 +44,7 @@ export async function acquireStructuredAgentSessionOwner(
     const acquired = await input.adapter.acquire({
       ...(fork ? { fork } : {}),
       identity: journalIdentityFor(record, input.params),
+      ...claudeRewindAcquisitionProofs({ store, record, rewind, now }),
       fence,
       // Retries must recover the original reservation, not mint a second child.
       spawnToken,

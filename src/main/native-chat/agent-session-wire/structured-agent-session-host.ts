@@ -1,4 +1,6 @@
 import { createStructuredAgentSessionFork } from './structured-agent-session-fork'
+import type { AgentSessionRewindParams } from '../../../shared/agent-session-rewind'
+import { rewindStructuredAgentSession } from './structured-agent-session-rewind'
 import { StructuredConversationCommandController } from './structured-conversation-command-controller'
 // Structured agent-session host: where the lease, journal, and provider adapter meet.
 // Mutations share one durable admission path and serialize per session.
@@ -189,15 +191,13 @@ export class StructuredAgentSessionHost {
   })
 
   /** The host's half of attaching, named so it cannot grow dependencies unnoticed. */
-  private attachContext(): StructuredAgentSessionAttachContext {
-    return {
-      ...this.lifetimeContext(),
-      subscribers: this.subscribers,
-      tasks: this.tasks,
-      reconcileLeases: (sessionId) => this.reconcileLeases(sessionId),
-      serialize: (sessionId, task) => this.serialize(sessionId, task)
-    }
-  }
+  private attachContext = (): StructuredAgentSessionAttachContext => ({
+    ...this.lifetimeContext(),
+    subscribers: this.subscribers,
+    tasks: this.tasks,
+    reconcileLeases: (sessionId) => this.reconcileLeases(sessionId),
+    serialize: (sessionId, task) => this.serialize(sessionId, task)
+  })
   /** Releases a session's resources without ending the conversation: the record and journal stay
    *  on disk, so the same session can be attached again. */
   close(sessionId: string): Promise<void> {
@@ -217,7 +217,7 @@ export class StructuredAgentSessionHost {
 
   getPersistedVisibleSessionTabIndex = () => this.deps.store.getVisibleSessionTabIndex()
 
-  setSessionTabVisibility = (sessionId: string, visible: boolean) =>
+  setSessionTabVisibility = (sessionId: string, visible: boolean): Promise<void> =>
     this.deps.store.setSessionTabVisibility(sessionId, visible)
 
   reconcileRestartLeases = async (): Promise<void> => {
@@ -234,8 +234,7 @@ export class StructuredAgentSessionHost {
   revealSession = (sessionId: string): Promise<StructuredAgentSessionReveal> =>
     this.restore.revealSession(sessionId)
 
-  private serialize = <T>(sessionId: string, task: () => Promise<T>): Promise<T> =>
-    this.tasks.serialize(sessionId, task)
+  private serialize = this.tasks.serialize.bind(this.tasks)
 
   private restoreRenewedHandoff(sessionId: string): Promise<void> {
     return this.serialize(sessionId, async () => {
@@ -307,6 +306,9 @@ export class StructuredAgentSessionHost {
 
   readOptions = (sessionId: string): Promise<SessionWire.AgentSessionOptionsResult> =>
     readStructuredAgentSessionOptions(this.mutationContext(), sessionId)
+
+  rewind = (caller: StructuredAgentSessionCaller, params: AgentSessionRewindParams) =>
+    rewindStructuredAgentSession(this.mutationContext(), this.attachContext(), caller, params)
 
   conversationCommand = (...args: Parameters<StructuredConversationCommandController['run']>) =>
     this.conversationCommands.run(...args)

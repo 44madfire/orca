@@ -1,4 +1,4 @@
-import type { AgentSessionRewindReason } from './agent-session-rewind'
+import type { AgentSessionRewindReason, AgentSessionRewindSupport } from './agent-session-rewind'
 import type { AgentSessionConversationCommand } from './agent-session-conversation-command'
 // ─── Structured agent-session wire contract ─────────────────────────────────
 // The shapes `agentSession.*` accepts and publishes. Phase 2 builds provider
@@ -190,6 +190,7 @@ export type AgentSessionSubscribeEvent =
  *  from the journal so no client has to replay a transcript to learn whether a
  *  turn is running. Additive surface: an older host has no such method. */
 export type AgentSessionStatusSummary = {
+  rewindBlockedReason?: AgentSessionRewindReason
   sessionId: string
   workspaceId: string
   agent: AgentSessionRecord['provider']
@@ -261,6 +262,7 @@ export function isAgentSessionWireRefusalCode(
 
 export type AgentSessionWireRefusal = {
   forkReason?: AgentSessionRewindReason
+  rewindReason?: AgentSessionRewindReason
   code: AgentSessionWireRefusalCode
   message: string
   /** On a stale fence, so the client can retry without another round trip. */
@@ -352,6 +354,7 @@ export type AgentSessionCommandsResult = {
  *  surface so older hosts can reject it without changing structured v1 writes. */
 export type AgentSessionOptionsResult = {
   fork?: { supported: boolean }
+  rewind?: AgentSessionRewindSupport
   conversationCommands?: readonly AgentSessionConversationCommand[]
   models: AgentSessionModelOption[]
   current: {
