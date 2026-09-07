@@ -28,7 +28,6 @@ export function MobileSessionHeader({ controller }: { controller: MobileSessionC
     forceReconnectHost,
     worktreeName,
     activePanel,
-    activeSessionTabIdRef,
     tabStripRef,
     tabStripOffsetRef,
     tabStripViewportWidthRef,
@@ -53,6 +52,7 @@ export function MobileSessionHeader({ controller }: { controller: MobileSessionC
     handlePanelTap,
     showHeaderMoreButton
   } = controller
+  const activeTabStripRowKey = tabStripRows.find((row) => row.isActive)?.key ?? null
   return (
     <SafeAreaView style={styles.sessionChrome} edges={['top']}>
       <View style={styles.sessionTopBar}>
@@ -128,16 +128,16 @@ export function MobileSessionHeader({ controller }: { controller: MobileSessionC
             }}
             onLayout={(e) => {
               tabStripViewportWidthRef.current = e.nativeEvent.layout.width
-              scrollActiveTabIntoView(activeSessionTabIdRef.current, false)
+              scrollActiveTabIntoView(activeTabStripRowKey, false)
             }}
             onContentSizeChange={(width) => {
               tabStripContentWidthRef.current = width
-              scrollActiveTabIntoView(activeSessionTabIdRef.current, false)
+              scrollActiveTabIntoView(activeTabStripRowKey, false)
             }}
           >
-            {tabStripRows.map(({ entry, isActive, tab }) => (
+            {tabStripRows.map(({ key, entry, isActive, tab }) => (
               <Pressable
-                key={entry.id}
+                key={key}
                 style={[
                   styles.tab,
                   isActive && styles.tabActive,
@@ -145,9 +145,9 @@ export function MobileSessionHeader({ controller }: { controller: MobileSessionC
                 ]}
                 onLayout={(e) => {
                   const { x, width } = e.nativeEvent.layout
-                  tabLayoutsRef.current.set(entry.id, { x, width })
-                  if (entry.id === activeSessionTabIdRef.current) {
-                    scrollActiveTabIntoView(entry.id, false)
+                  tabLayoutsRef.current.set(key, { x, width })
+                  if (isActive) {
+                    scrollActiveTabIntoView(key, false)
                   }
                 }}
                 // A cached preview row has no live tab behind it, so both gestures need the

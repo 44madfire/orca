@@ -4,6 +4,7 @@ import {
   getMobileSessionTabTitle,
   resolveMobileTerminalTabAgentId
 } from './mobile-terminal-tab-agent'
+import { toMobileSessionTabStripRowKey } from './mobile-session-tab-strip-row-key'
 
 /**
  * The only session-tab fields the tab strip draws. Everything else the live tab carries (unsent
@@ -24,6 +25,8 @@ export type MobileSessionTabStripPreview = {
 }
 
 export type MobileSessionTabStripRow = {
+  /** React key. A digest of the tab id, so a preview row and its live successor share one. */
+  key: string
   entry: MobileSessionTabStripEntry
   isActive: boolean
   /** null on a preview row: switching to that tab needs a live connection. */
@@ -104,7 +107,8 @@ export function toMobileSessionTabStripPreview(
 
 /**
  * Rows for the header strip. Live tabs always win; the preview only fills a strip that has no
- * live rows yet, and its ids are the live ids, so the swap reuses the same React keys.
+ * live rows yet. A preview id is already a row key, and a live row keys under the digest of its
+ * id, so the swap reuses the same React keys.
  */
 export function getMobileSessionTabStripRows(args: {
   liveTabs: readonly MobileSessionTab[]
@@ -114,12 +118,14 @@ export function getMobileSessionTabStripRows(args: {
   const { liveTabs, activeSessionTabId, preview } = args
   if (liveTabs.length > 0 || !preview) {
     return liveTabs.map((tab) => ({
+      key: toMobileSessionTabStripRowKey(tab.id),
       entry: toMobileSessionTabStripEntry(tab),
       isActive: tab.id === activeSessionTabId,
       tab
     }))
   }
   return preview.tabs.map((entry) => ({
+    key: entry.id,
     entry,
     isActive: entry.id === preview.activeTabId,
     tab: null

@@ -67,8 +67,8 @@ const HEAD_MAIN_HOOK_SHA256 = 'e22e7d3a1147ef19c747f0e216b778e794a73e027e96cf84f
 const HEAD_HOOK_BINDING_SHA256 = '531fe06cf2c261b1346bbc949c9ceba5aea8b8ace2dcb8a1898e9759745e013c'
 const HEAD_CALLBACK_IDENTITY_SHA256 =
   'e5df1043256bcb0b3813bf89161d91f5e65c00749fbb6d98176bca82e878d061'
-const HEAD_CALLBACK_BODY_SHA256 = '6d9ed614ed139aef5cc911c33ea4220cc1fc5f888a1a564ef85e6910cc118bc3'
-const HEAD_EFFECT_SHA256 = 'a6d4d5cb573926f40faa7701cef7885a0f2c7e7c5cfaa91f4e480c29aba44d79'
+const HEAD_CALLBACK_BODY_SHA256 = '591e569482ddcdfcf6aaf576851acef62c93b17b70e5b3528a04ce69f1c5d3b1'
+const HEAD_EFFECT_SHA256 = '21b34c4111f8c52872a0356b3b80f39cb9f63d5b2b5de7a5118d7d12411606e0'
 const HEAD_CONTENT_HOOK_SHA256 = '9c3b612fef3f370d66873aefdbe1d701f20cb64ded31fef5cc45fde6f8189581'
 const HEAD_NESTED_FUNCTION_SHA256 =
   '0e553eb5ec7aeda8f8336b8da85ff87eb3657a21fa32d3c75c9cc32e36860244'
@@ -77,11 +77,11 @@ const HEAD_NATIVE_REGISTRATION_SHA256 =
 const HEAD_NATIVE_REMOVAL_SHA256 =
   '4c994574675a2a0f9c607b3ea89ab7a2ed5a83f7c72fa42342ddcb5f00fc3f4f'
 const HEAD_TIMER_CREATION_SHA256 =
-  '36c3ccef371698e25cd2eb239df7a8dea6dcc674d9da43cc38cabfa3a8f64929'
+  '7034ff8be89e2594694e78efdd64bf0ac6d3e659bd5f051dcb9cc2ccda875709'
 const HEAD_TIMER_CLEANUP_SHA256 = '2f41ddc30d0e9c1b6d1d6b5e09d96d1b3facd3133acae1ff7436bb40e4ef39dc'
 const HEAD_RUNTIME_STRING_SHA256 =
-  '694a22ed924ebc2a7d380089ff2cfd3e27f5d72d3c4d4b7b06aa3006db93c053'
-const HEAD_HOST_JSX_SHA256 = '0aca9fe4b6738228020fe20334fe2716471a2fdf57e4feea6a2a92cac1c04c58'
+  '574d0631e710eb6d4c3172d7ac948769302f880d20df118cc6028cf1a535e47a'
+const HEAD_HOST_JSX_SHA256 = '4d8d5c30a5868ddc5441c79be24d9d8ec546091bbdcd2f0533eea6e121c75396'
 const HEAD_LEAF_JSX_SHA256 = '2c38e19ffbcaae14f9df2fdb44751546d2b936f9a4b2c5e90727a5f74f3c2665'
 const HEAD_STYLE_REFERENCE_SHA256 =
   'da81d6065c5c1ebafbbd721321023cddd0bfc1afa0325749f736bb97898f9556'
@@ -523,7 +523,7 @@ describe('mobile session route extraction parity', () => {
 
   it('preserves runtime strings, styles, and the expanded JSX tree', () => {
     const strings = readRuntimeStrings()
-    expect(strings).toHaveLength(545)
+    expect(strings).toHaveLength(551)
     expect(hash(strings)).toBe(HEAD_RUNTIME_STRING_SHA256)
     const jsx = readJsxFacts(readDefinitions())
     expect(jsx.host).toHaveLength(127)

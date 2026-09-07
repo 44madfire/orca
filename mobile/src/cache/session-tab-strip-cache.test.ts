@@ -18,7 +18,8 @@ import {
 } from './session-tab-strip-cache'
 import type { MobileSessionTabStripPreview } from '../session/mobile-session-tab-strip-entries'
 
-const STORAGE_KEY = 'orca:session-tab-strip:v1'
+const STORAGE_KEY = 'orca:session-tab-strip:v2'
+const LEGACY_STORAGE_KEY = 'orca:session-tab-strip:v1'
 
 function preview(...ids: string[]): MobileSessionTabStripPreview {
   return {
@@ -49,6 +50,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   asyncStorage.getItem.mockReset().mockResolvedValue(null)
   asyncStorage.setItem.mockReset().mockResolvedValue(undefined)
+  asyncStorage.removeItem.mockReset().mockResolvedValue(undefined)
   resetSessionTabStripCacheForTests()
 })
 
@@ -232,6 +234,45 @@ describe('session tab strip cache', () => {
 
     expectDigestedIds(readCachedSessionTabStrip(key)?.tabs.map((tab) => tab.id) ?? [], 1)
     expect(String(asyncStorage.setItem.mock.calls.at(-1)?.[1])).not.toContain('private-file')
+  })
+
+  it('digests a wire id even when the host shaped it like a stored key', async () => {
+    // "Every stored id is a digest" must not be something the host can satisfy by choosing ids.
+    const key = getSessionTabStripCacheKey('host-1', 'wt-1')
+    const hostChosen = `cached:${'a'.repeat(32)}`
+    expect(readAfterSave(key, hostChosen)).not.toBe(hostChosen)
+    expectDigestedIds([readCachedSessionTabStrip(key)?.tabs[0]?.id], 1)
+  })
+
+  it('stores under a new key and removes the blob an older build wrote in plaintext', async () => {
+    // v1 blobs hold raw editor ids and shell-set titles, and a load alone never rewrote them.
+    const key = getSessionTabStripCacheKey('host-1', 'wt-1')
+    asyncStorage.getItem.mockImplementation(async (storageKey: string) =>
+      storageKey === LEGACY_STORAGE_KEY
+        ? JSON.stringify({
+            workspaces: [
+              {
+                key,
+                preview: {
+                  tabs: [
+                    {
+                      id: '/Users/someone/secret.md',
+                      type: 'file',
+                      title: 'secret.md',
+                      agentId: null
+                    }
+                  ],
+                  activeTabId: null
+                }
+              }
+            ]
+          })
+        : null
+    )
+
+    expect(await loadCachedSessionTabStrip(key)).toBeNull()
+    expect(asyncStorage.getItem).not.toHaveBeenCalledWith(LEGACY_STORAGE_KEY)
+    expect(asyncStorage.removeItem).toHaveBeenCalledWith(LEGACY_STORAGE_KEY)
   })
 
   it('keeps only a known agent id, since the hook-reported one is free text', async () => {

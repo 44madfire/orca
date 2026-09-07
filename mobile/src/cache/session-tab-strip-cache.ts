@@ -7,7 +7,6 @@
 // rebuilt field by field on the way in, and shell-controlled titles are replaced with fixed
 // labels here rather than trusted to have been scrubbed upstream.
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { sha256 } from '@noble/hashes/sha256'
 import {
   getPersistableTabStripAgentId,
   getPersistableTabStripTitle,
@@ -15,20 +14,22 @@ import {
   type MobileSessionTabStripEntry,
   type MobileSessionTabStripPreview
 } from '../session/mobile-session-tab-strip-entries'
+import {
+  digestHex,
+  isMobileSessionTabStripRowKey,
+  toMobileSessionTabStripRowKey
+} from '../session/mobile-session-tab-strip-row-key'
 
-const STORAGE_KEY = 'orca:session-tab-strip:v1'
+// v1 blobs hold raw editor-tab ids (absolute paths) and shell-set titles written by older
+// builds, and a load alone never rewrites them. The key change makes the first load drop them.
+const LEGACY_STORAGE_KEYS = ['orca:session-tab-strip:v1']
+const STORAGE_KEY = 'orca:session-tab-strip:v2'
 // A phone realistically revisits a handful of workspaces; the caps bound both the stored blob
 // and the cost of a single write.
 const MAX_WORKSPACES = 12
 const MAX_TABS_PER_WORKSPACE = 24
 const MAX_TITLE_LENGTH = 64
 const WRITE_DEBOUNCE_MS = 250
-// 128 bits of a digest: far past collision range for a dozen workspaces, and short enough that
-// the stored blob stays small.
-const WORKSPACE_DIGEST_LENGTH = 32
-const TAB_DIGEST_PREFIX = 'cached:'
-// The whole shape, not the prefix: a wire id that merely starts with the prefix is still wire text.
-const DIGESTED_TAB_ID = /^cached:[0-9a-f]{32}$/
 
 type StoredWorkspace = { key: string; preview: MobileSessionTabStripPreview }
 type StoredFile = { workspaces: StoredWorkspace[] }
@@ -90,7 +91,7 @@ export function saveCachedSessionTabStrip(
   if (hostId !== null && forgottenHosts.has(hostId)) {
     return
   }
-  const redacted = redactPreview(preview)
+  const redacted = redactPreview(preview, 'wire')
   const cache = memoryCache ?? new Map()
   memoryCache = cache
   // Map.set on an existing key keeps its original iteration position, so delete first to make
@@ -149,19 +150,13 @@ function digestWorkspaceId(worktreeId: string): string {
   return digestHex(worktreeId)
 }
 
-// Prefixed so a raw id can never be mistaken for one already digested, and so a live tab's
-// id can never collide with a stored row's by construction.
-function digestTabId(tabId: string): string {
-  return DIGESTED_TAB_ID.test(tabId) ? tabId : `${TAB_DIGEST_PREFIX}${digestHex(tabId)}`
-}
-
-function digestHex(value: string): string {
-  const digest = sha256(new TextEncoder().encode(value))
-  let hex = ''
-  for (const byte of digest) {
-    hex += byte.toString(16).padStart(2, '0')
-  }
-  return hex.slice(0, WORKSPACE_DIGEST_LENGTH)
+// A wire id is always digested, even one shaped like a key: "every stored id is a digest" must
+// not be something the host can satisfy by choosing its ids. A stored key is left alone so a
+// re-read stays idempotent; a raw id an older build stored is digested on the way back out.
+function toStoredTabId(tabId: string, source: 'wire' | 'storage'): string {
+  return source === 'storage' && isMobileSessionTabStripRowKey(tabId)
+    ? tabId
+    : toMobileSessionTabStripRowKey(tabId)
 }
 
 function readHostIdFromKey(key: string): string | null {
@@ -193,6 +188,11 @@ async function loadFile(): Promise<Map<string, MobileSessionTabStripPreview>> {
 }
 
 async function readStoredFile(): Promise<StoredWorkspace[]> {
+  // Best effort, and not awaited: the plaintext left by an older build must go, but a failed
+  // removal is no reason to withhold the strip this build can draw.
+  for (const key of LEGACY_STORAGE_KEYS) {
+    void AsyncStorage.removeItem(key).catch(() => {})
+  }
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY)
     if (!raw) {
@@ -206,7 +206,7 @@ async function readStoredFile(): Promise<StoredWorkspace[]> {
       if (typeof workspace?.key !== 'string' || !Array.isArray(workspace.preview?.tabs)) {
         return []
       }
-      return [{ key: workspace.key, preview: redactPreview(workspace.preview) }]
+      return [{ key: workspace.key, preview: redactPreview(workspace.preview, 'storage') }]
     })
   } catch {
     return []
@@ -249,7 +249,10 @@ async function writeFile(cache: Map<string, MobileSessionTabStripPreview>): Prom
 // and to mark the active row, both of which a digest serves. A stored entry written by an
 // older build carries a raw id and is digested again here on the way back out; a digest of a
 // digest is still a stable key.
-function redactPreview(preview: MobileSessionTabStripPreview): MobileSessionTabStripPreview {
+function redactPreview(
+  preview: MobileSessionTabStripPreview,
+  source: 'wire' | 'storage'
+): MobileSessionTabStripPreview {
   const tabs: MobileSessionTabStripEntry[] = []
   const ids = new Map<string, string>()
   for (const tab of preview.tabs ?? []) {
@@ -259,7 +262,7 @@ function redactPreview(preview: MobileSessionTabStripPreview): MobileSessionTabS
     const agentId = getPersistableTabStripAgentId(
       typeof tab.agentId === 'string' ? tab.agentId : null
     )
-    const id = digestTabId(tab.id)
+    const id = toStoredTabId(tab.id, source)
     ids.set(tab.id, id)
     tabs.push({
       id,

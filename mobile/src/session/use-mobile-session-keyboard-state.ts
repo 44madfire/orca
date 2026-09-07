@@ -5,6 +5,7 @@ import { useTerminalViewportRefit } from '../terminal/terminal-viewport-refit'
 import { saveCustomKeys, type CustomKey } from '../components/CustomKeyModal'
 import { LAST_VISITED_WORKTREE_STORAGE_KEY } from '../worktree/last-visited-worktree-repo'
 import { resolveTabStripScrollOffset } from './tab-strip-scroll'
+import { toMobileSessionTabStripRowKey } from './mobile-session-tab-strip-row-key'
 import type { MobileSessionLifecycleModel } from './use-mobile-session-lifecycle'
 
 export function useMobileSessionKeyboardState(scope: MobileSessionLifecycleModel) {
@@ -76,11 +77,13 @@ export function useMobileSessionKeyboardState(scope: MobileSessionLifecycleModel
     }
   }, [notifyKeyboardVisibility])
 
-  const scrollActiveTabIntoView = useCallback((tabId: string | null, animated: boolean) => {
-    if (!tabId) {
+  // Layouts are recorded under the strip's row key (a digest of the tab id), so a cached preview
+  // row and the live row that replaces it share one entry.
+  const scrollActiveTabIntoView = useCallback((rowKey: string | null, animated: boolean) => {
+    if (!rowKey) {
       return
     }
-    const layout = tabLayoutsRef.current.get(tabId)
+    const layout = tabLayoutsRef.current.get(rowKey)
     if (!layout) {
       return
     }
@@ -99,7 +102,12 @@ export function useMobileSessionKeyboardState(scope: MobileSessionLifecycleModel
 
   // Reveal the active tab on change; defer one frame so freshly mounted tab layouts are recorded.
   useEffect(() => {
-    const id = requestAnimationFrame(() => scrollActiveTabIntoView(activeSessionTabId, true))
+    const id = requestAnimationFrame(() =>
+      scrollActiveTabIntoView(
+        activeSessionTabId === null ? null : toMobileSessionTabStripRowKey(activeSessionTabId),
+        true
+      )
+    )
     return () => cancelAnimationFrame(id)
   }, [activeSessionTabId, scrollActiveTabIntoView])
 

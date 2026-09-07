@@ -6,17 +6,24 @@ import {
   type MobileSessionTabStripPreview
 } from './mobile-session-tab-strip-entries'
 import type { MobileSessionTab } from './mobile-session-route-types'
+import { toMobileSessionTabStripRowKey } from './mobile-session-tab-strip-row-key'
 
 function terminalTab(id: string, title: string, isActive = false): MobileSessionTab {
   return { type: 'terminal', id, title, terminal: `h-${id}`, isActive }
 }
 
+// A cached preview carries row keys (digests of the live ids), never the ids themselves.
 const cachedPreview: MobileSessionTabStripPreview = {
   tabs: [
-    { id: 'tab-1', type: 'terminal', title: 'claude', agentId: 'claude' },
-    { id: 'tab-2', type: 'terminal', title: 'shell', agentId: null }
+    {
+      id: toMobileSessionTabStripRowKey('tab-1'),
+      type: 'terminal',
+      title: 'claude',
+      agentId: 'claude'
+    },
+    { id: toMobileSessionTabStripRowKey('tab-2'), type: 'terminal', title: 'shell', agentId: null }
   ],
-  activeTabId: 'tab-1'
+  activeTabId: toMobileSessionTabStripRowKey('tab-1')
 }
 
 const base = {
@@ -104,7 +111,10 @@ describe('getMobileSessionTabStripRows', () => {
       preview: preview.kind === 'reconnecting-with-cache' ? preview.preview : null
     })
 
-    expect(previewRows.map((row) => row.entry.id)).toEqual(['tab-1', 'tab-2'])
+    expect(previewRows.map((row) => row.key)).toEqual([
+      toMobileSessionTabStripRowKey('tab-1'),
+      toMobileSessionTabStripRowKey('tab-2')
+    ])
     expect(previewRows.map((row) => row.tab)).toEqual([null, null])
     expect(previewRows.map((row) => row.isActive)).toEqual([true, false])
 
@@ -115,7 +125,9 @@ describe('getMobileSessionTabStripRows', () => {
       preview: null
     })
 
-    expect(liveRows.map((row) => row.entry.id)).toEqual(previewRows.map((row) => row.entry.id))
+    // Same React keys across the swap: the preview id is the live row's digest, so no remount.
+    expect(liveRows.map((row) => row.key)).toEqual(previewRows.map((row) => row.key))
+    expect(liveRows.map((row) => row.entry.id)).toEqual(['tab-1', 'tab-2'])
     expect(liveRows.map((row) => row.isActive)).toEqual(previewRows.map((row) => row.isActive))
     expect(liveRows.every((row) => row.tab !== null)).toBe(true)
   })
