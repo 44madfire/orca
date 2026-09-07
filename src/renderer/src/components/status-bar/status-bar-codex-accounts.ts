@@ -93,7 +93,7 @@ export function buildCodexStatusSwitchGroups(
         },
         ...accountsForTarget.map((account) => ({
           id: account.id,
-          label: getCodexAccountDisplayLabel(account, state.accounts),
+          label: getCodexAccountDisplayLabel(account, accountsForTarget),
           active: account.id === activeId,
           runtimeTarget: target
         }))

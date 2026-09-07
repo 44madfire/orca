@@ -4,15 +4,19 @@ export type CodexDisplayAccount = {
   workspaceLabel?: string | null
 }
 
+// Emails round-trip through persisted settings and remote summaries; tolerate a missing one.
+export function normalizeCodexAccountEmail(email: string | null | undefined): string {
+  return (email ?? '').trim().toLowerCase()
+}
+
 export function getCodexAccountDisplayDetail(
   account: CodexDisplayAccount,
   accounts: readonly CodexDisplayAccount[]
 ): string | null {
   const workspace = account.workspaceLabel?.trim() || null
+  const email = normalizeCodexAccountEmail(account.email)
   const peers = accounts.filter(
-    (entry) =>
-      entry.id !== account.id &&
-      entry.email.trim().toLowerCase() === account.email.trim().toLowerCase()
+    (entry) => entry.id !== account.id && normalizeCodexAccountEmail(entry.email) === email
   )
   const workspaces = [workspace, ...peers.map((entry) => entry.workspaceLabel?.trim() || null)]
   if (

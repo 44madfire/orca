@@ -115,7 +115,7 @@ export function renderCodexAccountRow(
           >
             {accountDetail ? (
               <>
-                <span className="break-all">{accountDetail}</span>
+                <span className="min-w-0 break-words">{accountDetail}</span>
                 <span className="shrink-0 opacity-50">•</span>
               </>
             ) : null}

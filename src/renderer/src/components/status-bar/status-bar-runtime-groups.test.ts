@@ -55,6 +55,39 @@ describe('status bar runtime switch groups', () => {
     }
   )
 
+  it('keeps one email plain when its only same-email peer sits in another runtime group', () => {
+    const state: CodexRateLimitAccountsState = {
+      accounts: [
+        {
+          id: 'account-host',
+          email: 'same@example.com',
+          managedHomeRuntime: 'host',
+          wslDistro: null,
+          workspaceLabel: 'Personal (Plus)',
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        },
+        {
+          id: 'account-wsl',
+          email: 'same@example.com',
+          managedHomeRuntime: 'wsl',
+          wslDistro: 'Ubuntu',
+          workspaceLabel: 'Personal (Plus)',
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        }
+      ],
+      activeAccountId: null,
+      activeAccountIdsByRuntime: { host: null, wsl: { Ubuntu: null } }
+    }
+    const groups = buildCodexStatusSwitchGroups(state, { runtime: 'host', wslDistro: null })
+    expect(groups.flatMap((group) => group.targets.slice(1).map((target) => target.label))).toEqual(
+      ['same@example.com (Personal (Plus))', 'same@example.com (Personal (Plus))']
+    )
+  })
+
   it('collapses WSL default into the single concrete Codex distro', () => {
     const state: CodexRateLimitAccountsState = {
       accounts: [

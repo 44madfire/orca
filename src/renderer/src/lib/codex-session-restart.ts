@@ -6,7 +6,10 @@ import {
   type RuntimeTerminalProcessInspection
 } from '@/runtime/runtime-terminal-inspection'
 import { translate } from '@/i18n/i18n'
-import { getCodexAccountDisplayLabel } from './codex-account-display-label'
+import {
+  getCodexAccountDisplayLabel,
+  normalizeCodexAccountEmail
+} from './codex-account-display-label'
 import { isShellProcess } from '../../../shared/shell-process-detection'
 import {
   isCodexForegroundProcess,
@@ -339,10 +342,9 @@ export function resolveCodexRestartPromptAccountLabel(
   if (!account) {
     return translate('auto.lib.codex.session.restart.9f0b1c2d3e', 'Codex account')
   }
+  const email = normalizeCodexAccountEmail(account.email)
   const sharesEmail = accounts.some(
-    (entry) =>
-      entry.id !== account.id &&
-      entry.email.trim().toLowerCase() === account.email.trim().toLowerCase()
+    (entry) => entry.id !== account.id && normalizeCodexAccountEmail(entry.email) === email
   )
   return sharesEmail ? getCodexAccountDisplayLabel(account, accounts) : account.email
 }
