@@ -1,13 +1,38 @@
 import { z } from 'zod'
+import { decodedBase64Length } from './base64-decoded-length'
 import { MobileWebBridgeErrorCodeSchema } from './bridge-contract'
 import {
   isMobileWebBase64,
   isMobileWebBase64UrlIdentifier,
   isMobileWebSha256
 } from './protocol-token-contract'
-import { MobileWebTerminalOscLinksSchema } from './terminal-osc-link-contract'
 
-export * from './terminal-osc-link-contract'
+export const MOBILE_WEB_TERMINAL_MAX_OSC_LINKS = 4_096
+export const MOBILE_WEB_TERMINAL_MAX_OSC_LINK_ROW = 50_000
+export const MOBILE_WEB_TERMINAL_MAX_OSC_LINK_URI_LENGTH = 4_096
+export const MOBILE_WEB_TERMINAL_MAX_OSC_LINK_URI_CHARACTERS = 256 * 1024
+
+const TerminalOscLinkRangeSchema = z
+  .object({
+    row: z.number().int().nonnegative().max(MOBILE_WEB_TERMINAL_MAX_OSC_LINK_ROW),
+    startCol: z.number().int().nonnegative().max(1_000),
+    endCol: z.number().int().positive().max(1_000),
+    uri: z.string().min(1).max(MOBILE_WEB_TERMINAL_MAX_OSC_LINK_URI_LENGTH)
+  })
+  .strict()
+  .refine((range) => range.endCol > range.startCol, 'OSC link range must advance')
+
+export const MobileWebTerminalOscLinksSchema = z
+  .array(TerminalOscLinkRangeSchema)
+  .max(MOBILE_WEB_TERMINAL_MAX_OSC_LINKS)
+  .superRefine((links, context) => {
+    const uriCharacters = links.reduce((total, link) => total + link.uri.length, 0)
+    if (uriCharacters > MOBILE_WEB_TERMINAL_MAX_OSC_LINK_URI_CHARACTERS) {
+      context.addIssue({ code: 'custom', message: 'OSC link URIs exceed aggregate limit' })
+    }
+  })
+
+export type MobileWebTerminalOscLinkRange = z.infer<typeof TerminalOscLinkRangeSchema>
 
 export const MOBILE_WEB_TERMINAL_MAX_INPUT_BYTES = 16 * 1024
 export const MOBILE_WEB_TERMINAL_MAX_OUTPUT_BATCH_BYTES = 64 * 1024
@@ -254,58 +279,6 @@ export type MobileWebTerminalDeviceInputResult = z.infer<
 >
 export type MobileWebTerminalEvent = z.infer<typeof MobileWebTerminalEventSchema>
 export type MobileWebTerminalOutputEvent = z.infer<typeof MobileWebTerminalOutputEventSchema>
-
-export type MobileWebTerminalSequenceResult =
-  | { ok: true; nextSequence: number }
-  | { ok: false; reason: 'duplicate' | 'gap' }
-
-export function validateMobileWebTerminalOutputSequence(
-  expectedSequence: number,
-  event: MobileWebTerminalOutputEvent
-): MobileWebTerminalSequenceResult {
-  if (event.startSequence < expectedSequence) {
-    return { ok: false, reason: 'duplicate' }
-  }
-  if (event.startSequence > expectedSequence) {
-    return { ok: false, reason: 'gap' }
-  }
-  return { ok: true, nextSequence: event.endSequence }
-}
-
-export function validateMobileWebTerminalSnapshotOffset(
-  expectedOffset: number,
-  event: z.infer<typeof MobileWebTerminalSnapshotChunkEventSchema>
-): MobileWebTerminalSequenceResult {
-  if (event.offset < expectedOffset) {
-    return { ok: false, reason: 'duplicate' }
-  }
-  if (event.offset > expectedOffset) {
-    return { ok: false, reason: 'gap' }
-  }
-  return { ok: true, nextSequence: event.offset + decodedBase64Length(event.data) }
-}
-
-export function canSendMobileWebTerminalOutput(
-  acknowledgedSequence: number,
-  sentSequence: number,
-  nextBytes: number
-): boolean {
-  return (
-    Number.isSafeInteger(acknowledgedSequence) &&
-    Number.isSafeInteger(sentSequence) &&
-    Number.isSafeInteger(nextBytes) &&
-    acknowledgedSequence >= 0 &&
-    sentSequence >= acknowledgedSequence &&
-    nextBytes > 0 &&
-    nextBytes <= MOBILE_WEB_TERMINAL_MAX_OUTPUT_BATCH_BYTES &&
-    sentSequence - acknowledgedSequence + nextBytes <= MOBILE_WEB_TERMINAL_MAX_OUTSTANDING_BYTES
-  )
-}
-
-export function decodedBase64Length(value: string): number {
-  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
-  return (value.length / 4) * 3 - padding
-}
 
 function boundedBase64Schema(maxBytes: number): z.ZodType<string> {
   return z

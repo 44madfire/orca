@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { decodedBase64Length } from './base64-decoded-length'
 import {
   MOBILE_WEB_FILE_CHUNK_MAX_BYTES,
   MobileWebRelativePathSchema,
@@ -134,14 +135,6 @@ export type MobileWebTerminalArtifactChunkResult = Omit<
 export type MobileWebTerminalArtifactReleasePayload = z.infer<
   typeof MobileWebTerminalArtifactReleasePayloadSchema
 >
-
-function decodedBase64Length(value: string): number {
-  if (!value) {
-    return 0
-  }
-  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
-  return (value.length / 4) * 3 - padding
-}
 
 function hasCanonicalBase64Padding(value: string): boolean {
   if (value.endsWith('==')) {

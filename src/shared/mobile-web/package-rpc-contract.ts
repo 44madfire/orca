@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { decodedBase64Length } from './base64-decoded-length'
 import {
   MOBILE_WEB_PACKAGE_CHUNK_BYTES,
   MobileWebManifestSchema,
@@ -142,9 +143,4 @@ const MOBILE_WEB_PACKAGE_ERROR_CODE_SET: ReadonlySet<string> = new Set(
 
 export function isMobileWebPackageErrorCode(value: string): value is MobileWebPackageErrorCode {
   return MOBILE_WEB_PACKAGE_ERROR_CODE_SET.has(value)
-}
-
-function decodedBase64Length(value: string): number {
-  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
-  return (value.length / 4) * 3 - padding
 }
