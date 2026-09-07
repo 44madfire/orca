@@ -16,7 +16,22 @@ pages; no protocol or manifest bump is planned.
 
 ## Current checkpoint
 
-Last reconciled: September 6, 2026. Implementation is **in progress**.
+Last reconciled: September 6, 2026, current host-settings integration batch.
+Implementation is **in progress**, not complete.
+
+Latest committed batch: host-scoped forwarding, native-chat file actions and
+session terminal creation (`ed6f610ecc1`); shared Terminal/About settings
+(`97c4a050ebe`); Terminal consumer fixture (`f2909d35392`). All code gates and
+export pass. Full iOS adversarial run passes, including Terminal preference
+persistence and actual session consumers. Android smoke passed. The extra
+frozen-shell crash-loop fixture is deferred outside the worktree.
+
+Immediate remaining verification: iOS Terminal settings interactions and normal
+page update delivery, then Android final smoke. The elaborate A→B→A crash-loop
+drill is deferred under the user’s YAGNI direction; existing rollback stays.
+After that, commit this batch. Larger remaining implementation: session and other
+domain consumers/feeds, remaining settings screens, native-process-death page
+resume, and CSP/bootstrap externalization. Details and proof criteria follow.
 
 - [x] Investigate shell/host/page coupling and re-derive host-method census.
 - [x] Pin bridge protocol 2 and installed/cached package admission: `11646f11e0f`.
@@ -40,7 +55,7 @@ Last reconciled: September 6, 2026. Implementation is **in progress**.
 - [x] Bounded Metro script assets: `86215b5dec8`.
 - [x] Full unattended existing adversarial harness on iOS and Android.
 - [x] Migrated Chat/Browser settings persistence and WebView-restart recovery on iOS.
-- [ ] Chat-specific interactions and frozen-shell OTA/rollback E2E.
+- [ ] Chat-specific interaction E2E. Additional frozen-shell crash-loop drill deferred (YAGNI).
 
 Catalog authorization correction committed as `2b354df1463`; corrected iOS rerun passed.
 Investigation found that advertised `mobileWeb.files.*` and `mobileWeb.nativeChat.*`
@@ -83,7 +98,7 @@ source; it must not depend on those temporary files to explain remaining work.
       future host fields and SSH execution routing.
 - [x] Migrate native-chat TUI send/respond/stop/prepare-commit actions;
       retain native image/clipboard/pending-storage authority.
-- [ ] Migrate remaining native-chat readability and file-action adapters.
+- [x] Migrate native-chat readability and file-action adapters: `ed6f610ecc1`.
 - [ ] Migrate session reads and mutations, terminal one-shots and files.
 - [ ] Extend remaining source-control, task, review and account consumers.
 - [ ] Keep errors useful for reconciliation without exposing transport keys,
@@ -119,7 +134,7 @@ work and report a terminal closure to the surviving page.
 
 - [x] Add bounded JSON preferences scoped by paired host and namespace;
       storage identity excludes page build. Keep credential storage inaccessible.
-- [ ] Verify preferences across real two-page OTA replacement and rollback.
+- [ ] Verify preferences across normal page update delivery. Additional rollback drill deferred.
 - [x] Replace hosted AsyncStorage's no-op behavior for page preferences through
       an explicit adapter; do not expose arbitrary native storage keys.
 - [x] Add bounded page-owned resume state and navigation intents, with legacy
@@ -137,7 +152,8 @@ components. Reuse presentation; split native dependencies through adapters.
 
 - [x] Native-chat preferences, including iOS persistence and rendered verification.
 - [x] Browser preferences, including saved-value consumer and iOS persistence.
-- [ ] Terminal settings, including host settings and device preferences.
+- [x] Terminal settings, including host settings and device preferences: `97c4a050ebe`.
+      iOS save/reopen and actual session consumers pass.
 - [ ] Voice and notification settings; native permission/model actions remain
       explicit capabilities.
 - [x] Shared Settings menu with hosted Chat/Browser entries.
@@ -585,3 +601,117 @@ Terminal preferences with both readers/writers, and a frozen-shell A→B→A fix
 using authenticated Desktop delivery and native crash-loop rollback. Session
 migration must account for legacy browser/native-chat resource aliases; no raw
 session snapshot passthrough is planned.
+
+### Next batch in progress
+
+Host-scoped generic forwarding is implemented in the working tree, negotiated as
+`workspace.hostScope.v1`. Desktop must explicitly grant host scope before a request
+may omit its workspace; workspace methods cannot be downgraded. Host-wide
+subscriptions retain the same bounded ledger/cleanup. The page has `client.host`
+request/catalog APIs, and auto-restore-fit settings are catalogued as host-wide.
+Focused forwarding/scope tests pass (25 mobile tests) and authenticated dispatch,
+contract/client tests pass (15 root tests); full gates are pending this batch.
+
+Parallel work in progress: shared Terminal settings and all preference consumers,
+remaining native-chat file/readability actions, and `--ota-only` A→B→A delivery
+fixture. Native process-death restoration, session migration, remaining settings
+and CSP bootstrap externalization remain open. No new platform pass claimed.
+
+### Host-settings integration — current verification
+
+All four typecheck commands and both lint commands passed. Changed-code-quality
+passed with zero new findings. Root tests passed: 328 files / 2,758 tests.
+The first mobile suite had 848 passing files and two failures: a census still
+classified `/terminal-settings` as native-only, and a source-binding assertion
+expected the old device-operations constructor signature. Both now reflect the
+implemented hosted route; their focused tests pass. React Doctor's two callback
+findings were fixed with a typed async-result completion callback, without
+suppressions. Full mobile and React Doctor retries are in progress. Logs:
+`/tmp/orca-ota-e2e/host-settings-integration-gates/`.
+
+Terminal settings include native fallback, inherited native values until explicit
+paired-host overrides, read/write errors, and shared shortcut presentation. Native
+auto-restore reads now correctly unwrap `RpcResponse.result`. The route census
+change is deliberate because Terminal now has an actual hosted page. No export
+or simulator result is claimed for this batch yet.
+
+### YAGNI scope and active parallel assignments
+
+User asked to prioritize necessary implementation over recovery sophistication.
+Keep existing native rollback; defer the additional crash-loop drill and optional
+resume enhancements while domain migrations remain. No new recovery machinery.
+
+Current assignments:
+- Session agent: next complete session/domain operation slice, preserving opaque
+  identities and mixed-version behavior without duplicate authority feeds.
+- Settings agent: remaining page-owned settings presentation using existing
+  native capabilities, selecting a bounded complete screen migration.
+- Fixture agent: finish Terminal interaction fixture only; no additional rollback
+  work.
+- Primary agent: bridge integration, review, code gates, serialized export and
+  platform validation, plan maintenance and local commits.
+
+Latest retries passed: mobile 850 files / 5,604 tests and React Doctor exit 0.
+The remaining items are not all independently parallelizable; shared bridge
+changes, exports and simulator runs are coordinated centrally.
+
+### Session creation and About integration
+
+The parallel session slice is implemented and wired: agent discovery and blank/agent
+terminal creation now use Desktop adapters through generic workspace forwarding.
+Creation reuses existing runtime idempotency/navigation and does not fall back
+after dispatch. Agent discovery reuses execution-host resolution for SSH, folder
+and floating workspaces. Existing snapshot/feed authority handling remains; this
+does not complete the remaining session migration.
+
+About now shares presentation between native and hosted routes, with actual native
+version or interface build respectively. Privacy/Support links reuse existing
+external-link capability. No new native capability was introduced.
+
+Integrated typechecks, React Doctor and changed-code quality passed; root tests
+passed 330 files / 2,773 tests. Corrected the existing legacy roundtrip fixture to
+explicitly advertise no new shell features, preserving its fallback purpose;
+focused roundtrip passes. Fixed bridge max-lines through simpler constructor
+binding, without suppression. Final mobile suite/lint are running before export.
+The Terminal fixture now checks saved scale/autocomplete/custom shortcuts in the
+actual session consumers and restores original preferences; no device pass yet.
+
+### Committed integration — iOS passed, Android running
+
+Commits: `ed6f610ecc1`, `97c4a050ebe`, `f2909d35392`. No push.
+All required code gates pass: mobile 850 files / 5,606 tests; root 330 files /
+2,773 tests. Gate logs are in `/tmp/orca-ota-e2e/host-settings-integration-gates/`
+(final mobile and lint retries are `mobile-tests-final.log` and `oxlint-final.log`).
+Export passed: 56 assets / 9,776,516 bytes / 2,804,022 gzip, build
+`eab7fd8f5eb4a37e593526e90dcc5105552691db072da8a982cd1ed30784a2e3`.
+
+Full iOS run `/tmp/orca-ota-e2e/ios-terminal-session-integration.log` exited 0 with
+`ok: true`. It covers Chat/Browser/Terminal settings persistence, Terminal scale
+and autocomplete/custom-key session consumers, privacy, Tasks, Source Control/
+Review, native terminal links and adversarial isolation. Terminal screenshot was
+visually inspected. The native recovery banner follows the existing deliberate
+WebContent-restart check. No new crash-loop drill ran.
+
+Android smoke is running in `/tmp/orca-ota-e2e/android-terminal-session-integration.log`;
+no pass claimed until completion. About rendering and new session creation are
+code-tested but not specifically exercised by the iOS fixture. Remaining session
+snapshot/feed/mutation families, Voice and other settings screens remain open.
+
+### Android smoke passed — checkpoint closed
+
+`/tmp/orca-ota-e2e/android-terminal-session-integration.log` exited 0 with `ok: true`.
+It covers installed-shell startup/pairing, hosted workspace/session activation,
+privacy, Tasks/error presentation, terminal native links and Source Control/Review.
+This Android harness does not specifically exercise the new settings UI. The owned
+headless emulator was stopped; both platform harnesses have exited.
+
+The optional OTA crash-loop fixture was archived under
+`/tmp/orca-review2/deferred-ota-fixture/`, with its runner wiring removed from the
+worktree. Existing production rollback is unchanged. The actual Terminal report
+field is committed as `4f95f2f31d3`. No pushes.
+
+Next necessary implementation remains session snapshots/feeds and other domain
+consumers, then Voice/notification/diagnostic presentation. Native process-death
+resume enhancements and the additional crash-loop drill remain deferred. About
+and session creation have unit/integration coverage but no dedicated rendered
+interaction proof in this checkpoint.
