@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { unhandledProviderFrameJournalItem } from '../../../../main/native-chat/agent-session-wire/unhandled-provider-frame'
+import type { AgentJournalStatusItem } from '../../../../shared/agent-session-journal-types'
 import { projectStructuredItemToNativeChat } from '../../../../shared/structured-agent-session-projection'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
 import { NativeChatMessageList } from './NativeChatMessageList'
@@ -13,26 +13,33 @@ import { projectNativeChatTaskListFrames } from './native-chat-task-list-frames'
 afterEach(cleanup)
 
 function frame(id: number, status: string, overrides: { kind?: string; truncated?: boolean } = {}) {
-  const row = unhandledProviderFrameJournalItem(
-    'codex',
-    overrides.kind ?? 'notification:turn/plan/updated',
-    {
-      threadId: 'thread',
-      turnId: 'turn',
-      explanation: 'Keep verification visible',
-      plan: [{ step: 'Verify', status }]
+  const kind = overrides.kind ?? 'notification:turn/plan/updated'
+  const head = JSON.stringify({
+    threadId: 'thread',
+    turnId: 'turn',
+    explanation: 'Keep verification visible',
+    plan: [{ step: 'Verify', status }]
+  })
+  const body: AgentJournalStatusItem = {
+    kind: 'status',
+    text: `codex · ${kind}`,
+    providerFrame: {
+      provider: 'codex',
+      kind,
+      payload: {
+        head,
+        byteLength: new TextEncoder().encode(head).byteLength,
+        digest: 'fixture-digest',
+        truncated: overrides.truncated ?? false
+      }
     }
-  )
-  if (!row?.body.providerFrame) {
-    throw new Error('Expected a journalled provider frame')
   }
-  row.body.providerFrame.payload.truncated = overrides.truncated ?? false
   const message = projectStructuredItemToNativeChat({
     itemId: `frame-${id}`,
     revision: 1,
     sequence: id,
     observedAt: id,
-    body: row.body
+    body
   })
   if (!message) {
     throw new Error('Expected a projected message')
