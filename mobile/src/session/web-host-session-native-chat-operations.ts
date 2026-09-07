@@ -60,7 +60,8 @@ export function webHostSessionNativeChatOperations(
               ...(resolvedLaunchDraft ? { resolvedLaunchDraft } : {}),
               ...(typeCommand ? { typeCommand: true } : {})
             }),
-            { timeoutMs: budget.timeoutMs }
+            { timeoutMs: budget.timeoutMs },
+            target.terminalId ?? undefined
           )
         ).outcome
       } catch (error) {
@@ -78,7 +79,8 @@ export function webHostSessionNativeChatOperations(
       try {
         const result = await client.nativeChat.prepareCommit(
           bridgeTarget(target, { deadline: budget.deadline }),
-          { timeoutMs: budget.timeoutMs }
+          { timeoutMs: budget.timeoutMs },
+          target.terminalId ?? undefined
         )
         if (result.prepared) {
           clearMobileNativeChatInputStale(target.terminalId)
@@ -97,7 +99,8 @@ export function webHostSessionNativeChatOperations(
         return (
           await client.nativeChat.respond(
             bridgeTarget(target, { text, enter, deadline: budget.deadline }),
-            { timeoutMs: budget.timeoutMs }
+            { timeoutMs: budget.timeoutMs },
+            target.terminalId ?? undefined
           )
         ).outcome
       } catch (error) {
@@ -111,9 +114,13 @@ export function webHostSessionNativeChatOperations(
       }
       try {
         return (
-          await client.nativeChat.stop(bridgeTarget(target, { deadline: budget.deadline }), {
-            timeoutMs: budget.timeoutMs
-          })
+          await client.nativeChat.stop(
+            bridgeTarget(target, { deadline: budget.deadline }),
+            {
+              timeoutMs: budget.timeoutMs
+            },
+            target.terminalId ?? undefined
+          )
         ).outcome
       } catch (error) {
         return bridgeMutationFailureOutcome(error)
@@ -178,7 +185,8 @@ function bridgeMutationFailureOutcome(error: unknown): MobileNativeChatSendOutco
   return error.code === 'timeout' ||
     error.code === 'cancelled' ||
     error.code === 'invalid_message' ||
-    error.code === 'internal'
+    error.code === 'internal' ||
+    error.code === 'host_error'
     ? 'unknown'
     : 'rejected'
 }

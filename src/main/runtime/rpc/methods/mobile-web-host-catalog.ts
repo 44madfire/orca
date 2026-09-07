@@ -14,14 +14,15 @@ const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
     'mobileWeb.files.searchPaths',
     'mobileWeb.files.read',
     'mobileWeb.nativeChat.bind',
-    'mobileWeb.nativeChat.read'
+    'mobileWeb.nativeChat.read',
+    'mobileWeb.nativeChat.mutate'
   ].map((method) => [
     method,
     {
       method,
       workspaceParam: 'worktree',
       ...(method.startsWith('mobileWeb.nativeChat.') ? { pageSessionParam: 'pageSession' } : {}),
-      maxRequestBytes: 16 * 1024,
+      maxRequestBytes: method === 'mobileWeb.nativeChat.mutate' ? 600 * 1024 : 16 * 1024,
       maxResponseBytes: 512 * 1024
     }
   ])

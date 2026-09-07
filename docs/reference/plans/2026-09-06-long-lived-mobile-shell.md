@@ -33,12 +33,12 @@ Last reconciled: September 6, 2026. Implementation is **in progress**.
 - [x] Full unattended existing adversarial harness on iOS and Android.
 - [ ] Chat-specific interactions, migrated settings and frozen-shell OTA/rollback E2E.
 
-Catalog authorization correction implemented; platform rerun pending.
+Catalog authorization correction committed as `2b354df1463`; corrected iOS rerun passed.
 Investigation found that advertised `mobileWeb.files.*` and `mobileWeb.nativeChat.*`
 adapters were absent from the static mobile allowlist. Prior platform passes can
 include legacy fallbacks and do not prove those generic adapters were exercised.
-Authenticated dispatch tests now cover this gap; platform evidence must be refreshed
-before claiming their end-to-end migration is complete.
+Authenticated dispatch tests cover this gap. The corrected iOS adversarial harness
+passes; chat-specific and frozen-shell OTA journeys remain unverified.
 
 Next: migrate remaining domain operations and mutation fingerprint handling;
 wire hosted settings with their consumers and page-owned route restoration;
@@ -72,8 +72,9 @@ source; it must not depend on those temporary files to explain remaining work.
       clientOperationId, expectedRuntimeFence and retryUnknown.
 - [x] Migrate native-chat reads through host-owned opaque resources, preserving
       future host fields and SSH execution routing.
-- [ ] Migrate native-chat host actions, separating image/clipboard/
-      pending-storage device actions from domain presentation.
+- [x] Migrate native-chat TUI send/respond/stop/prepare-commit actions;
+      retain native image/clipboard/pending-storage authority.
+- [ ] Migrate remaining native-chat readability and file-action adapters.
 - [ ] Migrate session reads and mutations, terminal one-shots and files.
 - [ ] Extend remaining source-control, task, review and account consumers.
 - [ ] Keep errors useful for reconciliation without exposing transport keys,
@@ -442,4 +443,31 @@ tests and 321 root files / 2,710 tests. Additional authenticated authorization
 suite: 4 files / 17 tests. Logs: `/tmp/orca-ota-e2e/catalog-authorization-gates/`.
 Before-fix failure: `/tmp/orca-ota-e2e/catalog-authorization-before.log`.
 Export passed with build `2e64a57e693f312c4113831e84404f87f009bbe5803a9ef19ddc7a8b0d5fffe9`.
-New iOS adversarial journey is next.
+The corrected iOS adversarial journey passed: `/tmp/orca-ota-e2e/ios-catalog-authorized.log`,
+`ok: true`, exit 0. It uses the authorization-fixed Desktop and the exported page
+above; it does not test the subsequent chat-mutation slice.
+
+### Native-chat actions — code and export verified
+
+Hosted send/respond/stop/prepare-commit now choose the generic lane only when
+both page-session identity and `workspace.hostRequestDispatch.v1` are supported.
+Old shells/hosts retain legacy operations. Desktop resolves the opaque transcript
+resource before each write and reuses `terminal.send`, including authenticated
+mobile ownership, input locks/floor, launch-draft resolution and SSH execution.
+Command pacing remains shared; the final Enter carries draft resolution.
+
+Catalog lookup/binding share the caller's remaining budget. Once a mutation is
+dispatched, errors or malformed receipts never trigger legacy fallback. Ambiguous
+outcomes remain unknown; preparation only reports success after acknowledgement.
+A page cancellation cannot undo an already transmitted mutation. Host disconnect
+stops paced command writes through the existing RPC signal. Native image,
+clipboard and pending-storage actions retain native authority.
+
+Focused host and bridge tests pass, including mixed versions, stale bindings,
+authenticated identity, exact stop/command bytes, timeout exhaustion and no retry.
+All required gates pass in `/tmp/orca-ota-e2e/chat-mutations-gates/`:
+841 mobile files / 5,550 passed; 323 root files / 2,717 passed. Additional catalog
+authorization check passes; final deadline-focused rerun is 4 files / 29 tests.
+Export: `47338504aaa0cc119190d6ffe03069b54eaa0c6af6663f8fdeaaf6524b134774`.
+Android adversarial regression is next.
+Native-chat simulator interaction coverage remains open.

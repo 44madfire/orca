@@ -16,7 +16,7 @@ const TARGET: HostSessionNativeChatTarget = {
 }
 
 describe('hosted native-chat delivery outcomes', () => {
-  it.each(['timeout', 'cancelled', 'invalid_message', 'internal'] as const)(
+  it.each(['timeout', 'cancelled', 'invalid_message', 'internal', 'host_error'] as const)(
     'keeps %s bridge failures delivery-ambiguous',
     async (code) => {
       const operations = webHostSessionNativeChatOperations(

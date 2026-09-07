@@ -47,7 +47,8 @@ describe('hosted native-chat deadlines', () => {
         deadline: 20_000,
         clearInputFirst: true
       },
-      { timeoutMs: 10_000 }
+      { timeoutMs: 10_000 },
+      'terminal'
     )
     expect(respond).toHaveBeenCalledWith(
       {
@@ -57,11 +58,13 @@ describe('hosted native-chat deadlines', () => {
         enter: false,
         deadline: 20_000
       },
-      { timeoutMs: 10_000 }
+      { timeoutMs: 10_000 },
+      'terminal'
     )
     expect(stop).toHaveBeenCalledWith(
       { workspaceId: 'workspace', sessionId: 'native_chat_session', deadline: 20_000 },
-      { timeoutMs: 10_000 }
+      { timeoutMs: 10_000 },
+      'terminal'
     )
   })
 
@@ -139,7 +142,8 @@ describe('hosted native-chat deadlines', () => {
     await expect(operations.prepareCommit(TARGET, 20_000)).resolves.toBe(true)
     expect(prepareCommit).toHaveBeenCalledWith(
       { workspaceId: 'workspace', sessionId: 'native_chat_session', deadline: 20_000 },
-      { timeoutMs: 10_000 }
+      { timeoutMs: 10_000 },
+      'terminal'
     )
     expect(isMobileNativeChatInputStale('terminal')).toBe(false)
   })

@@ -1,3 +1,4 @@
+import { mutateMobileWebHostNativeChat } from './mobile-web-host-native-chat-mutation'
 import { subscribeMobileWebHostNativeChat } from './mobile-web-host-native-chat-subscription'
 import type { MobileWebBridgeSubscriptionClient } from './mobile-web-bridge-subscription-client'
 import { readMobileWebHostNativeChat } from './mobile-web-host-native-chat-read'
@@ -53,7 +54,8 @@ export class MobileWebNativeChatRequestClient {
   constructor(
     private readonly requests: MobileWebOneShotRequestClient,
     private readonly hostPageSession = false,
-    private readonly subscriptions?: MobileWebBridgeSubscriptionClient
+    private readonly subscriptions?: MobileWebBridgeSubscriptionClient,
+    private readonly hostRequestDispatch = false
   ) {}
 
   subscribeForTab(
@@ -101,8 +103,19 @@ export class MobileWebNativeChatRequestClient {
 
   sendMessage(
     payload: MobileWebNativeChatSendMessagePayload,
-    options?: MobileWebBridgeRequestOptions
+    options?: MobileWebBridgeRequestOptions,
+    tabId?: string
   ): Promise<MobileWebNativeChatSendResult> {
+    if (tabId && this.hostPageSession && this.hostRequestDispatch) {
+      return mutateMobileWebHostNativeChat(
+        this.requests,
+        'sendMessage',
+        payload,
+        tabId,
+        () => this.sendMessage(payload, options),
+        options
+      )
+    }
     return this.requests.request(
       'nativeChat',
       'sendMessage',
@@ -115,8 +128,19 @@ export class MobileWebNativeChatRequestClient {
 
   prepareCommit(
     payload: MobileWebNativeChatPrepareCommitPayload,
-    options?: MobileWebBridgeRequestOptions
+    options?: MobileWebBridgeRequestOptions,
+    tabId?: string
   ): Promise<{ prepared: boolean }> {
+    if (tabId && this.hostPageSession && this.hostRequestDispatch) {
+      return mutateMobileWebHostNativeChat(
+        this.requests,
+        'prepareCommit',
+        payload,
+        tabId,
+        () => this.prepareCommit(payload, options),
+        options
+      )
+    }
     return this.requests.request(
       'nativeChat',
       'prepareCommit',
@@ -129,8 +153,19 @@ export class MobileWebNativeChatRequestClient {
 
   respond(
     payload: MobileWebNativeChatRespondPayload,
-    options?: MobileWebBridgeRequestOptions
+    options?: MobileWebBridgeRequestOptions,
+    tabId?: string
   ): Promise<MobileWebNativeChatSendResult> {
+    if (tabId && this.hostPageSession && this.hostRequestDispatch) {
+      return mutateMobileWebHostNativeChat(
+        this.requests,
+        'respond',
+        payload,
+        tabId,
+        () => this.respond(payload, options),
+        options
+      )
+    }
     return this.requests.request(
       'nativeChat',
       'respond',
@@ -143,8 +178,19 @@ export class MobileWebNativeChatRequestClient {
 
   stop(
     payload: MobileWebNativeChatStopPayload,
-    options?: MobileWebBridgeRequestOptions
+    options?: MobileWebBridgeRequestOptions,
+    tabId?: string
   ): Promise<MobileWebNativeChatSendResult> {
+    if (tabId && this.hostPageSession && this.hostRequestDispatch) {
+      return mutateMobileWebHostNativeChat(
+        this.requests,
+        'stop',
+        payload,
+        tabId,
+        () => this.stop(payload, options),
+        options
+      )
+    }
     return this.requests.request(
       'nativeChat',
       'stop',

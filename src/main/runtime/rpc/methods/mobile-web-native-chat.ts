@@ -1,3 +1,4 @@
+import { MOBILE_WEB_NATIVE_CHAT_MUTATION_METHOD } from './mobile-web-native-chat-mutations'
 import { z } from 'zod'
 import { defineMethod, isStreamingMethod } from '../core'
 import { NATIVE_CHAT_METHODS } from './native-chat'
@@ -33,5 +34,6 @@ export const MOBILE_WEB_NATIVE_CHAT_METHODS = [
       await resolveMobileWebNativeChat(context, params)
       return result
     }
-  })
+  }),
+  MOBILE_WEB_NATIVE_CHAT_MUTATION_METHOD
 ]
