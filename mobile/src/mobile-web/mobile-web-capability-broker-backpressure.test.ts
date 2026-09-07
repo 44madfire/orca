@@ -14,7 +14,6 @@ type Slot = { capability: string; operation: string; payload: unknown }
 // Distinct operations, so saturation is reached through the shared cap rather than through any
 // single operation's maxConcurrent. Each one parks on a host call that never settles.
 const SATURATION_SLOTS: Slot[] = [
-  { capability: 'workspace', operation: 'hostCatalog', payload: { methods: ['future.method'] } },
   {
     capability: 'workspace',
     operation: 'hostRequest',

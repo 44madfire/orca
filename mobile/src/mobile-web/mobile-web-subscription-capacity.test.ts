@@ -62,10 +62,10 @@ describe('aggregate subscription admission', () => {
     expect(atCapacity(grant!.limits.maxConcurrent)).toBe(true)
   })
 
-  it('leaves catalog reads and host streams off the one-shot host ceiling', () => {
+  it('leaves host streams off the one-shot host ceiling', () => {
     expect(mobileWebIsHostRequest({ capability: 'workspace', operation: 'hostRequest' })).toBe(true)
-    for (const operation of ['hostCatalog', 'hostSubscribe']) {
-      expect(mobileWebIsHostRequest({ capability: 'workspace', operation })).toBe(false)
-    }
+    expect(mobileWebIsHostRequest({ capability: 'workspace', operation: 'hostSubscribe' })).toBe(
+      false
+    )
   })
 })

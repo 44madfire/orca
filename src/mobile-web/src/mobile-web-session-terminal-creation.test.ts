@@ -4,12 +4,9 @@ import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
 function fixture() {
-  const request = vi.fn(async (capability, operation, payload) => {
+  const request = vi.fn(async (capability, _operation, payload) => {
     if (capability === 'session') {
       return { workspaceId: 'workspace', tabId: 'legacy', created: true }
-    }
-    if (operation === 'hostCatalog') {
-      return { grants: payload.methods.map((method: string) => ({ method })) }
     }
     return payload.method.endsWith('agentOptions')
       ? { agents: ['codex', 'future-agent'] }
