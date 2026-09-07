@@ -11,7 +11,6 @@ import {
 } from './helpers/terminal'
 import { FAKE_AGENT_WINDOWS_SHELL } from './helpers/fake-agent-command-override'
 import {
-  cleanupCompletedWorkerFixture,
   clearCompletedWorkerLedger,
   completedWorkerFakeCodexCommand,
   completedWorkerLaunchEnv,
@@ -28,10 +27,6 @@ import { splitWorktreeIdForFilesystem } from '../../src/shared/worktree/id'
 const PROVIDER_SESSION_ID = '019feb51-2269-71c2-89c6-faa8dc65c8dd'
 
 test.describe.configure({ mode: 'serial' })
-
-test.afterAll(() => {
-  cleanupCompletedWorkerFixture()
-})
 
 async function findSecondaryWorktree(
   page: Page,
@@ -307,11 +302,15 @@ test('a settled orchestration worker tab survives reveal after an app restart', 
 
     // Hidden mount, then reveal: the reveal is what runs the missing-session reconciler.
     await backgroundMountTab(second.page, targetWorktreeId, workerTabId)
-    expect
-      .soft(
-        await second.page.evaluate((ptyId) => window.api.pty.hasPty(ptyId), workerPtyId),
-        'liveness before reveal'
-      )
+    // Poll, don't sample: main's cache learns the session when the pane's deferred reattach lands,
+    // and backgroundMountTab only waits for the pane manager to exist. A restarted main that never
+    // attaches stays false for the whole window, which is the regression this guards.
+    await expect
+      .configure({ soft: true })
+      .poll(() => second.page.evaluate((ptyId) => window.api.pty.hasPty(ptyId), workerPtyId), {
+        timeout: 20_000,
+        message: 'liveness before reveal'
+      })
       .toBe(true)
     await second.page.evaluate(
       ({ tabId, worktreeId }) => {

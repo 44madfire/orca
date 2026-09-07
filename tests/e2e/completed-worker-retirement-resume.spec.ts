@@ -7,7 +7,6 @@ import {
 } from './helpers/terminal'
 import { FAKE_AGENT_WINDOWS_SHELL } from './helpers/fake-agent-command-override'
 import {
-  cleanupCompletedWorkerFixture,
   clearCompletedWorkerLedger,
   completedWorkerFakeCodexCommand,
   completedWorkerLaunchEnv,
@@ -30,10 +29,6 @@ const test = base.extend({
 })
 
 test.describe.configure({ mode: 'serial' })
-
-test.afterAll(() => {
-  cleanupCompletedWorkerFixture()
-})
 
 for (const closeMode of ['terminal-close-cli', 'worker-release'] as const) {
   test(`completed background worker ${closeMode} retires resume authority before first activation`, async ({
