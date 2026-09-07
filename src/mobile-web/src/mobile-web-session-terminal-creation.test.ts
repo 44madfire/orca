@@ -3,7 +3,7 @@ import { MobileWebSessionRequestClient } from './mobile-web-session-request-clie
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
-function fixture(dispatch = true) {
+function fixture() {
   const request = vi.fn(async (capability, operation, payload) => {
     if (capability === 'session') {
       return { workspaceId: 'workspace', tabId: 'legacy', created: true }
@@ -16,7 +16,7 @@ function fixture(dispatch = true) {
       : { tabId: 'tab', created: true }
   })
   const requests = { supports: () => true, request } as unknown as MobileWebOneShotRequestClient
-  return { request, client: new MobileWebSessionRequestClient(requests, dispatch) }
+  return { request, client: new MobileWebSessionRequestClient(requests) }
 }
 afterEach(() => vi.useRealTimers())
 describe('host session terminal creation page integration', () => {
@@ -35,7 +35,7 @@ describe('host session terminal creation page integration', () => {
           ? f.client.createAgent({ workspaceId: 'workspace', agent: 'codex' })
           : f.client.create({ workspaceId: 'workspace' }))
       ).toEqual({ workspaceId: 'workspace', tabId: 'tab', created: true })
-      expect(f.request.mock.calls[1][2]).toEqual({
+      expect(f.request.mock.calls[0][2]).toEqual({
         method: 'mobileWeb.session.createTerminal',
         workspaceId: 'workspace',
         params: {
@@ -46,39 +46,13 @@ describe('host session terminal creation page integration', () => {
       })
     }
   )
-  it('uses old-shell creation without probing when dispatch fencing is unavailable', async () => {
-    const f = fixture(false)
-    expect((await f.client.create({ workspaceId: 'workspace' })).tabId).toBe('legacy')
-    expect(f.request.mock.calls.map((call) => call[1])).toEqual(['create'])
-  })
-  it('falls back for an older host before creation dispatch', async () => {
-    const f = fixture()
-    f.request.mockResolvedValueOnce({ grants: [] })
-    expect((await f.client.create({ workspaceId: 'workspace' })).tabId).toBe('legacy')
-    expect(f.request.mock.calls.map((call) => call[1])).toEqual(['hostCatalog', 'create'])
-  })
   it.each(['timeout', 'unsupported_capability'] as const)(
     'does not retry creation after %s',
     async (code) => {
       const f = fixture()
-      f.request
-        .mockImplementationOnce(async (_cap, _op, payload) => ({
-          grants: payload.methods.map((method: string) => ({ method }))
-        }))
-        .mockRejectedValueOnce(new MobileWebBridgeClientError(code, false))
+      f.request.mockRejectedValueOnce(new MobileWebBridgeClientError(code, false))
       await expect(f.client.create({ workspaceId: 'workspace' })).rejects.toMatchObject({ code })
-      expect(f.request.mock.calls.map((call) => call[1])).toEqual(['hostCatalog', 'hostRequest'])
+      expect(f.request.mock.calls.map((call) => call[1])).toEqual(['hostRequest'])
     }
   )
-  it('shares one deadline across catalog and creation', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(1_000)
-    const f = fixture()
-    f.request.mockImplementationOnce(async (_cap, _op, payload) => {
-      vi.setSystemTime(4_000)
-      return { grants: payload.methods.map((method: string) => ({ method })) }
-    })
-    await f.client.create({ workspaceId: 'workspace' })
-    expect(f.request.mock.calls[1][2].params.timeoutMs).toBe(12_000)
-  })
 })

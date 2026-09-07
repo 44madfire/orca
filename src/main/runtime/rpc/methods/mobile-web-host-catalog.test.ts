@@ -8,13 +8,13 @@ describe('mobile web host catalog', () => {
     const result = MOBILE_WEB_HOST_CATALOG_METHOD.handler(
       {
         methods: [
-          'git.status',
-          'git.diff',
-          'files.readDir',
+          'mobileWeb.sourceControl.status',
+          'mobileWeb.sourceControl.diff',
+          'mobileWeb.files.readDir',
           'files.readChunk',
           'mobileWeb.files.searchPaths',
           'mobileWeb.files.read',
-          'git.status',
+          'mobileWeb.sourceControl.status',
           'pairing.getEndpoints',
           'files.searchPaths',
           'future.unknown'
@@ -24,9 +24,9 @@ describe('mobile web host catalog', () => {
     )
     expect(result).toEqual({
       grants: [
-        'git.status',
-        'git.diff',
-        'files.readDir',
+        'mobileWeb.sourceControl.status',
+        'mobileWeb.sourceControl.diff',
+        'mobileWeb.files.readDir',
         'files.readChunk',
         'mobileWeb.files.searchPaths',
         'mobileWeb.files.read'
@@ -38,9 +38,9 @@ describe('mobile web host catalog', () => {
       }))
     })
     for (const method of [
-      'git.status',
-      'git.diff',
-      'files.readDir',
+      'mobileWeb.sourceControl.status',
+      'mobileWeb.sourceControl.diff',
+      'mobileWeb.files.readDir',
       'files.readChunk',
       'mobileWeb.files.searchPaths',
       'mobileWeb.files.read'

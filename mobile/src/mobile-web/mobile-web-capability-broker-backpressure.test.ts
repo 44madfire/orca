@@ -14,6 +14,18 @@ type Slot = { capability: string; operation: string; payload: unknown }
 // Distinct operations, so saturation is reached through the shared cap rather than through any
 // single operation's maxConcurrent. Each one parks on a host call that never settles.
 const SATURATION_SLOTS: Slot[] = [
+  { capability: 'workspace', operation: 'hostCatalog', payload: { methods: ['future.method'] } },
+  {
+    capability: 'workspace',
+    operation: 'hostRequest',
+    payload: { workspaceId: WORKSPACE, method: 'files.readDir', params: {} }
+  },
+  {
+    capability: 'workspace',
+    operation: 'update',
+    payload: { workspaceId: WORKSPACE, mutation: 'pin', pinned: true }
+  },
+  { capability: 'workspace', operation: 'creationDetectAgents', payload: {} },
   { capability: 'workspace', operation: 'snapshot', payload: {} },
   { capability: 'workspace', operation: 'repositories', payload: {} },
   { capability: 'workspace', operation: 'activate', payload: { workspaceId: WORKSPACE } },
@@ -21,6 +33,7 @@ const SATURATION_SLOTS: Slot[] = [
   { capability: 'settings', operation: 'snapshot', payload: {} },
   { capability: 'settings', operation: 'update', payload: {} },
   { capability: 'account', operation: 'snapshot', payload: {} },
+  { capability: 'account', operation: 'resetCreditCapability', payload: {} },
   { capability: 'task', operation: 'bootstrap', payload: {} },
   { capability: 'task', operation: 'repositories', payload: {} },
   { capability: 'task', operation: 'linearContext', payload: {} },
@@ -33,35 +46,11 @@ const SATURATION_SLOTS: Slot[] = [
     operation: 'activate',
     payload: { workspaceId: WORKSPACE, tabId: 'tab-1' }
   },
-  { capability: 'session', operation: 'create', payload: { workspaceId: WORKSPACE } },
-  { capability: 'session', operation: 'agentOptions', payload: { workspaceId: WORKSPACE } },
   { capability: 'session', operation: 'quickCommands', payload: { workspaceId: WORKSPACE } },
-  {
-    capability: 'session',
-    operation: 'createAgent',
-    payload: { workspaceId: WORKSPACE, agent: 'claude' }
-  },
   {
     capability: 'session',
     operation: 'close',
     payload: { workspaceId: WORKSPACE, tabId: 'tab-1' }
-  },
-  { capability: 'file', operation: 'list', payload: { workspaceId: WORKSPACE } },
-  {
-    capability: 'file',
-    operation: 'search',
-    payload: { workspaceId: WORKSPACE, query: '', limit: 10 }
-  },
-  { capability: 'file', operation: 'directory', payload: { workspaceId: WORKSPACE } },
-  {
-    capability: 'file',
-    operation: 'read',
-    payload: { workspaceId: WORKSPACE, relativePath: 'src/app.ts' }
-  },
-  {
-    capability: 'file',
-    operation: 'readChunk',
-    payload: { workspaceId: WORKSPACE, relativePath: 'src/app.ts', offset: 0, length: 10 }
   },
   {
     capability: 'file',
@@ -73,7 +62,6 @@ const SATURATION_SLOTS: Slot[] = [
     operation: 'open',
     payload: { workspaceId: WORKSPACE, relativePath: 'src/app.ts' }
   },
-  { capability: 'sourceControl', operation: 'status', payload: { workspaceId: WORKSPACE } },
   { capability: 'sourceControl', operation: 'branches', payload: { workspaceId: WORKSPACE } },
   { capability: 'sourceControl', operation: 'history', payload: { workspaceId: WORKSPACE } },
   { capability: 'sourceControl', operation: 'reviewMetadata', payload: { workspaceId: WORKSPACE } },
@@ -90,7 +78,6 @@ const SATURATION_SLOTS: Slot[] = [
   { capability: 'native', operation: 'clipboardWrite', payload: { text: 'x' } },
   { capability: 'native', operation: 'openExternal', payload: { url: 'https://example.com' } },
   { capability: 'native', operation: 'terminalPreferences', payload: {} },
-  { capability: 'nativeChat', operation: 'readability', payload: { workspaceId: WORKSPACE } },
   { capability: 'workspace', operation: 'creationRepositories', payload: {} },
   { capability: 'workspace', operation: 'creationSettings', payload: {} },
   { capability: 'workspace', operation: 'creationTrustedHooks', payload: {} },
@@ -182,10 +169,13 @@ async function createSaturatedHarness() {
   harness.sendRequest.mockImplementation(() => new Promise(() => {}) as never)
   harness.subscribe.mockImplementation(() => new Promise(() => {}) as never)
 
-  const used = SATURATION_SLOTS.map(() => 0)
+  const slots = SATURATION_SLOTS.filter((slot) =>
+    MOBILE_WEB_PRODUCTION_GRANT_INDEX.has(`${slot.capability}.${slot.operation}`)
+  )
+  const used = slots.map(() => 0)
   let accepted = 0
   let id = 0
-  for (const [index, slot] of SATURATION_SLOTS.entries()) {
+  for (const [index, slot] of slots.entries()) {
     const key = `${slot.capability}.${slot.operation}`
     for (let taken = 0; taken < requiredGrant(key).limits.maxConcurrent; taken += 1) {
       if (accepted >= MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS) {
@@ -215,6 +205,7 @@ function createHarness(nativeAuthority: Record<string, unknown> = {}) {
     isConnected: () => true,
     isActive: () => true,
     nativeAuthority: {
+      codexResetCreditCapability: park,
       clipboardAvailability: park,
       clipboardWrite: park,
       openExternal: park,

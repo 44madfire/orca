@@ -16,7 +16,7 @@ export async function bindMobileWebHostTerminalActions(
   workspaceId: string,
   tabId: string,
   signal: AbortSignal
-): Promise<MobileWebTerminalMetadataAction | null> {
+): Promise<MobileWebTerminalMetadataAction> {
   const methods = ['mobileWeb.terminal.bind', 'mobileWeb.terminal.action']
   const deadline = Date.now() + 15_000
   const options = () => {
@@ -26,19 +26,11 @@ export async function bindMobileWebHostTerminalActions(
     }
     return { signal, timeoutMs }
   }
-  let bound: unknown
-  try {
-    const catalog = await readMobileWebHostMethods(requests, methods, options())
-    if (!methods.every((method) => catalog.grants.some((grant) => grant.method === method))) {
-      return null
-    }
-    bound = await requestMobileWebHost(requests, methods[0], workspaceId, { tabId }, options())
-  } catch (error) {
-    if (error instanceof MobileWebBridgeClientError && error.code === 'unsupported_capability') {
-      return null
-    }
-    throw error
+  const catalog = await readMobileWebHostMethods(requests, methods, options())
+  if (!methods.every((method) => catalog.grants.some((grant) => grant.method === method))) {
+    throw new MobileWebBridgeClientError('unsupported_capability', false)
   }
+  const bound = await requestMobileWebHost(requests, methods[0], workspaceId, { tabId }, options())
   if (
     typeof bound !== 'object' ||
     bound === null ||
@@ -55,7 +47,7 @@ export async function bindMobileWebHostTerminalActions(
         : operation === 'clear'
           ? 'terminal.clearBuffer'
           : 'terminal.rename'
-    // A missing acknowledgement may hide a committed action; never retry on the legacy lane.
+    // A missing acknowledgement may hide a committed action; never retry an ambiguous mutation.
     const result = await requestMobileWebHost(
       requests,
       methods[1],

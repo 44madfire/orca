@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'expo-router'
-import { Pressable, Text } from 'react-native'
 import { useMobileWebNativeShell } from '../../src/mobile-web/src/native-shell-channel'
-import { MobileSettingsFrame } from '../src/settings/mobile-settings-menu'
 import TerminalSettingsScreen from '../src/terminal/terminal-settings-screen'
 import {
   webTerminalSettingsHost,
   webTerminalSettingsOperations
 } from '../src/terminal/web-terminal-settings-operations'
 import type { TerminalSettingsHost } from '../src/terminal/terminal-settings-operations'
-import { terminalSettingsScreenStyles as styles } from '../src/terminal/terminal-settings-screen-styles'
 
 export default function HostedTerminalSettingsRoute() {
   const shell = useMobileWebNativeShell()
@@ -57,21 +54,8 @@ function HostedTerminalSettings() {
       router.replace('/settings')
     }
   }
-  if (!client?.native.supports('pagePreferences') || !operations) {
-    return (
-      <MobileSettingsFrame onBack={onBack}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open device terminal settings"
-          style={styles.row}
-          onPress={() => {
-            void client?.navigationRoute({ destination: 'terminalSettings' }).catch(() => {})
-          }}
-        >
-          <Text style={styles.rowLabel}>Open device terminal settings</Text>
-        </Pressable>
-      </MobileSettingsFrame>
-    )
+  if (!client || !operations) {
+    return null
   }
   return (
     <TerminalSettingsScreen

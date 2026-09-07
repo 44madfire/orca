@@ -38,7 +38,7 @@ export class MobileWebTerminalRequestScheduler {
     private readonly client: MobileWebBridgeClient,
     private readonly streamId: string,
     private readonly onError: () => void,
-    private readonly metadataAction?: MobileWebTerminalMetadataAction
+    private readonly metadataAction: MobileWebTerminalMetadataAction
   ) {}
 
   markBridgeReady(): void {
@@ -249,7 +249,7 @@ export class MobileWebTerminalRequestScheduler {
       return false
     }
     try {
-      await (this.metadataAction ? this.metadataAction(payload) : this.request(payload))
+      await this.metadataAction(payload)
       return true
     } catch {
       this.reportError()

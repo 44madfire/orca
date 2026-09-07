@@ -26,6 +26,7 @@ describe('web host session terminal operations', () => {
       vi.fn()
     )
 
+    await vi.waitFor(() => expect(harness.terminalSubscribe).toHaveBeenCalledOnce())
     expect(harness.terminalSubscribe).toHaveBeenCalledWith(
       {
         operation: 'subscribe',
@@ -38,6 +39,7 @@ describe('web host session terminal operations', () => {
       expect.any(Function)
     )
 
+    await vi.waitFor(() => expect(harness.terminalSubscribe).toHaveBeenCalledOnce())
     harness.emit(subscribed())
     harness.emit({
       type: 'output',
@@ -83,6 +85,7 @@ describe('web host session terminal operations', () => {
       vi.fn(),
       vi.fn()
     )
+    await vi.waitFor(() => expect(harness.terminalSubscribe).toHaveBeenCalledOnce())
     harness.emit(subscribed())
 
     await expect(operations.sendInput('tab-page-1', 'echo ok', true, null)).resolves.toBe(true)
@@ -129,7 +132,7 @@ describe('web host session terminal operations', () => {
     ).resolves.toBe(true)
     await expect(operations.rename('tab-page-1', 'Build')).resolves.toBe(true)
     await expect(operations.clear('tab-page-1')).resolves.toBe(true)
-    expect(harness.terminalRequest.mock.calls.slice(2).map(([request]) => request)).toEqual([
+    expect(harness.metadataAction.mock.calls.map(([request]) => request)).toEqual([
       {
         operation: 'displayMode',
         streamId: STREAM_ID,
@@ -141,7 +144,7 @@ describe('web host session terminal operations', () => {
     ])
   })
 
-  it('preserves snapshot OSC links for the existing terminal presentation', () => {
+  it('preserves snapshot OSC links for the existing terminal presentation', async () => {
     const harness = bridgeHarness()
     const operations = webHostSessionTerminalOperations(harness.client)
     const onEvent = vi.fn()
@@ -157,6 +160,7 @@ describe('web host session terminal operations', () => {
       onEvent,
       vi.fn()
     )
+    await vi.waitFor(() => expect(harness.terminalSubscribe).toHaveBeenCalledOnce())
     harness.emit(subscribed())
     harness.emit({
       type: 'snapshotStart',
@@ -195,6 +199,7 @@ describe('web host session terminal operations', () => {
 function bridgeHarness(): {
   client: MobileWebBridgeClient
   terminalSubscribe: ReturnType<typeof vi.fn>
+  metadataAction: ReturnType<typeof vi.fn>
   terminalRequest: ReturnType<typeof vi.fn>
   terminalDeviceInputRequest: ReturnType<typeof vi.fn>
   unsubscribe: ReturnType<typeof vi.fn>
@@ -206,6 +211,7 @@ function bridgeHarness(): {
     onEvent = listener
     return { streamId: STREAM_ID, ready: Promise.resolve(), unsubscribe }
   })
+  const metadataAction = vi.fn().mockResolvedValue(null)
   const terminalRequest = vi.fn().mockResolvedValue(null)
   const terminalDeviceInputRequest = vi
     .fn()
@@ -213,11 +219,13 @@ function bridgeHarness(): {
     .mockResolvedValueOnce({ status: 'cancelled' })
   return {
     client: {
+      prepareTerminalActions: vi.fn().mockResolvedValue(metadataAction),
       terminalSubscribe,
       terminalRequest,
       terminalDeviceInputRequest
     } as unknown as MobileWebBridgeClient,
     terminalSubscribe,
+    metadataAction,
     terminalRequest,
     terminalDeviceInputRequest,
     unsubscribe,

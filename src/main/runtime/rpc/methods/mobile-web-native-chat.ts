@@ -2,6 +2,7 @@ import { MOBILE_WEB_NATIVE_CHAT_MUTATION_METHOD } from './mobile-web-native-chat
 import { z } from 'zod'
 import { defineMethod, isStreamingMethod } from '../core'
 import { NATIVE_CHAT_METHODS } from './native-chat'
+import { boundMobileWebNativeChatRead } from './mobile-web-native-chat-read-budget'
 import {
   bindMobileWebNativeChat,
   MobileWebChatScope,
@@ -32,7 +33,7 @@ export const MOBILE_WEB_NATIVE_CHAT_METHODS = [
       const input = reader.params!.parse(mobileWebNativeChatHostParams(binding, params.read))
       const result = await reader.handler(input, context)
       await resolveMobileWebNativeChat(context, params)
-      return result
+      return boundMobileWebNativeChatRead(result)
     }
   }),
   MOBILE_WEB_NATIVE_CHAT_MUTATION_METHOD

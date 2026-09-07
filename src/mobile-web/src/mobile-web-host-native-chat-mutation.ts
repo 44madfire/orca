@@ -12,7 +12,6 @@ export async function mutateMobileWebHostNativeChat<T extends Result>(
   action: 'sendMessage' | 'respond' | 'stop' | 'prepareCommit',
   payload: Payload,
   tabId: string,
-  legacy: () => Promise<T>,
   options?: MobileWebBridgeRequestOptions
 ): Promise<T> {
   const method = 'mobileWeb.nativeChat.mutate'
@@ -24,21 +23,16 @@ export async function mutateMobileWebHostNativeChat<T extends Result>(
   if (budget() < 2_000) {
     return failed('rejected')
   }
-  let resourceId: string | null
-  try {
-    resourceId = await bindMobileWebHostNativeChat(requests, payload.workspaceId, tabId, method, {
+  const resourceId = await bindMobileWebHostNativeChat(
+    requests,
+    payload.workspaceId,
+    tabId,
+    method,
+    {
       ...options,
       timeoutMs: Math.max(1, budget())
-    })
-  } catch (error) {
-    if (error instanceof MobileWebBridgeClientError && error.code === 'unsupported_capability') {
-      return legacy()
     }
-    throw error
-  }
-  if (!resourceId) {
-    return legacy()
-  }
+  )
   const timeoutMs = budget()
   if (timeoutMs < 2_000) {
     return failed('rejected')

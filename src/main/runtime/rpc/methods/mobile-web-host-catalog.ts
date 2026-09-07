@@ -7,9 +7,9 @@ import { defineMethod } from '../core'
 // Only page-safe results belong here; transport credentials never enter this catalog.
 const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
   [
-    'git.status',
-    'git.diff',
-    'files.readDir',
+    'mobileWeb.sourceControl.status',
+    'mobileWeb.sourceControl.diff',
+    'mobileWeb.files.readDir',
     'files.readChunk',
     'mobileWeb.files.searchPaths',
     'mobileWeb.files.read',

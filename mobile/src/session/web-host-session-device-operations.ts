@@ -10,7 +10,7 @@ import type { HostSessionDeviceOperations } from './host-session-device-operatio
 
 export function webHostSessionDeviceOperations(
   client: MobileWebBridgeClient,
-  navigate?: (target: string) => void
+  navigate: (target: string) => void
 ): HostSessionDeviceOperations {
   return {
     hapticFeedback(kind) {
@@ -26,11 +26,7 @@ export function webHostSessionDeviceOperations(
       await client.native.openExternal(url)
     },
     openTerminalSettings() {
-      if (navigate && client.native.supports('pagePreferences')) {
-        navigate('/terminal-settings')
-      } else {
-        void client.navigationRoute({ destination: 'terminalSettings' }).catch(() => {})
-      }
+      navigate('/terminal-settings')
     },
     loadTerminalPreferences() {
       return loadWebHostTerminalPreferences(client)
@@ -39,18 +35,10 @@ export function webHostSessionDeviceOperations(
       return loadWebHostTerminalAccessoryPreferences(client)
     },
     async saveTerminalCustomKeys(customKeys) {
-      if (client.native.supports('pagePreferences')) {
-        await saveCustomKeys([...customKeys])
-      } else {
-        await client.native.terminalCustomKeysUpdate(customKeys)
-      }
+      await saveCustomKeys([...customKeys])
     },
     async saveTerminalTextScale(textScale) {
-      if (client.native.supports('pagePreferences')) {
-        await saveTerminalTextScale(textScale)
-      } else {
-        await client.native.terminalTextScaleUpdate(textScale)
-      }
+      await saveTerminalTextScale(textScale)
     }
   }
 }

@@ -1,4 +1,3 @@
-import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import {
   MobileWebHostCatalogPayloadSchema,
   MobileWebHostCatalogResultSchema,
@@ -42,10 +41,7 @@ export function readMobileWebHostMethods(
 }
 
 export class MobileWebHostRequestClient {
-  constructor(
-    private readonly requests: MobileWebOneShotRequestClient,
-    private readonly hostScope: boolean
-  ) {}
+  constructor(private readonly requests: MobileWebOneShotRequestClient) {}
 
   catalog(methods: string[], options?: MobileWebBridgeRequestOptions) {
     return readMobileWebHostMethods(this.requests, methods, options)
@@ -55,9 +51,6 @@ export class MobileWebHostRequestClient {
     payload: MobileWebHostRequestPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<unknown> {
-    if (payload.workspaceId === undefined && !this.hostScope) {
-      return Promise.reject(new MobileWebBridgeClientError('unsupported_capability', false))
-    }
     return requestMobileWebHost(
       this.requests,
       payload.method,

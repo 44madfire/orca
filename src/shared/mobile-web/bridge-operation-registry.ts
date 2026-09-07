@@ -46,11 +46,8 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     capabilities: 'read',
     snapshot: 'read',
     subscribe: 'subscription',
-    agentOptions: 'read',
     quickCommands: 'read',
     quickCommandMutate: 'mutation',
-    create: 'mutation',
-    createAgent: 'mutation',
     createQuickCommand: 'mutation',
     createBrowser: 'mutation',
     activate: 'mutation',
@@ -64,19 +61,11 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     attachImage: 'mutation',
     resize: 'mutation',
     visibility: 'mutation',
-    displayMode: 'mutation',
-    clear: 'mutation',
-    rename: 'mutation',
     resync: 'mutation',
     ack: 'mutation',
     cancel: 'mutation'
   },
   file: {
-    list: 'read',
-    directory: 'read',
-    read: 'read',
-    readChunk: 'read',
-    search: 'read',
     write: 'mutation',
     markdownRead: 'read',
     markdownSave: 'mutation',
@@ -88,9 +77,6 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     releaseTerminalArtifact: 'mutation'
   },
   sourceControl: {
-    status: 'read',
-    diff: 'read',
-    subscribe: 'subscription',
     stage: 'mutation',
     unstage: 'mutation',
     discard: 'mutation',
@@ -245,20 +231,11 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     sessionChatDraftWrite: 'mutation'
   },
   nativeChat: {
-    read: 'read',
-    subscribe: 'subscription',
-    sendMessage: 'mutation',
-    prepareCommit: 'mutation',
-    respond: 'mutation',
-    stop: 'mutation',
     attachImage: 'mutation',
     pasteImages: 'mutation',
     releaseImages: 'mutation',
     pendingRead: 'read',
-    pendingWrite: 'mutation',
-    fileSearch: 'read',
-    openFile: 'mutation',
-    readability: 'read'
+    pendingWrite: 'mutation'
   },
   navigation: {
     route: 'mutation',

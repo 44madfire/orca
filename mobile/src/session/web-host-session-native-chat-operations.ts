@@ -1,4 +1,3 @@
-import { MOBILE_WEB_SHELL_NATIVE_CHAT_PASTE_FOLLOWED_BY_TEXT_FEATURE } from '../../../src/shared/mobile-web/bridge-contract'
 import {
   MobileWebBridgeClientError,
   type MobileWebBridgeClient
@@ -26,9 +25,16 @@ export function webHostSessionNativeChatOperations(
     },
     subscribe(target, limit, onEvent, onError) {
       const payload = bridgeTarget(target, { limit })
-      const subscription = target.terminalId
-        ? client.nativeChat.subscribeForTab(target.terminalId, payload, onEvent, onError)
-        : client.nativeChatSubscribe(payload, onEvent, onError)
+      if (!target.terminalId) {
+        queueMicrotask(onError)
+        return () => {}
+      }
+      const subscription = client.nativeChat.subscribeForTab(
+        target.terminalId,
+        payload,
+        onEvent,
+        onError
+      )
       void subscription.ready.catch(() => {})
       return subscription.unsubscribe
     },
@@ -38,9 +44,10 @@ export function webHostSessionNativeChatOperations(
           limit,
           ...(beforeOffset === undefined ? {} : { beforeOffset })
         })
-        return target.terminalId
-          ? await client.nativeChat.readForTab(payload, target.terminalId)
-          : await client.nativeChat.read(payload)
+        if (!target.terminalId) {
+          return { error: 'Missing terminal identity' }
+        }
+        return await client.nativeChat.readForTab(payload, target.terminalId)
       } catch {
         return { error: 'Transcript read failed' }
       }
@@ -141,19 +148,13 @@ export function webHostSessionNativeChatOperations(
       if (!budget) {
         return false
       }
-      // Why gated: page->shell payloads are strict, so a shell that predates the field answers
-      // `invalid_request` and the paste fails outright. Without it the shell writes no trailing
-      // separator, which is what every shell did before the field existed.
-      const separatorSupported = client.supportsShellFeature(
-        MOBILE_WEB_SHELL_NATIVE_CHAT_PASTE_FOLLOWED_BY_TEXT_FEATURE
-      )
       try {
         return (
           await client.nativeChat.pasteImages(
             bridgeTarget(target, {
               references: [...references],
               deadline: budget.deadline,
-              ...(followedByText && separatorSupported ? { followedByText } : {})
+              ...(followedByText ? { followedByText } : {})
             }),
             { timeoutMs: budget.timeoutMs }
           )

@@ -27,7 +27,6 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-provider-review-management.ts': 1,
   'mobile-web-provider-review-operations.ts': 1,
   'mobile-web-provider-review-submission.ts': 1,
-  'mobile-web-session-operations.ts': 1,
   'mobile-web-session-quick-command-operations.ts': 2,
   'mobile-web-source-control-commit-operation.ts': 1,
   'mobile-web-source-control-operations.ts': 1,
@@ -44,6 +43,10 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
  * consumed inside the single awaited host call with no window between check and use. Adding a
  * mutation forces a decision here rather than letting it default to unguarded. */
 const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
+  'workspace.activate',
+  'session.activate',
+  'session.close',
+  'session.createBrowser',
   'browser.back',
   'browser.dialog',
   'browser.forward',
@@ -62,7 +65,6 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'native.terminalCustomKeysUpdate',
   'native.terminalTextScaleUpdate',
   'nativeChat.attachImage',
-  'nativeChat.openFile',
   'nativeChat.pasteImages',
   'nativeChat.pendingWrite',
   'nativeChat.releaseImages',
@@ -80,10 +82,7 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'task.updateResume',
   'task.updateSettings',
   'terminal.attachImage',
-  'terminal.clear',
   'terminal.clipboardPaste',
-  'terminal.displayMode',
-  'terminal.rename',
   'workspace.creationPersistTrust',
   'workspace.creationSaveSparsePreset',
   'workspace.creationSshConnect',
@@ -168,7 +167,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations().length).toBeGreaterThanOrEqual(120)
+    expect(mutations().length).toBeGreaterThanOrEqual(117)
   })
 
   it('exempts only registered mutations', () => {

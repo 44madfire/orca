@@ -5,9 +5,7 @@ import { MobileWebAccountSubscriptions } from './mobile-web-account-subscription
 import { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
-import { MobileWebNativeChatSubscriptions } from './mobile-web-native-chat-subscriptions'
 import { MobileWebSessionSubscriptions } from './mobile-web-session-subscriptions'
-import { MobileWebSourceControlSubscriptions } from './mobile-web-source-control-subscriptions'
 import { MobileWebSpeechSubscriptions } from './mobile-web-speech-subscriptions'
 import type { MobileWebSpeechEvent } from '../../../src/shared/mobile-web/speech-operation-contract'
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
@@ -123,57 +121,6 @@ const LEDGER_CASES: LedgerCase[] = [
         pageWorkspaceId,
         hostWorkspaceId: HOST_WORKSPACE,
         client: host.client
-      })
-      return host.emit
-    }
-  },
-  {
-    name: 'sourceControl',
-    invalidCode: 'invalid_message',
-    invalid: { type: 'bogus' },
-    valid: { type: 'changed', worktree: 'id:workspace-1', events: [] },
-    open: async (posts) => {
-      const host = hostClient()
-      const { authority, pageWorkspaceId } = pageWorkspace()
-      new MobileWebSourceControlSubscriptions({
-        ...posts,
-        workspaceAuthority: authority
-      }).start({
-        requestId: 'request-1',
-        subscriptionId: SUBSCRIPTION_ID,
-        pageWorkspaceId,
-        hostWorkspaceId: 'workspace-1',
-        client: host.client
-      })
-      return host.emit
-    }
-  },
-  {
-    name: 'nativeChat',
-    invalidCode: 'invalid_message',
-    invalid: { type: 'bogus' },
-    valid: { type: 'appended', messages: [] },
-    open: async (posts) => {
-      const host = hostClient()
-      const { authority, pageWorkspaceId } = pageWorkspace()
-      const nativeChatAuthority = new MobileWebNativeChatAuthority(randomBytes)
-      const sessionId = nativeChatAuthority.register({
-        hostWorkspaceId: 'workspace-1',
-        hostTabId: 'tab-1',
-        hostTerminalId: 'terminal-1',
-        agent: 'claude',
-        providerSessionId: 'provider-session-1'
-      })
-      await new MobileWebNativeChatSubscriptions({
-        ...posts,
-        nativeChatAuthority,
-        workspaceAuthority: authority
-      }).start({
-        requestId: 'request-1',
-        subscriptionId: SUBSCRIPTION_ID,
-        payload: { workspaceId: pageWorkspaceId, sessionId, limit: 40 },
-        client: host.client,
-        isRequestActive: () => true
       })
       return host.emit
     }

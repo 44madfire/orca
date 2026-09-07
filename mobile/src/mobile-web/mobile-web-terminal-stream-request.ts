@@ -2,6 +2,7 @@ import type {
   MobileWebTerminalDeviceInputResult,
   MobileWebTerminalRequest
 } from '../../../src/shared/mobile-web/terminal-stream-contract'
+import { MobileWebBrokerError } from './mobile-web-broker-error'
 import type { RpcClient } from '../transport/rpc-client'
 import { TerminalStreamOpcode } from '../transport/terminal-stream-protocol'
 import type { MobileWebTerminalStreamRecord } from './mobile-web-terminal-flow-control'
@@ -49,6 +50,8 @@ export function handleMobileWebTerminalStreamRequest(args: {
     args.requestSnapshot(request.reason)
   } else if (request.operation === 'cancel') {
     args.cancel()
+  } else {
+    throw new MobileWebBrokerError('unsupported_capability')
   }
   return null
 }

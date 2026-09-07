@@ -4,9 +4,9 @@ import type { MobileWebTerminalMetadataAction } from '../../../src/mobile-web/sr
 import { webHostSessionTerminalOperations } from './web-host-session-terminal-operations'
 
 function fixture() {
-  let resolve!: (action: MobileWebTerminalMetadataAction | null) => void
+  let resolve!: (action: MobileWebTerminalMetadataAction) => void
   let reject!: (error: Error) => void
-  const prepared = new Promise<MobileWebTerminalMetadataAction | null>((yes, no) => {
+  const prepared = new Promise<MobileWebTerminalMetadataAction>((yes, no) => {
     resolve = yes
     reject = no
   })
@@ -87,14 +87,6 @@ describe('hosted terminal metadata lifecycle', () => {
     await Promise.resolve()
     expect(f.terminalSubscribe).not.toHaveBeenCalled()
     expect(f.onError).not.toHaveBeenCalled()
-  })
-  it('uses the legacy stream action when the host lacks catalog grants', async () => {
-    const f = fixture()
-    f.subscribe()
-    f.resolve(null)
-    await vi.waitFor(() => expect(f.terminalSubscribe).toHaveBeenCalledOnce())
-    expect(await f.operations.clear('tab')).toBe(true)
-    expect(f.terminalRequest).toHaveBeenCalledWith({ operation: 'clear', streamId: 'S'.repeat(22) })
   })
   it('reports binding failures and action ambiguity without opening a fallback stream or repeating the action', async () => {
     const failed = fixture()

@@ -30,18 +30,18 @@ afterEach(() => {
 })
 
 describe('opaque hosted page state', () => {
-  it.each([false, true])('gates outgoing state on negotiated support (%s)', (supported) => {
+  it('sends outgoing state on the first-release shell baseline', () => {
     const posted: string[] = []
     Object.assign(window, { OrcaNative: { postMessage: (raw: string) => posted.push(raw) } })
     const hook = renderHook(useMobileWebNativeShell, { wrapper: MobileWebNativeShellProvider })
-    dispatch({ ...init, shellFeatures: supported ? [MOBILE_WEB_SHELL_PAGE_STATE_FEATURE] : [] })
+    dispatch(init)
     act(() => {
       expect(hook.result.current.rememberRoute(route, pageState)).toBe(true)
     })
     const frame = JSON.parse(posted.at(-1)!)
     expect(frame.type).toBe('routeState')
     expect(frame.route).toEqual(route)
-    expect(frame.pageState).toBe(supported ? pageState : undefined)
+    expect(frame.pageState).toBe(pageState)
     expect(parseMobileWebBridgePageMessage(JSON.stringify(frame), context).ok).toBe(true)
   })
 

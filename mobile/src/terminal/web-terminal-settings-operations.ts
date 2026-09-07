@@ -1,5 +1,4 @@
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
-import { MOBILE_WEB_SHELL_HOST_SCOPE_FEATURE } from '../../../src/shared/mobile-web/shell-feature-contract'
 import {
   nativeTerminalSettingsOperations,
   type TerminalSettingsHost,
@@ -32,9 +31,6 @@ const fitMethods = ['terminal.getAutoRestoreFit', 'terminal.setAutoRestoreFit']
 export async function webTerminalSettingsHost(
   client: MobileWebBridgeClient
 ): Promise<TerminalSettingsHost | null> {
-  if (!client.supportsShellFeature(MOBILE_WEB_SHELL_HOST_SCOPE_FEATURE)) {
-    return null
-  }
   const catalog = await client.host.catalog(fitMethods)
   if (
     !fitMethods.every((method) =>

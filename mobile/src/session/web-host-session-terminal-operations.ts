@@ -37,7 +37,7 @@ export function webHostSessionTerminalOperations(
         }
       }
       streams.set(args.terminalId, stream)
-      const start = (metadataAction: MobileWebTerminalMetadataAction | null) => {
+      const start = (metadataAction: MobileWebTerminalMetadataAction) => {
         if (controller.signal.aborted) {
           return
         }
@@ -60,7 +60,7 @@ export function webHostSessionTerminalOperations(
           client,
           subscription.streamId,
           onError,
-          metadataAction ?? undefined
+          metadataAction
         )
         stream.scheduler = scheduler
         unsubscribe = subscription.unsubscribe
@@ -70,20 +70,16 @@ export function webHostSessionTerminalOperations(
         )
       }
       // Bind before opening the stream so later actions cannot target a replacement terminal.
-      const prepared = client.prepareTerminalActions?.(
+      const prepared = client.prepareTerminalActions(
         args.workspaceId,
         args.terminalId,
         controller.signal
       )
-      if (prepared) {
-        void prepared.then(start).catch(() => {
-          if (!controller.signal.aborted) {
-            onError()
-          }
-        })
-      } else {
-        start(null)
-      }
+      void prepared.then(start).catch(() => {
+        if (!controller.signal.aborted) {
+          onError()
+        }
+      })
       return stream.unsubscribe
     },
     acknowledge(terminalId, throughSequence) {

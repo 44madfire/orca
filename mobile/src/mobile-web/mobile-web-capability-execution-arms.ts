@@ -4,7 +4,6 @@ import {
 } from '../../../src/shared/mobile-web/bridge-operation-contract'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { MobileWebBridgeCapability } from '../../../src/shared/mobile-web/bridge-operation-registry'
-import { MobileWebSourceControlSubscribePayloadSchema } from '../../../src/shared/mobile-web/source-control-operation-contract'
 import { MobileWebSpeechSubscribePayloadSchema } from '../../../src/shared/mobile-web/speech-operation-contract'
 import { executeWorkspace } from './mobile-web-workspace-capability'
 import { executeMobileWebAccountCapability } from './mobile-web-account-capability'
@@ -269,29 +268,13 @@ async function subscribeSpeech(args: Deps, request: SubscriptionRequest): Promis
   return null
 }
 
-async function subscribeSourceControl(args: Deps, request: SubscriptionRequest): Promise<unknown> {
-  requireSubscribeOperation(request)
-  const payload = MobileWebSourceControlSubscribePayloadSchema.parse(request.payload)
-  const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-  args.sourceControlSubscriptions.start({
-    requestId: request.requestId,
-    subscriptionId: request.subscriptionId,
-    pageWorkspaceId: payload.workspaceId,
-    hostWorkspaceId,
-    client: args.connectedClient()
-  })
-  return null
-}
-
 export const MOBILE_WEB_SUBSCRIPTION_CAPABILITY_ARMS: Partial<
   Record<MobileWebBridgeCapability, SubscriptionArm>
 > = {
-  nativeChat: (args, request) => executeMobileWebNativeChatCapability(args, request),
   account: (args) => executeMobileWebAccountCapability(args),
   browser: subscribeBrowser,
   workspace: subscribeWorkspace,
   session: subscribeSession,
   terminal: subscribeTerminal,
-  speech: subscribeSpeech,
-  sourceControl: subscribeSourceControl
+  speech: subscribeSpeech
 }

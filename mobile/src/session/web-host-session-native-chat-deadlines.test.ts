@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MOBILE_WEB_SHELL_NATIVE_CHAT_PASTE_FOLLOWED_BY_TEXT_FEATURE } from '../../../src/shared/mobile-web/bridge-contract'
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
 import type { HostSessionNativeChatTarget } from './host-session-native-chat-operations'
 import {
@@ -88,9 +87,7 @@ describe('hosted native-chat deadlines', () => {
     vi.useFakeTimers()
     vi.setSystemTime(10_000)
     const pasteImages = vi.fn().mockResolvedValue({ pasted: true })
-    const operations = webHostSessionNativeChatOperations(
-      pasteImagesClient(pasteImages, [MOBILE_WEB_SHELL_NATIVE_CHAT_PASTE_FOLLOWED_BY_TEXT_FEATURE])
-    )
+    const operations = webHostSessionNativeChatOperations(pasteImagesClient(pasteImages))
 
     await expect(operations.pasteImages!(TARGET, ['opaque-image'], 20_000, true)).resolves.toBe(
       true
@@ -105,28 +102,6 @@ describe('hosted native-chat deadlines', () => {
       { timeoutMs: 10_000 }
     )
     expect(pasteImages).toHaveBeenNthCalledWith(2, pastePayload(), { timeoutMs: 10_000 })
-  })
-
-  // Why: page->shell payloads are strict, so an unadvertised key is `invalid_request` on the whole
-  // paste — the image never lands at all, which is far worse than a missing trailing space.
-  it('withholds the following-text hint from a shell that does not advertise it', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(10_000)
-    const pasteImages = vi.fn().mockResolvedValue({ pasted: true })
-
-    for (const features of [[], ['nativeChat.pasteImages.somethingElse.v1']]) {
-      const operations = webHostSessionNativeChatOperations(
-        pasteImagesClient(pasteImages, features)
-      )
-      await expect(operations.pasteImages!(TARGET, ['opaque-image'], 20_000, true)).resolves.toBe(
-        true
-      )
-    }
-
-    expect(pasteImages).toHaveBeenCalledTimes(2)
-    for (const [payload] of pasteImages.mock.calls) {
-      expect(payload).not.toHaveProperty('followedByText')
-    }
   })
 
   it('clears a stale hosted composer only after the shell accepts preparation', async () => {
@@ -170,13 +145,9 @@ describe('hosted native-chat deadlines', () => {
   })
 })
 
-function pasteImagesClient(
-  pasteImages: ReturnType<typeof vi.fn>,
-  shellFeatures: readonly string[]
-): MobileWebBridgeClient {
+function pasteImagesClient(pasteImages: ReturnType<typeof vi.fn>): MobileWebBridgeClient {
   return {
-    nativeChat: { pasteImages },
-    supportsShellFeature: (feature: string) => shellFeatures.includes(feature)
+    nativeChat: { pasteImages }
   } as unknown as MobileWebBridgeClient
 }
 

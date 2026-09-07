@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { defineStreamingMethod, isStreamingMethod } from '../core'
 import { NATIVE_CHAT_METHODS } from './native-chat'
+import { boundMobileWebNativeChatRead } from './mobile-web-native-chat-read-budget'
 import {
   MobileWebChatScope,
   mobileWebNativeChatHostParams,
@@ -71,7 +72,16 @@ export const MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD = defineStreamingMethod({
           cleanup()
           return
         }
-        emit(event)
+        let bounded: unknown
+        try {
+          bounded = boundMobileWebNativeChatRead(event)
+        } catch {
+          closed = true
+          emit({ type: 'error', message: 'Chat event exceeds the response budget' })
+          cleanup()
+          return
+        }
+        emit(bounded)
       })
     } catch (error) {
       closed = true

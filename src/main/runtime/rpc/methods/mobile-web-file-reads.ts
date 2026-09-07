@@ -1,3 +1,5 @@
+import { boundMobileWebFileContent } from './mobile-web-file-content'
+import { MOBILE_WEB_FILE_DIRECTORY_READ_METHOD } from './mobile-web-file-directory-read'
 import { defineMethod, isStreamingMethod } from '../core'
 import { FILE_METHODS } from './files'
 
@@ -18,7 +20,9 @@ export const MOBILE_WEB_FILE_READ_METHODS = ['searchPaths', 'read'].map((operati
       const pageResult: Record<string, unknown> = { ...result }
       delete pageResult.worktree
       delete pageResult.rootPath
-      return pageResult
+      return operation === 'read' ? boundMobileWebFileContent(pageResult) : pageResult
     }
   })
 })
+
+MOBILE_WEB_FILE_READ_METHODS.push(MOBILE_WEB_FILE_DIRECTORY_READ_METHOD)

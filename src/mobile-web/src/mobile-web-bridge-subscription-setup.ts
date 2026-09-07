@@ -12,24 +12,14 @@ import {
   type MobileWebAccountEvent
 } from '../../shared/mobile-web/account-operation-contract'
 import {
-  MobileWebNativeChatEventSchema,
-  MobileWebNativeChatSubscribePayloadSchema,
   MobileWebSessionSnapshotResultSchema,
   MobileWebSessionSubscribePayloadSchema,
-  type MobileWebNativeChatEvent,
-  type MobileWebNativeChatSubscribePayload,
   type MobileWebSessionSnapshotResult,
   type MobileWebSessionSubscribePayload,
   MobileWebWorkspaceChangeSchema,
   MobileWebWorkspaceSubscribePayloadSchema,
   type MobileWebWorkspaceChange
 } from '../../shared/mobile-web/bridge-operation-contract'
-import {
-  MobileWebSourceControlStatusInvalidationSchema,
-  MobileWebSourceControlSubscribePayloadSchema,
-  type MobileWebSourceControlStatusInvalidation,
-  type MobileWebSourceControlSubscribePayload
-} from '../../shared/mobile-web/source-control-operation-contract'
 import type { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import {
   MobileWebBrowserEventSchema,
@@ -66,21 +56,6 @@ export function sessionSubscriptionSetup(
       (event) => event.workspaceId === payload.workspaceId
     ),
     onEvent: (value) => onEvent(value as MobileWebSessionSnapshotResult),
-    onError
-  }
-}
-
-export function nativeChatSubscriptionSetup(
-  payload: MobileWebNativeChatSubscribePayload,
-  onEvent: (event: MobileWebNativeChatEvent) => void,
-  onError: (error: MobileWebBridgeClientError) => void
-): MobileWebBridgeSubscriptionSetup {
-  return {
-    capability: 'nativeChat',
-    payload,
-    payloadSchema: MobileWebNativeChatSubscribePayloadSchema,
-    eventSchema: MobileWebNativeChatEventSchema,
-    onEvent: (value) => onEvent(value as MobileWebNativeChatEvent),
     onError
   }
 }
@@ -138,23 +113,6 @@ export function workspaceSubscriptionSetup(
     payloadSchema: MobileWebWorkspaceSubscribePayloadSchema,
     eventSchema: MobileWebWorkspaceChangeSchema,
     onEvent: (value) => onEvent(value as MobileWebWorkspaceChange),
-    onError
-  }
-}
-
-export function sourceControlSubscriptionSetup(
-  payload: MobileWebSourceControlSubscribePayload,
-  onEvent: (event: MobileWebSourceControlStatusInvalidation) => void,
-  onError: (error: MobileWebBridgeClientError) => void
-): MobileWebBridgeSubscriptionSetup {
-  return {
-    capability: 'sourceControl',
-    payload,
-    payloadSchema: MobileWebSourceControlSubscribePayloadSchema,
-    eventSchema: MobileWebSourceControlStatusInvalidationSchema.refine(
-      (event) => event.workspaceId === payload.workspaceId
-    ),
-    onEvent: (value) => onEvent(value as MobileWebSourceControlStatusInvalidation),
     onError
   }
 }

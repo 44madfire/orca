@@ -24,10 +24,10 @@ const LIMITS = {
 
 describe('mobile web bridge grant operation scope', () => {
   it('keeps a granted operation from authorizing a sibling operation of the same capability', async () => {
-    const harness = createHarness([{ capability: 'file', operation: 'read', limits: LIMITS }])
+    const harness = createHarness([{ capability: 'file', operation: 'open', limits: LIMITS }])
 
-    void harness.client.fileRead({ workspaceId: WORKSPACE_ID, relativePath: RELATIVE_PATH })
-    expect(harness.messages).toMatchObject([{ capability: 'file', operation: 'read' }])
+    void harness.client.fileOpen({ workspaceId: WORKSPACE_ID, relativePath: RELATIVE_PATH })
+    expect(harness.messages).toMatchObject([{ capability: 'file', operation: 'open' }])
 
     const write = harness.client
       .fileWrite({

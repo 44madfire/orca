@@ -17,7 +17,6 @@ import {
 } from './mobile-web-bridge-roundtrip-fixture'
 import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
 import { MobileWebSessionSubscriptions } from './mobile-web-session-subscriptions'
-import { MobileWebSourceControlSubscriptions } from './mobile-web-source-control-subscriptions'
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
 import {
   mobileWebHostWorkspaceIdFromHost,
@@ -52,12 +51,6 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
     browserAuthority,
     nativeChatAuthority
   })
-  const sourceControl = new MobileWebSourceControlSubscriptions({
-    isActive,
-    workspaceAuthority,
-    postEvent,
-    postClosed
-  })
   const browser = new MobileWebBrowserStreams({
     isActive,
     workspaceAuthority,
@@ -82,17 +75,6 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
           subscriptionId,
           pageWorkspaceId,
           hostWorkspaceId: mobileWebHostWorkspaceIdFromHost('host-workspace'),
-          client
-        })
-    },
-    {
-      name: 'sourceControl',
-      start: (subscriptionId) =>
-        sourceControl.start({
-          requestId: 'r',
-          subscriptionId,
-          pageWorkspaceId,
-          hostWorkspaceId: 'host-workspace',
           client
         })
     },

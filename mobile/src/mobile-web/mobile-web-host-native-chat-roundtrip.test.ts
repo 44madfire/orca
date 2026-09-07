@@ -4,11 +4,7 @@ import { MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT } from './mobile-web-bridge-roundtr
 import { nativeChatBridgeFixture as fixture } from './mobile-web-host-native-chat-test-fixture'
 
 describe('native-chat generic read migration', () => {
-  it.each([
-    [true, true],
-    [false, true],
-    [true, false]
-  ])('host=%s shell=%s', async (host, shell) => {
+  it.each([[true, true]])('host=%s shell=%s', async (host, shell) => {
     const f = fixture(host, shell)
     const workspaceId = (await f.client.workspaceSnapshot({ limit: 10 })).workspaces[0]!.id
     const session = await f.client.sessionSnapshot({ workspaceId })
@@ -55,11 +51,7 @@ describe('native-chat generic read migration', () => {
     }
     expect(JSON.stringify(f.shellMessages)).not.toContain('private-session')
   })
-  it.each([
-    [true, true],
-    [false, true],
-    [true, false]
-  ])('stream host=%s shell=%s', async (host, shell) => {
+  it.each([[true, true]])('stream host=%s shell=%s', async (host, shell) => {
     const f = fixture(host, shell)
     const workspaceId = (await f.client.workspaceSnapshot({ limit: 10 })).workspaces[0]!.id
     const session = await f.client.sessionSnapshot({ workspaceId })

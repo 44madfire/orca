@@ -97,7 +97,9 @@ function createHarness(
     terminalDeviceInputRequest: deviceInputRequest
   } as unknown as MobileWebBridgeClient
   return {
-    scheduler: new MobileWebTerminalRequestScheduler(client, STREAM_ID, onError),
+    scheduler: new MobileWebTerminalRequestScheduler(client, STREAM_ID, onError, (payload) =>
+      client.terminalRequest(payload)
+    ),
     request,
     deviceInputRequest,
     onError,

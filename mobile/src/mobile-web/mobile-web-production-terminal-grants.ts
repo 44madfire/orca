@@ -8,9 +8,6 @@ export const MOBILE_WEB_PRODUCTION_TERMINAL_GRANTS = capabilityGrants('terminal'
   queryReply: grantLimits(32 * 1024, 256, 8, 120, 120),
   resize: grantLimits(1 * 1024, 256, 2, 30, 15),
   visibility: grantLimits(1 * 1024, 256, 2, 12, 4),
-  displayMode: grantLimits(1 * 1024, 256, 1, 6, 2),
-  clear: grantLimits(512, 256, 1, 4, 1),
-  rename: grantLimits(1 * 1024, 256, 1, 4, 1),
   resync: grantLimits(1 * 1024, 256, 1, 4, 1),
   ack: grantLimits(1 * 1024, 256, 8, 240, 240),
   cancel: grantLimits(1 * 1024, 256, 2, 12, 4)

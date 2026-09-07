@@ -189,15 +189,19 @@ edges still meet the device and keep their measured values.
 - The page can use `workspace.hostRequest` for desktop-advertised unary methods.
   The shell queries `mobileWeb.host.catalog` over the authenticated connection,
   resolves the existing opaque workspace handle, and forwards bounded domain
-  JSON without a shell-owned response schema. The initial catalog grants
-  `git.status` and `git.diff`; the page falls back to legacy reads when the
-  catalog is unavailable or a raw response exceeds its bridge budget.
+  JSON without a shell-owned response schema. Hybrid requires package support
+  and `mobileWeb.hybrid.v1`; older Desktop builds show Update Desktop. Completed
+  generic slices have no fallback to superseded shell domain operations.
 - Generic forwarding retains byte, depth, node-count, rate and actual in-flight
   limits. Cancelling a page request does not release its host-work slot until
   the host call settles. Catalog authors must grant only page-safe results;
   methods returning private identifiers need an opaque mapping before adoption.
-  Native-chat/session/terminal/file migrations and generic subscriptions remain
-  future work; their existing adapters and grants still apply.
+  Generic subscriptions, native-chat domain actions, file reads, Source Control
+  reads/watch, session terminal creation and terminal metadata use this path.
+  Unmigrated domain operations keep their current adapters until moved.
+- Hybrid has no released users; intermediate PR shells/pages are unsupported.
+  Released native mobile RPC compatibility and SSH runtime negotiation remain.
+  The first released hybrid shell/page contract must evolve compatibly.
 - Clipboard reads, pickers, external links, haptics, dictation, and related
   native actions require the relevant grant; privacy-sensitive actions also
   require the system permission the platform asks for. The shell's own

@@ -7,7 +7,7 @@ const payload = { workspaceId: 'workspace', sessionId: `native_chat_0_${'01'.rep
 const methods = ['bind', 'fileSearch', 'openFile', 'readability'].map(
   (method) => `mobileWeb.nativeChat.${method}`
 )
-function fixture(pageSession = true, dispatch = true) {
+function fixture() {
   const request = vi.fn(async (capability, operation, value) => {
     if (capability === 'nativeChat') {
       return operation === 'fileSearch'
@@ -38,7 +38,7 @@ function fixture(pageSession = true, dispatch = true) {
     return { opened: true }
   })
   const requests = { supports: () => true, request } as unknown as MobileWebOneShotRequestClient
-  return { request, client: new MobileWebNativeChatFileClient(requests, pageSession, dispatch) }
+  return { request, client: new MobileWebNativeChatFileClient(requests) }
 }
 afterEach(() => vi.useRealTimers())
 describe('native-chat file generic client', () => {
@@ -63,7 +63,7 @@ describe('native-chat file generic client', () => {
       readable: true,
       future: 1
     })
-    expect(f.request.mock.calls[1][2]).toEqual({
+    expect(f.request.mock.calls[0][2]).toEqual({
       method: 'mobileWeb.nativeChat.readability',
       workspaceId: 'workspace',
       params: {}
@@ -90,35 +90,6 @@ describe('native-chat file generic client', () => {
       workspaceId: 'workspace',
       params: { resourceId: 'resource-chat', pathText: 'src/main.ts', timeoutMs: 12_000 }
     })
-  })
-  it('does not restart the timeout when an older host needs the legacy open adapter', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(1_000)
-    const f = fixture()
-    f.request.mockImplementationOnce(async () => {
-      vi.setSystemTime(11_000)
-      return { grants: [] }
-    })
-    await f.client.openFile({ ...payload, pathText: 'x' }, 'tab')
-    expect(((f.request.mock.calls[1] as unknown[]).at(-1) as { timeoutMs: number }).timeoutMs).toBe(
-      5_000
-    )
-  })
-  it('uses legacy when old shell features, host grants or a tab binding are missing', async () => {
-    for (const [pageSession, dispatch] of [
-      [false, false],
-      [true, false]
-    ]) {
-      const f = fixture(pageSession, dispatch)
-      await f.client.openFile({ ...payload, pathText: 'src/main.ts' }, 'tab')
-      expect(f.request.mock.calls.map((call) => call[0])).toEqual(['nativeChat'])
-    }
-    const f = fixture()
-    await f.client.fileSearch({ ...payload, query: 'src' })
-    expect(f.request.mock.calls.map((call) => call[0])).toEqual(['nativeChat'])
-    f.request.mockClear().mockResolvedValueOnce({ grants: [] } as never)
-    await f.client.openFile({ ...payload, pathText: 'x' }, 'tab')
-    expect(f.request.mock.calls.map((call) => call[0])).toEqual(['workspace', 'nativeChat'])
   })
   it.each(['timeout', 'host_error', 'unsupported_capability'] as const)(
     'never retries or falls back after the open dispatch reports %s',

@@ -21,6 +21,8 @@ it('admits every catalog method and cleanup through authenticated mobile dispatc
     rootPath: '/private/repo',
     relativePath: 'README.md',
     content: 'host-owned adapter',
+    byteLength: 18,
+    truncated: false,
     futureField: { revision: 2 }
   })
   const setMobileAutoRestoreFitMs = vi.fn((ms: number | null) => ms)
@@ -72,6 +74,8 @@ it('admits every catalog method and cleanup through authenticated mobile dispatc
       result: {
         relativePath: 'README.md',
         content: 'host-owned adapter',
+        byteLength: 18,
+        truncated: false,
         futureField: { revision: 2 }
       }
     })

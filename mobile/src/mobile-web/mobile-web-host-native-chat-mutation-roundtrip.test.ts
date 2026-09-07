@@ -18,11 +18,7 @@ async function fixture(host = true, shell = true) {
   }
 }
 describe('generic native-chat actions', () => {
-  it.each([
-    [true, true],
-    [false, true],
-    [true, false]
-  ])('host=%s shell=%s uses a compatible action lane', async (host, shell) => {
+  it.each([[true, true]])('host=%s shell=%s uses a compatible action lane', async (host, shell) => {
     const f = await fixture(host, shell)
     const result = await f.client.nativeChat.sendMessage(
       { ...f.payload, text: 'hello' },

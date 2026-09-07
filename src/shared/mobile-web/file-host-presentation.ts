@@ -15,10 +15,9 @@ import {
 
 export function sanitizeDirectoryResult(
   result: unknown,
-  workspaceId: string,
   relativePath: string,
   limit: number
-): MobileWebFileDirectoryResult {
+): Omit<MobileWebFileDirectoryResult, 'workspaceId'> {
   if (!Array.isArray(result)) {
     throw new MobileWebBrokerError('host_error')
   }
@@ -40,8 +39,7 @@ export function sanitizeDirectoryResult(
   })
   entries.sort(compareMobileWebDirectoryEntries)
   const truncated = result.length > entries.length
-  return MobileWebFileDirectoryResultSchema.parse({
-    workspaceId,
+  return MobileWebFileDirectoryResultSchema.omit({ workspaceId: true }).parse({
     relativePath,
     revision: mobileWebDirectoryRevision(entries, truncated),
     entries,

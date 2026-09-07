@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { describe, expect, it, vi } from 'vitest'
 import { nativeTerminalSettingsHost } from './native-terminal-settings-host'
 import {
@@ -7,7 +8,7 @@ import {
 import type { RpcClient } from '../transport/rpc-client'
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
 vi.mock('@react-native-async-storage/async-storage', () => ({
-  default: { getItem: async () => null }
+  default: { getItem: vi.fn(async () => null) }
 }))
 
 describe('terminal restore settings adapters', () => {
@@ -15,18 +16,51 @@ describe('terminal restore settings adapters', () => {
     const client = {
       native: {
         supports: () => true,
-        terminalAccessoryPreferences: vi
-          .fn()
-          .mockResolvedValue({
-            customKeys: [],
-            orderedBuiltInIds: ['escape'],
-            visibleBuiltInIds: []
-          })
+        terminalAccessoryPreferences: vi.fn().mockResolvedValue({
+          customKeys: [],
+          orderedBuiltInIds: ['escape'],
+          visibleBuiltInIds: []
+        })
       }
     }
     const settings = webTerminalSettingsOperations(client as unknown as MobileWebBridgeClient)
     await Promise.all([settings.loadKeys(), settings.loadLayout()])
     expect(client.native.terminalAccessoryPreferences).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads all settings sections within the page preference concurrency grant', async () => {
+    let inFlight = 0
+    vi.mocked(AsyncStorage.getItem).mockImplementation(async () => {
+      if (++inFlight > 4) {
+        inFlight--
+        throw new Error('page preference concurrency exhausted')
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1))
+      inFlight--
+      return null
+    })
+    const client = {
+      native: {
+        terminalPreferences: async () => ({
+          textScale: 1,
+          autocompleteEnabled: false,
+          linkOpenMode: 'orca-browser'
+        }),
+        terminalAccessoryPreferences: async () => ({
+          customKeys: [],
+          orderedBuiltInIds: ['escape'],
+          visibleBuiltInIds: []
+        })
+      }
+    }
+    const settings = webTerminalSettingsOperations(client as unknown as MobileWebBridgeClient)
+    try {
+      await expect(
+        Promise.all([settings.loadPreferences(), settings.loadKeys(), settings.loadLayout()])
+      ).resolves.toHaveLength(3)
+    } finally {
+      vi.mocked(AsyncStorage.getItem).mockImplementation(async () => null)
+    }
   })
 
   it('unwraps the actual native RPC result and surfaces refusal', async () => {
@@ -55,12 +89,8 @@ describe('terminal restore settings adapters', () => {
       params: { ms: null }
     })
   })
-  it('does not dispatch when the shell or catalog lacks host-scoped methods', async () => {
+  it('does not dispatch when the catalog lacks host-scoped methods', async () => {
     const client = fixture()
-    client.supportsShellFeature.mockReturnValue(false)
-    expect(await webTerminalSettingsHost(client as unknown as MobileWebBridgeClient)).toBe(null)
-    expect(client.host.catalog).not.toHaveBeenCalled()
-    client.supportsShellFeature.mockReturnValue(true)
     client.host.catalog.mockResolvedValue({ grants: [] })
     expect(await webTerminalSettingsHost(client as unknown as MobileWebBridgeClient)).toBe(null)
     expect(client.host.request).not.toHaveBeenCalled()
@@ -75,7 +105,6 @@ describe('terminal restore settings adapters', () => {
 })
 function fixture() {
   return {
-    supportsShellFeature: vi.fn(() => true),
     host: {
       catalog: vi.fn().mockResolvedValue({
         grants: ['terminal.getAutoRestoreFit', 'terminal.setAutoRestoreFit'].map((method) => ({

@@ -62,22 +62,31 @@ function fixture(generic = true) {
 }
 
 describe('page-owned generic file reads', () => {
-  it('projects raw directory entries on the page with legacy ordering and revision', async () => {
+  it('uses the bounded Desktop directory result with an opaque workspace', async () => {
     const { client, messages, respond } = fixture()
     const result = client.fileDirectory(directory)
     expect(messages[0]).toMatchObject({
       capability: 'workspace',
       operation: 'hostRequest',
       payload: {
-        method: 'files.readDir',
+        method: 'mobileWeb.files.readDir',
         workspaceId: directory.workspaceId,
-        params: { relativePath: '' }
+        params: { relativePath: '', limit: 10 }
       }
     })
-    respond(entries.map((entry) => ({ ...entry, futureField: 'desktop-added' })))
-    await expect(result).resolves.toEqual(
-      sanitizeDirectoryResult(entries, directory.workspaceId, '', 10)
-    )
+    respond({ ...sanitizeDirectoryResult(entries, '', 10), futureField: 'desktop-added' })
+    await expect(result).resolves.toEqual({
+      ...sanitizeDirectoryResult(entries, '', 10),
+      workspaceId: directory.workspaceId
+    })
+    client.dispose()
+  })
+
+  it('rejects a directory response for a different path', async () => {
+    const { client, respond } = fixture()
+    const result = client.fileDirectory(directory)
+    respond(sanitizeDirectoryResult(entries, 'different', 10))
+    await expect(result).rejects.toMatchObject({ code: 'invalid_message' })
     client.dispose()
   })
 
@@ -101,28 +110,23 @@ describe('page-owned generic file reads', () => {
   })
 
   it.each(['too_large', 'unsupported_capability'] as const)(
-    'falls back when the host returns %s',
+    'does not retry when the host returns %s',
     async (code) => {
       const { client, messages, respond } = fixture()
       const result = client.fileDirectory(directory)
       respond(null, code)
-      await Promise.resolve()
-      await Promise.resolve()
-      await Promise.resolve()
-      expect(messages.at(-1)).toMatchObject({ capability: 'file', operation: 'directory' })
-      const legacy = sanitizeDirectoryResult(entries, directory.workspaceId, '', 10)
-      respond(legacy)
-      await expect(result).resolves.toEqual(legacy)
+      await expect(result).rejects.toMatchObject({ code })
+      expect(messages).toHaveLength(1)
       client.dispose()
     }
   )
 
-  it('uses the legacy operation on an older shell', async () => {
-    const { client, messages, respond } = fixture(false)
-    const result = client.fileDirectory(directory)
-    expect(messages[0]).toMatchObject({ capability: 'file', operation: 'directory' })
-    respond(sanitizeDirectoryResult(entries, directory.workspaceId, '', 10))
-    await expect(result).resolves.toMatchObject({ workspaceId: directory.workspaceId })
+  it('rejects missing baseline grant without sending a legacy request', async () => {
+    const { client, messages } = fixture(false)
+    await expect(client.fileDirectory(directory)).rejects.toMatchObject({
+      code: 'unsupported_capability'
+    })
+    expect(messages).toHaveLength(0)
     client.dispose()
   })
 

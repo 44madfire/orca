@@ -19,15 +19,5 @@ export async function executeMobileWebNativeChatCapability(
       nativeAuthority: args.nativeAuthority
     })
   }
-  if (request.operation === 'subscribe') {
-    await args.nativeChatSubscriptions.start({
-      requestId: request.requestId,
-      subscriptionId: request.subscriptionId,
-      payload: request.payload,
-      client: args.connectedClient(),
-      isRequestActive: args.isRequestActive
-    })
-    return null
-  }
   throw new Error('unsupported_native_chat_request')
 }

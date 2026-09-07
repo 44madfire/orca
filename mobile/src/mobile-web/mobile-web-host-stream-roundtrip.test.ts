@@ -57,11 +57,7 @@ function fixture(catalogAvailable = true, genericShell = true) {
 }
 
 describe('generic subscription bridge compatibility', () => {
-  it.each([
-    [true, true],
-    [false, true],
-    [true, false]
-  ])('source-control catalog=%s shell=%s', async (catalog, shell) => {
+  it.each([[true, true]])('source-control catalog=%s shell=%s', async (catalog, shell) => {
     const f = fixture(catalog, shell)
     const workspace = (await f.client.workspaceSnapshot({ limit: 10 })).workspaces[0]!.id
     const onEvent = vi.fn()

@@ -1,4 +1,3 @@
-import { MOBILE_WEB_DIFF_LINE_MAX_CHARACTERS } from '../../../src/shared/mobile-web/source-control-operation-contract'
 import {
   MOBILE_WEB_SOURCE_CONTROL_COMPARE_RESPONSE_MAX_BYTES,
   MOBILE_WEB_SOURCE_CONTROL_HISTORY_RESPONSE_MAX_BYTES
@@ -8,9 +7,6 @@ import { MOBILE_WEB_PRODUCTION_SOURCE_CONTROL_REVIEW_GRANTS } from './mobile-web
 
 export const MOBILE_WEB_PRODUCTION_SOURCE_CONTROL_GRANTS = [
   ...capabilityGrants('sourceControl', {
-    status: grantLimits(2 * 1024, 192 * 1024, 2, 8, 2),
-    subscribe: grantLimits(2 * 1024, 2 * 1024, 1, 4, 1),
-    diff: grantLimits(4 * 1024, 192 * 1024 + MOBILE_WEB_DIFF_LINE_MAX_CHARACTERS, 2, 12, 3),
     branches: grantLimits(2 * 1024, 64 * 1024, 2, 8, 2),
     history: grantLimits(4 * 1024, MOBILE_WEB_SOURCE_CONTROL_HISTORY_RESPONSE_MAX_BYTES, 2, 6, 1),
     branchCompare: grantLimits(

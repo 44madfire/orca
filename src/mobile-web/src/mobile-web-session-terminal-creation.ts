@@ -3,42 +3,30 @@ import {
   MobileWebSessionCreateResultSchema,
   type MobileWebSessionAgentOptionsPayload,
   type MobileWebSessionCreateAgentPayload,
-  type MobileWebSessionCreateResult,
   type MobileWebSessionCreatePayload
 } from '../../shared/mobile-web/session-operation-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { secureMobileWebBridgeRequestId } from './mobile-web-bridge-request-encoding'
-import { readMobileWebHostMethods, requestMobileWebHost } from './mobile-web-host-request-client'
+import { requestMobileWebHost } from './mobile-web-host-request-client'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
 export class MobileWebSessionTerminalCreation {
-  constructor(
-    private readonly requests: MobileWebOneShotRequestClient,
-    private readonly hostRequestDispatch: boolean
-  ) {}
+  constructor(private readonly requests: MobileWebOneShotRequestClient) {}
 
-  agentOptions(
-    payload: MobileWebSessionAgentOptionsPayload,
-    legacy: (timeoutMs?: number) => Promise<{ agents: string[] }>
-  ) {
-    return this.run('mobileWeb.session.agentOptions', false, legacy, async (timeoutMs) =>
-      MobileWebSessionAgentOptionsResultSchema.parse(
-        await requestMobileWebHost(
-          this.requests,
-          'mobileWeb.session.agentOptions',
-          payload.workspaceId,
-          {},
-          { timeoutMs }
-        )
+  async agentOptions(payload: MobileWebSessionAgentOptionsPayload) {
+    return MobileWebSessionAgentOptionsResultSchema.parse(
+      await requestMobileWebHost(
+        this.requests,
+        'mobileWeb.session.agentOptions',
+        payload.workspaceId,
+        {}
       )
     )
   }
 
-  create(
-    payload: MobileWebSessionCreatePayload | MobileWebSessionCreateAgentPayload,
-    legacy: (timeoutMs?: number) => Promise<MobileWebSessionCreateResult>
-  ) {
-    return this.run('mobileWeb.session.createTerminal', true, legacy, async (timeoutMs) => {
+  create(payload: MobileWebSessionCreatePayload | MobileWebSessionCreateAgentPayload) {
+    const timeoutMs = 15_000
+    return (async () => {
       const result = await requestMobileWebHost(
         this.requests,
         'mobileWeb.session.createTerminal',
@@ -57,49 +45,6 @@ export class MobileWebSessionTerminalCreation {
         ...result,
         workspaceId: payload.workspaceId
       })
-    })
-  }
-
-  private async run<T>(
-    method: string,
-    mutation: boolean,
-    legacy: (timeoutMs?: number) => Promise<T>,
-    dispatch: (timeoutMs: number) => Promise<T>
-  ): Promise<T> {
-    if (
-      (mutation && !this.hostRequestDispatch) ||
-      !this.requests.supports('workspace', 'hostRequest') ||
-      !this.requests.supports('workspace', 'hostCatalog')
-    ) {
-      return legacy()
-    }
-    const deadline = Date.now() + 15_000
-    const remaining = () => {
-      const timeoutMs = deadline - Date.now()
-      if (timeoutMs <= 0) {
-        throw new MobileWebBridgeClientError('timeout', true)
-      }
-      return timeoutMs
-    }
-    let supported: boolean
-    try {
-      const catalog = await readMobileWebHostMethods(this.requests, [method], {
-        timeoutMs: remaining()
-      })
-      supported = catalog.grants.some((grant) => grant.method === method)
-    } catch (error) {
-      if (
-        !(error instanceof MobileWebBridgeClientError) ||
-        error.code !== 'unsupported_capability'
-      ) {
-        throw error
-      }
-      supported = false
-    }
-    if (!supported) {
-      return legacy(remaining())
-    }
-    // No fallback after dispatch: a lost reply can hide a successfully created terminal.
-    return dispatch(remaining())
+    })()
   }
 }

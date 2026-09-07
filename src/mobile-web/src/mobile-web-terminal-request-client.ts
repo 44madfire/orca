@@ -1,7 +1,4 @@
-import {
-  MOBILE_WEB_SHELL_HOST_PAGE_SESSION_FEATURE,
-  MOBILE_WEB_SHELL_HOST_REQUEST_DISPATCH_FEATURE
-} from '../../shared/mobile-web/shell-feature-contract'
+import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { bindMobileWebHostTerminalActions } from './mobile-web-host-terminal-actions'
 import { MobileWebHapticSelectionResultSchema } from '../../shared/mobile-web/bridge-operation-contract'
 import {
@@ -14,23 +11,20 @@ import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-reques
 
 // One-shot terminal operations; the stream itself lives on the subscription client.
 export class MobileWebTerminalRequestClient {
-  constructor(
-    private readonly requests: MobileWebOneShotRequestClient,
-    private readonly hostActions = false
-  ) {}
+  constructor(private readonly requests: MobileWebOneShotRequestClient) {}
 
   prepareActions(workspaceId: string, tabId: string, signal: AbortSignal) {
-    if (
-      !this.hostActions ||
-      !this.requests.supports('workspace', 'hostCatalog') ||
-      !this.requests.supports('workspace', 'hostRequest')
-    ) {
-      return null
-    }
     return bindMobileWebHostTerminalActions(this.requests, workspaceId, tabId, signal)
   }
 
   request(payload: Exclude<MobileWebTerminalRequest, { operation: 'subscribe' }>): Promise<null> {
+    if (
+      payload.operation === 'displayMode' ||
+      payload.operation === 'clear' ||
+      payload.operation === 'rename'
+    ) {
+      return Promise.reject(new MobileWebBridgeClientError('unsupported_capability', false))
+    }
     return this.requests.request(
       'terminal',
       payload.operation,
@@ -55,13 +49,9 @@ export class MobileWebTerminalRequestClient {
 
 export function mobileWebTerminalClientBindings(
   requests: MobileWebOneShotRequestClient,
-  features: ReadonlySet<string>
+  _features: ReadonlySet<string>
 ) {
-  const client = new MobileWebTerminalRequestClient(
-    requests,
-    features.has(MOBILE_WEB_SHELL_HOST_PAGE_SESSION_FEATURE) &&
-      features.has(MOBILE_WEB_SHELL_HOST_REQUEST_DISPATCH_FEATURE)
-  )
+  const client = new MobileWebTerminalRequestClient(requests)
   return {
     prepareTerminalActions: client.prepareActions.bind(client),
     terminalRequest: client.request.bind(client),

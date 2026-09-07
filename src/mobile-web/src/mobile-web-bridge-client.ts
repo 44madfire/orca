@@ -1,10 +1,8 @@
 import { MobileWebHostRequestClient } from './mobile-web-host-request-client'
 import {
-  MOBILE_WEB_SHELL_HOST_SCOPE_FEATURE,
-  MOBILE_WEB_SHELL_HOST_PAGE_SESSION_FEATURE,
-  MOBILE_WEB_SHELL_HOST_REQUEST_DISPATCH_FEATURE
-} from '../../shared/mobile-web/shell-feature-contract'
-import { subscribeHostSourceControl } from './mobile-web-source-control-host-subscription'
+  subscribeHostSourceControl,
+  type MobileWebSourceControlSubscriptionArgs
+} from './mobile-web-source-control-host-subscription'
 import {
   MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
   type MobileWebBridgeMessageContext,
@@ -206,17 +204,11 @@ export class MobileWebBridgeClient {
     this.workspaceCreation = new MobileWebWorkspaceCreationRequestClient(this.requests)
     this.workspaceCreationSource = new MobileWebWorkspaceCreationSourceRequestClient(this.requests)
     this.workspaceCreationCreate = new MobileWebWorkspaceCreationCreateRequestClient(this.requests)
-    const sessionRequests = new MobileWebSessionRequestClient(
-      this.requests,
-      this.shellFeatures.has(MOBILE_WEB_SHELL_HOST_REQUEST_DISPATCH_FEATURE)
-    )
+    const sessionRequests = new MobileWebSessionRequestClient(this.requests)
     Object.assign(this, mobileWebSessionClientBindings(sessionRequests))
     this.native = new MobileWebNativeRequestClient(this.requests)
     this.markdown = new MobileWebMarkdownRequestClient(this.requests)
-    this.host = new MobileWebHostRequestClient(
-      this.requests,
-      this.shellFeatures.has(MOBILE_WEB_SHELL_HOST_SCOPE_FEATURE)
-    )
+    this.host = new MobileWebHostRequestClient(this.requests)
     Object.assign(this, terminal.mobileWebTerminalClientBindings(this.requests, this.shellFeatures))
     Object.assign(this, mobileWebBrowserNavigationClientBindings(this.requests))
     this.subscriptions = new MobileWebBridgeSubscriptionClient({
@@ -228,12 +220,7 @@ export class MobileWebBridgeClient {
       otherPendingCount: () => this.requests.pendingCount(),
       requestTimeoutMs: options.requestTimeoutMs
     })
-    this.nativeChat = new MobileWebNativeChatRequestClient(
-      this.requests,
-      this.shellFeatures.has(MOBILE_WEB_SHELL_HOST_PAGE_SESSION_FEATURE),
-      this.subscriptions,
-      this.shellFeatures.has(MOBILE_WEB_SHELL_HOST_REQUEST_DISPATCH_FEATURE)
-    )
+    this.nativeChat = new MobileWebNativeChatRequestClient(this.requests, this.subscriptions)
     this.hostSubscribe = this.subscriptions.subscribeHost.bind(this.subscriptions)
     this.account = new MobileWebAccountRequestClient(this.requests, this.subscriptions)
     this.agentHistory = new MobileWebAgentHistoryRequestClient(this.requests)
@@ -269,16 +256,10 @@ export class MobileWebBridgeClient {
     return this.subscriptions.subscribeTerminal(payload, onEvent, onError)
   }
 
-  nativeChatSubscribe(
-    ...args: Parameters<MobileWebBridgeSubscriptionClient['subscribeNativeChat']>
-  ): MobileWebBridgeSubscription {
-    return this.subscriptions.subscribeNativeChat(...args)
-  }
-
   sourceControlSubscribe(
-    ...args: Parameters<MobileWebBridgeSubscriptionClient['subscribeSourceControl']>
+    ...args: MobileWebSourceControlSubscriptionArgs
   ): MobileWebBridgeSubscription {
-    return subscribeHostSourceControl(this.requests, this.subscriptions, ...args)
+    return subscribeHostSourceControl(this.subscriptions, ...args)
   }
 
   browserSubscribe(

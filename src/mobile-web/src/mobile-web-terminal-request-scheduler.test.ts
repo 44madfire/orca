@@ -167,7 +167,9 @@ function createScheduler(
   terminalDeviceInputRequest = vi.fn().mockResolvedValue({ status: 'accepted' })
 ): MobileWebTerminalRequestScheduler {
   const client = { terminalRequest, terminalDeviceInputRequest } as unknown as MobileWebBridgeClient
-  return new MobileWebTerminalRequestScheduler(client, STREAM_ID, onError)
+  return new MobileWebTerminalRequestScheduler(client, STREAM_ID, onError, (payload) =>
+    client.terminalRequest(payload)
+  )
 }
 
 function deferred<T>(): {

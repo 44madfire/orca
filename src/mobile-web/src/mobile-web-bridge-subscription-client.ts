@@ -5,8 +5,6 @@ import type {
   MobileWebBridgeShellMessage
 } from '../../shared/mobile-web/bridge-contract'
 import type {
-  MobileWebNativeChatEvent,
-  MobileWebNativeChatSubscribePayload,
   MobileWebSessionSnapshotResult,
   MobileWebSessionSubscribePayload,
   MobileWebWorkspaceChange
@@ -21,10 +19,8 @@ import {
   accountSubscriptionSetup,
   terminalSubscriptionSetup,
   browserSubscriptionSetup,
-  nativeChatSubscriptionSetup,
   sessionSubscriptionSetup,
   speechSubscriptionSetup,
-  sourceControlSubscriptionSetup,
   workspaceSubscriptionSetup,
   type MobileWebBridgeSubscriptionSetup
 } from './mobile-web-bridge-subscription-setup'
@@ -81,14 +77,6 @@ export class MobileWebBridgeSubscriptionClient {
     return this.subscribeWith(workspaceSubscriptionSetup(onEvent, onError))
   }
 
-  subscribeNativeChat(
-    payload: MobileWebNativeChatSubscribePayload,
-    onEvent: (event: MobileWebNativeChatEvent) => void,
-    onError: (error: MobileWebBridgeClientError) => void
-  ): MobileWebBridgeSubscription {
-    return this.subscribeWith(nativeChatSubscriptionSetup(payload, onEvent, onError))
-  }
-
   subscribeAccount(...args: Parameters<typeof accountSubscriptionSetup>) {
     return this.subscribeWith(accountSubscriptionSetup(...args))
   }
@@ -104,12 +92,6 @@ export class MobileWebBridgeSubscriptionClient {
 
   subscribeHost(...args: Parameters<typeof hostSubscriptionSetup>) {
     return this.subscribeWith(hostSubscriptionSetup(...args))
-  }
-
-  subscribeSourceControl(
-    ...args: Parameters<typeof sourceControlSubscriptionSetup>
-  ): MobileWebBridgeSubscription {
-    return this.subscribeWith(sourceControlSubscriptionSetup(...args))
   }
 
   subscribeBrowser(...args: Parameters<typeof browserSubscriptionSetup>) {

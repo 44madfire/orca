@@ -1,26 +1,29 @@
-import { MobileWebSourceControlSubscribePayloadSchema } from '../../shared/mobile-web/source-control-operation-contract'
+import {
+  MobileWebSourceControlSubscribePayloadSchema,
+  type MobileWebSourceControlSubscribePayload,
+  type MobileWebSourceControlStatusInvalidation
+} from '../../shared/mobile-web/source-control-operation-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebBridgeSubscriptionClient } from './mobile-web-bridge-subscription-client'
-import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 import type { MobileWebBridgeSubscription } from './mobile-web-bridge-subscription'
 
+export type MobileWebSourceControlSubscriptionArgs = [
+  payload: MobileWebSourceControlSubscribePayload,
+  onEvent: (event: MobileWebSourceControlStatusInvalidation) => void,
+  onError: (error: MobileWebBridgeClientError) => void
+]
+
 export function subscribeHostSourceControl(
-  requests: MobileWebOneShotRequestClient,
   subscriptions: MobileWebBridgeSubscriptionClient,
-  ...[payload, onEvent, onError]: Parameters<
-    MobileWebBridgeSubscriptionClient['subscribeSourceControl']
-  >
+  ...[payload, onEvent, onError]: MobileWebSourceControlSubscriptionArgs
 ): MobileWebBridgeSubscription {
-  const legacy = () => subscriptions.subscribeSourceControl(payload, onEvent, onError)
-  if (
-    !requests.supports('workspace', 'hostSubscribe') ||
-    !MobileWebSourceControlSubscribePayloadSchema.safeParse(payload).success
-  ) {
-    return legacy()
+  if (!MobileWebSourceControlSubscribePayloadSchema.safeParse(payload).success) {
+    const error = new MobileWebBridgeClientError('invalid_request', false)
+    queueMicrotask(() => onError(error))
+    return { ready: Promise.reject(error), unsubscribe() {} }
   }
   let cancelled = false
-  let ready = false
-  let current: MobileWebBridgeSubscription = subscriptions.subscribeHost(
+  const current: MobileWebBridgeSubscription = subscriptions.subscribeHost(
     {
       method: 'mobileWeb.files.watch',
       workspaceId: payload.workspaceId,
@@ -51,28 +54,13 @@ export function subscribeHostSourceControl(
       }
     },
     (error) => {
-      if (!cancelled && (ready || error.code !== 'unsupported_capability')) {
+      if (!cancelled) {
         onError(error)
       }
     }
   )
-  const settled = current.ready
-    .catch((error: unknown) => {
-      if (
-        !cancelled &&
-        error instanceof MobileWebBridgeClientError &&
-        error.code === 'unsupported_capability'
-      ) {
-        current = legacy()
-        return current.ready
-      }
-      throw error
-    })
-    .then(() => {
-      ready = true
-    })
   return {
-    ready: settled,
+    ready: current.ready,
     unsubscribe() {
       cancelled = true
       current.unsubscribe()

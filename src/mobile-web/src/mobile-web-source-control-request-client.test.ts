@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
   type MobileWebBridgePageMessage,
@@ -12,67 +12,6 @@ const CONTEXT = {
 }
 
 describe('mobile web source-control request client', () => {
-  it('sends explicit typed status and diff requests and validates their identities', async () => {
-    const harness = createHarness()
-    const status = harness.client.sourceControlStatus({ workspaceId: 'workspace-1', limit: 10 })
-    harness.client.receive(
-      response('A'.repeat(22), {
-        workspaceId: 'workspace-1',
-        branch: 'main',
-        conflictOperation: 'unknown',
-        entries: [],
-        totalCount: 0,
-        truncated: false
-      })
-    )
-    await expect(status).resolves.toMatchObject({ workspaceId: 'workspace-1', entries: [] })
-    expect(harness.messages[0]).toMatchObject({
-      capability: 'sourceControl',
-      operation: 'status',
-      payload: { workspaceId: 'workspace-1', limit: 10 }
-    })
-
-    const diff = harness.client.sourceControlDiff({
-      workspaceId: 'workspace-1',
-      relativePath: 'src/app.ts',
-      area: 'unstaged',
-      offset: 0,
-      limit: 20
-    })
-    harness.client.receive(
-      response('B'.repeat(22), {
-        workspaceId: 'workspace-2',
-        relativePath: 'src/app.ts',
-        area: 'unstaged',
-        kind: 'binary'
-      })
-    )
-    await expect(diff).rejects.toMatchObject({ code: 'invalid_message', retryable: false })
-  })
-
-  it('rejects raw host diff content even when the shell labels it successful', async () => {
-    const harness = createHarness()
-    const diff = harness.client.sourceControlDiff({
-      workspaceId: 'workspace-1',
-      relativePath: 'src/app.ts',
-      area: 'unstaged',
-      offset: 0,
-      limit: 20
-    })
-    harness.client.receive(
-      response('A'.repeat(22), {
-        workspaceId: 'workspace-1',
-        relativePath: 'src/app.ts',
-        area: 'unstaged',
-        kind: 'text',
-        originalContent: 'secret',
-        modifiedContent: 'secret changed'
-      })
-    )
-
-    await expect(diff).rejects.toMatchObject({ code: 'invalid_message', retryable: false })
-  })
-
   it('sends bounded branch and history reads with workspace identity checks', async () => {
     const harness = createHarness()
     const branches = harness.client.sourceControlBranches({ workspaceId: 'workspace-1' })
@@ -314,46 +253,6 @@ describe('mobile web source-control request client', () => {
     await expect(cancellation).resolves.toEqual({
       workspaceId: 'workspace-1',
       cancellationRequested: true
-    })
-  })
-
-  it('subscribes to typed workspace-scoped status invalidations and cleans up', async () => {
-    const harness = createHarness()
-    const onEvent = vi.fn()
-    const onError = vi.fn()
-    const subscription = harness.client.sourceControlSubscribe(
-      { workspaceId: 'workspace-1' },
-      onEvent,
-      onError
-    )
-
-    expect(harness.messages[0]).toMatchObject({
-      mode: 'subscription',
-      requestId: 'A'.repeat(22),
-      subscriptionId: 'B'.repeat(22),
-      capability: 'sourceControl',
-      operation: 'subscribe',
-      payload: { workspaceId: 'workspace-1' }
-    })
-    harness.client.receive(response('A'.repeat(22), null))
-    await expect(subscription.ready).resolves.toBeUndefined()
-    harness.client.receive({
-      version: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
-      type: 'event',
-      shellSessionId: CONTEXT.shellSessionId,
-      buildId: CONTEXT.buildId,
-      subscriptionId: 'B'.repeat(22),
-      sequence: 0,
-      payload: { workspaceId: 'workspace-1', reason: 'changed' }
-    })
-
-    expect(onEvent).toHaveBeenCalledWith({ workspaceId: 'workspace-1', reason: 'changed' })
-    expect(onError).not.toHaveBeenCalled()
-    subscription.unsubscribe()
-    expect(harness.messages.at(-1)).toMatchObject({
-      type: 'cancel',
-      target: 'subscription',
-      id: 'B'.repeat(22)
     })
   })
 })

@@ -66,43 +66,6 @@ describe('mobile web capability broker', () => {
     })
   })
 
-  it('serves a bounded file index without exposing the host root', async () => {
-    const harness = createHarness()
-    harness.sendRequest.mockResolvedValue({
-      ok: true,
-      result: {
-        worktree: 'workspace-1',
-        rootPath: '/private/worktree',
-        files: [{ relativePath: 'src/app.ts', basename: 'app.ts', kind: 'text' }],
-        totalCount: 1,
-        truncated: false
-      }
-    })
-    await primeWorkspaceAuthority(harness)
-
-    await harness.broker.handle(
-      request({
-        capability: 'file',
-        operation: 'list',
-        payload: { workspaceId: OPAQUE_WORKSPACE_ID, limit: 10 }
-      })
-    )
-
-    expect(harness.sendRequest).toHaveBeenCalledWith('files.searchPaths', {
-      worktree: 'id:workspace-1',
-      query: '',
-      limit: 10
-    })
-    expect(harness.messages.at(-1)).toMatchObject({
-      status: 'success',
-      payload: {
-        workspaceId: OPAQUE_WORKSPACE_ID,
-        files: [{ relativePath: 'src/app.ts', basename: 'app.ts', kind: 'text' }]
-      }
-    })
-    expect(JSON.stringify(harness.messages.at(-1))).not.toContain('/private/worktree')
-  })
-
   it('revokes opaque workspace handles when the authenticated Desktop client changes', async () => {
     const harness = createHarness()
     await primeWorkspaceAuthority(harness)
@@ -111,9 +74,9 @@ describe('mobile web capability broker', () => {
 
     await harness.broker.handle(
       request({
-        capability: 'file',
-        operation: 'list',
-        payload: { workspaceId: OPAQUE_WORKSPACE_ID, limit: 10 }
+        capability: 'workspace',
+        operation: 'hostRequest',
+        payload: { workspaceId: OPAQUE_WORKSPACE_ID, method: 'files.readDir', params: {} }
       })
     )
 
@@ -487,42 +450,6 @@ describe('mobile web capability broker', () => {
     expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
-  it('subscribes to workspace changes without forwarding host file-watch payloads', async () => {
-    const harness = createHarness()
-    await primeWorkspaceAuthority(harness)
-    let onData: ((event: unknown) => void) | undefined
-    const unsubscribe = vi.fn()
-    harness.subscribe.mockImplementation((_method, _params, listener) => {
-      onData = listener
-      return unsubscribe
-    })
-
-    await harness.broker.handle(sourceControlSubscriptionRequest())
-    expect(harness.subscribe).toHaveBeenCalledWith(
-      'files.watch',
-      { worktree: 'id:workspace-1' },
-      expect.any(Function)
-    )
-    onData?.({
-      type: 'changed',
-      worktree: 'id:workspace-1',
-      events: [{ kind: 'update', absolutePath: '/private/repo/src/app.ts' }]
-    })
-    await vi.waitFor(() => {
-      expect(harness.messages.filter((message) => message.type === 'event')).toHaveLength(1)
-    })
-
-    expect(harness.messages.at(-1)).toMatchObject({
-      type: 'event',
-      subscriptionId: 'Y'.repeat(22),
-      sequence: 0,
-      payload: { workspaceId: OPAQUE_WORKSPACE_ID, reason: 'changed' }
-    })
-    expect(JSON.stringify(harness.messages)).not.toContain('/private/repo')
-    await harness.broker.handle(subscriptionCancel('Y'))
-    expect(unsubscribe).toHaveBeenCalledOnce()
-  })
-
   it('routes terminal artifacts through opaque grants and revokes them on connection loss', async () => {
     const harness = createHarness()
     await primeWorkspaceAuthority(harness)
@@ -706,19 +633,6 @@ async function primeWorkspaceAuthority(harness: ReturnType<typeof createHarness>
 
 function subscriptionCancel(id = 'S'): Extract<MobileWebBridgePageMessage, { type: 'cancel' }> {
   return mobileWebBridgeCancelMessage({ target: 'subscription', id: id.repeat(22) })
-}
-
-function sourceControlSubscriptionRequest(): Extract<
-  MobileWebBridgePageMessage,
-  { type: 'request' }
-> {
-  return mobileWebBridgeRequestMessage({
-    requestId: 'X'.repeat(22),
-    subscriptionId: 'Y'.repeat(22),
-    capability: 'sourceControl',
-    operation: 'subscribe',
-    payload: { workspaceId: OPAQUE_WORKSPACE_ID }
-  })
 }
 
 function sessionEvent(snapshotVersion: number, title: string) {

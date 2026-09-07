@@ -1,15 +1,10 @@
 import { MobileWebSessionTerminalCreation } from './mobile-web-session-terminal-creation'
 import {
-  MobileWebSessionAgentOptionsPayloadSchema,
-  MobileWebSessionAgentOptionsResultSchema,
   MobileWebSessionBrowserCreatePayloadSchema,
   MobileWebSessionBrowserCreateResultSchema,
   MobileWebSessionCapabilitiesPayloadSchema,
   MobileWebSessionCapabilitiesResultSchema,
   MobileWebSessionCloseResultSchema,
-  MobileWebSessionCreateAgentPayloadSchema,
-  MobileWebSessionCreatePayloadSchema,
-  MobileWebSessionCreateResultSchema,
   MobileWebSessionHostGatesPayloadSchema,
   MobileWebSessionHostGatesResultSchema,
   MobileWebSessionSnapshotPayloadSchema,
@@ -50,11 +45,8 @@ import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-reques
 export class MobileWebSessionRequestClient {
   private readonly terminalCreation: MobileWebSessionTerminalCreation
 
-  constructor(
-    private readonly requests: MobileWebOneShotRequestClient,
-    hostRequestDispatch = false
-  ) {
-    this.terminalCreation = new MobileWebSessionTerminalCreation(requests, hostRequestDispatch)
+  constructor(private readonly requests: MobileWebOneShotRequestClient) {
+    this.terminalCreation = new MobileWebSessionTerminalCreation(requests)
   }
 
   capabilities(
@@ -110,48 +102,17 @@ export class MobileWebSessionRequestClient {
   }
 
   create(payload: MobileWebSessionCreatePayload): Promise<MobileWebSessionCreateResult> {
-    return this.terminalCreation.create(payload, (timeoutMs) =>
-      this.requests
-        .request(
-          'session',
-          'create',
-          payload,
-          MobileWebSessionCreatePayloadSchema,
-          MobileWebSessionCreateResultSchema,
-          { timeoutMs }
-        )
-        .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
-    )
+    return this.terminalCreation.create(payload)
   }
 
   agentOptions(
     payload: MobileWebSessionAgentOptionsPayload
   ): Promise<MobileWebSessionAgentOptionsResult> {
-    return this.terminalCreation.agentOptions(payload, (timeoutMs) =>
-      this.requests.request(
-        'session',
-        'agentOptions',
-        payload,
-        MobileWebSessionAgentOptionsPayloadSchema,
-        MobileWebSessionAgentOptionsResultSchema,
-        { timeoutMs }
-      )
-    )
+    return this.terminalCreation.agentOptions(payload)
   }
 
   createAgent(payload: MobileWebSessionCreateAgentPayload): Promise<MobileWebSessionCreateResult> {
-    return this.terminalCreation.create(payload, (timeoutMs) =>
-      this.requests
-        .request(
-          'session',
-          'createAgent',
-          payload,
-          MobileWebSessionCreateAgentPayloadSchema,
-          MobileWebSessionCreateResultSchema,
-          { timeoutMs }
-        )
-        .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
-    )
+    return this.terminalCreation.create(payload)
   }
 
   quickCommands(

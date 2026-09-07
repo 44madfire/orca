@@ -16,11 +16,9 @@ import {
   type MobileWebSourceControlStagePayload,
   type MobileWebSourceControlUnstagePayload
 } from '../../../src/shared/mobile-web/source-control-mutation-contract'
-import {
-  MobileWebSourceControlDiffPayloadSchema,
-  MobileWebSourceControlStatusPayloadSchema,
-  type MobileWebSourceControlDiffResult,
-  type MobileWebSourceControlStatusResult
+import type {
+  MobileWebSourceControlDiffResult,
+  MobileWebSourceControlStatusResult
 } from '../../../src/shared/mobile-web/source-control-operation-contract'
 import type {
   MobileWebSourceControlRepositoryState,
@@ -40,10 +38,6 @@ import {
   isMobileWebSourceControlHistoryOperation
 } from './mobile-web-source-control-history-operations'
 import { assertMobileWebSourceControlMutationPreflight } from './mobile-web-source-control-mutation-preflight'
-import {
-  sanitizeMobileWebSourceControlDiff,
-  sanitizeMobileWebSourceControlStatus
-} from './mobile-web-source-control-read-results'
 import {
   executeMobileWebSourceControlSyncOperation,
   isMobileWebSourceControlSyncOperation
@@ -100,31 +94,6 @@ export async function executeMobileWebSourceControlOperation(args: {
       branchComparePager: args.branchComparePager,
       requestId: args.requestId
     })
-  }
-  if (args.operation === 'status') {
-    const payload = MobileWebSourceControlStatusPayloadSchema.parse(args.payload)
-    const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-    const response = await args.client.sendRequest('git.status', {
-      worktree: `id:${hostWorkspaceId}`,
-      reuseLineStats: true
-    })
-    if (!response.ok) {
-      throw mobileWebBrokerHostRpcError(response.error)
-    }
-    return sanitizeMobileWebSourceControlStatus(response.result, payload.workspaceId, payload.limit)
-  }
-  if (args.operation === 'diff') {
-    const payload = MobileWebSourceControlDiffPayloadSchema.parse(args.payload)
-    const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-    const response = await args.client.sendRequest('git.diff', {
-      worktree: `id:${hostWorkspaceId}`,
-      filePath: payload.relativePath,
-      staged: payload.area === 'staged'
-    })
-    if (!response.ok) {
-      throw mobileWebBrokerHostRpcError(response.error)
-    }
-    return sanitizeMobileWebSourceControlDiff(response.result, payload)
   }
   if (args.operation === 'stage' || args.operation === 'unstage' || args.operation === 'discard') {
     return executeMutation(args.operation, args.payload, args.client, args.workspaceAuthority)

@@ -153,7 +153,32 @@ describe('mobile web bridge round trip', () => {
       })
     const requestIds = ['R', 'Q', 'T', 'U', 'V', 'W', 'X', 'Y', 'A', 'B']
     let requestIndex = 0
-    const rpcClient = { sendRequest, subscribe } as unknown as RpcClient
+    const rpcClient = {
+      sendRequest: (method: string, params: unknown, options: unknown) =>
+        method === 'mobileWeb.host.catalog'
+          ? Promise.resolve({
+              ok: true,
+              result: {
+                grants: [
+                  {
+                    method: 'mobileWeb.session.createTerminal',
+                    workspaceParam: 'worktree',
+                    maxRequestBytes: 16384,
+                    maxResponseBytes: 524288
+                  }
+                ]
+              }
+            })
+          : method === 'mobileWeb.session.createTerminal'
+            ? sendRequest('session.tabs.createTerminal', params as never).then(() => ({
+                ok: true,
+                result: { tabId: 'terminal-2', created: true }
+              }))
+            : options === undefined
+              ? sendRequest(method, params as never)
+              : sendRequest(method, params as never, options as never),
+      subscribe
+    } as unknown as RpcClient
     const { client } = createMobileWebBridgeRoundtripFixture({
       context: CONTEXT,
       shellFeatures: [],
@@ -282,13 +307,10 @@ describe('mobile web bridge round trip', () => {
       tabId: 'terminal-2',
       created: true
     })
-    expect(sendRequest).toHaveBeenCalledWith('session.tabs.createTerminal', {
-      worktree: 'id:workspace-1',
-      activate: true,
-      select: true,
-      navigation: 'caller',
-      clientMutationId: 'W'.repeat(22)
-    })
+    expect(sendRequest).toHaveBeenCalledWith(
+      'session.tabs.createTerminal',
+      expect.objectContaining({ worktree: 'id:workspace-1', clientMutationId: expect.any(String) })
+    )
 
     await expect(
       client.sessionCreateBrowser({

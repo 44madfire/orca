@@ -35,13 +35,7 @@ export default function HostedSettingsRoute() {
             icon: Terminal,
             disabled: !shell.client,
             onPress: () => {
-              if (shell.client?.native.supports('pagePreferences')) {
-                router.push('/terminal-settings')
-              } else {
-                void shell.client
-                  ?.navigationRoute({ destination: 'terminalSettings' })
-                  .catch(() => {})
-              }
+              router.push('/terminal-settings')
             }
           },
           {

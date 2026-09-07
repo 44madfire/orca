@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
 import { webHostSessionDeviceOperations } from './web-host-session-device-operations'
+import { getDefaultTerminalAccessoryBuiltInIds } from '../terminal/terminal-accessory-layout'
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: { getItem: vi.fn(), setItem: vi.fn().mockResolvedValue(undefined) }
@@ -18,7 +19,10 @@ describe('web host session device operations', () => {
     vi.mocked(AsyncStorage.getItem).mockImplementation(async (key) =>
       key === 'orca:terminalLinkOpenMode' ? 'orca-browser' : null
     )
-    const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
+    const operations = webHostSessionDeviceOperations(
+      client as unknown as MobileWebBridgeClient,
+      vi.fn()
+    )
     await expect(operations.loadTerminalPreferences()).resolves.toEqual({
       textScale: 1.25,
       autocompleteEnabled: true,
@@ -30,17 +34,23 @@ describe('web host session device operations', () => {
   it('inherits the existing device mode until the host preference is saved', async () => {
     const client = bridgeClient()
     client.native.supports.mockReturnValue(true)
-    const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
+    const operations = webHostSessionDeviceOperations(
+      client as unknown as MobileWebBridgeClient,
+      vi.fn()
+    )
     expect((await operations.loadTerminalPreferences()).linkOpenMode).toBe('phone-browser')
     vi.mocked(AsyncStorage.getItem).mockRejectedValue(new Error('temporarily unavailable'))
     await expect(operations.loadTerminalPreferences()).rejects.toThrow('temporarily unavailable')
   })
 
-  it('retains the native preference on shells without page storage', async () => {
+  it('inherits the native preference until a page value is saved', async () => {
     const client = bridgeClient()
-    const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
+    const operations = webHostSessionDeviceOperations(
+      client as unknown as MobileWebBridgeClient,
+      vi.fn()
+    )
     expect((await operations.loadTerminalPreferences()).linkOpenMode).toBe('phone-browser')
-    expect(AsyncStorage.getItem).not.toHaveBeenCalled()
+    expect(AsyncStorage.getItem).toHaveBeenCalled()
   })
 
   it('uses saved scale and autocomplete and stores pinch changes in the same page scope', async () => {
@@ -83,7 +93,10 @@ describe('web host session device operations', () => {
     vi.mocked(AsyncStorage.getItem).mockImplementation(async (name) =>
       name === 'orca:custom-accessory-keys' ? '[]' : null
     )
-    const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
+    const operations = webHostSessionDeviceOperations(
+      client as unknown as MobileWebBridgeClient,
+      vi.fn()
+    )
     expect((await operations.loadTerminalAccessoryPreferences()).customKeys).toEqual([])
     await operations.saveTerminalCustomKeys([key])
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(
@@ -95,7 +108,10 @@ describe('web host session device operations', () => {
 
   it('routes shell-owned effects through named native bridge methods', async () => {
     const client = bridgeClient()
-    const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
+    const operations = webHostSessionDeviceOperations(
+      client as unknown as MobileWebBridgeClient,
+      vi.fn()
+    )
 
     operations.hapticFeedback('selection')
     await expect(operations.clipboardAvailability()).resolves.toEqual({
@@ -114,7 +130,7 @@ describe('web host session device operations', () => {
     })
     await expect(operations.loadTerminalAccessoryPreferences()).resolves.toEqual({
       customKeys: [],
-      orderedBuiltInIds: ['escape', 'tab'],
+      orderedBuiltInIds: getDefaultTerminalAccessoryBuiltInIds(),
       visibleBuiltInIds: ['escape']
     })
     await operations.saveTerminalCustomKeys([
@@ -126,19 +142,23 @@ describe('web host session device operations', () => {
     expect(client.native.clipboardAvailability).toHaveBeenCalledOnce()
     expect(client.native.clipboardWrite).toHaveBeenCalledWith('selected text')
     expect(client.native.openExternal).toHaveBeenCalledWith('https://example.com')
-    expect(client.navigationRoute).toHaveBeenCalledWith({ destination: 'terminalSettings' })
+    expect(client.navigationRoute).not.toHaveBeenCalled()
     expect(client.native.terminalPreferences).toHaveBeenCalledOnce()
     expect(client.native.terminalAccessoryPreferences).toHaveBeenCalledOnce()
-    expect(client.native.terminalCustomKeysUpdate).toHaveBeenCalledWith([
-      { id: 'custom-1', label: 'Build', bytes: 'pnpm build\r', enter: false }
-    ])
-    expect(client.native.terminalTextScaleUpdate).toHaveBeenCalledWith(1.5)
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      'orca:custom-accessory-keys',
+      JSON.stringify([{ id: 'custom-1', label: 'Build', bytes: 'pnpm build\r', enter: false }])
+    )
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith('orca:terminalTextScale', '1.5')
   })
 
   it('keeps nonessential haptic failures out of the interaction path', () => {
     const client = bridgeClient()
     client.native.hapticFeedback.mockRejectedValue(new Error('unavailable'))
-    const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
+    const operations = webHostSessionDeviceOperations(
+      client as unknown as MobileWebBridgeClient,
+      vi.fn()
+    )
 
     expect(() => operations.hapticFeedback('selection')).not.toThrow()
   })
@@ -160,7 +180,7 @@ function bridgeClient() {
       }),
       terminalAccessoryPreferences: vi.fn().mockResolvedValue({
         customKeys: [],
-        orderedBuiltInIds: ['escape', 'tab'],
+        orderedBuiltInIds: getDefaultTerminalAccessoryBuiltInIds(),
         visibleBuiltInIds: ['escape']
       }),
       terminalCustomKeysUpdate: vi.fn().mockResolvedValue(null),

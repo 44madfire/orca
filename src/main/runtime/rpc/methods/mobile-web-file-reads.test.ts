@@ -18,6 +18,8 @@ describe('page-safe host file reads', () => {
         rootPath: '/private/host/repository',
         relativePath: 'docs/readme.md',
         content: 'hello',
+        byteLength: 5,
+        truncated: false,
         files: [],
         futureField: { kind: 'new-domain-shape' }
       })
@@ -33,6 +35,8 @@ describe('page-safe host file reads', () => {
       expect(result).toEqual({
         relativePath: 'docs/readme.md',
         content: 'hello',
+        byteLength: 5,
+        truncated: false,
         files: [],
         futureField: { kind: 'new-domain-shape' }
       })

@@ -116,6 +116,8 @@ export const WORKTREE_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY =
   'worktree.create-idempotency.v1' as const
 export const CODEX_RESET_CREDIT_RUNTIME_CAPABILITY = 'accounts.codex-reset-credit.v1' as const
 export const ACCOUNT_IMPORT_RUNTIME_CAPABILITY = 'accounts.import-host-credentials.v1' as const
+export const MOBILE_WEB_HYBRID_BASELINE_RUNTIME_CAPABILITY = 'mobileWeb.hybrid.v1' as const
+
 export const MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY = 'mobileWeb.package.v1' as const
 export const MOBILE_WEB_PACKAGE_GZIP_RUNTIME_CAPABILITY = 'mobileWeb.package.gzip.v1' as const
 // Why: mobileWeb.package.asset.gzip's params schema is strict, so an optional `length`
@@ -267,6 +269,7 @@ export const RUNTIME_CAPABILITIES = [
   ACCOUNT_IMPORT_RUNTIME_CAPABILITY,
   CODEX_RESET_CREDIT_RUNTIME_CAPABILITY,
   MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY,
+  MOBILE_WEB_HYBRID_BASELINE_RUNTIME_CAPABILITY,
   MOBILE_WEB_PACKAGE_GZIP_RUNTIME_CAPABILITY,
   MOBILE_WEB_PACKAGE_RANGE_RUNTIME_CAPABILITY,
   SKILL_INSTALL_CAPABILITY,

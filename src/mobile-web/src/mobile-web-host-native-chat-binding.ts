@@ -9,13 +9,7 @@ export async function bindMobileWebHostNativeChat(
   tabId: string,
   method: string,
   options?: MobileWebBridgeRequestOptions
-): Promise<string | null> {
-  if (
-    !requests.supports('workspace', 'hostRequest') ||
-    !requests.supports('workspace', 'hostCatalog')
-  ) {
-    return null
-  }
+): Promise<string> {
   const deadline = options?.timeoutMs === undefined ? null : Date.now() + options.timeoutMs
   const remainingOptions = () => {
     if (deadline === null) {
@@ -30,7 +24,7 @@ export async function bindMobileWebHostNativeChat(
   const methods = ['mobileWeb.nativeChat.bind', method]
   const catalog = await readMobileWebHostMethods(requests, methods, remainingOptions())
   if (!methods.every((method) => catalog.grants.some((grant) => grant.method === method))) {
-    return null
+    throw new MobileWebBridgeClientError('unsupported_capability', false)
   }
   const bound = await requestMobileWebHost(
     requests,

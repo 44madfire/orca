@@ -1,26 +1,19 @@
 import {
-  MobileWebSessionAgentOptionsPayloadSchema,
-  MobileWebSessionAgentOptionsResultSchema,
   MobileWebSessionBrowserCreatePayloadSchema,
   MobileWebSessionBrowserCreateResultSchema,
   MobileWebSessionCapabilitiesPayloadSchema,
   MobileWebSessionCapabilitiesResultSchema,
   MobileWebSessionCloseResultSchema,
-  MobileWebSessionCreateAgentPayloadSchema,
-  MobileWebSessionCreatePayloadSchema,
-  MobileWebSessionCreateResultSchema,
   MobileWebSessionHostGatesPayloadSchema,
   MobileWebSessionHostGatesResultSchema,
   MobileWebSessionSnapshotPayloadSchema,
   MobileWebSessionTabActionPayloadSchema,
   type MobileWebSessionBrowserCreateResult,
-  type MobileWebSessionCloseResult,
-  type MobileWebSessionCreateResult
+  type MobileWebSessionCloseResult
 } from '../../../src/shared/mobile-web/bridge-operation-contract'
 import type { RpcClient } from '../transport/rpc-client'
 import { parseRuntimeStatusCapabilities } from '../transport/runtime-capability-probe'
 import { projectHostSessionRuntimeCapabilities } from '../session/host-session-runtime-capabilities'
-import { loadMobileNewTabAgentOptions } from '../session/mobile-new-tab-agent-loader'
 import type { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import {
   confineMobileWebBrowserFileUrl,
@@ -106,17 +99,6 @@ export async function executeMobileWebSessionOperation(args: {
       args.nativeChatAuthority
     )
   }
-  if (args.operation === 'agentOptions') {
-    const payload = MobileWebSessionAgentOptionsPayloadSchema.parse(args.payload)
-    const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-    const options = await loadMobileNewTabAgentOptions({
-      client: args.client,
-      worktreeId: hostWorkspaceId
-    })
-    return MobileWebSessionAgentOptionsResultSchema.parse({
-      agents: options.map((option) => option.agent)
-    })
-  }
   if (args.operation === 'activate') {
     const payload = MobileWebSessionTabActionPayloadSchema.parse(args.payload)
     const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
@@ -136,46 +118,6 @@ export async function executeMobileWebSessionOperation(args: {
       args.browserAuthority,
       args.nativeChatAuthority
     )
-  }
-  if (args.operation === 'create') {
-    const payload = MobileWebSessionCreatePayloadSchema.parse(args.payload)
-    const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-    const response = await args.client.sendRequest('session.tabs.createTerminal', {
-      worktree: `id:${hostWorkspaceId}`,
-      activate: true,
-      select: true,
-      navigation: 'caller',
-      clientMutationId: args.requestId
-    })
-    if (!response.ok) {
-      throw mobileWebBrokerHostRpcError(response.error)
-    }
-    return sanitizeCreateResult(response.result, payload.workspaceId)
-  }
-  if (args.operation === 'createAgent') {
-    const payload = MobileWebSessionCreateAgentPayloadSchema.parse(args.payload)
-    const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-    const options = await loadMobileNewTabAgentOptions({
-      client: args.client,
-      worktreeId: hostWorkspaceId
-    })
-    const selectedAgent = options.find((option) => option.agent === payload.agent)
-    if (!selectedAgent) {
-      throw new MobileWebBrokerError('invalid_request')
-    }
-    args.workspaceAuthority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
-    const response = await args.client.sendRequest('session.tabs.createTerminal', {
-      worktree: `id:${hostWorkspaceId}`,
-      agent: selectedAgent.agent,
-      activate: true,
-      select: true,
-      navigation: 'caller',
-      clientMutationId: args.requestId
-    })
-    if (!response.ok) {
-      throw mobileWebBrokerHostRpcError(response.error)
-    }
-    return sanitizeCreateResult(response.result, payload.workspaceId)
   }
   if (args.operation === 'createBrowser') {
     const payload = MobileWebSessionBrowserCreatePayloadSchema.parse(args.payload)
@@ -230,26 +172,6 @@ function sanitizeBrowserCreateResult(
   const parsed = MobileWebSessionBrowserCreateResultSchema.safeParse({
     workspaceId,
     browserPageId: browserAuthority.register(hostWorkspaceId, result.browserPageId)
-  })
-  if (!parsed.success) {
-    throw new MobileWebBrokerError('host_error')
-  }
-  return parsed.data
-}
-
-function sanitizeCreateResult(result: unknown, workspaceId: string): MobileWebSessionCreateResult {
-  if (
-    !isRecord(result) ||
-    !isRecord(result.tab) ||
-    result.tab.type !== 'terminal' ||
-    typeof result.tab.id !== 'string'
-  ) {
-    throw new MobileWebBrokerError('host_error')
-  }
-  const parsed = MobileWebSessionCreateResultSchema.safeParse({
-    workspaceId,
-    tabId: result.tab.id,
-    created: true
   })
   if (!parsed.success) {
     throw new MobileWebBrokerError('host_error')

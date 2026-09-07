@@ -11,9 +11,7 @@ import type { MobileWebCommitMessageGeneration } from './mobile-web-commit-messa
 import type { MobileWebNavigationAuthority } from './mobile-web-navigation-operations'
 import type { MobileWebNativeCapabilityAuthority } from './mobile-web-native-capability-authority'
 import type { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
-import type { MobileWebNativeChatSubscriptions } from './mobile-web-native-chat-subscriptions'
 import type { MobileWebSessionSubscriptions } from './mobile-web-session-subscriptions'
-import type { MobileWebSourceControlSubscriptions } from './mobile-web-source-control-subscriptions'
 import type { MobileWebSourceControlBranchComparePager } from './mobile-web-source-control-branch-compare-pager'
 import type { MobileWebSpeechAuthority } from './mobile-web-speech-authority'
 import type { MobileWebTaskTargetAuthority } from './mobile-web-task-target-authority'
@@ -39,9 +37,7 @@ export type MobileWebCapabilityExecutionDependencies = {
   hostSubscriptions: MobileWebHostSubscriptions
   accountSubscriptions: MobileWebAccountSubscriptions
   browserStreams: MobileWebBrowserStreams
-  nativeChatSubscriptions: MobileWebNativeChatSubscriptions
   sessionSubscriptions: MobileWebSessionSubscriptions
-  sourceControlSubscriptions: MobileWebSourceControlSubscriptions
   sourceControlBranchCompare: MobileWebSourceControlBranchComparePager
   speechAuthority: MobileWebSpeechAuthority
   workspaceSubscriptions: MobileWebWorkspaceSubscriptions

@@ -150,14 +150,30 @@ describe('hosted mobile bridge over cloud Relay transport', () => {
           reply(rpcSuccess(request.id, relaySessionSnapshot()))
           return
         }
-        if (request.method === 'nativeChat.readSession') {
+        if (request.method === 'mobileWeb.host.catalog') {
+          reply(
+            rpcSuccess(request.id, {
+              grants: ((request.params?.methods ?? []) as string[]).map((method) => ({
+                method,
+                workspaceParam: 'worktree',
+                pageSessionParam: 'pageSession',
+                maxRequestBytes: 16384,
+                maxResponseBytes: 524288
+              }))
+            })
+          )
+          return
+        }
+        if (request.method === 'mobileWeb.nativeChat.bind') {
+          reply(rpcSuccess(request.id, { resourceId: 'resource-chat' }))
+          return
+        }
+        if (request.method === 'mobileWeb.nativeChat.read') {
           expect(request.params).toEqual({
-            agent: 'codex',
-            sessionId: 'relay-provider-session',
-            limit: 40,
-            transcriptPath: '/private/relay-transcript.jsonl',
-            worktreeId: 'host-relay-workspace',
-            terminal: 'host-relay-terminal'
+            resourceId: 'resource-chat',
+            read: { limit: 40 },
+            worktree: 'id:host-relay-workspace',
+            pageSession: expect.any(String)
           })
           reply(
             rpcSuccess(request.id, {
@@ -359,11 +375,14 @@ describe('hosted mobile bridge over cloud Relay transport', () => {
     if (terminal?.type !== 'terminal' || !terminal.nativeChatSessionId) {
       throw new Error('expected opaque Relay native-chat authority')
     }
-    const transcript = await pageClient.nativeChat.read({
-      workspaceId: workspace.id,
-      sessionId: terminal.nativeChatSessionId,
-      limit: 40
-    })
+    const transcript = await pageClient.nativeChat.readForTab(
+      {
+        workspaceId: workspace.id,
+        sessionId: terminal.nativeChatSessionId,
+        limit: 40
+      },
+      terminal.id
+    )
     expect(transcript.messages).toEqual([
       {
         id: 'relay-message',
@@ -378,8 +397,11 @@ describe('hosted mobile bridge over cloud Relay transport', () => {
       'runtime.clientCapabilities.update',
       'worktree.ps',
       'session.tabs.list',
-      'session.tabs.list',
-      'nativeChat.readSession'
+      'mobileWeb.host.catalog',
+      'mobileWeb.host.catalog',
+      'mobileWeb.nativeChat.bind',
+      'mobileWeb.host.catalog',
+      'mobileWeb.nativeChat.read'
     ])
     expect(JSON.stringify({ sessionSnapshot, transcript })).not.toContain('relay-provider-session')
     expect(JSON.stringify({ sessionSnapshot, transcript })).not.toContain(

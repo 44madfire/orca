@@ -60,14 +60,6 @@ describe('mobile web terminal request contract', () => {
       { operation: 'attachImage', streamId: STREAM_ID, sequence: 4, source: 'library' },
       { operation: 'resize', streamId: STREAM_ID, viewport: { cols: 100, rows: 30 } },
       { operation: 'visibility', streamId: STREAM_ID, visible: false },
-      {
-        operation: 'displayMode',
-        streamId: STREAM_ID,
-        mode: 'auto',
-        viewport: { cols: 100, rows: 30 }
-      },
-      { operation: 'clear', streamId: STREAM_ID },
-      { operation: 'rename', streamId: STREAM_ID, title: 'Build' },
       { operation: 'resync', streamId: STREAM_ID, fromSequence: 3, reason: 'gap' },
       { operation: 'ack', streamId: STREAM_ID, throughSequence: 4 },
       { operation: 'cancel', streamId: STREAM_ID }

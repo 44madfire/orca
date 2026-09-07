@@ -2,7 +2,10 @@ import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MOBILE_WEB_BRIDGE_PROTOCOL_VERSION } from '../../../src/shared/mobile-web/bridge-contract'
-import { MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
+import {
+  MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY,
+  MOBILE_WEB_HYBRID_BASELINE_RUNTIME_CAPABILITY
+} from '../../../src/shared/protocol-version'
 import type { RpcClient } from '../transport/rpc-client'
 import type { ConnectionState, HostProfile } from '../transport/types'
 
@@ -72,7 +75,12 @@ describe('useMobileWebPackageSession', () => {
     downloadFailure.code = 'test_failure'
     sendRequest.mockReset().mockResolvedValue({
       ok: true,
-      result: { capabilities: [MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY] }
+      result: {
+        capabilities: [
+          MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY,
+          MOBILE_WEB_HYBRID_BASELINE_RUNTIME_CAPABILITY
+        ]
+      }
     })
   })
 
@@ -172,7 +180,12 @@ describe('useMobileWebPackageSession', () => {
     await act(async () => {
       status.resolve({
         ok: true,
-        result: { capabilities: [MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY] }
+        result: {
+          capabilities: [
+            MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY,
+            MOBILE_WEB_HYBRID_BASELINE_RUNTIME_CAPABILITY
+          ]
+        }
       })
       await status.promise
       await flushPromises()
@@ -211,12 +224,18 @@ describe('useMobileWebPackageSession', () => {
     expect(downloadPackage).toHaveBeenCalledTimes(refreshCount)
   })
 
-  it('removes cached UI and surfaces update-required for an unsupported connected host', async () => {
+  it.each([
+    { name: 'no package support', capabilities: [] },
+    {
+      name: 'package support without the hybrid baseline',
+      capabilities: [MOBILE_WEB_PACKAGE_RUNTIME_CAPABILITY]
+    }
+  ])('removes cached UI and requires a Desktop update for $name', async ({ capabilities }) => {
     native.openSession.mockResolvedValue(SESSION_A)
     await mount('disconnected')
     expect(packageSession?.session).toEqual(SESSION_A)
 
-    sendRequest.mockResolvedValue({ ok: true, result: { capabilities: [] } })
+    sendRequest.mockResolvedValue({ ok: true, result: { capabilities } })
     await act(async () => {
       renderer?.update(createElement(Harness, { state: 'connected' }))
       await flushPromises()

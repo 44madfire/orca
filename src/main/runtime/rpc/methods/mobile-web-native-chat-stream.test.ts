@@ -44,6 +44,54 @@ async function fixture() {
 }
 beforeEach(() => subscribe.mockReset())
 describe('opaque native-chat feed', () => {
+  it.each(['snapshot', 'appended', 'replaced'])(
+    'bounds large %s events and keeps the feed open',
+    async (type) => {
+      const f = await fixture()
+      let publish!: (event: unknown) => void
+      subscribe.mockImplementationOnce(async (_params, _context, emit) => {
+        publish = emit
+      })
+      const emit = vi.fn()
+      await MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD.handler(f.params, f.context, emit)
+      const messages = Array.from({ length: 8 }, (_, index) => ({
+        id: `message-${index}`,
+        blocks: [{ type: 'text', text: '界'.repeat(64_000), futureField: true }]
+      }))
+      publish({ type, messages, hasMore: true, beforeOffset: 42, futureLifecycle: 'new' })
+      publish({ type: 'appended', messages: [] })
+      const result = emit.mock.calls[1][0]
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(512 * 1024)
+      expect(result).toMatchObject({
+        type,
+        hasMore: true,
+        beforeOffset: 42,
+        futureLifecycle: 'new'
+      })
+      expect(result.messages).toHaveLength(8)
+      expect(result.messages[0].blocks[0]).toMatchObject({
+        text: expect.stringContaining('(truncated)'),
+        futureField: true
+      })
+      expect(emit.mock.calls[2][0]).toEqual({ type: 'appended', messages: [] })
+      expect(f.runtime.cleanupSubscription).not.toHaveBeenCalled()
+    }
+  )
+
+  it('closes and cleans up once when identity metadata alone exceeds the response budget', async () => {
+    const f = await fixture()
+    let publish!: (event: unknown) => void
+    subscribe.mockImplementationOnce(async (_params, _context, emit) => {
+      publish = emit
+    })
+    const emit = vi.fn()
+    await MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD.handler(f.params, f.context, emit)
+    publish({ type: 'snapshot', messages: [], futureMetadata: 'x'.repeat(600_000) })
+    publish({ type: 'appended', messages: [] })
+    expect(emit.mock.calls.map(([event]) => event.type)).toEqual(['ready', 'error'])
+    expect(f.runtime.cleanupSubscription).toHaveBeenCalledOnce()
+  })
+
   it('announces a private cleanup token and forwards future fields', async () => {
     const f = await fixture()
     const event = {

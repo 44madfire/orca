@@ -29,74 +29,6 @@ type CorrelationCase = {
 
 const CORRELATION_CASES: CorrelationCase[] = [
   {
-    name: 'file list request limit',
-    capability: 'file',
-    operation: 'list',
-    invoke: (client) => client.fileList({ workspaceId: WORKSPACE_ID, limit: 1 }),
-    result: {
-      workspaceId: WORKSPACE_ID,
-      files: [fileEntry('a.ts'), fileEntry('b.ts')],
-      totalCount: 2,
-      truncated: false
-    }
-  },
-  {
-    name: 'file directory request limit',
-    capability: 'file',
-    operation: 'directory',
-    invoke: (client) =>
-      client.fileDirectory({ workspaceId: WORKSPACE_ID, relativePath: 'src', limit: 1 }),
-    result: {
-      workspaceId: WORKSPACE_ID,
-      relativePath: 'src',
-      revision: 'a'.repeat(64),
-      entries: [
-        { name: 'a.ts', isDirectory: false, isSymlink: false },
-        { name: 'b.ts', isDirectory: false, isSymlink: false }
-      ],
-      truncated: false
-    }
-  },
-  {
-    name: 'Source Control status request limit',
-    capability: 'sourceControl',
-    operation: 'status',
-    invoke: (client) => client.sourceControlStatus({ workspaceId: WORKSPACE_ID, limit: 1 }),
-    result: {
-      workspaceId: WORKSPACE_ID,
-      branch: 'main',
-      conflictOperation: 'unknown',
-      entries: [statusEntry('a.ts'), statusEntry('b.ts')],
-      totalCount: 2,
-      truncated: false
-    }
-  },
-  {
-    name: 'Source Control diff request limit',
-    capability: 'sourceControl',
-    operation: 'diff',
-    invoke: (client) =>
-      client.sourceControlDiff({
-        workspaceId: WORKSPACE_ID,
-        relativePath: 'src/a.ts',
-        area: 'unstaged',
-        offset: 0,
-        limit: 1
-      }),
-    result: {
-      workspaceId: WORKSPACE_ID,
-      relativePath: 'src/a.ts',
-      area: 'unstaged',
-      kind: 'text',
-      revision: 'a'.repeat(64),
-      offset: 0,
-      totalRows: 2,
-      rows: [diffRow(0), diffRow(1)],
-      nextOffset: null,
-      truncated: false
-    }
-  },
-  {
     name: 'Source Control history request limit',
     capability: 'sourceControl',
     operation: 'history',
@@ -149,13 +81,6 @@ const CORRELATION_CASES: CorrelationCase[] = [
     operation: 'activate',
     invoke: (client) => client.sessionActivate({ workspaceId: WORKSPACE_ID, tabId: 'tab-1' }),
     result: sessionSnapshot({ activeTabId: 'tab-2', activeTabType: 'terminal' })
-  },
-  {
-    name: 'new session workspace',
-    capability: 'session',
-    operation: 'create',
-    invoke: (client) => client.sessionCreate({ workspaceId: WORKSPACE_ID }),
-    result: { workspaceId: OTHER_WORKSPACE_ID, tabId: 'tab-new', created: true }
   },
   {
     name: 'closed session tab',
@@ -277,19 +202,6 @@ const CORRELATION_CASES: CorrelationCase[] = [
     }
   },
   {
-    name: 'native chat page progression',
-    capability: 'nativeChat',
-    operation: 'read',
-    invoke: (client) =>
-      client.nativeChat.read({
-        workspaceId: WORKSPACE_ID,
-        sessionId: `native_chat_0_${'a'.repeat(32)}`,
-        limit: 10,
-        beforeOffset: 100
-      }),
-    result: { messages: [], hasMore: true, beforeOffset: 100 }
-  },
-  {
     name: 'account reset scope',
     capability: 'account',
     operation: 'consumeResetCredit',
@@ -381,25 +293,6 @@ function sessionSnapshot(overrides: Record<string, unknown> = {}) {
     tabs: [],
     truncated: false,
     ...overrides
-  }
-}
-
-function fileEntry(relativePath: string) {
-  return { relativePath, basename: relativePath, kind: 'text' }
-}
-
-function statusEntry(relativePath: string) {
-  return { relativePath, status: 'modified', area: 'unstaged' }
-}
-
-function diffRow(index: number) {
-  return {
-    index,
-    kind: 'context',
-    text: `line ${index}`,
-    textTruncated: false,
-    oldLineNumber: index + 1,
-    newLineNumber: index + 1
   }
 }
 

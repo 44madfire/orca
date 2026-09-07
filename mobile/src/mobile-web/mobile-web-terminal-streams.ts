@@ -13,7 +13,6 @@ import type {
   MobileWebPostSubscriptionClosed,
   MobileWebSubscriptionClosure
 } from './mobile-web-subscription-closure'
-import { runMobileWebTerminalAction } from './mobile-web-terminal-actions'
 import {
   acknowledgeMobileWebTerminalOutput,
   handleMobileWebHostTerminalFrame,
@@ -140,18 +139,6 @@ export class MobileWebTerminalStreams {
     if (!this.isAuthorized(record)) {
       this.retirement.retire(record, client, MOBILE_WEB_TERMINAL_AUTHORITY_CLOSURE)
       throw new MobileWebBrokerError('not_found')
-    }
-    if (
-      request.operation === 'displayMode' ||
-      request.operation === 'clear' ||
-      request.operation === 'rename'
-    ) {
-      return runMobileWebTerminalAction({
-        client,
-        clientId: this.options.clientId,
-        record,
-        request
-      }).then(() => null)
     }
     return handleMobileWebTerminalStreamRequest({
       client,

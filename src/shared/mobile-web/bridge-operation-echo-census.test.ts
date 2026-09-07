@@ -10,16 +10,11 @@ const PAGE_DIR = resolve(__dirname, '..', '..', 'mobile-web', 'src')
  * losing a field silently re-opens that swap. */
 const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
   'account.consumeResetCredit': ['scope'],
-  'file.directory': ['relativePath', 'workspaceId'],
-  'file.list': ['workspaceId'],
   'file.markdownDraftRead': ['relativePath', 'tabId', 'workspaceId'],
   'file.markdownRead': ['relativePath', 'tabId', 'workspaceId'],
   'file.markdownSave': ['relativePath', 'tabId', 'workspaceId'],
-  'file.read': ['relativePath', 'workspaceId'],
-  'file.readChunk': ['offset', 'relativePath', 'workspaceId'],
   'file.readTerminalArtifactChunk': ['offset', 'tabId', 'token', 'workspaceId'],
   'file.resolveTerminalPath': ['workspaceId'],
-  'file.search': ['workspaceId'],
   'file.write': ['byteLength', 'relativePath', 'revision', 'workspaceId'],
   'provider.manageReview': ['action', 'provider', 'reviewNumber', 'workspaceId'],
   'provider.mutateReview': ['provider', 'reviewNumber', 'workspaceId'],
@@ -48,8 +43,6 @@ const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
   ],
   'session.activate': ['activeTabId', 'workspaceId'],
   'session.close': ['tabId', 'workspaceId'],
-  'session.create': ['workspaceId'],
-  'session.createAgent': ['workspaceId'],
   'session.createBrowser': ['workspaceId'],
   'session.createQuickCommand': ['workspaceId'],
   'session.snapshot': ['workspaceId'],
@@ -60,7 +53,6 @@ const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
   'sourceControl.cancelCommitMessageGeneration': ['workspaceId'],
   'sourceControl.commit': ['previousHead', 'workspaceId'],
   'sourceControl.commitCompare': ['commitId', 'workspaceId'],
-  'sourceControl.diff': ['area', 'offset', 'relativePath', 'revision', 'workspaceId'],
   'sourceControl.discard': ['operation', 'relativePaths.length', 'workspaceId'],
   'sourceControl.fetch': ['operation', 'previousBranch', 'previousHead', 'workspaceId'],
   'sourceControl.generateCommitMessage': ['previousHead', 'workspaceId'],
@@ -74,7 +66,6 @@ const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
   'sourceControl.reviewMetadata': ['workspaceId'],
   'sourceControl.reviewMetadataUpdate': ['workspaceId'],
   'sourceControl.stage': ['operation', 'relativePaths.length', 'workspaceId'],
-  'sourceControl.status': ['workspaceId'],
   'sourceControl.unstage': ['operation', 'relativePaths.length', 'workspaceId'],
   'sourceControl.upstream': ['workspaceId'],
   'speech.configure': ['dictationMode', 'enabled', 'selectedModelId'],
@@ -311,7 +302,7 @@ describe('mobile web bridge operation echo census', () => {
     )
 
     expect(Object.keys(EXPECTED_ECHO_FIELDS).filter((key) => !registered.has(key))).toEqual([])
-    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(60)
+    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(55)
   })
 
   it('guards the page workspace handle on every workspace-scoped echo it records', () => {

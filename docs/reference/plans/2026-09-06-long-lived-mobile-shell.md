@@ -1,6 +1,15 @@
 # Long-lived mobile shell implementation tracker
 
+Final simplification validation passed: all ten code gates, Desktop main rebuild,
+serialized page export, full existing iOS adversarial/settings journey and Android
+adversarial smoke. Desktop adapters retain large-result bounds without shell
+fallbacks or changes to existing native RPCs. Broader domain/settings/CSP work
+remains incomplete; no released-binary certification is claimed.
+
 Owner: Codex. Branch: `mobile-rearch`. Commit locally; never push.
+
+Workflow preference: the primary agent coordinates delegated implementation and
+testing; one testing owner serializes page exports and emulator runs.
 
 ## Outcome and completion rule
 
@@ -10,48 +19,54 @@ secure transport/key storage, WebView/origin policy, background execution and
 package installation/recovery. The paired Desktop is trusted. Keep secrets out
 of page payloads and retain hard memory, size, rate and concurrency ceilings.
 
-A checked box means implemented and verified, with evidence below. Unit tests
-alone do not complete a platform journey. Keep legacy v2 paths for older cached
-pages; no protocol or manifest bump is planned.
+A checked box means implemented and verified at its cited checkpoint. Current-batch
+validation is stated separately below; historical passes do not certify later edits.
+Unit tests alone do not complete a platform journey. Hybrid is unshipped: no compatibility
+with intermediate PR shells/pages is required. No protocol or manifest bump.
 
-## Compatibility scope correction — audit completed
+## Compatibility scope — simplification validated
 
-User confirmed hybrid has zero released users. Preserve released native mobile →
-new Desktop behavior; hybrid → old Desktop may require a Desktop update. Earlier
-entries requiring compatibility with intermediate hybrid shells/pages are
-superseded by this decision, not evidence of shipped contracts.
+Released native mobile → new Desktop remains supported through existing native
+RPCs. Hybrid requires package support and `mobileWeb.hybrid.v1`; older Desktop
+builds show the existing Update Desktop UI. Intermediate hybrid shells/pages from
+this PR are unsupported. After first release, shell/page compatibility is real.
 
 The [simplification audit](./2026-09-06-hybrid-compatibility-simplification-audit.md)
-contains concrete removal targets and retained boundaries. Runtime cleanup has
-not been performed. First establish the final hybrid baseline through the existing
-Update Desktop UI, then remove completed slices’ hybrid fallbacks and their dead
-shell branches. Preserve native RPCs, real SSH compatibility, page-state/storage
-protections and currently unmigrated domain paths.
+now has its removal work implemented. Completed generic slices have one execution
+path. Removed 23 obsolete shell operations, dead projections/subscriptions and
+old-shell settings/feature fallbacks. Kept bounds, private IDs, dispatch guards,
+page-state/storage protection, real SSH compatibility and native RPCs.
 
 ## Current checkpoint
 
-Last reconciled: September 6, 2026, current host-settings integration batch.
-Implementation is **in progress**, not complete.
+Last reconciled: September 6, 2026, hybrid simplification batch.
+The **simplification is implemented and validated**. The broader
+long-lived shell implementation remains incomplete.
 
-Latest committed batch: host-scoped forwarding, native-chat file actions and
-session terminal creation (`ed6f610ecc1`); shared Terminal/About settings
-(`97c4a050ebe`); Terminal consumer fixture (`f2909d35392`). All code gates and
-export pass. Full iOS adversarial run passes, including Terminal preference
-persistence and actual session consumers. Android smoke passed. The extra
-frozen-shell crash-loop fixture is deferred outside the worktree.
+Previous checkpoint (`ed6f610ecc1`, `97c4a050ebe`, `f2909d35392`, `4f95f2f31d3`)
+passed all gates, full iOS and Android smoke. Those platform results predate this
+simplification. The first simplification iOS run exposed five concurrent page-storage
+reads against the four-read bridge limit when Terminal settings opened. Preference
+reads now run in sequence; a regression test failed before the fix and passes after it.
+Review also restored bounded directory/file and Source Control responses in Desktop
+adapters, plus a byte-aware native-chat read budget. The same budget consistently
+bounds native-chat stream messages; that stream limitation predates simplification.
+All ten final code gates pass in `/tmp/orca-ota-e2e/simplification-bounded-gates/`:
+845 mobile files / 5,551 passed tests / 3 skipped; 334 root files / 2,781 passed
+tests / 1 skipped. Desktop rebuild and serialized export passed. Both final
+platform runs exited 0 with `ok: true`; iOS verified the exact exported build.
 
-Immediate remaining verification: iOS Terminal settings interactions and normal
-page update delivery, then Android final smoke. The elaborate A→B→A crash-loop
-drill is deferred under the user’s YAGNI direction; existing rollback stays.
-After that, commit this batch. Larger remaining implementation: session and other
-domain consumers/feeds, remaining settings screens, native-process-death page
-resume, and CSP/bootstrap externalization. Details and proof criteria follow.
+Remaining product work: session snapshots/feeds and other mutations; remaining
+Source Control/task/review/account/file consumers; Voice/notification/diagnostic
+presentation and CSP/bootstrap externalization. Optional native-process-death
+resume improvements and the extra crash-loop drill remain deferred under YAGNI.
+Existing production rollback stays. No new recovery subsystem is planned.
 
 - [x] Investigate shell/host/page coupling and re-derive host-method census.
 - [x] Pin bridge protocol 2 and installed/cached package admission: `11646f11e0f`.
 - [x] First complete generic unary slice: `9910fccc298`.
       Desktop catalog, opaque workspace binding, source-control status/diff,
-      page-side presentation, legacy fallback, hard payload and concurrency bounds.
+      page-side presentation and hard payload/concurrency bounds; fallback removed in simplification.
 - [x] Directory and binary chunk reads use generic forwarding: `a8bbed52da4`.
 - [x] File lists/search/text use Desktop privacy adapters: `31024ff0316`.
 - [ ] Complete the generic bridge and migrate remaining domain consumers.
@@ -78,15 +93,52 @@ include legacy fallbacks and do not prove those generic adapters were exercised.
 Authenticated dispatch tests cover this gap. The corrected iOS adversarial harness
 passes; chat-specific and frozen-shell OTA journeys remain unverified.
 
-Next: migrate remaining domain operations and mutation fingerprint handling;
-wire hosted settings with their consumers and page-owned route restoration;
-finish bundle/CSP work and verify two-page replacement/rollback on a frozen shell.
+Next: broader follow-up is remaining
+domain operations and mutation fingerprint handling, remaining hosted settings and
+route restoration, then CSP/bootstrap work. Additional frozen-shell rollback testing remains deferred.
 The platform passes cover the existing harness, not these outstanding journeys.
 
 Prior investigation and exact gate tails are currently preserved in
 `/tmp/orca-review2/codex-ota-investigation.md` and
 `/tmp/orca-review2/codex-ota-report.md`. This tracked file is the ongoing status
 source; it must not depend on those temporary files to explain remaining work.
+
+## Current simplification validation
+
+| Gate                                           | Result                                             | Evidence                                                                                |
+| ---------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Four typecheck commands                        | Pass                                               | `simplification-bounded-gates/00.log`–`03.log`                                          |
+| Root/mobile lint                               | Pass; seven existing root warnings                 | `simplification-bounded-gates/04.log`–`05.log`                                          |
+| Changed code quality / React Doctor            | Pass; no new findings                              | `simplification-bounded-gates/06.log`–`07.log`                                          |
+| Mobile tests                                   | 845 files; 5,551 passed / 3 skipped                | `simplification-bounded-gates/08.log`                                                   |
+| Root bridge/page/RPC tests                     | 334 files; 2,781 passed / 1 skipped                | `simplification-bounded-gates/09.log`                                                   |
+| Desktop main rebuild                           | Pass                                               | `simplification-complete-desktop-build.log`                                             |
+| Page export                                    | Pass; 56 assets / 9,762,455 bytes / 2,800,127 gzip | `simplification-complete-export.log`                                                    |
+| iOS full existing adversarial/settings journey | Exit 0; `ok: true`; exact build activated          | `ios-simplification-complete.log` and `ios-simplification-complete/result.json`         |
+| Android adversarial smoke                      | Exit 0; `ok: true`; owned emulator stopped         | `android-simplification-complete.log` and `android-simplification-complete/result.json` |
+
+Evidence paths above are relative to `/tmp/orca-ota-e2e/`. All commands inherit
+`ORCA_BACKGROUND_LAUNCH=1`; exact exits are in `simplification-bounded-gates/results.json`.
+Export ran alone after code gates/Desktop rebuild; iOS then Android ran serially
+without source edits or concurrent builds/tests during Metro. Build:
+`d8674fc539d49adb8f9dd043c4f96d462468ecd24f7b008764901e82893bb078`.
+
+Visually inspected iOS Chat and Terminal screenshots (preference On; Large 125%
+and autocomplete On) and Android Tasks (adversarial title/error rendered as text).
+The iOS recovery banner follows the existing deliberate WebContent termination
+check. Terminal persistence also verified actual font/autocomplete/custom-shortcut
+consumers and restored defaults. Android does not exercise the settings UI.
+Both harnesses validate the expected headless Review-open error, not a successful
+Desktop renderer opening. Oversized native-chat response/feed behavior has regression
+tests; a dedicated rendered chat transcript journey remains open.
+
+No Kotlin/Swift source changed in this batch; platform runs reuse cached development
+shells. These runs do not certify released native binaries, real hardware, SSH-host
+platform interaction or the deferred two-page OTA/rollback scenario. Existing
+production rollback remains; extra crash-loop and process-death enhancements stay deferred.
+The first gate attempt found lint/fixture errors and an unrelated federation timing
+failure; all final gates passed after corrections. Failed logs remain under
+`simplification-bounded-gates-attempt1/` for traceability.
 
 ## 1. Establish a reproducible mobile test baseline
 
@@ -117,8 +169,8 @@ source; it must not depend on those temporary files to explain remaining work.
 - [ ] Extend remaining source-control, task, review and account consumers.
 - [ ] Keep errors useful for reconciliation without exposing transport keys,
       raw credentials or native private paths.
-- [ ] Remove projections from the active shell path; retain only compatibility
-      adapters required by cached legacy pages.
+- [x] Remove superseded projections/grants from completed generic slices.
+- [ ] Move projections still used by remaining domain operations to page/host.
 - [ ] Freeze the legacy domain-operation surface with a deliberate census:
       new domain operations use the generic lane, native additions stay explicit.
 
@@ -151,10 +203,10 @@ work and report a terminal closure to the surviving page.
 - [ ] Verify preferences across normal page update delivery. Additional rollback drill deferred.
 - [x] Replace hosted AsyncStorage's no-op behavior for page preferences through
       an explicit adapter; do not expose arbitrary native storage keys.
-- [x] Add bounded page-owned resume state and navigation intents, with legacy
-      fallback and current host/document fences.
-- [ ] Persist page-owned resume state across native process death and migrate
-      remaining domain route resolution; current page registry covers settings.
+- [x] Add bounded page-owned resume state and navigation intents, with current
+      host/document fences; intermediate-shell fallback removed.
+- [ ] Migrate remaining domain route resolution; current page registry covers settings.
+      Native-process-death resume enhancements are deferred (YAGNI).
 - [ ] Keep notification receipt and host selection native; let the page resolve
       domain routes after readiness. Never persist document-scoped opaque handles
       as though they remain valid after restart.
@@ -171,7 +223,8 @@ components. Reuse presentation; split native dependencies through adapters.
 - [ ] Voice and notification settings; native permission/model actions remain
       explicit capabilities.
 - [x] Shared Settings menu with hosted Chat/Browser entries.
-- [ ] About, diagnostics, connection-log and remaining Settings entries.
+- [x] About uses shared hosted/native presentation (`97c4a050ebe`); rendered proof remains open.
+- [ ] Diagnostics, connection-log and remaining Settings entries.
 - [ ] Preserve pairing/onboarding bootstrap and minimal offline recovery when
       no trusted healthy page is available.
 - [ ] Deliberately update route ownership, reachability and parity tests.
@@ -183,17 +236,18 @@ components. Reuse presentation; split native dependencies through adapters.
 - [ ] Keep manifest v1 exact keys, canonical hashes and rollback checks intact.
 - [x] Split content-addressed bundles before reaching the 10 MiB single-asset
       ceiling; remove the verifier's single-script assumption.
-- [ ] Test corruption, interrupted staging, activation health and rollback.
+- [ ] Verify ordinary package update delivery; retain existing corruption/staging/rollback tests.
+      Additional crash-loop drills are deferred (YAGNI).
 
 ## Compatibility contract
 
-| Combination                              | Required behavior                                                                                      |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Pre-generic old shell / new page         | Detect missing grants/features; use legacy adapters or show bounded feature unavailability.            |
-| Generic shell / future Desktop + page    | New domain methods, fields, events and routes need no APK within device capabilities/ceilings.         |
-| New shell / old page                     | Keep v2 framing, legacy handlers and cached `[2,2]` package admission.                                 |
-| Old cached page / new Desktop            | Keep legacy RPC methods and published semantics; additive catalog is unused.                           |
-| New page / older execution host over SSH | Negotiate host capabilities; no local substitution; loss of contact is `unverifiable`, never `exited`. |
+| Combination                                         | Required behavior                                                                                      |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Released native mobile / new Desktop                | Keep existing native RPC inputs, outputs and published semantics.                                      |
+| Hybrid / pre-baseline Desktop                       | Existing Update Desktop UI; no old-Desktop fallback.                                                   |
+| Intermediate PR hybrid shell/page                   | Unsupported; no released users to migrate.                                                             |
+| First released hybrid shell / future Desktop + page | Evolve within native capabilities/ceilings; preserve the shipped contract.                             |
+| New page / older execution host over SSH            | Negotiate host capabilities; no local substitution; loss of contact is `unverifiable`, never `exited`. |
 
 ## Verification and evidence
 
@@ -205,15 +259,18 @@ existing simulator harnesses are the starting point, not duplicate test apps.
       Evidence: `ios-chat-stream.log` (details in progress log).
 - [x] Android: same unattended adversarial journey plus bridge/privacy/exit-info
       audits. Evidence: `android-chat-stream.log` (details in progress log).
-- [ ] iOS: native-chat interactions and migrated settings routes.
+- [x] iOS: Chat, Browser and Terminal settings persistence/consumer fixtures at the
+      previous integration checkpoint and current simplification checkpoint.
+- [ ] iOS: dedicated native-chat interactions and About rendered proof.
 - [ ] iOS: reconnect, host switching, page restart, cached-page rollback and
       preference persistence across two desktop-served page builds on one shell.
-- [ ] Compatibility: old shell/new page, new shell/old page and cached page/new
-      Desktop, plus future method/event fixtures through the frozen shell contract.
+- [ ] Compatibility: representative released native client/new Desktop certification.
+- [x] Reject pre-baseline Desktop for hybrid; keep future method/event contract fixtures.
 - [ ] Android: install/start, package activation, generic unary/subscription,
       keyboard/back, settings persistence and restart/recovery.
-- [ ] Record physical-device-only gaps (push, thermal/battery, real background
-      restrictions and hardware permissions); do not claim simulator evidence for them.
+- [x] Record physical-device-only gaps: push, thermal/battery, real background
+      restrictions and hardware permissions remain unverified. Simulator passes
+      do not certify those behaviors.
 
 Per implementation commit:
 
@@ -242,6 +299,9 @@ store tests when native package/CSP behavior changes. Format only changed files
 with `pnpm exec oxfmt --write`.
 
 ## Progress log
+
+Historical checkpoints below retain their original evidence. Earlier hybrid fallback
+requirements and rollback plans are superseded by the current scope above.
 
 - Initial checkpoint: two commits above pass all required gates; mobile 831
   files / 5,493 tests, root 315 files / 2,686 tests. No platform journey was
@@ -656,6 +716,7 @@ Keep existing native rollback; defer the additional crash-loop drill and optiona
 resume enhancements while domain migrations remain. No new recovery machinery.
 
 Current assignments:
+
 - Session agent: next complete session/domain operation slice, preserving opaque
   identities and mixed-version behavior without duplicate authority feeds.
 - Settings agent: remaining page-owned settings presentation using existing

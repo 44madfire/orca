@@ -75,27 +75,19 @@ describe('generic requests scoped to a paired host', () => {
     await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({ code: 'cancelled' })
   })
 
-  it.each([true, false])(
-    'negotiates missing workspace fields before sending, feature=%s',
-    async (supported) => {
-      const { sendRequest, args } = fixture()
-      const f = createMobileWebBridgeRoundtripFixture({
-        grants: MOBILE_WEB_PRODUCTION_GRANTS,
-        rpcClient: args.client,
-        shellFeatures: supported ? ['workspace.hostScope.v1'] : []
-      })
-      const promise = f.client.host.request(args.payload)
-      if (supported) {
-        await expect(promise).resolves.toEqual({ futureField: { value: 42 } })
-        const message = f.pageMessages.find((frame) => frame.type === 'request')
-        expect(message).toMatchObject({ operation: 'hostRequest', payload: args.payload })
-      } else {
-        await expect(promise).rejects.toMatchObject({ code: 'unsupported_capability' })
-        expect(f.pageMessages).toEqual([])
-        expect(sendRequest).not.toHaveBeenCalled()
-      }
-    }
-  )
+  it('forwards host-scoped requests without an obsolete shell feature flag', async () => {
+    const { args } = fixture()
+    const f = createMobileWebBridgeRoundtripFixture({
+      grants: MOBILE_WEB_PRODUCTION_GRANTS,
+      rpcClient: args.client,
+      shellFeatures: []
+    })
+    await expect(f.client.host.request(args.payload)).resolves.toEqual({
+      futureField: { value: 42 }
+    })
+    const message = f.pageMessages.find((frame) => frame.type === 'request')
+    expect(message).toMatchObject({ operation: 'hostRequest', payload: args.payload })
+  })
 
   it('retains generic subscription cleanup for host-wide feeds', async () => {
     const { args, sendRequest } = fixture()

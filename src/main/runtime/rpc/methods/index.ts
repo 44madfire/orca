@@ -1,3 +1,4 @@
+import { MOBILE_WEB_SOURCE_CONTROL_READ_METHODS } from './mobile-web-source-control-reads'
 import { MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS } from './mobile-web-session-terminal-creation'
 import { MOBILE_WEB_NATIVE_CHAT_FILE_METHODS } from './mobile-web-native-chat-files'
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
@@ -111,6 +112,7 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...UPDATER_METHODS,
   MOBILE_WEB_HOST_CATALOG_METHOD,
   ...MOBILE_WEB_FILE_READ_METHODS,
+  ...MOBILE_WEB_SOURCE_CONTROL_READ_METHODS,
   MOBILE_WEB_FILE_WATCH_METHOD,
   ...MOBILE_WEB_TERMINAL_ACTION_METHODS,
   ...MOBILE_WEB_NATIVE_CHAT_METHODS,

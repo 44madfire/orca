@@ -374,7 +374,7 @@ describe('MobileWebTerminalStreams', () => {
     expect(prepareMobileWebImageAttachment).not.toHaveBeenCalled()
   })
 
-  it('maps display mode, rename, and clear to the resolved native terminal only', async () => {
+  it('rejects page-owned metadata actions on the shell stream', async () => {
     const harness = createHarness()
     await harness.streams.start({
       requestId: 'request-actions',
@@ -383,36 +383,17 @@ describe('MobileWebTerminalStreams', () => {
       client: harness.client,
       isRequestActive: () => true
     })
-
-    await harness.streams.handle(
-      {
-        operation: 'displayMode',
-        streamId: SUBSCRIPTION_ID,
-        mode: 'auto',
-        viewport: { cols: 90, rows: 30 }
-      },
-      harness.client
-    )
-    await harness.streams.handle(
+    harness.sendRequest.mockClear()
+    for (const request of [
+      { operation: 'displayMode', streamId: SUBSCRIPTION_ID, mode: 'auto' },
       { operation: 'rename', streamId: SUBSCRIPTION_ID, title: 'Build' },
-      harness.client
-    )
-    await harness.streams.handle({ operation: 'clear', streamId: SUBSCRIPTION_ID }, harness.client)
-
-    expect(harness.sendRequest).toHaveBeenCalledWith('terminal.setDisplayMode', {
-      terminal: 'terminal-secret',
-      mode: 'auto',
-      client: { id: 'device-secret', type: 'mobile' },
-      viewport: { cols: 90, rows: 30 }
-    })
-    expect(harness.sendRequest).toHaveBeenCalledWith('terminal.rename', {
-      terminal: 'terminal-secret',
-      title: 'Build'
-    })
-    expect(harness.sendRequest).toHaveBeenCalledWith('terminal.clearBuffer', {
-      terminal: 'terminal-secret'
-    })
-    expect(JSON.stringify(harness.sendRequest.mock.calls)).not.toContain(PAGE_WORKSPACE_ID)
+      { operation: 'clear', streamId: SUBSCRIPTION_ID }
+    ]) {
+      expect(() => harness.streams.handle(request, harness.client)).toThrow(
+        'unsupported_capability'
+      )
+    }
+    expect(harness.sendRequest).not.toHaveBeenCalled()
   })
 
   it('revokes an active stream when its opaque workspace binding disappears', async () => {

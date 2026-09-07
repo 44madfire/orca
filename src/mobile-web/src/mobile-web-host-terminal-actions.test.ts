@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindMobileWebHostTerminalActions } from './mobile-web-host-terminal-actions'
-import {
-  MobileWebTerminalRequestClient,
-  mobileWebTerminalClientBindings
-} from './mobile-web-terminal-request-client'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
@@ -61,39 +57,6 @@ describe('page-owned terminal metadata forwarding', () => {
           ((call as unknown[]).at(-1) as { signal: AbortSignal }).signal === f.signal
       )
     ).toBe(true)
-  })
-  it('requires both page-session and dispatch shell features before touching the generic lane', async () => {
-    const f = fixture()
-    for (const features of [
-      [],
-      ['workspace.hostPageSession.v1'],
-      ['workspace.hostRequestDispatch.v1']
-    ]) {
-      const client = mobileWebTerminalClientBindings(f.requests, new Set(features))
-      expect(client.prepareTerminalActions('w', 't', f.signal)).toBeNull()
-    }
-    expect(f.request).not.toHaveBeenCalled()
-    const client = mobileWebTerminalClientBindings(
-      f.requests,
-      new Set(['workspace.hostPageSession.v1', 'workspace.hostRequestDispatch.v1'])
-    )
-    expect(await client.prepareTerminalActions('w', 't', f.signal)).toBeTypeOf('function')
-  })
-  it('uses legacy only before action dispatch on old shells or missing host grants', async () => {
-    const f = fixture()
-    expect(
-      new MobileWebTerminalRequestClient(f.requests).prepareActions('w', 't', f.signal)
-    ).toBeNull()
-    expect(f.request).not.toHaveBeenCalled()
-    f.request.mockResolvedValueOnce({ grants: [] } as never)
-    await expect(
-      bindMobileWebHostTerminalActions(f.requests, 'w', 't', f.signal)
-    ).resolves.toBeNull()
-    expect(f.request).toHaveBeenCalledOnce()
-    f.request.mockRejectedValueOnce(new MobileWebBridgeClientError('unsupported_capability', false))
-    await expect(
-      bindMobileWebHostTerminalActions(f.requests, 'w', 't', f.signal)
-    ).resolves.toBeNull()
   })
   it.each(['timeout', 'unsupported_capability', 'host_error'] as const)(
     'does not retry after action returns %s',

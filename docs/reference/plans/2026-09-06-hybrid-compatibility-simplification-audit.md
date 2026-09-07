@@ -1,7 +1,14 @@
 # Hybrid compatibility simplification audit
 
+Current validation hold: review found that removed fallback paths had also bounded
+large directory/file/Source Control results. Desktop adapters now retain those
+bounds before generic forwarding, preserving existing native RPCs. The previously
+recorded final code/export passes predate these corrections; iOS was stopped before
+Metro and has no new pass. All final gates/export/platform checks must rerun.
+
 Audited September 6, 2026 at `6e949ece6c0`, branch `mobile-rearch`.
-This is a code audit and removal plan, not an implementation change.
+Removal plan implemented September 6, 2026; final validation is running.
+Findings below describe the audited checkpoint and motivate the completed changes.
 
 ## Decision
 
@@ -22,15 +29,15 @@ These page clients explicitly choose a generic operation or an older hybrid brid
 operation. They do not provide the RPC surface used by released native apps.
 Paths below are relative to `src/mobile-web/src/`.
 
-| Area | Files | Simplification |
-| --- | --- | --- |
-| File list/search/text/directory/chunk reads | `mobile-web-file-request-client.ts`, `mobile-web-file-read-request-client.ts` | Remove legacy closures and unsupported-host/shell fallback. Keep page-side validation, file presentation and decoding. Invalid input should fail directly. |
-| Source Control status/diff | `mobile-web-source-control-read-request-client.ts` | Use generic host reads directly. Keep page presentation and bounded results. |
-| Source Control watch | `mobile-web-source-control-host-subscription.ts` | Keep one host subscription; remove switching to the shell-owned subscription. Preserve cancellation, ready and cleanup. |
-| Native-chat reads/feed/mutations | `mobile-web-host-native-chat-read.ts`, `mobile-web-host-native-chat-subscription.ts`, `mobile-web-host-native-chat-mutation.ts`, `mobile-web-native-chat-request-client.ts` | Require baseline host binding/forwarding. Remove legacy operation selection. Keep private-resource resolution, current-document authority and mutation deadlines. |
-| Native-chat file actions | `mobile-web-native-chat-file-client.ts` | Require page tab identity for host binding; remove fallback to shell file adapters. Check all call sites before tightening the API. |
-| Session agent discovery and creation | `mobile-web-session-terminal-creation.ts`, `mobile-web-session-request-client.ts` | Remove legacy callbacks and old-shell constructor default. Retain workspace injection, mutation ID, deadline and no retry after ambiguous creation. |
-| Terminal clear/rename/display mode | `mobile-web-host-terminal-actions.ts`, `mobile-web-terminal-request-client.ts` | Make host metadata binding required, remove feature-selected legacy metadata actions. Keep terminal binary/input/device lanes. |
+| Area                                        | Files                                                                                                                                                                       | Simplification                                                                                                                                                    |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| File list/search/text/directory/chunk reads | `mobile-web-file-request-client.ts`, `mobile-web-file-read-request-client.ts`                                                                                               | Remove legacy closures and unsupported-host/shell fallback. Keep page-side validation, file presentation and decoding. Invalid input should fail directly.        |
+| Source Control status/diff                  | `mobile-web-source-control-read-request-client.ts`                                                                                                                          | Use generic host reads directly. Keep page presentation and bounded results.                                                                                      |
+| Source Control watch                        | `mobile-web-source-control-host-subscription.ts`                                                                                                                            | Keep one host subscription; remove switching to the shell-owned subscription. Preserve cancellation, ready and cleanup.                                           |
+| Native-chat reads/feed/mutations            | `mobile-web-host-native-chat-read.ts`, `mobile-web-host-native-chat-subscription.ts`, `mobile-web-host-native-chat-mutation.ts`, `mobile-web-native-chat-request-client.ts` | Require baseline host binding/forwarding. Remove legacy operation selection. Keep private-resource resolution, current-document authority and mutation deadlines. |
+| Native-chat file actions                    | `mobile-web-native-chat-file-client.ts`                                                                                                                                     | Require page tab identity for host binding; remove fallback to shell file adapters. Check all call sites before tightening the API.                               |
+| Session agent discovery and creation        | `mobile-web-session-terminal-creation.ts`, `mobile-web-session-request-client.ts`                                                                                           | Remove legacy callbacks and old-shell constructor default. Retain workspace injection, mutation ID, deadline and no retry after ambiguous creation.               |
+| Terminal clear/rename/display mode          | `mobile-web-host-terminal-actions.ts`, `mobile-web-terminal-request-client.ts`                                                                                              | Make host metadata binding required, remove feature-selected legacy metadata actions. Keep terminal binary/input/device lanes.                                    |
 
 Ten principal files in this table total 1,202 lines. That is an inspection
 footprint, NOT deletable lines or an estimate of time spent: those files also
@@ -157,4 +164,44 @@ optional resume improvements stay deferred under YAGNI.
    compatibility checks. Then continue the remaining domain moves directly,
    without adding another historical hybrid path.
 
-No runtime files were changed by this audit. All removal items remain pending.
+## Implementation status
+
+- [x] Require package support plus `mobileWeb.hybrid.v1`; package-only hosts show Update Desktop.
+- [x] Remove fallback selection from all completed generic slices in the table.
+- [x] Remove 23 superseded shell grants/dispatch operations and dead adapters.
+- [x] Remove legacy subscription-client entry points; retain generic subscriptions.
+- [x] Require page preferences, opaque page state and paste-followed-by-text baseline.
+- [x] Keep inherited native preference defaults and existing native device operations.
+- [x] Preserve released-native RPC implementations and protocol minimums unchanged.
+- [x] Final code gates, Desktop rebuild, serialized page export and iOS/Android smoke for this batch.
+
+Registry: 230 → 207 operations. Census updates retain operation/schema, echo,
+mutation authority, cancellation, bounds and privacy checks on the active paths.
+The native RPC surface is unchanged by this batch; released-binary mixed-version
+certification remains outside the ordinary hosted emulator fixtures.
+
+Final validation completed: Terminal preference reads are serialized against the
+existing four-request bridge ceiling, with regression coverage. Desktop adapters
+retain bounded directory/text and Source Control status/diff responses. Native-chat
+reads now bound serialized JSON bytes, preserving message identities, pagination
+and future fields where possible; oversized content is visibly truncated. Its existing
+generic feed reuses that budget for consistent behavior (the feed size limitation
+predates this simplification). Native RPC implementations remain unchanged.
+
+All ten code gates pass under `/tmp/orca-ota-e2e/simplification-bounded-gates/`:
+845 mobile files / 5,551 passed / 3 skipped; 334 root files / 2,781 passed / 1 skipped.
+Desktop main rebuild and isolated page export pass: 56 assets / 9,762,455 bytes /
+2,800,127 gzip; build `d8674fc539d49adb8f9dd043c4f96d462468ecd24f7b008764901e82893bb078`.
+iOS full existing adversarial/settings and Android adversarial smoke both exited 0
+with `ok: true`; iOS checked exact-build activation. Logs and extracted reports:
+`ios-simplification-complete.log`, `ios-simplification-complete/result.json`,
+`android-simplification-complete.log`, `android-simplification-complete/result.json`
+under `/tmp/orca-ota-e2e/`. The owned Android emulator was stopped.
+
+Inspected iOS Chat/Terminal and Android Tasks screenshots. Android settings and a
+dedicated rendered native-chat transcript journey remain unverified; headless Review
+opening exercises expected error presentation. This is development-shell emulator
+coverage, not released-binary mixed-version certification or a physical-device/SSH
+journey. Broader session/feed and remaining domain consumers, Voice/notification/
+diagnostics/CSP work remain. Optional process-death resume and extra crash-loop
+validation are deferred; existing production rollback is unchanged.

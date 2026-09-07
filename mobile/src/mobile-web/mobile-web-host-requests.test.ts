@@ -157,7 +157,7 @@ describe('host-advertised unary forwarding', () => {
         finishCatalog.push(() =>
           resolve({
             ok: true,
-            result: { grants: [{ ...grant, method: 'git.status' }] }
+            result: { grants: [{ ...grant, method: 'mobileWeb.sourceControl.status' }] }
           })
         )
       )
@@ -182,44 +182,52 @@ describe('host-advertised unary forwarding', () => {
     finishCatalog.forEach((finish) => finish())
   })
 
-  it.each([true, false])(
-    'renders status with catalog availability %s',
-    async (catalogAvailable) => {
-      const sendRequest = vi.fn<RpcClient['sendRequest']>().mockImplementation(async (method) => {
-        if (method === 'worktree.ps') {
-          return {
-            ok: true,
-            result: {
-              worktrees: [{ worktreeId: 'host-workspace', repo: '/repo', displayName: 'Workspace' }]
-            }
+  it('renders bounded Desktop status through the host catalog', async () => {
+    const sendRequest = vi.fn<RpcClient['sendRequest']>().mockImplementation(async (method) => {
+      if (method === 'worktree.ps') {
+        return {
+          ok: true,
+          result: {
+            worktrees: [{ worktreeId: 'host-workspace', repo: '/repo', displayName: 'Workspace' }]
           }
         }
-        if (method === 'mobileWeb.host.catalog') {
-          return catalogAvailable
-            ? { ok: true, result: { grants: [{ ...grant, method: 'git.status' }] } }
-            : { ok: false, error: { code: 'method_not_found', message: 'unavailable' } }
+      }
+      if (method === 'mobileWeb.host.catalog') {
+        return {
+          ok: true,
+          result: { grants: [{ ...grant, method: 'mobileWeb.sourceControl.status' }] }
         }
-        return { ok: true, result: { entries: [], conflictOperation: 'unknown', branch: 'main' } }
-      })
-      const { client, pageMessages } = createMobileWebBridgeRoundtripFixture({
-        grants: MOBILE_WEB_PRODUCTION_GRANTS,
-        rpcClient: { sendRequest } as unknown as RpcClient
-      })
-      const snapshot = await client.workspaceSnapshot({ limit: 10 })
-      const workspaceId = snapshot.workspaces[0]!.id
-      await expect(client.sourceControlStatus({ workspaceId, limit: 10 })).resolves.toMatchObject({
-        workspaceId,
-        branch: 'main',
-        entries: []
-      })
-      expect(
-        pageMessages.some(
-          (message) => message.type === 'request' && message.operation === 'hostRequest'
-        )
-      ).toBe(true)
-      expect(
-        pageMessages.some((message) => message.type === 'request' && message.operation === 'status')
-      ).toBe(!catalogAvailable)
-    }
-  )
+      }
+      expect(method).toBe('mobileWeb.sourceControl.status')
+      return {
+        ok: true,
+        result: {
+          entries: [],
+          conflictOperation: 'unknown',
+          branch: 'main',
+          totalCount: 0,
+          truncated: false
+        }
+      }
+    })
+    const { client, pageMessages } = createMobileWebBridgeRoundtripFixture({
+      grants: MOBILE_WEB_PRODUCTION_GRANTS,
+      rpcClient: { sendRequest } as unknown as RpcClient
+    })
+    const snapshot = await client.workspaceSnapshot({ limit: 10 })
+    const workspaceId = snapshot.workspaces[0]!.id
+    await expect(client.sourceControlStatus({ workspaceId, limit: 10 })).resolves.toMatchObject({
+      workspaceId,
+      branch: 'main',
+      entries: []
+    })
+    expect(
+      pageMessages.some(
+        (message) => message.type === 'request' && message.operation === 'hostRequest'
+      )
+    ).toBe(true)
+    expect(
+      pageMessages.some((message) => message.type === 'request' && message.operation === 'status')
+    ).toBe(false)
+  })
 })

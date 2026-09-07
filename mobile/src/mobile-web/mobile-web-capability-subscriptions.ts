@@ -9,8 +9,6 @@ import type { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import { MobileWebSessionSubscriptions } from './mobile-web-session-subscriptions'
 import type { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
-import { MobileWebNativeChatSubscriptions } from './mobile-web-native-chat-subscriptions'
-import { MobileWebSourceControlSubscriptions } from './mobile-web-source-control-subscriptions'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
 
@@ -18,9 +16,7 @@ export class MobileWebCapabilitySubscriptions {
   readonly host: MobileWebHostSubscriptions
   readonly account: MobileWebAccountSubscriptions
   readonly browser: MobileWebBrowserStreams
-  readonly nativeChat: MobileWebNativeChatSubscriptions
   readonly session: MobileWebSessionSubscriptions
-  readonly sourceControl: MobileWebSourceControlSubscriptions
   readonly workspace: MobileWebWorkspaceSubscriptions
   private readonly ledgers: MobileWebSubscriptionLedgerHandle[]
 
@@ -46,30 +42,13 @@ export class MobileWebCapabilitySubscriptions {
       workspaceAuthority: args.workspaceAuthority,
       browserAuthority: args.browserAuthority
     })
-    this.nativeChat = new MobileWebNativeChatSubscriptions({
-      ...shared,
-      nativeChatAuthority: args.nativeChatAuthority,
-      workspaceAuthority: args.workspaceAuthority
-    })
     this.session = new MobileWebSessionSubscriptions({
       ...shared,
       browserAuthority: args.browserAuthority,
       nativeChatAuthority: args.nativeChatAuthority
     })
-    this.sourceControl = new MobileWebSourceControlSubscriptions({
-      ...shared,
-      workspaceAuthority: args.workspaceAuthority
-    })
     this.workspace = new MobileWebWorkspaceSubscriptions(shared)
-    this.ledgers = [
-      this.host,
-      this.account,
-      this.browser,
-      this.nativeChat,
-      this.session,
-      this.sourceControl,
-      this.workspace
-    ]
+    this.ledgers = [this.host, this.account, this.browser, this.session, this.workspace]
   }
 
   countForOperation(operationKey: string): number {

@@ -1,6 +1,5 @@
 import { postPageMessage, postPageReady } from './native-shell-page-frames'
 import { MobileWebPageStateSchema } from '../../shared/mobile-web/bridge-route-contract'
-import { MOBILE_WEB_SHELL_PAGE_STATE_FEATURE } from '../../shared/mobile-web/shell-feature-contract'
 import { setMobileWebPagePreferencesClient } from './mobile-web-page-preferences-channel'
 import {
   createContext,
@@ -122,9 +121,7 @@ function useMobileWebNativeShellChannel(): MobileWebNativeShellState {
             version: MOBILE_WEB_BRIDGE_PROTOCOL_VERSION,
             ...nextContext,
             type: 'routeState',
-            ...(init.shellFeatures?.includes(MOBILE_WEB_SHELL_PAGE_STATE_FEATURE)
-              ? { pageState }
-              : {}),
+            pageState,
             route
           })
         }

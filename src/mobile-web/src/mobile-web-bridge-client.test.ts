@@ -128,8 +128,8 @@ describe('mobile web bridge client', () => {
       context: CONTEXT,
       grants: [
         {
-          capability: 'file',
-          operation: 'directory',
+          capability: 'workspace',
+          operation: 'hostRequest',
           limits: {
             maxRequestBytes: 4096,
             maxResponseBytes: 64 * 1024,

@@ -1,6 +1,9 @@
 import { MobileWebNativeChatFileClient } from './mobile-web-native-chat-file-client'
 import { mutateMobileWebHostNativeChat } from './mobile-web-host-native-chat-mutation'
-import { subscribeMobileWebHostNativeChat } from './mobile-web-host-native-chat-subscription'
+import {
+  subscribeMobileWebHostNativeChat,
+  type MobileWebNativeChatSubscriptionArgs
+} from './mobile-web-host-native-chat-subscription'
 import type { MobileWebBridgeSubscriptionClient } from './mobile-web-bridge-subscription-client'
 import { readMobileWebHostNativeChat } from './mobile-web-host-native-chat-read'
 import {
@@ -10,18 +13,10 @@ import {
   MobileWebNativeChatPendingReadResultSchema,
   MobileWebNativeChatPendingWritePayloadSchema,
   MobileWebNativeChatPendingWriteResultSchema,
-  MobileWebNativeChatReadPayloadSchema,
-  MobileWebNativeChatReadResultSchema,
   MobileWebNativeChatPasteImagesPayloadSchema,
   MobileWebNativeChatPasteImagesResultSchema,
-  MobileWebNativeChatPrepareCommitPayloadSchema,
-  MobileWebNativeChatPrepareCommitResultSchema,
   MobileWebNativeChatReleaseImagesPayloadSchema,
   MobileWebNativeChatReleaseImagesResultSchema,
-  MobileWebNativeChatRespondPayloadSchema,
-  MobileWebNativeChatSendMessagePayloadSchema,
-  MobileWebNativeChatSendResultSchema,
-  MobileWebNativeChatStopPayloadSchema,
   type MobileWebNativeChatFileSearchPayload,
   type MobileWebNativeChatFileSearchResult,
   type MobileWebNativeChatAttachImagePayload,
@@ -31,7 +26,6 @@ import {
   type MobileWebNativeChatPendingReadResult,
   type MobileWebNativeChatPendingWritePayload,
   type MobileWebNativeChatReadPayload,
-  type MobileWebNativeChatReadResult,
   type MobileWebNativeChatReadabilityPayload,
   type MobileWebNativeChatPasteImagesPayload,
   type MobileWebNativeChatPrepareCommitPayload,
@@ -49,54 +43,17 @@ export class MobileWebNativeChatRequestClient {
   private readonly files: MobileWebNativeChatFileClient
   constructor(
     private readonly requests: MobileWebOneShotRequestClient,
-    private readonly hostPageSession = false,
-    private readonly subscriptions?: MobileWebBridgeSubscriptionClient,
-    private readonly hostRequestDispatch = false
+    private readonly subscriptions: MobileWebBridgeSubscriptionClient
   ) {
-    this.files = new MobileWebNativeChatFileClient(requests, hostPageSession, hostRequestDispatch)
+    this.files = new MobileWebNativeChatFileClient(requests)
   }
 
-  subscribeForTab(
-    tabId: string,
-    ...args: Parameters<MobileWebBridgeSubscriptionClient['subscribeNativeChat']>
-  ) {
-    if (!this.subscriptions) {
-      throw new MobileWebBridgeClientError('unsupported_capability', false)
-    }
-    return this.hostPageSession
-      ? subscribeMobileWebHostNativeChat(this.requests, this.subscriptions, tabId, ...args)
-      : this.subscriptions.subscribeNativeChat(...args)
+  subscribeForTab(tabId: string, ...args: MobileWebNativeChatSubscriptionArgs) {
+    return subscribeMobileWebHostNativeChat(this.requests, this.subscriptions, tabId, ...args)
   }
 
   readForTab(payload: MobileWebNativeChatReadPayload, tabId: string) {
-    if (!this.hostPageSession) {
-      return this.read(payload)
-    }
-    return readMobileWebHostNativeChat(this.requests, { ...payload, tabId }, () =>
-      this.read(payload)
-    )
-  }
-
-  read(payload: MobileWebNativeChatReadPayload): Promise<MobileWebNativeChatReadResult> {
-    return this.requests
-      .request(
-        'nativeChat',
-        'read',
-        payload,
-        MobileWebNativeChatReadPayloadSchema,
-        MobileWebNativeChatReadResultSchema
-      )
-      .then((result) => {
-        if (
-          result.messages.length > payload.limit ||
-          (result.hasMore &&
-            (result.beforeOffset === undefined ||
-              (payload.beforeOffset !== undefined && result.beforeOffset >= payload.beforeOffset)))
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+    return readMobileWebHostNativeChat(this.requests, { ...payload, tabId })
   }
 
   sendMessage(
@@ -104,24 +61,10 @@ export class MobileWebNativeChatRequestClient {
     options?: MobileWebBridgeRequestOptions,
     tabId?: string
   ): Promise<MobileWebNativeChatSendResult> {
-    if (tabId && this.hostPageSession && this.hostRequestDispatch) {
-      return mutateMobileWebHostNativeChat(
-        this.requests,
-        'sendMessage',
-        payload,
-        tabId,
-        () => this.sendMessage(payload, options),
-        options
-      )
+    if (!tabId) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
     }
-    return this.requests.request(
-      'nativeChat',
-      'sendMessage',
-      payload,
-      MobileWebNativeChatSendMessagePayloadSchema,
-      MobileWebNativeChatSendResultSchema,
-      options
-    )
+    return mutateMobileWebHostNativeChat(this.requests, 'sendMessage', payload, tabId, options)
   }
 
   prepareCommit(
@@ -129,24 +72,10 @@ export class MobileWebNativeChatRequestClient {
     options?: MobileWebBridgeRequestOptions,
     tabId?: string
   ): Promise<{ prepared: boolean }> {
-    if (tabId && this.hostPageSession && this.hostRequestDispatch) {
-      return mutateMobileWebHostNativeChat(
-        this.requests,
-        'prepareCommit',
-        payload,
-        tabId,
-        () => this.prepareCommit(payload, options),
-        options
-      )
+    if (!tabId) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
     }
-    return this.requests.request(
-      'nativeChat',
-      'prepareCommit',
-      payload,
-      MobileWebNativeChatPrepareCommitPayloadSchema,
-      MobileWebNativeChatPrepareCommitResultSchema,
-      options
-    )
+    return mutateMobileWebHostNativeChat(this.requests, 'prepareCommit', payload, tabId, options)
   }
 
   respond(
@@ -154,24 +83,10 @@ export class MobileWebNativeChatRequestClient {
     options?: MobileWebBridgeRequestOptions,
     tabId?: string
   ): Promise<MobileWebNativeChatSendResult> {
-    if (tabId && this.hostPageSession && this.hostRequestDispatch) {
-      return mutateMobileWebHostNativeChat(
-        this.requests,
-        'respond',
-        payload,
-        tabId,
-        () => this.respond(payload, options),
-        options
-      )
+    if (!tabId) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
     }
-    return this.requests.request(
-      'nativeChat',
-      'respond',
-      payload,
-      MobileWebNativeChatRespondPayloadSchema,
-      MobileWebNativeChatSendResultSchema,
-      options
-    )
+    return mutateMobileWebHostNativeChat(this.requests, 'respond', payload, tabId, options)
   }
 
   stop(
@@ -179,24 +94,10 @@ export class MobileWebNativeChatRequestClient {
     options?: MobileWebBridgeRequestOptions,
     tabId?: string
   ): Promise<MobileWebNativeChatSendResult> {
-    if (tabId && this.hostPageSession && this.hostRequestDispatch) {
-      return mutateMobileWebHostNativeChat(
-        this.requests,
-        'stop',
-        payload,
-        tabId,
-        () => this.stop(payload, options),
-        options
-      )
+    if (!tabId) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
     }
-    return this.requests.request(
-      'nativeChat',
-      'stop',
-      payload,
-      MobileWebNativeChatStopPayloadSchema,
-      MobileWebNativeChatSendResultSchema,
-      options
-    )
+    return mutateMobileWebHostNativeChat(this.requests, 'stop', payload, tabId, options)
   }
 
   attachImage(
