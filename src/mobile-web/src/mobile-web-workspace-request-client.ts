@@ -1,6 +1,8 @@
 import {
+  MobileWebWorkspaceActivationResultSchema,
   MobileWebWorkspaceSnapshotPayloadSchema,
   MobileWebWorkspaceSnapshotResultSchema,
+  MobileWebWorkspaceViewSettingsSchema,
   type MobileWebWorkspaceActivationPayload,
   type MobileWebWorkspaceActivationResult,
   type MobileWebWorkspaceRemovePayload,
@@ -10,10 +12,6 @@ import {
   type MobileWebWorkspaceUpdatePayload,
   type MobileWebWorkspaceUpdateResult,
   type MobileWebWorkspaceViewSettings
-} from '../../shared/mobile-web/bridge-operation-contract'
-import {
-  MobileWebWorkspaceActivationResultSchema,
-  MobileWebWorkspaceViewSettingsSchema
 } from '../../shared/mobile-web/bridge-operation-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { requestMobileWebHost } from './mobile-web-host-request-client'

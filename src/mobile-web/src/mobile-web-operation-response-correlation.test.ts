@@ -146,9 +146,6 @@ function sessionSnapshot(overrides: Record<string, unknown> = {}) {
   }
 }
 
-
-
-
 function resetScope(overrides: Record<string, unknown> = {}) {
   return {
     target: { runtime: 'host' as const, wslDistro: null },

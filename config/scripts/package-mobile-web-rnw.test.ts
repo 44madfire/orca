@@ -5,11 +5,15 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MobileWebPackageAssets } from '../../src/main/runtime/rpc/mobile-web-package-assets'
 import { MOBILE_WEB_PACKAGE_BRIDGE_RANGE } from '../../src/shared/mobile-web/bridge-limits'
-import { MOBILE_WEB_MARKDOWN_EDITOR_PATH } from '../../mobile/src/components/markdown-editor-document'
-import { MobileWebManifestSchema } from '../../src/shared/mobile-web/manifest-contract'
-import { MOBILE_WEB_MERMAID_FRAME_PATH } from '../../mobile/src/components/pr-sidebar/mermaid-frame-document'
+import {
+  MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS,
+  MobileWebManifestSchema
+} from '../../src/shared/mobile-web/manifest-contract'
 
 const execFileAsync = promisify(execFile)
+// Why: root vitest must not load mobile/ sources; CI's root job has no Expo toolchain.
+const [MOBILE_WEB_MARKDOWN_EDITOR_PATH, MOBILE_WEB_MERMAID_FRAME_PATH] =
+  MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS
 const temporaryRoots: string[] = []
 
 afterEach(async () => {

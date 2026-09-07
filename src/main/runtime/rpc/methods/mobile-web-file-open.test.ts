@@ -7,14 +7,12 @@ function fixture(tabs: unknown[]) {
   const runtime = {
     openMobileFile: vi.fn().mockResolvedValue({ worktree: 'workspace', opened: true }),
     openMobileDiff: vi.fn().mockResolvedValue({ worktree: 'workspace', opened: true }),
-    listMobileSessionTabs: vi
-      .fn()
-      .mockResolvedValue({
-        worktree: 'workspace',
-        publicationEpoch: 'e',
-        snapshotVersion: 1,
-        tabs
-      }),
+    listMobileSessionTabs: vi.fn().mockResolvedValue({
+      worktree: 'workspace',
+      publicationEpoch: 'e',
+      snapshotVersion: 1,
+      tabs
+    }),
     activateMobileSessionTab: vi
       .fn()
       .mockResolvedValue({ worktree: 'workspace', activeTabId: 'tab-1', tabs })

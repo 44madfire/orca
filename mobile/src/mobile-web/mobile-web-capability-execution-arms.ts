@@ -98,7 +98,6 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
     speech: executeSpeech
   }
 
-
 async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Promise<unknown> {
   if (request.operation !== 'hostSubscribe') {
     throw new MobileWebBrokerError('unsupported_capability')

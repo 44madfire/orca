@@ -1,15 +1,14 @@
 import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { MOBILE_WEB_MARKDOWN_EDITOR_PATH } from '../../mobile/src/components/markdown-editor-document'
 import {
-  MOBILE_WEB_MERMAID_FRAME_PATH,
-  buildMobileWebMermaidFrameDocument
-} from '../../mobile/src/components/pr-sidebar/mermaid-frame-document'
-import {
+  MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS,
   MOBILE_WEB_MANIFEST_SCHEMA_VERSION,
   serializeMobileWebManifestForBuildId
 } from '../../src/shared/mobile-web/manifest-contract'
+
+const [MOBILE_WEB_MARKDOWN_EDITOR_PATH, MOBILE_WEB_MERMAID_FRAME_PATH] =
+  MOBILE_WEB_EMBEDDED_DOCUMENT_PATHS
 
 export async function createPackagedCliResourceFixture(resourcesDir) {
   const cliDir = join(resourcesDir, 'app.asar.unpacked', 'out', 'cli')
@@ -40,10 +39,7 @@ export async function createMobileWebResourceFixture(resourcesDir) {
     'utf8'
   )
   const mermaidFrame = Buffer.from(
-    buildMobileWebMermaidFrameDocument({
-      theme: { background: 'black', primary: 'gray', text: 'white', line: 'silver' },
-      script: { src: `./${mermaidScript.path}` }
-    }),
+    `<!doctype html><html><body><script src="./${mermaidScript.path}"></script></body></html>`,
     'utf8'
   )
   const markdownEditor = Buffer.from(

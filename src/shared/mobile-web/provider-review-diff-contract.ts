@@ -4,11 +4,9 @@ import {
   MobileWebWorkspaceIdSchema
 } from './bridge-operation-contract'
 import {
-  MobileWebProviderReviewHostScope,
-  MobileWebProviderReviewPageScope
-} from './provider-review-contract'
-import {
   MobileWebProviderReviewHeadSchema,
+  MobileWebProviderReviewHostScope,
+  MobileWebProviderReviewPageScope,
   MobileWebProviderReviewProviderSchema
 } from './provider-review-contract'
 import { isMobileWebSha256 } from './protocol-token-contract'

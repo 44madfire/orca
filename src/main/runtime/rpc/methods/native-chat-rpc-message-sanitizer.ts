@@ -14,7 +14,10 @@ function sanitizeMessage(
   message: NativeChatMessage,
   clientKind: RpcContext['clientKind']
 ): NativeChatMessage {
-  return { ...message, blocks: message.blocks.map((block) => sanitizeNativeChatRpcBlock(block, clientKind)) }
+  return {
+    ...message,
+    blocks: message.blocks.map((block) => sanitizeNativeChatRpcBlock(block, clientKind))
+  }
 }
 
 export function sanitizeAppendForClient(

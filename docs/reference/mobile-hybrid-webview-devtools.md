@@ -110,8 +110,8 @@ is the CDP endpoint.
 
 Attach either way:
 
-- **Chrome**: open `chrome://inspect`, add `127.0.0.1:<port>` under *Discover network
-  targets*, then click *inspect* on the hosted target.
+- **Chrome**: open `chrome://inspect`, add `127.0.0.1:<port>` under _Discover network
+  targets_, then click _inspect_ on the hosted target.
 - **playwright-cli**: `playwright-cli attach --cdp http://127.0.0.1:<port>`.
 
 Tear the forward down with `adb -s <serial> forward --remove tcp:<port>`.

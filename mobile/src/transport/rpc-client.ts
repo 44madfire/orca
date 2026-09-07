@@ -24,7 +24,6 @@ export type RpcRequestReply =
   | { ok: true; result: unknown }
   | { ok: false; error?: { code?: string; message?: string } }
 
-
 type StreamingListener = (result: unknown) => void
 
 export type RpcClient = {
