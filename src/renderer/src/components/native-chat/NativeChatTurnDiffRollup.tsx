@@ -15,12 +15,8 @@ export function NativeChatTurnDiffRollup({
   return (
     <Collapsible className="text-xs text-muted-foreground">
       <CollapsibleTrigger asChild>
-        <Button variant="ghost" size="xs" className="group gap-1.5">
-          <ChevronRight
-            aria-hidden
-            className="size-3.5 transition-transform group-data-[state=open]:rotate-90 motion-reduce:transition-none"
-          />
-          <span>
+        <Button variant="ghost" size="xs" className="group w-full min-w-0 justify-start gap-1.5">
+          <span className="min-w-0 truncate">
             {diff.files.length === 1
               ? translate('components.native-chat.turnDiff.one', '1 changed file')
               : translate('components.native-chat.turnDiff.many', '{{count}} changed files', {
@@ -31,9 +27,13 @@ export function NativeChatTurnDiffRollup({
           {diff.truncated ? (
             <span>{translate('components.native-chat.turnDiff.partial', 'Partial diff')}</span>
           ) : null}
+          <ChevronRight
+            aria-hidden
+            className="ml-auto size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90 motion-reduce:transition-none"
+          />
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-1 space-y-1">
+      <CollapsibleContent className="mt-1 space-y-1 pl-4">
         <p className="px-2">
           {translate(
             'components.native-chat.turnDiff.recorded',
