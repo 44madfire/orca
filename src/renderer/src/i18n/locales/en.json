@@ -9681,7 +9681,15 @@
             "committedChanges": "committed changes",
             "diffBase": "diff base",
             "openDiffsInSideSplitTitle": "Open Diffs in a Side Split",
-            "openDiffsInSideSplitDescription": "Source Control diff previews open in a dedicated split beside your current tabs instead of covering the active tab group. Clicking through changed files keeps recycling the preview in that split."
+            "openDiffsInSideSplitDescription": "Source Control diff previews open in a dedicated split beside your current tabs instead of covering the active tab group. Clicking through changed files keeps recycling the preview in that split.",
+            "diffSplit": "diff split",
+            "sideSplit": "side split",
+            "splitRight": "split right",
+            "previewSplit": "preview split",
+            "diffPreview": "diff preview",
+            "openDiff": "open diff",
+            "reviewLayout": "review layout",
+            "tabGroup": "tab group"
           }
         },
         "input": {
