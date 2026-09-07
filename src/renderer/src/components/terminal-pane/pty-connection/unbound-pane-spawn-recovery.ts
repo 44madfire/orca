@@ -5,20 +5,30 @@ import {
   type TerminalPaneRecoveryReason
 } from '../terminal-pane-recovery'
 import {
-  TRANSPORT_CONNECT_SETTLE_GRACE_MS,
+  SPAWN_SETTLEMENT_WATCHDOG_MS,
   pendingSpawnByPaneKey,
   pendingSpawnGenerationByPaneKey
 } from './pty-connect-limits'
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
-// Why a module-level set: a promise is already a unique identity, so arming from
-// both the fresh spawn and a remount's pending-spawn adoption cannot double-time it.
-const spawnSettlementTimedPromises = new WeakSet<Promise<unknown>>()
-// Why keyed on the spawn and not on the arming call: a remount adopts a pending
-// spawn it did not start, so a flag passed by the caller would be lost exactly
-// when the arming pane was disposed before it could arm — the one case where the
-// adopter's own arming is what runs.
-const resumeShapedSpawns = new WeakSet<Promise<unknown>>()
+type SpawnSettlementRecord = { resumesProviderSession: boolean; armed: boolean }
+
+// Why keyed on the spawn rather than on the pane or the arming call: both facts are
+// properties of the spawn and must survive a remount adopting it under the same pane
+// key. A pane key is reused and a promise outlives the session that started it, so a
+// caller-passed flag is lost exactly when the arming pane was disposed before it could
+// arm — the one case where the adopter's own arming is what runs.
+const spawnSettlementBySpawn = new WeakMap<Promise<unknown>, SpawnSettlementRecord>()
+
+function spawnSettlementRecord(trackedPromise: Promise<unknown>): SpawnSettlementRecord {
+  const existing = spawnSettlementBySpawn.get(trackedPromise)
+  if (existing) {
+    return existing
+  }
+  const record: SpawnSettlementRecord = { resumesProviderSession: false, armed: false }
+  spawnSettlementBySpawn.set(trackedPromise, record)
+  return record
+}
 
 function remountUnboundPane(
   session: ConnectPanePtySession,
@@ -73,10 +83,10 @@ export function observeSpawnSettlement(
   trackedPromise: Promise<string | null>,
   options: { resumesProviderSession?: boolean } = {}
 ): void {
-  // Recorded before arming, so a pane disposed too early to arm still hands the
-  // flag to whichever remount adopts this spawn.
+  // Classified before arming, so a pane disposed too early to arm still hands the
+  // classification to whichever remount adopts this spawn.
   if (options.resumesProviderSession === true) {
-    resumeShapedSpawns.add(trackedPromise)
+    spawnSettlementRecord(trackedPromise).resumesProviderSession = true
   }
   armSpawnSettlementWatchdog(session, trackedPromise)
   void trackedPromise.then((spawnedPtyId) => {
@@ -110,10 +120,11 @@ export function armSpawnSettlementWatchdog(
   session: ConnectPanePtySession,
   trackedPromise: Promise<string | null>
 ): void {
-  if (session.disposed || spawnSettlementTimedPromises.has(trackedPromise)) {
+  const settlement = spawnSettlementRecord(trackedPromise)
+  if (session.disposed || settlement.armed) {
     return
   }
-  spawnSettlementTimedPromises.add(trackedPromise)
+  settlement.armed = true
   const { pendingSpawnKey } = session
   const tabId = session.deps.tabId
   const timer = setTimeout(() => {
@@ -130,7 +141,7 @@ export function armSpawnSettlementWatchdog(
     // (it may own a recycled id). Remounting a hung one would put a SECOND
     // --resume on the same transcript. A stuck pane is recoverable; two agents
     // writing one conversation is not.
-    if (resumeShapedSpawns.has(trackedPromise)) {
+    if (settlement.resumesProviderSession) {
       warnTerminalLifecycleAnomaly('resume spawn never settled; remount withheld', {
         tabId,
         worktreeId: session.deps.worktreeId,
@@ -152,6 +163,6 @@ export function armSpawnSettlementWatchdog(
       reason: 'spawn-never-settled',
       terminalRecoveryGeneration: captureTerminalPaneRecoveryGeneration(tabId)
     })
-  }, TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+  }, SPAWN_SETTLEMENT_WATCHDOG_MS)
   void trackedPromise.finally(() => clearTimeout(timer)).catch(() => {})
 }

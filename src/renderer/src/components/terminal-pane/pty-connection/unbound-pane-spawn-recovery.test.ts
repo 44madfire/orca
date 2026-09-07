@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { requestTerminalPaneRecovery } from '../terminal-pane-recovery'
 import {
-  TRANSPORT_CONNECT_SETTLE_GRACE_MS,
+  SPAWN_SETTLEMENT_WATCHDOG_MS,
   pendingSpawnByPaneKey,
   pendingSpawnGenerationByPaneKey
 } from './pty-connect-limits'
@@ -127,7 +127,7 @@ describe('armSpawnSettlementWatchdog', () => {
     armNeverSettling()
 
     expect(requestTerminalPaneRecovery).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(requestTerminalPaneRecovery).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ reason: 'spawn-never-settled', ptyId: null })
@@ -139,7 +139,7 @@ describe('armSpawnSettlementWatchdog', () => {
     pendingSpawnByPaneKey.set('pane-key', promise)
     pendingSpawnGenerationByPaneKey.set('pane-key', 3)
 
-    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(pendingSpawnByPaneKey.has('pane-key')).toBe(false)
     expect(pendingSpawnGenerationByPaneKey.has('pane-key')).toBe(false)
@@ -150,7 +150,7 @@ describe('armSpawnSettlementWatchdog', () => {
     const newerSpawn = Promise.resolve('pty-2')
     pendingSpawnByPaneKey.set('pane-key', newerSpawn)
 
-    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(pendingSpawnByPaneKey.get('pane-key')).toBe(newerSpawn)
   })
@@ -158,7 +158,7 @@ describe('armSpawnSettlementWatchdog', () => {
   it('does not remount when a transport bound while it waited', () => {
     armNeverSettling({ transport: { getPtyId: () => 'pty-1' } })
 
-    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(requestTerminalPaneRecovery).not.toHaveBeenCalled()
   })
@@ -166,7 +166,7 @@ describe('armSpawnSettlementWatchdog', () => {
   it('leaves recovery to the direct SSH retry ledger when it holds a lease', () => {
     armNeverSettling({ directSshRetryAttempt: { attemptId: 'a1' } })
 
-    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(requestTerminalPaneRecovery).not.toHaveBeenCalled()
   })
@@ -175,7 +175,7 @@ describe('armSpawnSettlementWatchdog', () => {
     const { session } = armNeverSettling({ deps: { tabId: 'tab-gone' } })
     ;(session as unknown as { disposed: boolean }).disposed = true
 
-    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     const request = vi.mocked(requestTerminalPaneRecovery).mock.calls[0]?.[0]
     expect(request?.tabId).toBe('tab-gone')
@@ -185,7 +185,7 @@ describe('armSpawnSettlementWatchdog', () => {
   it('cancels once the spawn settles', async () => {
     const session = buildSession({ pendingSpawnKey: 'settled-key' })
     armSpawnSettlementWatchdog(session, Promise.resolve('pty-1'))
-    await vi.advanceTimersByTimeAsync(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    await vi.advanceTimersByTimeAsync(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(requestTerminalPaneRecovery).not.toHaveBeenCalled()
   })
@@ -210,7 +210,7 @@ describe('observeSpawnSettlement', () => {
       new Promise<string | null>(() => {})
     )
 
-    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(requestTerminalPaneRecovery).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ tabId: 'tab-observe', reason: 'spawn-never-settled' })
@@ -223,7 +223,7 @@ describe('observeSpawnSettlement', () => {
       Promise.resolve(null)
     )
 
-    await vi.advanceTimersByTimeAsync(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    await vi.advanceTimersByTimeAsync(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(requestTerminalPaneRecovery).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ tabId: 'tab-settled', reason: 'spawn-left-pane-unbound' })
@@ -254,7 +254,7 @@ describe('cold-restore resume spawns', () => {
     )
     pendingSpawnByPaneKey.set('resume-key', promise)
 
-    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(requestTerminalPaneRecovery).not.toHaveBeenCalled()
     // The stranded pin is still collected — that leak is safe to fix either way.
@@ -272,7 +272,7 @@ describe('cold-restore resume spawns', () => {
     )
 
     armSpawnSettlementWatchdog(buildSession({ deps: { tabId: 'tab-adopter' } }), promise)
-    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(requestTerminalPaneRecovery).not.toHaveBeenCalled()
   })
@@ -284,7 +284,7 @@ describe('cold-restore resume spawns', () => {
       { resumesProviderSession: false }
     )
 
-    vi.advanceTimersByTime(TRANSPORT_CONNECT_SETTLE_GRACE_MS)
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
     expect(requestTerminalPaneRecovery).toHaveBeenCalledOnce()
   })
