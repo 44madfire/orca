@@ -1,6 +1,11 @@
 name: Packaged browser compatibility
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit SHA or ref to validate (defaults to the selected revision)
+        type: string
+        required: false
   schedule:
     - cron: '20 8 * * 1'
   workflow_call:
@@ -37,11 +42,10 @@ jobs:
           assert base64.b64encode(hashlib.sha512(package.read_bytes()).digest()).decode()==expected
           extracted=root/'extracted'
           subprocess.run(['dpkg-deb','-x',str(package),str(extracted)],check=True)
-          candidates=[extracted/'opt'/'Orca'/'orca-ide']
-          assert candidates[0].is_file() and os.access(candidates[0],os.X_OK)
-          assert len(candidates)==1,candidates
-          with open(os.environ['GITHUB_ENV'],'a') as env: env.write('ORCA_CROSS_VERSION_PACKAGED_EXECUTABLE='+str(candidates[0])+'\n')
-          print('Verified old package:',candidates[0])
+          executable=extracted/'opt'/'Orca'/'orca-ide'
+          assert executable.is_file() and os.access(executable,os.X_OK)
+          with open(os.environ['GITHUB_ENV'],'a') as env: env.write('ORCA_CROSS_VERSION_PACKAGED_EXECUTABLE='+str(executable)+'\n')
+          print('Verified old package:',executable)
           PYVERIFY
       - name: Build current Electron app
         env:

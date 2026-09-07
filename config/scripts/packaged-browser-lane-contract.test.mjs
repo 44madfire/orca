@@ -10,7 +10,9 @@ const steps = workflow.jobs.compatibility.steps
 describe('packaged browser compatibility lane', () => {
   it('runs weekly and supports immutable manual or reusable revisions', () => {
     expect(workflow.on.schedule).toHaveLength(1)
-    expect(workflow.on).toHaveProperty('workflow_dispatch')
+    for (const trigger of ['workflow_dispatch', 'workflow_call']) {
+      expect(workflow.on[trigger].inputs.ref).toMatchObject({ type: 'string', required: false })
+    }
     expect(steps[0].with.ref).toBe('${{ inputs.ref || github.sha }}')
     expect(workflow.permissions).toEqual({ contents: 'read' })
   })
