@@ -83,9 +83,8 @@ describe('a resume fence for a pane with no sleeping record', () => {
     expect(store.getState().legacyWorkerResumeFencesByPaneKey).toEqual({})
   })
 
-  // Older clients read the fence off the record, so it is projected on the way out — at one site,
-  // derived from the runtime's set rather than carried through the store.
-  it('is projected onto outgoing records for older clients', () => {
+  // Compatibility projection belongs to main, so outgoing renderer records stay untouched.
+  it('does not project runtime fences onto outgoing records', () => {
     const store = fencedStore()
     store.getState().captureAllSleepingAgentSessions('quit')
     const snapshot = store.getState()
@@ -95,9 +94,9 @@ describe('a resume fence for a pane with no sleeping record', () => {
 
     const projected = buildSleepingAgentSessionData(snapshot)
 
-    expect(projected.sleepingAgentSessionsByPaneKey?.[PANE_KEY]?.automaticResumeBlockedBy).toBe(
-      'legacy-orchestration-worker'
-    )
+    expect(
+      projected.sleepingAgentSessionsByPaneKey?.[PANE_KEY]?.automaticResumeBlockedBy
+    ).toBeUndefined()
   })
 
   it('strips a stale projection once the runtime retires the fence', () => {

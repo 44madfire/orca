@@ -23,7 +23,6 @@ export type WorkspaceHydrationPatch = Pick<
   | 'closedTerminalTabTombstonesByTabId'
   | 'automaticAgentResumeClaimsByTabId'
   | 'sleepingAgentSessionsByPaneKey'
-  | 'legacyWorkerResumeFencesByPaneKey'
   | 'pendingReconnectWorktreeIds'
   | 'pendingReconnectTabByWorktree'
   | 'pendingReconnectPtyIdByTabId'
@@ -198,12 +197,6 @@ export function targetScopedWorkspaceHydrationPatch(
       targetTabIds
     ),
     sleepingAgentSessionsByPaneKey,
-    // Why passed through whole: runtime-authored and keyed by pane, so there is no workspace key
-    // for replaceHydratedRecordKeys to scope, and a scoped rehydration must not drop other hosts'.
-    legacyWorkerResumeFencesByPaneKey: {
-      ...state.legacyWorkerResumeFencesByPaneKey,
-      ...hydrated.legacyWorkerResumeFencesByPaneKey
-    },
     pendingReconnectWorktreeIds: [
       ...state.pendingReconnectWorktreeIds.filter((key) => !workspaceKeys.has(key)),
       ...hydrated.pendingReconnectWorktreeIds.filter((key) => workspaceKeys.has(key))

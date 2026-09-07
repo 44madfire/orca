@@ -81,7 +81,6 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
         fencedByHost.set(hostId, fenced)
       }
     }
-    let changed = false
     try {
       for (const [hostId, fenced] of fencedByHost) {
         const current = store.getWorkspaceSession(hostId)
@@ -89,15 +88,12 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
           continue
         }
         store.setWorkspaceSession({ ...current, legacyWorkerResumeFencesByPaneKey: fenced }, hostId)
-        changed = true
+        this.notifyFenceChanged?.()
       }
     } catch (error) {
-      // A failed write publishes nothing, and the next pass rewrites the same level.
+      // Earlier host commits have already published; retry only the remaining changes.
       console.warn('[orchestration] failed to write legacy worker resume fences', error)
       return plan
-    }
-    if (changed) {
-      this.notifyFenceChanged?.()
     }
     return plan
   }
@@ -224,6 +220,7 @@ function sameFenceSet(
   const currentKeys = Object.keys(current ?? {})
   const nextKeys = Object.keys(next)
   return (
+    current !== undefined &&
     currentKeys.length === nextKeys.length &&
     nextKeys.every((paneKey) => current?.[paneKey] === true)
   )

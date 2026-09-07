@@ -172,12 +172,7 @@ export function buildWorkspaceSessionPatch(
       snapshot.closedTerminalTabTombstonesByTabId
     )
   }
-  // Why both: the projected flag is derived from the fence set, so a fence change alone still has
-  // to re-emit the records an older client reads it from.
-  if (
-    changed.has('sleepingAgentSessionsByPaneKey') ||
-    changed.has('legacyWorkerResumeFencesByPaneKey')
-  ) {
+  if (changed.has('sleepingAgentSessionsByPaneKey')) {
     patch.sleepingAgentSessionsByPaneKey =
       buildSleepingAgentSessionData(snapshot).sleepingAgentSessionsByPaneKey
   }

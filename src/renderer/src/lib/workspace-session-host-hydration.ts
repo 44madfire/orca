@@ -1,3 +1,6 @@
+import { readWorkspaceSessionResumeFences } from '../../../shared/workspace-session-resume-fences'
+import { useAppStore } from '@/store'
+import { readAndApplyRuntimeSession, applyReadRuntimeSession } from './runtime-session-application'
 import type { Repo } from '../../../shared/repo-types'
 import type { WorkspaceSessionState } from '../../../shared/workspace-session-state-types'
 import {
@@ -131,6 +134,17 @@ export async function fetchWorkspaceSessionWithRuntimeHostOwners(
   repos: readonly Pick<Repo, 'connectionId' | 'executionHostId'>[],
   additionalRuntimeHostIds: readonly ExecutionHostId[] = []
 ): Promise<WorkspaceSessionHostRead> {
+  return readAndApplyRuntimeSession(
+    () => readWorkspaceSessionHosts(api, repos, additionalRuntimeHostIds),
+    ({ session }) => applyReadRuntimeSession(session, useAppStore.setState, useAppStore.getState)
+  )
+}
+
+async function readWorkspaceSessionHosts(
+  api: SessionReadApi,
+  repos: readonly Pick<Repo, 'connectionId' | 'executionHostId'>[],
+  additionalRuntimeHostIds: readonly ExecutionHostId[]
+): Promise<WorkspaceSessionHostRead> {
   const slices: HostSessionSlices = {
     [LOCAL_EXECUTION_HOST_ID]: await api.get()
   }
@@ -150,8 +164,26 @@ export async function fetchWorkspaceSessionWithRuntimeHostOwners(
     })
   )
   const merged = mergeWorkspaceSessionsWithHostShadow(slices)
+  // Normalize only the viewer mirror; host shadows must retain the source's absent authority.
+  const legacyFences = Object.fromEntries(
+    Object.values(merged.slices).flatMap((slice) =>
+      slice && slice.legacyWorkerResumeFencesByPaneKey === undefined
+        ? Object.entries(readWorkspaceSessionResumeFences(slice))
+        : []
+    )
+  )
+  const session =
+    Object.keys(legacyFences).length > 0
+      ? {
+          ...merged.session,
+          legacyWorkerResumeFencesByPaneKey: {
+            ...legacyFences,
+            ...merged.session.legacyWorkerResumeFencesByPaneKey
+          }
+        }
+      : merged.session
   return {
-    session: merged.session,
+    session,
     // Why the merged slices and not the raw ones: a row parked out of the renderer session must not
     // still name its host as the owner, or startup builds runtime placeholders for a local row.
     runtimeHostIdByWorkspaceSessionKey: buildRuntimeHostIdByWorkspaceSessionKey(merged.slices),

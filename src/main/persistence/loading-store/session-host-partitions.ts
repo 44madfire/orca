@@ -1,3 +1,4 @@
+import { projectLegacyWorkerSession } from '../legacy-worker-session-projection'
 import type { PersistedState } from '../../../shared/persisted-state-types'
 import type { WorkspaceSessionState } from '../../../shared/workspace-session-state-types'
 import { sanitizeWorkspaceSessionTerminalRetirements } from '../../runtime/mobile-session-terminal-persistence-retirement'
@@ -55,12 +56,12 @@ export class SessionHostPartitionOperations {
   getWorkspaceSession(hostId?: string | null): PersistedState['workspaceSession'] {
     const resolved = resolveHostId(hostId)
     if (resolved === LOCAL_EXECUTION_HOST_ID) {
-      return (
+      return projectLegacyWorkerSession(
         this[sessionHostPartitionOperationsContext].runtime.state.workspaceSession ??
-        getDefaultWorkspaceSession()
+          getDefaultWorkspaceSession()
       )
     }
-    return (
+    return projectLegacyWorkerSession(
       this[sessionHostPartitionOperationsContext].runtime.state.workspaceSessionsByHostId?.[
         resolved
       ] ?? getDefaultWorkspaceSession()

@@ -1,3 +1,4 @@
+import { hydrateRuntimeSessionFields } from '@/lib/runtime-session-application'
 import type { WorkspaceKey } from '../../../../shared/folder-workspace-types'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import {
@@ -31,6 +32,15 @@ export function createWorkspaceTerminalHydrationActions(
 ): Pick<TerminalSlice, 'hydrateWorkspaceSession'> {
   return {
     hydrateWorkspaceSession: (session, options) => {
+      const targetTabIds = options?.replaceWorkspaceKeys
+        ? new Set(
+            options.replaceWorkspaceKeys.flatMap((key) => [
+              ...(get().tabsByWorktree[key] ?? []).map((tab) => tab.id),
+              ...(session.tabsByWorktree[key] ?? []).map((tab) => tab.id)
+            ])
+          )
+        : undefined
+      hydrateRuntimeSessionFields(session, set, get, targetTabIds)
       const ownershipTransferTabIds = options?.replaceWorkspaceKeys
         ? new Set(
             options.replaceWorkspaceKeys.flatMap((workspaceKey) =>
@@ -194,9 +204,6 @@ export function createWorkspaceTerminalHydrationActions(
           closedTerminalTabTombstonesByTabId: session.closedTerminalTabTombstonesByTabId ?? {},
           automaticAgentResumeClaimsByTabId: {},
           sleepingAgentSessionsByPaneKey,
-          // Runtime-authored: installed exactly as the session holds it, never merged with local
-          // state, because main is its only author and this read is the whole truth.
-          legacyWorkerResumeFencesByPaneKey: session.legacyWorkerResumeFencesByPaneKey ?? {},
           pendingReconnectWorktreeIds,
           pendingReconnectTabByWorktree,
           pendingReconnectPtyIdByTabId,

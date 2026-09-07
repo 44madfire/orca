@@ -11,6 +11,84 @@
   },
   "gates": [
     {
+      "id": "terminal-recovery.settled-worker-resume-fence",
+      "title": "Runtime-owned settled-worker resume fences survive publication and hydration",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "terminal-runtime",
+      "layer": "store-runtime-unit-and-electron-cdp",
+      "surfaces": ["workspace session hydration", "automatic agent resume"],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "daemon", "ssh", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local", "daemon"],
+      "coverageNotes": "Deterministic local/SSH partition and mixed-source tests; hidden desktop restart/reload and retirement E2Es. No live independently versioned paired-server or physical Windows/Linux claim.",
+      "motivatingLinks": ["https://github.com/stablyai/orca/pull/19344"],
+      "invariant": "A runtime-authored settled-worker fence survives old writers, absent old-source authority, overlapping hydration, and sibling host write failure; authoritative scoped retirement preserves sibling fences.",
+      "oracle": "Nine round-2 reviewer probes plus publication/read-boundary tests; each of the six round-3 fix mutations must fail. Restart/reload does not resume a fenced worker, while explicit retirement permits resume.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 npx vitest run --config config/vitest.config.ts src/renderer/src/lib/runtime-session-application.test.ts src/main/persistence/loading-store/review-r2-store.test.ts src/main/runtime/review-r2-compat.test.ts src/main/runtime/review-r2-partial-write.test.ts src/main/runtime/review-r2-round1.test.ts src/renderer/src/lib/review-r2-old-host.test.ts src/renderer/src/lib/review-r2-refresh-hydration.test.ts src/renderer/src/store/slices/review-r2-writer.test.ts src/renderer/src/store/slices/review-r2-hydration.test.ts src/renderer/src/components/terminal-pane/pty-connection/review-r2-recordless.test.ts",
+        "ORCA_BACKGROUND_LAUNCH=1 SKIP_BUILD=1 npx playwright test tests/e2e/settled-worker-resume-fence-restart.spec.ts tests/e2e/completed-worker-retirement-resume.spec.ts --config tests/playwright.config.ts --project=electron-headless --workers=1"
+      ],
+      "testFiles": [
+        "src/renderer/src/lib/runtime-session-application.test.ts",
+        "src/main/persistence/loading-store/review-r2-store.test.ts",
+        "src/main/runtime/review-r2-compat.test.ts",
+        "src/main/runtime/review-r2-partial-write.test.ts",
+        "src/main/runtime/review-r2-round1.test.ts",
+        "src/renderer/src/lib/review-r2-old-host.test.ts",
+        "src/renderer/src/lib/review-r2-refresh-hydration.test.ts",
+        "src/renderer/src/store/slices/review-r2-writer.test.ts",
+        "src/renderer/src/store/slices/review-r2-hydration.test.ts",
+        "src/renderer/src/components/terminal-pane/pty-connection/review-r2-recordless.test.ts",
+        "tests/e2e/settled-worker-resume-fence-restart.spec.ts",
+        "tests/e2e/completed-worker-retirement-resume.spec.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/renderer/src/lib/runtime-session-application.test.ts",
+          "assertions": [
+            "applies startup runtime fields at read time, before delayed catalog hydration",
+            "orders a scoped retirement after an in-flight invalidation and retains its sibling"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 SKIP_BUILD=1 npx playwright test tests/e2e/settled-worker-resume-fence-restart.spec.ts tests/e2e/completed-worker-retirement-resume.spec.ts --config tests/playwright.config.ts --project=electron-headless --workers=1",
+          "result": "passed",
+          "durationSeconds": 24.8,
+          "summary": "Three hidden Electron tests pass on a fresh build, with isolated homes/profiles."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 120,
+        "scope": "Reviewer probes and paired hidden Electron specs."
+      },
+      "flakeHistory": {
+        "status": "not-started",
+        "evidence": "Local acceptance runs only; no CI soak claimed."
+      },
+      "redGreenEvidence": {
+        "status": "complete",
+        "evidence": "Baseline reviewer overlay: 7 failures / 29 tests. Candidate passes. All six fix mutations and two additional ordering/scoping mutations fail checked-in assertions."
+      },
+      "performanceBudget": {
+        "required": false,
+        "evidence": "One serialized session application lane and coalesced invalidations; no polling or per-pane subprocesses."
+      },
+      "knownGaps": [
+        "No live independently versioned paired runtime, physical Windows/Linux, or SSH transport journey."
+      ],
+      "promotionCriteria": [
+        "Complete CI soak and cross-platform runtime validation without weakening the mutation oracles."
+      ],
+      "demotionRule": "Keep experimental until the declared CI soak is complete."
+    },
+    {
       "id": "terminal-performance.padded-fullscreen-redraw",
       "title": "Fullscreen redraw padding does not stall terminal delivery",
       "maturity": "experimental",

@@ -1,4 +1,5 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
+import { readWorkspaceSessionResumeFences } from '../../shared/workspace-session-resume-fences'
 import { OrcaRuntimeWithPtyForegroundProcessReads } from './orca-runtime-pty-foreground-process-reads'
 import type {
   AutomationOwnerFenceOperation,
@@ -179,7 +180,10 @@ export class OrcaRuntimeWithFenceAutomationOwner extends OrcaRuntimeWithPtyForeg
     const hostIds = store?.getWorkspaceSessionHostIds?.() ?? [LOCAL_EXECUTION_HOST_ID]
     const fences: Record<string, true> = {}
     for (const hostId of hostIds) {
-      Object.assign(fences, store?.getWorkspaceSession?.(hostId)?.legacyWorkerResumeFencesByPaneKey)
+      const session = store?.getWorkspaceSession?.(hostId)
+      if (session) {
+        Object.assign(fences, readWorkspaceSessionResumeFences(session))
+      }
     }
     return fences
   }
