@@ -123,3 +123,18 @@ export function readCodexThreadTokenTotal(params: unknown): CodexThreadTokenTota
     ? { threadId, totalTokens: total }
     : null
 }
+
+/** Pull the `subAgentActivity` item out of a raw notification payload.
+ *
+ *  Lives beside the readers rather than in the translator: the translator's job
+ *  is routing, and this is the shape check that decides whether a frame is one
+ *  of ours at all. Returns null for anything that is not a thread item, which is
+ *  the translator's signal to keep looking. */
+export function readCodexNotificationThreadItem(
+  params: unknown,
+  read: (value: unknown) => CodexThreadItem | null
+): CodexThreadItem | null {
+  const record =
+    typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : {}
+  return read(record.item)
+}

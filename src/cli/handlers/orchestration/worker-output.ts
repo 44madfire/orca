@@ -1,10 +1,6 @@
-import {
-  isSubagentGroupFallbackText,
-  subagentGroupFallbackText
-} from '../../../shared/native-chat-subagent-summary'
-import type { NativeChatMessage } from '../../../shared/native-chat-types'
 import type { RuntimeTerminalRead } from '../../../shared/runtime-types'
 import type { OrchestrationWorkerReadResult } from '../../../shared/orchestration-worker-output'
+import { formatWorkerTranscriptMessage } from '../../../shared/worker-transcript-text'
 
 export type LegacyWorkerReadResult = {
   dispatchId: string
@@ -12,6 +8,7 @@ export type LegacyWorkerReadResult = {
 }
 
 export type WorkerStartReceipt = {
+  mode?: { detail: string }
   taskId: string
   dispatchId: string
   state: string
@@ -25,6 +22,11 @@ export type WorkerStartReceipt = {
 
 export function formatWorkerStart(value: WorkerStartReceipt): string {
   const lines = [`Worker ${value.dispatchId} [${value.state}] for ${value.taskId}`]
+  // Settings-driven rather than requested, so the human line always names the mode that ran: a
+  // fallback from the user's structured default is never silent.
+  if (value.mode) {
+    lines.push(value.mode.detail)
+  }
   if (value.lastError) {
     lines.push(`${value.failedStage ?? 'start'}: ${value.lastError}`)
   } else if (value.warning) {
@@ -105,44 +107,6 @@ function formatWorkerReadDetails(value: OrchestrationWorkerReadResult): string {
   return lines.join('\n')
 }
 
-function formatWorkerTranscriptMessage(message: NativeChatMessage): string {
-  // Every roster block is written beside a plain-text twin carrying the same
-  // sentence, for clients that cannot draw the block. This CLI is one, so it
-  // prints the twin and drops the block — the mirror of the renderer, which
-  // draws the block and drops the twin. Either way the sentence prints once.
-  const hasTwin = message.blocks.some(
-    (block) => block.type === 'text' && isSubagentGroupFallbackText(block.text)
-  )
-  const blocks = message.blocks.flatMap((block): string[] => {
-    if (block.type === 'text') {
-      return [block.text]
-    }
-    if (block.type === 'tool-call') {
-      return [`[tool ${block.name}] ${safeJson(block.input)}`]
-    }
-    if (block.type === 'tool-result') {
-      return [`[tool result${block.isError ? ' error' : ''}] ${block.output}`]
-    }
-    if (block.type === 'image-ref') {
-      return [block.url ? `[image] ${block.url}` : `[image omitted]`]
-    }
-    if (block.type === 'subagent-group') {
-      // Stand in for the block only when no twin is being printed: the wire
-      // admits a roster that arrived without one, and dropping that
-      // unconditionally would lose the sentence altogether. Presence, not a
-      // byte compare against a recomputed sentence — a roster from a newer
-      // build holds a state this build reads as `unverifiable`, so recomputing
-      // yields a different sentence and both would print.
-      return hasTwin ? [] : [`[subagents] ${subagentGroupFallbackText(block.agents)}`]
-    }
-    // The journal deliberately admits block types this build does not know, and
-    // a newer remote host can send one over the wire. Degrade to a marker rather
-    // than reading fields off a shape that has none.
-    return ['[unsupported block]']
-  })
-  return `[${message.role}] ${blocks.join('\n')}`.trimEnd()
-}
-
 export type WorkerReleaseReceipt = {
   dispatchId: string
   state: string
@@ -168,12 +132,4 @@ export function formatWorkerRelease(value: WorkerReleaseReceipt): string {
     lines.push(value.recovery)
   }
   return lines.join('\n')
-}
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return '[unserializable input]'
-  }
 }
