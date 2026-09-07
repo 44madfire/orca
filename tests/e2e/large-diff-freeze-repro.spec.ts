@@ -1,4 +1,5 @@
 import { rmSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import type { Page } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
 import { waitForSessionReady } from './helpers/store'
@@ -118,12 +119,14 @@ test.describe('Large diff freeze repro', () => {
     const prompt = orcaPage.getByTestId('large-diff-load-prompt')
     await expect(prompt).toBeVisible()
     await expect(prompt).toContainText('Large diffs are not rendered by default.')
-    await expect(orcaPage.locator('.monaco-diff-editor')).toHaveCount(0)
+    await expect(orcaPage.locator('diffs-container')).toHaveCount(0)
 
     await prompt.getByRole('button', { name: 'Load diff' }).click()
 
     await expect(prompt).toHaveCount(0)
-    await expect(orcaPage.locator('.monaco-diff-editor')).toHaveCount(1, { timeout: 30_000 })
+    await expect(
+      orcaPage.locator('diffs-container [data-content] [data-line]').first()
+    ).toBeVisible({ timeout: 30_000 })
   })
 
   test('opening a large single-file diff keeps the renderer responsive', async ({ orcaPage }) => {
@@ -171,7 +174,9 @@ test.describe('Large diff freeze repro', () => {
           let editorCount = 0
           while (performance.now() - startedAt < 30_000) {
             await new Promise((resolve) => window.setTimeout(resolve, 50))
-            editorCount = document.querySelectorAll('.monaco-diff-editor').length
+            editorCount = [...document.querySelectorAll('diffs-container')].filter((host) =>
+              host.shadowRoot?.querySelector('[data-content] [data-line]')
+            ).length
             fallbackVisible = Boolean(document.querySelector('[data-testid="large-diff-fallback"]'))
             if ((!expectFallback && editorCount > 0) || (expectFallback && fallbackVisible)) {
               await new Promise((resolve) => window.setTimeout(resolve, 1_000))
@@ -263,7 +268,9 @@ test.describe('Large diff freeze repro', () => {
           try {
             while (performance.now() - startedAt < 30_000) {
               await new Promise((resolve) => window.setTimeout(resolve, 50))
-              editorCount = document.querySelectorAll('.monaco-diff-editor').length
+              editorCount = [...document.querySelectorAll('diffs-container')].filter((host) =>
+                host.shadowRoot?.querySelector('[data-content] [data-line]')
+              ).length
               fallbackCount = document.querySelectorAll(
                 '[data-testid="large-diff-fallback"]'
               ).length
@@ -276,11 +283,13 @@ test.describe('Large diff freeze repro', () => {
             window.clearInterval(timer)
           }
 
-          const classHits = Array.from(
-            document.querySelectorAll(
-              '.monaco-diff-editor .line-insert, .monaco-diff-editor .line-delete, .monaco-diff-editor .char-insert, .monaco-diff-editor .char-delete'
-            )
-          ).length
+          const classHits = [...document.querySelectorAll('diffs-container')].reduce(
+            (total, host) =>
+              total +
+              (host.shadowRoot?.querySelectorAll('[data-content] [data-line-type^="change-"]')
+                .length ?? 0),
+            0
+          )
           return {
             editorCount,
             fallbackCount,
@@ -301,6 +310,77 @@ test.describe('Large diff freeze repro', () => {
       expect(measurement.maxLagMs).toBeLessThan(1_000)
     } finally {
       rmSync(fixture.repoPath, { recursive: true, force: true })
+    }
+  })
+
+  test('a wholly replaced file parses without freezing and scrolls through virtual rows', async ({
+    orcaPage,
+    registerPostElectronShutdownCleanup
+  }, testInfo) => {
+    const contents = (prefix: string) =>
+      Array.from({ length: 6_000 }, (_, i) => `${prefix} ${i}\n`).join('')
+    const fixture = createIsolatedLargeDiffRepo(contents('old'))
+    registerPostElectronShutdownCleanup(async () =>
+      rmSync(fixture.repoPath, { recursive: true, force: true })
+    )
+    writeFileSync(fixture.absolutePath, contents('new'))
+    writeFileSync(path.join(fixture.repoPath, 'other.txt'), 'another file\n')
+    await waitForSessionReady(orcaPage)
+    await addAndActivateRepo(orcaPage, fixture.repoPath)
+    await orcaPage.getByRole('button', { name: /^Source Control/ }).click()
+    const changedFile = orcaPage
+      .locator('[data-testid="source-control-entry"]')
+      .filter({ hasText: fixture.relativePath.split(/[\\/]/).at(-1) })
+    await expect(changedFile).toBeVisible()
+    const probe = await orcaPage.evaluateHandle(() => {
+      const value = { last: performance.now(), maxGap: 0, samples: 0, timer: 0 }
+      value.timer = window.setInterval(() => {
+        const now = performance.now()
+        value.maxGap = Math.max(value.maxGap, now - value.last)
+        value.last = now
+        value.samples++
+      }, 25)
+      return value
+    })
+    try {
+      await changedFile.click()
+      await expect(
+        orcaPage
+          .locator('diffs-container [data-content] [data-line]')
+          .filter({ hasText: /^new 0$/ })
+      ).toBeVisible({ timeout: 30_000 })
+      const mountedRows = orcaPage.locator('diffs-container [data-content] [data-line]')
+      expect(await mountedRows.count()).toBeLessThan(600)
+      await orcaPage.locator('diffs-container').evaluate((host) => {
+        const viewport = host.closest('.scrollbar-editor')!
+        viewport.scrollTop = viewport.scrollHeight
+      })
+      await expect(mountedRows.filter({ hasText: /^new 5999$/ })).toBeVisible()
+      await orcaPage.screenshot({ path: testInfo.outputPath('last-virtual-row.png') })
+      await mountedRows.filter({ hasText: /^new 5999$/ }).click()
+      await orcaPage.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
+      await orcaPage.keyboard.type('!')
+      await orcaPage
+        .locator('[data-testid="source-control-entry"]')
+        .filter({ hasText: 'other.txt' })
+        .click()
+      await expect(orcaPage.locator('diffs-container [data-content]')).toContainText('another file')
+      const measurement = await probe.evaluate((value) => ({
+        maxGap: value.maxGap,
+        samples: value.samples
+      }))
+      expect(measurement.samples).toBeGreaterThan(5)
+      expect(measurement.maxGap).toBeLessThan(1_000)
+      await changedFile.click()
+      await expect(
+        orcaPage
+          .locator('diffs-container [data-content] [data-line]')
+          .filter({ hasText: /^new 5999!$/ })
+      ).toBeVisible({ timeout: 30_000 })
+      await orcaPage.screenshot({ path: testInfo.outputPath('restored-draft.png') })
+    } finally {
+      await probe.evaluate((value) => window.clearInterval(value.timer))
+      await probe.dispose()
     }
   })
 })

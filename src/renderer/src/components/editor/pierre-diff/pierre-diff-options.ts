@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { FileDiffOptions, ThemesType } from '@pierre/diffs'
+import { DEFAULT_VIRTUAL_FILE_METRICS, type FileDiffOptions, type ThemesType } from '@pierre/diffs'
 import type { CreatePatchOptionsNonabortable } from 'diff'
 import type { GlobalSettings } from '../../../../../shared/global-settings-types'
 import { computeDiffEditorFontSize, resolveEditorFontFamily } from '@/lib/editor-font-zoom'
@@ -72,6 +72,8 @@ export function buildPierreDiffOptions<LAnnotation>({
     collapsed,
     // Why: our own DiffSectionHeader / DiffViewer chrome already renders the file row.
     disableFileHeader: true,
+    // Drafts are persisted on each edit; the next mount computes hunks in a worker.
+    recomputeDiffOnCleanup: false,
     enableLineSelection: true,
     lineHoverHighlight: 'both'
   }
@@ -90,6 +92,14 @@ export function buildPierreDiffStyle(
     // cross-platform monospace chain, which always ends in `monospace`.
     '--diffs-font-family': buildFontFamily(resolveEditorFontFamily(settings)),
     '--diffs-font-size': `${fontSize}px`,
-    '--diffs-line-height': `${Math.round(fontSize * 1.5)}px`
+    '--diffs-line-height': `${buildPierreDiffMetrics(settings, editorFontZoomLevel).lineHeight}px`
   } as CSSProperties
+}
+
+export function buildPierreDiffMetrics(
+  settings: PierreDiffSettings | null | undefined,
+  editorFontZoomLevel: number
+) {
+  const fontSize = computeDiffEditorFontSize(settings?.terminalFontSize ?? 13, editorFontZoomLevel)
+  return { ...DEFAULT_VIRTUAL_FILE_METRICS, lineHeight: Math.round(fontSize * 1.5) }
 }

@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PostRenderPhase } from '@pierre/diffs'
 import { useAppStore } from '@/store'
-import { diffScrollTopCache, setWithLRU } from '@/lib/scroll-cache'
 import { selectWorktreeDiffComments } from '@/store/worktree-diff-comments-selector'
 import type { DiffComment } from '../../../../shared/diff-comment-types'
 import type { DecoratedDiffComment } from '../diff-comments/decorated-diff-comment'
@@ -13,10 +12,13 @@ import { getDiffViewerLargeDiffSaveAction } from './diff-viewer-large-diff-save-
 import type { DiffViewerProps } from './diff-viewer-props'
 import { useDiffNavigatorRegistration, type DiffNavigator } from './diff-navigation-context'
 import { PierreDiffProviders } from './pierre-diff/PierreDiffProviders'
-import { PierreDiffSurface } from './pierre-diff/PierreDiffSurface'
-import { buildPierreFileDiff } from './pierre-diff/pierre-diff-metadata'
+import { PierreDiffSurface, type PierreDiffInstance } from './pierre-diff/PierreDiffSurface'
+import type { PierreDiffInput } from './pierre-diff/pierre-diff-metadata'
+import { usePierreFileDiff } from './pierre-diff/use-pierre-file-diff'
+import { PierreDiffLoading } from './pierre-diff/PierreDiffLoading'
 import { buildPierreParseDiffOptions } from './pierre-diff/pierre-diff-options'
 import { scrollPierreDiffToLine } from './pierre-diff/pierre-diff-scroll'
+import { usePierreDiffScrollRestore } from './pierre-diff/use-pierre-diff-scroll-restore'
 import { getPierreDiffChangeTargets } from './pierre-diff/pierre-diff-change-targets'
 
 const EMPTY_DIFF_COMMENTS: readonly DecoratedDiffComment[] = []
@@ -58,29 +60,33 @@ export default function DiffViewer({
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const pierreHostRef = useRef<HTMLElement | null>(null)
+  const pierreInstanceRef = useRef<PierreDiffInstance | null>(null)
   const [pendingComment, setPendingComment] = useState<{
     lineNumber: number
     startLine?: number
   } | null>(null)
 
   const renderLimit = useMemo(
-    () => largeDiffRenderLimit ?? getLargeDiffRenderLimit({ originalContent, modifiedContent }),
+    () =>
+      largeDiffRenderLimit?.limited
+        ? largeDiffRenderLimit
+        : getLargeDiffRenderLimit({ originalContent, modifiedContent }),
     [largeDiffRenderLimit, originalContent, modifiedContent]
   )
   const hasLineCommentAction = Boolean(worktreeId || onAddLineComment)
 
-  const fileDiff = useMemo(
+  const diffInput = useMemo<PierreDiffInput | null>(
     () =>
       renderLimit.limited
         ? null
-        : buildPierreFileDiff({
+        : {
             path: relativePath,
             status: 'modified',
             originalContent,
             modifiedContent,
             cacheKey: modelKey,
             parseDiffOptions: buildPierreParseDiffOptions(settings?.diffShowWhitespace)
-          }),
+          },
     [
       relativePath,
       originalContent,
@@ -90,6 +96,13 @@ export default function DiffViewer({
       renderLimit.limited
     ]
   )
+
+  const {
+    fileDiff,
+    error: parseError,
+    retry: retryParse,
+    markEdited
+  } = usePierreFileDiff(diffInput)
 
   const { registerDiffNavigator, unregisterDiffNavigator } = useDiffNavigatorRegistration()
   const changeTargets = useMemo(() => getPierreDiffChangeTargets(fileDiff), [fileDiff])
@@ -112,6 +125,10 @@ export default function DiffViewer({
           container,
           lineNumber,
           side: changeTargets[hunkIndex]?.side,
+          linePosition: pierreInstanceRef.current?.getLinePosition?.(
+            lineNumber,
+            changeTargets[hunkIndex]?.side
+          ),
           hunkIndex,
           hunkCount
         })
@@ -127,34 +144,15 @@ export default function DiffViewer({
     unregisterDiffNavigator
   ])
 
-  const handlePostRender = useCallback((node: HTMLElement, phase: PostRenderPhase) => {
-    pierreHostRef.current = phase === 'unmount' ? null : node
-  }, [])
-
-  // Why: restore scroll after the first paint so Pierre has laid out its rows.
-  useEffect(() => {
-    const container = scrollContainerRef.current
-    const saved = diffScrollTopCache.get(modelKey)
-    if (!container || saved === undefined) {
-      return
-    }
-    const frame = requestAnimationFrame(() => {
-      container.scrollTop = saved
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [modelKey])
-
-  // Why: snapshot on deactivation (layout-effect cleanup runs before unmount), not on every scroll event.
-  useLayoutEffect(() => {
-    // Why: capture the node now — the same div serves this modelKey for the
-    // effect's whole life, and reading the ref at cleanup races unmount.
-    const container = scrollContainerRef.current
-    return () => {
-      if (container) {
-        setWithLRU(diffScrollTopCache, modelKey, container.scrollTop)
-      }
-    }
-  }, [modelKey])
+  const restoreScroll = usePierreDiffScrollRestore(modelKey, scrollContainerRef, fileDiff)
+  const handlePostRender = useCallback(
+    (node: HTMLElement, phase: PostRenderPhase, instance: PierreDiffInstance) => {
+      pierreHostRef.current = phase === 'unmount' ? null : node
+      pierreInstanceRef.current = phase === 'unmount' ? null : instance
+      restoreScroll(node, phase, instance)
+    },
+    [restoreScroll]
+  )
 
   const onSaveRef = useRef(onSave)
   onSaveRef.current = onSave
@@ -179,10 +177,11 @@ export default function DiffViewer({
 
   const handleEditChange = useCallback(
     (file: { contents: string }) => {
+      markEdited()
       modifiedContentRef.current = file.contents
       onContentChange?.(file.contents)
     },
-    [onContentChange]
+    [onContentChange, markEdited]
   )
 
   const handleAddComment = useCallback(
@@ -265,7 +264,7 @@ export default function DiffViewer({
             })}
           />
         ) : fileDiff ? (
-          <PierreDiffProviders>
+          <PierreDiffProviders scrollContainerRef={scrollContainerRef}>
             <PierreDiffSurface
               fileDiff={fileDiff}
               sideBySide={sideBySide}
@@ -288,7 +287,9 @@ export default function DiffViewer({
               onSubmitComment={handleSubmitComment}
             />
           </PierreDiffProviders>
-        ) : null}
+        ) : (
+          <PierreDiffLoading error={parseError} onRetry={retryParse} />
+        )}
       </div>
     </div>
   )

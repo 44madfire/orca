@@ -1,39 +1,10 @@
-import { useCallback, useState } from 'react'
-// Why: `?worker` makes Vite own the worker in dev too. A bare `new URL(...)`
-// specifier is served as a raw file, so the worker's own imports of shiki and
-// hast-util-to-html never get rewritten.
-import PierreDiffHighlightWorker from '@pierre/diffs/worker/worker.js?worker'
-import { EditProvider, WorkerPoolContext } from '@pierre/diffs/react'
+import { useCallback, useEffect, useState, type RefObject } from 'react'
+import { Virtualizer } from '@pierre/diffs'
+import { EditProvider, WorkerPoolContext, VirtualizerContext } from '@pierre/diffs/react'
 import type { EditorFactory } from '@pierre/diffs/react'
-import { getOrCreateWorkerPoolSingleton, type WorkerPoolManager } from '@pierre/diffs/worker'
 import { Editor } from '@pierre/diffs/edit'
 import type { PierreDiffAnnotationData } from './pierre-diff-comment-annotations'
-import { PIERRE_DIFF_THEMES } from './pierre-diff-options'
-
-// Why: Shiki grammars are heavy per worker; cap the pool well under Pierre's
-// default of 8 so a diff tab can't starve the terminal and agent threads.
-function resolvePoolSize(): number {
-  const cores = navigator.hardwareConcurrency || 4
-  return Math.min(4, Math.max(1, cores - 2))
-}
-
-/**
- * Pierre's own WorkerPoolContextProvider is bypassed: it terminates the pool
- * singleton from an unmount cleanup but only recreates it in `useState`, so
- * StrictMode's remount leaves every consumer holding a terminated pool. We own
- * the singleton and never tear it down — it is process-wide and cheap to keep
- * warm for an app that reopens diffs constantly.
- */
-function createDiffHighlightPool(): WorkerPoolManager {
-  return getOrCreateWorkerPoolSingleton({
-    poolOptions: {
-      workerFactory: () => new PierreDiffHighlightWorker(),
-      poolSize: resolvePoolSize()
-    },
-    // Why: the pool owns `theme` for every component instance; per-file options are ignored.
-    highlighterOptions: { theme: PIERRE_DIFF_THEMES }
-  })
-}
+import { createDiffHighlightPool } from './pierre-diff-highlight-pool'
 
 /**
  * Shares one Shiki worker pool and one editor factory across every mounted diff
@@ -44,12 +15,23 @@ function createDiffHighlightPool(): WorkerPoolManager {
  * was blank in dev. Do not downgrade below 1.4.
  */
 export function PierreDiffProviders({
-  children
+  children,
+  scrollContainerRef
 }: {
   children: React.ReactNode
+  scrollContainerRef: RefObject<HTMLElement | null>
 }): React.JSX.Element {
   // Why: lazy initializer keeps worker startup off app launch until a diff opens.
   const [pool] = useState(createDiffHighlightPool)
+  const [virtualizer] = useState(() => new Virtualizer())
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) {
+      return
+    }
+    virtualizer.setup(container, container.lastElementChild ?? undefined)
+    return () => virtualizer.cleanUp()
+  }, [scrollContainerRef, virtualizer])
   const createEditor = useCallback<EditorFactory<PierreDiffAnnotationData, undefined>>(
     (editorType, options, editStateKey) => new Editor(editorType, options, editStateKey),
     []
@@ -57,9 +39,11 @@ export function PierreDiffProviders({
 
   return (
     <WorkerPoolContext.Provider value={pool}>
-      <EditProvider<PierreDiffAnnotationData, undefined> createEditor={createEditor}>
-        {children}
-      </EditProvider>
+      <VirtualizerContext.Provider value={virtualizer}>
+        <EditProvider<PierreDiffAnnotationData, undefined> createEditor={createEditor}>
+          {children}
+        </EditProvider>
+      </VirtualizerContext.Provider>
     </WorkerPoolContext.Provider>
   )
 }

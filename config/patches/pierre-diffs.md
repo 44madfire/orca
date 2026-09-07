@@ -1,0 +1,21 @@
+# Pierre 1.4.1 edit highlighting
+
+Orca primes syntax highlighting in workers before mounting a diff. Pierre's edit
+session normally ignores that cache and synchronously highlights the complete
+file again. A 60,000-line TypeScript fixture blocked the renderer for over two
+seconds, despite row virtualization.
+
+The patch lets a newly created edit session adopt a compatible worker result,
+copying its mutable additions array as Pierre already does for a rendered
+external result. Loading the editor's local grammar then leaves that result
+intact. Existing active sessions keep their edited cache.
+
+Orca also opts out of synchronous hunk recomputation when discarding a mounted
+instance. Draft text is already owned by Orca, and the next mount computes hunks
+in a worker. The opt-out preserves completion notifications, live document text,
+and edit history; their hunk metadata retains its edit-session shape. Upstream's
+default cleanup behavior remains unchanged.
+
+Keep `useTokenTransformer: true` on the pool. Coverage lives in
+`pierre-diff-worker-edit-cache.test.ts` and the large-diff Electron specs. Remove
+the patch when an upstream release provides the same behavior.

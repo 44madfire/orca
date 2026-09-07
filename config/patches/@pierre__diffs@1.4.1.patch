@@ -1,0 +1,88 @@
+diff --git a/dist/components/FileDiff.d.ts b/dist/components/FileDiff.d.ts
+index 1f94220f696e8c8ff8fc86248a888ca57c1fcd18..93217c7dca64086862b8a44e13978dfc0f49560d 100644
+--- a/dist/components/FileDiff.d.ts
++++ b/dist/components/FileDiff.d.ts
+@@ -45,6 +45,8 @@ interface FileDiffOptions<LAnnotation, Caret> extends Omit<BaseDiffOptions, 'hun
+   * removed in a future version.
+   */
+   | ((hunk: HunkData, instance: FileDiff<LAnnotation, Caret>) => HTMLElement | DocumentFragment | null | undefined);
++  /** False skips canonical hunk recomputation on discarded instances; completion still reports the live document and session hunks. */
++  recomputeDiffOnCleanup?: boolean;
+   disableFileHeader?: boolean;
+   renderHeaderPrefix?: RenderHeaderPrefixCallback;
+   renderHeaderFilenameSuffix?: RenderHeaderFilenameSuffixCallback;
+diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
+index 9bdaaa3ef199f3e443f77106a9ac7eddcc4b05b6..461364d3af60a954a766ef285ddef14744f16f30 100644
+--- a/dist/components/FileDiff.js
++++ b/dist/components/FileDiff.js
+@@ -335,7 +335,12 @@ var FileDiff = class {
+ 		const { editor } = this;
+ 		dequeueRender(this.handleEditSessionRender);
+ 		this.emitPostRender(true);
+-		editor?.cleanUp(recycle ? "recycle" : "discard");
++		this.skipCleanupRecompute = !recycle && this.options.recomputeDiffOnCleanup === false;
++		try {
++			editor?.cleanUp(recycle ? "recycle" : "discard");
++		} finally {
++			this.skipCleanupRecompute = false;
++		}
+ 		if (!recycle) this.editor = void 0;
+ 		this.resizeManager.cleanUp();
+ 		this.interactionManager.cleanUp();
+@@ -966,6 +971,7 @@ var FileDiff = class {
+ 	* ran.
+ 	*/
+ 	finalizeEditSessionHunks() {
++		if (this.skipCleanupRecompute) return false;
+ 		const fileDiff = this.getLatestDiff();
+ 		if (fileDiff == null || fileDiff.editSessionDirty !== true) return false;
+ 		const { collapsedContextThreshold = 1 } = this.options;
+diff --git a/dist/renderers/DiffHunksRenderer.js b/dist/renderers/DiffHunksRenderer.js
+index 4e6aeb4cd0a5dc1f9dd094b874f338cafceff29b..fc3bcf89f79ea56dba0a8a84b507fc97a370ff49 100644
+--- a/dist/renderers/DiffHunksRenderer.js
++++ b/dist/renderers/DiffHunksRenderer.js
+@@ -79,7 +79,8 @@ var DiffHunksRenderer = class {
+ 	* empty additions document gets one row for the editor's caret.
+ 	*/
+ 	beginEditSession(diff, externalDiff) {
+-		const { editSessionActive: wasAlreadyActive, renderCache } = this;
++		const { editSessionActive: wasAlreadyActive } = this;
++		let { renderCache } = this;
+ 		this.editSessionActive = true;
+ 		if (!wasAlreadyActive) this.pendingHighlightResult = void 0;
+ 		this.diff = diff;
+@@ -89,9 +90,16 @@ var DiffHunksRenderer = class {
+ 			this.clearRenderCache();
+ 			return;
+ 		}
+-		if (renderCache == null) return;
+-		if (wasAlreadyActive && renderCache.diff === diff) return;
++		if (wasAlreadyActive && renderCache?.diff === diff) return;
+ 		const { options } = this.getRenderOptions(diff);
++		const workerCache = externalDiff != null ? this.workerManager?.getDiffResultCache(externalDiff) : void 0;
++		if (workerCache != null && areDiffRenderOptionsEqual(workerCache.options, options)) renderCache = {
++			...workerCache,
++			diff: externalDiff,
++			highlighted: true,
++			renderRange: void 0
++		};
++		if (renderCache == null) return;
+ 		const cacheBelongsToSession = renderCache.diff === diff;
+ 		const cacheBelongsToExternal = externalDiff != null && areDiffTargetsEqual(renderCache.diff, externalDiff);
+ 		const { result } = renderCache;
+@@ -529,9 +537,12 @@ var DiffHunksRenderer = class {
+ 					renderRange: void 0
+ 				};
+ 			}
+-			if (!hasThemes || !forcePlainText && !hasLangs) this.asyncHighlight(diff).then(({ result, options }) => {
+-				this.applyHighlightResult(diff, result, options, !forcePlainText);
+-			});
++			if (!hasThemes || !forcePlainText && !hasLangs) {
++				if (this.renderCache.highlighted && this.renderCache.result != null) this.initializeHighlighter().then(() => this.onRenderUpdate?.());
++				else this.asyncHighlight(diff).then(({ result, options }) => {
++					this.applyHighlightResult(diff, result, options, !forcePlainText);
++				});
++			}
+ 		}
+ 		return this.renderCache.result != null ? this.processDiffResult(this.renderCache.diff, renderRange, this.renderCache.result) : void 0;
+ 	}

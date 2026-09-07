@@ -8,6 +8,7 @@ export function scrollPierreDiffToLine({
   container,
   lineNumber,
   side = 'additions',
+  linePosition,
   hunkIndex,
   hunkCount
 }: {
@@ -15,6 +16,7 @@ export function scrollPierreDiffToLine({
   container: HTMLElement | null
   lineNumber: number
   side?: 'additions' | 'deletions'
+  linePosition?: { top: number; height: number }
   hunkIndex: number
   hunkCount: number
 }): boolean {
@@ -31,6 +33,12 @@ export function scrollPierreDiffToLine({
     )
   if (row instanceof HTMLElement) {
     const offset = row.getBoundingClientRect().top - container.getBoundingClientRect().top
+    container.scrollTop += offset - container.clientHeight / 3
+    return true
+  }
+  if (host && linePosition) {
+    const offset =
+      host.getBoundingClientRect().top - container.getBoundingClientRect().top + linePosition.top
     container.scrollTop += offset - container.clientHeight / 3
     return true
   }

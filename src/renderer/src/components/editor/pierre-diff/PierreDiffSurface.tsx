@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { FileDiff } from '@pierre/diffs/react'
 import type {
+  FileDiff as PierreFileDiff,
   FileContents,
   FileDiffMetadata,
   PostRenderPhase,
-  SelectedLineRange
+  SelectedLineRange,
+  VirtualizedFileDiff
 } from '@pierre/diffs'
-import type { EditorOptions } from '@pierre/diffs/edit'
+import type { Editor, EditorOptions } from '@pierre/diffs/edit'
 import { useAppStore } from '@/store'
 import { RecoverableRenderErrorBoundary } from '@/components/error-boundaries/RecoverableRenderErrorBoundary'
 import type { DecoratedDiffComment } from '../../diff-comments/decorated-diff-comment'
-import { buildPierreDiffOptions, buildPierreDiffStyle } from './pierre-diff-options'
+import {
+  buildPierreDiffMetrics,
+  buildPierreDiffOptions,
+  buildPierreDiffStyle
+} from './pierre-diff-options'
 import type { PierreDiffSettings } from './pierre-diff-options'
 import {
   buildPierreDiffCommentAnnotations,
@@ -20,6 +26,10 @@ import {
 } from './pierre-diff-comment-annotations'
 import { usePierreDiffFind } from './use-pierre-diff-find'
 import { installPierreContextualCopy } from './pierre-diff-context-copy'
+import { editorShortcutMatches } from '../editor-shortcuts'
+
+export type PierreDiffInstance = PierreFileDiff<PierreDiffAnnotationData> &
+  Partial<Pick<VirtualizedFileDiff, 'getLinePosition'>>
 
 export type PierreDiffSurfaceProps = {
   fileDiff: FileDiffMetadata
@@ -39,7 +49,7 @@ export type PierreDiffSurfaceProps = {
   /** Language id for copy-with-context; omit to disable that shortcut. */
   language?: string
   /** Fires on Pierre's DOM lifecycle; used for height measurement. */
-  onPostRender?: (node: HTMLElement, phase: PostRenderPhase) => void
+  onPostRender?: (node: HTMLElement, phase: PostRenderPhase, instance: PierreDiffInstance) => void
   /** Gutter affordance for starting a note; omit to hide it. */
   onAddComment?: (range: { lineNumber: number; startLine?: number }) => void
   /** Open note draft, rendered inline on its anchor line. */
@@ -84,6 +94,9 @@ export function PierreDiffSurface({
     worktreeId ? (s.activeGroupIdByWorktree[worktreeId] ?? worktreeId) : worktreeId
   )
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const editorRef = useRef<Editor<'file-diff', PierreDiffAnnotationData, undefined> | null>(null)
+  const onEditChangeRef = useRef(onEditChange)
+  onEditChangeRef.current = onEditChange
   const { editEnabled, handleContainerKeyDown, handleContainerBlur, handleEditorAttach } =
     usePierreDiffFind({ isEditable, containerRef })
 
@@ -118,8 +131,8 @@ export function PierreDiffSurface({
           }
         : undefined,
       onPostRender: onPostRender
-        ? (node: HTMLElement, _instance: unknown, phase: PostRenderPhase) =>
-            onPostRender(node, phase)
+        ? (node: HTMLElement, instance: PierreDiffInstance, phase: PostRenderPhase) =>
+            onPostRender(node, phase, instance)
         : undefined
     }),
     [settings, sideBySide, collapseUnchanged, onPostRender, onAddComment]
@@ -128,23 +141,33 @@ export function PierreDiffSurface({
     () => buildPierreDiffStyle(settings, editorFontZoomLevel),
     [settings, editorFontZoomLevel]
   )
+  const metrics = useMemo(
+    () => buildPierreDiffMetrics(settings, editorFontZoomLevel),
+    [settings, editorFontZoomLevel]
+  )
   const lineAnnotations = useMemo(
     () => buildPierreDiffCommentAnnotations(comments, filePath, pendingComment),
     [comments, filePath, pendingComment]
   )
   const editorOptions = useMemo<EditorOptions<'file-diff', PierreDiffAnnotationData, undefined>>(
     () => ({
-      onAttach: handleEditorAttach,
+      onAttach: (editor) => {
+        editorRef.current = editor
+        handleEditorAttach(editor)
+      },
+      onComplete: () => {
+        editorRef.current = null
+      },
       // Why: Cmd+F opens edit mode even on read-only diffs, so ignore changes
       // unless this surface can actually save. Otherwise a stray keystroke in
       // the find panel marks a staged or branch section dirty with no save path.
       onChange: (event) => {
         if (isEditable) {
-          onEditChange?.(event.file)
+          onEditChangeRef.current?.(event.file)
         }
       }
     }),
-    [handleEditorAttach, isEditable, onEditChange]
+    [handleEditorAttach, isEditable]
   )
   const renderAnnotation = useCallback(
     (annotation: PierreDiffCommentAnnotation) =>
@@ -190,7 +213,22 @@ export function PierreDiffSurface({
           event.currentTarget.focus({ preventScroll: true })
         }
       }}
-      onKeyDownCapture={handleContainerKeyDown}
+      onPointerUp={() => {
+        // Pierre must consume the native caret before a keystroke can arrive.
+        if (isEditable) {
+          document.dispatchEvent(new Event('selectionchange'))
+        }
+      }}
+      onKeyDownCapture={(event) => {
+        if (isEditable && editorShortcutMatches('editor.save', event)) {
+          // Saving separates later typing from the saved undo group.
+          const lastEdit = editorRef.current?.getEditState()?.document.history.undoStack.at(-1)
+          if (lastEdit) {
+            lastEdit.undoBoundary = true
+          }
+        }
+        handleContainerKeyDown(event)
+      }}
       onBlur={handleContainerBlur}
     >
       {/* Why: @pierre/diffs throws from its own ref teardown on some remounts
@@ -209,6 +247,7 @@ export function PierreDiffSurface({
           fileDiff={fileDiff}
           options={options}
           style={style}
+          metrics={metrics}
           edit={editEnabled}
           editorOptions={editorOptions}
           lineAnnotations={lineAnnotations}

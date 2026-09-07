@@ -329,7 +329,7 @@ function PRFilesCombinedDiffSections({
   )
 
   return (
-    <PierreDiffProviders>
+    <PierreDiffProviders scrollContainerRef={scrollContainerRef}>
       <PRFilesCombinedDiffBody
         files={files}
         repoPath={repoPath}

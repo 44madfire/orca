@@ -356,10 +356,7 @@ function getLargestBackwardScrollJump(samples: readonly ScrollProbeSample[]): nu
 }
 
 async function clickVisibleDiffLine(page: Page): Promise<void> {
-  // Why: after a tab switch Monaco re-lays-out its virtualized diff lines
-  // asynchronously, so the visible .view-line set is briefly empty on a loaded
-  // CI runner. Poll until a line is painted in the viewport instead of reading
-  // it once and throwing on the first miss.
+  // Diff rows render asynchronously after switching tabs.
   let linePoint: { x: number; y: number } | null = null
   await expect
     .poll(
@@ -370,18 +367,21 @@ async function clickVisibleDiffLine(page: Page): Promise<void> {
             return null
           }
           const containerRect = container.getBoundingClientRect()
-          const visibleLine = Array.from(
-            container.querySelectorAll<HTMLElement>('.monaco-diff-editor .view-line')
-          ).find((line) => {
-            const rect = line.getBoundingClientRect()
-            return (
-              rect.height > 0 &&
-              rect.bottom > containerRect.top &&
-              rect.top < containerRect.bottom &&
-              rect.right > containerRect.left &&
-              rect.left < containerRect.right
-            )
-          })
+          const visibleLine = [...container.querySelectorAll('diffs-container')]
+            .flatMap((host) => [
+              ...(host.shadowRoot?.querySelectorAll<HTMLElement>('[data-content] [data-line]') ??
+                [])
+            ])
+            .find((line) => {
+              const rect = line.getBoundingClientRect()
+              return (
+                rect.height > 0 &&
+                rect.bottom > containerRect.top &&
+                rect.top < containerRect.bottom &&
+                rect.right > containerRect.left &&
+                rect.left < containerRect.right
+              )
+            })
           if (!visibleLine) {
             return null
           }

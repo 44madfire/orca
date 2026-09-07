@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import DiffViewer from '../DiffViewer'
-import { buildPierreFileDiff } from './pierre-diff-metadata'
+import { requestPierreFileDiff } from './pierre-diff-parse-client'
 import { getLargeDiffRenderLimit } from '../large-diff-render-limit'
 
 vi.mock('@/store', () => ({ useAppStore: (selector: (s: object) => unknown) => selector({}) }))
@@ -13,8 +13,8 @@ vi.mock('../diff-navigation-context', () => ({
     unregisterDiffNavigator: () => {}
   })
 }))
-vi.mock('./pierre-diff-metadata', () => ({
-  buildPierreFileDiff: vi.fn(() => {
+vi.mock('./pierre-diff-parse-client', () => ({
+  requestPierreFileDiff: vi.fn(() => {
     throw new Error('limited content reached parser')
   })
 }))
@@ -41,7 +41,7 @@ it('renders a large-file fallback without synchronously computing the diff', () 
     />
   )
   expect(screen.getByText('Large diff fallback')).toBeTruthy()
-  expect(buildPierreFileDiff).not.toHaveBeenCalled()
+  expect(requestPierreFileDiff).not.toHaveBeenCalled()
 })
 
 it('honors a host-provided render limit when the RPC bodies are omitted', () => {
@@ -61,5 +61,25 @@ it('honors a host-provided render limit when the RPC bodies are omitted', () => 
     />
   )
   expect(screen.getByText('Large diff fallback')).toBeTruthy()
-  expect(buildPierreFileDiff).not.toHaveBeenCalled()
+  expect(requestPierreFileDiff).not.toHaveBeenCalled()
+})
+
+it('rechecks a growing draft even when the loaded file was below the limit', () => {
+  render(
+    <DiffViewer
+      modelKey="paste"
+      originalContent=""
+      modifiedContent={'x'.repeat(6_000_001)}
+      relativePath="paste.txt"
+      filePath="paste.txt"
+      language="plaintext"
+      sideBySide={false}
+      largeDiffRenderLimit={getLargeDiffRenderLimit({
+        originalContent: '',
+        modifiedContent: 'small'
+      })}
+    />
+  )
+  expect(screen.getByText('Large diff fallback')).toBeTruthy()
+  expect(requestPierreFileDiff).not.toHaveBeenCalled()
 })

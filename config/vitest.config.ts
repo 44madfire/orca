@@ -15,7 +15,8 @@ export default defineConfig({
       // import resolves to a non-constructor and the pool rejects on mount.
       '@pierre/diffs/worker/worker.js?worker': resolve(
         'config/test-stubs/pierre-diffs-worker-stub.ts'
-      )
+      ),
+      './pierre-diff-parse.worker?worker': resolve('config/test-stubs/pierre-diffs-worker-stub.ts')
     }
   },
   test: {

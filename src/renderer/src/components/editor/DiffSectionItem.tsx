@@ -14,7 +14,9 @@ import { useDiffSectionFallbackCleanup } from './useDiffSectionFallbackCleanup'
 import { submitDiffSectionComment } from './diff-section-comment-submit'
 import type { DiffSectionItemProps } from './diff-section-item-props'
 import { PierreDiffSurface } from './pierre-diff/PierreDiffSurface'
-import { buildPierreFileDiff } from './pierre-diff/pierre-diff-metadata'
+import type { PierreDiffInput } from './pierre-diff/pierre-diff-metadata'
+import { usePierreFileDiff } from './pierre-diff/use-pierre-file-diff'
+import { PierreDiffLoading } from './pierre-diff/PierreDiffLoading'
 import { buildPierreParseDiffOptions } from './pierre-diff/pierre-diff-options'
 import type { DecoratedDiffComment } from '../diff-comments/decorated-diff-comment'
 
@@ -85,7 +87,7 @@ export function DiffSectionItem({
     [commentableLineNumbers]
   )
 
-  const fileDiff = useMemo(
+  const diffInput = useMemo<PierreDiffInput | null>(
     () =>
       section.collapsed ||
       section.loading ||
@@ -94,7 +96,7 @@ export function DiffSectionItem({
       section.diffResult?.kind === 'binary' ||
       section.largeDiffRenderLimit?.limited
         ? null
-        : buildPierreFileDiff({
+        : {
             path: section.path,
             oldPath: section.oldPath,
             status: section.status,
@@ -103,7 +105,7 @@ export function DiffSectionItem({
             // Why: keyed by content generation so the worker AST cache survives virtualization remounts.
             cacheKey: `${worktreeId}:${section.key}:${section.contentGeneration ?? 0}`,
             parseDiffOptions: buildPierreParseDiffOptions(settings?.diffShowWhitespace)
-          }),
+          },
     [
       section.path,
       section.oldPath,
@@ -123,10 +125,18 @@ export function DiffSectionItem({
     ]
   )
 
+  const {
+    fileDiff,
+    error: parseError,
+    retry: retryParse,
+    markEdited
+  } = usePierreFileDiff(diffInput)
+
   // Why: virtualized rows unmount when scrolled away, so the draft must live in
   // section state rather than only inside the mounted editor.
   const handleEditChange = useCallback(
     (file: { contents: string }) => {
+      markEdited()
       const current = file.contents
       setSections((prev) => {
         let changed = false
@@ -154,7 +164,7 @@ export function DiffSectionItem({
         return changed ? next : prev
       })
     },
-    [index, setSections]
+    [index, setSections, markEdited]
   )
 
   const handlePostRender = useCallback(
@@ -249,12 +259,16 @@ export function DiffSectionItem({
           onCancelComment={() => setPendingComment(null)}
           onSubmitComment={handleSubmitComment}
         />
-      ) : null,
+      ) : (
+        <PierreDiffLoading error={parseError} onRetry={retryParse} />
+      ),
     [
       addLineCommentLabel,
       addLineCommentPlaceholder,
       comments,
       fileDiff,
+      parseError,
+      retryParse,
       handleDeleteComment,
       handleAddComment,
       handleEditChange,
