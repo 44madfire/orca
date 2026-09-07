@@ -68,13 +68,39 @@ describe('useActiveProjectSkillRuntime', () => {
     expect(result.current.discoveryTarget).toBeUndefined()
   })
 
-  it('does not adopt the global default once a project is active', () => {
+  it('lets an active local project override the global default', () => {
     setGlobalWslDefault('Ubuntu')
-    useAppStore.setState({ activeRepoId: 'repo-1' })
+    useAppStore.setState({
+      activeRepoId: 'repo-1',
+      repos: [{ id: 'repo-1', path: 'C:\\repo', displayName: 'r', badgeColor: 'b', addedAt: 1 }],
+      projects: [{ id: 'repo-1', localWindowsRuntimePreference: { kind: 'windows-host' } }] as never
+    })
     const { result } = renderHook(() => useActiveProjectSkillRuntime())
 
-    expect(result.current.agentRuntime).toBeUndefined()
-    useAppStore.setState({ activeRepoId: null })
+    expect(result.current.agentRuntime).toEqual({ runtime: 'host', label: 'Windows' })
+    useAppStore.setState({ activeRepoId: null, repos: [], projects: [] })
+  })
+
+  it('keeps the global WSL default while an SSH project is active', () => {
+    setGlobalWslDefault('Ubuntu')
+    useAppStore.setState({
+      activeRepoId: 'repo-ssh',
+      repos: [
+        {
+          id: 'repo-ssh',
+          path: '/home/alice/repo',
+          displayName: 'r',
+          badgeColor: 'b',
+          addedAt: 1,
+          connectionId: 'builder',
+          executionHostId: 'ssh:builder'
+        }
+      ]
+    })
+    const { result } = renderHook(() => useActiveProjectSkillRuntime())
+
+    expect(result.current.agentRuntime).toMatchObject({ runtime: 'wsl' })
+    useAppStore.setState({ activeRepoId: null, repos: [] })
   })
 
   it('does not inject the local WSL runtime or shell into a remote environment', () => {

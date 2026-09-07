@@ -41,6 +41,9 @@ type LocalProjectRuntimeState = Pick<
 // or `[]` fallback would miss the cache on every read.
 const EMPTY_WORKTREES_BY_REPO: AppState['worktreesByRepo'] = {}
 const EMPTY_REPOS: AppState['repos'] = []
+// Why: the global Windows default is one runtime regardless of which remote
+// workspace is active, so every non-owned caller shares this cache key.
+const GLOBAL_LOCAL_PROJECT_ID = 'local-project'
 
 type LocalProjectRuntimeWslContext = {
   wslAvailable?: boolean
@@ -91,7 +94,7 @@ export function getLocalProjectExecutionRuntimeContext(
   })
 }
 
-/** Resolves the Windows default only when no project can own the runtime. */
+/** Resolves the Windows default only when no local project can own the runtime. */
 export function getGlobalWindowsExecutionRuntimeContext(
   state: LocalProjectRuntimeState,
   worktreeId?: string | null,
@@ -100,16 +103,22 @@ export function getGlobalWindowsExecutionRuntimeContext(
 ): ProjectExecutionRuntimeResolution | undefined {
   if (
     appPlatform !== 'win32' ||
-    worktreeId ||
-    state.activeRepoId ||
-    state.activeWorktreeId ||
+    worktreeId === FLOATING_TERMINAL_WORKTREE_ID ||
     !state.settings?.localWindowsRuntimeDefault
   ) {
     return undefined
   }
+  // Why: an SSH/runtime workspace (or a stale active id) cannot own the local
+  // Windows runtime, and the local CLIs still live where the default says.
+  // Only a local project owner may displace the global default.
+  const worktree = getLocalWorktree(state, worktreeId)
+  const repo = getLocalRuntimeRepoForWorktree(state, worktree)
+  if (isLocalRuntimeRepo(repo) && isLocalRuntimeWorktree(worktree)) {
+    return undefined
+  }
   return resolveProjectExecutionRuntime({
     appPlatform: 'win32',
-    projectId: getLocalPreflightProjectId(state, worktreeId),
+    projectId: GLOBAL_LOCAL_PROJECT_ID,
     projectRuntimePreference: { kind: 'inherit-global' },
     globalWindowsRuntimeDefault: state.settings.localWindowsRuntimeDefault,
     ...wslContext
@@ -323,6 +332,9 @@ function getLocalPreflightProjectId(
 ): string {
   const activeWorktree = getLocalWorktree(state, worktreeId)
   return (
-    activeWorktree?.projectId ?? activeWorktree?.repoId ?? state.activeRepoId ?? 'local-project'
+    activeWorktree?.projectId ??
+    activeWorktree?.repoId ??
+    state.activeRepoId ??
+    GLOBAL_LOCAL_PROJECT_ID
   )
 }

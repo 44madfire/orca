@@ -4,6 +4,7 @@ import type { Repo } from '../../../shared/repo-types'
 import type { Worktree } from '../../../shared/worktree/types'
 import type { AppState } from '@/store/types'
 import {
+  getGlobalWindowsExecutionRuntimeContext,
   getLocalAgentPreflightContext,
   getLocalPreflightContext,
   getLocalProjectExecutionRuntimeContext,
@@ -375,18 +376,54 @@ describe('local preflight context', () => {
     expect(localPreflightContextKey(context)).toBe('local-project:wsl:Ubuntu')
   })
 
-  it('does not use the global runtime default for active SSH projects', () => {
+  it('keeps the global WSL runtime for local agent checks inside an active SSH project', () => {
     const state = {
       ...makeState({
         repoPath: '/home/alice/repo',
-        repo: { connectionId: 'builder', executionHostId: 'ssh:builder' }
+        worktreePath: '/home/alice/repo',
+        repo: { connectionId: 'builder', executionHostId: 'ssh:builder' },
+        worktree: { hostId: 'ssh:builder' }
       }),
       settings: {
         localWindowsRuntimeDefault: { kind: 'wsl', distro: 'Ubuntu' }
       }
     } as unknown as AppState
 
-    expect(getLocalAgentPreflightContext(state, 'win32')).toBeUndefined()
+    // Why: the SSH host owns remote execution, but the local CLIs this probe
+    // looks for still live in the configured Windows runtime, not the raw host.
+    expect(localPreflightContextKey(getLocalAgentPreflightContext(state, 'win32'))).toBe(
+      'local-project:wsl:Ubuntu'
+    )
+  })
+
+  it('keeps the global WSL runtime when the active repo id has no repo row', () => {
+    const state = {
+      ...makeState({ repoPath: undefined }),
+      activeRepoId: 'ghost',
+      activeWorktreeId: null,
+      settings: {
+        localWindowsRuntimeDefault: { kind: 'wsl', distro: 'Ubuntu' }
+      }
+    } as unknown as AppState
+
+    expect(localPreflightContextKey(getLocalAgentPreflightContext(state, 'win32'))).toBe(
+      'local-project:wsl:Ubuntu'
+    )
+  })
+
+  it('lets a local project own the runtime instead of the global default', () => {
+    const state = {
+      ...makeState({ repoPath: 'C:\\Users\\alice\\repo' }),
+      projects: [{ id: 'repo-1', localWindowsRuntimePreference: { kind: 'windows-host' } }],
+      settings: {
+        localWindowsRuntimeDefault: { kind: 'wsl', distro: 'Ubuntu' }
+      }
+    } as unknown as AppState
+
+    expect(getGlobalWindowsExecutionRuntimeContext(state, undefined, 'win32')).toBeUndefined()
+    expect(localPreflightContextKey(getLocalAgentPreflightContext(state, 'win32'))).toBe(
+      'repo-1:windows-host'
+    )
   })
 
   it('uses the project override over legacy agent location for local agent checks', () => {
