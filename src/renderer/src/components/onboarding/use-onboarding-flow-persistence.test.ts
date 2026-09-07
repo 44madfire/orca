@@ -3,7 +3,7 @@
 import { createElement, useEffect, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getDefaultOnboardingState } from '../../../../shared/constants'
+import { getDefaultOnboardingState, getDefaultSettings } from '../../../../shared/constants'
 import type { OnboardingState } from '../../../../shared/onboarding-state-types'
 
 const trackMock = vi.hoisted(() => vi.fn())
@@ -16,6 +16,7 @@ import {
   buildCompletedOnboardingNotificationSettings,
   buildOnboardingDismissedPayload,
   useCloseWith,
+  usePersistCurrentStep,
   type DismissedExtras,
   trackOnboardingDismissed
 } from './use-onboarding-flow-persistence'
@@ -89,6 +90,48 @@ describe('onboarding flow persistence', () => {
     container = null
     vi.useRealTimers()
   })
+
+  it.each([null, 'auto'] as const)(
+    'preserves permissions unless a preset is explicitly selected (%s)',
+    async (selection) => {
+      const settings = getDefaultSettings('/tmp')
+      settings.agentDefaultArgs = {
+        ...settings.agentDefaultArgs,
+        claude: '',
+        codex: '--model custom'
+      }
+      const updateSettings = vi.fn()
+      let persist: (() => Promise<{ ok: boolean }>) | undefined
+      function Probe(): null {
+        persist = usePersistCurrentStep({
+          currentStepId: 'agent',
+          selectedAgent: 'claude',
+          permissionModeSelection: selection,
+          theme: settings.theme,
+          settings,
+          updateSettings,
+          onboardingChecklist: getDefaultOnboardingState().checklist,
+          onOnboardingChange: vi.fn(),
+          setError: vi.fn()
+        })
+        return null
+      }
+      container = document.createElement('div')
+      root = createRoot(container)
+      act(() => root?.render(createElement(Probe)))
+      await act(async () => {
+        await persist?.()
+      })
+      const update = updateSettings.mock.calls[0][0]
+      if (selection === null) {
+        expect(update).toEqual({ defaultTuiAgent: 'claude' })
+      } else {
+        expect(update.agentDefaultArgs.claude).toBe('--permission-mode auto')
+        expect(update.agentDefaultArgs.codex).toBe('--model custom')
+        expect(update.agentDefaultArgs.aider).toBe('')
+      }
+    }
+  )
 
   it('builds dismissed telemetry with the triggering advance path', () => {
     expect(
