@@ -24,25 +24,23 @@ const LIMITS = {
 
 describe('mobile web bridge grant operation scope', () => {
   it('keeps a granted operation from authorizing a sibling operation of the same capability', async () => {
-    const harness = createHarness([{ capability: 'file', operation: 'open', limits: LIMITS }])
+    const harness = createHarness([
+      { capability: 'file', operation: 'markdownDraftRead', limits: LIMITS }
+    ])
+    const target = { workspaceId: WORKSPACE_ID, tabId: 'tab-1', relativePath: RELATIVE_PATH }
 
-    void harness.client.fileOpen({ workspaceId: WORKSPACE_ID, relativePath: RELATIVE_PATH })
-    expect(harness.messages).toMatchObject([{ capability: 'file', operation: 'open' }])
+    void harness.client.markdown.loadDraft(target)
+    expect(harness.messages).toMatchObject([{ capability: 'file', operation: 'markdownDraftRead' }])
 
-    const write = harness.client
-      .fileWrite({
-        workspaceId: WORKSPACE_ID,
-        relativePath: RELATIVE_PATH,
-        expectedRevision: 'a'.repeat(64),
-        contentBase64: btoa('after')
-      })
+    const save = harness.client.markdown
+      .saveDraft({ ...target, draft: { content: 'after', baseVersion: 'v1' } })
       .then(
         () => 'resolved',
         (error: unknown) => error
       )
     expect(harness.messages).toHaveLength(1)
     // The refusal must be the grant lookup, not a limit the sibling grant happens to fail.
-    await expect(write).resolves.toMatchObject({
+    await expect(save).resolves.toMatchObject({
       code: 'unsupported_capability',
       retryable: false
     })

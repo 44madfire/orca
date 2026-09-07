@@ -54,12 +54,10 @@ export const MOBILE_WEB_BRIDGE_OPERATIONS = {
     cancel: 'mutation'
   },
   file: {
-    write: 'mutation',
     markdownRead: 'read',
     markdownSave: 'mutation',
     markdownDraftRead: 'read',
     markdownDraftWrite: 'mutation',
-    open: 'mutation',
     resolveTerminalPath: 'read',
     readTerminalArtifactChunk: 'read',
     releaseTerminalArtifact: 'mutation'

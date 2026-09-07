@@ -20,26 +20,33 @@ const REVISION = mobileWebFileRevision(CONTENT)
 const ARTIFACT_TOKEN = 'T'.repeat(43)
 
 describe('mobile web file request client', () => {
-  it('sends a bounded write and accepts its exact result identity', async () => {
+  it('writes through the generic host lane and accepts its exact result identity', async () => {
     const harness = createHarness()
     const write = harness.client.fileWrite(writePayload())
 
     expect(harness.messages[0]).toMatchObject({
-      capability: 'file',
-      operation: 'write',
-      payload: writePayload()
+      capability: 'workspace',
+      operation: 'hostRequest',
+      payload: {
+        method: 'mobileWeb.files.write',
+        workspaceId: WORKSPACE_ID,
+        params: {
+          relativePath: RELATIVE_PATH,
+          expectedRevision: 'a'.repeat(64),
+          contentBase64: CONTENT_BASE64
+        }
+      }
     })
-    harness.client.receive(response(writeResult()))
+    harness.client.receive(response(hostWriteResult()))
 
     await expect(write).resolves.toEqual(writeResult())
   })
 
-  it('rejects cross-workspace, cross-path, wrong-revision, and wrong-length results', async () => {
+  it('rejects cross-path, wrong-revision, and wrong-length write results', async () => {
     for (const result of [
-      writeResult({ workspaceId: 'repo-2::/workspace' }),
-      writeResult({ relativePath: 'src/other.ts' }),
-      writeResult({ revision: 'b'.repeat(64) }),
-      writeResult({ byteLength: CONTENT.byteLength + 1 })
+      hostWriteResult({ relativePath: 'src/other.ts' }),
+      hostWriteResult({ revision: 'b'.repeat(64) }),
+      hostWriteResult({ byteLength: CONTENT.byteLength + 1 })
     ]) {
       const harness = createHarness()
       const write = harness.client.fileWrite(writePayload())
@@ -50,6 +57,43 @@ describe('mobile web file request client', () => {
         retryable: false
       })
     }
+  })
+
+  it('surfaces a refused write as the outcome the desktop named', async () => {
+    for (const outcome of ['conflict', 'too_large'] as const) {
+      const harness = createHarness()
+      const write = harness.client.fileWrite(writePayload())
+      harness.client.receive(response({ outcome }))
+
+      await expect(write).rejects.toMatchObject({ code: outcome, retryable: false })
+    }
+  })
+
+  it('opens a file through the generic host lane and requires the host acknowledgement', async () => {
+    const harness = createHarness()
+    const open = harness.client.fileOpen({
+      workspaceId: WORKSPACE_ID,
+      relativePath: RELATIVE_PATH
+    })
+    expect(harness.messages[0]).toMatchObject({
+      capability: 'workspace',
+      operation: 'hostRequest',
+      payload: {
+        method: 'mobileWeb.files.open',
+        workspaceId: WORKSPACE_ID,
+        params: { relativePath: RELATIVE_PATH, mode: 'edit' }
+      }
+    })
+    harness.client.receive(response({ opened: true, activated: false }))
+    await expect(open).resolves.toBeNull()
+
+    const refused = createHarness()
+    const openRefused = refused.client.fileOpen({
+      workspaceId: WORKSPACE_ID,
+      relativePath: RELATIVE_PATH
+    })
+    refused.client.receive(response({ opened: false }))
+    await expect(openRefused).rejects.toMatchObject({ code: 'invalid_message' })
   })
 
   it('resolves, reads, decodes, and releases an opaque terminal artifact', async () => {
@@ -190,8 +234,8 @@ function createHarness(
 function writeGrants(): Extract<MobileWebBridgeShellMessage, { type: 'init' }>['grants'] {
   return [
     {
-      capability: 'file',
-      operation: 'write',
+      capability: 'workspace',
+      operation: 'hostRequest',
       limits: {
         maxRequestBytes: 192 * 1024,
         maxResponseBytes: 2048,
@@ -246,6 +290,13 @@ function writeResult(
     outcome: 'updated' as const,
     ...overrides
   }
+}
+
+function hostWriteResult(
+  overrides: Partial<{ relativePath: string; revision: string; byteLength: number }> = {}
+) {
+  const { workspaceId: _workspaceId, ...result } = writeResult()
+  return { ...result, ...overrides }
 }
 
 function response(payload: unknown): MobileWebBridgeShellMessage {

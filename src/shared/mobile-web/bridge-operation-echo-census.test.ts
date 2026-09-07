@@ -15,7 +15,6 @@ const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
   'file.markdownSave': ['relativePath', 'tabId', 'workspaceId'],
   'file.readTerminalArtifactChunk': ['offset', 'tabId', 'token', 'workspaceId'],
   'file.resolveTerminalPath': ['workspaceId'],
-  'file.write': ['byteLength', 'relativePath', 'revision', 'workspaceId'],
   'provider.manageReview': ['action', 'provider', 'reviewNumber', 'workspaceId'],
   'provider.mutateReview': ['provider', 'reviewNumber', 'workspaceId'],
   'provider.review': ['branch', 'observedHead', 'workspaceId'],
@@ -296,7 +295,7 @@ describe('mobile web bridge operation echo census', () => {
     )
 
     expect(Object.keys(EXPECTED_ECHO_FIELDS).filter((key) => !registered.has(key))).toEqual([])
-    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(49)
+    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(48)
   })
 
   it('guards the page workspace handle on every workspace-scoped echo it records', () => {
@@ -304,6 +303,6 @@ describe('mobile web bridge operation echo census', () => {
       fields.some((field) => field === 'workspaceId')
     )
 
-    expect(workspaceScoped.length).toBeGreaterThanOrEqual(40)
+    expect(workspaceScoped.length).toBeGreaterThanOrEqual(39)
   })
 })

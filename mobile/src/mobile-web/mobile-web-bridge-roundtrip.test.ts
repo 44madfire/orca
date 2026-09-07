@@ -332,10 +332,11 @@ describe('mobile web bridge round trip', () => {
         relativePath: 'README.md'
       })
     ).resolves.toBeNull()
-    expect(sendRequest).toHaveBeenCalledWith('files.open', {
-      worktree: 'id:workspace-1',
-      relativePath: 'README.md'
-    })
+    expect(sendRequest).toHaveBeenCalledWith(
+      'mobileWeb.files.open',
+      { worktree: 'id:workspace-1', relativePath: 'README.md', mode: 'edit' },
+      expect.anything()
+    )
 
     const liveSnapshots: unknown[] = []
     const liveErrors: unknown[] = []

@@ -9,6 +9,8 @@ export const MOBILE_WEB_HOST_RPC_METHODS = new Set([
   'mobileWeb.files.searchPaths',
   'mobileWeb.files.read',
   'mobileWeb.files.watch',
+  'mobileWeb.files.open',
+  'mobileWeb.files.write',
   'mobileWeb.terminal.action',
   'mobileWeb.nativeChat.read',
   'mobileWeb.nativeChat.mutate',

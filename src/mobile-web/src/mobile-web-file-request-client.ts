@@ -1,10 +1,10 @@
+import { z } from 'zod'
 import { sanitizeListResult } from '../../shared/mobile-web/file-list-presentation'
 import { projectMobileWebHostFileContent } from './mobile-web-host-file-content'
 import {
   MOBILE_WEB_FILE_CHUNK_MAX_BYTES,
   MobileWebFileListPayloadSchema,
   MobileWebFileOpenPayloadSchema,
-  MobileWebFileOpenResultSchema,
   MobileWebFileReadPayloadSchema,
   MobileWebFileSearchPayloadSchema,
   type MobileWebFileListPayload,
@@ -17,7 +17,6 @@ import {
 import {
   MOBILE_WEB_FILE_EDIT_MAX_BYTES,
   MobileWebFileWritePayloadSchema,
-  MobileWebFileWriteResultSchema,
   type MobileWebFileWritePayload,
   type MobileWebFileWriteResult
 } from '../../shared/mobile-web/file-edit-contract'
@@ -41,6 +40,17 @@ import { decodeMobileWebFileBytes } from './mobile-web-file-content'
 import { mobileWebFileRevision } from './mobile-web-file-edit-content'
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
 
+const OpenResultSchema = z.object({ opened: z.literal(true) })
+const WriteResultSchema = z.union([
+  z.object({
+    relativePath: z.string(),
+    revision: z.string(),
+    byteLength: z.number().int().nonnegative().max(MOBILE_WEB_FILE_EDIT_MAX_BYTES),
+    outcome: z.literal('updated')
+  }),
+  z.object({ outcome: z.enum(['conflict', 'too_large']) })
+])
+
 export class MobileWebFileRequestClient extends MobileWebFileReadClient {
   list(
     payload: MobileWebFileListPayload,
@@ -49,7 +59,7 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
     if (!MobileWebFileListPayloadSchema.safeParse(payload).success) {
       return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
     }
-    return this.readHost(
+    return this.requestHost(
       'mobileWeb.files.searchPaths',
       payload.workspaceId,
       { query: '', limit: payload.limit },
@@ -65,7 +75,7 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
     if (!MobileWebFileSearchPayloadSchema.safeParse(payload).success) {
       return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
     }
-    return this.readHost(
+    return this.requestHost(
       'mobileWeb.files.searchPaths',
       payload.workspaceId,
       { query: payload.query, limit: payload.limit },
@@ -81,7 +91,7 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
     if (!MobileWebFileReadPayloadSchema.safeParse(payload).success) {
       return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
     }
-    return this.readHost(
+    return this.requestHost(
       'mobileWeb.files.read',
       payload.workspaceId,
       { relativePath: payload.relativePath },
@@ -91,12 +101,19 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
   }
 
   open(payload: MobileWebFileOpenPayload, options?: MobileWebBridgeRequestOptions): Promise<null> {
-    return this.requests.request(
-      'file',
-      'open',
-      payload,
-      MobileWebFileOpenPayloadSchema,
-      MobileWebFileOpenResultSchema,
+    if (!MobileWebFileOpenPayloadSchema.safeParse(payload).success) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
+    }
+    return this.requestHost(
+      'mobileWeb.files.open',
+      payload.workspaceId,
+      { relativePath: payload.relativePath, mode: 'edit' },
+      (result) => {
+        if (!OpenResultSchema.safeParse(result).success) {
+          throw new MobileWebBridgeClientError('invalid_message', false)
+        }
+        return null
+      },
       options
     )
   }
@@ -105,16 +122,20 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
     payload: MobileWebFileWritePayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebFileWriteResult> {
-    return this.requests
-      .request(
-        'file',
-        'write',
-        payload,
-        MobileWebFileWritePayloadSchema,
-        MobileWebFileWriteResultSchema,
-        options
-      )
-      .then((result) => matchingWrite(payload, result))
+    if (!MobileWebFileWritePayloadSchema.safeParse(payload).success) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
+    }
+    return this.requestHost(
+      'mobileWeb.files.write',
+      payload.workspaceId,
+      {
+        relativePath: payload.relativePath,
+        expectedRevision: payload.expectedRevision,
+        contentBase64: payload.contentBase64
+      },
+      (result) => projectWrite(payload, result),
+      options
+    )
   }
 
   resolveTerminalPath(
@@ -189,23 +210,24 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
   }
 }
 
-function matchingWrite(
+function projectWrite(
   payload: MobileWebFileWritePayload,
-  result: MobileWebFileWriteResult
+  result: unknown
 ): MobileWebFileWriteResult {
+  const parsed = WriteResultSchema.safeParse(result)
+  if (!parsed.success) {
+    throw new MobileWebBridgeClientError('invalid_message', false)
+  }
+  if (parsed.data.outcome !== 'updated') {
+    throw new MobileWebBridgeClientError(parsed.data.outcome, false)
+  }
   const bytes = decodeMobileWebFileBytes(payload.contentBase64, MOBILE_WEB_FILE_EDIT_MAX_BYTES)
-  if (result.revision !== mobileWebFileRevision(bytes) || result.byteLength !== bytes.byteLength) {
+  if (
+    parsed.data.relativePath !== payload.relativePath ||
+    parsed.data.revision !== mobileWebFileRevision(bytes) ||
+    parsed.data.byteLength !== bytes.byteLength
+  ) {
     throw new MobileWebBridgeClientError('invalid_message', false)
   }
-  return matchingFile(payload, result)
-}
-
-function matchingFile<
-  TPayload extends { workspaceId: string; relativePath: string },
-  TResult extends { workspaceId: string; relativePath: string }
->(payload: TPayload, result: TResult): TResult {
-  if (result.relativePath !== payload.relativePath) {
-    throw new MobileWebBridgeClientError('invalid_message', false)
-  }
-  return requireEchoedWorkspaceId(payload.workspaceId, result)
+  return { ...parsed.data, workspaceId: payload.workspaceId }
 }

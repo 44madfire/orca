@@ -1,9 +1,6 @@
 import {
-  MOBILE_WEB_FILE_CHUNK_MAX_BYTES,
-  MobileWebFileChunkResultSchema,
   MobileWebFileDirectoryEntrySchema,
   MobileWebFileDirectoryResultSchema,
-  type MobileWebFileChunkWireResult,
   type MobileWebFileDirectoryEntry,
   type MobileWebFileDirectoryResult
 } from './bridge-operation-contract'
@@ -44,37 +41,6 @@ export function sanitizeDirectoryResult(
     revision: mobileWebDirectoryRevision(entries, truncated),
     entries,
     truncated
-  })
-}
-
-export function sanitizeChunkResult(
-  result: unknown,
-  payload: {
-    workspaceId: string
-    relativePath: string
-    offset: number
-    length: number
-  }
-): MobileWebFileChunkWireResult {
-  if (
-    !isRecord(result) ||
-    typeof result.contentBase64 !== 'string' ||
-    typeof result.bytesRead !== 'number' ||
-    !Number.isSafeInteger(result.bytesRead) ||
-    result.bytesRead < 0 ||
-    result.bytesRead > payload.length ||
-    result.bytesRead > MOBILE_WEB_FILE_CHUNK_MAX_BYTES ||
-    typeof result.eof !== 'boolean'
-  ) {
-    throw new MobileWebBrokerError('host_error')
-  }
-  return MobileWebFileChunkResultSchema.parse({
-    workspaceId: payload.workspaceId,
-    relativePath: payload.relativePath,
-    offset: payload.offset,
-    contentBase64: result.contentBase64,
-    bytesRead: result.bytesRead,
-    eof: result.eof
   })
 }
 

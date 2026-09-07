@@ -9,7 +9,6 @@ import { executeMobileWebAgentHistoryOperation } from './mobile-web-agent-histor
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import { executeMobileWebBrowserOperation } from './mobile-web-browser-operations'
 import type { MobileWebCapabilityExecutionDependencies } from './mobile-web-capability-execution-dependencies'
-import { executeMobileWebFileOperation } from './mobile-web-file-operations'
 import { executeMobileWebMarkdownOperation } from './mobile-web-markdown-operations'
 import { executeMobileWebNavigationOperation } from './mobile-web-navigation-operations'
 import { executeMobileWebNativeCapabilityOperation } from './mobile-web-native-capability-operations'
@@ -80,12 +79,7 @@ async function executeFile(args: Deps, request: OnceRequest): Promise<unknown> {
   if (request.operation === 'releaseTerminalArtifact') {
     return args.terminalArtifactAuthority.release(request.payload)
   }
-  return executeMobileWebFileOperation({
-    operation: request.operation,
-    payload: request.payload,
-    client,
-    workspaceAuthority: args.workspaceAuthority
-  })
+  throw new MobileWebBrokerError('unsupported_capability')
 }
 
 async function executeProvider(args: Deps, request: OnceRequest): Promise<unknown> {

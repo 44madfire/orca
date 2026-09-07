@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
-import { executeMobileWebFileWrite } from './mobile-web-file-write'
 import { executeMobileWebNativeChatOperation } from './mobile-web-native-chat-operations'
 import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
 import { executeMobileWebTaskItemMutationOperation } from './mobile-web-task-item-mutation-operations'
@@ -9,41 +8,6 @@ import { MobileWebTaskTargetAuthority } from './mobile-web-task-target-authority
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 describe('mobile web mutation authorization races', () => {
-  it('rejects a file write when ownership preflight loses its workspace authority', async () => {
-    const workspace = workspaceAuthority()
-    const worktree = deferredResult()
-    const sendRequest = vi.fn((method: string) => {
-      if (method === 'status.get') {
-        return Promise.resolve(success({ capabilities: ['files.mutation-ownership.v1'] }))
-      }
-      if (method === 'worktree.show') {
-        return worktree.promise
-      }
-      if (method === 'files.writeIfUnchanged') {
-        return Promise.resolve(success({ ok: true }))
-      }
-      return Promise.resolve(failure())
-    })
-    const pending = executeMobileWebFileWrite(
-      {
-        workspaceId: workspace.pageId,
-        relativePath: 'src/app.ts',
-        expectedRevision: 'a'.repeat(64),
-        contentBase64: btoa('guarded')
-      },
-      client(sendRequest),
-      workspace.authority
-    )
-    const rejection = expect(pending).rejects.toMatchObject({ code: 'not_found' })
-
-    await vi.waitFor(() => expect(callsFor(sendRequest, 'worktree.show')).toHaveLength(1))
-    workspace.remove()
-    worktree.resolve(success({ worktree: { hostId: 'local' } }))
-
-    await rejection
-    expect(callsFor(sendRequest, 'files.writeIfUnchanged')).toHaveLength(0)
-  })
-
   it('rejects a task update when provider preflight loses its opaque target', async () => {
     const authority = new MobileWebTaskTargetAuthority((length) => new Uint8Array(length).fill(3))
     const targetId = authority.registerGitHub({
