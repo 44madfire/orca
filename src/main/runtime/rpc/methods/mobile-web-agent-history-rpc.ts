@@ -124,12 +124,8 @@ export function mobileWebAgentHistoryRpc(context: RpcContext) {
     },
     async sendResumeCommand(terminal: string, command: string): Promise<void> {
       const result = TerminalSendResult.parse(
-        await call(terminalSend, {
-          terminal,
-          text: command,
-          enter: true,
-          ...(context.clientId ? { client: { id: context.clientId, type: 'mobile' } } : {})
-        })
+        // Clientless like the resume path it replaces: the command is not floor-taking input.
+        await call(terminalSend, { terminal, text: command, enter: true })
       )
       if (!result.send.accepted) {
         throw new Error('conflict')
