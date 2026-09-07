@@ -194,3 +194,16 @@ describe('isCmdQuotingPowerShellSafe', () => {
     expect(isCmdQuotingPowerShellSafe('C:\\dir\\file.jsonl')).toBe(true)
   })
 })
+
+describe('ambiguous Windows resume token quoting', () => {
+  it.each([
+    '',
+    'line\nbreak',
+    'line\rbreak',
+    'tab\tvalue',
+    'nul\0value',
+    'a\u201cb',
+    'a\u201db',
+    'a\u201eb'
+  ])('rejects an unsafe token %j', (value) => expect(isCmdQuotingPowerShellSafe(value)).toBe(false))
+})

@@ -567,6 +567,23 @@ describe('buildAgentResumeStartupPlan claude selector guard', () => {
     expect(restored?.launchCommand).toBe(`gemini '--resume' '--resume' '${SESSION_ID}'`)
   })
 
+  it('cleans a persisted PowerShell command while quoting the resume argv for cmd', () => {
+    const agentCommand = "& claude '--model' 'sonnet' --resume 'old-session' -- prompt"
+    const restored = buildAgentResumeStartupPlan({
+      agent: 'claude',
+      providerSession,
+      cmdOverrides: {},
+      agentCommand,
+      platform: 'win32',
+      shell: 'cmd',
+      resumeCommandShell: 'powershell'
+    })
+    expect(restored?.launchCommand).toBe(
+      `& claude '--model' 'sonnet' "--resume" "${SESSION_ID}" -- prompt`
+    )
+    expect(restored?.launchConfig.agentCommand).toBe(agentCommand)
+  })
+
   it('persists the original base command unchanged', () => {
     const restored = buildAgentResumeStartupPlan({
       agent: 'claude',

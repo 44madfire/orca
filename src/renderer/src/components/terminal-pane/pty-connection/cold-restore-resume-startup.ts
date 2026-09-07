@@ -84,7 +84,8 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
         ? { ompResumeFilePath: launchConfig.ompResumeFilePath }
         : {}),
       platform: resumeTarget.platform,
-      shell: resumeTarget.shell
+      shell: resumeTarget.shell,
+      resumeCommandShell: resumeTarget.resumeCommandShell
     })
     if (!startupPlan) {
       return null

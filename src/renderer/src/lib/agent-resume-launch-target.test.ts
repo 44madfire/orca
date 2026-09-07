@@ -82,12 +82,9 @@ describe('resolveAgentResumeLaunchTarget on a Windows client', () => {
   })
 
   it('guesses cmd for an unset shell when every resume token is cmd-quote-safe', async () => {
-    // Cold-restore race: settings not yet hydrated, so the pane may be the
-    // %COMSPEC% (cmd.exe) default. A clean codex argv quotes identically in cmd
-    // and PowerShell, so guessing cmd fixes the cmd pane with no PowerShell risk.
     await expect(
       resolveWith({ resumeArgv: ['codex', 'resume', 'a1b2c3d4-0000-4000-8000-000000000000'] })
-    ).resolves.toEqual({ platform: 'win32', shell: 'cmd' })
+    ).resolves.toEqual({ platform: 'win32', shell: 'cmd', resumeCommandShell: 'powershell' })
   })
 
   it('keeps the PowerShell default for an unset shell when a resume token needs cmd escaping', async () => {
@@ -131,7 +128,20 @@ describe('resolveAgentResumeLaunchTarget on a Windows client', () => {
         resumeArgv: ['codex', 'resume', 'a1b2c3d4-0000-4000-8000-000000000000'],
         resumeAgentArgs: '--dangerously-bypass-approvals-and-sandbox --model gpt'
       })
-    ).resolves.toEqual({ platform: 'win32', shell: 'cmd' })
+    ).resolves.toEqual({ platform: 'win32', shell: 'cmd', resumeCommandShell: 'powershell' })
+  })
+
+  it.each([
+    '--add-dir C:\\work\\a^b',
+    '--append-system-prompt "Match ^foo"',
+    "--append-system-prompt 'it''s a test'"
+  ])('preserves PowerShell argument parsing for %s', async (resumeAgentArgs) => {
+    await expect(
+      resolveWith({
+        resumeArgv: ['codex', 'resume', 'session-1'],
+        resumeAgentArgs
+      })
+    ).resolves.toEqual({ platform: 'win32', shell: 'powershell' })
   })
 
   it('never overrides a configured shell with the race guess', async () => {

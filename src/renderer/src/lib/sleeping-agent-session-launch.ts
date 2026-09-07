@@ -101,7 +101,8 @@ export function launchSleepingAgentSession(
       ? { ompResumeFilePath: launchConfig.ompResumeFilePath }
       : {}),
     platform: resumeTarget.platform,
-    shell: resumeTarget.shell
+    shell: resumeTarget.shell,
+    resumeCommandShell: resumeTarget.resumeCommandShell
   })
   if (!startupPlan) {
     toast.error(

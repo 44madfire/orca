@@ -344,6 +344,7 @@ describe('connectPanePty', () => {
   async function runWindowsColdRestoreResume(args: {
     terminalWindowsShell?: string
     tabShellOverride?: string
+    agentCommand?: string
   }): Promise<string | undefined> {
     const restoreNavigator = temporarilySetNavigatorUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
@@ -408,7 +409,8 @@ describe('connectPanePty', () => {
             paneKey,
             tabId: 'tab-1',
             worktreeId: 'wt-1',
-            agent: 'codex',
+            agent: args.agentCommand ? 'claude' : 'codex',
+            ...(args.agentCommand ? { launchConfig: { agentCommand: args.agentCommand } } : {}),
             providerSession: { key: 'session_id', id: 'codex-session-1' },
             prompt: 'finish the task',
             state: 'done',
@@ -461,17 +463,16 @@ describe('connectPanePty', () => {
     ).resolves.toBe("codex '--dangerously-bypass-approvals-and-sandbox' 'resume' 'codex-session-1'")
   })
 
-  // Regression (#12320 residual): a cold restore after restart can run before the
-  // store hydrates `settings`, so terminalWindowsShell is momentarily undefined and
-  // the pane may be the cmd.exe default. The codex resume argv is cmd-quote-safe, so
-  // the target resolver's race guess picks cmd — a bare "token" that also parses
-  // identically in PowerShell, so it fixes the cmd pane with no PowerShell risk.
-  // Before the guess, PowerShell single quotes reached cmd.exe literally
-  // ("unrecognized subcommand ''resume''"), exactly the field report.
   it('quotes for cmd.exe on cold restore when the shell setting has not hydrated', async () => {
     await expect(runWindowsColdRestoreResume({})).resolves.toBe(
       'codex "--dangerously-bypass-approvals-and-sandbox" "resume" "codex-session-1"'
     )
+  })
+
+  it('removes a stale Claude selector before cmd-compatible cold-restore quoting', async () => {
+    await expect(
+      runWindowsColdRestoreResume({ agentCommand: "claude --resume 'old-session'" })
+    ).resolves.toBe('claude "--resume" "codex-session-1"')
   })
 
   it('keeps a contentless reattach when the sleeping record represents a live session', async () => {

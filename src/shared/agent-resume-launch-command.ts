@@ -60,11 +60,12 @@ export function buildAgentResumeLaunchCommand(
   agent: ResumableTuiAgent,
   baseCommand: string,
   resumeArgv: readonly string[],
-  shell: AgentStartupShell
+  shell: AgentStartupShell,
+  commandShell: AgentStartupShell = shell
 ): string {
   const argv = resumeArgv.slice(1)
   if (agent === 'claude') {
-    return buildClaudeResumeLaunchCommand(baseCommand, argv, shell)
+    return buildClaudeResumeLaunchCommand(baseCommand, argv, shell, commandShell)
   }
   const resumeArgs = argv.map((arg) => quoteStartupArg(arg, shell)).join(' ')
   return resumeArgs ? `${baseCommand} ${resumeArgs}` : baseCommand
@@ -84,19 +85,20 @@ export function buildAgentResumeLaunchCommand(
 export function buildClaudeResumeLaunchCommand(
   baseCommand: string,
   resumeArgs: readonly string[],
-  shell: AgentStartupShell
+  shell: AgentStartupShell,
+  commandShell: AgentStartupShell = shell
 ): string {
   const quotedResume = resumeArgs.map((arg) => quoteStartupArg(arg, shell)).join(' ')
   if (!quotedResume) {
     return baseCommand
   }
   const appended = `${baseCommand} ${quotedResume}`
-  const tokenized = tokenizeStartupCommand(baseCommand, shell)
+  const tokenized = tokenizeStartupCommand(baseCommand, commandShell)
   if (!tokenized.ok) {
     return appended
   }
   const { tokens, spans } = tokenized
-  const claudeIndex = findClaudeExecutableIndex(tokens, shell)
+  const claudeIndex = findClaudeExecutableIndex(tokens, commandShell)
   if (claudeIndex === -1) {
     return appended
   }
@@ -118,11 +120,14 @@ export function buildClaudeResumeLaunchCommand(
     // child literally, so appended quoting would arrive as literal bytes. A
     // quoted `--%` can also stop parsing, but only before a parameter token,
     // where the base is already mangled with or without the guard.
-    if (shell === 'powershell' && baseCommand.slice(spans[i].start, spans[i].end) === '--%') {
+    if (
+      commandShell === 'powershell' &&
+      baseCommand.slice(spans[i].start, spans[i].end) === '--%'
+    ) {
       return appended
     }
     if (spans[i].divergesFromShell) {
-      const isCallOperator = shell === 'powershell' && i === 0 && tokens[i] === '&'
+      const isCallOperator = commandShell === 'powershell' && i === 0 && tokens[i] === '&'
       if (!isCallOperator) {
         return appended
       }

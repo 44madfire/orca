@@ -18,6 +18,8 @@ export function buildAgentResumeStartupPlan(args: {
   cmdOverrides: Partial<Record<TuiAgent, string>>
   platform: NodeJS.Platform
   shell?: AgentStartupShell
+  /** Shell used to interpret the persisted command before appending resume arguments. */
+  resumeCommandShell?: AgentStartupShell
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
   agentCommand?: string | null
@@ -56,7 +58,13 @@ export function buildAgentResumeStartupPlan(args: {
     ...args,
     agentCommand: baseCommand.commandWithoutSessionOptions
   })
-  const launchCommand = buildAgentResumeLaunchCommand(args.agent, baseCommand.command, argv, shell)
+  const launchCommand = buildAgentResumeLaunchCommand(
+    args.agent,
+    baseCommand.command,
+    argv,
+    shell,
+    args.resumeCommandShell
+  )
   const applied = baseCommand.appliedSessionOptions
   return {
     agent: args.agent,
