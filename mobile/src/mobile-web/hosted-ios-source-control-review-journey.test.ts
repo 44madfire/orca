@@ -461,7 +461,13 @@ describe('hosted iOS Source Control and Review journey', () => {
       })
     })
     mocks.readBridgeErrors.mockResolvedValue([
-      { capability: 'sourceControl', operation: 'reviewOpen', code: 'host_error', retryable: true }
+      {
+        capability: 'workspace',
+        operation: 'hostRequest',
+        method: 'files.openDiff',
+        code: 'host_error',
+        retryable: true
+      }
     ])
     mocks.readState.mockReset()
     mocks.readState
@@ -493,8 +499,9 @@ describe('hosted iOS Source Control and Review journey', () => {
       headless: 'renderer_unavailable',
       native: 'renderer_unavailable',
       bridgeError: {
-        capability: 'sourceControl',
-        operation: 'reviewOpen',
+        capability: 'workspace',
+        operation: 'hostRequest',
+        method: 'files.openDiff',
         code: 'host_error',
         retryable: true
       },
@@ -515,7 +522,13 @@ describe('hosted iOS Source Control and Review journey', () => {
       })
     })
     mocks.readBridgeErrors.mockResolvedValue([
-      { capability: 'sourceControl', operation: 'reviewOpen', code: 'host_error', retryable: true }
+      {
+        capability: 'workspace',
+        operation: 'hostRequest',
+        method: 'files.openDiff',
+        code: 'host_error',
+        retryable: true
+      }
     ])
 
     await expect(

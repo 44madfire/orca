@@ -27,6 +27,7 @@ export async function startHostedWebViewBridgeErrorObservation(document) {
         state.errors.push({
           capability: request?.capability ?? 'unknown',
           operation: request?.operation ?? 'unknown',
+          ...(request?.method ? { method: request.method } : {}),
           code: message.error?.code ?? 'unknown',
           retryable: message.error?.retryable === true
         });
@@ -40,7 +41,11 @@ export async function startHostedWebViewBridgeErrorObservation(document) {
           if (message?.type === 'request' && typeof message.requestId === 'string') {
             state.requests[message.requestId] = {
               capability: String(message.capability ?? '').slice(0, 64),
-              operation: String(message.operation ?? '').slice(0, 64)
+              operation: String(message.operation ?? '').slice(0, 64),
+              // The generic host lane names its Desktop method in the payload, not the operation.
+              ...(typeof message.payload?.method === 'string'
+                ? { method: message.payload.method.slice(0, 160) }
+                : {})
             };
           }
         } catch {}
