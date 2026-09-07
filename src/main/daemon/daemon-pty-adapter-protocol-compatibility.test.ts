@@ -486,9 +486,13 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       const probeAdapter = new DaemonPtyAdapter({ socketPath, tokenPath, protocolVersion })
       ;(
         probeAdapter as unknown as {
-          client: { request: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }
+          client: {
+            request: ReturnType<typeof vi.fn>
+            disconnect: ReturnType<typeof vi.fn>
+            isConnected: () => boolean
+          }
         }
-      ).client = { request, disconnect: vi.fn() }
+      ).client = { request, disconnect: vi.fn(), isConnected: () => true }
       return probeAdapter
     }
 

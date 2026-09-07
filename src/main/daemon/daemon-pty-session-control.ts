@@ -49,6 +49,11 @@ export abstract class DaemonPtySessionControl extends DaemonPtySessionInput {
 
   async probePtyLiveness(id: string): Promise<boolean | null> {
     try {
+      // Why: a fresh adapter (new app process) has never connected; without this the readback
+      // answers `null` for every session an older process spawned, and the cache miss stands.
+      if (!this.client.isConnected()) {
+        await this.ensureConnected(Date.now() + LIVENESS_PROBE_TIMEOUT_MS)
+      }
       if (!this.getSizeUnsupported && this.protocolVersion >= GET_SIZE_PROTOCOL_VERSION) {
         try {
           const result = await this.client.request<{ size: { cols: number; rows: number } | null }>(

@@ -8,6 +8,7 @@ import {
 } from '../../../providers/pty-process-list-admission'
 import type { PtyListedSession } from '../../../../shared/pty-listed-session'
 import { ptyOwnership } from '../provider/ownership-state'
+import { resolveProviderPtyPresence } from '../provider/liveness'
 import {
   getProviderForPty,
   hasPtyProviderForInspection,
@@ -137,13 +138,14 @@ export function installPtyInspectIpcHandlers(deps: {
     const provider = parsedSshId
       ? sshProviders.get(parsedSshId.connectionId)
       : tryGetProviderForPty(args.id)
-    if (!provider?.hasPty) {
+    if (!provider) {
       return null
     }
     try {
-      return provider.hasPty(args.id)
+      // Why: liveness is only allowed to close panes on an authoritative false, and the daemon
+      // adapter's `hasPty` is a cache of what THIS process attached, not what the daemon runs.
+      return await resolveProviderPtyPresence(provider, args.id)
     } catch {
-      // Why: liveness is only allowed to close panes on an authoritative false.
       return null
     }
   })

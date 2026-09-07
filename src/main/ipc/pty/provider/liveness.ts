@@ -104,6 +104,25 @@ export function delay(ms: number): Promise<void> {
   })
 }
 
+/**
+ * The presence answer a renderer may tear a pane down on. `hasPty` on the daemon adapter is an
+ * in-process cache of the sessions THIS process attached; a pane that attached renderer-only (a
+ * retained orchestration worker after an app restart) never warms it, so a cache miss is not an
+ * observation. Only the owner's readback may answer `false` (docs/reference/ssh-execution-boundary.md).
+ */
+export async function resolveProviderPtyPresence(
+  provider: IPtyProvider,
+  ptyId: string
+): Promise<boolean | null> {
+  if (!provider.hasPty) {
+    return null
+  }
+  if (provider.hasPty(ptyId)) {
+    return true
+  }
+  return provider.probePtyLiveness ? await provider.probePtyLiveness(ptyId) : false
+}
+
 export async function isProviderPtyLive(
   provider: IPtyProvider,
   ptyId: string,
