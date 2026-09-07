@@ -153,8 +153,9 @@ function SubagentElapsed({
  *  consulted: `spawn_agent` children outlive the turn that spawned them and keep
  *  reporting into this group long after a newer turn opened, so a turn boundary
  *  is a fact about the turn and never evidence that contact with a child was
- *  lost. Only the writing host can say that, and it does — see
- *  `CodexSubagentRoster.settleSession`. */
+ *  lost. Only a host can say that, and one does: `CodexSubagentRoster.settleSession`
+ *  when the provider goes away, and `staleSubagentRosterRevisions` on the next
+ *  journal open when the host itself died mid-flight. */
 export function NativeChatSubagentRun({
   block
 }: {
@@ -189,12 +190,12 @@ export function NativeChatSubagentRun({
   const alertState = working ? summary.adverseState : null
   const alert =
     alertState === null ? null : subagentStateLabel(alertState, summary.adverseCount, summary.total)
-  // A child can read `unverifiable` with no terminal timestamp — a state a newer
-  // build wrote that this one cannot name. Its run length is unknown, and
-  // measuring it to `now` would report the time since we lost sight of it as how
-  // long it ran, on a row that is not even counting. A sibling's stamp is no
-  // better: in a mixed group it would present that sibling's duration as the
-  // group's while a child's fate is still unknown.
+  // A child settled by the reopen reads `unverifiable` with no terminal stamp:
+  // it stopped being observable at an unknown moment. Measuring to `now` would
+  // report the time since the host died as how long the child ran, on a row that
+  // is not even counting. A sibling's stamp is no better: in a mixed group it
+  // would present that sibling's duration as the group's while a child's fate is
+  // still unknown.
   const runLengthUnknown = agents.some(
     (agent) =>
       normalizeSubagentState(agent.state) === 'unverifiable' && typeof agent.settledAt !== 'number'
