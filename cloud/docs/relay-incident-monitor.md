@@ -121,6 +121,54 @@ durably marked consumed before mutation and cannot authorize another run.
 Expected enabled cells must also have a powered runtime, healthy and ready endpoints, fresh
 heartbeats, and matching live admission.
 
+## Region placement alert policies
+
+Cloud Monitoring alert policies, not monitor freeze bars: these page from
+`cloud/infra/terraform/relay-observability.tf` on the shared relay channel in
+`relay_alert_notification_channels`, and they do not gate any workflow. All
+three exist because US desktops sat on asia-east2 cells for weeks in 2026-08
+with every existing bar green.
+
+| Alert policy | Condition |
+| --- | ---: |
+| Orca Relay: far-cell phone accept latency | per cell, median 30-second `clientAcceptTotalMsP95` over 15 minutes above 2,000 ms with at least 20 completed accepts |
+| Orca Relay: cell control round trip | per cell, median `controlRttMsP50` over one hour above 150 ms with at least 500 samples |
+| Orca Relay: region hint skew | fleet-wide, `asia-east2` share of `requestedRegionsDelta` over one hour above 40% with at least 500 hints |
+
+Threshold basis:
+
+- Accept latency. An in-region phone accept completes in 0.3-0.6 s and a
+  cross-Pacific one in 5-10 s, so 2,000 ms sits outside in-region noise and
+  well under the far-cell floor. The 20-accept minimum keeps one slow accept
+  on a quiet cell off the pager. The p95 is the published value, so the
+  window aggregate is its median, not its max.
+- Control round trip. In-region is tens of milliseconds; a US desktop on an
+  asia-east2 cell is 200 ms or more. Only the p50 is used. The desktop echoes
+  the pong on its main thread, so the published p95 and max track renderer
+  stalls rather than distance. 500 samples per hour is about two
+  continuously connected hosts at the 15-second control ping.
+- Region hint skew. Measured from `requestedRegionsDelta` over six hours on
+  2026-09-07, while the desktop region probe was still mis-picking:
+  `asia-east2` was 23.8% of 24,909 hints, and only 7.8% of assignments
+  actually selected `asia-east2`. 40% is a regression bar above that live
+  baseline, and the intended direction is downward toward the true APAC
+  share once the desktop probe is fixed. Retune it down after a steady
+  post-fix baseline, not up.
+
+All three conditions are written in MQL rather than the metric filters the
+other relay policies use. Every runtime metric is a DELTA DISTRIBUTION, and
+the only scalar aligners a filter condition can apply to one are percentiles;
+each of these alerts needs the sum of the extracted values as a volume floor,
+which is `sum(value.<metric>)` in MQL and unreachable otherwise. The queries
+were checked against live production data on 2026-09-07 before they were
+committed.
+
+The skew denominator is one log-based metric per hint key, listed as
+`relay_region_hint_keys` in Terraform and pinned to relay-contract's
+`RELAY_REGIONS` by `dev/scripts/relay-region-hint-metrics.test.mjs`. A new
+relay region without a matching metric shrinks the denominator, which biases
+the alert toward firing rather than toward silence.
+
 ## Implementation log
 
 - Recalibrated the relay pool freezes from 30 waiters / 1,000 ms to

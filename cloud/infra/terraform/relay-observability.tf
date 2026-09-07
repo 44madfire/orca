@@ -93,6 +93,45 @@ locals {
     db_oldest_wait_ms                  = { field = "databasePoolOldestWaitMs", description = "Current oldest PostgreSQL pool waiter age." }
     db_wait_ms_max                     = { field = "databasePoolWaitMsMax", description = "Maximum PostgreSQL pool wait during the interval." }
   }
+
+  # Region hint keys the director can report inside `requestedRegionsDelta`: every relay region
+  # plus the `unhinted` bucket for assignment requests that carried no preferredRegion. Pinned to
+  # relay-contract's RELAY_REGIONS by dev/scripts/relay-region-hint-metrics.test.mjs. A key missing
+  # here shrinks the skew denominator, which biases the alert toward firing, never toward silence.
+  relay_region_hint_keys = ["us-central1", "asia-east2", "unhinted"]
+  # Map keys carry hyphens, metric names cannot; the log field path keeps the quoted original.
+  relay_region_request_metrics = {
+    for key in local.relay_region_hint_keys :
+    "requested_regions_${replace(key, "-", "_")}" => {
+      field       = "requestedRegionsDelta.\"${key}\""
+      description = key == "unhinted" ? "Assignment requests that carried no region hint." : "Assignment requests that hinted ${key}."
+    }
+  }
+  relay_region_hint_columns = [for key in local.relay_region_hint_keys : replace(key, "-", "_")]
+  relay_region_hint_total   = join(" + ", local.relay_region_hint_columns)
+  # MQL, not a filter condition: every runtime metric is a DELTA DISTRIBUTION, and the only
+  # scalar aligners a `condition_threshold` can apply to one are percentiles. A share needs the
+  # sum of the extracted values, which is `sum(value.<metric>)` in MQL and unreachable otherwise.
+  # `join` is an inner join, so an hour with zero asia hints drops the row and cannot alert; that
+  # is the wanted direction. Verified against live production data on 2026-09-07.
+  relay_region_hint_skew_query = join("\n", concat(
+    ["{"],
+    [
+      for index, column in local.relay_region_hint_columns :
+      join("\n", [
+        index == 0 ? "" : ";",
+        "  fetch cloud_run_revision::logging.googleapis.com/user/orca_relay_requested_regions_${column}",
+        "  | align delta(1h) | every 1h",
+        "  | group_by [], [${column}: sum(value.orca_relay_requested_regions_${column})]"
+      ])
+    ],
+    [
+      "}",
+      "| join",
+      "| value [asia_hint_share: asia_east2 / (${local.relay_region_hint_total}), region_hints: ${local.relay_region_hint_total}]",
+      "| condition asia_hint_share > 0.4 '1' && region_hints > 500 '1'"
+    ]
+  ))
   relay_custom_alerts = {
     connection_headroom = {
       pages_oncall = true
@@ -214,7 +253,9 @@ locals {
 }
 
 resource "google_logging_metric" "relay_snapshot" {
-  for_each = local.relay_runtime_metrics
+  # Region-request metrics ride the same event and shape; merging adds map entries only, so the
+  # existing metric instances are untouched (a label change, not a new key, is what recreates them).
+  for_each = merge(local.relay_runtime_metrics, local.relay_region_request_metrics)
 
   project         = var.project_id
   name            = "orca_relay_${each.key}"
@@ -683,6 +724,126 @@ resource "google_monitoring_alert_policy" "relay_cell_process_exit" {
   }
 
   depends_on = [google_logging_metric.relay_incident]
+}
+
+# Why: nothing fired while US desktops sat on asia-east2 cells for weeks in 2026-08. The two
+# per-cell policies below read that as distance, and the fleet-wide one reads it as a bad region
+# hint. All three are MQL because each needs the sum of a DELTA DISTRIBUTION as a volume floor,
+# and the only scalar aligners a `condition_threshold` can apply to a distribution are percentiles.
+# `join` is an inner join and the relay omits its percentile fields on an empty interval, so an
+# idle cell drops out rather than alerting on nothing. The per-cell arms fetch `gce_instance`
+# only: production runs no Cloud Run cells (`relay_cells` is empty), and a future one would need
+# its own arm here.
+resource "google_monitoring_alert_policy" "relay_far_cell_accept_latency" {
+  project               = var.project_id
+  display_name          = "Orca Relay: far-cell phone accept latency"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = var.relay_alert_notification_channels
+
+  conditions {
+    display_name = "Phone accept p95 above 2 s for 15 minutes"
+
+    condition_monitoring_query_language {
+      # percentile(..., 50) over the window, not max: the published value is already a p95, so the
+      # median of the interval p95s reads as sustained slowness instead of one bad 30-second flush.
+      query    = <<-EOT
+        {
+          fetch gce_instance::logging.googleapis.com/user/orca_relay_client_accept_total_ms_p95
+          | align delta(15m) | every 15m
+          | group_by [metric.cell_id], [accept_p95_ms: percentile(value.orca_relay_client_accept_total_ms_p95, 50)]
+        ;
+          fetch gce_instance::logging.googleapis.com/user/orca_relay_client_accepts_completed
+          | align delta(15m) | every 15m
+          | group_by [metric.cell_id], [accepts: sum(value.orca_relay_client_accepts_completed)]
+        }
+        | join
+        | condition accept_p95_ms > 2000 'ms' && accepts >= 20 '1'
+      EOT
+      duration = "0s"
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  documentation {
+    content   = "Phones on this cell are taking over two seconds to reach relay-hello. Measured separation: an in-region accept completes in 0.3-0.6 s and a cross-Pacific one in 5-10 s, so 2 s sits well outside in-region noise and well below the far-cell floor. The 20-accept floor over 15 minutes keeps a single slow accept on a quiet cell from paging. Check which regions the cell's hosts are actually in before touching capacity: the 2026-08 cause was desktops requesting the wrong region, not a slow cell. Read the per-stage `orca_relay_client_accept_*_ms_p95` metrics to separate distance from assignment, credential, or attach work."
+    mime_type = "text/markdown"
+  }
+
+  depends_on = [google_logging_metric.relay_snapshot]
+}
+
+resource "google_monitoring_alert_policy" "relay_cell_control_rtt" {
+  project               = var.project_id
+  display_name          = "Orca Relay: cell control round trip"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = var.relay_alert_notification_channels
+
+  conditions {
+    display_name = "Control ping p50 above 150 ms for an hour"
+
+    condition_monitoring_query_language {
+      # p50 only. The desktop echoes the pong on its main thread, so the published p95 and max
+      # track renderer stalls, not distance; the median is the only column that reads as distance.
+      query    = <<-EOT
+        {
+          fetch gce_instance::logging.googleapis.com/user/orca_relay_control_rtt_ms_p50
+          | align delta(1h) | every 1h
+          | group_by [metric.cell_id], [control_rtt_p50_ms: percentile(value.orca_relay_control_rtt_ms_p50, 50)]
+        ;
+          fetch gce_instance::logging.googleapis.com/user/orca_relay_control_rtt_samples
+          | align delta(1h) | every 1h
+          | group_by [metric.cell_id], [samples: sum(value.orca_relay_control_rtt_samples)]
+        }
+        | join
+        | condition control_rtt_p50_ms > 150 'ms' && samples >= 500 '1'
+      EOT
+      duration = "0s"
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  documentation {
+    content   = "The median desktop on this cell is more than 150 ms away from it, which is a mis-homed population rather than a cell fault: an in-region control ping is tens of milliseconds and a US desktop on an asia-east2 cell is 200 ms or more. This is the signal that was missing while roughly 226 of 332 hosts on the asia cells were non-APAC for weeks in 2026-08. Confirm with the assignment table which regions those hosts requested, then rehome; do not restart or drain the cell on this alert alone. The 500-sample floor is about two continuously connected hosts at the 15-second control ping, so a nearly idle cell cannot alert on one desktop."
+    mime_type = "text/markdown"
+  }
+
+  depends_on = [google_logging_metric.relay_snapshot]
+}
+
+resource "google_monitoring_alert_policy" "relay_region_hint_skew" {
+  project               = var.project_id
+  display_name          = "Orca Relay: region hint skew"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = var.relay_alert_notification_channels
+
+  conditions {
+    display_name = "asia-east2 hint share above 40% for an hour"
+
+    condition_monitoring_query_language {
+      query    = local.relay_region_hint_skew_query
+      duration = "0s"
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  documentation {
+    content   = "Desktops are asking the director for asia-east2 far more often than the user base justifies, which is what silently homed US desktops on asia cells through 2026-08. Baseline measured from `requestedRegionsDelta` over six hours on 2026-09-07, while the desktop region probe was still mis-picking: asia-east2 was 23.8% of 24,909 hints and only 7.8% of the assignments actually selected asia-east2. The intended direction is downward toward the true APAC share once the desktop probe is fixed, so 40% is a regression bar, not a target; retune it down rather than up once the fixed probe has a steady baseline. The 500-hint floor keeps a quiet hour off the pager. Investigate the desktop region probe first, not relay placement."
+    mime_type = "text/markdown"
+  }
+
+  depends_on = [google_logging_metric.relay_snapshot]
 }
 
 # Why: the four signals that had to be assembled by hand during the 2026-09-04 incident.
