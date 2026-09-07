@@ -4,15 +4,15 @@ import {
   initialize,
   requestMicrophonePermissionsAsync,
   tearDown,
-  toggleRecording
+  toggleRecording,
+  type MicrophoneDataEvent
 } from '@orca/expo-two-way-audio'
 import { AppState } from 'react-native'
 import { createMobileDictationKeepAwakeOwner } from '../hooks/mobile-dictation-keep-awake'
-import type { MobileWebSpeechRuntime } from './mobile-web-speech-runtime'
 
 const FOREGROUND_RESUME_TIMEOUT_MS = 2_000
 
-export function createMobileWebSpeechNativeRuntime(): MobileWebSpeechRuntime {
+export function createMobileWebSpeechNativeRuntime() {
   const keepAwake = createMobileDictationKeepAwakeOwner()
   return {
     requestMicrophonePermission: async () => {
@@ -23,18 +23,18 @@ export function createMobileWebSpeechNativeRuntime(): MobileWebSpeechRuntime {
     initialize,
     toggleRecording,
     tearDown,
-    addMicrophoneListener(listener) {
+    addMicrophoneListener(listener: (event: MicrophoneDataEvent) => void) {
       const subscription = addExpoTwoWayAudioEventListener('onMicrophoneData', listener)
       return () => subscription.remove()
     },
-    addInterruptionListener(listener) {
+    addInterruptionListener(listener: (kind: string) => void) {
       const subscription = addExpoTwoWayAudioEventListener('onAudioInterruption', (event) =>
         listener(event.data)
       )
       return () => subscription.remove()
     },
-    acquireKeepAwake: (dictationId) => keepAwake.acquire(dictationId),
-    releaseKeepAwake: (dictationId) => keepAwake.release(dictationId)
+    acquireKeepAwake: (dictationId: string) => keepAwake.acquire(dictationId),
+    releaseKeepAwake: (dictationId: string) => keepAwake.release(dictationId)
   }
 }
 
