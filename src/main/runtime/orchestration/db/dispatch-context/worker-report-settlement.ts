@@ -3,7 +3,7 @@ import type { OrchestrationDb } from '../orchestration-db'
 import { AGENT_PROMPT_STALLED_ERROR } from '../../../agent-prompt-submission-verification'
 import { settleActiveDispatchesForTask } from './dispatch-completion'
 import { getActiveDispatchForTask } from './task-dispatch-reconciliation'
-import { transitionLifecycleWithDb } from '../lifecycle-transition'
+import { isLegalLifecycleTransition, transitionLifecycleWithDb } from '../lifecycle-transition'
 import { runLifecycleWriteTransaction } from '../lifecycle-write-transaction-runner'
 
 type WorkerReportObservation = {
@@ -159,6 +159,24 @@ export function settleWorkerReportInTransaction(
     )
     .all(params.taskId, params.dispatchId) as { id: string }[]
 
+  const settledWorkerState = params.outcome === 'succeeded' ? 'succeeded' : 'failed'
+  // Why: this settlement rides a federated relay import and the coordinator's message sweep, and
+  // both roll the whole batch back on a throw — a relay that can never advance its cursor and a
+  // run marked failed with its messages left unread (#16904). A worker whose own state the
+  // lifecycle graph will not settle is a rejection, which those callers already record and move on.
+  if (
+    reportingWorker &&
+    !settledByUnobservedPrompt &&
+    !reconnectingStart &&
+    !isLegalLifecycleTransition('worker', reportingWorker.state, settledWorkerState)
+  ) {
+    return {
+      action: 'rejected',
+      code: 'worker_not_settleable',
+      reason: `Dispatch ${params.dispatchId} worker is ${reportingWorker.state}; it cannot settle as ${settledWorkerState}.`
+    }
+  }
+
   this.db.exec('SAVEPOINT settle_worker_report')
   let dispatchUpdate: { changes: number }
   let taskUpdate: { changes: number }
@@ -250,11 +268,12 @@ export function settleWorkerReportInTransaction(
     })
   } else if (reportingWorker) {
     transitionLifecycleWithDb(this.db, {
+      // The guard above already proved the graph accepts this edge from the state the worker is
+      // actually in; a hardcoded `from` would instead throw for every other live state.
       entity: 'worker',
       id: params.dispatchId,
-      // A start_unknown success report reconnects through 'ready' above; only failure settles here.
-      from: params.outcome === 'succeeded' ? 'ready' : ['ready', 'start_unknown'],
-      to: params.outcome === 'succeeded' ? 'succeeded' : 'failed',
+      from: reportingWorker.state,
+      to: settledWorkerState,
       projection: { stage: 'settled', updated_at: new Date().toISOString() }
     })
   }

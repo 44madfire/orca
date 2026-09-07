@@ -59,7 +59,11 @@ export function beginWorkerStop(
       this.db.exec('COMMIT')
       return { disposition: 'already_settled', worker, dispatch }
     }
-    if (!['ready', 'start_unknown'].includes(worker.state)) {
+    // Why `stopping` is accepted: a stop whose runtime died mid-flight leaves the row here
+    // forever, and refusing the re-issue was the only operator escape (#16904). Re-running the
+    // stop is what earns the honest outcome — settled, or `stop_unknown`, from which the worker
+    // can be abandoned. It never asserts an exit the runtime did not observe.
+    if (!['ready', 'start_unknown', 'stopping'].includes(worker.state)) {
       throw new OrchestrationError(
         'dispatch_inactive',
         `Dispatch ${dispatchId} cannot stop from ${worker.state}.`

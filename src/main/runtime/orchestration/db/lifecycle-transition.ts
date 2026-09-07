@@ -117,6 +117,15 @@ const PROJECTION_COLUMNS = new Set([
   'runtime_epoch'
 ])
 
+/** The lifecycle graph asked without writing, for callers that must reject rather than throw. */
+export function isLegalLifecycleTransition(
+  entity: LifecycleEntity,
+  from: string,
+  to: string
+): boolean {
+  return (LEGAL_TRANSITIONS[entity][from] ?? []).includes(to)
+}
+
 export function transitionLifecycle(
   this: OrchestrationDb,
   params: LifecycleTransitionParams
@@ -151,14 +160,16 @@ export function transitionLifecycleWithDb(
       { entity: params.entity, id: params.id, state: current.state }
     )
   }
-  const legal = LEGAL_TRANSITIONS[params.entity][current.state] ?? []
   const promptReportCorrection =
     params.correction === 'unobserved_prompt_report' &&
     current.state === 'failed' &&
     ((params.entity === 'task' && params.to === 'completed') ||
       (params.entity === 'dispatch' && params.to === 'completed') ||
       (params.entity === 'worker' && params.to === 'succeeded'))
-  if (!legal.includes(params.to) && !promptReportCorrection) {
+  if (
+    !isLegalLifecycleTransition(params.entity, current.state, params.to) &&
+    !promptReportCorrection
+  ) {
     throw new OrchestrationError(
       'lifecycle_conflict',
       `${params.entity} ${params.id} cannot transition from ${current.state} to ${params.to}.`,

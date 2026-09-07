@@ -33,6 +33,7 @@ export type WorkerReportSettlement =
         | 'task_dispatch_mismatch'
         | 'inactive_dispatch'
         | 'stale_dispatch'
+        | 'worker_not_settleable'
       reason: string
     }
 

@@ -51,6 +51,7 @@ export type LifecycleRejectionCode =
   | 'task_dispatch_mismatch'
   | 'inactive_dispatch'
   | 'stale_dispatch'
+  | 'worker_not_settleable'
 
 export type LifecycleRejectionResult = {
   action: 'rejected'
