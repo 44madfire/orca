@@ -15,6 +15,46 @@ import {
 const hostLabel = navigator.userAgent.includes('Windows') ? 'Windows' : 'This device'
 
 describe('status bar runtime switch groups', () => {
+  it.each(['host', 'wsl'] as const)(
+    'keeps same-email accounts independently selectable in the %s runtime',
+    (runtime) => {
+      const state: CodexRateLimitAccountsState = {
+        accounts: ['account-a', 'account-b'].map((id) => ({
+          id,
+          email: 'same@example.com',
+          managedHomeRuntime: runtime,
+          wslDistro: runtime === 'wsl' ? 'Ubuntu' : null,
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        })),
+        activeAccountId: runtime === 'host' ? 'account-b' : null,
+        activeAccountIdsByRuntime: {
+          host: runtime === 'host' ? 'account-b' : null,
+          wsl: runtime === 'wsl' ? { Ubuntu: 'account-b' } : {}
+        }
+      }
+      const target = { runtime, wslDistro: runtime === 'wsl' ? 'Ubuntu' : null }
+      const group = buildCodexStatusSwitchGroups(state, target).find(
+        (entry) => entry.runtimeTarget.runtime === runtime
+      )!
+      expect(group.targets.slice(1)).toEqual([
+        {
+          id: 'account-a',
+          label: 'same@example.com (account-a)',
+          active: false,
+          runtimeTarget: target
+        },
+        {
+          id: 'account-b',
+          label: 'same@example.com (account-b)',
+          active: true,
+          runtimeTarget: target
+        }
+      ])
+    }
+  )
+
   it('collapses WSL default into the single concrete Codex distro', () => {
     const state: CodexRateLimitAccountsState = {
       accounts: [
