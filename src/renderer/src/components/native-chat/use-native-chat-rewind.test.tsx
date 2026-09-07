@@ -106,10 +106,10 @@ describe('structured chat rewind', () => {
     const props = input(),
       response = deferred<{ itemId: string; epoch: string }>()
     props.send.mockReturnValue(response.promise)
-    const view = renderHook(
-      (value: Parameters<typeof useNativeChatRewind>[0]) => useNativeChatRewind(value),
-      { initialProps: props }
-    )
+    const view = renderHook<
+      ReturnType<typeof useNativeChatRewind>,
+      Parameters<typeof useNativeChatRewind>[0]
+    >((value) => useNativeChatRewind(value), { initialProps: props })
     let request!: Promise<void>
     await act(async () => {
       request = view.result.current.request('user', async () => true)
