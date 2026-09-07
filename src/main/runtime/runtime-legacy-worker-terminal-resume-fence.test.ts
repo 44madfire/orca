@@ -6,6 +6,8 @@ import { OrchestrationDb } from './orchestration/db'
 import { OrcaRuntimeService } from './orca-runtime'
 import { ORCHESTRATION_METHODS } from './rpc/methods/orchestration'
 import { RuntimeLegacyWorkerTerminalRecoveryPersistence } from './runtime-legacy-worker-terminal-recovery-persistence'
+import { runLegacyWorkerTerminalRecovery } from './runtime-legacy-worker-terminal-recovery-runner'
+import type { LegacyWorkerRecoveryPorts } from './runtime-legacy-worker-terminal-recovery-types'
 import type { RuntimeStore } from './runtime-store-contract'
 
 const PANE_KEY = 'tab_worker:33333333-3333-4333-8333-333333333333'
@@ -226,6 +228,237 @@ describe('settled worker automatic-resume fence persistence', () => {
     expect(session.sleepingAgentSessionsByPaneKey?.[PANE_KEY]?.automaticResumeBlockedBy).toBe(
       'legacy-orchestration-worker'
     )
+  })
+
+  // A pass reads its plan up front and then awaits workspace resolution, inventory and persistence.
+  // A release/takeover sweep can retire a fence inside that window, so reporting the plan the pass
+  // started with would hand a starting renderer a fence the authority had already retired.
+  it('reports the fence state committed at the end of the pass, not the plan it started with', async () => {
+    const fenceChanges: [string, boolean][] = []
+    const h = harness((paneKey, blocked) => fenceChanges.push([paneKey, blocked]), false)
+    settle(h.db, h.taskId, h.dispatchId)
+    let releasePersist!: () => void
+    const ports = {
+      preparePlan: () => h.persistence.prepare(),
+      committedFenceSnapshot: () => h.persistence.committedFenceSnapshot(),
+      persist: () =>
+        new Promise<ReadonlySet<string>>((resolve) => {
+          releasePersist = () => resolve(new Set())
+        }),
+      updateRetry: () => {},
+      reconcileRequestedReleases: async () => {}
+    } as unknown as LegacyWorkerRecoveryPorts
+    const pass = runLegacyWorkerTerminalRecovery({} as never, ports, {})
+    expect(fenceChanges).toEqual([[PANE_KEY, true]])
+
+    // The release lands while the pass is still awaiting its terminal work.
+    const requested = h.db.requestWorkerTerminalRelease(h.dispatchId)
+    h.db.settleWorkerTerminalRelease((requested as { resource: { id: string } }).resource.id)
+    h.persistence.prepare()
+    releasePersist()
+
+    const result = await pass
+    expect(result.fenceSnapshot.blockedPaneKeys).toEqual([])
+    expect(fenceChanges).toEqual([
+      [PANE_KEY, true],
+      [PANE_KEY, false]
+    ])
+  })
+
+  // A pass whose session write threw published nothing, so it must report the previous committed
+  // state. Reporting the uncommitted plan would fence a pane through the reply that the push
+  // channel never announced — and that no later lift could retire.
+  it('reports nothing new when the session write failed', () => {
+    let failWrite = true
+    const orchestrationDb = new OrchestrationDb(':memory:')
+    db = orchestrationDb
+    let session = sessionWithSleepingWorker()
+    const store = {
+      getWorkspaceSession: () => session,
+      setWorkspaceSession: (next: WorkspaceSessionState) => {
+        if (failWrite) {
+          throw new Error('workspace_session_write_failed')
+        }
+        session = next
+      },
+      getWorkspaceSessionHostIds: () => [LOCAL_EXECUTION_HOST_ID],
+      flushOrThrow: vi.fn()
+    } as unknown as RuntimeStore
+    const task = orchestrationDb.createTask({ spec: 'fence me' })
+    const started = orchestrationDb.createStartingWorkerDispatch({
+      creator: { kind: 'system' },
+      maxDepth: Number.MAX_SAFE_INTEGER,
+      taskId: task.id,
+      startOptions: {}
+    })
+    orchestrationDb.prepareStartingWorkerAuthority({
+      dispatchId: started.dispatch.id,
+      handle: 'term_worker',
+      paneKey: PANE_KEY,
+      processIncarnation: 'runtime:pty:1',
+      worktreeId: WORKTREE_ID,
+      setupState: 'not_applicable',
+      effects: [],
+      terminalOwnership: 'created'
+    })
+    orchestrationDb.markWorkerDispatchReady(started.dispatch.id)
+    settle(orchestrationDb, task.id, started.dispatch.id)
+    const persistence = new RuntimeLegacyWorkerTerminalRecoveryPersistence(
+      () => store,
+      () => orchestrationDb,
+      () => LOCAL_EXECUTION_HOST_ID
+    )
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      persistence.prepare()
+    } finally {
+      warn.mockRestore()
+    }
+    expect(persistence.committedFenceSnapshot()).toEqual({ generation: 0, blockedPaneKeys: [] })
+
+    failWrite = false
+    persistence.prepare()
+
+    expect(persistence.committedFenceSnapshot()).toEqual({
+      generation: 1,
+      blockedPaneKeys: [PANE_KEY]
+    })
+  })
+
+  // The lift edge for a pane with no record lives in the committed set, so a failed write must not
+  // consume it: the pane must still be retired once the plan drops it after a successful pass.
+  it('still lifts a record-less fence retired after a failed then successful write', () => {
+    const fenceChanges: [string, boolean][] = []
+    let failWrite = true
+    const orchestrationDb = new OrchestrationDb(':memory:')
+    db = orchestrationDb
+    let session = sessionWithSleepingWorker()
+    const store = {
+      getWorkspaceSession: () => session,
+      setWorkspaceSession: (next: WorkspaceSessionState) => {
+        if (failWrite) {
+          throw new Error('workspace_session_write_failed')
+        }
+        session = next
+      },
+      getWorkspaceSessionHostIds: () => [LOCAL_EXECUTION_HOST_ID],
+      flushOrThrow: vi.fn()
+    } as unknown as RuntimeStore
+    const task = orchestrationDb.createTask({ spec: 'fence me' })
+    const started = orchestrationDb.createStartingWorkerDispatch({
+      creator: { kind: 'system' },
+      maxDepth: Number.MAX_SAFE_INTEGER,
+      taskId: task.id,
+      startOptions: {}
+    })
+    orchestrationDb.prepareStartingWorkerAuthority({
+      dispatchId: started.dispatch.id,
+      handle: 'term_worker',
+      paneKey: PANE_KEY,
+      processIncarnation: 'runtime:pty:1',
+      worktreeId: WORKTREE_ID,
+      setupState: 'not_applicable',
+      effects: [],
+      terminalOwnership: 'created'
+    })
+    orchestrationDb.markWorkerDispatchReady(started.dispatch.id)
+    settle(orchestrationDb, task.id, started.dispatch.id)
+    const persistence = new RuntimeLegacyWorkerTerminalRecoveryPersistence(
+      () => store,
+      () => orchestrationDb,
+      () => LOCAL_EXECUTION_HOST_ID,
+      (paneKey, blocked) => fenceChanges.push([paneKey, blocked])
+    )
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      persistence.prepare()
+    } finally {
+      warn.mockRestore()
+    }
+    expect(fenceChanges).toEqual([])
+
+    failWrite = false
+    persistence.prepare()
+    expect(fenceChanges).toEqual([[PANE_KEY, true]])
+
+    const requested = orchestrationDb.requestWorkerTerminalRelease(started.dispatch.id)
+    orchestrationDb.settleWorkerTerminalRelease(
+      (requested as { resource: { id: string } }).resource.id
+    )
+    persistence.prepare()
+
+    expect(fenceChanges).toEqual([
+      [PANE_KEY, true],
+      [PANE_KEY, false]
+    ])
+    expect(persistence.committedFenceSnapshot().blockedPaneKeys).toEqual([])
+  })
+
+  // The damaging order: the fence is retired while the write is still failing. A pass that booked
+  // its blocked set before staging would carry that uncommitted fence into the retry and publish a
+  // lift for a pane no renderer was ever told about — or, through the reply, the fence itself.
+  it('publishes nothing for a pane retired while the session write was failing', () => {
+    const fenceChanges: [string, boolean][] = []
+    let failWrite = true
+    const orchestrationDb = new OrchestrationDb(':memory:')
+    db = orchestrationDb
+    let session = sessionWithSleepingWorker()
+    const store = {
+      getWorkspaceSession: () => session,
+      setWorkspaceSession: (next: WorkspaceSessionState) => {
+        if (failWrite) {
+          throw new Error('workspace_session_write_failed')
+        }
+        session = next
+      },
+      getWorkspaceSessionHostIds: () => [LOCAL_EXECUTION_HOST_ID],
+      flushOrThrow: vi.fn()
+    } as unknown as RuntimeStore
+    const task = orchestrationDb.createTask({ spec: 'fence me' })
+    const started = orchestrationDb.createStartingWorkerDispatch({
+      creator: { kind: 'system' },
+      maxDepth: Number.MAX_SAFE_INTEGER,
+      taskId: task.id,
+      startOptions: {}
+    })
+    orchestrationDb.prepareStartingWorkerAuthority({
+      dispatchId: started.dispatch.id,
+      handle: 'term_worker',
+      paneKey: PANE_KEY,
+      processIncarnation: 'runtime:pty:1',
+      worktreeId: WORKTREE_ID,
+      setupState: 'not_applicable',
+      effects: [],
+      terminalOwnership: 'created'
+    })
+    orchestrationDb.markWorkerDispatchReady(started.dispatch.id)
+    settle(orchestrationDb, task.id, started.dispatch.id)
+    const persistence = new RuntimeLegacyWorkerTerminalRecoveryPersistence(
+      () => store,
+      () => orchestrationDb,
+      () => LOCAL_EXECUTION_HOST_ID,
+      (paneKey, blocked) => fenceChanges.push([paneKey, blocked])
+    )
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      persistence.prepare()
+    } finally {
+      warn.mockRestore()
+    }
+    expect(persistence.committedFenceSnapshot().blockedPaneKeys).toEqual([])
+
+    const requested = orchestrationDb.requestWorkerTerminalRelease(started.dispatch.id)
+    orchestrationDb.settleWorkerTerminalRelease(
+      (requested as { resource: { id: string } }).resource.id
+    )
+    failWrite = false
+    persistence.prepare()
+
+    expect(fenceChanges).toEqual([])
+    expect(persistence.committedFenceSnapshot().blockedPaneKeys).toEqual([])
   })
 
   // The STA-4577 repro: worker_done, no release, restart, open the worktree — the pane still

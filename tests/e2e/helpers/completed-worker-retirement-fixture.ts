@@ -60,17 +60,25 @@ process.stdin.resume()
 setInterval(() => {}, 60_000)
 `
 
-if (process.platform === 'win32') {
-  writeFileSync(path.join(fakeCliDir, 'fake-codex.js'), fakeCodexSource)
-  writeFileSync(
-    path.join(fakeCliDir, 'codex.cmd'),
-    '@echo off\r\nnode "%~dp0\\fake-codex.js" %*\r\n'
-  )
-} else {
+// Why re-materialized rather than written once at import: the module is shared across spec files in
+// a worker, and the first file's `cleanupCompletedWorkerFixture` removes the whole directory. A
+// later file in the same worker would otherwise launch a `codex` that no longer exists.
+function ensureCompletedWorkerFakeCli(): void {
+  mkdirSync(fakeCliDir, { recursive: true })
+  if (process.platform === 'win32') {
+    writeFileSync(path.join(fakeCliDir, 'fake-codex.js'), fakeCodexSource)
+    writeFileSync(
+      path.join(fakeCliDir, 'codex.cmd'),
+      '@echo off\r\nnode "%~dp0\\fake-codex.js" %*\r\n'
+    )
+    return
+  }
   const executable = path.join(fakeCliDir, 'codex')
   writeFileSync(executable, `#!/usr/bin/env node\n${fakeCodexSource}`)
   chmodSync(executable, 0o755)
 }
+
+ensureCompletedWorkerFakeCli()
 
 export const completedWorkerLaunchEnv = {
   PATH: `${fakeCliDir}${path.delimiter}${process.env.PATH ?? ''}`,
@@ -91,6 +99,7 @@ export type TerminalIdentity = Pick<
 >
 
 export function clearCompletedWorkerLedger(): void {
+  ensureCompletedWorkerFakeCli()
   rmSync(lifecycleLedgerPath, { force: true })
 }
 

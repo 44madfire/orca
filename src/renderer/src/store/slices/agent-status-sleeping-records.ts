@@ -40,6 +40,30 @@ export function carriesAutomaticResumeBlock(
   )
 }
 
+/** Async stops (manual sleep, hibernation rollback) commit a capture taken before the await, so a
+ *  fence delivered or retired during the stop has to be re-read from state at commit time. */
+export function withCurrentAutomaticResumeBlock(
+  state: Pick<AppState, 'automaticResumeBlockedPaneKeys' | 'sleepingAgentSessionsByPaneKey'>,
+  records: Readonly<Record<string, SleepingAgentSessionRecord>>
+): Record<string, SleepingAgentSessionRecord> {
+  const next: Record<string, SleepingAgentSessionRecord> = {}
+  for (const [paneKey, record] of Object.entries(records)) {
+    const blocked = carriesAutomaticResumeBlock(state, record)
+    if (blocked === (record.automaticResumeBlockedBy === 'legacy-orchestration-worker')) {
+      next[paneKey] = record
+      continue
+    }
+    const updated = { ...record }
+    if (blocked) {
+      updated.automaticResumeBlockedBy = 'legacy-orchestration-worker'
+    } else {
+      delete updated.automaticResumeBlockedBy
+    }
+    next[paneKey] = updated
+  }
+  return next
+}
+
 export function sleepingRecordFromEntry(args: {
   state: AppState
   entry: AgentStatusEntry

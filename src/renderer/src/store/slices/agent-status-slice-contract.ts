@@ -25,6 +25,7 @@ import type {
   MigrationUnsupportedPtyEntry
 } from '../../../../shared/agent-status-types'
 import type {
+  LegacyWorkerResumeFenceSnapshot,
   ResumableTuiAgent,
   SleepingAgentLaunchConfig,
   SleepingAgentSessionRecord
@@ -54,6 +55,10 @@ export type AgentStatusSlice = {
   /** Panes the runtime fenced against automatic resume. Held separately because a worker can
    *  settle while its tab is open, before the sleeping record the fence belongs on exists. */
   automaticResumeBlockedPaneKeys: Record<string, true>
+
+  /** Highest main fence-commit generation this renderer has applied, so a startup reply that lost
+   *  a race with a later lift is dropped instead of reapplying a retired fence. */
+  automaticResumeFenceGeneration: number
 
   /** Ephemeral launch snapshots keyed by pane; hook payloads lack Orca launch settings, so the renderer supplies them from startup. */
   agentLaunchConfigByPaneKey: Record<string, AgentLaunchConfigRegistryEntry>
@@ -162,7 +167,13 @@ export type AgentStatusSlice = {
   captureAllSleepingAgentSessions: (mode: AllAgentSessionCaptureMode) => void
   clearSleepingAgentSession: (paneKey: string) => void
   clearSleepingAgentSessionsByPaneKey: (paneKeys: readonly string[]) => void
-  setSleepingAgentAutomaticResumeBlocked: (paneKey: string, blocked: boolean) => void
+  setSleepingAgentAutomaticResumeBlocked: (
+    paneKey: string,
+    blocked: boolean,
+    generation?: number
+  ) => void
+  /** Replace the blocked-pane set with main's committed fence state from the startup handshake. */
+  applyLegacyWorkerResumeFenceSnapshot: (snapshot: LegacyWorkerResumeFenceSnapshot) => void
   clearSleepingAgentSessionsByWorktree: (worktreeId: string) => void
   pruneSleepingAgentSessions: (validWorktreeIds: Set<string>) => void
 

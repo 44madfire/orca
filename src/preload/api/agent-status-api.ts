@@ -30,7 +30,7 @@ export type AgentStatusApi = {
   ) => () => void
   /** Listen for the automatic-resume fence a settled worker's pane gains or loses mid-session. */
   onLegacyWorkerTerminalResumeFence: (
-    callback: (data: { paneKey: string; blocked: boolean }) => void
+    callback: (data: { paneKey: string; blocked: boolean; generation?: number }) => void
   ) => () => void
   getMigrationUnsupportedSnapshot: () => Promise<MigrationUnsupportedPtyEntry[]>
   /** Drop a paneKey from the main-process hook cache and on-disk last-status file. Fire-and-forget. */

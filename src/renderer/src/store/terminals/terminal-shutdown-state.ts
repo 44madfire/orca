@@ -8,6 +8,7 @@ import {
 } from '@/components/terminal-pane/pty-shutdown-exit-deferral'
 import {
   removeSleepingRecordsReplacedByManualWorktreeSleep,
+  withCurrentAutomaticResumeBlock,
   type AgentStatusWorktreeShutdownReason,
   type RetainedAgentEntry
 } from '../slices/agent-status'
@@ -159,7 +160,9 @@ export function commitTerminalShutdownState({
       return {
         sleepingAgentSessionsByPaneKey: {
           ...base,
-          ...sleepingAgentSessionRecords
+          // Why re-read: the capture above predates the stop, and a fence can arrive or retire
+          // while the kill is in flight; committing the stale capture would erase it.
+          ...withCurrentAutomaticResumeBlock(state, sleepingAgentSessionRecords)
         }
       }
     })

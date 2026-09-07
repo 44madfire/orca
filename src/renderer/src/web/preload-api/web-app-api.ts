@@ -38,7 +38,7 @@ export function createWebAppApi(): Partial<PreloadApi> {
       // No wire method carries the worker resume fence yet, so a paired/web client cannot learn
       // about a fenced pane that has no sleeping record. Tracked as a follow-up.
       recoverLegacyWorkerTerminalsForRendererStartup: () =>
-        Promise.resolve({ blockedPaneKeys: [] }),
+        Promise.resolve({ generation: 0, blockedPaneKeys: [] }),
       startupDiagnostic: () => Promise.resolve(),
       getKeyboardInputSourceId: () => Promise.resolve(null),
       // The web client cannot inspect local Mission Control shortcuts.

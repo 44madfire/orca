@@ -1,6 +1,9 @@
 import type { LegacyWorkerResumeFenceSnapshot } from '../../shared/agent-session-resume'
 import type { LegacyWorkerTerminalRecoveryResult } from '../runtime/runtime-legacy-worker-terminal-recovery-types'
 
+/** Generation 0 never orders ahead of a real commit, so a renderer drops this over any live push. */
+const EMPTY_FENCE_SNAPSHOT: LegacyWorkerResumeFenceSnapshot = { generation: 0, blockedPaneKeys: [] }
+
 type LegacyWorkerRendererRecoveryOptions = {
   firstWindowStartupServicesReady: Promise<void>
   managedWslCliStartupBarrierReady: Promise<void>
@@ -23,12 +26,12 @@ export async function recoverLegacyWorkerTerminalsForRendererStartup(
   ])
   if (!providerResult.ok) {
     options.onDeferredRecoveryError(providerResult.error)
-    return { blockedPaneKeys: [] }
+    return EMPTY_FENCE_SNAPSHOT
   }
   try {
-    return { blockedPaneKeys: (await options.reconcile())?.blockedPaneKeys ?? [] }
+    return (await options.reconcile())?.fenceSnapshot ?? EMPTY_FENCE_SNAPSHOT
   } catch (error) {
     options.onDeferredRecoveryError(error)
-    return { blockedPaneKeys: [] }
+    return EMPTY_FENCE_SNAPSHOT
   }
 }

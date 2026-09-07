@@ -127,8 +127,8 @@ export function registerAgentStatusListeners(args: {
     unsubs.push(unsubscribeLegacyWorkerTerminalRecovery)
   }
   const unsubscribeResumeFence = window.api.agentStatus.onLegacyWorkerTerminalResumeFence?.(
-    ({ paneKey, blocked }) => {
-      useAppStore.getState().setSleepingAgentAutomaticResumeBlocked(paneKey, blocked)
+    ({ paneKey, blocked, generation }) => {
+      useAppStore.getState().setSleepingAgentAutomaticResumeBlocked(paneKey, blocked, generation)
     }
   )
   if (unsubscribeResumeFence) {

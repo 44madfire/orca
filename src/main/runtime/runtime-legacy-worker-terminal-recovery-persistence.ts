@@ -1,3 +1,4 @@
+import type { LegacyWorkerResumeFenceSnapshot } from '../../shared/agent-session-resume'
 import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../shared/execution-host'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
 import { retireTerminalSurfaceFromPersistence } from './mobile-session-terminal-persistence-retirement'
@@ -20,14 +21,25 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
     private readonly getDb: () => OrchestrationDb,
     private readonly getHostId: (worktreeId: string) => ExecutionHostId | null,
     /** The store write only reaches the next app start; a live renderer holds its own copy. */
-    private readonly notifyFenceChanged?: (paneKey: string, blocked: boolean) => void
+    private readonly notifyFenceChanged?: (
+      paneKey: string,
+      blocked: boolean,
+      generation: number
+    ) => void
   ) {}
 
-  /** The previous pass's blocked set, kept only to emit the lift edge for a pane with no sleeping
-   *  record — `liftRetiredFences` can sweep only panes that already have one. It is not a second
-   *  home for the fence: it is committed after staging succeeds, and every renderer re-derives its
-   *  whole blocked-pane map from `plan.blockedPanes` at startup, so a lost push heals there. */
+  /** The blocked set this object has actually committed and published, which is what a startup
+   *  reply must report — the raw plan is not, because a pass whose session write threw published
+   *  nothing. It also supplies the lift edge for a pane with no sleeping record, which
+   *  `liftRetiredFences` cannot sweep. */
   private lastPlanBlockedPaneKeys: ReadonlySet<string> = new Set()
+
+  /** Counts commits so a startup reply can be ordered against the live pushes. */
+  private fenceGeneration = 0
+
+  committedFenceSnapshot(): LegacyWorkerResumeFenceSnapshot {
+    return { generation: this.fenceGeneration, blockedPaneKeys: [...this.lastPlanBlockedPaneKeys] }
+  }
 
   prepare(): LegacyWorkerTerminalRecoveryPlan {
     const plan = this.getPlan()
@@ -109,8 +121,9 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
       return plan
     }
     this.lastPlanBlockedPaneKeys = blockedPaneKeys
+    this.fenceGeneration += 1
     for (const [paneKey, blocked] of fenceChanges) {
-      this.notifyFenceChanged?.(paneKey, blocked)
+      this.notifyFenceChanged?.(paneKey, blocked, this.fenceGeneration)
     }
     return plan
   }

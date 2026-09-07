@@ -62,11 +62,11 @@ export const agentStatusApi = {
     return () => ipcRenderer.removeListener('agentStatus:legacyWorkerTerminalRecovery', listener)
   },
   onLegacyWorkerTerminalResumeFence: (
-    callback: (data: { paneKey: string; blocked: boolean }) => void
+    callback: (data: { paneKey: string; blocked: boolean; generation?: number }) => void
   ): (() => void) => {
     const listener = (
       _event: Electron.IpcRendererEvent,
-      data: { paneKey: string; blocked: boolean }
+      data: { paneKey: string; blocked: boolean; generation?: number }
     ) => callback(data)
     ipcRenderer.on('agentStatus:legacyWorkerTerminalResumeFence', listener)
     return () => ipcRenderer.removeListener('agentStatus:legacyWorkerTerminalResumeFence', listener)
