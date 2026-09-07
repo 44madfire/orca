@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { OrcaPushPayload } from './push-payload'
+import { nativePushDismissal } from './native-push-dismissal'
 
 const STORAGE_KEY = 'orca:pushDismissalWatermarks:v1'
 const RETENTION_MS = 24 * 60 * 60 * 1000
@@ -45,10 +46,18 @@ async function readEntries(): Promise<Entry[]> {
   }
 }
 
-export function rememberPushDismissal(payload: OrcaPushPayload): Promise<void> {
+export async function rememberPushDismissal(payload: OrcaPushPayload): Promise<void> {
   const key = eventKey(payload)
   if (!key) {
-    return Promise.resolve()
+    return
+  }
+  if (nativePushDismissal) {
+    try {
+      await nativePushDismissal.remember(payload)
+      return
+    } catch {
+      // Keep recovery available if the native bridge is unavailable during reload.
+    }
   }
   const pending = writes.then(async () => {
     const entries = await readEntries()
@@ -77,6 +86,9 @@ export async function wasPushDismissed(payload: OrcaPushPayload): Promise<boolea
     return false
   }
   await writes
+  if (nativePushDismissal && (await nativePushDismissal.wasDismissed(payload).catch(() => false))) {
+    return true
+  }
   return (await readEntries()).some(
     (entry) => entry.key === key && entry.seq >= payload.notificationSeq!
   )

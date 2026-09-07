@@ -1,3 +1,4 @@
+import { requestNotificationCatchup } from './push-dismissal-reconciliation'
 import { waitForSocketPushHandoff } from './socket-push-delivery-handoff'
 import type { RpcClient } from '../transport/rpc-client'
 export {
@@ -41,7 +42,6 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
   let subscriptionId: string | null = null
   let disposed = false
   const deliveryAbort = new AbortController()
-  // Preserve the watermark across socket reconnects.
   const session = getHostNotificationSession(hostId)
 
   /**
@@ -148,14 +148,16 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
     const askFrom = catchUpWatermarkSeq(session)
     // Read concurrently; claim inside the queue after epoch adoption to avoid stale keys.
     const presentedPushKeys = readPresentedPushSeenKeys(hostId)
-    const missed = await client
-      .sendRequest('notifications.getMissedSince', {
+    const missed = await requestNotificationCatchup(
+      client,
+      hostId,
+      {
         lastSeenSeq: askFrom,
         includeDesktopSuppressed: true,
-        // Why: sending the epoch lets the desktop reject a watermark from a counter
-        // it no longer has and return the whole retained buffer instead of nothing.
         ...(session.lastDeliveredEpoch != null ? { epoch: session.lastDeliveredEpoch } : {})
-      })
+      },
+      () => disposed
+    )
       .then((response) => {
         if (!response.ok) {
           return null

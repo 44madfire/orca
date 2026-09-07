@@ -30,14 +30,18 @@ All schemas are zod, `.strict()`, exported from `cloud/packages/push-contract`.
 The host keypair is X25519 (box), so it cannot sign. Reuse the relay's challenge shape.
 
 `POST /v1/host/challenge`
+
 ```json
 { "v": 1, "hostPublicKeyB64": "<32 bytes b64>" }
 ```
+
 → 200
+
 ```json
 { "challengeId": "<opaque>", "gatewayEphemeralPublicKeyB64": "<32 b64>", "nonceB64": "<24 b64>",
   "ciphertextB64": "<b64>", "expiresAt": <epoch ms> }
 ```
+
 - Gateway generates an ephemeral box keypair per challenge, a 24-byte nonce, and a 32-byte secret.
 - `plaintext = "orca-push-host-challenge/v1\0" || u32be(len(transcript)) || transcript || secret(32)`
 - `ciphertext = nacl.box(plaintext, nonce, hostPublicKey, gatewayEphemeralSecretKey)`
@@ -57,16 +61,20 @@ The host keypair is X25519 (box), so it cannot sign. Reuse the relay's challenge
   verifies, from the public key the challenge row carries.
 
 `POST /v1/host/session`
+
 ```json
 { "v": 1, "challengeId": "<opaque>", "proofB64": "<32 b64>" }
 ```
+
 - Host opens the box with its secret key, validates every transcript field (same checks as
   `validateTranscript` in `src/main/runtime/relay/relay-host-proof.ts`, adapted to the push fields),
   and returns `proof = HMAC-SHA256(secret, "orca-push-host-proof/v1\0ack\0" || transcript)`.
 - Gateway verifies with `timingSafeEqual`, consumes the challenge (single use), and returns
+
 ```json
 { "sessionToken": "<opaque 32 b64url>", "expiresAt": <epoch ms>, "hostFingerprint": "<16 chars>" }
 ```
+
 - Session TTL 24 h. Stored hashed (sha256) in DB. Bearer on every other call:
   `Authorization: Bearer <sessionToken>`. 401 with `{ "error": "session_expired" }` on expiry; host
   re-runs the challenge.
@@ -74,12 +82,14 @@ The host keypair is X25519 (box), so it cannot sign. Reuse the relay's challenge
 ### Device registration
 
 `POST /v1/devices` (Bearer)
+
 ```json
 { "v": 1, "deviceId": "<uuid>", "platform": "ios" | "android", "token": "<native token>",
   "apnsEnvironment": "sandbox" | "production",   // ios only, required for ios
   "filter": { "sources": ["agent-task-complete", "terminal-bell", "plugin"],
               "agentStates": ["needs-input", "finished"] } }
 ```
+
 → 200 `{ "registrationId": "<opaque>" }`. Upsert keyed by (hostFingerprint, deviceId); a new token
 replaces the old. `deviceId` is caller-chosen, so a host is capped at 64 registrations: the 65th
 distinct `deviceId` → 409 `{ "error": "too_many_devices" }`. Re-registering a `deviceId` the host
@@ -96,6 +106,7 @@ tokens are FCM registration strings.
 ### Send
 
 `POST /v1/send` (Bearer)
+
 ```json
 { "v": 1,
   "registrationIds": ["<id>", "..."],
@@ -107,10 +118,13 @@ tokens are FCM registration strings.
     "title": "<max 80 chars>", "body": "<max 180 chars>",
     "worktreeId": "<max 2048 chars|absent>" } }
 ```
+
 → 200
+
 ```json
 { "results": [{ "registrationId": "<id>", "status": "queued" | "dead" | "rate_limited" | "error" }] }
 ```
+
 - `queued` means the logical event, recipient, and pending delivery payload have committed to SQL. A
   worker resumes pending work after restarts; provider acceptance is not proof of visible delivery.
 - Each host gets 300 logical alerts and, independently, 300 dismissals per rolling 15 minutes. Fanout
@@ -168,18 +182,20 @@ promising exactly-once delivery.
 
 APNs (HTTP/2, `api.push.apple.com` or `api.sandbox.push.apple.com` by `apnsEnvironment`; JWT auth
 from key id + team id + `.p8`, token cached and refreshed every 50 min):
+
 - headers: `apns-topic: com.stably.orca.mobile`, `apns-push-type: alert`, `apns-priority: 10`,
   `apns-expiration: fixed event deadline (at most five minutes)`, `apns-collapse-id: <sha256(host + notification identity), or host:<fp>>`
 - body: `{"aps":{"alert":{"title","body"},"sound":"default","thread-id":"<hostFingerprint>"},
-  "orca":{ hostFingerprint, worktreeId, notificationId, notificationSeq, notificationEpoch, source,
-  agentState, coalescedCount }}`
+"orca":{ hostFingerprint, worktreeId, notificationId, notificationSeq, notificationEpoch, source,
+agentState, coalescedCount }}`
 - Dead token: 410, or 400 with `BadDeviceToken`/`Unregistered`/`DeviceTokenNotForTopic`.
 
 FCM (V1 `projects/onorca-cloud/messages:send`, bearer from the runtime service account via the GCE
 metadata server or `GOOGLE_APPLICATION_CREDENTIALS` locally):
+
 - `{"message":{"token","notification":{"title","body"},"android":{"priority":"HIGH","ttl":"<remaining event lifetime, at most 300s>",
-  "collapse_key":"<sha256(collapseId) hex 32>","notification":{"channel_id":"orca-desktop","tag":"<collapseId>"}},
-  "data":{ all orca fields as strings }}}`
+"collapse_key":"<sha256(collapseId) hex 32>","notification":{"channel_id":"orca-desktop","tag":"<collapseId>"}},
+"data":{ all orca fields as strings }}}`
 - Dead token: `UNREGISTERED`, or `INVALID_ARGUMENT` whose message names the token.
 
 ### Gateway storage (Postgres in prod, SQLite in tests, same pattern as `cloud/apps/relay/src/database.ts`)
@@ -190,10 +206,10 @@ metadata server or `GOOGLE_APPLICATION_CREDENTIALS` locally):
 - `push_sessions` holds one row per host, enforced by a unique index and transaction lock. Minting a
   session deletes the host's earlier one, since a desktop holds a single session and only re-proves once it is gone.
 - `push_challenges(challenge_id pk, host_fingerprint, host_public_key, secret_hash, transcript,
-  expires_at, consumed_at)`
+expires_at, consumed_at)`
 - `push_sessions(token_hash pk, host_fingerprint, expires_at, created_at)`
 - `push_devices(registration_id pk, host_fingerprint, device_id, platform, token, apns_environment,
-  filter_json, dead_at, created_at, updated_at, unique(host_fingerprint, device_id))`
+filter_json, dead_at, created_at, updated_at, unique(host_fingerprint, device_id))`
 - `push_send_log(host_fingerprint, registration_id, sent_at)` for quota, pruned after 25 h.
 
 Logging: aggregate counters only. Never log tokens, titles, bodies, or raw fingerprints (log the first
@@ -217,13 +233,13 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 - RPC `notifications.registerPush` params `{ platform, token, apnsEnvironment?, filter }` (same shapes
   as the gateway `POST /v1/devices` minus deviceId, which comes from `ctx.pairedDeviceId`). Returns
   `{ registered: true, registrationId } | { registered: false, reason: 'gateway_unreachable' |
-  'gateway_rejected' | 'not_mobile' | 'registration_storage_failed' | 'throttled' }`. A device may
+'gateway_rejected' | 'not_mobile' | 'registration_storage_failed' | 'throttled' }`. A device may
   register at most 10 times per minute (`throttled` beyond that, its earlier registration untouched):
   each call is a gateway write plus a synchronous registry write on the main thread, and a paired
   phone could otherwise loop it. The unregister RPC is not throttled, since with nothing registered it
   is a lookup and with something registered it can only run once per successful register. The params
   schema is strict, so a caller-supplied `deviceId` is an error, not a key silently dropped. Persists `pushRegistration:
-  { registrationId, platform, filter, registeredAt }` on `DeviceEntry` in `device-registry.ts` (new
+{ registrationId, platform, filter, registeredAt }` on `DeviceEntry` in `device-registry.ts` (new
   optional field, tolerated by old registries). When the gateway accepted the token but the host could
   not store it — the device left mobile scope mid-call (`not_mobile`) or the registry write threw
   (`registration_storage_failed`) — the host queues the gateway delete in the unregister outbox rather
@@ -360,3 +376,27 @@ the wait without claiming delivery. Hosts without push registration keep local d
 Native notification readers accept Expo's iOS `request.trigger.payload` as well as
 `request.content.data`. APNs custom fields can exist only in the former; foreground deduplication,
 tray replay suppression, dismissal, and tap routing all use the same reader.
+
+### Dismissal recovery and desktop presence
+
+Automatic acknowledgement of a visible agent pane requires confirmed desktop presence from the
+same three-minute native idle check used for push delivery. A focused window alone is insufficient.
+Trusted input in the renderer confirms the user has returned. Unknown presence preserves unread
+attention; explicit mark-read actions remain available, including in browser clients.
+
+The runtime persists notification identities and dismissal sequence fences in its own user-data
+directory before fanout. History is bounded to 4,096 records retained for seven days. It stores no
+notification text or push tokens. On reconnect, mobile optionally includes up to 256 `deliveredPushes`
+identities in `notifications.getMissedSince`; updated hosts return optional `dismissedPushes` for
+confirmed handled identities. This recovers dismissals after event replay eviction or host restart
+within retained history. Unknown IDs, newer sequences and different epochs are preserved. Older
+hosts ignore the optional request field, and older clients ignore the additional response field.
+No new RPC method, stream opcode or gateway deployment is required.
+
+On iOS, a local Expo module handles silent dismissals directly through the native notification
+center, independent of JavaScript initialization. Native and JavaScript dismissal paths use the
+same host/epoch/sequence fences; native watermarks retain up to 512 entries for 24 hours. Older
+native shells and Android retain the JavaScript implementation. A native callback test proves
+processing only when invoked: iOS background push delivery remains best-effort, including while
+suspended or force-quit. Coalesced summaries are preserved because a single member's dismissal
+cannot establish that every alert represented by the summary was handled.

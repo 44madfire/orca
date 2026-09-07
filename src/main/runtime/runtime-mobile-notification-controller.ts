@@ -6,6 +6,10 @@ import type {
 import { MobileNotificationReplayBuffer } from './mobile-notification-replay'
 import { notifyRuntimeListeners } from './runtime-async-boundaries'
 import { getRuntimeDesktopSurface } from './runtime-desktop-surface'
+import {
+  MobileNotificationDismissalStore,
+  type DeliveredNotificationIdentity
+} from './mobile-notification-dismissal-store'
 
 export type MobileNotificationDispatchEvent = {
   type: 'notification'
@@ -45,6 +49,17 @@ export class RuntimeMobileNotificationController {
   private readonly listeners = new Set<(event: MobileNotificationEvent) => void>()
   private readonly replay = new MobileNotificationReplayBuffer()
   private pushRegistrar: MobilePushRegistrar | null = null
+  private dismissalStore: MobileNotificationDismissalStore | null = null
+
+  configureDismissalStore(userDataPath: string): void {
+    this.dismissalStore = new MobileNotificationDismissalStore(userDataPath)
+  }
+
+  reconcileDismissedPushes(
+    delivered: readonly DeliveredNotificationIdentity[]
+  ): DeliveredNotificationIdentity[] {
+    return this.dismissalStore?.reconcile(delivered) ?? []
+  }
 
   setPushRegistrar(registrar: MobilePushRegistrar | null): void {
     this.pushRegistrar = registrar
@@ -77,6 +92,15 @@ export class RuntimeMobileNotificationController {
       event = { ...event, desktopAway: getRuntimeDesktopSurface().isAwayForMobileNotifications?.() }
     }
     const seq = this.replay.record(event)
+    try {
+      this.dismissalStore?.record({
+        ...event,
+        notificationSeq: seq,
+        notificationEpoch: this.replay.epoch
+      })
+    } catch {
+      console.warn('[notifications] Could not persist dismissal recovery state')
+    }
     notifyRuntimeListeners(
       this.listeners,
       (listener) =>

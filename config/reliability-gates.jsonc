@@ -27,11 +27,14 @@
       "invariant": "Headless startup installs and disposes push delivery; push and replay preserve the three-minute away policy, and host activity cannot extend the seven-day mobile lease.",
       "oracle": "Require registration after RPC identity initialization and shutdown cleanup; idle 179/180/0 yields false/true/false for socket and replay, and exactly one push. Persisted lease expires exactly at seven days and only explicit registration renews it.",
       "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/mobile-notification-dismissal-store.test.ts src/renderer/src/hooks/useAutoAckViewedAgent.away.test.ts",
         "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/main/orcad/orcad-push-startup.test.ts src/main/runtime/push/push-policy-pipeline.integration.test.ts"
       ],
       "testFiles": [
         "src/main/orcad/orcad-push-startup.test.ts",
-        "src/main/runtime/push/push-policy-pipeline.integration.test.ts"
+        "src/main/runtime/push/push-policy-pipeline.integration.test.ts",
+        "src/main/runtime/mobile-notification-dismissal-store.test.ts",
+        "src/renderer/src/hooks/useAutoAckViewedAgent.away.test.ts"
       ],
       "assertionRefs": [
         {
@@ -79,7 +82,8 @@
       "knownGaps": [
         "Does not prove APNs silent background wakeup or actual operating-system idle transitions.",
         "Rendererless agent/bell event generation remains outside the documented feature contract.",
-        "No live Windows or Linux policy evidence."
+        "No live Windows or Linux policy evidence.",
+        "Native iOS dismissal callback processing is verified separately; real APNs background wakeup is not established. Coalesced summaries require membership-aware dismissal before they can be cleared safely."
       ],
       "demotionRule": "Keep experimental if lifecycle or policy assertions fail; do not weaken them to bypass platform delivery gaps."
     },

@@ -1,4 +1,5 @@
-import { BrowserWindow, Notification, ipcMain } from 'electron'
+import { BrowserWindow, Notification, ipcMain, powerMonitor } from 'electron'
+import { readDesktopAwayState } from '../notifications/desktop-away-state'
 import type { Store } from '../persistence'
 import type {
   NotificationDeliveryProbeResult,
@@ -26,6 +27,8 @@ import {
 } from './notification-permission-probe'
 
 export function registerNotificationHandlers(store: Store, runtime?: OrcaRuntimeService): void {
+  ipcMain.removeHandler('notifications:getDesktopAwayState')
+  ipcMain.handle('notifications:getDesktopAwayState', () => readDesktopAwayState(powerMonitor))
   const recentDesktopNotifications = new Map<string, number>()
   const recentMobileNotifications = new Map<string, number>()
   resetNotificationPermissionEvidence()

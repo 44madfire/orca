@@ -34,7 +34,17 @@ const NotificationUnsubscribeParams = z.object({
 const NotificationGetMissedSinceParams = z.object({
   lastSeenSeq: z.number().int().min(0, 'lastSeenSeq must be a non-negative integer'),
   epoch: z.string().optional(),
-  includeDesktopSuppressed: z.boolean().optional()
+  includeDesktopSuppressed: z.boolean().optional(),
+  deliveredPushes: z
+    .array(
+      z.object({
+        notificationId: z.string().min(1).max(512),
+        notificationEpoch: z.string().min(1).max(128),
+        notificationSeq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)
+      })
+    )
+    .max(256)
+    .optional()
 })
 
 // Why: the phone owns which alerts are worth waking it for; the host stores the
@@ -122,7 +132,10 @@ export const NOTIFICATION_METHODS: readonly RpcAnyMethod[] = [
         notifications: missed.filter(
           createNotificationStreamFilter(params.includeDesktopSuppressed)
         ),
-        epoch: runtime.getMobileNotificationEpoch()
+        epoch: runtime.getMobileNotificationEpoch(),
+        ...(params.deliveredPushes
+          ? { dismissedPushes: runtime.reconcileDismissedPushes(params.deliveredPushes) }
+          : {})
       }
     }
   }),

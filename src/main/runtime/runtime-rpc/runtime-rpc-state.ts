@@ -132,5 +132,6 @@ export class RuntimeRpcState {
     this.specializedLongPollCap = Math.max(1, Math.floor(longPollCap * SPECIALIZED_LONG_POLL_SHARE))
     this.relayRevokeOutbox = new RelayRevokeOutbox(userDataPath)
     this.pushUnregisterOutbox = new PushUnregisterOutbox(userDataPath)
+    this.runtime.configureNotificationDismissalStore(userDataPath)
   }
 }
