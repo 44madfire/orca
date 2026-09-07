@@ -6,9 +6,35 @@ export type PromptCacheCountdownSelection = {
   ttlMs: number
 }
 
+const oldestTimerByTabCache = new WeakMap<Record<string, number | null>, Map<string, number>>()
+
 function getCacheTimerTabId(key: string): string | null {
   const separator = key.indexOf(':')
   return separator > 0 ? key.slice(0, separator) : null
+}
+
+function getOldestTimerByTab(cacheTimerByKey: Record<string, number | null>): Map<string, number> {
+  const cached = oldestTimerByTabCache.get(cacheTimerByKey)
+  if (cached) {
+    return cached
+  }
+  const oldestByTab = new Map<string, number>()
+  for (const [key, startedAt] of Object.entries(cacheTimerByKey)) {
+    if (startedAt == null) {
+      continue
+    }
+    const tabId = getCacheTimerTabId(key)
+    if (!tabId) {
+      continue
+    }
+    const oldest = oldestByTab.get(tabId)
+    if (oldest === undefined || startedAt < oldest) {
+      oldestByTab.set(tabId, startedAt)
+    }
+  }
+  // Timer writes replace the record; share its index across cards and unrelated store updates.
+  oldestTimerByTabCache.set(cacheTimerByKey, oldestByTab)
+  return oldestByTab
 }
 
 export function getMostUrgentPromptCacheStartedAt(
@@ -18,17 +44,11 @@ export function getMostUrgentPromptCacheStartedAt(
   if (!tabs || tabs.length === 0) {
     return null
   }
-  const tabIds = new Set(tabs.map((tab) => tab.id))
+  const oldestByTab = getOldestTimerByTab(cacheTimerByKey)
   let oldest: number | null = null
-  for (const [key, startedAt] of Object.entries(cacheTimerByKey)) {
-    if (startedAt == null) {
-      continue
-    }
-    const tabId = getCacheTimerTabId(key)
-    if (!tabId || !tabIds.has(tabId)) {
-      continue
-    }
-    if (oldest === null || startedAt < oldest) {
+  for (const tab of tabs) {
+    const startedAt = oldestByTab.get(tab.id)
+    if (startedAt !== undefined && (oldest === null || startedAt < oldest)) {
       oldest = startedAt
     }
   }

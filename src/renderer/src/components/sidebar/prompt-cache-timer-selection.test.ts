@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import {
   getMostUrgentPromptCacheStartedAt,
@@ -28,6 +28,44 @@ describe('getMostUrgentPromptCacheStartedAt', () => {
     })
 
     expect(startedAt).toBe(300)
+  })
+
+  it('shares one timer inventory pass across visible cards and unrelated store writes', () => {
+    const cards = Array.from({ length: 423 }, (_, index) =>
+      Array.from({ length: 3 }, (_, tab) => ({ id: `tab-${index * 3 + tab}` }))
+    )
+    const inventory = Object.fromEntries(
+      cards.flatMap((tabs) => tabs.map((tab) => [`${tab.id}:seed`, 100]))
+    )
+    const enumerate = vi.fn(Reflect.ownKeys)
+    const timers = new Proxy<Record<string, number | null>>(inventory, { ownKeys: enumerate })
+    let total = 0
+    for (let write = 0; write < 100; write++) {
+      for (const tabs of cards.slice(0, 20)) {
+        total += getMostUrgentPromptCacheStartedAt(tabs, timers) ?? 0
+      }
+    }
+
+    expect(total).toBe(200_000)
+    expect(enumerate).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates minima on timer replacement and tab membership changes', () => {
+    const tabs = [{ id: 'tab-1' }]
+    const original = { 'tab-1:seed': 300, 'tab-1:pane-a': 200, 'tab-2:pane-a': 100 }
+    expect(getMostUrgentPromptCacheStartedAt(tabs, original)).toBe(200)
+    expect(getMostUrgentPromptCacheStartedAt([{ id: 'tab-2' }], original)).toBe(100)
+
+    const cleared = { ...original, 'tab-1:pane-a': null }
+    expect(getMostUrgentPromptCacheStartedAt(tabs, cleared)).toBe(300)
+    const replaced = { ...cleared, 'tab-1:pane-b': 0 }
+    expect(getMostUrgentPromptCacheStartedAt(tabs, replaced)).toBe(0)
+    const removed = { 'tab-2:pane-a': 100 }
+    expect(getMostUrgentPromptCacheStartedAt(tabs, removed)).toBeNull()
+
+    expect(getMostUrgentPromptCacheStartedAt(tabs, original)).toBe(200)
+    expect(getMostUrgentPromptCacheStartedAt([], original)).toBeNull()
+    expect(getMostUrgentPromptCacheStartedAt(undefined, original)).toBeNull()
   })
 })
 
