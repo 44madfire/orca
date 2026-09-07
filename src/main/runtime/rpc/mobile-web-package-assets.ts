@@ -162,6 +162,7 @@ export class MobileWebPackageAssets {
       const verified = await this.getVerifiedPackage()
       const asset = this.validateAssetParams(verified, params)
       await this.assertAssetUnchanged(verified, asset)
+      throwIfAborted(options.signal)
       const sourceByteLength = Math.min(requestedLength, asset.byteLength - params.offset)
       return this.gzipResponse(
         verified.manifest.buildId,

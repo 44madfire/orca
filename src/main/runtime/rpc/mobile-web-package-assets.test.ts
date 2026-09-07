@@ -117,6 +117,23 @@ describe('mobile web package assets', () => {
     )
   })
 
+  it('honors cancellation during a cached gzip read', async () => {
+    const fixture = await createPackageFixture()
+    const assets = new MobileWebPackageAssets({ resolveRoot: () => fixture.root })
+    const request = {
+      buildId: fixture.manifest.buildId,
+      path: fixture.manifest.entrypoint,
+      offset: 0
+    }
+    await assets.getAssetGzipChunk(request)
+
+    const controller = new AbortController()
+    const pending = assets.getAssetGzipChunk(request, { signal: controller.signal })
+    controller.abort()
+
+    await expect(pending).rejects.toThrow('mobile_web_package_cancelled')
+  })
+
   it('rejects an invalid build identity and corrupt asset before serving the manifest', async () => {
     const invalidBuild = await createPackageFixture()
     await rewriteManifest(invalidBuild.root, { ...invalidBuild.manifest, buildId: '0'.repeat(64) })
