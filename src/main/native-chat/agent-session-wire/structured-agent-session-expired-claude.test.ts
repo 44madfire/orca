@@ -133,6 +133,19 @@ describe('expired native Claude lease and close', () => {
     expect(fixture.close).not.toHaveBeenCalled()
   })
 
+  it('closes a published session whose close reports root exit without descendant proof', async () => {
+    // The live-session path returns false rather than throwing; before this was classified the
+    // tab stayed permanently unclosable with an eviction failure at stop-provider-child.
+    const fixture = await capturedSession({ root: 'exited', tree: 'unverifiable' })
+    fixture.claude.connections[0].close = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValue(false) as unknown as (typeof fixture.claude.connections)[0]['close']
+    await expect(
+      evictHeldStructuredAgentSession(fixture.context, 'session-1')
+    ).resolves.toBeUndefined()
+    expect(fixture.sessions.size).toBe(0)
+  })
+
   it('reclaims a proven-dead native owner before its lease deadline', async () => {
     const fixture = await capturedSession({ root: 'exited', tree: 'unverifiable' })
     const beforeDeadline = NOW + 1_000

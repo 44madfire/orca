@@ -75,6 +75,16 @@ async function finalizeClaudePublishedSession(
     prompt.settle(null)
   }
   if ((await session.connection.close()) !== true) {
+    // Report what the ladder observed rather than a bare `false`, which conflates "root still
+    // alive" with "root exited, descendants unknowable". Only a genuinely unproven exit stays a
+    // retryable `false`; the classes the owner can act on are raised so it can decide.
+    const reported = claudeAcquisitionCleanupError(
+      session.connection,
+      new Error('provider close unproven')
+    )
+    if (!(reported instanceof AgentSessionAcquisitionExitUnprovenError)) {
+      throw reported
+    }
     return false
   }
   if (session.backgroundTasks.clear()) {
@@ -239,6 +249,13 @@ export async function closeClaudeSession(input: {
 }): Promise<boolean> {
   const attempt = input.acquisitions.get(input.sessionId)
   if (!(await cancelClaudeAcquisitionAttempt(attempt))) {
+    const reported = claudeAcquisitionCleanupError(
+      attempt?.connection,
+      new Error('acquisition cancel unproven')
+    )
+    if (!(reported instanceof AgentSessionAcquisitionExitUnprovenError)) {
+      throw reported
+    }
     return false
   }
   if (attempt) {
