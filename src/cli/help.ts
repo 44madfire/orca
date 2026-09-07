@@ -223,8 +223,7 @@ export function formatFlagHelp(flag: string): string {
     'mouse-button': '--mouse-button <btn>   Mouse button: left, right, or middle',
     modifiers: '--modifiers <chord>  Modifier keys held only for this click',
     name: '--name <name>          Name for the new worktree or automation',
-    'no-parent':
-      '--no-parent            File at the top level instead of under the inferred parent',
+    'no-parent': '--no-parent            File at the top level, not under the inferred parent',
     'no-screenshot': '--no-screenshot       Skip screenshot capture after the operation',
     pages: '--pages <n>           Number of scroll pages',
     'parent-worktree':
