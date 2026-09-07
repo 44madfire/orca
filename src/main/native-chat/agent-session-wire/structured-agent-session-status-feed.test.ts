@@ -300,8 +300,12 @@ describe('StructuredAgentSessionStatusFeed conversation name', () => {
     const journal = await openJournal()
     const { events } = feedFor(new Map([[SESSION, { journal }]]), { providerHandleChain: [] })
 
-    const [snapshot] = events as [{ type: 'snapshot'; sessions: Record<string, unknown>[] }]
-    expect(snapshot.sessions[0]).not.toHaveProperty('conversationName')
+    const [snapshot] = events
+    const sessions = snapshot?.type === 'snapshot' ? snapshot.sessions : []
+    // Intermediate assertion: the row is present and projected, so the missing
+    // property below reads as "this session has no name", never as "no session".
+    expect(sessions).toMatchObject([{ sessionId: SESSION, status: null }])
+    expect(sessions[0]).not.toHaveProperty('conversationName')
   })
 
   it('republishes when only the conversation name changed', async () => {

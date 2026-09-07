@@ -26,6 +26,7 @@ function optionSession(request: CodexAppServerConnection['request']): CodexSessi
     acquisitionGeneration: 'generation-1',
     threadId: 'thread-1',
     historyPath: null,
+    conversationName: null,
     prompts: new CodexAcquisitionWindow().prompts,
     options: new Map(),
     reportedOptions: { model: 'gpt-live', effort: 'high' },
