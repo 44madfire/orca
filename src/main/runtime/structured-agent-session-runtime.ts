@@ -18,6 +18,7 @@ import {
 import type { ClaudeStructuredSessionAdapterDeps } from '../claude/claude-structured-session-adapter'
 import { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-host'
 import { StructuredAgentSessionAdapterRouter } from '../native-chat/agent-session-wire/structured-agent-session-adapter-router'
+import { StructuredAgentSessionConversationNames } from '../native-chat/agent-session-wire/structured-agent-session-conversation-name'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import {
@@ -76,6 +77,12 @@ export type StructuredAgentSessionRuntimeDeps = {
   resolveEnvironment?: () => Promise<NodeJS.ProcessEnv>
   resolveCodexOverrides?: () => NodeJS.ProcessEnv
   onError?: (input: { scope: string; error: unknown }) => void
+  /** A provider named one conversation; the runtime relabels the tab it published. */
+  onConversationName?: (input: {
+    sessionId: string
+    workspaceId: string
+    conversationName: string
+  }) => void
   handoffTransport?: StructuredAgentSessionHandoffTransport
   reapOrphanChildren?: typeof stopOrphanAgentSessionChildren
 }
@@ -210,6 +217,20 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
   try {
     let host: StructuredAgentSessionHost | null = null
     let recoveryChain = Promise.resolve()
+    // Owned here rather than by the host: the record, not the live session map,
+    // is what says which workspace a named conversation belongs to, so a name
+    // arriving for an evicted session still relabels the right tab.
+    const conversationNames = new StructuredAgentSessionConversationNames({
+      store,
+      now: () => Date.now(),
+      onChanged: (sessionId, conversationName) => {
+        host?.republishStatus(sessionId)
+        const workspaceId = store.getRecord(sessionId)?.location.workspaceId
+        if (workspaceId) {
+          deps.onConversationName?.({ sessionId, workspaceId, conversationName })
+        }
+      }
+    })
     const codex = new CodexStructuredSessionAdapter({
       resolveLaunch: createCodexStructuredLaunchResolver({
         store,
@@ -219,6 +240,8 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       }),
       ...(deps.openCodexConnection ? { openConnection: deps.openCodexConnection } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
+      onConversationName: (sessionId, conversationName) =>
+        void conversationNames.publish(sessionId, conversationName),
       onEvent: (event) => {
         if (event.type !== 'ended' || !('cause' in event) || event.cause !== 'unexpected-exit') {
           return
@@ -260,6 +283,8 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       },
       onBackgroundTasksChanged: (sessionId, state) =>
         host?.publishBackgroundTaskState(sessionId, state),
+      onConversationName: (sessionId, conversationName) =>
+        void conversationNames.publish(sessionId, conversationName),
       ...(deps.openClaudeConnection ? { openClaudeConnection: deps.openClaudeConnection } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
     })

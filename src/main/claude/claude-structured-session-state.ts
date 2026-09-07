@@ -74,6 +74,14 @@ export type ClaudeStructuredSessionAdapterDeps = {
     leafUuid: string | null
     fence: number
   }) => Promise<void>
+  /** Claude named (or the user renamed) the conversation behind this session. */
+  onConversationName?: (sessionId: string, conversationName: string) => void
+  /** The name Claude already persisted for this provider session, if any. Its
+   *  stream carries no title frame, so the transcript is the only source. */
+  readTranscriptConversationName?: (input: {
+    providerSessionId: string
+    claudeConfigDir: string
+  }) => Promise<string | null>
   /** Read the durable transcript branch after a child has flushed its final rows. */
   readTranscriptLeaf?: (input: {
     providerSessionId: string

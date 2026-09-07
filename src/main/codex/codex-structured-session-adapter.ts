@@ -35,6 +35,7 @@ import {
   deliverCodexServerRequest,
   deliverCodexUnhandledFrame
 } from './codex-structured-provider-events'
+import { readCodexThreadId, readCodexThreadName } from './codex-structured-thread-facts'
 import { CodexStructuredTurnCancellation } from './codex-structured-turn-cancellation'
 import { createCodexStructuredNotificationRetry } from './codex-structured-notification-retry'
 import { acquireCodexStructuredSession } from './codex-structured-session-acquire'
@@ -118,9 +119,32 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     if (this.turnCancellation.handleNotification(sessionId, session, method, params)) {
       return { accepted: true }
     }
+    this.captureConversationName(sessionId, session, method, params)
     return deliverCodexNotification(sessionId, session, method, params, (current, event) =>
       this.emit(current, event)
     )
+  }
+
+  /** Codex broadcasts `thread/name/updated` for every thread it has stored, so a
+   *  frame naming another thread must not relabel this session's chat. */
+  private captureConversationName(
+    sessionId: string,
+    session: CodexSession,
+    method: string,
+    params: unknown
+  ): void {
+    if (method !== 'thread/name/updated') {
+      return
+    }
+    if ((readCodexThreadId(params) ?? session.threadId) !== session.threadId) {
+      return
+    }
+    const conversationName = readCodexThreadName(params)
+    if (!conversationName || conversationName === session.conversationName) {
+      return
+    }
+    session.conversationName = conversationName
+    this.deps.onConversationName?.(sessionId, conversationName)
   }
 
   /** Journal first so observers never see an event ahead of its durable row. */

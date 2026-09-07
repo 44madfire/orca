@@ -28,6 +28,21 @@ export function readCodexThreadPath(payload: unknown): string | null {
   return root ? nonEmptyString(record(root.thread)?.path) : null
 }
 
+/** The thread's name. `thread/start`, `thread/resume`, and `thread/read` carry it
+ *  on the nested thread; `thread/name/updated` puts it on the envelope, and the
+ *  session-configured event spells it snake_case. */
+export function readCodexThreadName(payload: unknown): string | null {
+  const root = record(payload)
+  if (!root) {
+    return null
+  }
+  return (
+    nonEmptyString(record(root.thread)?.name) ??
+    nonEmptyString(root.threadName) ??
+    nonEmptyString(root.thread_name)
+  )
+}
+
 /** `turn/start` responses carry `turn.id`; `turn/started` notifications carry
  *  the same under `turn`, and older builds put `turnId` on the envelope. */
 export function readCodexTurnId(payload: unknown): string | null {

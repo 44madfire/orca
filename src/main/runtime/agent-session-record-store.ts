@@ -43,6 +43,16 @@ import {
   collectAgentSessionRestartProbes,
   type AgentSessionRestartProbeArgs
 } from './agent-session-restart-reconciliation'
+import {
+  isAgentSessionClaimKeyVerifiable,
+  retireAgentSessionClaimKey
+} from './agent-session-claim-key-retention'
+import { setAgentSessionRecordConversationName } from './agent-session-record-conversation-name'
+import {
+  listVisibleAgentSessionIds,
+  setAgentSessionTabVisibility,
+  visibleAgentSessionTabIndex
+} from './agent-session-visible-tab-index'
 import { replaceAgentSessionRecordOptions } from './agent-session-record-options'
 import {
   setAgentSessionReservationProcesslessProof,
@@ -69,8 +79,7 @@ import {
 
 export const AGENT_SESSION_LEASE_TTL_MS = 30_000,
   AGENT_SESSION_LEASE_RENEW_INTERVAL_MS = 10_000
-/** Retired claim keys stay verifiable this long so a rotation cannot strand a running agent. */
-export const AGENT_SESSION_CLAIM_KEY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+export { AGENT_SESSION_CLAIM_KEY_RETENTION_MS } from './agent-session-claim-key-retention'
 
 export class AgentSessionRecordStore {
   private constructor(private readonly transactions: AgentSessionStoreTransactionQueue) {}
@@ -115,27 +124,13 @@ export class AgentSessionRecordStore {
 
   listRecords = (): AgentSessionRecord[] => [...this.state.records.values()]
 
-  listVisibleSessionIds = (): string[] =>
-    [...this.state.visibleSessionIds].filter((sessionId) => this.state.records.has(sessionId))
+  listVisibleSessionIds = (): string[] => listVisibleAgentSessionIds(this.state)
 
-  getVisibleSessionTabIndex = (): { present: boolean; sessionIds: string[] } => ({
-    present: this.state.visibleSessionIdsIndexPresent,
-    sessionIds: this.listVisibleSessionIds()
-  })
+  getVisibleSessionTabIndex = (): { present: boolean; sessionIds: string[] } =>
+    visibleAgentSessionTabIndex(this.state)
 
-  /** Persist the user-visible tab reference separately from the rollback-sensitive profile tabs. */
   setSessionTabVisibility(sessionId: string, visible: boolean): Promise<void> {
-    return this.transact(() => {
-      if (visible) {
-        if (!this.state.records.has(sessionId)) {
-          throw new Error('agent_session_identity_required')
-        }
-        this.state.visibleSessionIds.add(sessionId)
-      } else {
-        this.state.visibleSessionIds.delete(sessionId)
-      }
-      this.state.visibleSessionIdsIndexPresent = true
-    })
+    return this.transact(() => setAgentSessionTabVisibility(this.state, sessionId, visible))
   }
 
   listByScope(location: AgentSessionExecutionLocation): AgentSessionRecord[] {
@@ -151,8 +146,7 @@ export class AgentSessionRecordStore {
   listOperationRows = (): AgentSessionOperationRow[] => [...this.state.operations.values()]
 
   isClaimKeyVerifiable(keyId: string, now: number): boolean {
-    const retired = this.state.retiredClaimKeys.find((entry) => entry.keyId === keyId)
-    return !retired || now - retired.retiredAt <= AGENT_SESSION_CLAIM_KEY_RETENTION_MS
+    return isAgentSessionClaimKeyVerifiable(this.state.retiredClaimKeys, keyId, now)
   }
 
   /** Spawn tokens observed on the host with no matching lease. Stop them; never adopt them. */
@@ -316,13 +310,21 @@ export class AgentSessionRecordStore {
   replaceSessionOptions = (args: AgentSessionOptionsReplacement): Promise<AgentSessionRecord> =>
     this.mutate(args.sessionId, (record) => replaceAgentSessionRecordOptions(record, args))
 
+  setConversationName = (
+    sessionId: string,
+    conversationName: string,
+    now: number
+  ): Promise<AgentSessionRecord> =>
+    this.mutate(sessionId, (record) =>
+      setAgentSessionRecordConversationName(record, conversationName, now)
+    )
+
   async retireClaimKey(keyId: string, now: number): Promise<void> {
     await this.transact(() => {
-      if (!this.state.retiredClaimKeys.some((entry) => entry.keyId === keyId)) {
-        this.state.retiredClaimKeys.push({ keyId, retiredAt: now })
-      }
-      this.state.retiredClaimKeys = this.state.retiredClaimKeys.filter(
-        (entry) => now - entry.retiredAt <= AGENT_SESSION_CLAIM_KEY_RETENTION_MS
+      this.state.retiredClaimKeys = retireAgentSessionClaimKey(
+        this.state.retiredClaimKeys,
+        keyId,
+        now
       )
     })
   }

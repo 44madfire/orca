@@ -6,6 +6,7 @@
  * question of which process is currently allowed to write to it.
  */
 
+import { isAgentSessionConversationName } from './agent-session-conversation-name'
 import type { ExecutionHostId } from './execution-host'
 import {
   isAgentSessionProviderHandleChain,
@@ -125,6 +126,9 @@ export type AgentSessionRecord = {
   accountHome: AgentSessionAccountHome
   /** Provider options acknowledged for the next turn, restored across owner replacement. */
   options?: Record<string, string>
+  /** Name the PROVIDER gave this conversation. A user's own rename lives on the
+   *  client tab and always outranks it; nothing here may overwrite that. */
+  conversationName?: string
   launchArgs?: AgentSessionLaunchArgs
   lease: AgentSessionLease
   createdAt: number
@@ -335,6 +339,8 @@ export function isAgentSessionRecord(value: unknown): value is AgentSessionRecor
     isAgentSessionProviderHandleChain(record.providerHandleChain) &&
     isAgentSessionAccountHome(record.accountHome) &&
     (record.options === undefined || isAgentSessionOptions(record.options)) &&
+    (record.conversationName === undefined ||
+      isAgentSessionConversationName(record.conversationName)) &&
     (record.launchArgs === undefined || isAgentSessionLaunchArgs(record.launchArgs)) &&
     !Object.hasOwn(record, 'launchEnv') &&
     isAgentSessionLease(record.lease) &&

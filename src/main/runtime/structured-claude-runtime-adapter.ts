@@ -9,6 +9,7 @@ import {
   type ClaudeStructuredSessionAdapterDeps
 } from '../claude/claude-structured-session-adapter'
 import { claudeProviderHandleLink } from '../claude/claude-structured-owner-identity'
+import { readClaudeTranscriptConversationName } from '../claude/claude-transcript-conversation-name'
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import {
   readClaudeTranscriptLeafUuid,
@@ -76,6 +77,12 @@ export function createStructuredClaudeRuntimeAdapter(
       return transcriptPath
         ? await readClaudeTranscriptLeafUuid(transcriptPath, providerSessionId, previousLeafUuid)
         : null
+    },
+    readTranscriptConversationName: async ({ providerSessionId, claudeConfigDir }) => {
+      const transcriptPath = await resolveSessionFilePath('claude', providerSessionId, {
+        claudeProjectsDir: join(claudeConfigDir, 'projects')
+      })
+      return transcriptPath ? await readClaudeTranscriptConversationName(transcriptPath) : null
     },
     onEvent: (event) => {
       if (

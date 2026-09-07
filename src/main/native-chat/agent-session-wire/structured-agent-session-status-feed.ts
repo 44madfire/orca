@@ -48,6 +48,7 @@ function summariesEqual(a: AgentSessionStatusSummary, b: AgentSessionStatusSumma
     a.toolName === b.toolName &&
     a.toolInput === b.toolInput &&
     a.lastAssistantMessage === b.lastAssistantMessage &&
+    a.conversationName === b.conversationName &&
     agentProviderSessionsEqual(undefined, a.providerSession, b.providerSession)
   )
 }
@@ -110,12 +111,14 @@ export class StructuredAgentSessionStatusFeed {
     // The journal has no model: the record's acknowledged options are where an owner
     // handoff or a mid-session switch lands, so the row follows whichever is in force.
     const model = normalizeOptionalField(record?.options?.model, AGENT_MODEL_MAX_LENGTH)
+    const conversationName = record?.conversationName
     return {
       sessionId,
       workspaceId: session.params.location.workspaceId,
       agent: session.params.provider,
       ...projectStructuredAgentSessionStatusSummary(items),
       ...(model ? { model } : {}),
+      ...(conversationName ? { conversationName } : {}),
       ...(providerSession ? { providerSession } : {}),
       updatedAt: this.deps.now()
     }

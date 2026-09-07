@@ -12,6 +12,7 @@ import {
 import { dispatchClaudeTurn } from './claude-structured-dispatch'
 import { releaseClaudeAcquisition } from './claude-structured-acquisition-release'
 import { acquireClaudeSession } from './claude-structured-session-acquisition'
+import { reportPersistedClaudeConversationName } from './claude-transcript-conversation-name'
 export { CLAUDE_STRUCTURED_INIT_TIMEOUT_MS } from './claude-structured-session-acquisition'
 import { supportsClaudeStructuredLocation } from './claude-structured-location-support'
 import { setClaudeStructuredOption } from './claude-structured-options'
@@ -55,8 +56,8 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
 
   supportsLocation = supportsClaudeStructuredLocation
 
-  acquire = (input: StructuredAgentSessionAcquireInput): Promise<AgentSessionAcquisition> =>
-    acquireClaudeSession({
+  acquire = async (input: StructuredAgentSessionAcquireInput): Promise<AgentSessionAcquisition> => {
+    const acquired = await acquireClaudeSession({
       input,
       deps: this.deps,
       sessions: this.sessions,
@@ -69,6 +70,10 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
         settleExit: (sessionId, exit) => this.settleUnexpectedExit(sessionId, exit)
       }
     })
+    const { sessionId } = input.identity
+    reportPersistedClaudeConversationName(sessionId, this.sessions.get(sessionId), this.deps)
+    return acquired
+  }
 
   private deliver(attempt: ClaudeAcquisitionAttempt, sessionId: string, event: () => void): void {
     if (!attempt.published) {

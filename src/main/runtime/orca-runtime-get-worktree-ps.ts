@@ -25,6 +25,7 @@ import { resolveLocalWindowsAgentStartupShell } from '../../shared/windows-termi
 import { resolveStartupShell, tokenizeStartupCommand } from '../../shared/tui-agent-startup-shell'
 import { resolveCodexStructuredAppServerArgs } from '../codex/codex-structured-app-server-args'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
+import type { RuntimeMobileSessionTabsSnapshot } from '../../shared/runtime-types'
 import { hostname } from 'node:os'
 import { claudeStructuredAuthPolicyForSettings } from '../claude-accounts/claude-structured-auth-policy'
 import { probeAgentSessionProcessIdentity } from './agent-session-process-identity-probe'
@@ -156,6 +157,12 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
         claudeStructuredAuthPolicyForSettings(this.requireStore().getSettings()),
       // Same gate and same settings as agentSession.createSupport, re-read on every acquisition.
       getClaudeManagedAccountGateSettings: () => this.requireStore().getSettings(),
+      onConversationName: ({ sessionId, workspaceId, conversationName }) =>
+        this.applyStructuredAgentSessionConversationName({
+          workspaceId,
+          sessionId,
+          conversationName
+        }),
       handoffTransport: this.createStructuredAgentSessionHandoffTransport()
     })
   }
@@ -199,6 +206,29 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
       resolveTuiAgentLaunchArgs('codex', settings.agentDefaultArgs),
       shell ?? 'posix'
     )
+  }
+
+  /** Relabels a published chat tab once its provider names the conversation. The
+   *  user's own rename lives on the client tab, which never reads this field. */
+  applyStructuredAgentSessionConversationName(input: {
+    workspaceId: string
+    sessionId: string
+    conversationName: string
+  }): void {
+    const existing = this.mobileSessionTabsByWorktree.get(input.workspaceId)
+    const id = `agent-session:${input.sessionId}`
+    if (!existing?.tabs.some((tab) => tab.id === id && tab.title !== input.conversationName)) {
+      return
+    }
+    const snapshot: RuntimeMobileSessionTabsSnapshot = {
+      ...existing,
+      snapshotVersion: existing.snapshotVersion + 1,
+      tabs: existing.tabs.map((tab) =>
+        tab.id === id ? { ...tab, title: input.conversationName } : tab
+      )
+    }
+    this.storeMobileSessionSnapshot(input.workspaceId, snapshot)
+    this.emitMobileSessionTabsSnapshot(snapshot)
   }
 
   protected createStructuredAgentSessionHandoffTransport(): StructuredAgentSessionHandoffTransport {

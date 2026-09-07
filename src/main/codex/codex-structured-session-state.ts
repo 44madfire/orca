@@ -42,6 +42,8 @@ export type CodexStructuredSessionAdapterDeps = {
     identity: AgentSessionJournalIdentity
   }) => Promise<CodexStructuredLaunch>
   onEvent?: (event: CodexStructuredSessionEvent) => void
+  /** Codex named (or renamed) the thread behind this session. */
+  onConversationName?: (sessionId: string, conversationName: string) => void
   openConnection?: typeof openCodexAppServerConnection
   readProcessStartTime?: (pid: number) => Promise<number | null>
   mintLinkId?: () => string
@@ -63,6 +65,8 @@ export type CodexSession = {
   acquisitionGeneration: string
   threadId: string
   historyPath: string | null
+  /** Codex's own name for the thread; null until Codex reports one. */
+  conversationName: string | null
   prompts: CodexAcquisitionWindow['prompts']
   options: Map<string, string>
   reportedOptions: { model?: string; effort?: string }

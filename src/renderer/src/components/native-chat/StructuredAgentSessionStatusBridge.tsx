@@ -56,6 +56,12 @@ function useStructuredAgentSessionStatusSummary(
   )
 }
 
+/** The sidebar row reads this as its live title, so the user's own rename has to
+ *  outrank the provider's conversation name here as it does in the tab strip. */
+function rowTitle(tab: StructuredTab): string {
+  return tab.customLabel?.trim() || tab.label
+}
+
 function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | null): void {
   const paneKey = structuredAgentSessionPaneKey(tab.id, tab.entityId)
   const store = useAppStore.getState()
@@ -94,7 +100,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     current.toolInput === summary.toolInput &&
     current.lastAssistantMessage === summary.lastAssistantMessage &&
     current.sessionBoundary === desired.sessionBoundary &&
-    current.terminalTitle === tab.label &&
+    current.terminalTitle === rowTitle(tab) &&
     current.tabId === tab.id &&
     current.worktreeId === tab.worktreeId &&
     current.terminalResumeEligible === false &&
@@ -109,7 +115,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
   store.setAgentStatus(
     paneKey,
     desired,
-    tab.label,
+    rowTitle(tab),
     undefined,
     { tabId: tab.id, worktreeId: tab.worktreeId },
     {

@@ -281,3 +281,42 @@ describe('StructuredAgentSessionStatusFeed', () => {
     })
   })
 })
+
+describe('StructuredAgentSessionStatusFeed conversation name', () => {
+  it('carries the record’s conversation name into the projected summary', async () => {
+    const journal = await openJournal()
+    const { events } = feedFor(new Map([[SESSION, { journal }]]), {
+      providerHandleChain: [],
+      conversationName: 'Fix the lease probe'
+    })
+
+    expect(events[0]).toMatchObject({
+      type: 'snapshot',
+      sessions: [{ sessionId: SESSION, conversationName: 'Fix the lease probe' }]
+    })
+  })
+
+  it('omits the field entirely while the session has no name', async () => {
+    const journal = await openJournal()
+    const { events } = feedFor(new Map([[SESSION, { journal }]]), { providerHandleChain: [] })
+
+    const [snapshot] = events as [{ type: 'snapshot'; sessions: Record<string, unknown>[] }]
+    expect(snapshot.sessions[0]).not.toHaveProperty('conversationName')
+  })
+
+  it('republishes when only the conversation name changed', async () => {
+    const journal = await openJournal()
+    const record: Partial<AgentSessionRecord> = { providerHandleChain: [] }
+    const { feed, events } = feedFor(new Map([[SESSION, { journal }]]), record)
+
+    feed.publish(SESSION)
+    expect(events).toHaveLength(1)
+
+    record.conversationName = 'Fix the lease probe'
+    feed.publish(SESSION)
+
+    expect(events.slice(1)).toMatchObject([
+      { type: 'status', session: { conversationName: 'Fix the lease probe' } }
+    ])
+  })
+})

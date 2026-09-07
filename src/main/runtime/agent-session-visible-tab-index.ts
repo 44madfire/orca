@@ -1,3 +1,5 @@
+import type { AgentSessionStoreState } from './agent-session-record-store-file'
+
 export function parseVisibleSessionIds(
   raw: unknown,
   schemaVersion: number,
@@ -18,4 +20,36 @@ export function parseVisibleSessionIds(
     }
   }
   return { ids, present: true, valid: true }
+}
+
+/** Sessions the user has a chat tab open for, minus any whose record is gone. */
+export function listVisibleAgentSessionIds(state: AgentSessionStoreState): string[] {
+  return [...state.visibleSessionIds].filter((sessionId) => state.records.has(sessionId))
+}
+
+export function visibleAgentSessionTabIndex(state: AgentSessionStoreState): {
+  present: boolean
+  sessionIds: string[]
+} {
+  return {
+    present: state.visibleSessionIdsIndexPresent,
+    sessionIds: listVisibleAgentSessionIds(state)
+  }
+}
+
+/** Marking a session visible asserts it exists; a session with no record has no tab. */
+export function setAgentSessionTabVisibility(
+  state: AgentSessionStoreState,
+  sessionId: string,
+  visible: boolean
+): void {
+  if (visible) {
+    if (!state.records.has(sessionId)) {
+      throw new Error('agent_session_identity_required')
+    }
+    state.visibleSessionIds.add(sessionId)
+  } else {
+    state.visibleSessionIds.delete(sessionId)
+  }
+  state.visibleSessionIdsIndexPresent = true
 }

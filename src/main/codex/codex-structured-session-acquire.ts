@@ -192,6 +192,7 @@ export async function acquireCodexStructuredSession(input: {
       ...codexSessionLifecycle(acquireInput.fence, acquired.acquisitionGeneration as string),
       threadId: opened.threadId,
       historyPath: opened.historyPath,
+      conversationName: opened.name ?? null,
       prompts: acquisition.prompts,
       options: restoredCodexSessionOptions(acquireInput.options),
       reportedOptions: reportedCodexThreadOptions(opened),
@@ -208,6 +209,10 @@ export async function acquireCodexStructuredSession(input: {
     }
     turnCancellation.register(session)
     sessions.set(sessionId, session)
+    // A resumed thread arrives already named; only a rename is notified after this.
+    if (session.conversationName) {
+      deps.onConversationName?.(sessionId, session.conversationName)
+    }
     for (const event of acquisition.drain()) {
       event()
     }

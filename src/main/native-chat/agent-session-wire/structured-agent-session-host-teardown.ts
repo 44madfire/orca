@@ -7,11 +7,44 @@
 // nothing can ever close them.
 
 import { agentSessionJournalCloseRetries } from '../agent-session-journal/journal-close-retry'
+import { withTimeout } from '../../../shared/promise-timeout-fallback'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 
 export type StructuredAgentSessionTeardownPhase = {
   name: string
   run: () => Promise<void> | void
+}
+
+/** Quit must not wait indefinitely on an in-flight handoff; see the drain phase below. */
+const HANDOFF_DRAIN_TIMEOUT_MS = 5_000
+
+/**
+ * What the host stops, in the order that makes each stop safe.
+ *
+ * Handoffs drain BEFORE the session map is dropped: a flow left running writes
+ * rows into a journal this teardown is about to close, and publishes against a
+ * session it removed. That drain is bounded because it sits on the app-quit path
+ * and a flow wedged in `launchTui` would otherwise hold the quit open forever;
+ * giving up merely restores the old orphaning, which the publish guard already
+ * makes survivable.
+ */
+export function structuredAgentSessionTeardownPhases(
+  holds: { dispose: () => void },
+  runtimeState: { stopLeaseRenewal: () => void; flushAllEventSinks: () => Promise<unknown> },
+  handoffs: { stopTuiHistoryCatchup: () => void; drain: () => Promise<unknown> },
+  tasks: { drainAttaches: () => Promise<unknown> }
+): StructuredAgentSessionTeardownPhase[] {
+  return [
+    { name: 'dispose-holds', run: () => holds.dispose() },
+    { name: 'stop-lease-renewal', run: () => runtimeState.stopLeaseRenewal() },
+    { name: 'stop-tui-catchup', run: () => handoffs.stopTuiHistoryCatchup() },
+    {
+      name: 'drain-handoffs',
+      run: () => withTimeout(handoffs.drain(), HANDOFF_DRAIN_TIMEOUT_MS, undefined)
+    },
+    { name: 'drain-attaches', run: async () => void (await tasks.drainAttaches()) },
+    { name: 'flush-event-sinks', run: async () => void (await runtimeState.flushAllEventSinks()) }
+  ]
 }
 
 export async function tearDownStructuredAgentSessionHost(input: {
