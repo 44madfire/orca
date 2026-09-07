@@ -19,7 +19,6 @@ const DEFAULT_SCOPE = 'openid profile email offline_access'
 const PRODUCTION_API_BASE_URL = 'https://login.onorca.dev'
 const PRODUCTION_CLIENT_ID = 'orca-desktop'
 const PRODUCTION_RELAY_DIRECTOR_URL = 'https://relay.onorca.dev'
-const PRODUCTION_PUSH_GATEWAY_URL = 'https://push.onorca.dev'
 
 // Why: packaged main bundles never define NODE_ENV, so packaged-ness is the
 // only reliable production signal for gating dev-only auth escape hatches.
@@ -123,18 +122,6 @@ export function getOrcaCloudAuthConfig(
       scope: env.ORCA_CLOUD_AUTH_SCOPE?.trim() || DEFAULT_SCOPE
     }
   }
-}
-
-/**
- * Where the host registers phones for background push. Deliberately outside
- * OrcaCloudAuthConfig: the push gateway authenticates with the host keypair, so an
- * accountless host reaches it on exactly the same path as a signed-in one.
- */
-export function getOrcaPushGatewayUrl(
-  env: NodeJS.ProcessEnv = process.env,
-  packaged: boolean = isPackagedOrcaBuild()
-): string {
-  return cleanOrigin(env.ORCA_PUSH_GATEWAY_URL, !packaged) ?? PRODUCTION_PUSH_GATEWAY_URL
 }
 
 export function allowsPlaintextOrcaCloudSession(

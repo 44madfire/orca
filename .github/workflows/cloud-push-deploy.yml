@@ -3,6 +3,10 @@ name: Deploy Push Gateway Production
 on:
   workflow_dispatch:
     inputs:
+      source_sha:
+        description: Full reviewed commit SHA to build (feature may remain unmerged)
+        required: true
+        type: string
       confirmation:
         description: Enter DEPLOY_PUSH_GATEWAY to shift production traffic
         required: true
@@ -47,6 +51,7 @@ jobs:
       PUSH_MIN_INSTANCES: 1
       PUSH_MAX_INSTANCES: 2
       CONFIRMATION: ${{ inputs.confirmation }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +60,18 @@ jobs:
         run: |
           set -euo pipefail
           test "${CONFIRMATION}" = DEPLOY_PUSH_GATEWAY
+          [[ "${SOURCE_SHA}" =~ ^[a-f0-9]{40}$ ]]
+
+      # Keep the workflow and rollout lease on main; only the Docker build uses candidate code.
+      - name: Fetch the immutable gateway source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "${SOURCE_SHA}"
+          test "$(git rev-parse FETCH_HEAD)" = "${SOURCE_SHA}"
+          mkdir -p "${RUNNER_TEMP}/push-source"
+          git -C "${GITHUB_WORKSPACE}" archive "${SOURCE_SHA}" cloud \
+            | tar -x -C "${RUNNER_TEMP}/push-source"
 
       - uses: google-github-actions/auth@v2
         with:
@@ -76,8 +93,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image_tag="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${REPOSITORY_ID}/${IMAGE_NAME}:sha-${GITHUB_SHA}"
-          docker build -f apps/push/Dockerfile -t "${image_tag}" .
+          image_tag="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${REPOSITORY_ID}/${IMAGE_NAME}:sha-${SOURCE_SHA}"
+          docker build -f "${RUNNER_TEMP}/push-source/cloud/apps/push/Dockerfile" \
+            -t "${image_tag}" "${RUNNER_TEMP}/push-source/cloud"
           docker push "${image_tag}"
           digest="$(gcloud artifacts docker images describe "${image_tag}" \
             --format='value(image_summary.digest)')"
@@ -176,6 +194,8 @@ jobs:
               --max-time 10 "${CANDIDATE_URL}/ready" || true)"
             if test "${code}" = 200; then
               jq -e . < "${RUNNER_TEMP}/push-ready.json" > /dev/null
+              curl --fail --silent --show-error --max-time 10 "${CANDIDATE_URL}/health" \
+                | jq -e '.ok == true and .deliveryProtocol == 2' > /dev/null
               echo "candidate ${CANDIDATE_REVISION} is ready after ${attempt} attempt(s)"
               exit 0
             fi
@@ -250,6 +270,8 @@ jobs:
           {
             echo '### Push gateway rollout'
             echo
+            echo "Source: ${SOURCE_SHA}"
+            echo
             echo "Revision: \`${CANDIDATE_REVISION}\`"
             echo
             echo "Image: \`${IMAGE_DIGEST}\`"
@@ -266,6 +288,8 @@ jobs:
             code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
               "${PUSH_ORIGIN}/ready" || true)"
             if test "${code}" = 200; then
+              curl --fail --silent --show-error --max-time 10 "${PUSH_ORIGIN}/health" \
+                | jq -e '.ok == true and .deliveryProtocol == 2' > /dev/null
               echo "${PUSH_ORIGIN} is ready after ${attempt} attempt(s)"
               exit 0
             fi

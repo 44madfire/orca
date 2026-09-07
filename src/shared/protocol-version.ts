@@ -146,6 +146,12 @@ export const STRUCTURED_AGENT_SESSION_HOLD_RUNTIME_CAPABILITY =
 // negotiation rather than by calling and reading a refusal it cannot distinguish from a real one.
 export const STRUCTURED_AGENT_SESSION_REVEAL_RUNTIME_CAPABILITY =
   'agent-session.structured.reveal.v1' as const
+// Why: `agentSession.create` gains an optional `resumeFrom`, and its params are a STRICT union — an
+// older host rejects the unknown key as a schema error, which a client cannot tell from a real
+// refusal. Worse, without probing, a client cannot know whether a host that accepted the call
+// adopted the conversation or quietly started a blank one. Negotiate before offering the action.
+export const STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY =
+  'agent-session.structured.resume-history.v1' as const
 // Why: agentSession.subscribeStatus is additive to a surface that already shipped, so a host
 // advertising agent-session.structured.v1 may still answer it with method_not_found. Clients must
 // probe before subscribing or they reconnect forever and never show any status at all.
@@ -180,12 +186,6 @@ export const AUTOMATION_OWNER_FENCING_UPDATE_REQUIRED_MESSAGE =
   'Editing automations on this host requires a newer Orca server. Update the HUB and try again.'
 export const AUTOMATION_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY =
   'automation.create-idempotency.v1' as const
-// Why: registered on every build, so it is a STATIC capability. Mobile hides its
-// background-notification settings entirely unless a paired host advertises it —
-// an older host has no notifications.registerPush to call.
-export const NOTIFICATION_DELIVERY_PREFERENCES_CAPABILITY =
-  'notifications.delivery-preferences.v1' as const
-export const NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY = 'notifications.remote-push.v1' as const
 
 // Generic native clients include the CLI and must not claim Electron-only page
 // placement support.
@@ -257,6 +257,7 @@ export const RUNTIME_CAPABILITIES = [
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_HOLD_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_REVEAL_RUNTIME_CAPABILITY,
+  STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY,
   AGENT_SESSION_STATUS_FEED_RUNTIME_CAPABILITY,
   AGENT_SESSION_KIMI_RESUME_RUNTIME_CAPABILITY,
   FILE_MUTATION_OWNERSHIP_RUNTIME_CAPABILITY,
@@ -277,9 +278,7 @@ export const RUNTIME_CAPABILITIES = [
   SKILL_DELETE_CAPABILITY,
   AUTOMATION_LIST_HOST_SCOPE_RUNTIME_CAPABILITY,
   AUTOMATION_OWNER_FENCING_RUNTIME_CAPABILITY,
-  AUTOMATION_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY,
-  NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY,
-  NOTIFICATION_DELIVERY_PREFERENCES_CAPABILITY
+  AUTOMATION_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY
 ] as const
 
 export type RuntimeCapability = (typeof RUNTIME_CAPABILITIES)[number] | (string & {})
