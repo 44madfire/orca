@@ -11,7 +11,8 @@ export const PushNotificationSourceSchema = z.enum([
 ])
 export const PushAgentStateSchema = z.enum(['needs-input', 'finished'])
 
-const APNS_TOKEN_PATTERN = /^[0-9a-fA-F]{64}$/
+// APNs tokens are variable-length byte strings, including longer simulator tokens.
+const APNS_TOKEN_PATTERN = /^(?:[0-9a-fA-F]{2})+$/
 const FCM_TOKEN_PATTERN = /^[A-Za-z0-9_:.\-]{32,4096}$/
 
 export const PushNotificationFilterSchema = z
@@ -53,7 +54,11 @@ export const PushDeviceRegistrationRequestSchema = z
         })
       }
       if (!APNS_TOKEN_PATTERN.test(value.token)) {
-        context.addIssue({ code: 'custom', path: ['token'], message: 'ios token must be 64 hex' })
+        context.addIssue({
+          code: 'custom',
+          path: ['token'],
+          message: 'ios token must be hex-encoded bytes'
+        })
       }
       return
     }

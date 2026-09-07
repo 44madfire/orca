@@ -86,7 +86,8 @@ distinct `deviceId` → 409 `{ "error": "too_many_devices" }`. Re-registering a 
 already owns is always accepted, and deleting a registration frees its slot. `GET /v1/devices` is
 bounded at 1024 rows to match its response schema, which the per-host cap keeps well out of reach.
 `filter` is stored but enforced by the host (see desktop); gateway stores it only so a
-host restart can re-read it. iOS token is 64 hex chars; Android token is the FCM registration string.
+host restart can re-read it. iOS tokens are variable-length, hex-encoded byte strings; Android
+tokens are FCM registration strings.
 
 `DELETE /v1/devices/:registrationId` (Bearer) → 204. Only the owning host may delete.
 
