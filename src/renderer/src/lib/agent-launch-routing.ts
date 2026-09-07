@@ -1,16 +1,20 @@
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { ProjectExecutionRuntimeResolution } from '../../../shared/project-execution-runtime'
-import { isAgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
-import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
-import type { TuiAgent } from '../../../shared/tui-agent'
 import {
-  getTuiAgentDefaultArgs,
-  getTuiAgentDefaultEnv
-} from '../../../shared/tui-agent-launch-defaults'
+  prefersStructuredNativeChatByDefault,
+  resolveStructuredNativeChatSupport
+} from '../../../shared/structured-native-chat-launch-route'
+import type { TuiAgent } from '../../../shared/tui-agent'
 import {
   decideInitialAgentTabViewMode,
   type NativeChatLaunchPromptDelivery
 } from '@/lib/native-chat-initial-view-mode'
+
+export {
+  hasExplicitTuiAgentArgs,
+  hasExplicitTuiLaunchCustomization,
+  hasSemanticallyNonEmptyAgentArgs
+} from '../../../shared/tui-agent-launch-customization'
 
 export type AgentLaunchRoute = 'structured-native-chat' | 'legacy-native-chat' | 'terminal-tui'
 
@@ -36,39 +40,6 @@ export type AgentLaunchRoutingInput = {
   initialSessionOptions?: Readonly<Record<string, unknown>>
 }
 
-export function hasExplicitTuiLaunchCustomization(
-  settings:
-    | Pick<GlobalSettings, 'agentCmdOverrides' | 'agentDefaultArgs' | 'agentDefaultEnv'>
-    | null
-    | undefined,
-  agent: TuiAgent
-): boolean {
-  const configuredArgs = settings?.agentDefaultArgs?.[agent]
-  const configuredEnv = settings?.agentDefaultEnv?.[agent]
-  const defaultEnv = getTuiAgentDefaultEnv(agent)
-  const envIsCustomized =
-    configuredEnv !== undefined &&
-    (Object.keys(configuredEnv).length !== Object.keys(defaultEnv).length ||
-      Object.entries(configuredEnv).some(([key, value]) => defaultEnv[key] !== value))
-  return (
-    Boolean(settings?.agentCmdOverrides?.[agent]?.trim()) ||
-    hasExplicitTuiAgentArgs(agent, configuredArgs) ||
-    envIsCustomized
-  )
-}
-
-export function hasSemanticallyNonEmptyAgentArgs(value: string | null | undefined): boolean {
-  return Boolean(value?.trim())
-}
-
-export function hasExplicitTuiAgentArgs(
-  agent: TuiAgent,
-  value: string | null | undefined
-): boolean {
-  const trimmed = value?.trim() ?? ''
-  return trimmed.length > 0 && trimmed !== getTuiAgentDefaultArgs(agent).trim()
-}
-
 export function resolveAgentLaunchRoute(input: AgentLaunchRoutingInput): AgentLaunchRoute {
   const initialViewMode = decideInitialAgentTabViewMode({
     experimentalNativeChat: input.settings?.experimentalNativeChat,
@@ -81,24 +52,18 @@ export function resolveAgentLaunchRoute(input: AgentLaunchRoutingInput): AgentLa
   if (initialViewMode !== 'chat') {
     return 'terminal-tui'
   }
-  if (input.settings?.experimentalStructuredNativeChat !== true) {
+  if (!prefersStructuredNativeChatByDefault(input.settings)) {
     return 'legacy-native-chat'
   }
-
-  const projectRuntime = input.projectRuntime
-  const runtimeRefused =
-    projectRuntime?.status === 'repair-required' || projectRuntime?.runtime.kind === 'wsl'
-  const structuredSupported =
-    isAgentSessionHandleProvider(input.agent) &&
-    input.promptDelivery !== 'draft' &&
-    input.workspaceKind !== 'floating' &&
-    input.requiresTuiLaunchCustomization !== true &&
-    input.executionHostId === 'local' &&
-    // Windows eligibility is not a client-side platform guess for either provider: the executing
-    // host measures it at create time (agentSession.createSupport), because only that host knows
-    // whether it can read a provider child's process start time.
-    !runtimeRefused &&
-    input.hostCapabilities.includes(STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)
-
-  return structuredSupported ? 'structured-native-chat' : 'legacy-native-chat'
+  return resolveStructuredNativeChatSupport({
+    agent: input.agent,
+    executionHostId: input.executionHostId,
+    hostCapabilities: input.hostCapabilities,
+    workspaceKind: input.workspaceKind,
+    projectRuntime: input.projectRuntime,
+    isDraftPrompt: input.promptDelivery === 'draft',
+    requiresTuiLaunchCustomization: input.requiresTuiLaunchCustomization
+  }).supported
+    ? 'structured-native-chat'
+    : 'legacy-native-chat'
 }
