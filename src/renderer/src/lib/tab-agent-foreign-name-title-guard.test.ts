@@ -165,6 +165,30 @@ describe.each(RESOLVERS)('%s: a foreign name in task text is a mention', (_name,
     }
   })
 
+  // The four routes `getAgentLabel` mints identity from that a predicate built on the evidence
+  // parser alone cannot see. Each is the agent naming itself, so each must still take the pane.
+  it.each([
+    ['pi native', '\u03c0 > session - ~/orca', 'pi'],
+    ['pi native, blocked', '\u03c0 ! blocked-session', 'pi'],
+    ['name plus status', 'codex working', 'codex'],
+    ['name plus status, spinner', '\u2838 aider running', 'aider'],
+    ['name plus status, grok', 'grok done', 'grok'],
+    ['em-dash frame', '\u2849 Codex \u2014 refactoring', 'codex'],
+    ['pipe-headed', 'ssh host | opencode ready', 'opencode'],
+    ['windows launcher', 'aider.ps1 ready', 'aider'],
+    ['windows launcher, action', 'copilot.exe - action required', 'copilot']
+  ])('reclaims a foreign-owned pane for a %s title', (_label, title, expected) => {
+    expect(
+      resolve({
+        hasObservedAgentSignal: true,
+        isRemote: false,
+        title,
+        hookAgent: null,
+        launchAgent: 'claude'
+      })
+    ).toBe(expected)
+  })
+
   it('keeps an OpenCode pane OpenCode when its task text mentions Claude (#8940)', () => {
     for (const title of [
       'OC | ⠋ ask claude about this',

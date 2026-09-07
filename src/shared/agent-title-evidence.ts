@@ -13,6 +13,7 @@ import {
 import {
   DISPLAY_LABELS,
   agentForBareName,
+  agentForIdentityFrame,
   agentForWholeTitle,
   namesIn,
   stripBareNameDecoration
@@ -269,8 +270,7 @@ export function collectAgentTitleEvidence(title: string): AgentTitleEvidence {
 
 /**
  * Every agent a title PRESENTS, as opposed to merely mentions. Memoized as a set rather than
- * per-agent: both tab-strip resolvers ask this per pane on every render, and the positional scan
- * below runs the name matchers over each wrapper segment.
+ * per-agent: both tab-strip resolvers ask this per pane on every render.
  */
 const titlePresentedAgents = memoizeTitleClassification((title: string): ReadonlySet<TuiAgent> => {
   const evidence = collectAgentTitleEvidence(title)
@@ -280,23 +280,16 @@ const titlePresentedAgents = memoizeTitleClassification((title: string): Readonl
     // Why Claude's marker is excluded and Gemini's and Cursor's are not: a vendor marker is
     // unforgeable only when it is the agent's OWN sigil. Claude's status decorations are generic —
     // OpenCode emits '. ' and '* ' too (#8940) — so they prove activity, not identity. A title
-    // that really does present Claude carries an identity frame, which is already anchored above.
+    // that really does present Claude carries an identity frame, which the grammar below matches.
     if (marker !== 'claude' || !hasGenericClaudeStatusPrefix(title)) {
       presented.add(marker)
     }
   }
 
   for (const segment of getEvidenceTitleSegments(title)) {
-    // A name in the identity position: the whole undecorated remainder, or the head of a `Name:`
-    // frame. The colon is what separates `Codex: fix cursor offsets` from `Claude Code compare
-    // Opencode`, one sentence that happens to open with a name.
-    const undecorated = stripLeadingAgentTitleDecorationOrEmpty(segment).trim()
-    const frameEnd = undecorated.indexOf(':')
-    const positional =
-      agentForBareName(undecorated) ??
-      (frameEnd > 0 ? agentForBareName(undecorated.slice(0, frameEnd)) : null)
-    if (positional) {
-      presented.add(positional)
+    const framed = agentForIdentityFrame(segment)
+    if (framed) {
+      presented.add(framed)
     }
   }
 
@@ -308,17 +301,23 @@ const titlePresentedAgents = memoizeTitleClassification((title: string): Readonl
  * is the gate a title must pass before it may take a pane away from a known owner (#8940) — for
  * every agent, not only Claude.
  *
- * This is NOT collectAgentTitleEvidence with a different signature; the two answer different
- * questions and diverge in BOTH directions, each pinned by test:
+ * This is NOT collectAgentTitleEvidence with a different signature. The parser answers "who does
+ * this title name, given no owner"; this answers "may this title take a pane". The second needs
+ * to know WHERE the name sits, which the first discards — `getAgentLabel` mints identity from
+ * `titleHasAgentName`, which asks only whether a name occurs anywhere, so one route there covers
+ * both `codex working` and `⠋ Fix the codex plugin launcher`. The two models therefore differ on
+ * purpose, in both directions, each pinned by test:
  *
- *   more permissive — the parser asks who a title names given no owner, so it must refuse any name
- *   an ordinary sentence could forge. Here the agent is supplied rather than inferred, so a name in
- *   the identity POSITION is enough. That admits `⠋ Codex`, which the parser files as
- *   `free-text-only` because codex sets `synthesizeWorkingTitle: false` in synthetic-agent-title.ts.
+ *   more permissive — a name in an identity POSITION is enough here, which admits `⠋ Codex`; the
+ *   parser files that as `free-text-only` because codex sets `synthesizeWorkingTitle: false`.
  *
  *   less permissive — the parser resolves a lone vendor marker to its agent, including Claude's
- *   generic status decorations. Those are not identity here, or a `. `-prefixed OpenCode task title
- *   would reclaim the pane it was #8940's whole point to protect.
+ *   generic status decorations. Those are not identity here, or a `. `-prefixed OpenCode task
+ *   title would reclaim the pane #8940 exists to protect.
+ *
+ * Because they differ, agreement cannot be enforced by sharing code. It is enforced instead by
+ * the corpus ratchet in terminal-title-pane-claim-corpus.test.ts, which fails the moment a route
+ * `getAgentLabel` mints identity from stops being claimable here.
  */
 export function titlePresentsAgent(title: string, agent: TuiAgent): boolean {
   return titlePresentedAgents(title).has(agent)
