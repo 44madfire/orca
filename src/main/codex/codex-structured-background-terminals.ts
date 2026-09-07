@@ -201,6 +201,7 @@ export function createCodexBackgroundTerminalChannel(deps: {
   const publish = (sessionId: string, session: CodexSession): void => {
     const state = session.backgroundTerminals.state
     if (
+      session.ended ||
       deps.sessions.get(sessionId) !== session ||
       statesEqual(published.get(session) ?? null, state)
     ) {

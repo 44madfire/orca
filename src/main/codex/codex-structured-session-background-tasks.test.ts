@@ -210,25 +210,32 @@ describe('CodexStructuredSessionAdapter background terminals', () => {
       expect(codex.connections[0].calls.filter((call) => call.method === LIST)).toHaveLength(1)
     })
 
-    it('reports an unconfirmed stop when the host refuses to clean', async () => {
-      const codex = fakeCodex()
-      codex.routes[CLEAN] = refuse(CLEAN)
-      const { adapter, published } = await acquired(codex)
-      completeTurn(codex)
-      await settle()
+    it.each([CLEAN, TERMINATE])(
+      'publishes capability loss when %s is unsupported',
+      async (method) => {
+        const codex = fakeCodex()
+        codex.routes[method] = refuse(method)
+        const { adapter, published } = await acquired(codex)
+        completeTurn(codex)
+        await settle()
 
-      expect(published).toHaveLength(1)
-      expect(published[0]?.state).toBe('monitoring')
-      await expect(
-        adapter.stopBackgroundTasks?.({ sessionId: 'session-1', fence: 7 })
-      ).resolves.toEqual({ cancelled: false })
-      expect(adapter.backgroundTaskState?.('session-1')).toBeNull()
-      expect(published).toHaveLength(2)
-      expect(published.at(-1)).toBeNull()
-      completeTurn(codex)
-      await settle()
-      expect(published).toHaveLength(2)
-    })
+        expect(published).toHaveLength(1)
+        expect(published[0]?.state).toBe('monitoring')
+        await expect(
+          adapter.stopBackgroundTasks?.({
+            sessionId: 'session-1',
+            fence: 7,
+            ...(method === TERMINATE ? { taskId: 'proc-1' } : {})
+          })
+        ).resolves.toEqual({ cancelled: false })
+        expect(adapter.backgroundTaskState?.('session-1')).toBeNull()
+        expect(published).toHaveLength(2)
+        expect(published.at(-1)).toBeNull()
+        completeTurn(codex)
+        await settle()
+        expect(published).toHaveLength(2)
+      }
+    )
   })
 
   it('does not revive a disabled capability from an in-flight list', async () => {
@@ -257,6 +264,28 @@ describe('CodexStructuredSessionAdapter background terminals', () => {
     completeTurn(codex)
     await settle()
     expect(codex.connections[0].calls).toHaveLength(calls)
+  })
+
+  it('does not publish a delayed stop from a replaced session', async () => {
+    const codex = fakeCodex()
+    const { adapter, published } = await acquired(codex)
+    completeTurn(codex)
+    await settle()
+    let rejectStop!: (error: Error) => void
+    codex.routes[CLEAN] = () =>
+      new Promise((_resolve, reject) => {
+        rejectStop = reject
+      })
+    const stopping = adapter.stopBackgroundTasks({ sessionId: 'session-1', fence: 7 })
+    await settle()
+    await adapter.closeSession('session-1')
+    await adapter.acquire({ identity: identity(), fence: 8, spawnToken: 'spawn-10' })
+    const delivered = published.length
+    rejectStop(new CodexAppServerUnsupportedError('method not found'))
+    await stopping
+    await settle()
+    expect(published).toHaveLength(delivered)
+    expect(adapter.backgroundTaskState('session-1')).toBeNull()
   })
 
   it('refuses a stop aimed at a superseded child', async () => {
