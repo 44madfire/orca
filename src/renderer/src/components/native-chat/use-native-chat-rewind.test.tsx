@@ -261,6 +261,7 @@ describe('structured chat rewind', () => {
     if (rewindReason === 'outcome-unknown') {
       expect(view.result.current.error).toContain('may have completed')
       expect(view.result.current.error).toContain('Sending is blocked')
+      expect(view.result.current.error).toContain('until the outcome is resolved')
       expect(view.result.current.error).not.toContain('failed')
       expect(view.result.current.pending).toBe(true)
     }

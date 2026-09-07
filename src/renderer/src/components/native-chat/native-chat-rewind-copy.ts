@@ -45,7 +45,7 @@ const reasonCopy = {
   'outcome-unknown': () =>
     translate(
       'components.native-chat.rewind.outcomeUnknown',
-      'The rewind may have completed, but Orca could not confirm it. Sending is blocked until the session is reloaded or the outcome is resolved.'
+      'The rewind may have completed, but Orca could not confirm it. Sending is blocked until the outcome is resolved.'
     )
 } satisfies Record<AgentSessionRewindReason, () => string>
 

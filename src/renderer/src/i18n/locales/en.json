@@ -17158,7 +17158,7 @@
         "historyLimit": "This conversation is too large to rewind safely. Nothing was changed.",
         "providerRefused": "The agent refused to rewind this conversation.",
         "proofMismatch": "Orca could not verify the conversation boundary. Reload the session before trying again.",
-        "outcomeUnknown": "The rewind may have completed, but Orca could not confirm it. Sending is blocked until the session is reloaded or the outcome is resolved.",
+        "outcomeUnknown": "The rewind may have completed, but Orca could not confirm it. Sending is blocked until the outcome is resolved.",
         "refused": "Orca could not rewind this conversation. Reload the session to check its current state.",
         "unavailable": "Reconnect to a writable chat session before rewinding.",
         "pending": "Rewind is in progress. Wait for the conversation to reload.",
