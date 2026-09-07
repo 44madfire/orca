@@ -14,9 +14,13 @@ import {
 beforeEach(resetWebSessionTabsSyncTestState)
 
 describe('clear pane identity', () => {
-  it.each(['agent-session', 'terminal'] as const)(
-    'replaces a %s pane in its existing local position',
-    (contentType) => {
+  it.each(
+    (['agent-session', 'terminal'] as const).flatMap((contentType) =>
+      (['absent', 'before', 'after'] as const).map((history) => ({ contentType, history }))
+    )
+  )(
+    'replaces a $contentType pane with reopened history $history the replacement',
+    ({ contentType, history }) => {
       const state = makeState({
         unifiedTabsByWorktree: {
           [WT]: [
@@ -83,13 +87,30 @@ describe('clear pane identity', () => {
         ],
         { activeTabId: 'agent-session:new-session', activeTabType: 'agent-session' }
       )
+      if (history !== 'absent') {
+        const oldTab = {
+          type: 'agent-session' as const,
+          id: 'agent-session:old-session',
+          sessionId: 'old-session',
+          agent: 'codex' as const,
+          title: 'History',
+          isActive: false
+        }
+        if (history === 'before') {
+          snapshot.tabs.unshift(oldTab)
+        } else {
+          snapshot.tabs.push(oldTab)
+        }
+      }
       const next = applyWebSessionTabsSnapshot(state, snapshot, ENV, NOW, {
         contentScope: 'agent-session',
         preserveLocalLayout: true,
         terminalPtyMode: 'local'
       })
-      expect(next.unifiedTabsByWorktree?.[WT]).toHaveLength(1)
-      expect(next.unifiedTabsByWorktree?.[WT]?.[0]).toMatchObject({
+      expect(next.unifiedTabsByWorktree?.[WT]).toHaveLength(history === 'absent' ? 1 : 2)
+      expect(
+        next.unifiedTabsByWorktree?.[WT]?.find((tab) => tab.entityId === 'new-session')
+      ).toMatchObject({
         id: 'local-pane',
         entityId: 'new-session',
         contentType: 'agent-session',
@@ -97,10 +118,19 @@ describe('clear pane identity', () => {
         isPinned: true
       })
       expect(next.groupsByWorktree?.[WT]?.[0]).toMatchObject({
-        tabOrder: ['local-pane'],
         activeTabId: 'local-pane'
       })
+      expect(next.groupsByWorktree?.[WT]?.[0]?.tabOrder[0]).toBe('local-pane')
+      expect(next.activeTabIdByWorktree?.[WT] ?? state.activeTabIdByWorktree[WT]).toBe('local-pane')
       expect(next.tabsByWorktree?.[WT] ?? []).toEqual([])
+      const repeated = applyWebSessionTabsSnapshot({ ...state, ...next }, snapshot, ENV, NOW + 1, {
+        contentScope: 'agent-session',
+        preserveLocalLayout: true,
+        terminalPtyMode: 'local'
+      })
+      expect(repeated.unifiedTabsByWorktree?.[WT] ?? next.unifiedTabsByWorktree?.[WT]).toEqual(
+        next.unifiedTabsByWorktree?.[WT]
+      )
     }
   )
   it('gives reopened history its own tab when clear retained its former local ID', () => {
