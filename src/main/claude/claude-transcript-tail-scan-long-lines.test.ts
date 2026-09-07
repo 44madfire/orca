@@ -5,6 +5,7 @@
 // number of reads: a non-terminating scan surfaces as a thrown read cap here
 // rather than as a hung suite.
 
+import type * as NodeFsPromises from 'node:fs/promises'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,7 +19,7 @@ import {
 const harness = vi.hoisted(() => ({ reads: 0, readCap: 4096, opened: 0, closed: 0 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const actual = await importOriginal<typeof NodeFsPromises>()
   return {
     ...actual,
     open: async (path: string, flags: string) => {
