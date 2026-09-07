@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { RpcSuccess } from '../transport/types'
 import { headlessActivationNeedsHostRenderer } from '../worktree/worktree-activation-result'
 import { createInitialSessionAutoCreateState } from './use-initial-session-terminal-autocreate'
@@ -45,6 +45,8 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
     fetchTerminals,
     ensureSessionTabs
   } = scope
+  // Holds the in-flight tab/terminal hydration so the activation effect can wait on it.
+  const hydrationRef = useRef<Promise<void> | null>(null)
   useEffect(() => {
     // Why: Expo reuses this screen across worktrees; reset route state so it can't open stale UI or reject the next snapshot.
     sessionTabActionSheetRequestSeqRef.current += 1
@@ -116,7 +118,7 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
       }
       timers.push(setTimeout(fn, ms))
     }
-    void (async () => {
+    hydrationRef.current = (async () => {
       await ensureSessionTabs().catch(() => null)
       if (disposed) {
         return
@@ -177,26 +179,34 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
         .then((response) => reportActivationOutcome(response.ok ? response : null))
         .catch(() => null)
     } else {
-      addTimer(() => {
-        if (activeHandleRef.current) {
+      // Why: hydration can claim the active handle and consume `created`; arming the recovery
+      // before it settles would let this route send a second activate once `created` clears.
+      void (async () => {
+        await hydrationRef.current
+        if (disposed) {
           return
         }
-        void (async () => {
-          const activationResponse = await client
-            .sendRequest('worktree.activate', {
-              worktree: `id:${worktreeId}`,
-              notifyClients: false,
-              navigation: 'caller'
-            })
-            .catch(() => null)
-          reportActivationOutcome(activationResponse?.ok ? activationResponse : null)
-          if (disposed) {
+        addTimer(() => {
+          if (activeHandleRef.current) {
             return
           }
-          await fetchTerminals({ allowEmptyLoaded: true })
-          addTimer(() => void fetchTerminals({ allowEmptyLoaded: true }), 750)
-        })()
-      }, 1800)
+          void (async () => {
+            const activationResponse = await client
+              .sendRequest('worktree.activate', {
+                worktree: `id:${worktreeId}`,
+                notifyClients: false,
+                navigation: 'caller'
+              })
+              .catch(() => null)
+            reportActivationOutcome(activationResponse?.ok ? activationResponse : null)
+            if (disposed) {
+              return
+            }
+            await fetchTerminals({ allowEmptyLoaded: true })
+            addTimer(() => void fetchTerminals({ allowEmptyLoaded: true }), 750)
+          })()
+        }, 1800)
+      })()
     }
     return () => {
       disposed = true

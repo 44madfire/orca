@@ -414,6 +414,52 @@ describe('HostProtocolGate', () => {
     })
   })
 
+  it('sends one activate when hydration lands after the creation route is consumed', async () => {
+    vi.useFakeTimers()
+    startupScope.created = '1'
+    // Slow hydration is the window the recovery timer must not beat.
+    startupScope.ensureSessionTabs = () => new Promise<void>((resolve) => setTimeout(resolve, 3000))
+    const { activate, client, settle } = clientWithDeferredStatus()
+    hostClient.current = { client: null, state: 'connecting' }
+    renderer = await renderStartupGate()
+    await connectWithPendingStatus(client)
+    await settleVerdict(settle)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    // Hydration landed: a tab claims the active handle and autocreate consumes ?created=1.
+    startupScope.activeHandleRef.current = 'term-1'
+    startupScope.created = undefined
+    await act(async () => {
+      renderer?.update(startupGateElement())
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+
+    expect(activate).toHaveBeenCalledTimes(1)
+  })
+
+  it('never activates when the verdict comes back blocked', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { activate, client, settle } = clientWithDeferredStatus()
+    hostClient.current = { client: null, state: 'connecting' }
+    renderer = await renderStartupGate()
+    await connectWithPendingStatus(client)
+
+    await act(async () => {
+      settle({ protocolVersion: 1, minCompatibleMobileVersion: 0 })
+      await Promise.resolve()
+    })
+
+    const output = renderedText(renderer)
+    expect(output).toContain('Update Orca on your computer')
+    expect(output).not.toContain('StartupProbe')
+    expect(activate).not.toHaveBeenCalled()
+  })
+
   it('skips the created-workspace activate recovery when a terminal is already active', async () => {
     vi.useFakeTimers()
     startupScope.created = '1'
