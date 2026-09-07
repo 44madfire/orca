@@ -50,6 +50,9 @@ export class DirectReturnProbe {
       // candidate dropped between authentication and the swap, or the logical
       // client closed. Nothing above this can handle it, so it is reported here.
       onCutoverFailure: (error: Error) => void
+      // The cutover landed; the bookkeeping after it (credential refresh) failed.
+      // Kept apart from a failed cutover so a field log does not read as a fallback.
+      onBookkeepingError: (error: Error) => void
     }
   ) {}
 
@@ -98,9 +101,9 @@ export class DirectReturnProbe {
     this.activeProbe?.abort()
   }
 
-  private reportCutoverFailure(error: unknown): void {
+  private report(hook: 'onCutoverFailure' | 'onBookkeepingError', error: unknown): void {
     try {
-      this.hooks.onCutoverFailure(error instanceof Error ? error : new Error(String(error)))
+      this.hooks[hook](error instanceof Error ? error : new Error(String(error)))
     } catch {
       // The reporter is diagnostics; it must not turn into the rejection it exists to avoid.
     }
@@ -180,7 +183,7 @@ export class DirectReturnProbe {
           // Why: the streak was already credited above, so without a booked failure the
           // next tick re-dials, promotes on the spot, and fails the same way every 15s.
           this.hooks.hysteresis.recordDirectFailure(this.deps.now())
-          this.reportCutoverFailure(error)
+          this.report('onCutoverFailure', error)
         }
         return
       }
@@ -192,7 +195,7 @@ export class DirectReturnProbe {
         await this.hooks.onDirectMigrated()
       } catch (error) {
         // The cutover already landed; post-migration bookkeeping must not reject the timer promise.
-        this.reportCutoverFailure(error)
+        this.report('onBookkeepingError', error)
       }
     } finally {
       this.activeProbe = null

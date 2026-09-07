@@ -157,7 +157,9 @@ export class MobileEndpointSupervisor {
         }
       },
       onCutoverFailure: (error) =>
-        this.logRelay('direct cutover failed after authentication', error.message.slice(0, 80))
+        this.logRelay('direct cutover failed after authentication', error.message.slice(0, 80)),
+      onBookkeepingError: (error) =>
+        this.logRelay('direct bookkeeping failed after migration', error.message.slice(0, 80))
     })
     this.backgroundGrace = new MobileRelayBackgroundGrace(
       dependencies,

@@ -11,12 +11,14 @@ function fixture(
     migrate?: () => Promise<void>
     adoptsOutright?: () => boolean
     onCutoverFailure?: (error: Error) => void
+    onBookkeepingError?: (error: Error) => void
     onDirectMigrated?: () => Promise<void>
     hysteresis?: MobileEndpointHysteresis
   } = {}
 ) {
   const opened: FakeSession[] = []
   const cutoverFailures: Error[] = []
+  const bookkeepingErrors: Error[] = []
   const probe = new DirectReturnProbe(
     {
       now: Date.now,
@@ -47,10 +49,11 @@ function fixture(
       migrate: overrides.migrate ?? (async () => {}),
       onDirectMigrated: overrides.onDirectMigrated ?? (async () => {}),
       afterProbe: () => {},
-      onCutoverFailure: overrides.onCutoverFailure ?? ((error) => cutoverFailures.push(error))
+      onCutoverFailure: overrides.onCutoverFailure ?? ((error) => cutoverFailures.push(error)),
+      onBookkeepingError: overrides.onBookkeepingError ?? ((error) => bookkeepingErrors.push(error))
     }
   )
-  return { opened, probe, cutoverFailures }
+  return { opened, probe, cutoverFailures, bookkeepingErrors }
 }
 
 beforeEach(() => vi.useFakeTimers())
@@ -215,7 +218,7 @@ it('contains a post-migration bookkeeping failure instead of rejecting the timer
   const unhandled = vi.fn()
   process.on('unhandledRejection', unhandled)
   try {
-    const { opened, probe, cutoverFailures } = fixture({
+    const { opened, probe, cutoverFailures, bookkeepingErrors } = fixture({
       adoptsOutright: () => true,
       onDirectMigrated: async () => {
         throw new Error('credential bookkeeping failed')
@@ -226,7 +229,11 @@ it('contains a post-migration bookkeeping failure instead of rejecting the timer
     opened[0]!.publishState('connected')
     await vi.advanceTimersByTimeAsync(0)
     await vi.advanceTimersByTimeAsync(0)
-    expect(cutoverFailures.map((error) => error.message)).toEqual(['credential bookkeeping failed'])
+    // Reported as bookkeeping, not as a failed cutover: the cutover landed.
+    expect(bookkeepingErrors.map((error) => error.message)).toEqual([
+      'credential bookkeeping failed'
+    ])
+    expect(cutoverFailures).toEqual([])
     expect(unhandled).not.toHaveBeenCalled()
     probe.stop()
   } finally {
