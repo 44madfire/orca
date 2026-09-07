@@ -55,9 +55,22 @@ describe('Windows System Default Codex home ownership', () => {
         CODEX_HOME: 'C:\\custom\\codex-home'
       })
     ).toBe(false)
-    // Pins the asymmetry instead of implying agreement: migration reads no
-    // launchEnv, so a launch-scoped override steers the lane but not migration.
+    // Pins the eligibility PRECHECK, which takes no launchEnv. The migration
+    // launch itself does re-check it and refuses -- see the toBeNull() case in
+    // runtime-home-real-home-lane-routing.test.ts. Only the precheck is blind.
     expect(service.isHostSystemDefaultSessionMigrationEligible()).toBe(true)
+  })
+
+  it('falls back to the mirror on Windows when the trust-grant host is incapable', () => {
+    const service = createWindowsService()
+    // Why Windows specifically: an older codex binary is the likeliest real
+    // fallback here, and the lane is SELECTED before the grant is attempted --
+    // so selection being true while the lane is false is the shipped shape.
+    service.setRealHomeLaneGate(() => false)
+    const launchEnv = { HOME: 'C:\\Users\\profile-only-repro', SHELL: 'powershell.exe' }
+
+    expect(service.isHostSystemDefaultRealHomeSelected(launchEnv)).toBe(true)
+    expect(service.isHostSystemDefaultRealHome(launchEnv)).toBe(false)
   })
 })
 
