@@ -23,6 +23,9 @@ import {
 // v1 blobs hold raw editor-tab ids (absolute paths) and shell-set titles written by older
 // builds, and a load alone never rewrites them. The key change makes the first load drop them.
 const LEGACY_STORAGE_KEYS = ['orca:session-tab-strip:v1']
+// Keys whose removal has not yet succeeded this process. Retried on every load and write so a
+// bridge hiccup on the first launch does not leave the plaintext blob for the process's life.
+const pendingLegacyRemovals = new Set(LEGACY_STORAGE_KEYS)
 const STORAGE_KEY = 'orca:session-tab-strip:v2'
 // A phone realistically revisits a handful of workspaces; the caps bound both the stored blob
 // and the cost of a single write.
@@ -136,6 +139,9 @@ export async function deleteCachedSessionTabStripForHost(hostId: string): Promis
 }
 
 export function resetSessionTabStripCacheForTests(): void {
+  for (const key of LEGACY_STORAGE_KEYS) {
+    pendingLegacyRemovals.add(key)
+  }
   if (writeTimer) {
     clearTimeout(writeTimer)
     writeTimer = null
@@ -187,12 +193,19 @@ async function loadFile(): Promise<Map<string, MobileSessionTabStripPreview>> {
   return loadPromise
 }
 
-async function readStoredFile(): Promise<StoredWorkspace[]> {
-  // Best effort, and not awaited: the plaintext left by an older build must go, but a failed
-  // removal is no reason to withhold the strip this build can draw.
-  for (const key of LEGACY_STORAGE_KEYS) {
-    void AsyncStorage.removeItem(key).catch(() => {})
+// Not awaited: the plaintext left by an older build must go, but a failed removal is no reason
+// to withhold the strip this build can draw. A failure keeps the key queued for the next try.
+function removeLegacyBlobs(): void {
+  for (const key of pendingLegacyRemovals) {
+    void AsyncStorage.removeItem(key).then(
+      () => pendingLegacyRemovals.delete(key),
+      () => {}
+    )
   }
+}
+
+async function readStoredFile(): Promise<StoredWorkspace[]> {
+  removeLegacyBlobs()
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY)
     if (!raw) {
@@ -237,6 +250,7 @@ function enqueueWrite(cache: Map<string, MobileSessionTabStripPreview>): Promise
 }
 
 async function writeFile(cache: Map<string, MobileSessionTabStripPreview>): Promise<void> {
+  removeLegacyBlobs()
   const workspaces: StoredWorkspace[] = [...cache].map(([key, preview]) => ({ key, preview }))
   // Throws on purpose: a deletion that only removed the in-memory rows must not be
   // reported as a deletion, or the forgotten host's titles stay in plaintext on disk.

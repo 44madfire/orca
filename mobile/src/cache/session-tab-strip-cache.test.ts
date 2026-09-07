@@ -275,6 +275,22 @@ describe('session tab strip cache', () => {
     expect(asyncStorage.removeItem).toHaveBeenCalledWith(LEGACY_STORAGE_KEY)
   })
 
+  it('retries a failed legacy removal on the next write, and stops once it lands', async () => {
+    const key = getSessionTabStripCacheKey('host-1', 'wt-1')
+    asyncStorage.removeItem.mockRejectedValueOnce(new Error('bridge down'))
+    await loadCachedSessionTabStrip(key)
+    expect(asyncStorage.removeItem).toHaveBeenCalledTimes(1)
+
+    saveCachedSessionTabStrip(key, preview('tab-1'))
+    await vi.advanceTimersByTimeAsync(300)
+    expect(asyncStorage.removeItem).toHaveBeenCalledTimes(2)
+    expect(asyncStorage.removeItem).toHaveBeenLastCalledWith(LEGACY_STORAGE_KEY)
+
+    saveCachedSessionTabStrip(key, preview('tab-2'))
+    await vi.advanceTimersByTimeAsync(300)
+    expect(asyncStorage.removeItem).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps only a known agent id, since the hook-reported one is free text', async () => {
     const key = getSessionTabStripCacheKey('host-1', 'wt-1')
     saveCachedSessionTabStrip(key, {
