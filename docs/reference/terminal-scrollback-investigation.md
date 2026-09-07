@@ -6,8 +6,8 @@
 
 The setting was not simply too small: several restore paths silently replaced deep
 history with a smaller buffer. The retention fix is
-[PR #19368](https://github.com/stablyai/orca/pull/19368). The stacked memory/settings
-change adds an opt-in 100,000-row preset, fixes two independent 50k request caps and
+[PR #19368](https://github.com/stablyai/orca/pull/19368). The stacked [memory/settings PR #19383](https://github.com/stablyai/orca/pull/19383)
+adds an opt-in 100,000-row preset, fixes two independent 50k request caps and
 the runtime mirror preference, bounds concurrent reconstruction grids, and compacts
 repeated trailing cells in browser xterm. The default stays 5,000 rows and the minimum
 stays 1,000; existing legacy settings retain their previous migration values.
@@ -142,7 +142,8 @@ grid can use fewer cell bytes than the old 50k grid, but a 100k dense grid canno
 - Node/web typechecks and changed-code quality passed. The E2E build passed. All four
   hidden Electron checks passed: 100k settings/75k-row restore, two wrapped-table
   cases, and real emoji tables. A subsequent 100k run also verified search/selection
-  of the first retained row. Settings were exercised in light/dark mode at 760px.
+  of the first retained row. Settings were exercised in light/dark mode at 760px; the existing settings layout
+  requires horizontal scrolling at that width.
 - Folder history is covered by real-file tests using an ordinary temporary directory,
   with no Git repository. The rendered workspace-switch test uses git worktrees;
   it is not a folder-workspace UI end-to-end claim.
