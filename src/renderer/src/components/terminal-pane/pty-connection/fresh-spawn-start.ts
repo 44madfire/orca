@@ -321,12 +321,16 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
       })
     session.armDirectSshPaneRetryTimeout(trackedPromise, session.directSshRetryAttempt)
     observeSpawnSettlement(session, trackedPromise, {
-      // Why the transport options too: spawnIpcPty falls back to them for
-      // `resumeProviderSession`, so a pane whose startup carries a provider
-      // session (sidebar resume of a sleeping agent) re-issues --resume on
-      // EVERY fresh spawn — with no cold-restore override to mark it.
+      // Why all three: spawnIpcPty falls back to the transport options for
+      // `resumeProviderSession`, so a pane whose startup carries a provider session
+      // (sidebar resume of a sleeping agent) re-issues --resume on EVERY fresh spawn
+      // with no cold-restore override to mark it; and a vault resume for an agent
+      // Orca has no session model for carries the resume in the command alone, so
+      // only the producer's own flag identifies it.
       resumesProviderSession: Boolean(
-        coldRestoreOverride ?? session.transportOptions?.resumeProviderSession
+        coldRestoreOverride ??
+        session.paneStartup?.resumesAgentSession ??
+        session.transportOptions?.resumeProviderSession
       )
     })
     // Why: split panes in the same tab can spawn concurrently. Key by pane

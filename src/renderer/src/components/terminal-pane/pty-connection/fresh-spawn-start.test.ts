@@ -68,6 +68,17 @@ describe('bindStartFreshSpawn resume classification', () => {
     expect(resumesProviderSessionForSpawn(session)).toBe(true)
   })
 
+  // An AI-vault resume for an agent Orca has no provider-session model for emits
+  // `<agent> --resume <id>` as the command and carries NO resumeProviderSession, so
+  // only the producer's flag distinguishes it from a first launch.
+  it('treats a producer-flagged resume with no provider session as a resume spawn', () => {
+    const session = buildSession({
+      paneStartup: { command: 'hermes --resume abc123', resumesAgentSession: true }
+    })
+
+    expect(resumesProviderSessionForSpawn(session)).toBe(true)
+  })
+
   it('treats a plain spawn as a non-resume spawn', () => {
     expect(resumesProviderSessionForSpawn(buildSession())).toBe(false)
   })
