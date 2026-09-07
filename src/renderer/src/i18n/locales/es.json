@@ -14205,7 +14205,7 @@
             "done": "Completado",
             "idle": "Inactivo",
             "unverifiable": "Sin actualizaciones recientes",
-            "permission": "Se necesita permiso"
+            "permission": "Requiere atención"
           }
         },
         "ActivityScopeFilterControls": {

@@ -16229,7 +16229,7 @@
             "done": "Done",
             "idle": "Idle",
             "unverifiable": "No recent update",
-            "permission": "Needs permission"
+            "permission": "Needs attention"
           }
         },
         "clearCompleted": {

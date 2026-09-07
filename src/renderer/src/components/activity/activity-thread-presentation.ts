@@ -145,7 +145,7 @@ export function threadAgentStateLabel(thread: AgentPaneThread): string {
     case 'permission':
       return translate(
         'auto.components.activity.ActivityPrototypePage.state.permission',
-        'Needs permission'
+        'Needs attention'
       )
   }
 }
