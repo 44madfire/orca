@@ -1,3 +1,4 @@
+import type { MobileWebTerminalMetadataAction } from '../../../src/mobile-web/src/mobile-web-host-terminal-actions'
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
 import {
   MobileWebTerminalEventState,
@@ -11,7 +12,7 @@ import type {
 } from './host-session-terminal-operations'
 
 type WebTerminalStream = {
-  scheduler: MobileWebTerminalRequestScheduler
+  scheduler: MobileWebTerminalRequestScheduler | null
   unsubscribe: () => void
 }
 
@@ -22,44 +23,71 @@ export function webHostSessionTerminalOperations(
   return {
     subscribe(args, onEvent, onError) {
       streams.get(args.terminalId)?.unsubscribe()
-      let eventState: MobileWebTerminalEventState
-      let scheduler: MobileWebTerminalRequestScheduler
-      const subscription = client.terminalSubscribe(
-        {
-          operation: 'subscribe',
-          workspaceId: args.workspaceId,
-          tabId: args.terminalId,
-          viewport: args.viewport ?? { cols: 80, rows: 24 },
-          visible: args.visible,
-          ...(args.capabilities.mobileInputLeaseOnly === 1 ? { leaseOnly: true as const } : {})
-        },
-        (event) => {
-          const effect = eventState.apply(event)
-          applyWebTerminalEffect(effect, scheduler, onEvent)
-        },
-        onError
-      )
-      eventState = new MobileWebTerminalEventState(subscription.streamId)
-      scheduler = new MobileWebTerminalRequestScheduler(client, subscription.streamId, onError)
+      const controller = new AbortController()
+      let unsubscribe = (): void => {}
       const stream: WebTerminalStream = {
-        scheduler,
+        scheduler: null,
         unsubscribe: () => {
           if (streams.get(args.terminalId) === stream) {
             streams.delete(args.terminalId)
           }
-          scheduler.dispose()
-          subscription.unsubscribe()
+          controller.abort()
+          stream.scheduler?.dispose()
+          unsubscribe()
         }
       }
       streams.set(args.terminalId, stream)
-      void subscription.ready.then(
-        () => scheduler.markBridgeReady(),
-        () => onError()
+      const start = (metadataAction: MobileWebTerminalMetadataAction | null) => {
+        if (controller.signal.aborted) {
+          return
+        }
+        let eventState: MobileWebTerminalEventState
+        let scheduler: MobileWebTerminalRequestScheduler
+        const subscription = client.terminalSubscribe(
+          {
+            operation: 'subscribe',
+            workspaceId: args.workspaceId,
+            tabId: args.terminalId,
+            viewport: args.viewport ?? { cols: 80, rows: 24 },
+            visible: args.visible,
+            ...(args.capabilities.mobileInputLeaseOnly === 1 ? { leaseOnly: true as const } : {})
+          },
+          (event) => applyWebTerminalEffect(eventState.apply(event), scheduler, onEvent),
+          onError
+        )
+        eventState = new MobileWebTerminalEventState(subscription.streamId)
+        scheduler = new MobileWebTerminalRequestScheduler(
+          client,
+          subscription.streamId,
+          onError,
+          metadataAction ?? undefined
+        )
+        stream.scheduler = scheduler
+        unsubscribe = subscription.unsubscribe
+        void subscription.ready.then(
+          () => scheduler.markBridgeReady(),
+          () => onError()
+        )
+      }
+      // Bind before opening the stream so later actions cannot target a replacement terminal.
+      const prepared = client.prepareTerminalActions?.(
+        args.workspaceId,
+        args.terminalId,
+        controller.signal
       )
+      if (prepared) {
+        void prepared.then(start).catch(() => {
+          if (!controller.signal.aborted) {
+            onError()
+          }
+        })
+      } else {
+        start(null)
+      }
       return stream.unsubscribe
     },
     acknowledge(terminalId, throughSequence) {
-      streams.get(terminalId)?.scheduler.acknowledge(throughSequence)
+      streams.get(terminalId)?.scheduler?.acknowledge(throughSequence)
     },
     async sendInput(terminalId, text, enter) {
       const scheduler = streams.get(terminalId)?.scheduler
@@ -83,22 +111,22 @@ export function webHostSessionTerminalOperations(
     },
     setDisplayMode(terminalId, mode, viewport) {
       return (
-        streams.get(terminalId)?.scheduler.setDisplayMode(mode, viewport) ?? Promise.resolve(false)
+        streams.get(terminalId)?.scheduler?.setDisplayMode(mode, viewport) ?? Promise.resolve(false)
       )
     },
     clear(terminalId) {
-      return streams.get(terminalId)?.scheduler.clear() ?? Promise.resolve(false)
+      return streams.get(terminalId)?.scheduler?.clear() ?? Promise.resolve(false)
     },
     rename(terminalId, title) {
-      return streams.get(terminalId)?.scheduler.rename(title) ?? Promise.resolve(false)
+      return streams.get(terminalId)?.scheduler?.rename(title) ?? Promise.resolve(false)
     },
     pasteClipboard(terminalId, bracketedPaste) {
       return (
-        streams.get(terminalId)?.scheduler.pasteClipboard(bracketedPaste) ?? Promise.resolve(null)
+        streams.get(terminalId)?.scheduler?.pasteClipboard(bracketedPaste) ?? Promise.resolve(null)
       )
     },
     attachImage(terminalId, source) {
-      return streams.get(terminalId)?.scheduler.attachImage(source) ?? Promise.resolve(null)
+      return streams.get(terminalId)?.scheduler?.attachImage(source) ?? Promise.resolve(null)
     }
   }
 }

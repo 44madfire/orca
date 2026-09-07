@@ -53,7 +53,7 @@ import type { MobileWebSourceControlReviewRequestClient } from './mobile-web-sou
 import { MobileWebSourceControlSyncRequestClient } from './mobile-web-source-control-sync-request-client'
 import { MobileWebSpeechRequestClient } from './mobile-web-speech-request-client'
 import { MobileWebTaskRequestClient } from './mobile-web-task-request-client'
-import { MobileWebTerminalRequestClient } from './mobile-web-terminal-request-client'
+import * as terminal from './mobile-web-terminal-request-client'
 import { mobileWebWorkspaceClientBindings } from './mobile-web-workspace-client-bindings'
 import { MobileWebWorkspaceRequestClient } from './mobile-web-workspace-request-client'
 import { MobileWebWorkspaceCreationCreateRequestClient } from './mobile-web-workspace-creation-create-request-client'
@@ -146,8 +146,9 @@ export class MobileWebBridgeClient {
   readonly agentHistory: MobileWebAgentHistoryRequestClient
   readonly speech: MobileWebSpeechRequestClient
   readonly task: MobileWebTaskRequestClient
-  readonly terminalRequest!: MobileWebTerminalRequestClient['request']
-  readonly terminalDeviceInputRequest!: MobileWebTerminalRequestClient['deviceInput']
+  readonly prepareTerminalActions!: terminal.MobileWebTerminalRequestClient['prepareActions']
+  readonly terminalRequest!: terminal.MobileWebTerminalRequestClient['request']
+  readonly terminalDeviceInputRequest!: terminal.MobileWebTerminalRequestClient['deviceInput']
   readonly browserNavigate!: MobileWebBrowserRequestClient['navigate']
   readonly browserPointer!: MobileWebBrowserRequestClient['pointer']
   readonly browserKeyboard!: MobileWebBrowserRequestClient['keyboard']
@@ -208,9 +209,7 @@ export class MobileWebBridgeClient {
     )
     this.native = new MobileWebNativeRequestClient(this.requests)
     this.markdown = new MobileWebMarkdownRequestClient(this.requests)
-    const terminalRequests = new MobileWebTerminalRequestClient(this.requests)
-    this.terminalRequest = terminalRequests.request.bind(terminalRequests)
-    this.terminalDeviceInputRequest = terminalRequests.deviceInput.bind(terminalRequests)
+    Object.assign(this, terminal.mobileWebTerminalClientBindings(this.requests, this.shellFeatures))
     Object.assign(this, mobileWebBrowserNavigationClientBindings(this.requests))
     this.subscriptions = new MobileWebBridgeSubscriptionClient({
       getGrant: (capability, operation = 'subscribe') =>

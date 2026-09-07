@@ -13,6 +13,8 @@ const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
     'files.readChunk',
     'mobileWeb.files.searchPaths',
     'mobileWeb.files.read',
+    'mobileWeb.terminal.bind',
+    'mobileWeb.terminal.action',
     'mobileWeb.nativeChat.bind',
     'mobileWeb.nativeChat.read',
     'mobileWeb.nativeChat.mutate'
@@ -21,7 +23,9 @@ const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
     {
       method,
       workspaceParam: 'worktree',
-      ...(method.startsWith('mobileWeb.nativeChat.') ? { pageSessionParam: 'pageSession' } : {}),
+      ...(method.startsWith('mobileWeb.nativeChat.') || method.startsWith('mobileWeb.terminal.')
+        ? { pageSessionParam: 'pageSession' }
+        : {}),
       maxRequestBytes: method === 'mobileWeb.nativeChat.mutate' ? 600 * 1024 : 16 * 1024,
       maxResponseBytes: 512 * 1024
     }

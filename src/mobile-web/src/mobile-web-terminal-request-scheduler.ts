@@ -1,4 +1,8 @@
 import type {
+  MobileWebTerminalMetadataAction,
+  MobileWebTerminalMetadataRequest
+} from './mobile-web-host-terminal-actions'
+import type {
   MobileWebTerminalDeviceInputResult,
   MobileWebTerminalRequest
 } from '../../shared/mobile-web/terminal-stream-contract'
@@ -33,7 +37,8 @@ export class MobileWebTerminalRequestScheduler {
   constructor(
     private readonly client: MobileWebBridgeClient,
     private readonly streamId: string,
-    private readonly onError: () => void
+    private readonly onError: () => void,
+    private readonly metadataAction?: MobileWebTerminalMetadataAction
   ) {}
 
   markBridgeReady(): void {
@@ -239,12 +244,12 @@ export class MobileWebTerminalRequestScheduler {
     return this.client.terminalRequest(payload)
   }
 
-  private async runAction(payload: OrdinaryTerminalRequest): Promise<boolean> {
+  private async runAction(payload: MobileWebTerminalMetadataRequest): Promise<boolean> {
     if (this.disposed || !this.bridgeReady) {
       return false
     }
     try {
-      await this.request(payload)
+      await (this.metadataAction ? this.metadataAction(payload) : this.request(payload))
       return true
     } catch {
       this.reportError()
