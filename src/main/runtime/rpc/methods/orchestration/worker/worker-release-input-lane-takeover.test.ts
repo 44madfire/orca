@@ -172,17 +172,42 @@ describe('settled worker terminal: who counts as a user takeover', () => {
     expect(await release(worker.dispatchId)).toMatchObject({ state: 'released' })
   })
 
-  it('takes the write lock once, not once per keystroke', async () => {
+  // owned -> user_owned is one-way per resource, so the database dedupes: later keystrokes match no
+  // row, and the fence sweep each takeover pays for runs once rather than once per keystroke.
+  it('settles into a single takeover however many keystrokes arrive', async () => {
     const worker = await harness.startSettledWorker()
     stubAcceptedWrite()
-    const marked = vi.spyOn(harness.db, 'markWorkerTerminalUserOwned')
+    const swept = vi.spyOn(harness.runtime, 'prepareLegacyWorkerTerminalRecovery')
 
     await callSend({ terminal: 'term_worker', text: 'l', client: MOBILE_CLIENT })
     await callSend({ terminal: 'term_worker', text: 's', client: MOBILE_CLIENT })
     await callSend({ terminal: 'term_worker', text: '\r', client: MOBILE_CLIENT })
 
-    expect(marked).toHaveBeenCalledTimes(1)
-    expect(ownership(worker.dispatchId)).toBe('user_owned')
+    expect(swept).toHaveBeenCalledTimes(1)
+    expect(harness.db.getWorkerTerminalResourceByOwner(worker.dispatchId)).toMatchObject({
+      ownership_state: 'user_owned',
+      retained_reason: 'user_takeover'
+    })
+  })
+
+  // A pane outlives the worker that borrowed it, so a takeover is scoped to the dispatch that owns
+  // it now — never to the pane, and never to the answer an earlier dispatch produced.
+  it('fences the worker that owns the pane now, not the one that just left it', async () => {
+    const first = await harness.startSettledWorker()
+    expect(await release(first.dispatchId)).toMatchObject({ state: 'released' })
+
+    const second = await harness.startSettledWorker()
+    expect(second.dispatchId).not.toBe(first.dispatchId)
+    stubAcceptedWrite()
+    await callSend({ terminal: 'term_worker', text: 'ls\r', client: MOBILE_CLIENT })
+
+    expect(ownership(first.dispatchId)).toBe('released')
+    expect(ownership(second.dispatchId)).toBe('user_owned')
+    expect(await release(second.dispatchId)).toMatchObject({
+      state: 'retained',
+      reason: 'user_takeover'
+    })
+    expect(harness.runtime.closeTerminal).toHaveBeenCalledTimes(1)
   })
 
   // The pane had no owned resource yet when the first keystroke landed. Nothing about that answer

@@ -21,7 +21,7 @@ export function recordWorkerTerminalUserTakeover(
   const changed = runtime.getOrchestrationDb().markWorkerTerminalUserOwned(paneKey)
   if (changed > 0) {
     // Only a real takeover retires the resource; ordinary panes report here too and must not
-    // pay for a plan read on every keystroke window.
+    // pay for a plan read on every keystroke.
     sweepSettledWorkerResumeFences(runtime)
   }
   return changed
@@ -34,22 +34,19 @@ export function recordWorkerTerminalUserTakeover(
  * `terminal send` reaches the same method and must never fence a release. Never throws: a terminal
  * the orchestration database cannot answer for is still a terminal the user is typing into.
  *
- * Keystrokes arrive one at a time, so the database is asked whether this pane has anything left to
- * fence before the write lock is taken. Remembering that answer instead would be unsound: the pane
- * can enter a new ownership population at any moment — a worker whose authority attaches while the
- * user is already typing — and a remembered "nothing to fence" would then outlive its precondition
- * and let the release close the terminal under them.
+ * Every keystroke attempts the transition and the database decides, because owned → user_owned is
+ * one-way and per resource: the second attempt matches no row, and the pane can join a new
+ * ownership population at any moment — a worker whose authority attaches while the user is already
+ * typing. Anything remembering an earlier answer would outlive its precondition and let the release
+ * close the terminal under them. The attempt costs about 0.1 ms against a live orchestration
+ * database, so nothing is worth trading correctness for.
  */
 export function recordWorkerTerminalUserTakeoverFromInput(
   runtime: OrcaRuntimeService,
   handle: string
 ): void {
   try {
-    const paneKey = runtime.getTerminalPaneKey(handle)
-    if (!paneKey || !runtime.getOrchestrationDb().hasWorkerTerminalUserTakeoverCandidate(paneKey)) {
-      return
-    }
-    recordWorkerTerminalUserTakeover(runtime, paneKey)
+    recordWorkerTerminalUserTakeover(runtime, runtime.getTerminalPaneKey(handle))
   } catch (error) {
     console.warn('[orchestration] worker terminal takeover record failed', error)
   }
