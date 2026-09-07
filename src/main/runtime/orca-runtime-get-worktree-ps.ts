@@ -233,6 +233,9 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
     workspaceId: string
     sessionId: string
     conversationName: string | null
+    /** False for a background republish, which must store the name without
+     *  pushing a full tab list at every live subscriber. */
+    notify?: boolean
   }): void {
     const existing = this.mobileSessionTabsByWorktree.get(input.workspaceId)
     const id = `agent-session:${input.sessionId}`
@@ -249,8 +252,13 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
       snapshotVersion: existing.snapshotVersion + 1,
       tabs: existing.tabs.map((tab) => (tab.id === id ? { ...tab, title } : tab))
     }
-    this.storeMobileSessionSnapshot(input.workspaceId, snapshot)
-    this.emitMobileSessionTabsSnapshot(snapshot)
+    // Emit what was STORED, not the local candidate: the store may hand back a
+    // different object, and a client mirror would then hold a replaced tab under
+    // an identical snapshotVersion. Matches replaceStructuredAgentSessionTab.
+    const stored = this.storeMobileSessionSnapshot(input.workspaceId, snapshot)
+    if (input.notify !== false) {
+      this.emitMobileSessionTabsSnapshot(stored)
+    }
   }
 
   protected createStructuredAgentSessionHandoffTransport(): StructuredAgentSessionHandoffTransport {

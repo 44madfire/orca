@@ -116,9 +116,9 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
     const id = `agent-session:${input.sessionId}`
     if (existing?.tabs.some((tab) => tab.id === id)) {
       const conversationName = title
-      // A background re-publish only relabels an existing tab — it never re-adds one — so it
-      // cannot re-surface a client whose mirror lost the tab; healing one needs `activate` or an
-      // explicit republish.
+      // A background re-publish only relabels an existing tab — it never re-adds one — and with
+      // `notify: false` it emits nothing at all, so it cannot re-surface a client whose mirror
+      // lost the tab; healing one needs `activate` or an explicit republish.
       if (!input.activate) {
         // Republishing an already-open tab is how a restored session hands over
         // the name it was persisted with; the rest of the snapshot is unchanged.
@@ -126,7 +126,10 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
           this.applyStructuredAgentSessionConversationName({
             workspaceId: input.workspaceId,
             sessionId: input.sessionId,
-            conversationName
+            conversationName,
+            // The startup sweep runs once per session; without this each named
+            // one would push the whole tab list at every live subscriber.
+            ...(input.notify !== undefined ? { notify: input.notify } : {})
           })
         }
         return
