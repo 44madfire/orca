@@ -84,6 +84,33 @@ describe('worker-stop on a structured worker this runtime cannot reach', () => {
     return started.dispatch.id
   }
 
+  it('keeps a restarted worker unsettled when close finds no attached session', async () => {
+    const dispatchId = startStructuredWorker()
+    const close = vi.fn(async () => {})
+    setStructuredAgentSessionHost({
+      close,
+      setSessionTabVisibility: async () => {},
+      hasSession: () => false,
+      deps: {
+        store: {
+          getRecord: () => ({
+            location: { executionHostId: 'local', wslDistro: null },
+            lease: { runtimeKind: 'native', claimStatus: 'live', deathEvidence: null }
+          })
+        }
+      }
+    } as never)
+
+    await expect(call('orchestration.workerStop', { dispatch: dispatchId })).resolves.toMatchObject(
+      {
+        processAction: 'closed_agent_terminal',
+        state: 'stop_unknown'
+      }
+    )
+    expect(close).toHaveBeenCalledWith(SESSION)
+    expect(db.getWorkerDispatch(dispatchId)?.state).toBe('stop_unknown')
+  })
+
   it('reports that nothing was closed', async () => {
     const dispatchId = startStructuredWorker()
     await expect(call('orchestration.workerStop', { dispatch: dispatchId })).resolves.toMatchObject(

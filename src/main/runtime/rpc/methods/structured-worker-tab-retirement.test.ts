@@ -56,8 +56,10 @@ function installHost(options: { closeThrows?: boolean; lease?: Record<string, un
           location: { executionHostId: 'local', wslDistro: null },
           lease: options.lease ?? {
             runtimeKind: 'native',
-            claimStatus: 'live',
-            deathEvidence: null,
+            claimStatus: attached ? 'live' : 'released',
+            deathEvidence: attached
+              ? null
+              : { kind: 'exit-observed', detail: 'closed', observedAt: 1 },
             runtimeFence: 2
           }
         })

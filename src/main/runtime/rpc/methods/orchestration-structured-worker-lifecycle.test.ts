@@ -118,11 +118,30 @@ describe('structured worker stop', () => {
   })
 
   it('settles only when the session is proven gone after the close', async () => {
-    installHost({})
+    installHost({
+      claimStatus: 'released',
+      deathEvidence: { kind: 'exit-observed', detail: 'closed', observedAt: 1 }
+    })
     await expect(stopStructuredWorker(IDENTITY, 'd1')).resolves.toEqual({
       stopped: true,
       closeAttempted: true
     })
+  })
+
+  it.each([
+    { hasSession: false },
+    { runtimeKind: 'tui' },
+    { claimStatus: 'released' },
+    { record: null }
+  ])('retains without positive exit evidence: %j', async (options) => {
+    installHost({ ...options, close: async () => {} })
+    const retireStructuredAgentSessionTabFromSnapshot = vi.fn()
+    const result = await stopStructuredWorker(IDENTITY, 'd1', {
+      forgetStructuredSessionMail: vi.fn(),
+      retireStructuredAgentSessionTabFromSnapshot
+    })
+    expect(result).toMatchObject({ stopped: false, closeAttempted: true })
+    expect(retireStructuredAgentSessionTabFromSnapshot).not.toHaveBeenCalled()
   })
 
   it('retains when the close throws, and admits the close was issued', async () => {

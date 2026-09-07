@@ -66,11 +66,12 @@ export async function closeStructuredAgentSessionChild(
     }
   }
   options.afterClose?.()
-  if (observeStructuredWorker({ sessionId }).status === 'live') {
+  const observation = observeStructuredWorker({ sessionId })
+  if (observation.status !== 'exited') {
     return {
       stopped: false,
       closeAttempted: true,
-      reason: 'The structured session is still attached after close.'
+      reason: observation.reason ?? 'The structured session is still attached after close.'
     }
   }
   // Only past the proof, and structurally unable to throw: the session's chat tab is retired from

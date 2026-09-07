@@ -46,6 +46,11 @@ function installHost(options: {
       closed.push(sessionId)
       if (!options.stuck?.has(sessionId)) {
         held.delete(sessionId)
+        const record = options.records.find((entry) => entry.sessionId === sessionId)
+        if (record) {
+          record.lease.claimStatus = 'released'
+          record.lease.deathEvidence = { kind: 'exit-observed', detail: 'closed', observedAt: 1 }
+        }
       }
     }
   }
