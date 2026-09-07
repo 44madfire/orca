@@ -165,7 +165,7 @@ export function applyOpenFileToState(
   // Why: preview replacement is worktree-scoped — recycle the parked preview wherever it lives; an explicit target keeps group scoping.
   let newFiles = s.openFiles
   if (isPreview) {
-    const slot = resolveReplaceablePreviewSlot(s, worktreeId, options?.targetGroupId)
+    const slot = resolveReplaceablePreviewSlot(s, worktreeId, options?.targetGroupId, targetGroupId)
     if (slot) {
       scratch.editorItemTargetGroupId = slot.retargetGroupId ?? scratch.editorItemTargetGroupId
       const existingPreviewIdx = slot.index

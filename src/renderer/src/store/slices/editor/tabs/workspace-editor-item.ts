@@ -24,7 +24,7 @@ export function openWorkspaceEditorItem(
   // Why: unpinned previews re-activate the entity's tab wherever it lives (#11839).
   if (isPreview && !pinnedGroupId) {
     const existingAnywhere = (state.unifiedTabsByWorktree?.[worktreeId] ?? []).find(
-      (tab) => tab.entityId === fileId && tab.contentType === contentType
+      (tab) => tab.isPreview && tab.entityId === fileId && tab.contentType === contentType
     )
     if (existingAnywhere) {
       state.activateTab?.(existingAnywhere.id, { preservePreview: isPreview })
@@ -65,18 +65,20 @@ export type ReplaceablePreviewSlot = {
 export function resolveReplaceablePreviewSlot(
   state: Pick<AppState, 'openFiles' | 'unifiedTabsByWorktree'>,
   worktreeId: string,
-  pinnedGroupId: string | undefined
+  pinnedGroupId: string | undefined,
+  resolvedGroupId: string | undefined
 ): ReplaceablePreviewSlot | null {
   const tabsForWorktree = state.unifiedTabsByWorktree?.[worktreeId] ?? []
-  const previewTab = tabsForWorktree.find(
-    (tab) =>
-      (!pinnedGroupId || tab.groupId === pinnedGroupId) &&
-      tab.isPreview &&
-      isEditorTabContentType(tab.contentType)
-  )
+  const isPreviewCandidate = (tab: (typeof tabsForWorktree)[number]): boolean =>
+    (!pinnedGroupId || tab.groupId === pinnedGroupId) &&
+    !!tab.isPreview &&
+    isEditorTabContentType(tab.contentType)
+  const previewTab =
+    tabsForWorktree.find((tab) => tab.groupId === resolvedGroupId && isPreviewCandidate(tab)) ??
+    tabsForWorktree.find(isPreviewCandidate)
   if (!previewTab) {
-    // Why: without tab-layer state, only unpinned opens may fall back to the worktree preview.
-    if (pinnedGroupId) {
+    // Tab-layer promotion can leave OpenFile.isPreview stale; only headless state may fall back.
+    if (pinnedGroupId || resolvedGroupId || tabsForWorktree.length > 0) {
       return null
     }
     const index = state.openFiles.findIndex(
