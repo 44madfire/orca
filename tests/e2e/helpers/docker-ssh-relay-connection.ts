@@ -68,3 +68,7 @@ export async function resetDockerSshRelayTarget(page: Page, targetId: string): P
     await window.api.ssh.resetRelay({ targetId })
   }, targetId)
 }
+
+// Why: the reconnect half was split for max-lines; re-exporting keeps every spec import
+// unchanged, so the perf spec main keeps out of CI is not pulled into the changed lane.
+export { reconnectDockerSshRelayTarget } from './docker-ssh-relay-reconnect'
