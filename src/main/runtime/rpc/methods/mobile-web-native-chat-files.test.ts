@@ -9,23 +9,19 @@ const method = (name: string) =>
   )!
 async function fixture() {
   const f = nativeChatPageFixture()
-  const searchMobileFilePaths = vi
-    .fn()
-    .mockResolvedValue({
-      worktree: 'host-workspace',
-      rootPath: '/private/repo',
-      files: [{ relativePath: 'src/main.ts' }],
-      future: { rank: 1 }
-    })
-  const resolveTerminalPath = vi
-    .fn()
-    .mockResolvedValue({
-      worktree: 'host-workspace',
-      absolutePath: '/private/repo/src/main.ts',
-      relativePath: 'src/main.ts',
-      exists: true,
-      isDirectory: false
-    })
+  const searchMobileFilePaths = vi.fn().mockResolvedValue({
+    worktree: 'host-workspace',
+    rootPath: '/private/repo',
+    files: [{ relativePath: 'src/main.ts' }],
+    future: { rank: 1 }
+  })
+  const resolveTerminalPath = vi.fn().mockResolvedValue({
+    worktree: 'host-workspace',
+    absolutePath: '/private/repo/src/main.ts',
+    relativePath: 'src/main.ts',
+    exists: true,
+    isDirectory: false
+  })
   const openMobileFile = vi.fn().mockResolvedValue({ worktree: 'host-workspace', opened: true })
   Object.assign(f.context.runtime, { searchMobileFilePaths, resolveTerminalPath, openMobileFile })
   const resource = await bindMobileWebNativeChat(f.context, { ...f.scope, tabId: 'tab' })

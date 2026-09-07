@@ -3,13 +3,42 @@ import {
   readHostedWebViewState,
   waitForVisibleHostedWebView
 } from './hosted-webview-cdp-session.mjs'
-import { tapHostedIosAccessibilityControl } from './hosted-ios-emulator-accessibility.mjs'
+import {
+  tapHostedIosAccessibilityControl,
+  tapHostedIosAccessibilityControlByLabelPrefix
+} from './hosted-ios-emulator-accessibility.mjs'
 import { longPressHostedIosAccessibilityControlByLabelPrefix } from './hosted-ios-emulator-long-press.mjs'
 
 const CHANGED_FILE_PREFIX = 'Open changed file '
 const REVIEW_CONTROLS = ['Back', 'Open review actions']
 
+/** The host-origin step: run the journey, then land back on the workspace row it started from. */
+export async function runHostedHostOriginSourceControlStep({
+  adversarialFixture,
+  discoveryUrl,
+  emulator,
+  evidenceStep,
+  expectedWorkspace,
+  nativeBaseline,
+  timeoutMs
+}) {
+  const workspaceName = adversarialFixture?.workspaceRowName ?? expectedWorkspace
+  const hostOrigin = await evidenceStep('host-origin Source Control journey', () =>
+    verifyHostedHostOriginSourceControlJourney({
+      changedFilePath: adversarialFixture?.filename,
+      discoveryUrl,
+      emulator,
+      nativeBaseline,
+      timeoutMs,
+      workspaceName
+    })
+  )
+  await tapHostedIosAccessibilityControlByLabelPrefix(emulator, workspaceName, timeoutMs)
+  return hostOrigin
+}
+
 export async function verifyHostedHostOriginSourceControlJourney({
+  changedFilePath,
   discoveryUrl,
   emulator,
   nativeBaseline,
@@ -32,9 +61,15 @@ export async function verifyHostedHostOriginSourceControlJourney({
     timeoutMs
   })
   const sourceState = await waitForChangedFileState(sourceControl, timeoutMs, readState)
+  // The expected label must come from outside the page, or the assertion below proves nothing.
   const changedFileLabel =
     nativeBaseline?.changedFileLabel ??
-    sourceState.labels.find((label) => label.startsWith(CHANGED_FILE_PREFIX))
+    (changedFilePath ? `${CHANGED_FILE_PREFIX}${changedFilePath}` : null)
+  if (!changedFileLabel) {
+    throw new Error(
+      'Host-origin Source Control needs a native baseline or a fixture changed file path'
+    )
+  }
   if (!sourceState.labels.includes(changedFileLabel)) {
     throw new Error(`Host-origin Source Control is missing ${changedFileLabel}`)
   }

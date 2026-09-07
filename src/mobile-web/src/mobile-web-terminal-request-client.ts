@@ -47,10 +47,7 @@ export class MobileWebTerminalRequestClient {
   }
 }
 
-export function mobileWebTerminalClientBindings(
-  requests: MobileWebOneShotRequestClient,
-  _features: ReadonlySet<string>
-) {
+export function mobileWebTerminalClientBindings(requests: MobileWebOneShotRequestClient) {
   const client = new MobileWebTerminalRequestClient(requests)
   return {
     prepareTerminalActions: client.prepareActions.bind(client),
