@@ -16,14 +16,12 @@ export function nativeChatPageFixture(): {
       providerSession: { id: 'provider-session', transcriptPath: '/private/transcript' }
     }
   }
-  const listMobileSessionTabs = vi
-    .fn()
-    .mockResolvedValue({
-      worktree: 'host-workspace',
-      publicationEpoch: 'epoch',
-      snapshotVersion: 1,
-      tabs: [tab]
-    })
+  const listMobileSessionTabs = vi.fn().mockResolvedValue({
+    worktree: 'host-workspace',
+    publicationEpoch: 'epoch',
+    snapshotVersion: 1,
+    tabs: [tab]
+  })
   const context = {
     connectionId: 'connection',
     clientId: 'authenticated-device-token',

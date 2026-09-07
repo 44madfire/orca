@@ -15,9 +15,9 @@ import {
   boundedOptionalText,
   boundedText
 } from './mobile-web-session-value-bounds'
-import type { MobileWebSessionBrowserResources as MobileWebBrowserAuthority } from './mobile-web-session-resources'
 import type {
   MobileWebHostNativeChatBinding,
+  MobileWebSessionBrowserResources as MobileWebBrowserAuthority,
   MobileWebSessionChatResources as MobileWebNativeChatAuthority
 } from './mobile-web-session-resources'
 
