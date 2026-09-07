@@ -302,12 +302,12 @@ export function HostScreenHeader({ controller }: { controller: HybridHostScreenC
 
           <View style={styles.toolbarSpacer} />
 
-          {controller.shellOperations.openChatSettings && (
+          {controller.shellOperations.openSettings && (
             <Pressable
               style={styles.searchToggle}
-              onPress={controller.shellOperations.openChatSettings}
+              onPress={controller.shellOperations.openSettings}
               accessibilityRole="button"
-              accessibilityLabel="Chat settings"
+              accessibilityLabel="Settings"
             >
               <Settings size={16} color={colors.textSecondary} />
             </Pressable>

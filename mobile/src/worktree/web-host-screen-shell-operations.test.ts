@@ -37,7 +37,7 @@ describe('web host screen shell operations', () => {
   })
 
   it.each([true, false])(
-    'offers hosted chat settings only with persistent preferences: %s',
+    'offers hosted settings only with persistent preferences: %s',
     (available) => {
       const native = { supports: vi.fn(() => available) }
       const navigate = vi.fn()
@@ -47,10 +47,10 @@ describe('web host screen shell operations', () => {
       )
       expect(native.supports).toHaveBeenCalledWith('pagePreferences')
       if (available) {
-        operations.openChatSettings?.()
-        expect(navigate).toHaveBeenCalledWith('/native-chat-settings')
+        operations.openSettings?.()
+        expect(navigate).toHaveBeenCalledWith('/settings')
       } else {
-        expect(operations.openChatSettings).toBeUndefined()
+        expect(operations.openSettings).toBeUndefined()
       }
     }
   )

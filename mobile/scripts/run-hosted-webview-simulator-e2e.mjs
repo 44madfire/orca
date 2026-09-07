@@ -562,6 +562,7 @@ async function main() {
       hostedWorkspace,
       nativeAlert: deviceCapabilities.nativeAlert,
       chatSettings: deviceCapabilities.chatSettings?.evidence ?? null,
+      browserSettings: deviceCapabilities.browserSettings?.evidence ?? null,
       nativeAppPath,
       nativeOnboarding,
       navigationIsolation,

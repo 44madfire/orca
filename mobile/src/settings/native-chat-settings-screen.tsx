@@ -6,16 +6,18 @@ import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 import { useMobileDefaultSessionViewPreference } from '../session/use-mobile-default-session-view-preference'
 
 export default function NativeChatSettingsScreen({
+  onBack,
   scope = 'device',
   available = true
 }: {
+  onBack?: () => void
   scope?: 'device' | 'host'
   available?: boolean
 }) {
   const router = useRouter()
   const insets = useSafeAreaInsets()
 
-  const { defaultView, setDefaultView } = useMobileDefaultSessionViewPreference()
+  const { defaultView, setDefaultView, busy, error } = useMobileDefaultSessionViewPreference()
   const chatDefault = defaultView === 'chat'
 
   return (
@@ -25,7 +27,7 @@ export default function NativeChatSettingsScreen({
           accessibilityRole="button"
           accessibilityLabel="Back"
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={onBack ?? (() => router.back())}
         >
           <ChevronLeft size={22} color={colors.textSecondary} />
         </Pressable>
@@ -48,6 +50,11 @@ export default function NativeChatSettingsScreen({
             Chat preferences are not available in this app version.
           </Text>
         )}
+        {error && (
+          <Text accessibilityRole="alert" style={styles.groupDescription}>
+            {error}
+          </Text>
+        )}
         <View style={[styles.section, styles.sectionTopGap]}>
           <View style={styles.row}>
             <View style={styles.rowContent}>
@@ -56,7 +63,8 @@ export default function NativeChatSettingsScreen({
             </View>
             <Switch
               accessibilityLabel="Open sessions in Chat UI"
-              disabled={!available}
+              disabled={!available || busy}
+              accessibilityState={{ busy, disabled: !available || busy }}
               value={chatDefault}
               onValueChange={(next) => setDefaultView(next ? 'chat' : 'terminal')}
               trackColor={{ false: colors.bgRaised, true: colors.textSecondary }}

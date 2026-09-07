@@ -1,8 +1,45 @@
-import { describe, expect, it, vi } from 'vitest'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
 import { webHostSessionDeviceOperations } from './web-host-session-device-operations'
 
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: { getItem: vi.fn() }
+}))
+
 describe('web host session device operations', () => {
+  beforeEach(() => {
+    vi.mocked(AsyncStorage.getItem).mockReset().mockResolvedValue(null)
+  })
+
+  it('applies the paired-host page preference to terminal link behavior', async () => {
+    const client = bridgeClient()
+    client.native.supports.mockReturnValue(true)
+    vi.mocked(AsyncStorage.getItem).mockResolvedValue('orca-browser')
+    const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
+    await expect(operations.loadTerminalPreferences()).resolves.toEqual({
+      textScale: 1.25,
+      autocompleteEnabled: true,
+      linkOpenMode: 'orca-browser'
+    })
+    expect(AsyncStorage.getItem).toHaveBeenCalledWith('orca:terminalLinkOpenMode')
+  })
+
+  it('inherits the existing device mode until the host preference is saved', async () => {
+    const client = bridgeClient()
+    client.native.supports.mockReturnValue(true)
+    const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
+    expect((await operations.loadTerminalPreferences()).linkOpenMode).toBe('phone-browser')
+    vi.mocked(AsyncStorage.getItem).mockRejectedValue(new Error('temporarily unavailable'))
+    expect((await operations.loadTerminalPreferences()).linkOpenMode).toBe('phone-browser')
+  })
+
+  it('retains the native preference on shells without page storage', async () => {
+    const client = bridgeClient()
+    const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
+    expect((await operations.loadTerminalPreferences()).linkOpenMode).toBe('phone-browser')
+    expect(AsyncStorage.getItem).not.toHaveBeenCalled()
+  })
   it('routes shell-owned effects through named native bridge methods', async () => {
     const client = bridgeClient()
     const operations = webHostSessionDeviceOperations(client as unknown as MobileWebBridgeClient)
@@ -58,6 +95,7 @@ function bridgeClient() {
   return {
     navigationRoute: vi.fn().mockResolvedValue(null),
     native: {
+      supports: vi.fn().mockReturnValue(false),
       hapticFeedback: vi.fn().mockResolvedValue(null),
       clipboardAvailability: vi.fn().mockResolvedValue({ hasText: true, hasImage: false }),
       clipboardWrite: vi.fn().mockResolvedValue({ confirmation: 'in-app' }),

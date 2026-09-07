@@ -197,12 +197,14 @@ export type MobileTerminalLinkOpenMode = 'orca-browser' | 'phone-browser'
 const TERMINAL_LINK_OPEN_MODE_KEY = 'orca:terminalLinkOpenMode'
 export const DEFAULT_TERMINAL_LINK_OPEN_MODE: MobileTerminalLinkOpenMode = 'orca-browser'
 
-export async function loadTerminalLinkOpenMode(): Promise<MobileTerminalLinkOpenMode> {
+export async function loadTerminalLinkOpenMode(
+  fallback: MobileTerminalLinkOpenMode = DEFAULT_TERMINAL_LINK_OPEN_MODE
+): Promise<MobileTerminalLinkOpenMode> {
   try {
     const raw = await AsyncStorage.getItem(TERMINAL_LINK_OPEN_MODE_KEY)
-    return raw === 'phone-browser' || raw === 'orca-browser' ? raw : DEFAULT_TERMINAL_LINK_OPEN_MODE
+    return raw === 'phone-browser' || raw === 'orca-browser' ? raw : fallback
   } catch {
-    return DEFAULT_TERMINAL_LINK_OPEN_MODE
+    return fallback
   }
 }
 

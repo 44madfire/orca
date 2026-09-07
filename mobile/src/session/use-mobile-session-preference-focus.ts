@@ -9,18 +9,21 @@ export function useMobileSessionPreferenceFocus(scope: MobileSessionKeyboardStat
     setTerminalLinkOpenMode,
     sessionDeviceOperations
   } = scope
-  // Why: phone-local terminal settings remain shell-owned in the hosted route.
+  // Reload after settings routes update native or paired-host page preferences.
   useFocusEffect(
     useCallback(() => {
       let active = true
-      void sessionDeviceOperations?.loadTerminalPreferences().then((preferences) => {
-        if (!active) {
-          return
-        }
-        setTerminalTextScale(preferences.textScale)
-        setAutocompleteEnabled(preferences.autocompleteEnabled)
-        setTerminalLinkOpenMode(preferences.linkOpenMode)
-      })
+      void sessionDeviceOperations
+        ?.loadTerminalPreferences()
+        .then((preferences) => {
+          if (!active) {
+            return
+          }
+          setTerminalTextScale(preferences.textScale)
+          setAutocompleteEnabled(preferences.autocompleteEnabled)
+          setTerminalLinkOpenMode(preferences.linkOpenMode)
+        })
+        .catch(() => {})
       return () => {
         active = false
       }

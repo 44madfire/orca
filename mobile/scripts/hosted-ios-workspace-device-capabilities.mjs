@@ -1,5 +1,6 @@
 import { evidenceStep } from './hosted-webview-e2e-report.mjs'
 import { verifyHostedIosNativeAlertJourney } from './hosted-ios-native-alert-journey.mjs'
+import { verifyHostedIosBrowserSettings } from './hosted-ios-browser-settings-journey.mjs'
 import { verifyHostedIosChatSettings } from './hosted-ios-chat-settings-journey.mjs'
 
 export async function verifyHostedIosWorkspaceDeviceCapabilities(args) {
@@ -11,9 +12,21 @@ export async function verifyHostedIosWorkspaceDeviceCapabilities(args) {
         verifyHostedIosChatSettings({ ...args, workspaceDocument: nativeAlert.workspaceDocument })
       )
     : null
+  const browserSettings = chatSettings
+    ? await evidenceStep('hosted browser preference persistence', () =>
+        verifyHostedIosBrowserSettings({
+          ...args,
+          workspaceDocument: chatSettings.workspaceDocument
+        })
+      )
+    : null
   return {
     nativeAlert,
+    browserSettings,
     chatSettings,
-    workspaceDocument: chatSettings?.workspaceDocument ?? nativeAlert.workspaceDocument
+    workspaceDocument:
+      browserSettings?.workspaceDocument ??
+      chatSettings?.workspaceDocument ??
+      nativeAlert.workspaceDocument
   }
 }

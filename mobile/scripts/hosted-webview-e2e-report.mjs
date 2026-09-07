@@ -29,6 +29,7 @@ export function printHostedWebViewE2eReport(evidence) {
         nativeOnboarding: evidence.nativeOnboarding,
         nativeAlert: evidence.nativeAlert.evidence,
         chatSettings: evidence.chatSettings,
+        browserSettings: evidence.browserSettings,
         documentUpload: evidence.terminalDeviceInput?.documentUpload?.evidence ?? null,
         photoPermissionDenial:
           evidence.terminalDeviceInput?.photoPermissionDenial?.evidence ?? null,

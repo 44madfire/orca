@@ -1,4 +1,5 @@
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
+import { loadTerminalLinkOpenMode } from '../storage/preferences'
 import type { HostSessionDeviceOperations } from './host-session-device-operations'
 
 export function webHostSessionDeviceOperations(
@@ -21,7 +22,7 @@ export function webHostSessionDeviceOperations(
       void client.navigationRoute({ destination: 'terminalSettings' }).catch(() => {})
     },
     loadTerminalPreferences() {
-      return client.native.terminalPreferences()
+      return loadWebHostTerminalPreferences(client)
     },
     loadTerminalAccessoryPreferences() {
       return client.native.terminalAccessoryPreferences()
@@ -32,5 +33,16 @@ export function webHostSessionDeviceOperations(
     async saveTerminalTextScale(textScale) {
       await client.native.terminalTextScaleUpdate(textScale)
     }
+  }
+}
+
+export async function loadWebHostTerminalPreferences(client: MobileWebBridgeClient) {
+  const preferences = await client.native.terminalPreferences()
+  if (!client.native.supports('pagePreferences')) {
+    return preferences
+  }
+  return {
+    ...preferences,
+    linkOpenMode: await loadTerminalLinkOpenMode(preferences.linkOpenMode)
   }
 }

@@ -63,10 +63,13 @@ describe('mobile native shell route ownership', () => {
     expect(hybridPresentation).not.toContain('MobileWebHostPicker')
   })
 
-  it('hosts migrated chat settings while retaining native recovery screens', () => {
+  it('hosts migrated preferences while retaining native recovery screens', () => {
     const hostedRoutePaths = listRouteFiles(hostedRouteRoot)
-    expect(hostedRoutePaths).toContain('native-chat-settings.tsx')
-    for (const routeName of NATIVE_ROUTE_NAMES.filter((name) => name !== 'native-chat-settings')) {
+    const hostedSettings = ['settings', 'native-chat-settings', 'browser-settings']
+    for (const routeName of hostedSettings) {
+      expect(hostedRoutePaths).toContain(`${routeName}.tsx`)
+    }
+    for (const routeName of NATIVE_ROUTE_NAMES.filter((name) => !hostedSettings.includes(name))) {
       expect(hostedRoutePaths).not.toContain(`${routeName}.tsx`)
     }
   })
