@@ -1,34 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
 import { resumeAiVaultSessionInTerminal } from './ai-vault-resume-launch'
 import { RESUME_RPC_TIMEOUT_MS } from './ai-vault-resume-preparation'
 import { readMobileRuntimeHostPlatform } from '../transport/mobile-runtime-host-platform'
-
-function session(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
-  return {
-    id: 'claude:1',
-    executionHostId: 'local',
-    agent: 'claude',
-    sessionId: 'session 1',
-    title: 'Resume me',
-    cwd: '/Users/ada/repo',
-    branch: 'main',
-    model: null,
-    filePath: '/Users/ada/.claude/session.jsonl',
-    codexHome: null,
-    createdAt: null,
-    updatedAt: null,
-    modifiedAt: '2026-06-29T00:00:00.000Z',
-    messageCount: 2,
-    totalTokens: 10,
-    previewMessages: [],
-    queuedMessageCount: 0,
-    subagentTranscriptCount: 0,
-    resumeCommand: '',
-    subagent: null,
-    ...overrides
-  }
-}
 
 describe('resumeAiVaultSessionInTerminal', () => {
   it('creates a fresh terminal and sends the command with Enter', async () => {
