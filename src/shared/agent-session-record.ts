@@ -1,3 +1,4 @@
+import { isAgentSessionRewindRecord, type AgentSessionRewindRecord } from './agent-session-rewind'
 /**
  * Durable agent-session record and its single-writer lease.
  *
@@ -9,6 +10,10 @@
 import { isAgentSessionConversationName } from './agent-session-conversation-name'
 import type { ExecutionHostId } from './execution-host'
 import {
+  isAgentSessionLaunchArgs,
+  type AgentSessionLaunchArgs
+} from './agent-session-launch-payload'
+import {
   isAgentSessionConversationCommandRecord,
   type AgentSessionConversationCommandRecord
 } from './agent-session-conversation-command'
@@ -17,6 +22,9 @@ import {
   type AgentSessionHandleProvider,
   type AgentSessionProviderHandleLink
 } from './agent-session-provider-handle'
+
+export type { AgentSessionLaunchArgs, AgentSessionLaunchEnv } from './agent-session-launch-payload'
+export { isAgentSessionLaunchArgs, isAgentSessionLaunchEnv } from './agent-session-launch-payload'
 
 export const AGENT_SESSION_RECORD_SCHEMA_VERSION = 2 as const
 
@@ -41,12 +49,6 @@ export type AgentSessionAccountHome = {
   /** Host-resolved absolute path in the execution host's own path syntax. */
   path: string
 }
-
-/** Provider launch environment captured by the host when the session is created. */
-export type AgentSessionLaunchEnv = Record<string, string>
-
-/** Provider CLI arguments captured by the host when the session is created. */
-export type AgentSessionLaunchArgs = string[]
 
 export type AgentSessionOwnerRuntimeKind = 'native' | 'tui'
 
@@ -138,6 +140,7 @@ export type AgentSessionRecord = {
    *  or a restart would otherwise re-ask — re-imposing a name the user cleared,
    *  and paying for it again. */
   conversationNamingAttempted?: boolean
+  rewind?: AgentSessionRewindRecord
   conversationCommand?: AgentSessionConversationCommandRecord
   launchArgs?: AgentSessionLaunchArgs
   lease: AgentSessionLease
@@ -154,10 +157,6 @@ export type AgentSessionOptionsReplacement = {
 
 const MAX_ID_LENGTH = 512
 const MAX_PATH_LENGTH = 4096
-const MAX_LAUNCH_ENV_ENTRIES = 256
-const MAX_LAUNCH_ENV_VALUE_LENGTH = 65_536
-const MAX_LAUNCH_ARGS = 256
-const MAX_LAUNCH_ARGS_BYTES = 16 * 1024
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,128}$/
 
 function isBoundedString(value: unknown, max: number): value is string {
@@ -245,22 +244,6 @@ export function isAgentSessionOptions(value: unknown): value is Record<string, s
     entries.every(
       ([key, option]) =>
         isBoundedString(key, MAX_ID_LENGTH) && isBoundedString(option, MAX_ID_LENGTH)
-    )
-  )
-}
-
-export function isAgentSessionLaunchEnv(value: unknown): value is AgentSessionLaunchEnv {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false
-  }
-  const entries = Object.entries(value)
-  return (
-    entries.length <= MAX_LAUNCH_ENV_ENTRIES &&
-    entries.every(
-      ([key, entry]) =>
-        isBoundedString(key, MAX_ID_LENGTH) &&
-        typeof entry === 'string' &&
-        entry.length <= MAX_LAUNCH_ENV_VALUE_LENGTH
     )
   )
 }
@@ -353,6 +336,7 @@ export function isAgentSessionRecord(value: unknown): value is AgentSessionRecor
       isAgentSessionConversationName(record.conversationName)) &&
     (record.conversationNamingAttempted === undefined ||
       typeof record.conversationNamingAttempted === 'boolean') &&
+    (record.rewind === undefined || isAgentSessionRewindRecord(record.rewind)) &&
     (record.conversationCommand === undefined ||
       isAgentSessionConversationCommandRecord(record.conversationCommand)) &&
     (record.launchArgs === undefined || isAgentSessionLaunchArgs(record.launchArgs)) &&
@@ -372,14 +356,5 @@ export function isAgentSessionRecord(value: unknown): value is AgentSessionRecor
       (validated.lease.ownerProcess !== null &&
         head?.linkId === validated.lease.provenHandleLinkId &&
         head.mintedAtFence === validated.lease.runtimeFence))
-  )
-}
-
-export function isAgentSessionLaunchArgs(value: unknown): value is AgentSessionLaunchArgs {
-  return (
-    Array.isArray(value) &&
-    value.length <= MAX_LAUNCH_ARGS &&
-    value.every((arg) => typeof arg === 'string' && !arg.includes('\0')) &&
-    Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_LAUNCH_ARGS_BYTES
   )
 }

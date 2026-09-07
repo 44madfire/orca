@@ -22,6 +22,7 @@ export type CodexOpenedThread = {
   historyPath: string | null
   /** Conversation name already stored for the thread, when it has one. */
   name?: string
+  historyMode?: 'legacy' | 'paginated'
   model?: string
   effort?: string
 }
@@ -100,6 +101,9 @@ export async function openCodexThread(
     thread,
     historyPath: readCodexThreadPath(opened),
     ...(name ? { name } : {}),
+    ...(thread.historyMode === 'legacy' || thread.historyMode === 'paginated'
+      ? { historyMode: thread.historyMode }
+      : {}),
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {})
   }

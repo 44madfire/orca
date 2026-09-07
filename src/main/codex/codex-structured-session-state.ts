@@ -87,6 +87,9 @@ export type CodexSession = {
    *  to "have we asked" lives on the record; this just fences concurrent sends
    *  before that write lands. */
   namingAttempted: boolean
+  historyMode?: 'legacy' | 'paginated'
+  activeTurnIds?: Set<string>
+  dispatchPending?: boolean
   prompts: CodexAcquisitionWindow['prompts']
   options: Map<string, string>
   reportedOptions: { model?: string; effort?: string }

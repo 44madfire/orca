@@ -1,9 +1,9 @@
+import * as codexRewind from './codex-structured-rewind'
 import type {
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
 } from '../../shared/agent-session-journal-types'
 import { StructuredSessionCompaction } from '../native-chat/agent-session-wire/structured-session-compaction'
-import { isCodexAppServerRequestError } from './codex-app-server-connection'
 import type {
   AgentSessionAcquisition,
   AgentSessionDispatchOutcome,
@@ -38,15 +38,15 @@ import {
   deliverCodexServerRequest,
   deliverCodexUnhandledFrame
 } from './codex-structured-provider-events'
-import { isCodexNamingFrame, isCodexNamingThread } from './codex-conversation-name-generation'
+import { refuseCodexNamingServerRequest, routeCodexNamingFrame } from './codex-naming-frame-routing'
 import {
   captureCodexConversationName,
   startCodexConversationNamingForTurn
 } from './codex-conversation-name-turn'
-import { readCodexThreadId } from './codex-structured-thread-facts'
 import { CodexStructuredTurnCancellation } from './codex-structured-turn-cancellation'
 import { createCodexStructuredNotificationRetry } from './codex-structured-notification-retry'
 import { acquireCodexStructuredSession } from './codex-structured-session-acquire'
+import { compactCodexSession } from './codex-structured-compact-turn'
 
 export type {
   CodexStructuredLaunch,
@@ -133,16 +133,11 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     method: string,
     params: unknown
   ): CodexJournalTranslationAdmission {
+    codexRewind.observeCodexRewindActivity(session, method, params)
     if (this.turnCancellation.handleNotification(sessionId, session, method, params)) {
       return { accepted: true }
     }
-    // Before anything can journal it: a naming turn runs on a throwaway thread
-    // over this same connection, and the item translator journals items from ANY
-    // thread. Routed here, its prompt and its JSON answer never reach the chat.
-    const frameThreadId = readCodexThreadId(params)
-    if (isCodexNamingFrame(session, frameThreadId)) {
-      // Diverted either way; only the exact-id half may settle the naming turn.
-      session.naming?.handle(method, params, isCodexNamingThread(session, frameThreadId))
+    if (routeCodexNamingFrame(session, method, params)) {
       return { accepted: true }
     }
     captureCodexConversationName(sessionId, session, method, params, this.deps)
@@ -175,18 +170,7 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     request: Parameters<typeof deliverCodexServerRequest>[2]
   ): void {
     const session = this.sessions.get(sessionId)
-    // Exact id only: the broad pre-id rule would refuse a SUB-AGENT's approval
-    // request during the `thread/start` window, since the naming thread has no
-    // turn running yet and cannot be the one asking.
-    if (session && isCodexNamingThread(session, readCodexThreadId(request.params))) {
-      // An approval request from the naming turn would become a durable prompt in
-      // the user's chat, for a command they never asked for, left pending forever
-      // once the turn is abandoned. Refuse it so the turn settles instead.
-      session.connection.respondWithError(
-        request.id,
-        -32001,
-        'Orca does not run tools on a conversation-naming turn'
-      )
+    if (refuseCodexNamingServerRequest(session, request)) {
       return
     }
     deliverCodexServerRequest(sessionId, session, request, (current, event) =>
@@ -196,9 +180,7 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
 
   private handleUnhandledFrame(sessionId: string, kind: string, params: unknown): void {
     const session = this.sessions.get(sessionId)
-    const frameThreadId = readCodexThreadId(params)
-    if (session && isCodexNamingFrame(session, frameThreadId)) {
-      session.naming?.handle(kind, params, isCodexNamingThread(session, frameThreadId))
+    if (session && routeCodexNamingFrame(session, kind, params)) {
       return
     }
     deliverCodexUnhandledFrame(sessionId, session, kind, params, (current, event) =>
@@ -218,8 +200,15 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     fence: number
   }): Promise<AgentSessionDispatchOutcome> {
     const session = this.session(input.sessionId)
-    await this.turnCancellation.captureBaseline(session)
-    const outcome = await dispatchCodexTurn(session, input, this.deps.requestTimeoutMs)
+    session.dispatchPending = true
+    let outcome: AgentSessionDispatchOutcome
+    try {
+      await this.turnCancellation.captureBaseline(session)
+      outcome = await dispatchCodexTurn(session, input, this.deps.requestTimeoutMs)
+    } finally {
+      // Rewind must be free again the moment the send settles; naming runs after.
+      session.dispatchPending = false
+    }
     if (outcome.state === 'accepted') {
       // The accepted user message is the first thing worth naming the thread
       // after, and the only text this session is sure Codex received.
@@ -238,30 +227,25 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     return turnId ? this.turnCancellation.cancel(session, turnId) : { cancelled: false }
   }
 
-  compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) => {
-    const session = this.session(input.sessionId)
-    return this.compactions.run(
-      input.sessionId,
-      session.threadId,
-      async () => {
-        await this.turnCancellation.captureBaseline(session)
-        return session.connection
-          .request(
-            'thread/compact/start',
-            { threadId: session.threadId },
-            { timeoutMs: this.deps.requestTimeoutMs }
-          )
-          .catch((error) => {
-            if (isCodexAppServerRequestError(error)) {
-              return { error: error.message }
-            }
-            throw error
-          })
-      },
-      input.onLateResult,
-      input.turnId
+  rewindSupport: NonNullable<StructuredAgentSessionAdapter['rewindSupport']> = (sessionId) =>
+    this.sessions.get(sessionId)?.historyMode === 'legacy'
+      ? { supported: false, reason: 'history-not-paginated' }
+      : { supported: true }
+
+  rewind: NonNullable<StructuredAgentSessionAdapter['rewind']> = (input) =>
+    codexRewind.rewindCodexSession(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
+
+  recoverRewind: NonNullable<StructuredAgentSessionAdapter['recoverRewind']> = (input) =>
+    codexRewind.recoverCodexRewind(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
+
+  compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) =>
+    compactCodexSession(
+      this.session(input.sessionId),
+      this.compactions,
+      this.turnCancellation,
+      input,
+      this.deps.requestTimeoutMs
     )
-  }
 
   async answerPrompt(input: {
     sessionId: string

@@ -197,6 +197,8 @@ export async function acquireCodexStructuredSession(input: {
       naming: null,
       namingThreadIds: new Set(),
       namingAttempted: false,
+      historyMode: opened.historyMode,
+      activeTurnIds: new Set(),
       prompts: acquisition.prompts,
       options: restoredCodexSessionOptions(acquireInput.options),
       reportedOptions: reportedCodexThreadOptions(opened),
