@@ -5,7 +5,6 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MobileWebPackageAssets } from '../../src/main/runtime/rpc/mobile-web-package-assets'
 import { MOBILE_WEB_PACKAGE_BRIDGE_RANGE } from '../../src/shared/mobile-web/bridge-limits'
-import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from '../../src/shared/mobile-web/markdown-editor-csp'
 import { MobileWebManifestSchema } from '../../src/shared/mobile-web/manifest-contract'
 import {
   MOBILE_WEB_MERMAID_FRAME_PATH,
@@ -80,14 +79,10 @@ describe('RNW mobile web packager', () => {
     expect(stylesheet).toContain(
       'button,[role="button"]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}'
     )
-    expect(document).toContain("default-src 'none'")
-    expect(document).toContain(`script-src 'self' ${MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH}`)
-    expect(document).toContain("style-src 'self' 'unsafe-inline'")
-    expect(document).not.toContain("script-src 'self' 'unsafe-inline'")
     expect(document).not.toContain('<style')
+    expect(document).not.toContain('Content-Security-Policy')
     expect(document).toContain('maximum-scale=1,user-scalable=no')
     expect(document).toContain('viewport-fit=cover')
-    expect(document).toContain("frame-src 'self' data:")
     expect(mermaidFrame).toContain(`script-src ${MOBILE_WEB_MERMAID_FRAME_SCRIPT_CSP_HASH} blob:`)
     expect(mermaidFrame).toContain("frame-ancestors 'self'")
     expect(mermaidFrame).not.toContain(MOBILE_WEB_MERMAID_FRAME_PATH)

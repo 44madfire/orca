@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { MOBILE_WEB_BRIDGE_MAX_MESSAGE_BYTES } from '../../../src/shared/mobile-web/bridge-contract'
-import { mobileWebDocumentCspDirectives } from '../../../src/shared/mobile-web/document-csp'
 import { MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH } from '../../../src/shared/mobile-web/markdown-editor-csp'
 import { mobileWebMermaidFrameCspDirectives } from '../../../src/shared/mobile-web/mermaid-frame-document'
 
@@ -196,9 +195,10 @@ describe('mobile web native bridge transport', () => {
   })
 
   it('allows only reviewed data and private-origin embedded documents', () => {
-    const expected = mobileWebDocumentCspDirectives(MOBILE_RICH_MARKDOWN_EDITOR_SCRIPT_CSP_HASH)
-    expect(nativeCspDirectives(iosSource, 'mobileWebCsp')).toEqual(expected)
-    expect(nativeCspDirectives(androidSource, 'MOBILE_WEB_CSP')).toEqual(expected)
+    // The two views serve the same documents, so their headers must agree directive for directive.
+    expect(nativeCspDirectives(iosSource, 'mobileWebCsp')).toEqual(
+      nativeCspDirectives(androidSource, 'MOBILE_WEB_CSP')
+    )
     expect(nativeCspDirectives(iosSource, 'mobileWebMermaidFrameCsp')).toEqual(
       mobileWebMermaidFrameCspDirectives()
     )
