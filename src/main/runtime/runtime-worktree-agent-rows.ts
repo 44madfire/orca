@@ -8,6 +8,11 @@ import {
 import { terminalStatusPayloadMatchesHook } from '../../shared/agent-terminal-status-equivalence'
 import type { RuntimeWorktreeAgentRow, RuntimeWorktreePsSummary } from '../../shared/runtime-types'
 import { parseLegacyNumericPaneKey, parsePaneKey } from '../../shared/stable-pane-id'
+import {
+  structuredAgentSessionPaneKey,
+  structuredAgentSessionTabId
+} from '../../shared/structured-agent-session-projection'
+import type { AgentSessionStatusSummary } from '../../shared/agent-session-wire'
 import { isWslHookRelayConnectionId } from '../../shared/wsl-hook-relay-contract'
 import { mergeWorktreeSummaryStatus } from './runtime-worktree-status-projection'
 import type { RuntimeWorktreeSummaryPathIndex } from './runtime-worktree-summary-paths'
@@ -54,6 +59,8 @@ type RuntimeWorktreeAgentSource = {
   stateStartedAt: number
   updatedAt: number
   restoredUnconfirmed?: boolean
+  /** A structured session: no PTY ever backed it, so PTY evidence cannot gate it. */
+  structured?: boolean
 }
 
 export function attachRuntimeWorktreeAgentRows(args: {
@@ -68,6 +75,8 @@ export function attachRuntimeWorktreeAgentRows(args: {
   >
   retainedSnapshots: Iterable<RuntimeAgentRowSnapshot>
   hookSnapshots: readonly AgentStatusIpcPayload[]
+  /** Structured (non-PTY) sessions, projected from the host's own status feed. */
+  structuredSummaries: readonly AgentSessionStatusSummary[]
   orchestrationByPaneKey: Record<string, OrchestrationDisplay> | null | undefined
   getSummary: (
     summaries: Map<string, RuntimeWorktreePsSummary>,
@@ -137,6 +146,48 @@ export function attachRuntimeWorktreeAgentRows(args: {
       updatedAt: entry.receivedAt
     })
   }
+  for (const summary of args.structuredSummaries) {
+    // No turn has been persisted yet, so there is nothing to report - the same read the chat shows.
+    if (!summary.status) {
+      continue
+    }
+    const tabId = structuredAgentSessionTabId(summary.sessionId)
+    // The DERIVED pane key the renderer already publishes, never the orchestration bearer handle
+    // or the minted worker pane key: both of those are credentials.
+    const paneKey = structuredAgentSessionPaneKey(tabId, summary.sessionId)
+    if (rowSources.has(paneKey)) {
+      continue
+    }
+    // Same projection the sidebar applies, so the CLI and the GUI cannot disagree about one session.
+    const state =
+      summary.status === 'working' ? 'working' : summary.status === 'attention' ? 'blocked' : 'done'
+    rowSources.set(paneKey, {
+      paneKey,
+      tabId,
+      worktreeId: summary.workspaceId,
+      connectionId: null,
+      payload: {
+        state,
+        prompt: summary.latestPrompt,
+        agentType: summary.agent,
+        ...(summary.toolName ? { toolName: summary.toolName } : {}),
+        ...(summary.toolInput ? { toolInput: summary.toolInput } : {}),
+        ...(summary.lastAssistantMessage
+          ? { lastAssistantMessage: summary.lastAssistantMessage }
+          : {})
+      } as ParsedAgentStatusPayload,
+      state,
+      agentType: summary.agent,
+      prompt: summary.latestPrompt,
+      lastAssistantMessage: summary.lastAssistantMessage ?? null,
+      toolName: summary.toolName ?? null,
+      toolInput: summary.toolInput ?? null,
+      interrupted: false,
+      stateStartedAt: summary.updatedAt,
+      updatedAt: summary.updatedAt,
+      structured: true
+    })
+  }
   if (rowSources.size === 0) {
     return
   }
@@ -147,7 +198,10 @@ export function attachRuntimeWorktreeAgentRows(args: {
       parsePaneKey(source.paneKey)?.tabId ??
       parseLegacyNumericPaneKey(source.paneKey)?.tabId
     const mirroredWorktreeId = tabId ? args.mirroredWorktreeIdByTabId.get(tabId) : undefined
+    // The gate below drops a row whose PTY is gone. A structured session never had one, and its
+    // liveness evidence is the status feed that produced it, so the question does not apply.
     if (
+      source.structured !== true &&
       tabId !== undefined &&
       mirroredWorktreeId === undefined &&
       (source.connectionId === null || isWslHookRelayConnectionId(source.connectionId)) &&

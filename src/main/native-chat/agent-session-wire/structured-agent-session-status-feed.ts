@@ -75,6 +75,16 @@ export class StructuredAgentSessionStatusFeed {
     return () => this.unsubscribe(subscriber.id)
   }
 
+  /**
+   * Every summary this host has projected, for readers that poll instead of subscribing.
+   *
+   * Deliberately does NOT re-project: a subscriber's snapshot is the live read, and re-running the
+   * journal reduction per caller would make an enumerating command pay for every session it lists.
+   */
+  publishedSummaries(): AgentSessionStatusSummary[] {
+    return [...this.published.values()]
+  }
+
   unsubscribe(id: string): void {
     const subscriber = this.subscribers.get(id)
     if (!subscriber) {
