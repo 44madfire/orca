@@ -203,6 +203,7 @@ describe('codex item bodies', () => {
       kind: 'tool-call',
       name: 'shell',
       input: { command: 'ls', cwd: '/tmp' },
+      exitCode: 0,
       state: 'completed',
       output: { head: 'a\nb\n', byteLength: 4, truncated: false, digest: expect.any(String) }
     })
@@ -232,6 +233,7 @@ describe('codex item bodies', () => {
       // `name` is the target's basename, which `path` already carries and no
       // label ever reads, so it stays out of the bounded journal payload.
       input: { command: "sed -n '1,200p' notes.txt", cwd: '/repo', path: '/repo/notes.txt' },
+      exitCode: 0,
       state: 'completed'
     })
     // `read` is the one class that keeps `path`, so its row stays a tappable
@@ -276,6 +278,7 @@ describe('codex item bodies', () => {
       kind: 'tool-call',
       name: 'search',
       input: { command: 'rg beta', cwd: '/repo' },
+      exitCode: 0,
       state: 'completed'
     })
   })
@@ -295,6 +298,7 @@ describe('codex item bodies', () => {
       kind: 'tool-call',
       name: 'list',
       input: { command: 'ls', cwd: '/repo' },
+      exitCode: 0,
       state: 'completed'
     })
     // A stand-in `.` reaches mobile as a tappable "open file" link onto a
@@ -324,6 +328,7 @@ describe('codex item bodies', () => {
       kind: 'tool-call',
       name: 'shell',
       input: { command: 'cat a.txt && ls src', cwd: '/repo' },
+      exitCode: 0,
       state: 'completed'
     })
   })
@@ -346,6 +351,7 @@ describe('codex item bodies', () => {
       kind: 'tool-call',
       name: 'read',
       input: { command: 'cat a.ts && cat b.ts', cwd: '/repo' },
+      exitCode: 0,
       state: 'completed'
     })
   })
@@ -420,6 +426,7 @@ describe('codex item bodies', () => {
       kind: 'tool-call',
       name: 'read',
       input: { command: 'cat', cwd: '/repo' },
+      exitCode: 0,
       state: 'completed'
     })
   })
@@ -446,6 +453,7 @@ describe('codex item bodies', () => {
       kind: 'tool-call',
       name: 'shell',
       input: { command: 'ls', cwd: '/tmp' },
+      exitCode: 0,
       state: 'completed'
     }
     const base = {
@@ -608,6 +616,7 @@ describe('codex item bodies', () => {
       // Server-qualified, and the arguments stay top level so the row label can
       // read `query`/`command`/`file_path` out of them.
       name: 'weather/get_forecast',
+      mcpIdentity: { server: 'weather', tool: 'get_forecast' },
       input: { city: 'Oslo' },
       state: 'completed',
       output: { head: '12C', byteLength: 3, truncated: false, digest: expect.any(String) }
@@ -786,7 +795,7 @@ describe('codex item bodies', () => {
     }
   })
 
-  it('leaves subagent items on the generic row until a real renderer exists', () => {
+  it('drops the raw subagent item now the roster row renders it', () => {
     expect(
       codexJournalItem({
         type: 'subAgentActivity',
@@ -795,10 +804,7 @@ describe('codex item bodies', () => {
         agentThreadId: 'thread-child',
         agentPath: '/root/list_directory'
       })
-    ).toMatchObject({
-      handled: false,
-      body: { kind: 'status', providerFrame: { kind: 'item:subAgentActivity' } }
-    })
+    ).toMatchObject({ handled: true, body: null })
   })
 
   it('drops the sleep item, which codex itself renders as nothing', () => {
