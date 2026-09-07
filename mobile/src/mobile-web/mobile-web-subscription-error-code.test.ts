@@ -6,7 +6,6 @@ import type {
 } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
-import { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import {
   isRetryableMobileWebBridgeError,
@@ -33,9 +32,7 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
   const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
   workspaceAuthority.synchronize([{ workspaceId: 'host-workspace', repoId: 'repo-1' }])
   const pageWorkspaceId = workspaceAuthority.pageWorkspaceId('host-workspace')
-  const browserAuthority = new MobileWebBrowserAuthority()
-  const pageId = 'resource_browser'
-  browserAuthority.bind(pageId, { hostWorkspaceId: 'host-workspace', hostPageId: 'raw-page' })
+  const pageId = 'raw-page'
 
   const postClosed = (): void => {}
   const account = new MobileWebAccountSubscriptions({ isActive, postEvent, postClosed })
@@ -43,7 +40,6 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
   const browser = new MobileWebBrowserStreams({
     isActive,
     workspaceAuthority,
-    browserAuthority,
     postEvent,
     postClosed
   })

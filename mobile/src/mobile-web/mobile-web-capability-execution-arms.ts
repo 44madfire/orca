@@ -1,12 +1,4 @@
-import {
-  MobileWebSessionChatDraftReadPayloadSchema,
-  MobileWebSessionChatDraftWritePayloadSchema
-} from '../../../src/shared/mobile-web/native-operation-contract'
-import { bindMobileWebBrowserResource } from './mobile-web-browser-resource-binding'
-import {
-  MobileWebBrowserTargetPayloadSchema,
-  MobileWebBrowserStreamPayloadSchema
-} from '../../../src/shared/mobile-web/browser-operation-contract'
+import { MobileWebBrowserStreamPayloadSchema } from '../../../src/shared/mobile-web/browser-operation-contract'
 import { MobileWebWorkspaceSubscribePayloadSchema } from '../../../src/shared/mobile-web/bridge-operation-contract'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { MobileWebBridgeCapability } from '../../../src/shared/mobile-web/bridge-operation-registry'
@@ -45,24 +37,10 @@ function requireSubscribeOperation(request: SubscriptionRequest): void {
 }
 
 async function executeNative(args: Deps, request: OnceRequest): Promise<unknown> {
-  if (
-    request.operation === 'sessionChatDraftRead' ||
-    request.operation === 'sessionChatDraftWrite'
-  ) {
-    const payload = (
-      request.operation === 'sessionChatDraftRead'
-        ? MobileWebSessionChatDraftReadPayloadSchema
-        : MobileWebSessionChatDraftWritePayloadSchema
-    ).parse(request.payload)
-    if (payload.tabId.startsWith('resource_')) {
-      await bindMobileWebBrowserResource(args, payload.workspaceId, payload.tabId)
-    }
-  }
   return executeMobileWebNativeCapabilityOperation({
     operation: request.operation,
     payload: request.payload,
     authority: args.nativeAuthority,
-    browserAuthority: args.browserAuthority,
     workspaceAuthority: args.workspaceAuthority
   })
 }
@@ -77,14 +55,11 @@ async function executeNavigation(args: Deps, request: OnceRequest): Promise<unkn
 }
 
 async function executeBrowser(args: Deps, request: OnceRequest): Promise<unknown> {
-  const target = MobileWebBrowserTargetPayloadSchema.strip().parse(request.payload)
-  await bindMobileWebBrowserResource(args, target.workspaceId, target.pageId)
   return executeMobileWebBrowserOperation({
     operation: request.operation,
     payload: request.payload,
     client: args.connectedClient(),
-    workspaceAuthority: args.workspaceAuthority,
-    browserAuthority: args.browserAuthority
+    workspaceAuthority: args.workspaceAuthority
   })
 }
 
@@ -197,8 +172,7 @@ export const MOBILE_WEB_ONCE_CAPABILITY_ARMS: Partial<Record<MobileWebBridgeCapa
 
 async function subscribeBrowser(args: Deps, request: SubscriptionRequest): Promise<unknown> {
   requireSubscribeOperation(request)
-  const target = MobileWebBrowserStreamPayloadSchema.parse(request.payload)
-  await bindMobileWebBrowserResource(args, target.workspaceId, target.pageId)
+  MobileWebBrowserStreamPayloadSchema.parse(request.payload)
   args.browserStreams.start({
     requestId: request.requestId,
     subscriptionId: request.subscriptionId,
@@ -212,7 +186,6 @@ async function subscribeWorkspace(args: Deps, request: SubscriptionRequest): Pro
   if (request.operation === 'hostSubscribe') {
     await args.hostSubscriptions.start({
       catalog: args.hostCatalog,
-      getPageSessionId: args.getPageSessionId,
       requestId: request.requestId,
       subscriptionId: request.subscriptionId,
       payload: request.payload,

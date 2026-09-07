@@ -3,8 +3,7 @@ import { defineMethod } from '../core'
 import {
   MobileWebSessionScope,
   mobileWebSessionMethod,
-  projectMobileWebSession,
-  resolveMobileWebSessionTab
+  projectMobileWebSession
 } from './mobile-web-session-scope'
 
 const list = mobileWebSessionMethod('session.tabs.list')
@@ -41,7 +40,6 @@ export const MOBILE_WEB_SESSION_METHODS = [
     name: 'mobileWeb.session.activate',
     params: Action,
     handler: async (params, context) => {
-      const tabId = resolveMobileWebSessionTab(params, context)
       if (context.signal?.aborted) {
         throw new Error('runtime_unavailable')
       }
@@ -49,7 +47,7 @@ export const MOBILE_WEB_SESSION_METHODS = [
         await activate.handler(
           activate.params!.parse({
             worktree: params.worktree,
-            tabId,
+            tabId: params.tabId,
             notifyClients: false,
             navigation: 'caller'
           }),
@@ -64,13 +62,12 @@ export const MOBILE_WEB_SESSION_METHODS = [
     name: 'mobileWeb.session.close',
     params: Action,
     handler: async (params, context) => {
-      const tabId = resolveMobileWebSessionTab(params, context)
       if (context.signal?.aborted) {
         throw new Error('runtime_unavailable')
       }
       const result = Close.parse(
         await close.handler(
-          close.params!.parse({ worktree: params.worktree, tabId, reason: 'user' }),
+          close.params!.parse({ worktree: params.worktree, tabId: params.tabId, reason: 'user' }),
           context
         )
       )

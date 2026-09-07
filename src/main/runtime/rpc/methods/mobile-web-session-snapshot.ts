@@ -8,6 +8,7 @@ import {
   type MobileWebSessionTab
 } from '../../../../shared/mobile-web/bridge-operation-contract'
 import { mobileWebPageBrowserUrl } from '../../../../shared/mobile-web/browser-url-privacy'
+import { MOBILE_WEB_NATIVE_CHAT_SESSION_ID_MAX_LENGTH } from '../../../../shared/mobile-web/native-chat-target-contract'
 import { mobileWebSessionAgentStatus } from './mobile-web-session-agent-status-projection'
 import { tabsWithinMobileWebSessionEventBudget } from './mobile-web-session-snapshot-event-budget'
 import {
@@ -15,20 +16,22 @@ import {
   boundedOptionalText,
   boundedText
 } from './mobile-web-session-value-bounds'
-import type {
-  MobileWebHostNativeChatBinding,
-  MobileWebSessionBrowserResources as MobileWebBrowserAuthority,
-  MobileWebSessionChatResources as MobileWebNativeChatAuthority
-} from './mobile-web-session-resources'
+
+export type MobileWebHostNativeChatBinding = {
+  hostWorkspaceId: string
+  hostTabId: string
+  hostTerminalId: string | null
+  agent: string
+  providerSessionId: string
+  transcriptPath?: string
+}
 
 const TAB_TYPES = ['terminal', 'markdown', 'file', 'browser'] as const
 
 export function mobileWebSessionSnapshot(
   result: unknown,
   hostWorkspaceId: MobileWebHostWorkspaceId,
-  pageWorkspaceId: string,
-  browserAuthority: MobileWebBrowserAuthority,
-  nativeChatAuthority: MobileWebNativeChatAuthority
+  pageWorkspaceId: string
 ): MobileWebSessionSnapshotResult {
   if (
     !isRecord(result) ||
@@ -44,36 +47,11 @@ export function mobileWebSessionSnapshot(
     throw new Error('mobile_web_session_snapshot_invalid')
   }
 
-  const browserPageIds = result.tabs.flatMap((value): string[] => {
-    if (
-      isRecord(value) &&
-      value.type === 'browser' &&
-      typeof value.browserPageId === 'string' &&
-      value.browserPageId.length > 0 &&
-      value.browserPageId.length <= 512
-    ) {
-      return [value.browserPageId]
-    }
-    return []
-  })
-  if (result.workspaceTransportState !== 'unavailable') {
-    browserAuthority.synchronizeWorkspace(hostWorkspaceId, browserPageIds)
-  }
-  const nativeChatBindings = result.tabs.flatMap((value): MobileWebHostNativeChatBinding[] => {
-    const binding = mobileWebNativeChatBinding(value, hostWorkspaceId)
-    return binding ? [binding] : []
-  })
-  if (result.workspaceTransportState !== 'unavailable') {
-    nativeChatAuthority.synchronizeWorkspace(hostWorkspaceId, nativeChatBindings)
-  }
   const tabs = boundedHostSessionTabs(result.tabs).flatMap((value): MobileWebSessionTab[] => {
-    const tab = mobileWebSessionTab(value, hostWorkspaceId, browserAuthority, nativeChatAuthority)
+    const tab = mobileWebSessionTab(value, hostWorkspaceId)
     return tab ? [tab] : []
   })
-  const activeTabId =
-    result.activeTabType === 'browser'
-      ? (tabs.find((tab) => tab.type === 'browser' && tab.isActive)?.id ?? null)
-      : boundedNullableText(result.activeTabId, 512)
+  const activeTabId = boundedNullableText(result.activeTabId, 512)
 
   const envelope = {
     workspaceId: pageWorkspaceId,
@@ -111,9 +89,7 @@ function isActiveSessionTab(value: unknown): boolean {
 
 function mobileWebSessionTab(
   value: unknown,
-  hostWorkspaceId: MobileWebHostWorkspaceId,
-  browserAuthority: MobileWebBrowserAuthority,
-  nativeChatAuthority: MobileWebNativeChatAuthority
+  hostWorkspaceId: MobileWebHostWorkspaceId
 ): MobileWebSessionTab | null {
   if (
     !isRecord(value) ||
@@ -139,9 +115,7 @@ function mobileWebSessionTab(
       status: value.status === 'pending-handle' ? 'pending-handle' : 'ready',
       ...(launchAgent ? { launchAgent } : {}),
       ...(agentStatus ? { agentStatus } : {}),
-      ...(nativeChatBinding
-        ? { nativeChatSessionId: nativeChatAuthority.register(nativeChatBinding) }
-        : {})
+      ...(nativeChatBinding ? { nativeChatSessionId: nativeChatBinding.providerSessionId } : {})
     }
   }
   if (value.type === 'markdown') {
@@ -176,12 +150,10 @@ function mobileWebSessionTab(
   ) {
     return null
   }
-  const browserPageId = browserAuthority.register(hostWorkspaceId, value.browserPageId)
   return {
     ...base,
-    id: browserPageId,
     type: 'browser',
-    browserPageId,
+    browserPageId: value.browserPageId,
     url: mobileWebPageBrowserUrl(value.url),
     loading: value.loading === true,
     canGoBack: value.canGoBack === true,
@@ -211,7 +183,10 @@ export function mobileWebNativeChatBinding(
   const agent =
     boundedOptionalText(value.agentStatus.agentType, AGENT_TYPE_MAX_LENGTH) ??
     boundedOptionalText(value.launchAgent, AGENT_TYPE_MAX_LENGTH)
-  const providerSessionId = boundedOptionalText(value.agentStatus.providerSession.id, 512)
+  const providerSessionId = boundedOptionalText(
+    value.agentStatus.providerSession.id,
+    MOBILE_WEB_NATIVE_CHAT_SESSION_ID_MAX_LENGTH
+  )
   if (!agent || !providerSessionId) {
     return null
   }

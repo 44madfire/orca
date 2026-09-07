@@ -19,7 +19,6 @@ const HANDLE_RESOLUTION =
  * read it guards. */
 const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-agent-history-resume.ts': 1,
-  'mobile-web-browser-resource-binding.ts': 1,
   'mobile-web-file-operations.ts': 1,
   'mobile-web-file-write.ts': 1,
   'mobile-web-host-requests.ts': 5,

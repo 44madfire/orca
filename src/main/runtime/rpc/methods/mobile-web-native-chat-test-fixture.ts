@@ -1,9 +1,8 @@
-import { openMobileWebPageResources } from './mobile-web-page-resources'
 import { vi, type Mock } from 'vitest'
 import type { RpcContext } from '../core'
 export function nativeChatPageFixture(): {
   context: RpcContext
-  scope: { worktree: string; pageSession: string }
+  scope: { worktree: string; tabId: string; sessionId: string }
   listMobileSessionTabs: Mock
   tab: Record<string, unknown>
 } {
@@ -28,7 +27,6 @@ export function nativeChatPageFixture(): {
     pairedDeviceId: 'device',
     runtime: { listMobileSessionTabs, registerSubscriptionCleanup: vi.fn() }
   } as unknown as RpcContext
-  openMobileWebPageResources(context, 'page')
-  const scope = { worktree: 'id:host-workspace', pageSession: 'page' }
+  const scope = { worktree: 'id:host-workspace', tabId: 'tab', sessionId: 'provider-session' }
   return { context, scope, listMobileSessionTabs, tab }
 }

@@ -4,9 +4,6 @@ import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
 const payload = { workspaceId: 'workspace', sessionId: `native_chat_0_${'01'.repeat(16)}` }
-const methods = ['bind', 'fileSearch', 'openFile', 'readability'].map(
-  (method) => `mobileWeb.nativeChat.${method}`
-)
 function fixture() {
   const request = vi.fn(async (capability, operation, value) => {
     if (capability === 'nativeChat') {
@@ -15,12 +12,6 @@ function fixture() {
         : operation === 'readability'
           ? { readable: false }
           : null
-    }
-    if (operation === 'hostCatalog') {
-      return { grants: methods.map((method) => ({ method })) }
-    }
-    if (value.method.endsWith('.bind')) {
-      return { resourceId: 'resource-chat' }
     }
     if (value.method.endsWith('.fileSearch')) {
       return {
@@ -42,20 +33,29 @@ function fixture() {
 }
 afterEach(() => vi.useRealTimers())
 describe('native-chat file generic client', () => {
-  it('binds by tab and presents only valid relative search paths', async () => {
+  it('searches in one host call and presents only valid relative paths', async () => {
     const f = fixture()
     expect(await f.client.fileSearch({ ...payload, query: 'src' }, 'tab')).toEqual({
       paths: ['src/main.ts']
     })
     expect(f.request.mock.calls.map((call) => call[2])).toEqual([
-      { methods: ['mobileWeb.nativeChat.bind', 'mobileWeb.nativeChat.fileSearch'] },
-      { method: 'mobileWeb.nativeChat.bind', workspaceId: 'workspace', params: { tabId: 'tab' } },
       {
         method: 'mobileWeb.nativeChat.fileSearch',
         workspaceId: 'workspace',
-        params: { resourceId: 'resource-chat', search: { query: 'src', limit: 16 } }
+        params: {
+          tabId: 'tab',
+          sessionId: payload.sessionId,
+          search: { query: 'src', limit: 16 }
+        }
       }
     ])
+  })
+
+  it.each([
+    ['fileSearch', () => fixture().client.fileSearch({ ...payload, query: 'src' }, undefined)],
+    ['openFile', () => fixture().client.openFile({ ...payload, pathText: 'x' }, undefined)]
+  ])('refuses %s without a tab to address', async (_name, run) => {
+    await expect(run()).rejects.toMatchObject({ code: 'invalid_request' })
   })
   it('queries host readability without a terminal or provider id', async () => {
     const f = fixture()
@@ -69,14 +69,8 @@ describe('native-chat file generic client', () => {
       params: {}
     })
   })
-  it('spends one deadline across bind/catalog and the open operation', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(1_000)
+  it('opens a file in one host call carrying the whole budget', async () => {
     const f = fixture()
-    f.request.mockImplementationOnce(async () => {
-      vi.setSystemTime(4_000)
-      return { grants: methods.map((method) => ({ method })) }
-    })
     await expect(
       f.client.openFile({ ...payload, pathText: 'src/main.ts' }, 'tab')
     ).resolves.toBeNull()
@@ -84,30 +78,29 @@ describe('native-chat file generic client', () => {
       f.request.mock.calls.map(
         (call) => ((call as unknown[]).at(-1) as { timeoutMs: number }).timeoutMs
       )
-    ).toEqual([15_000, 12_000, 12_000])
-    expect(f.request.mock.calls[2][2]).toEqual({
+    ).toEqual([15_000])
+    expect(f.request.mock.calls[0][2]).toEqual({
       method: 'mobileWeb.nativeChat.openFile',
       workspaceId: 'workspace',
-      params: { resourceId: 'resource-chat', pathText: 'src/main.ts', timeoutMs: 12_000 }
+      params: {
+        tabId: 'tab',
+        sessionId: payload.sessionId,
+        pathText: 'src/main.ts',
+        timeoutMs: 15_000
+      }
     })
   })
   it.each(['timeout', 'host_error', 'unsupported_capability'] as const)(
     'never retries or falls back after the open dispatch reports %s',
     async (code) => {
       const f = fixture()
-      f.request.mockImplementation(async (_capability, operation, value) => {
-        if (operation === 'hostCatalog') {
-          return { grants: methods.map((method) => ({ method })) }
-        }
-        if (value.method.endsWith('.bind')) {
-          return { resourceId: 'resource-chat' }
-        }
+      f.request.mockImplementation(async () => {
         throw new MobileWebBridgeClientError(code, true)
       })
       await expect(f.client.openFile({ ...payload, pathText: 'x' }, 'tab')).rejects.toMatchObject({
         code
       })
-      expect(f.request).toHaveBeenCalledTimes(3)
+      expect(f.request).toHaveBeenCalledOnce()
       expect(f.request.mock.calls.every((call) => call[0] === 'workspace')).toBe(true)
     }
   )

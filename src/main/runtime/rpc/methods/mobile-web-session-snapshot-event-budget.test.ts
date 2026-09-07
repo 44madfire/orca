@@ -1,4 +1,3 @@
-import { openMobileWebPageResources } from './mobile-web-page-resources'
 /**
  * Two limits govern one snapshot. `MOBILE_WEB_SESSION_TAB_LIMIT` degrades: it slices to 200, keeps
  * the active tab, and reports `truncated`. `MOBILE_WEB_SESSION_EVENT_MAX_BYTES` used to kill the
@@ -8,18 +7,20 @@ import { openMobileWebPageResources } from './mobile-web-page-resources'
  */
 import { describe, expect, it } from 'vitest'
 import { MOBILE_WEB_SESSION_EVENT_MAX_BYTES } from '../../../../shared/mobile-web/bridge-operation-contract'
-import { mobileWebSessionResources } from './mobile-web-session-resources'
-import type { RpcContext } from '../core'
 import { mobileWebSessionSnapshot } from './mobile-web-session-snapshot'
 
 const HOST_WORKSPACE = 'workspace-1'
 const PAGE_WORKSPACE = 'opaque-workspace'
 
+function browserPageId(index: number): string {
+  return `page-${index}`.padEnd(512, 'x')
+}
+
 function oversizeBrowserTabs(count: number) {
   return Array.from({ length: count }, (_, index) => ({
     type: 'browser',
-    id: `page-${index}`.padEnd(512, 'x'),
-    browserPageId: `page-${index}`,
+    id: browserPageId(index),
+    browserPageId: browserPageId(index),
     title: `Tab ${index}`.padEnd(240, 'y'),
     url: `https://example.invalid/${index}/${'q'.repeat(4000)}`,
     isActive: index === 3,
@@ -34,19 +35,10 @@ function hostSnapshot(count: number) {
     worktree: HOST_WORKSPACE,
     publicationEpoch: 'epoch-1',
     snapshotVersion: 3,
-    activeTabId: 'page-3',
+    activeTabId: browserPageId(3),
     activeTabType: 'browser',
     tabs: oversizeBrowserTabs(count)
   }
-}
-
-function authorities() {
-  const context = {
-    runtime: { registerSubscriptionCleanup() {} },
-    connectionId: 'connection'
-  } as unknown as RpcContext
-  openMobileWebPageResources(context, 'page')
-  return mobileWebSessionResources(context, 'page')
 }
 
 function encodedByteLength(value: unknown): number {
@@ -61,14 +53,7 @@ describe('mobile web session snapshot event budget', () => {
   })
 
   it('trims to fit, keeps the active tab, and reports truncated', () => {
-    const authority = authorities()
-    const snapshot = mobileWebSessionSnapshot(
-      hostSnapshot(40),
-      HOST_WORKSPACE,
-      PAGE_WORKSPACE,
-      authority.browser,
-      authority.nativeChat
-    )
+    const snapshot = mobileWebSessionSnapshot(hostSnapshot(40), HOST_WORKSPACE, PAGE_WORKSPACE)
 
     expect(encodedByteLength(snapshot)).toBeLessThanOrEqual(MOBILE_WEB_SESSION_EVENT_MAX_BYTES)
     expect(snapshot.tabs.length).toBeGreaterThan(0)
@@ -79,14 +64,7 @@ describe('mobile web session snapshot event budget', () => {
   })
 
   it('leaves a snapshot that already fits untouched', () => {
-    const authority = authorities()
-    const snapshot = mobileWebSessionSnapshot(
-      hostSnapshot(3),
-      HOST_WORKSPACE,
-      PAGE_WORKSPACE,
-      authority.browser,
-      authority.nativeChat
-    )
+    const snapshot = mobileWebSessionSnapshot(hostSnapshot(3), HOST_WORKSPACE, PAGE_WORKSPACE)
 
     expect(snapshot.tabs).toHaveLength(3)
     expect(snapshot.truncated).toBe(false)

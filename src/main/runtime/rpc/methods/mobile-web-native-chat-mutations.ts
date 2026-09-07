@@ -4,15 +4,14 @@ import { typeAgentTuiCommand } from '../../../../shared/agent-tui-command-typing
 import { AGENT_TUI_CLEAR_INPUT_LINE } from '../../../../shared/agent-tui-input-clear'
 import { TERMINAL_SEND_METHODS } from './terminal/terminal-send-method'
 import { TerminalSend } from './terminal/unary-schemas'
-import { MobileWebChatScope, resolveMobileWebNativeChat } from './mobile-web-native-chat-binding'
+import { MobileWebChatTarget, resolveMobileWebNativeChat } from './mobile-web-native-chat-binding'
 
 const method = TERMINAL_SEND_METHODS.find((entry) => entry.name === 'terminal.send')
 if (!method || isStreamingMethod(method)) {
   throw new Error('Missing terminal sender')
 }
 const sender = method
-const Params = MobileWebChatScope.extend({
-  resourceId: z.string().min(1).max(160),
+const Params = MobileWebChatTarget.extend({
   action: z.enum(['sendMessage', 'respond', 'stop', 'prepareCommit']),
   text: z
     .string()
@@ -39,15 +38,13 @@ export const MOBILE_WEB_NATIVE_CHAT_MUTATION_METHOD = defineMethod({
     }
     const deadline = Date.now() + params.timeoutMs
     const writable = () => !context.signal?.aborted && deadline - Date.now() >= 2_000
+    // Resolved once: a per-keystroke re-resolve costs a full tab enumeration per character.
+    const binding = await resolveMobileWebNativeChat(context, params)
     const write = async (
       text: string,
       enter: boolean,
       resolvedLaunchDraft?: z.infer<typeof TerminalSend>['resolvedLaunchDraft']
     ): Promise<Outcome> => {
-      if (!writable()) {
-        return 'rejected'
-      }
-      const binding = await resolveMobileWebNativeChat(context, params)
       if (!writable()) {
         return 'rejected'
       }

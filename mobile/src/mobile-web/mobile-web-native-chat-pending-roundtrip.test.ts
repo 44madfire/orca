@@ -4,7 +4,7 @@ import { createMobileWebBridgeRoundtripFixture } from './mobile-web-bridge-round
 import { MOBILE_WEB_PRODUCTION_GRANTS } from './mobile-web-production-grants'
 
 describe('mobile web native chat pending delivery round trip', () => {
-  it('resolves page handles before shell persistence and returns only bounded records', async () => {
+  it('resolves the host tab before shell persistence and returns only bounded records', async () => {
     const sendRequest = vi
       .fn<RpcClient['sendRequest']>()
       .mockResolvedValueOnce(
@@ -65,7 +65,7 @@ describe('mobile web native chat pending delivery round trip', () => {
     )
     expect(
       JSON.stringify([...sessionChatPendingRead.mock.calls, ...sessionChatPendingWrite.mock.calls])
-    ).not.toContain(tab.nativeChatSessionId)
+    ).not.toContain('host-terminal')
   })
 })
 

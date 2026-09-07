@@ -12,27 +12,6 @@ type PageRequest = Extract<MobileWebBridgePageMessage, { type: 'request' }>
 export async function executeMobileWebCapabilityRequest(
   args: MobileWebCapabilityExecutionDependencies
 ): Promise<unknown> {
-  const value = args.request.payload
-  const payload =
-    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
-  const pageId = payload.pageId ?? payload.tabId
-  const releaseBrowser =
-    args.request.capability === 'browser' && typeof pageId === 'string'
-      ? args.browserAuthority.retain(pageId)
-      : undefined
-  const releaseChat =
-    args.request.capability === 'nativeChat' && typeof payload.sessionId === 'string'
-      ? args.nativeChatAuthority.retain(payload.sessionId)
-      : undefined
-  try {
-    return await executeRequest(args)
-  } finally {
-    releaseBrowser?.()
-    releaseChat?.()
-  }
-}
-
-async function executeRequest(args: MobileWebCapabilityExecutionDependencies): Promise<unknown> {
   const request: PageRequest = args.request
   const capability: MobileWebBridgeCapability = request.capability
   if (request.mode === 'subscription') {

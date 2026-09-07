@@ -1,4 +1,3 @@
-import { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { MobileWebAgentHistoryAuthority } from './mobile-web-agent-history-authority'
 import { MobileWebAgentHistoryPager } from './mobile-web-agent-history-pager'
 import { MobileWebAgentHistoryResume } from './mobile-web-agent-history-resume'
@@ -15,7 +14,6 @@ export class MobileWebCapabilityAuthorities {
   readonly agentHistory: MobileWebAgentHistoryAuthority
   readonly agentHistoryPager: MobileWebAgentHistoryPager
   readonly agentHistoryResume: MobileWebAgentHistoryResume
-  readonly browser: MobileWebBrowserAuthority
   readonly hostCatalog: MobileWebHostCatalogCache
   readonly nativeChat: MobileWebNativeChatAuthority
   readonly sourceControlBranchCompare: MobileWebSourceControlBranchComparePager
@@ -29,7 +27,6 @@ export class MobileWebCapabilityAuthorities {
     this.agentHistory = new MobileWebAgentHistoryAuthority(options.randomBytes)
     this.agentHistoryPager = new MobileWebAgentHistoryPager(options.randomBytes)
     this.agentHistoryResume = new MobileWebAgentHistoryResume(options.randomBytes)
-    this.browser = new MobileWebBrowserAuthority()
     this.hostCatalog = new MobileWebHostCatalogCache()
     this.nativeChat = new MobileWebNativeChatAuthority(options.randomBytes)
     this.sourceControlBranchCompare = new MobileWebSourceControlBranchComparePager()
@@ -44,7 +41,6 @@ export class MobileWebCapabilityAuthorities {
     this.agentHistory.clear()
     this.agentHistoryPager.clear()
     this.agentHistoryResume.clear()
-    this.browser.clear()
     this.hostCatalog.clear()
     this.nativeChat.clear()
     this.sourceControlBranchCompare.clear()

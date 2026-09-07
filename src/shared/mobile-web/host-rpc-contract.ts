@@ -25,12 +25,6 @@ export const MobileWebHostGrantSchema = z
     scope: z.enum(['workspace', 'host']).optional(),
     mode: z.enum(['once', 'subscription']).optional(),
     unsubscribeMethod: MethodSchema.optional(),
-    pageSessionParam: z
-      .string()
-      .min(1)
-      .max(80)
-      .regex(/^[A-Za-z][A-Za-z0-9]*$/)
-      .optional(),
     workspaceParam: z
       .string()
       .min(1)

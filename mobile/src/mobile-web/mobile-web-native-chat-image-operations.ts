@@ -9,8 +9,8 @@ import { pasteMobileNativeChatImagePaths } from '../session/mobile-native-chat-i
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import {
-  assertCurrentMobileWebNativeChatPageBinding,
-  resolveFreshMobileWebNativeChatPageBinding
+  assertCurrentMobileWebNativeChatBinding,
+  resolveMobileWebNativeChatBinding
 } from './mobile-web-native-chat-binding'
 import { validateMobileWebNativeChatDeadline } from './mobile-web-native-chat-deadline'
 import type { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
@@ -26,7 +26,6 @@ export async function executeMobileWebNativeChatImageOperation(args: {
   operation: string
   payload: unknown
   client: RpcClient
-  getPageSessionId?: () => Promise<string>
   isActive?: () => boolean
   terminalClientId: string
   workspaceAuthority: MobileWebWorkspaceAuthority
@@ -34,7 +33,7 @@ export async function executeMobileWebNativeChatImageOperation(args: {
 }): Promise<unknown> {
   if (args.operation === 'attachImage') {
     const payload = MobileWebNativeChatAttachImagePayloadSchema.parse(args.payload)
-    const binding = await resolveFreshMobileWebNativeChatPageBinding(
+    const binding = await resolveMobileWebNativeChatBinding(
       args,
       payload.workspaceId,
       payload.sessionId,
@@ -50,7 +49,7 @@ export async function executeMobileWebNativeChatImageOperation(args: {
     if (prepared.status !== 'accepted') {
       return MobileWebNativeChatAttachImageResultSchema.parse({ status: prepared.status })
     }
-    await assertCurrentMobileWebNativeChatPageBinding(
+    await assertCurrentMobileWebNativeChatBinding(
       args,
       payload.workspaceId,
       payload.sessionId,
@@ -71,7 +70,7 @@ export async function executeMobileWebNativeChatImageOperation(args: {
   if (args.operation === 'pasteImages') {
     const payload = MobileWebNativeChatPasteImagesPayloadSchema.parse(args.payload)
     validateMobileWebNativeChatDeadline(payload.deadline)
-    const binding = await resolveFreshMobileWebNativeChatPageBinding(
+    const binding = await resolveMobileWebNativeChatBinding(
       args,
       payload.workspaceId,
       payload.sessionId,
@@ -91,7 +90,7 @@ export async function executeMobileWebNativeChatImageOperation(args: {
         followedByText: payload.followedByText === true,
         deadline: payload.deadline,
         assertCurrent: () =>
-          assertCurrentMobileWebNativeChatPageBinding(
+          assertCurrentMobileWebNativeChatBinding(
             args,
             payload.workspaceId,
             payload.sessionId,

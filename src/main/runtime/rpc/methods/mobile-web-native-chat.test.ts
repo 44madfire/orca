@@ -11,15 +11,13 @@ vi.mock('./native-chat', async () => {
   }
 })
 import { MOBILE_WEB_NATIVE_CHAT_METHODS } from './mobile-web-native-chat'
-const bind = MOBILE_WEB_NATIVE_CHAT_METHODS[0]
-const reader = MOBILE_WEB_NATIVE_CHAT_METHODS[1]
+const reader = MOBILE_WEB_NATIVE_CHAT_METHODS[0]
 beforeEach(() => read.mockReset())
 describe('Desktop native-chat page adapter', () => {
   it.each(['界', '\u0000'])(
     'keeps large %s transcripts readable within the bridge byte ceiling',
     async (character) => {
       const f = fixture()
-      const resource = await bind.handler({ ...f.scope, tabId: 'tab' }, f.context)
       const messages = Array.from({ length: 8 }, (_, index) => ({
         id: `message-${index}`,
         role: 'assistant',
@@ -31,7 +29,7 @@ describe('Desktop native-chat page adapter', () => {
       const raw = { messages, hasMore: true, beforeOffset: 42, futureLifecycle: 'new' }
       read.mockResolvedValue(raw)
       const result = (await reader.handler(
-        { ...f.scope, ...(resource as object), read: { limit: 8, beforeOffset: 100 } },
+        { ...f.scope, read: { limit: 8, beforeOffset: 100 } },
         f.context
       )) as typeof raw
       expect(Buffer.byteLength(JSON.stringify(raw))).toBeGreaterThan(
@@ -54,7 +52,6 @@ describe('Desktop native-chat page adapter', () => {
 
   it('bounds oversized tool and future blocks without discarding messages or the pagination cursor', async () => {
     const f = fixture()
-    const resource = await bind.handler({ ...f.scope, tabId: 'tab' }, f.context)
     const raw = {
       messages: Array.from({ length: 40 }, (_, index) => ({
         id: `message-${index}`,
@@ -67,10 +64,7 @@ describe('Desktop native-chat page adapter', () => {
       beforeOffset: 123
     }
     read.mockResolvedValue(raw)
-    const result = (await reader.handler(
-      { ...f.scope, ...(resource as object), read: {} },
-      f.context
-    )) as typeof raw
+    const result = (await reader.handler({ ...f.scope, read: {} }, f.context)) as typeof raw
     expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
       MOBILE_WEB_NATIVE_CHAT_EVENT_MAX_BYTES
     )
@@ -82,20 +76,14 @@ describe('Desktop native-chat page adapter', () => {
     ])
   })
 
-  it('resolves opaque identities and preserves future transcript fields without shell projections', async () => {
+  it('reads host identities from the tab list and ignores forged read fields', async () => {
     const f = fixture()
     const result = { messages: [{ future: { field: true } }], futureLifecycle: 'new' }
     read.mockResolvedValue(result)
-    const resource = (await bind.handler({ ...f.scope, tabId: 'tab' }, f.context)) as {
-      resourceId: string
-    }
-    expect(JSON.stringify(resource)).not.toContain('provider-session')
-    expect(JSON.stringify(resource)).not.toContain('/private')
     expect(
       await reader.handler(
         {
           ...f.scope,
-          ...resource,
           read: {
             limit: 30,
             sessionId: 'forged',
@@ -120,43 +108,28 @@ describe('Desktop native-chat page adapter', () => {
     )
   })
 
-  it('refuses replaced bindings before reading and after asynchronous reads', async () => {
-    for (const duringRead of [false, true]) {
-      const f = fixture()
-      const resource = (await bind.handler({ ...f.scope, tabId: 'tab' }, f.context)) as {
-        resourceId: string
-      }
-      const replace = () =>
-        f.listMobileSessionTabs.mockResolvedValue({
-          worktree: 'host-workspace',
-          tabs: [{ ...f.tab, terminal: 'replacement' }]
-        })
-      if (duringRead) {
-        read.mockImplementationOnce(async () => {
-          replace()
-          return { messages: [] }
-        })
-      } else {
-        replace()
-      }
-      await expect(
-        reader.handler({ ...f.scope, ...resource, read: {} }, f.context)
-      ).rejects.toThrow('selector_not_found')
-    }
+  it.each([
+    ['a session the tab no longer reports', { id: 'replacement-session' }],
+    ['a tab with no live agent session', undefined]
+  ])('refuses %s before reading', async (_name, providerSession) => {
+    const f = fixture()
+    f.listMobileSessionTabs.mockResolvedValue({
+      worktree: 'host-workspace',
+      tabs: [{ ...f.tab, agentStatus: { agentType: 'codex', providerSession } }]
+    })
+    await expect(reader.handler({ ...f.scope, read: {} }, f.context)).rejects.toThrow(
+      'selector_not_found'
+    )
+    expect(read).not.toHaveBeenCalled()
   })
 
-  it('preserves a handle across an unverifiable snapshot failure', async () => {
+  it('reads again after an unverifiable snapshot failure', async () => {
     const f = fixture()
-    const resource = (await bind.handler({ ...f.scope, tabId: 'tab' }, f.context)) as {
-      resourceId: string
-    }
     f.listMobileSessionTabs.mockRejectedValueOnce(new Error('Connection unavailable'))
-    await expect(reader.handler({ ...f.scope, ...resource, read: {} }, f.context)).rejects.toThrow(
+    await expect(reader.handler({ ...f.scope, read: {} }, f.context)).rejects.toThrow(
       'Connection unavailable'
     )
     read.mockResolvedValueOnce({ messages: [] })
-    expect(await reader.handler({ ...f.scope, ...resource, read: {} }, f.context)).toEqual({
-      messages: []
-    })
+    expect(await reader.handler({ ...f.scope, read: {} }, f.context)).toEqual({ messages: [] })
   })
 })

@@ -4,8 +4,7 @@ import { defineMethod, isStreamingMethod } from '../core'
 import { NATIVE_CHAT_METHODS } from './native-chat'
 import { boundMobileWebNativeChatRead } from './mobile-web-native-chat-read-budget'
 import {
-  bindMobileWebNativeChat,
-  MobileWebChatScope,
+  MobileWebChatTarget,
   mobileWebNativeChatHostParams,
   resolveMobileWebNativeChat
 } from './mobile-web-native-chat-binding'
@@ -18,22 +17,12 @@ const reader = read
 
 export const MOBILE_WEB_NATIVE_CHAT_METHODS = [
   defineMethod({
-    name: 'mobileWeb.nativeChat.bind',
-    params: MobileWebChatScope.extend({ tabId: z.string().min(1).max(512) }),
-    handler: (params, context) => bindMobileWebNativeChat(context, params)
-  }),
-  defineMethod({
     name: 'mobileWeb.nativeChat.read',
-    params: MobileWebChatScope.extend({
-      resourceId: z.string().min(1).max(160),
-      read: z.record(z.string(), z.unknown())
-    }),
+    params: MobileWebChatTarget.extend({ read: z.record(z.string(), z.unknown()) }),
     handler: async (params, context) => {
       const binding = await resolveMobileWebNativeChat(context, params)
       const input = reader.params!.parse(mobileWebNativeChatHostParams(binding, params.read))
-      const result = await reader.handler(input, context)
-      await resolveMobileWebNativeChat(context, params)
-      return boundMobileWebNativeChatRead(result)
+      return boundMobileWebNativeChatRead(await reader.handler(input, context))
     }
   }),
   MOBILE_WEB_NATIVE_CHAT_MUTATION_METHOD

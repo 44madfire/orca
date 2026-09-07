@@ -54,29 +54,6 @@ describe('host-advertised unary forwarding', () => {
     expect(JSON.stringify(result)).not.toContain('host-workspace')
   })
 
-  it('overwrites page-authored scope with the current shell document identity', async () => {
-    const { args, sendRequest } = fixture()
-    sendRequest
-      .mockResolvedValueOnce({
-        ok: true,
-        result: { grants: [{ ...grant, pageSessionParam: 'pageSession' }] }
-      })
-      .mockResolvedValueOnce({ ok: true, result: {} })
-    await executeMobileWebHostRequest({
-      ...args,
-      getPageSessionId: async () => 'current-document',
-      payload: { ...args.payload, params: { pageSession: 'retired-document' } }
-    })
-    expect(sendRequest).toHaveBeenLastCalledWith(
-      grant.method,
-      {
-        worktree: 'id:host-workspace',
-        pageSession: 'current-document'
-      },
-      expect.objectContaining({ beforeSend: expect.any(Function) })
-    )
-  })
-
   it.each(['cancel', 'rebind'] as const)('revalidates %s at transport dispatch', async (change) => {
     const { args, sendRequest } = fixture()
     let active = true
@@ -94,18 +71,6 @@ describe('host-advertised unary forwarding', () => {
     await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({
       code: change === 'cancel' ? 'cancelled' : 'not_found'
     })
-  })
-
-  it('refuses a scoped method without native document authority', async () => {
-    const { args, sendRequest } = fixture()
-    sendRequest.mockResolvedValueOnce({
-      ok: true,
-      result: { grants: [{ ...grant, pageSessionParam: 'pageSession' }] }
-    })
-    await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({
-      code: 'unsupported_capability'
-    })
-    expect(sendRequest).toHaveBeenCalledOnce()
   })
 
   it('refuses methods the desktop did not advertise', async () => {

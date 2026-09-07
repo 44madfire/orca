@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
-import { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { executeMobileWebBrowserOperation } from './mobile-web-browser-operations'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 describe('mobile web browser operations', () => {
-  it('resolves opaque workspace and page authority for navigation', async () => {
-    const { workspaceAuthority, browserAuthority, workspaceId, pageId } = authorities()
+  it('resolves opaque workspace authority and forwards the host page id for navigation', async () => {
+    const { workspaceAuthority, workspaceId, pageId } = authorities()
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
       ok: true,
       result: { url: 'https://example.com/', title: 'Example', rawPageId: 'raw-page' }
@@ -17,8 +16,7 @@ describe('mobile web browser operations', () => {
         operation: 'navigate',
         payload: { workspaceId, pageId, url: 'https://example.com' },
         client: { sendRequest } as unknown as RpcClient,
-        workspaceAuthority,
-        browserAuthority
+        workspaceAuthority
       })
     ).resolves.toEqual({ url: 'https://example.com/' })
 
@@ -34,7 +32,7 @@ describe('mobile web browser operations', () => {
   })
 
   it('removes credentials from the authoritative navigation result', async () => {
-    const { workspaceAuthority, browserAuthority, workspaceId, pageId } = authorities()
+    const { workspaceAuthority, workspaceId, pageId } = authorities()
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
       ok: true,
       result: {
@@ -47,14 +45,13 @@ describe('mobile web browser operations', () => {
         operation: 'navigate',
         payload: { workspaceId, pageId, url: 'https://example.com' },
         client: { sendRequest } as unknown as RpcClient,
-        workspaceAuthority,
-        browserAuthority
+        workspaceAuthority
       })
     ).resolves.toEqual({ url: 'https://example.com/callback?tab=review' })
   })
 
-  it('keeps pointer fallback native and rejects cross-workspace page handles', async () => {
-    const { workspaceAuthority, browserAuthority, workspaceId, pageId } = authorities()
+  it('keeps pointer fallback native and refuses an unknown page workspace', async () => {
+    const { workspaceAuthority, workspaceId, pageId } = authorities()
     const sendRequest = vi
       .fn<RpcClient['sendRequest']>()
       .mockResolvedValueOnce({ ok: false, error: { code: 'unsupported', message: 'unsupported' } })
@@ -73,8 +70,7 @@ describe('mobile web browser operations', () => {
         modifiers: []
       },
       client,
-      workspaceAuthority,
-      browserAuthority
+      workspaceAuthority
     })
 
     expect(sendRequest.mock.calls.map(([method]) => method)).toEqual([
@@ -84,18 +80,13 @@ describe('mobile web browser operations', () => {
       'browser.mouseUp'
     ])
 
-    workspaceAuthority.synchronize([
-      { workspaceId: 'host-workspace', repoId: 'repo-1' },
-      { workspaceId: 'other-workspace', repoId: 'repo-1' }
-    ])
-    const otherWorkspaceId = workspaceAuthority.pageWorkspaceId('other-workspace')
+    workspaceAuthority.synchronize([])
     await expect(
       executeMobileWebBrowserOperation({
         operation: 'reload',
-        payload: { workspaceId: otherWorkspaceId, pageId },
+        payload: { workspaceId, pageId },
         client,
-        workspaceAuthority,
-        browserAuthority
+        workspaceAuthority
       })
     ).rejects.toMatchObject({ code: 'not_found' })
   })
@@ -103,22 +94,15 @@ describe('mobile web browser operations', () => {
 
 function authorities(): {
   workspaceAuthority: MobileWebWorkspaceAuthority
-  browserAuthority: MobileWebBrowserAuthority
   workspaceId: string
   pageId: string
 } {
   const randomBytes = (length: number): Uint8Array => new Uint8Array(length).fill(3)
   const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
   workspaceAuthority.synchronize([{ workspaceId: 'host-workspace', repoId: 'repo-1' }])
-  const browserAuthority = new MobileWebBrowserAuthority()
-  browserAuthority.bind('resource_browser', {
-    hostWorkspaceId: 'host-workspace',
-    hostPageId: 'raw-page'
-  })
   return {
     workspaceAuthority,
-    browserAuthority,
     workspaceId: workspaceAuthority.pageWorkspaceId('host-workspace'),
-    pageId: 'resource_browser'
+    pageId: 'raw-page'
   }
 }

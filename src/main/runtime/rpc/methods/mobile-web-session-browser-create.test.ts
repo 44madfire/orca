@@ -15,7 +15,7 @@ if (isStreamingMethod(create) || isStreamingMethod(resolve)) {
 afterEach(() => vi.restoreAllMocks())
 
 describe('host session browser creation', () => {
-  it('confines local file URLs on the owning host and keeps private IDs off the page', async () => {
+  it('confines local file URLs on the owning host and returns the host page id', async () => {
     const f = sessionFixture()
     const path = vi.spyOn(resolve, 'handler').mockResolvedValue({
       worktree: 'folder:workspace',
@@ -27,14 +27,12 @@ describe('host session browser creation', () => {
         absolutePath: '/workspace/file.txt'
       }
     })
-    const browser = vi.spyOn(create, 'handler').mockResolvedValue({ browserPageId: 'private-page' })
+    const browser = vi.spyOn(create, 'handler').mockResolvedValue({ browserPageId: 'host-page' })
     const result = await MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD.handler(
       { ...f.params, url: 'file:///workspace/file.txt' },
       f.context
     )
-    expect(MobileWebSessionBrowserCreateResultSchema.parse(result).browserPageId).toMatch(
-      /^resource_/
-    )
+    expect(MobileWebSessionBrowserCreateResultSchema.parse(result).browserPageId).toBe('host-page')
     expect(path).toHaveBeenCalledWith(
       expect.objectContaining({ worktree: f.params.worktree, pathText: '/workspace/file.txt' }),
       f.context
@@ -73,6 +71,19 @@ describe('host session browser creation', () => {
       expect(browser).not.toHaveBeenCalled()
     }
   )
+
+  it('refuses every URL scheme when the selector names another workspace', async () => {
+    const f = sessionFixture()
+    f.setSnapshot({ ...f.snapshot, worktree: 'folder:other' })
+    const browser = vi.spyOn(create, 'handler')
+    await expect(
+      MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD.handler(
+        { ...f.params, url: 'https://example.com' },
+        f.context
+      )
+    ).rejects.toThrow('selector_not_found')
+    expect(browser).not.toHaveBeenCalled()
+  })
 
   it('does not retry an ambiguous browser creation result', async () => {
     const f = sessionFixture()

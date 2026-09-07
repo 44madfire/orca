@@ -1,87 +1,19 @@
-import type { MobileWebHostWorkspaceId } from './mobile-web-workspace-authority'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
-import { MobileWebResourceCache } from './mobile-web-resource-cache'
 import { MOBILE_WEB_NATIVE_CHAT_IMAGE_LIMIT } from '../../../src/shared/mobile-web/native-chat-operation-contract'
 
-export type MobileWebHostNativeChatBinding = {
-  hostWorkspaceId: MobileWebHostWorkspaceId
-  hostTabId: string
-  hostTerminalId: string | null
-  agent: string
-  providerSessionId: string
-  transcriptPath?: string
-}
+// Staged image paths are native state the page must never see, so they stay behind opaque
+// references. Bounded per session and across sessions so a long-lived shell cannot grow forever.
+const IMAGE_SESSION_LIMIT = 64
 
 export class MobileWebNativeChatAuthority {
-  private readonly bindingBySessionId = new MobileWebResourceCache<MobileWebHostNativeChatBinding>(
-    (id) => this.imagesBySessionId.has(id)
-  )
-  private readonly imagesBySessionId = new Map<string, Map<string, string>>()
+  private readonly imagesBySession = new Map<string, Map<string, string>>()
   private nextImageHandle = 0
 
   constructor(private readonly randomBytes: (length: number) => Uint8Array) {}
 
-  private generation = 0
-
-  captureGeneration(): number {
-    return this.generation
-  }
-
-  assertGeneration(generation: number): void {
-    if (this.generation !== generation) {
-      throw new MobileWebBrokerError('not_found')
-    }
-  }
-
-  bind(sessionId: string, binding: MobileWebHostNativeChatBinding): void {
-    for (const [id, current] of this.bindingBySessionId) {
-      if (
-        id !== sessionId &&
-        current.hostWorkspaceId === binding.hostWorkspaceId &&
-        current.hostTabId === binding.hostTabId
-      ) {
-        this.revoke(id)
-      }
-    }
-    this.bindingBySessionId.set(sessionId, binding)
-  }
-
-  retain(sessionId: string): () => void {
-    return this.bindingBySessionId.retain(sessionId)
-  }
-
-  resolve(hostWorkspaceId: string, sessionId: string): Readonly<MobileWebHostNativeChatBinding> {
-    const binding = this.bindingBySessionId.get(sessionId)
-    if (!binding || binding.hostWorkspaceId !== hostWorkspaceId) {
-      throw new MobileWebBrokerError('not_found')
-    }
-    return binding
-  }
-
-  assertBinding(
-    hostWorkspaceId: string,
-    sessionId: string,
-    expected: Readonly<MobileWebHostNativeChatBinding>
-  ): void {
-    if (
-      nativeChatHostKey(this.resolve(hostWorkspaceId, sessionId)) !== nativeChatHostKey(expected)
-    ) {
-      throw new MobileWebBrokerError('conflict')
-    }
-  }
-
-  revoke(sessionId: string): void {
-    const binding = this.bindingBySessionId.get(sessionId)
-    if (!binding) {
-      return
-    }
-    this.bindingBySessionId.delete(sessionId)
-    this.imagesBySessionId.delete(sessionId)
-  }
-
   registerImage(hostWorkspaceId: string, sessionId: string, hostPath: string): string {
-    this.resolve(hostWorkspaceId, sessionId)
-    const images = this.imagesBySessionId.get(sessionId) ?? new Map<string, string>()
+    const key = sessionKey(hostWorkspaceId, sessionId)
+    const images = this.imagesBySession.get(key) ?? new Map<string, string>()
     if (images.size >= MOBILE_WEB_NATIVE_CHAT_IMAGE_LIMIT) {
       throw new MobileWebBrokerError('rate_limited')
     }
@@ -95,7 +27,8 @@ export class MobileWebNativeChatAuthority {
     ).join('')}`
     this.nextImageHandle += 1
     images.set(imageId, hostPath)
-    this.imagesBySessionId.set(sessionId, images)
+    this.evictOldestSessionIfFull(key)
+    this.imagesBySession.set(key, images)
     return imageId
   }
 
@@ -104,8 +37,7 @@ export class MobileWebNativeChatAuthority {
     sessionId: string,
     imageIds: readonly string[]
   ): string[] {
-    this.resolve(hostWorkspaceId, sessionId)
-    const images = this.imagesBySessionId.get(sessionId)
+    const images = this.imagesBySession.get(sessionKey(hostWorkspaceId, sessionId))
     const paths = imageIds.map((imageId) => images?.get(imageId))
     if (paths.some((path) => !path)) {
       throw new MobileWebBrokerError('not_found')
@@ -114,35 +46,34 @@ export class MobileWebNativeChatAuthority {
   }
 
   releaseImages(hostWorkspaceId: string, sessionId: string, imageIds: readonly string[]): void {
-    this.resolve(hostWorkspaceId, sessionId)
-    const images = this.imagesBySessionId.get(sessionId)
+    const key = sessionKey(hostWorkspaceId, sessionId)
+    const images = this.imagesBySession.get(key)
     if (!images) {
       return
     }
     imageIds.forEach((imageId) => images.delete(imageId))
     if (images.size === 0) {
-      this.imagesBySessionId.delete(sessionId)
+      this.imagesBySession.delete(key)
     }
   }
 
   clear(): void {
-    this.generation += 1
-    this.bindingBySessionId.clear()
-    this.imagesBySessionId.clear()
+    this.imagesBySession.clear()
+  }
+
+  private evictOldestSessionIfFull(key: string): void {
+    if (this.imagesBySession.has(key) || this.imagesBySession.size < IMAGE_SESSION_LIMIT) {
+      return
+    }
+    const oldest = this.imagesBySession.keys().next()
+    if (!oldest.done) {
+      this.imagesBySession.delete(oldest.value)
+    }
   }
 }
 
-function nativeChatHostKey(binding: MobileWebHostNativeChatBinding): string {
-  return [
-    binding.hostWorkspaceId,
-    binding.hostTabId,
-    binding.hostTerminalId ?? '',
-    binding.agent,
-    binding.providerSessionId,
-    binding.transcriptPath ?? ''
-  ]
-    .map((value) => `${value.length}:${value}`)
-    .join('')
+function sessionKey(hostWorkspaceId: string, sessionId: string): string {
+  return `${hostWorkspaceId.length}:${hostWorkspaceId}${sessionId}`
 }
 
 function byteToHex(value: number): string {

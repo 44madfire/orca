@@ -5,23 +5,27 @@ import type { MobileWebNativeCapabilityAuthority } from './mobile-web-native-cap
 import { executeMobileWebNativeChatOperation } from './mobile-web-native-chat-operations'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
-const binding = {
-  hostWorkspaceId: 'workspace-1',
-  hostTabId: 'tab-1',
-  hostTerminalId: 'terminal-secret',
-  agent: 'claude',
-  providerSessionId: 'provider-session-secret',
-  transcriptPath: '/private/transcript.jsonl'
+const SESSION_ID = 'provider-session'
+const TABS = {
+  worktree: 'workspace-1',
+  tabs: [
+    {
+      id: 'tab-1',
+      type: 'terminal',
+      terminal: 'terminal-secret',
+      agentStatus: {
+        agentType: 'claude',
+        providerSession: { id: SESSION_ID, transcriptPath: '/private/transcript.jsonl' }
+      }
+    }
+  ]
 }
-const OPERATION_RUNTIME = {
-  terminalClientId: 'mobile-device',
-  getPageSessionId: async () => 'document'
-}
+const OPERATION_RUNTIME = { terminalClientId: 'mobile-device' }
 
 describe('mobile web native chat operations', () => {
   it('persists pending delivery through stable hidden chat authority', async () => {
     const context = operationContext()
-    const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue(success(binding))
+    const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue(success(TABS))
     const sessionChatPendingRead = vi
       .fn<NonNullable<MobileWebNativeCapabilityAuthority['sessionChatPendingRead']>>()
       .mockResolvedValue([{ text: 'pending', expectedOccurrence: 2 }])
@@ -35,7 +39,7 @@ describe('mobile web native chat operations', () => {
         operation: 'pendingRead',
         payload: {
           workspaceId: context.pageWorkspaceId,
-          sessionId: context.pageSessionId
+          sessionId: context.sessionId
         },
         client: { sendRequest } as unknown as RpcClient,
         workspaceAuthority: context.workspaceAuthority,
@@ -46,18 +50,14 @@ describe('mobile web native chat operations', () => {
     ).resolves.toEqual({
       deliveries: [{ text: 'pending', expectedOccurrence: 2 }]
     })
-    expect(sessionChatPendingRead).toHaveBeenCalledWith(
-      'workspace-1',
-      'tab-1',
-      'provider-session-secret'
-    )
+    expect(sessionChatPendingRead).toHaveBeenCalledWith('workspace-1', 'tab-1', SESSION_ID)
 
     await expect(
       executeMobileWebNativeChatOperation({
         operation: 'pendingWrite',
         payload: {
           workspaceId: context.pageWorkspaceId,
-          sessionId: context.pageSessionId,
+          sessionId: context.sessionId,
           deliveries: [{ text: 'next', expectedOccurrence: 3 }]
         },
         client: { sendRequest } as unknown as RpcClient,
@@ -67,13 +67,9 @@ describe('mobile web native chat operations', () => {
         ...OPERATION_RUNTIME
       })
     ).resolves.toBeNull()
-    expect(sessionChatPendingWrite).toHaveBeenCalledWith(
-      'workspace-1',
-      'tab-1',
-      'provider-session-secret',
-      [{ text: 'next', expectedOccurrence: 3 }]
-    )
-    expect(JSON.stringify(sessionChatPendingWrite.mock.calls)).not.toContain(context.pageSessionId)
+    expect(sessionChatPendingWrite).toHaveBeenCalledWith('workspace-1', 'tab-1', SESSION_ID, [
+      { text: 'next', expectedOccurrence: 3 }
+    ])
   })
 })
 
@@ -85,7 +81,7 @@ function operationContext() {
     workspaceAuthority,
     nativeChatAuthority,
     pageWorkspaceId: workspaceAuthority.pageWorkspaceId('workspace-1'),
-    pageSessionId: 'resource_session'
+    sessionId: SESSION_ID
   }
 }
 

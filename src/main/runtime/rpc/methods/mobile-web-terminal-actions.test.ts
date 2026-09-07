@@ -1,10 +1,9 @@
-import { openMobileWebPageResources } from './mobile-web-page-resources'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcContext } from '../core'
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
 import { MOBILE_WEB_HOST_CATALOG_METHOD } from './mobile-web-host-catalog'
 
-const [bind, action] = MOBILE_WEB_TERMINAL_ACTION_METHODS
+const [action] = MOBILE_WEB_TERMINAL_ACTION_METHODS
 function fixture(worktree = 'folder:workspace') {
   const tab = { id: 'tab', type: 'terminal', status: 'ready', terminal: 'private-terminal' }
   const runtime = {
@@ -27,43 +26,35 @@ function fixture(worktree = 'folder:workspace') {
     clientId: 'authenticated',
     pairedDeviceId: 'device'
   } as unknown as RpcContext
-  openMobileWebPageResources(context, 'page')
-  const scope = { worktree: `id:${worktree}`, pageSession: 'page', timeoutMs: 15_000 }
-  async function bound() {
-    return (await bind.handler({ ...scope, tabId: 'tab' }, context)) as { resourceId: string }
-  }
-  return { context, runtime, scope, tab, bound }
+  const scope = { worktree: `id:${worktree}`, tabId: 'tab', timeoutMs: 15_000 }
+  return { context, runtime, scope, tab }
 }
 
 afterEach(() => vi.useRealTimers())
 
 describe('host-owned terminal metadata', () => {
   it.each(['folder:workspace', 'ssh-workspace'])(
-    'binds %s through the owning runtime without exposing terminal handles',
+    'applies %s actions through the owning runtime and ignores a forged terminal field',
     async (workspace) => {
       const f = fixture(workspace)
-      const resource = await f.bound()
-      expect(resource.resourceId).toMatch(/^resource_/)
-      expect(f.runtime.listMobileSessionTabs).toHaveBeenCalledWith(f.scope.worktree, 'device')
       for (const method of ['terminal.rename', 'terminal.clearBuffer']) {
         expect(
           await action.handler(
-            { ...f.scope, ...resource, method, fields: { title: 'Build', terminal: 'forged' } },
+            { ...f.scope, method, fields: { title: 'Build', terminal: 'forged' } },
             f.context
           )
         ).toEqual({ applied: true })
       }
+      expect(f.runtime.listMobileSessionTabs).toHaveBeenCalledWith(f.scope.worktree, 'device')
       expect(f.runtime.renameTerminal).toHaveBeenCalledWith('private-terminal', 'Build')
       expect(f.runtime.clearTerminalBuffer).toHaveBeenCalledWith('private-terminal')
     }
   )
   it('uses the authenticated mobile actor and existing viewport driver', async () => {
     const f = fixture()
-    const resource = await f.bound()
     await action.handler(
       {
         ...f.scope,
-        ...resource,
         method: 'terminal.setDisplayMode',
         fields: { mode: 'auto', viewport: { cols: 90, rows: 30 }, client: { id: 'forged' } }
       },
@@ -77,32 +68,23 @@ describe('host-owned terminal metadata', () => {
     expect(f.runtime.markMobileActor).toHaveBeenCalledWith('remote-pty', 'authenticated')
     expect(f.runtime.applyMobileDisplayMode).toHaveBeenCalledWith('remote-pty')
   })
-  it('refuses replaced, missing, nonready and cross-scope terminal bindings before mutation', async () => {
+  it('refuses missing, nonready and cross-workspace tabs before mutation', async () => {
     const f = fixture()
-    const resource = await f.bound()
-    const params = { ...f.scope, ...resource, method: 'terminal.clearBuffer', fields: {} }
-    for (const tabs of [
-      [{ ...f.tab, terminal: 'replacement' }],
-      [],
-      [{ ...f.tab, status: 'pending-handle' }]
-    ]) {
+    const params = { ...f.scope, method: 'terminal.clearBuffer', fields: {} }
+    for (const tabs of [[], [{ ...f.tab, status: 'pending-handle' }]]) {
       f.runtime.listMobileSessionTabs.mockResolvedValue({ worktree: 'folder:workspace', tabs })
       await expect(action.handler(params, f.context)).rejects.toThrow('selector_not_found')
     }
-    for (const changed of [{ pageSession: 'other' }, { worktree: 'id:other' }]) {
-      await expect(action.handler({ ...params, ...changed }, f.context)).rejects.toThrow(
-        'selector_not_found'
-      )
-    }
-    await expect(action.handler(params, { ...f.context, connectionId: 'other' })).rejects.toThrow(
-      'selector_not_found'
-    )
+    f.runtime.listMobileSessionTabs.mockResolvedValue({
+      worktree: 'folder:other',
+      tabs: [f.tab]
+    })
+    await expect(action.handler(params, f.context)).rejects.toThrow('selector_not_found')
     expect(f.runtime.clearTerminalBuffer).not.toHaveBeenCalled()
   })
   it('does not dispatch after disconnect during identity lookup, and never retries handler failures', async () => {
     const f = fixture()
-    const resource = await f.bound()
-    const params = { ...f.scope, ...resource, method: 'terminal.clearBuffer', fields: {} }
+    const params = { ...f.scope, method: 'terminal.clearBuffer', fields: {} }
     const controller = new AbortController()
     f.runtime.listMobileSessionTabs.mockImplementationOnce(async () => {
       controller.abort()
@@ -125,7 +107,6 @@ describe('host-owned terminal metadata', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     const f = fixture()
-    const resource = await f.bound()
     f.runtime.listMobileSessionTabs.mockImplementationOnce(async () => {
       vi.setSystemTime(20_000)
       return {
@@ -136,27 +117,25 @@ describe('host-owned terminal metadata', () => {
       }
     })
     await expect(
-      action.handler(
-        { ...f.scope, ...resource, method: 'terminal.clearBuffer', fields: {} },
-        f.context
-      )
+      action.handler({ ...f.scope, method: 'terminal.clearBuffer', fields: {} }, f.context)
     ).rejects.toThrow('runtime_unavailable')
     expect(f.runtime.clearTerminalBuffer).not.toHaveBeenCalled()
   })
-  it('advertises both methods with host page-session authority', async () => {
+  it('advertises the action with a workspace-scoped grant and no page session', async () => {
     expect(
       await MOBILE_WEB_HOST_CATALOG_METHOD.handler(
-        { methods: MOBILE_WEB_TERMINAL_ACTION_METHODS.map((method) => method.name) },
+        { methods: ['mobileWeb.terminal.action'] },
         {} as RpcContext
       )
     ).toEqual({
-      grants: MOBILE_WEB_TERMINAL_ACTION_METHODS.map((method) => ({
-        method: method.name,
-        workspaceParam: 'worktree',
-        pageSessionParam: 'pageSession',
-        maxRequestBytes: 16 * 1024,
-        maxResponseBytes: 512 * 1024
-      }))
+      grants: [
+        {
+          method: 'mobileWeb.terminal.action',
+          workspaceParam: 'worktree',
+          maxRequestBytes: 16 * 1024,
+          maxResponseBytes: 512 * 1024
+        }
+      ]
     })
   })
 })

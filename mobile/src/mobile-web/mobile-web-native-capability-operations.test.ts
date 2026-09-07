@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebNativeCapabilityAuthority } from './mobile-web-native-capability-authority'
 import { executeMobileWebNativeCapabilityOperation } from './mobile-web-native-capability-operations'
-import { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 describe('mobile web native capability operations', () => {
@@ -115,7 +114,6 @@ describe('mobile web native capability operations', () => {
   it('resolves opaque workspace authority before reading or writing a shell draft', async () => {
     const harness = createHarness()
     const workspaceAuthority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length))
-    const browserAuthority = new MobileWebBrowserAuthority()
     const workspaceId = workspaceAuthority.registerWorkspace('host-workspace', 'host-repo')
     const sessionChatDraftRead = vi.fn().mockResolvedValue('saved draft')
     const sessionChatDraftWrite = vi.fn().mockResolvedValue(undefined)
@@ -127,7 +125,6 @@ describe('mobile web native capability operations', () => {
         operation: 'sessionChatDraftRead',
         payload: { workspaceId, tabId: 'host-tab' },
         authority: harness.authority,
-        browserAuthority,
         workspaceAuthority
       })
     ).resolves.toEqual({ text: 'saved draft' })
@@ -136,7 +133,6 @@ describe('mobile web native capability operations', () => {
         operation: 'sessionChatDraftWrite',
         payload: { workspaceId, tabId: 'host-tab', text: 'next draft' },
         authority: harness.authority,
-        browserAuthority,
         workspaceAuthority
       })
     ).resolves.toBeNull()

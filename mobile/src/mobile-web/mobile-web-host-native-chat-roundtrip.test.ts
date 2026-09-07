@@ -1,6 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { RpcClient } from '../transport/rpc-client'
-import { MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT } from './mobile-web-bridge-roundtrip-fixture'
 import { nativeChatBridgeFixture as fixture } from './mobile-web-host-native-chat-test-fixture'
 
 describe('native-chat generic read migration', () => {
@@ -17,23 +15,13 @@ describe('native-chat generic read migration', () => {
       tab.id
     )
     expect(result.messages[0].blocks[0]).toMatchObject({ type: 'text', text: 'hello' })
-    const pageSession = boundDocument(f)
     expect(result).toEqual(f.transcript)
-    expect(f.sendRequest).toHaveBeenCalledWith(
-      'mobileWeb.nativeChat.bind',
-      {
-        worktree: 'id:host-workspace',
-        pageSession,
-        tabId: 'tab'
-      },
-      expect.objectContaining({ beforeSend: expect.any(Function) })
-    )
     expect(f.sendRequest).toHaveBeenCalledWith(
       'mobileWeb.nativeChat.read',
       {
         worktree: 'id:host-workspace',
-        pageSession,
-        resourceId: 'opaque-resource',
+        tabId: 'tab',
+        sessionId: 'provider-session',
         read: { limit: 20 }
       },
       expect.objectContaining({ beforeSend: expect.any(Function) })
@@ -41,7 +29,7 @@ describe('native-chat generic read migration', () => {
     expect(f.sendRequest.mock.calls.some(([method]) => method === 'nativeChat.readSession')).toBe(
       false
     )
-    expect(JSON.stringify(f.shellMessages)).not.toContain('private-session')
+    expect(JSON.stringify(f.shellMessages)).not.toContain('private-terminal')
   })
   it('streams native chat through the generic host lane', async () => {
     const f = fixture()
@@ -65,13 +53,13 @@ describe('native-chat generic read migration', () => {
     await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce())
     expect(onEvent).toHaveBeenCalledWith(event)
     expect(f.subscribe.mock.calls[0][1]).toMatchObject({
-      pageSession: boundDocument(f),
-      resourceId: 'opaque-resource'
+      tabId: 'tab',
+      sessionId: 'provider-session'
     })
     subscription.unsubscribe()
     expect(f.unsubscribe).toHaveBeenCalledOnce()
   })
-  it('does not subscribe after cancellation during host binding', async () => {
+  it('does not open a host feed after cancellation', async () => {
     const f = fixture()
     const workspaceId = (await f.client.workspaceSnapshot({ limit: 10 })).workspaces[0]!.id
     const session = await f.client.sessionSnapshot({ workspaceId })
@@ -79,11 +67,6 @@ describe('native-chat generic read migration', () => {
     if (tab.type !== 'terminal' || !tab.nativeChatSessionId) {
       throw new Error('Missing chat fixture')
     }
-    const original = f.sendRequest.getMockImplementation()!
-    const bound = Promise.withResolvers<Awaited<ReturnType<RpcClient['sendRequest']>>>()
-    f.sendRequest.mockImplementation((...args) =>
-      args[0] === 'mobileWeb.nativeChat.bind' ? bound.promise : original(...args)
-    )
     const onError = vi.fn()
     const subscription = f.client.nativeChat.subscribeForTab(
       tab.id,
@@ -91,25 +74,9 @@ describe('native-chat generic read migration', () => {
       vi.fn(),
       onError
     )
-    await vi.waitFor(() =>
-      expect(
-        f.sendRequest.mock.calls.some(([method]) => method === 'mobileWeb.nativeChat.bind')
-      ).toBe(true)
-    )
     subscription.unsubscribe()
-    bound.resolve({ ok: true, result: { resourceId: 'opaque-resource' } })
     await expect(subscription.ready).rejects.toMatchObject({ code: 'cancelled' })
     expect(f.subscribe).not.toHaveBeenCalled()
     expect(onError).not.toHaveBeenCalled()
   })
 })
-
-function boundDocument(f: ReturnType<typeof fixture>): string {
-  const binding = f.sendRequest.mock.calls.find(
-    ([method]) => method === 'mobileWeb.nativeChat.bind'
-  )
-  const { pageSession } = binding![1] as { pageSession: string }
-  expect(pageSession).toMatch(/^document_/)
-  expect(pageSession).not.toBe(MOBILE_WEB_BRIDGE_ROUNDTRIP_CONTEXT.shellSessionId)
-  return pageSession
-}

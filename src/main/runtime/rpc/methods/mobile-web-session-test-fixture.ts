@@ -1,4 +1,3 @@
-import { openMobileWebPageResources } from './mobile-web-page-resources'
 import { vi } from 'vitest'
 import type { RpcContext } from '../core'
 
@@ -21,7 +20,7 @@ export function sessionFixture() {
         agentStatus: {
           state: 'waiting',
           agentType: 'codex',
-          providerSession: { id: 'private-session', transcriptPath: '/private/transcript' }
+          providerSession: { id: 'provider-session', transcriptPath: '/private/transcript' }
         }
       }
     ] as unknown[]
@@ -63,12 +62,7 @@ export function sessionFixture() {
     pairedDeviceId: 'device',
     signal: controller.signal
   } as unknown as RpcContext
-  cleanups.set('page-lifetime', openMobileWebPageResources(context, 'page'))
-  const params = {
-    worktree: 'id:folder:workspace',
-    workspaceId: 'opaque-workspace',
-    pageSession: 'page'
-  }
+  const params = { worktree: 'id:folder:workspace', workspaceId: 'opaque-workspace' }
   return {
     runtime,
     context,

@@ -9,8 +9,8 @@ import type { MobileWebNativeCapabilityAuthority } from './mobile-web-native-cap
 import type { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 import {
-  assertCurrentMobileWebNativeChatPageBinding,
-  resolveFreshMobileWebNativeChatPageBinding
+  assertCurrentMobileWebNativeChatBinding,
+  resolveMobileWebNativeChatBinding
 } from './mobile-web-native-chat-binding'
 import {
   executeMobileWebNativeChatImageOperation,
@@ -21,7 +21,6 @@ export async function executeMobileWebNativeChatOperation(args: {
   operation: string
   payload: unknown
   client: RpcClient
-  getPageSessionId?: () => Promise<string>
   isActive?: () => boolean
   terminalClientId: string
   workspaceAuthority: MobileWebWorkspaceAuthority
@@ -36,7 +35,7 @@ export async function executeMobileWebNativeChatOperation(args: {
   }
   if (args.operation === 'pendingRead') {
     const payload = MobileWebNativeChatPendingReadPayloadSchema.parse(args.payload)
-    const binding = await resolveFreshMobileWebNativeChatPageBinding(
+    const binding = await resolveMobileWebNativeChatBinding(
       args,
       payload.workspaceId,
       payload.sessionId
@@ -54,7 +53,7 @@ export async function executeMobileWebNativeChatOperation(args: {
   }
   if (args.operation === 'pendingWrite') {
     const payload = MobileWebNativeChatPendingWritePayloadSchema.parse(args.payload)
-    const binding = await resolveFreshMobileWebNativeChatPageBinding(
+    const binding = await resolveMobileWebNativeChatBinding(
       args,
       payload.workspaceId,
       payload.sessionId
@@ -62,7 +61,7 @@ export async function executeMobileWebNativeChatOperation(args: {
     if (!args.nativeAuthority.sessionChatPendingWrite) {
       throw new MobileWebBrokerError('unsupported_capability')
     }
-    await assertCurrentMobileWebNativeChatPageBinding(
+    await assertCurrentMobileWebNativeChatBinding(
       args,
       payload.workspaceId,
       payload.sessionId,

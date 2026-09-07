@@ -21,7 +21,6 @@ export async function executeWorkspace(
       client: args.connectedClient(),
       catalog: args.hostCatalog,
       authority: args.workspaceAuthority,
-      getPageSessionId: args.getPageSessionId,
       payload: request.payload,
       isActive: args.isRequestActive
     })

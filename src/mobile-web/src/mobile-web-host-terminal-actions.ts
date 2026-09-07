@@ -1,6 +1,6 @@
 import type { MobileWebTerminalRequest } from '../../shared/mobile-web/terminal-stream-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
-import { readMobileWebHostMethods, requestMobileWebHost } from './mobile-web-host-request-client'
+import { requestMobileWebHost } from './mobile-web-host-request-client'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
 type MetadataOperation = 'displayMode' | 'clear' | 'rename'
@@ -14,48 +14,25 @@ export type MobileWebTerminalMetadataAction = (
   request: MobileWebTerminalMetadataRequest
 ) => Promise<null>
 
-export async function bindMobileWebHostTerminalActions(
+const HOST_METHODS: Record<MetadataOperation, string> = {
+  displayMode: 'terminal.setDisplayMode',
+  clear: 'terminal.clearBuffer',
+  rename: 'terminal.rename'
+}
+
+export function mobileWebHostTerminalActions(
   requests: MobileWebOneShotRequestClient,
   workspaceId: string,
   tabId: string,
   signal: AbortSignal
-): Promise<MobileWebTerminalMetadataAction> {
-  const methods = ['mobileWeb.terminal.bind', 'mobileWeb.terminal.action']
-  const deadline = Date.now() + 15_000
-  const options = () => {
-    const timeoutMs = deadline - Date.now()
-    if (timeoutMs <= 0) {
-      throw new MobileWebBridgeClientError('timeout', true)
-    }
-    return { signal, timeoutMs }
-  }
-  const catalog = await readMobileWebHostMethods(requests, methods, options())
-  if (!methods.every((method) => catalog.grants.some((grant) => grant.method === method))) {
-    throw new MobileWebBridgeClientError('unsupported_capability', false)
-  }
-  const bound = await requestMobileWebHost(requests, methods[0], workspaceId, { tabId }, options())
-  if (
-    typeof bound !== 'object' ||
-    bound === null ||
-    !('resourceId' in bound) ||
-    typeof bound.resourceId !== 'string'
-  ) {
-    throw new MobileWebBridgeClientError('invalid_message', false)
-  }
-  const resourceId = bound.resourceId
+): MobileWebTerminalMetadataAction {
   return async ({ operation, ...fields }) => {
-    const method =
-      operation === 'displayMode'
-        ? 'terminal.setDisplayMode'
-        : operation === 'clear'
-          ? 'terminal.clearBuffer'
-          : 'terminal.rename'
     // A missing acknowledgement may hide a committed action; never retry an ambiguous mutation.
     const result = await requestMobileWebHost(
       requests,
-      methods[1],
+      'mobileWeb.terminal.action',
       workspaceId,
-      { resourceId, method, fields, timeoutMs: 15_000 },
+      { tabId, method: HOST_METHODS[operation], fields, timeoutMs: 15_000 },
       { signal }
     )
     if (

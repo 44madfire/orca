@@ -77,14 +77,9 @@ describe('mobile web mutation authorization races', () => {
     expect(callsFor(sendRequest, 'github.updateIssue')).toHaveLength(0)
   })
 
-  it('rejects native-chat persistence when resource resolution loses its session authority', async () => {
+  it('rejects native-chat persistence when the tab lookup loses its workspace authority', async () => {
     const workspace = workspaceAuthority()
     const chat = new MobileWebNativeChatAuthority((length) => new Uint8Array(length).fill(5))
-    const sessionId = 'resource-session-a'
-    chat.bind(sessionId, {
-      ...chatBinding,
-      hostWorkspaceId: workspace.authority.hostWorkspaceId(workspace.pageId)
-    })
     const tabs = deferredResult()
     const sendRequest = vi.fn(() => tabs.promise)
     const sessionChatPendingWrite = vi.fn().mockResolvedValue(undefined)
@@ -92,34 +87,39 @@ describe('mobile web mutation authorization races', () => {
       operation: 'pendingWrite',
       payload: {
         workspaceId: workspace.pageId,
-        sessionId,
+        sessionId: 'provider-session-a',
         deliveries: [{ text: 'pending', expectedOccurrence: 1 }]
       },
       client: client(sendRequest),
       workspaceAuthority: workspace.authority,
       nativeChatAuthority: chat,
-      getPageSessionId: async () => 'page-document-a',
       nativeAuthority: { sessionChatPendingWrite },
       terminalClientId: 'mobile-client'
     })
     const rejection = expect(pending).rejects.toMatchObject({ code: 'not_found' })
 
     await vi.waitFor(() => expect(sendRequest).toHaveBeenCalledTimes(1))
-    chat.clear()
-    tabs.resolve(success(chatBinding))
+    workspace.remove()
+    tabs.resolve(success(chatTabs))
 
     await rejection
     expect(sessionChatPendingWrite).not.toHaveBeenCalled()
   })
 })
 
-const chatBinding = {
-  hostWorkspaceId: 'workspace-a',
-  hostTabId: 'tab-a',
-  hostTerminalId: 'terminal-a',
-  agent: 'claude',
-  providerSessionId: 'provider-session-a',
-  transcriptPath: '/private/transcript.jsonl'
+const chatTabs = {
+  worktree: 'workspace-a',
+  tabs: [
+    {
+      id: 'tab-a',
+      type: 'terminal',
+      terminal: 'terminal-a',
+      agentStatus: {
+        agentType: 'claude',
+        providerSession: { id: 'provider-session-a', transcriptPath: '/private/transcript.jsonl' }
+      }
+    }
+  ]
 }
 
 function workspaceAuthority() {

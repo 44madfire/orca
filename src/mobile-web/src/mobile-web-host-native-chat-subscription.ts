@@ -5,8 +5,6 @@ import type {
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebBridgeSubscription } from './mobile-web-bridge-subscription'
 import type { MobileWebBridgeSubscriptionClient } from './mobile-web-bridge-subscription-client'
-import { bindMobileWebHostNativeChat } from './mobile-web-host-native-chat-binding'
-import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
 export type MobileWebNativeChatSubscriptionArgs = [
   payload: MobileWebNativeChatSubscribePayload,
@@ -15,7 +13,6 @@ export type MobileWebNativeChatSubscriptionArgs = [
 ]
 
 export function subscribeMobileWebHostNativeChat(
-  requests: MobileWebOneShotRequestClient,
   subscriptions: MobileWebBridgeSubscriptionClient,
   tabId: string,
   ...[payload, onEvent, onError]: MobileWebNativeChatSubscriptionArgs
@@ -23,12 +20,6 @@ export function subscribeMobileWebHostNativeChat(
   let cancelled = false
   let current: MobileWebBridgeSubscription | undefined
   const ready = (async () => {
-    const resourceId = await bindMobileWebHostNativeChat(
-      requests,
-      payload.workspaceId,
-      tabId,
-      'mobileWeb.nativeChat.subscribe'
-    )
     if (cancelled) {
       throw new MobileWebBridgeClientError('cancelled', false)
     }
@@ -37,7 +28,8 @@ export function subscribeMobileWebHostNativeChat(
         method: 'mobileWeb.nativeChat.subscribe',
         workspaceId: payload.workspaceId,
         params: {
-          resourceId,
+          tabId,
+          sessionId: payload.sessionId,
           read: { limit: payload.limit, capabilities: { transcriptPending: 1 } }
         }
       },

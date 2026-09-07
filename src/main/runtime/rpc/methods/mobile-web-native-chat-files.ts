@@ -2,7 +2,11 @@ import { z } from 'zod'
 import { defineMethod, isStreamingMethod } from '../core'
 import { FILE_METHODS } from './files'
 import { MOBILE_WEB_FILE_READ_METHODS } from './mobile-web-file-reads'
-import { MobileWebChatScope, resolveMobileWebNativeChat } from './mobile-web-native-chat-binding'
+import {
+  MobileWebChatScope,
+  MobileWebChatTarget,
+  resolveMobileWebNativeChat
+} from './mobile-web-native-chat-binding'
 import { MobileWebRelativePathSchema } from '../../../../shared/mobile-web/bridge-operation-contract'
 
 function fileMethod(name: string) {
@@ -17,25 +21,22 @@ function fileMethod(name: string) {
 const search = fileMethod('mobileWeb.files.searchPaths')
 const resolve = fileMethod('files.resolveTerminalPath')
 const open = fileMethod('files.open')
-const ResourceScope = MobileWebChatScope.extend({ resourceId: z.string().min(1).max(160) })
 
 export const MOBILE_WEB_NATIVE_CHAT_FILE_METHODS = [
   defineMethod({
     name: 'mobileWeb.nativeChat.fileSearch',
-    params: ResourceScope.extend({ search: z.record(z.string(), z.unknown()) }),
+    params: MobileWebChatTarget.extend({ search: z.record(z.string(), z.unknown()) }),
     handler: async (params, context) => {
       await resolveMobileWebNativeChat(context, params)
-      const result = await search.handler(
+      return search.handler(
         search.params!.parse({ ...params.search, worktree: params.worktree }),
         context
       )
-      await resolveMobileWebNativeChat(context, params)
-      return result
     }
   }),
   defineMethod({
     name: 'mobileWeb.nativeChat.openFile',
-    params: ResourceScope.extend({
+    params: MobileWebChatTarget.extend({
       pathText: z.string().min(1).max(4096),
       timeoutMs: z.number().int().min(1).max(15_000)
     }),
@@ -60,7 +61,6 @@ export const MOBILE_WEB_NATIVE_CHAT_FILE_METHODS = [
       if (!relativePath) {
         return { opened: false }
       }
-      await resolveMobileWebNativeChat(context, params)
       checkDispatch()
       const result = await open.handler(
         open.params!.parse({ worktree: params.worktree, relativePath }),
@@ -75,11 +75,8 @@ export const MOBILE_WEB_NATIVE_CHAT_FILE_METHODS = [
   defineMethod({
     name: 'mobileWeb.nativeChat.readability',
     params: MobileWebChatScope,
-    handler: async (params, context) => {
-      await context.runtime.listMobileSessionTabs(params.worktree, context.pairedDeviceId)
-      // Eligibility is host-owned; transcript reads independently validate their execution provider.
-      return { readable: true }
-    }
+    // Eligibility is host-owned; transcript reads independently validate their execution provider.
+    handler: () => ({ readable: true })
   })
 ]
 

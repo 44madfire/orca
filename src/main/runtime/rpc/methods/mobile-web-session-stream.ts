@@ -10,6 +10,18 @@ if (!source || !isStreamingMethod(source)) {
 }
 const stream = source
 
+function innerSubscriptionKey(
+  event: unknown,
+  connection: string,
+  subscriptionId: string
+): string | undefined {
+  const worktree =
+    typeof event === 'object' && event !== null && 'worktree' in event ? event.worktree : undefined
+  return typeof worktree === 'string' && worktree.length > 0
+    ? `session.tabs:${connection}:${worktree}:${subscriptionId}`
+    : undefined
+}
+
 export const MOBILE_WEB_SESSION_STREAM_METHODS = [
   defineStreamingMethod({
     name: 'mobileWeb.session.subscribe',
@@ -18,7 +30,14 @@ export const MOBILE_WEB_SESSION_STREAM_METHODS = [
       const subscriptionId = randomUUID()
       const connection = context.connectionId ?? 'local'
       const key = `mobileWeb.session:${connection}:${subscriptionId}`
-      const sourceKey = `session.tabs:${connection}:${params.worktree.slice(3)}:${subscriptionId}`
+      // The inner feed keys its cleanup by the canonical worktree it resolved, never by the
+      // selector the caller passed; read it off the first event instead of guessing.
+      let sourceKey: string | undefined
+      const cleanupSource = () => {
+        if (sourceKey) {
+          context.runtime.cleanupSubscription(sourceKey)
+        }
+      }
       let closed = false
       const cleanup = () => context.runtime.cleanupSubscription(key)
       context.runtime.registerSubscriptionCleanup(
@@ -29,7 +48,7 @@ export const MOBILE_WEB_SESSION_STREAM_METHODS = [
           }
           closed = true
           context.signal?.removeEventListener('abort', cleanup)
-          context.runtime.cleanupSubscription(sourceKey)
+          cleanupSource()
           emit({ type: 'end' })
         },
         context.connectionId
@@ -50,6 +69,9 @@ export const MOBILE_WEB_SESSION_STREAM_METHODS = [
           stream.params!.parse({ worktree: params.worktree }),
           { ...context, requestId: subscriptionId },
           (event) => {
+            // Recorded before the closed check: a feed that opened after the page unsubscribed
+            // still has to be torn down, and its key only exists on its own events.
+            sourceKey ??= innerSubscriptionKey(event, connection, subscriptionId)
             if (closed) {
               return
             }
@@ -77,7 +99,7 @@ export const MOBILE_WEB_SESSION_STREAM_METHODS = [
         throw error
       } finally {
         if (closed) {
-          context.runtime.cleanupSubscription(sourceKey)
+          cleanupSource()
         }
       }
     }

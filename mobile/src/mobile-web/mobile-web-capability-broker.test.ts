@@ -11,7 +11,7 @@ import {
   mobileWebBridgeRequestMessage
 } from './mobile-web-bridge-roundtrip-fixture'
 import { MobileWebSpeechAuthority } from './mobile-web-speech-authority'
-const OPAQUE_WORKSPACE_ID = `workspace_0_${'02'.repeat(16)}`
+const OPAQUE_WORKSPACE_ID = `workspace_0_${'01'.repeat(16)}`
 
 describe('mobile web capability broker', () => {
   it('cancels shell-owned speech when the native app leaves foreground', () => {

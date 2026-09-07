@@ -1,4 +1,3 @@
-import { openMobileWebPageResources } from './mobile-web-page-resources'
 import { describe, expect, it, vi } from 'vitest'
 import { MOBILE_WEB_SESSION_STREAM_METHODS } from './mobile-web-session-stream'
 import { sessionFixture } from './mobile-web-session-test-fixture'
@@ -77,9 +76,30 @@ describe('host session feed lifecycle', () => {
     await pending
     expect(events.map((event) => (event as { type: string }).type)).toEqual(['ready', 'end'])
     expect(f.listeners.size).toBe(0)
-    expect([...f.cleanups.keys()]).toEqual(['page-lifetime'])
-    f.cleanups.get('page-lifetime')?.()
-    f.cleanups.delete('page-lifetime')
+    expect(f.cleanups.size).toBe(0)
+  })
+
+  // A path selector never spells the canonical worktree the inner feed keys its cleanup by.
+  it('removes an inner session listener opened under a path selector', async () => {
+    const f = sessionFixture()
+    let release!: () => void
+    f.runtime.listMobileSessionTabs.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return f.snapshot
+    })
+    const events: unknown[] = []
+    const params = { ...f.params, worktree: '/repos/workspace' }
+    const pending = feed.handler(params, f.context, (event) => events.push(event))
+    await vi.waitFor(() => expect(release).toBeDefined())
+    stop.handler(
+      { subscriptionId: (events[0] as { subscriptionId: string }).subscriptionId },
+      f.context
+    )
+    release()
+    await pending
+    expect(f.listeners.size).toBe(0)
     expect(f.cleanups.size).toBe(0)
   })
 
@@ -95,7 +115,6 @@ describe('host session feed lifecycle', () => {
       connectionId: 'reconnected',
       signal: new AbortController().signal
     }
-    const closePage = openMobileWebPageResources(context, f.params.pageSession)
     await feed.handler(f.params, context, (event) => events.push(event))
     expect(f.listeners.size).toBe(1)
     stop.handler(
@@ -108,6 +127,5 @@ describe('host session feed lifecycle', () => {
       context
     )
     expect(f.listeners.size).toBe(0)
-    closePage()
   })
 })
