@@ -20,8 +20,9 @@ export const AGENT_SESSION_CONVERSATION_NAME_MAX_LENGTH = 200
  *  Wales flags degrade — far cheaper than an invisible payload in a label. */
 const UNRENDERABLE_RUN = /(?:[\s\p{Cc}\p{Zl}\p{Zp}]|(?![\u200C\u200D])\p{Cf})+/gu
 
-/** The joiners outlive the run above by design; alone they are still a blank label. */
-const JOINERS_ONLY = /^[\u200C\u200D]+$/u
+/** The joiners outlive the run above by design; alone — or separated only by the
+ *  spaces that run collapsed to — they are still a blank label. */
+const BLANK_ONLY = /^[\s\u200C\u200D]+$/u
 
 /** A cut inside an emoji sequence strands the joiner that attached it. */
 const TRAILING_DANGLE = /[\s\u200C\u200D]+$/u
@@ -31,7 +32,7 @@ export function normalizeAgentSessionConversationName(value: unknown): string | 
     return null
   }
   const collapsed = value.replace(UNRENDERABLE_RUN, ' ').trim()
-  if (!collapsed || JOINERS_ONLY.test(collapsed)) {
+  if (!collapsed || BLANK_ONLY.test(collapsed)) {
     return null
   }
   if (collapsed.length <= AGENT_SESSION_CONVERSATION_NAME_MAX_LENGTH) {

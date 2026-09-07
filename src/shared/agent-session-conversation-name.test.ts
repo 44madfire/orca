@@ -116,7 +116,17 @@ describe('normalizeAgentSessionConversationName joiners', () => {
     ['deprecated format characters', '\u206A\u206B\u206C\u206D\u206E\u206F'],
     ['Arabic number signs', '\u0600\u0601\u06DD'],
     ['the joiners themselves', `${ZWNJ}${ZWJ}`],
-    ['a bidi and zero-width mix', '\u202E\u200B\u2060']
+    ['a bidi and zero-width mix', '\u202E\u200B\u2060'],
+    // A joiner survives the collapsing run, so it splits that run in two and
+    // each half becomes its own space; the guard has to read the spaces too.
+    ['joiners split by a tab', `${ZWJ}\t${ZWJ}`],
+    ['joiners split by a newline', `${ZWJ}\n${ZWJ}`],
+    ['joiners split by a byte order mark', `${ZWJ}\uFEFF${ZWJ}`],
+    ['joiners split by zero-width spaces', `\u200B${ZWJ}\u200B${ZWJ}`],
+    ['joiners split by literal spaces', ` ${ZWJ} ${ZWJ} `],
+    ['joiners split by a bidi override', `\u202E${ZWJ}\u202E${ZWJ}`],
+    ['mixed joiners split by a tab', `${ZWJ}\t${ZWNJ}`],
+    ['joiners wrapped in tag characters', `\u{E0020}${ZWJ}\u{E0041}${ZWJ}\u{E007F}`]
   ])('rejects a name that is only %s', (_label, name) => {
     expect(normalizeAgentSessionConversationName(name)).toBeNull()
   })
