@@ -5,6 +5,7 @@ import { loadPushNotificationsEnabled, loadRemotePushEnabled } from '../storage/
 import { loadHostCatalog } from '../transport/host-store'
 import {
   adoptNotificationEpoch,
+  enqueueHostDelivery,
   getHostNotificationSession,
   seedWatermarkFromStorage,
   seenKeyForEvent
@@ -74,24 +75,27 @@ export async function shouldSuppressForegroundPush(data: unknown): Promise<boole
   if (payload.notificationEpoch == null) {
     return false
   }
-  // The seen keys are seq-derived, so a push from a new desktop lifetime must void
-  // them before its own key is tested against a counter that no longer exists.
-  adoptNotificationEpoch(session, hostId, payload.notificationEpoch)
-  // Why a coalesced summary is neither suppressed nor marked: it carries only the
-  // latest event's fields, so claiming that key would make the socket swallow the
-  // specific banner for an event the summary only ever counted.
-  if ((payload.coalescedCount ?? 0) > 1) {
+  // Push and socket delivery share one claim, including an in-flight native schedule.
+  return enqueueHostDelivery(session, async () => {
+    // The seen keys are seq-derived, so a push from a new desktop lifetime must void
+    // them before its own key is tested against a counter that no longer exists.
+    adoptNotificationEpoch(session, hostId, payload.notificationEpoch)
+    // Why a coalesced summary is neither suppressed nor marked: it carries only the
+    // latest event's fields, so claiming that key would make the socket swallow the
+    // specific banner for an event the summary only ever counted.
+    if ((payload.coalescedCount ?? 0) > 1) {
+      return false
+    }
+    const key = seenKeyForEvent(payload)
+    if (!key) {
+      return false
+    }
+    if (session.seen.has(key)) {
+      return true
+    }
+    session.seen.add(key)
     return false
-  }
-  const key = seenKeyForEvent(payload)
-  if (!key) {
-    return false
-  }
-  if (session.seen.has(key)) {
-    return true
-  }
-  session.seen.add(key)
-  return false
+  })
 }
 
 /** Whether the OS says a notification came from a provider rather than this app. */

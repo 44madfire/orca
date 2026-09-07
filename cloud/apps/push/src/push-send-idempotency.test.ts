@@ -17,10 +17,10 @@ it('returns queued for concurrent retries without double quota or a false summar
   )
   for (const response of responses)
     expect(await response.json()).toEqual({ results: [{ registrationId, status: 'queued' }] })
-  expect(await h.server.coalescer.pendingCount(registrationId)).toBe(1)
-  await h.server.coalescer.flushAll()
+  expect(await h.server.deliveryStore.pendingCount(registrationId)).toBe(1)
+  await h.flushDeliveries()
   await h.post('/v1/send', body, token)
-  await h.server.coalescer.flushAll()
+  await h.flushDeliveries()
   expect(h.fcmRequests).toHaveLength(1)
   expect(JSON.parse(h.fcmRequests[0]!.body).message.data.coalescedCount).toBe('1')
   expect((await h.database.query('SELECT COUNT(*) AS count FROM push_events'))[0]?.count).toBe(1)
@@ -29,6 +29,6 @@ it('returns queued for concurrent retries without double quota or a false summar
     { ...body, notification: notification({ notificationEpoch: 'new-epoch' }) },
     token
   )
-  await h.server.coalescer.flushAll()
+  await h.flushDeliveries()
   expect(h.fcmRequests).toHaveLength(2)
 })

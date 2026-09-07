@@ -4,7 +4,7 @@ import { createPushServer } from './push-server.js'
 
 const CHALLENGE_PRUNE_INTERVAL_MS = 60_000
 const SESSION_PRUNE_INTERVAL_MS = 10 * 60_000
-const SEND_LOG_PRUNE_INTERVAL_MS = 60_000
+const DELIVERY_PRUNE_INTERVAL_MS = 60_000
 const STALE_HOST_PRUNE_INTERVAL_MS = 30 * 60_000
 
 const config = loadPushConfig()
@@ -18,8 +18,8 @@ const {
   server,
   challenges,
   sessions,
-  quota,
-  coalescer,
+  deliveryStore,
+  worker,
   observability,
   closeTransports,
   requestDrain
@@ -44,11 +44,11 @@ function prune(label: string, run: () => Promise<number>, intervalMs: number): N
 const timers = [
   prune('challenges', () => challenges.pruneExpired(), CHALLENGE_PRUNE_INTERVAL_MS),
   prune('sessions', () => sessions.pruneExpired(), SESSION_PRUNE_INTERVAL_MS),
-  prune('send_log', () => quota.prune(), SEND_LOG_PRUNE_INTERVAL_MS),
+  prune('deliveries', () => deliveryStore.prune(), DELIVERY_PRUNE_INTERVAL_MS),
   prune('stale_hosts', () => challenges.pruneStaleHosts(), STALE_HOST_PRUNE_INTERVAL_MS)
 ]
 observability.start()
-coalescer.start()
+worker.start()
 
 server.listen(config.port, () => {
   console.log(`[orca-push] listening on ${config.publicUrl} (port ${config.port})`)
@@ -63,11 +63,10 @@ const shutdown = (): void => {
   const deadline = setTimeout(() => process.exit(1), 9_000)
   deadline.unref()
   const requests = requestDrain.begin()
+  const deliveries = worker.stop()
   const connections = new Promise<void>((resolve) => server.close(() => resolve()))
-  void Promise.all([requests, connections])
+  void Promise.all([requests, connections, deliveries])
     .then(async () => {
-      coalescer.stop()
-      await coalescer.flushAll()
       closeTransports()
       await database.close()
       observability.stop()

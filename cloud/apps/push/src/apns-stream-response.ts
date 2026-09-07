@@ -46,7 +46,7 @@ export function readApnsStreamResponse(
       )
     )
     // A peer reset with NGHTTP2_NO_ERROR emits neither 'end' nor 'error', which
-    // would leave the coalescer's delivery pending for the life of the process.
+    // would leave the worker's delivery pending for the life of the process.
     stream.on('close', () => settle(() => reject(new Error('apns_stream_closed'))))
     stream.end(body)
   })

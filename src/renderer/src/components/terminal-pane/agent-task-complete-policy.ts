@@ -32,11 +32,10 @@ export function isTerminalAttentionEnabledFromState(state: NotificationSettingsS
   return state.settings?.experimentalTerminalAttention === true
 }
 
-/** Completion tracking runs when either consumer (OS notification or the
- *  experimental terminal-attention marker) is enabled. */
-export function isAgentTaskCompleteTrackingEnabledFromState(
-  state: NotificationSettingsState
-): boolean {
+/** Track completions once settings hydrate; each delivery surface applies its own filter. */
+export function isAgentTaskCompleteTrackingEnabledFromState(state: {
+  settings: object | null
+}): boolean {
   // Mobile delivery can remain enabled when desktop banners and attention are off.
   return state.settings !== null
 }

@@ -191,12 +191,15 @@ export function getHostNotificationSession(hostId: string): HostNotificationSess
  * A rejected task does not break the chain: the tail swallows the failure so a
  * single bad notification cannot wedge the host's queue forever.
  */
-export function enqueueHostDelivery(
+export function enqueueHostDelivery<T>(
   session: HostNotificationSession,
-  task: () => Promise<void>
-): Promise<void> {
+  task: () => Promise<T>
+): Promise<T> {
   const run = session.deliveryTail.then(task)
-  session.deliveryTail = run.catch(() => {})
+  session.deliveryTail = run.then(
+    () => {},
+    () => {}
+  )
   return run
 }
 

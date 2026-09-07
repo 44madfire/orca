@@ -8,7 +8,8 @@ This document is the single contract every lane builds against. Do not deviate w
 A small Orca-hosted push gateway (`cloud/apps/push`) holds the APNs key and FCM credentials and sends
 to phones. The desktop host registers each paired phone's native push token with the gateway and asks
 the gateway to push on every mobile notification it already fans out over the socket. The phone dedupes
-by `notificationId#notificationSeq`. No ack gate, no generic mode, no staging gateway, one auth path for
+by host, counter epoch, and `notificationId#notificationSeq`. Foreground pushes and socket events
+share the same per-host delivery queue so a pending native schedule cannot produce a second banner. No ack gate, no generic mode, no staging gateway, one auth path for
 signed-in and accountless hosts.
 
 ## Identities
@@ -215,7 +216,11 @@ expires_at, consumed_at)`
 - `push_sessions(token_hash pk, host_fingerprint, expires_at, created_at)`
 - `push_devices(registration_id pk, host_fingerprint, device_id, platform, token, apns_environment,
 filter_json, dead_at, created_at, updated_at, unique(host_fingerprint, device_id))`
-- `push_send_log(host_fingerprint, registration_id, sent_at)` for quota, pruned after 25 h.
+- `push_events` holds logical event identity, content fingerprint, quota timestamp, and expiry.
+- `push_event_recipients` records accepted event/phone pairs for idempotent fanout.
+- `push_delivery_batches` holds coalesced payloads, retry deadlines, and renewable worker leases.
+- `push_dismissed_events` fences older alerts from replaying after dismissal.
+- Queue identities and dismissal fences are retained for 24 hours; completed payloads are cleared.
 
 Logging: aggregate counters only. Never log tokens, titles, bodies, or raw fingerprints (log the first
 4 chars of a fingerprint at most).

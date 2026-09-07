@@ -54,7 +54,7 @@ describe('push gateway send route', () => {
       status: 404,
       body: JSON.stringify({ error: { status: 'UNREGISTERED', message: 'gone' } })
     })
-    await harness.server.coalescer.flushAll()
+    await harness.flushDeliveries()
     expect(harness.fcmRequests).toHaveLength(1)
     expect(JSON.parse(harness.fcmRequests[0]!.body)).toMatchObject({
       message: { token: FCM_TOKEN, notification: { title: 'Agent needs input' } }
@@ -85,8 +85,35 @@ describe('push gateway send route', () => {
       status: 503,
       body: JSON.stringify({ error: { status: 'UNAVAILABLE', message: 'backend busy' } })
     })
-    await harness.server.coalescer.flushAll()
+    await harness.flushDeliveries()
     expect(await harness.server.devices.findById(registrationId)).toMatchObject({ dead: false })
+  })
+
+  it('reports retries from the durable worker after the provider delay', async () => {
+    const token = await harness.signIn(createPushHostKeypair(26))
+    const registrationId = await harness.registerAndroid(token)
+    await harness.post(
+      '/v1/send',
+      {
+        v: 1,
+        registrationIds: [registrationId],
+        notification: notification()
+      },
+      token
+    )
+    harness.setFcmResponse({ status: 503, body: '{}' })
+    await harness.flushDeliveries()
+    expect(harness.server.observability.consume()).toMatchObject({
+      delivery_error: 1,
+      delivery_retry: 0
+    })
+    harness.advanceClock(10_000)
+    harness.setFcmResponse({ status: 200, body: '{}' })
+    await harness.server.worker.runDue()
+    expect(harness.server.observability.consume()).toMatchObject({
+      delivery_sent: 1,
+      delivery_retry: 1
+    })
   })
 
   it('coalesces a burst into one apns summary with a membership-specific identity', async () => {
@@ -115,7 +142,7 @@ describe('push gateway send route', () => {
         sessionToken
       )
     }
-    await harness.server.coalescer.flushAll()
+    await harness.flushDeliveries()
     expect(harness.apnsRequests).toHaveLength(1)
     const request = harness.apnsRequests[0]!
     expect(request.host).toBe('api.sandbox.push.apple.com')
@@ -137,7 +164,7 @@ describe('push gateway send route', () => {
       { v: 1, registrationIds: [registrationId], notification: notification() },
       sessionToken
     )
-    await harness.server.coalescer.flushAll()
+    await harness.flushDeliveries()
     const message = JSON.parse(harness.fcmRequests[0]!.body) as {
       message: { android: { notification: { tag: string } }; data: Record<string, string> }
     }
@@ -161,7 +188,7 @@ describe('push gateway send route', () => {
         { registrationId: 'made-up', status: 'error' }
       ]
     })
-    expect(await harness.server.coalescer.pendingCount(registrationId)).toBe(0)
+    expect(await harness.server.deliveryStore.pendingCount(registrationId)).toBe(0)
   })
 
   it('rate limits a host that exhausted its 15-minute allowance', async () => {
@@ -170,7 +197,7 @@ describe('push gateway send route', () => {
     const hostFingerprint = (await harness.server.devices.findById(registrationId))!.hostFingerprint
     for (let index = 0; index < PUSH_LIMITS.hostEventsPerWindow; index++) {
       expect(
-        await harness.server.quota.accept(
+        await harness.server.deliveryStore.accept(
           hostFingerprint,
           registrationId,
           PushNotificationSchema.parse(notification({ notificationSeq: index + 1000 }))
@@ -184,6 +211,6 @@ describe('push gateway send route', () => {
     )
     expect(limited.status).toBe(200)
     expect(await limited.json()).toEqual({ results: [{ registrationId, status: 'rate_limited' }] })
-    expect(await harness.server.coalescer.pendingCount(registrationId)).toBe(300)
+    expect(await harness.server.deliveryStore.pendingCount(registrationId)).toBe(300)
   })
 })

@@ -56,7 +56,6 @@ export type TerminalNotificationEvent = {
   paneKey?: string
   agentStatusSnapshot?: AgentCompletionStatusSnapshot
   agentCompletionSource?: AgentCompletionDispatchMeta['source']
-  suppressOsNotification?: boolean
 }
 
 /**

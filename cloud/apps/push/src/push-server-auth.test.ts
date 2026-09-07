@@ -41,7 +41,7 @@ describe('push gateway authentication and device routes', () => {
     })
     expect((await broken.app.request('/health')).status).toBe(200)
     expect((await broken.app.request('/ready')).status).toBe(503)
-    broken.coalescer.stop()
+    await broken.worker.stop()
   })
 
   it('completes challenge, session, register, list, delete', async () => {
@@ -80,11 +80,13 @@ describe('push gateway authentication and device routes', () => {
     const challenge = await harness.issueChallenge(host)
     const proof = harness.answer(challenge, host)
     expect(
-      (await harness.post('/v1/host/session', {
-        v: 1,
-        challengeId: challenge.challengeId,
-        proofB64: proof
-      })).status
+      (
+        await harness.post('/v1/host/session', {
+          v: 1,
+          challengeId: challenge.challengeId,
+          proofB64: proof
+        })
+      ).status
     ).toBe(200)
 
     const replay = await harness.post('/v1/host/session', {

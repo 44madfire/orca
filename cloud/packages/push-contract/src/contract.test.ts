@@ -49,7 +49,6 @@ describe('push contract limits', () => {
       challengeTtlMs: 10_000,
       clockSkewToleranceMs: 30_000,
       sessionTtlMs: 86_400_000,
-      sendLogRetentionMs: 90_000_000,
       notificationTtlSeconds: 300,
       apnsCollapseIdMaxBytes: 64,
       hostRetentionMs: 3_600_000,

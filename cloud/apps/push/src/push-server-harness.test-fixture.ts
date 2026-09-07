@@ -67,7 +67,6 @@ export async function createPushServerHarness() {
   let fcmResponse: FcmResponse = { status: 200, body: '{}' }
   const server = createPushServer(testPushConfig(), database, {
     now: () => clock,
-    providerRetryWait: async () => undefined,
     apnsTransport: async (request) => {
       apnsRequests.push(request)
       return apnsResponse
@@ -76,10 +75,7 @@ export async function createPushServerHarness() {
       fcmRequests.push(request)
       return fcmResponse
     },
-    fcmAccessToken: async () => 'access-token',
-    // Windows are flushed explicitly so the 3s timer never gates a test.
-    setTimer: () => ({ handle: null }),
-    clearTimer: () => undefined
+    fcmAccessToken: async () => 'access-token'
   })
 
   const post = async (path: string, body: unknown, token?: string): Promise<Response> =>
@@ -120,6 +116,10 @@ export async function createPushServerHarness() {
     issueChallenge,
     answer,
     now: () => clock,
+    flushDeliveries: async (): Promise<void> => {
+      clock += PUSH_LIMITS.coalesceWindowMs
+      await server.worker.runDue()
+    },
     advanceClock: (deltaMs: number): void => {
       clock += deltaMs
     },
@@ -157,7 +157,7 @@ export async function createPushServerHarness() {
       return ((await response.json()) as { registrationId: string }).registrationId
     },
     close: async (): Promise<void> => {
-      server.coalescer.stop()
+      await server.worker.stop()
       // A test may close the database itself to provoke a route failure.
       await database.close().catch(() => undefined)
     }

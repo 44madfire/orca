@@ -83,12 +83,11 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
   ): Promise<void> {
     adoptNotificationEpoch(session, hostId, event.notificationEpoch)
     const epochAtDelivery = session.lastDeliveredEpoch
+    const key = seenKeyForEvent(event)
     if (type === 'notification') {
-      const show = await waitForSocketPushHandoff(
-        event as NotificationEvent,
-        hostId,
-        deliveryAbort.signal
-      )
+      const show =
+        !(event.notificationEpoch && key && session.seen.has(key)) &&
+        (await waitForSocketPushHandoff(event as NotificationEvent, hostId, deliveryAbort.signal))
       if (disposed) {
         throw new Error('notification_subscription_disposed')
       }
@@ -99,7 +98,6 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
       await dismissLocalNotification(event as DismissNotificationEvent, hostId)
     }
     // Claim only after local delivery or a matching presented push.
-    const key = seenKeyForEvent(event)
     // A mid-flight epoch adoption already cleared the counter lifetime this key indexes.
     if (key && session.lastDeliveredEpoch === epochAtDelivery) {
       session.seen.add(key)

@@ -1,5 +1,4 @@
-import { summaryBody } from './coalescer.js'
-import { buildPushDelivery } from './push-delivery-message.js'
+import { buildPushDelivery, summaryBody } from './push-delivery-message.js'
 import type { PushDispatcher } from './push-dispatcher.js'
 import type { DurablePushStore } from './durable-push-store.js'
 
@@ -10,43 +9,32 @@ export class DurablePushWorker {
   constructor(
     private readonly store: DurablePushStore,
     private readonly dispatcher: PushDispatcher,
-    private readonly now = Date.now
+    private readonly options: { now?: () => number; onRetry?: () => void } = {}
   ) {}
-
-  pendingCount(registrationId: string): Promise<number> {
-    return this.store.pendingCount(registrationId)
-  }
 
   start(): void {
     if (this.timer) return
+    this.stopped = false
     this.timer = setInterval(() => {
-      void this.run(undefined, false).catch(() => {
+      void this.runDue().catch(() => {
         console.warn(JSON.stringify({ event: 'orca_push_worker_failed' }))
       })
     }, 1000)
     this.timer.unref()
   }
 
-  async flush(registrationId?: string): Promise<void> {
-    await this.run(registrationId, true)
-  }
-
-  async flushAll(): Promise<void> {
-    await this.run(undefined, true)
-  }
-
-  private async run(registrationId: string | undefined, force: boolean): Promise<void> {
+  async runDue(): Promise<void> {
     if (this.running) {
       await this.running
       return
     }
     if (this.stopped) return
-    const pending = Promise.allSettled(
-      Array.from({ length: 4 }, () => this.drain(registrationId, force))
-    ).then((results) => {
-      const failure = results.find((result) => result.status === 'rejected')
-      if (failure?.status === 'rejected') throw failure.reason
-    })
+    const pending = Promise.allSettled(Array.from({ length: 4 }, () => this.drain())).then(
+      (results) => {
+        const failure = results.find((result) => result.status === 'rejected')
+        if (failure?.status === 'rejected') throw failure.reason
+      }
+    )
     this.running = pending
     try {
       await pending
@@ -55,9 +43,9 @@ export class DurablePushWorker {
     }
   }
 
-  private async drain(registrationId: string | undefined, force: boolean): Promise<void> {
+  private async drain(): Promise<void> {
     for (let count = 0; count < 25 && !this.stopped; count++) {
-      const batch = await this.store.claim(registrationId, force)
+      const batch = await this.store.claim()
       if (!batch) return
       const latest = batch.notifications.at(-1)!
       const multiple = batch.notifications.length > 1
@@ -71,7 +59,7 @@ export class DurablePushWorker {
         notifications: batch.notifications
       })
       delivery.expiresAt = batch.expiresAt
-      if (this.now() >= batch.expiresAt) {
+      if ((this.options.now ?? Date.now)() >= batch.expiresAt) {
         await this.store.finish(batch)
         continue
       }
@@ -80,18 +68,16 @@ export class DurablePushWorker {
       }, 10_000)
       heartbeat.unref()
       try {
+        if (batch.attempts > 1) this.options.onRetry?.()
         const outcome = await this.dispatcher.sendOnce(delivery)
-        const retry =
+        const retryAfterMs =
           outcome.status === 'error' && outcome.retryable
-            ? { delayMs: outcome.retryAfterMs ?? 0 }
+            ? Math.max(
+                outcome.retryAfterMs ?? 0,
+                Math.min(30_000, 1000 * 2 ** Math.min(batch.attempts, 5))
+              )
             : undefined
-        await this.store.finish(
-          batch,
-          retry
-            ? Math.max(retry.delayMs, Math.min(30_000, 1000 * 2 ** Math.min(batch.attempts, 5)))
-            : undefined,
-          outcome.status
-        )
+        await this.store.finish(batch, retryAfterMs, outcome.status)
       } catch {
         await this.store.finish(batch, 5000)
       } finally {
@@ -100,9 +86,10 @@ export class DurablePushWorker {
     }
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.stopped = true
     if (this.timer) clearInterval(this.timer)
     this.timer = undefined
+    await this.running
   }
 }

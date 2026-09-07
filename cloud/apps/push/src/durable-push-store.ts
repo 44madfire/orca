@@ -86,7 +86,11 @@ export class DurablePushStore {
           ]
         )
       } else {
-        if (batch) await tx.query('UPDATE push_delivery_batches SET due_at = ? WHERE batch_id = ?', [now, batch.batch_id])
+        if (batch)
+          await tx.query('UPDATE push_delivery_batches SET due_at = ? WHERE batch_id = ?', [
+            now,
+            batch.batch_id
+          ])
         await tx.query(
           `INSERT INTO push_delivery_batches(batch_id, host_fingerprint, registration_id, kind, payload_json, state, due_at, expires_at, lease_until, attempts, created_at)
           VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 0, 0, ?)`,
@@ -110,19 +114,13 @@ export class DurablePushStore {
     })
   }
 
-  async claim(registrationId?: string, force = false): Promise<DeliveryBatch | null> {
+  async claim(): Promise<DeliveryBatch | null> {
     return this.database.transaction(async (tx) => {
       await tx.lockQuotaScope('push-worker-claim')
       const now = this.now()
-      const params: unknown[] = [now, now, now]
-      let predicate =
-        "state = 'pending' AND lease_until <= ? AND expires_at > ? AND NOT EXISTS (SELECT 1 FROM push_delivery_batches busy WHERE busy.registration_id = push_delivery_batches.registration_id AND busy.lease_until > ?)"
-      predicate += force ? ' AND (attempts = 0 OR due_at <= ?)' : ' AND due_at <= ?'
-      params.push(now)
-      if (registrationId) {
-        predicate += ' AND registration_id = ?'
-        params.push(registrationId)
-      }
+      const params = [now, now, now, now]
+      const predicate =
+        "state = 'pending' AND lease_until <= ? AND expires_at > ? AND due_at <= ? AND NOT EXISTS (SELECT 1 FROM push_delivery_batches busy WHERE busy.registration_id = push_delivery_batches.registration_id AND busy.lease_until > ?)"
       let [row] = await tx.query(
         `SELECT * FROM push_delivery_batches WHERE ${predicate} ORDER BY due_at, created_at LIMIT 1`,
         params
@@ -208,9 +206,6 @@ export class DurablePushStore {
 
   async prune(): Promise<number> {
     const now = this.now()
-    await this.database.query('DELETE FROM push_send_log WHERE sent_at < ?', [
-      now - PUSH_LIMITS.sendLogRetentionMs
-    ])
     await this.database.query(
       "UPDATE push_delivery_batches SET state = 'expired', payload_json = '[]' WHERE expires_at <= ? AND state = 'pending'",
       [now]

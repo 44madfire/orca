@@ -299,8 +299,7 @@ describe('startParkedTerminalByteWatcher', () => {
     expect(dispatchTerminalNotification).toHaveBeenCalledWith(WORKTREE_ID, {
       source: 'agent-task-complete',
       terminalTitle: IDLE_TITLE,
-      paneKey: PANE_KEY,
-      suppressOsNotification: true
+      paneKey: PANE_KEY
     })
     dispose()
   })
@@ -320,7 +319,7 @@ describe('startParkedTerminalByteWatcher', () => {
 
     expect(dispatchTerminalNotification).toHaveBeenCalledWith(
       WORKTREE_ID,
-      expect.objectContaining({ source: 'agent-task-complete', suppressOsNotification: true })
+      expect.objectContaining({ source: 'agent-task-complete' })
     )
     expect(mockStoreState.setCacheTimerStartedAt).toHaveBeenLastCalledWith(
       PANE_KEY,

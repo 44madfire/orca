@@ -29,18 +29,10 @@ import { PushRequestDrain } from './push-request-drain.js'
 
 export type PushServerOptions = {
   now?: () => number
-  providerRetryWait?: (ms: number) => Promise<void>
   apnsTransport?: ApnsTransport
   fcmTransport?: FcmTransport
   fcmAccessToken?: () => Promise<string>
-  setTimer?: PushCoalescerTimerFactory
-  clearTimer?: (timer: { readonly handle: unknown }) => void
 }
-
-type PushCoalescerTimerFactory = (
-  callback: () => void,
-  delayMs: number
-) => { readonly handle: unknown }
 
 type PushVariables = { hostFingerprint: string }
 
@@ -68,13 +60,10 @@ export function createPushServer(
   const challenges = new PushHostChallengeStore(database, config.publicUrl, now)
   const sessions = new PushHostSessionStore(database, now)
   const devices = new PushDeviceRegistryStore(database, now)
-  const quota = new DurablePushStore(database, now, config.coalesceMs)
+  const deliveryStore = new DurablePushStore(database, now, config.coalesceMs)
   const apnsTransport = options.apnsTransport ?? (config.apns ? createApnsHttp2Transport() : null)
   const dispatcher = new PushDispatcher({
     devices,
-    now,
-    ...(options.providerRetryWait ? { wait: options.providerRetryWait } : {}),
-    onRetry: () => observability.record('delivery_retry'),
     ...(config.apns && apnsTransport
       ? {
           apns: new ApnsClient({
@@ -96,7 +85,10 @@ export function createPushServer(
         status === 'sent' ? 'delivery_sent' : status === 'dead' ? 'delivery_dead' : 'delivery_error'
       )
   })
-  const coalescer = new DurablePushWorker(quota, dispatcher, now)
+  const worker = new DurablePushWorker(deliveryStore, dispatcher, {
+    now,
+    onRetry: () => observability.record('delivery_retry')
+  })
   const ready = createPushReadiness(database, { now })
   const unauthenticatedIps = new ClientIpRateLimiter({ now })
   const limitUnauthenticatedIp = clientIpRateLimit(unauthenticatedIps, {
@@ -254,7 +246,7 @@ export function createPushServer(
         results.push({ registrationId, status: 'dead' })
         continue
       }
-      const reservation = await quota.accept(
+      const reservation = await deliveryStore.accept(
         hostFingerprint,
         registrationId,
         body.data.notification
@@ -277,9 +269,9 @@ export function createPushServer(
     challenges,
     sessions,
     devices,
-    quota,
+    deliveryStore,
     unauthenticatedIps,
-    coalescer,
+    worker,
     observability,
     ready,
     closeTransports: (): void => {

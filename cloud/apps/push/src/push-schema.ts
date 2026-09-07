@@ -45,18 +45,6 @@ CREATE TABLE IF NOT EXISTS push_devices (
 CREATE UNIQUE INDEX IF NOT EXISTS push_devices_host_device
   ON push_devices(host_fingerprint, device_id);
 
-CREATE TABLE IF NOT EXISTS push_send_log (
-  send_id TEXT PRIMARY KEY,
-  host_fingerprint TEXT NOT NULL,
-  registration_id TEXT NOT NULL,
-  sent_at BIGINT NOT NULL
-);
--- Both quota windows scan by identity and time, and the pruner scans by time alone.
-CREATE INDEX IF NOT EXISTS push_send_log_host_sent_at ON push_send_log(host_fingerprint, sent_at);
-CREATE INDEX IF NOT EXISTS push_send_log_registration_sent_at
-  ON push_send_log(registration_id, sent_at);
-CREATE INDEX IF NOT EXISTS push_send_log_sent_at ON push_send_log(sent_at);
-
 -- The stale-host pruner scans by last contact. Its owning-host subquery rides
 -- the push_devices_host_device index.
 CREATE INDEX IF NOT EXISTS push_hosts_last_seen_at ON push_hosts(last_seen_at);

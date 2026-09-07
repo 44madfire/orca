@@ -268,7 +268,7 @@ describe('push gateway request limits', () => {
       sessionToken
     )
     expect(await response.json()).toEqual({ results: [{ registrationId, status: 'queued' }] })
-    expect(await harness.server.coalescer.pendingCount(registrationId)).toBe(1)
+    expect(await harness.server.deliveryStore.pendingCount(registrationId)).toBe(1)
     const [row] = await harness.database.query('SELECT COUNT(*) AS sends FROM push_events')
     expect(Number(row?.sends)).toBe(1)
   })

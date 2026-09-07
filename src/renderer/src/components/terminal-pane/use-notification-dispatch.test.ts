@@ -31,6 +31,7 @@ type MockState = {
   settings: {
     experimentalTerminalAttention?: boolean
     notifications?: {
+      enabled?: boolean
       customSoundPath?: string | null
       customSoundId?: string | null
     }
@@ -342,11 +343,11 @@ describe('dispatchTerminalNotification', () => {
   })
 
   it('offers attention-only completion to main for independent mobile delivery', () => {
+    mockState.settings.notifications = { ...mockState.settings.notifications, enabled: false }
     dispatchTerminalNotification('wt-primary', {
       source: 'agent-task-complete',
       terminalTitle: 'codex',
-      paneKey,
-      suppressOsNotification: true
+      paneKey
     })
 
     expect(mockState.markWorktreeUnread).toHaveBeenCalledWith('wt-primary')

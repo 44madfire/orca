@@ -72,7 +72,9 @@ export function buildPushDelivery(input: {
     title: input.title,
     body: input.body,
     collapseId: summaryMembers
-      ? createHash('sha256').update(JSON.stringify([hostFingerprint, summaryMembers])).digest('hex')
+      ? createHash('sha256')
+          .update(JSON.stringify([hostFingerprint, summaryMembers]))
+          .digest('hex')
       : collapseIdFor(notification, hostFingerprint, coalescedCount),
     orca: {
       ...(notification.kind ? { kind: notification.kind } : {}),
@@ -95,7 +97,10 @@ export function orcaDataStrings(orca: PushOrcaData): Record<string, string> {
   return Object.fromEntries(
     Object.entries(orca)
       .filter(([, value]) => value !== undefined && value !== null)
-      .map(([key, value]) => [key, typeof value === 'object' ? JSON.stringify(value) : String(value)])
+      .map(([key, value]) => [
+        key,
+        typeof value === 'object' ? JSON.stringify(value) : String(value)
+      ])
   )
 }
 
@@ -105,13 +110,29 @@ export function canCoalescePushNotifications(
 ): boolean {
   if (!pushSummaryMembers(notifications)) return false
   const delivery = buildPushDelivery({
-    registrationId: '', hostFingerprint, notifications,
-    notification: notifications.at(-1)!, title: 'Orca', body: '32 agents need attention',
+    registrationId: '',
+    hostFingerprint,
+    notifications,
+    notification: notifications.at(-1)!,
+    title: 'Orca',
+    body: '32 agents need attention',
     coalescedCount: notifications.length
   })
   // Reserve provider envelope space, including FCM's JSON-string escaping.
-  return Buffer.byteLength(JSON.stringify({
-    notification: { title: delivery.title, body: delivery.body },
-    data: orcaDataStrings(delivery.orca)
-  }), 'utf8') <= 3500
+  return (
+    Buffer.byteLength(
+      JSON.stringify({
+        notification: { title: delivery.title, body: delivery.body },
+        data: orcaDataStrings(delivery.orca)
+      }),
+      'utf8'
+    ) <= 3500
+  )
+}
+
+export function summaryBody(notifications: readonly PushNotification[]): string {
+  const count = notifications.length
+  return notifications.some((notification) => notification.agentState === 'needs-input')
+    ? `${count} agents need attention`
+    : `${count} updates`
 }
