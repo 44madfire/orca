@@ -19,11 +19,11 @@ Import cookies from Chrome or Edge (or from a cookie file) into a profile from S
 
 Sites can sign you in with a passkey inside Orca's browser. What is available depends on the platform:
 
-- **macOS**: signed Orca builds offer a Touch ID passkey authenticator. When a site asks you to register a passkey, macOS shows the Touch ID sheet and stores the passkey in this Mac's Secure Enclave, scoped to the browser profile that created it. These passkeys are device-bound: they do not sync through iCloud Keychain, and passkeys you already keep in iCloud Keychain, Safari, or a password manager are not offered to sites in Orca. Register a new passkey for the site in Orca when it offers to, or use the site's other sign-in method.
+- **macOS**: USB security keys are supported. Touch ID passkeys are disabled in all Orca builds because the required signing profile can prevent the app from launching when it expires. Passkeys stored in iCloud Keychain or a password manager are not offered to sites in Orca. Use a security key or the site's other sign-in method.
 - **Windows**: Windows handles passkey requests natively, so Windows Hello, security keys, and a phone via QR code all work as they do in other browsers.
 - **Linux**: USB security keys only.
 
-USB security keys work on every platform. When a security key or Touch ID offers more than one account for a site, Orca opens an account picker instead of silently canceling the sign-in. Choose the account you want or cancel the request.
+USB security keys work on every platform. When an authenticator offers more than one account for a site, Orca opens an account picker instead of silently canceling the sign-in. Choose the account you want or cancel the request.
 
 ## Use a profile
 

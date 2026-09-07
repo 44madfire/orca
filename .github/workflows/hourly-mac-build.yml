@@ -182,18 +182,6 @@ jobs:
           retry_wait_seconds: 30
           command: pnpm install --frozen-lockfile
 
-      # Why: the Touch ID passkey authenticator needs a restricted keychain entitlement
-      # that only an embedded Developer ID provisioning profile can authorise. Without
-      # the profile the packager keeps the plain entitlements and passkeys stay off.
-      - name: Materialize macOS provisioning profile
-        if: env.MAC_PROVISIONING_PROFILE_BASE64 != ''
-        shell: bash
-        run: |
-          printf '%s' "$MAC_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/orca.provisionprofile"
-          echo "ORCA_MAC_PROVISIONING_PROFILE=$RUNNER_TEMP/orca.provisionprofile" >> "$GITHUB_ENV"
-        env:
-          MAC_PROVISIONING_PROFILE_BASE64: ${{ secrets.MAC_PROVISIONING_PROFILE }}
-
       # Why: signing is what makes an hourly installable over an existing Orca, so
       # a missing cert must fail here rather than after a 20-minute build.
       - name: Verify macOS signing environment
@@ -323,7 +311,8 @@ jobs:
           timeout_minutes: 45
           max_attempts: 2
           retry_wait_seconds: 30
-          command: node config/scripts/ensure-native-runtime.mjs --runtime=electron && ORCA_MAC_HOURLY=1 pnpm exec electron-builder --config config/electron-builder.config.cjs --mac --publish always
+          # afterSign rejects passkey entitlements/profiles and proves the signed app launches before any upload.
+          command: node config/scripts/ensure-native-runtime.mjs --runtime=electron && ORCA_BACKGROUND_LAUNCH=1 ORCA_MAC_HOURLY=1 pnpm exec electron-builder --config config/electron-builder.config.cjs --mac --publish always
         env:
           # Why: electron-builder's github publisher targets the repo named in the
           # config; the token must therefore carry write access to orca-hourly.
