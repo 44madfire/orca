@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { WORKTREE_CREATE_TIMEOUT_MS } from '../../shared/mobile-web/workspace-creation-timeout'
+import { WORKTREE_CREATE_TIMEOUT_MS } from '../../shared/mobile-web/host-operation-timeouts'
 import { MobileWebBridgeClient } from './mobile-web-bridge-client'
 
 afterEach(() => vi.useRealTimers())

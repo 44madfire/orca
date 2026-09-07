@@ -1,3 +1,4 @@
+import { COMMIT_MESSAGE_GENERATION_TIMEOUT_MS } from '../../../src/shared/mobile-web/host-operation-timeouts'
 import {
   MOBILE_WEB_COMMIT_AGENT_LABEL_MAX_CHARACTERS,
   MOBILE_WEB_COMMIT_MESSAGE_MAX_CHARACTERS,
@@ -12,8 +13,6 @@ import {
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
-
-const COMMIT_MESSAGE_GENERATION_TIMEOUT_MS = 65_000
 
 type ActiveGeneration = {
   client: RpcClient

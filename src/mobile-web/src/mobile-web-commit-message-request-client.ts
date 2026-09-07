@@ -1,3 +1,4 @@
+import { COMMIT_MESSAGE_GENERATION_TIMEOUT_MS } from '../../shared/mobile-web/host-operation-timeouts'
 import {
   MobileWebSourceControlCancelCommitMessagePayloadSchema,
   MobileWebSourceControlCancelCommitMessageResultSchema,
@@ -29,7 +30,7 @@ export class MobileWebCommitMessageRequestClient {
         payload,
         MobileWebSourceControlGenerateCommitMessagePayloadSchema,
         MobileWebSourceControlGenerateCommitMessageResultSchema,
-        options
+        { ...options, timeoutMs: options?.timeoutMs ?? COMMIT_MESSAGE_GENERATION_TIMEOUT_MS }
       )
       .then((result) => {
         if (result.previousHead !== payload.expectedHead) {

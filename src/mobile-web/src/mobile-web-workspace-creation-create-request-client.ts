@@ -1,4 +1,4 @@
-import { WORKTREE_CREATE_TIMEOUT_MS } from '../../shared/mobile-web/workspace-creation-timeout'
+import { WORKTREE_CREATE_TIMEOUT_MS } from '../../shared/mobile-web/host-operation-timeouts'
 import {
   MobileWebCreationBlankPayloadSchema,
   MobileWebCreationFromSourcePayloadSchema,
