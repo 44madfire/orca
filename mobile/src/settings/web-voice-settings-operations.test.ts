@@ -3,12 +3,15 @@ import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-w
 import { webVoiceSettingsOperations } from './web-voice-settings-operations'
 
 describe('hosted voice settings', () => {
-  it('requires configuration acknowledgement without replaying a mismatched receipt', async () => {
+  it('returns the desktop receipt for a configuration change without a second request', async () => {
     const request = vi.fn().mockResolvedValue({ enabled: false, models: [] })
     const operations = webVoiceSettingsOperations({
       host: { request }
     } as unknown as MobileWebBridgeClient)
-    await expect(operations.configure({ enabled: true })).rejects.toThrow('not confirmed')
+    await expect(operations.configure({ enabled: true })).resolves.toEqual({
+      enabled: false,
+      models: []
+    })
     expect(request).toHaveBeenCalledOnce()
   })
   it('does not replay an ambiguous model mutation through native speech', async () => {
