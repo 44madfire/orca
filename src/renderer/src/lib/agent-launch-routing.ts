@@ -82,15 +82,25 @@ export function resolveAgentLaunchRoute(input: AgentLaunchRoutingInput): AgentLa
   if (initialViewMode !== 'chat') {
     return 'terminal-tui'
   }
-  if (input.settings?.experimentalStructuredNativeChat !== true) {
-    return 'legacy-native-chat'
-  }
+  return structuredAgentLaunchSupported(input) ? 'structured-native-chat' : 'legacy-native-chat'
+}
 
+/**
+ * Whether this workspace/agent pair can run a structured session at all.
+ *
+ * Split out of `resolveAgentLaunchRoute` so callers that already know the user asked for a chat —
+ * resuming a history row into one, say — can ask this without also passing the initial-view-mode
+ * preference, which decides what a *new tab* defaults to and has no bearing on an explicit request.
+ */
+export function structuredAgentLaunchSupported(
+  input: Omit<AgentLaunchRoutingInput, 'launchText'>
+): boolean {
   const projectRuntime = input.projectRuntime
   const runtimeRefused =
     projectRuntime?.status === 'repair-required' || projectRuntime?.runtime.kind === 'wsl'
-  const structuredSupported =
+  return (
     isAgentSessionHandleProvider(input.agent) &&
+    input.settings?.experimentalStructuredNativeChat === true &&
     input.promptDelivery !== 'draft' &&
     input.workspaceKind !== 'floating' &&
     input.requiresTuiLaunchCustomization !== true &&
@@ -101,6 +111,5 @@ export function resolveAgentLaunchRoute(input: AgentLaunchRoutingInput): AgentLa
     (input.agent !== 'codex' || input.platform !== 'win32') &&
     !runtimeRefused &&
     input.hostCapabilities.includes(STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)
-
-  return structuredSupported ? 'structured-native-chat' : 'legacy-native-chat'
+  )
 }

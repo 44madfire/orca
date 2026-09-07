@@ -29,7 +29,21 @@ import {
   resolveAiVaultSessionResumeActions,
   resolveAiVaultSessionResumeState
 } from './ai-vault-session-resume'
-import { useAiVaultSessionLaunchActions } from './ai-vault-session-launch-actions'
+import {
+  resolveAiVaultTargetWorkspacePath,
+  useAiVaultSessionLaunchActions
+} from './ai-vault-session-launch-actions'
+import {
+  resolveAiVaultSessionResumeInChatEligibility,
+  type AiVaultResumeInChatEligibility
+} from './ai-vault-session-resume-in-chat'
+import { structuredAgentLaunchSupported } from '@/lib/agent-launch-routing'
+import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
+import { STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
+import { readLocalRuntimeCapabilities } from '@/runtime/local-runtime-capabilities'
+import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
+import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import {
   useAiVaultSessionWorktreeMap,
   withAiVaultCurrentWorktreeStatus
@@ -287,6 +301,51 @@ export default function AiVaultPanel(): React.JSX.Element {
     [allWorktrees, effectiveActiveWorktreeId, getSessionWorktreeInfo, repos, resumeTargetState]
   )
 
+  // Resuming into a chat asks a different question from resuming into a terminal: not "can this
+  // workspace host a PTY" but "will the provider still find this conversation from the workspace we
+  // would run it in". The workspace it targets is the session's own when that is open, because
+  // Claude looks its transcript up under a directory derived from the launch cwd.
+  const getSessionResumeInChat = useCallback(
+    (session: AiVaultSession): AiVaultResumeInChatEligibility => {
+      const resumeState = getSessionResumeState(session)
+      const targetWorkspaceId = resumeState.usesSessionWorktree
+        ? resumeState.worktreeId
+        : (resumeState.worktreeId ?? effectiveActiveWorktreeId)
+      const targetWorkspacePath = targetWorkspaceId
+        ? resolveAiVaultTargetWorkspacePath(resumeTargetState, targetWorkspaceId)
+        : null
+      return resolveAiVaultSessionResumeInChatEligibility({
+        session,
+        targetWorkspaceId,
+        targetWorkspacePath,
+        structuredRouteAvailable:
+          isAgentSessionHandleProvider(session.agent) &&
+          Boolean(targetWorkspaceId) &&
+          structuredAgentLaunchSupported({
+            agent: session.agent,
+            settings,
+            executionHostId: getExecutionHostIdForWorktree(
+              useAppStore.getState(),
+              targetWorkspaceId as string
+            ),
+            platform: CLIENT_PLATFORM,
+            hostCapabilities: readLocalRuntimeCapabilities(),
+            workspaceKind: (targetWorkspaceId as string).startsWith('folder:')
+              ? 'folder'
+              : 'git-worktree',
+            projectRuntime: getLocalProjectExecutionRuntimeContext(
+              useAppStore.getState(),
+              targetWorkspaceId as string
+            )
+          }) &&
+          readLocalRuntimeCapabilities().includes(
+            STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY
+          )
+      })
+    },
+    [effectiveActiveWorktreeId, getSessionResumeState, resumeTargetState, settings]
+  )
+
   const handleScopeChange = useCallback((nextScope: AiVaultScope) => {
     preferredScopeRef.current = nextScope
     userChangedScopeRef.current = nextScope !== DEFAULT_AI_VAULT_SCOPE
@@ -366,7 +425,9 @@ export default function AiVaultPanel(): React.JSX.Element {
         onJumpToOriginalPane={jumpToOriginalPane}
         onJumpToWorktree={jumpToWorktree}
         onResume={launchActions.handleResume}
+        getSessionResumeInChat={getSessionResumeInChat}
         onContinueInNewSession={launchActions.handleContinueInNewSession}
+        onResumeInNewChat={launchActions.handleResumeInNewChat}
         onCopyResume={(session, worktreeId) =>
           void launchActions.copyResumeCommand(session, worktreeId)
         }

@@ -36,6 +36,7 @@ import type { StructuredAgentSessionEventSink } from './structured-agent-session
 import { readNativeSessionOptions } from './structured-agent-session-option-restoration'
 import { resolveAgentSessionReplayOutcome } from './structured-agent-session-replay-outcome'
 import { readAgentSessionHydrationPage } from './agent-session-history-page'
+import { importLegacyTranscriptIntoJournal } from '../agent-session-journal/journal-legacy-import'
 
 export type AttachFlowInput = {
   store: AgentSessionRecordStore
@@ -181,6 +182,7 @@ export async function performAttach(
       journalRoot: input.journalRoot,
       adapter: input.adapter
     })
+    await importAdoptedTranscript(params, attached, record)
     await input.onAttached(attached, acquisitionGeneration)
     await store.recordOperationOutcome({
       callerKey: input.callerKey,
@@ -203,6 +205,48 @@ export async function performAttach(
       page: readAgentSessionHydrationPage(attached.journal, fence),
       unconfirmedClientMessageIds: attached.unconfirmedClientMessageIds
     }
+  }
+}
+
+/**
+ * Fill an adopting session's journal with the conversation so far.
+ *
+ * Runs here, and only here, because for a create there is no earlier moment: the provider is
+ * acquired before the journal exists. It must still land before `onAttached`, which binds the event
+ * sink and publishes the session — after that, streamed rows and client sends would race the import.
+ *
+ * A failure throws, and that is deliberate. By this point the provider has already resumed and holds
+ * the conversation in context; leaving the user an empty journal beside a context-carrying agent is
+ * the exact "claims continuity the provider never gave" inversion this feature must not produce.
+ * The throw reaches `settlePostAcquisitionAttachFailure`, which tears the child down, settles the
+ * operation failed, and publishes no tab.
+ */
+async function importAdoptedTranscript(
+  params: AgentSessionAttachParams,
+  attached: AttachedJournal,
+  record: AgentSessionRecord
+): Promise<void> {
+  const adopt = params.adopt
+  if (!adopt) {
+    return
+  }
+  const imported = await importLegacyTranscriptIntoJournal({
+    journal: attached.journal,
+    agent: params.agent,
+    sessionId:
+      adopt.providerHandle.kind === 'claude'
+        ? adopt.providerHandle.sessionId
+        : adopt.providerHandle.threadId,
+    fence: record.lease.runtimeFence,
+    options: { filePath: adopt.transcriptPath }
+  })
+  if (!imported.ok) {
+    throw new Error(imported.error)
+  }
+  // `replaced: false` means the transcript decoded to nothing. The row promised a conversation and
+  // the provider resumed one, so an empty journal here is a disagreement, not an empty chat.
+  if (!imported.replaced) {
+    throw new Error('agent_session_identity_required')
   }
 }
 

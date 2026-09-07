@@ -6,12 +6,19 @@ import { resolvePinnedCodexRolloutProof } from '../codex/codex-tui-rollout-proof
 import { supportsCodexStructuredLocation } from '../codex/codex-structured-location-support'
 import { supportsClaudeStructuredLocation } from '../claude/claude-structured-location-support'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
+import { listStructuredProviderSessionOwnership } from '../native-chat/agent-session-wire/structured-provider-session-ownership'
 import { resolveStructuredAgentSessionCreateSupport } from '../native-chat/structured-agent-session-create-support'
+import {
+  findConflictingStructuredAdoption,
+  resolveStructuredAgentSessionAdoption,
+  structuredAdoptionConflictError
+} from '../native-chat/structured-agent-session-history-adoption'
+import { resolveSessionFilePath } from '../native-chat/session-file-resolver'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type { AgentStatusIpcPayload } from '../../shared/agent-status-types'
 import { getLocalProjectWorktreeGitOptions } from '../project-runtime-git-options'
 import type { AgentSessionAttachParams } from '../native-chat/agent-session-wire/structured-agent-session-attach'
-import { getSystemCodexHomePath } from '../codex/codex-home-paths'
+import { getOrcaManagedCodexHomePath, getSystemCodexHomePath } from '../codex/codex-home-paths'
 import { resolveTuiAgentLaunchEnv } from '../../shared/tui-agent-launch-defaults'
 import { resolveStructuredLaunchSeedOptions } from '../../shared/native-chat-session-option-defaults'
 import { hasPersistedStructuredAgentSessionStore as hasPersistedStructuredAgentSessionStoreOnDisk } from './structured-agent-session-runtime'
@@ -111,6 +118,7 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
     envelope: { sessionId: string; clientOperationId: string }
     worktree: string
     agent: 'claude' | 'codex'
+    resumeFrom?: { providerSessionId: string }
   }): Promise<AgentSessionAttachParams> {
     if (input.agent === 'claude') {
       return this.resolveStructuredAgentSessionIntent(input, async ({ launchEnv, location }) => {
@@ -139,11 +147,72 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
     })
   }
 
+  /** Where an adopted conversation may live, most-preferred first. The selected account is tried
+   *  before the system default so a row present in both resolves the way a fresh create would. */
+  protected structuredAdoptionAccountHomeCandidates(
+    agent: 'claude' | 'codex',
+    selectedAccountHomePath: string
+  ): string[] {
+    if (agent === 'claude') {
+      return [selectedAccountHomePath, join(homedir(), '.claude')]
+    }
+    // Managed per-account homes are enumerated from the store rather than taken from the row: a
+    // Codex conversation recorded under one account must still be findable when another is
+    // selected, and reading the row's own path back would reintroduce the client-supplied path
+    // this whole derivation exists to avoid.
+    const managedHomes = (this.requireStore().getSettings().codexManagedAccounts ?? []).map(
+      (account) => account.managedHomePath
+    )
+    return [
+      selectedAccountHomePath,
+      ...managedHomes,
+      getOrcaManagedCodexHomePath(),
+      getSystemCodexHomePath()
+    ]
+  }
+
+  protected async resolveStructuredAgentSessionAdoptionForCreate(input: {
+    agent: 'claude' | 'codex'
+    providerSessionId: string
+    selfSessionId: string
+    selectedAccountHomePath: string
+  }) {
+    const host = getStructuredAgentSessionHost()
+    const conflict = host
+      ? findConflictingStructuredAdoption({
+          agent: input.agent,
+          providerSessionId: input.providerSessionId,
+          selfSessionId: input.selfSessionId,
+          ownership: listStructuredProviderSessionOwnership(host.deps.store.listRecords())
+        })
+      : null
+    if (conflict) {
+      throw structuredAdoptionConflictError(conflict)
+    }
+    return resolveStructuredAgentSessionAdoption({
+      agent: input.agent,
+      providerSessionId: input.providerSessionId,
+      candidateAccountHomes: this.structuredAdoptionAccountHomeCandidates(
+        input.agent,
+        input.selectedAccountHomePath
+      ),
+      resolveTranscript: async ({ agent, providerSessionId, accountHomePath }) =>
+        resolveSessionFilePath(
+          agent,
+          providerSessionId,
+          agent === 'claude'
+            ? { claudeProjectsDir: join(accountHomePath, 'projects') }
+            : { codexSessionsDirs: [join(accountHomePath, 'sessions')] }
+        )
+    })
+  }
+
   protected async resolveStructuredAgentSessionIntent(
     input: {
       envelope: { sessionId: string; clientOperationId: string }
       worktree: string
       agent: 'claude' | 'codex'
+      resumeFrom?: { providerSessionId: string }
     },
     resolveAccountHomePath: (context: {
       workspacePath: string
@@ -168,6 +237,23 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
     )
     const location = await this.resolveStructuredAgentSessionLocation(input.worktree)
     const workspacePath = (await this.resolveRuntimeFileTarget(input.worktree)).worktree.path
+    const selectedAccountHomePath = await resolveAccountHomePath({
+      workspacePath,
+      launchEnv,
+      location
+    })
+    // Adopting pins the account home to wherever the conversation actually lives, which is not
+    // necessarily the one a fresh create would pick: Codex resolves its rollout under
+    // `accountHome.path`, and Claude reads its transcript under `<home>/projects`. Resuming under
+    // the wrong home finds nothing and lands the user in a blank chat wearing the old chat's name.
+    const adoption = input.resumeFrom
+      ? await this.resolveStructuredAgentSessionAdoptionForCreate({
+          agent: input.agent,
+          providerSessionId: input.resumeFrom.providerSessionId,
+          selfSessionId: input.envelope.sessionId,
+          selectedAccountHomePath
+        })
+      : null
     return {
       envelope: {
         sessionId: input.envelope.sessionId,
@@ -180,9 +266,27 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
       agent: input.agent,
       accountHome: {
         variable: input.agent === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME',
-        path: await resolveAccountHomePath({ workspacePath, launchEnv, location })
+        path: adoption ? adoption.accountHomePath : selectedAccountHomePath
       },
       ...(options ? { options } : {}),
+      ...(input.resumeFrom && adoption
+        ? {
+            // `adopt` is what makes the reservation seed the handle chain. Presence of
+            // `providerHandle` alone must not: `agentSession.ensure` already passes one today
+            // without adopting anything.
+            adopt: {
+              providerHandle:
+                input.agent === 'claude'
+                  ? {
+                      kind: 'claude' as const,
+                      sessionId: input.resumeFrom.providerSessionId,
+                      leafUuid: null
+                    }
+                  : { kind: 'codex' as const, threadId: input.resumeFrom.providerSessionId },
+              transcriptPath: adoption.transcriptPath
+            }
+          }
+        : {}),
       runtimeKind: 'native'
     }
   }

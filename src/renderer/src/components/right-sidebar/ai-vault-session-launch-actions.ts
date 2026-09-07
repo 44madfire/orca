@@ -29,6 +29,8 @@ import { prepareAiVaultSessionContinuation } from './ai-vault-session-continuati
 import type { AgentSessionContinuationRequest } from '@/lib/agent-session-continuation'
 import { findWorktreeById } from '@/store/slices/worktree-helpers'
 import { activateAiVaultStructuredSession } from '@/lib/activate-ai-vault-structured-session'
+import { startStructuredAgentLaunch } from '@/lib/structured-agent-session-launch'
+import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
 
 export function useAiVaultSessionLaunchActions({
   activeWorktree,
@@ -147,6 +149,44 @@ export function useAiVaultSessionLaunchActions({
     [activeWorktree?.id, activeWorktreeId, buildResumeStartup, targetState]
   )
 
+  const handleResumeInNewChat = useCallback(
+    (session: AiVaultSession, targetWorktreeId?: string): void => {
+      if (!isAgentSessionHandleProvider(session.agent)) {
+        return
+      }
+      const worktreeId = targetWorktreeId ?? activeWorktreeId ?? activeWorktree?.id ?? null
+      if (!worktreeId) {
+        toast.error(
+          translate(
+            'auto.components.right.sidebar.AiVaultPanel.openWorkspaceBeforeResuming',
+            'Open a workspace before resuming a session.'
+          )
+        )
+        return
+      }
+      // Codex rows can live under a shared legacy home; the same preparation the terminal resume
+      // runs re-pins them, and its result is what names the conversation the host will look for.
+      void prepareAiVaultSessionForResume(session)
+        .then((preparedSession) => {
+          const launch = startStructuredAgentLaunch(
+            worktreeId,
+            session.agent as 'claude' | 'codex',
+            {
+              resumeFrom: { providerSessionId: preparedSession.sessionId }
+            }
+          )
+          return launch.launchResult
+        })
+        .then(() => {
+          if (useAppStore.getState().activeWorktreeId !== worktreeId) {
+            activateAiVaultResumeWorkspace(worktreeId)
+          }
+        })
+        .catch(notifyAiVaultSessionResumeInChatFailure)
+    },
+    [activeWorktree?.id, activeWorktreeId]
+  )
+
   const handleContinueInNewSession = useCallback(
     (session: AiVaultSession, targetWorktreeId: string): void => {
       const targetId = resolveAiVaultSessionLaunchTargetOrNotify({
@@ -194,10 +234,42 @@ export function useAiVaultSessionLaunchActions({
     buildResumeStartup,
     copyResumeCommand,
     handleResume,
+    handleResumeInNewChat,
     handleContinueInNewSession,
     continuationRequest,
     handleContinuationDialogOpenChange
   }
+}
+
+/** The host refuses an adoption whose conversation another chat already holds, and refuses one it
+ *  cannot find under any account home it recognises. Both are actionable, and neither is the
+ *  generic "could not prepare" the terminal resume reports. */
+function notifyAiVaultSessionResumeInChatFailure(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  if (message.includes('agent_session_conflict')) {
+    toast.error(
+      translate(
+        'auto.components.right.sidebar.AiVaultPanel.resumeInChatConflict',
+        'Another chat is already holding this conversation.'
+      )
+    )
+    return
+  }
+  if (message.includes('agent_session_identity_required')) {
+    toast.error(
+      translate(
+        'auto.components.right.sidebar.AiVaultPanel.resumeInChatTranscriptMissing',
+        "This conversation's transcript could not be found, so it cannot be resumed."
+      )
+    )
+    return
+  }
+  toast.error(
+    translate(
+      'auto.components.right.sidebar.AiVaultPanel.resumeInChatFailed',
+      'Could not resume this session in a new chat.'
+    )
+  )
 }
 
 function notifyAiVaultSessionPreparationFailure(error: unknown): void {
@@ -211,7 +283,7 @@ function notifyAiVaultSessionPreparationFailure(error: unknown): void {
   )
 }
 
-function resolveAiVaultTargetWorkspacePath(
+export function resolveAiVaultTargetWorkspacePath(
   state: AiVaultSessionResumeTargetState,
   workspaceId: string
 ): string | null {
