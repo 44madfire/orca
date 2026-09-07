@@ -25,10 +25,13 @@ export type ClaudeTranscriptTailScan = {
 /**
  * Every non-empty line of the transcript's tail, newest first, up to the limit.
  *
- * A chunk boundary can split a line, so the leading partial of each chunk is
- * carried into the next (earlier) one. The carry stays BYTES: decoding a chunk
- * in isolation turns a multi-byte character straddling the boundary into U+FFFD
- * on both sides, and the mojibake still parses as JSON, so nothing fails closed.
+ * Each read is aligned to end just past a newline, so no line ever straddles a
+ * block and nothing has to be carried between iterations. Carrying a partial as
+ * TEXT was the bug this shape removes: decoding a block in isolation turns a
+ * multi-byte character straddling the boundary into U+FFFD on both sides, and
+ * the mojibake still parses as JSON, so nothing fails closed. Carrying it as
+ * bytes would fix that but rebuild a growing buffer every iteration; re-reading
+ * the one partial line instead costs a bounded overlap and no allocation.
  */
 export async function* claudeTranscriptTailLines(
   transcriptPath: string,
@@ -37,40 +40,39 @@ export async function* claudeTranscriptTailLines(
   const file = await open(transcriptPath, 'r')
   try {
     const { size } = await file.stat()
-    let position = size
-    let carry: Buffer = Buffer.alloc(0)
+    let end = size
+    let span = TRANSCRIPT_TAIL_CHUNK_BYTES
     let scanned = 0
     if (scan) {
-      scan.reachedFileStart = position === 0
+      scan.reachedFileStart = end === 0
     }
-    while (position > 0 && scanned < TRANSCRIPT_TAIL_READ_LIMIT_BYTES) {
-      const length = Math.min(TRANSCRIPT_TAIL_CHUNK_BYTES, position)
-      position -= length
-      scanned += length
+    while (end > 0 && scanned < TRANSCRIPT_TAIL_READ_LIMIT_BYTES) {
+      const position = Math.max(0, end - span)
+      const length = end - position
       const buffer = Buffer.alloc(length)
       await file.read(buffer, 0, length, position)
-      const block = carry.length > 0 ? Buffer.concat([buffer, carry]) : buffer
-      let start = 0
-      if (position > 0) {
-        const boundary = block.indexOf(NEWLINE)
-        // No newline at all: the whole block is one partial line, carry it on.
-        start = boundary === -1 ? block.length : boundary + 1
-        carry = block.subarray(0, boundary === -1 ? block.length : boundary)
-      } else {
-        carry = Buffer.alloc(0)
+      scanned = size - position
+      const boundary = position > 0 ? buffer.indexOf(NEWLINE) : -1
+      if (position > 0 && boundary === -1) {
+        // A line longer than the window. Widen it rather than carry its bytes.
+        span += TRANSCRIPT_TAIL_CHUNK_BYTES
+        continue
       }
       if (scan) {
         scan.reachedFileStart = position === 0
       }
-      // Safe to decode: `start` follows a newline and the far end of `block` is
-      // either the file's end or a carry that ended on one.
-      const lines = block.subarray(start).toString('utf8').split(/\r?\n/)
+      // Safe to decode: `from` follows a newline (or is the file's start) and
+      // `end` is the file's end or one past a newline.
+      const from = boundary + 1
+      const lines = buffer.subarray(from).toString('utf8').split(/\r?\n/)
       for (let index = lines.length - 1; index >= 0; index -= 1) {
         const line = lines[index]?.trim()
         if (line) {
           yield line
         }
       }
+      end = position + from
+      span = TRANSCRIPT_TAIL_CHUNK_BYTES
     }
   } finally {
     await file.close()
