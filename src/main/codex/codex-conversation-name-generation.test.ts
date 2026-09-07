@@ -217,6 +217,26 @@ describe('createCodexNamingTurnCollector', () => {
 
     await expect(collector.answer).resolves.toEqual({ outcome: 'timed-out' })
   })
+
+  it.each([
+    ['a completed turn', 'turn/completed', {}],
+    ['a terminal error', 'error', { message: 'rate limit exceeded' }]
+  ])('drops its timeout once %s settles it', async (_label, method, params) => {
+    vi.useFakeTimers()
+    try {
+      const collector = createCodexNamingTurnCollector(60_000)
+      expect(vi.getTimerCount()).toBe(1)
+
+      collector.handle(method, params)
+      await collector.answer
+
+      // A pending timer holds the collector's closure for the whole timeout
+      // after the session it belonged to is already gone.
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('generateAndSetCodexConversationName', () => {

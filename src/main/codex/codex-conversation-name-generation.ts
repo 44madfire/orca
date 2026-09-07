@@ -202,10 +202,16 @@ function agentMessageText(params: unknown): string | null {
 
 export function createCodexNamingTurnCollector(timeoutMs: number): CodexNamingTurnCollector {
   let settle: (value: CodexNamingTurnResult) => void = () => {}
+  let expiry: ReturnType<typeof setTimeout> | undefined
   const answer = new Promise<CodexNamingTurnResult>((resolve) => {
-    settle = resolve
+    // Drop the timer with the answer, so a closed session retains no closure.
+    settle = (value) => {
+      clearTimeout(expiry)
+      resolve(value)
+    }
     // The turn can die with its provider; nothing here may outlive the session.
-    setTimeout(() => resolve({ outcome: 'timed-out' }), timeoutMs).unref?.()
+    expiry = setTimeout(() => resolve({ outcome: 'timed-out' }), timeoutMs)
+    expiry.unref?.()
   })
   let latest: string | null = null
   return {
