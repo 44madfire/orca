@@ -69,7 +69,7 @@ export const SKILL_METHODS: RpcMethod[] = [
       // pane scan the wrong machine and report the user's skills as missing.
       // The directory comes from the runtime's own workspace record, so the
       // caller's `cwd` never selects what a remote host scans.
-      const sshTarget = await runtime.resolveSkillDiscoverySshTarget?.(params.worktreeId)
+      const sshTarget = await runtime.resolveSkillDiscoverySshTarget(params.worktreeId)
       if (sshTarget) {
         return discoverSkillsOnTarget(
           {

@@ -46,9 +46,17 @@ export type ResolvedSkillDiscoveryTarget =
   /** `workspace` is the authority this runtime resolved, never a caller path. */
   | { kind: 'ssh'; connectionId: string; workspace: SkillSshWorkspaceAuthority }
 
+/** Targets whose filesystem this process can reach directly. Skill deletion and
+ *  root rebuilding operate on real paths, so they take this rather than the full
+ *  union — an SSH target's paths only mean something on the remote host. */
+export type LocalSkillDiscoveryTarget = Exclude<ResolvedSkillDiscoveryTarget, { kind: 'ssh' }>
+
+// Why the narrower return: this resolves a caller-supplied target descriptor,
+// which cannot name an SSH host. The ssh variant is built only in the RPC layer
+// from this runtime's own workspace records.
 export function resolveSkillDiscoveryTarget(
   target: SkillDiscoveryTarget | undefined
-): ResolvedSkillDiscoveryTarget {
+): LocalSkillDiscoveryTarget {
   const projectRuntime = target?.projectRuntime
   if (projectRuntime?.status === 'repair-required') {
     throw new Error(
