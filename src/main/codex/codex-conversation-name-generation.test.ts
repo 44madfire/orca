@@ -72,10 +72,10 @@ function run(
       // `null` leaves the turn unanswered entirely; 'DECLINE' completes it with
       // no message, which is a different fact the collector must distinguish.
       if (answer !== null && answer !== 'DECLINE') {
-        collector?.handle('item/completed', { item: { type: 'agentMessage', text: answer } })
+        collector?.handle('item/completed', { item: { type: 'agentMessage', text: answer } }, true)
       }
       if (answer !== null) {
-        collector?.handle('turn/completed', {})
+        collector?.handle('turn/completed', {}, true)
       }
     })
   })
@@ -168,7 +168,7 @@ describe('createCodexNamingTurnCollector', () => {
   it('reports a completed turn that said nothing as a DECLINE', async () => {
     const collector = createCodexNamingTurnCollector(60_000)
 
-    collector.handle('turn/completed', {})
+    collector.handle('turn/completed', {}, true)
 
     // A model that completed and said nothing has answered. Classifying this as
     // a host failure would re-ask, and pay, on every future acquisition.
@@ -178,10 +178,12 @@ describe('createCodexNamingTurnCollector', () => {
   it('reports the message a completed turn produced', async () => {
     const collector = createCodexNamingTurnCollector(60_000)
 
-    collector.handle('item/completed', {
-      item: { type: 'agentMessage', text: '{"title":"Fix probe"}' }
-    })
-    collector.handle('turn/completed', {})
+    collector.handle(
+      'item/completed',
+      { item: { type: 'agentMessage', text: '{"title":"Fix probe"}' } },
+      true
+    )
+    collector.handle('turn/completed', {}, true)
 
     await expect(collector.answer).resolves.toEqual({
       outcome: 'answered',
@@ -194,7 +196,7 @@ describe('createCodexNamingTurnCollector', () => {
 
     // There is no `turn/failed` notification; a rate-limited or rejected turn
     // arrives as `error`. Without it this would hold for the whole timeout.
-    collector.handle('error', { message: 'rate limit exceeded' })
+    collector.handle('error', { message: 'rate limit exceeded' }, true)
 
     await expect(collector.answer).resolves.toEqual({ outcome: 'failed' })
   })
@@ -202,14 +204,31 @@ describe('createCodexNamingTurnCollector', () => {
   it('reports a failure even when the turn had already said something', async () => {
     const collector = createCodexNamingTurnCollector(60_000)
 
-    collector.handle('item/completed', {
-      item: { type: 'agentMessage', text: '{"title":"Fix probe"}' }
-    })
-    collector.handle('error', { message: 'stream closed' })
+    collector.handle(
+      'item/completed',
+      { item: { type: 'agentMessage', text: '{"title":"Fix probe"}' } },
+      true
+    )
+    collector.handle('error', { message: 'stream closed' }, true)
 
     // The host is why there is no title; a partial answer does not make it a
     // decline the conversation should be marked for.
     await expect(collector.answer).resolves.toEqual({ outcome: 'failed' })
+  })
+
+  it.each([
+    ['a bare completion', 'turn/completed', {}],
+    ['an agent message', 'item/completed', { item: { type: 'agentMessage', text: 'hi' } }],
+    ['a terminal error', 'error', { message: 'rate limit exceeded' }]
+  ])('ignores %s that could not be attributed to the naming thread', async (_l, method, params) => {
+    const collector = createCodexNamingTurnCollector(1)
+
+    collector.handle(method, params, false)
+
+    // Inside the `thread/start` window the broad divert rule can catch a
+    // SUB-AGENT frame. Settling on a bare completion would report a DECLINE,
+    // which is durable — the conversation could never be named again.
+    await expect(collector.answer).resolves.toEqual({ outcome: 'timed-out' })
   })
 
   it('reports a turn that never answered as TIMED OUT', async () => {
@@ -227,7 +246,7 @@ describe('createCodexNamingTurnCollector', () => {
       const collector = createCodexNamingTurnCollector(60_000)
       expect(vi.getTimerCount()).toBe(1)
 
-      collector.handle(method, params)
+      collector.handle(method, params, true)
       await collector.answer
 
       // A pending timer holds the collector's closure for the whole timeout

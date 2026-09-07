@@ -139,8 +139,10 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     // Before anything can journal it: a naming turn runs on a throwaway thread
     // over this same connection, and the item translator journals items from ANY
     // thread. Routed here, its prompt and its JSON answer never reach the chat.
-    if (isCodexNamingFrame(session, readCodexThreadId(params))) {
-      session.naming?.handle(method, params)
+    const frameThreadId = readCodexThreadId(params)
+    if (isCodexNamingFrame(session, frameThreadId)) {
+      // Diverted either way; only the exact-id half may settle the naming turn.
+      session.naming?.handle(method, params, isCodexNamingThread(session, frameThreadId))
       return { accepted: true }
     }
     captureCodexConversationName(sessionId, session, method, params, this.deps)
@@ -194,8 +196,9 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
 
   private handleUnhandledFrame(sessionId: string, kind: string, params: unknown): void {
     const session = this.sessions.get(sessionId)
-    if (session && isCodexNamingFrame(session, readCodexThreadId(params))) {
-      session.naming?.handle(kind, params)
+    const frameThreadId = readCodexThreadId(params)
+    if (session && isCodexNamingFrame(session, frameThreadId)) {
+      session.naming?.handle(kind, params, isCodexNamingThread(session, frameThreadId))
       return
     }
     deliverCodexUnhandledFrame(sessionId, session, kind, params, (current, event) =>

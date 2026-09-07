@@ -132,6 +132,9 @@ function namingCodex(
     /** Never answers the ephemeral `thread/start`, so naming is in flight with
      *  NO naming thread id known: the window the broad frame rule covers. */
     hangNamingThreadStart?: boolean
+    /** Holds the ephemeral `thread/start` open until the test releases it, so a
+     *  frame can arrive inside that window and the flow still runs to the end. */
+    holdNamingThreadStart?: boolean
     /** Completes the naming turn having said nothing: a genuine model decline,
      *  which is a different fact from prose that ignored the schema. */
     declineNamingTurn?: boolean
@@ -140,6 +143,10 @@ function namingCodex(
   const connections: FakeConnection[] = []
   const calls: { method: string; params: Record<string, unknown> }[] = []
   const replies: { id: number | string; result?: unknown; code?: number; message?: string }[] = []
+  let releaseNamingThreadStart = (): void => {}
+  const namingThreadStartGate = new Promise<void>((resolve) => {
+    releaseNamingThreadStart = resolve
+  })
   const openConnection = (async (
     _launch: CodexAppServerLaunch,
     handlers: CodexAppServerConnectionHandlers = {}
@@ -154,24 +161,14 @@ function namingCodex(
           if (options.hangNamingThreadStart) {
             return await new Promise<never>(() => {})
           }
+          if (options.holdNamingThreadStart) {
+            await namingThreadStartGate
+          }
           // Leaves the naming turn in flight: the thread id is known, but nothing
           // ever settles the collector, which is the window sub-agents run in.
           if (options.hangNamingTurn) {
             return { thread: { id: NAMING_THREAD, ephemeral: true } }
           }
-          // The naming turn's frames arrive on this same connection.
-          queueMicrotask(() => {
-            if (!options.declineNamingTurn) {
-              handlers.onNotification?.('item/completed', {
-                threadId: NAMING_THREAD,
-                item: {
-                  type: 'agentMessage',
-                  text: options.answer ?? '{"title":"Fix lease probe"}'
-                }
-              })
-            }
-            handlers.onNotification?.('turn/completed', { threadId: NAMING_THREAD })
-          })
           return { thread: { id: NAMING_THREAD } }
         }
         if (method === 'thread/start') {
@@ -186,6 +183,23 @@ function namingCodex(
           }
         }
         if (method === 'turn/start') {
+          // The naming turn's frames arrive on this same connection, and only
+          // once the turn exists — the app-server cannot emit for a turn that
+          // was never started, which is what makes them attributable.
+          if (params?.threadId === NAMING_THREAD) {
+            queueMicrotask(() => {
+              if (!options.declineNamingTurn) {
+                handlers.onNotification?.('item/completed', {
+                  threadId: NAMING_THREAD,
+                  item: {
+                    type: 'agentMessage',
+                    text: options.answer ?? '{"title":"Fix lease probe"}'
+                  }
+                })
+              }
+              handlers.onNotification?.('turn/completed', { threadId: NAMING_THREAD })
+            })
+          }
           return { turn: { id: 'turn-1' } }
         }
         return {}
@@ -202,7 +216,7 @@ function namingCodex(
     connections.push(connection)
     return connection
   }) as typeof openCodexAppServerConnection
-  return { connections, openConnection, calls, replies }
+  return { connections, openConnection, calls, replies, releaseNamingThreadStart }
 }
 
 const NAMING_THREAD = 'thread-naming'
@@ -564,6 +578,31 @@ describe('Codex sub-agent threads survive the naming window', () => {
     expect(prompts).toEqual([
       expect.objectContaining({ threadId: SUBAGENT_THREAD, codexItemId: 'item-subagent-1' })
     ])
+  })
+
+  it('does not let a foreign turn/completed inside the window forfeit naming', async () => {
+    const codex = namingCodex({ holdNamingThreadStart: true })
+    const markNamingAttempted = vi.fn()
+    const { onConversationName } = await dispatchedAdapter(codex, { markNamingAttempted })
+    await settle()
+
+    // A sub-agent's BARE completion, arriving before the throwaway thread has an
+    // id. Settling on it reports a decline, which is durable: the conversation
+    // would carry `conversationNamingAttempted` with no name and could never be
+    // named again.
+    codex.connections[0]!.handlers.onNotification?.('turn/completed', {
+      threadId: SUBAGENT_THREAD
+    })
+    await settle()
+
+    codex.releaseNamingThreadStart()
+    await settle()
+
+    expect(codex.calls.find((call) => call.method === 'thread/name/set')?.params).toEqual({
+      threadId: THREAD_ID,
+      name: 'Fix lease probe'
+    })
+    expect(onConversationName).toHaveBeenCalledWith(SESSION, 'Fix lease probe')
   })
 
   it('still keeps the naming thread out once its id is known', async () => {

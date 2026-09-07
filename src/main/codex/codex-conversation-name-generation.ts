@@ -98,10 +98,12 @@ export type CodexNamingState = {
  *
  * That window is one `thread/start` round trip on a healthy app-server, but it is
  * bounded by the request deadline, not instantaneous — a hung server stretches
- * it. A sub-agent frame arriving inside it is still diverted and can still be
- * recorded as the naming answer; that costs one wasted naming attempt rather
- * than a permanent forfeiture, because unparseable output classifies as
- * unsettled.
+ * it. A sub-agent frame arriving inside it is diverted from the journal and then
+ * DROPPED: the collector acts only on a frame matched to the retained throwaway
+ * id, so nothing this rule alone caught can become the naming answer or settle
+ * the turn. The cost is the sub-agent's own rows missing from the transcript for
+ * that window — never a forfeited name, which a bare `turn/completed` diverted
+ * here would otherwise cause by settling as a decline.
  *
  * Exact matching means leak protection now RELIES ON ID STABILITY: an app-server
  * that tagged naming frames with any id other than the one `thread/start`
@@ -162,7 +164,9 @@ export type CodexNamingTurnResult =
 
 /** Collects one ephemeral naming turn's frames and reports how it ended. */
 export type CodexNamingTurnCollector = {
-  handle: (method: string, params: unknown) => void
+  /** `attributed` is false for a frame only the broad pre-id divert rule caught;
+   *  it is kept out of the journal but may never speak for this turn. */
+  handle: (method: string, params: unknown, attributed: boolean) => void
   answer: Promise<CodexNamingTurnResult>
   /** For a turn abandoned before `answer` is awaited, which would otherwise hold
    *  the timer — and the closure behind it — for the whole timeout. */
@@ -218,7 +222,13 @@ export function createCodexNamingTurnCollector(timeoutMs: number): CodexNamingTu
   })
   let latest: string | null = null
   return {
-    handle: (method, params) => {
+    handle: (method, params, attributed) => {
+      // Only a frame matched to the retained throwaway id may speak for this
+      // turn. A bare `turn/completed` from a sub-agent caught by the broad pre-id
+      // rule would otherwise settle as a decline and durably forfeit naming.
+      if (!attributed) {
+        return
+      }
       if (method === 'item/completed') {
         latest = agentMessageText(params) ?? latest
       } else if (method === 'turn/completed') {
