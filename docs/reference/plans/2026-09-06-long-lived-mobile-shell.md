@@ -935,3 +935,27 @@ consumers, then Voice/notification/diagnostic presentation. Native process-death
 resume enhancements and the additional crash-loop drill remain deferred. About
 and session creation have unit/integration coverage but no dedicated rendered
 interaction proof in this checkpoint.
+
+### Resource ledger removed — the page addresses host ids directly
+
+The Desktop resource registry, the shell page-session lifetime and the page's
+per-action bind are gone. The Desktop is trusted and the page bundle ships inside
+its installer, so the opaque handles defended nothing while they wedged headless
+and SSH workspaces after 128 epoch admissions, rejected interleaved reads with
+`selector_not_found`, enumerated every tab per keystroke, and spent two extra
+round trips on each user action.
+
+The projected snapshot now carries the host tab id, the host `browserPageId` and
+`nativeChatSessionId` = the host `agentStatus.providerSession.id`, which is what
+the native app already reads. `mobileWeb.nativeChat.*` take `{worktree, tabId,
+sessionId}` and `mobileWeb.terminal.action` takes `{worktree, tabId}`; each
+resolves its binding once per call. `mobileWeb.nativeChat.bind`,
+`mobileWeb.terminal.bind`, `mobileWeb.resource.resolve`, `mobileWeb.page.subscribe`,
+`mobileWeb.page.unsubscribe`, the grant `pageSessionParam` and the
+`workspace.hostPageSession.v1` shell feature are deleted. `mobileWeb.session.createBrowser`
+returns the host page id and applies its canonical-worktree guard to every URL
+scheme, not only `file:`.
+
+The mobile-web session feed no longer guesses the inner `session.tabs:` cleanup
+key from the caller's selector. It records the key from the feed's own events, so
+a feed that opens after the page unsubscribes is still torn down.

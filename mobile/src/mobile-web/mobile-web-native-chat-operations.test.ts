@@ -39,7 +39,7 @@ describe('mobile web native chat operations', () => {
         operation: 'pendingRead',
         payload: {
           workspaceId: context.pageWorkspaceId,
-          sessionId: context.pageSessionId
+          sessionId: context.sessionId
         },
         client: { sendRequest } as unknown as RpcClient,
         workspaceAuthority: context.workspaceAuthority,
@@ -57,7 +57,7 @@ describe('mobile web native chat operations', () => {
         operation: 'pendingWrite',
         payload: {
           workspaceId: context.pageWorkspaceId,
-          sessionId: context.pageSessionId,
+          sessionId: context.sessionId,
           deliveries: [{ text: 'next', expectedOccurrence: 3 }]
         },
         client: { sendRequest } as unknown as RpcClient,
@@ -81,7 +81,7 @@ function operationContext() {
     workspaceAuthority,
     nativeChatAuthority,
     pageWorkspaceId: workspaceAuthority.pageWorkspaceId('workspace-1'),
-    pageSessionId: SESSION_ID
+    sessionId: SESSION_ID
   }
 }
 

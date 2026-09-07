@@ -4,9 +4,9 @@ import { createMobileWebBridgeRoundtripFixture } from './mobile-web-bridge-round
 import { MOBILE_WEB_PRODUCTION_GRANTS } from './mobile-web-production-grants'
 
 const mountCatalogs = [
-  ['mobileWeb.nativeChat.bind', 'mobileWeb.nativeChat.read'],
-  ['mobileWeb.nativeChat.bind', 'mobileWeb.nativeChat.subscribe'],
-  ['mobileWeb.terminal.bind', 'mobileWeb.terminal.action']
+  ['mobileWeb.nativeChat.read', 'mobileWeb.nativeChat.fileSearch'],
+  ['mobileWeb.nativeChat.subscribe', 'mobileWeb.nativeChat.openFile'],
+  ['mobileWeb.terminal.action', 'mobileWeb.session.snapshot']
 ]
 
 describe('host catalog admission during a chat mount', () => {

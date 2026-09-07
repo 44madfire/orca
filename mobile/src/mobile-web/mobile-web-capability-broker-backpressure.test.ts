@@ -82,7 +82,7 @@ const SATURATION_SLOTS: Slot[] = [
   {
     capability: 'nativeChat',
     operation: 'pendingRead',
-    payload: { workspaceId: WORKSPACE, sessionId: 'resource_chat' }
+    payload: { workspaceId: WORKSPACE, sessionId: 'provider-session' }
   },
   { capability: 'workspace', operation: 'creationRepositories', payload: {} },
   { capability: 'workspace', operation: 'creationSettings', payload: {} },

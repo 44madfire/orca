@@ -41,7 +41,7 @@ describe('mobile web native-chat image operations', () => {
       operation: 'attachImage',
       payload: {
         workspaceId: context.pageWorkspaceId,
-        sessionId: context.pageSessionId,
+        sessionId: context.sessionId,
         source: 'files'
       }
     })
@@ -69,7 +69,7 @@ function operationContext() {
     workspaceAuthority,
     nativeChatAuthority,
     pageWorkspaceId: workspaceAuthority.pageWorkspaceId(HOST_WORKSPACE_ID),
-    pageSessionId: SESSION_ID
+    sessionId: SESSION_ID
   }
 }
 
