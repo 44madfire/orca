@@ -151,6 +151,21 @@ edges still meet the device and keep their measured values.
   arbitrary windows, and direct network loads are disabled.
 - CSP uses `default-src 'none'`, `connect-src 'none'`, and explicit
   content-addressed script, style, image, font, and frame rules.
+- No served document carries an inline script. The page document, the markdown
+  editor document, and the mermaid frame document each load a content-addressed
+  `assets/<sha256>.js`, so the native policy pins no script hash and the page's
+  scripts change over the air. No served document carries a policy of its own
+  either; the native response header is the enforced one.
+  `verify-mobile-web-rnw-build.mjs` fails the build on an inline script body or a
+  `Content-Security-Policy` meta in any packaged document. The in-app WebView
+  documents that the native app renders without a server still inline their
+  script under a meta hash; those hashes ship with the app bundle and no native
+  binary pins them.
+- The two embedded frame documents are sandboxed, so their origin is opaque.
+  WebKit resolves `'self'` against that opaque origin and matches nothing, while
+  Chromium resolves it against the response URL and matches. The native frame
+  policy therefore names the per-session package origin outright rather than
+  using `'self'`.
 - iOS installs content rules and a document-start network API blocker. Android
   now installs the matching document-start script, denying `fetch`,
   `XMLHttpRequest`, `WebSocket`, and `serviceWorker` on the private origin, and
