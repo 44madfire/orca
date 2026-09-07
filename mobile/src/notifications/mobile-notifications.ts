@@ -246,11 +246,13 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
         // left over from a previous desktop lifetime, so the catch-up request carries
         // a watermark that means something against the counter now answering it.
         adoptNotificationEpoch(session, hostId, readyEpoch)
-        // A reconnect always catches up. A cold open catches up only when this device
-        // has delivered for this host before — a first-ever pairing must not be handed
-        // the desktop's whole retained buffer.
+        // First pairing recovers tray dismissals without replaying historical alerts.
         if (isReconnect || session.hadStoredWatermark) {
           await fetchMissed()
+        } else {
+          await requestNotificationCatchup(client, hostId, undefined, () => disposed).catch(
+            () => {}
+          )
         }
       })()
       return

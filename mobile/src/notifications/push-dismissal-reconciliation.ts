@@ -61,12 +61,16 @@ async function readDelivered(hostId: string): Promise<Map<string, OrcaPushPayloa
 export async function requestNotificationCatchup(
   client: Pick<RpcClient, 'sendRequest'>,
   hostId: string,
-  params: { lastSeenSeq: number; epoch?: string; includeDesktopSuppressed?: boolean },
+  params: { lastSeenSeq: number; epoch?: string; includeDesktopSuppressed?: boolean } | undefined,
   isDisposed: () => boolean
 ) {
   const delivered = await readDelivered(hostId)
+  if (!params && (delivered.size === 0 || isDisposed())) {
+    return { ok: true, result: { notifications: [] } }
+  }
   const response = await client.sendRequest('notifications.getMissedSince', {
-    ...params,
+    // First pairing reconciles the tray without requesting historical alerts.
+    ...(params ?? { lastSeenSeq: Number.MAX_SAFE_INTEGER }),
     ...(delivered.size
       ? { deliveredPushes: [...delivered.values()].map((payload) => identity(payload)!) }
       : {})

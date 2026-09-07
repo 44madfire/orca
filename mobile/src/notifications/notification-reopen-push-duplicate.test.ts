@@ -148,6 +148,39 @@ beforeEach(() => {
 })
 
 describe('reopen after a push the OS showed while Orca was closed', () => {
+  it('recovers a dismissed push without a stored watermark or replaying historical alerts', async () => {
+    const identity = { notificationId: 'a:6', notificationSeq: 6, notificationEpoch: 'epoch-1' }
+    presentTray([{ hostFingerprint, ...identity }])
+    const { client, ready } = catchUpClient()
+    vi.mocked(client.sendRequest).mockResolvedValue({
+      ok: true,
+      result: {
+        dismissedPushes: [identity],
+        notifications: [{ type: 'notification', title: 'Historical alert', notificationSeq: 5 }]
+      }
+    } as never)
+    const dispose = subscribeToDesktopNotifications(client, 'host-1')
+    ready()
+    await flushAsync()
+    expect(client.sendRequest).toHaveBeenCalledWith('notifications.getMissedSince', {
+      lastSeenSeq: Number.MAX_SAFE_INTEGER,
+      deliveredPushes: [identity]
+    })
+    expect(Notifications.dismissNotificationAsync).toHaveBeenCalledExactlyOnceWith('tray-0')
+    expect(shownTitles()).toEqual([])
+    expect(persistedSeq()).toBe(0)
+    dispose()
+  })
+
+  it('does not request history on a first pairing with an empty tray', async () => {
+    const { client, ready } = catchUpClient()
+    const dispose = subscribeToDesktopNotifications(client, 'host-1')
+    ready()
+    await flushAsync()
+    expect(client.sendRequest).not.toHaveBeenCalled()
+    dispose()
+  })
+
   it('replays only the events still missing from the tray', async () => {
     presentTray([
       { hostFingerprint, notificationId: 'a:6', notificationSeq: 6, notificationEpoch: 'epoch-1' }
