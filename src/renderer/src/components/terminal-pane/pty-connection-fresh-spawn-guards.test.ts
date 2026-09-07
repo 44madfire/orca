@@ -497,6 +497,29 @@ describe('connectPanePty', () => {
     }
     expect(transport.sendInput).toHaveBeenCalledExactlyOnceWith('input_under_flood\r')
 
+    // A wheel over a replayed alt-screen frame becomes cursor keys; the fresh shell must not recall history from them.
+    pane.terminal.buffer.active.type = 'alternate'
+    for (const listener of userInputListeners) {
+      listener()
+    }
+    sendTerminalInputThroughPane(pane, '\x1b[B')
+    for (const forward of deferred.splice(0)) {
+      forward()
+    }
+    expect(transport.sendInput).toHaveBeenCalledExactlyOnceWith('input_under_flood\r')
+
+    // The same bytes on the normal buffer can only be a keyboard arrow, which survives replay.
+    pane.terminal.buffer.active.type = 'normal'
+    for (const listener of userInputListeners) {
+      listener()
+    }
+    sendTerminalInputThroughPane(pane, '\x1b[B')
+    for (const forward of deferred.splice(0)) {
+      forward()
+    }
+    expect(transport.sendInput).toHaveBeenCalledTimes(2)
+    expect(transport.sendInput).toHaveBeenLastCalledWith('\x1b[B')
+
     // Once the guard releases, the same mouse report is ordinary input again.
     deps.replayingPanesRef.current.delete(pane.id)
     for (const listener of userInputListeners) {

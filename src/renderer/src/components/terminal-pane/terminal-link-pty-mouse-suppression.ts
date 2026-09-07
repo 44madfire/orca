@@ -3,7 +3,7 @@ import {
   isTerminalLinkActionActivation,
   isTerminalLinkDirectActivation
 } from './terminal-link-activation'
-import { isXtermMouseReport } from './terminal-mouse-report-sequence'
+import { isXtermMouseReport } from './terminal-pointer-input-sequences'
 
 const CAPTURE_LISTENER_OPTIONS = { capture: true } as const
 const MAX_DEFERRED_PTY_INPUT_FRAMES = 64

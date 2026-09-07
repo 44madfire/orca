@@ -10,7 +10,7 @@ import { isPtyLocked } from '@/lib/pane-manager/mobile-driver-state'
 import { getAppliedSizeReadE2eDelayMs } from '../pty-applied-size-read-e2e-delay'
 import { createPtySizeReassertion } from '../pty-size-reassertion'
 import { isPaneReplaying } from '../replay-guard'
-import { isXtermMouseReport } from '../terminal-mouse-report-sequence'
+import { isXtermMouseReport, isXtermWheelCursorKey } from '../terminal-pointer-input-sequences'
 import { shouldDropQuarantinedTerminalInput } from '../terminal-input-quarantine'
 import {
   PANE_PTY_RESIZE_HOLD_FLUSH_EVENT,
@@ -29,13 +29,17 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
   session.forwardPtyInput = (data: string, wasUserInput = false): void => {
     // Why: replaying recorded PTY bytes makes xterm auto-reply to embedded
     // queries (DA1/DECRQM/OSC 10-11/CPR) via onData; those must not leak into
-    // the shell, but keystrokes typed mid-restore must survive. Mouse reports
-    // stay dropped even though xterm flags them as user input: replayed bytes
-    // can leave mouse tracking armed until the guarded mode reset lands, and a
-    // click would otherwise print SGR fragments on the fresh prompt. See replay-guard.ts.
+    // the shell, but keystrokes typed mid-restore must survive. Pointer input
+    // stays dropped even though xterm flags it as user input: replayed bytes can
+    // leave mouse tracking armed until the guarded mode reset lands (a click
+    // would print SGR fragments on the fresh prompt), and a wheel over a
+    // replayed alt-screen frame becomes cursor keys that would recall history
+    // at that prompt once ?1049l lands. See replay-guard.ts.
     if (
       isPaneReplaying(session.deps.replayingPanesRef, session.pane.id) &&
-      (!wasUserInput || isXtermMouseReport(data))
+      (!wasUserInput ||
+        isXtermMouseReport(data) ||
+        (isXtermWheelCursorKey(data) && session.pane.terminal.buffer.active.type === 'alternate'))
     ) {
       return
     }
