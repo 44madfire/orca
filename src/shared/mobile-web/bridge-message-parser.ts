@@ -4,7 +4,7 @@ import {
   MOBILE_WEB_BRIDGE_MAX_MESSAGE_BYTES,
   MOBILE_WEB_BRIDGE_PROTOCOL_VERSION
 } from './bridge-limits'
-import { isExactMobileWebJsonDocument } from './exact-json-document'
+import { hasAmbiguousJsonText } from './json-document-ambiguity'
 
 export type MobileWebBridgeMessageContext = {
   shellSessionId: string
@@ -43,13 +43,13 @@ export function parseMobileWebBridgeMessageDocument<T>(
   if (new TextEncoder().encode(raw).byteLength > MOBILE_WEB_BRIDGE_MAX_MESSAGE_BYTES) {
     return { ok: false, error: 'too_large' }
   }
-  if (!isExactMobileWebJsonDocument(raw)) {
-    return { ok: false, error: 'invalid_message' }
-  }
   let value: unknown
   try {
     value = JSON.parse(raw)
   } catch {
+    return { ok: false, error: 'invalid_message' }
+  }
+  if (hasAmbiguousJsonText(raw, value)) {
     return { ok: false, error: 'invalid_message' }
   }
   if (
