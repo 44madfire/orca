@@ -1,3 +1,4 @@
+import { SessionSearchIndexingProgress } from './session-search-indexing-progress'
 import { SessionSearchMaintenance } from './session-search-maintenance'
 import { recoverSearchWrites } from './session-search-write-recovery'
 import { deleteExpiredSearchFiles } from './session-search-retention-delete'
@@ -28,6 +29,8 @@ type ProviderDiscovery = { files: number; parseFailures: number; scanIssues: num
 /** Owns the index database: the scanner writes through it, search reads from it. */
 export class SessionSearchStore implements SessionSearchIndexSink {
   readonly streamingCapture = true
+  readonly indexing = new SessionSearchIndexingProgress()
+  private writeEpoch = 0
   /** Exposed for tests that assert on file-level state (page counts). */
   readonly db: SyncDatabase
   private readonly writer: SessionSearchIndexWriter
@@ -72,6 +75,9 @@ export class SessionSearchStore implements SessionSearchIndexSink {
 
   setAcceptingWrites(accept: boolean): void {
     this.acceptingWrites = accept
+    if (!accept) {
+      this.writeEpoch++
+    }
   }
 
   setHistoryDays(days: number | null): void {
@@ -106,10 +112,12 @@ export class SessionSearchStore implements SessionSearchIndexSink {
       return
     }
     this.providerCounts = null
+    const epoch = this.writeEpoch
+    const finish = this.indexing.beginWrite()
     try {
       const applied = await this.writer.apply(
         update,
-        () => this.acceptsCandidate(update.candidate),
+        () => epoch === this.writeEpoch && this.acceptsCandidate(update.candidate),
         undefined,
         () => !this.closed
       )
@@ -125,8 +133,10 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     } catch (error) {
       this.markStale(update.candidate)
       this.applyFailures += 1
+      this.indexing.writeFailed()
       this.onError(error)
     } finally {
+      finish()
       this.scheduleCleanup()
     }
   }
@@ -269,6 +279,7 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     })
     return {
       enabled: true,
+      indexing: this.indexing.snapshot(),
       sessionsIndexed: byProvider.reduce((sum, row) => sum + row.sessionsIndexed, 0),
       messagesIndexed: byProvider.reduce((sum, row) => sum + row.messagesIndexed, 0),
       providers: byProvider,

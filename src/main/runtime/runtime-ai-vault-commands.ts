@@ -31,6 +31,7 @@ import { resolveLocalAiVaultSessionTitles } from '../ai-vault/session-title-reso
 
 export type AiVaultSessionSearchConfigureArgs = {
   enabled?: boolean
+  paused?: boolean
   historyDays?: number | null
   clearIndex?: boolean
 }
@@ -73,6 +74,7 @@ export class RuntimeAiVaultCommands {
     const current = resolveAiVaultSearchSettings(store.getSettings())
     const next = {
       enabled: args.enabled ?? current.enabled,
+      ...((args.paused ?? current.paused) ? { paused: true } : {}),
       historyDays:
         args.historyDays === undefined
           ? current.historyDays

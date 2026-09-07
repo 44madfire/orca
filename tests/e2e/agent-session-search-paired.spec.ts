@@ -67,6 +67,7 @@ test('paired client search belongs to its isolated host and survives a host rest
         executionHostId: 'ssh:fixture'
       })
     ).rejects.toThrow()
+    await host.client.call('aiVault.configureSessionSearch', { paused: true })
     await web.dispose()
     web = null
     await host.restartServeProcess({
@@ -74,6 +75,12 @@ test('paired client search belongs to its isolated host and survives a host rest
         appendFileSync(file, row('restartneedle synthetic turn'))
       }
     })
+    const paused = await host.client.call<AiVaultSearchResult>('aiVault.searchSessions', {
+      query: 'restartneedle'
+    })
+    expect(paused.result.coverage.indexing?.phase).toBe('paused')
+    expect(paused.result.hits).toHaveLength(0)
+    await host.client.call('aiVault.configureSessionSearch', { paused: false })
     await expect
       .poll(async () => {
         const response = await host.client.call<AiVaultSearchResult>('aiVault.searchSessions', {

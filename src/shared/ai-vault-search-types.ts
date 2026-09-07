@@ -80,6 +80,7 @@ export type AiVaultSearchCoverage = {
   providers: AiVaultSearchProviderCoverage[]
   /** `running` means older sessions are still being added; results are partial until `complete`. */
   backfill: 'idle' | 'running' | 'complete'
+  indexing?: AiVaultSearchIndexingProgress
   /** Files a list scan saw change that the index has not re-read yet. */
   filesPending: number
   lastIndexedAt: string | null
@@ -88,3 +89,12 @@ export type AiVaultSearchCoverage = {
 /** Snippet match markers; doubled so literal brackets in code never read as a match. */
 export const AI_VAULT_SEARCH_SNIPPET_MARK_OPEN = '[['
 export const AI_VAULT_SEARCH_SNIPPET_MARK_CLOSE = ']]'
+
+/** Optional on coverage: older hosts do not support indexing controls. */
+export type AiVaultSearchIndexingProgress = {
+  phase: 'idle' | 'discovering' | 'indexing' | 'updating' | 'paused' | 'complete' | 'error'
+  filesProcessed: number
+  filesTotal: number | null
+  failures: number
+  startedAt: number
+}

@@ -98,7 +98,10 @@ export function renderAgentSessionHistorySettingsSection(
       searchEntries={navigation.getSectionSearchEntries('agent-session-history')}
     >
       {view.isSectionMounted('agent-session-history') ? (
-        <AgentSessionHistoryPane settings={model.settings} updateSettings={model.updateSettings} />
+        <AgentSessionHistoryPane
+          settings={model.settings}
+          updateSettings={model.updateSettingsOrThrow}
+        />
       ) : null}
     </SettingsSection>
   ) : null

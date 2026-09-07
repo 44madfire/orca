@@ -86,7 +86,7 @@ export function useAiVaultSessionSearchResults(input: {
   const polledCoverage = useAiVaultSearchCoveragePoll(
     enabled && supportedHost,
     result?.coverage ?? null,
-    executionHostScope
+    localOnly ? '' : executionHostScope
   )
   // Desktop search always reads this machine's index; a paired web client's
   // reads its runtime host, which is the scope it is pinned to.

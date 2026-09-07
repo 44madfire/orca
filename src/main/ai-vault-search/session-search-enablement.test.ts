@@ -120,3 +120,15 @@ describe('readAiVaultSearchIndexStatus', () => {
     expect(readAiVaultSearchIndexStatus().indexSizeBytes).toBeNull()
   })
 })
+
+it('preserves the paused preference in scanner initialization and configuration', async () => {
+  initSessionSearchPaths(await makeUserDataDir())
+  const settings = { aiVaultSearch: { enabled: true, paused: true, historyDays: null } }
+  installAiVaultSearchSettingsSource(() => settings)
+  expect(getSessionSearchInitOptions()).toMatchObject({ paused: true })
+  await applyAiVaultSearchSettings(settings)
+  expect(configureAiVaultSearch).toHaveBeenCalledWith(
+    expect.objectContaining({ paused: true }),
+    expect.anything()
+  )
+})

@@ -52,26 +52,6 @@ export function readAiVaultSearchIndexStatus(): AiVaultSearchIndexStatus {
   return { ...getSessionSearchPolicy(), indexSizeBytes: readAiVaultSearchIndexSizeBytes() }
 }
 
-/**
- * Reconciles a settings write. A no-op change is not forwarded, so re-saving the
- * same value never restarts a backfill that is already running.
- */
-export function applyAiVaultSearchSettingsChange(
-  before: Pick<GlobalSettings, 'aiVaultSearch'>,
-  after: Pick<GlobalSettings, 'aiVaultSearch'>
-): void {
-  const previous = resolveAiVaultSearchSettings(before)
-  const next = resolveAiVaultSearchSettings(after)
-  if (previous.enabled === next.enabled && previous.historyDays === next.historyDays) {
-    return
-  }
-  // A running scanner holds its consent state in memory; tell it now so the
-  // change does not wait for an app restart.
-  void applyAiVaultSearchSettings(after).catch((error: unknown) => {
-    console.warn('[settings] failed to apply agent session search settings:', error)
-  })
-}
-
 /** Deletes the database and its sidecars, then rebuilds if consent still stands. */
 export function clearAiVaultSearchIndex(): Promise<AiVaultSearchCoverage | null> {
   return applyAiVaultSearchSettings(

@@ -7,6 +7,8 @@
  */
 export type AiVaultSearchSettings = {
   enabled: boolean
+  /** Stop new indexing while retaining searchable data; absent means running. */
+  paused?: boolean
   /** null = all history; otherwise only transcripts modified within this many days. */
   historyDays: number | null
 }
@@ -37,6 +39,7 @@ export function resolveAiVaultSearchSettings(
   const raw = settings?.aiVaultSearch
   return {
     enabled: raw?.enabled === true,
+    ...(raw?.paused === true ? { paused: true } : {}),
     historyDays: normalizeAiVaultSearchHistoryDays(raw?.historyDays)
   }
 }

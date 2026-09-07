@@ -102,6 +102,7 @@ async function handleRequest(request: AiVaultWorkerRequest): Promise<AiVaultWork
     }
     const startedAt = performance.now()
     const result = await scanAiVaultSessions({ ...request.options, signal: controller.signal })
+    void sessionSearch?.ensureBackfill(request.options)
     for (const session of result.sessions) {
       if ((session.agent === 'claude' || session.agent === 'codex') && session.title.trim()) {
         storeTitle({

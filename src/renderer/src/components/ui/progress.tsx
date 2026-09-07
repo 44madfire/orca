@@ -17,8 +17,11 @@ function Progress({
     >
       <ProgressPrimitive.Indicator
         data-slot="progress-indicator"
-        className="h-full w-full flex-1 bg-primary transition-all duration-300 ease-out"
-        style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
+        className={cn(
+          'h-full w-full flex-1 bg-primary transition-all duration-300 ease-out',
+          value === null && 'w-1/3 animate-pulse'
+        )}
+        style={value === null ? undefined : { transform: `translateX(-${100 - (value || 0)}%)` }}
       />
     </ProgressPrimitive.Root>
   )

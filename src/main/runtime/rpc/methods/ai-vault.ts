@@ -101,6 +101,7 @@ export const AiVaultSearchSessionsParams = z.object({
 
 export const AiVaultConfigureSessionSearchParams = z.object({
   enabled: OptionalBoolean,
+  paused: z.boolean().optional(),
   historyDays: z.number().int().positive().max(3650).nullable().optional(),
   clearIndex: OptionalBoolean,
   executionHostId: executionHostIdSchema.optional()

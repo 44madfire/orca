@@ -87,6 +87,13 @@ export function aiVaultSearchCoverageStatus(
   coverage: AiVaultSearchCoverage,
   { hitCount, hasQuery }: { hitCount: number; hasQuery: boolean }
 ): string | null {
+  if (coverage.indexing?.phase === 'paused') {
+    return translate(
+      'sessionSearch.indexing.searchPaused',
+      '{{sessions}} conversations searchable · indexing paused',
+      { sessions: coverage.sessionsIndexed.toLocaleString() }
+    )
+  }
   const preparing = coverage.backfill === 'running'
   if (!hasQuery) {
     return preparing

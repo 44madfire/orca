@@ -1,3 +1,5 @@
+import { SessionSearchIndexingPanel } from './SessionSearchIndexingPanel'
+import { useSearchIndexing } from '../right-sidebar/ai-vault-search-coverage-poll'
 import { useCallback, useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '../ui/button'
@@ -55,6 +57,7 @@ export function AgentSessionHistoryPane({
   updateSettings: (updates: Partial<GlobalSettings>) => Promise<void>
 }): React.JSX.Element {
   const policy = resolveAiVaultSearchSettings(settings)
+  const indexing = useSearchIndexing(policy.enabled)
   const [indexBytes, setIndexBytes] = useState<number | null>(null)
   const [confirmingClear, setConfirmingClear] = useState(false)
   const [clearing, setClearing] = useState(false)
@@ -78,7 +81,7 @@ export function AgentSessionHistoryPane({
   }, [policy.enabled, refreshIndexSize])
 
   const apply = (next: AiVaultSearchSettings): void => {
-    void updateSettings({ aiVaultSearch: next })
+    void indexing.control(() => updateSettings({ aiVaultSearch: next }))
   }
 
   const confirmClear = async (): Promise<void> => {
@@ -87,6 +90,7 @@ export function AgentSessionHistoryPane({
     try {
       await window.api.aiVault.clearSearchIndex()
       await refreshIndexSize()
+      await indexing.refresh()
       if (mountedRef.current) {
         setConfirmingClear(false)
       }
@@ -117,9 +121,29 @@ export function AgentSessionHistoryPane({
           'auto.components.settings.AgentSessionHistoryPane.enabledDescription',
           'Builds a local index of your agent transcripts on this computer so the Session History panel and `orca search` can match on what was said, not just titles.'
         )}
+        disabled={indexing.busy}
         checked={policy.enabled}
         onChange={() => apply({ ...policy, enabled: !policy.enabled })}
       />
+
+      {!policy.enabled && indexing.error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {translate(
+            'sessionSearch.indexing.settingsError',
+            'Could not save search settings. Please try again.'
+          )}
+        </p>
+      ) : null}
+      {policy.enabled ? (
+        <div className="rounded-lg border bg-muted/30 p-4 my-3">
+          <SessionSearchIndexingPanel
+            {...indexing}
+            onControl={(paused) => {
+              void indexing.control(() => updateSettings({ aiVaultSearch: { ...policy, paused } }))
+            }}
+          />
+        </div>
+      ) : null}
 
       <SettingsRow
         label={translate(
@@ -212,15 +236,20 @@ export function AgentSessionHistoryPane({
               )}
             </DialogTitle>
             <DialogDescription className="text-xs">
-              {policy.enabled
+              {policy.paused
                 ? translate(
-                    'auto.components.settings.AgentSessionHistoryPane.clearBodyEnabled',
-                    'Deletes the index files. Your transcripts are untouched, and Orca starts rebuilding the index right away.'
+                    'sessionSearch.indexing.clearPaused',
+                    'Deletes the index files. Your transcripts are untouched. Indexing stays paused until you resume.'
                   )
-                : translate(
-                    'auto.components.settings.AgentSessionHistoryPane.clearBodyDisabled',
-                    'Deletes the index files. Your transcripts are untouched.'
-                  )}
+                : policy.enabled
+                  ? translate(
+                      'auto.components.settings.AgentSessionHistoryPane.clearBodyEnabled',
+                      'Deletes the index files. Your transcripts are untouched, and Orca starts rebuilding the index right away.'
+                    )
+                  : translate(
+                      'auto.components.settings.AgentSessionHistoryPane.clearBodyDisabled',
+                      'Deletes the index files. Your transcripts are untouched.'
+                    )}
             </DialogDescription>
           </DialogHeader>
           {clearError ? (

@@ -1,62 +1,34 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import type { AiVaultSearchCoverage } from '../../../../shared/ai-vault-search-types'
+import { searchCoverageStore } from './ai-vault-search-coverage-store'
+export { AI_VAULT_SEARCH_COVERAGE_POLL_MS } from './ai-vault-search-coverage-store'
 
-/** Slow enough to be invisible in profiles, fast enough to see the backfill finish. */
-export const AI_VAULT_SEARCH_COVERAGE_POLL_MS = 4_000
+const subscribeDisabled = (): (() => void) => () => {}
 
-/**
- * Coverage for the empty-query case, where no search runs and the panel would
- * otherwise have nothing to report while the index is still being built.
- *
- * Safe to call repeatedly: reading coverage is observational and never starts a
- * backfill, so polling cannot turn indexing on behind the user's back.
- */
+export function useSearchIndexing(enabled: boolean, ownerKey = '') {
+  const store = searchCoverageStore(ownerKey)
+  const snapshot = useSyncExternalStore(
+    enabled ? store.subscribe : subscribeDisabled,
+    store.getSnapshot
+  )
+  return {
+    ...snapshot,
+    coverage: enabled ? snapshot.coverage : null,
+    control: store.control,
+    refresh: store.refresh
+  }
+}
+
 export function useAiVaultSearchCoveragePoll(
   enabled: boolean,
   latest: AiVaultSearchCoverage | null = null,
   ownerKey = ''
 ): AiVaultSearchCoverage | null {
-  const [snapshot, setSnapshot] = useState<{
-    ownerKey: string
-    source: AiVaultSearchCoverage | null
-    value: AiVaultSearchCoverage
-  } | null>(null)
-
+  const { coverage, refresh } = useSearchIndexing(enabled, ownerKey)
   useEffect(() => {
-    if (!enabled) {
-      setSnapshot(null)
-      return
+    if (enabled && latest) {
+      void refresh()
     }
-    let stopped = false
-    let generation = 0
-    // A completed index can restart after Clear or a retention change in Settings.
-    const interval = setInterval(() => {
-      read()
-    }, AI_VAULT_SEARCH_COVERAGE_POLL_MS)
-    function read(): void {
-      generation += 1
-      const issued = generation
-      void window.api.aiVault
-        .searchCoverage()
-        .then((next) => {
-          // Why: a slow 'running' answer must not land after a newer 'complete'.
-          if (stopped || issued !== generation) {
-            return
-          }
-          setSnapshot({ ownerKey, source: latest, value: next })
-        })
-        .catch(() => undefined)
-    }
-    read()
-    return () => {
-      stopped = true
-      clearInterval(interval)
-    }
-  }, [enabled, latest, ownerKey])
-
-  return enabled
-    ? snapshot?.ownerKey === ownerKey && snapshot.source === latest
-      ? snapshot.value
-      : latest
-    : null
+  }, [enabled, latest, refresh])
+  return enabled ? (coverage ?? latest) : null
 }

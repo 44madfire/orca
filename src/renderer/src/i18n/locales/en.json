@@ -17722,5 +17722,34 @@
     "title": "Orca keeps failing to load",
     "stalledMessage": "The app window stopped responding while reloading after a crash.",
     "crashLoopMessage": "The app window crashed repeatedly and stopped reloading automatically."
+  },
+  "sessionSearch": {
+    "indexing": {
+      "searchPaused": "{{sessions}} conversations searchable · indexing paused",
+      "clearPaused": "Deletes the index files. Your transcripts are untouched. Indexing stays paused until you resume.",
+      "discovering": "Finding conversations…",
+      "indexing": "Indexing conversations",
+      "updating": "Updating search index",
+      "paused": "Indexing paused",
+      "failed": "Index needs attention",
+      "complete": "Up to date",
+      "statusUnavailable": "Index status unavailable",
+      "loading": "Reading index status…",
+      "applying": "Applying…",
+      "pause": "Pause",
+      "resume": "Resume",
+      "retry": "Retry",
+      "files": "Files processed: {{processed}} / {{total}} · {{percent}}%",
+      "pausedDescription": "Indexed conversations stay searchable. Resume to catch up on new activity.",
+      "completeDescription": "New activity is indexed automatically.",
+      "partialDescription": "You can search indexed conversations while the rest are added.",
+      "counts": "Searchable conversations: {{sessions}} · Messages: {{messages}}",
+      "failures": "{{count}} indexing issues. Retry to check the remaining files.",
+      "unavailable": "Could not update index status. Please try again.",
+      "openSettings": "Open settings",
+      "settingsError": "Could not save search settings. Please try again.",
+      "idle": "Waiting to index",
+      "start": "Index now"
+    }
   }
 }

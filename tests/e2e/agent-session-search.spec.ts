@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from './helpers/orca-app'
 
@@ -58,6 +58,50 @@ test('consent, Unicode search, scope exclusion, and clear stay inside an isolate
   await orcaPage.getByRole('button', { name: /^Agent Session History\b/ }).click()
   const toggle = orcaPage.getByRole('switch', { name: 'Search inside conversations' })
   await expect(toggle).toBeChecked()
+  const indexing = orcaPage.getByTestId('session-search-indexing-panel')
+  await expect(indexing.getByText('Up to date', { exact: true })).toBeVisible()
+  await indexing.getByRole('button', { name: 'Pause', exact: true }).click()
+  await expect(indexing.getByText('Indexing paused', { exact: true })).toBeVisible()
+  await expect(orcaPage.getByRole('button', { name: 'Indexing paused', exact: true })).toBeVisible()
+  appendFileSync(
+    path.join(transcripts, `${id}.jsonl`),
+    `${JSON.stringify({
+      type: 'user',
+      sessionId: id,
+      cwd: project,
+      timestamp: new Date().toISOString(),
+      message: { role: 'user', content: 'pausedappendneedle' }
+    })}\n`
+  )
+  await orcaPage.evaluate(() => window.api.aiVault.listSessions({ force: true }))
+  const pausedSearch = await orcaPage.evaluate(async () => ({
+    saved: (await window.api.aiVault.searchSessions({ query: 'transcriptneedle' })).hits.length,
+    appended: (await window.api.aiVault.searchSessions({ query: 'pausedappendneedle' })).hits.length
+  }))
+  expect(pausedSearch).toEqual({ saved: 1, appended: 0 })
+  await orcaPage.screenshot({ path: testInfo.outputPath('session-search-indexing-paused.png') })
+  await orcaPage.getByRole('button', { name: 'Indexing paused', exact: true }).click()
+  const popover = orcaPage.locator('[data-slot="popover-content"]')
+  await expect(popover.getByText('Indexing paused', { exact: true })).toBeVisible()
+  await orcaPage.screenshot({
+    path: testInfo.outputPath('session-search-indexing-popover.png'),
+    animations: 'disabled'
+  })
+  await popover.getByRole('button', { name: 'Resume', exact: true }).click()
+  await expect(indexing.getByText('Up to date', { exact: true })).toBeVisible()
+  await expect(orcaPage.getByRole('button', { name: 'Indexing paused', exact: true })).toHaveCount(
+    0
+  )
+  await expect
+    .poll(
+      async () =>
+        (
+          await orcaPage.evaluate(() =>
+            window.api.aiVault.searchSessions({ query: 'pausedappendneedle' })
+          )
+        ).hits.length
+    )
+    .toBe(1)
   await toggle.click()
   await expect
     .poll(async () => (await orcaPage.evaluate(() => window.api.aiVault.searchCoverage())).enabled)

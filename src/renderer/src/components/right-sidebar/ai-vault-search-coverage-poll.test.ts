@@ -126,3 +126,24 @@ it('drops coverage from the previous runtime immediately and polls the new owner
   })
   expect(result.current?.sessionsIndexed).toBe(9)
 })
+
+it('shares a single polling subscription between surfaces', async () => {
+  const first = renderHook(() => useAiVaultSearchCoveragePoll(true))
+  const second = renderHook(() => useAiVaultSearchCoveragePoll(true))
+  await act(async () => {})
+  expect(searchCoverage).toHaveBeenCalledTimes(1)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+  })
+  expect(searchCoverage).toHaveBeenCalledTimes(2)
+  first.unmount()
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+  })
+  expect(searchCoverage).toHaveBeenCalledTimes(3)
+  second.unmount()
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+  })
+  expect(searchCoverage).toHaveBeenCalledTimes(3)
+})
