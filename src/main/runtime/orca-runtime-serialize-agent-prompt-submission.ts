@@ -69,20 +69,41 @@ export class OrcaRuntimeWithSerializeAgentPromptSubmission extends OrcaRuntimeWi
     return this.ptyForegroundAgent.read(ptyId, afterTitleObservation)
   }
 
-  protected confirmPtyAgentExit(ptyId: string): void {
+  protected confirmPtyAgentExit(ptyId: string, recoverCompletedHook = false): void {
     const pty = this.ptysById.get(ptyId)
+    const handle = this.handleByPtyId.get(ptyId)
+    if (
+      recoverCompletedHook &&
+      (!handle || this.getFreshExplicitAgentStatusForHandle(handle)?.status !== 'idle')
+    ) {
+      return
+    }
+    const incarnationId = pty?.incarnationId
     const titleObservedAt = pty?.lastOscTitleAt ?? null
     const foregroundRead = this.readPtyForegroundProcessFromController(ptyId, titleObservedAt ?? 0)
     if (!pty?.connected || !foregroundRead) {
-      this.recordTerminalSideEffectFact(ptyId, { kind: 'agent-exited' })
+      if (!recoverCompletedHook) {
+        this.recordTerminalSideEffectFact(ptyId, { kind: 'agent-exited' })
+      }
       return
     }
     void foregroundRead.then((result) => {
       const current = this.ptysById.get(ptyId)
-      if (current !== pty || !current.connected) {
+      if (current !== pty || !current.connected || current.incarnationId !== incarnationId) {
         return
       }
       if (current.lastOscTitleAt !== titleObservedAt && current.lastAgentStatus !== null) {
+        return
+      }
+      if (
+        recoverCompletedHook &&
+        (!current.lastAgentStatusObservedLive ||
+          this.getFreshExplicitAgentStatusForHandle(handle)?.status !== 'idle')
+      ) {
+        return
+      }
+      if (recoverCompletedHook && current.lastOscTitleAt !== titleObservedAt) {
+        this.confirmPtyAgentExit(ptyId, true)
         return
       }
       if (
@@ -90,11 +111,19 @@ export class OrcaRuntimeWithSerializeAgentPromptSubmission extends OrcaRuntimeWi
         result.available &&
         recognizeAgentProcess(result.process) !== null
       ) {
+        // Codex's final native spinner can arrive after its done hook, then clear to the cwd.
+        const confirmedStatus =
+          recoverCompletedHook && recognizeAgentProcess(result.process)?.agent === 'codex'
+            ? 'idle'
+            : undefined
         const restoredStatus = this.ptyTitleTrackersByPtyId
           .get(ptyId)
-          ?.tracker.restoreLastAgentExit()
+          ?.tracker.restoreLastAgentExit(confirmedStatus)
         if (restoredStatus !== null && restoredStatus !== undefined) {
           current.lastAgentStatus = restoredStatus
+          if (restoredStatus === 'idle') {
+            this.resolvePtyTuiIdleWaiters(current, ptyId)
+          }
           for (const leaf of this.getLeavesForPty(ptyId)) {
             if (leaf.lastAgentStatus !== null) {
               continue
@@ -102,13 +131,16 @@ export class OrcaRuntimeWithSerializeAgentPromptSubmission extends OrcaRuntimeWi
             // Why: the foreground agent disproved the neutral title's exit signal; keep runtime delivery state aligned with the restored tracker.
             leaf.lastAgentStatus = restoredStatus
             if (restoredStatus === 'idle') {
+              this.resolveTuiIdleWaiters(leaf)
               this.deliverPendingMessagesForLeaf(leaf)
             }
           }
         }
         return
       }
-      this.recordTerminalSideEffectFact(ptyId, { kind: 'agent-exited' })
+      if (!recoverCompletedHook) {
+        this.recordTerminalSideEffectFact(ptyId, { kind: 'agent-exited' })
+      }
     })
   }
 
