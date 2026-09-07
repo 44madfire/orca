@@ -40,13 +40,13 @@ function frame(id: number, status: string, overrides: { kind?: string; truncated
   return message
 }
 
-function transcript(messages: NativeChatMessage[]) {
+function transcript(messages: NativeChatMessage[], sessionId = 'live-codex') {
   return (
     <NativeChatMessageList
       session={{
         messages,
         status: 'ready',
-        sessionId: 'live-codex',
+        sessionId,
         agent: 'codex',
         hasMore: false,
         loadingEarlier: false,
@@ -150,5 +150,57 @@ describe('live Codex checklist frames', () => {
     expect(screen.getByText('Verification failed', { selector: 'pre' })).toHaveClass(
       'text-destructive'
     )
+  })
+})
+
+describe('NativeChatMessageList task list history', () => {
+  it('updates a memoized row when pagination supplies a predecessor and resets between sessions', () => {
+    const first = {
+      id: 'first-list',
+      role: 'assistant' as const,
+      timestamp: 1,
+      source: 'transcript' as const,
+      blocks: [
+        {
+          type: 'tool-call' as const,
+          name: 'TodoWrite',
+          input: {
+            todos: [
+              { content: 'Read', status: 'pending' },
+              { content: 'Test', status: 'pending' }
+            ]
+          }
+        }
+      ]
+    }
+    const last = {
+      ...first,
+      id: 'last-list',
+      timestamp: 3,
+      blocks: [
+        { type: 'text' as const, text: 'Ready for verification' },
+        {
+          type: 'tool-call' as const,
+          name: 'TodoWrite',
+          input: {
+            todos: [
+              { content: 'Read', status: 'completed' },
+              { content: 'Test', status: 'pending' }
+            ]
+          }
+        }
+      ]
+    }
+    const { rerender } = render(transcript([last]))
+    expect(screen.queryByText('Completed Read')).toBeNull()
+    rerender(transcript([first, last]))
+    expect(screen.getByText('Completed Read')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Full task list' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+    rerender(transcript([last], 'two'))
+    expect(screen.queryByText('Completed Read')).toBeNull()
+    expect(screen.getByText('Read')).toHaveClass('line-through')
   })
 })
