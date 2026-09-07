@@ -141,7 +141,6 @@ inspectable APK again.
 ## Gates
 
 ```bash
-pnpm test mobile/src/mobile-web/hosted-webview-cdp-session.test.ts
 pnpm test mobile/src/mobile-web/hosted-android-inspectable-release.test.ts
 cd mobile && npx tsc --noEmit -p .
 pnpm run check:code-quality:changed
