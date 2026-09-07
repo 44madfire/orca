@@ -1,1 +1,0 @@
-{ "extends": "./tsconfig.json", "compilerOptions": { "paths": { "@orca/expo-mobile-web-shell": ["./packages/expo-mobile-web-shell/src/index.ts"], "@orca/expo-mobile-web-shell/*": ["./packages/expo-mobile-web-shell/src/*"] } } }

@@ -5,7 +5,6 @@ import { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 describe('mobile web mutation authorization races', () => {
-
   it('rejects native-chat persistence when the tab lookup loses its workspace authority', async () => {
     const workspace = workspaceAuthority()
     const chat = new MobileWebNativeChatAuthority((length) => new Uint8Array(length).fill(5))
@@ -75,12 +74,4 @@ function client(sendRequest: ReturnType<typeof vi.fn>): RpcClient {
 
 function success(result: unknown) {
   return { ok: true as const, result }
-}
-
-function failure() {
-  return { ok: false as const, error: { code: 'unexpected', message: 'unexpected' } }
-}
-
-function callsFor(sendRequest: ReturnType<typeof vi.fn>, method: string) {
-  return sendRequest.mock.calls.filter(([candidate]) => candidate === method)
 }
