@@ -1,10 +1,10 @@
+import { compactCodexSession } from './codex-structured-compact'
 import * as codexRewind from './codex-structured-rewind'
 import type {
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
 } from '../../shared/agent-session-journal-types'
 import { StructuredSessionCompaction } from '../native-chat/agent-session-wire/structured-session-compaction'
-import { isCodexAppServerRequestError } from './codex-app-server-connection'
 import {
   createCodexBackgroundTerminalChannel,
   type CodexBackgroundTerminalChannel
@@ -212,9 +212,8 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
 
   backgroundTaskState = (sessionId: string) => this.backgroundTerminals.state(sessionId)
 
-  stopBackgroundTasks: NonNullable<StructuredAgentSessionAdapter['stopBackgroundTasks']> = (
-    input
-  ) => this.backgroundTerminals.stop(input)
+  stopBackgroundTasks: CodexBackgroundTerminalChannel['stop'] = (input) =>
+    this.backgroundTerminals.stop(input)
 
   rewindSupport: NonNullable<StructuredAgentSessionAdapter['rewindSupport']> = (sessionId) =>
     this.sessions.get(sessionId)?.historyMode === 'legacy'
@@ -227,30 +226,14 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
   recoverRewind: NonNullable<StructuredAgentSessionAdapter['recoverRewind']> = (input) =>
     codexRewind.recoverCodexRewind(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
 
-  compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) => {
-    const session = this.session(input.sessionId)
-    return this.compactions.run(
-      input.sessionId,
-      session.threadId,
-      async () => {
-        await this.turnCancellation.captureBaseline(session)
-        return session.connection
-          .request(
-            'thread/compact/start',
-            { threadId: session.threadId },
-            { timeoutMs: this.deps.requestTimeoutMs }
-          )
-          .catch((error) => {
-            if (isCodexAppServerRequestError(error)) {
-              return { error: error.message }
-            }
-            throw error
-          })
-      },
-      input.onLateResult,
-      input.turnId
-    )
-  }
+  compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) =>
+    compactCodexSession({
+      compactions: this.compactions,
+      turnCancellation: this.turnCancellation,
+      session: this.session(input.sessionId),
+      requestTimeoutMs: this.deps.requestTimeoutMs,
+      input
+    })
 
   async answerPrompt(input: {
     sessionId: string
