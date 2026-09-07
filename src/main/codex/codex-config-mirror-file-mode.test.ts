@@ -124,6 +124,32 @@ describe.skipIf(process.platform === 'win32')('runtime config.toml file mode (ST
     expect(modeOf(runtimeConfigPath())).toBe('600')
   })
 
+  // The one cell the repair did not reach. A stalled promotion returns before the mirror runs, so
+  // a runtime config already at 0644 stayed there — with its token-bearing .bak beside it — for as
+  // long as the stall lasted. Not a regression (the merge base is 644 here too), but unfinished
+  // business of this PR's own goal: forcing 0600 on credential-bearing config files.
+  //
+  // The stall needs the ~/.codex DIRECTORY non-writable, not the file: promotion writes via
+  // temp-file-plus-rename, which needs directory permission. A read-only config.toml does not
+  // stall at all.
+  it('repairs the mode even when promotion write-back has stalled', () => {
+    syncSystemConfigIntoManagedCodexHome()
+    writeFileSync(runtimeConfigPath(), 'model = "gpt-5-codex"\n', 'utf-8')
+    chmodSync(runtimeConfigPath(), 0o644)
+    chmodSync(systemHome(), 0o500)
+
+    try {
+      syncSystemConfigIntoManagedCodexHome()
+
+      // The runtime content must survive: if it were overwritten, promotion did not stall and
+      // this would be exercising the ordinary mirror path, where the repair already ran.
+      expect(readFileSync(runtimeConfigPath(), 'utf-8')).toContain('gpt-5-codex')
+      expect(modeOf(runtimeConfigPath())).toBe('600')
+    } finally {
+      chmodSync(systemHome(), 0o700)
+    }
+  })
+
   it('keeps the copy owner-only when the source itself is loose', () => {
     chmodSync(systemConfigPath(), 0o644)
 

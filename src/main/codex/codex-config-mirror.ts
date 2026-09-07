@@ -57,6 +57,15 @@ export function syncSystemConfigIntoManagedCodexHome(
     if (stalledStatus.state === 'stalled') {
       reportCodexConfigSyncOutcome(homes.runtimeHomePath, stalledStatus)
     }
+    // Why here and not above the return: a stalled promotion leaves the runtime config in place,
+    // and the repair below never runs on this path — so a file already at 0644 stayed there for
+    // as long as the stall lasted, backup included. Same shape as the blank-source return, whose
+    // repair moved above it for the same reason. Scoped to this branch deliberately: the
+    // indeterminate return further down has its own refusal semantics and is left alone.
+    enforceCodexConfigFileMode(
+      join(homes.runtimeHomePath, 'config.toml'),
+      warnCodexConfigModeRepair
+    )
     return
   }
   let mirrorResult: CodexConfigMirrorResult
