@@ -127,6 +127,7 @@ describe('Codex structured conversation name', () => {
 function namingCodex(options: { answer?: string; existingName?: string } = {}) {
   const connections: FakeConnection[] = []
   const calls: { method: string; params: Record<string, unknown> }[] = []
+  const replies: { id: number | string; result?: unknown; code?: number; message?: string }[] = []
   const openConnection = (async (
     _launch: CodexAppServerLaunch,
     handlers: CodexAppServerConnectionHandlers = {}
@@ -165,8 +166,9 @@ function namingCodex(options: { answer?: string; existingName?: string } = {}) {
         return {}
       },
       notify: () => {},
-      respond: () => {},
-      respondWithError: () => {},
+      respond: (id: number | string, result: unknown) => replies.push({ id, result }),
+      respondWithError: (id: number | string, code: number, message: string) =>
+        replies.push({ id, code, message }),
       close: async () => {
         connection.closed = true
         return true
@@ -175,7 +177,7 @@ function namingCodex(options: { answer?: string; existingName?: string } = {}) {
     connections.push(connection)
     return connection
   }) as typeof openCodexAppServerConnection
-  return { connections, openConnection, calls }
+  return { connections, openConnection, calls, replies }
 }
 
 const NAMING_THREAD = 'thread-naming'
@@ -277,5 +279,81 @@ describe('Codex conversation-name generation', () => {
 
     expect(codex.calls.some((call) => call.method === 'thread/name/set')).toBe(false)
     expect(onConversationName).not.toHaveBeenCalled()
+  })
+})
+
+describe('Codex naming-turn isolation', () => {
+  /** Every event the adapter emitted for the user's session, by thread. */
+  function emittedThreads(events: unknown[]): string[] {
+    return events.map((event) => String((event as { threadId?: string }).threadId))
+  }
+
+  it('refuses an approval request from the naming turn instead of prompting the user', async () => {
+    const codex = namingCodex()
+    const { events } = await dispatchedAdapter(codex)
+    await settle()
+
+    codex.connections[0]!.handlers.onServerRequest?.({
+      id: 77,
+      method: 'item/commandExecution/requestApproval',
+      params: { threadId: NAMING_THREAD, command: 'rm -rf /' }
+    })
+    await settle()
+
+    // A prompt here would be durable, would name a command the user never asked
+    // for, and would stay pending forever once the naming turn is abandoned.
+    expect(codex.replies).toContainEqual(expect.objectContaining({ id: 77, code: -32001 }))
+    expect(emittedThreads(events)).not.toContain(NAMING_THREAD)
+    expect(JSON.stringify(events)).not.toContain('rm -rf /')
+  })
+
+  it('drops an unhandled frame from the naming turn', async () => {
+    const codex = namingCodex()
+    const { events } = await dispatchedAdapter(codex)
+    await settle()
+    const before = events.length
+
+    codex.connections[0]!.handlers.onUnhandledFrame?.('notification:mysteryOpcode', {
+      threadId: NAMING_THREAD,
+      message: 'naming turn noise'
+    })
+    await settle()
+
+    expect(events).toHaveLength(before)
+    expect(JSON.stringify(events)).not.toContain('naming turn noise')
+  })
+
+  it('still journals the user own thread frames while a naming turn runs', async () => {
+    const codex = namingCodex()
+    const { events } = await dispatchedAdapter(codex)
+    await settle()
+
+    codex.connections[0]!.handlers.onNotification?.('item/completed', {
+      threadId: THREAD_ID,
+      item: { type: 'agentMessage', text: 'the real answer' }
+    })
+    await settle()
+
+    // The gate must not be a blanket drop: the user's own frames still arrive.
+    expect(emittedThreads(events)).toContain(THREAD_ID)
+    expect(JSON.stringify(events)).toContain('the real answer')
+  })
+
+  it('keeps dropping naming-thread frames after the turn is abandoned', async () => {
+    const codex = namingCodex()
+    const { events } = await dispatchedAdapter(codex)
+    await settle()
+    const settled = events.length
+
+    // A turn that timed out is never cancelled, so it can still emit long after
+    // the flow gave up. The thread is retained for the session's life.
+    codex.connections[0]!.handlers.onNotification?.('item/completed', {
+      threadId: NAMING_THREAD,
+      item: { type: 'agentMessage', text: '{"title":"Late leak"}' }
+    })
+    await settle()
+
+    expect(events).toHaveLength(settled)
+    expect(JSON.stringify(events)).not.toContain('Late leak')
   })
 })

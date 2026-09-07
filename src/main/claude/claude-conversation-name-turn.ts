@@ -9,6 +9,10 @@
 // Deliberately NOT Codex's imperative-verb style: Claude's own titling is a short
 // noun phrase in sentence case, and the SDK call already produces that. Passing
 // the user's text as the description and nothing else keeps it that way.
+//
+// Asked at most once per NAMED CONVERSATION, not once per session object: Claude
+// rebuilds its session on every acquisition, so the in-memory flag alone would
+// retitle the chat — and pay for it — on the second message after every eviction.
 
 import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
 import { agentSessionNamingPromptText } from '../native-chat/agent-session-wire/agent-session-naming-prompt-text'
@@ -17,6 +21,10 @@ import type { ClaudeSession } from './claude-structured-session-state'
 export type ClaudeConversationNamingDeps = {
   requestTimeoutMs?: number
   onConversationName?: (sessionId: string, conversationName: string) => void
+  /** The name already recorded for this session, if any. Claude's session object
+   *  is rebuilt on every acquisition, so the in-memory one-shot flag alone would
+   *  re-title the conversation once per eviction cycle. */
+  readConversationName?: (sessionId: string) => string | null
 }
 
 /**
@@ -32,6 +40,12 @@ export function startClaudeConversationNaming(
   deps: ClaudeConversationNamingDeps
 ): void {
   if (session.namingAttempted || !deps.onConversationName) {
+    return
+  }
+  // The durable record outlives the session object; a conversation named on any
+  // earlier acquisition is never renamed, and never paid for twice.
+  if (deps.readConversationName?.(sessionId)) {
+    session.namingAttempted = true
     return
   }
   const description = agentSessionNamingPromptText(body)

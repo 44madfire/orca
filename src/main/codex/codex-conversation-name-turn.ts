@@ -47,6 +47,7 @@ export function startCodexConversationNaming(input: CodexConversationNamingInput
       session.naming = collector
       return collector
     },
+    retainNamingThread: (namingThreadId) => session.namingThreadIds.add(namingThreadId),
     closeNamingTurn: () => {
       session.naming = null
     }

@@ -76,6 +76,8 @@ export type ClaudeStructuredSessionAdapterDeps = {
   }) => Promise<void>
   /** Claude named (or the user renamed) the conversation behind this session. */
   onConversationName?: (sessionId: string, conversationName: string) => void
+  /** The name already recorded for a session, so a re-acquisition does not retitle it. */
+  readConversationName?: (sessionId: string) => string | null
   /** The name Claude already persisted for this provider session, if any. Its
    *  stream carries no title frame, so the transcript is the only source. */
   readTranscriptConversationName?: (input: {

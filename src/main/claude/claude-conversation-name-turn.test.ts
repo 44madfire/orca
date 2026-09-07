@@ -129,3 +129,33 @@ describe('startClaudeConversationNaming robustness', () => {
     expect(onConversationName).not.toHaveBeenCalled()
   })
 })
+
+describe('startClaudeConversationNaming across re-acquisitions', () => {
+  it('does not retitle a conversation the record already names', async () => {
+    const generateSessionTitle = vi.fn(async () => 'A second, different title')
+    // Claude rebuilds its session on every acquisition, so this fresh object is
+    // exactly what an evict-then-reacquire hands the next send.
+    const reacquired = sessionWith(generateSessionTitle)
+
+    startClaudeConversationNaming(SESSION, reacquired, USER_TURN, {
+      onConversationName: vi.fn(),
+      readConversationName: () => 'Lease probe flake'
+    })
+    await settle()
+
+    expect(generateSessionTitle).not.toHaveBeenCalled()
+  })
+
+  it('still names a conversation the record has never named', async () => {
+    const generateSessionTitle = vi.fn(async () => 'Lease probe flake')
+    const onConversationName = vi.fn()
+
+    startClaudeConversationNaming(SESSION, sessionWith(generateSessionTitle), USER_TURN, {
+      onConversationName,
+      readConversationName: () => null
+    })
+    await settle()
+
+    expect(onConversationName).toHaveBeenCalledExactlyOnceWith(SESSION, 'Lease probe flake')
+  })
+})

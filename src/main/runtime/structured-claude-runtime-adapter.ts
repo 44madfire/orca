@@ -80,6 +80,7 @@ export function createStructuredClaudeRuntimeAdapter(
         : null
     },
     ...(deps.onConversationName ? { onConversationName: deps.onConversationName } : {}),
+    readConversationName: (sessionId) => store.getRecord(sessionId)?.conversationName ?? null,
     readTranscriptConversationName: async ({ providerSessionId, claudeConfigDir }) => {
       const transcriptPath = await resolveSessionFilePath('claude', providerSessionId, {
         claudeProjectsDir: join(claudeConfigDir, 'projects')

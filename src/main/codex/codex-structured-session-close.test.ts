@@ -99,6 +99,7 @@ describe('Codex structured session close lifecycle', () => {
       cwd: '/work/repo',
       conversationName: null,
       naming: null,
+      namingThreadIds: new Set<string>(),
       namingAttempted: false,
       prompts,
       options: new Map(),

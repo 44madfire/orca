@@ -35,6 +35,7 @@ import {
   deliverCodexServerRequest,
   deliverCodexUnhandledFrame
 } from './codex-structured-provider-events'
+import { isCodexNamingFrame } from './codex-conversation-name-generation'
 import { startCodexConversationNaming } from './codex-conversation-name-turn'
 import { readCodexThreadId, readCodexThreadName } from './codex-structured-thread-facts'
 import { CodexStructuredTurnCancellation } from './codex-structured-turn-cancellation'
@@ -123,14 +124,8 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     // Before every other handler: a naming turn runs on a throwaway thread over
     // this same connection, and the item translator journals items from ANY
     // thread. Routed here, its prompt and its JSON answer never reach the chat.
-    //
-    // Keyed on "not the user's thread" rather than the naming thread's own id,
-    // which is unknown until `thread/start` returns — by which point frames for
-    // it are already arriving. A frame naming NO thread still passes through.
-    const naming = session.naming
-    const frameThreadId = readCodexThreadId(params)
-    if (naming && frameThreadId !== null && frameThreadId !== session.threadId) {
-      naming.handle(method, params)
+    if (isCodexNamingFrame(session, readCodexThreadId(params))) {
+      session.naming?.handle(method, params)
       return { accepted: true }
     }
     this.captureConversationName(sessionId, session, method, params)
@@ -178,18 +173,31 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     sessionId: string,
     request: Parameters<typeof deliverCodexServerRequest>[2]
   ): void {
-    deliverCodexServerRequest(sessionId, this.sessions.get(sessionId), request, (session, event) =>
-      this.emit(session, event)
+    const session = this.sessions.get(sessionId)
+    if (session && isCodexNamingFrame(session, readCodexThreadId(request.params))) {
+      // An approval request from the naming turn would become a durable prompt in
+      // the user's chat, for a command they never asked for, left pending forever
+      // once the turn is abandoned. Refuse it so the turn settles instead.
+      session.connection.respondWithError(
+        request.id,
+        -32001,
+        'Orca does not run tools on a conversation-naming turn'
+      )
+      return
+    }
+    deliverCodexServerRequest(sessionId, session, request, (current, event) =>
+      this.emit(current, event)
     )
   }
 
   private handleUnhandledFrame(sessionId: string, kind: string, params: unknown): void {
-    deliverCodexUnhandledFrame(
-      sessionId,
-      this.sessions.get(sessionId),
-      kind,
-      params,
-      (session, event) => this.emit(session, event)
+    const session = this.sessions.get(sessionId)
+    if (session && isCodexNamingFrame(session, readCodexThreadId(params))) {
+      session.naming?.handle(kind, params)
+      return
+    }
+    deliverCodexUnhandledFrame(sessionId, session, kind, params, (current, event) =>
+      this.emit(current, event)
     )
   }
 

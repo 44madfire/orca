@@ -56,7 +56,9 @@ export type ClaudeConversationNameReporter = {
  */
 export function reportPersistedClaudeConversationName(
   sessionId: string,
-  session: { providerSessionId: string; claudeConfigDir: string } | undefined,
+  session:
+    | { providerSessionId: string; claudeConfigDir: string; namingAttempted?: boolean }
+    | undefined,
   deps: ClaudeConversationNameReporter
 ): void {
   const read = deps.readTranscriptConversationName
@@ -67,6 +69,16 @@ export function reportPersistedClaudeConversationName(
     providerSessionId: session.providerSessionId,
     claudeConfigDir: session.claudeConfigDir
   })
-    .then((name) => (name ? deps.onConversationName?.(sessionId, name) : undefined))
+    .then((name) => {
+      if (!name) {
+        return
+      }
+      // A transcript that already holds a name is a conversation that is already
+      // named; nothing should generate another one for it.
+      if (session) {
+        session.namingAttempted = true
+      }
+      deps.onConversationName?.(sessionId, name)
+    })
     .catch(() => undefined)
 }

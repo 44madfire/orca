@@ -46,6 +46,7 @@ function run(
       collector = createCodexNamingTurnCollector(5_000)
       return collector
     },
+    retainNamingThread: () => {},
     closeNamingTurn: () => {}
   })
   // Drive the turn the way the app-server would, once the flow has opened it.
@@ -73,6 +74,29 @@ describe('readCodexGeneratedTitle', () => {
     expect(readCodexGeneratedTitle(null)).toBeNull()
     expect(readCodexGeneratedTitle('{"title":"   "}')).toBeNull()
     expect(readCodexGeneratedTitle('{"name":"Fix it"}')).toBeNull()
+  })
+})
+
+describe('createCodexNamingTurnCollector', () => {
+  it('settles on an error frame, which is how a refused turn reports itself', async () => {
+    const collector = createCodexNamingTurnCollector(60_000)
+
+    // There is no `turn/failed` notification; a rate-limited or rejected turn
+    // arrives as `error`. Without it this would hold for the whole timeout.
+    collector.handle('error', { message: 'rate limit exceeded' })
+
+    await expect(collector.answer).resolves.toBeNull()
+  })
+
+  it('keeps the answer it had already seen when the turn then errors', async () => {
+    const collector = createCodexNamingTurnCollector(60_000)
+
+    collector.handle('item/completed', {
+      item: { type: 'agentMessage', text: '{"title":"Fix probe"}' }
+    })
+    collector.handle('error', { message: 'stream closed' })
+
+    await expect(collector.answer).resolves.toBe('{"title":"Fix probe"}')
   })
 })
 

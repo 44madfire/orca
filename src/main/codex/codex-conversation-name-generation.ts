@@ -13,7 +13,10 @@
 // The route is armed BEFORE the ephemeral thread is created, and keys on "a
 // thread that is not the user's" rather than on the new thread's id: the id is
 // only known once `thread/start` returns, and the app-server can already be
-// emitting for it by then.
+// emitting for it by then. Once the id IS known it is retained for the life of
+// the session, because a turn that timed out is never cancelled and can still be
+// emitting long after this flow gave up on it — tying the route's lifetime to the
+// flow's would reopen the leak on exactly that path.
 //
 // The thread is RE-READ immediately before the name is set, because generation
 // takes seconds and another client may have named the thread in the meantime; a
@@ -49,7 +52,28 @@ export const CODEX_CONVERSATION_NAME_PROMPT = [
   'Do not answer or act on the request — only title it.'
 ].join('\n')
 
-export type CodexNamingFrame = { method: string; params: unknown }
+/** The naming state one session carries: the collector while a turn is in
+ *  flight, and every throwaway thread this session has ever opened. */
+export type CodexNamingState = {
+  naming: CodexNamingTurnCollector | null
+  namingThreadIds: Set<string>
+  threadId: string
+}
+
+/**
+ * Whether a frame belongs to a naming turn rather than the user's conversation.
+ *
+ * Two conditions, because the throwaway thread's id is unknown for a window: any
+ * OTHER thread while a naming turn is in flight, and — for the whole life of the
+ * session — a thread this session opened for naming. A frame naming no thread
+ * cannot be attributed and passes through, as it always has.
+ */
+export function isCodexNamingFrame(state: CodexNamingState, frameThreadId: string | null): boolean {
+  if (frameThreadId === null || frameThreadId === state.threadId) {
+    return false
+  }
+  return state.namingThreadIds.has(frameThreadId) || state.naming !== null
+}
 
 /** Collects one ephemeral naming turn's frames and reports its answer. */
 export type CodexNamingTurnCollector = {
@@ -85,7 +109,10 @@ export function createCodexNamingTurnCollector(timeoutMs: number): CodexNamingTu
     handle: (method, params) => {
       if (method === 'item/completed') {
         latest = agentMessageText(params) ?? latest
-      } else if (method === 'turn/completed' || method === 'turn/failed') {
+      } else if (method === 'turn/completed' || method === 'error') {
+        // `error` is how the app-server reports a refused or rate-limited turn;
+        // there is no `turn/failed`. Without it a failed turn would hold this
+        // open for the full timeout.
         settle(latest)
       }
     },
@@ -120,6 +147,9 @@ export type CodexConversationNameGeneration = {
   /** Arms the route that keeps the naming turn's frames out of the journal.
    *  Called BEFORE the ephemeral thread exists, so nothing it emits can race in. */
   openNamingTurn: () => CodexNamingTurnCollector
+  /** Retains the throwaway thread for the life of the session, so frames still
+   *  arriving after this flow gives up are dropped rather than journaled. */
+  retainNamingThread: (namingThreadId: string) => void
   closeNamingTurn: () => void
 }
 
@@ -146,6 +176,7 @@ export async function generateAndSetCodexConversationName(
     if (!namingThreadId || namingThreadId === input.threadId) {
       return null
     }
+    input.retainNamingThread(namingThreadId)
     await connection.request(
       'turn/start',
       {

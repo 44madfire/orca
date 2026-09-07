@@ -71,9 +71,11 @@ export type CodexSession = {
   historyPath: string | null
   /** Codex's own name for the thread; null until Codex reports one. */
   conversationName: string | null
-  /** The throwaway thread a naming turn is running on, and where its frames go.
-   *  Set only while one is in flight; its frames must never reach the journal. */
+  /** Where a naming turn's frames go while one is in flight. */
   naming: CodexNamingTurnCollector | null
+  /** Every throwaway thread this session opened for naming. Retained for the
+   *  session's life: an abandoned turn is never cancelled and can still emit. */
+  namingThreadIds: Set<string>
   /** One naming attempt per session: a thread the model declined to name, or one
    *  a person deliberately cleared, must not be re-asked on every later turn. */
   namingAttempted: boolean

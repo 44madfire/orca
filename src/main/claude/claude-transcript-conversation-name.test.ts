@@ -71,7 +71,12 @@ describe('reportPersistedClaudeConversationName', () => {
     })
     await vi.waitFor(() => expect(onConversationName).toHaveBeenCalled())
 
-    expect(readTranscriptConversationName).toHaveBeenCalledWith(session)
+    // Asserted by shape, not against `session`: finding a name marks that object
+    // as already named, so comparing to it would compare with the mutation.
+    expect(readTranscriptConversationName).toHaveBeenCalledWith({
+      providerSessionId: 'provider-1',
+      claudeConfigDir: '/home/dev/.claude'
+    })
     expect(onConversationName).toHaveBeenCalledExactlyOnceWith('session-1', 'Lease probe flake')
   })
 
@@ -103,6 +108,29 @@ describe('reportPersistedClaudeConversationName', () => {
     await vi.waitFor(() => expect(readTranscriptConversationName).toHaveBeenCalled())
 
     expect(onConversationName).not.toHaveBeenCalled()
+  })
+
+  it('marks the session named, so nothing generates a second title for it', async () => {
+    const live = { ...session, namingAttempted: false }
+
+    reportPersistedClaudeConversationName('session-1', live, {
+      readTranscriptConversationName: vi.fn(async () => 'Lease probe flake'),
+      onConversationName: vi.fn()
+    })
+    await vi.waitFor(() => expect(live.namingAttempted).toBe(true))
+  })
+
+  it('leaves the session generatable when the transcript holds no name', async () => {
+    const live = { ...session, namingAttempted: false }
+    const readTranscriptConversationName = vi.fn(async () => null)
+
+    reportPersistedClaudeConversationName('session-1', live, {
+      readTranscriptConversationName,
+      onConversationName: vi.fn()
+    })
+    await vi.waitFor(() => expect(readTranscriptConversationName).toHaveBeenCalled())
+
+    expect(live.namingAttempted).toBe(false)
   })
 
   it('does nothing for a session that is not live', async () => {
