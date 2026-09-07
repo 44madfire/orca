@@ -83,6 +83,38 @@ describe('bounded host-scoped page preferences', () => {
     expect(f.values.get(mobileWebPagePreferencesStorageKey('limited'))).toBe(before)
   })
 
+  it('keeps a reset and a read working over a corrupt or oversized blob', async () => {
+    const f = fixture()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const key = mobileWebPagePreferencesStorageKey('broken')
+    f.values.set(key, 'bad-json')
+    expect(
+      await f.run('broken', { namespace: 'settings', action: 'read', keys: ['a', 'b'] })
+    ).toEqual({
+      entries: [
+        ['a', null],
+        ['b', null]
+      ]
+    })
+    expect(f.values.get(key)).toBe('bad-json')
+    await expect(f.run('broken', { namespace: 'settings', action: 'clear' })).resolves.toEqual({
+      updated: true
+    })
+    await expect(
+      f.run('broken', { namespace: 'settings', action: 'write', entries: [['a', 'saved']] })
+    ).resolves.toEqual({ updated: true })
+
+    f.values.set(key, JSON.stringify([['settings', [['a', 'x'.repeat(3 * 1024 * 1024)]]]]))
+    expect(await f.run('broken', { namespace: 'settings', action: 'read', keys: ['a'] })).toEqual({
+      entries: [['a', null]]
+    })
+    await expect(f.run('broken', { namespace: 'settings', action: 'clear' })).resolves.toEqual({
+      updated: true
+    })
+    expect(warn).toHaveBeenCalledOnce()
+    warn.mockRestore()
+  })
+
   it('does not overwrite unreadable storage and recovers after a failed write', async () => {
     const f = fixture()
     const key = mobileWebPagePreferencesStorageKey('broken')
