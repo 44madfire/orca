@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import { useRef } from 'react'
+import { useComposerDropListener } from '../../hooks/composer-state/composer-drop-listener'
 import type { NativeFileDropPayload } from '../../../../shared/native-file-drop'
 import { useNativeChatFileAttachmentActions } from './use-native-chat-file-attachment-actions'
 import {
@@ -68,6 +69,11 @@ function dropTwoImages(target: Element): void {
     }
   })
   act(() => target.dispatchEvent(event))
+}
+
+function WorkspaceComposerProbe({ onDrop }: { onDrop: (paths: string[]) => void }) {
+  useComposerDropListener(onDrop)
+  return <div data-native-file-drop-target="composer" data-workspace-composer="true" />
 }
 
 describe('native chat composer drop scoping', () => {
@@ -139,6 +145,36 @@ describe('native chat composer drop scoping', () => {
       paths: ['/repro/first.png', '/repro/second.png']
     })
     expect(readNativeChatAttachmentCache('chat-a')).toEqual([])
+    expect(readNativeChatAttachmentCache('chat-b')).toEqual([])
+  })
+
+  it('isolates native chat drops from the workspace composer while preserving workspace drops', () => {
+    const workspaceDrop = vi.fn()
+    const view = render(
+      <>
+        <ComposerProbe pane="chat-a" />
+        <ComposerProbe pane="chat-b" />
+        <WorkspaceComposerProbe onDrop={workspaceDrop} />
+      </>
+    )
+
+    dropTwoImages(view.container.querySelector('[data-pane="chat-a"] textarea')!)
+    expect(workspaceDrop).not.toHaveBeenCalled()
+    expect(readNativeChatAttachmentCache('chat-b')).toEqual([])
+    expect(readNativeChatAttachmentCache('chat-a').map(({ path }) => path)).toEqual([
+      '/repro/first.png',
+      '/repro/second.png'
+    ])
+
+    dropTwoImages(view.container.querySelector('[data-workspace-composer="true"]')!)
+    expect(workspaceDrop).toHaveBeenCalledExactlyOnceWith(
+      ['/repro/first.png', '/repro/second.png'],
+      expect.any(Function)
+    )
+    expect(readNativeChatAttachmentCache('chat-a').map(({ path }) => path)).toEqual([
+      '/repro/first.png',
+      '/repro/second.png'
+    ])
     expect(readNativeChatAttachmentCache('chat-b')).toEqual([])
   })
 
