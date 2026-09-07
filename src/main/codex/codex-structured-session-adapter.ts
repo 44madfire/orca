@@ -75,7 +75,8 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     })
   }
 
-  supportsLocation = supportsCodexStructuredLocation
+  supportsLocation = (location: Parameters<typeof supportsCodexStructuredLocation>[0]): boolean =>
+    supportsCodexStructuredLocation(location, this.deps.isWindowsProcessStartTimeAvailable)
 
   acquire = (input: StructuredAgentSessionAcquireInput): Promise<AgentSessionAcquisition> =>
     acquireCodexStructuredSession({

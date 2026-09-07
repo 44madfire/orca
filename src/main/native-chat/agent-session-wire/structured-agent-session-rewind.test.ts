@@ -58,6 +58,7 @@ beforeEach(async () => {
     hostId: 'local'
   })
   adapter = {
+    supportsCreate: (_location, agent) => agent === 'codex' || agent === 'claude',
     supportsLocation: () => true,
     acquire: async (input) => {
       acquires.push(input)
