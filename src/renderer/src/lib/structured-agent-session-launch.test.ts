@@ -173,9 +173,8 @@ describe('startStructuredAgentLaunch', () => {
     const codex = startStructuredAgentLaunch(worktreeId, 'codex')
     await flushLaunchSettlement()
 
-    // Third argument is the adopted conversation; a blank launch passes none.
-    expect(mocks.createIntent).toHaveBeenNthCalledWith(1, worktreeId, 'claude', undefined)
-    expect(mocks.createIntent).toHaveBeenNthCalledWith(2, worktreeId, 'codex', undefined)
+    expect(mocks.createIntent).toHaveBeenNthCalledWith(1, worktreeId, 'claude')
+    expect(mocks.createIntent).toHaveBeenNthCalledWith(2, worktreeId, 'codex')
     expect(mocks.launch).toHaveBeenCalledTimes(2)
     expect(vi.mocked(mocks.launch).mock.calls.map(([intent]) => intent.params.agent)).toEqual([
       'claude',

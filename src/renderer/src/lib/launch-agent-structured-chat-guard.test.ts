@@ -174,11 +174,7 @@ describe('structured chat adoption guard on the launch path', () => {
       focusAfterMenuClose: 'structured-session'
     })
     expect(shouldQueueTerminalFocusAfterMenuClose(result!)).toBe(false)
-    expect(mockCreateStructuredCodexSessionLaunchIntent).toHaveBeenCalledWith(
-      'wt-1',
-      'codex',
-      undefined
-    )
+    expect(mockCreateStructuredCodexSessionLaunchIntent).toHaveBeenCalledWith('wt-1', 'codex')
     expect(mockLaunchStructuredCodexSession).toHaveBeenCalledWith(
       expect.objectContaining({ worktreeId: 'wt-1' })
     )
@@ -199,11 +195,7 @@ describe('structured chat adoption guard on the launch path', () => {
     const result = launchAgentInNewTab({ agent: 'codex', worktreeId: 'wt-1' })
 
     expect(result).toMatchObject({ tabId: null, focusAfterMenuClose: 'structured-session' })
-    expect(mockCreateStructuredCodexSessionLaunchIntent).toHaveBeenCalledWith(
-      'wt-1',
-      'codex',
-      undefined
-    )
+    expect(mockCreateStructuredCodexSessionLaunchIntent).toHaveBeenCalledWith('wt-1', 'codex')
     expect(mockCreateTab).not.toHaveBeenCalled()
   })
 
@@ -213,11 +205,7 @@ describe('structured chat adoption guard on the launch path', () => {
     const result = launchAgentInNewTab({ agent: 'claude', worktreeId: 'wt-1' })
 
     expect(result).toMatchObject({ tabId: null, focusAfterMenuClose: 'structured-session' })
-    expect(mockCreateStructuredCodexSessionLaunchIntent).toHaveBeenCalledWith(
-      'wt-1',
-      'claude',
-      undefined
-    )
+    expect(mockCreateStructuredCodexSessionLaunchIntent).toHaveBeenCalledWith('wt-1', 'claude')
     expect(mockCreateTab).not.toHaveBeenCalled()
   })
 

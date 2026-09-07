@@ -14,6 +14,7 @@ import {
   structuredAdoptionConflictError
 } from '../native-chat/structured-agent-session-history-adoption'
 import { resolveSessionFilePath } from '../native-chat/session-file-resolver'
+import { configuredAdditionalCodexHomePaths } from '../ai-vault/cached-session-list'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type { AgentStatusIpcPayload } from '../../shared/agent-status-types'
 import { getLocalProjectWorktreeGitOptions } from '../project-runtime-git-options'
@@ -166,6 +167,9 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
     return [
       selectedAccountHomePath,
       ...managedHomes,
+      // The same extra homes session discovery scans. Without these a row that this host listed
+      // could refuse to resume, which reads as the feature being broken rather than as a scope.
+      ...configuredAdditionalCodexHomePaths(),
       getOrcaManagedCodexHomePath(),
       getSystemCodexHomePath()
     ]

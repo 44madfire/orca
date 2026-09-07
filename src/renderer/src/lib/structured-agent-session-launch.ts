@@ -252,7 +252,12 @@ function structuredAgentLaunchState(
     }
   }
 
-  const intent = createStructuredAgentSessionLaunchIntent(worktreeId, agent, options.resumeFrom)
+  // Only pass the third argument when adopting: every ordinary launch keeps the two-argument call
+  // it has always made, so this change adds no trailing `undefined` for call-site assertions to
+  // absorb.
+  const intent = options.resumeFrom
+    ? createStructuredAgentSessionLaunchIntent(worktreeId, agent, options.resumeFrom)
+    : createStructuredAgentSessionLaunchIntent(worktreeId, agent)
   const text = options.prompt?.trim() ?? ''
   const stagedPrompt = text
     ? enqueueStructuredAgentSessionLaunchPrompt(intent.sessionId, text)

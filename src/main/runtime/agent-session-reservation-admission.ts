@@ -194,11 +194,17 @@ export function applyAgentSessionReservation(
 }
 
 /**
- * Refuse an adoption whose conversation another record already holds.
+ * Refuse an adoption whose conversation ANOTHER record already holds.
  *
- * Exempts the request's own session id: a retry of a create that already committed re-runs every
- * pre-commit check, and by then the record it created holds the conversation itself. Without the
- * exemption the replay would refuse as a conflict instead of replaying.
+ * The self-exemption is part of that definition, not a replay mechanism: replay is settled earlier
+ * by the operation ledger, and an adoption always arrives with a null expected fence, so a request
+ * naming an existing session id is refused a few lines below regardless. Keeping the scan scoped to
+ * other records is what makes this guard mean what its name says.
+ *
+ * It runs inside the store transaction because the pre-commit check in the RPC resolver cannot be
+ * the guard: two concurrent adoptions of one conversation mint different session ids, so the
+ * compare-and-swap never collides and both would pass. Codex permits two app-servers on one thread
+ * silently, so the cost of missing this is a corrupted conversation rather than an error.
  */
 function assertAdoptedConversationUnowned(
   state: AgentSessionStoreState,
