@@ -21,12 +21,18 @@ export const PushNotificationSchema = z
     notificationEpoch: OpaqueIdSchema,
     source: PushNotificationSourceSchema,
     sound: z.boolean().optional(),
+    kind: z.enum(['alert', 'dismiss']).optional(),
+    expiresAt: z.number().int().positive().optional(),
     agentState: PushAgentStateSchema.nullable(),
     title: z.string().min(1).max(PUSH_LIMITS.titleMaxChars),
     body: z.string().max(PUSH_LIMITS.bodyMaxChars),
     worktreeId: z.string().min(1).max(2048).optional()
   })
   .strict()
+  .refine(
+    (notification) => notification.kind !== 'dismiss' || Boolean(notification.notificationId),
+    { message: 'dismiss requires notificationId' }
+  )
   .refine(
     (notification) => new TextEncoder().encode(JSON.stringify(notification)).byteLength <= 3000,
     {

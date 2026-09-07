@@ -55,3 +55,23 @@ describe('dismissPresentedPushNotification', () => {
     await expect(dismissPresentedPushNotification('agent:one')).resolves.toBeUndefined()
   })
 })
+
+it('a delayed dismissal preserves newer alerts, other epochs, and other hosts', async () => {
+  const base = { hostFingerprint: 'host-a', notificationId: 'note', notificationEpoch: 'epoch-a' }
+  vi.mocked(Notifications.getPresentedNotificationsAsync).mockResolvedValue([
+    presented('older', { ...base, notificationSeq: 1 }),
+    presented('equal', { ...base, notificationSeq: 2 }),
+    presented('newer', { ...base, notificationSeq: 3 }),
+    presented('restarted', { ...base, notificationSeq: 1, notificationEpoch: 'epoch-b' }),
+    presented('other-host', { ...base, notificationSeq: 1, hostFingerprint: 'host-b' }),
+    presented('legacy', base)
+  ] as never)
+  await dismissPresentedPushNotification('note', 'host-a', {
+    notificationEpoch: 'epoch-a',
+    notificationSeq: 2
+  })
+  expect(vi.mocked(Notifications.dismissNotificationAsync).mock.calls.map(([id]) => id)).toEqual([
+    'older',
+    'equal'
+  ])
+})

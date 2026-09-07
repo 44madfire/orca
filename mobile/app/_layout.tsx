@@ -1,3 +1,4 @@
+import { registerPushDismissalTask } from '../src/notifications/push-background-dismissal'
 import { readNativeNotificationData } from '../src/notifications/native-notification-data'
 import { loadNotificationDeliveryPreferences } from '../src/notifications/notification-delivery-preferences'
 import { setNotificationViewingWorkspace } from '../src/notifications/notification-viewing-policy'
@@ -33,6 +34,7 @@ SplashScreen.preventAutoHideAsync()
 // 'orca-desktop' channel, and a background push can land before any socket has
 // connected. Android drops a notification whose channel does not exist yet.
 ensureDesktopNotificationChannel()
+void registerPushDismissalTask().catch(() => {})
 
 // Why: without this, expo-notifications silently drops notifications when
 // the app is in the foreground. Setting all three to true makes iOS/Android

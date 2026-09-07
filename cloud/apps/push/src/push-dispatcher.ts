@@ -36,9 +36,16 @@ export class PushDispatcher {
     }
   }
 
-  private async deliverAttempt(delivery: PushDelivery): Promise<{ delayMs: number } | undefined> {
+  async deliverAttempt(delivery: PushDelivery): Promise<{ delayMs: number } | undefined> {
+    const outcome = await this.sendOnce(delivery)
+    return outcome.status === 'error' && outcome.retryable
+      ? { delayMs: outcome.retryAfterMs ?? 0 }
+      : undefined
+  }
+
+  async sendOnce(delivery: PushDelivery): Promise<PushProviderOutcome> {
     const device = await this.options.devices.findById(delivery.registrationId)
-    if (!device || device.dead) return
+    if (!device || device.dead) return { status: 'dead', reason: 'registration_unavailable' }
     let outcome: PushProviderOutcome
     if (device.platform === 'ios') {
       outcome = this.options.apns
@@ -67,8 +74,6 @@ export class PushDispatcher {
         })
       )
     }
-    if (outcome.status === 'error' && outcome.retryable)
-      return { delayMs: outcome.retryAfterMs ?? 0 }
-    return undefined
+    return outcome
   }
 }

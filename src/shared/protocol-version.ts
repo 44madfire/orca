@@ -185,6 +185,7 @@ export const AUTOMATION_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY =
 // an older host has no notifications.registerPush to call.
 export const NOTIFICATION_DELIVERY_PREFERENCES_CAPABILITY =
   'notifications.delivery-preferences.v1' as const
+export const NOTIFICATION_DELIVERY_POLICY_CAPABILITY = 'notifications.delivery-policy.v1' as const
 export const NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY = 'notifications.remote-push.v1' as const
 
 // Generic native clients include the CLI and must not claim Electron-only page
@@ -279,7 +280,8 @@ export const RUNTIME_CAPABILITIES = [
   AUTOMATION_OWNER_FENCING_RUNTIME_CAPABILITY,
   AUTOMATION_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY,
   NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY,
-  NOTIFICATION_DELIVERY_PREFERENCES_CAPABILITY
+  NOTIFICATION_DELIVERY_PREFERENCES_CAPABILITY,
+  NOTIFICATION_DELIVERY_POLICY_CAPABILITY
 ] as const
 
 export type RuntimeCapability = (typeof RUNTIME_CAPABILITIES)[number] | (string & {})

@@ -62,9 +62,21 @@ describe('fcm client', () => {
         notification: { title: 'Agent needs input', body: 'Waiting on your answer' },
         android: {
           priority: 'HIGH',
-          ttl: '14400s',
-          collapse_key: createHash('sha256').update('note-1').digest('hex').slice(0, 32),
-          notification: { channel_id: 'orca-desktop', tag: 'note-1' }
+          ttl: '300s',
+          collapse_key: createHash('sha256')
+            .update(
+              createHash('sha256')
+                .update(JSON.stringify([HOST, 'note-1']))
+                .digest('hex')
+            )
+            .digest('hex')
+            .slice(0, 32),
+          notification: {
+            channel_id: 'orca-desktop',
+            tag: createHash('sha256')
+              .update(JSON.stringify([HOST, 'note-1']))
+              .digest('hex')
+          }
         },
         data: {
           hostFingerprint: HOST,
@@ -179,4 +191,23 @@ describe('fcm client', () => {
       retryable: true
     })
   })
+})
+
+it('does not send when credential refresh crosses the absolute expiry', async () => {
+  let now = 1000
+  const fake = fakeTransport({ status: 200, body: '{}' })
+  const fcm = new FcmClient({
+    projectId: 'test',
+    now: () => now,
+    accessToken: async () => {
+      now = 3000
+      return 'test-token'
+    },
+    transport: fake.transport
+  })
+  await expect(fcm.send({ ...delivery(), expiresAt: 2000 }, { token: TOKEN })).resolves.toEqual({
+    status: 'error',
+    reason: 'expired'
+  })
+  expect(fake.requests).toHaveLength(0)
 })

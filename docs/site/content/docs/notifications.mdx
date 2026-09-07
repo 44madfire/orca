@@ -30,32 +30,20 @@ Supported formats: MP3, WAV, OGG, M4A, AAC, FLAC. One file applies to all delive
 
 When you use a custom sound, set its playback volume from the same settings pane.
 
-## Background notifications on your phone
+## Notifications on your phone
 
-The Orca mobile app shows an agent-finished or needs-input alert while it is open and connected to your desktop. To keep receiving them while the app is in the background or closed, turn on **Background notifications** in the phone's Notifications settings. It is off by default.
+Turn on **Enable notifications** in the mobile app to receive agent alerts, including while the app is closed. Notifications are delivered through Orca’s push service and Apple or Google.
 
-When it is on, your desktop sends each alert to Orca's push service, which delivers it through Apple or Google to your phone. The alert shows the same title and text as the desktop notification. What leaves your computer is that text, your phone's push token, and opaque host and device ids. Orca's push service keeps the text only long enough to send it and never writes it to storage. Apple and Google can read it in transit, as they can for any app's notifications. The service is open source in the Orca repository under `cloud/apps/push`.
+The service receives the notification title and text, a native push token, and opaque host and device IDs. Notification text is not end-to-end encrypted. Turning notifications off or unpairing queues removal of the push registration; an offline desktop completes that removal when contact returns.
 
-Turning the switch off, or unpairing the phone from the desktop, deletes the token from the push service. The **Enable notifications** switch turns off both connected alerts and background push. Removing a host from the phone while that desktop is offline may leave background alerts arriving from it until the desktop is unpaired or the switch is turned off on the phone.
+**Use desktop settings** follows each desktop’s master and event switches. Event controls remain visible but cannot be edited while this is on. Turn it off to choose **Agent task complete** (including needs-input alerts), **Terminal bell**, and **Plugin notifications** for this phone. Sound and **Suppress while focused** apply only to the phone; the latter skips alerts for the workspace currently open there.
 
-Background notifications need a paired desktop that has been updated to advertise the feature; the phone hides the switch otherwise. They do not fire from a headless `orca serve` host, because agent-completion detection runs in the desktop app. On Android they need Google Play services, so de-Googled phones keep the in-app behaviour only.
+**Only when away from desktop** is on by default. Phone alerts are suppressed while the desktop has had keyboard or mouse activity within the last three minutes. Locking the desktop allows alerts immediately. This includes activity in other desktop apps. Suppressed events do not arrive later as a backlog. When desktop presence cannot be determined, alerts are allowed.
 
-## Notification preferences on your phone
+Notifications pause after seven days without a foreground mobile registration renewal. Open the mobile app and reconnect to resume. Using desktop alone does not renew this phone’s registration. The app renews while it is open and connected, including periodically during longer visits.
 
-**Use desktop settings** is on by default. Each paired desktop's notification master switch,
-**Agent Task Complete**, and **Terminal Bell** switches determine which terminal events reach
-this phone. Desktop focus and desktop OS permissions do not suppress phone alerts.
+The away and seven-day rules require an updated paired desktop. Older desktops keep their previous behavior until updated. Headless hosts cannot determine desktop presence and do not infer it from SSH activity; agent completion detection still requires the desktop app. Android background delivery requires Google Play services.
 
-Turn off **Use desktop settings** to choose **Task finished**, **Needs input**, **Terminal bell**,
-and **Plugin notifications** independently on your phone. These event filters apply to both
-connected notifications (including reconnect catch-up) and background push. Older desktops
-still filter events before forwarding them; update the desktop to enable independent delivery.
-Previously customized background agent-state filters are preserved as independent preferences.
-
-A terminal bell is a program's attention signal, not proof that an agent finished. Disable
-**Terminal bell** on your phone if a CLI repeatedly rings while it is working.
-
-**Notification sound** and **Suppress while viewing workspace** are local to the phone.
-Viewing suppression applies only while the phone is open on that host's workspace. Background
-notifications can still arrive while the phone is closed. Phone sound choices do not sync custom
-desktop audio files. Preference changes reach disconnected desktops when they reconnect.
+The push service temporarily stores pending notification content for delivery, for up to five minutes
+plus cleanup time. Content is cleared after processing; delivery identifiers and outcomes are retained
+for 24 hours for retry and duplicate protection. Alerts expire after five minutes.

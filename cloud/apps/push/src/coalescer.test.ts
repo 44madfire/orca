@@ -57,7 +57,11 @@ function createCoalescer(windowMs = 3_000) {
 describe('push coalescer', () => {
   it('sends a single event unchanged with the notification collapse id', async () => {
     const { coalescer, delivered, timers } = createCoalescer()
-    coalescer.enqueue({ registrationId: 'reg-1', hostFingerprint: HOST, notification: notification() })
+    coalescer.enqueue({
+      registrationId: 'reg-1',
+      hostFingerprint: HOST,
+      notification: notification()
+    })
     expect(timers.delays).toEqual([3_000])
     expect(delivered).toHaveLength(0)
     await coalescer.flush('reg-1')
@@ -66,7 +70,7 @@ describe('push coalescer', () => {
       registrationId: 'reg-1',
       title: 'Agent needs input',
       body: 'Waiting on your answer',
-      collapseId: 'note-1'
+      collapseId: expect.stringMatching(/^[a-f0-9]{64}$/)
     })
     expect(delivered[0]?.orca).toMatchObject({
       hostFingerprint: HOST,
@@ -126,15 +130,28 @@ describe('push coalescer', () => {
     }
     await coalescer.flush('reg-1')
     expect(delivered[0]?.body).toBe('2 updates')
-    expect(summaryBody([notification({ agentState: null }), notification({ agentState: null })]))
-      .toBe('2 updates')
+    expect(
+      summaryBody([notification({ agentState: null }), notification({ agentState: null })])
+    ).toBe('2 updates')
   })
 
   it('keeps one window per registration', async () => {
     const { coalescer, delivered, timers } = createCoalescer()
-    coalescer.enqueue({ registrationId: 'reg-1', hostFingerprint: HOST, notification: notification() })
-    coalescer.enqueue({ registrationId: 'reg-2', hostFingerprint: HOST, notification: notification() })
-    coalescer.enqueue({ registrationId: 'reg-1', hostFingerprint: HOST, notification: notification() })
+    coalescer.enqueue({
+      registrationId: 'reg-1',
+      hostFingerprint: HOST,
+      notification: notification()
+    })
+    coalescer.enqueue({
+      registrationId: 'reg-2',
+      hostFingerprint: HOST,
+      notification: notification()
+    })
+    coalescer.enqueue({
+      registrationId: 'reg-1',
+      hostFingerprint: HOST,
+      notification: notification()
+    })
     expect(timers.delays).toHaveLength(2)
     await coalescer.flushAll()
     expect(delivered.map((delivery) => delivery.registrationId).sort()).toEqual(['reg-1', 'reg-2'])
@@ -144,11 +161,19 @@ describe('push coalescer', () => {
 
   it('flushes when the window timer fires and starts a fresh window after', async () => {
     const { coalescer, delivered, timers } = createCoalescer()
-    coalescer.enqueue({ registrationId: 'reg-1', hostFingerprint: HOST, notification: notification() })
+    coalescer.enqueue({
+      registrationId: 'reg-1',
+      hostFingerprint: HOST,
+      notification: notification()
+    })
     timers.fireAll()
     await Promise.resolve()
     expect(delivered).toHaveLength(1)
-    coalescer.enqueue({ registrationId: 'reg-1', hostFingerprint: HOST, notification: notification() })
+    coalescer.enqueue({
+      registrationId: 'reg-1',
+      hostFingerprint: HOST,
+      notification: notification()
+    })
     expect(coalescer.pendingCount('reg-1')).toBe(1)
     await coalescer.flushAll()
     expect(delivered).toHaveLength(2)
@@ -165,7 +190,11 @@ describe('push coalescer', () => {
       clearTimer: () => undefined,
       onDeliveryFailed: (error) => failures.push(error)
     })
-    coalescer.enqueue({ registrationId: 'reg-1', hostFingerprint: HOST, notification: notification() })
+    coalescer.enqueue({
+      registrationId: 'reg-1',
+      hostFingerprint: HOST,
+      notification: notification()
+    })
     await expect(coalescer.flush('reg-1')).resolves.toBeUndefined()
     expect(failures).toHaveLength(1)
     coalescer.stop()

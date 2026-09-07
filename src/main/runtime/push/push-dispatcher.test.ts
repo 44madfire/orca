@@ -70,7 +70,7 @@ describe('PushDispatcher', () => {
     expect(harness.cleared).toEqual(['device-24'])
   })
 
-  it('never pushes a dismissal', async () => {
+  it('pushes a silent dismissal with an absolute expiry', async () => {
     const harness = createHarness({
       devices: [{ deviceId: 'a', pushRegistration: registration() }]
     })
@@ -83,7 +83,13 @@ describe('PushDispatcher', () => {
     })
     await flush()
 
-    expect(harness.sends).toHaveLength(0)
+    expect(harness.sends).toHaveLength(1)
+    expect(harness.sends[0]?.notification).toMatchObject({
+      kind: 'dismiss',
+      sound: false,
+      notificationId: 'agent:one',
+      expiresAt: expect.any(Number)
+    })
   })
 
   it('stays silent while the agent is still working', async () => {

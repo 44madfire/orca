@@ -292,3 +292,29 @@ describe('DesktopPushService', () => {
     )
   })
 })
+
+it('renews a seven-day mobile lease only on explicit registration', async () => {
+  const now = 1_800_000_000_000
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
+  const h = createService()
+  try {
+    await h.service.register({
+      deviceId: h.deviceId,
+      ...REGISTER_INPUT,
+      filter: { ...REGISTER_INPUT.filter, expireAfterInactivity: true }
+    })
+    expect(h.registry.getDevice(h.deviceId)?.pushRegistration?.expiresAt).toBe(now + 7 * 86400_000)
+    clock.mockReturnValue(now + 86400_000)
+    h.dispatch({ type: 'notification', source: 'terminal-bell', title: 'QA', body: 'QA' })
+    expect(h.registry.getDevice(h.deviceId)?.pushRegistration?.expiresAt).toBe(now + 7 * 86400_000)
+    await h.service.register({
+      deviceId: h.deviceId,
+      ...REGISTER_INPUT,
+      filter: { ...REGISTER_INPUT.filter, expireAfterInactivity: true }
+    })
+    expect(h.registry.getDevice(h.deviceId)?.pushRegistration?.expiresAt).toBe(now + 8 * 86400_000)
+  } finally {
+    h.service.stop()
+    clock.mockRestore()
+  }
+})

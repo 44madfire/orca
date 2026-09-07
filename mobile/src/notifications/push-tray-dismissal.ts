@@ -10,13 +10,26 @@ import { readOrcaPushPayload } from './push-payload'
  * Kept out of push-receive.ts deliberately: this runs on the socket dismiss path,
  * which must not pull the host store (and its native keychain deps) behind it.
  */
-export async function dismissPresentedPushNotification(notificationId: string): Promise<void> {
+export async function dismissPresentedPushNotification(
+  notificationId: string,
+  hostFingerprint?: string,
+  fence?: { notificationEpoch?: string; notificationSeq?: number }
+): Promise<void> {
   try {
     const presented = await Notifications.getPresentedNotificationsAsync()
     await Promise.all(
       presented.map(async (notification) => {
         const payload = readOrcaPushPayload(readNativeNotificationData(notification.request))
-        if (payload?.notificationId !== notificationId) {
+        if (
+          payload?.notificationId !== notificationId ||
+          (hostFingerprint && payload.hostFingerprint !== hostFingerprint) ||
+          (fence &&
+            (!fence.notificationEpoch ||
+              fence.notificationSeq === undefined ||
+              payload.notificationEpoch !== fence.notificationEpoch ||
+              payload.notificationSeq === undefined ||
+              payload.notificationSeq > fence.notificationSeq))
+        ) {
           return
         }
         await Notifications.dismissNotificationAsync(notification.request.identifier).catch(

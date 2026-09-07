@@ -16,6 +16,8 @@ export const MOBILE_PUSH_APNS_ENVIRONMENTS = ['sandbox', 'production'] as const
 export type MobilePushApnsEnvironment = (typeof MOBILE_PUSH_APNS_ENVIRONMENTS)[number]
 
 export type MobilePushFilter = {
+  onlyWhenDesktopAway?: boolean
+  expireAfterInactivity?: boolean
   followDesktop?: boolean
   sound?: boolean
   sources: readonly MobilePushSource[]
@@ -28,6 +30,7 @@ export type MobilePushRegistration = {
   platform: MobilePushPlatform
   filter: MobilePushFilter
   registeredAt: number
+  expiresAt?: number
 }
 
 export type MobilePushRegisterInput = {
@@ -67,6 +70,12 @@ function parseFilter(value: unknown): MobilePushFilter | null {
     return null
   }
   return {
+    ...(typeof filter.onlyWhenDesktopAway === 'boolean'
+      ? { onlyWhenDesktopAway: filter.onlyWhenDesktopAway }
+      : {}),
+    ...(typeof filter.expireAfterInactivity === 'boolean'
+      ? { expireAfterInactivity: filter.expireAfterInactivity }
+      : {}),
     ...(typeof filter.sound === 'boolean' ? { sound: filter.sound } : {}),
     ...(typeof filter.followDesktop === 'boolean' ? { followDesktop: filter.followDesktop } : {}),
     sources: filter.sources.filter((entry) => isStringMember(entry, MOBILE_PUSH_SOURCES)),
@@ -92,6 +101,9 @@ export function parseMobilePushRegistration(value: unknown): MobilePushRegistrat
     registration.registrationId.length === 0 ||
     !isStringMember(registration.platform, MOBILE_PUSH_PLATFORMS) ||
     !filter ||
+    (registration.expiresAt !== undefined &&
+      (typeof registration.expiresAt !== 'number' || !Number.isFinite(registration.expiresAt))) ||
+    (filter.expireAfterInactivity === true && registration.expiresAt === undefined) ||
     typeof registration.registeredAt !== 'number' ||
     !Number.isFinite(registration.registeredAt)
   ) {
@@ -101,6 +113,9 @@ export function parseMobilePushRegistration(value: unknown): MobilePushRegistrat
     registrationId: registration.registrationId,
     platform: registration.platform,
     filter,
-    registeredAt: registration.registeredAt
+    registeredAt: registration.registeredAt,
+    ...(typeof registration.expiresAt === 'number' && Number.isFinite(registration.expiresAt)
+      ? { expiresAt: registration.expiresAt }
+      : {})
   }
 }

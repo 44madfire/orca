@@ -38,6 +38,8 @@ const SendResponseSchema = z.object({
 export type PushSendResult = z.infer<typeof SendResponseSchema>['results'][number]
 
 export type PushSendNotification = {
+  kind?: 'alert' | 'dismiss'
+  expiresAt?: number
   sound?: boolean
   notificationId?: string
   notificationSeq: number

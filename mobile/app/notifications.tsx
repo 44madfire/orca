@@ -20,12 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
 import { ChevronLeft } from 'lucide-react-native'
 import { colors, spacing, typography } from '../src/theme/mobile-theme'
-import {
-  loadPushNotificationsEnabled,
-  loadRemotePushEnabled,
-  savePushNotificationsEnabled
-} from '../src/storage/preferences'
-import { BackgroundNotificationsSection } from '../src/notifications/BackgroundNotificationsSection'
+import { loadPushNotificationsEnabled } from '../src/storage/preferences'
 import {
   setNotificationDeliveryPreferences,
   setRemotePushEnabled
@@ -49,21 +44,18 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets()
   const [pushEnabled, setPushEnabled] = useState(false)
   const [permissionState, setPermissionState] = useState(DEFAULT_PERMISSION_STATE)
-  const [backgroundEnabled, setBackgroundEnabled] = useState(false)
   const [delivery, setDelivery] = useState(DEFAULT_NOTIFICATION_DELIVERY)
   const [saving, setSaving] = useState(false)
   const remotePushSupport = useRemotePushCapableHosts()
 
   const refreshSettings = useCallback(async () => {
-    const [enabled, permission, background, states] = await Promise.all([
+    const [enabled, permission, states] = await Promise.all([
       loadPushNotificationsEnabled(),
       getNotificationPermissionState(),
-      loadRemotePushEnabled(),
       loadNotificationDeliveryPreferences()
     ])
     setPushEnabled(enabled)
     setPermissionState(permission)
-    setBackgroundEnabled(background)
     setDelivery(states)
   }, [])
 
@@ -83,40 +75,26 @@ export default function NotificationsScreen() {
   }, [refreshSettings])
 
   const togglePush = async (value: boolean) => {
-    if (value) {
-      const granted = await ensureNotificationPermissions()
-      const permission = await getNotificationPermissionState()
-      setPermissionState(permission)
-      if (!granted) {
-        setPushEnabled(false)
-        await savePushNotificationsEnabled(false)
-        await setRemotePushEnabled(false)
-        setBackgroundEnabled(false)
-        return
+    setSaving(true)
+    try {
+      if (value) {
+        const granted = await ensureNotificationPermissions()
+        const permission = await getNotificationPermissionState()
+        setPermissionState(permission)
+        if (!granted) {
+          setPushEnabled(false)
+          await setRemotePushEnabled(false)
+          return
+        }
       }
+      setPushEnabled(value)
+      await setRemotePushEnabled(value)
+    } catch {
+      Alert.alert('Could not save notification settings', 'Please try again.')
+      await refreshSettings()
+    } finally {
+      setSaving(false)
     }
-    setPushEnabled(value)
-    await savePushNotificationsEnabled(value)
-    if (!value) {
-      await setRemotePushEnabled(false)
-      setBackgroundEnabled(false)
-    }
-  }
-
-  const toggleBackground = async (value: boolean) => {
-    if (value) {
-      const granted = await ensureNotificationPermissions()
-      setPermissionState(await getNotificationPermissionState())
-      if (!granted) {
-        return
-      }
-    }
-    if (value) {
-      await savePushNotificationsEnabled(true)
-      setPushEnabled(true)
-    }
-    setBackgroundEnabled(value)
-    await setRemotePushEnabled(value)
   }
 
   const changeDelivery = async (value: NotificationDeliveryPreferences) => {
@@ -135,7 +113,7 @@ export default function NotificationsScreen() {
   const notificationsBlocked = permissionState.status === 'denied'
   const hint = notificationsBlocked
     ? 'Notifications are disabled in system settings.'
-    : 'Get notified on this device when an agent needs your input or finishes a task.'
+    : 'Get agent alerts even when the app is closed. Delivered through Orca’s push service and Apple or Google.'
 
   return (
     <ScrollView
@@ -158,7 +136,7 @@ export default function NotificationsScreen() {
           <Switch
             accessibilityLabel="Enable notifications"
             value={switchEnabled}
-            disabled={notificationsBlocked}
+            disabled={notificationsBlocked || saving}
             onValueChange={(v) => void togglePush(v)}
             trackColor={{ false: colors.bgRaised, true: colors.textSecondary }}
             thumbColor={colors.textPrimary}
@@ -178,17 +156,23 @@ export default function NotificationsScreen() {
         )}
       </View>
 
+      {remotePushSupport.resolved &&
+        remotePushSupport.supported &&
+        !remotePushSupport.policySupported && (
+          <Text style={styles.hint}>
+            Update your paired desktops to use the away and 7-day pause rules.
+          </Text>
+        )}
       <NotificationDeliverySection
         value={delivery}
-        disabled={saving}
+        disabled={saving || !switchEnabled}
         onChange={(value) => void changeDelivery(value)}
       />
-      <BackgroundNotificationsSection
-        supported={remotePushSupport.supported}
-        resolved={remotePushSupport.resolved}
-        enabled={backgroundEnabled}
-        onToggleEnabled={(value) => void toggleBackground(value)}
-      />
+      {remotePushSupport.resolved && !remotePushSupport.supported && (
+        <Text style={styles.hint}>
+          Pair an updated desktop to receive alerts when the app is closed.
+        </Text>
+      )}
     </ScrollView>
   )
 }

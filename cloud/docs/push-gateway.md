@@ -282,19 +282,19 @@ Two independent limits, both enforced in the gateway and both returning HTTP 200
 
 | Limit | Scope |
 | --- | --- |
-| 60 sends per rolling hour | per `hostFingerprint` |
-| 200 sends per rolling day | per `registrationId` |
+| 300 logical alerts per rolling 15 minutes | per `hostFingerprint` |
+| 300 logical dismissals per rolling 15 minutes | per `hostFingerprint`, separate budget |
 | 20 `registrationIds` | per request, hard cap, HTTP 400 over it |
 
-Ahead of all three sit two per-client-IP token buckets that answer HTTP 429: 30 requests per
-minute on the two unauthenticated handshake routes, and 240 per minute on every other `/v1`
-route, applied before the bearer is looked up so that a flood of forged bearers cannot spend
-the two-connection pool on session lookups. Both are per instance and in memory.
+Fanout to several phones counts one logical event; there is no per-phone daily allowance.
+Unauthenticated handshakes and invalid bearer attempts have separate 30/minute IP buckets.
+Authenticated requests use a 600/minute host bucket per instance. Auth database lookup concurrency
+and waiting work are bounded independently of HTTP concurrency.
 
-`push_send_log` backs the two rolling counts and is pruned after 25 hours. Upstream of all
-three, FCM V1 bills project quota against `ORCA_PUSH_FCM_PROJECT_ID`, which is why the runtime
-account holds `roles/serviceusage.serviceUsageConsumer`; a project-level FCM quota exhaustion
-surfaces as `RESOURCE_EXHAUSTED` and is not something the per-host limits can prevent.
+`push_events` backs quota accounting. `push_event_recipients` deduplicates fanout and
+`push_delivery_batches` persists coalescing, worker leases, retries and outcomes. Identity metadata
+is retained for 24 hours. Payloads expire within five minutes and are cleared on completion or by
+minute-level expiry cleanup. FCM project-level provider quotas remain independent of host limits.
 
 Logging is aggregate counters only. Never log a token, a title, a body, or a full fingerprint;
 the first four characters of a fingerprint are the most that may appear.
@@ -326,12 +326,12 @@ Push uses the relay's schema-startup retry implementation through `@orca-cloud/p
 Session replacement is serialized per host and a unique host index upgrades older databases by
 retaining their newest session. Cloud Verify runs push concurrency tests against PostgreSQL.
 
-Accepted sends deduplicate by host, registration, epoch, and sequence for the quota ledger's 25-hour
-retention period. Provider failures retry at most three times within two minutes, respecting provider
-retry delays. Queues remain in memory; a crash or the nine-second shutdown deadline can still lose work.
-Graceful shutdown first refuses new requests, waits for admitted handlers, and drains pending and active
-deliveries before closing transports and SQL. `delivery_retry` counters accompany existing outcomes.
+Accepted sends commit quota and pending work together before returning `queued`. Workers resume
+unfinished batches after restarts without relying on desktop retries. Shared batching and expiring
+leases coordinate replicas. All provider attempts retain the original five-minute deadline and
+respect provider backoff; no retry extends alert life. Silent dismissal messages have their own quota
+and cancel matching unsent alerts. Mobile OS delivery/execution is not guaranteed.
 
-Notification and worktree IDs allow 2048 characters each, subject to a combined notification JSON
-budget of 3000 UTF-8 bytes. This preserves normal long and Unicode paths without exceeding provider
-envelope space. No identity is truncated to meet this budget.
+Shutdown stops admission and new claims; unfinished leases remain recoverable. Provider acceptance
+and SQL completion cannot be atomic, so repeated transport delivery remains possible after a crash.
+Stable collapse identities reduce duplicates without promising exactly-once visible delivery.

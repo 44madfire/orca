@@ -1,6 +1,8 @@
-import { PUSH_LIMITS, type PushNotification } from '@orca-cloud/push-contract'
+import { createHash } from 'node:crypto'
+import { type PushNotification } from '@orca-cloud/push-contract'
 
 export type PushOrcaData = {
+  kind?: 'alert' | 'dismiss'
   hostFingerprint: string
   worktreeId?: string
   notificationId?: string
@@ -12,6 +14,7 @@ export type PushOrcaData = {
 }
 
 export type PushDelivery = {
+  expiresAt?: number
   sound?: boolean
   registrationId: string
   hostFingerprint: string
@@ -44,7 +47,9 @@ export function collapseIdFor(
   if (coalescedCount > 1 || notification.notificationId === undefined) {
     return hostCollapseId(hostFingerprint)
   }
-  return truncateUtf8(notification.notificationId, PUSH_LIMITS.apnsCollapseIdMaxBytes)
+  return createHash('sha256')
+    .update(JSON.stringify([hostFingerprint, notification.notificationId]))
+    .digest('hex')
 }
 
 export function buildPushDelivery(input: {
@@ -64,6 +69,7 @@ export function buildPushDelivery(input: {
     body: input.body,
     collapseId: collapseIdFor(notification, hostFingerprint, coalescedCount),
     orca: {
+      ...(notification.kind ? { kind: notification.kind } : {}),
       hostFingerprint,
       ...(notification.worktreeId === undefined ? {} : { worktreeId: notification.worktreeId }),
       ...(notification.notificationId === undefined

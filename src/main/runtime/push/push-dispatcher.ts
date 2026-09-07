@@ -98,9 +98,33 @@ export class PushDispatcher {
   private planSend(
     event: MobileNotificationEvent
   ): { targets: PushTarget[]; notification: PushSendNotification } | null {
-    // Dismissals are a socket-only concern; the phone clears its own banner.
-    if (event.type !== 'notification') {
-      return null
+    if (event.type === 'dismiss') {
+      if (event.notificationSeq === undefined || !event.notificationEpoch) {
+        return null
+      }
+      const targets = this.registry
+        .listDevices()
+        .flatMap(({ deviceId, pushRegistration: registration }) =>
+          registration &&
+          (registration.expiresAt === undefined || registration.expiresAt > Date.now())
+            ? [{ deviceId, registrationId: registration.registrationId, registration }]
+            : []
+        )
+      return {
+        targets,
+        notification: {
+          kind: 'dismiss',
+          expiresAt: Date.now() + 300_000,
+          notificationId: event.notificationId,
+          notificationSeq: event.notificationSeq,
+          notificationEpoch: event.notificationEpoch,
+          source: 'agent-task-complete',
+          agentState: null,
+          title: 'Orca',
+          body: '',
+          sound: false
+        }
+      }
     }
     const source = MOBILE_PUSH_SOURCES.find((candidate) => candidate === event.source)
     if (!source || event.notificationSeq === undefined || event.notificationEpoch === undefined) {
@@ -112,7 +136,11 @@ export class PushDispatcher {
     }
     const targets = this.registry.listDevices().flatMap((device) => {
       const registration = device.pushRegistration
-      if (!registration || !allowsMobileNotification(registration.filter, event)) {
+      if (
+        !registration ||
+        (registration.expiresAt !== undefined && registration.expiresAt <= Date.now()) ||
+        !allowsMobileNotification(registration.filter, event)
+      ) {
         return []
       }
       if (
@@ -135,6 +163,7 @@ export class PushDispatcher {
     return {
       targets,
       notification: {
+        expiresAt: Date.now() + 300_000,
         ...(event.notificationId ? { notificationId: event.notificationId } : {}),
         notificationSeq: event.notificationSeq,
         notificationEpoch: event.notificationEpoch,
@@ -160,7 +189,10 @@ export class PushDispatcher {
         .listDevices()
         .some(
           (device) =>
-            device.deviceId === target.deviceId && device.pushRegistration === target.registration
+            device.deviceId === target.deviceId &&
+            device.pushRegistration === target.registration &&
+            (target.registration.expiresAt === undefined ||
+              target.registration.expiresAt > Date.now())
         )
     )
     if (!currentTargets.length) {

@@ -12,7 +12,7 @@ vi.mock('react-native', () => ({
   Switch: 'Switch'
 }))
 
-it('exposes independent event controls only after turning off desktop mirroring', () => {
+it('keeps inherited controls visible and disables editing until mirroring is off', () => {
   const onChange = vi.fn()
   let renderer: ReturnType<typeof create>
   act(() => {
@@ -23,15 +23,22 @@ it('exposes independent event controls only after turning off desktop mirroring'
   const switches = () => renderer.root.findAllByType('Switch' as never)
   expect(switches().map((node) => node.props.accessibilityLabel)).toEqual([
     'Use desktop settings',
+    'Agent task complete',
+    'Terminal bell',
+    'Plugin notifications',
+    'Only when away from desktop',
     'Notification sound',
-    'Suppress while viewing workspace'
+    'Suppress while focused'
   ])
+  expect(switches()[1].props.disabled).toBe(true)
+  expect(switches()[2].props.disabled).toBe(true)
   act(() => switches()[0].props.onValueChange(false))
   const independent = onChange.mock.calls[0][0]
   expect(independent.followDesktop).toBe(false)
   act(() =>
     renderer.update(createElement(NotificationDeliverySection, { value: independent, onChange }))
   )
+  expect(switches()[1].props.disabled).toBe(false)
   expect(switches().map((node) => node.props.accessibilityLabel)).toContain('Terminal bell')
   act(() =>
     switches()

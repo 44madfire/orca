@@ -1,3 +1,4 @@
+import { PushNotificationSchema } from '@orca-cloud/push-contract'
 import { PUSH_LIMITS } from '@orca-cloud/push-contract'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createPushHostKeypair } from './host-challenge-answering.test-fixture.js'
@@ -140,7 +141,7 @@ describe('push gateway send route', () => {
     const message = JSON.parse(harness.fcmRequests[0]!.body) as {
       message: { android: { notification: { tag: string } }; data: Record<string, string> }
     }
-    expect(message.message.android.notification.tag).toBe('note-1')
+    expect(message.message.android.notification.tag).toMatch(/^[a-f0-9]{64}$/)
     expect(message.message.data.coalescedCount).toBe('1')
   })
 
@@ -160,15 +161,21 @@ describe('push gateway send route', () => {
         { registrationId: 'made-up', status: 'error' }
       ]
     })
-    expect(harness.server.coalescer.pendingCount(registrationId)).toBe(0)
+    expect(await harness.server.coalescer.pendingCount(registrationId)).toBe(0)
   })
 
-  it('rate limits a host that exhausted its hourly allowance', async () => {
+  it('rate limits a host that exhausted its 15-minute allowance', async () => {
     const sessionToken = await harness.signIn(createPushHostKeypair(21))
     const registrationId = await harness.registerAndroid(sessionToken)
     const hostFingerprint = (await harness.server.devices.findById(registrationId))!.hostFingerprint
-    for (let index = 0; index < PUSH_LIMITS.hostSendsPerRollingHour; index++) {
-      expect(await harness.server.quota.reserve(hostFingerprint, registrationId)).toBe('allowed')
+    for (let index = 0; index < PUSH_LIMITS.hostEventsPerWindow; index++) {
+      expect(
+        await harness.server.quota.accept(
+          hostFingerprint,
+          registrationId,
+          PushNotificationSchema.parse(notification({ notificationSeq: index + 1000 }))
+        )
+      ).toBe('queued')
     }
     const limited = await harness.post(
       '/v1/send',
@@ -177,6 +184,6 @@ describe('push gateway send route', () => {
     )
     expect(limited.status).toBe(200)
     expect(await limited.json()).toEqual({ results: [{ registrationId, status: 'rate_limited' }] })
-    expect(harness.server.coalescer.pendingCount(registrationId)).toBe(0)
+    expect(await harness.server.coalescer.pendingCount(registrationId)).toBe(300)
   })
 })

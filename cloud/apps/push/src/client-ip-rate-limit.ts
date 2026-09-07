@@ -50,6 +50,10 @@ export class ClientIpRateLimiter {
     this.now = options.now ?? Date.now
   }
 
+  available(clientIp: string): boolean {
+    return this.tokensAt(this.buckets.get(clientIp), this.now()) >= 1
+  }
+
   allow(clientIp: string): boolean {
     const now = this.now()
     const tokens = this.tokensAt(this.buckets.get(clientIp), now)

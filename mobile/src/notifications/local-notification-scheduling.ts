@@ -12,6 +12,7 @@ import { dismissPresentedPushNotification } from './push-tray-dismissal'
 export type NotificationEvent = {
   type: 'notification'
   desktopAllowed?: boolean
+  desktopAway?: boolean
   emittedAt?: number
   agentState?: string
   source: DesktopNotificationSource

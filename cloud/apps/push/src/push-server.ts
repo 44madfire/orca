@@ -1,3 +1,4 @@
+import { PushAuthAdmission } from './push-auth-admission.js'
 import { createAdaptorServer } from '@hono/node-server'
 import {
   PUSH_LIMITS,
@@ -11,8 +12,9 @@ import { Hono, type MiddlewareHandler } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { ApnsClient } from './apns-client.js'
 import { createApnsHttp2Transport, type ApnsTransport } from './apns-http2-transport.js'
-import { clientIpRateLimit, ClientIpRateLimiter } from './client-ip-rate-limit.js'
-import { PushCoalescer } from './coalescer.js'
+import { clientIpRateLimit, ClientIpRateLimiter, readClientIp } from './client-ip-rate-limit.js'
+import { DurablePushStore } from './durable-push-store.js'
+import { DurablePushWorker } from './durable-push-worker.js'
 import type { PushConfig } from './config.js'
 import { PushDeviceRegistryStore } from './device-registry-store.js'
 import { createFcmAccessTokenProvider } from './fcm-access-token.js'
@@ -24,7 +26,6 @@ import { PushDispatcher } from './push-dispatcher.js'
 import { PushObservability } from './push-observability.js'
 import { createPushReadiness } from './push-readiness.js'
 import { PushRequestDrain } from './push-request-drain.js'
-import { PushSendQuota } from './send-quota.js'
 
 export type PushServerOptions = {
   now?: () => number
@@ -67,7 +68,7 @@ export function createPushServer(
   const challenges = new PushHostChallengeStore(database, config.publicUrl, now)
   const sessions = new PushHostSessionStore(database, now)
   const devices = new PushDeviceRegistryStore(database, now)
-  const quota = new PushSendQuota(database, now)
+  const quota = new DurablePushStore(database, now, config.coalesceMs)
   const apnsTransport = options.apnsTransport ?? (config.apns ? createApnsHttp2Transport() : null)
   const dispatcher = new PushDispatcher({
     devices,
@@ -85,6 +86,7 @@ export function createPushServer(
         }
       : {}),
     fcm: new FcmClient({
+      now,
       projectId: config.fcmProjectId,
       accessToken: options.fcmAccessToken ?? createFcmAccessTokenProvider(),
       transport: options.fcmTransport ?? createFcmFetchTransport()
@@ -94,29 +96,18 @@ export function createPushServer(
         status === 'sent' ? 'delivery_sent' : status === 'dead' ? 'delivery_dead' : 'delivery_error'
       )
   })
-  const coalescer = new PushCoalescer({
-    windowMs: config.coalesceMs,
-    deliver: (delivery) => dispatcher.deliver(delivery),
-    ...(options.setTimer ? { setTimer: options.setTimer } : {}),
-    ...(options.clearTimer ? { clearTimer: options.clearTimer } : {}),
-    onDeliveryFailed: () => observability.record('delivery_error')
-  })
+  const coalescer = new DurablePushWorker(quota, dispatcher, now)
   const ready = createPushReadiness(database, { now })
   const unauthenticatedIps = new ClientIpRateLimiter({ now })
   const limitUnauthenticatedIp = clientIpRateLimit(unauthenticatedIps, {
     trustedProxyHops: config.trustedProxyHops,
     onLimited: () => observability.record('ip_rate_limited')
   })
-  // Why a second bucket: a bearer has to be looked up before it can be refused,
-  // and that lookup takes one of very few pool connections. Capping the caller
-  // first keeps a flood of forged bearers from starving real hosts of the pool.
-  const authenticatedIps = new ClientIpRateLimiter({
+  const authAdmission = new PushAuthAdmission()
+  const invalidBearerIps = new ClientIpRateLimiter({ now })
+  const authenticatedHosts = new ClientIpRateLimiter({
     now,
-    capacity: PUSH_LIMITS.authenticatedRequestsPerMinutePerIp
-  })
-  const limitAuthenticatedIp = clientIpRateLimit(authenticatedIps, {
-    trustedProxyHops: config.trustedProxyHops,
-    onLimited: () => observability.record('ip_rate_limited')
+    capacity: PUSH_LIMITS.authenticatedRequestsPerMinutePerHost
   })
   const app = new Hono<{ Variables: PushVariables }>()
   const requestDrain = new PushRequestDrain()
@@ -134,7 +125,7 @@ export function createPushServer(
     return context.json({ error: 'internal' }, 500)
   })
 
-  app.get('/health', (context) => context.json({ ok: true, pushProtocol: 1 }))
+  app.get('/health', (context) => context.json({ ok: true, pushProtocol: 1, deliveryProtocol: 2 }))
   app.get('/ready', async (context) =>
     (await ready())
       ? context.json({ ok: true })
@@ -142,23 +133,39 @@ export function createPushServer(
   )
 
   const bearerSession: MiddlewareHandler<{ Variables: PushVariables }> = async (context, next) => {
+    const ip = readClientIp(context, config.trustedProxyHops)
+    if (!invalidBearerIps.available(ip)) return context.json({ error: 'rate_limited' }, 429)
     const bearer = readBearer(context.req.header('authorization'))
-    if (!bearer) return context.json({ error: 'invalid_token' }, 401)
-    const session = await sessions.resolve(bearer)
+    if (!bearer) {
+      invalidBearerIps.allow(ip)
+      return context.json({ error: 'invalid_token' }, 401)
+    }
+    const session = await authAdmission.run(async () => {
+      if (!invalidBearerIps.available(ip)) return null
+      const result = await sessions.resolve(bearer)
+      if (!result.ok) invalidBearerIps.allow(ip)
+      return result
+    })
+    if (!session) {
+      context.header('Retry-After', '1')
+      return context.json({ error: 'busy' }, 503)
+    }
     if (!session.ok) {
       return context.json(
         { error: session.reason === 'session_expired' ? 'session_expired' : 'invalid_token' },
         401
       )
     }
+    if (!authenticatedHosts.allow(session.hostFingerprint))
+      return context.json({ error: 'rate_limited' }, 429)
     context.set('hostFingerprint', session.hostFingerprint)
     await next()
     return
   }
   // `/v1/devices/*` matches `/v1/devices` itself; a second registration for the
   // bare path would run both middlewares twice on it.
-  app.use('/v1/devices/*', limitAuthenticatedIp, bearerSession)
-  app.use('/v1/send', limitAuthenticatedIp, bearerSession)
+  app.use('/v1/devices/*', bearerSession)
+  app.use('/v1/send', bearerSession)
 
   app.post('/v1/host/challenge', limitUnauthenticatedIp, limitBody, async (context) => {
     const body = PushHostChallengeRequestSchema.safeParse(
@@ -247,21 +254,16 @@ export function createPushServer(
         results.push({ registrationId, status: 'dead' })
         continue
       }
-      const reservation = await quota.reserve(
+      const reservation = await quota.accept(
         hostFingerprint,
         registrationId,
         body.data.notification
       )
-      if (reservation === 'duplicate') {
-        results.push({ registrationId, status: 'queued' })
+      if (reservation !== 'queued') {
+        observability.record(reservation === 'rate_limited' ? 'send_rate_limited' : 'send_error')
+        results.push({ registrationId, status: reservation })
         continue
       }
-      if (reservation === 'rate_limited') {
-        observability.record('send_rate_limited')
-        results.push({ registrationId, status: 'rate_limited' })
-        continue
-      }
-      coalescer.enqueue({ registrationId, hostFingerprint, notification: body.data.notification })
       observability.record('send_queued')
       results.push({ registrationId, status: 'queued' })
     }

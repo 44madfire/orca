@@ -14,6 +14,15 @@ const APS_ENVIRONMENT =
 module.exports = ({ config }) => ({
   ...config,
   plugins: (config.plugins ?? []).map((plugin) =>
-    plugin === 'expo-notifications' ? ['expo-notifications', { mode: APS_ENVIRONMENT }] : plugin
+    plugin === 'expo-notifications'
+      ? [
+          'expo-notifications',
+          {
+            enableBackgroundRemoteNotifications: true,
+            mode: APS_ENVIRONMENT,
+            icon: './assets/notification-icon.png'
+          }
+        ]
+      : plugin
   )
 })

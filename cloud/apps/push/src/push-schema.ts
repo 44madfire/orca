@@ -1,4 +1,5 @@
-// The five tables the gateway spec names. Applied at startup for both dialects,
+import { DURABLE_PUSH_SCHEMA } from './durable-push-schema.js'
+// Applied at startup for both dialects, including additive queue tables,
 // so every column type has to read the same in SQLite and PostgreSQL.
 const PUSH_SCHEMA = `
 CREATE TABLE IF NOT EXISTS push_hosts (
@@ -64,7 +65,8 @@ CREATE INDEX IF NOT EXISTS push_hosts_last_seen_at ON push_hosts(last_seen_at);
 export function pushSchemaStatements(): string[] {
   // Comments are stripped before the split so a ';' inside one cannot cut a
   // statement in half and hand SQLite an "incomplete input" fragment.
-  return PUSH_SCHEMA.replace(/--[^\n]*/g, '')
+  return (PUSH_SCHEMA + DURABLE_PUSH_SCHEMA)
+    .replace(/--[^\n]*/g, '')
     .split(';')
     .map((statement) => statement.trim())
     .filter((statement) => statement.length > 0)

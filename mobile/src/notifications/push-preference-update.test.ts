@@ -1,3 +1,4 @@
+import { AppState } from 'react-native'
 import { beforeEach, expect, it, vi } from 'vitest'
 import {
   attachPushRegistration,
@@ -16,6 +17,10 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     })
   }
 }))
+vi.mock('react-native', () => ({
+  AppState: { currentState: 'active', addEventListener: vi.fn(() => ({ remove: vi.fn() })) }
+}))
+
 vi.mock('./push-token', () => ({
   getDevicePushToken: vi.fn(async () => ({
     platform: 'ios',
@@ -26,6 +31,7 @@ vi.mock('./push-token', () => ({
 }))
 
 beforeEach(() => {
+  AppState.currentState = 'active'
   resetPushRegistrationForTests()
   storage.clear()
   storage.set('orca:remotePushEnabled', 'true')

@@ -7,6 +7,7 @@ import {
 
 const KEY = 'orca:notificationDeliveryPreferences'
 export type NotificationDeliveryPreferences = {
+  onlyWhenDesktopAway: boolean
   followDesktop: boolean
   taskFinished: boolean
   needsInput: boolean
@@ -17,6 +18,7 @@ export type NotificationDeliveryPreferences = {
 }
 
 export const DEFAULT_NOTIFICATION_DELIVERY: NotificationDeliveryPreferences = {
+  onlyWhenDesktopAway: true,
   followDesktop: true,
   taskFinished: true,
   needsInput: true,
@@ -65,6 +67,8 @@ export function notificationPreferencesFilter(
 ): MobilePushFilter {
   if (value.followDesktop) {
     return {
+      onlyWhenDesktopAway: value.onlyWhenDesktopAway,
+      expireAfterInactivity: true,
       sound: value.sound,
       followDesktop: true,
       sources: MOBILE_PUSH_SOURCES,
@@ -72,6 +76,8 @@ export function notificationPreferencesFilter(
     }
   }
   return {
+    onlyWhenDesktopAway: value.onlyWhenDesktopAway,
+    expireAfterInactivity: true,
     followDesktop: false,
     sound: value.sound,
     sources: MOBILE_PUSH_SOURCES.filter((source) =>

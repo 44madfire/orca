@@ -1,9 +1,6 @@
 import { PUSH_LIMITS } from '@orca-cloud/push-contract'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  createPushHostKeypair,
-  hostPublicKeyB64
-} from './host-challenge-answering.test-fixture.js'
+import { createPushHostKeypair, hostPublicKeyB64 } from './host-challenge-answering.test-fixture.js'
 import {
   createPushServerHarness,
   FCM_TOKEN,
@@ -171,15 +168,17 @@ describe('push gateway request limits', () => {
     ).toBe(200)
   })
 
-  it('gives the authenticated routes their own, wider bucket per client ip', async () => {
+  it('limits authenticated hosts independently behind the same IP', async () => {
     const sessionToken = await harness.signIn(createPushHostKeypair(64))
     const headers = { 'x-forwarded-for': CLIENT_IP }
-    for (let index = 0; index < PUSH_LIMITS.authenticatedRequestsPerMinutePerIp; index++) {
+    for (let index = 0; index < 600; index++) {
       const listed = await harness.authorized('/v1/devices', { headers }, sessionToken)
       expect(listed.status).toBe(200)
     }
     const limited = await harness.authorized('/v1/devices', { headers }, sessionToken)
     expect(limited.status).toBe(429)
+    const otherToken = await harness.signIn(createPushHostKeypair(68))
+    expect((await harness.authorized('/v1/devices', { headers }, otherToken)).status).toBe(200)
     // The handshake bucket is untouched by any of that.
     const challenge = await harness.server.app.request('/v1/host/challenge', {
       method: 'POST',
@@ -189,10 +188,10 @@ describe('push gateway request limits', () => {
     expect(challenge.status).toBe(200)
   })
 
-  it('caps a flood of forged bearers before any of them reaches the session lookup', async () => {
+  it('stops repeated forged bearers after the invalid-auth budget is exhausted', async () => {
     const headers = { 'x-forwarded-for': CLIENT_IP }
     const [before] = await harness.database.query('SELECT COUNT(*) AS sessions FROM push_sessions')
-    for (let index = 0; index < PUSH_LIMITS.authenticatedRequestsPerMinutePerIp; index++) {
+    for (let index = 0; index < PUSH_LIMITS.unauthenticatedRequestsPerMinutePerIp; index++) {
       const refused = await harness.authorized('/v1/send', { method: 'POST', headers }, 'forged')
       expect(refused.status).toBe(401)
     }
@@ -209,7 +208,13 @@ describe('push gateway request limits', () => {
     for (let index = 0; index < PUSH_LIMITS.maxDevicesPerHost; index++) {
       const accepted = await harness.post(
         '/v1/devices',
-        { v: 1, deviceId: `device-${index}`, platform: 'android', token: FCM_TOKEN, filter: FILTER },
+        {
+          v: 1,
+          deviceId: `device-${index}`,
+          platform: 'android',
+          token: FCM_TOKEN,
+          filter: FILTER
+        },
         sessionToken
       )
       expect(accepted.status).toBe(200)
@@ -263,8 +268,8 @@ describe('push gateway request limits', () => {
       sessionToken
     )
     expect(await response.json()).toEqual({ results: [{ registrationId, status: 'queued' }] })
-    expect(harness.server.coalescer.pendingCount(registrationId)).toBe(1)
-    const [row] = await harness.database.query('SELECT COUNT(*) AS sends FROM push_send_log')
+    expect(await harness.server.coalescer.pendingCount(registrationId)).toBe(1)
+    const [row] = await harness.database.query('SELECT COUNT(*) AS sends FROM push_events')
     expect(Number(row?.sends)).toBe(1)
   })
 })

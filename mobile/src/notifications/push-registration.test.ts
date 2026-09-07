@@ -1,3 +1,4 @@
+import { AppState } from 'react-native'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RpcClient, SendRequestOptions } from '../transport/rpc-client'
 import type { RpcResponse } from '../transport/types'
@@ -31,6 +32,10 @@ vi.mock('../storage/preferences', () => ({
   loadRemotePushFilter: vi.fn(),
   loadRemotePushHostRegistrations: vi.fn(),
   saveRemotePushHostRegistrations: vi.fn()
+}))
+
+vi.mock('react-native', () => ({
+  AppState: { currentState: 'active', addEventListener: vi.fn(() => ({ remove: vi.fn() })) }
 }))
 
 vi.mock('./push-token', () => ({
@@ -89,6 +94,7 @@ let stored: RemotePushHostRegistrations
 
 beforeEach(() => {
   vi.clearAllMocks()
+  AppState.currentState = 'active'
   resetPushRegistrationForTests()
   enabled = false
   agentStates = ['needs-input', 'finished']
@@ -245,7 +251,7 @@ describe('push registration token and filter changes', () => {
     await setRemotePushEnabled(true)
     attachPushRegistration('host-1', client)
     await flush()
-    startPushTokenSync()
+    const stop = startPushTokenSync()
 
     onTokenChange?.({ platform: 'ios', token: 'b'.repeat(64), apnsEnvironment: 'sandbox' })
     await flush()
@@ -256,6 +262,7 @@ describe('push registration token and filter changes', () => {
       token: 'b'.repeat(64),
       apnsEnvironment: 'sandbox'
     })
+    stop()
   })
 
   it('re-registers with the narrowed filter when a sub-switch is turned off', async () => {
@@ -306,6 +313,7 @@ describe('push unregistration', () => {
     expect(stored.pendingUnregisterHostIds).toEqual(['host-1'])
 
     // A fresh process: only the persisted intent survives the restart.
+    AppState.currentState = 'active'
     resetPushRegistrationForTests()
     const reconnected = makeClient([NOTIFICATIONS_REMOTE_PUSH_CAPABILITY])
     attachPushRegistration('host-1', reconnected.client)
@@ -409,4 +417,17 @@ describe('push unregistration', () => {
     expect(sent).toContain('notifications.unregisterPush')
     expect(stored).toEqual({ registeredHostIds: [], pendingUnregisterHostIds: [] })
   })
+})
+
+it('does not register or renew when a connected phone is in the background', async () => {
+  AppState.currentState = 'background'
+  const { client, sent } = makeClient([NOTIFICATIONS_REMOTE_PUSH_CAPABILITY])
+  await setRemotePushEnabled(true)
+  attachPushRegistration('background-phone', client)
+  await flush()
+  expect(methodsIn(sent)).not.toContain('notifications.registerPush')
+  AppState.currentState = 'active'
+  attachPushRegistration('background-phone', client)
+  await flush()
+  expect(methodsIn(sent)).toContain('notifications.registerPush')
 })

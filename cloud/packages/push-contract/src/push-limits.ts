@@ -9,8 +9,8 @@ export const PUSH_LIMITS = {
   // and the response schema can never disagree.
   maxDevicesPerListResponse: 1024,
   maxHttpBodyBytes: 16 * 1024,
-  hostSendsPerRollingHour: 60,
-  registrationSendsPerRollingDay: 200,
+  hostEventsPerWindow: 300,
+  eventQuotaWindowMs: 15 * 60 * 1000,
   coalesceWindowMs: 3_000,
   challengeTtlMs: 10_000,
   // Covers routine NTP drift without extending the signed challenge window.
@@ -18,7 +18,7 @@ export const PUSH_LIMITS = {
   sessionTtlMs: 24 * 60 * 60 * 1000,
   // One hour past the widest quota window so a rolling day never reads a pruned row.
   sendLogRetentionMs: 25 * 60 * 60 * 1000,
-  notificationTtlSeconds: 4 * 60 * 60,
+  notificationTtlSeconds: 5 * 60,
   apnsCollapseIdMaxBytes: 64,
   // Nothing reads a host row, and any keypair mints one for free, so a host
   // with no registration left is kept only long enough to survive a phone swap.
@@ -26,11 +26,7 @@ export const PUSH_LIMITS = {
   // The challenge and session routes are the only unauthenticated writes, so
   // they are capped per client IP before any key material is generated.
   unauthenticatedRequestsPerMinutePerIp: 30,
-  // Every other route looks its bearer up in the database before it can refuse
-  // it, so a flood of forged bearers is capped per client IP ahead of that.
-  // Wide enough for an office NAT full of hosts, each of which sends at most
-  // its hourly quota plus a registration per connect.
-  authenticatedRequestsPerMinutePerIp: 240
+  authenticatedRequestsPerMinutePerHost: 600
 } as const
 
 export const PUSH_DEFAULTS = {

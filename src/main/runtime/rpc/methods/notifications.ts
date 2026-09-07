@@ -41,6 +41,8 @@ const NotificationGetMissedSinceParams = z.object({
 // filter per device and applies it before it ever calls the gateway. Native push
 // tokens are long (FCM registration strings), so the bound is generous.
 const NotificationPushFilterParams = z.object({
+  onlyWhenDesktopAway: z.boolean().optional(),
+  expireAfterInactivity: z.boolean().optional(),
   followDesktop: z.boolean().optional(),
   sound: z.boolean().optional(),
   sources: z.array(z.enum(MOBILE_PUSH_SOURCES)).max(MOBILE_PUSH_SOURCES.length),

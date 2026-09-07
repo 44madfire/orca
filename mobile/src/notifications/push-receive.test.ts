@@ -1,3 +1,4 @@
+vi.mock('./push-tray-dismissal', () => ({ dismissPresentedPushNotification: vi.fn() }))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { sha256 } from '@noble/hashes/sha256'

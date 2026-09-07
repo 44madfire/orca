@@ -91,8 +91,8 @@ describe('apns client', () => {
       'apns-topic': 'com.stably.orca.mobile',
       'apns-push-type': 'alert',
       'apns-priority': '10',
-      'apns-expiration': String(Math.floor(clock / 1000) + 4 * 60 * 60),
-      'apns-collapse-id': 'note-1'
+      'apns-expiration': String(Math.floor(clock / 1000) + 5 * 60),
+      'apns-collapse-id': expect.stringMatching(/^[a-f0-9]{64}$/)
     })
     expect(request.headers.authorization).toMatch(/^bearer /)
     expect(JSON.parse(request.body)).toEqual({
@@ -171,4 +171,22 @@ describe('apns client', () => {
       client.send(delivery(), { token: 'a'.repeat(64), apnsEnvironment: 'production' })
     ).resolves.toEqual({ status: 'error', reason: 'Error', retryable: true })
   })
+})
+
+it('does not collapse background dismissals with visible alerts', async () => {
+  const fake = fakeTransport({ status: 200, body: '' })
+  const apns = new ApnsClient({
+    topic: 'test',
+    credentials: credentials(),
+    transport: fake.transport
+  })
+  const alert = delivery()
+  await apns.send(
+    { ...alert, orca: { ...alert.orca, kind: 'dismiss' } },
+    {
+      token: 'test',
+      apnsEnvironment: 'sandbox'
+    }
+  )
+  expect(fake.requests[0]?.headers).not.toHaveProperty('apns-collapse-id')
 })

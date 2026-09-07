@@ -30,11 +30,14 @@ function readReason(body: string): string {
 
 export function apnsBody(delivery: PushDelivery): string {
   return JSON.stringify({
-    aps: {
-      alert: { title: delivery.title, body: delivery.body },
-      ...(delivery.sound === false ? {} : { sound: 'default' }),
-      'thread-id': delivery.hostFingerprint
-    },
+    aps:
+      delivery.orca.kind === 'dismiss'
+        ? { 'content-available': 1 }
+        : {
+            alert: { title: delivery.title, body: delivery.body },
+            ...(delivery.sound === false ? {} : { sound: 'default' }),
+            'thread-id': delivery.hostFingerprint
+          },
     orca: delivery.orca
   })
 }
@@ -52,7 +55,10 @@ export class ApnsClient {
     delivery: PushDelivery,
     device: { token: string; apnsEnvironment: ApnsEnvironment }
   ): Promise<PushProviderOutcome> {
-    const expiration = Math.floor(this.now() / 1000) + PUSH_LIMITS.notificationTtlSeconds
+    const expiration = Math.floor(
+      (delivery.expiresAt ?? this.now() + PUSH_LIMITS.notificationTtlSeconds * 1000) / 1000
+    )
+    if (expiration * 1000 <= this.now()) return { status: 'error', reason: 'expired' }
     let response
     try {
       response = await this.options.transport({
@@ -61,10 +67,10 @@ export class ApnsClient {
         headers: {
           authorization: `bearer ${this.authentication.value()}`,
           'apns-topic': this.options.topic,
-          'apns-push-type': 'alert',
-          'apns-priority': '10',
+          'apns-push-type': delivery.orca.kind === 'dismiss' ? 'background' : 'alert',
+          'apns-priority': delivery.orca.kind === 'dismiss' ? '5' : '10',
           'apns-expiration': String(expiration),
-          'apns-collapse-id': delivery.collapseId
+          ...(delivery.orca.kind === 'dismiss' ? {} : { 'apns-collapse-id': delivery.collapseId })
         },
         body: apnsBody(delivery)
       })

@@ -4,6 +4,7 @@ export type MobileNotificationPolicyEvent = {
   source: string
   agentState?: string
   desktopAllowed?: boolean
+  desktopAway?: boolean
 }
 
 export function mapPushAgentState(
@@ -23,6 +24,9 @@ export function allowsMobileNotification(
   filter: MobilePushFilter,
   event: MobileNotificationPolicyEvent
 ): boolean {
+  if (filter.onlyWhenDesktopAway && event.desktopAway === false) {
+    return false
+  }
   if (filter.followDesktop !== false && event.desktopAllowed === false) {
     return false
   }

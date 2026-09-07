@@ -1,3 +1,6 @@
+import { subscribeNotificationConsent } from './notification-consent-events'
+import { AppState } from 'react-native'
+import { startMobilePushLeaseRenewal } from './mobile-push-lease-renewal'
 import {
   saveNotificationDeliveryPreferences,
   type NotificationDeliveryPreferences
@@ -172,11 +175,11 @@ async function reconcileHost(hostId: string): Promise<void> {
   if (!state.supported || state.client !== client) {
     return
   }
-  if (!(await loadRemotePushEnabled())) {
+  if (!(await loadRemotePushEnabled()) || AppState.currentState !== 'active') {
     return
   }
   const token = await currentToken()
-  if (!token) {
+  if (!token || AppState.currentState !== 'active') {
     return
   }
   if (!(await sendRegister(client, token, await loadRemotePushFilter()))) {
@@ -252,15 +255,7 @@ export async function setRemotePushAgentStates(
   await reconcileAllHosts()
 }
 
-/**
- * Best-effort unregister before the host's credentials are deleted.
- *
- * Why best-effort is all there is: the credentials are the only way back to that
- * host, so a desktop that was offline here keeps its gateway registration and keeps
- * pushing to this phone. shouldSuppressForegroundPush drops those in the foreground;
- * background alerts stop only when that desktop unpairs the phone, or the switch is
- * turned off here. Documented in docs/site/content/docs/notifications.mdx.
- */
+// Offline hosts retain the registration until unpaired or its mobile-use lease expires.
 export async function unregisterPushForRemovedHost(hostId: string): Promise<void> {
   const state = hostsById.get(hostId)
   if (state?.client && state.supported !== false) {
@@ -275,10 +270,19 @@ export async function unregisterPushForRemovedHost(hostId: string): Promise<void
 
 /** A rolled token stops delivering, so re-register every connected host at once. */
 export function startPushTokenSync(): () => void {
-  return addPushTokenListener((token) => {
+  const stopConsent = subscribeNotificationConsent(() => {
+    void reconcileAllHosts()
+  })
+  const stopLease = startMobilePushLeaseRenewal(reconcileAllHosts)
+  const stopToken = addPushTokenListener((token) => {
     tokenPromise = Promise.resolve(token)
     void reconcileAllHosts()
   })
+  return () => {
+    stopConsent()
+    stopLease()
+    stopToken()
+  }
 }
 
 export function resetPushRegistrationForTests(): void {

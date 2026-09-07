@@ -111,20 +111,18 @@ tokens are FCM registration strings.
 ```json
 { "results": [{ "registrationId": "<id>", "status": "queued" | "dead" | "rate_limited" | "error" }] }
 ```
-- `queued` means accepted into the coalescing window. `dead` means the provider reported the token
-  unregistered; the host must drop the registration. Never block the socket fan-out on this call.
-- Quota: 60 sends per hostFingerprint per rolling hour, 200 per registration per rolling day. Over quota
-  → `rate_limited` per result, HTTP 200. Whole request over a hard cap of 20 registrationIds → 400.
-  The cap counts the ids as sent; the gateway then dedupes them, so a repeated id spends quota once,
-  yields one result, and counts once toward `coalescedCount`. `results` may therefore be shorter than
-  `registrationIds`, and callers must match a result by its `registrationId`, never by position.
-- Notification JSON is limited to 3000 UTF-8 bytes to leave provider envelope space; identities
-  are preserved exactly, including long filesystem paths. Oversized payloads fail validation.
-- Gateway retries are deduplicated by host, registration, notification epoch, and sequence in the
-  quota ledger for its 25-hour retention window. Duplicates return `queued` without reserving
-  quota or enqueueing another delivery.
-- Both quota counters are reserved under a per-host lock held for the whole transaction. PostgreSQL
-  reads at READ COMMITTED, so a concurrent count-then-insert would otherwise admit a whole burst.
+- `queued` means the logical event, recipient, and pending delivery payload have committed to SQL. A
+  worker resumes pending work after restarts; provider acceptance is not proof of visible delivery.
+- Each host gets 300 logical alerts and, independently, 300 dismissals per rolling 15 minutes. Fanout
+  across phones counts the event once. There is no daily per-phone quota. Over quota returns
+  `rate_limited` per result with HTTP 200; requests above 20 registration IDs return HTTP 400.
+- Optional notification `kind` is `alert` (default) or `dismiss`; optional `expiresAt` is an absolute
+  Unix-millisecond deadline capped at five minutes from first acceptance. These fields require the
+  updated gateway; deploy the gateway before the updated desktop sender.
+- Notification JSON remains limited to 3000 UTF-8 bytes. Duplicate event identity with changed content
+  is rejected. Retries retain the original deadline and do not spend additional quota.
+- Event and recipient identities/outcomes remain for 24 hours; payloads are cleared at completion or
+  expiry by minute-level cleanup. Quota reservation and enqueue share a per-host SQL transaction.
 
 ### Request limits and unauthenticated abuse
 
@@ -140,10 +138,9 @@ tokens are FCM registration strings.
   trusted at all. Falls back to `x-real-ip` and then to a single shared bucket. The bucket is per
   instance and in memory, so the effective cap scales with the instance count; it exists to blunt a
   flood, not to meter.
-- Every other `/v1` route is capped by a second, wider bucket per client IP, 240 requests per minute,
-  applied **before** the bearer is looked up. A bearer has to be read from the database before it can
-  be refused, and that read takes one of only two pool connections per instance, so without this cap
-  a flood of forged bearers would starve real hosts of the pool while every one of them got a 401.
+- Authenticated routes use a per-host bucket of 600 requests/minute per instance, so normal usage by
+  one desktop does not consume another desktop's budget behind the same office IP. Invalid bearers
+  spend a separate 30/minute IP budget. Session lookups have bounded concurrent and waiting admission.
 - The gateway cannot prove that a host owns the token it registers: any host with a session may
   register any well-formed token and send text to it, within its own quota. The phone drops such a push
   in the foreground because the fingerprint resolves to no paired host, and never routes a tap on it,
@@ -152,23 +149,27 @@ tokens are FCM registration strings.
 
 ### Coalescing (gateway)
 
-Per registrationId, hold sends for 3 s. If one event arrives, send it as-is. If N>1 arrive, send one
-summary: title `Orca`, body `<N> agents need attention` (or `<N> updates` when no needs-input), data
-carries the latest event's fields plus `coalescedCount`. Collapse id for a summary is
-`host:<hostFingerprint>` so a later summary replaces it. The window is held in memory per gateway
-instance, so with more than one instance a burst can produce up to one summary per instance; accepted
-for this release, and the collapse id keeps the phone showing one banner. Transient provider errors
-retry at most three attempts within two minutes, honoring Retry-After and FCM minimum delays. Permanent failures
-are not retried. Unregister/dead-token state is re-read before every attempt. Shutdown stops admission
-and drains admitted requests, pending windows, and active deliveries before closing resources;
-a nine-second hard deadline remains below Cloud Run's termination grace. Delivery remains in memory.
+Per registration, persist a three-second window and summarize bursts using the latest event's
+routing fields and `coalescedCount`. Windows are shared across replicas. Single-alert collapse IDs
+hash host and notification identity; summaries use a host collapse identity.
+
+Four worker lanes per instance claim delivery batches with expiring, renewed SQL leases. Retry state
+is persistent, with exponential backoff and provider minimum delays. Retry-After is never shortened
+to fit event lifetime: expire instead. Device validity is checked before each attempt. Dismissals
+cancel pending matching alerts, bypass alert coalescing, and use silent provider messages. Mobile OS
+background execution remains best effort, particularly after force-quit on iOS.
+
+Shutdown stops admission and work acquisition, waits for active work within the platform grace, and
+leaves unfinished batches recoverable after their leases expire. A provider acceptance followed by a
+crash before SQL completion can still cause a repeated send; collapse identity mitigates this without
+promising exactly-once delivery.
 
 ### Provider payloads
 
 APNs (HTTP/2, `api.push.apple.com` or `api.sandbox.push.apple.com` by `apnsEnvironment`; JWT auth
 from key id + team id + `.p8`, token cached and refreshed every 50 min):
 - headers: `apns-topic: com.stably.orca.mobile`, `apns-push-type: alert`, `apns-priority: 10`,
-  `apns-expiration: now+4h`, `apns-collapse-id: <notificationId truncated to 64 bytes, or host:<fp>>`
+  `apns-expiration: fixed event deadline (at most five minutes)`, `apns-collapse-id: <sha256(host + notification identity), or host:<fp>>`
 - body: `{"aps":{"alert":{"title","body"},"sound":"default","thread-id":"<hostFingerprint>"},
   "orca":{ hostFingerprint, worktreeId, notificationId, notificationSeq, notificationEpoch, source,
   agentState, coalescedCount }}`
@@ -176,7 +177,7 @@ from key id + team id + `.p8`, token cached and refreshed every 50 min):
 
 FCM (V1 `projects/onorca-cloud/messages:send`, bearer from the runtime service account via the GCE
 metadata server or `GOOGLE_APPLICATION_CREDENTIALS` locally):
-- `{"message":{"token","notification":{"title","body"},"android":{"priority":"HIGH","ttl":"14400s",
+- `{"message":{"token","notification":{"title","body"},"android":{"priority":"HIGH","ttl":"<remaining event lifetime, at most 300s>",
   "collapse_key":"<sha256(collapseId) hex 32>","notification":{"channel_id":"orca-desktop","tag":"<collapseId>"}},
   "data":{ all orca fields as strings }}}`
 - Dead token: `UNREGISTERED`, or `INVALID_ARGUMENT` whose message names the token.
@@ -266,12 +267,21 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 - Token: `Notifications.getDevicePushTokenAsync()`; `data` is the APNs hex or FCM string. iOS
   `apnsEnvironment`: `__DEV__ ? 'sandbox' : 'production'` (dev-client builds are debug, TestFlight and
   App Store are release). Listen with `addPushTokenListener` and re-register on change.
-- Settings (`mobile/app/notifications.tsx`): single "Background notifications" switch, default off,
-  hint text exactly: "Get alerts while Orca is closed. Alerts show the same text as on your desktop. That
-  text, your phone's push token, and opaque host and device ids pass through Orca's push service and Apple
-  or Google. Turning this off or unpairing deletes the token." Event controls live in the shared notification-preferences section and apply to both connected and background notifications.
-  Hide the whole section, with copy "Update your desktop app to enable background notifications", when
-  no paired host advertises `notifications.remote-push.v1`.
+- Settings (`mobile/app/notifications.tsx`): one default-off **Enable notifications** switch
+  controls connected and background delivery. Hint: “Get agent alerts even when the app is closed.
+  Delivered through Orca’s push service and Apple or Google.” Source controls remain visible,
+  indented and disabled while **Use desktop settings** is on. Phone sound and focus controls
+  remain independent. **Only when away from desktop** defaults on (180 seconds of OS input idle,
+  or locked). Unknown/headless presence does not suppress; it is never inferred from remote CPU
+  activity. The detailed payload disclosure remains in the notification documentation.
+- `notifications.delivery-policy.v1` advertises the away and mobile-inactivity lease policy.
+  Filter flags are optional and ignored by older hosts; the UI identifies paired hosts requiring
+  an update. New hosts preserve old phones’ existing policy when these flags are absent.
+- Registrations with `expireAfterInactivity` receive a persisted seven-day `expiresAt` on the
+  paired desktop. Delivery and transport retries exclude expired registrations. Only foreground
+  mobile registration renews it: on connection, foreground return, and every 15 minutes while
+  active. Background sockets, desktop use and notification delivery never renew a phone lease.
+  Opening mobile and reconnecting restores delivery without replaying expired push sends.
 - Registration: on switch-on (after OS permission), and on every host reaching `connected` while the
   switch is on, call `notifications.registerPush` on that host if it advertises the capability. On
   switch-off call `notifications.unregisterPush` on every connected host and remember to retry on hosts
@@ -306,7 +316,7 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 ## Non-goals for this release
 
 Ack gate, generic-alert mode, staging gateway, iOS Notification Service Extension, Android data-only
-messages, Live Activities, account-based quota tiers, dismissal via silent push.
+messages, Live Activities, account-based quota tiers.
 
 ### Device delivery preferences
 

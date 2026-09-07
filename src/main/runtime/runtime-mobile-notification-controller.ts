@@ -10,6 +10,7 @@ import { getRuntimeDesktopSurface } from './runtime-desktop-surface'
 export type MobileNotificationDispatchEvent = {
   type: 'notification'
   desktopAllowed?: boolean
+  desktopAway?: boolean
   emittedAt?: number
   source: 'agent-task-complete' | 'terminal-bell' | 'test' | 'plugin'
   title: string
@@ -72,6 +73,9 @@ export class RuntimeMobileNotificationController {
   }
 
   dispatch(event: MobileNotificationEvent): void {
+    if (event.type === 'notification') {
+      event = { ...event, desktopAway: getRuntimeDesktopSurface().isAwayForMobileNotifications?.() }
+    }
     const seq = this.replay.record(event)
     notifyRuntimeListeners(
       this.listeners,

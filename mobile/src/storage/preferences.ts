@@ -1,3 +1,4 @@
+import { notifyNotificationConsentChanged } from '../notifications/notification-consent-events'
 import {
   loadNotificationDeliveryPreferences,
   notificationPreferencesFilter,
@@ -38,12 +39,11 @@ export async function loadPushNotificationsEnabled(): Promise<boolean> {
 
 export async function savePushNotificationsEnabled(enabled: boolean): Promise<void> {
   await AsyncStorage.setItem(NOTIF_KEY, String(enabled))
+  await AsyncStorage.setItem(REMOTE_PUSH_KEY, String(enabled))
+  notifyNotificationConsentChanged()
 }
 
-// Why a second key rather than reusing NOTIF_KEY: that one gates local banners
-// scheduled from the live socket, which work with Orca open and share no token
-// with anyone. Background push hands a native token to Apple/Google and needs
-// its own explicit, default-off consent.
+// Retained for older mobile builds; the master preference owns both delivery paths.
 const REMOTE_PUSH_KEY = 'orca:remotePushEnabled'
 const REMOTE_PUSH_AGENT_STATES_KEY = 'orca:remotePushAgentStates'
 const REMOTE_PUSH_HOST_REGISTRATIONS_KEY = 'orca:remotePushHostRegistrations'
@@ -54,14 +54,18 @@ export type RemotePushFilter = MobilePushFilter
 
 export async function loadRemotePushEnabled(): Promise<boolean> {
   try {
-    return (await AsyncStorage.getItem(REMOTE_PUSH_KEY)) === 'true'
+    const preference = await readPushNotificationsPreference()
+    if (!preference.loaded) {
+      return false
+    }
+    return preference.value ?? (await AsyncStorage.getItem(REMOTE_PUSH_KEY)) === 'true'
   } catch {
     return false
   }
 }
 
 export async function saveRemotePushEnabled(enabled: boolean): Promise<void> {
-  await AsyncStorage.setItem(REMOTE_PUSH_KEY, String(enabled))
+  await savePushNotificationsEnabled(enabled)
 }
 
 function remotePushAgentStates(value: unknown): RemotePushAgentState[] {

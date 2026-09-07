@@ -1,3 +1,4 @@
+import { dismissPresentedPushNotification } from './push-tray-dismissal'
 import { allowsLocalNotification } from './notification-viewing-policy'
 import { loadPushNotificationsEnabled, loadRemotePushEnabled } from '../storage/preferences'
 import { loadHostCatalog } from '../transport/host-store'
@@ -27,6 +28,16 @@ export async function shouldSuppressForegroundPush(data: unknown): Promise<boole
   const payload = readOrcaPushPayload(data)
   if (!payload) {
     return false
+  }
+  if (payload.kind === 'dismiss') {
+    if (payload.notificationId) {
+      await dismissPresentedPushNotification(
+        payload.notificationId,
+        payload.hostFingerprint,
+        payload
+      )
+    }
+    return true
   }
   const hostId = await resolvePushHostId(payload)
   // Why suppressed rather than shown: the only pushes that outlive their host are

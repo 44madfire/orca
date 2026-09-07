@@ -4,7 +4,7 @@ import { createPushServer } from './push-server.js'
 
 const CHALLENGE_PRUNE_INTERVAL_MS = 60_000
 const SESSION_PRUNE_INTERVAL_MS = 10 * 60_000
-const SEND_LOG_PRUNE_INTERVAL_MS = 30 * 60_000
+const SEND_LOG_PRUNE_INTERVAL_MS = 60_000
 const STALE_HOST_PRUNE_INTERVAL_MS = 30 * 60_000
 
 const config = loadPushConfig()
@@ -48,6 +48,7 @@ const timers = [
   prune('stale_hosts', () => challenges.pruneStaleHosts(), STALE_HOST_PRUNE_INTERVAL_MS)
 ]
 observability.start()
+coalescer.start()
 
 server.listen(config.port, () => {
   console.log(`[orca-push] listening on ${config.publicUrl} (port ${config.port})`)
@@ -65,8 +66,8 @@ const shutdown = (): void => {
   const connections = new Promise<void>((resolve) => server.close(() => resolve()))
   void Promise.all([requests, connections])
     .then(async () => {
-      await coalescer.flushAll()
       coalescer.stop()
+      await coalescer.flushAll()
       closeTransports()
       await database.close()
       observability.stop()

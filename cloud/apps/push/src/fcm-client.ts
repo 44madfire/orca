@@ -15,6 +15,7 @@ export type FcmClientOptions = {
   accessToken: () => Promise<string>
   transport: FcmTransport
   channelId?: string
+  now?: () => number
 }
 
 type FcmErrorBody = {
@@ -32,21 +33,30 @@ export function fcmMessageBody(input: {
   token: string
   channelId: string
   validateOnly?: boolean
+  now?: number
 }): string {
   const { delivery } = input
+  const now = input.now ?? Date.now()
   return JSON.stringify({
     ...(input.validateOnly ? { validate_only: true } : {}),
     message: {
       token: input.token,
-      notification: { title: delivery.title, body: delivery.body },
+      ...(delivery.orca.kind === 'dismiss'
+        ? {}
+        : { notification: { title: delivery.title, body: delivery.body } }),
       android: {
         priority: 'HIGH',
-        ttl: `${PUSH_LIMITS.notificationTtlSeconds}s`,
+        ttl: `${Math.max(0, Math.ceil(((delivery.expiresAt ?? now + PUSH_LIMITS.notificationTtlSeconds * 1000) - now) / 1000))}s`,
         collapse_key: fcmCollapseKey(delivery.collapseId),
-        notification: {
-          channel_id: delivery.sound === false ? `${input.channelId}-silent` : input.channelId,
-          tag: delivery.collapseId
-        }
+        ...(delivery.orca.kind === 'dismiss'
+          ? {}
+          : {
+              notification: {
+                channel_id:
+                  delivery.sound === false ? `${input.channelId}-silent` : input.channelId,
+                tag: delivery.collapseId
+              }
+            })
       },
       data: orcaDataStrings(delivery.orca)
     }
@@ -80,15 +90,22 @@ export class FcmClient {
     device: { token: string },
     options: { validateOnly?: boolean } = {}
   ): Promise<PushProviderOutcome> {
+    if (delivery.expiresAt !== undefined && delivery.expiresAt <= (this.options.now ?? Date.now)())
+      return { status: 'error', reason: 'expired' }
     let response: FcmResponse
     try {
+      const accessToken = await this.options.accessToken()
+      const now = (this.options.now ?? Date.now)()
+      if (delivery.expiresAt !== undefined && delivery.expiresAt <= now)
+        return { status: 'error', reason: 'expired' }
       response = await this.options.transport({
         url: `https://fcm.googleapis.com/v1/projects/${this.options.projectId}/messages:send`,
-        accessToken: await this.options.accessToken(),
+        accessToken,
         body: fcmMessageBody({
           delivery,
           token: device.token,
           channelId: this.channelId,
+          now,
           ...(options.validateOnly === undefined ? {} : { validateOnly: options.validateOnly })
         })
       })
