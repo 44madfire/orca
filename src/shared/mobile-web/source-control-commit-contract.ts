@@ -19,13 +19,15 @@ export const MobileWebSourceControlCommitPayloadSchema = z
   .strict()
 
 /** The Desktop reports a refused commit in the result, not as an RPC error, so the page reads both
- * outcomes from the same shape it would get on a native route. */
-export const MobileWebSourceControlCommitResultSchema = z
-  .object({
-    success: z.boolean(),
-    error: z.string().max(MOBILE_WEB_COMMIT_RESULT_ERROR_MAX_CHARACTERS).optional()
-  })
-  .strict()
+ * outcomes from the same shape it would get on a native route. Git's failure text is whatever the
+ * hook printed, so it is clipped rather than rejected. */
+export const MobileWebSourceControlCommitResultSchema = z.object({
+  success: z.boolean(),
+  error: z
+    .string()
+    .transform((error) => error.slice(0, MOBILE_WEB_COMMIT_RESULT_ERROR_MAX_CHARACTERS))
+    .optional()
+})
 
 export const MobileWebSourceControlGenerateCommitMessagePayloadSchema = z
   .object({

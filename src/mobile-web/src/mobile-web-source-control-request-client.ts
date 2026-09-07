@@ -1,4 +1,3 @@
-import type { z } from 'zod'
 import {
   MobileWebSourceControlBranchComparePayloadSchema,
   MobileWebSourceControlBranchCompareResultSchema,
@@ -18,225 +17,156 @@ import {
   type MobileWebSourceControlHistoryResult
 } from '../../shared/mobile-web/source-control-history-contract'
 import {
-  MobileWebSourceControlCancelCommitMessagePayloadSchema,
-  MobileWebSourceControlCancelCommitMessageResultSchema,
   MobileWebSourceControlCommitPayloadSchema,
   MobileWebSourceControlCommitResultSchema,
-  MobileWebSourceControlGenerateCommitMessagePayloadSchema,
-  MobileWebSourceControlGenerateCommitMessageResultSchema,
-  type MobileWebSourceControlCancelCommitMessagePayload,
-  type MobileWebSourceControlCancelCommitMessageResult,
   type MobileWebSourceControlCommitPayload,
-  type MobileWebSourceControlCommitResult,
-  type MobileWebSourceControlGenerateCommitMessagePayload,
-  type MobileWebSourceControlGenerateCommitMessageResult
+  type MobileWebSourceControlCommitResult
 } from '../../shared/mobile-web/source-control-commit-contract'
 import {
-  MobileWebSourceControlDiscardPayloadSchema,
-  MobileWebSourceControlMutationResultSchema,
-  MobileWebSourceControlStagePayloadSchema,
-  MobileWebSourceControlUnstagePayloadSchema,
-  type MobileWebSourceControlDiscardPayload,
+  MobileWebSourceControlMutationPayloadSchema,
   type MobileWebSourceControlMutationOperation,
-  type MobileWebSourceControlMutationResult,
-  type MobileWebSourceControlStagePayload,
-  type MobileWebSourceControlUnstagePayload
+  type MobileWebSourceControlMutationPayload
 } from '../../shared/mobile-web/source-control-mutation-contract'
+
+import { withPageWorkspaceId } from './mobile-web-host-workspace-result'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
-import { requireEchoedWorkspaceId } from './mobile-web-result-echo'
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
 import { MobileWebSourceControlReadClient } from './mobile-web-source-control-read-request-client'
+
+const MUTATION_METHODS: Record<MobileWebSourceControlMutationOperation, [string, string]> = {
+  stage: ['git.stage', 'git.bulkStage'],
+  unstage: ['git.unstage', 'git.bulkUnstage'],
+  discard: ['git.discard', 'git.bulkDiscard']
+}
 
 export class MobileWebSourceControlRequestClient extends MobileWebSourceControlReadClient {
   branches(
     payload: MobileWebSourceControlBranchesPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlBranchesResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'branches',
-        payload,
-        MobileWebSourceControlBranchesPayloadSchema,
-        MobileWebSourceControlBranchesResultSchema,
-        options
+    return this.host(
+      MobileWebSourceControlBranchesPayloadSchema,
+      payload,
+      'mobileWeb.sourceControl.branches',
+      {},
+      options
+    ).then((result) =>
+      MobileWebSourceControlBranchesResultSchema.parse(
+        withPageWorkspaceId(result, payload.workspaceId)
       )
-      .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
+    )
   }
 
   history(
     payload: MobileWebSourceControlHistoryPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlHistoryResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'history',
-        payload,
-        MobileWebSourceControlHistoryPayloadSchema,
-        MobileWebSourceControlHistoryResultSchema,
-        options
+    return this.host(
+      MobileWebSourceControlHistoryPayloadSchema,
+      payload,
+      'mobileWeb.sourceControl.history',
+      { limit: payload.limit, ...(payload.baseRef ? { baseRef: payload.baseRef } : {}) },
+      options
+    ).then((result) => {
+      const parsed = MobileWebSourceControlHistoryResultSchema.parse(
+        withPageWorkspaceId(result, payload.workspaceId)
       )
-      .then((result) => {
-        if (result.limit !== payload.limit || result.items.length > payload.limit) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return requireEchoedWorkspaceId(payload.workspaceId, result)
-      })
+      if (parsed.limit !== payload.limit || parsed.items.length > payload.limit) {
+        throw new MobileWebBridgeClientError('invalid_message', false)
+      }
+      return parsed
+    })
   }
 
   branchCompare(
     payload: MobileWebSourceControlBranchComparePayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlBranchCompareResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'branchCompare',
-        payload,
-        MobileWebSourceControlBranchComparePayloadSchema,
-        MobileWebSourceControlBranchCompareResultSchema,
-        options
+    return this.host(
+      MobileWebSourceControlBranchComparePayloadSchema,
+      payload,
+      'mobileWeb.sourceControl.branchCompare',
+      { baseRef: payload.baseRef },
+      options
+    ).then((result) => {
+      const parsed = MobileWebSourceControlBranchCompareResultSchema.parse(
+        withPageWorkspaceId(result, payload.workspaceId)
       )
-      .then((result) => {
-        if (
-          result.baseRef !== payload.baseRef ||
-          result.offset !== payload.offset ||
-          result.entries.length > payload.limit ||
-          (payload.expectedRevision && result.revision !== payload.expectedRevision)
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return requireEchoedWorkspaceId(payload.workspaceId, result)
-      })
+      if (parsed.baseRef !== payload.baseRef) {
+        throw new MobileWebBridgeClientError('invalid_message', false)
+      }
+      return parsed
+    })
   }
 
   commitCompare(
     payload: MobileWebSourceControlCommitComparePayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlCommitCompareResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'commitCompare',
-        payload,
-        MobileWebSourceControlCommitComparePayloadSchema,
-        MobileWebSourceControlCommitCompareResultSchema,
-        options
+    return this.host(
+      MobileWebSourceControlCommitComparePayloadSchema,
+      payload,
+      'mobileWeb.sourceControl.commitCompare',
+      { commitId: payload.commitId },
+      options
+    ).then((result) => {
+      const parsed = MobileWebSourceControlCommitCompareResultSchema.parse(
+        withPageWorkspaceId(result, payload.workspaceId)
       )
-      .then((result) => {
-        if (result.commitId !== payload.commitId) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return requireEchoedWorkspaceId(payload.workspaceId, result)
-      })
+      if (parsed.commitId !== payload.commitId) {
+        throw new MobileWebBridgeClientError('invalid_message', false)
+      }
+      return parsed
+    })
   }
 
   stage(
-    payload: MobileWebSourceControlStagePayload,
+    payload: MobileWebSourceControlMutationPayload,
     options?: MobileWebBridgeRequestOptions
-  ): Promise<MobileWebSourceControlMutationResult> {
-    return this.mutation('stage', payload, MobileWebSourceControlStagePayloadSchema, options)
+  ): Promise<void> {
+    return this.mutate('stage', payload, options)
   }
 
   unstage(
-    payload: MobileWebSourceControlUnstagePayload,
+    payload: MobileWebSourceControlMutationPayload,
     options?: MobileWebBridgeRequestOptions
-  ): Promise<MobileWebSourceControlMutationResult> {
-    return this.mutation('unstage', payload, MobileWebSourceControlUnstagePayloadSchema, options)
+  ): Promise<void> {
+    return this.mutate('unstage', payload, options)
   }
 
   discard(
-    payload: MobileWebSourceControlDiscardPayload,
+    payload: MobileWebSourceControlMutationPayload,
     options?: MobileWebBridgeRequestOptions
-  ): Promise<MobileWebSourceControlMutationResult> {
-    return this.mutation('discard', payload, MobileWebSourceControlDiscardPayloadSchema, options)
+  ): Promise<void> {
+    return this.mutate('discard', payload, options)
   }
 
   commit(
     payload: MobileWebSourceControlCommitPayload,
     options?: MobileWebBridgeRequestOptions
   ): Promise<MobileWebSourceControlCommitResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'commit',
-        payload,
-        MobileWebSourceControlCommitPayloadSchema,
-        MobileWebSourceControlCommitResultSchema,
-        options
-      )
-      .then((result) => matchingCommitIdentity(payload, result))
+    return this.host(
+      MobileWebSourceControlCommitPayloadSchema,
+      payload,
+      'git.commit',
+      { message: payload.message.trim() },
+      options
+    ).then((result) => MobileWebSourceControlCommitResultSchema.parse(result))
   }
 
-  generateCommitMessage(
-    payload: MobileWebSourceControlGenerateCommitMessagePayload,
-    options?: MobileWebBridgeRequestOptions
-  ): Promise<MobileWebSourceControlGenerateCommitMessageResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'generateCommitMessage',
-        payload,
-        MobileWebSourceControlGenerateCommitMessagePayloadSchema,
-        MobileWebSourceControlGenerateCommitMessageResultSchema,
-        options
-      )
-      .then((result) => matchingCommitIdentity(payload, result))
-  }
-
-  cancelCommitMessageGeneration(
-    payload: MobileWebSourceControlCancelCommitMessagePayload,
-    options?: MobileWebBridgeRequestOptions
-  ): Promise<MobileWebSourceControlCancelCommitMessageResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        'cancelCommitMessageGeneration',
-        payload,
-        MobileWebSourceControlCancelCommitMessagePayloadSchema,
-        MobileWebSourceControlCancelCommitMessageResultSchema,
-        options
-      )
-      .then((result) => requireEchoedWorkspaceId(payload.workspaceId, result))
-  }
-
-  private mutation<TPayload extends { workspaceId: string; entries: { relativePath: string }[] }>(
+  private mutate(
     operation: MobileWebSourceControlMutationOperation,
-    payload: TPayload,
-    schema: z.ZodType<TPayload>,
+    payload: MobileWebSourceControlMutationPayload,
     options?: MobileWebBridgeRequestOptions
-  ): Promise<MobileWebSourceControlMutationResult> {
-    return this.requests
-      .request(
-        'sourceControl',
-        operation,
-        payload,
-        schema,
-        MobileWebSourceControlMutationResultSchema,
-        options
-      )
-      .then((result) => {
-        requireEchoedWorkspaceId(payload.workspaceId, result)
-        const expectedPaths = payload.entries.map((entry) => entry.relativePath)
-        if (
-          result.operation !== operation ||
-          result.relativePaths.length !== expectedPaths.length ||
-          result.relativePaths.some((path, index) => path !== expectedPaths[index])
-        ) {
-          throw new MobileWebBridgeClientError('invalid_message', false)
-        }
-        return result
-      })
+  ): Promise<void> {
+    const [single, bulk] = MUTATION_METHODS[operation]
+    const paths = payload.relativePaths
+    return this.host(
+      MobileWebSourceControlMutationPayloadSchema,
+      payload,
+      paths.length > 1 ? bulk : single,
+      paths.length > 1 ? { filePaths: paths } : { filePath: paths[0] },
+      options
+    ).then(() => undefined)
   }
-}
-
-function matchingCommitIdentity<
-  TPayload extends { workspaceId: string; expectedHead: string },
-  TResult extends { workspaceId: string; previousHead: string }
->(payload: TPayload, result: TResult): TResult {
-  if (result.previousHead !== payload.expectedHead) {
-    throw new MobileWebBridgeClientError('invalid_message', false)
-  }
-  return requireEchoedWorkspaceId(payload.workspaceId, result)
 }

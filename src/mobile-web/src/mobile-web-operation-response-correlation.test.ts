@@ -30,11 +30,10 @@ type CorrelationCase = {
 const CORRELATION_CASES: CorrelationCase[] = [
   {
     name: 'Source Control history request limit',
-    capability: 'sourceControl',
-    operation: 'history',
+    capability: 'workspace',
+    operation: 'hostRequest',
     invoke: (client) => client.sourceControlHistory({ workspaceId: WORKSPACE_ID, limit: 1 }),
     result: {
-      workspaceId: WORKSPACE_ID,
       items: [],
       hasIncomingChanges: false,
       hasOutgoingChanges: false,

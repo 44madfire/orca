@@ -40,17 +40,14 @@ describe('mobile web source-control commit contract', () => {
       })
     ).toEqual({ success: false, error: 'pre-commit hook failed' })
     expect(
-      MobileWebSourceControlCommitResultSchema.safeParse({
+      MobileWebSourceControlCommitResultSchema.parse({
         success: false,
         error: 'x'.repeat(MOBILE_WEB_COMMIT_RESULT_ERROR_MAX_CHARACTERS + 1)
-      }).success
-    ).toBe(false)
+      }).error
+    ).toHaveLength(MOBILE_WEB_COMMIT_RESULT_ERROR_MAX_CHARACTERS)
     expect(
-      MobileWebSourceControlCommitResultSchema.safeParse({
-        success: true,
-        hostPath: '/private/repo'
-      }).success
-    ).toBe(false)
+      MobileWebSourceControlCommitResultSchema.parse({ success: true, hostPath: '/private/repo' })
+    ).toEqual({ success: true })
   })
 
   it('bounds generated messages and strips undeclared host fields', () => {
