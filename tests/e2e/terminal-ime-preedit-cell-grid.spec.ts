@@ -39,7 +39,12 @@ for (const dpr of [1, 1.25, 2]) {
               { gpu, options }
             )
 
-            for (const text of ['あ'.repeat(32), 'Aあｱe\u0301か\u3099Z', 'abc  XYZ', '한글中文']) {
+            for (const text of [
+              'あ'.repeat(32),
+              'か\u3099ｱカタカナ・コーヒー',
+              'あ  あ',
+              '한글中文'
+            ]) {
               await writeToActiveTerminal(orcaPage, `\x1b[2J\x1b[H${text}\r\n`)
               await setImeComposition(arena.session, text)
               const preedit = orcaPage.locator(
@@ -177,3 +182,51 @@ for (const dpr of [1, 1.25, 2]) {
     })
   }
 }
+
+test('preserves native shaping for mixed text, complex scripts, and emoji', async ({
+  orcaPage
+}, testInfo) => {
+  const arena = await openTerminalImePaneArena(orcaPage)
+  let completed = false
+  try {
+    await orcaPage.evaluate(() => {
+      const state = window.__store!.getState()
+      const terminal = window.__paneManagers!.get(state.activeTabId!)!.getActivePane()!.terminal
+      terminal.options.fontFamily = 'FiraCode Nerd Font, monospace'
+      terminal.options.fontSize = 26
+    })
+    for (const text of [
+      'سلام',
+      'क्षि',
+      '👩‍💻',
+      '🇯🇵',
+      'a\u00adb',
+      'ᄀ가',
+      '가〮',
+      'あ=>',
+      'ffi',
+      'abc  XYZ',
+      '\u3099あ'
+    ]) {
+      await writeToActiveTerminal(orcaPage, '\x1b[2J\x1b[H')
+      await setImeComposition(arena.session, text)
+      const preedit = orcaPage.locator('.composition-view.active .xterm-composition-preedit')
+      await expect(preedit).toHaveText(`‎${text}‎`)
+      const actual = await preedit.screenshot()
+
+      // Compare against the original single-text-node browser rendering.
+      await preedit.evaluate((element, text) => {
+        const span = element as HTMLElement
+        span.textContent = `‎${text}‎`
+        for (const property of ['width', 'white-space', 'display', 'position']) {
+          span.style.removeProperty(property)
+        }
+      }, text)
+      expect(actual, `native shaping of ${text}`).toEqual(await preedit.screenshot())
+      await setImeComposition(arena.session, '')
+    }
+    completed = true
+  } finally {
+    await closeTerminalImePaneArena(arena, testInfo, 'preedit-native-shaping', !completed)
+  }
+})

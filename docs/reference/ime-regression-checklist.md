@@ -14,16 +14,19 @@ one machine.
 
 ## Preedit cell advances (#19315)
 
-The preedit uses the active xterm Unicode provider's cell widths and joining
+CJK preedits use the active xterm Unicode provider's cell widths and joining
 rules, and the active renderer's CSS cell width. Font advances must not accumulate
 drift against the committed grid. Keep glyphs unscaled, combining marks attached,
 spaces intact, the underline visible, and the caret and candidate textarea at the
 end of the preedit. Renderer metric changes must update an open composition.
+Mixed Latin/CJK text, other scripts, emoji, conjoining Jamo, and format/control
+characters retain browser text shaping. Their pre-existing font advances are unchanged.
+Row-tail repaints must preserve unchanged preedit and caret nodes.
 
 `terminal-ime-xterm-preedit-cell-grid.test.ts` compares preedit cells with committed
 buffer cells. `terminal-ime-preedit-cell-grid.spec.ts` checks rendered glyph origins,
 caret/textarea geometry, and underlines at DPR 1, 1.25, and 2, with WebGL on/off,
-odd/even font sizes, letter spacing, and mixed Latin/CJK text. These checks use
+odd/even font sizes, letter spacing, and mixed CJK text. These checks use
 Chromium composition through CDP; they do not replace native OS IME evidence.
 
 ## Bounded-state and ownership contracts

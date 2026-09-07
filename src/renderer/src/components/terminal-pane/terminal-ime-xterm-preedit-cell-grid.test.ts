@@ -53,19 +53,19 @@ describe('IME preedit advances on the terminal cell grid (#19315)', () => {
     '日本語かなカナ',
     '한글입력',
     '中文输入',
-    'abc  XYZ',
-    'Aあｱe\u0301か\u3099Z',
-    '👩‍💻🚀𠮷'
+    'あ  あ',
+    'ｱか\u3099カタカナ・コーヒー',
+    '𠮷あ'
   ])('uses the same character grouping and advances as committed %s', async (text) => {
     terminal.loadAddon(new Unicode11Addon())
     terminal.unicode.activeVersion = '11'
     await write(text)
     const line = terminal.buffer.active.getLine(0)!
-    const committed: { text: string; width: number }[] = []
+    const committed: string[] = []
     for (let column = 0; column < terminal.buffer.active.cursorX; column++) {
       const cell = line.getCell(column)!
       if (cell.getWidth() > 0) {
-        committed.push({ text: cell.getChars(), width: cell.getWidth() })
+        committed.push(cell.getChars())
       }
     }
     const preedit = compose(text)
@@ -73,12 +73,32 @@ describe('IME preedit advances on the terminal cell grid (#19315)', () => {
     expect(preedit.textContent).toBe(`‎${text}‎`)
     expect(Array.from(preedit.children)).toHaveLength(committed.length)
     for (const [index, cell] of Array.from(preedit.children).entries()) {
-      expect(cell.textContent).toBe(committed[index].text)
-      expect((cell as HTMLElement).style.position).toBe('absolute')
-      expect(assignedWidths.get((cell as HTMLElement).style)).toBe(
-        `calc(var(--xterm-composition-cell-width) * ${committed[index].width})`
-      )
+      expect(cell.textContent).toBe(committed[index])
     }
+    expect(assignedWidths.get(preedit.style)).toBe(
+      `calc(var(--xterm-composition-cell-width) * ${terminal.buffer.active.cursorX})`
+    )
+  })
+
+  it.each([
+    'سلام',
+    'क्षि',
+    '👩‍💻',
+    '🇯🇵',
+    'a\u00adb',
+    'あ\u200dあ',
+    'あ\nあ',
+    'abc  XYZ',
+    'Aあｱe\u0301か\u3099Z',
+    'あ=>',
+    'ᄀ가',
+    '\u3099あ'
+  ])('preserves browser shaping and control handling for %s', (text) => {
+    const preedit = compose(text)
+    expect(preedit.textContent).toBe(`‎${text}‎`)
+    expect(preedit.childNodes).toHaveLength(1)
+    expect(preedit.style.width).toBe('')
+    expect(preedit.style.whiteSpace).toBe('')
   })
 
   it('honors the active Unicode provider when a joined character widens its base', async () => {
@@ -86,18 +106,16 @@ describe('IME preedit advances on the terminal cell grid (#19315)', () => {
       version: 'test-joined',
       wcwidth: () => 1,
       charProperties: (codepoint: number, preceding: number) =>
-        codepoint === 0xfe0f && preceding ? (2 << 1) | 1 : 1 << 1
+        codepoint === 0x3099 && preceding ? (2 << 1) | 1 : 1 << 1
     })
     terminal.unicode.activeVersion = 'test-joined'
-    await write('a\ufe0fb')
+    await write('か\u3099あ')
     expect(terminal.buffer.active.cursorX).toBe(3)
 
-    const preedit = compose('a\ufe0fb')
+    const preedit = compose('か\u3099あ')
 
-    expect(Array.from(preedit.children, (cell) => cell.textContent)).toEqual(['a\ufe0f', 'b'])
-    expect(assignedWidths.get((preedit.firstElementChild as HTMLElement).style)).toBe(
-      'calc(var(--xterm-composition-cell-width) * 2)'
-    )
+    expect(Array.from(preedit.children, (cell) => cell.textContent)).toEqual(['か\u3099', 'あ'])
+    expect(assignedWidths.get(preedit.style)).toBe('calc(var(--xterm-composition-cell-width) * 3)')
   })
 
   it('updates advances on a renderer resize without rebuilding the composing glyphs', () => {
@@ -110,7 +128,7 @@ describe('IME preedit advances on the terminal cell grid (#19315)', () => {
       }
     )._core
     core._renderService.dimensions.css.cell.width = 6
-    const preedit = compose('あa')
+    const preedit = compose('あい')
     const children = Array.from(preedit.children)
     expect(view.style.getPropertyValue('--xterm-composition-cell-width')).toBe('6px')
 
