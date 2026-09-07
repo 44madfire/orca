@@ -1,7 +1,6 @@
 import type { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
-import type { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
 import type { MobileWebAgentHistoryAuthority } from './mobile-web-agent-history-authority'
 import type { MobileWebAgentHistoryPager } from './mobile-web-agent-history-pager'
 import type { MobileWebAgentHistoryResume } from './mobile-web-agent-history-resume'
@@ -31,7 +30,6 @@ export type MobileWebCapabilityExecutionDependencies = {
   agentHistoryPager: MobileWebAgentHistoryPager
   agentHistoryResume: MobileWebAgentHistoryResume
   hostSubscriptions: MobileWebHostSubscriptions
-  accountSubscriptions: MobileWebAccountSubscriptions
   browserStreams: MobileWebBrowserStreams
   sourceControlBranchCompare: MobileWebSourceControlBranchComparePager
   speechAuthority: MobileWebSpeechAuthority

@@ -5,7 +5,7 @@ import type {
   MobileWebBridgeShellMessage
 } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
-import { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
+import { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import {
   isRetryableMobileWebBridgeError,
@@ -34,7 +34,12 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
   const pageId = 'raw-page'
 
   const postClosed = (): void => {}
-  const account = new MobileWebAccountSubscriptions({ isActive, postEvent, postClosed })
+  const hostFeed = new MobileWebHostSubscriptions({
+    isActive,
+    workspaceAuthority,
+    postEvent,
+    postClosed
+  })
   const browser = new MobileWebBrowserStreams({
     isActive,
     workspaceAuthority,
@@ -43,8 +48,15 @@ function ledgerStarters(): { name: string; start: (subscriptionId: string) => vo
   })
   return [
     {
-      name: 'account',
-      start: (subscriptionId) => account.start({ requestId: 'r', subscriptionId, client })
+      name: 'host',
+      start: (subscriptionId) =>
+        hostFeed.start({
+          requestId: 'r',
+          subscriptionId,
+          payload: { method: 'accounts.subscribe', params: {} },
+          client,
+          isActive
+        })
     },
     {
       name: 'browser',

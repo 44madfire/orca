@@ -163,7 +163,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations()).toHaveLength(109)
+    expect(mutations()).toHaveLength(108)
   })
 
   it('exempts only registered mutations', () => {

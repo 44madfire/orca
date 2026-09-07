@@ -3,7 +3,7 @@ import { z } from 'zod'
 export const MOBILE_WEB_ACCOUNT_LIMIT = 32
 
 const AccountIdSchema = z.string().min(1).max(256)
-const AccountEmailSchema = z.string().min(1).max(320)
+const AccountEmailSchema = z.string().max(320).catch('')
 const OptionalLabelSchema = z.string().max(240).nullable().optional()
 const TimestampSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 
@@ -34,133 +34,109 @@ export const MobileWebRateLimitRuntimeTargetSchema = z
     }
   })
 
-const MobileWebRuntimeSelectionSchema = z
-  .object({
-    host: AccountIdSchema.nullable(),
-    wsl: z
-      .record(z.string().min(1).max(255), AccountIdSchema.nullable())
-      .refine((entries) => Object.keys(entries).length <= MOBILE_WEB_ACCOUNT_LIMIT)
-  })
-  .strict()
+const MobileWebRuntimeSelectionSchema = z.object({
+  host: AccountIdSchema.nullable(),
+  wsl: z
+    .record(z.string().min(1).max(255), AccountIdSchema.nullable())
+    .refine((entries) => Object.keys(entries).length <= MOBILE_WEB_ACCOUNT_LIMIT)
+})
 
-const MobileWebRateLimitWindowSchema = z
-  .object({
-    usedPercent: z.number().finite().min(0).max(100),
-    windowMinutes: z.number().int().nonnegative().max(1_000_000),
-    resetsAt: TimestampSchema.nullable(),
-    resetDescription: z.string().max(240).nullable()
-  })
-  .strict()
+const MobileWebRateLimitWindowSchema = z.object({
+  usedPercent: z.number().finite().min(0).max(100),
+  windowMinutes: z.number().int().nonnegative().max(1_000_000),
+  resetsAt: TimestampSchema.nullable(),
+  resetDescription: z.string().max(240).nullable()
+})
 
-const MobileWebRateLimitResetCreditSchema = z
-  .object({
-    status: z.string().min(1).max(64),
-    expiresAt: TimestampSchema.nullable(),
-    grantedAt: TimestampSchema.nullable()
-  })
-  .strict()
+const MobileWebRateLimitResetCreditSchema = z.object({
+  status: z.string().min(1).max(64),
+  expiresAt: TimestampSchema.nullable(),
+  grantedAt: TimestampSchema.nullable()
+})
 
-const MobileWebRateLimitResetCreditsSchema = z
-  .object({
-    availableCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-    totalEarnedCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
-    nextExpiresAt: TimestampSchema.nullable().optional(),
-    credits: z.array(MobileWebRateLimitResetCreditSchema).max(MOBILE_WEB_ACCOUNT_LIMIT).optional()
-  })
-  .strict()
+const MobileWebRateLimitResetCreditsSchema = z.object({
+  availableCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  totalEarnedCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  nextExpiresAt: TimestampSchema.nullable().optional(),
+  credits: z.array(MobileWebRateLimitResetCreditSchema).max(MOBILE_WEB_ACCOUNT_LIMIT).optional()
+})
 
-const MobileWebProviderRateLimitsSchema = z
-  .object({
-    provider: z.enum(['claude', 'codex']),
-    session: MobileWebRateLimitWindowSchema.nullable(),
-    weekly: MobileWebRateLimitWindowSchema.nullable(),
-    fableWeekly: MobileWebRateLimitWindowSchema.nullable().optional(),
-    monthly: MobileWebRateLimitWindowSchema.nullable().optional(),
-    buckets: z
-      .array(
-        MobileWebRateLimitWindowSchema.extend({
-          name: z.string().min(1).max(240)
-        }).strict()
-      )
+const MobileWebProviderRateLimitsSchema = z.object({
+  provider: z.enum(['claude', 'codex']),
+  session: MobileWebRateLimitWindowSchema.nullable(),
+  weekly: MobileWebRateLimitWindowSchema.nullable(),
+  fableWeekly: MobileWebRateLimitWindowSchema.nullable().optional(),
+  monthly: MobileWebRateLimitWindowSchema.nullable().optional(),
+  buckets: z
+    .array(
+      MobileWebRateLimitWindowSchema.extend({
+        name: z.string().min(1).max(240)
+      })
+    )
+    .max(MOBILE_WEB_ACCOUNT_LIMIT)
+    .optional(),
+  rateLimitResetCredits: MobileWebRateLimitResetCreditsSchema.nullable().optional(),
+  updatedAt: TimestampSchema,
+  error: z.string().max(512).nullable(),
+  status: z.enum(['idle', 'fetching', 'ok', 'error', 'unavailable'])
+})
+
+const MobileWebInactiveAccountUsageSchema = z.object({
+  accountId: AccountIdSchema,
+  rateLimits: MobileWebProviderRateLimitsSchema.nullable(),
+  updatedAt: TimestampSchema,
+  isFetching: z.boolean()
+})
+
+const MobileWebClaudeAccountSchema = z.object({
+  id: AccountIdSchema,
+  email: AccountEmailSchema,
+  managedAuthRuntime: z.enum(['host', 'wsl']).optional(),
+  wslDistro: z.string().max(255).nullable().optional(),
+  authMethod: z.enum(['subscription-oauth', 'unknown']).optional(),
+  organizationUuid: z.string().max(256).nullable().optional(),
+  organizationName: OptionalLabelSchema,
+  createdAt: TimestampSchema.optional(),
+  updatedAt: TimestampSchema.optional(),
+  lastAuthenticatedAt: TimestampSchema.optional()
+})
+
+const MobileWebCodexAccountSchema = z.object({
+  id: AccountIdSchema,
+  email: AccountEmailSchema,
+  managedHomeRuntime: z.enum(['host', 'wsl']).optional(),
+  wslDistro: z.string().max(255).nullable().optional(),
+  workspaceLabel: OptionalLabelSchema,
+  workspaceAccountId: z.string().max(256).nullable().optional(),
+  createdAt: TimestampSchema.optional(),
+  updatedAt: TimestampSchema,
+  lastAuthenticatedAt: TimestampSchema.optional()
+})
+
+export const MobileWebAccountsSnapshotSchema = z.object({
+  claude: z.object({
+    accounts: z.array(MobileWebClaudeAccountSchema).max(MOBILE_WEB_ACCOUNT_LIMIT),
+    activeAccountId: AccountIdSchema.nullable(),
+    activeAccountIdsByRuntime: MobileWebRuntimeSelectionSchema.optional()
+  }),
+  codex: z.object({
+    accounts: z.array(MobileWebCodexAccountSchema).max(MOBILE_WEB_ACCOUNT_LIMIT),
+    activeAccountId: AccountIdSchema.nullable(),
+    activeAccountIdsByRuntime: MobileWebRuntimeSelectionSchema.optional()
+  }),
+  rateLimits: z.object({
+    claude: MobileWebProviderRateLimitsSchema.nullable(),
+    codex: MobileWebProviderRateLimitsSchema.nullable(),
+    claudeTarget: MobileWebRateLimitRuntimeTargetSchema,
+    codexTarget: MobileWebRateLimitRuntimeTargetSchema,
+    inactiveClaudeAccounts: z
+      .array(MobileWebInactiveAccountUsageSchema)
+      .max(MOBILE_WEB_ACCOUNT_LIMIT),
+    inactiveCodexAccounts: z
+      .array(MobileWebInactiveAccountUsageSchema)
       .max(MOBILE_WEB_ACCOUNT_LIMIT)
-      .optional(),
-    rateLimitResetCredits: MobileWebRateLimitResetCreditsSchema.nullable().optional(),
-    updatedAt: TimestampSchema,
-    error: z.string().max(512).nullable(),
-    status: z.enum(['idle', 'fetching', 'ok', 'error', 'unavailable'])
   })
-  .strict()
-
-const MobileWebInactiveAccountUsageSchema = z
-  .object({
-    accountId: AccountIdSchema,
-    rateLimits: MobileWebProviderRateLimitsSchema.nullable(),
-    updatedAt: TimestampSchema,
-    isFetching: z.boolean()
-  })
-  .strict()
-
-const MobileWebClaudeAccountSchema = z
-  .object({
-    id: AccountIdSchema,
-    email: AccountEmailSchema,
-    managedAuthRuntime: z.enum(['host', 'wsl']).optional(),
-    wslDistro: z.string().max(255).nullable().optional(),
-    authMethod: z.enum(['subscription-oauth', 'unknown']).optional(),
-    organizationUuid: z.string().max(256).nullable().optional(),
-    organizationName: OptionalLabelSchema,
-    createdAt: TimestampSchema.optional(),
-    updatedAt: TimestampSchema.optional(),
-    lastAuthenticatedAt: TimestampSchema.optional()
-  })
-  .strict()
-
-const MobileWebCodexAccountSchema = z
-  .object({
-    id: AccountIdSchema,
-    email: AccountEmailSchema,
-    managedHomeRuntime: z.enum(['host', 'wsl']).optional(),
-    wslDistro: z.string().max(255).nullable().optional(),
-    workspaceLabel: OptionalLabelSchema,
-    workspaceAccountId: z.string().max(256).nullable().optional(),
-    createdAt: TimestampSchema.optional(),
-    updatedAt: TimestampSchema,
-    lastAuthenticatedAt: TimestampSchema.optional()
-  })
-  .strict()
-
-export const MobileWebAccountsSnapshotSchema = z
-  .object({
-    claude: z
-      .object({
-        accounts: z.array(MobileWebClaudeAccountSchema).max(MOBILE_WEB_ACCOUNT_LIMIT),
-        activeAccountId: AccountIdSchema.nullable(),
-        activeAccountIdsByRuntime: MobileWebRuntimeSelectionSchema.optional()
-      })
-      .strict(),
-    codex: z
-      .object({
-        accounts: z.array(MobileWebCodexAccountSchema).max(MOBILE_WEB_ACCOUNT_LIMIT),
-        activeAccountId: AccountIdSchema.nullable(),
-        activeAccountIdsByRuntime: MobileWebRuntimeSelectionSchema.optional()
-      })
-      .strict(),
-    rateLimits: z
-      .object({
-        claude: MobileWebProviderRateLimitsSchema.nullable(),
-        codex: MobileWebProviderRateLimitsSchema.nullable(),
-        claudeTarget: MobileWebRateLimitRuntimeTargetSchema,
-        codexTarget: MobileWebRateLimitRuntimeTargetSchema,
-        inactiveClaudeAccounts: z
-          .array(MobileWebInactiveAccountUsageSchema)
-          .max(MOBILE_WEB_ACCOUNT_LIMIT),
-        inactiveCodexAccounts: z
-          .array(MobileWebInactiveAccountUsageSchema)
-          .max(MOBILE_WEB_ACCOUNT_LIMIT)
-      })
-      .strict()
-  })
-  .strict()
+})
 
 export const MobileWebCodexResetCreditExpectedScopeSchema = z
   .object({
@@ -230,13 +206,11 @@ export const MobileWebAccountConsumeResetResultSchema = z.union([
 ])
 export const MobileWebAccountSubscribePayloadSchema = z.object({}).strict()
 export const MobileWebAccountEventSchema = z.discriminatedUnion('type', [
-  z
-    .object({
-      type: z.enum(['ready', 'snapshot']),
-      snapshot: MobileWebAccountsSnapshotSchema
-    })
-    .strict(),
-  z.object({ type: z.enum(['end', 'error']) }).strict()
+  z.object({
+    type: z.enum(['ready', 'snapshot']),
+    snapshot: MobileWebAccountsSnapshotSchema
+  }),
+  z.object({ type: z.enum(['end', 'error']) })
 ])
 
 export type MobileWebAccountsSnapshot = z.infer<typeof MobileWebAccountsSnapshotSchema>

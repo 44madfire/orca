@@ -19,15 +19,10 @@ export const MOBILE_WEB_PRODUCTION_GRANTS = [
     hostRequest: grantLimits(600 * 1024, 600 * 1024, 16, 32, 4),
     snapshot: grantLimits(1 * 1024, 128 * 1024, 2, 4, 1)
   }),
-  ...capabilityGrants('account', {
-    snapshot: grantLimits(256, 96 * 1024, 2, 6, 1)
-  }),
   ...MOBILE_WEB_PRODUCTION_TASK_GRANTS,
   ...capabilityGrants('account', {
-    select: grantLimits(1 * 1024, 256, 1, 4, 1),
     resetCreditCapability: grantLimits(256, 256, 2, 4, 1),
-    consumeResetCredit: grantLimits(8 * 1024, 96 * 1024, 1, 2, 0.25),
-    subscribe: grantLimits(256, 96 * 1024, 1, 4, 1)
+    consumeResetCredit: grantLimits(8 * 1024, 96 * 1024, 1, 2, 0.25)
   }),
   ...MOBILE_WEB_PRODUCTION_SESSION_GRANTS,
   ...MOBILE_WEB_PRODUCTION_TERMINAL_GRANTS,

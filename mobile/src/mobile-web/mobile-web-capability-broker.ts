@@ -243,7 +243,6 @@ export class MobileWebCapabilityBroker {
       agentHistoryAuthority: this.authorities.agentHistory,
       agentHistoryPager: this.authorities.agentHistoryPager,
       agentHistoryResume: this.authorities.agentHistoryResume,
-      accountSubscriptions: this.subscriptions.account,
       browserStreams: this.subscriptions.browser,
       sourceControlBranchCompare: this.authorities.sourceControlBranchCompare,
       speechAuthority: this.speechAuthority,

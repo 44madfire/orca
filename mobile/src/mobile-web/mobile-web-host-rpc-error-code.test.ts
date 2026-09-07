@@ -69,7 +69,7 @@ describe('host RPC error codes', () => {
     ['runtime_error', 'host_error', true]
   ])('reports %s to the page as %s', async (code, expected, retryable) => {
     const { client } = createMobileWebBridgeRoundtripFixture({
-      grants: [{ capability: 'account', operation: 'snapshot', limits: GRANT_LIMITS }],
+      grants: [{ capability: 'workspace', operation: 'hostRequest', limits: GRANT_LIMITS }],
       rpcClient: failingClient(code)
     })
 

@@ -218,7 +218,6 @@ async function subscribeSpeech(args: Deps, request: SubscriptionRequest): Promis
 export const MOBILE_WEB_SUBSCRIPTION_CAPABILITY_ARMS: Partial<
   Record<MobileWebBridgeCapability, SubscriptionArm>
 > = {
-  account: (args) => executeMobileWebAccountCapability(args),
   browser: subscribeBrowser,
   workspace: subscribeWorkspace,
   terminal: subscribeTerminal,

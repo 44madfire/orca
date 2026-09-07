@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebBridgeShellMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { MobileWebSubscriptionClosure } from './mobile-web-subscription-closure'
 import type { RpcClient } from '../transport/rpc-client'
-import { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
+import { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import { MobileWebCapabilitySubscriptions } from './mobile-web-capability-subscriptions'
 import { MobileWebBrokerMessageSender } from './mobile-web-broker-message-sender'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
@@ -28,7 +28,8 @@ describe('subscription ledger teardown', () => {
   it('retires every live subscription without a closure when the whole shell goes away', () => {
     const unsubscribe = vi.fn()
     const postClosed = vi.fn()
-    const ledger = new MobileWebAccountSubscriptions({
+    const ledger = new MobileWebHostSubscriptions({
+      workspaceAuthority: new MobileWebWorkspaceAuthority(randomBytes),
       isActive: () => true,
       postEvent: async () => {},
       postClosed
@@ -36,7 +37,9 @@ describe('subscription ledger teardown', () => {
     ledger.start({
       requestId: 'request-1',
       subscriptionId: 'subscription-1',
-      client: stubClient(unsubscribe)
+      payload: { method: 'accounts.subscribe', params: {} },
+      client: stubClient(unsubscribe),
+      isActive: () => true
     })
 
     ledger.dispose()
@@ -45,19 +48,26 @@ describe('subscription ledger teardown', () => {
     expect(postClosed).not.toHaveBeenCalled()
     expect(unsubscribe).toHaveBeenCalledOnce()
     expect(ledger.cancel('subscription-1')).toBeNull()
-    expect(ledger.countForOperation('account.subscribe')).toBe(0)
+    expect(ledger.countForOperation('workspace.hostSubscribe')).toBe(0)
   })
 
   it('tells the page why each subscription ended when only the host feed goes away', () => {
     const unsubscribe = vi.fn()
     const closures: [string, MobileWebSubscriptionClosure][] = []
-    const ledger = new MobileWebAccountSubscriptions({
+    const ledger = new MobileWebHostSubscriptions({
+      workspaceAuthority: new MobileWebWorkspaceAuthority(randomBytes),
       isActive: () => true,
       postEvent: async () => {},
       postClosed: (subscriptionId, closure) => closures.push([subscriptionId, closure])
     })
     for (const subscriptionId of ['subscription-1', 'subscription-2']) {
-      ledger.start({ requestId: subscriptionId, subscriptionId, client: stubClient(unsubscribe) })
+      ledger.start({
+        requestId: subscriptionId,
+        subscriptionId,
+        payload: { method: 'accounts.subscribe', params: {} },
+        client: stubClient(unsubscribe),
+        isActive: () => true
+      })
     }
 
     ledger.closeAll({ code: 'unavailable', retryable: true })
@@ -67,7 +77,7 @@ describe('subscription ledger teardown', () => {
       ['subscription-2', { code: 'unavailable', retryable: true }]
     ])
     expect(unsubscribe).toHaveBeenCalledTimes(2)
-    expect(ledger.countForOperation('account.subscribe')).toBe(0)
+    expect(ledger.countForOperation('workspace.hostSubscribe')).toBe(0)
   })
 
   it('fans closeAll out across every capability ledger', () => {
@@ -79,12 +89,28 @@ describe('subscription ledger teardown', () => {
         messages.push(message)
       }
     })
+    const workspaceAuthority = new MobileWebWorkspaceAuthority(randomBytes)
+    workspaceAuthority.synchronize(['host-workspace'])
     const subscriptions = new MobileWebCapabilitySubscriptions({
       ...sender.subscriptionPosts(),
-      workspaceAuthority: new MobileWebWorkspaceAuthority(randomBytes)
+      workspaceAuthority
     })
     const client = stubClient(() => {})
-    subscriptions.account.start({ requestId: 'r1', subscriptionId: 'account-1', client })
+    subscriptions.browser.start({
+      requestId: 'r1',
+      subscriptionId: 'browser-1',
+      payload: {
+        workspaceId: workspaceAuthority.pageWorkspaceId('host-workspace'),
+        pageId: 'page',
+        format: 'jpeg',
+        quality: 72,
+        maxWidth: 800,
+        maxHeight: 600,
+        everyNthFrame: 1,
+        minFrameIntervalMs: 100
+      },
+      client
+    })
     subscriptions.host.start({
       requestId: 'r2',
       subscriptionId: 'host-1',
@@ -99,13 +125,14 @@ describe('subscription ledger teardown', () => {
       'subscriptionClosed',
       'subscriptionClosed'
     ])
-    expect(subscriptions.cancel('account-1')).toBeNull()
+    expect(subscriptions.cancel('browser-1')).toBeNull()
     expect(subscriptions.cancel('host-1')).toBeNull()
   })
 
   it('keeps a bare ledger cancel silent so a page-driven cancel gets no closure echo', () => {
     const postClosed = vi.fn()
-    const ledger = new MobileWebAccountSubscriptions({
+    const ledger = new MobileWebHostSubscriptions({
+      workspaceAuthority: new MobileWebWorkspaceAuthority(randomBytes),
       isActive: () => true,
       postEvent: async () => {},
       postClosed
@@ -113,7 +140,9 @@ describe('subscription ledger teardown', () => {
     ledger.start({
       requestId: 'request-1',
       subscriptionId: 'subscription-1',
-      client: stubClient(() => {})
+      payload: { method: 'accounts.subscribe', params: {} },
+      client: stubClient(() => {}),
+      isActive: () => true
     })
 
     expect(ledger.cancel('subscription-1')).toBe('request-1')
@@ -155,8 +184,8 @@ function accountSubscribe(): ReturnType<typeof mobileWebBridgeRequestMessage> {
   return mobileWebBridgeRequestMessage({
     requestId: bridgeId(1),
     subscriptionId: bridgeId(2),
-    capability: 'account',
-    operation: 'subscribe',
-    payload: {}
+    capability: 'workspace',
+    operation: 'hostSubscribe',
+    payload: { method: 'accounts.subscribe', params: {} }
   })
 }

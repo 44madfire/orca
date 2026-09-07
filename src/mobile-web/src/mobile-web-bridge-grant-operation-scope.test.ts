@@ -55,7 +55,7 @@ describe('mobile web bridge grant operation scope', () => {
         operation: 'snapshot',
         limits: { ...LIMITS, maxRequestBytes: 8 }
       },
-      { capability: 'account', operation: 'snapshot', limits: LIMITS }
+      { capability: 'agentHistory', operation: 'snapshot', limits: LIMITS }
     ])
 
     const oversize = harness.client.workspaceSnapshot({ limit: 10 }).then(
@@ -65,8 +65,13 @@ describe('mobile web bridge grant operation scope', () => {
     expect(harness.messages).toHaveLength(0)
     await expect(oversize).resolves.toMatchObject({ code: 'too_large', retryable: false })
 
-    void harness.client.account.snapshot()
-    expect(harness.messages).toMatchObject([{ capability: 'account', operation: 'snapshot' }])
+    void harness.client.agentHistory.snapshot({
+      workspaceId: WORKSPACE_ID,
+      scope: 'workspace',
+      query: '',
+      force: false
+    })
+    expect(harness.messages).toMatchObject([{ capability: 'agentHistory', operation: 'snapshot' }])
   })
 })
 
