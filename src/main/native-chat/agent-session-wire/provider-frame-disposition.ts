@@ -195,8 +195,8 @@ function hasProviderError(payload: unknown): boolean {
  *  new item type cannot leak `codex · item:<type>` into the transcript. The
  *  notification catalog above is keyed by METHOD and never matches these. */
 const CODEX_ITEM_CLASSIFICATIONS: Record<string, ProviderFrameClassification> = {
-  // The notification owns the divider; suppress its duplicate item form.
-  contextCompaction: 'status-chrome',
+  // The journal coalesces this canonical completion with the legacy notification.
+  contextCompaction: 'timeline-substantive',
   // `{id, durationMs}` and nothing else — Codex's own transcript renders it as
   // nothing at all. Every other item type this build does not model carries text
   // a user would want (review output, an image path, hook prompt text, subagent

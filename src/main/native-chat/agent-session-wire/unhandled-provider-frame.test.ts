@@ -237,14 +237,16 @@ describe('a failed provider dependency', () => {
 })
 
 describe('typed notice metadata', () => {
-  it('publishes a readable compaction status and suppresses the duplicate item', () => {
+  it('publishes readable compaction statuses for both provider forms', () => {
     expect(
       unhandledProviderFrameJournalItem('codex', 'notification:thread/compacted', {})
     ).toMatchObject({
       classification: 'timeline-substantive',
       body: { kind: 'status', text: 'Context compacted', presentation: 'compaction' }
     })
-    expect(unhandledProviderFrameJournalItem('codex', 'item:contextCompaction', {})).toBeNull()
+    expect(unhandledProviderFrameJournalItem('codex', 'item:contextCompaction', {})).toMatchObject({
+      body: { kind: 'status', text: 'Context compacted', presentation: 'compaction' }
+    })
   })
   it.each([
     ['warning', { message: 'Check this' }, 'warning', 'Check this'],

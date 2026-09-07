@@ -103,8 +103,10 @@ describe('provider frame classification catalog', () => {
   })
 
   it('dispositions codex item-form frames, which the method catalog never matches', () => {
-    // Only the notification owns the compaction divider.
-    expect(classifyProviderFrame('codex', 'item:contextCompaction', {})).toBe('status-chrome')
+    // Both provider generations reach the journal's compaction deduplication.
+    expect(classifyProviderFrame('codex', 'item:contextCompaction', {})).toBe(
+      'timeline-substantive'
+    )
     expect(classifyProviderFrame('codex', 'notification:thread/compacted', {})).toBe(
       'timeline-substantive'
     )

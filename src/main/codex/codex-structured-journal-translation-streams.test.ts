@@ -605,7 +605,7 @@ describe('codex journal translation', () => {
 })
 
 describe('notice journal pipeline', () => {
-  it('journals one compaction divider through the notification path', () => {
+  it('replaces a legacy compaction divider with its canonical item at the same journal key', () => {
     const { translator, tap } = translatorWith()
     translator.handle(notification('thread/compacted', { threadId: THREAD_ID, turnId: TURN_ID }))
     translator.handle(
@@ -614,7 +614,8 @@ describe('notice journal pipeline', () => {
         item: { id: 'compact', type: 'contextCompaction' }
       })
     )
-    expect(tap.rows.map((row) => row.body)).toEqual([
+    expect(tap.rows).toHaveLength(2)
+    expect([...new Map(tap.rows.map((row) => [row.key, row.body])).values()]).toEqual([
       expect.objectContaining({
         kind: 'status',
         text: 'Context compacted',

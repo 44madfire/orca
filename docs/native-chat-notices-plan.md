@@ -4,10 +4,13 @@ Reviewed and approved with amendments through the coordinator's blocking ask bef
 
 ## Changes
 
-1. Classify only `thread/compacted` as substantive and emit `status` with readable
-   `Context compacted` text plus optional `presentation: 'compaction'`. Keep the
-   duplicate contextCompaction item suppressed. Render a centered divider using
-   border and muted-foreground tokens.
+1. Accept canonical `contextCompaction` completion items and legacy `thread/compacted`
+   notifications using the existing compaction completion predicate. Emit `status`
+   with readable `Context compacted` text plus optional `presentation: 'compaction'`.
+   Collapse compactions within each thread/turn at one durable journal key; the item
+   replaces a legacy fallback, and a 64-turn map suppresses duplicates without
+   unbounded retained state. Restore history through the same path. Render a centered
+   divider using border and muted-foreground tokens.
 2. Keep warnings on their existing error-surface path and retain their generic-row
    cap exemption. Add optional tone metadata: warning/guardianWarning/configWarning
    use warning, deprecationNotice uses notice, actual error-surface failures use error.
@@ -37,9 +40,15 @@ Reviewed and approved with amendments through the coordinator's blocking ask bef
 - src/main/codex/codex-image-item-translation.ts
 - src/main/codex/codex-notice-item-translation.test.ts
 - src/main/codex/codex-structured-journal-translation-streams.test.ts
+- src/main/codex/codex-structured-journal-compactions.ts
+- src/main/codex/codex-structured-journal-compactions.test.ts
+- src/main/codex/codex-structured-journal-translation.ts
+- src/main/codex/codex-structured-journal-items.ts
+- src/main/native-chat/agent-session-wire/structured-session-compaction.ts
 - src/renderer/src/components/native-chat/NativeChatNoticeRow.tsx
 - src/renderer/src/components/native-chat/NativeChatNoticeRow.test.tsx
 - src/renderer/src/components/native-chat/NativeChatMessageRow.tsx
+- src/renderer/src/components/native-chat/NativeChatTranscriptChrome.tsx
 - src/renderer/src/i18n/locales/en.json
 
 ## Compatibility and risks
@@ -68,6 +77,9 @@ Reviewed and approved with amendments through the coordinator's blocking ask bef
   plan streaming/completion; full reasoning-body equality; valid/path/pending/failed/oversized
   image outputs; forward-compatible metadata; and an old-reader schema with the new fields
   omitted whose parsed body still renders the original text.
+- Compaction coverage includes item-only, notification-only, both delivery orders,
+  incomplete items, thread/turn isolation, append/publish retry, bounded retention,
+  and restored history retaining the legacy row's journal identity.
 - After isolating plan streaming from the original fallback, its 36 translator tests passed.
 - Changed-file oxlint passed. Only owned files were formatted; no pnpm tc or broad formatting.
 - Coordinator owns central typechecking, Electron validation, and before/after PR screenshots.

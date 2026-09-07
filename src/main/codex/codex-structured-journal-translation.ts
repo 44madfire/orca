@@ -1,5 +1,6 @@
 import { createCodexProviderActivityReader } from '../native-chat/agent-session-wire/provider-frame-activity'
 import { CodexJournalGenericFrames } from './codex-structured-journal-generic-frames'
+import { CodexJournalCompactions } from './codex-structured-journal-compactions'
 import { CodexJournalItems } from './codex-structured-journal-items'
 import { CodexJournalPrompts } from './codex-structured-journal-prompts'
 import {
@@ -44,6 +45,9 @@ export function createCodexJournalTranslator(
   deps: CodexJournalTranslatorDeps
 ): CodexJournalTranslator {
   const activeTurns = new CodexJournalActiveTurns()
+  const compactions = new CodexJournalCompactions(deps.sink, (threadId) =>
+    activeTurns.current(threadId)
+  )
   const genericFrames = new CodexJournalGenericFrames(deps, (threadId) =>
     activeTurns.current(threadId)
   )
@@ -87,6 +91,10 @@ export function createCodexJournalTranslator(
         currentTurnIds: activeTurns.byThread,
         ordinals: items.ordinals,
         handleItem: (event) => {
+          const compaction = compactions.handle(event)
+          if (compaction) {
+            return compaction
+          }
           const translated = items.handle(event, 'history')
           return translated.handled
             ? translated.admission
@@ -123,6 +131,7 @@ export function createCodexJournalTranslator(
         items.activeItems.clear()
         prompts.pending.clear()
         activeTurns.clear()
+        compactions.clear()
         return CODEX_JOURNAL_ADMITTED
       }
       if (event.type === 'notification') {
@@ -156,6 +165,10 @@ export function createCodexJournalTranslator(
       if (event.method === 'turn/started') {
         return startTurn(event)
       }
+      const compaction = compactions.handle(event)
+      if (compaction) {
+        return publishActivity(event, compaction)
+      }
       if (event.method === 'turn/completed') {
         return completeTurn(event)
       }
@@ -187,6 +200,7 @@ export function createCodexJournalTranslator(
       prompts.dispose()
       genericFrames.dispose()
       activeTurns.clear()
+      compactions.clear()
     }
   }
 

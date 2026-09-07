@@ -91,7 +91,8 @@ export function unhandledProviderFrameJournalItem(
   // and reads as protocol noise. Lead with the provider's own sentence when it has
   // one; the raw frame stays behind the row's disclosure either way.
   const method = kind.startsWith('notification:') ? kind.slice('notification:'.length) : kind
-  const compaction = provider === 'codex' && method === 'thread/compacted'
+  const compaction =
+    provider === 'codex' && (method === 'thread/compacted' || method === 'item:contextCompaction')
   const noticeTone =
     provider === 'codex'
       ? method === 'deprecationNotice'
