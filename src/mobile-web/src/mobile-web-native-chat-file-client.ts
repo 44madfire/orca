@@ -33,7 +33,9 @@ export class MobileWebNativeChatFileClient {
       throw new MobileWebBridgeClientError('invalid_message', false)
     }
     const paths = result.files.flatMap((file): string[] => {
-      const path = MobileWebRelativePathSchema.safeParse(isRecord(file) ? file.relativePath : undefined)
+      const path = MobileWebRelativePathSchema.safeParse(
+        isRecord(file) ? file.relativePath : undefined
+      )
       return path.success ? [path.data] : []
     })
     return { paths: paths.slice(0, MOBILE_WEB_NATIVE_CHAT_FILE_RESULT_LIMIT) }

@@ -42,9 +42,9 @@ export async function resolveMobileWebNativeChatBinding(
   if (!Array.isArray(tabs)) {
     throw new MobileWebBrokerError('host_error')
   }
-  const binding = tabs.flatMap((tab) => nativeChatBinding(tab, hostWorkspaceId)).find(
-    (candidate) => candidate.providerSessionId === sessionId
-  )
+  const binding = tabs
+    .flatMap((tab) => nativeChatBinding(tab, hostWorkspaceId))
+    .find((candidate) => candidate.providerSessionId === sessionId)
   if (!binding || (requireTerminal && !binding.hostTerminalId)) {
     throw new MobileWebBrokerError('not_found')
   }

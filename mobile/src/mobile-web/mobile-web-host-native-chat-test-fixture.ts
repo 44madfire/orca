@@ -49,7 +49,7 @@ export function nativeChatBridgeFixture(genericHost = true, genericShell = true)
               terminal: 'private-terminal',
               title: 'Chat',
               isActive: true,
-              agentStatus: { agentType: 'codex', providerSession: { id: 'private-session' } }
+              agentStatus: { agentType: 'codex', providerSession: { id: 'provider-session' } }
             }
           ]
         }
@@ -62,26 +62,17 @@ export function nativeChatBridgeFixture(genericHost = true, genericShell = true)
         ok: true,
         result: {
           grants: genericHost
-            ? ['bind', 'read', 'subscribe', 'mutate'].map((operation) => ({
+            ? ['read', 'subscribe', 'mutate'].map((operation) => ({
                 method: `mobileWeb.nativeChat.${operation}`,
                 ...(operation === 'subscribe'
                   ? { mode: 'subscription', unsubscribeMethod: 'nativeChat.unsubscribe' }
                   : {}),
                 workspaceParam: 'worktree',
-                pageSessionParam: 'pageSession',
                 maxRequestBytes: 16384,
                 maxResponseBytes: 524288
               }))
             : []
         }
-      }
-    }
-    if (method === 'mobileWeb.nativeChat.bind') {
-      return {
-        id: 'test-request',
-        _meta: { runtimeId: 'test-runtime' },
-        ok: true,
-        result: { resourceId: 'opaque-resource' }
       }
     }
     if (method === 'mobileWeb.nativeChat.mutate') {

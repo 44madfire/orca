@@ -15,14 +15,19 @@ export async function readMobileWebHostNativeChat(
     beforeOffset?: number
   }
 ): Promise<MobileWebHostChatReadResult> {
-  const result = await requestMobileWebHost(requests, 'mobileWeb.nativeChat.read', target.workspaceId, {
-    tabId: target.tabId,
-    sessionId: target.sessionId,
-    read: {
-      limit: target.limit,
-      ...(target.beforeOffset === undefined ? {} : { beforeOffset: target.beforeOffset })
+  const result = await requestMobileWebHost(
+    requests,
+    'mobileWeb.nativeChat.read',
+    target.workspaceId,
+    {
+      tabId: target.tabId,
+      sessionId: target.sessionId,
+      read: {
+        limit: target.limit,
+        ...(target.beforeOffset === undefined ? {} : { beforeOffset: target.beforeOffset })
+      }
     }
-  })
+  )
   if (
     !isRecord(result) ||
     !Array.isArray(result.messages) ||

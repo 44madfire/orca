@@ -29,21 +29,18 @@ function fixture() {
 }
 
 describe('generic requests scoped to a paired host', () => {
-  it('forwards with zero workspaces and injects only declared document authority', async () => {
+  it('forwards a host-scoped method with zero workspaces and no injected scope', async () => {
     const { args, sendRequest } = fixture()
     sendRequest
       .mockReset()
-      .mockResolvedValueOnce({
-        ok: true,
-        result: { grants: [{ ...grant, pageSessionParam: 'pageSession' }] }
-      })
+      .mockResolvedValueOnce({ ok: true, result: { grants: [grant] } })
       .mockResolvedValue({ ok: true, result: { futureField: { value: 42 } } })
-    await expect(
-      executeMobileWebHostRequest({ ...args, getPageSessionId: async () => 'active-document' })
-    ).resolves.toEqual({ futureField: { value: 42 } })
+    await expect(executeMobileWebHostRequest(args)).resolves.toEqual({
+      futureField: { value: 42 }
+    })
     expect(sendRequest).toHaveBeenLastCalledWith(
       grant.method,
-      { enabled: false, pageSession: 'active-document' },
+      { enabled: false },
       expect.any(Object)
     )
   })

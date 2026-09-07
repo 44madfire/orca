@@ -15,9 +15,7 @@ export class MobileWebTerminalRequestClient {
 
   // Resolved rather than plain: callers await it, and there is nothing left to ask the host.
   prepareActions(workspaceId: string, tabId: string, signal: AbortSignal) {
-    return Promise.resolve(
-      mobileWebHostTerminalActions(this.requests, workspaceId, tabId, signal)
-    )
+    return Promise.resolve(mobileWebHostTerminalActions(this.requests, workspaceId, tabId, signal))
   }
 
   request(payload: Exclude<MobileWebTerminalRequest, { operation: 'subscribe' }>): Promise<null> {

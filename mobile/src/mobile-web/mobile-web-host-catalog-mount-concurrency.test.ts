@@ -20,7 +20,6 @@ describe('host catalog admission during a chat mount', () => {
           grants: methods.map((method) => ({
             method,
             workspaceParam: 'worktree',
-            pageSessionParam: 'pageSession',
             maxRequestBytes: 16384,
             maxResponseBytes: 524288
           }))

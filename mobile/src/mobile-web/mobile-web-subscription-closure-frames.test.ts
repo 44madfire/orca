@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import type { MobileWebSubscriptionClosure } from './mobile-web-subscription-closure'
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebAccountSubscriptions } from './mobile-web-account-subscriptions'
-import { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import { MobileWebSpeechSubscriptions } from './mobile-web-speech-subscriptions'
 import type { MobileWebSpeechEvent } from '../../../src/shared/mobile-web/speech-operation-contract'
@@ -104,21 +103,12 @@ const LEDGER_CASES: LedgerCase[] = [
     open: async (posts) => {
       const host = hostClient()
       const { authority, pageWorkspaceId } = pageWorkspace()
-      const browserAuthority = new MobileWebBrowserAuthority()
-      browserAuthority.bind('resource_browser', {
-        hostWorkspaceId: 'workspace-1',
-        hostPageId: 'raw-page'
-      })
-      new MobileWebBrowserStreams({
-        ...posts,
-        workspaceAuthority: authority,
-        browserAuthority
-      }).start({
+      new MobileWebBrowserStreams({ ...posts, workspaceAuthority: authority }).start({
         requestId: 'request-1',
         subscriptionId: SUBSCRIPTION_ID,
         payload: {
           workspaceId: pageWorkspaceId,
-          pageId: 'resource_browser',
+          pageId: 'raw-page',
           format: 'jpeg',
           quality: 72,
           maxWidth: 800,

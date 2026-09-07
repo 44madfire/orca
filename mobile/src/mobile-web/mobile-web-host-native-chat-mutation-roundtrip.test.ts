@@ -40,9 +40,9 @@ describe('generic native-chat actions', () => {
       expect(params).toMatchObject({
         action: 'sendMessage',
         text: 'hello',
-        resourceId: 'opaque-resource'
+        tabId: 'tab',
+        sessionId: 'provider-session'
       })
-      expect(params).not.toHaveProperty('sessionId')
       expect(params).not.toHaveProperty('deadline')
     }
     f.client.dispose()
@@ -91,16 +91,9 @@ describe('generic native-chat actions', () => {
       f.client.dispose()
     }
   )
-  it('does not start a mutation after binding exhausts its budget', async () => {
+  it('does not start a mutation whose budget is already spent', async () => {
     const f = await fixture()
-    const original = f.sendRequest.getMockImplementation()!
-    f.sendRequest.mockImplementation(async (...args) => {
-      const result = await original(...args)
-      if (args[0] === 'mobileWeb.nativeChat.bind') {
-        vi.spyOn(Date, 'now').mockReturnValue(f.payload.deadline)
-      }
-      return result
-    })
+    vi.spyOn(Date, 'now').mockReturnValue(f.payload.deadline)
     expect(await f.client.nativeChat.stop(f.payload, undefined, f.tabId)).toEqual({
       outcome: 'rejected'
     })

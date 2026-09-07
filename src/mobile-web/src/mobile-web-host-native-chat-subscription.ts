@@ -5,7 +5,6 @@ import type {
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebBridgeSubscription } from './mobile-web-bridge-subscription'
 import type { MobileWebBridgeSubscriptionClient } from './mobile-web-bridge-subscription-client'
-import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
 export type MobileWebNativeChatSubscriptionArgs = [
   payload: MobileWebNativeChatSubscribePayload,

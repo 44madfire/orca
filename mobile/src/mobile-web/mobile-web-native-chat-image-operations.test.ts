@@ -9,19 +9,27 @@ vi.mock('./mobile-web-terminal-device-input-authority', () => ({
   prepareMobileWebNativeChatImageAttachment: vi.fn()
 }))
 
-const BINDING = {
-  hostWorkspaceId: 'workspace-1',
-  hostTabId: 'tab-1',
-  hostTerminalId: 'terminal-secret',
-  agent: 'claude',
-  providerSessionId: 'provider-session-secret',
-  transcriptPath: '/private/transcript.jsonl'
+const HOST_WORKSPACE_ID = 'workspace-1'
+const SESSION_ID = 'provider-session'
+const TABS = {
+  worktree: HOST_WORKSPACE_ID,
+  tabs: [
+    {
+      id: 'tab-1',
+      type: 'terminal',
+      terminal: 'terminal-secret',
+      agentStatus: {
+        agentType: 'claude',
+        providerSession: { id: SESSION_ID, transcriptPath: '/private/transcript.jsonl' }
+      }
+    }
+  ]
 }
 
 describe('mobile web native-chat image operations', () => {
   it('returns an opaque scoped reference instead of the uploaded host path', async () => {
     const context = operationContext()
-    const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue(success(BINDING))
+    const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue(success(TABS))
     vi.mocked(prepareMobileWebNativeChatImageAttachment).mockResolvedValue({
       status: 'accepted',
       hostPath: '/remote/private/orca-image.png',
@@ -48,24 +56,20 @@ describe('mobile web native-chat image operations', () => {
     expect(JSON.stringify(result)).not.toContain('/remote/private')
     const reference = (result as { attachment: { reference: string } }).attachment.reference
     expect(
-      context.nativeChatAuthority.resolveImagePaths(
-        BINDING.hostWorkspaceId,
-        context.pageSessionId,
-        [reference]
-      )
+      context.nativeChatAuthority.resolveImagePaths(HOST_WORKSPACE_ID, SESSION_ID, [reference])
     ).toEqual(['/remote/private/orca-image.png'])
   })
 })
 
 function operationContext() {
   const workspaceAuthority = new MobileWebWorkspaceAuthority((length) => new Uint8Array(length))
-  workspaceAuthority.synchronize([{ workspaceId: BINDING.hostWorkspaceId, repoId: 'repo-1' }])
+  workspaceAuthority.synchronize([{ workspaceId: HOST_WORKSPACE_ID, repoId: 'repo-1' }])
   const nativeChatAuthority = new MobileWebNativeChatAuthority((length) => new Uint8Array(length))
   return {
     workspaceAuthority,
     nativeChatAuthority,
-    pageWorkspaceId: workspaceAuthority.pageWorkspaceId(BINDING.hostWorkspaceId),
-    pageSessionId: 'resource_session'
+    pageWorkspaceId: workspaceAuthority.pageWorkspaceId(HOST_WORKSPACE_ID),
+    pageSessionId: SESSION_ID
   }
 }
 
@@ -76,7 +80,6 @@ function operationArgs(
   return {
     client: { sendRequest } as unknown as RpcClient,
     terminalClientId: 'mobile-device',
-    getPageSessionId: async () => 'document',
     workspaceAuthority: context.workspaceAuthority,
     nativeChatAuthority: context.nativeChatAuthority,
     nativeAuthority: {}

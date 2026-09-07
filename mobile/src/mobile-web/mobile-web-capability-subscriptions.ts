@@ -33,7 +33,7 @@ export class MobileWebCapabilitySubscriptions {
     this.account = new MobileWebAccountSubscriptions(shared)
     this.browser = new MobileWebBrowserStreams({
       ...shared,
-      workspaceAuthority: args.workspaceAuthority,
+      workspaceAuthority: args.workspaceAuthority
     })
     this.workspace = new MobileWebWorkspaceSubscriptions(shared)
     this.ledgers = [this.host, this.account, this.browser, this.workspace]

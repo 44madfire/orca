@@ -19,10 +19,6 @@ export function sessionHostFixture(client: RpcClient): RpcClient {
           listener: (event: unknown) => void,
           options?: unknown
         ) => {
-          if (method === 'mobileWeb.page.subscribe') {
-            listener({ type: 'ready', subscriptionId: input.pageSession })
-            return () => {}
-          }
           if (method !== 'mobileWeb.session.subscribe') {
             return target.subscribe(method, input, listener, options as never)
           }
@@ -35,7 +31,6 @@ export function sessionHostFixture(client: RpcClient): RpcClient {
                   type: 'snapshot',
                   snapshot: snapshots.project(
                     event,
-                    String(input.pageSession),
                     String(input.worktree),
                     String(input.workspaceId)
                   )
@@ -63,7 +58,6 @@ export function sessionHostFixture(client: RpcClient): RpcClient {
                 ? { mode: 'subscription', unsubscribeMethod: 'mobileWeb.session.unsubscribe' }
                 : {}),
               workspaceParam: 'worktree',
-              pageSessionParam: 'pageSession',
               maxRequestBytes: 16384,
               maxResponseBytes: 524288
             }))
@@ -83,12 +77,7 @@ export function sessionHostFixture(client: RpcClient): RpcClient {
             return response
           }
           return reply(
-            snapshots.project(
-              response.result,
-              String(input.pageSession),
-              String(input.worktree),
-              String(input.workspaceId)
-            )
+            snapshots.project(response.result, String(input.worktree), String(input.workspaceId))
           )
         }
         if (method === 'mobileWeb.session.createBrowser') {
@@ -101,15 +90,7 @@ export function sessionHostFixture(client: RpcClient): RpcClient {
             return response
           }
           const result = response.result as { browserPageId: string }
-          return reply({
-            workspaceId: input.workspaceId,
-            browserPageId: snapshots.register(
-              String(input.pageSession),
-              String(input.worktree),
-              'browser',
-              { hostWorkspaceId: String(input.worktree).slice(3), hostPageId: result.browserPageId }
-            )
-          })
+          return reply({ workspaceId: input.workspaceId, browserPageId: result.browserPageId })
         }
         if (method === 'mobileWeb.session.close') {
           const response = await target.sendRequest('session.tabs.close', {
@@ -126,35 +107,6 @@ export function sessionHostFixture(client: RpcClient): RpcClient {
             outcome: 'closed',
             refusalReason: null
           })
-        }
-        if (method === 'mobileWeb.resource.resolve') {
-          const value = snapshots.resolve(
-            String(input.pageSession),
-            String(input.worktree),
-            String(input.kind),
-            String(input.resourceId)
-          )
-          if (input.kind === 'sessionChat') {
-            const response = await target.sendRequest('session.tabs.list', {
-              worktree: input.worktree
-            })
-            if (!response.ok) {
-              return response
-            }
-            snapshots.project(
-              response.result,
-              String(input.pageSession),
-              String(input.worktree),
-              'fixture'
-            )
-            snapshots.resolve(
-              String(input.pageSession),
-              String(input.worktree),
-              String(input.kind),
-              String(input.resourceId)
-            )
-          }
-          return reply(value)
         }
         return options === undefined
           ? target.sendRequest(method, input)
