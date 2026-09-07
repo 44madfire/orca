@@ -37,8 +37,18 @@ export const CODEX_CONVERSATION_NAME_SCHEMA = {
   additionalProperties: false
 } as const
 
-/** Reasoning effort for the naming turn. A title is not a reasoning problem, and
- *  the user is waiting on their own turn on the same account. */
+/**
+ * Reasoning effort for the naming turn. A title is not a reasoning problem, and
+ * the user is spending their own account on it.
+ *
+ * The turn deliberately names NO MODEL, so it runs on the session's own. The
+ * model catalog carries no structured "small and fast" signal — `modelSpecialty`
+ * is null across every entry — so choosing one would mean matching marketing
+ * prose or vendor id shapes like `-mini`, neither of which survives a different
+ * provider, and naming a model the account cannot use fails the turn outright.
+ * The cost is bounded instead: lowest effort, prompt capped, and a schema that
+ * caps the answer at 36 characters. Once per conversation, off the send path.
+ */
 const NAMING_TURN_EFFORT = 'low'
 
 export const CODEX_CONVERSATION_NAME_PROMPT = [
