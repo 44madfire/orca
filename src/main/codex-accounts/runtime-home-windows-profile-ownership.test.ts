@@ -56,8 +56,9 @@ describe('Windows System Default Codex home ownership', () => {
       })
     ).toBe(false)
     // Pins the eligibility PRECHECK, which takes no launchEnv. The migration
-    // launch itself does re-check it and refuses -- see the toBeNull() case in
-    // runtime-home-real-home-lane-routing.test.ts. Only the precheck is blind.
+    // launch itself does re-check it and refuses -- see the launchEnv-CODEX_HOME
+    // toBeNull() case in runtime-home-real-home-lane-routing.test.ts (not the
+    // missing-path one). Only the precheck is blind.
     expect(service.isHostSystemDefaultSessionMigrationEligible()).toBe(true)
   })
 
