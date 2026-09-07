@@ -35,11 +35,15 @@ export function useTerminalSettingsState(
         }
         setTextScale(preferences.textScale)
         setAutocompleteEnabled(preferences.autocompleteEnabled)
-        setBusy(false)
       })
       .catch(() => {
         if (active) {
           setError('Could not load terminal preferences. Go back and try again.')
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setBusy(false)
         }
       })
     return () => {
