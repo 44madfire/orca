@@ -42,4 +42,16 @@ describe('Pierre contextual copy boundaries', () => {
   it('ignores absent selections', () => {
     expect(getPierreSelectionRange(null)).toBeNull()
   })
+
+  it('does not label a mixed-side selection with a single file line range', () => {
+    const root = document.createElement('div')
+    root.innerHTML =
+      '<div data-line="1" data-line-type="change-deletion">old</div><div data-line="1" data-line-type="change-addition">new</div>'
+    const range = document.createRange()
+    range.setStart(root.children[0].firstChild!, 0)
+    range.setEnd(root.children[1].firstChild!, 3)
+    expect(
+      getPierreSelectionRange({ rangeCount: 1, getRangeAt: () => range } as unknown as Selection)
+    ).toBeNull()
+  })
 })

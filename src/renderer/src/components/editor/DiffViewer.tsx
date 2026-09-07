@@ -280,6 +280,7 @@ export default function DiffViewer({
               onEditChange={handleEditChange}
               onPostRender={handlePostRender}
               onAddComment={hasLineCommentAction ? handleAddComment : undefined}
+              commentableLineNumbers={commentableLineNumbers}
               pendingComment={pendingComment}
               addCommentPlaceholder={addLineCommentPlaceholder}
               addCommentLabel={addLineCommentLabel}

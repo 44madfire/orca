@@ -2,6 +2,8 @@ import { formatCopiedSelectionWithContext } from '../selection-copy'
 import { editorShortcutMatches } from '../editor-shortcuts'
 import { formatShortcutLabel } from '@/hooks/useShortcutLabel'
 import { useAppStore } from '@/store'
+import { toast } from 'sonner'
+import { translate } from '@/i18n/i18n'
 import { getPierreSelectionRange } from './pierre-diff-selection'
 import {
   PRIMARY_SELECTION_MAX_LENGTH,
@@ -28,6 +30,8 @@ export function installPierreContextualCopy(
   hint.style.display = 'none'
   document.body.appendChild(hint)
   let primarySelectionTimer: number | null = null
+  let disposed = false
+  let lastCopiedSelection: string | null = null
 
   const readSelection = (): Selection | null => {
     const root = container.querySelector('diffs-container')?.shadowRoot
@@ -43,12 +47,22 @@ export function installPierreContextualCopy(
     hint.style.display = 'none'
   }
 
+  const selectionKey = (selection: Selection | null): string => {
+    const range = getPierreSelectionRange(selection)
+    return JSON.stringify([getFileInfo().relativePath, range, selection?.toString()])
+  }
+
   const updateHint = (): void => {
     const selection = readSelection()
     const text = selection?.toString() ?? ''
     const range = getPierreSelectionRange(selection)
     // Why: copy-with-context is a multi-line affordance; a single line copies plainly.
-    if (!text || !range || range.startLineNumber === range.endLineNumber) {
+    if (
+      !text ||
+      selectionKey(selection) === lastCopiedSelection ||
+      !range ||
+      range.startLineNumber === range.endLineNumber
+    ) {
       hideHint()
       return
     }
@@ -63,7 +77,7 @@ export function installPierreContextualCopy(
     }
     hint.style.display = 'block'
     const above = rect.top > hint.offsetHeight + 12
-    hint.style.left = `${Math.round(rect.left)}px`
+    hint.style.left = `${Math.round(Math.max(0, Math.min(rect.left, window.innerWidth - hint.offsetWidth)))}px`
     hint.style.top = `${Math.round(above ? rect.top - hint.offsetHeight - 8 : rect.bottom + 8)}px`
   }
 
@@ -80,6 +94,9 @@ export function installPierreContextualCopy(
   }
 
   const handleSelectionChange = (): void => {
+    if (selectionKey(readSelection()) !== lastCopiedSelection) {
+      lastCopiedSelection = null
+    }
     updateHint()
     if (primarySelectionTimer !== null) {
       window.clearTimeout(primarySelectionTimer)
@@ -112,17 +129,38 @@ export function installPierreContextualCopy(
     }
     event.preventDefault()
     event.stopPropagation()
-    void navigator.clipboard.writeText(formatted)
-    hideHint()
+    const copiedSelection = selectionKey(selection)
+    void window.api.ui
+      .writeClipboardText(formatted)
+      .then(() => {
+        if (disposed) {
+          return
+        }
+        lastCopiedSelection = copiedSelection
+        hideHint()
+        toast.success(
+          translate('auto.components.editor.useContextualCopySetup.059bfb0d94', 'Context copied')
+        )
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to copy diff context:', error)
+      })
   }
 
   container.addEventListener('keydown', handleKeyDown, true)
   document.addEventListener('selectionchange', handleSelectionChange)
   document.addEventListener('scroll', hideHint, true)
+  container.addEventListener('blur', hideHint, true)
+  window.addEventListener('resize', hideHint)
+  window.addEventListener('blur', hideHint)
   return () => {
+    disposed = true
     container.removeEventListener('keydown', handleKeyDown, true)
     document.removeEventListener('selectionchange', handleSelectionChange)
     document.removeEventListener('scroll', hideHint, true)
+    container.removeEventListener('blur', hideHint, true)
+    window.removeEventListener('resize', hideHint)
+    window.removeEventListener('blur', hideHint)
     if (primarySelectionTimer !== null) {
       window.clearTimeout(primarySelectionTimer)
     }
