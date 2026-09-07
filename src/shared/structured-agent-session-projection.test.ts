@@ -57,6 +57,7 @@ describe('structured agent session status projection', () => {
     const pending = item('approval', 2, {
       kind: 'approval',
       title: 'Allow?',
+      detail: null,
       options: [],
       resolution: { state: 'pending', selectedOptionId: null, resolvedBy: null, resolvedAt: null }
     })
