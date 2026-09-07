@@ -23,7 +23,12 @@ it('admits every catalog method and cleanup through authenticated mobile dispatc
     content: 'host-owned adapter',
     futureField: { revision: 2 }
   })
-  Object.assign(runtime, { readMobileFile })
+  const setMobileAutoRestoreFitMs = vi.fn((ms: number | null) => ms)
+  Object.assign(runtime, {
+    readMobileFile,
+    getMobileAutoRestoreFitMs: () => 2500,
+    setMobileAutoRestoreFitMs
+  })
   const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
   server['deviceRegistry'] = new DeviceRegistry(userDataPath)
   const mobile = server['deviceRegistry']!.addDevice('phone', 'mobile')
@@ -76,6 +81,15 @@ it('admits every catalog method and cleanup through authenticated mobile dispatc
       relativePath: 'README.md'
     })
     expect(JSON.stringify(result.result)).not.toContain('private')
+    await expect(dispatch('terminal.getAutoRestoreFit', {})).resolves.toMatchObject({
+      ok: true,
+      result: { ms: 2500 }
+    })
+    await expect(dispatch('terminal.setAutoRestoreFit', { ms: null })).resolves.toMatchObject({
+      ok: true,
+      result: { ms: null }
+    })
+    expect(setMobileAutoRestoreFitMs).toHaveBeenCalledWith(null)
     await expect(dispatch('files.delete')).resolves.toMatchObject({ error: { code: 'forbidden' } })
     await expect(dispatch('mobileWeb.futureUnadvertised')).resolves.toMatchObject({
       error: { code: 'forbidden' }

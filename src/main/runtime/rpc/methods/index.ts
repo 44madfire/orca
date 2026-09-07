@@ -1,3 +1,5 @@
+import { MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS } from './mobile-web-session-terminal-creation'
+import { MOBILE_WEB_NATIVE_CHAT_FILE_METHODS } from './mobile-web-native-chat-files'
 import { MOBILE_WEB_TERMINAL_ACTION_METHODS } from './mobile-web-terminal-actions'
 import { MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD } from './mobile-web-native-chat-stream'
 import { MOBILE_WEB_NATIVE_CHAT_METHODS } from './mobile-web-native-chat'
@@ -112,6 +114,8 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   MOBILE_WEB_FILE_WATCH_METHOD,
   ...MOBILE_WEB_TERMINAL_ACTION_METHODS,
   ...MOBILE_WEB_NATIVE_CHAT_METHODS,
+  ...MOBILE_WEB_NATIVE_CHAT_FILE_METHODS,
+  ...MOBILE_WEB_SESSION_TERMINAL_CREATION_METHODS,
   MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD,
   ...MOBILE_WEB_PACKAGE_METHODS
 ]

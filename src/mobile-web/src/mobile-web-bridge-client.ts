@@ -1,4 +1,6 @@
+import { MobileWebHostRequestClient } from './mobile-web-host-request-client'
 import {
+  MOBILE_WEB_SHELL_HOST_SCOPE_FEATURE,
   MOBILE_WEB_SHELL_HOST_PAGE_SESSION_FEATURE,
   MOBILE_WEB_SHELL_HOST_REQUEST_DISPATCH_FEATURE
 } from '../../shared/mobile-web/shell-feature-contract'
@@ -19,7 +21,7 @@ import type {
   MobileWebTerminalEvent,
   MobileWebTerminalRequest
 } from '../../shared/mobile-web/terminal-stream-contract'
-import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
+import type { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type {
   MobileWebBrowserEvent,
   MobileWebBrowserStreamPayload
@@ -35,7 +37,7 @@ import type {
   MobileWebBridgeSubscription,
   MobileWebTerminalBridgeSubscription
 } from './mobile-web-bridge-subscription'
-import { secureMobileWebBridgeRequestId } from './mobile-web-bridge-request-encoding'
+import { uniqueMobileWebMessageId } from './mobile-web-message-id'
 import { mobileWebBridgeOperationKey } from './mobile-web-bridge-request-state'
 import { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 import { MobileWebNativeRequestClient } from './mobile-web-native-request-client'
@@ -68,6 +70,7 @@ export class MobileWebBridgeClient {
   private readonly grants = new Map<string, OperationGrant>()
   private readonly shellFeatures: ReadonlySet<string>
   private readonly requests: MobileWebOneShotRequestClient
+  readonly host: MobileWebHostRequestClient
   readonly fileList!: MobileWebFileRequestClient['list']
   readonly fileSearch!: MobileWebFileRequestClient['search']
   readonly fileDirectory!: MobileWebFileRequestClient['directory']
@@ -203,12 +206,17 @@ export class MobileWebBridgeClient {
     this.workspaceCreation = new MobileWebWorkspaceCreationRequestClient(this.requests)
     this.workspaceCreationSource = new MobileWebWorkspaceCreationSourceRequestClient(this.requests)
     this.workspaceCreationCreate = new MobileWebWorkspaceCreationCreateRequestClient(this.requests)
-    Object.assign(
-      this,
-      mobileWebSessionClientBindings(new MobileWebSessionRequestClient(this.requests))
+    const sessionRequests = new MobileWebSessionRequestClient(
+      this.requests,
+      this.shellFeatures.has(MOBILE_WEB_SHELL_HOST_REQUEST_DISPATCH_FEATURE)
     )
+    Object.assign(this, mobileWebSessionClientBindings(sessionRequests))
     this.native = new MobileWebNativeRequestClient(this.requests)
     this.markdown = new MobileWebMarkdownRequestClient(this.requests)
+    this.host = new MobileWebHostRequestClient(
+      this.requests,
+      this.shellFeatures.has(MOBILE_WEB_SHELL_HOST_SCOPE_FEATURE)
+    )
     Object.assign(this, terminal.mobileWebTerminalClientBindings(this.requests, this.shellFeatures))
     Object.assign(this, mobileWebBrowserNavigationClientBindings(this.requests))
     this.subscriptions = new MobileWebBridgeSubscriptionClient({
@@ -233,9 +241,7 @@ export class MobileWebBridgeClient {
     this.task = new MobileWebTaskRequestClient(this.requests)
   }
 
-  /** Whether this shell understands a payload field the page would otherwise have to withhold.
-   *  Page->shell schemas are strict, so an unadvertised field is `invalid_request`, not an
-   *  ignored key. */
+  // Strict page payload extensions require the shell's advertised feature.
   supportsShellFeature(feature: MobileWebShellFeature): boolean {
     return this.shellFeatures.has(feature)
   }
@@ -299,16 +305,10 @@ export class MobileWebBridgeClient {
   }
 
   private uniqueMessageId(excluded?: string): string {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const requestId = this.options.createRequestId?.() ?? secureMobileWebBridgeRequestId()
-      if (
-        requestId !== excluded &&
-        !this.requests.hasMessageId(requestId) &&
-        !this.subscriptions.hasMessageId(requestId)
-      ) {
-        return requestId
-      }
-    }
-    throw new MobileWebBridgeClientError('conflict', true)
+    return uniqueMobileWebMessageId(
+      this.options.createRequestId,
+      (id) => this.requests.hasMessageId(id) || this.subscriptions.hasMessageId(id),
+      excluded
+    )
   }
 }

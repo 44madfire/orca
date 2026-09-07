@@ -166,11 +166,19 @@ export function webHostSessionNativeChatOperations(
       await client.nativeChat.releaseImages(bridgeTarget(target, { references: [...references] }))
     },
     async searchFiles(target, query) {
-      return (await client.nativeChat.fileSearch(bridgeTarget(target, { query }))).paths
+      return (
+        await client.nativeChat.fileSearch(
+          bridgeTarget(target, { query }),
+          target.terminalId ?? undefined
+        )
+      ).paths
     },
     async openFile(target, pathText) {
       try {
-        await client.nativeChat.openFile(bridgeTarget(target, { pathText }))
+        await client.nativeChat.openFile(
+          bridgeTarget(target, { pathText }),
+          target.terminalId ?? undefined
+        )
       } catch {
         // File links are best-effort in both native and hosted chat.
       }

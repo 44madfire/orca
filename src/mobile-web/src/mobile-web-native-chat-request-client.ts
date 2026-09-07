@@ -1,22 +1,17 @@
+import { MobileWebNativeChatFileClient } from './mobile-web-native-chat-file-client'
 import { mutateMobileWebHostNativeChat } from './mobile-web-host-native-chat-mutation'
 import { subscribeMobileWebHostNativeChat } from './mobile-web-host-native-chat-subscription'
 import type { MobileWebBridgeSubscriptionClient } from './mobile-web-bridge-subscription-client'
 import { readMobileWebHostNativeChat } from './mobile-web-host-native-chat-read'
 import {
-  MobileWebNativeChatFileSearchPayloadSchema,
-  MobileWebNativeChatFileSearchResultSchema,
   MobileWebNativeChatAttachImagePayloadSchema,
   MobileWebNativeChatAttachImageResultSchema,
-  MobileWebNativeChatOpenFilePayloadSchema,
-  MobileWebNativeChatOpenFileResultSchema,
   MobileWebNativeChatPendingReadPayloadSchema,
   MobileWebNativeChatPendingReadResultSchema,
   MobileWebNativeChatPendingWritePayloadSchema,
   MobileWebNativeChatPendingWriteResultSchema,
   MobileWebNativeChatReadPayloadSchema,
   MobileWebNativeChatReadResultSchema,
-  MobileWebNativeChatReadabilityPayloadSchema,
-  MobileWebNativeChatReadabilityResultSchema,
   MobileWebNativeChatPasteImagesPayloadSchema,
   MobileWebNativeChatPasteImagesResultSchema,
   MobileWebNativeChatPrepareCommitPayloadSchema,
@@ -51,12 +46,15 @@ import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-reques
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
 
 export class MobileWebNativeChatRequestClient {
+  private readonly files: MobileWebNativeChatFileClient
   constructor(
     private readonly requests: MobileWebOneShotRequestClient,
     private readonly hostPageSession = false,
     private readonly subscriptions?: MobileWebBridgeSubscriptionClient,
     private readonly hostRequestDispatch = false
-  ) {}
+  ) {
+    this.files = new MobileWebNativeChatFileClient(requests, hostPageSession, hostRequestDispatch)
+  }
 
   subscribeForTab(
     tabId: string,
@@ -260,34 +258,17 @@ export class MobileWebNativeChatRequestClient {
   }
 
   fileSearch(
-    payload: MobileWebNativeChatFileSearchPayload
+    payload: MobileWebNativeChatFileSearchPayload,
+    tabId?: string
   ): Promise<MobileWebNativeChatFileSearchResult> {
-    return this.requests.request(
-      'nativeChat',
-      'fileSearch',
-      payload,
-      MobileWebNativeChatFileSearchPayloadSchema,
-      MobileWebNativeChatFileSearchResultSchema
-    )
+    return this.files.fileSearch(payload, tabId)
   }
 
-  openFile(payload: MobileWebNativeChatOpenFilePayload): Promise<null> {
-    return this.requests.request(
-      'nativeChat',
-      'openFile',
-      payload,
-      MobileWebNativeChatOpenFilePayloadSchema,
-      MobileWebNativeChatOpenFileResultSchema
-    )
+  openFile(payload: MobileWebNativeChatOpenFilePayload, tabId?: string): Promise<null> {
+    return this.files.openFile(payload, tabId)
   }
 
   readability(payload: MobileWebNativeChatReadabilityPayload): Promise<{ readable: boolean }> {
-    return this.requests.request(
-      'nativeChat',
-      'readability',
-      payload,
-      MobileWebNativeChatReadabilityPayloadSchema,
-      MobileWebNativeChatReadabilityResultSchema
-    )
+    return this.files.readability(payload)
   }
 }

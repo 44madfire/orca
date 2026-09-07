@@ -44,7 +44,10 @@ export async function prepareMobileWebHostRequest(
   if (!mobileWebHostPayloadWithinBounds(payload.params)) {
     throw new MobileWebBrokerError('too_large')
   }
-  const hostWorkspaceId = args.authority.hostWorkspaceId(payload.workspaceId)
+  const hostWorkspaceId =
+    payload.workspaceId === undefined
+      ? undefined
+      : args.authority.hostWorkspaceId(payload.workspaceId)
   const catalog = await readMobileWebHostCatalog(
     args.client,
     { methods: [payload.method] },
@@ -53,6 +56,7 @@ export async function prepareMobileWebHostRequest(
   const grant = catalog.grants.find((entry) => entry.method === payload.method)
   if (
     !grant ||
+    (grant.scope === 'host') !== (payload.workspaceId === undefined) ||
     (grant.mode ?? 'once') !== mode ||
     (mode === 'subscription' && !grant.unsubscribeMethod)
   ) {
@@ -61,7 +65,9 @@ export async function prepareMobileWebHostRequest(
   if (!args.isActive()) {
     throw new MobileWebBrokerError('cancelled')
   }
-  args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
+  if (payload.workspaceId !== undefined && hostWorkspaceId !== undefined) {
+    args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
+  }
   if (
     grant.pageSessionParam &&
     (!args.pageSessionId || grant.pageSessionParam === grant.workspaceParam)
@@ -70,7 +76,9 @@ export async function prepareMobileWebHostRequest(
   }
   const params = {
     ...payload.params,
-    [grant.workspaceParam]: `id:${hostWorkspaceId}`,
+    ...(grant.workspaceParam && hostWorkspaceId
+      ? { [grant.workspaceParam]: `id:${hostWorkspaceId}` }
+      : {}),
     ...(grant.pageSessionParam ? { [grant.pageSessionParam]: args.pageSessionId } : {})
   }
   if (
@@ -105,7 +113,9 @@ export async function executeMobileWebHostRequest(
   const options = requestOptions()
   options.beforeSend = () => {
     beforeSend()
-    args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
+    if (payload.workspaceId !== undefined && hostWorkspaceId !== undefined) {
+      args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
+    }
   }
   const response = await args.client.sendRequest(payload.method, params, options)
   if (!response.ok) {
@@ -114,7 +124,9 @@ export async function executeMobileWebHostRequest(
   if (!args.isActive()) {
     throw new MobileWebBrokerError('cancelled')
   }
-  args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
+  if (payload.workspaceId !== undefined && hostWorkspaceId !== undefined) {
+    args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
+  }
   if (
     !mobileWebHostPayloadWithinBounds(response.result) ||
     mobileWebEncodedByteLength(response.result) > grant.maxResponseBytes

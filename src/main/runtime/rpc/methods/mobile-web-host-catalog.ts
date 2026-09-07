@@ -17,7 +17,12 @@ const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
     'mobileWeb.terminal.action',
     'mobileWeb.nativeChat.bind',
     'mobileWeb.nativeChat.read',
-    'mobileWeb.nativeChat.mutate'
+    'mobileWeb.nativeChat.mutate',
+    'mobileWeb.nativeChat.fileSearch',
+    'mobileWeb.nativeChat.openFile',
+    'mobileWeb.nativeChat.readability',
+    'mobileWeb.session.agentOptions',
+    'mobileWeb.session.createTerminal'
   ].map((method) => [
     method,
     {
@@ -31,6 +36,10 @@ const PAGE_METHODS = new Map<string, MobileWebHostGrant>(
     }
   ])
 )
+
+for (const method of ['terminal.getAutoRestoreFit', 'terminal.setAutoRestoreFit']) {
+  PAGE_METHODS.set(method, { method, scope: 'host', maxRequestBytes: 1024, maxResponseBytes: 1024 })
+}
 
 const fileWatchGrant: MobileWebHostGrant = {
   method: 'mobileWeb.files.watch',

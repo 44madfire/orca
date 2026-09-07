@@ -14,29 +14,39 @@ export const MobileWebHostCatalogPayloadSchema = z
 export const MobileWebHostRequestPayloadSchema = z
   .object({
     method: MethodSchema,
-    workspaceId: z.string().min(1).max(160),
+    workspaceId: z.string().min(1).max(160).optional(),
     params: z.record(z.string(), z.unknown())
   })
   .strict()
 
-export const MobileWebHostGrantSchema = z.object({
-  method: MethodSchema,
-  mode: z.enum(['once', 'subscription']).optional(),
-  unsubscribeMethod: MethodSchema.optional(),
-  pageSessionParam: z
-    .string()
-    .min(1)
-    .max(80)
-    .regex(/^[A-Za-z][A-Za-z0-9]*$/)
-    .optional(),
-  workspaceParam: z
-    .string()
-    .min(1)
-    .max(80)
-    .regex(/^[A-Za-z][A-Za-z0-9]*$/),
-  maxRequestBytes: z.number().int().positive(),
-  maxResponseBytes: z.number().int().positive()
-})
+export const MobileWebHostGrantSchema = z
+  .object({
+    method: MethodSchema,
+    scope: z.enum(['workspace', 'host']).optional(),
+    mode: z.enum(['once', 'subscription']).optional(),
+    unsubscribeMethod: MethodSchema.optional(),
+    pageSessionParam: z
+      .string()
+      .min(1)
+      .max(80)
+      .regex(/^[A-Za-z][A-Za-z0-9]*$/)
+      .optional(),
+    workspaceParam: z
+      .string()
+      .min(1)
+      .max(80)
+      .regex(/^[A-Za-z][A-Za-z0-9]*$/)
+      .optional(),
+    maxRequestBytes: z.number().int().positive(),
+    maxResponseBytes: z.number().int().positive()
+  })
+  .refine(
+    (grant) =>
+      grant.scope === 'host'
+        ? grant.workspaceParam === undefined
+        : grant.workspaceParam !== undefined,
+    'Grant scope and workspace parameter must agree'
+  )
 
 export const MobileWebHostCatalogResultSchema = z.object({
   grants: z.array(MobileWebHostGrantSchema).max(32)

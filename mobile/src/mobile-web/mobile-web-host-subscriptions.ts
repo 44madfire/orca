@@ -16,8 +16,8 @@ import type {
 } from './mobile-web-workspace-authority'
 
 type HostStreamRecord = MobileWebSubscriptionRecord & {
-  pageWorkspaceId: string
-  hostWorkspaceId: MobileWebHostWorkspaceId
+  pageWorkspaceId: string | undefined
+  hostWorkspaceId: MobileWebHostWorkspaceId | undefined
   maxEventBytes: number
   closing: boolean
 }
@@ -70,10 +70,12 @@ export class MobileWebHostSubscriptions extends MobileWebSubscriptionLedger<
 
   protected override canDeliver(subscriptionId: string, record: HostStreamRecord): boolean {
     try {
-      this.config.workspaceAuthority.assertHostWorkspaceBinding(
-        record.pageWorkspaceId,
-        record.hostWorkspaceId
-      )
+      if (record.pageWorkspaceId !== undefined && record.hostWorkspaceId !== undefined) {
+        this.config.workspaceAuthority.assertHostWorkspaceBinding(
+          record.pageWorkspaceId,
+          record.hostWorkspaceId
+        )
+      }
       return true
     } catch {
       this.cancel(subscriptionId, { code: 'not_found', retryable: false })

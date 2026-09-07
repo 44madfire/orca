@@ -156,6 +156,7 @@ describe('mobile web bridge round trip', () => {
     const rpcClient = { sendRequest, subscribe } as unknown as RpcClient
     const { client } = createMobileWebBridgeRoundtripFixture({
       context: CONTEXT,
+      shellFeatures: [],
       grants: [...MOBILE_WEB_PRODUCTION_GRANTS],
       rpcClient,
       createRequestId: () => (requestIds[requestIndex++] ?? 'Z').repeat(22),

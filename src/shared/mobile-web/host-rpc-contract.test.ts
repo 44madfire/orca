@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MobileWebHostRequestPayloadSchema,
+  MobileWebHostGrantSchema,
   mobileWebHostPayloadWithinBounds
 } from './host-rpc-contract'
 
@@ -14,6 +15,18 @@ describe('generic host payload transport', () => {
     expect(MobileWebHostRequestPayloadSchema.parse(payload)).toEqual(payload)
     expect(
       MobileWebHostRequestPayloadSchema.safeParse({ ...payload, nativeAuthority: true }).success
+    ).toBe(false)
+  })
+  it('requires explicit host scope before a grant can omit its workspace parameter', () => {
+    const grant = { method: 'future.hostSetting', maxRequestBytes: 1024, maxResponseBytes: 1024 }
+    expect(MobileWebHostGrantSchema.safeParse(grant).success).toBe(false)
+    expect(MobileWebHostGrantSchema.safeParse({ ...grant, scope: 'host' }).success).toBe(true)
+    expect(
+      MobileWebHostGrantSchema.safeParse({ ...grant, workspaceParam: 'worktree' }).success
+    ).toBe(true)
+    expect(
+      MobileWebHostGrantSchema.safeParse({ ...grant, scope: 'host', workspaceParam: 'worktree' })
+        .success
     ).toBe(false)
   })
   it('bounds depth, node count and encoded bytes independently of domain shape', () => {
