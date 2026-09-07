@@ -353,6 +353,7 @@ export default function CombinedDiffViewer({
             onNavigate={treeNavigation.handleTreeNavigate}
           />
           <CombinedDiffSectionList
+            viewStateKey={viewStateKey}
             activeGroupId={activeGroupId}
             canOpenWorkspaceFileBrowserForPath={canOpenWorkspaceFileBrowserForPath}
             diffCommentsForWorktree={diffCommentsForWorktree}

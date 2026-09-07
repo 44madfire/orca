@@ -323,6 +323,9 @@ test.describe('Large diff freeze repro', () => {
           .filter({ hasText: /^new 5999!$/ })
       ).toBeVisible({ timeout: 30_000 })
       await orcaPage.screenshot({ path: testInfo.outputPath('restored-draft.png') })
+      await orcaPage.locator('diffs-container [contenteditable="true"]').focus()
+      await orcaPage.keyboard.press('ControlOrMeta+z')
+      await expect(mountedRows.filter({ hasText: /^new 5999$/ })).toBeVisible()
     } finally {
       await probe.evaluate((value) => window.clearInterval(value.timer))
       await probe.dispose()

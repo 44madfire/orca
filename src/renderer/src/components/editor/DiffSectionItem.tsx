@@ -25,6 +25,7 @@ const EMPTY_DIFF_COMMENTS: readonly DecoratedDiffComment[] = []
 export function DiffSectionItem({
   section,
   index,
+  editStateKey,
   isBranchMode,
   sideBySide,
   settings,
@@ -243,6 +244,7 @@ export function DiffSectionItem({
           sideBySide={sideBySide}
           settings={settings}
           isEditable={isEditable}
+          editStateKey={editStateKey}
           collapseUnchanged
           worktreeId={worktreeId ?? ''}
           filePath={section.path}
@@ -279,6 +281,7 @@ export function DiffSectionItem({
       handleUpdateComment,
       hasLineCommentAction,
       isEditable,
+      editStateKey,
       pendingComment,
       section.path,
       settings,

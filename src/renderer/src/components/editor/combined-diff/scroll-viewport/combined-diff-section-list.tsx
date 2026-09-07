@@ -30,6 +30,7 @@ export function CombinedDiffSectionList({
   scrollThumb,
   sectionHeights,
   sections,
+  viewStateKey,
   setScrollContainerRef,
   setSectionHeights,
   setSections,
@@ -57,6 +58,7 @@ export function CombinedDiffSectionList({
   scrollThumb: CombinedDiffScrollThumb
   sectionHeights: Record<number, number>
   sections: DiffSection[]
+  viewStateKey: string
   setScrollContainerRef: (node: HTMLDivElement | null) => void
   setSectionHeights: React.Dispatch<React.SetStateAction<Record<number, number>>>
   setSections: React.Dispatch<React.SetStateAction<DiffSection[]>>
@@ -104,6 +106,7 @@ export function CombinedDiffSectionList({
                 <DiffSectionItem
                   section={section}
                   index={virtualItem.index}
+                  editStateKey={`${viewStateKey}:${section.key}:${section.contentGeneration ?? 0}`}
                   isBranchMode={isBranchMode}
                   sideBySide={sideBySide}
                   settings={settings}

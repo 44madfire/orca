@@ -270,6 +270,7 @@ export default function DiffViewer({
               sideBySide={sideBySide}
               settings={settings}
               isEditable={Boolean(editable)}
+              editStateKey={modelKey}
               collapseUnchanged={false}
               worktreeId={worktreeId ?? ''}
               filePath={relativePath}

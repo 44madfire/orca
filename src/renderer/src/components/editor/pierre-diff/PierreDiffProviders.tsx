@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState, type RefObject } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 import { Virtualizer } from '@pierre/diffs'
 import { EditProvider, WorkerPoolContext, VirtualizerContext } from '@pierre/diffs/react'
-import type { EditorFactory } from '@pierre/diffs/react'
-import { Editor } from '@pierre/diffs/edit'
 import type { PierreDiffAnnotationData } from './pierre-diff-comment-annotations'
 import { createDiffHighlightPool } from './pierre-diff-highlight-pool'
+import { createPierreEditor } from './pierre-diff-edit-state'
 
 /**
  * Shares one Shiki worker pool and one editor factory across every mounted diff
@@ -32,15 +31,11 @@ export function PierreDiffProviders({
     virtualizer.setup(container, container.lastElementChild ?? undefined)
     return () => virtualizer.cleanUp()
   }, [scrollContainerRef, virtualizer])
-  const createEditor = useCallback<EditorFactory<PierreDiffAnnotationData, undefined>>(
-    (editorType, options, editStateKey) => new Editor(editorType, options, editStateKey),
-    []
-  )
 
   return (
     <WorkerPoolContext.Provider value={pool}>
       <VirtualizerContext.Provider value={virtualizer}>
-        <EditProvider<PierreDiffAnnotationData, undefined> createEditor={createEditor}>
+        <EditProvider<PierreDiffAnnotationData, undefined> createEditor={createPierreEditor}>
           {children}
         </EditProvider>
       </VirtualizerContext.Provider>

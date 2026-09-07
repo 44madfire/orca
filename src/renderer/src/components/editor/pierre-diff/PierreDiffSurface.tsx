@@ -29,6 +29,7 @@ import { installPierreContextualCopy } from './pierre-diff-context-copy'
 import { editorShortcutMatches } from '../editor-shortcuts'
 import { usePierreDiffNoteNavigation } from './use-pierre-diff-note-navigation'
 import { canCommentOnPierreRange } from './pierre-diff-comment-range'
+import { withPierreDiffEditState } from './pierre-diff-edit-state'
 
 export type PierreDiffInstance = PierreFileDiff<PierreDiffAnnotationData> &
   Partial<Pick<VirtualizedFileDiff, 'getLinePosition'>>
@@ -38,6 +39,7 @@ export type PierreDiffSurfaceProps = {
   sideBySide: boolean
   settings?: PierreDiffSettings | null
   isEditable: boolean
+  editStateKey?: string
   /** Collapse unchanged context. Combined diffs do; the single-file tab does not. */
   collapseUnchanged: boolean
   worktreeId: string
@@ -73,6 +75,7 @@ export function PierreDiffSurface({
   sideBySide,
   settings,
   isEditable,
+  editStateKey,
   collapseUnchanged,
   worktreeId,
   filePath,
@@ -171,24 +174,29 @@ export function PierreDiffSurface({
     [comments, filePath, pendingComment]
   )
   const editorOptions = useMemo<EditorOptions<'file-diff', PierreDiffAnnotationData, undefined>>(
-    () => ({
-      onAttach: (editor) => {
-        editorRef.current = editor
-        handleEditorAttach(editor)
-      },
-      onComplete: () => {
-        editorRef.current = null
-      },
-      // Why: Cmd+F opens edit mode even on read-only diffs, so ignore changes
-      // unless this surface can actually save. Otherwise a stray keystroke in
-      // the find panel marks a staged or branch section dirty with no save path.
-      onChange: (event) => {
-        if (isEditable) {
-          onEditChangeRef.current?.(event.file)
-        }
-      }
-    }),
-    [handleEditorAttach, isEditable]
+    () =>
+      withPierreDiffEditState(
+        {
+          onAttach: (editor) => {
+            editorRef.current = editor
+            handleEditorAttach(editor)
+          },
+          onComplete: () => {
+            editorRef.current = null
+          },
+          // Why: Cmd+F opens edit mode even on read-only diffs, so ignore changes
+          // unless this surface can actually save. Otherwise a stray keystroke in
+          // the find panel marks a staged or branch section dirty with no save path.
+          onChange: (event) => {
+            if (isEditable) {
+              onEditChangeRef.current?.(event.file)
+            }
+          }
+        },
+        isEditable ? editStateKey : undefined,
+        fileDiff
+      ),
+    [handleEditorAttach, isEditable, editStateKey, fileDiff]
   )
   const renderAnnotation = useCallback(
     (annotation: PierreDiffCommentAnnotation) =>

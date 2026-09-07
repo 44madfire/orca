@@ -5,6 +5,7 @@ import type { DiffSection } from './diff-section-types'
 export type DiffSectionItemProps = {
   section: DiffSection
   index: number
+  editStateKey?: string
   isBranchMode: boolean
   sideBySide: boolean
   settings: {
