@@ -403,6 +403,20 @@ describe('ClaudeBackgroundTaskTracker', () => {
     })
   })
 
+  it('retracts a settled copy when an authoritative roster reports the task live again', () => {
+    const tracker = trackerAt([100, 200, 300])
+    const tasks = [
+      { task_id: 'agent', task_type: 'local_agent', description: 'Review sample' },
+      { task_id: 'shell', task_type: 'local_bash' }
+    ]
+    tracker.observe(aggregate(tasks))
+    tracker.observe(system('task_notification', { task_id: 'agent', status: 'completed' }))
+    expect(tracker.state?.settledTasks).toHaveLength(1)
+    tracker.observe(aggregate(tasks))
+    expect(tracker.state?.tasks?.map((task) => task.id)).toEqual(['agent', 'shell'])
+    expect(tracker.state?.settledTasks).toBeUndefined()
+  })
+
   it('keeps terminal edges authoritative on either side of aggregate replacement', () => {
     const terminalFirst = trackerAt([100])
     terminalFirst.observe(

@@ -55,14 +55,20 @@ export function getStructuredAgentSessionTabs(
 function useStructuredAgentSessionStatusSummary(
   sessionId: string,
   target: RuntimeClientTarget
-): AgentSessionStatusSummary | null {
+): { summary: AgentSessionStatusSummary | null; observation: 'live' | 'unverifiable' } {
   const feed = useMemo(() => getStructuredAgentSessionStatusFeed(target), [target])
   useEffect(() => feed.activate(), [feed])
-  return useSyncExternalStore(
+  const summary = useSyncExternalStore(
     feed.subscribe,
     () => feed.getSnapshot().get(sessionId) ?? null,
     () => null
   )
+  const observation = useSyncExternalStore(
+    feed.subscribe,
+    () => feed.getSessionObservation(sessionId),
+    () => 'unverifiable' as const
+  )
+  return { summary, observation }
 }
 
 /** Matches the wire-parse bound in `normalizeSubagentSnapshot`. */
@@ -116,7 +122,11 @@ function subagentSnapshotsFromTasks(
   return snapshots.length > 0 ? snapshots : undefined
 }
 
-function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | null): void {
+function projectStatus(
+  tab: StructuredTab,
+  summary: AgentSessionStatusSummary | null,
+  observation: 'live' | 'unverifiable'
+): void {
   const paneKey = structuredAgentSessionPaneKey(tab.id, tab.entityId)
   const store = useAppStore.getState()
   // No persisted turn yet (or nothing known): the row shows no agent status at all.
@@ -126,11 +136,6 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     }
     return
   }
-  // `parentIsFresh` for these children means "the host feed reported a change
-  // inside the sidebar's ordinary evidence window": every publish below stamps
-  // evidenceObservedAt, a structured session has no hook stream to go quiet,
-  // and a dead feed simply stops restamping — so children decay to idle
-  // instead of pinning 'working' on lost contact.
   const subagents = subagentSnapshotsFromTasks(summary.backgroundTasks)
   const desired = {
     state:
@@ -147,7 +152,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     ...(summary.toolName ? { toolName: summary.toolName } : {}),
     ...(summary.toolInput ? { toolInput: summary.toolInput } : {}),
     ...(summary.lastAssistantMessage ? { lastAssistantMessage: summary.lastAssistantMessage } : {}),
-    ...(subagents ? { subagents } : {}),
+    ...(subagents ? { subagents, subagentObservation: observation } : {}),
     sessionBoundary: false
   } as const
   const current = store.agentStatusByPaneKey?.[paneKey]
@@ -161,6 +166,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     current.toolInput === summary.toolInput &&
     current.lastAssistantMessage === summary.lastAssistantMessage &&
     agentSubagentsEqual(current.subagents, subagents) &&
+    current.subagentObservation === desired.subagentObservation &&
     current.sessionBoundary === desired.sessionBoundary &&
     current.updatedAt === summary.updatedAt &&
     current.terminalTitle === tab.label &&
@@ -205,10 +211,10 @@ function StructuredAgentSessionStatusProjection({ tab }: { tab: StructuredTab })
     () => getActiveRuntimeTarget({ activeRuntimeEnvironmentId: environmentId }),
     [environmentId]
   )
-  const summary = useStructuredAgentSessionStatusSummary(tab.entityId, target)
+  const { summary, observation } = useStructuredAgentSessionStatusSummary(tab.entityId, target)
   useEffect(() => {
-    projectStatus(tab, summary)
-  }, [summary, tab])
+    projectStatus(tab, summary, observation)
+  }, [summary, observation, tab])
   useEffect(
     () => () =>
       useAppStore.getState().removeAgentStatus(structuredAgentSessionPaneKey(tab.id, tab.entityId)),

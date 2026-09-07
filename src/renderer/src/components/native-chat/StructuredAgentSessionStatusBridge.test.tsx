@@ -6,6 +6,7 @@ import type {
   AgentSessionStatusEvent,
   AgentSessionStatusSummary
 } from '../../../../shared/agent-session-wire'
+import { buildSubagentChildRows } from '../sidebar/worktree-subagent-child-rows'
 import { resolveAttention } from '../sidebar/smart-attention'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import type { Tab } from '../../../../shared/tab-types'
@@ -278,6 +279,33 @@ describe('StructuredAgentSessionStatusBridge', () => {
     // A summary without tasks ends the fan-out: children clear with it.
     act(() => feed().emit({ type: 'status', session: summary({ status: 'idle', updatedAt: 3 }) }))
     expect(statuses()).toEqual([expect.objectContaining({ subagents: undefined })])
+  })
+
+  it('keeps quiet live children authoritative and reconfirms them per session after reconnect', async () => {
+    render(<StructuredAgentSessionStatusBridge />)
+    await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())
+    const live = summary({ backgroundTasks: [{ id: 'child', kind: 'agent', state: 'working' }] })
+    const childState = () =>
+      buildSubagentChildRows({
+        parentEntry: statuses()[0],
+        tab: structuredTab as never,
+        parentIsFresh: false
+      })[0]?.state
+    act(() => feed().emit({ type: 'snapshot', sessions: [live] }))
+    // A hook's evidence window has expired, but the host has not retracted its live task.
+    expect(childState()).toBe('working')
+    act(() => feed().emit({ type: 'end' }))
+    expect(childState()).toBe('unverifiable')
+    await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledTimes(2))
+    act(() => feed(1).emit({ type: 'snapshot', sessions: [] }))
+    expect(childState()).toBe('unverifiable')
+    act(() => feed(1).emit({ type: 'status', session: live }))
+    expect(childState()).toBe('working')
+    const writes = mocks.setAgentStatus.mock.calls.length
+    act(() => feed(1).emit({ type: 'status', session: live }))
+    expect(mocks.setAgentStatus).toHaveBeenCalledTimes(writes)
+    act(() => feed(1).emit({ type: 'status', session: summary({ backgroundTasks: [] }) }))
+    expect(childState()).toBeUndefined()
   })
 
   it('carries the model, the running tool line, and the last assistant message', async () => {

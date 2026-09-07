@@ -93,6 +93,11 @@ export class ClaudeSettledBackgroundTasks {
     this.recentlyRemoved.delete(id)
   }
 
+  forget(id: string): void {
+    this.settled.delete(id)
+    this.recentlyRemoved.delete(id)
+  }
+
   get hasSettled(): boolean {
     return this.settled.size > 0
   }

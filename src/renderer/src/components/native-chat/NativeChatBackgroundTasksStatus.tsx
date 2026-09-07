@@ -118,6 +118,7 @@ export function NativeChatBackgroundTasksStatus(props: {
   /** True while the session is idle: only then may the strip speak as the
    *  animated monitoring indicator. A running turn owns the voice. */
   indicatorActive: boolean
+  isVisible: boolean
   onStop: (taskId?: string) => void
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
@@ -130,7 +131,7 @@ export function NativeChatBackgroundTasksStatus(props: {
   const hasElapsed = groups.some((group) =>
     group.tasks.some((entry) => !entry.settled && (entry.task.startedAt ?? 0) > 0)
   )
-  const now = useNow(1_000, hasElapsed && (expanded || singleLiveCommand))
+  const now = useNow(1_000, props.isVisible && hasElapsed && (expanded || singleLiveCommand))
   const header = backgroundTasksHeaderContent(groups, { narrow, now })
   const headerText = `${header.segments.join(' · ')}${header.detail ? `${header.segments.length > 0 ? ' — ' : ''}${header.detail}` : ''}`
   return (

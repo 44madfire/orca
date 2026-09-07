@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { AgentSessionStatusEvent } from '../../../shared/agent-session-wire'
 import { createClaudeJournalTranslator } from '../../claude/claude-structured-journal-translation'
@@ -523,6 +523,62 @@ describe('StructuredAgentSessionStatusFeed', () => {
       type: 'status',
       session: expect.objectContaining({ status: 'idle', latestPrompt: 'hello' })
     })
+  })
+
+  it('reuses the journal projection across task progress and invalidates on journal changes', async () => {
+    const journal = await openJournal()
+    await journal.appendItem(
+      USER_IDENTITY,
+      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'fan out' }] },
+      { fence: 1 }
+    )
+    await journal.appendItem(
+      TURN_IDENTITY,
+      { kind: 'status', text: 'Working', turnLifecycle: { turnId: 'turn-1', state: 'running' } },
+      { fence: 1 }
+    )
+    const snapshot = vi.spyOn(journal, 'snapshot')
+    let totalTokens = 0
+    const { feed, events } = feedFor(new Map([[SESSION, { journal }]]), null, undefined, () => ({
+      state: 'monitoring',
+      tasks: [{ id: 'child', kind: 'agent', totalTokens }]
+    }))
+    for (totalTokens = 1; totalTokens <= 100; totalTokens++) {
+      feed.publish(SESSION)
+    }
+    expect(events).toHaveLength(101)
+    expect(snapshot).toHaveBeenCalledTimes(1)
+    expect(events.at(-1)).toMatchObject({
+      type: 'status',
+      session: { status: 'working', backgroundTasks: [{ totalTokens: 100 }] }
+    })
+    await journal.appendTombstone(TURN_IDENTITY, { fence: 1 })
+    feed.publish(SESSION)
+    expect(snapshot).toHaveBeenCalledTimes(2)
+    expect(events.at(-1)).toMatchObject({ type: 'status', session: { status: 'idle' } })
+  })
+
+  it('invalidates cached status on unreadability and keeps record metadata live', async () => {
+    const journal = await openJournal()
+    await journal.appendItem(
+      USER_IDENTITY,
+      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'hello' }] },
+      { fence: 1 }
+    )
+    const record = { options: { model: 'first-model' }, providerHandleChain: [] }
+    const { feed, events } = feedFor(new Map([[SESSION, { journal }]]), record)
+    record.options.model = 'second-model'
+    feed.publish(SESSION)
+    expect(events.at(-1)).toMatchObject({
+      type: 'status',
+      session: { status: 'idle', model: 'second-model' }
+    })
+    const readOnly = vi.spyOn(journal, 'isReadOnly', 'get').mockReturnValue(true)
+    feed.publish(SESSION)
+    expect(events.at(-1)).toMatchObject({ type: 'status', session: { status: null } })
+    readOnly.mockRestore()
+    feed.publish(SESSION)
+    expect(events.at(-1)).toMatchObject({ type: 'status', session: { status: 'idle' } })
   })
 
   it('projects live background tasks and republishes a task-only state change', async () => {

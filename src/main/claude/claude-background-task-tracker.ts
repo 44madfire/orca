@@ -195,6 +195,8 @@ export class ClaudeBackgroundTaskTracker {
       if (!id) {
         continue
       }
+      // An authoritative live roster supersedes an earlier terminal edge.
+      this.retention.forget(id)
       const existing = prior.get(id)
       const kind = classifyClaudeBackgroundTaskKind(task.task_type)
       this.tasks.set(id, {

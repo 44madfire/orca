@@ -91,6 +91,16 @@ export function createStructuredAgentSessionHostStatusFeed(args: {
 export class StructuredAgentSessionStatusFeed {
   private readonly subscribers = new Map<string, StructuredAgentSessionStatusSubscriber>()
   private readonly published = new Map<string, AgentSessionStatusSummary>()
+  // Task progress must not sort and scan an unchanged conversation. Journal identity owns cleanup.
+  private readonly journalProjections = new WeakMap<
+    AgentSessionJournal,
+    {
+      epoch: string
+      sequence: number
+      readOnly: boolean
+      summary: ReturnType<typeof projectStructuredAgentSessionStatusSummary>
+    }
+  >()
 
   constructor(private readonly deps: StructuredAgentSessionStatusFeedDeps) {}
 
@@ -146,7 +156,24 @@ export class StructuredAgentSessionStatusFeed {
     journal: AgentSessionJournal
   ): AgentSessionStatusSummary {
     // An unreadable journal projects as "no turn": the chat itself shows the reset.
-    const items = journal.isReadOnly ? [] : journal.snapshot().items
+    const cursor = journal.cursor()
+    const readOnly = journal.isReadOnly
+    let projection = this.journalProjections.get(journal)
+    if (
+      !projection ||
+      projection.epoch !== cursor.epoch ||
+      projection.sequence !== cursor.sequence ||
+      projection.readOnly !== readOnly
+    ) {
+      projection = {
+        ...cursor,
+        readOnly,
+        summary: projectStructuredAgentSessionStatusSummary(
+          readOnly ? [] : journal.snapshot().items
+        )
+      }
+      this.journalProjections.set(journal, projection)
+    }
     const record = this.deps.getRecord(sessionId)
     const providerSession = structuredAgentSessionProviderSessionMetadata(record)
     // The journal has no model: the record's acknowledged options are where an owner
@@ -157,7 +184,7 @@ export class StructuredAgentSessionStatusFeed {
       sessionId,
       workspaceId: session.params.location.workspaceId,
       agent: session.params.provider,
-      ...projectStructuredAgentSessionStatusSummary(items),
+      ...projection.summary,
       ...(model ? { model } : {}),
       ...(backgroundTasks && backgroundTasks.length > 0 ? { backgroundTasks } : {}),
       ...(providerSession ? { providerSession } : {}),

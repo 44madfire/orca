@@ -305,6 +305,7 @@ export function NativeChatStructuredSession(
       ) : null}
       {controller.backgroundTasks.show ? (
         <NativeChatBackgroundTasksStatus
+          isVisible={props.isVisible}
           tasks={controller.backgroundTasks.tasks}
           settledTasks={controller.backgroundTasks.settledTasks}
           indicatorActive={controller.backgroundTasks.isMonitoring}
