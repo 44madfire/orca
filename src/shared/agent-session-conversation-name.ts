@@ -12,25 +12,38 @@ export const AGENT_SESSION_CONVERSATION_NAME_MAX_LENGTH = 200
 
 /** Whitespace, plus the C0/C1 controls, bidi controls and zero-width marks `\s`
  *  misses. A bidi override renders a label that reads as text the name does not
- *  contain, and a zero-width run renders as nothing at all. Named rather than
- *  taken as all of `\p{Cf}`, which would also strip U+200C/U+200D — joiners that
- *  are load-bearing in Persian, Hindi and every multi-part emoji. */
-const UNRENDERABLE_RUN =
-  /[\s\p{Cc}\p{Zl}\p{Zp}\u00AD\u061C\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]+/gu
+ *  contain, and a zero-width run renders as nothing at all. Subtracted from all
+ *  of `\p{Cf}` rather than enumerated, so a format character Unicode adds later
+ *  is covered with no list to remember; U+200C/U+200D are the one exception,
+ *  being load-bearing in Persian, Hindi and every multi-part emoji. Accepted
+ *  cost: the U+E0020-E007F tag sequences go too, so the England, Scotland and
+ *  Wales flags degrade — far cheaper than an invisible payload in a label. */
+const UNRENDERABLE_RUN = /(?:[\s\p{Cc}\p{Zl}\p{Zp}]|(?![\u200C\u200D])\p{Cf})+/gu
+
+/** The joiners outlive the run above by design; alone they are still a blank label. */
+const JOINERS_ONLY = /^[\u200C\u200D]+$/u
+
+/** A cut inside an emoji sequence strands the joiner that attached it. */
+const TRAILING_DANGLE = /[\s\u200C\u200D]+$/u
 
 export function normalizeAgentSessionConversationName(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null
   }
   const collapsed = value.replace(UNRENDERABLE_RUN, ' ').trim()
-  if (!collapsed) {
+  if (!collapsed || JOINERS_ONLY.test(collapsed)) {
     return null
+  }
+  if (collapsed.length <= AGENT_SESSION_CONVERSATION_NAME_MAX_LENGTH) {
+    return collapsed
   }
   // Cut on a character boundary: a raw slice can strand a lone high surrogate,
   // which every surface then renders as U+FFFD.
-  return collapsed.length > AGENT_SESSION_CONVERSATION_NAME_MAX_LENGTH
-    ? sliceAtCodeUnitLimit(collapsed, AGENT_SESSION_CONVERSATION_NAME_MAX_LENGTH).trimEnd()
-    : collapsed
+  const truncated = sliceAtCodeUnitLimit(
+    collapsed,
+    AGENT_SESSION_CONVERSATION_NAME_MAX_LENGTH
+  ).replace(TRAILING_DANGLE, '')
+  return truncated || null
 }
 
 export function isAgentSessionConversationName(value: unknown): value is string {

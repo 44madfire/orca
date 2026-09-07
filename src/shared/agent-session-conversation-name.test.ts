@@ -106,7 +106,44 @@ describe('normalizeAgentSessionConversationName joiners', () => {
     expect(normalizeAgentSessionConversationName(name)).toBe(expected)
   })
 
-  it('rejects a name that is only invisible controls', () => {
-    expect(normalizeAgentSessionConversationName('\u202E\u200B\u2060')).toBeNull()
+  // Each row is a `\p{Cf}` run the hand-written enumeration this replaces let
+  // through, so the name normalized to a non-empty label that renders as nothing.
+  it.each([
+    ['invisible maths operators', '\u2061\u2062\u2063\u2064'],
+    ['tag characters', '\u{E0020}\u{E0041}\u{E007F}'],
+    ['a Mongolian vowel separator', '\u180E'],
+    ['interlinear annotation marks', '\uFFF9\uFFFA\uFFFB'],
+    ['deprecated format characters', '\u206A\u206B\u206C\u206D\u206E\u206F'],
+    ['Arabic number signs', '\u0600\u0601\u06DD'],
+    ['the joiners themselves', `${ZWNJ}${ZWJ}`],
+    ['a bidi and zero-width mix', '\u202E\u200B\u2060']
+  ])('rejects a name that is only %s', (_label, name) => {
+    expect(normalizeAgentSessionConversationName(name)).toBeNull()
+  })
+
+  it('drops a tag-character payload hidden after a real title', () => {
+    // Tag characters mirror ASCII, so this run decodes to readable text that no
+    // surface draws — it reached the user's own Codex history via thread/name/set.
+    const hidden = Array.from('ransom', (c) =>
+      String.fromCodePoint(0xe0000 + c.charCodeAt(0))
+    ).join('')
+
+    const normalized = normalizeAgentSessionConversationName(`Fix login bug${hidden}`)
+
+    expect(normalized).toBe('Fix login bug')
+    expect(Array.from(normalized ?? '', (c) => c.codePointAt(0) ?? 0).every((c) => c < 0x7f)).toBe(
+      true
+    )
+  })
+
+  it('never ends a truncated name on a dangling joiner', () => {
+    const name = `${'A'.repeat(197)}\u{1F468}${ZWJ}\u{1F469}${ZWJ}\u{1F467}`
+
+    const normalized = normalizeAgentSessionConversationName(name)
+
+    // The cut lands mid-sequence; the joiner it strands attaches to nothing.
+    expect(normalized?.endsWith(ZWJ)).toBe(false)
+    expect(normalized).toBe(`${'A'.repeat(197)}\u{1F468}`)
+    expect(normalized).not.toContain('\uFFFD')
   })
 })
