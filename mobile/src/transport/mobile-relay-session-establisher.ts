@@ -10,12 +10,32 @@ import type { MobileRelayCredentialBundle } from './mobile-relay-credential-bund
 import type { RelayReconnectController } from './mobile-relay-reconnect-controller'
 import type { StableLogicalRpcClient } from './stable-logical-rpc-client'
 import type { MobileRelayEndpoint } from '../../../src/shared/mobile-relay-credential-contract'
+import { RELAY_HOST_CLOSE_REASON } from '../../../src/shared/relay-host-close-reason'
 import type { HostProfile } from './types'
 
 type EstablishResult = { ok: true } | { ok: false; error: Error }
 
 function directWon(logical: StableLogicalRpcClient): boolean {
   return logical.getActivePath() !== 'relay' && logical.getState() === 'connected'
+}
+
+// Why: migrateTo consults its abort predicate only after E2EE authentication, so
+// a dial that has already lost would still make the cell reserve a splice and the
+// desktop finish a handshake. Closing the socket withdraws it at whatever stage it
+// reached — before any e2ee frame when the hello has not landed yet. The caller
+// still reports the dial as aborted, so nothing is booked against relay.
+function withdrawWhenDirectWins(
+  logical: StableLogicalRpcClient,
+  session: { close(): void }
+): () => void {
+  const withdraw = (): void => {
+    if (directWon(logical)) {
+      session.close()
+    }
+  }
+  const unsubscribe = logical.onStateChange(withdraw)
+  withdraw()
+  return unsubscribe
 }
 
 // Turns one relay credential into the active runtime session: resolve the cell
@@ -39,7 +59,7 @@ export class MobileRelaySessionEstablisher {
       adoptBundle: (bundle: MobileRelayCredentialBundle) => void
       // Hysteresis stamp + rotation-pending clear + recovery log line.
       recordMigration: () => void
-      // Owns the stopped/background null-out so a late resolve never re-arms a stale timer.
+      // Owns the stopped/disconnected guard so late bookkeeping cannot arm a stale timer.
       scheduleLease: (expiry: number | null) => void
       scheduleDirectProbe: () => void
       onBookkeepingError: (error: Error) => void
@@ -100,17 +120,47 @@ export class MobileRelaySessionEstablisher {
     const session = args.openRelay(
       relay,
       credential,
-      `confirm-${encodeBase64Url(args.randomBytes(16))}`
+      `confirm-${encodeBase64Url(args.randomBytes(16))}`,
+      // Latched on the logical client, not on the dial result: the close that
+      // carries the reason can land after this dial has already reported its
+      // failure. Clearing is clearAfterConnected's job, so any path that
+      // reaches connected retires it.
+      (reason) => {
+        if (reason === RELAY_HOST_CLOSE_REASON.SIGNED_OUT) {
+          args.logical.setHostSignedOut(true)
+        }
+      },
+      args.isForeground
     )
+    const stopWithdrawWatch = withdrawWhenDirectWins(args.logical, session)
     try {
-      // Why: if an authenticated non-relay session appears while this dial is in
-      // flight (the grace race), withdraw instead of cutting over the winner.
-      await args.logical.migrateTo(session, 'relay', undefined, () => directWon(args.logical))
+      // Why: backgrounding or a direct winner withdraws this dial before cutover.
+      await args.logical.migrateTo(
+        session,
+        'relay',
+        undefined,
+        () => !args.isActive() || directWon(args.logical)
+      )
     } catch (error) {
-      if (directWon(args.logical)) {
+      if (!args.isActive() || directWon(args.logical)) {
         return { ok: false, error: new RelayDialAbortedError() }
       }
       return { ok: false, error: session.getFailure() ?? toError(error) }
+    } finally {
+      // Why: past the cutover this session is the active path, and a later direct
+      // promotion must not read as a reason to close the client's own socket.
+      stopWithdrawWatch()
+    }
+    // Why: migrateTo now resolves at E2EE authentication, so the resume confirm can
+    // still fail this session after the cutover. Booking a dying session as an
+    // established dial skips backoff and redials in a tight loop — the supervisor's
+    // bookkeeping waits for the verdict even though the UI is already connected.
+    await session.whenResumeConfirmed()
+    if (session.getState() !== 'connected') {
+      if (!args.isActive() || directWon(args.logical)) {
+        return { ok: false, error: new RelayDialAbortedError() }
+      }
+      return { ok: false, error: session.getFailure() ?? new Error('relay lost at confirm') }
     }
     args.controller.setActiveSession(session)
     if (!args.isForeground()) {

@@ -1,6 +1,7 @@
 import { vi } from 'vitest'
 import type { MobileRelayCredentialBundle } from './mobile-relay-credential-bundle'
 import type { MobileRelayRpcSession } from './mobile-relay-rpc-session'
+import { RelayDialStageTracker, type RelayDialStage } from './relay-dial-stage'
 import type { MobileEndpointSupervisorDependencies } from './mobile-endpoint-supervisor'
 import type { RpcClient } from './rpc-client'
 import type { MobileConnectionPath, StableLogicalRpcClient } from './stable-logical-rpc-client'
@@ -51,6 +52,10 @@ export class FakeRelaySession extends FakeSession implements MobileRelayRpcSessi
   // Why: production-realistic defaults — fictional fake values hid three
   // live defects in this subsystem (latch, churn, int32 timer overflow).
   getAttachDeadlineAt = () => Date.now() + 10_000
+  readonly dialStage = new RelayDialStageTracker()
+  getDialStage = () => this.dialStage.getDialStage()
+  onDialStageChange = (listener: (stage: RelayDialStage) => void) =>
+    this.dialStage.onDialStageChange(listener)
   getResumeExpiresAt = () => this.resumeExpiry
   getResumeConfirmation = () => ({
     v: 1 as const,
@@ -60,6 +65,7 @@ export class FakeRelaySession extends FakeSession implements MobileRelayRpcSessi
     renewed: this.renewed,
     resumeExpiresAt: this.resumeExpiry
   })
+  whenResumeConfirmed = () => Promise.resolve()
   getFailure = () => this.failure
 }
 
@@ -129,10 +135,22 @@ export class FakeLogicalClient extends FakeSession implements StableLogicalRpcCl
     }
   })
   isPairingRejected = () => this.pairingRejected
+  private hostSignedOut = false
+  setHostSignedOut = vi.fn((signedOut: boolean) => {
+    if (this.hostSignedOut === signedOut) {
+      return
+    }
+    this.hostSignedOut = signedOut
+    for (const listener of this.pathListeners) {
+      listener()
+    }
+  })
+  isHostSignedOut = () => this.hostSignedOut
   // Mirrors LogicalClientConnectionPath.clearAfterConnected.
   publishState(state: ConnectionState): void {
     if (state === 'connected') {
       this.pairingRejected = false
+      this.hostSignedOut = false
     }
     super.publishState(state)
   }
@@ -184,6 +202,15 @@ export const bundle: MobileRelayCredentialBundle = {
     version: 2,
     expiresAt: Number.MAX_SAFE_INTEGER
   }
+}
+
+// Why: LAN unreachable. A throwing open beats a never-answering socket — the
+// direct dial resolves synchronously, so a relay-only test leaves no probe timer
+// behind and the reconnect race has exactly one runner.
+export function unreachableDirect(): MobileEndpointSupervisorDependencies['openDirect'] {
+  return vi.fn(() => {
+    throw new Error('direct endpoint unreachable')
+  })
 }
 
 export function dependencies(
