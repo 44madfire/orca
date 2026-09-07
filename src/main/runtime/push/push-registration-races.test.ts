@@ -158,3 +158,13 @@ it('does not clear a replacement with the same ID and timestamp after a stale de
   await tick()
   expect(h.registry.getDevice(h.deviceId)?.pushRegistration).toEqual(original)
 })
+
+it('drains a cleanup queued as an empty flush is completing', async () => {
+  const h = harness()
+  // Let the startup drain return, but queue cleanup before its promise finalizer runs.
+  await Promise.resolve()
+  h.outbox.enqueue({ registrationId: 'orphan', deviceId: h.deviceId })
+  await h.service.flushUnregisterOutbox()
+  expect(h.client.deleteDevice).toHaveBeenCalledWith('orphan')
+  expect(h.outbox.pending()).toEqual([])
+})

@@ -171,22 +171,28 @@ export class DesktopPushService {
 
   /** Joining an in-flight drain still waits for the item this call queued. */
   async flushUnregisterOutbox(): Promise<void> {
+    if (this.stopped) {
+      return
+    }
     this.flushRequested = true
-    this.flushLoop ??= this.runFlushLoop().finally(() => {
-      this.flushLoop = null
-    })
+    this.flushLoop ??= this.runFlushLoop()
     await this.flushLoop
   }
 
   private async runFlushLoop(): Promise<void> {
-    while (this.flushRequested && !this.stopped) {
-      // Cleared before the pass, so a delete queued mid-drain earns another one.
-      this.flushRequested = false
-      if (await this.drainPending()) {
-        this.scheduleFlushRetry()
-      } else {
-        this.retryDelayMs = OUTBOX_RETRY_BASE_MS
+    try {
+      while (this.flushRequested && !this.stopped) {
+        // Cleared before the pass, so a delete queued mid-drain earns another one.
+        this.flushRequested = false
+        if (await this.drainPending()) {
+          this.scheduleFlushRetry()
+        } else {
+          this.retryDelayMs = OUTBOX_RETRY_BASE_MS
+        }
       }
+    } finally {
+      // Clear ownership before the runner settles, so a late request starts a new drain.
+      this.flushLoop = null
     }
   }
 

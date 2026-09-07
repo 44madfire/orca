@@ -147,6 +147,7 @@ async function reconcileHost(hostId: string): Promise<void> {
     return
   }
   const generation = consentGeneration
+  const isCurrent = () => hostsById.get(hostId) === state && state.client === client
   const value = await readRecords()
   // Unregister intent takes priority even before the capability probe answers.
   if (value.pending.has(hostId)) {
@@ -164,7 +165,7 @@ async function reconcileHost(hostId: string): Promise<void> {
   }
   if (state.supported == null) {
     const probed = await readRemotePushCapability(client)
-    if (state.client !== client) {
+    if (!isCurrent()) {
       return
     }
     if (probed == null) {
@@ -172,17 +173,23 @@ async function reconcileHost(hostId: string): Promise<void> {
     }
     state.supported = probed
   }
-  if (!state.supported || state.client !== client) {
+  if (!state.supported || !isCurrent()) {
     return
   }
   if (!(await loadRemotePushEnabled()) || AppState.currentState !== 'active') {
     return
   }
   const token = await currentToken()
-  if (!token || AppState.currentState !== 'active') {
+  const filter = await loadRemotePushFilter()
+  if (
+    !token ||
+    !isCurrent() ||
+    generation !== consentGeneration ||
+    AppState.currentState !== 'active'
+  ) {
     return
   }
-  if (!(await sendRegister(client, token, await loadRemotePushFilter()))) {
+  if (!(await sendRegister(client, token, filter)) || hostsById.get(hostId) !== state) {
     return
   }
   if (generation !== consentGeneration) {
@@ -258,10 +265,11 @@ export async function setRemotePushAgentStates(
 // Offline hosts retain the registration until unpaired or its mobile-use lease expires.
 export async function unregisterPushForRemovedHost(hostId: string): Promise<void> {
   const state = hostsById.get(hostId)
+  // Invalidate queued work before awaiting the best-effort unregister.
+  hostsById.delete(hostId)
   if (state?.client && state.supported !== false) {
     await sendUnregister(state.client, REMOVAL_TIMEOUT_MS)
   }
-  hostsById.delete(hostId)
   await mutateRecords((current) => {
     current.registered.delete(hostId)
     current.pending.delete(hostId)
