@@ -1,7 +1,8 @@
+import { MAX_EDIT_LINES } from '../../../../shared/native-chat-edit-model'
 import { describe, expect, it } from 'vitest'
 import type { NativeChatBlock, NativeChatMessage } from '../../../../shared/native-chat-types'
 import { foldToolMessages } from './native-chat-tool-fold'
-import { buildEditCards } from './native-chat-edit-cards'
+import { buildDiffSummaries, buildEditCards } from './native-chat-edit-cards'
 import { nativeChatTurnDiffs } from './native-chat-turn-diffs'
 
 function diff(id: string, path: string, patch = '@@ -1 +1 @@\n-old\n+new'): NativeChatMessage {
@@ -103,9 +104,20 @@ describe('turn diff rollups', () => {
     ).toBe(0)
   })
 
-  it('reuses parsed file identity across rollup/card consumers and refreshes new results', () => {
+  it('leaves non-journal Diff envelopes to the deferred tool card', () => {
+    for (const input of [{ path: 'x', patch: '@@\n+override' }, { file_path: 'x' }, null]) {
+      const message = diff('generic', 'x')
+      message.blocks[0] = { type: 'tool-call', name: 'Diff', input }
+      expect(buildDiffSummaries(message.blocks).size).toBe(0)
+    }
+  })
+
+  it('caches counts and deferred card models separately and refreshes new results', () => {
     const message = diff('a', 'a.ts')
-    const first = [...buildEditCards(message.blocks, true).editCards.values()][0]!.files
+    const summary = [...buildDiffSummaries(message.blocks).values()][0]!.files
+    expect([...buildDiffSummaries([...message.blocks]).values()][0]!.files).toBe(summary)
+    expect(summary[0]).not.toHaveProperty('lines')
+    const first = [...buildEditCards(message.blocks).editCards.values()][0]!.files
     expect([...buildEditCards([...message.blocks]).editCards.values()][0]!.files).toBe(first)
     message.blocks = [
       message.blocks[0]!,
@@ -114,5 +126,25 @@ describe('turn diff rollups', () => {
     const updated = [...buildEditCards(message.blocks).editCards.values()][0]!.files
     expect(updated).not.toBe(first)
     expect(updated[0]?.added).toBe(2)
+    const updatedSummary = [...buildDiffSummaries(message.blocks).values()][0]!.files
+    expect(updatedSummary).not.toBe(summary)
+    expect(updatedSummary[0]?.added).toBe(2)
+  })
+
+  it.each([
+    '@@ -1 +1 @@\n-old\n+new',
+    '@@\n--- content\n+++ content\n\\ No newline at end of file',
+    '@@ -1 +1 @@\n-old\n+new\n@@ -5 +5 @@\n-again\n+again',
+    'diff --git a/a.ts b/b.ts\nrename from a.ts\nrename to b.ts',
+    `@@ -0,0 +1,2500 @@\n${'+new\n'.repeat(MAX_EDIT_LINES + 1)}`,
+    `@@ -0,0 +1,2500 @@\n${'+new\n'.repeat(MAX_EDIT_LINES - 1)}@@ -1 +1 @@\n+last`,
+    '@@ -1 +1 @@\n-old\n+new\n… (9999 bytes)'
+  ])('keeps lightweight counts identical to the expanded card (case %#)', (patch) => {
+    const message = diff('parity', 'a.ts', patch)
+    const summary = [...buildDiffSummaries(message.blocks).values()][0]!.files
+    const detailed = [...buildEditCards(message.blocks).editCards.values()][0]!.files
+    expect(summary).toEqual(
+      detailed.map(({ lines: _lines, lineNumbersKnown: _known, ...file }) => file)
+    )
   })
 })

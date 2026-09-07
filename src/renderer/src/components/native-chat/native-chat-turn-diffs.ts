@@ -1,5 +1,5 @@
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
-import { buildEditCards } from './native-chat-edit-cards'
+import { buildDiffSummaries } from './native-chat-edit-cards'
 
 export type NativeChatDiffTarget = {
   messageId: string
@@ -35,7 +35,7 @@ export function nativeChatTurnDiffs(
     if (!turnKey) {
       continue
     }
-    for (const edit of buildEditCards(message.blocks, true).editCards.values()) {
+    for (const edit of buildDiffSummaries(message.blocks).values()) {
       let files = turns.get(turnKey)
       if (!files) {
         files = new Map()

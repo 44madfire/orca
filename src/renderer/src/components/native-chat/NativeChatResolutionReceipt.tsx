@@ -1,5 +1,5 @@
 import { translate } from '@/i18n/i18n'
-import { formatShortTimeAgo } from '@/lib/short-time-ago'
+import { NativeChatMessageTimestamp } from './NativeChatMessageTimestamp'
 import {
   nativeChatReceiptAnswers,
   type NativeChatResolvedPrompt
@@ -26,7 +26,7 @@ export function NativeChatResolutionReceipt({
         <p className="line-clamp-3 whitespace-pre-wrap break-words">{body.detail}</p>
       ) : null}
       {answers.map((answer, index) => (
-        <div key={index}>
+        <div key={body.kind === 'question' ? (body.questions?.[index]?.id ?? 'answer') : 'answer'}>
           {answer.question ? <p>{answer.question}</p> : null}
           <p className="line-clamp-3 whitespace-pre-wrap break-words">
             {answer.answer ??
@@ -54,12 +54,7 @@ export function NativeChatResolutionReceipt({
                 })}
           </span>
         ) : null}
-        {resolution.resolvedAt !== null &&
-        Number.isFinite(new Date(resolution.resolvedAt).getTime()) ? (
-          <time dateTime={new Date(resolution.resolvedAt).toISOString()}>
-            {formatShortTimeAgo(resolution.resolvedAt)}
-          </time>
-        ) : null}
+        <NativeChatMessageTimestamp timestamp={resolution.resolvedAt} />
       </div>
     </div>
   )

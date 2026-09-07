@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Check, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
@@ -152,15 +152,23 @@ export function NativeChatToolRun({
   activeTurnIsWorking?: boolean
   structuredActivityUi?: boolean
 }): React.JSX.Element | null {
-  const [open, setOpen] = useState(expandOverride ?? expandSignal)
-  // Re-sync when the global toolbar toggle flips.
-  useEffect(() => setOpen(expandOverride ?? expandSignal), [expandOverride, expandSignal])
-
-  useEffect(() => {
-    if (revealedDiff) {
+  const [open, setOpen] = useState(revealedDiff ? true : (expandOverride ?? expandSignal))
+  const [controls, setControls] = useState({ expandOverride, expandSignal, revealedDiff })
+  if (
+    controls.expandOverride !== expandOverride ||
+    controls.expandSignal !== expandSignal ||
+    controls.revealedDiff !== revealedDiff
+  ) {
+    setControls({ expandOverride, expandSignal, revealedDiff })
+    if (revealedDiff && controls.revealedDiff !== revealedDiff) {
       setOpen(true)
+    } else if (
+      controls.expandOverride !== expandOverride ||
+      controls.expandSignal !== expandSignal
+    ) {
+      setOpen(expandOverride ?? expandSignal)
     }
-  }, [revealedDiff])
+  }
 
   const callCount = countToolCalls(blocks) || blocks.length
   const summary = summarizeToolRun(blocks)
@@ -171,7 +179,7 @@ export function NativeChatToolRun({
   // The turn caret opens the activity group, while each child tool remains
   // collapsed. The global expand toolbar still opens child details together.
   const expandToolLines = expandOverride === undefined ? open : false
-  // Other edits remain lazy; journal diffs reuse the rollup's normalized files.
+  // Rollups cache counts only; detailed diff rows are built when the run opens.
   const { editCards, consumedResults } = useMemo(
     () => (open ? buildEditCards(blocks) : NO_EDIT_CARDS),
     [open, blocks]

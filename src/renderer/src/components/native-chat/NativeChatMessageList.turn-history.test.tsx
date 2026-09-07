@@ -80,6 +80,8 @@ describe('turn history presentation', () => {
     expect(screen.getByText('after')).toBeInTheDocument()
     expect(screen.getByText('before')).toBeInTheDocument()
     expect(scrollTo).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /1× Diff/ }))
+    expect(screen.queryByText('Edited file')).toBeNull()
     fireEvent.click(header)
     expect(header).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(header)

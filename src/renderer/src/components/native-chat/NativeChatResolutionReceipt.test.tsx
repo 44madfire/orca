@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import { i18n } from '@/i18n/i18n'
 import type { AgentJournalQuestionItem } from '../../../../shared/agent-session-journal-types'
 import { encodeAgentSessionQuestionAnswers } from '../../../../shared/agent-session-question-answer'
 import { NativeChatResolutionReceipt } from './NativeChatResolutionReceipt'
@@ -10,7 +11,10 @@ import {
   type NativeChatResolvedPrompt
 } from './native-chat-resolution-receipt'
 
-afterEach(cleanup)
+afterEach(async () => {
+  cleanup()
+  await i18n.changeLanguage('en')
+})
 const approval: NativeChatResolvedPrompt = {
   kind: 'approval',
   title: 'Run command?',
@@ -28,6 +32,19 @@ const approval: NativeChatResolvedPrompt = {
 }
 
 describe('resolution receipts', () => {
+  it('localizes the resolved time when the UI language changes', async () => {
+    render(<NativeChatResolutionReceipt body={approval} />)
+    await act(async () => {
+      await i18n.changeLanguage('fr')
+    })
+    expect(screen.getByRole('time')).toHaveTextContent(
+      new Intl.DateTimeFormat('fr', { hour: 'numeric', minute: '2-digit' }).format(1000)
+    )
+    expect(screen.getByRole('time')).toHaveAccessibleName(
+      new Intl.DateTimeFormat('fr', { dateStyle: 'full', timeStyle: 'long' }).format(1000)
+    )
+  })
+
   it.each([
     ['yes', 'Allow once'],
     ['no', 'Deny']
