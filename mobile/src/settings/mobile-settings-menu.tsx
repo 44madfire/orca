@@ -37,7 +37,7 @@ export function MobileSettingsFrame({
   )
 }
 
-type SettingsMenuItem = {
+export type MobileSettingsMenuItem = {
   label: string
   icon: LucideIcon
   onPress: () => void
@@ -49,7 +49,7 @@ export function MobileSettingsSection({
   items,
   spaced = false
 }: {
-  items: SettingsMenuItem[]
+  items: MobileSettingsMenuItem[]
   spaced?: boolean
 }) {
   return (

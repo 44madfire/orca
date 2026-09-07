@@ -1,19 +1,9 @@
 import { useCallback, useRef, useState } from 'react'
 import { View, Text, StyleSheet, Pressable, Linking, ActivityIndicator } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
-import {
-  Info,
-  Bell,
-  Wrench,
-  Shield,
-  LifeBuoy,
-  Mic,
-  Globe,
-  MessageSquare,
-  Terminal as TerminalIcon,
-  KeyRound
-} from 'lucide-react-native'
+import { Shield, LifeBuoy, KeyRound } from 'lucide-react-native'
 import { MobileSettingsFrame, MobileSettingsSection } from '../src/settings/mobile-settings-menu'
+import { mobileSettingsMenuItems } from '../src/settings/mobile-settings-menu-items'
 import { colors, radii, spacing, typography } from '../src/theme/mobile-theme'
 import {
   loadPendingHostCredentialCleanup,
@@ -83,25 +73,7 @@ export default function SettingsScreen() {
 
   return (
     <MobileSettingsFrame>
-      <MobileSettingsSection
-        items={[
-          {
-            label: 'Terminal',
-            icon: TerminalIcon,
-            onPress: () => router.push('/terminal-settings')
-          },
-          {
-            label: 'Chat UI',
-            icon: MessageSquare,
-            onPress: () => router.push('/native-chat-settings')
-          },
-          { label: 'Browser', icon: Globe, onPress: () => router.push('/browser-settings') },
-          { label: 'Voice', icon: Mic, onPress: () => router.push('/voice-settings') },
-          { label: 'Notifications', icon: Bell, onPress: () => router.push('/notifications') },
-          { label: 'Troubleshooting', icon: Wrench, onPress: () => router.push('/troubleshoot') },
-          { label: 'About', icon: Info, onPress: () => router.push('/about') }
-        ]}
-      />
+      <MobileSettingsSection items={mobileSettingsMenuItems((route) => router.push(route))} />
 
       {showCredentialCleanup ? (
         <View style={[styles.section, styles.sectionSpacer]}>
