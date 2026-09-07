@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AGENT_SESSION_REWIND_REASONS } from '../../../../shared/agent-session-rewind'
 import { EMPTY_STRUCTURED_AGENT_SESSION } from '../../../../shared/structured-agent-session-reducer'
 import type { AgentJournalRenderItem } from '../../../../shared/agent-session-journal-types'
 import { countNativeChatRewindMessages, useNativeChatRewind } from './use-native-chat-rewind'
@@ -235,37 +236,43 @@ describe('structured chat rewind', () => {
     }
   )
 
-  it.each([
-    'unsupported',
-    'history-not-paginated',
-    'busy',
-    'stale-epoch',
-    'invalid-target',
-    'history-limit',
-    'provider-refused',
-    'proof-mismatch',
-    'outcome-unknown',
-    'future-reason'
-  ])('explains refusal %s', async (rewindReason) => {
-    const props = input()
-    props.send.mockImplementation(async (_fields, failure) => {
-      failure({ code: 'agent_session_conflict', rewindReason })
-      return null
-    })
+  it.each(AGENT_SESSION_REWIND_REASONS)('explains disabled host support: %s', async (reason) => {
+    const props: Parameters<typeof useNativeChatRewind>[0] = {
+      ...input(),
+      support: { supported: false, reason }
+    }
     const view = renderHook(() => useNativeChatRewind(props))
-    await act(() => view.result.current.request('user', async () => true))
-    expect(view.result.current.error).toBe(nativeChatRewindReasonCopy(rewindReason))
-    if (rewindReason === 'history-limit') {
-      expect(view.result.current.error).toContain('Nothing was changed')
-    }
-    if (rewindReason === 'outcome-unknown') {
-      expect(view.result.current.error).toContain('may have completed')
-      expect(view.result.current.error).toContain('Sending is blocked')
-      expect(view.result.current.error).toContain('until the outcome is resolved')
-      expect(view.result.current.error).not.toContain('failed')
-      expect(view.result.current.pending).toBe(true)
-    }
+    expect(view.result.current.disabledReason).toBe(nativeChatRewindReasonCopy(reason))
+    expect(view.result.current.disabledReason).not.toBe(nativeChatRewindReasonCopy('future-reason'))
+    const confirm = vi.fn()
+    await act(() => view.result.current.request('user', confirm))
+    expect(confirm).not.toHaveBeenCalled()
+    expect(props.send).not.toHaveBeenCalled()
   })
+
+  it.each([...AGENT_SESSION_REWIND_REASONS, 'future-reason'])(
+    'explains refusal %s',
+    async (rewindReason) => {
+      const props = input()
+      props.send.mockImplementation(async (_fields, failure) => {
+        failure({ code: 'agent_session_conflict', rewindReason })
+        return null
+      })
+      const view = renderHook(() => useNativeChatRewind(props))
+      await act(() => view.result.current.request('user', async () => true))
+      expect(view.result.current.error).toBe(nativeChatRewindReasonCopy(rewindReason))
+      if (rewindReason === 'history-limit') {
+        expect(view.result.current.error).toContain('Nothing was changed')
+      }
+      if (rewindReason === 'outcome-unknown') {
+        expect(view.result.current.error).toContain('may have completed')
+        expect(view.result.current.error).toContain('Sending is blocked')
+        expect(view.result.current.error).toContain('until the outcome is resolved')
+        expect(view.result.current.error).not.toContain('failed')
+        expect(view.result.current.pending).toBe(true)
+      }
+    }
+  )
 
   it('treats a lost transport response as uncertain and never retries', async () => {
     const props = input()
