@@ -6,36 +6,29 @@ public final class ExpoMobileWebShellModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ExpoMobileWebShell")
 
-    AsyncFunction("beginStage") {
-      (hostIdentity: String, manifestJson: String, canonicalManifestJson: String) -> String in
-      try self.packageStore.beginStage(
+    AsyncFunction("writeStagedAsset") {
+      (hostIdentity: String, buildId: String, path: String, dataBase64: String) in
+      try self.packageStore.writeStagedAsset(
         hostIdentity: hostIdentity,
-        manifestJson: manifestJson,
-        canonicalManifestJson: canonicalManifestJson
-      )
-    }
-
-    AsyncFunction("writeAssetChunk") {
-      (stageId: String, path: String, offset: Int, dataBase64: String, chunkSha256: String) in
-      try self.packageStore.writeAssetChunk(
-        stageId: stageId,
+        buildId: buildId,
         path: path,
-        offset: offset,
-        dataBase64: dataBase64,
-        chunkSha256: chunkSha256
+        dataBase64: dataBase64
       )
     }
 
-    AsyncFunction("finishAsset") { (stageId: String, path: String) in
-      try self.packageStore.finishAsset(stageId: stageId, path: path)
+    AsyncFunction("commitGeneration") {
+      (hostIdentity: String, buildId: String, manifestJson: String) -> [String: String] in
+      [
+        "buildId": try self.packageStore.commitGeneration(
+          hostIdentity: hostIdentity,
+          buildId: buildId,
+          manifestJson: manifestJson
+        )
+      ]
     }
 
-    AsyncFunction("commitStage") { (stageId: String) -> [String: String] in
-      ["buildId": try self.packageStore.commitStage(stageId: stageId)]
-    }
-
-    AsyncFunction("abortStage") { (stageId: String) in
-      self.packageStore.abortStage(stageId: stageId)
+    AsyncFunction("abortGeneration") { (hostIdentity: String, buildId: String) in
+      self.packageStore.abortGeneration(hostIdentity: hostIdentity, buildId: buildId)
     }
 
     AsyncFunction("openSession") {
@@ -45,14 +38,6 @@ public final class ExpoMobileWebShellModule: Module {
         buildId: buildId,
         bridgeVersion: bridgeVersion
       )
-    }
-
-    AsyncFunction("recoverSession") { (sessionId: String) -> [String: String] in
-      try self.packageStore.recoverSession(sessionId: sessionId)
-    }
-
-    AsyncFunction("markSessionHealthy") { (sessionId: String) -> [String: String] in
-      ["buildId": try self.packageStore.markSessionHealthy(sessionId: sessionId)]
     }
 
     AsyncFunction("closeSession") { (sessionId: String) in
