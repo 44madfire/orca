@@ -79,8 +79,14 @@ export abstract class UpdaterInstallExecution extends UpdaterPackageRecovery {
       this.sendInstallFailureStatus({
         state: 'error',
         message: describeConflictingAppInstances(conflictingInstancePids),
-        // The staged update is untouched; this is the user's to clear and retry.
-        retryable: true,
+        // Why false when the update IS still installable: the card only promotes
+        // `message` to its summary line for a non-retryable error, and otherwise
+        // buries it behind "Show details" under a generic "Could not complete the
+        // update." — so `true` would hide the one sentence that tells the user
+        // which copies to quit. The action it costs us re-downloads a release
+        // that is already staged, which is not the retry this error needs;
+        // "Download Manually" still renders from `releaseUrl`.
+        retryable: false,
         ...(pendingVersion ? { version: pendingVersion } : {})
       })
       return

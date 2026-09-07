@@ -77,13 +77,23 @@ async function readRunningApplicationPids(
  * as data rather than throwing, so partial stdout arrives looking like an answer.
  * A probe that could not finish has proved nothing about who is running, and
  * naming a blocker on that basis would refuse an install the user could have had.
+ *
+ * `outputTruncated` is the third way to get a partial list and the only one that
+ * arrives with a clean exit: the bounded sink clips at `maxOutputBytes` and says
+ * so precisely because callers that parse the output have to tell a short answer
+ * from a clipped one. Unreachable in practice — the cap holds thousands of pids —
+ * but this is the fail-open path, where the contract is the safety property.
  */
 export function runningApplicationQueryOutput(result: {
   timedOut: boolean
   code: number | null
   stdout: string
+  outputTruncated?: boolean
 }): string {
-  return result.timedOut || result.code !== 0 ? '' : result.stdout
+  if (result.timedOut || result.code !== 0 || result.outputTruncated === true) {
+    return ''
+  }
+  return result.stdout
 }
 
 export function parseRunningApplicationPids(output: string, currentPid: number): number[] {
@@ -140,9 +150,12 @@ const MAX_REPORTED_CONFLICTING_PIDS = 5
 export function describeConflictingAppInstances(pids: readonly number[]): string {
   const reported = pids.slice(0, MAX_REPORTED_CONFLICTING_PIDS)
   const suffix = pids.length > reported.length ? ', …' : ''
-  const subject =
+  const [subject, closing] =
     pids.length === 1
-      ? `Another copy of Orca is running (PID ${reported[0]})`
-      : `${pids.length} other copies of Orca are running (PIDs ${reported.join(', ')}${suffix})`
-  return `${subject}. macOS cannot replace the app while they are open — quit them, then try again.`
+      ? [`Another copy of Orca is running (PID ${reported[0]})`, 'it is open — quit it']
+      : [
+          `${pids.length} other copies of Orca are running (PIDs ${reported.join(', ')}${suffix})`,
+          'they are open — quit them'
+        ]
+  return `${subject}. macOS cannot replace the app while ${closing}, then try again.`
 }

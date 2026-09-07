@@ -83,13 +83,22 @@ describe('macOS install blocked by other running app instances', () => {
     expect(send).toHaveBeenCalledWith('updater:quitAndInstallAborted')
   })
 
-  it('names the copies to quit and keeps the update retryable', async () => {
+  it('puts the copies to quit on the card summary, not behind Show details', async () => {
     findConflictingAppInstancePidsMock.mockResolvedValue([270, 811])
 
     const send = await requestInstall()
 
-    expect(lastErrorStatus(send)).toMatchObject({ state: 'error', retryable: true })
-    expect(String(lastErrorStatus(send)?.message)).toContain('270, 811')
+    // Why the flag and not just the text: the update card promotes `message` to
+    // its summary line only for a NON-retryable error, and otherwise shows a
+    // generic "Could not complete the update." with this sentence hidden behind
+    // "Show details". Marking it retryable would bury the one thing the user
+    // needs, in exchange for a Retry Download that re-fetches an already-staged
+    // release. Assert the summary the user actually reads, so a flip back is red.
+    // The renderer half of this contract is asserted against the real card model
+    // in update-card-error-model.test.ts; this pins the flag main must send.
+    const status = lastErrorStatus(send)
+    expect(status).toMatchObject({ state: 'error', retryable: false })
+    expect(String(status?.message)).toContain('270, 811')
   })
 
   it('leaves the update installable after a refusal, once the other copy quits', async () => {

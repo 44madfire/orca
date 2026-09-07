@@ -91,12 +91,43 @@ describe('runningApplicationQueryOutput', () => {
   it('discards output from a query killed by a signal', () => {
     expect(runningApplicationQueryOutput({ timedOut: false, code: null, stdout: '270\n' })).toBe('')
   })
+
+  it('discards a clipped list even though the query exited cleanly', () => {
+    // The only partial answer that arrives with code 0: the bounded sink hit
+    // maxOutputBytes. A truncated pid list would name some blockers and hide
+    // others, so it is not an answer this probe may act on.
+    expect(
+      runningApplicationQueryOutput({
+        timedOut: false,
+        code: 0,
+        stdout: '270\n811\n',
+        outputTruncated: true
+      })
+    ).toBe('')
+  })
+
+  it('accepts output that the sink explicitly did not clip', () => {
+    expect(
+      runningApplicationQueryOutput({
+        timedOut: false,
+        code: 0,
+        stdout: '270\n',
+        outputTruncated: false
+      })
+    ).toBe('270\n')
+  })
 })
 
 describe('describeConflictingAppInstances', () => {
-  it('names a single blocking pid', () => {
+  it('names a single blocking pid, and reads as singular throughout', () => {
     expect(describeConflictingAppInstances([270])).toBe(
-      'Another copy of Orca is running (PID 270). macOS cannot replace the app while they are open — quit them, then try again.'
+      'Another copy of Orca is running (PID 270). macOS cannot replace the app while it is open — quit it, then try again.'
+    )
+  })
+
+  it('reads as plural for more than one', () => {
+    expect(describeConflictingAppInstances([270, 811])).toBe(
+      '2 other copies of Orca are running (PIDs 270, 811). macOS cannot replace the app while they are open — quit them, then try again.'
     )
   })
 
@@ -115,6 +146,18 @@ describe('conflicting-instance detection strategy', () => {
     path.join(import.meta.dirname, 'updater-conflicting-app-instances.ts'),
     'utf8'
   )
+  // Why the query and not the file: the prose above it names AppKit and
+  // bundleIdentifier too, so asserting on the file passes even after the query
+  // has been rewritten to scan the process table — measured, that is exactly
+  // what an earlier version of this ratchet did.
+  const query = source.match(/String\.raw`([\s\S]*?)`/)?.[1] ?? ''
+  /** The condition deciding which running applications count as blockers. */
+  const blockerCondition = query.match(/if\s*\(([\s\S]*?)\)\s*\{/)?.[1] ?? ''
+
+  it('reads its blocker set from AppKit, not the process table', () => {
+    expect(query).not.toBe('')
+    expect(query).toContain('NSWorkspace.sharedWorkspace.runningApplications')
+  })
 
   it('identifies blockers by bundle identity, so Orca CLI processes are not counted', () => {
     // The Orca CLI runs from the SAME bundle executable under
@@ -126,9 +169,11 @@ describe('conflicting-instance detection strategy', () => {
     // Squirrel's. Measured on a live machine: three processes shared the bundle
     // executable path (the app plus two `ELECTRON_RUN_AS_NODE` CLI processes)
     // and this query returned only the app.
-    expect(source).toContain('NSWorkspace')
-    expect(source).toContain('bundleIdentifier')
-    expect(source).toMatch(/if\s*\(\s*\n?\s*executableUrl\s*&&\s*\n?\s*bundleIdentifier/)
+    expect(blockerCondition).not.toBe('')
+    // Order- and whitespace-independent, so reformatting cannot redden this.
+    expect(blockerCondition).toContain('bundleIdentifier')
+    expect(blockerCondition).toContain('executableUrl')
+    expect(blockerCondition).toContain('executablePath')
   })
 
   it('never enumerates blockers from the process table', () => {
