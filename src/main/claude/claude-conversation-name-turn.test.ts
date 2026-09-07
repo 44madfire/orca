@@ -53,7 +53,10 @@ describe('startClaudeConversationNaming', () => {
 
     // Claude's own titling is a short noun phrase; instructing it in Codex's
     // imperative-verb style here would fight the SDK's own prompt.
-    expect(generateSessionTitle.mock.calls[0]![0]).toBe('fix the flaky lease probe')
+    expect(generateSessionTitle).toHaveBeenCalledWith(
+      'fix the flaky lease probe',
+      expect.anything()
+    )
   })
 
   it('asks only once per session', async () => {
@@ -111,10 +114,11 @@ describe('startClaudeConversationNaming', () => {
 })
 
 describe('startClaudeConversationNaming robustness', () => {
-  it('never fails the send when the connection has no title request at all', async () => {
+  it('never fails the send when the title request throws synchronously', async () => {
     const onConversationName = vi.fn()
-    // A connection predating generateSessionTitle throws synchronously; this runs
-    // on the send path, so it must not reach the caller.
+    // The control surface always exposes the method, so this shape is one the
+    // types forbid — it stands in for any synchronous throw on the send path,
+    // which is what actually turned a delivered message into a reported failure.
     const session = { namingAttempted: false, connection: {} } as unknown as ClaudeSession
 
     expect(() =>

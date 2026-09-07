@@ -117,8 +117,9 @@ export type ClaudeControlSurface = {
   supportedModels: (options?: ClaudeControlOptions) => Promise<unknown[]>
   initializationResult: (options?: ClaudeControlOptions) => Promise<unknown>
   getSettings: (options?: ClaudeControlOptions) => Promise<unknown>
-  /** Null when this CLI exposes no title request; never an error, so a chat
-   *  without a name simply keeps its placeholder. */
+  /** Always present, like `getSettings`: the surface answers null when the CLI
+   *  exposes no title request, so a chat without a name keeps its placeholder
+   *  rather than the caller having to probe for the method. */
   generateSessionTitle: (
     description: string,
     options?: ClaudeControlOptions & { persist?: boolean }

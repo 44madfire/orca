@@ -16,6 +16,7 @@ function sessionFor(setModel: ClaudeSession['connection']['setModel']): ClaudeSe
     retiredDispatchWaiters: [],
     replayContentFallbackBlocked: false,
     backgroundTasks: new ClaudeBackgroundTaskTracker(),
+    namingAttempted: false,
     dispatchSequence: 0,
     optionMutationSequence: 0,
     options: new Map(),

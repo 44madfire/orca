@@ -39,10 +39,10 @@ export function startClaudeConversationNaming(
     return
   }
   session.namingAttempted = true
-  // Started inside a promise so nothing here can reach the caller: this runs on
-  // the send path, and a connection that predates the title request throws
-  // synchronously. A chat with no name is a far better outcome than a send that
-  // reports failure because naming it went wrong.
+  // Started inside a promise so NOTHING here can reach the caller. This runs on
+  // the send path, and an integration fake without the method turned a delivered
+  // message into a reported failure — a synchronous throw from any cause would do
+  // the same. A chat with no name beats a send that claims it failed.
   void Promise.resolve()
     .then(() =>
       session.connection.generateSessionTitle(description, {

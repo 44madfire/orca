@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { CodexAppServerConnection } from './codex-app-server-connection'
 import {
   createCodexNamingTurnCollector,
   generateAndSetCodexConversationName,
@@ -11,7 +12,7 @@ const NAMING = 'thread-naming'
 /** An app-server that answers the naming flow's four requests. */
 function fakeConnection(options: { nameOnReRead?: string | null; answer?: string | null } = {}) {
   const calls: { method: string; params: Record<string, unknown> }[] = []
-  const connection = {
+  const connection: Pick<CodexAppServerConnection, 'request'> = {
     request: vi.fn(async (method: string, params?: Record<string, unknown>) => {
       calls.push({ method, params: params ?? {} })
       if (method === 'thread/start') {
@@ -32,7 +33,7 @@ function fakeConnection(options: { nameOnReRead?: string | null; answer?: string
 }
 
 function run(
-  connection: { request: ReturnType<typeof vi.fn> },
+  connection: Pick<CodexAppServerConnection, 'request'>,
   answer: string | null
 ): Promise<string | null> {
   let collector: ReturnType<typeof createCodexNamingTurnCollector> | null = null
@@ -41,8 +42,8 @@ function run(
     cwd: '/work/repo',
     threadId: THREAD,
     prompt: 'fix the flaky lease probe',
-    openNamingTurn: (namingThreadId) => {
-      collector = createCodexNamingTurnCollector(namingThreadId, 5_000)
+    openNamingTurn: () => {
+      collector = createCodexNamingTurnCollector(5_000)
       return collector
     },
     closeNamingTurn: () => {}
@@ -128,6 +129,24 @@ describe('generateAndSetCodexConversationName', () => {
     expect(calls.some((call) => call.method === 'thread/name/set')).toBe(false)
     // No title also means no reason to have re-read the thread.
     expect(calls.some((call) => call.method === 'thread/read')).toBe(false)
+  })
+
+  it('refuses to run the naming turn on the user’s own thread', async () => {
+    // An app-server that ignored `ephemeral` hands back the session's own
+    // thread. Running there would put this prompt and its JSON answer into the
+    // user's transcript and their history — the one outcome this path exists to
+    // avoid — so the turn is abandoned instead.
+    const calls: { method: string; params: Record<string, unknown> }[] = []
+    const connection: Pick<CodexAppServerConnection, 'request'> = {
+      request: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        calls.push({ method, params: params ?? {} })
+        return method === 'thread/start' ? { thread: { id: THREAD } } : {}
+      })
+    }
+
+    await expect(run(connection, '{"title":"Fix flaky lease probe"}')).resolves.toBeNull()
+
+    expect(calls.map((call) => call.method)).toEqual(['thread/start'])
   })
 
   it('gives up when the turn ends without an answer', async () => {
