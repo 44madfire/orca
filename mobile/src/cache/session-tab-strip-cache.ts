@@ -9,6 +9,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { sha256 } from '@noble/hashes/sha256'
 import {
+  getPersistableTabStripAgentId,
   getPersistableTabStripTitle,
   isDrawableTabStripType,
   type MobileSessionTabStripEntry,
@@ -25,6 +26,7 @@ const WRITE_DEBOUNCE_MS = 250
 // 128 bits of a digest: far past collision range for a dozen workspaces, and short enough that
 // the stored blob stays small.
 const WORKSPACE_DIGEST_LENGTH = 32
+const TAB_DIGEST_PREFIX = 'cached:'
 
 type StoredWorkspace = { key: string; preview: MobileSessionTabStripPreview }
 type StoredFile = { workspaces: StoredWorkspace[] }
@@ -142,7 +144,17 @@ export function resetSessionTabStripCacheForTests(): void {
 }
 
 function digestWorkspaceId(worktreeId: string): string {
-  const digest = sha256(new TextEncoder().encode(worktreeId))
+  return digestHex(worktreeId)
+}
+
+// Prefixed so a raw id can never be mistaken for one already digested, and so a live tab's
+// id can never collide with a stored row's by construction.
+function digestTabId(tabId: string): string {
+  return tabId.startsWith(TAB_DIGEST_PREFIX) ? tabId : `${TAB_DIGEST_PREFIX}${digestHex(tabId)}`
+}
+
+function digestHex(value: string): string {
+  const digest = sha256(new TextEncoder().encode(value))
   let hex = ''
   for (const byte of digest) {
     hex += byte.toString(16).padStart(2, '0')
@@ -230,22 +242,27 @@ async function writeFile(cache: Map<string, MobileSessionTabStripPreview>): Prom
 }
 
 // Rebuilt field by field so a field later added to the live tab type cannot ride into storage
-// without someone deciding it belongs there.
+// without someone deciding it belongs there. The id is digested: an editor tab's id embeds the
+// worktree and the URL-encoded absolute file path, and the strip only needs it as a React key
+// and to mark the active row, both of which a digest serves. A stored entry written by an
+// older build carries a raw id and is digested again here on the way back out; a digest of a
+// digest is still a stable key.
 function redactPreview(preview: MobileSessionTabStripPreview): MobileSessionTabStripPreview {
   const tabs: MobileSessionTabStripEntry[] = []
+  const ids = new Map<string, string>()
   for (const tab of preview.tabs ?? []) {
     if (typeof tab?.id !== 'string' || !isDrawableTabStripType(tab.type)) {
       continue
     }
-    const agentId = typeof tab.agentId === 'string' ? tab.agentId : null
-    const title = typeof tab.title === 'string' ? tab.title : ''
+    const agentId = getPersistableTabStripAgentId(
+      typeof tab.agentId === 'string' ? tab.agentId : null
+    )
+    const id = digestTabId(tab.id)
+    ids.set(tab.id, id)
     tabs.push({
-      id: tab.id,
+      id,
       type: tab.type,
-      title: getPersistableTabStripTitle({ type: tab.type, title, agentId }).slice(
-        0,
-        MAX_TITLE_LENGTH
-      ),
+      title: getPersistableTabStripTitle({ type: tab.type, agentId }).slice(0, MAX_TITLE_LENGTH),
       agentId
     })
     if (tabs.length === MAX_TABS_PER_WORKSPACE) {
@@ -253,8 +270,6 @@ function redactPreview(preview: MobileSessionTabStripPreview): MobileSessionTabS
     }
   }
   const activeTabId =
-    typeof preview.activeTabId === 'string' && tabs.some((tab) => tab.id === preview.activeTabId)
-      ? preview.activeTabId
-      : null
+    typeof preview.activeTabId === 'string' ? (ids.get(preview.activeTabId) ?? null) : null
   return { tabs, activeTabId }
 }

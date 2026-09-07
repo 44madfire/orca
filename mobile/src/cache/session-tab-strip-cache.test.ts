@@ -27,6 +27,19 @@ function preview(...ids: string[]): MobileSessionTabStripPreview {
   }
 }
 
+// Stored ids are digests: they are stable, prefixed, and never the wire id.
+function expectDigestedIds(ids: (string | undefined)[], count: number): void {
+  expect(ids).toHaveLength(count)
+  for (const id of ids) {
+    expect(id).toMatch(/^cached:[0-9a-f]{32}$/)
+  }
+}
+
+function readAfterSave(key: string | null, id: string): string {
+  saveCachedSessionTabStrip(key, preview(id))
+  return readCachedSessionTabStrip(key)!.tabs[0]!.id
+}
+
 function lastWrittenFile(): { workspaces: { key: string }[] } {
   const call = asyncStorage.setItem.mock.calls.at(-1)
   return JSON.parse(String(call?.[1]))
@@ -73,7 +86,7 @@ describe('session tab strip cache', () => {
     const key = getSessionTabStripCacheKey('host-1', 'wt-1')
     saveCachedSessionTabStrip(key, preview('tab-1', 'tab-2'))
 
-    expect(readCachedSessionTabStrip(key)?.tabs.map((tab) => tab.id)).toEqual(['tab-1', 'tab-2'])
+    expectDigestedIds(readCachedSessionTabStrip(key)?.tabs.map((tab) => tab.id) ?? [], 2)
     expect(asyncStorage.setItem).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(300)
@@ -89,7 +102,7 @@ describe('session tab strip cache', () => {
     )
 
     expect(readCachedSessionTabStrip(key)).toBeNull()
-    expect((await loadCachedSessionTabStrip(key))?.tabs.map((tab) => tab.id)).toEqual(['tab-1'])
+    expectDigestedIds((await loadCachedSessionTabStrip(key))?.tabs.map((tab) => tab.id) ?? [], 1)
     expect(readCachedSessionTabStrip(key)?.tabs).toHaveLength(1)
   })
 
@@ -137,11 +150,9 @@ describe('session tab strip cache', () => {
     expect(readCachedSessionTabStrip(key)).toEqual({ tabs: [], activeTabId: null })
   })
 
-  it('caps tabs per workspace and title length, and drops an unmatched active id', async () => {
+  it('caps tabs per workspace and drops an active id that fell past the cap', async () => {
     const key = getSessionTabStripCacheKey('host-1', 'wt-1')
     saveCachedSessionTabStrip(key, {
-      // A file tab, because the titles that survive redaction at all are the ones the cap has
-      // to bound.
       tabs: Array.from({ length: 30 }, (_, i) => ({
         id: `tab-${i}`,
         type: 'file' as const,
@@ -153,8 +164,89 @@ describe('session tab strip cache', () => {
 
     const stored = readCachedSessionTabStrip(key)
     expect(stored?.tabs).toHaveLength(24)
-    expect(stored?.tabs[0]?.title).toHaveLength(64)
     expect(stored?.activeTabId).toBeNull()
+  })
+
+  it('maps the active id onto the digested row it names', async () => {
+    const key = getSessionTabStripCacheKey('host-1', 'wt-1')
+    saveCachedSessionTabStrip(key, preview('tab-1', 'tab-2'))
+
+    const stored = readCachedSessionTabStrip(key)
+    expect(stored?.activeTabId).toBe(stored?.tabs[0]?.id)
+    expect(stored?.activeTabId).toMatch(/^cached:/)
+  })
+
+  it('never writes a tab id, because an editor id embeds the absolute file path', async () => {
+    // The desktop builds an editor tab's id as editor:<worktree>:<runtime>:<encoded path>, and
+    // publishes it unchanged when the file has no unified tab row.
+    const id = `editor:${encodeURIComponent('/Users/someone/clients/acme')}:local:${encodeURIComponent('/Users/someone/clients/acme/term-sheet.md')}`
+    const key = getSessionTabStripCacheKey('host-1', 'wt-1')
+    saveCachedSessionTabStrip(key, {
+      tabs: [{ id, type: 'file', title: 'term-sheet.md', agentId: null }],
+      activeTabId: id
+    })
+    await vi.advanceTimersByTimeAsync(300)
+
+    const written = String(asyncStorage.setItem.mock.calls.at(-1)?.[1])
+    expect(written).not.toContain('acme')
+    expect(written).not.toContain('term-sheet')
+    expect(written).not.toContain('Users')
+    expect(readCachedSessionTabStrip(key)?.tabs[0]?.title).toBe('File')
+  })
+
+  it('digests a raw id an older build stored, and leaves an already digested one alone', async () => {
+    const key = getSessionTabStripCacheKey('host-1', 'wt-1')
+    const digested = readAfterSave(key, 'tab-1')
+    asyncStorage.getItem.mockResolvedValue(
+      JSON.stringify({
+        workspaces: [
+          {
+            key,
+            preview: {
+              tabs: [
+                { id: '/Users/someone/old-build-raw-id', type: 'file', title: 'x', agentId: null },
+                { id: digested, type: 'terminal', title: 'x', agentId: null }
+              ],
+              activeTabId: digested
+            }
+          }
+        ]
+      })
+    )
+    resetSessionTabStripCacheForTests()
+
+    const loaded = await loadCachedSessionTabStrip(key)
+    expectDigestedIds(loaded?.tabs.map((tab) => tab.id) ?? [], 2)
+    expect(loaded?.tabs[1]?.id).toBe(digested)
+    expect(loaded?.activeTabId).toBe(digested)
+  })
+
+  it('keeps only a known agent id, since the hook-reported one is free text', async () => {
+    const key = getSessionTabStripCacheKey('host-1', 'wt-1')
+    saveCachedSessionTabStrip(key, {
+      tabs: [
+        { id: 'tab-1', type: 'terminal', title: 'x', agentId: 'claude' },
+        { id: 'tab-2', type: 'terminal', title: 'x', agentId: 'export TOKEN=abc123' },
+        { id: 'tab-3', type: 'agent-session', title: 'refactor the billing job', agentId: 'codex' },
+        { id: 'tab-4', type: 'agent-session', title: 'x', agentId: 'not-an-agent' },
+        { id: 'tab-5', type: 'markdown', title: 'severance-draft.md', agentId: null }
+      ],
+      activeTabId: 'tab-1'
+    })
+    await vi.advanceTimersByTimeAsync(300)
+
+    const stored = readCachedSessionTabStrip(key)
+    expect(stored?.tabs.map((tab) => [tab.agentId, tab.title])).toEqual([
+      ['claude', 'Claude'],
+      [null, 'Terminal'],
+      ['codex', 'Codex'],
+      [null, 'Agent'],
+      [null, 'Markdown']
+    ])
+    const written = String(asyncStorage.setItem.mock.calls.at(-1)?.[1])
+    expect(written).not.toContain('abc123')
+    expect(written).not.toContain('billing')
+    expect(written).not.toContain('severance')
   })
 
   it('drops fields a future tab type might smuggle into storage', async () => {
@@ -186,7 +278,7 @@ describe('session tab strip cache', () => {
       activeTabId: 'tab-2'
     })
 
-    expect(readCachedSessionTabStrip(key)?.tabs.map((tab) => tab.id)).toEqual(['tab-2'])
+    expectDigestedIds(readCachedSessionTabStrip(key)?.tabs.map((tab) => tab.id) ?? [], 1)
   })
 
   it('never writes a shell-controlled terminal title, however it arrives', async () => {

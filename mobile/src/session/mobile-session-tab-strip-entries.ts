@@ -7,7 +7,9 @@ import {
 
 /**
  * The only session-tab fields the tab strip draws. Everything else the live tab carries (unsent
- * launch drafts, absolute file paths, browser URLs, agent session ids) stays on the wire.
+ * launch drafts, absolute file paths, browser URLs, agent session ids) stays on the wire. The id
+ * itself is wire-supplied too: an editor tab's id embeds its absolute path, so the cache stores
+ * a digest of it, never the id.
  */
 export type MobileSessionTabStripEntry = {
   id: string
@@ -61,27 +63,36 @@ export function isDrawableTabStripType(type: string): type is MobileSessionTabTy
 
 const agentDisplayNames: Readonly<Record<string, string>> = TUI_AGENT_DISPLAY_NAMES
 
+/** An agent id is only kept on disk when it names a known agent; anything else is hook text. */
+export function getPersistableTabStripAgentId(agentId: string | null): string | null {
+  return agentId !== null && Object.hasOwn(agentDisplayNames, agentId) ? agentId : null
+}
+
 /**
- * The title a strip entry may be written to disk under.
+ * The title a strip entry may be written to disk under. Nothing wire-supplied passes through.
  *
  * A terminal's title is whatever the shell last set, which is routinely the command line —
- * `psql postgres://user:password@host/db`, `curl -H "Authorization: Bearer ..."`. None of that
- * belongs in plaintext storage, and a browser tab's page title is no better. Both collapse to a
- * fixed label, so what survives is the shape of the strip, not its contents. A resolved agent
- * still names itself, because that lookup is a closed enum: an unrecognised id yields the
- * generic label rather than passing text through.
+ * `psql postgres://user:password@host/db`, `curl -H "Authorization: Bearer ..."`. A browser
+ * tab's page title, a file or markdown tab's basename, and an agent session's title are no
+ * better: each names what the user was working on. Every type collapses to a fixed label, so
+ * what survives is the shape of the strip, not its contents. A resolved agent still names
+ * itself, because that lookup is a closed enum.
  */
 export function getPersistableTabStripTitle(
-  entry: Pick<MobileSessionTabStripEntry, 'type' | 'title' | 'agentId'>
+  entry: Pick<MobileSessionTabStripEntry, 'type' | 'agentId'>
 ): string {
-  if (entry.type === 'terminal') {
-    const agentLabel = entry.agentId === null ? undefined : agentDisplayNames[entry.agentId]
-    return agentLabel ?? 'Terminal'
+  const agentLabel = agentDisplayNames[getPersistableTabStripAgentId(entry.agentId) ?? '']
+  switch (entry.type) {
+    case 'terminal':
+    case 'agent-session':
+      return agentLabel ?? (entry.type === 'terminal' ? 'Terminal' : 'Agent')
+    case 'browser':
+      return 'Browser'
+    case 'markdown':
+      return 'Markdown'
+    case 'file':
+      return 'File'
   }
-  if (entry.type === 'browser') {
-    return 'Browser'
-  }
-  return entry.title
 }
 
 export function toMobileSessionTabStripPreview(
