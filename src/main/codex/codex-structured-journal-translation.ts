@@ -181,12 +181,17 @@ export function createCodexJournalTranslator(
       }
       if (event.method === 'item/started' || event.method === 'item/completed') {
         const subagentItem = readCodexNotificationThreadItem(event.params, readCodexThreadItem)
-        if (subagentItem) {
-          return subagents.handleItem({
-            threadId: event.threadId,
-            turnId: readCodexTurnId(event.params) ?? activeTurns.current(event.threadId),
-            item: subagentItem
-          })
+        // Null means the roster did not claim it; fall through to normal item
+        // handling. Returning here unconditionally swallows every other item.
+        const subagentAdmission = subagentItem
+          ? subagents.handleItem({
+              threadId: event.threadId,
+              turnId: readCodexTurnId(event.params) ?? activeTurns.current(event.threadId),
+              item: subagentItem
+            })
+          : null
+        if (subagentAdmission) {
+          return subagentAdmission
         }
         const translated = items.handle(event)
         return publishActivity(
