@@ -28,26 +28,54 @@ describe('orca CLI skill guidance', () => {
     expect(skill).toContain('Never base on the current feature branch')
   })
 
-  it('documents both lineage outcomes and what decides between them', () => {
+  // Why: child-vs-top-level lineage is an unresolved product preference, so this guide
+  // must not resolve it. These assertions pin symmetry — both options present, both
+  // costs stated, neither one reachable by copying a template — not either outcome.
+  it('presents both lineage options symmetrically in the handoff templates', () => {
     const skill = readSkill()
 
-    // Default: inferred parent, and what the inference is actually keyed on.
+    // Both spellings appear, one line apart, so neither is the one an agent copies.
+    expect(skill).toContain(
+      'ORCA worktree create --name <task-name> --parent-worktree active --agent codex --prompt'
+    )
+    expect(skill).toContain(
+      'ORCA worktree create --name <task-name> --no-parent --agent codex --prompt'
+    )
+    // A flagless template is not neutral: create infers a parent, so omitting the flag
+    // silently picks the child outcome. No copy-paste template may leave it out.
+    expect(skill).not.toContain('ORCA worktree create --name <task-name> --agent codex --prompt')
+    expect(skill).not.toContain('ORCA worktree create --name <task-name> --json')
+    expect(skill).toContain('<lineage-flag>')
+  })
+
+  it('states the cost of each lineage option and prescribes neither', () => {
+    const skill = readSkill()
+
+    // Child: grouping benefit, and both of its real costs.
+    expect(skill).toContain(
+      "As a child, it is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows."
+    )
+    expect(skill).toContain("hidden while the parent's lineage group is collapsed")
+    expect(skill).toContain('deleting the parent deletes it too')
+    // Top-level: the mirror-image benefit and cost.
+    expect(skill).toContain(
+      'As a top-level worktree, it is always its own row and is unaffected when another worktree is deleted.'
+    )
+    expect(skill).toContain('Nothing groups it with the work it came from')
+    // The inferred default is described as mechanism, never endorsed as advice.
     expect(skill).toContain(
       'Orca infers a parent from the calling context (Orca terminal, orchestration context, or cwd)'
     )
-    // An affirmative reason to choose top-level, so the choice stays reachable.
     expect(skill).toContain(
-      '`--no-parent` makes the new worktree its own root, tracked separately from the work it came from'
+      'That inference follows from where the command ran, not from what the new work is about.'
     )
-    // Factual guards: no cascade implication, no "detached is hidden" claim.
-    expect(skill).toContain('deleting a parent never deletes its children on its own')
-    expect(skill).toContain('Both stay visible either way')
-    // Handoff templates must not pre-detach lineage.
-    expect(skill).not.toContain('--no-parent --agent codex')
-    expect(skill).not.toContain('--name <task-name> --no-parent')
-    // No rule that ties lineage to whether the work is "stacked" or "independent".
+    // Neither side may be restored as a rule.
     expect(skill).not.toContain('Use `--no-parent` only when the new work is independent.')
     expect(skill).not.toContain('--name independent-task')
+    expect(skill).not.toMatch(/(prefer|default to|always use) (a child|child lineage|`--no-parent`)/i)
+    // The old cascade claim was false: Orca deletes a parent's children with it.
+    expect(skill).not.toContain('deleting a parent never deletes its children on its own')
+    expect(skill).not.toContain('Both stay visible either way')
   })
 
   it('documents non-lifecycle full handoffs and custom Codex model fallback', () => {
@@ -69,7 +97,6 @@ describe('orca CLI skill guidance', () => {
     expect(skill).toContain(
       '`task-create` is also forbidden because it records coordinator-owned tracking state'
     )
-    expect(skill).toContain('ORCA worktree create --name <task-name> --agent codex --prompt')
     expect(skill).toContain('codex --model gpt-5.5 -c model_reasoning_effort="xhigh"')
     expect(skill).toContain('wait only for TUI readiness if needed to avoid losing input')
     expect(skill).toContain('send the prompt, and stop')

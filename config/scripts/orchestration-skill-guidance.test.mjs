@@ -116,22 +116,39 @@ describe('orchestration skill guidance', () => {
     expect(skill).toContain(
       'never base it on the current feature branch unless the user explicitly asks'
     )
-    expect(skill).toContain('orca worktree create --name <task-name> --agent codex --prompt')
-    // Templates must not opt out of lineage; the inferred-parent default is the point.
-    expect(fullHandoffs).not.toContain('--no-parent --agent codex')
-    expect(fullHandoffs).not.toContain('--name <task-name> --no-parent')
+    // Why: child-vs-top-level is an unresolved product preference. Both spellings ship
+    // one line apart so neither is the one an agent copies, and a flagless template is
+    // not neutral — create infers a parent, so omitting the flag picks child silently.
     expect(fullHandoffs).toContain(
-      'With no lineage flag, Orca infers a parent from the calling context and files the new worktree as its child'
+      'orca worktree create --name <task-name> --parent-worktree active --agent codex --prompt'
     )
     expect(fullHandoffs).toContain(
-      'keys that default on where the work was started, not on what the work is about'
+      'orca worktree create --name <task-name> --no-parent --agent codex --prompt'
     )
+    expect(fullHandoffs).not.toContain(
+      'orca worktree create --name <task-name> --agent codex --prompt'
+    )
+    expect(fullHandoffs).not.toContain('orca worktree create --name <task-name> --setup run --json')
+    expect(fullHandoffs).toContain('<lineage-flag>')
+    // Both outcomes carry their own benefit and their own cost.
     expect(fullHandoffs).toContain(
-      '`--no-parent` makes it its own root, tracked separately from the work it came from'
+      "As a child the new worktree is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows"
     )
-    expect(fullHandoffs).toContain('Deleting a parent never deletes its children on its own')
-    // No rule tying lineage to whether the work is "stacked".
+    expect(fullHandoffs).toContain('deleting the parent deletes it too')
+    expect(fullHandoffs).toContain(
+      "As a top-level worktree it is always its own row and survives the parent's deletion, but nothing groups it with the work it came from"
+    )
+    // The inferred default is described as mechanism, never endorsed as advice.
+    expect(fullHandoffs).toContain(
+      'which follows from where the command ran rather than from what the new work is about'
+    )
+    // Neither side may be restored as a rule.
     expect(fullHandoffs).not.toContain('Use child worktree lineage only when')
+    expect(fullHandoffs).not.toMatch(
+      /(prefer|default to|always use) (a child|child lineage|`--no-parent`)/i
+    )
+    // The old cascade claim was false: Orca deletes a parent's children with it.
+    expect(fullHandoffs).not.toContain('Deleting a parent never deletes its children on its own')
     expect(fullHandoffs).toContain('If the work should start from the repo default base')
     expect(fullHandoffs).toContain('omit `--base-branch`')
   })
@@ -202,10 +219,15 @@ describe('orchestration skill guidance', () => {
       'Independent tasks, parallel execution, convenience, or a preference for separate checkouts are not isolation requirements.'
     )
     expect(workerTerminals).toContain('its lineage is a separate choice from its Git base')
+    // Both flags named; the inference is stated as behaviour, not as the recommendation.
     expect(workerTerminals).toContain(
-      'omitting the lineage flag files it under the inferred parent'
+      '`--parent-worktree active` files it under this worktree, `--no-parent` makes it a top-level entry in Orca'
     )
+    expect(workerTerminals).toContain('Pass the lineage flag you mean')
     expect(workerTerminals).not.toContain('when it is not stacked')
+    expect(workerTerminals).not.toMatch(
+      /(prefer|default to|always use) (a child|child lineage|`--no-parent`)/i
+    )
   })
 
   it('keeps review-only completions and named next-owner fixes in their lanes', () => {

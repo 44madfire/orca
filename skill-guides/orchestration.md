@@ -203,8 +203,9 @@ orca orchestration worker-start --task <task_id> --worktree current --agent clau
 For a new worktree, setup runs by default and agent-first creation reuses the returned startup agent terminal:
 
 ```bash
+# Child:
 orca orchestration worker-start --task <task_id> --worktree new-child --name <name> --agent codex --setup run --json
-# Explicit top-level:
+# Top-level:
 orca orchestration worker-start --task <task_id> --worktree new-top-level --name <name> --agent codex --setup run --json
 ```
 
@@ -296,13 +297,14 @@ Supervised orchestration remains available only when the user explicitly asks fo
 
 Do not run `orca orchestration task-create`, `orca orchestration dispatch --inject`, or `orca orchestration check --wait` for full handoffs. `task-create` is also forbidden because it records coordinator-owned tracking state; if a task row is needed, the user asked for supervised orchestration. Do not create a `taskId`/`dispatchId`, inject a lifecycle preamble, wait for completion, or read the worker terminal after prompt delivery except to avoid losing the initial prompt.
 
-New worktree handoff:
+New worktree handoff — pass the lineage flag you mean:
 
 ```bash
-orca worktree create --name <task-name> --agent codex --prompt "<task brief>" --setup run --json
+orca worktree create --name <task-name> --parent-worktree active --agent codex --prompt "<task brief>" --setup run --json
+orca worktree create --name <task-name> --no-parent --agent codex --prompt "<task brief>" --setup run --json
 ```
 
-Lineage controls sidebar grouping, not Git history. With no lineage flag, Orca infers a parent from the calling context and files the new worktree as its child; `--no-parent` makes it its own root, tracked separately from the work it came from. Orca keys that default on where the work was started, not on what the work is about, so an unrelated follow-up started here is still a child by default and the topic alone does not decide this. Deleting a parent never deletes its children on its own, and `worktree set` can change lineage later. Choose the Git base separately.
+Lineage controls sidebar grouping, not Git history. As a child the new worktree is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows; it is hidden while the parent's lineage group is collapsed, and deleting the parent deletes it too. As a top-level worktree it is always its own row and survives the parent's deletion, but nothing groups it with the work it came from. Pick against how the user will look for it afterwards and say which you picked. With neither flag Orca infers a parent from the calling context and files the new worktree as its child, which follows from where the command ran rather than from what the new work is about. `worktree set` can change lineage later. Choose the Git base separately.
 
 Existing terminal handoff:
 
@@ -318,10 +320,10 @@ The two-step custom-argv path cannot enforce a repository's explicit `wait-for-s
 
 Note: when no repo default-terminal configuration supplies a primary terminal, bare create opens a fallback shell before `terminal create` adds the agent. Configured default tabs are materialized instead and may run real commands. Prefer `--agent` whenever custom argv is not required. With the two-step path, target only the agent handle; close a prior terminal only after `terminal list` or `terminal show` confirms it is an unused shell.
 
-Use the exact full `<repo-id>::<path>` worktree id returned by `orca worktree create --json`; a bare repo id cannot target the new worktree.
+Use the exact full `<repo-id>::<path>` worktree id returned by `orca worktree create --json`; a bare repo id cannot target the new worktree. `<lineage-flag>` stands for `--parent-worktree active` or `--no-parent`; substitute the one you chose.
 
 ```bash
-orca worktree create --name <task-name> --setup run --json
+orca worktree create --name <task-name> <lineage-flag> --setup run --json
 orca terminal create --worktree id:<newFullWorktreeId> --title <task-name> --command 'codex --model gpt-5.5 -c model_reasoning_effort="xhigh"' --json
 orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 60000 --json
 orca terminal send --terminal <handle> --text "<task brief>" --enter --json
@@ -343,7 +345,7 @@ orca orchestration dispatch --task <task_id> --to <handle> --inject --json
 
 Reuse an idle agent in the required worktree only if the prompt allows reuse; otherwise create a fresh terminal there. Create a new worktree only when the user explicitly requests one or a concrete checkout or filesystem conflict makes sharing unsafe or impossible; if the user did not request it, state that conflict before running `worktree create`. Independent tasks, parallel execution, convenience, or a preference for separate checkouts are not isolation requirements.
 
-When a new worktree is allowed, its lineage is a separate choice from its Git base: omitting the lineage flag files it under the inferred parent, `--no-parent` makes it a top-level entry in Orca, and omitted `--base-branch` uses the repo default base either way.
+When a new worktree is allowed, its lineage is a separate choice from its Git base: `--parent-worktree active` files it under this worktree, `--no-parent` makes it a top-level entry in Orca, and omitted `--base-branch` uses the repo default base either way. Pass the lineage flag you mean; with neither, Orca files it under the parent it infers from the calling context.
 
 For every new worktree, pass `--setup run` so any configured repository setup hook runs. This does not mean waiting for setup before agent launch: preserve the repository's startup policy, whose default starts setup and the agent side by side. Use `--setup skip` or `--setup inherit` only when there is a concrete task-specific reason, and state that reason before creating the worktree. This rule does not rerun setup for current or existing worktrees.
 
