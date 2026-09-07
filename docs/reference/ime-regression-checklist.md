@@ -14,20 +14,28 @@ one machine.
 
 ## Preedit cell advances (#19315)
 
-CJK preedits use the active xterm Unicode provider's cell widths and joining
-rules, and the active renderer's CSS cell width. Font advances must not accumulate
-drift against the committed grid. Keep glyphs unscaled, combining marks attached,
-spaces intact, the underline visible, and the caret and candidate textarea at the
-end of the preedit. Renderer metric changes must update an open composition.
-Mixed Latin/CJK text, other scripts, emoji, conjoining Jamo, and format/control
-characters retain browser text shaping. Their pre-existing font advances are unchanged.
-Row-tail repaints must preserve unchanged preedit and caret nodes.
+Single-codepoint CJK graphemes use the active Unicode provider's cell width and
+measured font advance. Ordinary inline spans preserve browser bidi and baseline
+layout; equal corrections share a run. Keep glyphs unscaled and the underline,
+caret, and candidate textarea aligned with the rendered preedit. Appending ASCII,
+emoji, or another script must not change an existing CJK prefix's correction.
+Combining sequences, emoji, other scripts, and whitespace retain native shaping.
+Font loading, typography changes, and renderer metric changes must update an open
+composition; row-tail repaints preserve its unchanged nodes.
 
-`terminal-ime-xterm-preedit-cell-grid.test.ts` compares preedit cells with committed
-buffer cells. `terminal-ime-preedit-cell-grid.spec.ts` checks rendered glyph origins,
-caret/textarea geometry, and underlines at DPR 1, 1.25, and 2, with WebGL on/off,
-odd/even font sizes, letter spacing, and mixed CJK text. These checks use
-Chromium composition through CDP; they do not replace native OS IME evidence.
+Cold font measurements and styled runs share a fixed work budget. Repeated CJK
+can remain one corrected run; after the budget is exhausted, the remaining text
+keeps its native advance. This deliberately leaves the original spacing mismatch
+in the tail of unusually varied long compositions, without switching the prefix
+back to native spacing or rebuilding thousands of spans.
+
+`terminal-ime-xterm-preedit-cell-grid.test.ts` covers text preservation, native
+clusters, lifecycle, and bounded work. `terminal-ime-preedit-cell-grid.spec.ts`
+checks rendered glyph origins, caret/textarea geometry, underlines, font changes,
+and native shaping at DPR 1, 1.25, and 2 with WebGL on/off.
+`terminal-ime-preedit-continuity.spec.ts` covers mixed suffixes and budget crossings.
+These checks use Chromium composition through CDP; they do not replace native OS
+IME evidence.
 
 ## Bounded-state and ownership contracts
 
