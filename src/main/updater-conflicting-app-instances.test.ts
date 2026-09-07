@@ -119,15 +119,22 @@ describe('runningApplicationQueryOutput', () => {
 })
 
 describe('describeConflictingAppInstances', () => {
+  it('does not promise a retry the card has no button for', () => {
+    // A non-retryable error leaves no primary action, and Settings shows
+    // "Restart to Update" only for a downloaded state — so there is nothing to
+    // try again from once the other copy is quit.
+    expect(describeConflictingAppInstances([270])).not.toContain('try again')
+  })
+
   it('names a single blocking pid, and reads as singular throughout', () => {
     expect(describeConflictingAppInstances([270])).toBe(
-      'Another copy of Orca is running (PID 270). macOS cannot replace the app while it is open — quit it, then try again.'
+      'Another copy of Orca is running (PID 270). macOS cannot replace the app while it is open — quit it.'
     )
   })
 
   it('reads as plural for more than one', () => {
     expect(describeConflictingAppInstances([270, 811])).toBe(
-      '2 other copies of Orca are running (PIDs 270, 811). macOS cannot replace the app while they are open — quit them, then try again.'
+      '2 other copies of Orca are running (PIDs 270, 811). macOS cannot replace the app while they are open — quit them.'
     )
   })
 
@@ -154,31 +161,39 @@ describe('conflicting-instance detection strategy', () => {
   /** The condition deciding which running applications count as blockers. */
   const blockerCondition = query.match(/if\s*\(([\s\S]*?)\)\s*\{/)?.[1] ?? ''
 
-  it('reads its blocker set from AppKit, not the process table', () => {
+  it('enumerates candidates through LaunchServices, which is what omits the CLI', () => {
+    // THIS is the assertion that keeps Orca CLI processes out of the blocker set.
+    // The CLI runs from the same bundle executable under ELECTRON_RUN_AS_NODE, so
+    // a `ps`-style scan on the executable path would report every CLI invocation
+    // as a blocker and refuse updates on any machine that uses the CLI. Such a
+    // process never registers with LaunchServices, so `runningApplications` does
+    // not list it at all — the omission is in the enumeration, not in any filter.
+    // Measured 2026-09-07: `ps` found 4 processes on this bundle executable and
+    // this query returned 1.
     expect(query).not.toBe('')
     expect(query).toContain('NSWorkspace.sharedWorkspace.runningApplications')
   })
 
-  it('identifies blockers by bundle identity, so Orca CLI processes are not counted', () => {
-    // The Orca CLI runs from the SAME bundle executable under
-    // ELECTRON_RUN_AS_NODE, so `ps`-style matching on the executable path
-    // reports every CLI invocation as a blocking app instance and refuses the
-    // update outright on any machine that uses the CLI. AppKit gives those
-    // processes no bundle identity and Squirrel does not wait for them, so the
-    // non-null bundleIdentifier requirement is what makes this set match
-    // Squirrel's. Measured on a live machine: three processes shared the bundle
-    // executable path (the app plus two `ELECTRON_RUN_AS_NODE` CLI processes)
-    // and this query returned only the app.
+  it('still requires a bundle identity, as defence in depth rather than the filter', () => {
+    // Deliberately NOT described as the CLI exclusion: the same measurement found
+    // 0 of 93 running applications with a null bundleIdentifier, and a variant
+    // with this clause removed returned the identical single pid. It filters
+    // nothing observed today. It stays because NSRunningApplication.bundleIdentifier
+    // is documented nil-able and an unbundled process is not one Squirrel waits
+    // for — so removing it would widen the set on a machine we have not measured.
     expect(blockerCondition).not.toBe('')
-    // Order- and whitespace-independent, so reformatting cannot redden this.
+    // Order- and whitespace-independent, so reformatting cannot redden these.
     expect(blockerCondition).toContain('bundleIdentifier')
     expect(blockerCondition).toContain('executableUrl')
     expect(blockerCondition).toContain('executablePath')
   })
 
   it('never enumerates blockers from the process table', () => {
-    expect(source).not.toMatch(/['"`]\/bin\/ps['"`]/)
-    expect(source).not.toMatch(/\bpgrep\b/)
+    // Why the query and not the file: an earlier version matched only a quoted
+    // `/bin/ps`, so a bare `/bin/ps -A` at line start sailed through it.
+    expect(query).not.toMatch(/\/bin\/ps\b/)
+    expect(query).not.toMatch(/\bpgrep\b/)
+    expect(query).not.toMatch(/\bNSProcessInfo\b/)
   })
 
   it('spawns through the shared runner, not node:child_process', () => {

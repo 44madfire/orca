@@ -65,7 +65,25 @@ export abstract class UpdaterInstallExecution extends UpdaterPackageRecovery {
     // every running instance of this bundle to exit and aborts if one appears
     // mid-install, so quitting into a doomed handoff strands the user on the
     // old version with no window and no explanation.
-    const conflictingInstancePids = await findConflictingAppInstancePids()
+    //
+    // Why this is caught even though the probe fails open internally and cannot
+    // currently throw: it runs OUTSIDE the span's catch below, and the claim
+    // above is held across its await. A rejection would both escape as an
+    // unhandled rejection and latch the claim, so every later install would
+    // return `quit_and_install_ignored` with no card and no recovery short of
+    // relaunching — the same silent wedge this guard exists to remove, reached
+    // from the other side. Proceeding is the probe's own contract: an
+    // unavailable scan must never block an install.
+    let conflictingInstancePids: number[] = []
+    try {
+      conflictingInstancePids = await findConflictingAppInstancePids()
+    } catch (error) {
+      recordUpdaterLifecycle(
+        'quit_and_install_conflict_scan_failed',
+        { errorType: error instanceof Error ? error.name : typeof error },
+        { level: 'warn', message: 'Could not check for other running app instances' }
+      )
+    }
     if (conflictingInstancePids.length > 0) {
       // Nothing else has been armed yet, so releasing the claim is the whole rollback.
       this.quitAndInstallInProgress = false

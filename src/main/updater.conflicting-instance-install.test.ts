@@ -119,6 +119,23 @@ describe('macOS install blocked by other running app instances', () => {
     expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledTimes(1)
   })
 
+  it('installs anyway when the conflict scan throws, without latching or escaping', async () => {
+    // The scan runs outside the install span's catch and its claim is held across
+    // the await, so a rejection would both escape unhandled and latch every later
+    // install into `quit_and_install_ignored` — no card, no recovery short of a
+    // relaunch. Failing open is the probe's own contract: an unavailable scan
+    // must never block an install. The probe cannot throw today; this pins that
+    // a future one changing that cannot strand the user.
+    findConflictingAppInstancePidsMock.mockRejectedValueOnce(new Error('probe exploded'))
+    const { setupAutoUpdater, quitAndInstall } = await loadUpdaterModule()
+    setupAutoUpdater({ webContents: { send: vi.fn() } } as never)
+
+    quitAndInstall()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledTimes(1)
+  })
+
   it('ignores a duplicate install request that arrives during the conflict scan', async () => {
     let releaseScan: (pids: number[]) => void = () => {}
     findConflictingAppInstancePidsMock.mockReturnValue(
