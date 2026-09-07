@@ -151,9 +151,6 @@ export const MobileWebTaskGitLabDetailResultSchema = z
   })
   .strict()
 
-export const MobileWebTaskLinearDetailPayloadSchema = z
-  .object({ targetId: z.string().min(1).max(128) })
-  .strict()
 export const MobileWebTaskLinearDetailResultSchema = z
   .object({
     issue: MobileWebTaskLinearIssueSchema,
@@ -168,7 +165,4 @@ export type MobileWebTaskGitHubDetailPayload = z.infer<
 >
 export type MobileWebTaskGitHubDetailResult = z.infer<typeof MobileWebTaskGitHubDetailResultSchema>
 export type MobileWebTaskGitLabDetailResult = z.infer<typeof MobileWebTaskGitLabDetailResultSchema>
-export type MobileWebTaskLinearDetailPayload = z.infer<
-  typeof MobileWebTaskLinearDetailPayloadSchema
->
 export type MobileWebTaskLinearDetailResult = z.infer<typeof MobileWebTaskLinearDetailResultSchema>

@@ -29,16 +29,14 @@ export function taskItemMutationTarget(
         provider: 'github',
         repoId: item.source.repoId,
         number: item.source.number,
-        type: item.source.type,
-        targetId: item.source.targetId
+        type: item.source.type
       }
     : {
         provider: 'gitlab',
         repoId: item.source.repoId,
         number: item.source.number,
         type: item.source.type,
-        projectRef: item.source.projectRef,
-        targetId: item.source.targetId
+        projectRef: item.source.projectRef
       }
 }
 
@@ -49,7 +47,6 @@ export function taskLinearTarget(
     issueId: item.source.id,
     workspaceId: item.source.workspaceId,
     teamId: item.source.team.id,
-    projectId: item.source.project?.id,
-    targetId: item.source.targetId
+    projectId: item.source.project?.id
   }
 }

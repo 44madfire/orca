@@ -20,7 +20,7 @@ export function projectRowMutationTarget(
   const slug = splitRepositorySlug(row.content.repository)
   const type = projectRowType(row)
   return slug && type && row.content.number
-    ? { ...slug, host, number: row.content.number, type, targetId: row.targetId }
+    ? { ...slug, host, number: row.content.number, type }
     : null
 }
 
@@ -34,7 +34,7 @@ export function projectRowSlugTarget(
   host: string
 ): HostTaskProjectItemTarget | null {
   const slug = splitRepositorySlug(row.content.repository)
-  return slug ? { ...slug, host, ...rowIdentityFallbacks(row), targetId: row.targetId } : null
+  return slug ? { ...slug, host, ...rowIdentityFallbacks(row) } : null
 }
 
 /**
@@ -51,8 +51,7 @@ export function projectRowIdentityTarget(
     owner: slug?.owner ?? '',
     repo: slug?.repo ?? '',
     host,
-    ...rowIdentityFallbacks(row),
-    targetId: row.targetId
+    ...rowIdentityFallbacks(row)
   }
 }
 

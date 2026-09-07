@@ -33,7 +33,6 @@ export type GitHubWorkItem = {
   checksSummary?: ProviderCheckSummary
   mergeable?: GitHubPRMergeableState
   mergeStateStatus?: string | null
-  targetId?: string
 }
 
 export type GitHubAssignableUser = {
@@ -82,7 +81,6 @@ export type GitLabWorkItem = {
   baseRefName?: string
   isCrossRepository?: boolean
   projectRef?: { host: string; path: string }
-  targetId?: string
   repoId: string
   repoName: string
   reviewDecision?: string | null
@@ -127,7 +125,6 @@ export type LinearProject = {
 
 export type LinearIssueChild = {
   id: string
-  targetId?: string
   identifier: string
   title: string
   url: string

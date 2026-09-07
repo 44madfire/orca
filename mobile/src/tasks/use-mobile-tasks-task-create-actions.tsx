@@ -107,7 +107,6 @@ export function useMobileTasksTaskCreateActions(model: LinearItemActionsModel) {
         setActionItem(
           createLinearTask({
             id: result.id,
-            targetId: result.targetId,
             workspaceId: team.workspaceId,
             workspaceName: team.workspaceName,
             identifier: result.identifier,

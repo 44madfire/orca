@@ -65,8 +65,7 @@ export function useMobileTasksLinearItemActions(model: GithubReplyMergeActionsMo
         const issue = await taskLinearOperations.loadIssue({
           issueId: child.id,
           workspaceId,
-          teamId: '',
-          targetId: child.targetId
+          teamId: ''
         })
         setActionItem(createLinearTask(issue) as Extract<TaskItem, { provider: 'linear' }>)
       } catch (err) {
@@ -92,7 +91,6 @@ export function useMobileTasksLinearItemActions(model: GithubReplyMergeActionsMo
         const result = await taskLinearOperations.createSubIssue(taskLinearTarget(item), title)
         const child: LinearIssueChild = {
           id: result.id,
-          targetId: result.targetId,
           identifier: result.identifier,
           title: result.title ?? title,
           url: result.url ?? ''

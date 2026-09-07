@@ -54,11 +54,16 @@ const hash = (parts: string[] | string): string =>
  * edits/deletes and thread toggles stop refusing rows the host would accept. Declarations
  * net to 194 and the semantic source gains the new module's lines. The two re-freezes above
  * landed together, so these digests are the union of both changes.
+ *
+ * SCREEN_HOOKS, STATEMENTS and DECLARATIONS were re-frozen once more when the shell's
+ * opaque work-item handle was deleted: three target builders and two loaders stopped
+ * copying a `targetId` the host never issued. Hook, statement and declaration counts are
+ * unchanged; only those object literals lost a property.
  */
-const SCREEN_HOOKS = 'd75985f73d06e1c8dfdc9a576f46f13cb91b6af71efcda785c1c8fab744c2e86'
+const SCREEN_HOOKS = '342fb1e8746febc6d2f17309d0caf44997b9d67c199bbbf63cff0d30dc5afea8'
 const DIFF_HOOKS = '93c7189b32bed8456cc51814fffa8ce80cf62011ef968a9d53ddec2b9686f58f'
-const STATEMENTS = 'b4b13e6e57283de642ab8c9482dc0714460189a2ab0d81f7518538c660e6e0b8'
-const DECLARATIONS = '18638220f414d06f0c1f3a5b993b33bf2a6ab8201476017cffab2eef1b6b29f0'
+const STATEMENTS = '63a1a76fc02dde5d2ba25853bccdbeef673b54d2c33a5220fba91fcac15b0be0'
+const DECLARATIONS = '621908a8df5a8983eb5f746748328d1feb1e80faebfa00e7001d9468ad493ecd'
 const SEMANTICS = '907fcdc8591dff58c4ba988c4590f9414659f5fa09dd84c79239b22ae1e5625a'
 const STYLES = '1db6af69c791d9963928541ad5310942fcbda6d984b422c90b6eb92b6816579a'
 const RENDER_TREE = '92596eb283232607d8c2df3f09ba970232c7df496555c6f59e0c7160a00501af'
