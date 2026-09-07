@@ -36,13 +36,23 @@ export const STARTUP_DRAFT_PASTE_QUIET_MS = 1500
 // pre-existing session when a late reattach resolves, so a remount racing
 // a slow-but-alive connect costs a wasted view rebuild, not a shell.
 export const TRANSPORT_CONNECT_SETTLE_GRACE_MS = 60_000
-// Why its own constant at the same value: this bounds how long a PANE waits on a
-// spawn that may never settle, which is a different policy from the grace above —
-// tuning one must not silently move the other. The floor is main's own worst case:
-// the daemon client can spend CONNECT_TIMEOUT_MS x its attempt budget and then
-// REQUEST_TIMEOUT_MS (~50s) before it rejects, and a rejection settles the spawn
-// through the normal path. Past that, an unsettled spawn is wedged, not slow.
-export const SPAWN_SETTLEMENT_WATCHDOG_MS = 60_000
+// Why its own constant and not the grace above: this bounds how long a PANE waits on
+// a spawn that may never settle, a different policy with a different failure mode, so
+// tuning one must not silently move the other.
+//
+// Why derived rather than picked: it must outlast every settle main can legitimately
+// take, and a local cold start spends its budgets SEQUENTIALLY. `pty:spawn` first
+// awaits the first-window startup gate (main `LOCAL_PTY_STARTUP_FAIL_OPEN_TIMEOUT_MS`,
+// because the daemon provider swap overlaps first paint), and only then does the daemon
+// client spend its connection-attempt wait plus one request timeout. A plain 60s fired
+// while main was still inside the gate — remounting a spawn that was about to succeed,
+// on exactly the cold start where every restored pane is spawning at once.
+// Erring long costs a longer wait on a pane that is already stuck; erring short kills a
+// live spawn. `spawn-settlement-watchdog-budget.test.ts` pins these against main.
+const LOCAL_PTY_STARTUP_GATE_CEILING_MS = 60_000
+const DAEMON_SPAWN_SETTLE_CEILING_MS = 20_000 + 30_000
+export const SPAWN_SETTLEMENT_WATCHDOG_MS =
+  LOCAL_PTY_STARTUP_GATE_CEILING_MS + DAEMON_SPAWN_SETTLE_CEILING_MS + 30_000
 
 export function recordPtyConnectDiagnostic(message: string): void {
   if (!e2eConfig.exposeStore) {
