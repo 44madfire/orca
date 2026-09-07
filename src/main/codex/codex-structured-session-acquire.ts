@@ -203,6 +203,7 @@ export async function acquireCodexStructuredSession(input: {
       ...codexSessionLifecycle(acquireInput.fence, acquired.acquisitionGeneration as string),
       threadId: opened.threadId,
       historyPath: opened.historyPath,
+      historyMode: opened.historyMode,
       prompts: acquisition.prompts,
       options: restoredCodexSessionOptions(acquireInput.options),
       reportedOptions: reportedCodexThreadOptions(opened),

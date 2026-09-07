@@ -1,3 +1,4 @@
+import * as codexRewind from './codex-structured-rewind'
 import type {
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
@@ -35,8 +36,7 @@ import {
 import {
   deliverCodexNotification,
   deliverCodexServerRequest,
-  deliverCodexUnhandledFrame,
-  trackCodexActiveTurn
+  deliverCodexUnhandledFrame
 } from './codex-structured-provider-events'
 import { CodexStructuredTurnCancellation } from './codex-structured-turn-cancellation'
 import { createCodexStructuredNotificationRetry } from './codex-structured-notification-retry'
@@ -120,8 +120,9 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     method: string,
     params: unknown
   ): CodexJournalTranslationAdmission {
-    // Before the cancellation branch, which may consume the frame outright.
-    trackCodexActiveTurn(session, method, params)
+    // Before the cancellation branch, which may consume the frame outright: it
+    // maintains `activeTurnIds`, which classifies a coalesced re-send.
+    codexRewind.observeCodexRewindActivity(session, method, params)
     if (this.turnCancellation.handleNotification(sessionId, session, method, params)) {
       return { accepted: true }
     }
@@ -180,13 +181,18 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     fence: number
   }): Promise<AgentSessionDispatchOutcome> {
     const session = this.session(input.sessionId)
-    await this.turnCancellation.captureBaseline(session)
-    return dispatchCodexTurn(
-      session,
-      input,
-      this.deps.requestTimeoutMs,
-      this.deps.dispatchEchoAckTimeoutMs
-    )
+    session.dispatchPending = true
+    try {
+      await this.turnCancellation.captureBaseline(session)
+      return await dispatchCodexTurn(
+        session,
+        input,
+        this.deps.requestTimeoutMs,
+        this.deps.dispatchEchoAckTimeoutMs
+      )
+    } finally {
+      session.dispatchPending = false
+    }
   }
 
   async cancelTurn(input: {
@@ -198,6 +204,17 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     const turnId = this.compactions.providerTurnId(input.sessionId, input.turnId)
     return turnId ? this.turnCancellation.cancel(session, turnId) : { cancelled: false }
   }
+
+  rewindSupport: NonNullable<StructuredAgentSessionAdapter['rewindSupport']> = (sessionId) =>
+    this.sessions.get(sessionId)?.historyMode === 'legacy'
+      ? { supported: false, reason: 'history-not-paginated' }
+      : { supported: true }
+
+  rewind: NonNullable<StructuredAgentSessionAdapter['rewind']> = (input) =>
+    codexRewind.rewindCodexSession(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
+
+  recoverRewind: NonNullable<StructuredAgentSessionAdapter['recoverRewind']> = (input) =>
+    codexRewind.recoverCodexRewind(this.session(input.sessionId), input, this.deps.requestTimeoutMs)
 
   compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) => {
     const session = this.session(input.sessionId)
