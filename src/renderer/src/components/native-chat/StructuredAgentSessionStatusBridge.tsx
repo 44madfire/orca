@@ -57,7 +57,13 @@ function useStructuredAgentSessionStatusSummary(
 }
 
 /** The sidebar row reads this as its live title, so the user's own rename has to
- *  outrank the provider's conversation name here as it does in the tab strip. */
+ *  outrank the provider's conversation name here as it does in the tab strip.
+ *
+ *  Note for whoever also lands the AI Vault session-name work on terminal rows:
+ *  for a Codex structured session its `aiVaultTitle` and the name arriving here
+ *  are the SAME thread name reached two ways — live from the app-server, versus
+ *  `session_index.jsonl` via AI Vault sync. Reconcile them into one source
+ *  rather than letting both feed the row. */
 function rowTitle(tab: StructuredTab): string {
   return tab.customLabel?.trim() || tab.label
 }

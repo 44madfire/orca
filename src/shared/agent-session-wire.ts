@@ -185,9 +185,6 @@ export type AgentSessionStatusSummary = {
   toolInput?: string
   /** Preview of the newest assistant prose, so a settled row says what the agent said. */
   lastAssistantMessage?: string
-  /** Provider's name for the conversation; absent until one exists. Additive, so
-   *  an older client simply keeps showing its placeholder label. */
-  conversationName?: string
   providerSession?: AgentProviderSessionMetadata
   updatedAt: number
 }
