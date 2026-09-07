@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import type { Page, TestInfo } from '@stablyai/playwright-test'
@@ -301,7 +302,11 @@ async function disposeActivePaneRefreshProbe(page: Page): Promise<void> {
 }
 
 function loadCapturedOpenCodeSmallRedrawFrames(): string[] {
-  const { capture } = JSON.parse(readFileSync(OPENCODE_CAPTURE_PATH, 'utf8')) as { capture: string }
+  const { capture, provenance } = JSON.parse(readFileSync(OPENCODE_CAPTURE_PATH, 'utf8')) as {
+    capture: string
+    provenance: { sha256: string }
+  }
+  expect(createHash('sha256').update(capture, 'utf8').digest('hex')).toBe(provenance.sha256)
   const smallFrames = capture
     .split('\x1b[?2026h')
     .slice(1)
