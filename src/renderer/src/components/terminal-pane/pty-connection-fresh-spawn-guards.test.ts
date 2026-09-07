@@ -487,10 +487,26 @@ describe('connectPanePty', () => {
     }
     sendTerminalInputThroughPane(pane, 'input_under_flood\r')
     sendTerminalInputThroughPane(pane, '\x1b[?1;2c')
-    for (const forward of deferred) {
+    // A click on replayed scrollback that still has mouse tracking armed is user input to xterm, but must not reach the shell.
+    for (const listener of userInputListeners) {
+      listener()
+    }
+    sendTerminalInputThroughPane(pane, '\x1b[<0;12;4M')
+    for (const forward of deferred.splice(0)) {
       forward()
     }
     expect(transport.sendInput).toHaveBeenCalledExactlyOnceWith('input_under_flood\r')
+
+    // Once the guard releases, the same mouse report is ordinary input again.
+    deps.replayingPanesRef.current.delete(pane.id)
+    for (const listener of userInputListeners) {
+      listener()
+    }
+    sendTerminalInputThroughPane(pane, '\x1b[<0;12;4M')
+    for (const forward of deferred.splice(0)) {
+      forward()
+    }
+    expect(transport.sendInput).toHaveBeenLastCalledWith('\x1b[<0;12;4M')
   })
 
   it('settles a queued startup only after the pane binds its spawned PTY', async () => {

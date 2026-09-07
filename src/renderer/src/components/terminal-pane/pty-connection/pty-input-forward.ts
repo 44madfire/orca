@@ -10,6 +10,7 @@ import { isPtyLocked } from '@/lib/pane-manager/mobile-driver-state'
 import { getAppliedSizeReadE2eDelayMs } from '../pty-applied-size-read-e2e-delay'
 import { createPtySizeReassertion } from '../pty-size-reassertion'
 import { isPaneReplaying } from '../replay-guard'
+import { isXtermMouseReport } from '../terminal-mouse-report-sequence'
 import { shouldDropQuarantinedTerminalInput } from '../terminal-input-quarantine'
 import {
   PANE_PTY_RESIZE_HOLD_FLUSH_EVENT,
@@ -26,8 +27,16 @@ import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 export function installPtyInputForward(session: ConnectPanePtySession): void {
   session.forwardPtyInput = (data: string, wasUserInput = false): void => {
-    // Replay-generated replies must not leak into the shell; real input must survive restore.
-    if (!wasUserInput && isPaneReplaying(session.deps.replayingPanesRef, session.pane.id)) {
+    // Why: replaying recorded PTY bytes makes xterm auto-reply to embedded
+    // queries (DA1/DECRQM/OSC 10-11/CPR) via onData; those must not leak into
+    // the shell, but keystrokes typed mid-restore must survive. Mouse reports
+    // stay dropped even though xterm flags them as user input: replayed bytes
+    // can leave mouse tracking armed until the guarded mode reset lands, and a
+    // click would otherwise print SGR fragments on the fresh prompt. See replay-guard.ts.
+    if (
+      isPaneReplaying(session.deps.replayingPanesRef, session.pane.id) &&
+      (!wasUserInput || isXtermMouseReport(data))
+    ) {
       return
     }
     const currentPtyId = session.transport.getPtyId()
@@ -158,10 +167,14 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
       session.requestRecoveryForUndeliverableInput()
     }
   }
+  // Why bind once: provenance must survive deferPtyInput's later callback, and
+  // this is the per-keystroke hot path, so no closure allocation per onData event.
+  const forwardUserInput = (data: string): void => session.forwardPtyInput(data, true)
+  const forwardUnclassifiedInput = (data: string): void => session.forwardPtyInput(data, false)
   session.onDataDisposable = subscribeToTerminalInputData(
     session.pane.terminal,
     (data, wasUserInput) => {
-      const forward = (input: string) => session.forwardPtyInput(input, wasUserInput)
+      const forward = wasUserInput ? forwardUserInput : forwardUnclassifiedInput
       if (session.deps.deferPtyInput) {
         session.deps.deferPtyInput(session.pane.id, data, forward)
         return
