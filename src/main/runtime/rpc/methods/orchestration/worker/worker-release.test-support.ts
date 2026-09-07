@@ -3,6 +3,7 @@ import { ORCHESTRATION_METHODS } from '../../orchestration'
 import type { RpcContext } from '../../../core'
 import { OrchestrationDb } from '../../../../orchestration/db'
 import { OrcaRuntimeService } from '../../../../orca-runtime'
+import type { RuntimeStore } from '../../../../runtime-store-contract'
 
 export function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void
@@ -13,7 +14,8 @@ export function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => voi
 }
 
 export type OrchestrationWorkerReleaseHarness = {
-  setup: () => void
+  /** A store is only needed by tests that observe workspace-session effects such as resume fences. */
+  setup: (options?: { store?: RuntimeStore }) => void
   cleanup: () => void
   call: (name: string, params: Record<string, unknown>) => Promise<unknown>
   startWorker: (options?: { terminal?: string }) => Promise<{ taskId: string; dispatchId: string }>
@@ -42,10 +44,10 @@ export function createOrchestrationWorkerReleaseHarness(): OrchestrationWorkerRe
   const coordinatorPaneKey = 'tab_coord:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   const workerPaneKey = 'tab_worker:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
-  function setup(): void {
+  function setup(options: { store?: RuntimeStore } = {}): void {
     db = new OrchestrationDb(':memory:')
     dbOpen = true
-    runtime = new OrcaRuntimeService()
+    runtime = new OrcaRuntimeService(options.store)
     runtime.setOrchestrationDb(db)
     inspectProcessLiveness = vi.fn().mockResolvedValue('live')
     ;(

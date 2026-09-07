@@ -27,18 +27,18 @@ export function recordWorkerTerminalUserTakeover(
   return changed
 }
 
-// Why: the byte lanes carry every keystroke, and the takeover write is an immediate transaction.
-// One window per pane, matching the interval the desktop reporter throttles itself to.
-const INPUT_TAKEOVER_INTERVAL_MS = 30_000
-const INPUT_TAKEOVER_PRUNE_SIZE = 256
-const inputTakeoverReportedAt = new WeakMap<OrcaRuntimeService, Map<string, number>>()
-
 /**
  * The same record, for a lane that carries the user's bytes instead of a report.
  *
  * Callers must have already established that the bytes are deliberate human input — an agent's
  * `terminal send` reaches the same method and must never fence a release. Never throws: a terminal
  * the orchestration database cannot answer for is still a terminal the user is typing into.
+ *
+ * Keystrokes arrive one at a time, so the database is asked whether this pane has anything left to
+ * fence before the write lock is taken. Remembering that answer instead would be unsound: the pane
+ * can enter a new ownership population at any moment — a worker whose authority attaches while the
+ * user is already typing — and a remembered "nothing to fence" would then outlive its precondition
+ * and let the release close the terminal under them.
  */
 export function recordWorkerTerminalUserTakeoverFromInput(
   runtime: OrcaRuntimeService,
@@ -46,27 +46,9 @@ export function recordWorkerTerminalUserTakeoverFromInput(
 ): void {
   try {
     const paneKey = runtime.getTerminalPaneKey(handle)
-    if (!paneKey) {
+    if (!paneKey || !runtime.getOrchestrationDb().hasWorkerTerminalUserTakeoverCandidate(paneKey)) {
       return
     }
-    let reportedAt = inputTakeoverReportedAt.get(runtime)
-    if (!reportedAt) {
-      reportedAt = new Map<string, number>()
-      inputTakeoverReportedAt.set(runtime, reportedAt)
-    }
-    const now = Date.now()
-    const last = reportedAt.get(paneKey)
-    if (last !== undefined && now - last < INPUT_TAKEOVER_INTERVAL_MS) {
-      return
-    }
-    if (reportedAt.size >= INPUT_TAKEOVER_PRUNE_SIZE) {
-      for (const [pane, at] of reportedAt) {
-        if (now - at >= INPUT_TAKEOVER_INTERVAL_MS) {
-          reportedAt.delete(pane)
-        }
-      }
-    }
-    reportedAt.set(paneKey, now)
     recordWorkerTerminalUserTakeover(runtime, paneKey)
   } catch (error) {
     console.warn('[orchestration] worker terminal takeover record failed', error)

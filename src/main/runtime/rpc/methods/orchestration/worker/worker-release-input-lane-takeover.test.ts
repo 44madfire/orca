@@ -3,6 +3,11 @@ import { createOrchestrationWorkerReleaseHarness } from './worker-release.test-s
 import { TERMINAL_SEND_METHODS } from '../../terminal/terminal-send-method'
 import { sendTerminalStreamInput } from '../../terminal/terminal-input-delivery'
 import { isStreamingMethod, type RpcMethod } from '../../../core'
+import { RuntimeTerminalWriter } from '../../../../runtime-terminal-writer'
+import { getDefaultWorkspaceSession } from '../../../../../../shared/constants'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../../../shared/execution-host'
+import type { WorkspaceSessionState } from '../../../../../../shared/workspace-session-state-types'
+import type { RuntimeStore } from '../../../../runtime-store-contract'
 
 const harness = createOrchestrationWorkerReleaseHarness()
 const sendMethod = TERMINAL_SEND_METHODS.find(
@@ -24,16 +29,20 @@ async function callSend(params: Record<string, unknown>): Promise<unknown> {
   )
 }
 
-// Stands in for the PTY write, honouring the reserve/after-write contract RuntimeTerminalWriter
-// gives every accepted write (src/main/runtime/runtime-terminal-writer.ts).
+// Only PTY delivery is stubbed; the real writer still drives reservation and after-write, so the
+// test cannot invent the contract the takeover record hangs off.
 function stubAcceptedWrite(): void {
   vi.spyOn(harness.runtime, 'beginMobileInputFloor').mockReturnValue({
     commit: async () => {},
     rollback: () => {}
   })
-  vi.spyOn(harness.runtime, 'sendTerminal').mockImplementation(async (handle, _action, options) => {
-    options?.reserveWrite?.('pty-worker')
-    await options?.afterWrite?.('pty-worker')
+  vi.spyOn(harness.runtime, 'sendTerminal').mockImplementation(async (handle, action, options) => {
+    await new RuntimeTerminalWriter(() => true).writeAction(
+      'pty-worker',
+      action,
+      action.text ?? '',
+      options
+    )
     return { handle, accepted: true, bytesWritten: 3 }
   })
   vi.spyOn(harness.runtime, 'resolveLiveLeafForHandle').mockReturnValue({
@@ -163,7 +172,7 @@ describe('settled worker terminal: who counts as a user takeover', () => {
     expect(await release(worker.dispatchId)).toMatchObject({ state: 'released' })
   })
 
-  it('records one takeover per pane window however many keystrokes arrive', async () => {
+  it('takes the write lock once, not once per keystroke', async () => {
     const worker = await harness.startSettledWorker()
     stubAcceptedWrite()
     const marked = vi.spyOn(harness.db, 'markWorkerTerminalUserOwned')
@@ -176,6 +185,45 @@ describe('settled worker terminal: who counts as a user takeover', () => {
     expect(ownership(worker.dispatchId)).toBe('user_owned')
   })
 
+  // The pane had no owned resource yet when the first keystroke landed. Nothing about that answer
+  // may survive into the population the worker's authority creates moments later.
+  it('fences a keystroke that follows one typed before the worker owned the pane', async () => {
+    stubAcceptedWrite()
+    vi.spyOn(harness.runtime, 'waitForTerminal').mockImplementation(async () => {
+      await callSend({ terminal: 'term_worker', text: 'x', client: MOBILE_CLIENT })
+      return { handle: 'term_worker', satisfied: true, status: 'running', exitCode: null } as never
+    })
+    const worker = await harness.startSettledWorker()
+
+    await callSend({ terminal: 'term_worker', text: 'y', client: MOBILE_CLIENT })
+
+    expect(ownership(worker.dispatchId)).toBe('user_owned')
+    expect(await release(worker.dispatchId)).toMatchObject({
+      state: 'retained',
+      reason: 'user_takeover'
+    })
+    expect(harness.runtime.closeTerminal).not.toHaveBeenCalled()
+  })
+
+  it('retries a takeover the database refused on the very next keystroke', async () => {
+    const worker = await harness.startSettledWorker()
+    stubAcceptedWrite()
+    vi.spyOn(harness.db, 'markWorkerTerminalUserOwned').mockImplementationOnce(() => {
+      throw new Error('SQLITE_BUSY')
+    })
+
+    await callSend({ terminal: 'term_worker', text: 'x', client: MOBILE_CLIENT })
+    expect(ownership(worker.dispatchId)).toBe('owned')
+    await callSend({ terminal: 'term_worker', text: 'y', client: MOBILE_CLIENT })
+
+    expect(ownership(worker.dispatchId)).toBe('user_owned')
+    expect(await release(worker.dispatchId)).toMatchObject({
+      state: 'retained',
+      reason: 'user_takeover'
+    })
+    expect(harness.runtime.closeTerminal).not.toHaveBeenCalled()
+  })
+
   it('leaves a pane that owns no worker terminal alone', async () => {
     const worker = await harness.startSettledWorker()
     stubAcceptedWrite()
@@ -184,5 +232,70 @@ describe('settled worker terminal: who counts as a user takeover', () => {
 
     expect(ownership(worker.dispatchId)).toBe('owned')
     expect(await release(worker.dispatchId)).toMatchObject({ state: 'released' })
+  })
+})
+
+/**
+ * The settled-worker automatic-resume fence is stamped on the sleeping-pane record, so lifting it
+ * needs a workspace session to write through. Anything a takeover drops from the recovery plan has
+ * to lift the fence in the same call, or the pane stays unspawnable until the next app start.
+ */
+describe('a mobile takeover lifts the settled worker resume fence', () => {
+  let session: WorkspaceSessionState
+  let fenceChanges: [string, boolean][]
+
+  beforeEach(() => {
+    session = getDefaultWorkspaceSession() as WorkspaceSessionState
+    fenceChanges = []
+    const store = {
+      getWorkspaceSession: () => session,
+      setWorkspaceSession: (next: WorkspaceSessionState) => {
+        session = next
+      },
+      getWorkspaceSessionHostIds: () => [LOCAL_EXECUTION_HOST_ID],
+      flushOrThrow: vi.fn()
+    } as unknown as RuntimeStore
+    harness.setup({ store })
+    harness.runtime.setNotifier({
+      setLegacyWorkerTerminalResumeFence: (paneKey: string, blocked: boolean) => {
+        fenceChanges.push([paneKey, blocked])
+      }
+    } as never)
+  })
+  afterEach(() => harness.cleanup())
+
+  function fenceOnWorkerPane(): string | undefined {
+    return session.sleepingAgentSessionsByPaneKey?.[harness.workerPaneKey]?.automaticResumeBlockedBy
+  }
+
+  it('unblocks the pane the phone typed into', async () => {
+    const worker = await harness.startSettledWorker()
+    session = {
+      ...session,
+      sleepingAgentSessionsByPaneKey: {
+        [harness.workerPaneKey]: {
+          paneKey: harness.workerPaneKey,
+          tabId: 'tab_worker',
+          worktreeId: 'repo::worktree',
+          agent: 'codex',
+          providerSession: { key: 'session_id', id: 'codex-session-1' },
+          prompt: '',
+          state: 'done',
+          capturedAt: 1,
+          updatedAt: 1,
+          origin: 'live'
+        }
+      }
+    } as WorkspaceSessionState
+    harness.runtime.prepareLegacyWorkerTerminalRecovery()
+    expect(fenceOnWorkerPane()).toBe('legacy-orchestration-worker')
+    expect(fenceChanges).toContainEqual([harness.workerPaneKey, true])
+    stubAcceptedWrite()
+
+    await callSend({ terminal: 'term_worker', text: 'ls\r', client: MOBILE_CLIENT })
+
+    expect(ownership(worker.dispatchId)).toBe('user_owned')
+    expect(fenceOnWorkerPane()).toBeUndefined()
+    expect(fenceChanges.at(-1)).toEqual([harness.workerPaneKey, false])
   })
 })

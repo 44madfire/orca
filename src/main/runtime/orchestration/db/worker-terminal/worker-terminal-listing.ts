@@ -16,7 +16,10 @@ import {
   countWorkerTerminalInventory,
   scanWorkerTerminalStates
 } from './worker-terminal-inventory-counts'
-import { markWorkerTerminalUserOwned } from './worker-terminal-user-takeover'
+import {
+  hasWorkerTerminalUserTakeoverCandidate,
+  markWorkerTerminalUserOwned
+} from './worker-terminal-user-takeover'
 
 export {
   countWorkerTerminalInventory,
@@ -271,6 +274,7 @@ export function getWorkerTerminalOrderingKey(
 }
 
 export type WorkerTerminalListingMethods = {
+  hasWorkerTerminalUserTakeoverCandidate: typeof hasWorkerTerminalUserTakeoverCandidate
   markWorkerTerminalUserOwned: typeof markWorkerTerminalUserOwned
   listWorkerTerminalReleaseBacklog: typeof listWorkerTerminalReleaseBacklog
   listWorkerTerminalResources: typeof listWorkerTerminalResources
@@ -283,6 +287,7 @@ export type WorkerTerminalListingMethods = {
 
 export function attachWorkerTerminalListing(ctor: { prototype: object }): void {
   Object.assign(ctor.prototype, {
+    hasWorkerTerminalUserTakeoverCandidate,
     markWorkerTerminalUserOwned,
     listWorkerTerminalReleaseBacklog,
     listWorkerTerminalResources,
