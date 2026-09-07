@@ -133,11 +133,11 @@ function boundBlock(block: NativeChatBlock, state: TranscriptBoundState): Native
     // redaction and clipping every other piece of transcript metadata gets.
     return {
       ...block,
-      groupId: clipMetadata(block.groupId, warnings),
+      groupId: clipMetadata(block.groupId, state),
       agents: block.agents.map((agent) => ({
         ...agent,
-        id: clipMetadata(agent.id, warnings),
-        label: clipMetadata(agent.label, warnings)
+        id: clipMetadata(agent.id, state),
+        label: clipMetadata(agent.label, state)
       }))
     }
   }
