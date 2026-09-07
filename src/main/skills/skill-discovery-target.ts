@@ -1,5 +1,19 @@
 import type { Repo } from '../../shared/repo-types'
 import type { SkillDiscoveryResult, SkillDiscoveryTarget } from '../../shared/skills'
+import { parseSkillDiscoveryResult } from '../../shared/skills'
+import {
+  SKILL_SSH_RELAY_DISCOVER_METHOD,
+  type SkillSshWorkspaceAuthority
+} from '../../shared/skill-ssh-relay-contract'
+import {
+  SKILL_DISCOVER_CAPABILITY,
+  SKILL_DISCOVER_UPDATE_REQUIRED_MESSAGE
+} from '../../shared/skill-install-capability'
+import {
+  requireSkillSshRelayClient,
+  skillSshRelayCapabilities,
+  type SkillSshProviderSource
+} from './skill-ssh-relay-client'
 import { getDefaultWslDistro, getWslHome, parseWslPath, toLinuxPath } from '../wsl'
 import { clearSkillRootScanCache, discoverSkills } from './discovery'
 import { discoverSkillsInWsl } from './skill-discovery-wsl'
@@ -8,11 +22,15 @@ import { stablePathId } from './skill-discovery-sources'
 import { getRepoExecutionHostId } from '../../shared/execution-host'
 import { isSkillRootUnavailableError, SkillScanCoalescer } from './skill-scan-coalescer'
 
-// Why: on WSL the unit of cost is the wsl.exe boot plus one `find` per skill, so
-// the whole result is what must be shared. The native path shares at root level
-// instead, and only needs concurrent callers collapsed into one walk.
-const WSL_RESULT_TTL_MS = 10_000
+// Why: off-host the unit of cost is the round trip (a wsl.exe boot, or an SSH
+// relay request) plus one `find` per skill, so the whole result is what must be
+// shared. The native path shares at root level instead, and only needs
+// concurrent callers collapsed into one walk.
+const REMOTE_RESULT_TTL_MS = 10_000
 const MAX_CACHED_SKILL_TARGETS = 32
+// Why below the renderer's 10s budget: a classified relay error must arrive
+// before the renderer's own backstop turns it into a generic timeout.
+const SSH_DISCOVERY_TIMEOUT_MS = 9_000
 
 const targetScans = new SkillScanCoalescer<SkillDiscoveryResult>(MAX_CACHED_SKILL_TARGETS)
 
@@ -25,6 +43,8 @@ export function clearSkillDiscoveryCaches(): void {
 export type ResolvedSkillDiscoveryTarget =
   | { kind: 'native-host'; cwd: string | undefined }
   | { kind: 'wsl'; distro: string; homeDir: string; cwd: string }
+  /** `workspace` is the authority this runtime resolved, never a caller path. */
+  | { kind: 'ssh'; connectionId: string; workspace: SkillSshWorkspaceAuthority }
 
 export function resolveSkillDiscoveryTarget(
   target: SkillDiscoveryTarget | undefined
@@ -102,21 +122,59 @@ function scanKey(
   const targetKey =
     target.kind === 'wsl'
       ? `wsl\0${target.distro}\0${target.homeDir}\0${target.cwd}`
-      : `native\0${target.cwd ?? ''}\0${target.cwd ? '' : repoDigest(repos)}`
+      : target.kind === 'ssh'
+        ? // Why connectionId leads: the same absolute path exists on every host,
+          // so a key built from the path alone would serve one host's scan to
+          // another. Workspace id is included because two workspaces can share a
+          // path across a rename.
+          `ssh\0${target.connectionId}\0${target.workspace.kind}\0${target.workspace.id}\0${target.workspace.path}`
+        : `native\0${target.cwd ?? ''}\0${target.cwd ? '' : repoDigest(repos)}`
   return `${targetKey}\0${providerRoots}`
+}
+
+/** Why the capability handshake rather than a method-not-found code: an older
+ *  relay's error reaches the picker as an unexplained failure, while the
+ *  advertised capability list says up front that the host needs a newer relay. */
+async function discoverSkillsOnSshHost(
+  target: Extract<ResolvedSkillDiscoveryTarget, { kind: 'ssh' }>,
+  sshProvider: SkillSshProviderSource | undefined
+): Promise<SkillDiscoveryResult> {
+  if (!sshProvider) {
+    throw new Error('skill-discovery-ssh-relay-unavailable')
+  }
+  const client = requireSkillSshRelayClient(sshProvider)
+  const capabilities = await skillSshRelayCapabilities(client)
+  if (!capabilities.includes(SKILL_DISCOVER_CAPABILITY)) {
+    throw new Error(SKILL_DISCOVER_UPDATE_REQUIRED_MESSAGE)
+  }
+  const raw = await client(
+    SKILL_SSH_RELAY_DISCOVER_METHOD,
+    { workspace: target.workspace },
+    { timeoutMs: SSH_DISCOVERY_TIMEOUT_MS }
+  )
+  // Why parse: the relay frame is remote input before it reaches renderer state.
+  return parseSkillDiscoveryResult(raw)
 }
 
 export async function discoverSkillsOnTarget(
   target: ResolvedSkillDiscoveryTarget,
   repos: readonly Repo[],
-  options: { refresh?: boolean; providerRootOverrides?: SkillProviderRootOverrides } = {}
+  options: {
+    refresh?: boolean
+    providerRootOverrides?: SkillProviderRootOverrides
+    sshProvider?: SkillSshProviderSource
+  } = {}
 ): Promise<SkillDiscoveryResult> {
   const refresh = options.refresh === true
+  const sshProvider = options.sshProvider
   try {
     const outcome = await targetScans.run(
       scanKey(target, repos, options.providerRootOverrides),
-      { ttlMs: target.kind === 'wsl' ? WSL_RESULT_TTL_MS : 0, refresh },
+      { ttlMs: target.kind === 'native-host' ? 0 : REMOTE_RESULT_TTL_MS, refresh },
       async () => {
+        if (target.kind === 'ssh') {
+          return discoverSkillsOnSshHost(target, sshProvider)
+        }
         if (target.kind === 'wsl') {
           return discoverSkillsInWsl({
             distro: target.distro,

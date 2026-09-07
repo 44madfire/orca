@@ -105,7 +105,7 @@ export type RuntimeSkillCommandSurface = {
   listManagedSkillInstalls(connectionId?: string): Promise<ManagedSkillInstall[]>
   skillInstallDestinationUsesSsh(destination: SkillInstallRequest['destination']): Promise<boolean>
   resolveSkillDiscoveryProviderRoots(target: {
-    kind: 'native-host' | 'wsl'
+    kind: 'native-host' | 'wsl' | 'ssh'
     distro?: string
   }): Promise<SkillProviderRootOverrides>
   beginSkillUpload(request: SkillUploadBeginRequest): ReturnType<SkillUploadSessionService['begin']>
