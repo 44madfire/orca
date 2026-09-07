@@ -123,6 +123,7 @@ export function settleDeadWorkerTerminalRelease(
     const owner = this.getWorkerDispatch(resource.owner_dispatch_id)
     const requesterSettled = Boolean(requester && WORKER_SETTLED_STATES.includes(requester.state))
     const ownerSettled = Boolean(owner && WORKER_SETTLED_STATES.includes(owner.state))
+    console.log('[worker-release-db-guard]', { priorOwners, requesterRelated, requesterSettled, ownerSettled, requesterState: requester?.state, ownerState: owner?.state, ownershipState: resource.ownership_state, releaseState: resource.release_state, incarnationMatches: resource.process_incarnation === params.processIncarnation })
     // A positive process-exit verdict only proves the exact process is gone; release is terminal
     // cleanup and must also preserve the worker's output. The archive is only ever written while
     // `release_state = 'requested'`, so an owner asking to release a pane that never reached that
