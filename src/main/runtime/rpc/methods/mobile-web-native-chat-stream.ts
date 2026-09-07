@@ -4,7 +4,7 @@ import { defineStreamingMethod, isStreamingMethod } from '../core'
 import { NATIVE_CHAT_METHODS } from './native-chat'
 import { boundMobileWebNativeChatRead } from './mobile-web-native-chat-read-budget'
 import {
-  MobileWebChatScope,
+  MobileWebChatTarget,
   mobileWebNativeChatHostParams,
   resolveMobileWebNativeChat
 } from './mobile-web-native-chat-binding'
@@ -17,10 +17,7 @@ const stream = source
 
 export const MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD = defineStreamingMethod({
   name: 'mobileWeb.nativeChat.subscribe',
-  params: MobileWebChatScope.extend({
-    resourceId: z.string().min(1).max(160),
-    read: z.record(z.string(), z.unknown())
-  }),
+  params: MobileWebChatTarget.extend({ read: z.record(z.string(), z.unknown()) }),
   handler: async (params, context, emit) => {
     const binding = await resolveMobileWebNativeChat(context, params)
     if (context.signal?.aborted) {

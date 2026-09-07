@@ -1,4 +1,3 @@
-import { bindMobileWebHostNativeChat } from './mobile-web-host-native-chat-binding'
 import type { MobileWebNativeChatReadResult } from '../../shared/mobile-web/native-chat-operation-contract'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { requestMobileWebHost } from './mobile-web-host-request-client'
@@ -8,17 +7,17 @@ type MobileWebHostChatReadResult = MobileWebNativeChatReadResult
 
 export async function readMobileWebHostNativeChat(
   requests: MobileWebOneShotRequestClient,
-  target: { workspaceId: string; tabId: string; limit: number; beforeOffset?: number }
+  target: {
+    workspaceId: string
+    tabId: string
+    sessionId: string
+    limit: number
+    beforeOffset?: number
+  }
 ): Promise<MobileWebHostChatReadResult> {
-  const method = 'mobileWeb.nativeChat.read'
-  const resourceId = await bindMobileWebHostNativeChat(
-    requests,
-    target.workspaceId,
-    target.tabId,
-    method
-  )
-  const result = await requestMobileWebHost(requests, method, target.workspaceId, {
-    resourceId,
+  const result = await requestMobileWebHost(requests, 'mobileWeb.nativeChat.read', target.workspaceId, {
+    tabId: target.tabId,
+    sessionId: target.sessionId,
     read: {
       limit: target.limit,
       ...(target.beforeOffset === undefined ? {} : { beforeOffset: target.beforeOffset })

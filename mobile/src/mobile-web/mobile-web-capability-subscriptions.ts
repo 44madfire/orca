@@ -5,7 +5,6 @@ import type {
   MobileWebSubscriptionLedgerConfig,
   MobileWebSubscriptionLedgerHandle
 } from './mobile-web-subscription-ledger'
-import type { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 import { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-subscriptions'
@@ -19,7 +18,6 @@ export class MobileWebCapabilitySubscriptions {
 
   constructor(
     args: MobileWebSubscriptionLedgerConfig<unknown> & {
-      browserAuthority: MobileWebBrowserAuthority
       workspaceAuthority: MobileWebWorkspaceAuthority
     }
   ) {
@@ -36,7 +34,6 @@ export class MobileWebCapabilitySubscriptions {
     this.browser = new MobileWebBrowserStreams({
       ...shared,
       workspaceAuthority: args.workspaceAuthority,
-      browserAuthority: args.browserAuthority
     })
     this.workspace = new MobileWebWorkspaceSubscriptions(shared)
     this.ledgers = [this.host, this.account, this.browser, this.workspace]

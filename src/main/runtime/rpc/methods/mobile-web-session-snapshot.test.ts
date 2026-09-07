@@ -1,18 +1,6 @@
-import { openMobileWebPageResources } from './mobile-web-page-resources'
 import { describe, expect, it } from 'vitest'
 import { MOBILE_WEB_SESSION_TAB_LIMIT } from '../../../../shared/mobile-web/bridge-operation-contract'
 import { mobileWebSessionSnapshot } from './mobile-web-session-snapshot'
-import { mobileWebSessionResources } from './mobile-web-session-resources'
-import type { RpcContext } from '../core'
-
-function authorities() {
-  const context = {
-    runtime: { registerSubscriptionCleanup() {} },
-    connectionId: 'connection'
-  } as unknown as RpcContext
-  openMobileWebPageResources(context, 'page')
-  return mobileWebSessionResources(context, 'page')
-}
 
 describe('mobile web session snapshot', () => {
   it('bounds tabs and strips host-only fields', () => {
@@ -31,7 +19,6 @@ describe('mobile web session snapshot', () => {
       isActive: index === 0
     }))
 
-    const authority = authorities()
     const snapshot = mobileWebSessionSnapshot(
       {
         worktree: 'workspace-1',
@@ -42,9 +29,7 @@ describe('mobile web session snapshot', () => {
         tabs
       },
       'workspace-1',
-      'opaque-workspace',
-      authority.browser,
-      authority.nativeChat
+      'opaque-workspace'
     )
 
     expect(snapshot.tabs).toHaveLength(MOBILE_WEB_SESSION_TAB_LIMIT)
@@ -72,7 +57,6 @@ describe('mobile web session snapshot', () => {
   })
 
   it('rejects a response for a different workspace', () => {
-    const authority = authorities()
     expect(() =>
       mobileWebSessionSnapshot(
         {
@@ -84,9 +68,7 @@ describe('mobile web session snapshot', () => {
           tabs: []
         },
         'workspace-1',
-        'opaque-workspace',
-        authority.browser,
-        authority.nativeChat
+        'opaque-workspace'
       )
     ).toThrow('mobile_web_session_snapshot_invalid')
   })
@@ -101,7 +83,6 @@ describe('mobile web session snapshot', () => {
       diffSource: 'unstaged',
       isActive: index === MOBILE_WEB_SESSION_TAB_LIMIT
     }))
-    const authority = authorities()
 
     const snapshot = mobileWebSessionSnapshot(
       {
@@ -113,9 +94,7 @@ describe('mobile web session snapshot', () => {
         tabs
       },
       'workspace-1',
-      'opaque-workspace',
-      authority.browser,
-      authority.nativeChat
+      'opaque-workspace'
     )
 
     expect(snapshot.tabs).toHaveLength(MOBILE_WEB_SESSION_TAB_LIMIT)
@@ -131,7 +110,6 @@ describe('mobile web session snapshot', () => {
   })
 
   it('removes browser URL credentials and local file paths', () => {
-    const authority = authorities()
     const snapshot = mobileWebSessionSnapshot(
       {
         worktree: 'workspace-1',
@@ -159,11 +137,14 @@ describe('mobile web session snapshot', () => {
         ]
       },
       'workspace-1',
-      'opaque-workspace',
-      authority.browser,
-      authority.nativeChat
+      'opaque-workspace'
     )
 
+    expect(snapshot.tabs.map((tab) => tab.id)).toEqual(['browser-1', 'browser-2'])
+    expect(snapshot.tabs.map((tab) => ('browserPageId' in tab ? tab.browserPageId : null))).toEqual(
+      ['host-browser-1', 'host-browser-2']
+    )
+    expect(snapshot.activeTabId).toBe('browser-1')
     expect(snapshot.tabs.map((tab) => ('url' in tab ? tab.url : null))).toEqual([
       'https://example.com/callback?tab=review',
       'file:///[redacted]'
@@ -171,8 +152,7 @@ describe('mobile web session snapshot', () => {
     expect(JSON.stringify(snapshot)).not.toMatch(/password|token=|private\/repository/)
   })
 
-  it('projects only bounded chat state and hides host transcript authority', () => {
-    const authority = authorities()
+  it('projects only bounded chat state and addresses chat by the provider session id', () => {
     const snapshot = mobileWebSessionSnapshot(
       {
         worktree: 'workspace-1',
@@ -215,9 +195,7 @@ describe('mobile web session snapshot', () => {
         ]
       },
       'workspace-1',
-      'opaque-workspace',
-      authority.browser,
-      authority.nativeChat
+      'opaque-workspace'
     )
 
     expect(snapshot.tabs[0]).toEqual({
@@ -227,7 +205,7 @@ describe('mobile web session snapshot', () => {
       status: 'ready',
       launchAgent: 'claude',
       isActive: true,
-      nativeChatSessionId: expect.stringMatching(/^resource_/),
+      nativeChatSessionId: 'provider-session-secret',
       agentStatus: {
         state: 'waiting',
         stateStartedAt: 1_720_000_000_000,
@@ -242,7 +220,6 @@ describe('mobile web session snapshot', () => {
     expect(snapshot.workspaceTransportState).toBe('unavailable')
     const serialized = JSON.stringify(snapshot)
     expect(serialized).not.toContain('host-terminal-secret')
-    expect(serialized).not.toContain('provider-session-secret')
     expect(serialized).not.toContain('/private/transcript')
     expect(serialized).not.toContain('private-pane')
     expect(serialized).not.toContain('private-worktree')
@@ -251,7 +228,6 @@ describe('mobile web session snapshot', () => {
   })
 
   it('drops malformed or oversized agent fields instead of forwarding them', () => {
-    const authority = authorities()
     const snapshot = mobileWebSessionSnapshot(
       {
         worktree: 'workspace-1',
@@ -274,17 +250,16 @@ describe('mobile web session snapshot', () => {
               toolInput: 'i'.repeat(161),
               interactivePrompt: 'p'.repeat(16_001),
               lastAssistantMessage: 'm'.repeat(8_001),
-              providerSession: { id: 'provider-session', key: 'session_id' }
+              providerSession: { id: 'p'.repeat(161), key: 'session_id' }
             }
           }
         ]
       },
       'workspace-1',
-      'opaque-workspace',
-      authority.browser,
-      authority.nativeChat
+      'opaque-workspace'
     )
 
+    // An unaddressable session id must drop the chat field, never fail the whole snapshot.
     expect(snapshot.tabs[0]).toEqual({
       type: 'terminal',
       id: 'tab-0',

@@ -1,4 +1,3 @@
-import { openMobileWebPageResources } from './mobile-web-page-resources'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RpcContext } from '../core'
 const subscribe = vi.hoisted(() => vi.fn())
@@ -15,10 +14,9 @@ vi.mock('./native-chat', async () => {
     ]
   }
 })
-import { bindMobileWebNativeChat } from './mobile-web-native-chat-binding'
 import { MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD } from './mobile-web-native-chat-stream'
 
-async function fixture() {
+function fixture() {
   const providerSession = { id: 'provider', transcriptPath: '/private/transcript' }
   const current = { worktreeId: 'workspace', agent: 'codex', providerSession }
   const runtime = {
@@ -40,10 +38,12 @@ async function fixture() {
     cleanupSubscription: vi.fn()
   }
   const context = { runtime, connectionId: 'connection' } as unknown as RpcContext
-  openMobileWebPageResources(context, 'page')
-  const scope = { worktree: 'id:workspace', pageSession: 'page' }
-  const resource = await bindMobileWebNativeChat(context, { ...scope, tabId: 'tab' })
-  const params = { ...scope, ...resource, read: { limit: 20, subscriptionId: 'forged' } }
+  const params = {
+    worktree: 'id:workspace',
+    tabId: 'tab',
+    sessionId: 'provider',
+    read: { limit: 20, subscriptionId: 'forged' }
+  }
   return { runtime, context, params }
 }
 beforeEach(() => subscribe.mockReset())
@@ -51,7 +51,7 @@ describe('opaque native-chat feed', () => {
   it.each(['snapshot', 'appended', 'replaced'])(
     'bounds large %s events and keeps the feed open',
     async (type) => {
-      const f = await fixture()
+      const f = fixture()
       let publish!: (event: unknown) => void
       subscribe.mockImplementationOnce(async (_params, _context, emit) => {
         publish = emit
@@ -83,7 +83,7 @@ describe('opaque native-chat feed', () => {
   )
 
   it('closes and cleans up once when identity metadata alone exceeds the response budget', async () => {
-    const f = await fixture()
+    const f = fixture()
     let publish!: (event: unknown) => void
     subscribe.mockImplementationOnce(async (_params, _context, emit) => {
       publish = emit
@@ -97,7 +97,7 @@ describe('opaque native-chat feed', () => {
   })
 
   it('announces a private cleanup token and forwards future fields', async () => {
-    const f = await fixture()
+    const f = fixture()
     const event = {
       type: 'snapshot',
       messages: [],
@@ -125,7 +125,7 @@ describe('opaque native-chat feed', () => {
   })
 
   it('closes once without publishing after its provider binding changes', async () => {
-    const f = await fixture()
+    const f = fixture()
     let publish!: (event: unknown) => void
     subscribe.mockImplementationOnce(async (_params, _context, emit) => {
       publish = emit
@@ -141,7 +141,7 @@ describe('opaque native-chat feed', () => {
   })
 
   it('does not publish the initial snapshot after cancellation inside ready delivery', async () => {
-    const f = await fixture()
+    const f = fixture()
     const received: unknown[] = []
     let publish!: (event: unknown) => void
     subscribe.mockImplementationOnce(async (_params, _context, emit) => {
@@ -160,7 +160,7 @@ describe('opaque native-chat feed', () => {
     ])
   })
   it('cleans up a watcher when native setup fails after registration', async () => {
-    const f = await fixture()
+    const f = fixture()
     subscribe.mockRejectedValueOnce(new Error('Watcher setup failed'))
     await expect(
       MOBILE_WEB_NATIVE_CHAT_STREAM_METHOD.handler(f.params, f.context, vi.fn())

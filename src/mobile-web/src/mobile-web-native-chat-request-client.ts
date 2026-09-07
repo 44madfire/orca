@@ -49,7 +49,7 @@ export class MobileWebNativeChatRequestClient {
   }
 
   subscribeForTab(tabId: string, ...args: MobileWebNativeChatSubscriptionArgs) {
-    return subscribeMobileWebHostNativeChat(this.requests, this.subscriptions, tabId, ...args)
+    return subscribeMobileWebHostNativeChat(this.subscriptions, tabId, ...args)
   }
 
   readForTab(payload: MobileWebNativeChatReadPayload, tabId: string) {

@@ -16,7 +16,6 @@ describe('mobile web host catalog', () => {
           'mobileWeb.files.read',
           'mobileWeb.sourceControl.status',
           'pairing.getEndpoints',
-          'mobileWeb.resource.resolve',
           'files.searchPaths',
           'future.unknown'
         ]

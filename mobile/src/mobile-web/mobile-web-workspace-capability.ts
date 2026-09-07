@@ -20,7 +20,6 @@ export async function executeWorkspace(
     return executeMobileWebHostRequest({
       client: args.connectedClient(),
       authority: args.workspaceAuthority,
-      getPageSessionId: args.getPageSessionId,
       payload: request.payload,
       isActive: args.isRequestActive
     })

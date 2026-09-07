@@ -5,7 +5,6 @@ import type { MobileWebAccountSubscriptions } from './mobile-web-account-subscri
 import type { MobileWebAgentHistoryAuthority } from './mobile-web-agent-history-authority'
 import type { MobileWebAgentHistoryPager } from './mobile-web-agent-history-pager'
 import type { MobileWebAgentHistoryResume } from './mobile-web-agent-history-resume'
-import type { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import type { MobileWebBrowserStreams } from './mobile-web-browser-streams'
 import type { MobileWebCommitMessageGeneration } from './mobile-web-commit-message-generation'
 import type { MobileWebNavigationAuthority } from './mobile-web-navigation-operations'
@@ -24,7 +23,6 @@ import type { MobileWebWorkspaceSubscriptions } from './mobile-web-workspace-sub
 type PageRequest = Extract<MobileWebBridgePageMessage, { type: 'request' }>
 
 export type MobileWebCapabilityExecutionDependencies = {
-  getPageSessionId?: () => Promise<string>
   request: PageRequest
   isRequestActive: () => boolean
   connectedClient: () => RpcClient
@@ -44,7 +42,6 @@ export type MobileWebCapabilityExecutionDependencies = {
   terminalArtifactAuthority: MobileWebTerminalArtifactAuthority
   taskTargetAuthority: MobileWebTaskTargetAuthority
   taskProjectTable: MobileWebTaskProjectTablePager
-  browserAuthority: MobileWebBrowserAuthority
   nativeChatAuthority: MobileWebNativeChatAuthority
   workspaceAuthority: MobileWebWorkspaceAuthority
   workspaceSnapshots: MobileWebWorkspaceSnapshotPager

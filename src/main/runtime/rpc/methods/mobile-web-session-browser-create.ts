@@ -5,7 +5,6 @@ import { defineMethod, isStreamingMethod, type RpcContext } from '../core'
 import { BROWSER_CORE_METHODS } from './browser-core'
 import { FILE_METHODS } from './files'
 import { MobileWebSessionScope } from './mobile-web-session-scope'
-import { mobileWebSessionResources } from './mobile-web-session-resources'
 
 const source = BROWSER_CORE_METHODS.find((method) => method.name === 'browser.tabCreate')
 const resolver = FILE_METHODS.find((method) => method.name === 'files.resolveTerminalPath')
@@ -42,10 +41,15 @@ async function browserUrl(url: string, worktree: string, context: RpcContext) {
     })
     .parse(await resolve.handler(resolve.params!.parse({ worktree, pathText }), context))
   // The Desktop browser must never interpret an SSH path as a local file.
-  if (`id:${resolved.worktree}` !== worktree) {
+  assertCanonicalWorktree(resolved.worktree, worktree)
+  return filesystemPathToFileUri(resolved.openTarget.absolutePath)
+}
+
+// Every creation is scoped to the worktree the page named, whatever the URL scheme.
+function assertCanonicalWorktree(hostWorktreeId: string, worktree: string) {
+  if (`id:${hostWorktreeId}` !== worktree) {
     throw new Error('selector_not_found')
   }
-  return filesystemPathToFileUri(resolved.openTarget.absolutePath)
 }
 
 export const MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD = defineMethod({
@@ -54,6 +58,11 @@ export const MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD = defineMethod({
     url: MobileWebSessionBrowserCreatePayloadSchema.shape.url
   }),
   handler: async (params, context) => {
+    const snapshot = await context.runtime.listMobileSessionTabs(
+      params.worktree,
+      context.pairedDeviceId
+    )
+    assertCanonicalWorktree(snapshot.worktree, params.worktree)
     const url = await browserUrl(params.url, params.worktree, context)
     if (context.signal?.aborted) {
       throw new Error('runtime_unavailable')
@@ -66,12 +75,6 @@ export const MOBILE_WEB_SESSION_BROWSER_CREATE_METHOD = defineMethod({
           context
         )
       )
-    return {
-      workspaceId: params.workspaceId,
-      browserPageId: mobileWebSessionResources(context, params.pageSession).browser.register(
-        params.worktree.slice(3),
-        result.browserPageId
-      )
-    }
+    return { workspaceId: params.workspaceId, browserPageId: result.browserPageId }
   }
 })

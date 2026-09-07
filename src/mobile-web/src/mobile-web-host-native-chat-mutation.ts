@@ -1,4 +1,3 @@
-import { bindMobileWebHostNativeChat } from './mobile-web-host-native-chat-binding'
 import { requestMobileWebHost } from './mobile-web-host-request-client'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
@@ -19,36 +18,17 @@ export async function mutateMobileWebHostNativeChat<T extends Result>(
     payload.deadline,
     Date.now() + Math.min(15_000, options?.timeoutMs ?? 15_000)
   )
-  const budget = () => Math.floor(deadline - Date.now())
-  if (budget() < 2_000) {
-    return failed('rejected')
-  }
-  const resourceId = await bindMobileWebHostNativeChat(
-    requests,
-    payload.workspaceId,
-    tabId,
-    method,
-    {
-      ...options,
-      timeoutMs: Math.max(1, budget())
-    }
-  )
-  const timeoutMs = budget()
+  const timeoutMs = Math.floor(deadline - Date.now())
   if (timeoutMs < 2_000) {
     return failed('rejected')
   }
-  const { workspaceId, sessionId: _sessionId, deadline: _deadline, ...mutation } = payload
+  const { workspaceId, deadline: _deadline, ...mutation } = payload
   try {
     const result = await requestMobileWebHost(
       requests,
       method,
       workspaceId,
-      {
-        ...mutation,
-        resourceId,
-        action,
-        timeoutMs
-      },
+      { ...mutation, tabId, action, timeoutMs },
       { ...options, timeoutMs }
     )
     if (typeof result !== 'object' || result === null || Array.isArray(result)) {

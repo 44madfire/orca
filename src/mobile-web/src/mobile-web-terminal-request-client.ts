@@ -1,5 +1,5 @@
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
-import { bindMobileWebHostTerminalActions } from './mobile-web-host-terminal-actions'
+import { mobileWebHostTerminalActions } from './mobile-web-host-terminal-actions'
 import { MobileWebHapticSelectionResultSchema } from '../../shared/mobile-web/bridge-operation-contract'
 import {
   MobileWebTerminalDeviceInputResultSchema,
@@ -13,8 +13,11 @@ import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-reques
 export class MobileWebTerminalRequestClient {
   constructor(private readonly requests: MobileWebOneShotRequestClient) {}
 
+  // Resolved rather than plain: callers await it, and there is nothing left to ask the host.
   prepareActions(workspaceId: string, tabId: string, signal: AbortSignal) {
-    return bindMobileWebHostTerminalActions(this.requests, workspaceId, tabId, signal)
+    return Promise.resolve(
+      mobileWebHostTerminalActions(this.requests, workspaceId, tabId, signal)
+    )
   }
 
   request(payload: Exclude<MobileWebTerminalRequest, { operation: 'subscribe' }>): Promise<null> {

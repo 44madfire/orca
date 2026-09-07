@@ -26,14 +26,12 @@ import {
 } from '../../../src/shared/mobile-web/native-operation-contract'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import type { MobileWebNativeCapabilityAuthority } from './mobile-web-native-capability-authority'
-import type { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 export async function executeMobileWebNativeCapabilityOperation(args: {
   operation: string
   payload: unknown
   authority: MobileWebNativeCapabilityAuthority
-  browserAuthority?: MobileWebBrowserAuthority
   workspaceAuthority?: MobileWebWorkspaceAuthority
 }): Promise<unknown> {
   if (['diagnosticsSnapshot', 'diagnosticsProbe', 'diagnosticsSubmit'].includes(args.operation)) {
@@ -101,31 +99,21 @@ export async function executeMobileWebNativeCapabilityOperation(args: {
   }
   if (args.operation === 'sessionChatDraftRead') {
     const payload = MobileWebSessionChatDraftReadPayloadSchema.parse(args.payload)
-    if (
-      !args.authority.sessionChatDraftRead ||
-      !args.workspaceAuthority ||
-      !args.browserAuthority
-    ) {
+    if (!args.authority.sessionChatDraftRead || !args.workspaceAuthority) {
       throw new MobileWebBrokerError('unavailable')
     }
     const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-    const hostTabId = args.browserAuthority.hostTabId(hostWorkspaceId, payload.tabId)
     return MobileWebSessionChatDraftReadResultSchema.parse({
-      text: await args.authority.sessionChatDraftRead(hostWorkspaceId, hostTabId)
+      text: await args.authority.sessionChatDraftRead(hostWorkspaceId, payload.tabId)
     })
   }
   if (args.operation === 'sessionChatDraftWrite') {
     const payload = MobileWebSessionChatDraftWritePayloadSchema.parse(args.payload)
-    if (
-      !args.authority.sessionChatDraftWrite ||
-      !args.workspaceAuthority ||
-      !args.browserAuthority
-    ) {
+    if (!args.authority.sessionChatDraftWrite || !args.workspaceAuthority) {
       throw new MobileWebBrokerError('unavailable')
     }
     const hostWorkspaceId = args.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-    const hostTabId = args.browserAuthority.hostTabId(hostWorkspaceId, payload.tabId)
-    await args.authority.sessionChatDraftWrite(hostWorkspaceId, hostTabId, payload.text)
+    await args.authority.sessionChatDraftWrite(hostWorkspaceId, payload.tabId, payload.text)
     return null
   }
   if (args.operation === 'clipboardWrite') {

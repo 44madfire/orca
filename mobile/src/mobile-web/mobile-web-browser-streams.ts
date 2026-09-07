@@ -16,20 +16,17 @@ import type {
   BrowserScreencastFrameMetadata
 } from '../transport/browser-screencast-protocol'
 import type { RpcClient } from '../transport/rpc-client'
-import type { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { sanitizeMobileWebBrowserEvent } from './mobile-web-browser-event-sanitizer'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 type ScreencastRecord = MobileWebSubscriptionRecord & {
-  releaseBinding: () => void
   frameQueued: boolean
   pendingFrame: BrowserScreencastFrame | null
 }
 
 type BrowserLedgerConfig = MobileWebSubscriptionLedgerConfig<MobileWebBrowserEvent> & {
   workspaceAuthority: MobileWebWorkspaceAuthority
-  browserAuthority: MobileWebBrowserAuthority
 }
 
 export class MobileWebBrowserStreams extends MobileWebSubscriptionLedger<
@@ -49,10 +46,8 @@ export class MobileWebBrowserStreams extends MobileWebSubscriptionLedger<
     this.admit(args.subscriptionId)
     const payload = MobileWebBrowserStreamPayloadSchema.parse(args.payload)
     const hostWorkspaceId = this.config.workspaceAuthority.hostWorkspaceId(payload.workspaceId)
-    const hostPageId = this.config.browserAuthority.hostPageId(hostWorkspaceId, payload.pageId)
     const record: ScreencastRecord = {
       ...this.newRecord(args.requestId),
-      releaseBinding: this.config.browserAuthority.retain(payload.pageId),
       frameQueued: false,
       pendingFrame: null
     }
@@ -61,7 +56,7 @@ export class MobileWebBrowserStreams extends MobileWebSubscriptionLedger<
         'browser.screencast',
         {
           worktree: `id:${hostWorkspaceId}`,
-          page: hostPageId,
+          page: payload.pageId,
           format: payload.format,
           quality: payload.quality,
           maxWidth: payload.maxWidth,
@@ -87,7 +82,6 @@ export class MobileWebBrowserStreams extends MobileWebSubscriptionLedger<
 
   // Drops the parked image so a retired stream cannot pin a multi-megabyte frame.
   protected override retire(record: ScreencastRecord): void {
-    record.releaseBinding()
     record.pendingFrame = null
   }
 

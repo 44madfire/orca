@@ -9,7 +9,6 @@ import {
 } from '../../../src/shared/mobile-web/browser-operation-contract'
 import { mobileWebPageBrowserUrl } from '../../../src/shared/mobile-web/browser-url-privacy'
 import type { RpcClient } from '../transport/rpc-client'
-import type { MobileWebBrowserAuthority } from './mobile-web-browser-authority'
 import { MobileWebBrokerError, mobileWebBrokerHostRpcError } from './mobile-web-broker-error'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
@@ -18,11 +17,10 @@ export async function executeMobileWebBrowserOperation(args: {
   payload: unknown
   client: RpcClient
   workspaceAuthority: MobileWebWorkspaceAuthority
-  browserAuthority: MobileWebBrowserAuthority
 }): Promise<unknown> {
   if (args.operation === 'navigate') {
     const payload = MobileWebBrowserNavigatePayloadSchema.parse(args.payload)
-    const target = resolveTarget(payload, args.workspaceAuthority, args.browserAuthority)
+    const target = resolveTarget(payload, args.workspaceAuthority)
     const response = await args.client.sendRequest(
       'browser.goto',
       { ...target, url: payload.url },
@@ -39,14 +37,14 @@ export async function executeMobileWebBrowserOperation(args: {
   }
   if (args.operation === 'pointer') {
     const payload = MobileWebBrowserPointerPayloadSchema.parse(args.payload)
-    const target = resolveTarget(payload, args.workspaceAuthority, args.browserAuthority)
+    const target = resolveTarget(payload, args.workspaceAuthority)
     if (payload.action === 'scroll') {
       await requireRequest(args.client, 'browser.mouseMove', {
         ...target,
         x: payload.x,
         y: payload.y
       })
-      assertTarget(payload, target, args.workspaceAuthority, args.browserAuthority)
+      assertTarget(payload, target, args.workspaceAuthority)
       await requireRequest(args.client, 'browser.mouseWheel', {
         ...target,
         dx: payload.dx,
@@ -67,18 +65,18 @@ export async function executeMobileWebBrowserOperation(args: {
       { timeoutMs: 5_000 }
     )
     if (!click.ok && payload.modifiers.length === 0) {
-      assertTarget(payload, target, args.workspaceAuthority, args.browserAuthority)
+      assertTarget(payload, target, args.workspaceAuthority)
       await requireRequest(args.client, 'browser.mouseMove', {
         ...target,
         x: payload.x,
         y: payload.y
       })
-      assertTarget(payload, target, args.workspaceAuthority, args.browserAuthority)
+      assertTarget(payload, target, args.workspaceAuthority)
       await requireRequest(args.client, 'browser.mouseDown', {
         ...target,
         button: payload.button
       })
-      assertTarget(payload, target, args.workspaceAuthority, args.browserAuthority)
+      assertTarget(payload, target, args.workspaceAuthority)
       await requireRequest(args.client, 'browser.mouseUp', {
         ...target,
         button: payload.button
@@ -88,7 +86,7 @@ export async function executeMobileWebBrowserOperation(args: {
   }
   if (args.operation === 'keyboard') {
     const payload = MobileWebBrowserKeyboardPayloadSchema.parse(args.payload)
-    const target = resolveTarget(payload, args.workspaceAuthority, args.browserAuthority)
+    const target = resolveTarget(payload, args.workspaceAuthority)
     await requireRequest(
       args.client,
       payload.action === 'insertText' ? 'browser.keyboardInsertText' : 'browser.keypress',
@@ -101,7 +99,7 @@ export async function executeMobileWebBrowserOperation(args: {
   }
   if (args.operation === 'dialog') {
     const payload = MobileWebBrowserDialogPayloadSchema.parse(args.payload)
-    const target = resolveTarget(payload, args.workspaceAuthority, args.browserAuthority)
+    const target = resolveTarget(payload, args.workspaceAuthority)
     await requireRequest(
       args.client,
       payload.action === 'accept' ? 'browser.dialogAccept' : 'browser.dialogDismiss',
@@ -112,20 +110,20 @@ export async function executeMobileWebBrowserOperation(args: {
   }
   if (args.operation === 'back' || args.operation === 'forward' || args.operation === 'reload') {
     const payload = MobileWebBrowserTargetPayloadSchema.parse(args.payload)
-    const target = resolveTarget(payload, args.workspaceAuthority, args.browserAuthority)
+    const target = resolveTarget(payload, args.workspaceAuthority)
     await requireRequest(args.client, `browser.${args.operation}`, target)
     return MobileWebBrowserCommandResultSchema.parse(null)
   }
   throw new MobileWebBrokerError('unsupported_capability')
 }
 
+// Re-reads the workspace binding mid-operation: a workspace switch must not land later frames.
 function assertTarget(
   payload: { workspaceId: string; pageId: string },
   expected: { worktree: string; page: string },
-  workspaceAuthority: MobileWebWorkspaceAuthority,
-  browserAuthority: MobileWebBrowserAuthority
+  workspaceAuthority: MobileWebWorkspaceAuthority
 ): void {
-  const current = resolveTarget(payload, workspaceAuthority, browserAuthority)
+  const current = resolveTarget(payload, workspaceAuthority)
   if (current.worktree !== expected.worktree || current.page !== expected.page) {
     throw new MobileWebBrokerError('conflict')
   }
@@ -133,13 +131,11 @@ function assertTarget(
 
 function resolveTarget(
   payload: { workspaceId: string; pageId: string },
-  workspaceAuthority: MobileWebWorkspaceAuthority,
-  browserAuthority: MobileWebBrowserAuthority
+  workspaceAuthority: MobileWebWorkspaceAuthority
 ): { worktree: string; page: string } {
-  const hostWorkspaceId = workspaceAuthority.hostWorkspaceId(payload.workspaceId)
   return {
-    worktree: `id:${hostWorkspaceId}`,
-    page: browserAuthority.hostPageId(hostWorkspaceId, payload.pageId)
+    worktree: `id:${workspaceAuthority.hostWorkspaceId(payload.workspaceId)}`,
+    page: payload.pageId
   }
 }
 
