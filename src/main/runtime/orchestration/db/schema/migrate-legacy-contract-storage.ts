@@ -86,6 +86,9 @@ export function migrateLegacyContractStorage(this: OrchestrationDb): void {
        WHERE run_id = ? AND capability_hash IS NULL`
     )
     .run(LEGACY_CONTRACT_VERSION, LEGACY_RUN_ID)
+  // Why: a federated attachment mailbox is live worker mail, never legacy history. Relocating it
+  // here keeps classification and adoption off it no matter which version the chain replayed from.
+  this.relocateFederatedAttachmentMailboxes()
   this.classifyLegacyMessageContracts(LEGACY_RUN_ID, false)
   this.ensureLegacySchedulerLossColumn()
   this.adoptLegacyRunIfNeeded()

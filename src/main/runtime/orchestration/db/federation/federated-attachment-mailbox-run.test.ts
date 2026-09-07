@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OrchestrationDb } from '../../db'
 import { ORCHESTRATION_LEGACY_RUN_ID } from '../../../../../shared/orchestration-rpc-contract'
+import { SCHEMA_VERSION } from '../contract-constants'
 import {
   encodeFederatedControlMessage,
   importFederatedControlMessage
@@ -36,16 +37,16 @@ describe('federated worker mailbox Run', () => {
     return join(dir, 'orchestration.db')
   }
 
-  function attachFederatedWorker(db: OrchestrationDb, dispatchId = DISPATCH_ID): void {
+  function attachFederatedWorker(db: OrchestrationDb, state = 'ready'): void {
     db.db
       .prepare(
         `INSERT INTO remote_dispatch_attachments (
            dispatch_id, task_id, home_peer_fingerprint, runtime_epoch,
            pane_key, terminal_handle, state, consumer_generation
          ) VALUES (?, 'task_remote_audit_1', 'peer_fp', 'epoch_1',
-                   'tab_1:leaf_w', 'term_w', 'ready', 0)`
+                   'tab_1:leaf_w', 'term_w', ?, 0)`
       )
-      .run(dispatchId)
+      .run(DISPATCH_ID, state)
   }
 
   /** The rows the pre-fix build wrote: a live federated mailbox filed under the legacy Run. */
@@ -165,7 +166,7 @@ describe('federated worker mailbox Run', () => {
     }
   })
 
-  it('restores a Delivery a legacy adoption pass already swept and fenced', () => {
+  it('redelivers an instruction a legacy adoption pass already swept and fenced', () => {
     const path = databasePath()
     const poisoned = new OrchestrationDb(path)
     attachFederatedWorker(poisoned)
@@ -181,10 +182,78 @@ describe('federated worker mailbox Run', () => {
     try {
       expect(readMessage(repaired).run_id).toBe(FEDERATED_ATTACHMENT_RUN_ID)
       expect(readMessage(repaired).delivery_contract).toBe('current_delivery')
-      expect(readDelivery(repaired).status).toBe('outstanding')
-      expectDeliverableToWorker(repaired, DELIVERY_ID)
+      // The fence stays: nothing durable proves which incarnation minted this Delivery. The
+      // unread instruction is what the worker is owed, and a fresh Delivery carries it.
+      expect(readDelivery(repaired).status).toBe('fenced')
+      const minted = repaired.getOrCreateMailboxDelivery({
+        runId: FEDERATED_ATTACHMENT_RUN_ID,
+        mailboxHandle: ADDRESS,
+        consumerGeneration: 0
+      })
+      expect(minted?.delivery.id).not.toBe(DELIVERY_ID)
+      expect(minted?.messages.map((entry) => entry.id)).toEqual([MESSAGE_ID])
+      expectDeliverableToWorker(repaired, minted?.delivery.id as string)
     } finally {
       repaired.close()
+    }
+  })
+
+  // A populated pre-v36 host has the same misfiled rows: role mailboxes shipped at v34, and v36
+  // only added the consumer-generation counters. Requiring them made the first upgraded open
+  // skip the relocation, replay adoption, and fence the instruction for that whole launch.
+  it('relocates a populated pre-v36 mailbox on the first upgraded open', () => {
+    const path = databasePath()
+    const old = new OrchestrationDb(path)
+    attachFederatedWorker(old)
+    seedMisfiledMailbox(old)
+    old.db.exec(
+      `ALTER TABLE remote_dispatch_attachments DROP COLUMN consumer_generation;
+       ALTER TABLE dispatch_contexts DROP COLUMN consumer_generation;
+       PRAGMA user_version = 35`
+    )
+    old.close()
+
+    const upgraded = new OrchestrationDb(path)
+    try {
+      expect(upgraded.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+      expect(readMessage(upgraded).run_id).toBe(FEDERATED_ATTACHMENT_RUN_ID)
+      expect(readMessage(upgraded).delivery_contract).toBe('current_delivery')
+      expect(readDelivery(upgraded).status).toBe('outstanding')
+      expect(readDelivery(upgraded).run_id).toBe(FEDERATED_ATTACHMENT_RUN_ID)
+      expectDeliverableToWorker(upgraded, DELIVERY_ID)
+    } finally {
+      upgraded.close()
+    }
+  })
+
+  // A database old enough to predate `messages.delivery_contract` cannot be relocated before
+  // migrate, so the relocation runs a second time inside the legacy-contract migration, ahead of
+  // the classification and adoption passes that would otherwise fence this worker.
+  it('relocates a pre-contract mailbox before the adoption pass that replays over it', () => {
+    const path = databasePath()
+    const old = new OrchestrationDb(path)
+    attachFederatedWorker(old)
+    seedMisfiledMailbox(old)
+    old.db.exec(
+      `DROP TRIGGER IF EXISTS trg_messages_route_coordinator_mail;
+       DROP INDEX IF EXISTS idx_messages_delivery_contract;
+       DROP INDEX IF EXISTS idx_messages_undelivered_direct_run;
+       DROP INDEX IF EXISTS idx_messages_unread_current_inbox;
+       DROP INDEX IF EXISTS idx_messages_unread_current_inbox_type;
+       DROP INDEX IF EXISTS idx_messages_unread_current_run_type;
+       ALTER TABLE messages DROP COLUMN delivery_contract;
+       PRAGMA user_version = 18`
+    )
+    old.close()
+
+    const upgraded = new OrchestrationDb(path)
+    try {
+      expect(readMessage(upgraded).run_id).toBe(FEDERATED_ATTACHMENT_RUN_ID)
+      expect(readMessage(upgraded).delivery_contract).toBe('current_delivery')
+      expect(readDelivery(upgraded).status).toBe('outstanding')
+      expectDeliverableToWorker(upgraded, DELIVERY_ID)
+    } finally {
+      upgraded.close()
     }
   })
 
@@ -208,26 +277,58 @@ describe('federated worker mailbox Run', () => {
     }
   })
 
-  it('never restores a Delivery whose consumer generation the attachment has left', () => {
+  // `resetTasks` keeps deliveries while dropping attachments, so a recreated Dispatch restarts the
+  // consumer counter. Current-generation equality would read that as "never fenced" and hand a real
+  // authority fence back to a different process incarnation.
+  it('keeps a real authority fence across a task reset and attachment recreation', () => {
     const path = databasePath()
-    const poisoned = new OrchestrationDb(path)
-    attachFederatedWorker(poisoned)
-    seedMisfiledMailbox(poisoned)
-    poisoned.db.prepare("UPDATE deliveries SET status = 'fenced' WHERE id = ?").run(DELIVERY_ID)
-    poisoned.db
-      .prepare(
-        'UPDATE remote_dispatch_attachments SET consumer_generation = 1 WHERE dispatch_id = ?'
-      )
-      .run(DISPATCH_ID)
-    poisoned.close()
+    const host = new OrchestrationDb(path)
+    attachFederatedWorker(host, 'starting')
+    host.db.exec('UPDATE remote_dispatch_attachments SET consumer_generation = 1')
+    seedMisfiledMailbox(host)
+    host.db.prepare('UPDATE deliveries SET consumer_generation = 1 WHERE id = ?').run(DELIVERY_ID)
+    host.prepareRemoteAttachmentAuthority({
+      dispatchId: DISPATCH_ID,
+      paneKey: 'tab_1:leaf_w',
+      processIncarnation: 'proc_first',
+      worktreeId: 'folder',
+      terminalHandle: 'term_w',
+      setupState: 'ready',
+      effects: []
+    })
+    expect(readDelivery(host).status).toBe('fenced')
+    host.resetTasks()
+    host.createRemoteDispatchAttachment({
+      dispatchId: DISPATCH_ID,
+      taskId: 'task_remote_audit_1',
+      homePeerFingerprint: 'peer_fp',
+      protocolVersion: 1,
+      runtimeEpoch: 'epoch_2',
+      mutationReceipt: {
+        callerFingerprint: 'peer_fp',
+        requestId: 'req_2',
+        method: 'attach',
+        payloadHash: 'hash_2'
+      }
+    })
+    host.prepareRemoteAttachmentAuthority({
+      dispatchId: DISPATCH_ID,
+      paneKey: 'tab_2:leaf_w',
+      processIncarnation: 'proc_second',
+      worktreeId: 'folder',
+      terminalHandle: 'term_w2',
+      setupState: 'ready',
+      effects: []
+    })
+    host.recordRemoteAttachmentStage({ dispatchId: DISPATCH_ID, stage: 'ready', state: 'ready' })
+    expect(host.getRemoteDispatchAttachment(DISPATCH_ID)?.consumer_generation).toBe(1)
+    host.close()
 
-    const repaired = new OrchestrationDb(path)
+    const reopened = new OrchestrationDb(path)
     try {
-      // The rows still leave the legacy Run; a real fence is evidence and survives the repair.
-      expect(readMessage(repaired).run_id).toBe(FEDERATED_ATTACHMENT_RUN_ID)
-      expect(readDelivery(repaired).status).toBe('fenced')
+      expect(readDelivery(reopened).status).toBe('fenced')
     } finally {
-      repaired.close()
+      reopened.close()
     }
   })
 })
