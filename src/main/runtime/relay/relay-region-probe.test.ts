@@ -18,35 +18,73 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
 }
 
+// Throws rather than asserting so the fixtures below can drive it with `toThrow`; an expect inside
+// a helper only reports against the live contract, which is the one input that cannot go wrong.
+function readContractRegions(source: string): string[] {
+  const declarations = [...stripComments(source).matchAll(DECLARATION)]
+  // Exactly one: zero means the shape moved, and a second live-looking one means this test
+  // would be pinning against whichever came first.
+  if (declarations.length !== 1) {
+    throw new Error('relay-regions.ts must declare RELAY_REGIONS exactly once as an inline array')
+  }
+
+  const elements = declarations[0]![1]!.split(',').map((element) => element.trim())
+  if (elements.at(-1) === '') {
+    elements.pop() // trailing comma
+  }
+  if (elements.length === 0) {
+    throw new Error('relay-regions.ts declares RELAY_REGIONS as an empty array')
+  }
+  return elements.map((element) => {
+    const quoted = QUOTED_REGION.exec(element)
+    // Every element must parse: silently skipping one would hide a contract region from the
+    // comparison below and let the two lists diverge while this test stayed green.
+    if (quoted === null) {
+      throw new Error(`relay-regions.ts element is not a quoted string literal: ${element}`)
+    }
+    return quoted[2]!
+  })
+}
+
 describe('RELAY_REGIONS', () => {
   it('matches the relay contract exactly, region for region and in order', () => {
-    const declarations = [...stripComments(CONTRACT_SOURCE).matchAll(DECLARATION)]
-    // Exactly one: zero means the shape moved, and a second live-looking one means this test
-    // would be pinning against whichever came first.
-    expect(
-      declarations.length,
-      'relay-regions.ts must declare RELAY_REGIONS exactly once as an inline array'
-    ).toBe(1)
-
-    const elements = declarations[0]![1]!.split(',').map((element) => element.trim())
-    if (elements.at(-1) === '') {
-      elements.pop() // trailing comma
-    }
-    expect(elements.length).toBeGreaterThan(0)
-    const contractRegions = elements.map((element) => {
-      const quoted = QUOTED_REGION.exec(element)
-      // Every element must parse: silently skipping one would hide a contract region from the
-      // comparison below and let the two lists diverge while this test stayed green.
-      expect(
-        quoted,
-        `relay-regions.ts element is not a quoted string literal: ${element}`
-      ).not.toBeNull()
-      return quoted![2]
-    })
-
     // A longer desktop list withholds the region hint fleet-wide (the catalog can never reach
     // RELAY_REGIONS.length); a shorter one caches a hint won against an incomplete catalog. Order
     // is pinned too because bestMeasurement breaks latency ties on the RELAY_REGIONS index.
-    expect([...RELAY_REGIONS]).toEqual(contractRegions)
+    expect([...RELAY_REGIONS]).toEqual(readContractRegions(CONTRACT_SOURCE))
+  })
+})
+
+describe('readContractRegions', () => {
+  it('reads the live declaration, not a commented-out one above it', () => {
+    const source = [
+      '/* Previous region catalog:',
+      "export const RELAY_REGIONS = ['us-central1', 'asia-east2'] as const",
+      '*/',
+      "export const RELAY_REGIONS = ['us-central1', 'asia-east2', 'europe-west1'] as const"
+    ].join('\n')
+
+    expect(readContractRegions(source)).toEqual(['us-central1', 'asia-east2', 'europe-west1'])
+  })
+
+  it('refuses a source with two live-looking declarations', () => {
+    const source = [
+      'namespace Legacy {',
+      "export const RELAY_REGIONS = ['us-central1'] as const",
+      '}',
+      "export const RELAY_REGIONS = ['us-central1', 'asia-east2'] as const"
+    ].join('\n')
+
+    expect(() => readContractRegions(source)).toThrow(
+      'relay-regions.ts must declare RELAY_REGIONS exactly once as an inline array'
+    )
+  })
+
+  it('refuses an element that is not a quoted string literal', () => {
+    const source = "export const RELAY_REGIONS = ['us-central1', LEGACY_REGION] as const"
+
+    expect(() => readContractRegions(source)).toThrow(
+      'relay-regions.ts element is not a quoted string literal: LEGACY_REGION'
+    )
   })
 })
