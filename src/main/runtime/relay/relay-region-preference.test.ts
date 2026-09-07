@@ -589,6 +589,8 @@ describe('Relay region cache self-heal', () => {
     const { calls, fetch, resolver } = resolverFor(path, [800, 700, 710, 720])
 
     await resolver.invalidateIfAssignedCellIsFar('https://cell-7.attacker.example')
+    // Malformed input is refused the same way, without rejecting the best-effort call.
+    await resolver.invalidateIfAssignedCellIsFar('not a url')
     expect(fetch).not.toHaveBeenCalled()
     expect(calls).toHaveLength(0)
     expect(existsSync(cachePath(path))).toBe(true)
