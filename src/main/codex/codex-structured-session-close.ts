@@ -118,6 +118,33 @@ export async function closeCodexSession(
   return closeCodexPublishedSession(sessions, sessionId, onEvent)
 }
 
+/** A child that died unexpectedly: closed only if the session is still the one that owned it. */
+export function forceCloseUnexpectedCodexSession(
+  sessions: Map<string, CodexSession>,
+  sessionId: string,
+  fence: number,
+  acquisitionGeneration: string,
+  reason: Error,
+  onEvent?: (event: CodexStructuredSessionEvent) => void
+): Promise<boolean> {
+  const session = sessions.get(sessionId)
+  if (
+    !session ||
+    session.ended ||
+    session.fence !== fence ||
+    session.acquisitionGeneration !== acquisitionGeneration
+  ) {
+    return Promise.resolve(false)
+  }
+  return closeCodexPublishedSession(sessions, sessionId, onEvent, {
+    allowFailedSettlement: true,
+    requestedClose: false,
+    expectedFence: fence,
+    expectedAcquisitionGeneration: acquisitionGeneration,
+    unexpectedReason: reason
+  })
+}
+
 export async function closeAllCodexSessions(
   sessions: Map<string, CodexSession>,
   acquisitions: CodexAcquisitionRegistry,

@@ -93,7 +93,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     ...(summary.toolName ? { toolName: summary.toolName } : {}),
     ...(summary.toolInput ? { toolInput: summary.toolInput } : {}),
     ...(summary.lastAssistantMessage ? { lastAssistantMessage: summary.lastAssistantMessage } : {}),
-    sessionBoundary: summary.status === 'idle'
+    sessionBoundary: false
   } as const
   const current = store.agentStatusByPaneKey?.[paneKey]
   if (
@@ -106,6 +106,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     current.toolInput === summary.toolInput &&
     current.lastAssistantMessage === summary.lastAssistantMessage &&
     current.sessionBoundary === desired.sessionBoundary &&
+    current.updatedAt === summary.updatedAt &&
     current.terminalTitle === rowTitle(tab) &&
     current.conversationName === rowTitle(tab) &&
     current.tabId === tab.id &&
@@ -123,7 +124,16 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     paneKey,
     desired,
     rowTitle(tab),
-    undefined,
+    {
+      updatedAt: summary.updatedAt,
+      // This ordered host feed can correct a legacy publication clock after upgrade.
+      allowOlderTimestamp: true,
+      stateStartedAt:
+        desired.state !== 'done' && current?.state === desired.state
+          ? current.stateStartedAt
+          : summary.updatedAt,
+      evidenceObservedAt: Date.now()
+    },
     { tabId: tab.id, worktreeId: tab.worktreeId },
     {
       ...(summary.providerSession ? { providerSession: summary.providerSession } : {}),

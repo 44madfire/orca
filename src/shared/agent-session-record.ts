@@ -9,6 +9,10 @@
 import { isAgentSessionConversationName } from './agent-session-conversation-name'
 import type { ExecutionHostId } from './execution-host'
 import {
+  isAgentSessionConversationCommandRecord,
+  type AgentSessionConversationCommandRecord
+} from './agent-session-conversation-command'
+import {
   isAgentSessionProviderHandleChain,
   type AgentSessionHandleProvider,
   type AgentSessionProviderHandleLink
@@ -134,6 +138,7 @@ export type AgentSessionRecord = {
    *  or a restart would otherwise re-ask — re-imposing a name the user cleared,
    *  and paying for it again. */
   conversationNamingAttempted?: boolean
+  conversationCommand?: AgentSessionConversationCommandRecord
   launchArgs?: AgentSessionLaunchArgs
   lease: AgentSessionLease
   createdAt: number
@@ -348,6 +353,8 @@ export function isAgentSessionRecord(value: unknown): value is AgentSessionRecor
       isAgentSessionConversationName(record.conversationName)) &&
     (record.conversationNamingAttempted === undefined ||
       typeof record.conversationNamingAttempted === 'boolean') &&
+    (record.conversationCommand === undefined ||
+      isAgentSessionConversationCommandRecord(record.conversationCommand)) &&
     (record.launchArgs === undefined || isAgentSessionLaunchArgs(record.launchArgs)) &&
     !Object.hasOwn(record, 'launchEnv') &&
     isAgentSessionLease(record.lease) &&

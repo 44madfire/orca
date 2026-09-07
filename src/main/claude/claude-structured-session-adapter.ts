@@ -1,3 +1,4 @@
+import { compactClaudeSession, observeClaudeCompaction } from './claude-structured-compaction'
 import type {
   AgentSessionAcquisition,
   StructuredAgentSessionAcquireInput,
@@ -11,6 +12,7 @@ import {
 } from './claude-structured-control-actions'
 import { startClaudeConversationNaming } from './claude-conversation-name-turn'
 import { dispatchClaudeTurn } from './claude-structured-dispatch'
+import { StructuredSessionCompaction } from '../native-chat/agent-session-wire/structured-session-compaction'
 import { releaseClaudeAcquisition } from './claude-structured-acquisition-release'
 import { acquireClaudeSession } from './claude-structured-session-acquisition'
 import { reportPersistedClaudeConversationName } from './claude-transcript-conversation-name'
@@ -31,7 +33,7 @@ import {
   closeClaudeSession,
   settleClaudeExitedSession
 } from './claude-structured-session-close'
-import { readClaudeTranscriptLeafWithReproof } from './claude-transcript-branch-proof'
+import { persistClaudeSessionHandle } from './claude-structured-session-handle-persistence'
 import type { AgentSessionBackgroundTaskState } from '../../shared/agent-session-wire'
 
 export type { ClaudeStructuredLaunch } from './claude-structured-launch-resolution'
@@ -49,6 +51,7 @@ function backgroundTaskState(session: ClaudeSession): AgentSessionBackgroundTask
 }
 
 export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAdapter {
+  private readonly compactions = new StructuredSessionCompaction()
   private readonly sessions = new Map<string, ClaudeSession>()
   private readonly acquisitions = new ClaudeAcquisitionRegistry()
   private readonly exits = new Map<string, ClaudeSessionExit>()
@@ -143,7 +146,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
       }
       // Persist the transcript-derived cursor before publishing the lifecycle
       // event that lets the host release and reacquire this exact child.
-      await this.persistSessionHandle(sessionId, exit.session).catch(() => undefined)
+      await persistClaudeSessionHandle(sessionId, exit.session, this.deps).catch(() => undefined)
       if (this.exits.get(sessionId) !== exit) {
         settleClaudeExitedSession(exit.session)
         return
@@ -166,30 +169,6 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     return exit.settlementPromise
   }
 
-  private async persistSessionHandle(sessionId: string, session: ClaudeSession): Promise<void> {
-    try {
-      const transcriptLeaf = this.deps.readTranscriptLeaf
-        ? await readClaudeTranscriptLeafWithReproof({
-            readTranscriptLeaf: this.deps.readTranscriptLeaf,
-            providerSessionId: session.providerSessionId,
-            previousLeafUuid: session.leafUuid,
-            claudeConfigDir: session.claudeConfigDir
-          })
-        : null
-      if (transcriptLeaf) {
-        session.leafUuid = transcriptLeaf
-      }
-    } catch {
-      // A stale or unavailable tail must not overwrite the last observed leaf.
-    }
-    await this.deps.persistHandle?.({
-      sessionId,
-      providerSessionId: session.providerSessionId,
-      leafUuid: session.leafUuid,
-      fence: session.fence
-    })
-  }
-
   private emit(
     session: ClaudeSession | null,
     _events: StructuredAgentSessionEventSink | undefined,
@@ -201,7 +180,10 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
         : event.type === 'message'
           ? (session?.backgroundTasks.observe(event.message, event.startsTurn === true) ?? false)
           : false
-    session?.translator?.handle(event)
+    if (event.type === 'message' && session?.commands.observe(event.message)) {
+      session.events?.publish()
+    }
+    observeClaudeCompaction(this.compactions, event, session?.translator)
     this.deps.onEvent?.(event)
     if (backgroundTasksChanged) {
       this.deps.onBackgroundTasksChanged?.(
@@ -238,6 +220,14 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     return outcome
   }
 
+  compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) =>
+    compactClaudeSession(
+      this.session(input.sessionId),
+      this.compactions,
+      input,
+      this.deps.dispatchAckTimeoutMs ?? DISPATCH_ACK_TIMEOUT_MS
+    )
+
   cancelTurn: StructuredAgentSessionAdapter['cancelTurn'] = (input) => {
     const session = this.session(input.sessionId)
     const acquisitionGeneration = session.acquisitionGeneration
@@ -249,10 +239,11 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
         this.sessions.get(input.sessionId) === session &&
         session.fence === input.fence &&
         session.acquisitionGeneration === acquisitionGeneration &&
-        (session.activeTurnId === undefined
-          ? session.dispatchSequence === 0
-          : session.activeTurnId === input.turnId &&
-            session.activeTurnSequence === session.dispatchSequence)
+        (this.compactions.ownsTurn(input.sessionId, input.turnId) ||
+          (session.activeTurnId === undefined
+            ? session.dispatchSequence === 0
+            : session.activeTurnId === input.turnId &&
+              session.activeTurnSequence === session.dispatchSequence))
       )
     })
   }
@@ -278,6 +269,8 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     const session = this.sessions.get(sessionId)
     return session ? backgroundTaskState(session) : undefined
   }
+  readCommands: NonNullable<StructuredAgentSessionAdapter['readCommands']> = (sessionId) =>
+    this.sessions.get(sessionId)?.commands.commands
   answerPrompt: StructuredAgentSessionAdapter['answerPrompt'] = (input) =>
     answerClaudePrompt(this.session(input.sessionId), input)
   setOption: StructuredAgentSessionAdapter['setOption'] = (input) =>

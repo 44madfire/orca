@@ -16,7 +16,10 @@ import {
   type CodexStructuredSessionAdapterDeps
 } from '../codex/codex-structured-session-adapter'
 import type { ClaudeStructuredSessionAdapterDeps } from '../claude/claude-structured-session-adapter'
-import { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-host'
+import {
+  StructuredAgentSessionHost,
+  type StructuredAgentSessionHostDeps
+} from '../native-chat/agent-session-wire/structured-agent-session-host'
 import { StructuredAgentSessionAdapterRouter } from '../native-chat/agent-session-wire/structured-agent-session-adapter-router'
 import { StructuredAgentSessionConversationNames } from '../native-chat/agent-session-wire/structured-agent-session-conversation-name'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
@@ -91,6 +94,9 @@ export type StructuredAgentSessionRuntimeDeps = {
     /** Null when the provider cleared the name; the tab returns to its placeholder. */
     conversationName: string | null
   }) => void
+  /** Every structured-session status projection, for host-side reactions such as the first-work
+   *  workspace rename that CLI agents get from their hooks. */
+  onSessionStatusChanged?: StructuredAgentSessionHostDeps['onSessionStatusChanged']
   handoffTransport?: StructuredAgentSessionHandoffTransport
   reapOrphanChildren?: typeof stopOrphanAgentSessionChildren
 }
@@ -303,6 +309,14 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       readNamingState: (sessionId) => conversationNames.read(sessionId),
       markNamingAttempted: (sessionId) => void conversationNames.markAttempted(sessionId),
       onNamingError: (scope, error) => warnConversationNamingFailed(scope, error),
+      onDispatchSettledLate: (settlement) => {
+        void host?.settleLateDispatch(settlement).catch((error) =>
+          deps.onError?.({
+            scope: `structured-agent-session-late-settlement:${settlement.sessionId}`,
+            error
+          })
+        )
+      },
       ...(deps.openClaudeConnection ? { openClaudeConnection: deps.openClaudeConnection } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
     })
@@ -324,6 +338,9 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
         : {}),
       onEventSinkError: ({ sessionId, error }) =>
         deps.onError?.({ scope: `structured-agent-session-journal:${sessionId}`, error }),
+      ...(deps.onSessionStatusChanged
+        ? { onSessionStatusChanged: deps.onSessionStatusChanged }
+        : {}),
       persistTuiProviderHandle: async ({ sessionId, link, now }) => {
         await store.transitionHandoff(sessionId, (record) =>
           recordAgentSessionProviderHandle({ record, fence: record.lease.runtimeFence, link, now })

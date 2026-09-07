@@ -109,7 +109,11 @@ export async function acquireClaudeSession({
     if (liveSession) {
       liveSession.leafUuid = observedLeafUuid
     }
-    const startsTurn = liveSession ? resolveClaudeReplayWaiter(liveSession, message) : false
+    const startsTurn = liveSession
+      ? resolveClaudeReplayWaiter(liveSession, message, (settlement) =>
+          deps.onDispatchSettledLate?.({ sessionId, ...settlement })
+        )
+      : false
     callbacks.deliver(attempt, sessionId, () =>
       callbacks.emit(liveSession, input.events, {
         type: 'message',
@@ -248,6 +252,7 @@ export async function acquireClaudeSession({
     const publication = createClaudeSessionPublication({
       connection,
       init,
+      initialization,
       claudeConfigDir: launch.claudeConfigDir,
       leafUuid: observedLeafUuid,
       fence: input.fence,

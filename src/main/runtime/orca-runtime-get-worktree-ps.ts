@@ -1,7 +1,10 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import { OrcaRuntimeWithStructuredAgentSessionRecoverTuiOwner } from './orca-runtime-structured-agent-session-recover-tui-owner'
 import { DEFAULT_WORKTREE_PS_LIMIT } from './orca-runtime-postlude'
-import type { RuntimeWorktreePsResult } from '../../shared/runtime-types'
+import type {
+  RuntimeMobileSessionTabsSnapshot,
+  RuntimeWorktreePsResult
+} from '../../shared/runtime-types'
 import { buildRuntimeWorktreePsSummaries } from './runtime-worktree-ps-summaries'
 import { buildRuntimeWorktreeSummaryPathIndex } from './runtime-worktree-summary-paths'
 import {
@@ -14,6 +17,8 @@ import type { AgentSessionRecord } from '../../shared/agent-session-record'
 import type { Repo } from '../../shared/repo-types'
 import { enrichMissingRepoGitRemoteIdentities } from '../repo-git-remote-identity-enrichment'
 import { ensureStructuredAgentSessionHost as installStructuredAgentSessionHost } from './structured-agent-session-runtime'
+import { maybeAutoRenameWorkspaceOnFirstStructuredTurn } from '../agent-hooks/first-work-structured-session-rename'
+import { firstWorkRenameDeps } from '../agent-hooks/first-work-rename-runtime'
 import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import { buildWorktreeListingPage } from './worktree-listing-host-scope'
@@ -25,7 +30,6 @@ import { resolveLocalWindowsAgentStartupShell } from '../../shared/windows-termi
 import { resolveStartupShell, tokenizeStartupCommand } from '../../shared/tui-agent-startup-shell'
 import { resolveCodexStructuredAppServerArgs } from '../codex/codex-structured-app-server-args'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
-import type { RuntimeMobileSessionTabsSnapshot } from '../../shared/runtime-types'
 import { defaultAgentChatLabel } from '../../shared/agent-session-chat-label'
 import { hostname } from 'node:os'
 import { claudeStructuredAuthPolicyForSettings } from '../claude-accounts/claude-structured-auth-policy'
@@ -164,6 +168,15 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
           sessionId,
           conversationName
         }),
+      // Structured chat has no agent CLI hooks, so this projection is what the first-work
+      // workspace rename listens to instead of `agentStatus:set`.
+      onSessionStatusChanged: (summary, options) => {
+        void maybeAutoRenameWorkspaceOnFirstStructuredTurn(
+          summary,
+          options,
+          firstWorkRenameDeps(this.requireStore(), this)
+        )
+      },
       handoffTransport: this.createStructuredAgentSessionHandoffTransport()
     })
   }

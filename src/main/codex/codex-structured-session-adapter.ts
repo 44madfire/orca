@@ -2,6 +2,8 @@ import type {
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
 } from '../../shared/agent-session-journal-types'
+import { StructuredSessionCompaction } from '../native-chat/agent-session-wire/structured-session-compaction'
+import { isCodexAppServerRequestError } from './codex-app-server-connection'
 import type {
   AgentSessionAcquisition,
   AgentSessionDispatchOutcome,
@@ -16,7 +18,8 @@ import { supportsCodexStructuredLocation } from './codex-structured-location-sup
 import {
   closeAllCodexSessions,
   closeCodexPublishedSession,
-  closeCodexSession
+  closeCodexSession,
+  forceCloseUnexpectedCodexSession
 } from './codex-structured-session-close'
 import {
   applyCodexStructuredSessionOption,
@@ -38,7 +41,7 @@ import {
 import { isCodexNamingFrame } from './codex-conversation-name-generation'
 import {
   captureCodexConversationName,
-  startCodexConversationNaming
+  startCodexConversationNamingForTurn
 } from './codex-conversation-name-turn'
 import { readCodexThreadId } from './codex-structured-thread-facts'
 import { CodexStructuredTurnCancellation } from './codex-structured-turn-cancellation'
@@ -52,6 +55,7 @@ export type {
 } from './codex-structured-session-state'
 
 export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdapter {
+  private readonly compactions = new StructuredSessionCompaction()
   private readonly sessions = new Map<string, CodexSession>()
   private readonly acquisitions = new CodexAcquisitionRegistry()
   private readonly turnCancellation: CodexStructuredTurnCancellation
@@ -77,7 +81,8 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     })
   }
 
-  supportsLocation = supportsCodexStructuredLocation
+  supportsLocation = (location: Parameters<typeof supportsCodexStructuredLocation>[0]): boolean =>
+    supportsCodexStructuredLocation(location, this.deps.isWindowsProcessStartTimeAvailable)
 
   acquire = (input: StructuredAgentSessionAcquireInput): Promise<AgentSessionAcquisition> =>
     acquireCodexStructuredSession({
@@ -93,7 +98,14 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
       handleUnhandledFrame: (sessionId, kind, payload) =>
         this.handleUnhandledFrame(sessionId, kind, payload),
       forceCloseUnexpected: (sessionId, fence, acquisitionGeneration, reason) =>
-        this.forceCloseUnexpected(sessionId, fence, acquisitionGeneration, reason)
+        forceCloseUnexpectedCodexSession(
+          this.sessions,
+          sessionId,
+          fence,
+          acquisitionGeneration,
+          reason,
+          this.deps.onEvent
+        )
     })
 
   /** Buffers pre-publication events and drops events from superseded children. */
@@ -145,6 +157,12 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     const admission = session.translator?.handle(event) ?? { accepted: true }
     if (!admission.accepted) {
       return admission
+    }
+    if (event.type === 'notification') {
+      this.compactions.codex(event.sessionId, event.method, event.params)
+    }
+    if (event.type === 'ended') {
+      this.compactions.ended(event.sessionId)
     }
     this.deps.onEvent?.(event)
     return admission
@@ -199,22 +217,7 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     if (outcome.state === 'accepted') {
       // The accepted user message is the first thing worth naming the thread
       // after, and the only text this session is sure Codex received.
-      startCodexConversationNaming({
-        sessionId: input.sessionId,
-        session,
-        body: input.body,
-        ...(this.deps.requestTimeoutMs ? { requestTimeoutMs: this.deps.requestTimeoutMs } : {}),
-        ...(this.deps.onConversationName
-          ? { onConversationName: this.deps.onConversationName }
-          : {}),
-        ...(this.deps.readNamingAttempted
-          ? { readNamingAttempted: this.deps.readNamingAttempted }
-          : {}),
-        ...(this.deps.markNamingAttempted
-          ? { markNamingAttempted: this.deps.markNamingAttempted }
-          : {}),
-        ...(this.deps.onNamingError ? { onError: this.deps.onNamingError } : {})
-      })
+      startCodexConversationNamingForTurn(input.sessionId, session, input.body, this.deps)
     }
     return outcome
   }
@@ -225,7 +228,33 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     fence: number
   }): Promise<{ cancelled: boolean }> {
     const session = this.session(input.sessionId)
-    return this.turnCancellation.cancel(session, input.turnId)
+    const turnId = this.compactions.providerTurnId(input.sessionId, input.turnId)
+    return turnId ? this.turnCancellation.cancel(session, turnId) : { cancelled: false }
+  }
+
+  compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) => {
+    const session = this.session(input.sessionId)
+    return this.compactions.run(
+      input.sessionId,
+      session.threadId,
+      async () => {
+        await this.turnCancellation.captureBaseline(session)
+        return session.connection
+          .request(
+            'thread/compact/start',
+            { threadId: session.threadId },
+            { timeoutMs: this.deps.requestTimeoutMs }
+          )
+          .catch((error) => {
+            if (isCodexAppServerRequestError(error)) {
+              return { error: error.message }
+            }
+            throw error
+          })
+      },
+      input.onLateResult,
+      input.turnId
+    )
   }
 
   async answerPrompt(input: {
@@ -284,29 +313,6 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     return closed
   }
 
-  private forceCloseUnexpected(
-    sessionId: string,
-    fence: number,
-    acquisitionGeneration: string,
-    reason: Error
-  ): Promise<boolean> {
-    const session = this.sessions.get(sessionId)
-    if (
-      !session ||
-      session.ended ||
-      session.fence !== fence ||
-      session.acquisitionGeneration !== acquisitionGeneration
-    ) {
-      return Promise.resolve(false)
-    }
-    return closeCodexPublishedSession(this.sessions, sessionId, this.deps.onEvent, {
-      allowFailedSettlement: true,
-      requestedClose: false,
-      expectedFence: fence,
-      expectedAcquisitionGeneration: acquisitionGeneration,
-      unexpectedReason: reason
-    })
-  }
   disposeSession = (sessionId: string): Promise<boolean> => this.closeSession(sessionId)
   closeAll = (): Promise<void> =>
     closeAllCodexSessions(this.sessions, this.acquisitions, (sessionId) =>

@@ -1,3 +1,4 @@
+import { commitConversationCommandRecord } from './agent-session-conversation-command-record'
 /** Durable single-writer session records and their operation ledger. */
 
 import {
@@ -52,7 +53,7 @@ import {
 } from './agent-session-record-conversation-name'
 import {
   listVisibleAgentSessionIds,
-  setAgentSessionTabVisibility,
+  setVisibleSessionId,
   visibleAgentSessionTabIndex
 } from './agent-session-visible-tab-index'
 import { replaceAgentSessionRecordOptions } from './agent-session-record-options'
@@ -129,12 +130,22 @@ export class AgentSessionRecordStore {
     visibleAgentSessionTabIndex(this.state)
 
   setSessionTabVisibility(sessionId: string, visible: boolean): Promise<void> {
-    return this.transact(() => setAgentSessionTabVisibility(this.state, sessionId, visible))
+    return this.transact(() => setVisibleSessionId(this.state, sessionId, visible))
   }
 
   listByScope(location: AgentSessionExecutionLocation): AgentSessionRecord[] {
     const scope = agentSessionScopeKey(location)
     return this.listRecords().filter((record) => agentSessionScopeKey(record.location) === scope)
+  }
+
+  setConversationCommand(
+    sessionId: string,
+    fence: number,
+    command: NonNullable<AgentSessionRecord['conversationCommand']>
+  ): Promise<void> {
+    return this.transact(() =>
+      commitConversationCommandRecord(this.state, sessionId, fence, command)
+    )
   }
 
   /** A record this build cannot validate: readable as present, never grantable as a writer. */
@@ -228,7 +239,9 @@ export class AgentSessionRecordStore {
     probe: AgentSessionOwnerProbe
     now: number
   }): Promise<AgentSessionRecord> {
-    return this.mutate(args.sessionId, (record) => evictAgentSessionOwner({ ...args, record }))
+    return this.mutate(args.sessionId, (record) =>
+      evictAgentSessionOwner({ ...args, record, journalSettlement: 'required' })
+    )
   }
 
   async transitionHandoff(

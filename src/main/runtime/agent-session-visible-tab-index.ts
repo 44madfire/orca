@@ -38,7 +38,7 @@ export function visibleAgentSessionTabIndex(state: AgentSessionStoreState): {
 }
 
 /** Marking a session visible asserts it exists; a session with no record has no tab. */
-export function setAgentSessionTabVisibility(
+export function setVisibleSessionId(
   state: AgentSessionStoreState,
   sessionId: string,
   visible: boolean

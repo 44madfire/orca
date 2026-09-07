@@ -39,6 +39,25 @@ export type CodexConversationNamingInput = {
  * sits on the send path, and nothing here may turn a delivered message into a
  * reported failure.
  */
+/** Shapes the adapter's optional naming deps into a naming turn, one dispatch at a time. */
+export function startCodexConversationNamingForTurn(
+  sessionId: string,
+  session: CodexSession,
+  body: AgentJournalMessageItem,
+  deps: CodexStructuredSessionAdapterDeps
+): void {
+  startCodexConversationNaming({
+    sessionId,
+    session,
+    body,
+    ...(deps.requestTimeoutMs ? { requestTimeoutMs: deps.requestTimeoutMs } : {}),
+    ...(deps.onConversationName ? { onConversationName: deps.onConversationName } : {}),
+    ...(deps.readNamingAttempted ? { readNamingAttempted: deps.readNamingAttempted } : {}),
+    ...(deps.markNamingAttempted ? { markNamingAttempted: deps.markNamingAttempted } : {}),
+    ...(deps.onNamingError ? { onError: deps.onNamingError } : {})
+  })
+}
+
 export function startCodexConversationNaming(input: CodexConversationNamingInput): void {
   const { session, sessionId } = input
   if (session.namingAttempted || session.conversationName || !input.onConversationName) {

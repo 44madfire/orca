@@ -1,6 +1,8 @@
+import { StructuredConversationCommandController } from './structured-conversation-command-controller'
 // Structured agent-session host: where the lease, journal, and provider adapter meet.
 // Mutations share one durable admission path and serialize per session.
 
+import type { AgentJournalSnapshot } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionExecutionLocation } from '../../../shared/agent-session-record'
 import type * as SessionWire from '../../../shared/agent-session-wire'
 import type { AgentSessionAttachParams } from './structured-agent-session-attach'
@@ -36,12 +38,12 @@ import {
   cancelStructuredAgentSessionTurn,
   readStructuredAgentSessionOptions,
   respondToStructuredAgentSessionPrompt,
-  sendStructuredAgentSessionTurn,
   setStructuredAgentSessionOption,
+  settleStructuredAgentSessionLateDispatch,
   type StructuredAgentSessionMutationContext
 } from './structured-agent-session-host-mutations'
 import {
-  structuredAgentSessionTeardownPhases,
+  structuredAgentSessionHostTeardownPhases,
   tearDownStructuredAgentSessionHost
 } from './structured-agent-session-host-teardown'
 import type {
@@ -56,13 +58,19 @@ import { StructuredAgentSessionBackgroundTaskChannel } from './structured-agent-
 export type { StructuredAgentSessionHostDeps } from './structured-agent-session-host-types'
 
 export class StructuredAgentSessionHost {
+  private readonly conversationCommands = new StructuredConversationCommandController(
+    () => this.mutationContext(),
+    this
+  )
   private readonly sessions = new Map<string, StructuredAgentSessionHostSession>()
   private readonly statusFeed = new StructuredAgentSessionStatusFeed({
     sessions: this.sessions,
     getRecord: (sessionId) => this.deps.store.getRecord(sessionId),
-    now: () => this.now()
+    now: () => this.now(),
+    onStatusChanged: (summary, options) => this.deps.onSessionStatusChanged?.(summary, options)
   })
   private readonly subscribers = new AgentSessionSubscribers({
+    readCommands: (sessionId) => this.deps.adapter.readCommands?.(sessionId),
     onJournalPublished: (sessionId, journal) => this.statusFeed.publish(sessionId, journal)
   })
   private readonly tasks = new StructuredAgentSessionTaskQueue()
@@ -119,7 +127,7 @@ export class StructuredAgentSessionHost {
         ),
       evict: (sessionId) => this.close(sessionId)
     })
-    this.restore = createStructuredAgentSessionHostRestore(deps, {
+    this.restore = createStructuredAgentSessionHostRestore(deps, this.sessions, () => this.now(), {
       reconcile: this.reconcileLeases,
       resolveRecovery: (sessionId) => this.runtimeState.resolveRecovery(sessionId),
       serialize: (sessionId, task) => this.serialize(sessionId, task),
@@ -128,7 +136,7 @@ export class StructuredAgentSessionHost {
       // `hasSession` inside the same serialized step as this `set`.
       onReadable: (sessionId, restored) => {
         this.sessions.set(sessionId, restored)
-        this.statusFeed.publish(sessionId)
+        this.statusFeed.publish(sessionId, undefined, { replay: true })
       },
       restoreHandoff: (sessionId) => this.handoffs.restore(sessionId)
     })
@@ -179,14 +187,11 @@ export class StructuredAgentSessionHost {
   /** The host's half of attaching, named so it cannot grow dependencies unnoticed. */
   private attachContext(): StructuredAgentSessionAttachContext {
     return {
-      deps: this.deps,
-      runtimeState: this.runtimeState,
-      sessions: this.sessions,
+      ...this.lifetimeContext(),
       subscribers: this.subscribers,
       tasks: this.tasks,
       reconcileLeases: (sessionId) => this.reconcileLeases(sessionId),
-      serialize: (sessionId, task) => this.serialize(sessionId, task),
-      now: () => this.now()
+      serialize: (sessionId, task) => this.serialize(sessionId, task)
     }
   }
   /** Releases a session's resources without ending the conversation: the record and journal stay
@@ -204,15 +209,10 @@ export class StructuredAgentSessionHost {
   supportsCreate = (location: AgentSessionExecutionLocation, agent: string): boolean =>
     providerSupport.adapterSupportsCreate(this.deps.adapter, location, agent)
 
-  listSessionTabs() {
-    return listStructuredAgentSessionTabs(this.sessions, (sessionId) =>
-      this.deps.store.getRecord(sessionId)
-    )
-  }
+  listSessionTabs = () => listStructuredAgentSessionTabs(this.sessions, this.deps.store.getRecord)
 
-  getPersistedVisibleSessionTabIndex(): { present: boolean; sessionIds: string[] } {
-    return this.deps.store.getVisibleSessionTabIndex()
-  }
+  getPersistedVisibleSessionTabIndex = (): { present: boolean; sessionIds: string[] } =>
+    this.deps.store.getVisibleSessionTabIndex()
 
   setSessionTabVisibility(sessionId: string, visible: boolean): Promise<void> {
     return this.deps.store.setSessionTabVisibility(sessionId, visible)
@@ -255,12 +255,12 @@ export class StructuredAgentSessionHost {
 
   async flushAllStreamedEvents(): Promise<void> {
     await tearDownStructuredAgentSessionHost({
-      phases: structuredAgentSessionTeardownPhases(
-        this.holds,
-        this.runtimeState,
-        this.handoffs,
-        this.tasks
-      ),
+      phases: structuredAgentSessionHostTeardownPhases({
+        holds: this.holds,
+        runtimeState: this.runtimeState,
+        handoffs: this.handoffs,
+        tasks: this.tasks
+      }),
       sessions: this.sessions
     })
   }
@@ -276,11 +276,8 @@ export class StructuredAgentSessionHost {
     }
   }
 
-  send = (
-    caller: StructuredAgentSessionCaller,
-    params: Parameters<typeof sendStructuredAgentSessionTurn>[2]
-  ): ReturnType<typeof sendStructuredAgentSessionTurn> =>
-    sendStructuredAgentSessionTurn(this.mutationContext(), caller, params)
+  send = (...args: Parameters<StructuredConversationCommandController['send']>) =>
+    this.conversationCommands.send(...args)
 
   cancel = (
     caller: StructuredAgentSessionCaller,
@@ -309,6 +306,14 @@ export class StructuredAgentSessionHost {
   readOptions = (sessionId: string): Promise<SessionWire.AgentSessionOptionsResult> =>
     readStructuredAgentSessionOptions(this.mutationContext(), sessionId)
 
+  conversationCommand = (...args: Parameters<StructuredConversationCommandController['run']>) =>
+    this.conversationCommands.run(...args)
+  conversationReplacements = () => this.conversationCommands.replacements()
+  /** Undefined means unavailable; an empty array is an authoritative catalog. */
+  readCommands = (sessionId: string): SessionWire.AgentSessionCommandsResult => ({
+    commands: this.deps.adapter.readCommands?.(sessionId)
+  })
+
   async handoffStatus(sessionId: string): Promise<SessionWire.AgentSessionHandoffStatus> {
     this.requireSession(sessionId)
     return this.serialize(sessionId, () =>
@@ -316,17 +321,22 @@ export class StructuredAgentSessionHost {
     )
   }
 
-  history = (
-    request: SessionWire.AgentSessionHistoryRequest
-  ): SessionWire.AgentSessionHistoryResult => this.backgroundTasks.history(request)
+  history: StructuredAgentSessionBackgroundTaskChannel['history'] = (request) =>
+    this.backgroundTasks.history(request)
+
+  /** The fully reduced timeline, for readers that cannot tolerate a page's ambiguity — a settled
+   *  turn is tombstoned, so an item's ABSENCE from a bounded page proves nothing. */
+  journalSnapshot = (sessionId: string): AgentJournalSnapshot =>
+    this.requireSession(sessionId).journal.snapshot()
 
   subscribe = (input: AgentSessionSubscribeInput): (() => void) =>
     this.backgroundTasks.subscribe(input)
 
-  publishBackgroundTaskState: StructuredAgentSessionBackgroundTaskChannel['publish'] = (
-    sessionId,
-    state
-  ) => this.backgroundTasks.publish(sessionId, state)
+  settleLateDispatch = (input: Parameters<typeof settleStructuredAgentSessionLateDispatch>[1]) =>
+    settleStructuredAgentSessionLateDispatch(this.mutationContext(), input)
+
+  publishBackgroundTaskState: StructuredAgentSessionBackgroundTaskChannel['publish'] = (...args) =>
+    this.backgroundTasks.publish(...args)
   unsubscribe = (sessionId: string, id: string): void => this.subscribers.close(sessionId, id)
 
   /** The provider's name for one conversation, for a surface publishing its tab. */
@@ -334,9 +344,8 @@ export class StructuredAgentSessionHost {
     this.deps.store.getRecord(sessionId)?.conversationName ?? null
 
   /** Every session's projected status for session lists; unlike `subscribe`, retains nothing. */
-  subscribeStatus = (
-    subscriber: Parameters<StructuredAgentSessionStatusFeed['subscribe']>[0]
-  ): (() => void) => this.statusFeed.subscribe(subscriber)
+  subscribeStatus: StructuredAgentSessionStatusFeed['subscribe'] = (subscriber) =>
+    this.statusFeed.subscribe(subscriber)
 
   private requireSession(sessionId: string): StructuredAgentSessionHostSession {
     const session = this.sessions.get(sessionId)
