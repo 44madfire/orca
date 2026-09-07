@@ -138,9 +138,16 @@ export class OrcaRuntimeWithPerformMobileSessionPtyRecordsRefresh extends OrcaRu
       // their tab id, so focusing the renderer would silently no-op.
       // Phone-local activation also needs this path for inactive restored tabs:
       // desktop focus is intentionally suppressed, but the PTY still must exist.
+      // Why: a restarted runtime records a surviving serve/SSH PTY from provider
+      // inventory as connected, so the projection already reports `ready` — but
+      // nothing attached it, and its writes go nowhere. Inventory presence is not
+      // ownership; only a runtime-owned live binding proves this runtime attached.
+      const needsRestoredRuntimeReattach =
+        this.hasServeOrSshOwnedBinding(tab) &&
+        !this.hasLiveRuntimeSessionOwnedPtyBinding(worktreeId, tab)
       const shouldMaterializePendingTerminal =
         publicTab?.type === 'terminal' &&
-        publicTab.status !== 'ready' &&
+        (publicTab.status !== 'ready' || needsRestoredRuntimeReattach) &&
         // Why: opening a tab is the documented wake gesture for a slept pane
         // (#11598), so only a background probe may be refused for one.
         (!isAutomaticTabActivation(opts.intent) ||
