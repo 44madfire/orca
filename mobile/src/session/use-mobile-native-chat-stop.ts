@@ -3,19 +3,35 @@ import type { RpcClient } from '../transport/rpc-client'
 import { isRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 import { isLogicalClientCutoverError } from '../transport/stable-logical-rpc-client'
 import { isTerminalSendRpcAccepted } from '../terminal/terminal-send-rpc-response'
-import { openMobileNativeChatSendBudget } from './mobile-native-chat-send'
+import {
+  openMobileNativeChatSendBudget,
+  type MobileNativeChatSendOutcome
+} from './mobile-native-chat-send'
 
 export function useMobileNativeChatStop(args: {
   client: RpcClient | null
   enabled: boolean
   handleRef: MutableRefObject<string | null>
   deviceTokenRef: MutableRefObject<string | null>
+  /** Read at Stop time: only codex has background terminals to reap. */
+  agentRef: MutableRefObject<string | null>
   streamIdentity: string
   cancelPending: () => void
+  /** Reaps codex's background terminals after the interrupt lands. */
+  stopBackgroundTerminals: () => Promise<MobileNativeChatSendOutcome>
   onSendError: (message: string) => void
 }): () => void {
-  const { client, enabled, handleRef, deviceTokenRef, streamIdentity, cancelPending, onSendError } =
-    args
+  const {
+    client,
+    enabled,
+    handleRef,
+    deviceTokenRef,
+    agentRef,
+    streamIdentity,
+    cancelPending,
+    stopBackgroundTerminals,
+    onSendError
+  } = args
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const generationRef = useRef(0)
   /** Settles the paced second Escape when it is cancelled rather than sent, so a
@@ -61,13 +77,50 @@ export function useMobileNativeChatStop(args: {
     let sawAccepted = false
     let sawUnknown = false
     let sawRejected = false
+    let reaped = false
+    const isRouteLive = (): boolean => {
+      const activeRoute = activeRouteRef.current
+      return (
+        activeRoute.enabled &&
+        activeRoute.client === client &&
+        activeRoute.streamIdentity === stopStreamIdentity &&
+        handleRef.current === handle
+      )
+    }
+    /** Escape interrupts codex's TURN; the background terminals it spawned keep
+     *  running, and only codex's own cleanup command reaps them. Runs after the
+     *  interrupt is confirmed so the command cannot land in a live composer. */
+    const reapBackgroundTerminals = async (): Promise<void> => {
+      if (reaped || agentRef.current !== 'codex' || !isRouteLive()) {
+        return
+      }
+      reaped = true
+      let outcome: MobileNativeChatSendOutcome
+      try {
+        outcome = await stopBackgroundTerminals()
+      } catch {
+        outcome = 'rejected'
+      }
+      if (outcome === 'accepted' || generationRef.current !== generation || !isRouteLive()) {
+        return
+      }
+      // The agent did stop; only its background terminals are in doubt, so the
+      // wording must not read as "Stop failed" and invite a second Escape.
+      onSendError(
+        outcome === 'unknown'
+          ? 'Agent stopped; background cleanup unconfirmed — check chat before retrying'
+          : 'Agent stopped; background terminals may still be running — send /stop'
+      )
+    }
     const reportIfSettled = (): void => {
-      if (
-        generationRef.current !== generation ||
-        pending > 0 ||
-        sawAccepted ||
-        (!sawUnknown && !sawRejected)
-      ) {
+      if (generationRef.current !== generation || pending > 0) {
+        return
+      }
+      if (sawAccepted) {
+        void reapBackgroundTerminals()
+        return
+      }
+      if (!sawUnknown && !sawRejected) {
         return
       }
       // Why: an ack lost after the frame was written (or a logical cutover) may
@@ -76,13 +129,7 @@ export function useMobileNativeChatStop(args: {
       onSendError(sawUnknown ? 'Stop unconfirmed — check chat before retrying' : 'Stop not sent')
     }
     const sendEscape = (): void => {
-      const activeRoute = activeRouteRef.current
-      if (
-        !activeRoute.enabled ||
-        activeRoute.client !== client ||
-        activeRoute.streamIdentity !== stopStreamIdentity ||
-        handleRef.current !== handle
-      ) {
+      if (!isRouteLive()) {
         return
       }
       pending += 1
@@ -143,6 +190,7 @@ export function useMobileNativeChatStop(args: {
       reportIfSettled()
     }, 80)
   }, [
+    agentRef,
     cancelPending,
     cancelSecondEscape,
     client,
@@ -150,6 +198,7 @@ export function useMobileNativeChatStop(args: {
     enabled,
     handleRef,
     onSendError,
+    stopBackgroundTerminals,
     streamIdentity
   ])
 }

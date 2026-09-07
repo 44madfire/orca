@@ -3,7 +3,10 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
 import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
-import { MOBILE_NATIVE_CHAT_SEND_TIMEOUT_MS } from './mobile-native-chat-send'
+import {
+  MOBILE_NATIVE_CHAT_SEND_TIMEOUT_MS,
+  type MobileNativeChatSendOutcome
+} from './mobile-native-chat-send'
 import { useMobileNativeChatStop } from './use-mobile-native-chat-stop'
 
 describe('useMobileNativeChatStop', () => {
@@ -11,6 +14,8 @@ describe('useMobileNativeChatStop', () => {
   let stop: (() => void) | null = null
   const sendRequest = vi.fn()
   const onSendError = vi.fn()
+  const agentRef = { current: null as string | null }
+  const stopBackgroundTerminals = vi.fn<() => Promise<MobileNativeChatSendOutcome>>()
 
   beforeEach(() => {
     vi.useFakeTimers()
@@ -19,6 +24,9 @@ describe('useMobileNativeChatStop', () => {
       result: { send: { accepted: true } }
     })
     onSendError.mockReset()
+    // Non-Codex by default so the existing Escape cases keep their behaviour.
+    agentRef.current = 'claude'
+    stopBackgroundTerminals.mockReset().mockResolvedValue('accepted')
   })
 
   afterEach(() => {
@@ -40,8 +48,10 @@ describe('useMobileNativeChatStop', () => {
       enabled,
       handleRef: { current: 'terminal-1' },
       deviceTokenRef: { current: 'mobile-1' },
+      agentRef,
       streamIdentity,
       cancelPending: vi.fn(),
+      stopBackgroundTerminals,
       onSendError
     })
     return null
@@ -183,5 +193,83 @@ describe('useMobileNativeChatStop', () => {
     })
 
     expect(onSendError).not.toHaveBeenCalled()
+  })
+
+  // Escape interrupts codex's TURN but leaves its background terminals running —
+  // they are reaped only by `/stop` (see CODEX_STOP_BACKGROUND_TERMINALS).
+  describe('codex background terminals', () => {
+    it('reaps background terminals once the interrupt lands', async () => {
+      agentRef.current = 'codex'
+      await render(true, 'stream-1')
+
+      act(() => stop?.())
+      await act(async () => vi.runAllTimersAsync())
+
+      expect(stopBackgroundTerminals).toHaveBeenCalledOnce()
+      expect(onSendError).not.toHaveBeenCalled()
+    })
+
+    it('tells the user background terminals may still run when the cleanup is rejected', async () => {
+      agentRef.current = 'codex'
+      stopBackgroundTerminals.mockResolvedValue('rejected')
+      await render(true, 'stream-1')
+
+      act(() => stop?.())
+      await act(async () => vi.runAllTimersAsync())
+
+      expect(onSendError).toHaveBeenCalledWith(
+        'Agent stopped; background terminals may still be running — send /stop'
+      )
+    })
+
+    it('reports an ack-lost cleanup as unconfirmed rather than as a failure', async () => {
+      agentRef.current = 'codex'
+      stopBackgroundTerminals.mockResolvedValue('unknown')
+      await render(true, 'stream-1')
+
+      act(() => stop?.())
+      await act(async () => vi.runAllTimersAsync())
+
+      expect(onSendError).toHaveBeenCalledWith(
+        'Agent stopped; background cleanup unconfirmed — check chat before retrying'
+      )
+    })
+
+    // Typing a literal `/stop` into an agent that has no such command would post it
+    // as a prompt, so the gate is an exact match, never "not claude".
+    it.each([['claude'], ['opencode'], [null]])('never types /stop for agent %s', async (agent) => {
+      agentRef.current = agent as string | null
+      await render(true, 'stream-1')
+
+      act(() => stop?.())
+      await act(async () => vi.runAllTimersAsync())
+
+      expect(stopBackgroundTerminals).not.toHaveBeenCalled()
+    })
+
+    it('skips the cleanup when neither Escape landed', async () => {
+      agentRef.current = 'codex'
+      sendRequest.mockResolvedValue({ ok: true, result: { send: { accepted: false } } })
+      await render(true, 'stream-1')
+
+      act(() => stop?.())
+      await act(async () => vi.runAllTimersAsync())
+
+      // Nothing was interrupted, so a `/stop` would land in a composer the user
+      // still owns.
+      expect(stopBackgroundTerminals).not.toHaveBeenCalled()
+      expect(onSendError).toHaveBeenCalledWith('Stop not sent')
+    })
+
+    it('skips the cleanup when the route changed before the interrupt settled', async () => {
+      agentRef.current = 'codex'
+      await render(true, 'stream-1')
+
+      act(() => stop?.())
+      await render(true, 'stream-2')
+      await act(async () => vi.runAllTimersAsync())
+
+      expect(stopBackgroundTerminals).not.toHaveBeenCalled()
+    })
   })
 })

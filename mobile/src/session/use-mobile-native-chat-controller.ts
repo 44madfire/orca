@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, type MutableRefObject } from 'react'
 import type { RpcClient } from '../transport/rpc-client'
 import type { ConnectionState } from '../transport/types'
 import type { MobileNativeChatTab } from './mobile-native-chat-eligibility'
+import { useCodexBackgroundTerminalStop } from './codex-background-terminal-stop'
 import { useMobileNativeChatPermissionSend } from './mobile-native-chat-permission-send'
 import { useMobileNativeChatAnswerSend } from './use-mobile-native-chat-answer-send'
 import { useMobileNativeChatAskDismiss } from './use-mobile-native-chat-ask-dismiss'
@@ -201,16 +202,6 @@ export function useMobileNativeChatController(args: {
     onSendError
   })
 
-  const handleNativeChatStop = useMobileNativeChatStop({
-    client,
-    enabled: inputSendable && !activeChatStructured,
-    handleRef: activeHandleRef,
-    deviceTokenRef,
-    streamIdentity,
-    cancelPending: cancelNativeChatAnswer,
-    onSendError
-  })
-
   const { nativeChatFilePaths, loadNativeChatFiles } = useMobileNativeChatFileSearch({
     client,
     worktreeId
@@ -239,6 +230,20 @@ export function useMobileNativeChatController(args: {
     restoreRejectedDraft,
     acceptSend,
     holdUnconfirmedSend,
+    onSendError
+  })
+
+  // Below the send seam: Stop's codex leg reuses its command dispatcher, and so
+  // its write lock, instead of opening a second write path into the same PTY.
+  const handleNativeChatStop = useMobileNativeChatStop({
+    client,
+    enabled: inputSendable && !activeChatStructured,
+    handleRef: activeHandleRef,
+    deviceTokenRef,
+    agentRef: activeChatAgentRef,
+    streamIdentity,
+    cancelPending: cancelNativeChatAnswer,
+    stopBackgroundTerminals: useCodexBackgroundTerminalStop(handleNativeChatDispatchCommand),
     onSendError
   })
 
