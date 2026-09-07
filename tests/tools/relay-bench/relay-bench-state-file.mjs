@@ -8,6 +8,7 @@ import {
   fchmodSync,
   constants,
   fstatSync,
+  ftruncateSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -43,7 +44,9 @@ export function writeSecretFile(path, contents) {
   try {
     fd = openSync(
       path,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | NOFOLLOW,
+      // No O_TRUNC: truncating happens only after the descriptor passes the checks below, so a
+      // refused file keeps its previous contents.
+      constants.O_WRONLY | constants.O_CREAT | NOFOLLOW,
       SECRET_FILE_MODE
     )
   } catch (err) {
@@ -57,14 +60,15 @@ export function writeSecretFile(path, contents) {
     if (!stats.isFile()) {
       throw new Error(`refusing to write ${path}: not a regular file`)
     }
-    // Before the write, not after: a pre-existing file owned by someone else would take the
-    // token on O_TRUNC and only then fail the chmod, leaving it readable by its owner.
+    // Before the truncate and write, not after: a pre-existing file owned by someone else would
+    // otherwise lose its contents and then fail the chmod, leaving the token readable by its owner.
     if (process.platform !== 'win32' && stats.uid !== process.getuid()) {
       throw new Error(`refusing to write ${path}: owned by another user`)
     }
     if (process.platform !== 'win32' && (stats.mode & GROUP_AND_OTHER_BITS) !== 0) {
       fchmodSync(fd, SECRET_FILE_MODE)
     }
+    ftruncateSync(fd, 0)
     writeFileSync(fd, contents)
   } finally {
     closeSync(fd)

@@ -375,6 +375,15 @@ async function loadState(statePath) {
 }
 
 // ---------- commands ----------
+// The peer picks the code, so only a plain identifier is echoed; anything else is named by kind.
+const REMOTE_ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/
+export function describeRemoteErrorCode(code) {
+  if (typeof code !== 'string') {
+    return code === undefined ? 'unknown' : `non-string code (${typeof code})`
+  }
+  return REMOTE_ERROR_CODE.test(code) ? code : `unprintable code (${code.length} chars)`
+}
+
 async function pair(pairingUrl, statePath) {
   const offer = decodeOffer(pairingUrl)
   if (!offer.relay) {
@@ -413,7 +422,7 @@ async function pair(pairingUrl, statePath) {
   if (!endpoints.ok || !endpoints.result.relay) {
     // Shape only: the reply is peer-supplied and this line lands in the operator's terminal.
     throw new Error(
-      `getEndpoints failed: ${endpoints.ok ? 'no relay block in result' : `error ${endpoints.error?.code ?? 'unknown'}`}`
+      `getEndpoints failed: ${endpoints.ok ? 'no relay block in result' : `error ${describeRemoteErrorCode(endpoints.error?.code)}`}`
     )
   }
   console.log(`provisionRelay ${provisionMs} ms, getEndpoints ${endpointsMs} ms`)

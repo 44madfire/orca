@@ -2,7 +2,12 @@
 // missing or malformed pairing link surfaced as a stack trace rather than usage. The link is a
 // live credential, so the failure text has to name the problem without echoing the code.
 import { describe, expect, it, vi } from 'vitest'
-import { decodeOffer, vetCellUrl, vetRelayEndpoint } from './relay-phone-connect-bench.mjs'
+import {
+  decodeOffer,
+  describeRemoteErrorCode,
+  vetCellUrl,
+  vetRelayEndpoint
+} from './relay-phone-connect-bench.mjs'
 
 const encode = (offer) => Buffer.from(JSON.stringify(offer), 'utf8').toString('base64url')
 
@@ -84,5 +89,24 @@ describe('vetRelayEndpoint', () => {
         { lookup }
       )
     ).resolves.toEqual({ ok: true })
+  })
+})
+
+describe('describeRemoteErrorCode', () => {
+  it('echoes a plain protocol identifier', () => {
+    expect(describeRemoteErrorCode('invalid_install_req')).toBe('invalid_install_req')
+  })
+
+  it('never echoes terminal control bytes the peer put in the code', () => {
+    const out = describeRemoteErrorCode('\u001b[2J\u001b]0;pwned\u0007')
+    expect(out).not.toContain('\u001b')
+    expect(out).toMatch(/unprintable code/)
+  })
+
+  it('names the type instead of stringifying a non-string code', () => {
+    expect(describeRemoteErrorCode({ toString: () => '\u001b[31m' })).toBe(
+      'non-string code (object)'
+    )
+    expect(describeRemoteErrorCode(undefined)).toBe('unknown')
   })
 })

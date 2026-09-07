@@ -104,7 +104,7 @@ pbpaste | node $BENCH pair ~/.orca/relay-bench/state.json
 
 # Or from a file you protect yourself, which `pair` requires to be mode 0600:
 umask 077 && printf '%s' '<orca://pair?code=...>' > ~/.orca/relay-bench/pair.txt
-node $BENCH pair ~/.orca/relay-bench/state.json --pairing-url-file=~/.orca/relay-bench/pair.txt
+node $BENCH pair ~/.orca/relay-bench/state.json --pairing-url-file="$HOME/.orca/relay-bench/pair.txt"
 rm ~/.orca/relay-bench/pair.txt
 
 # Steady-state foreground reconnect, 10 times, 2 s apart, re-resolving the cell each time.
