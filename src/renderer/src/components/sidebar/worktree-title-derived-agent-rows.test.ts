@@ -465,4 +465,14 @@ describe('a foreign name in a Claude pane task title', () => {
       'codex'
     )
   })
+
+  // The label map is missing every label outside its fixed set, so the unknown-label branch is
+  // live at runtime. Nothing said so in the types until the value type was narrowed to TuiAgent,
+  // and deleting the branch on the compiler's advice would return undefined here instead.
+  it('returns unknown for a label the map does not carry', () => {
+    expect(resolveTitleDerivedAgentType('⠋ Something Else', 'Something Else', null)).toBe('unknown')
+    expect(resolveTitleDerivedAgentType('⠋ Something Else', 'Something Else', 'claude')).toBe(
+      'unknown'
+    )
+  })
 })

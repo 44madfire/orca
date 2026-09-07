@@ -33,7 +33,10 @@ const EMPTY_RUNTIME_TITLES: Record<string, Record<number, string>> = {}
 const EMPTY_LIVE_PTY_IDS: Record<string, string[]> = {}
 const EMPTY_TERMINAL_LAYOUTS: Record<string, TerminalLayoutSnapshot | undefined> = {}
 
-const TITLE_AGENT_LABEL_TO_TYPE: Record<string, TuiAgent> = {
+// Partial, not Record: `label` is arbitrary text parsed off a terminal title, so a lookup misses
+// for anything outside this fixed set and the `?? 'unknown'` below is live. Without `Partial` the
+// index type promises a hit that the runtime does not, and the unknown-label guard reads as dead.
+const TITLE_AGENT_LABEL_TO_TYPE: Partial<Record<string, TuiAgent>> = {
   'Claude Code': 'claude',
   OpenClaude: 'openclaude',
   Codex: 'codex',
