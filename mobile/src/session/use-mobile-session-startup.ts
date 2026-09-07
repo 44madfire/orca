@@ -12,6 +12,7 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
     isFloatingWorkspaceRoute,
     connState,
     client,
+    statusPending,
     setTerminals,
     terminalsRef,
     setSessionTabs,
@@ -116,25 +117,6 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
       timers.push(setTimeout(fn, ms))
     }
     void (async () => {
-      const reportActivationOutcome = (response: RpcSuccess | null): void => {
-        if (!disposed && response && headlessActivationNeedsHostRenderer(response.result)) {
-          showToast('Open Orca on the host to wake sleeping agents.', 3000)
-        }
-      }
-      if (client && created !== '1' && !isFloatingWorkspaceRoute) {
-        // Why: hydrate host-owned tabs without pulling other paired clients (esp. desktop) into this worktree.
-        void client
-          .sendRequest('worktree.activate', {
-            worktree: `id:${worktreeId}`,
-            notifyClients: false,
-            navigation: 'caller'
-          })
-          .then((response) => reportActivationOutcome(response.ok ? response : null))
-          .catch(() => null)
-      }
-      if (disposed) {
-        return
-      }
       await ensureSessionTabs().catch(() => null)
       if (disposed) {
         return
@@ -145,28 +127,6 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
       }
       addTimer(() => void fetchTerminals({ allowEmptyLoaded: false }), 750)
       addTimer(() => void fetchTerminals({ allowEmptyLoaded: true }), 1500)
-      if (client && created === '1' && !isFloatingWorkspaceRoute) {
-        addTimer(() => {
-          if (activeHandleRef.current) {
-            return
-          }
-          void (async () => {
-            const activationResponse = await client
-              .sendRequest('worktree.activate', {
-                worktree: `id:${worktreeId}`,
-                notifyClients: false,
-                navigation: 'caller'
-              })
-              .catch(() => null)
-            reportActivationOutcome(activationResponse?.ok ? activationResponse : null)
-            if (disposed) {
-              return
-            }
-            await fetchTerminals({ allowEmptyLoaded: true })
-            addTimer(() => void fetchTerminals({ allowEmptyLoaded: true }), 750)
-          })()
-        }, 1800)
-      }
     })()
     return () => {
       disposed = true
@@ -182,6 +142,76 @@ export function useMobileSessionStartup(scope: MobileSessionKeyboardStateModel) 
     ensureSessionTabs,
     isFloatingWorkspaceRoute,
     showToast,
+    worktreeId
+  ])
+
+  // Why: activate writes host state, so it waits for the compat verdict to settle; a blocked
+  // verdict unmounts this route before the effect can run.
+  // Every setTimeout goes through addTimer into `timers`, which the returned cleanup clears.
+  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup
+  useEffect(() => {
+    if (statusPending || connState !== 'connected' || !client || isFloatingWorkspaceRoute) {
+      return
+    }
+    let disposed = false
+    const timers: ReturnType<typeof setTimeout>[] = []
+    function addTimer(fn: () => void, ms: number) {
+      if (disposed) {
+        return
+      }
+      timers.push(setTimeout(fn, ms))
+    }
+    const reportActivationOutcome = (response: RpcSuccess | null): void => {
+      if (!disposed && response && headlessActivationNeedsHostRenderer(response.result)) {
+        showToast('Open Orca on the host to wake sleeping agents.', 3000)
+      }
+    }
+    if (created !== '1') {
+      // Why: hydrate host-owned tabs without pulling other paired clients (esp. desktop) into this worktree.
+      void client
+        .sendRequest('worktree.activate', {
+          worktree: `id:${worktreeId}`,
+          notifyClients: false,
+          navigation: 'caller'
+        })
+        .then((response) => reportActivationOutcome(response.ok ? response : null))
+        .catch(() => null)
+    } else {
+      addTimer(() => {
+        if (activeHandleRef.current) {
+          return
+        }
+        void (async () => {
+          const activationResponse = await client
+            .sendRequest('worktree.activate', {
+              worktree: `id:${worktreeId}`,
+              notifyClients: false,
+              navigation: 'caller'
+            })
+            .catch(() => null)
+          reportActivationOutcome(activationResponse?.ok ? activationResponse : null)
+          if (disposed) {
+            return
+          }
+          await fetchTerminals({ allowEmptyLoaded: true })
+          addTimer(() => void fetchTerminals({ allowEmptyLoaded: true }), 750)
+        })()
+      }, 1800)
+    }
+    return () => {
+      disposed = true
+      for (const t of timers) {
+        clearTimeout(t)
+      }
+    }
+  }, [
+    client,
+    connState,
+    created,
+    fetchTerminals,
+    isFloatingWorkspaceRoute,
+    showToast,
+    statusPending,
     worktreeId
   ])
 }
