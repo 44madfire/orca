@@ -2,6 +2,8 @@
 set -euo pipefail
 [[ "$(uname -s)" == Linux ]]
 mkdir -p test-results/nested-wayland
+export ORCA_NESTED_EVIDENCE="$RUNNER_TEMP/orca-nested-wayland-evidence"
+mkdir -p "$ORCA_NESTED_EVIDENCE"
 export XDG_RUNTIME_DIR="$RUNNER_TEMP/orca-wayland-runtime"
 mkdir -m 700 -p "$XDG_RUNTIME_DIR"
 export WAYLAND_DISPLAY=wayland-orca-deflake
@@ -17,8 +19,13 @@ export ORCA_E2E_NESTED_FOCUS_CMD="$RUNNER_TEMP/orca-focus-nested.sh"
 cat > "$ORCA_E2E_NESTED_FOCUS_CMD" <<'FOCUS'
 #!/usr/bin/env bash
 set -euo pipefail
-mapfile -t windows < <(xdotool search --onlyvisible --name '^gnome-shell$')
+exec 2>> "$ORCA_NESTED_EVIDENCE/focus.log"
+set -x
+mapfile -t windows < <(xdotool search --name '^gnome-shell$')
+printf 'Compositor candidates: %s\n' "${windows[*]}" >&2
+for candidate in "${windows[@]}"; do xwininfo -id "$candidate" >&2; done
 [[ ${#windows[@]} -eq 1 ]]
+xdotool windowmap --sync "${windows[0]}"
 xdotool windowfocus --sync "${windows[0]}"
 FOCUS
 chmod +x "$ORCA_E2E_NESTED_FOCUS_CMD"
@@ -26,12 +33,14 @@ gsettings set org.freedesktop.ibus.engine.hangul initial-input-mode hangul
 gsettings set org.freedesktop.ibus.engine.hangul hangul-keyboard 2
 gsettings set org.gnome.desktop.interface enable-animations false
 gsettings set org.gnome.desktop.input-sources sources "[('ibus', 'hangul')]"
-setsid gnome-shell --nested --wayland --wayland-display="$WAYLAND_DISPLAY" > test-results/nested-wayland/gnome-shell.log 2>&1 &
+setsid gnome-shell --nested --wayland --wayland-display="$WAYLAND_DISPLAY" > "$ORCA_NESTED_EVIDENCE/gnome-shell.log" 2>&1 &
 compositor_pid=$!
 cleanup() {
   xwininfo -root -tree > test-results/nested-wayland/x-window-tree.txt 2>&1 || true
   kill -TERM -- "-$compositor_pid" 2>/dev/null || true
   wait "$compositor_pid" 2>/dev/null || true
+  mkdir -p test-results/nested-wayland
+  cp -a "$ORCA_NESTED_EVIDENCE/." test-results/nested-wayland/
 }
 trap cleanup EXIT
 for attempt in {1..100}; do
@@ -40,13 +49,13 @@ for attempt in {1..100}; do
   sleep 0.1
 done
 [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]]
-ibus-daemon --daemonize --xim --replace --verbose > test-results/nested-wayland/ibus-daemon.log 2>&1
+ibus-daemon --daemonize --xim --replace --verbose > "$ORCA_NESTED_EVIDENCE/ibus-daemon.log" 2>&1
 for attempt in {1..100}; do
   if ibus engine hangul; then break; fi
   sleep 0.1
 done
 [[ "$(ibus engine)" == hangul ]]
-xwininfo -root -tree > test-results/nested-wayland/x-window-tree-before.txt
+xwininfo -root -tree > "$ORCA_NESTED_EVIDENCE/x-window-tree-before.txt"
 export ORCA_E2E_NATIVE_IBUS_HANGUL=1
 export ORCA_E2E_IME_INJECTOR=nested
 export ORCA_E2E_FOREGROUND=1
