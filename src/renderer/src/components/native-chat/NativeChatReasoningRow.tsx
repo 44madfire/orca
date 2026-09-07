@@ -22,13 +22,13 @@ export function NativeChatReasoningRow({
   const label = translate('components.native-chat.reasoning', 'Reasoning')
 
   return (
-    <Collapsible className="min-w-0 border-l-2 border-border/60 pl-3 text-sm text-muted-foreground">
+    <Collapsible className="min-w-0 text-sm text-muted-foreground">
       <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-1.5 rounded-sm py-1 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90 motion-reduce:transition-none" />
         <span className="sr-only">{label}: </span>
-        <span className="truncate">{summary}</span>
+        <span className="min-w-0 flex-1 truncate">{summary}</span>
+        <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90 motion-reduce:transition-none" />
       </CollapsibleTrigger>
-      <CollapsibleContent className="pt-1 pl-5 italic">
+      <CollapsibleContent className="pt-1 pl-4 italic">
         <CommentMarkdown
           content={markdown}
           variant="document"
