@@ -274,7 +274,10 @@ export function NativeChatToolRun({
     isSettled &&
     activeTurnIsWorking === false
   ) {
-    return null
+    // The roster is not tool activity, so it survives this guard exactly as it
+    // survives the tool-less escape above — otherwise a group sharing a message
+    // with tool calls is dropped from every settled turn.
+    return subagentRows.length > 0 ? <div className="mt-3">{subagentRows}</div> : null
   }
 
   return (

@@ -207,6 +207,25 @@ describe('NativeChatSubagentRun', () => {
     expect(row.textContent).not.toContain('·')
   })
 
+  // A partial sweep leaves one child settled and one whose fate is unknown. The
+  // group's clock would then report the settled sibling's duration as the
+  // group's run length while the other child is still unaccounted for.
+  it('shows no duration while one child settled and another is unaccounted for', () => {
+    render(
+      <NativeChatSubagentRun
+        block={group([
+          { id: 'a', label: 'read', state: 'completed', startedAt: 1_000, settledAt: 5_000 },
+          { id: 'b', label: 'search', state: 'working', startedAt: 1_000 }
+        ])}
+        activeTurnIsWorking={false}
+      />
+    )
+
+    const row = screen.getByRole('button')
+    expect(row).toHaveTextContent('unverifiable')
+    expect(row.textContent).not.toContain('·')
+  })
+
   it('leaves a live turn working — a settled roster is never asserted early', () => {
     expect(
       reconcileSubagentRoster([{ id: 'a', label: 'read', state: 'working' }], true)
@@ -267,6 +286,24 @@ describe('NativeChatToolRun with a spawn group', () => {
     )
 
     expect(container).toBeEmptyDOMElement()
+  })
+
+  // The roster-only escape above is keyed on `blocks.length === 0`, so a group
+  // sharing its message with tool calls falls through to the settled-turn guard
+  // — which returned bare null and took the roster with it.
+  it('keeps a roster that shares its message with tool calls on a collapsed turn', () => {
+    render(
+      <NativeChatToolRun
+        blocks={[{ type: 'tool-call', name: 'shell', input: { command: 'ls' } }]}
+        subagentGroups={[group([{ id: 'a', label: 'read', state: 'completed' }])]}
+        expandSignal={false}
+        expandOverride={false}
+        activeTurnIsWorking={false}
+      />
+    )
+
+    expect(screen.getByText('Ran 1 subagent')).toBeInTheDocument()
+    expect(screen.queryByText('shell ls')).toBeNull()
   })
 
   it('renders the roster alongside the tool activity of its turn', () => {

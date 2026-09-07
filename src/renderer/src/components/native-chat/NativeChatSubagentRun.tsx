@@ -212,8 +212,15 @@ export function NativeChatSubagentRun({
   // A roster restored from the journal after the host died holds children that
   // latched `unverifiable` with no terminal timestamp. Their run length is
   // unknown, and measuring it to `now` would report the time since the crash as
-  // how long they ran — on a row that is not even counting.
-  const clockStartedAt = working || summary.settledAt !== null ? summary.startedAt : null
+  // how long they ran — on a row that is not even counting. A sibling's stamp is
+  // no better: in a mixed group it would present that sibling's duration as the
+  // group's while a child's fate is still unknown.
+  const runLengthUnknown = agents.some(
+    (agent) =>
+      normalizeSubagentState(agent.state) === 'unverifiable' && typeof agent.settledAt !== 'number'
+  )
+  const clockStartedAt =
+    !runLengthUnknown && (working || summary.settledAt !== null) ? summary.startedAt : null
 
   return (
     <div>
