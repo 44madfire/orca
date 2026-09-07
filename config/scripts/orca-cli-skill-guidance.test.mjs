@@ -72,7 +72,9 @@ describe('orca CLI skill guidance', () => {
     // Neither side may be restored as a rule.
     expect(skill).not.toContain('Use `--no-parent` only when the new work is independent.')
     expect(skill).not.toContain('--name independent-task')
-    expect(skill).not.toMatch(/(prefer|default to|always use) (a child|child lineage|`--no-parent`)/i)
+    expect(skill).not.toMatch(
+      /(prefer|default to|always use) (a child|child lineage|`--no-parent`)/i
+    )
     // The old cascade claim was false: Orca deletes a parent's children with it.
     expect(skill).not.toContain('deleting a parent never deletes its children on its own')
     expect(skill).not.toContain('Both stay visible either way')
