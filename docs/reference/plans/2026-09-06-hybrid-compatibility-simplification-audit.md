@@ -1,13 +1,8 @@
 # Hybrid compatibility simplification audit
 
-Current validation hold: review found that removed fallback paths had also bounded
-large directory/file/Source Control results. Desktop adapters now retain those
-bounds before generic forwarding, preserving existing native RPCs. The previously
-recorded final code/export passes predate these corrections; iOS was stopped before
-Metro and has no new pass. All final gates/export/platform checks must rerun.
-
 Audited September 6, 2026 at `6e949ece6c0`, branch `mobile-rearch`.
-Removal plan implemented September 6, 2026; final validation is running.
+Removal plan implemented September 6, 2026; the gate, export, and emulator results
+recorded below predate the later bounding corrections and must all be rerun.
 Findings below describe the audited checkpoint and motivate the completed changes.
 
 ## Decision
@@ -180,7 +175,7 @@ mutation authority, cancellation, bounds and privacy checks on the active paths.
 The native RPC surface is unchanged by this batch; released-binary mixed-version
 certification remains outside the ordinary hosted emulator fixtures.
 
-Final validation completed: Terminal preference reads are serialized against the
+Recorded validation: Terminal preference reads are serialized against the
 existing four-request bridge ceiling, with regression coverage. Desktop adapters
 retain bounded directory/text and Source Control status/diff responses. Native-chat
 reads now bound serialized JSON bytes, preserving message identities, pagination
@@ -188,15 +183,13 @@ and future fields where possible; oversized content is visibly truncated. Its ex
 generic feed reuses that budget for consistent behavior (the feed size limitation
 predates this simplification). Native RPC implementations remain unchanged.
 
-All ten code gates pass under `/tmp/orca-ota-e2e/simplification-bounded-gates/`:
-845 mobile files / 5,551 passed / 3 skipped; 334 root files / 2,781 passed / 1 skipped.
+All ten code gates pass: 845 mobile files / 5,551 passed / 3 skipped;
+334 root files / 2,781 passed / 1 skipped.
 Desktop main rebuild and isolated page export pass: 56 assets / 9,762,455 bytes /
 2,800,127 gzip; build `d8674fc539d49adb8f9dd043c4f96d462468ecd24f7b008764901e82893bb078`.
 iOS full existing adversarial/settings and Android adversarial smoke both exited 0
-with `ok: true`; iOS checked exact-build activation. Logs and extracted reports:
-`ios-simplification-complete.log`, `ios-simplification-complete/result.json`,
-`android-simplification-complete.log`, `android-simplification-complete/result.json`
-under `/tmp/orca-ota-e2e/`. The owned Android emulator was stopped.
+with `ok: true`; iOS checked exact-build activation. The owned Android emulator
+was stopped.
 
 Inspected iOS Chat/Terminal and Android Tasks screenshots. Android settings and a
 dedicated rendered native-chat transcript journey remain unverified; headless Review
