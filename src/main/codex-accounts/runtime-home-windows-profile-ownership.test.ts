@@ -39,8 +39,9 @@ describe('Windows System Default Codex home ownership', () => {
         SHELL: 'powershell.exe'
       })
     ).toBe(false)
-    // Why pinned together: lane routing and session migration read the same
-    // override, so a custom home can never leave one enabled and the other not.
+    // Why pinned together: a process-env override disables both lane routing and
+    // session migration. They agree only on process env -- migration takes no
+    // launchEnv, so the launch-env-only case below moves one and not the other.
     expect(service.isHostSystemDefaultSessionMigrationEligible()).toBe(false)
   })
 
@@ -54,6 +55,9 @@ describe('Windows System Default Codex home ownership', () => {
         CODEX_HOME: 'C:\\custom\\codex-home'
       })
     ).toBe(false)
+    // Pins the asymmetry instead of implying agreement: migration reads no
+    // launchEnv, so a launch-scoped override steers the lane but not migration.
+    expect(service.isHostSystemDefaultSessionMigrationEligible()).toBe(true)
   })
 })
 
