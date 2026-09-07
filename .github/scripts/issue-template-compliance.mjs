@@ -87,9 +87,9 @@ function hasComplianceLabel(issue) {
   )
 }
 
-// Why hardcoded: the day this workflow shipped. Issues filed earlier were written
+// Why hardcoded: the moment this workflow landed. Issues filed earlier were written
 // before the forms were mandatory, so editing one must not retroactively flag it.
-export const ENFORCEMENT_START = '2026-09-07T00:00:00Z'
+export const ENFORCEMENT_START = '2026-09-07T16:27:44Z'
 
 // Why created_at, not label presence: `cancel-in-progress` can kill the `opened`
 // run mid-flight, leaving a brand-new non-compliant issue unlabeled.
