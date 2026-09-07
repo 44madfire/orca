@@ -96,6 +96,11 @@ export async function walkSessionFiles(
     // rootDir, so pruned subtrees are never stat'd or parsed.
     directoryPredicate?: (name: string, depth: number) => boolean
     readDirectory?: (dirPath: string) => Promise<Dirent[]>
+    /** Return as soon as one file matches. For a caller that only wants
+     *  `files[0]`, walking the rest of the tree is pure cost — on a home with
+     *  thousands of transcripts it is most of the call. Traversal order is
+     *  unchanged, so the file returned is the same one. */
+    stopAfterFirstMatch?: boolean
     signal?: AbortSignal
   },
   depth = 0
@@ -125,6 +130,9 @@ export async function walkSessionFiles(
       // avoiding the readdir cost of descending into them.
       if (options.directoryPredicate?.(entry.name, depth) ?? true) {
         files.push(...(await walkSessionFiles(fullPath, agent, issues, options, depth + 1)))
+        if (options.stopAfterFirstMatch && files.length > 0) {
+          return files
+        }
       }
       continue
     }
@@ -134,6 +142,9 @@ export async function walkSessionFiles(
       (options.filePredicate?.(fullPath) ?? true)
     ) {
       files.push(fullPath)
+      if (options.stopAfterFirstMatch) {
+        return files
+      }
     }
   }
   return files

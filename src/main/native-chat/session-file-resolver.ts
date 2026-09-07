@@ -234,6 +234,8 @@ async function resolveClaudeSessionFile(
     const files = await walkSessionFiles(projectsDir, 'claude', [], {
       extensions: new Set(['.jsonl']),
       filePredicate: (path) => basename(path) === targetName,
+      // Only `files[0]` is ever used, and this runs on every acquisition.
+      stopAfterFirstMatch: true,
       signal
     })
     if (files[0]) {
@@ -291,6 +293,7 @@ async function findCodexRolloutInDirs(
         : (
             await walkSessionFiles(sessionsDir, 'codex', [], {
               ...scanOptions,
+              stopAfterFirstMatch: true,
               signal
             })
           )[0]
