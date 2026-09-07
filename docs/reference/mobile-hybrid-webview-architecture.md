@@ -209,8 +209,14 @@ edges still meet the device and keep their measured values.
   its host-work slot until the host call settles. The Desktop is trusted, so the
   page addresses host tabs, browser pages and provider sessions by their host
   ids. Generic subscriptions, native-chat domain actions, file reads, Source
-  Control reads/watch, session snapshot/feed/actions and terminal metadata use
-  this path.
+  Control reads/watch, session snapshot/feed/actions, terminal metadata and the
+  whole provider review surface use this path.
+- Provider review is desktop-owned end to end. `mobileWeb.review.*` reads the
+  branch's hosted review, projects the provider work item into the page contract,
+  and runs every comment, management, submission and creation action. GitHub and
+  GitLab differ only inside those handlers; the shell knows neither. Review
+  output the provider does not bound — check-run job logs and file diffs — is
+  clipped on the desktop so the page's schema bounds hold.
 - Decisions behind the generic lane and its 2026-09-07 simplification are in
   [`plans/2026-09-07-long-lived-mobile-shell-decisions.md`](./plans/2026-09-07-long-lived-mobile-shell-decisions.md).
   Unmigrated domain operations keep their current adapters until moved.
