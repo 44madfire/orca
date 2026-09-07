@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { runProcess } from '../shared/child-process/run-process'
 
 // Why: Squirrel.Mac's ShipIt waits for EVERY running instance of the target
 // bundle to exit before it installs, and aborts with "App Still Running Error"
@@ -46,36 +46,44 @@ export type RunningApplicationPidReader = (
   currentPid: number
 ) => Promise<string>
 
-function readRunningApplicationPids(executablePath: string, currentPid: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    // Why: one bounded subprocess instead of a probe per candidate. Paths go
-    // through argv so nothing is interpolated into the script, and NSWorkspace
-    // metadata needs no Accessibility permission.
-    execFile(
-      '/usr/bin/osascript',
-      [
-        '-l',
-        'JavaScript',
-        '-e',
-        RUNNING_APPLICATION_QUERY,
-        '--',
-        executablePath,
-        String(currentPid)
-      ],
-      {
-        encoding: 'utf8',
-        timeout: RUNNING_APPLICATION_QUERY_TIMEOUT_MS,
-        maxBuffer: RUNNING_APPLICATION_QUERY_MAX_BYTES
-      },
-      (error, stdout) => {
-        if (error) {
-          reject(error)
-          return
-        }
-        resolve(stdout)
-      }
-    )
+async function readRunningApplicationPids(
+  executablePath: string,
+  currentPid: number
+): Promise<string> {
+  // Why: one bounded subprocess instead of a probe per candidate. Paths go
+  // through argv so nothing is interpolated into the script, and NSWorkspace
+  // metadata needs no Accessibility permission.
+  const result = await runProcess({
+    program: '/usr/bin/osascript',
+    args: [
+      '-l',
+      'JavaScript',
+      '-e',
+      RUNNING_APPLICATION_QUERY,
+      '--',
+      executablePath,
+      String(currentPid)
+    ],
+    timeoutMs: RUNNING_APPLICATION_QUERY_TIMEOUT_MS,
+    maxOutputBytes: RUNNING_APPLICATION_QUERY_MAX_BYTES
   })
+  return runningApplicationQueryOutput(result)
+}
+
+/**
+ * Output only from a query that actually finished.
+ *
+ * Why it is a decision at all: `runProcess` reports a non-zero exit or a timeout
+ * as data rather than throwing, so partial stdout arrives looking like an answer.
+ * A probe that could not finish has proved nothing about who is running, and
+ * naming a blocker on that basis would refuse an install the user could have had.
+ */
+export function runningApplicationQueryOutput(result: {
+  timedOut: boolean
+  code: number | null
+  stdout: string
+}): string {
+  return result.timedOut || result.code !== 0 ? '' : result.stdout
 }
 
 export function parseRunningApplicationPids(output: string, currentPid: number): number[] {

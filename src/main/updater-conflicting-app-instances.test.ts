@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   describeConflictingAppInstances,
   findConflictingAppInstancePids,
-  parseRunningApplicationPids
+  parseRunningApplicationPids,
+  runningApplicationQueryOutput
 } from './updater-conflicting-app-instances'
 
 const APP_EXECUTABLE = '/Applications/Orca.app/Contents/MacOS/Orca'
@@ -68,6 +69,30 @@ describe('findConflictingAppInstancePids', () => {
   })
 })
 
+describe('runningApplicationQueryOutput', () => {
+  // Fail-open is the property that keeps a broken probe from blocking updates,
+  // and the runner reports these as data rather than throwing — so each one is a
+  // path that would otherwise look like a successful "no blockers" answer, or
+  // worse, like a partial list of them.
+  it('passes through the output of a query that exited cleanly', () => {
+    expect(runningApplicationQueryOutput({ timedOut: false, code: 0, stdout: '270\n' })).toBe(
+      '270\n'
+    )
+  })
+
+  it('discards partial output from a timed-out query', () => {
+    expect(runningApplicationQueryOutput({ timedOut: true, code: null, stdout: '270\n' })).toBe('')
+  })
+
+  it('discards output from a query that exited non-zero', () => {
+    expect(runningApplicationQueryOutput({ timedOut: false, code: 1, stdout: '270\n' })).toBe('')
+  })
+
+  it('discards output from a query killed by a signal', () => {
+    expect(runningApplicationQueryOutput({ timedOut: false, code: null, stdout: '270\n' })).toBe('')
+  })
+})
+
 describe('describeConflictingAppInstances', () => {
   it('names a single blocking pid', () => {
     expect(describeConflictingAppInstances([270])).toBe(
@@ -109,5 +134,12 @@ describe('conflicting-instance detection strategy', () => {
   it('never enumerates blockers from the process table', () => {
     expect(source).not.toMatch(/['"`]\/bin\/ps['"`]/)
     expect(source).not.toMatch(/\bpgrep\b/)
+  })
+
+  it('spawns through the shared runner, not node:child_process', () => {
+    // The tree-level guard in src/shared/child-process owns this rule; asserting
+    // it here too keeps the reason next to the code that has to obey it.
+    expect(source).not.toContain('node:child_process')
+    expect(source).toContain("from '../shared/child-process/run-process'")
   })
 })
