@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { requestTerminalPaneRecovery } from '../terminal-pane-recovery'
 import {
+  REMOTE_RUNTIME_SPAWN_SETTLEMENT_WATCHDOG_MS,
   SPAWN_SETTLEMENT_WATCHDOG_MS,
   pendingSpawnByPaneKey,
   pendingSpawnGenerationByPaneKey
@@ -286,6 +287,34 @@ describe('cold-restore resume spawns', () => {
 
     vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
 
+    expect(requestTerminalPaneRecovery).toHaveBeenCalledOnce()
+  })
+})
+
+describe('remote-runtime spawns', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    pendingSpawnByPaneKey.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // The create's own retry ladder can still be running at the local deadline.
+  it('does not remount a remote-runtime pane at the local deadline', () => {
+    observeSpawnSettlement(
+      buildSession({ deps: { tabId: 'tab-remote' }, runtimeEnvironmentId: 'env-1' }),
+      new Promise<string | null>(() => {})
+    )
+
+    vi.advanceTimersByTime(SPAWN_SETTLEMENT_WATCHDOG_MS)
+    expect(requestTerminalPaneRecovery).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(
+      REMOTE_RUNTIME_SPAWN_SETTLEMENT_WATCHDOG_MS - SPAWN_SETTLEMENT_WATCHDOG_MS
+    )
     expect(requestTerminalPaneRecovery).toHaveBeenCalledOnce()
   })
 })

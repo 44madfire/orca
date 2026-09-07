@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { LOCAL_PTY_STARTUP_FAIL_OPEN_TIMEOUT_MS } from '../../../../../main/startup/first-window-startup-services'
-import { SPAWN_SETTLEMENT_WATCHDOG_MS } from './pty-connect-limits'
+import {
+  REMOTE_RUNTIME_SPAWN_SETTLEMENT_WATCHDOG_MS,
+  SPAWN_SETTLEMENT_WATCHDOG_MS
+} from './pty-connect-limits'
+import { REMOTE_RUNTIME_AUTO_RECOVERY_TIMEOUT_MS } from '../remote-runtime-pty-recovery-state'
 
 // Why a parity test: the watchdog mirrors main's spawn budgets by value, because a
 // renderer module cannot import them. If main's gate grows past this deadline the
@@ -24,5 +28,18 @@ describe('spawn settlement watchdog budget', () => {
     expect(SPAWN_SETTLEMENT_WATCHDOG_MS - worstLegitimateLocalSettleMs).toBeGreaterThanOrEqual(
       DAEMON_REQUEST_TIMEOUT_MS
     )
+  })
+
+  // A remote-runtime create arms this ladder on its first recoverable connection error
+  // and keeps retrying inside the create call, so the connect promise legitimately
+  // pends that long. Timing out under it remounts a pane whose create is still running.
+  it('outlasts the remote-runtime create ladder for a remote pane', () => {
+    expect(REMOTE_RUNTIME_SPAWN_SETTLEMENT_WATCHDOG_MS).toBeGreaterThan(
+      REMOTE_RUNTIME_AUTO_RECOVERY_TIMEOUT_MS
+    )
+  })
+
+  it('does not make a local pane wait on the remote ladder', () => {
+    expect(SPAWN_SETTLEMENT_WATCHDOG_MS).toBeLessThan(REMOTE_RUNTIME_SPAWN_SETTLEMENT_WATCHDOG_MS)
   })
 })

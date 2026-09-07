@@ -5,6 +5,7 @@ import {
   type TerminalPaneRecoveryReason
 } from '../terminal-pane-recovery'
 import {
+  REMOTE_RUNTIME_SPAWN_SETTLEMENT_WATCHDOG_MS,
   SPAWN_SETTLEMENT_WATCHDOG_MS,
   pendingSpawnByPaneKey,
   pendingSpawnGenerationByPaneKey
@@ -127,42 +128,49 @@ export function armSpawnSettlementWatchdog(
   settlement.armed = true
   const { pendingSpawnKey } = session
   const tabId = session.deps.tabId
-  const timer = setTimeout(() => {
-    if (pendingSpawnByPaneKey.get(pendingSpawnKey) === trackedPromise) {
-      pendingSpawnByPaneKey.delete(pendingSpawnKey)
-      pendingSpawnGenerationByPaneKey.delete(pendingSpawnKey)
-    }
-    // Something bound meanwhile, or the SSH ledger owns the retry: leave it alone.
-    if (session.transport.getPtyId() || session.directSshRetryAttempt) {
-      return
-    }
-    // Why freeze instead of remount: a cold-restore spawn clears its sleeping
-    // record only once it settles, and a late one is deliberately not retired
-    // (it may own a recycled id). Remounting a hung one would put a SECOND
-    // --resume on the same transcript. A stuck pane is recoverable; two agents
-    // writing one conversation is not.
-    if (settlement.resumesProviderSession) {
-      warnTerminalLifecycleAnomaly('resume spawn never settled; remount withheld', {
+  const timer = setTimeout(
+    () => {
+      if (pendingSpawnByPaneKey.get(pendingSpawnKey) === trackedPromise) {
+        pendingSpawnByPaneKey.delete(pendingSpawnKey)
+        pendingSpawnGenerationByPaneKey.delete(pendingSpawnKey)
+      }
+      // Something bound meanwhile, or the SSH ledger owns the retry: leave it alone.
+      if (session.transport.getPtyId() || session.directSshRetryAttempt) {
+        return
+      }
+      // Why freeze instead of remount: a cold-restore spawn clears its sleeping
+      // record only once it settles, and a late one is deliberately not retired
+      // (it may own a recycled id). Remounting a hung one would put a SECOND
+      // --resume on the same transcript. A stuck pane is recoverable; two agents
+      // writing one conversation is not.
+      if (settlement.resumesProviderSession) {
+        warnTerminalLifecycleAnomaly('resume spawn never settled; remount withheld', {
+          tabId,
+          worktreeId: session.deps.worktreeId,
+          leafId: session.deps.restoredLeafId ?? session.pane.leafId,
+          paneId: session.pane.id,
+          ptyId: null
+        })
+        return
+      }
+      if (!session.disposed) {
+        remountUnboundPane(session, 'spawn-never-settled', 'spawn never settled; pane left unbound')
+        return
+      }
+      // Arming pane is gone, but an adopter may still be waiting on the pin. No
+      // instance id: this request belongs to the tab, not to a disposed xterm.
+      void requestTerminalPaneRecovery({
         tabId,
-        worktreeId: session.deps.worktreeId,
-        leafId: session.deps.restoredLeafId ?? session.pane.leafId,
-        paneId: session.pane.id,
-        ptyId: null
+        ptyId: null,
+        reason: 'spawn-never-settled',
+        terminalRecoveryGeneration: captureTerminalPaneRecoveryGeneration(tabId)
       })
-      return
-    }
-    if (!session.disposed) {
-      remountUnboundPane(session, 'spawn-never-settled', 'spawn never settled; pane left unbound')
-      return
-    }
-    // Arming pane is gone, but an adopter may still be waiting on the pin. No
-    // instance id: this request belongs to the tab, not to a disposed xterm.
-    void requestTerminalPaneRecovery({
-      tabId,
-      ptyId: null,
-      reason: 'spawn-never-settled',
-      terminalRecoveryGeneration: captureTerminalPaneRecoveryGeneration(tabId)
-    })
-  }, SPAWN_SETTLEMENT_WATCHDOG_MS)
+    },
+    // A remote-runtime create runs its own retry ladder inside the call, so it settles
+    // later than a local spawn without being wedged.
+    session.runtimeEnvironmentId
+      ? REMOTE_RUNTIME_SPAWN_SETTLEMENT_WATCHDOG_MS
+      : SPAWN_SETTLEMENT_WATCHDOG_MS
+  )
   void trackedPromise.finally(() => clearTimeout(timer)).catch(() => {})
 }
