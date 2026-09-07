@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MobileWebCreationRepoIdSchema } from './workspace-creation-read-contract'
+import { MobileWebCreationRepoIdSchema } from './workspace-creation-repo-trust-contract'
 
 const NameSchema = z.string().min(1).max(160)
 const OptionalTextSchema = z.string().max(4096).optional()

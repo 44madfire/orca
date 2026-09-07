@@ -49,7 +49,7 @@ describe('mobile web capability dispatch census', () => {
     })
 
     expect(unresolved.map(({ capability, operation }) => `${capability}.${operation}`)).toEqual([])
-    expect(registeredOperations()).toHaveLength(189)
+    expect(registeredOperations()).toHaveLength(165)
   })
 
   it('carries a dispatch arm for exactly the capabilities that own operations of that mode', () => {

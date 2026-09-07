@@ -4,68 +4,33 @@ import type { RpcClient } from '../transport/rpc-client'
 import { executeMobileWebWorkspaceCreationCreateOperation } from './mobile-web-workspace-creation-create-operations'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
+const REPO_ID = 'repo-1'
+
+function hostClient(overrides: Record<string, unknown> = {}) {
+  return vi.fn(async (method: string) => {
+    if (method === 'status.get') {
+      return {
+        ok: true,
+        result: { capabilities: [MOBILE_WORKTREE_CREATE_IDEMPOTENCY_CAPABILITY] }
+      }
+    }
+    if (method === 'settings.get') {
+      return { ok: true, result: { settings: {} } }
+    }
+    if (method === 'worktree.create') {
+      return { ok: true, result: { worktree: { id: '/host/worktree-secret' } } }
+    }
+    if (method in overrides) {
+      return overrides[method]
+    }
+    throw new Error(`Unexpected method ${method}`)
+  })
+}
+
 describe('mobile web workspace creation writes', () => {
-  it('revalidates a PR and its fork base natively before creating', async () => {
+  it('sends the page selection unchanged and answers with a fresh page handle', async () => {
     const authority = workspaceAuthority()
-    authority.synchronizeCreationRepositories([{ id: 'host-repo-secret' }])
-    const pageRepoId = authority.pageRepoId('host-repo-secret')
-    const sendRequest = vi.fn(async (method: string) => {
-      if (method === 'status.get') {
-        return {
-          ok: true,
-          result: { capabilities: [MOBILE_WORKTREE_CREATE_IDEMPOTENCY_CAPABILITY] }
-        }
-      }
-      if (method === 'github.workItem') {
-        return {
-          ok: true,
-          result: {
-            id: 'provider-secret-id',
-            type: 'pr',
-            number: 7,
-            title: 'Authoritative title',
-            state: 'open',
-            url: 'https://github.example.com/acme/orca/pull/7',
-            labels: [],
-            updatedAt: '2026-07-23T00:00:00Z',
-            author: null,
-            branchName: 'authoritative-head',
-            baseRefName: 'main',
-            isCrossRepository: true
-          }
-        }
-      }
-      if (method === 'worktree.resolvePrBase') {
-        return {
-          ok: true,
-          result: {
-            baseBranch: 'refs/pull/7/head',
-            compareBaseRef: 'origin/main',
-            pushTarget: {
-              remoteName: 'contributor',
-              branchName: 'authoritative-head',
-              remoteUrl: 'git@github.example.com:contributor/orca.git'
-            }
-          }
-        }
-      }
-      if (method === 'settings.get') {
-        return {
-          ok: true,
-          result: { settings: { agentCmdOverrides: { codex: 'TOKEN=secret codex' } } }
-        }
-      }
-      if (method === 'worktree.create') {
-        return {
-          ok: true,
-          result: {
-            worktree: { id: '/host/worktree-secret' },
-            warning: 'Setup completed with a warning.'
-          }
-        }
-      }
-      throw new Error(`Unexpected method ${method}`)
-    })
+    const sendRequest = hostClient()
 
     const result = await executeMobileWebWorkspaceCreationCreateOperation({
       operation: 'creationCreateFromSource',
@@ -76,89 +41,109 @@ describe('mobile web workspace creation writes', () => {
             provider: 'github',
             type: 'pr',
             number: 7,
-            title: 'Tampered page title',
-            url: 'https://github.example.com/attacker/fake/pull/7',
-            repoId: pageRepoId
+            title: 'Bridge title',
+            url: 'https://github.example.com/acme/orca/pull/7',
+            repoId: REPO_ID
           },
-          baseBranch: 'attacker/base',
-          compareBaseRef: 'attacker/compare',
-          pushTarget: { remoteName: 'attacker', branchName: 'attacker-branch' }
+          baseBranch: 'refs/pull/7/head',
+          compareBaseRef: 'origin/main',
+          pushTarget: { remoteName: 'contributor', branchName: 'head' }
         },
-        targetRepoId: pageRepoId,
+        targetRepoId: REPO_ID,
         setupDecision: 'skip',
         agentChoice: 'codex',
-        sparseCheckout: {
-          directories: ['src/renderer'],
-          presetId: 'renderer'
-        }
+        sparseCheckout: { directories: ['src/renderer'], presetId: 'renderer' }
       },
       client: { sendRequest } as unknown as RpcClient,
       authority
     })
 
-    expect(sendRequest).toHaveBeenCalledWith('github.workItem', {
-      repo: 'id:host-repo-secret',
-      number: 7
-    })
-    expect(sendRequest).toHaveBeenCalledWith(
-      'worktree.resolvePrBase',
-      {
-        repo: 'id:host-repo-secret',
-        prNumber: 7,
-        headRefName: 'authoritative-head',
-        baseRefName: 'main',
-        isCrossRepository: true
-      },
-      { timeoutMs: 30_000 }
-    )
+    // The page resolved the base through the same shared operations, so nothing is looked up twice.
+    expect(sendRequest.mock.calls.map(([method]) => method)).not.toContain('github.workItem')
+    expect(sendRequest.mock.calls.map(([method]) => method)).not.toContain('worktree.resolvePrBase')
     expect(sendRequest).toHaveBeenCalledWith(
       'worktree.create',
       expect.objectContaining({
-        repo: 'id:host-repo-secret',
+        repo: `id:${REPO_ID}`,
         baseBranch: 'refs/pull/7/head',
         compareBaseRef: 'origin/main',
-        pushTarget: {
-          remoteName: 'contributor',
-          branchName: 'authoritative-head',
-          remoteUrl: 'git@github.example.com:contributor/orca.git'
-        },
-        startupDraft: 'https://github.example.com/acme/orca/pull/7',
         createdWithAgent: 'codex',
-        sparseCheckout: {
-          directories: ['src/renderer'],
-          presetId: 'renderer'
-        }
+        sparseCheckout: { directories: ['src/renderer'], presetId: 'renderer' }
       }),
       expect.anything()
     )
     expect(result).toEqual({
       workspaceId: expect.stringMatching(/^workspace_/),
-      name: 'pr-7',
-      warning: 'Setup completed with a warning.'
+      name: 'pr-7'
     })
-    expect(JSON.stringify(result)).not.toMatch(/host|secret|provider/)
+    expect(JSON.stringify(result)).not.toContain('/host/worktree-secret')
+    expect(authority.hostWorkspaceId((result as { workspaceId: string }).workspaceId)).toBe(
+      '/host/worktree-secret'
+    )
   })
 
-  it('rejects a page-supplied native repository ID', async () => {
+  it('rebuilds a Linear source from its identifier because the wire carries only that', async () => {
     const authority = workspaceAuthority()
-    authority.synchronizeCreationRepositories([{ id: 'host-repo-secret' }])
+    const sendRequest = hostClient({
+      'linear.searchIssues': {
+        ok: true,
+        result: {
+          items: [
+            {
+              id: 'linear-1',
+              identifier: 'STA-42',
+              title: 'Authoritative title',
+              url: 'https://linear.app/orca/issue/STA-42',
+              branchName: 'sta-42-authoritative',
+              updatedAt: '2026-07-23T00:00:00Z'
+            }
+          ]
+        }
+      }
+    })
 
+    await executeMobileWebWorkspaceCreationCreateOperation({
+      operation: 'creationCreateFromSource',
+      payload: {
+        selection: {
+          kind: 'work-item',
+          item: {
+            provider: 'linear',
+            type: 'issue',
+            number: 0,
+            title: 'Tampered page title',
+            url: 'https://linear.app/attacker/issue/STA-42',
+            linearIdentifier: 'STA-42'
+          }
+        },
+        targetRepoId: REPO_ID,
+        setupDecision: 'skip',
+        agentChoice: 'blank'
+      },
+      client: { sendRequest } as unknown as RpcClient,
+      authority
+    })
+
+    expect(sendRequest.mock.calls.map(([method]) => method)).toContain('linear.searchIssues')
+    const create = sendRequest.mock.calls.find(([method]) => method === 'worktree.create')!
+    expect(JSON.stringify(create[1])).not.toContain('Tampered')
+  })
+
+  it('refuses an agent choice the host does not define', async () => {
     await expect(
       executeMobileWebWorkspaceCreationCreateOperation({
         operation: 'creationCreateBlank',
-        payload: blankPayload('host-repo-secret'),
-        client: {
-          sendRequest: vi.fn().mockResolvedValue({ ok: true, result: { capabilities: [] } })
-        } as unknown as RpcClient,
-        authority
+        payload: { ...blankPayload(), agentChoice: 'not-an-agent' },
+        client: { sendRequest: hostClient() } as unknown as RpcClient,
+        authority: workspaceAuthority()
       })
-    ).rejects.toMatchObject({ code: 'not_found' })
+    ).rejects.toMatchObject({ code: 'invalid_request' })
   })
 })
 
-function blankPayload(repoId: string) {
+function blankPayload() {
   return {
-    repoId,
+    repoId: REPO_ID,
     baseName: 'secure-workspace',
     nameWasGenerated: false,
     agentChoice: 'blank',

@@ -14,8 +14,6 @@ const CONTEXT = {
 const REQUEST_ID = 'R'.repeat(22)
 const WORKSPACE_ID = 'workspace-1'
 const OTHER_WORKSPACE_ID = 'workspace-2'
-const REPO_ID = 'repo-1'
-const OTHER_REPO_ID = 'repo-2'
 const TARGET_ID = 'task-target-1'
 const OTHER_TARGET_ID = 'task-target-2'
 
@@ -67,53 +65,6 @@ const CORRELATION_CASES: CorrelationCase[] = [
       outcome: 'closed',
       refusalReason: null
     }
-  },
-  {
-    name: 'workspace creation SSH target',
-    capability: 'workspace',
-    operation: 'creationSshState',
-    invoke: (client) => client.workspaceCreation.sshState({ repoId: REPO_ID }),
-    result: sshState(OTHER_REPO_ID)
-  },
-  {
-    name: 'workspace creation sparse preset repository',
-    capability: 'workspace',
-    operation: 'creationSparsePresets',
-    invoke: (client) => client.workspaceCreation.sparsePresets({ repoId: REPO_ID }),
-    result: { presets: [sparsePreset(OTHER_REPO_ID)] }
-  },
-  {
-    name: 'saved sparse preset repository',
-    capability: 'workspace',
-    operation: 'creationSaveSparsePreset',
-    invoke: (client) =>
-      client.workspaceCreation.saveSparsePreset({
-        repoId: REPO_ID,
-        id: 'preset-1',
-        name: 'Sources',
-        directories: ['src']
-      }),
-    result: { preset: sparsePreset(OTHER_REPO_ID) }
-  },
-  {
-    name: 'workspace creation search repository',
-    capability: 'workspace',
-    operation: 'creationSearchGitHub',
-    invoke: (client) => client.workspaceCreationSource.searchGitHub(REPO_ID, 'issue'),
-    result: { items: [gitHubCreationItem({ repoId: OTHER_REPO_ID })] }
-  },
-  {
-    name: 'workspace creation lookup number',
-    capability: 'workspace',
-    operation: 'creationLookupGitHubRepo',
-    invoke: (client) =>
-      client.workspaceCreationSource.lookupGitHubRepo({
-        repoId: REPO_ID,
-        slug: { owner: 'orca', repo: 'orca' },
-        number: 42,
-        type: 'issue'
-      }),
-    result: { item: gitHubCreationItem({ number: 43 }) }
   },
   {
     name: 'task project host',
@@ -254,42 +205,6 @@ function sessionSnapshot(overrides: Record<string, unknown> = {}) {
     activeTabType: null,
     tabs: [],
     truncated: false,
-    ...overrides
-  }
-}
-
-function sshState(targetId: string) {
-  return {
-    targetId,
-    status: 'disconnected',
-    error: null,
-    reconnectAttempt: 0
-  }
-}
-
-function sparsePreset(repoId: string) {
-  return {
-    id: 'preset-1',
-    repoId,
-    name: 'Sources',
-    directories: ['src'],
-    createdAt: 1,
-    updatedAt: 1
-  }
-}
-
-function gitHubCreationItem(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'github:item:42',
-    type: 'issue',
-    number: 42,
-    title: 'Issue',
-    state: 'open',
-    url: 'https://github.com/orca/orca/issues/42',
-    labels: [],
-    updatedAt: '2026-07-28T00:00:00Z',
-    author: 'orca',
-    repoId: REPO_ID,
     ...overrides
   }
 }

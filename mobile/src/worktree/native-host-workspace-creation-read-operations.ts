@@ -1,6 +1,6 @@
 import type { PersistedTrustedOrcaHooks } from '../../../src/shared/orca-yaml-hook-types'
 import type { SshConnectionState } from '../../../src/shared/ssh-types'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcRequestSender } from '../transport/rpc-client'
 import type { RpcSuccess } from '../transport/types'
 import { readNewWorktreeRuntimeCapabilities } from '../tasks/worktree-create-capability'
 import { readRetiredNameRegistryForRepo } from '../../../src/shared/worktree/retired-name-cache'
@@ -26,7 +26,9 @@ type ReadOperations = Pick<
   | 'readRuntimeCapabilities'
 >
 
-export function nativeHostWorkspaceCreationReadOperations(client: RpcClient): ReadOperations {
+export function nativeHostWorkspaceCreationReadOperations(
+  client: RpcRequestSender
+): ReadOperations {
   return {
     async listRepositories() {
       const result = await successfulResult<{ repos: NewWorkspaceRepository[] }>(
@@ -95,7 +97,7 @@ export function nativeHostWorkspaceCreationReadOperations(client: RpcClient): Re
 }
 
 async function successfulResult<T>(
-  responsePromise: ReturnType<RpcClient['sendRequest']>
+  responsePromise: ReturnType<RpcRequestSender['sendRequest']>
 ): Promise<T> {
   const response = await responsePromise
   if (!response.ok) {

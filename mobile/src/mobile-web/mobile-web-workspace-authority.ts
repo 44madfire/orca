@@ -146,10 +146,12 @@ export class MobileWebWorkspaceAuthority {
     }
   }
 
-  registerWorkspace(hostWorkspaceId: string, hostRepoId: string): string {
+  registerWorkspace(hostWorkspaceId: string, hostRepoId?: string): string {
     this.rememberWorkspace(hostWorkspaceId)
-    this.hostRepoIdByHostWorkspaceId.set(hostWorkspaceId, hostRepoId)
-    this.rememberRepo(hostRepoId)
+    if (hostRepoId !== undefined) {
+      this.hostRepoIdByHostWorkspaceId.set(hostWorkspaceId, hostRepoId)
+      this.rememberRepo(hostRepoId)
+    }
     return this.pageWorkspaceId(hostWorkspaceId)
   }
 

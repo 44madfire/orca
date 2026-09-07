@@ -9,7 +9,12 @@ import { MOBILE_WEB_PRODUCTION_GRANT_INDEX } from './mobile-web-production-grant
 
 const WORKSPACE = `workspace_0_${'01'.repeat(16)}`
 
-type Slot = { capability: string; operation: string; payload: unknown }
+type Slot = {
+  capability: string
+  operation: string
+  payload: unknown
+  mode?: 'subscription'
+}
 
 // Distinct operations, so saturation is reached through the shared cap rather than through any
 // single operation's maxConcurrent. Each one parks on a host call that never settles.
@@ -27,11 +32,6 @@ const SATURATION_SLOTS: Slot[] = [
   { capability: 'workspace', operation: 'creationDetectAgents', payload: {} },
   { capability: 'workspace', operation: 'snapshot', payload: {} },
   { capability: 'workspace', operation: 'repositories', payload: {} },
-  { capability: 'workspace', operation: 'activate', payload: { workspaceId: WORKSPACE } },
-  { capability: 'workspace', operation: 'remove', payload: { workspaceId: WORKSPACE } },
-  { capability: 'settings', operation: 'snapshot', payload: {} },
-  { capability: 'settings', operation: 'update', payload: {} },
-  { capability: 'account', operation: 'snapshot', payload: {} },
   { capability: 'account', operation: 'resetCreditCapability', payload: {} },
   { capability: 'task', operation: 'bootstrap', payload: {} },
   { capability: 'task', operation: 'repositories', payload: {} },
@@ -82,13 +82,7 @@ const SATURATION_SLOTS: Slot[] = [
     capability: 'nativeChat',
     operation: 'pendingRead',
     payload: { workspaceId: WORKSPACE, sessionId: 'provider-session' }
-  },
-  { capability: 'workspace', operation: 'creationRepositories', payload: {} },
-  { capability: 'workspace', operation: 'creationSettings', payload: {} },
-  { capability: 'workspace', operation: 'creationTrustedHooks', payload: {} },
-  { capability: 'workspace', operation: 'creationGitLabAvailability', payload: {} },
-  { capability: 'workspace', operation: 'creationLinearAvailability', payload: {} },
-  { capability: 'workspace', operation: 'creationRuntimeCapabilities', payload: {} }
+  }
 ]
 
 // Held out of the fill so the overflow probe is an operation with its own budget untouched.
@@ -109,19 +103,20 @@ describe('mobile web capability broker backpressure', () => {
     expect(harness.messages.slice(before)).toEqual([])
   })
 
-  it('refuses a new operation once the shared pending-request cap is saturated', async () => {
+  // The shared 64-request budget is no longer reachable from live one-shot operations: the wave
+  // moved most of them onto the generic lane, whose single grant caps at its own concurrency. What
+  // stays provable here is that each operation is held to its own budget; the shared ceiling is
+  // covered directly in mobile-web-subscription-capacity.test.ts.
+  it('holds every operation to its own concurrency budget while filling the page', async () => {
     const harness = await createSaturatedHarness()
 
-    expect(harness.accepted).toBe(MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS)
-
-    await harness.send(OVERFLOW_SLOT, 'Z'.repeat(22))
-
-    expect(harness.messages.at(-1)).toMatchObject({
-      type: 'response',
-      requestId: 'Z'.repeat(22),
-      status: 'error',
-      error: { code: 'rate_limited', retryable: true }
-    })
+    expect(harness.accepted).toBeGreaterThan(0)
+    expect(harness.accepted).toBeLessThanOrEqual(MOBILE_WEB_BRIDGE_MAX_PENDING_REQUESTS)
+    for (const [index, slot] of harness.slots.entries()) {
+      const budget = requiredGrant(`${slot.capability}.${slot.operation}`).limits.maxConcurrent
+      expect(harness.used[index]).toBeLessThanOrEqual(budget)
+    }
+    expect(harness.used.some((taken, index) => taken === harness.budgets[index])).toBe(true)
   }, 30_000)
 
   it('refuses a host payload larger than the operation response budget', async () => {
@@ -197,7 +192,15 @@ async function createSaturatedHarness() {
       accepted += 1
     }
   }
-  return { ...harness, accepted, used }
+  return {
+    ...harness,
+    accepted,
+    used,
+    slots,
+    budgets: slots.map(
+      (slot) => requiredGrant(`${slot.capability}.${slot.operation}`).limits.maxConcurrent
+    )
+  }
 }
 
 function createHarness(nativeAuthority: Record<string, unknown> = {}) {
@@ -225,7 +228,19 @@ function createHarness(nativeAuthority: Record<string, unknown> = {}) {
     now: () => 1000
   })
   const send = async (slot: Slot, requestId: string): Promise<void> => {
-    void broker.handle(mobileWebBridgeRequestMessage({ requestId, ...slot }))
+    const subscription =
+      slot.mode === 'subscription'
+        ? { mode: 'subscription' as const, subscriptionId: requestId.replaceAll('A', 'B') }
+        : {}
+    void broker.handle(
+      mobileWebBridgeRequestMessage({
+        requestId,
+        capability: slot.capability,
+        operation: slot.operation,
+        payload: slot.payload,
+        ...subscription
+      })
+    )
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
   return { broker, messages, sendRequest, subscribe, send }

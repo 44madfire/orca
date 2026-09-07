@@ -36,8 +36,7 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-task-item-file-operations.ts': 1,
   'mobile-web-task-item-mutation-operations.ts': 1,
   'mobile-web-task-item-review-operations.ts': 1,
-  'mobile-web-task-project-mutation-operations.ts': 1,
-  'mobile-web-workspace-creation-create-operations.ts': 2
+  'mobile-web-task-project-mutation-operations.ts': 1
 }
 
 // Device-only mutations and handles consumed in one awaited call have no reauthorization window.
@@ -80,10 +79,7 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'task.updateResume',
   'task.updateSettings',
   'terminal.attachImage',
-  'terminal.clipboardPaste',
-  'workspace.creationPersistTrust',
-  'workspace.creationSaveSparsePreset',
-  'workspace.creationSshConnect'
+  'terminal.clipboardPaste'
 ]
 
 function shellSources(): Map<string, string> {
@@ -163,7 +159,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations()).toHaveLength(108)
+    expect(mutations()).toHaveLength(105)
   })
 
   it('exempts only registered mutations', () => {

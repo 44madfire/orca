@@ -1,4 +1,5 @@
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
+import { persistSetupHookTrustApproval } from './setup-hook-trust'
 import type { HostTaskPreferenceOperations } from './host-task-preference-operations'
 
 export function webHostTaskPreferenceOperations(
@@ -11,6 +12,7 @@ export function webHostTaskPreferenceOperations(
     async updateSettings(settings) {
       await client.task.updateSettings(settings)
     },
-    persistSetupTrust: (args) => client.workspaceCreation.persistTrust(args)
+    persistSetupTrust: (args) =>
+      persistSetupHookTrustApproval({ client: client.hostRpcSender, ...args })
   }
 }

@@ -47,6 +47,10 @@ export type RpcClient = {
   close: () => void
 }
 
+/** The one method a caller needs to reach the desktop. The hosted page satisfies it over the
+ * bridge, so request code written against the socket runs unchanged inside the webview. */
+export type RpcRequestSender = Pick<RpcClient, 'sendRequest'>
+
 export type ConnectOptions = {
   onStateChange?: (state: ConnectionState) => void
   onLog?: ConnectionLogSink

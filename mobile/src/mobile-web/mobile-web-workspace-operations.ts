@@ -1,7 +1,5 @@
 import type { RpcClient } from '../transport/rpc-client'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
-import { executeMobileWebWorkspaceCreationReadOperation } from './mobile-web-workspace-creation-read-operations'
-import { executeMobileWebWorkspaceCreationSourceOperation } from './mobile-web-workspace-creation-source-operations'
 import { executeMobileWebWorkspaceCreationCreateOperation } from './mobile-web-workspace-creation-create-operations'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 import type { MobileWebWorkspaceSnapshotPager } from './mobile-web-workspace-snapshot-pager'
@@ -21,16 +19,6 @@ export async function executeMobileWebWorkspaceOperation(args: {
   }
   if (args.operation.startsWith('creationCreate')) {
     return executeMobileWebWorkspaceCreationCreateOperation(args)
-  }
-  if (
-    args.operation.startsWith('creationSearch') ||
-    args.operation.startsWith('creationLookup') ||
-    args.operation.startsWith('creationResolve')
-  ) {
-    return executeMobileWebWorkspaceCreationSourceOperation(args)
-  }
-  if (args.operation.startsWith('creation')) {
-    return executeMobileWebWorkspaceCreationReadOperation(args)
   }
   throw new MobileWebBrokerError('unsupported_capability')
 }

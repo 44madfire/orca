@@ -59,7 +59,7 @@ describe('mobile web shell response schema corpus', () => {
       (grant) => grant.operation === 'subscribe'
     )
 
-    expect(resultSchemas.length).toBeGreaterThanOrEqual(150)
+    expect(resultSchemas.length).toBeGreaterThanOrEqual(140)
     expect(oneShotGrants.length).toBeGreaterThan(100)
     expect(eventSchemas.length).toBeGreaterThanOrEqual(subscriptionGrants.length)
     expect(MOBILE_WEB_PRODUCTION_GRANTS).toHaveLength(registeredOperations.length)

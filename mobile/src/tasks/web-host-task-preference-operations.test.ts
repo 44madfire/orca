@@ -6,12 +6,10 @@ describe('web host task preference operations', () => {
   it('uses strict task updates and the existing opaque trust operation', async () => {
     const updateResume = vi.fn().mockResolvedValue(null)
     const updateSettings = vi.fn().mockResolvedValue(null)
-    const persistTrust = vi.fn().mockResolvedValue({
-      'repo-page-1': { all: { approvedAt: 10 } }
-    })
+    const sendRequest = vi.fn().mockResolvedValue({ ok: true, result: {} })
     const operations = webHostTaskPreferenceOperations({
       task: { updateResume, updateSettings },
-      workspaceCreation: { persistTrust }
+      hostRpcSender: { sendRequest }
     } as unknown as MobileWebBridgeClient)
 
     await operations.updateResume({ githubMode: 'project' })
@@ -19,23 +17,21 @@ describe('web host task preference operations', () => {
     await expect(
       operations.persistSetupTrust({
         trust: {},
-        repoId: 'repo-page-1',
+        repoId: 'repo-1',
         contentHash: 'f'.repeat(64),
-        alwaysTrust: true
+        alwaysTrust: true,
+        approvedAt: 10
       })
     ).resolves.toEqual({
-      'repo-page-1': { all: { approvedAt: 10 } }
+      'repo-1': { all: { approvedAt: 10 } }
     })
 
     expect(updateResume).toHaveBeenCalledWith({
       taskResumeState: { githubMode: 'project' }
     })
     expect(updateSettings).toHaveBeenCalledWith({ defaultTaskSource: 'linear' })
-    expect(persistTrust).toHaveBeenCalledWith({
-      trust: {},
-      repoId: 'repo-page-1',
-      contentHash: 'f'.repeat(64),
-      alwaysTrust: true
+    expect(sendRequest).toHaveBeenCalledWith('ui.set', {
+      trustedOrcaHooks: { 'repo-1': { all: { approvedAt: 10 } } }
     })
   })
 })
