@@ -313,6 +313,7 @@ it('preserves confirmed MCP identity and the raw name through projection', () =>
     kind: 'tool-call' as const,
     name: 'my_server/ns.tool',
     input: null,
+    state: 'running' as const,
     mcpIdentity: { server: 'my_server', tool: 'ns.tool' }
   }
   const projected = projectStructuredItemToNativeChat(item('mcp', 1, body))
