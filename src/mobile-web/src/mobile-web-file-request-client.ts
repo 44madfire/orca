@@ -1,9 +1,9 @@
 import { z } from 'zod'
-import { sanitizeListResult } from '../../shared/mobile-web/file-list-presentation'
 import { projectMobileWebHostFileContent } from './mobile-web-host-file-content'
 import {
   MOBILE_WEB_FILE_CHUNK_MAX_BYTES,
   MobileWebFileListPayloadSchema,
+  MobileWebFileListResultSchema,
   MobileWebFileOpenPayloadSchema,
   MobileWebFileReadPayloadSchema,
   MobileWebFileSearchPayloadSchema,
@@ -47,6 +47,19 @@ const WriteResultSchema = z.union([
   z.object({ outcome: z.enum(['conflict', 'too_large']) })
 ])
 
+// The desktop already types and redacts the list; the page only strips fields it does not know.
+function projectListResult(
+  result: unknown,
+  workspaceId: string,
+  limit: number
+): MobileWebFileListResult {
+  const parsed = MobileWebFileListResultSchema.omit({ workspaceId: true }).strip().safeParse(result)
+  if (!parsed.success || parsed.data.files.length > limit) {
+    throw new MobileWebBridgeClientError('invalid_message', false)
+  }
+  return { ...parsed.data, workspaceId }
+}
+
 export class MobileWebFileRequestClient extends MobileWebFileReadClient {
   list(
     payload: MobileWebFileListPayload,
@@ -59,7 +72,7 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
       'mobileWeb.files.searchPaths',
       payload.workspaceId,
       { query: '', limit: payload.limit },
-      (result) => sanitizeListResult(result, payload.workspaceId, undefined, payload.limit),
+      (result) => projectListResult(result, payload.workspaceId, payload.limit),
       options
     )
   }
@@ -75,7 +88,7 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
       'mobileWeb.files.searchPaths',
       payload.workspaceId,
       { query: payload.query, limit: payload.limit },
-      (result) => sanitizeListResult(result, payload.workspaceId, undefined, payload.limit),
+      (result) => projectListResult(result, payload.workspaceId, payload.limit),
       options
     )
   }

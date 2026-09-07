@@ -165,7 +165,7 @@ describe('page-safe file listing and text', () => {
       }
     })
     respond({
-      files: [{ relativePath: 'docs/report.md', kind: 'text' }],
+      files: [{ relativePath: 'docs/report.md', basename: 'report.md', kind: 'text' }],
       totalCount: 1,
       truncated: false,
       futureField: true
