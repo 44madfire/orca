@@ -67,14 +67,18 @@ export ORCA_E2E_IME_ENGAGEMENT_RECEIPT="$PWD/test-results/nested-wayland/ime-eng
 export PLAYWRIGHT_JSON_OUTPUT_FILE=test-results/nested-wayland/playwright.json
 export SKIP_BUILD=1
 export ORCA_E2E_FORWARD_APP_LOGS=1
-pnpm exec playwright test --config tests/playwright.config.ts tests/e2e/terminal-hangul-terminating-digit-native.spec.ts --project=electron-headful --workers=1 --retries=0 --reporter=list,json
+pnpm exec playwright test --config tests/playwright.config.ts tests/e2e/terminal-hangul-terminating-digit-native.spec.ts --project=electron-headful --workers=1 --retries=0 --repeat-each=3 --reporter=list,json
 node --input-type=module <<'VERIFY'
 import { readFileSync } from 'node:fs'
 import { verifyImeEngagementReceipts } from './config/scripts/terminal-ime-engagement-receipt.mjs'
 import { verifyPlaywrightParticipation } from './config/scripts/verify-playwright-participation.mjs'
 const title = 'a digit typed right after a Hangul syllable reaches the pty'
-verifyPlaywrightParticipation(JSON.parse(readFileSync('test-results/nested-wayland/playwright.json','utf8')), {titles:[title],label:'Nested Wayland',repetitions:1})
-const problems=verifyImeEngagementReceipts(readFileSync(process.env.ORCA_E2E_IME_ENGAGEMENT_RECEIPT,'utf8'),[title])
-if(problems.length) throw new Error(problems.join('\n'))
+verifyPlaywrightParticipation(JSON.parse(readFileSync('test-results/nested-wayland/playwright.json','utf8')), {titles:[title],label:'Nested Wayland',repetitions:3})
+const receipts=readFileSync(process.env.ORCA_E2E_IME_ENGAGEMENT_RECEIPT,'utf8').trim().split('\n')
+if(receipts.length!==3) throw new Error('Expected three native composition receipts')
+for(const receipt of receipts){
+  const problems=verifyImeEngagementReceipts(receipt,[title])
+  if(problems.length) throw new Error(problems.join('\n'))
+}
 console.log('Verified exact scenario participation and native Hangul composition engagement')
 VERIFY

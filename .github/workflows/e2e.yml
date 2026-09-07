@@ -14,7 +14,7 @@ jobs:
       - name: Install nested compositor and IME
         run: >-
           sudo apt-get update && sudo apt-get install -y
-          build-essential python3 dbus-x11 dconf-gsettings-backend ibus ibus-hangul
+          build-essential python3 fonts-noto-cjk dbus-x11 dconf-gsettings-backend ibus ibus-hangul
           gnome-shell gnome-settings-daemon libglib2.0-bin xdotool xvfb x11-utils imagemagick
       - uses: ./.github/actions/install-node-dependencies
         with:
