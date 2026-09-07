@@ -734,6 +734,50 @@ describe('NativeChatMessageList spawn-group roster', () => {
       '2 working'
     )
   })
+
+  // The QA defect, at the seam that produced it. A mid-turn correction opens a
+  // NEW turn, so `isCurrentTurn` goes false for the fan-out's row and the list
+  // passes `activeTurnIsWorking={false}` down to the roster. The row used to
+  // relabel every live child `unverifiable` and flip its headline to "Ran" —
+  // claiming both that contact was lost and that the fan-out had finished, while
+  // the three real children were still running and completed 57-87s later.
+  it('keeps live children working after a newer turn supersedes their own', () => {
+    const startedAt = Date.now() - 3000
+    const live = rosterSession(
+      [
+        { id: 'a', label: 'read_readme', state: 'working', startedAt },
+        { id: 'b', label: 'read_package', state: 'working', startedAt }
+      ],
+      startedAt
+    )
+    render(
+      <NativeChatMessageList
+        session={{
+          ...live,
+          status: 'working',
+          messages: [
+            ...live.messages,
+            {
+              id: 'user-correction',
+              role: 'user',
+              blocks: [{ type: 'text', text: 'Actually, read the styleguide too' }],
+              timestamp: startedAt + 3,
+              source: 'transcript'
+            }
+          ]
+        }}
+        isWorking
+        workingStartedAt={startedAt + 3}
+        expandSignal={false}
+        fontScale={1}
+      />
+    )
+
+    const roster = screen.getByRole('button', { name: /Kicked off 2 subagents/ })
+    expect(roster).toHaveTextContent('2 working')
+    expect(roster).not.toHaveTextContent('unverifiable')
+    expect(screen.queryByRole('button', { name: /Ran 2 subagents/ })).toBeNull()
+  })
 })
 
 // The block schema admits `agents: []`, so a childless spawn group is a shape the
