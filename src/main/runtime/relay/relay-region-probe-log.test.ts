@@ -185,6 +185,16 @@ describe('Relay region probe log', () => {
     expect(probeEvents(events)[0]!.reason).toBe('all-unreachable')
   })
 
+  it('reports an empty catalog as catalog-incomplete, since nothing was probed', async () => {
+    const { resolver, events } = resolverWithLog({
+      path: userDataPath(),
+      fetch: catalogFetch([]),
+      probe: sampledProbe({})
+    })
+    await expect(resolver.resolve()).resolves.toBeUndefined()
+    expect(probeEvents(events)[0]).toMatchObject({ reason: 'catalog-incomplete', regions: [] })
+  })
+
   it('reports a lone flapping region as all-rejected, and a lone healthy one as catalog-incomplete', async () => {
     const path = userDataPath()
     const flapping = resolverWithLog({

@@ -131,7 +131,12 @@ function refreshReason(
     return best && selected.region !== best.region ? 'held-previous' : 'measured'
   }
   // Reachability first: a support census counting all-unreachable to spot
-  // client-side network breakage must not lose those runs to a roll wave.
+  // client-side network breakage must not lose those runs to a roll wave. An
+  // empty catalog (every region drained at once) probed nothing, so it is the
+  // catalog that is incomplete, not the network.
+  if (reports.length === 0) {
+    return 'catalog-incomplete'
+  }
   if (reports.every((report) => report.verdict === 'unreachable')) {
     return 'all-unreachable'
   }
