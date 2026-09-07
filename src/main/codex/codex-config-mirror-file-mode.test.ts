@@ -145,6 +145,20 @@ describe.skipIf(process.platform === 'win32')('runtime config.toml backup mode (
     expect(modeOf(runtimeConfigPath())).toBe('600')
   })
 
+  it('repairs a backup orphaned by a deleted primary', () => {
+    syncSystemConfigIntoManagedCodexHome()
+    writeFileSync(backupPath(), CONFIG_WITH_SECRET, 'utf-8')
+    chmodSync(backupPath(), 0o644)
+    // Deleting the runtime config to force a clean re-mirror is the workaround
+    // the report itself documents, and it lands in the fresh-write branch —
+    // which never touched the orphan left behind.
+    rmSync(runtimeConfigPath())
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(modeOf(backupPath())).toBe('600')
+  })
+
   it('does not fail when no backup exists', () => {
     expect(() => syncSystemConfigIntoManagedCodexHome()).not.toThrow()
     expect(existsSync(backupPath())).toBe(false)
