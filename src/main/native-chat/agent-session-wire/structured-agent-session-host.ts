@@ -1,3 +1,4 @@
+import { StructuredConversationCommandController } from './structured-conversation-command-controller'
 // Structured agent-session host: where the lease, journal, and provider adapter meet.
 // Mutations share one durable admission path and serialize per session.
 
@@ -36,7 +37,6 @@ import {
   cancelStructuredAgentSessionTurn,
   readStructuredAgentSessionOptions,
   respondToStructuredAgentSessionPrompt,
-  sendStructuredAgentSessionTurn,
   setStructuredAgentSessionOption,
   type StructuredAgentSessionMutationContext
 } from './structured-agent-session-host-mutations'
@@ -56,6 +56,10 @@ export type { StructuredAgentSessionHostDeps } from './structured-agent-session-
 const HANDOFF_DRAIN_TIMEOUT_MS = 5_000
 
 export class StructuredAgentSessionHost {
+  private readonly conversationCommands = new StructuredConversationCommandController(
+    () => this.mutationContext(),
+    this
+  )
   private readonly sessions = new Map<string, StructuredAgentSessionHostSession>()
   private readonly statusFeed = new StructuredAgentSessionStatusFeed({
     sessions: this.sessions,
@@ -204,9 +208,7 @@ export class StructuredAgentSessionHost {
   supportsCreate = (location: AgentSessionExecutionLocation, agent: string): boolean =>
     providerSupport.adapterSupportsCreate(this.deps.adapter, location, agent)
 
-  listSessionTabs() {
-    return listStructuredAgentSessionTabs(this.sessions)
-  }
+  listSessionTabs = () => listStructuredAgentSessionTabs(this.sessions)
 
   getPersistedVisibleSessionTabIndex(): { present: boolean; sessionIds: string[] } {
     return this.deps.store.getVisibleSessionTabIndex()
@@ -284,11 +286,8 @@ export class StructuredAgentSessionHost {
     }
   }
 
-  send = (
-    caller: StructuredAgentSessionCaller,
-    params: Parameters<typeof sendStructuredAgentSessionTurn>[2]
-  ): ReturnType<typeof sendStructuredAgentSessionTurn> =>
-    sendStructuredAgentSessionTurn(this.mutationContext(), caller, params)
+  send = (...args: Parameters<StructuredConversationCommandController['send']>) =>
+    this.conversationCommands.send(...args)
 
   cancel = (
     caller: StructuredAgentSessionCaller,
@@ -316,6 +315,10 @@ export class StructuredAgentSessionHost {
 
   readOptions = (sessionId: string): Promise<SessionWire.AgentSessionOptionsResult> =>
     readStructuredAgentSessionOptions(this.mutationContext(), sessionId)
+
+  conversationCommand = (...args: Parameters<StructuredConversationCommandController['run']>) =>
+    this.conversationCommands.run(...args)
+  conversationReplacements = () => this.conversationCommands.replacements()
 
   async handoffStatus(sessionId: string): Promise<SessionWire.AgentSessionHandoffStatus> {
     this.requireSession(sessionId)

@@ -1,3 +1,4 @@
+import type { AgentSessionConversationCommand } from '../../../../shared/agent-session-conversation-command'
 import type { AgentType } from '../../../../shared/agent-status-types'
 import type { StructuredAgentSessionCommandOutcome } from '../../../../shared/structured-agent-session-composer'
 import type {
@@ -13,6 +14,7 @@ export type NativeChatOptionPickerRequest = {
 }
 
 export type NativeChatStructuredComposerTransport = {
+  conversationCommands?: readonly AgentSessionConversationCommand[]
   send: (text: string, attachments: readonly NativeChatComposerImageAttachment[]) => boolean
   dispatchCommand: (text: string) => Promise<StructuredAgentSessionCommandOutcome>
   optionsSurface: SessionOptionsSurface

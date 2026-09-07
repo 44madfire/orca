@@ -1,4 +1,9 @@
+import { sendStructuredConversationCommand } from './structured-conversation-command-send'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type {
+  AgentSessionConversationCommand,
+  AgentSessionConversationCommandResult
+} from '../../../../shared/agent-session-conversation-command'
 import type { AgentJournalRenderItem } from '../../../../shared/agent-session-journal-types'
 import type { AgentType } from '../../../../shared/agent-status-types'
 import type {
@@ -57,6 +62,11 @@ export function useStructuredAgentSession(args: {
   const stateRef = useRef(state)
   const [writeError, setWriteError] = useState<string | null>(null)
   const operationIds = useRef(new Map<string, string>())
+  const [conversationSupport, setConversationSupport] = useState<{
+    sessionId: string
+    commands: readonly AgentSessionConversationCommand[]
+  } | null>(null)
+  const commandPending = useRef(false)
   const [optionState, setOptionState] = useState(() =>
     createStructuredAgentSessionOptionState(agent)
   )
@@ -90,7 +100,7 @@ export function useStructuredAgentSession(args: {
         return null
       }
       const targetFence = stateRef.current.fence
-      const key = `${fingerprintMethod}:${JSON.stringify(fields)}`
+      const key = `${sessionId}:${fingerprintMethod}:${JSON.stringify(fields)}`
       const clientOperationId =
         operationIdOverride ?? operationIds.current.get(key) ?? structuredSessionOperationId()
       operationIds.current.set(key, clientOperationId)
@@ -130,7 +140,14 @@ export function useStructuredAgentSession(args: {
       if (stateRef.current.fence !== targetFence) {
         return null
       }
-      operationIds.current.delete(key)
+      if (
+        !(
+          fingerprintMethod === 'agentSession.conversationCommand' &&
+          (result.value as AgentSessionConversationCommandResult).state === 'unknown'
+        )
+      ) {
+        operationIds.current.delete(key)
+      }
       setWriteError(null)
       return result.value
     },
@@ -158,6 +175,7 @@ export function useStructuredAgentSession(args: {
     })
       .then((result) => {
         if (!stale) {
+          setConversationSupport({ sessionId, commands: result.conversationCommands ?? [] })
           setOptionState((current) =>
             current.record === activeOptionRecordRef.current
               ? applyStructuredAgentSessionOptions(current, optionCatalog, result)
@@ -232,6 +250,22 @@ export function useStructuredAgentSession(args: {
       item.body.resolution.state === 'pending'
   )
   return {
+    conversationCommands:
+      conversationSupport?.sessionId === sessionId ? conversationSupport.commands : [],
+    runConversationCommand: (command: AgentSessionConversationCommand) =>
+      sendStructuredConversationCommand({
+        command,
+        pending: commandPending,
+        blocked: Boolean(
+          turnId || prompts.length || isMonitoringBackgroundTasks || outboxController.outbox.length
+        ),
+        send: (command) =>
+          mutate<AgentSessionConversationCommandResult>(
+            'agentSession.conversationCommand',
+            'agentSession.conversationCommand',
+            { command }
+          )
+      }),
     messages: projectStructuredAgentSessionMessages(
       state.items,
       outboxController.outbox,
@@ -245,7 +279,8 @@ export function useStructuredAgentSession(args: {
     prompts,
     outbox: outboxController.outbox,
     blockedClientMessageId: outboxController.blockedClientMessageId,
-    send: outboxController.send,
+    send: (...input: Parameters<typeof outboxController.send>) =>
+      !commandPending.current && outboxController.send(...input),
     retry: outboxController.retry,
     isWorking: turnId !== null,
     turnActivity,

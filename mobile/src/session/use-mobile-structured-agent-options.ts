@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { AgentSessionConversationCommand } from '../../../src/shared/agent-session-conversation-command'
 import { getAgentSessionOptionCatalog } from '../../../src/shared/agent-session-option-catalog'
 import type {
   AgentSessionOptionResult,
@@ -24,6 +25,8 @@ import {
 } from './mobile-structured-agent-session-rpc'
 
 type StructuredOptionsController = {
+  optionPickerRequest: { id: string; sequence: number } | null
+  conversationCommands: readonly AgentSessionConversationCommand[]
   optionSnapshot: SessionOptionDescriptor[]
   optionSurface: SessionOptionsSurface
   pendingOptionId: string | null
@@ -44,6 +47,14 @@ export function useMobileStructuredAgentOptions(args: {
     createStructuredAgentSessionOptionState(agent ?? 'codex')
   )
   const activeOptionRecordRef = useRef(optionState.record)
+  const [optionPickerRequest, setOptionPickerRequest] = useState<{
+    id: string
+    sequence: number
+  } | null>(null)
+  const [conversationSupport, setConversationSupport] = useState<{
+    sessionId: string
+    commands: readonly AgentSessionConversationCommand[]
+  } | null>(null)
   const optionCatalog = useMemo(
     () => (agent === 'claude' || agent === 'codex' ? getAgentSessionOptionCatalog(agent) : null),
     [agent]
@@ -63,6 +74,7 @@ export function useMobileStructuredAgentOptions(args: {
     void callAgentSession<AgentSessionOptionsResult>(client, 'agentSession.options', { sessionId })
       .then((result) => {
         if (!stale) {
+          setConversationSupport({ sessionId, commands: result.conversationCommands ?? [] })
           setOptionState((current) =>
             current.record === activeOptionRecordRef.current
               ? applyStructuredAgentSessionOptions(current, optionCatalog, result)
@@ -131,7 +143,16 @@ export function useMobileStructuredAgentOptions(args: {
     [mutate, optionState]
   )
 
-  const invokeStructuredOption = useCallback(async () => false, [])
+  const invokeStructuredOption = useCallback(
+    async (id: string) => {
+      if (!optionSnapshot.some((entry) => entry.id === id)) {
+        return false
+      }
+      setOptionPickerRequest((current) => ({ id, sequence: (current?.sequence ?? 0) + 1 }))
+      return true
+    },
+    [optionSnapshot]
+  )
 
   const setOption = useCallback(
     async (id: string, value: SessionOptionValue) => {
@@ -152,6 +173,9 @@ export function useMobileStructuredAgentOptions(args: {
   )
 
   return {
+    optionPickerRequest,
+    conversationCommands:
+      conversationSupport?.sessionId === sessionId ? conversationSupport.commands : [],
     optionSnapshot,
     optionSurface,
     pendingOptionId: optionState.pendingId,

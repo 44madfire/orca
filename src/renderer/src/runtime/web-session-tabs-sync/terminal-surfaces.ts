@@ -59,11 +59,34 @@ export function buildMirroredAgentTabs(
   currentUnifiedTabs: readonly Tab[],
   now: number
 ): MirroredAgentTab[] {
-  return snapshot.tabs.filter(isAgentSessionTab).map((tab, index) => {
-    const localId = structuredAgentSessionTabId(tab.sessionId)
-    const existing = currentUnifiedTabs.find(
-      (candidate) => candidate.contentType === 'agent-session' && candidate.id === localId
-    )
+  const agentTabs = snapshot.tabs.filter(isAgentSessionTab)
+  const publishedSessions = new Set(agentTabs.map((tab) => tab.sessionId))
+  const occupiedIds = new Set(currentUnifiedTabs.map((tab) => tab.id))
+  const assignedIds = new Set<string>()
+  return agentTabs.map((tab, index) => {
+    const existing =
+      currentUnifiedTabs.find(
+        (candidate) =>
+          candidate.contentType === 'agent-session' && candidate.entityId === tab.sessionId
+      ) ??
+      (tab.replacesSessionId && !publishedSessions.has(tab.replacesSessionId)
+        ? currentUnifiedTabs.find(
+            (candidate) =>
+              candidate.structuredSessionId === tab.replacesSessionId ||
+              (candidate.contentType === 'agent-session' &&
+                candidate.entityId === tab.replacesSessionId)
+          )
+        : undefined)
+    const baseId = structuredAgentSessionTabId(tab.sessionId)
+    let localId = existing?.id ?? baseId
+    if (!existing || assignedIds.has(localId)) {
+      let suffix = 0
+      while (occupiedIds.has(localId)) {
+        localId = `${baseId}:history-${++suffix}`
+      }
+    }
+    occupiedIds.add(localId)
+    assignedIds.add(localId)
     return {
       hostTabId: tab.id,
       unifiedTab: {

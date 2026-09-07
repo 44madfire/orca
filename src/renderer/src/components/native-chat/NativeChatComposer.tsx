@@ -111,7 +111,9 @@ const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, NativeChatCo
 
     const agentCommands = useMemo(
       () =>
-        structuredTransport ? structuredSlashCommands(agent) : getVerifiedNativeChatCommands(agent),
+        structuredTransport
+          ? structuredSlashCommands(structuredTransport.conversationCommands)
+          : getVerifiedNativeChatCommands(agent),
       [agent, structuredTransport]
     )
     const picker = useNativeChatPickerState({
@@ -244,6 +246,7 @@ const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, NativeChatCo
 
     const sendStructured = useNativeChatStructuredComposerSend({
       agent,
+      draft,
       imageAttachments,
       structuredTransport,
       clearImageAttachments,
