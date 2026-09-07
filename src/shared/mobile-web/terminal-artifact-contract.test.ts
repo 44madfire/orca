@@ -39,7 +39,6 @@ describe('mobile web terminal artifact contract', () => {
     const result = {
       kind: 'terminal-artifact',
       workspaceId: 'workspace-1',
-      token: 'T'.repeat(43),
       displayName: 'report.png',
       previewKind: 'raster',
       line: null,
@@ -55,20 +54,27 @@ describe('mobile web terminal artifact contract', () => {
     ).toBe(false)
   })
 
-  it('binds chunks to an opaque token and verifies decoded lengths', () => {
+  it('binds chunks to the terminal text the page resolved and verifies decoded lengths', () => {
     const payload = {
       workspaceId: 'workspace-1',
       tabId: 'terminal-1',
-      token: 'T'.repeat(43),
+      pathText: '/tmp/report.png',
       offset: 0,
       length: 3
     }
     expect(MobileWebTerminalArtifactChunkPayloadSchema.safeParse(payload).success).toBe(true)
+    // A control character in the path is the same injection risk on the way back as on the way out.
+    expect(
+      MobileWebTerminalArtifactChunkPayloadSchema.safeParse({
+        ...payload,
+        pathText: '/tmp/report.png\nignored'
+      }).success
+    ).toBe(false)
     expect(
       MobileWebTerminalArtifactChunkResultSchema.safeParse({
         workspaceId: payload.workspaceId,
         tabId: payload.tabId,
-        token: payload.token,
+        pathText: payload.pathText,
         offset: payload.offset,
         contentBase64: 'AAH/',
         bytesRead: 3,
@@ -79,7 +85,7 @@ describe('mobile web terminal artifact contract', () => {
       MobileWebTerminalArtifactChunkResultSchema.safeParse({
         workspaceId: payload.workspaceId,
         tabId: payload.tabId,
-        token: payload.token,
+        pathText: payload.pathText,
         offset: payload.offset,
         contentBase64: 'AA==',
         bytesRead: 2,
@@ -90,7 +96,7 @@ describe('mobile web terminal artifact contract', () => {
       MobileWebTerminalArtifactChunkResultSchema.safeParse({
         workspaceId: payload.workspaceId,
         tabId: payload.tabId,
-        token: payload.token,
+        pathText: payload.pathText,
         offset: payload.offset,
         contentBase64: 'AB==',
         bytesRead: 1,

@@ -3,7 +3,7 @@ import type { RpcContext } from '../core'
 import { isMobileWebHostRpcMethod } from './mobile-web-host-rpc-allowlist'
 import { MOBILE_WEB_TERMINAL_ARTIFACT_METHODS } from './mobile-web-terminal-artifact'
 
-const [resolvePath, artifactChunk, artifactRelease] = MOBILE_WEB_TERMINAL_ARTIFACT_METHODS
+const [resolvePath, artifactChunk] = MOBILE_WEB_TERMINAL_ARTIFACT_METHODS
 const TAB = {
   id: 'tab-1',
   type: 'terminal',
@@ -23,10 +23,13 @@ function fixture(overrides: { openTarget?: unknown; worktree?: string } = {}) {
     }),
     resolveTerminalPath: vi.fn().mockResolvedValue({
       worktree: overrides.worktree ?? 'workspace-1',
+      relativePath: null,
+      absolutePath: '/private/results/report.png',
       exists: true,
       isDirectory: false,
       openTarget: overrides.openTarget ?? {
         kind: 'absolute-file',
+        provider: 'local',
         absolutePath: '/private/results/report.png',
         grantId: 'desktop-grant'
       }
@@ -35,24 +38,22 @@ function fixture(overrides: { openTarget?: unknown; worktree?: string } = {}) {
       .fn()
       .mockResolvedValue({ contentBase64: 'T0s=', bytesRead: 2, eof: true })
   }
-  const context = (connectionId = 'socket-a') =>
-    ({
-      runtime,
-      connectionId,
-      clientId: 'device',
-      pairedDeviceId: 'device'
-    }) as unknown as RpcContext
+  const context = { runtime, clientId: 'device', pairedDeviceId: 'device' } as unknown as RpcContext
   return { runtime, context }
 }
 
-const target = { worktree: 'id:workspace-1', tabId: 'tab-1' }
-const resolveParams = { ...target, pathText: '/private/results/report.png', line: 3, column: null }
+const target = {
+  worktree: 'id:workspace-1',
+  tabId: 'tab-1',
+  pathText: '/private/results/report.png'
+}
+const resolveParams = { ...target, line: 3, column: null }
 
 describe('mobile web terminal artifacts', () => {
-  it('hands the page an opaque token and never the host path or grant', async () => {
+  it('describes the artifact without handing the page a host path or grant', async () => {
     const f = fixture()
-    const result = await resolvePath.handler(resolveParams, f.context())
-    expect(result).toMatchObject({
+    const result = await resolvePath.handler(resolveParams, f.context)
+    expect(result).toEqual({
       kind: 'terminal-artifact',
       displayName: 'report.png',
       previewKind: 'raster',
@@ -61,14 +62,18 @@ describe('mobile web terminal artifacts', () => {
     })
     expect(JSON.stringify(result)).not.toContain('/private')
     expect(JSON.stringify(result)).not.toContain('desktop-grant')
-    expect((result as { token: string }).token).toMatch(/^[A-Za-z0-9_-]{43}$/)
   })
 
-  it('answers a worktree-relative hit without retaining anything', async () => {
+  it('answers a worktree-relative hit with its relative path', async () => {
     const f = fixture({
-      openTarget: { kind: 'worktree-file', relativePath: 'docs/report.md' }
+      openTarget: {
+        kind: 'worktree-file',
+        provider: 'local',
+        relativePath: 'docs/report.md',
+        absolutePath: '/private/repo/docs/report.md'
+      }
     })
-    expect(await resolvePath.handler(resolveParams, f.context())).toEqual({
+    expect(await resolvePath.handler(resolveParams, f.context)).toEqual({
       kind: 'worktree-file',
       relativePath: 'docs/report.md',
       displayName: 'report.md',
@@ -80,17 +85,22 @@ describe('mobile web terminal artifacts', () => {
 
   it('refuses a resolution that lands in another worktree', async () => {
     const f = fixture({ worktree: 'workspace-2' })
-    await expect(resolvePath.handler(resolveParams, f.context())).rejects.toThrow(
+    await expect(resolvePath.handler(resolveParams, f.context)).rejects.toThrow(
       'selector_not_found'
     )
   })
 
-  it('reads a chunk through the retained grant', async () => {
+  it('re-earns the grant on every chunk instead of holding one', async () => {
     const f = fixture()
-    const { token } = (await resolvePath.handler(resolveParams, f.context())) as { token: string }
-    expect(
-      await artifactChunk.handler({ ...target, token, offset: 0, length: 2 }, f.context())
-    ).toEqual({ token, offset: 0, contentBase64: 'T0s=', bytesRead: 2, eof: true })
+    expect(await artifactChunk.handler({ ...target, offset: 0, length: 2 }, f.context)).toEqual({
+      pathText: '/private/results/report.png',
+      offset: 0,
+      contentBase64: 'T0s=',
+      bytesRead: 2,
+      eof: true
+    })
+    await artifactChunk.handler({ ...target, offset: 2, length: 2 }, f.context)
+    expect(f.runtime.resolveTerminalPath).toHaveBeenCalledTimes(2)
     expect(f.runtime.readTerminalArtifactChunk.mock.calls[0]?.slice(0, 3)).toEqual([
       'id:workspace-1',
       'desktop-grant',
@@ -98,40 +108,38 @@ describe('mobile web terminal artifacts', () => {
     ])
   })
 
-  it('refuses a token another connection minted', async () => {
+  it('reads through the terminal the tab list names, not one the page asserts', async () => {
     const f = fixture()
-    const { token } = (await resolvePath.handler(resolveParams, f.context('socket-a'))) as {
-      token: string
-    }
-    await expect(
-      artifactChunk.handler({ ...target, token, offset: 0, length: 2 }, f.context('socket-b'))
-    ).rejects.toThrow('selector_not_found')
-    expect(f.runtime.readTerminalArtifactChunk).not.toHaveBeenCalled()
+    await artifactChunk.handler({ ...target, offset: 0, length: 2 }, f.context)
+    expect(f.runtime.resolveTerminalPath.mock.calls[0]?.[4]).toBe('private-terminal')
   })
 
-  it('retires the token when the tab no longer runs the terminal that printed the path', async () => {
+  it('stops serving bytes once the tab no longer runs a ready terminal', async () => {
     const f = fixture()
-    const { token } = (await resolvePath.handler(resolveParams, f.context())) as { token: string }
     f.runtime.listMobileSessionTabs.mockResolvedValue({
       worktree: 'workspace-1',
       activeTabId: 'tab-1',
       publicationEpoch: 'epoch',
       snapshotVersion: 2,
-      tabs: [{ ...TAB, terminal: 'replaced-terminal' }]
+      tabs: [{ ...TAB, status: 'exited' }]
     })
     await expect(
-      artifactChunk.handler({ ...target, token, offset: 0, length: 2 }, f.context())
+      artifactChunk.handler({ ...target, offset: 0, length: 2 }, f.context)
     ).rejects.toThrow('selector_not_found')
     expect(f.runtime.readTerminalArtifactChunk).not.toHaveBeenCalled()
   })
 
-  it('releases a token and stays quiet about one the ttl already took', async () => {
-    const f = fixture()
-    const { token } = (await resolvePath.handler(resolveParams, f.context())) as { token: string }
-    expect(await artifactRelease.handler({ ...target, token }, f.context())).toBeNull()
-    expect(await artifactRelease.handler({ ...target, token }, f.context())).toBeNull()
+  it('refuses a chunk read for a path that resolves inside the worktree', async () => {
+    const f = fixture({
+      openTarget: {
+        kind: 'worktree-file',
+        provider: 'local',
+        relativePath: 'docs/report.md',
+        absolutePath: '/private/repo/docs/report.md'
+      }
+    })
     await expect(
-      artifactChunk.handler({ ...target, token, offset: 0, length: 2 }, f.context())
+      artifactChunk.handler({ ...target, offset: 0, length: 2 }, f.context)
     ).rejects.toThrow('selector_not_found')
   })
 

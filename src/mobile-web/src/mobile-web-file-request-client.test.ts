@@ -17,7 +17,6 @@ const RELATIVE_PATH = 'src/index.ts'
 const CONTENT = new TextEncoder().encode('after')
 const CONTENT_BASE64 = btoa(String.fromCharCode(...CONTENT))
 const REVISION = mobileWebFileRevision(CONTENT)
-const ARTIFACT_TOKEN = 'T'.repeat(43)
 
 describe('mobile web file request client', () => {
   it('writes through the generic host lane and accepts its exact result identity', async () => {
@@ -96,7 +95,7 @@ describe('mobile web file request client', () => {
     await expect(openRefused).rejects.toMatchObject({ code: 'invalid_message' })
   })
 
-  it('resolves, reads, decodes, and releases an opaque terminal artifact', async () => {
+  it('resolves a terminal artifact without handing the page a host path', async () => {
     const harness = createHarness()
     const resolve = harness.client.fileResolveTerminalPath({
       workspaceId: WORKSPACE_ID,
@@ -117,62 +116,70 @@ describe('mobile web file request client', () => {
     harness.client.receive(
       response({
         kind: 'terminal-artifact',
-        token: ARTIFACT_TOKEN,
         displayName: 'report.png',
         previewKind: 'raster',
         line: null,
         column: null
       })
     )
-    await expect(resolve).resolves.toMatchObject({ token: ARTIFACT_TOKEN })
+    await expect(resolve).resolves.toEqual({
+      kind: 'terminal-artifact',
+      workspaceId: WORKSPACE_ID,
+      displayName: 'report.png',
+      previewKind: 'raster',
+      line: null,
+      column: null
+    })
+  })
 
+  it('reads a chunk by re-sending the terminal text it resolved', async () => {
+    const harness = createHarness()
     const read = harness.client.fileReadTerminalArtifactChunk({
       workspaceId: WORKSPACE_ID,
       tabId: 'tab-1',
-      token: ARTIFACT_TOKEN,
+      pathText: '/tmp/report.png',
       offset: 4,
       length: 3
     })
+    expect(harness.messages.at(-1)).toMatchObject({
+      payload: {
+        method: 'mobileWeb.terminal.artifactChunk',
+        params: { tabId: 'tab-1', pathText: '/tmp/report.png', offset: 4, length: 3 }
+      }
+    })
     harness.client.receive(
-      response({ token: ARTIFACT_TOKEN, offset: 4, contentBase64: 'AAH/', bytesRead: 3, eof: true })
+      response({
+        pathText: '/tmp/report.png',
+        offset: 4,
+        contentBase64: 'AAH/',
+        bytesRead: 3,
+        eof: true
+      })
     )
     await expect(read).resolves.toEqual({
       workspaceId: WORKSPACE_ID,
       tabId: 'tab-1',
-      token: ARTIFACT_TOKEN,
+      pathText: '/tmp/report.png',
       offset: 4,
       bytes: new Uint8Array([0, 1, 255]),
       bytesRead: 3,
       eof: true
     })
-
-    const release = harness.client.fileReleaseTerminalArtifact({
-      workspaceId: WORKSPACE_ID,
-      tabId: 'tab-1',
-      token: ARTIFACT_TOKEN
-    })
-    expect(harness.messages.at(-1)).toMatchObject({
-      capability: 'workspace',
-      operation: 'hostRequest',
-      payload: { method: 'mobileWeb.terminal.artifactRelease' }
-    })
-    harness.client.receive(response(null))
-    await expect(release).resolves.toBeNull()
   })
 
   it('rejects mismatched terminal artifact chunk identities and supports cancellation', async () => {
-    for (const override of [{ token: 'U'.repeat(43) }, { offset: 5 }, { bytesRead: 4 }]) {
+    for (const override of [{ pathText: '/tmp/other.png' }, { offset: 5 }, { bytesRead: 4 }]) {
       const harness = createHarness()
       const read = harness.client.fileReadTerminalArtifactChunk({
         workspaceId: WORKSPACE_ID,
         tabId: 'tab-1',
-        token: ARTIFACT_TOKEN,
+        pathText: '/tmp/report.png',
         offset: 4,
         length: 3
       })
       harness.client.receive(
         response({
-          token: ARTIFACT_TOKEN,
+          pathText: '/tmp/report.png',
           offset: 4,
           contentBase64: 'AAH/',
           bytesRead: 3,
@@ -194,7 +201,7 @@ describe('mobile web file request client', () => {
         {
           workspaceId: WORKSPACE_ID,
           tabId: 'tab-1',
-          token: ARTIFACT_TOKEN,
+          pathText: '/tmp/report.png',
           offset: 0,
           length: 3
         },

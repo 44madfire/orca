@@ -1,8 +1,11 @@
 import {
+  MobileWebAgentHistoryPreviewPayloadSchema,
   MobileWebAgentHistoryPreviewResultSchema,
+  MobileWebAgentHistoryResumePayloadSchema,
   MobileWebAgentHistoryResumeResultSchema,
   MobileWebAgentHistorySnapshotPayloadSchema,
   MobileWebAgentHistorySnapshotResultSchema,
+  type MobileWebAgentHistoryPreviewPayload,
   type MobileWebAgentHistoryPreviewResult,
   type MobileWebAgentHistoryResumePayload,
   type MobileWebAgentHistoryResumeResult,
@@ -13,54 +16,72 @@ import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { requestMobileWebHost } from './mobile-web-host-request-client'
 import type { MobileWebOneShotRequestClient } from './mobile-web-one-shot-request-client'
 
-/** The desktop paging cursor is per connection, so the page never names a session another way. */
+/** Sessions are addressed by the agent and provider id the listing reported, so a page reload or
+ *  a reconnect can still name the row it is looking at. */
 export class MobileWebAgentHistoryRequestClient {
   constructor(private readonly requests: MobileWebOneShotRequestClient) {}
 
   snapshot(
     payload: MobileWebAgentHistorySnapshotPayload
   ): Promise<MobileWebAgentHistorySnapshotResult> {
-    if (!MobileWebAgentHistorySnapshotPayloadSchema.safeParse(payload).success) {
-      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
-    }
-    return requestMobileWebHost(
-      this.requests,
+    return this.request(
+      MobileWebAgentHistorySnapshotPayloadSchema,
+      payload,
       'mobileWeb.agentHistory.snapshot',
-      payload.workspaceId,
       {
         scope: payload.scope,
         query: payload.query,
         force: payload.force,
-        ...(payload.cursor ? { cursor: payload.cursor } : {})
-      }
-    ).then((result) => parseHostResult(MobileWebAgentHistorySnapshotResultSchema, result))
+        ...(payload.offset === undefined ? {} : { offset: payload.offset })
+      },
+      MobileWebAgentHistorySnapshotResultSchema
+    )
   }
 
-  preview(sessionHandle: string): Promise<MobileWebAgentHistoryPreviewResult> {
-    return requestMobileWebHost(this.requests, 'mobileWeb.agentHistory.preview', undefined, {
-      sessionHandle
-    }).then((result) => parseHostResult(MobileWebAgentHistoryPreviewResultSchema, result))
+  preview(
+    payload: MobileWebAgentHistoryPreviewPayload
+  ): Promise<MobileWebAgentHistoryPreviewResult> {
+    return this.request(
+      MobileWebAgentHistoryPreviewPayloadSchema,
+      payload,
+      'mobileWeb.agentHistory.preview',
+      sessionTarget(payload),
+      MobileWebAgentHistoryPreviewResultSchema
+    )
   }
 
   resume(payload: MobileWebAgentHistoryResumePayload): Promise<MobileWebAgentHistoryResumeResult> {
-    return requestMobileWebHost(
-      this.requests,
+    return this.request(
+      MobileWebAgentHistoryResumePayloadSchema,
+      payload,
       'mobileWeb.agentHistory.resume',
-      payload.workspaceId,
-      {
-        sessionHandle: payload.sessionHandle
+      sessionTarget(payload),
+      MobileWebAgentHistoryResumeResultSchema
+    )
+  }
+
+  private request<T>(
+    payloadSchema: { safeParse(value: unknown): { success: boolean } },
+    payload: { workspaceId: string },
+    method: string,
+    params: Record<string, unknown>,
+    resultSchema: { safeParse(value: unknown): { success: boolean; data?: unknown } }
+  ): Promise<T> {
+    if (!payloadSchema.safeParse(payload).success) {
+      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
+    }
+    return requestMobileWebHost(this.requests, method, payload.workspaceId, params).then(
+      (result) => {
+        const parsed = resultSchema.safeParse(result)
+        if (!parsed.success) {
+          throw new MobileWebBridgeClientError('invalid_message', false)
+        }
+        return parsed.data as T
       }
-    ).then((result) => parseHostResult(MobileWebAgentHistoryResumeResultSchema, result))
+    )
   }
 }
 
-function parseHostResult<T>(
-  schema: { safeParse(value: unknown): { success: boolean; data?: unknown } },
-  result: unknown
-): T {
-  const parsed = schema.safeParse(result)
-  if (!parsed.success) {
-    throw new MobileWebBridgeClientError('invalid_message', false)
-  }
-  return parsed.data as T
+function sessionTarget(payload: MobileWebAgentHistoryPreviewPayload): Record<string, unknown> {
+  return { scope: payload.scope, agent: payload.agent, sessionId: payload.sessionId }
 }

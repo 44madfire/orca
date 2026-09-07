@@ -10,7 +10,6 @@ export function mobileWebFileClientBindings(client: MobileWebFileRequestClient) 
     fileWrite: client.write.bind(client),
     fileOpen: client.open.bind(client),
     fileResolveTerminalPath: client.resolveTerminalPath.bind(client),
-    fileReadTerminalArtifactChunk: client.readTerminalArtifactChunk.bind(client),
-    fileReleaseTerminalArtifact: client.releaseTerminalArtifact.bind(client)
+    fileReadTerminalArtifactChunk: client.readTerminalArtifactChunk.bind(client)
   }
 }

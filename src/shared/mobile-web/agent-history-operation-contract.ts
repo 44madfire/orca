@@ -4,7 +4,7 @@ import { MobileWebWorkspaceIdSchema } from './workspace-operation-contract'
 export const MOBILE_WEB_AGENT_HISTORY_PAGE_LIMIT = 64
 export const MOBILE_WEB_AGENT_HISTORY_PREVIEW_LIMIT = 5
 export const MOBILE_WEB_AGENT_HISTORY_QUERY_MAX_LENGTH = 256
-export const MOBILE_WEB_AGENT_HISTORY_CURSOR_MAX_LENGTH = 96
+export const MOBILE_WEB_AGENT_HISTORY_SESSION_ID_MAX_LENGTH = 512
 export const MOBILE_WEB_AGENT_HISTORY_AGENTS = [
   'claude',
   'codex',
@@ -26,8 +26,16 @@ export const MOBILE_WEB_AGENT_HISTORY_AGENTS = [
   'kimi'
 ] as const
 
-const AgentHistorySessionHandleSchema = z.string().min(1).max(160)
 const AgentHistoryLabelSchema = z.string().max(240)
+
+/** A session is named by the provider id and agent the scanner already reports, so nothing
+ * host-shaped (transcript path, cwd) has to cross to the page and no handle has to be kept. */
+export const MobileWebAgentHistorySessionRefSchema = z
+  .object({
+    agent: z.enum(MOBILE_WEB_AGENT_HISTORY_AGENTS),
+    sessionId: z.string().min(1).max(MOBILE_WEB_AGENT_HISTORY_SESSION_ID_MAX_LENGTH)
+  })
+  .strict()
 
 export const MobileWebAgentHistorySnapshotPayloadSchema = z
   .object({
@@ -35,13 +43,13 @@ export const MobileWebAgentHistorySnapshotPayloadSchema = z
     scope: z.enum(['workspace', 'project', 'all']),
     query: z.string().max(MOBILE_WEB_AGENT_HISTORY_QUERY_MAX_LENGTH),
     force: z.boolean(),
-    cursor: z.string().min(1).max(MOBILE_WEB_AGENT_HISTORY_CURSOR_MAX_LENGTH).optional()
+    offset: z.number().int().nonnegative().max(100_000).optional()
   })
   .strict()
 
 export const MobileWebAgentHistorySessionSchema = z
   .object({
-    handle: AgentHistorySessionHandleSchema,
+    sessionId: z.string().min(1).max(MOBILE_WEB_AGENT_HISTORY_SESSION_ID_MAX_LENGTH),
     agent: z.enum(MOBILE_WEB_AGENT_HISTORY_AGENTS),
     agentLabel: z.string().min(1).max(80),
     title: z.string().max(512),
@@ -60,13 +68,17 @@ export const MobileWebAgentHistorySnapshotResultSchema = z
     supported: z.boolean(),
     sessions: z.array(MobileWebAgentHistorySessionSchema).max(MOBILE_WEB_AGENT_HISTORY_PAGE_LIMIT),
     skippedTranscriptCount: z.number().int().nonnegative().max(10_000),
-    nextCursor: z.string().min(1).max(MOBILE_WEB_AGENT_HISTORY_CURSOR_MAX_LENGTH).nullable()
+    nextOffset: z.number().int().nonnegative().max(100_000).nullable()
   })
   .strict()
 
-export const MobileWebAgentHistoryPreviewPayloadSchema = z
-  .object({ sessionHandle: AgentHistorySessionHandleSchema })
-  .strict()
+/** The lookup rescans the same scope the row was listed under, so it never has to widen past it. */
+const MobileWebAgentHistorySessionTargetSchema = MobileWebAgentHistorySessionRefSchema.extend({
+  workspaceId: MobileWebWorkspaceIdSchema,
+  scope: z.enum(['workspace', 'project', 'all'])
+})
+
+export const MobileWebAgentHistoryPreviewPayloadSchema = MobileWebAgentHistorySessionTargetSchema
 
 export const MobileWebAgentHistoryPreviewResultSchema = z
   .object({
@@ -83,20 +95,17 @@ export const MobileWebAgentHistoryPreviewResultSchema = z
   })
   .strict()
 
-export const MobileWebAgentHistoryResumePayloadSchema = z
-  .object({
-    workspaceId: MobileWebWorkspaceIdSchema,
-    sessionHandle: AgentHistorySessionHandleSchema
-  })
-  .strict()
+export const MobileWebAgentHistoryResumePayloadSchema = MobileWebAgentHistorySessionTargetSchema
 
 export const MobileWebAgentHistoryResumeResultSchema = z.discriminatedUnion('status', [
   z
     .object({
       status: z.literal('queued'),
-      /* The page can only route to a workspace it already holds a handle for, so the desktop
-       * says whether the resume landed here rather than naming another workspace. */
+      /* The page can only route to a workspace it already holds a handle for, so it needs to be
+       * told whether the resume landed here. The host worktree id rides along so routing can be
+       * added later without another wire change. */
       targetIsCurrentWorkspace: z.boolean(),
+      targetWorktreeId: z.string().min(1).max(1024),
       targetWorkspaceName: z.string().max(240)
     })
     .strict(),
@@ -112,6 +121,10 @@ export type MobileWebAgentHistorySnapshotResult = z.infer<
 >
 export type MobileWebAgentHistoryPreviewResult = z.infer<
   typeof MobileWebAgentHistoryPreviewResultSchema
+>
+export type MobileWebAgentHistorySessionRef = z.infer<typeof MobileWebAgentHistorySessionRefSchema>
+export type MobileWebAgentHistoryPreviewPayload = z.infer<
+  typeof MobileWebAgentHistoryPreviewPayloadSchema
 >
 export type MobileWebAgentHistoryResumePayload = z.infer<
   typeof MobileWebAgentHistoryResumePayloadSchema

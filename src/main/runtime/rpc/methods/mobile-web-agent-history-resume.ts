@@ -23,26 +23,29 @@ import {
 } from './mobile-web-agent-history-rpc'
 
 export type MobileWebAgentHistoryResumeResult =
-  | { status: 'queued'; targetIsCurrentWorkspace: boolean; targetWorkspaceName: string }
+  | {
+      status: 'queued'
+      targetIsCurrentWorkspace: boolean
+      targetWorktreeId: string
+      targetWorkspaceName: string
+    }
   | { status: 'blocked'; message: string }
 
 export async function resumeMobileWebAgentHistorySession(args: {
   session: AiVaultSession
   activeWorktreeId: string
-  clientMutationId: string
   context: RpcContext
 }): Promise<MobileWebAgentHistoryResumeResult> {
   if (!args.session.sessionId.trim()) {
     return { status: 'blocked', message: 'This session is missing a resume id.' }
   }
   const rpc = mobileWebAgentHistoryRpc(args.context)
-  const [worktrees, repos, folderWorkspaces, projectGroups, settings] = await Promise.all([
-    rpc.worktrees(),
-    rpc.repos(),
-    rpc.folderWorkspaces(),
-    rpc.projectGroups(),
-    rpc.settings()
-  ])
+  // Only the worktree listing touches disk; the rest are in-memory registry reads.
+  const worktrees = await rpc.worktrees()
+  const repos = rpc.repos()
+  const folderWorkspaces = rpc.folderWorkspaces()
+  const projectGroups = rpc.projectGroups()
+  const settings = rpc.settings()
   const status = rpc.status()
   const target = resolveMobileAiVaultSessionResumeTarget({
     session: args.session,
@@ -72,7 +75,7 @@ export async function resumeMobileWebAgentHistorySession(args: {
   })
   const terminal = await rpc.createTerminal(target.worktreeId, {
     ...launch,
-    clientMutationId: args.clientMutationId
+    clientMutationId: resumeMutationId(args.session)
   })
   await rpc.sendResumeCommand(terminal, launch.command)
   const targetWorktree = worktreeById(worktrees, target.worktreeId)
@@ -82,8 +85,16 @@ export async function resumeMobileWebAgentHistorySession(args: {
   return {
     status: 'queued',
     targetIsCurrentWorkspace: targetWorktree.worktreeId === args.activeWorktreeId,
+    targetWorktreeId: targetWorktree.worktreeId,
     targetWorkspaceName: (targetWorktree.displayName || 'Worktree').slice(0, 240)
   }
+}
+
+/** A retry after an interrupted resume must reuse this key so the host dedups the create; it is
+ *  derived from the session, not stored, so a reconnect does not fork the session either. */
+function resumeMutationId(session: AiVaultSession): string {
+  const safeSession = session.id.replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(-96) || 'session'
+  return `mobile-web-ai-vault:${safeSession}`
 }
 
 /** Per-account and legacy shared Codex homes repin on the host that owns the transcript. */

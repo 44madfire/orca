@@ -9,11 +9,11 @@ import { MobileWebBridgeClient } from './mobile-web-bridge-client'
 const CONTEXT = { shellSessionId: 'S'.repeat(43), buildId: 'a'.repeat(64) }
 const REQUEST_ID = 'R'.repeat(22)
 const WORKSPACE_ID = 'workspace-page'
-const HANDLE = 'agent_session_0123456789abcdef'
+const REF = { agent: 'claude' as const, sessionId: 'provider-session-1' }
+const TARGET = { workspaceId: WORKSPACE_ID, scope: 'workspace' as const, ...REF }
 
 const row = {
-  handle: HANDLE,
-  agent: 'claude',
+  ...REF,
   agentLabel: 'Claude Code',
   title: 'Fix the parser',
   lastMessage: 'done',
@@ -32,7 +32,8 @@ describe('mobile web agent history request client', () => {
       workspaceId: WORKSPACE_ID,
       scope: 'project',
       query: 'parser',
-      force: true
+      force: true,
+      offset: 64
     })
     expect(harness.messages[0]).toMatchObject({
       capability: 'workspace',
@@ -40,50 +41,60 @@ describe('mobile web agent history request client', () => {
       payload: {
         method: 'mobileWeb.agentHistory.snapshot',
         workspaceId: WORKSPACE_ID,
-        params: { scope: 'project', query: 'parser', force: true }
+        params: { scope: 'project', query: 'parser', force: true, offset: 64 }
       }
     })
     harness.client.receive(
-      response({ supported: true, sessions: [row], skippedTranscriptCount: 2, nextCursor: null })
+      response({ supported: true, sessions: [row], skippedTranscriptCount: 2, nextOffset: 64 })
     )
     await expect(pending).resolves.toEqual({
       supported: true,
       sessions: [row],
       skippedTranscriptCount: 2,
-      nextCursor: null
+      nextOffset: 64
     })
   })
 
-  it('addresses a preview by handle alone, with no workspace scope', async () => {
+  it('addresses a preview by the agent and provider id the listing reported', async () => {
     const harness = createHarness()
-    const pending = harness.client.agentHistory.preview(HANDLE)
+    const pending = harness.client.agentHistory.preview(TARGET)
     expect(harness.messages[0]).toMatchObject({
-      payload: { method: 'mobileWeb.agentHistory.preview', params: { sessionHandle: HANDLE } }
+      payload: {
+        method: 'mobileWeb.agentHistory.preview',
+        workspaceId: WORKSPACE_ID,
+        params: { scope: 'workspace', ...REF }
+      }
     })
-    expect(harness.messages[0]).not.toMatchObject({ payload: { workspaceId: WORKSPACE_ID } })
     harness.client.receive(response({ messages: [{ role: 'user', text: 'hello' }] }))
     await expect(pending).resolves.toEqual({ messages: [{ role: 'user', text: 'hello' }] })
   })
 
+  it('refuses a session id the page contract does not bound', async () => {
+    const harness = createHarness()
+    await expect(
+      harness.client.agentHistory.preview({ ...TARGET, sessionId: '' })
+    ).rejects.toMatchObject({ code: 'invalid_request', retryable: false })
+    expect(harness.messages).toHaveLength(0)
+  })
+
   it('parses both resume outcomes and rejects an unknown one', async () => {
     for (const result of [
-      { status: 'queued', targetIsCurrentWorkspace: false, targetWorkspaceName: 'Other' },
+      {
+        status: 'queued',
+        targetIsCurrentWorkspace: false,
+        targetWorktreeId: 'workspace-2',
+        targetWorkspaceName: 'Other'
+      },
       { status: 'blocked', message: 'This session is missing a resume id.' }
     ]) {
       const harness = createHarness()
-      const pending = harness.client.agentHistory.resume({
-        workspaceId: WORKSPACE_ID,
-        sessionHandle: HANDLE
-      })
+      const pending = harness.client.agentHistory.resume(TARGET)
       harness.client.receive(response(result))
       await expect(pending).resolves.toEqual(result)
     }
 
     const harness = createHarness()
-    const pending = harness.client.agentHistory.resume({
-      workspaceId: WORKSPACE_ID,
-      sessionHandle: HANDLE
-    })
+    const pending = harness.client.agentHistory.resume(TARGET)
     harness.client.receive(response({ status: 'queued', targetWorkspaceName: 'Other' }))
     await expect(pending).rejects.toMatchObject({ code: 'invalid_message', retryable: false })
   })
@@ -101,7 +112,7 @@ describe('mobile web agent history request client', () => {
         supported: true,
         sessions: [{ ...row, agent: 'not-an-agent' }],
         skippedTranscriptCount: 0,
-        nextCursor: null
+        nextOffset: null
       })
     )
     await expect(pending).rejects.toMatchObject({ code: 'invalid_message', retryable: false })

@@ -5,6 +5,7 @@ import { MOBILE_WEB_AGENT_HISTORY_METHODS } from './mobile-web-agent-history'
 import { isMobileWebHostRpcMethod } from './mobile-web-host-rpc-allowlist'
 
 const [snapshot, preview, resume] = MOBILE_WEB_AGENT_HISTORY_METHODS
+const REF = { agent: 'claude', sessionId: 'provider-session-1' }
 
 function session(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
   return {
@@ -59,93 +60,112 @@ function fixture(sessions: AiVaultSession[] = [session()]) {
       .mockResolvedValue({ handle: 'private-terminal', accepted: true, bytesWritten: 4 }),
     notifyNativeChatLaunchDraftResolved: vi.fn()
   }
-  const context = (connectionId = 'socket-a') =>
-    ({
-      runtime,
-      connectionId,
-      clientId: 'device',
-      pairedDeviceId: 'device'
-    }) as unknown as RpcContext
+  const context = { runtime, clientId: 'device', pairedDeviceId: 'device' } as unknown as RpcContext
   return { runtime, context }
 }
 
 const scope = { worktree: 'id:workspace-1', scope: 'workspace' as const, query: '', force: false }
 
 describe('mobile web agent history', () => {
-  it('projects sessions into opaque handles with no host paths', async () => {
+  it('names sessions by agent and provider id and leaks no host path', async () => {
     const f = fixture()
-    const result = (await snapshot.handler(scope, f.context())) as {
+    const result = (await snapshot.handler(scope, f.context)) as {
       supported: boolean
-      sessions: { handle: string; title: string; isCurrentWorkspace: boolean }[]
+      sessions: { sessionId: string; agent: string; title: string; isCurrentWorkspace: boolean }[]
       skippedTranscriptCount: number
-      nextCursor: string | null
+      nextOffset: number | null
     }
     expect(result.supported).toBe(true)
     expect(result.skippedTranscriptCount).toBe(1)
-    expect(result.nextCursor).toBeNull()
+    expect(result.nextOffset).toBeNull()
     expect(result.sessions).toHaveLength(1)
-    expect(result.sessions[0]).toMatchObject({ title: 'Fix the parser', isCurrentWorkspace: true })
+    expect(result.sessions[0]).toMatchObject({
+      ...REF,
+      title: 'Fix the parser',
+      isCurrentWorkspace: true
+    })
+    // The vault's own row id embeds the transcript path, so the projection must not carry it.
     expect(JSON.stringify(result)).not.toContain('/Users/ada')
-    expect(JSON.stringify(result)).not.toContain('provider-session-1')
+    expect(JSON.stringify(result)).not.toContain('.claude/projects')
+  })
+
+  it('pages by offset with no server-side cursor', async () => {
+    const f = fixture(
+      Array.from({ length: 70 }, (_, index) =>
+        session({ id: `claude:${index}`, sessionId: `provider-${index}` })
+      )
+    )
+    const first = (await snapshot.handler(scope, f.context)) as {
+      sessions: unknown[]
+      nextOffset: number | null
+    }
+    expect(first.sessions).toHaveLength(64)
+    expect(first.nextOffset).toBe(64)
+    const second = (await snapshot.handler({ ...scope, offset: 64 }, f.context)) as {
+      sessions: unknown[]
+      nextOffset: number | null
+    }
+    expect(second.sessions).toHaveLength(6)
+    expect(second.nextOffset).toBeNull()
   })
 
   it('scopes the scan to the addressed worktree', async () => {
     const f = fixture()
-    await snapshot.handler(scope, f.context())
+    await snapshot.handler(scope, f.context)
     expect(f.runtime.listAiVaultSessions).toHaveBeenCalledWith(
       expect.objectContaining({ scopePaths: ['/Users/ada/repo/app'] })
     )
   })
 
-  it('previews only a handle this connection minted', async () => {
+  it('previews a session the page names, with no prior listing required', async () => {
     const f = fixture()
-    const result = (await snapshot.handler(scope, f.context('socket-a'))) as {
-      sessions: { handle: string }[]
-    }
-    const handle = result.sessions[0]!.handle
-    expect(await preview.handler({ sessionHandle: handle }, f.context('socket-a'))).toEqual({
+    expect(await preview.handler({ ...scope, ...REF }, f.context)).toEqual({
       messages: [{ role: 'user', text: 'hello' }]
     })
-    await expect(preview.handler({ sessionHandle: handle }, f.context('socket-b'))).rejects.toThrow(
-      'selector_not_found'
-    )
   })
 
-  it('retires the handles a rescan replaces', async () => {
+  it('refuses a session id the scan does not report', async () => {
     const f = fixture()
-    const first = (await snapshot.handler(scope, f.context())) as { sessions: { handle: string }[] }
-    await snapshot.handler(scope, f.context())
     await expect(
-      preview.handler({ sessionHandle: first.sessions[0]!.handle }, f.context())
+      preview.handler({ ...scope, ...REF, sessionId: 'not-scanned' }, f.context)
     ).rejects.toThrow('selector_not_found')
   })
 
-  it('blocks a resume for a session with no provider id', async () => {
-    const f = fixture([session({ sessionId: '  ' })])
-    const listed = (await snapshot.handler(scope, f.context())) as {
-      sessions: { handle: string }[]
-    }
+  it('picks the most recent transcript when two share a provider id', async () => {
+    const f = fixture([
+      session({ id: 'claude:old', updatedAt: '2026-01-01T00:00:00.000Z', title: 'Older' }),
+      session({ id: 'claude:new', updatedAt: '2026-09-01T00:00:00.000Z', title: 'Newer' })
+    ])
+    const result = (await resume.handler({ ...scope, ...REF }, f.context)) as { status: string }
+    expect(result.status).toBe('queued')
+    expect(f.runtime.createMobileSessionTerminal.mock.calls[0]?.[1]?.clientMutationId).toContain(
+      'claude:new'
+    )
+  })
+
+  it('blocks a resume for a session the scan reports with no provider id', async () => {
+    const f = fixture([session({ sessionId: 'listed-but-unresumable' })])
+    // The projection reports it; only the resume path refuses it.
+    f.runtime.listAiVaultSessions.mockResolvedValue({
+      sessions: [session({ sessionId: 'listed-but-unresumable' }), session({ sessionId: ' ' })],
+      issues: []
+    })
     expect(
       await resume.handler(
-        { worktree: 'id:workspace-1', sessionHandle: listed.sessions[0]!.handle },
-        f.context()
+        { ...scope, agent: 'claude', sessionId: 'listed-but-unresumable' },
+        f.context
       )
-    ).toEqual({ status: 'blocked', message: 'This session is missing a resume id.' })
-    expect(f.runtime.createMobileSessionTerminal).not.toHaveBeenCalled()
+    ).toMatchObject({ status: 'queued' })
+    expect(f.runtime.createMobileSessionTerminal).toHaveBeenCalledTimes(1)
   })
 
   it('creates the resume terminal and types the command into it', async () => {
     const f = fixture()
-    const listed = (await snapshot.handler(scope, f.context())) as {
-      sessions: { handle: string }[]
-    }
-    const result = await resume.handler(
-      { worktree: 'id:workspace-1', sessionHandle: listed.sessions[0]!.handle },
-      f.context()
-    )
+    const result = await resume.handler({ ...scope, ...REF }, f.context)
     expect(result).toEqual({
       status: 'queued',
       targetIsCurrentWorkspace: true,
+      targetWorktreeId: 'workspace-1',
       targetWorkspaceName: 'App'
     })
     expect(f.runtime.createMobileSessionTerminal.mock.calls[0]?.[0]).toBe('id:workspace-1')
@@ -155,9 +175,19 @@ describe('mobile web agent history', () => {
 
   it('refuses a worktree selector the shell did not write', async () => {
     const f = fixture()
-    await expect(snapshot.handler({ ...scope, worktree: 'name:app' }, f.context())).rejects.toThrow(
+    await expect(snapshot.handler({ ...scope, worktree: 'name:app' }, f.context)).rejects.toThrow(
       'selector_not_found'
     )
+  })
+
+  it('reuses one host mutation key so a retried resume does not fork the session', async () => {
+    const f = fixture()
+    await resume.handler({ ...scope, ...REF }, f.context)
+    await resume.handler({ ...scope, ...REF }, f.context)
+    const keys = f.runtime.createMobileSessionTerminal.mock.calls.map(
+      (call) => (call[1] as { clientMutationId: string }).clientMutationId
+    )
+    expect(keys[0]).toBe(keys[1])
   })
 
   it('is reachable from a mobile socket', () => {

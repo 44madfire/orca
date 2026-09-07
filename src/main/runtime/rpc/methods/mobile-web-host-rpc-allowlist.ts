@@ -14,7 +14,6 @@ export const MOBILE_WEB_HOST_RPC_METHODS = new Set([
   'mobileWeb.terminal.action',
   'mobileWeb.terminal.resolvePath',
   'mobileWeb.terminal.artifactChunk',
-  'mobileWeb.terminal.artifactRelease',
   'mobileWeb.markdown.read',
   'mobileWeb.markdown.save',
   'mobileWeb.agentHistory.snapshot',

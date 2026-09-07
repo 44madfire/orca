@@ -12,7 +12,11 @@ import {
   MobileAgentSessionHistoryPresentation,
   type MobileAgentHistoryPresentationState
 } from '../../../../src/agent-history/MobileAgentSessionHistoryPresentation'
-import { mobileWebAgentHistorySections } from '../../../../src/agent-history/mobile-web-agent-history-sections'
+import {
+  mobileWebAgentHistorySections,
+  mobileWebAgentHistorySessionKey,
+  parseMobileWebAgentHistorySessionKey
+} from '../../../../src/agent-history/mobile-web-agent-history-sections'
 import { buildMobileAgentHistoryResumeActionState } from '../../../../src/agent-history/agent-history-session-card'
 import { getWorktreeLabel } from '../../../../src/session/worktree-label'
 
@@ -100,24 +104,34 @@ export default function HostMobileWebAgentHistoryRoute() {
   }, [load])
 
   const loadPreview = useCallback(
-    async (sessionId: string) => {
-      const result = await shell.client?.agentHistory.preview(sessionId)
-      return (result?.messages ?? []).map((message) => ({ ...message, timestamp: null }))
+    async (sessionKey: string) => {
+      const target = parseMobileWebAgentHistorySessionKey(sessionKey)
+      if (!shell.client || !target) {
+        return []
+      }
+      const result = await shell.client.agentHistory.preview({
+        workspaceId: worktreeId,
+        scope,
+        ...target
+      })
+      return result.messages.map((message) => ({ ...message, timestamp: null }))
     },
-    [shell.client]
+    [scope, shell.client, worktreeId]
   )
 
   const resume = useCallback(
-    async (sessionId: string) => {
-      if (!shell.client || resumingSessionId) {
+    async (sessionKey: string) => {
+      const target = parseMobileWebAgentHistorySessionKey(sessionKey)
+      if (!shell.client || resumingSessionId || !target) {
         return
       }
-      setResumingSessionId(sessionId)
+      setResumingSessionId(sessionKey)
       setResumeMessage(null)
       try {
         const result = await shell.client.agentHistory.resume({
           workspaceId: worktreeId,
-          sessionHandle: sessionId
+          scope,
+          ...target
         })
         if (result.status === 'blocked') {
           setResumeMessage(result.message)
@@ -142,13 +156,13 @@ export default function HostMobileWebAgentHistoryRoute() {
         setResumingSessionId(null)
       }
     },
-    [hostId, resumingSessionId, router, shell.client, worktreeId]
+    [hostId, resumingSessionId, router, scope, shell.client, worktreeId]
   )
 
   const resumeActions = useMemo(
     () =>
       buildMobileAgentHistoryResumeActionState(
-        sessionsRef.current.map((session) => ({ id: session.handle })),
+        sessionsRef.current.map((session) => ({ id: mobileWebAgentHistorySessionKey(session) })),
         resumingSessionId
       ),
     [resumingSessionId, state]
@@ -182,7 +196,7 @@ async function loadAllPages(args: {
   force: boolean
 }): Promise<MobileWebAgentHistorySnapshotResult> {
   const sessions: MobileWebAgentHistorySession[] = []
-  let cursor: string | undefined
+  let offset: number | undefined
   let skippedTranscriptCount = 0
   do {
     const page = await args.client.agentHistory.snapshot({
@@ -190,14 +204,14 @@ async function loadAllPages(args: {
       scope: args.scope,
       query: args.query,
       force: args.force,
-      ...(cursor ? { cursor } : {})
+      ...(offset === undefined ? {} : { offset })
     })
     if (!page.supported) {
       return page
     }
     sessions.push(...page.sessions)
     skippedTranscriptCount = page.skippedTranscriptCount
-    cursor = page.nextCursor ?? undefined
-  } while (cursor)
-  return { supported: true, sessions, skippedTranscriptCount, nextCursor: null }
+    offset = page.nextOffset ?? undefined
+  } while (offset !== undefined)
+  return { supported: true, sessions, skippedTranscriptCount, nextOffset: null }
 }

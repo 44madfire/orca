@@ -23,12 +23,10 @@ import {
 import {
   MobileWebTerminalArtifactChunkPayloadSchema,
   MobileWebTerminalArtifactChunkResultSchema,
-  MobileWebTerminalArtifactReleasePayloadSchema,
   MobileWebTerminalPathResolvePayloadSchema,
   MobileWebTerminalPathResolveResultSchema,
   type MobileWebTerminalArtifactChunkPayload,
   type MobileWebTerminalArtifactChunkResult,
-  type MobileWebTerminalArtifactReleasePayload,
   type MobileWebTerminalPathResolvePayload,
   type MobileWebTerminalPathResolveResult
 } from '../../shared/mobile-web/terminal-artifact-contract'
@@ -181,27 +179,11 @@ export class MobileWebFileRequestClient extends MobileWebFileReadClient {
       payload.workspaceId,
       {
         tabId: payload.tabId,
-        token: payload.token,
+        pathText: payload.pathText,
         offset: payload.offset,
         length: payload.length
       },
       (result) => projectArtifactChunk(payload, result),
-      options
-    )
-  }
-
-  releaseTerminalArtifact(
-    payload: MobileWebTerminalArtifactReleasePayload,
-    options?: MobileWebBridgeRequestOptions
-  ): Promise<null> {
-    if (!MobileWebTerminalArtifactReleasePayloadSchema.safeParse(payload).success) {
-      return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
-    }
-    return this.requestHost(
-      'mobileWeb.terminal.artifactRelease',
-      payload.workspaceId,
-      { tabId: payload.tabId, token: payload.token },
-      () => null,
       options
     )
   }
@@ -216,7 +198,7 @@ function projectArtifactChunk(
   const parsed = MobileWebTerminalArtifactChunkResultSchema.safeParse({
     workspaceId: payload.workspaceId,
     tabId: payload.tabId,
-    token: chunk.token,
+    pathText: chunk.pathText,
     offset: chunk.offset,
     contentBase64: chunk.contentBase64,
     bytesRead: chunk.bytesRead,
@@ -224,7 +206,7 @@ function projectArtifactChunk(
   })
   if (
     !parsed.success ||
-    parsed.data.token !== payload.token ||
+    parsed.data.pathText !== payload.pathText ||
     parsed.data.offset !== payload.offset ||
     parsed.data.bytesRead > payload.length
   ) {
@@ -233,7 +215,7 @@ function projectArtifactChunk(
   return {
     workspaceId: parsed.data.workspaceId,
     tabId: parsed.data.tabId,
-    token: parsed.data.token,
+    pathText: parsed.data.pathText,
     offset: parsed.data.offset,
     bytes: decodeMobileWebFileBytes(parsed.data.contentBase64, MOBILE_WEB_FILE_CHUNK_MAX_BYTES),
     bytesRead: parsed.data.bytesRead,

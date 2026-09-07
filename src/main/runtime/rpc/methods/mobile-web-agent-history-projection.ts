@@ -40,12 +40,11 @@ export function filterMobileWebAgentHistorySessions(
 export function projectMobileWebAgentHistory(args: {
   sessions: readonly AiVaultSession[]
   activeWorktreePath: string | null
-  handleFor: (session: AiVaultSession) => string
 }): MobileWebAgentHistorySession[] {
   return groupAiVaultSessions(args.sessions, 'folder').flatMap((group, groupIndex) =>
     group.sessions.map((session) =>
       MobileWebAgentHistorySessionSchema.parse({
-        handle: args.handleFor(session),
+        sessionId: session.sessionId,
         agent: session.agent,
         agentLabel: aiVaultAgentLabel(session.agent),
         title: boundedText(session.title || 'Untitled session', 512),

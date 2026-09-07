@@ -4,17 +4,12 @@ import {
   MobileWebRelativePathSchema,
   MobileWebWorkspaceIdSchema
 } from './bridge-operation-contract'
-import { isMobileWebBase64, isMobileWebBase64UrlIdentifier } from './protocol-token-contract'
+import { isMobileWebBase64 } from './protocol-token-contract'
 
 export const MOBILE_WEB_TERMINAL_PATH_MAX_CHARACTERS = 1024
-export const MOBILE_WEB_TERMINAL_ARTIFACT_MAX_RECORDS = 32
-export const MOBILE_WEB_TERMINAL_ARTIFACT_TTL_MS = 2 * 60 * 1000
 export const MOBILE_WEB_TERMINAL_ARTIFACT_TEXT_MAX_BYTES = 1024 * 1024
 export const MOBILE_WEB_TERMINAL_ARTIFACT_RASTER_MAX_BYTES = 2 * 1024 * 1024
 
-const TerminalArtifactTokenSchema = z
-  .string()
-  .refine((value) => isMobileWebBase64UrlIdentifier(value, 43))
 const TerminalTabIdSchema = z.string().min(1).max(512)
 const TerminalLocationSchema = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).nullable()
 const TerminalArtifactDisplayNameSchema = z
@@ -66,20 +61,14 @@ export const MobileWebTerminalPathResolveResultSchema = z.discriminatedUnion('ki
       relativePath: MobileWebRelativePathSchema
     })
     .strict(),
-  z
-    .object({
-      ...MobileWebTerminalPathResultBase,
-      kind: z.literal('terminal-artifact'),
-      token: TerminalArtifactTokenSchema
-    })
-    .strict()
+  z.object({ ...MobileWebTerminalPathResultBase, kind: z.literal('terminal-artifact') }).strict()
 ])
 
 export const MobileWebTerminalArtifactChunkPayloadSchema = z
   .object({
     workspaceId: MobileWebWorkspaceIdSchema,
     tabId: TerminalTabIdSchema,
-    token: TerminalArtifactTokenSchema,
+    pathText: TerminalPathTextSchema,
     offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     length: z.number().int().min(1).max(MOBILE_WEB_FILE_CHUNK_MAX_BYTES)
   })
@@ -89,7 +78,7 @@ export const MobileWebTerminalArtifactChunkResultSchema = z
   .object({
     workspaceId: MobileWebWorkspaceIdSchema,
     tabId: TerminalTabIdSchema,
-    token: TerminalArtifactTokenSchema,
+    pathText: TerminalPathTextSchema,
     offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     contentBase64: TerminalArtifactBase64Schema,
     bytesRead: z.number().int().nonnegative().max(MOBILE_WEB_FILE_CHUNK_MAX_BYTES),
@@ -104,16 +93,6 @@ export const MobileWebTerminalArtifactChunkResultSchema = z
       context.addIssue({ code: 'custom', message: 'Empty artifact chunk must be EOF' })
     }
   })
-
-export const MobileWebTerminalArtifactReleasePayloadSchema = z
-  .object({
-    workspaceId: MobileWebWorkspaceIdSchema,
-    tabId: TerminalTabIdSchema,
-    token: TerminalArtifactTokenSchema
-  })
-  .strict()
-
-export const MobileWebTerminalArtifactReleaseResultSchema = z.null()
 
 export type MobileWebTerminalPathResolvePayload = z.infer<
   typeof MobileWebTerminalPathResolvePayloadSchema
@@ -131,9 +110,6 @@ export type MobileWebTerminalArtifactChunkResult = Omit<
   MobileWebTerminalArtifactChunkWireResult,
   'contentBase64'
 > & { bytes: Uint8Array }
-export type MobileWebTerminalArtifactReleasePayload = z.infer<
-  typeof MobileWebTerminalArtifactReleasePayloadSchema
->
 
 function decodedBase64Length(value: string): number {
   if (!value) {
