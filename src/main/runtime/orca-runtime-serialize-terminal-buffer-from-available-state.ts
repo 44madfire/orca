@@ -53,7 +53,9 @@ export class OrcaRuntimeWithSerializeTerminalBufferFromAvailableState extends Or
     ptyId: string,
     opts: { scrollbackRows?: number } = {}
   ) {
-    if (!this.providerSnapshotPreferredPtys.has(ptyId)) {
+    const mirror = this.headlessTerminals.get(ptyId)
+    const needsDeeperHistory = mirror && (opts.scrollbackRows ?? 0) > mirror.emulator.scrollbackRows
+    if (!this.providerSnapshotPreferredPtys.has(ptyId) && !needsDeeperHistory) {
       return null
     }
     // Pre-attach bytes are only a suffix; older providers can fall back to the renderer.
