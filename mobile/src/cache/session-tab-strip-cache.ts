@@ -76,8 +76,11 @@ export function saveCachedSessionTabStrip(
   key: string | null,
   preview: MobileSessionTabStripPreview
 ): void {
-  const hostId = key === null ? null : readHostIdFromKey(key)
-  if (!key || (hostId !== null && forgottenHosts.has(hostId))) {
+  if (!key) {
+    return
+  }
+  const hostId = readHostIdFromKey(key)
+  if (hostId !== null && forgottenHosts.has(hostId)) {
     return
   }
   const redacted = redactPreview(preview)
