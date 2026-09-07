@@ -44,6 +44,8 @@ const Block = z.union([
     z.object({
       type: z.literal('text'),
       text: z.string(),
+      presentation: z.string().optional(),
+      tone: z.string().optional(),
       providerFrame: ProviderFrame.optional()
     }),
     // `input: undefined` loses its key under JSON.stringify, so a persisted
@@ -125,6 +127,8 @@ export const AgentJournalItemBodySchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('status'),
     text: z.string(),
+    presentation: z.string().optional(),
+    tone: z.string().optional(),
     turnLifecycle: z.object({ turnId: z.string(), state: z.string().min(1) }).optional(),
     providerFrame: ProviderFrame.optional()
   })

@@ -235,3 +235,39 @@ describe('a failed provider dependency', () => {
     ).toBeNull()
   })
 })
+
+describe('typed notice metadata', () => {
+  it('publishes a readable compaction status and suppresses the duplicate item', () => {
+    expect(
+      unhandledProviderFrameJournalItem('codex', 'notification:thread/compacted', {})
+    ).toMatchObject({
+      classification: 'timeline-substantive',
+      body: { kind: 'status', text: 'Context compacted', presentation: 'compaction' }
+    })
+    expect(unhandledProviderFrameJournalItem('codex', 'item:contextCompaction', {})).toBeNull()
+  })
+  it.each([
+    ['warning', { message: 'Check this' }, 'warning', 'Check this'],
+    ['guardianWarning', { message: 'Review required' }, 'warning', 'Review required'],
+    [
+      'configWarning',
+      { summary: 'Invalid option', details: 'Remove the option' },
+      'warning',
+      'Invalid option\n\nRemove the option'
+    ],
+    [
+      'deprecationNotice',
+      { summary: 'Old option', details: 'Use its replacement' },
+      'notice',
+      'Old option\n\nUse its replacement'
+    ],
+    ['error', { error: { message: 'Connection failed' } }, 'error', 'Connection failed']
+  ])('assigns the tone and readable text for %s', (method, payload, tone, text) => {
+    expect(
+      unhandledProviderFrameJournalItem('codex', `notification:${method}`, payload)
+    ).toMatchObject({
+      classification: 'error-surface',
+      body: { kind: 'status', text, tone }
+    })
+  })
+})

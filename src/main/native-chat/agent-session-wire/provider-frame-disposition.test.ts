@@ -103,11 +103,10 @@ describe('provider frame classification catalog', () => {
   })
 
   it('dispositions codex item-form frames, which the method catalog never matches', () => {
-    // `thread/compacted` is already chrome; its item form is the same event and
-    // must not leak `codex · item:contextCompaction` into the transcript.
+    // Only the notification owns the compaction divider.
     expect(classifyProviderFrame('codex', 'item:contextCompaction', {})).toBe('status-chrome')
     expect(classifyProviderFrame('codex', 'notification:thread/compacted', {})).toBe(
-      'status-chrome'
+      'timeline-substantive'
     )
     // An item type nobody has dispositioned still falls through visibly.
     expect(classifyProviderFrame('codex', 'item:futureThing', {})).toBe('timeline-substantive')
@@ -159,5 +158,20 @@ describe('provider frame classification catalog', () => {
         'timeline-substantive'
       )
     }
+  })
+})
+
+describe('notice disposition boundaries', () => {
+  it.each(['warning', 'guardianWarning', 'deprecationNotice', 'configWarning'])(
+    'retains the error-surface cap exemption for %s',
+    (method) => {
+      expect(classifyProviderFrame('codex', `notification:${method}`, {})).toBe('error-surface')
+    }
+  )
+  it('does not change usage or rate-limit classifications', () => {
+    expect(classifyProviderFrame('codex', 'thread/tokenUsage/updated', {})).toBe('status-chrome')
+    expect(classifyProviderFrame('codex', 'account/rateLimits/updated', {})).toBe(
+      'suppressed-benign'
+    )
   })
 })

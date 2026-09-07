@@ -65,7 +65,7 @@ export const PROVIDER_FRAME_CLASSIFICATIONS = {
     'item/reasoning/summaryTextDelta': 'stream-into-item',
     'item/reasoning/summaryPartAdded': 'stream-into-item',
     'item/reasoning/textDelta': 'stream-into-item',
-    'thread/compacted': 'status-chrome',
+    'thread/compacted': 'timeline-substantive',
     'model/rerouted': 'status-chrome',
     'model/verification': 'status-chrome',
     'turn/moderationMetadata': 'suppressed-benign',
@@ -195,8 +195,7 @@ function hasProviderError(payload: unknown): boolean {
  *  new item type cannot leak `codex · item:<type>` into the transcript. The
  *  notification catalog above is keyed by METHOD and never matches these. */
 const CODEX_ITEM_CLASSIFICATIONS: Record<string, ProviderFrameClassification> = {
-  // The `thread/compacted` notification is already chrome; its item form is the
-  // same event and must not read as a mysterious opcode row.
+  // The notification owns the divider; suppress its duplicate item form.
   contextCompaction: 'status-chrome',
   // `{id, durationMs}` and nothing else — Codex's own transcript renders it as
   // nothing at all. Every other item type this build does not model carries text
