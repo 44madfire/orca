@@ -14,6 +14,7 @@ import {
   schedulePendingSessionTreeRemovals
 } from './terminal-history-session-tombstone'
 import { TerminalHistorySessionWriter } from './terminal-history-session-writer'
+import type { TerminalHistoryAppendResult } from './terminal-history-session-writer'
 import {
   readTerminalHistoryMetaFromDir,
   updateTerminalHistoryMeta,
@@ -195,12 +196,12 @@ export class HistoryManager {
     this.disabledSessions.delete(sessionId)
   }
 
-  /** Appends one batch to the incremental log; returns 'needs-checkpoint' at capacity, signalling the caller to checkpoint() (which resets the log). */
+  /** 'checkpoint-needed' saved the batch; 'needs-checkpoint' refused it at the hard cap. */
   appendIncrements(
     sessionId: string,
     seq: number,
     records: PendingOutputRecord[]
-  ): Promise<'ok' | 'needs-checkpoint'> {
+  ): Promise<TerminalHistoryAppendResult> {
     return this.mutations.track(sessionId, this.appendIncrementsUntracked(sessionId, seq, records))
   }
 
@@ -208,12 +209,9 @@ export class HistoryManager {
     sessionId: string,
     seq: number,
     records: PendingOutputRecord[]
-  ): Promise<'ok' | 'needs-checkpoint'> {
-    if (this.disabledSessions.has(sessionId) || records.length === 0) {
-      return 'ok'
-    }
+  ): Promise<TerminalHistoryAppendResult> {
     const writer = this.writers.get(sessionId)
-    if (!writer) {
+    if (!writer || this.disabledSessions.has(sessionId) || records.length === 0) {
       return 'ok'
     }
     try {
@@ -282,8 +280,7 @@ export class HistoryManager {
     this.disabledSessions.delete(sessionId)
     this.recoveryFreezes.delete(sessionId)
     await this.mutations.wait(sessionId)
-    // Why tombstoned: writer handles are closed by here, so the trees only have to become unreachable —
-    // they reach hundreds of MB and every terminal a worktree delete tears down awaits this.
+    // Tombstone first so terminal teardown need not wait for hundreds of MB to be reclaimed.
     await removeTerminalHistorySessionTrees(this.basePath, sessionId)
   }
 
