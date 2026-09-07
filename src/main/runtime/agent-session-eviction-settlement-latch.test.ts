@@ -39,7 +39,8 @@ describe('proven-dead agent session eviction settlement', () => {
       record,
       expectedFence: 7,
       probe: { outcome: 'identity-mismatch', field: 'process-start-time' },
-      now: NOW
+      now: NOW,
+      journalSettlement: 'required'
     })
 
     expect(evicted.lease).toMatchObject({
@@ -76,7 +77,8 @@ describe('proven-dead agent session eviction settlement', () => {
         record: recoveryRecord,
         expectedFence: 7,
         probe: { outcome: 'indeterminate', reason: 'remote host unavailable' },
-        now: NOW
+        now: NOW,
+        journalSettlement: 'required'
       })
     ).toThrow('agent_session_ownership_unknown')
     expect(recoveryRecord.lease).not.toHaveProperty('settlementRetryRequired')
