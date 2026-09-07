@@ -3,13 +3,14 @@ import {
   BrowserScreencastOpcode,
   encodeBrowserScreencastFrame
 } from '../../../../shared/browser-screencast-protocol'
-import type { RpcContext } from '../core'
+import { isStreamingMethod, type RpcContext, type RpcMethod } from '../core'
 import { isMobileWebHostRpcMethod } from './mobile-web-host-rpc-allowlist'
 import { MOBILE_WEB_BROWSER_STREAM_METHODS } from './mobile-web-browser-stream'
 
-const methods = new Map(MOBILE_WEB_BROWSER_STREAM_METHODS.map((method) => [method.name, method]))
-const subscribe = methods.get('mobileWeb.browser.subscribe')!
-const unsubscribe = methods.get('mobileWeb.browser.unsubscribe')!
+const subscribe = MOBILE_WEB_BROWSER_STREAM_METHODS.find(isStreamingMethod)!
+const unsubscribe = MOBILE_WEB_BROWSER_STREAM_METHODS.find(
+  (method) => !isStreamingMethod(method)
+) as RpcMethod
 
 const REQUEST = {
   worktree: 'id:workspace',

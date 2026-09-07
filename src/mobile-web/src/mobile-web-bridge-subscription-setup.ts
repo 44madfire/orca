@@ -18,12 +18,6 @@ import {
 } from '../../shared/mobile-web/bridge-operation-contract'
 import type { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import {
-  MobileWebBrowserEventSchema,
-  MobileWebBrowserStreamPayloadSchema,
-  type MobileWebBrowserEvent,
-  type MobileWebBrowserStreamPayload
-} from '../../shared/mobile-web/browser-operation-contract'
-import {
   MobileWebSpeechEventSchema,
   MobileWebSpeechSubscribePayloadSchema,
   type MobileWebSpeechEvent
@@ -63,21 +57,6 @@ export function speechSubscriptionSetup(
     payloadSchema: MobileWebSpeechSubscribePayloadSchema,
     eventSchema: MobileWebSpeechEventSchema,
     onEvent: (value) => onEvent(value as MobileWebSpeechEvent),
-    onError
-  }
-}
-
-export function browserSubscriptionSetup(
-  payload: MobileWebBrowserStreamPayload,
-  onEvent: (event: MobileWebBrowserEvent) => void,
-  onError: (error: MobileWebBridgeClientError) => void
-): MobileWebBridgeSubscriptionSetup {
-  return {
-    capability: 'browser',
-    payload,
-    payloadSchema: MobileWebBrowserStreamPayloadSchema,
-    eventSchema: MobileWebBrowserEventSchema,
-    onEvent: (value) => onEvent(value as MobileWebBrowserEvent),
     onError
   }
 }

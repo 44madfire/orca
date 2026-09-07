@@ -138,7 +138,7 @@ describe('host-owned browser input', () => {
 
     let rejected = 0
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      await pointer.handler(move, f.context).catch(() => {
+      await Promise.resolve(pointer.handler(move, f.context)).catch(() => {
         rejected += 1
       })
     }

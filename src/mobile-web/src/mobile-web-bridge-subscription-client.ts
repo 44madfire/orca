@@ -19,7 +19,6 @@ import { deliverMobileWebSubscriptionEvent } from './mobile-web-bridge-subscript
 import {
   accountSubscriptionSetup,
   terminalSubscriptionSetup,
-  browserSubscriptionSetup,
   speechSubscriptionSetup,
   workspaceSubscriptionSetup,
   type MobileWebBridgeSubscriptionSetup
@@ -92,10 +91,6 @@ export class MobileWebBridgeSubscriptionClient {
 
   subscribeHost(...args: Parameters<typeof hostSubscriptionSetup>) {
     return this.subscribeWith(hostSubscriptionSetup(...args))
-  }
-
-  subscribeBrowser(...args: Parameters<typeof browserSubscriptionSetup>) {
-    return this.subscribeWith(browserSubscriptionSetup(...args))
   }
 
   subscribeSpeech(...args: Parameters<typeof speechSubscriptionSetup>) {
