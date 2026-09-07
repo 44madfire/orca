@@ -141,8 +141,13 @@ describe.skipIf(process.platform === 'win32')('runtime config.toml file mode (ST
     try {
       syncSystemConfigIntoManagedCodexHome()
 
-      // The runtime content must survive: if it were overwritten, promotion did not stall and
-      // this would be exercising the ordinary mirror path, where the repair already ran.
+      // Witness that the promotion actually stalled. The runtime content alone cannot
+      // show it: a successful promotion writes the runtime change back to the system
+      // config and mirrors it straight back, so 'gpt-5-codex' is present either way.
+      // Its ABSENCE from the system config is what only a stall produces -- without
+      // which this test passes for the wrong reason wherever chmod does not bite,
+      // such as running as root in a CI container.
+      expect(readFileSync(systemConfigPath(), 'utf-8')).not.toContain('gpt-5-codex')
       expect(readFileSync(runtimeConfigPath(), 'utf-8')).toContain('gpt-5-codex')
       expect(modeOf(runtimeConfigPath())).toBe('600')
     } finally {
