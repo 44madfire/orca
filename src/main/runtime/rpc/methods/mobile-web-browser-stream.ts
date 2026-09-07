@@ -93,6 +93,8 @@ export const MOBILE_WEB_BROWSER_STREAM_METHODS = [
             emit(projected)
           }
         })
+      } catch {
+        close({ type: 'error', message: 'Browser stream failed.' })
       } finally {
         context.signal?.removeEventListener('abort', end)
         context.runtime.cleanupSubscription(key)

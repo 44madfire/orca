@@ -72,6 +72,27 @@ function frameChunkOf(events: unknown[]) {
 }
 
 describe('host-owned browser screencast', () => {
+  it('reports a startup failure before cleanup can end the stream', async () => {
+    const cleanups = new Map<string, () => void>()
+    const runtime = {
+      browserScreencast: vi.fn().mockRejectedValue(new Error('Browser page not found')),
+      registerSubscriptionCleanup: (key: string, cleanup: () => void) => cleanups.set(key, cleanup),
+      cleanupSubscription: (key: string) => {
+        cleanups.get(key)?.()
+        cleanups.delete(key)
+      }
+    }
+    const events: unknown[] = []
+    await subscribe.handler(REQUEST, { runtime } as unknown as RpcContext, (event) =>
+      events.push(event)
+    )
+    expect(events).toEqual([
+      { type: 'ready', subscriptionId: expect.any(String) },
+      { type: 'error', message: 'Browser stream failed.' }
+    ])
+    expect(cleanups.size).toBe(0)
+  })
+
   it('announces the cancel id before any stream event', async () => {
     const f = fixture()
     await f.started

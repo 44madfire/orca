@@ -94,6 +94,7 @@ export function mobileWebAgentHistoryRpc(context: RpcContext) {
         ...(launch.launchAgent ? { launchAgent: launch.launchAgent } : {}),
         clientMutationId: launch.clientMutationId,
         clientNavigationId: context.pairedDeviceId,
+        signal: context.signal,
         activate: false,
         select: true,
         navigation: 'caller'

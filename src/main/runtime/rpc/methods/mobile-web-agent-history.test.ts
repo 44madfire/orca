@@ -176,6 +176,22 @@ describe('mobile web agent history', () => {
     expect(f.runtime.sendTerminal).not.toHaveBeenCalled()
   })
 
+  it('forwards cancellation during the history scan to terminal creation', async () => {
+    const f = fixture()
+    const abort = new AbortController()
+    f.context.signal = abort.signal
+    f.runtime.listAiVaultSessions.mockImplementationOnce(async () => {
+      abort.abort()
+      return { sessions: [session()], issues: [] }
+    })
+
+    await resume.handler({ ...scope, ...REF }, f.context)
+
+    expect(f.runtime.createMobileSessionTerminal.mock.calls[0]?.[1]).toMatchObject({
+      signal: abort.signal
+    })
+  })
+
   it('refuses a worktree selector the shell did not write', async () => {
     const f = fixture()
     await expect(snapshot.handler({ ...scope, worktree: 'name:app' }, f.context)).rejects.toThrow(
