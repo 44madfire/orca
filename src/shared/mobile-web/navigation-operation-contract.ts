@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 export const MobileWebNavigationRoutePayloadSchema = z
   .object({
-    destination: z.enum(['hostPicker', 'pairingRepair', 'terminalSettings', 'connectionLog'])
+    destination: z.enum(['hostPicker', 'pairingRepair'])
   })
   .strict()
 

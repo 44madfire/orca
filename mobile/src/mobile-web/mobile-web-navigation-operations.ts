@@ -4,19 +4,14 @@ import {
   MobileWebNavigationRoutePayloadSchema
 } from '../../../src/shared/mobile-web/navigation-operation-contract'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
-import type { MobileWebNativeRoute } from './mobile-web-native-route-handoff'
 
 export type MobileWebNavigationAuthority = {
-  route(
-    destination: 'hostPicker' | 'pairingRepair' | MobileWebNativeRoute,
-    requestId: string
-  ): void | Promise<void>
+  route(destination: 'hostPicker' | 'pairingRepair'): void | Promise<void>
   reconnect(): void | Promise<void>
   removeHost(): void | Promise<void>
 }
 
 export async function executeMobileWebNavigationOperation(args: {
-  requestId: string
   operation: string
   payload: unknown
   authority: MobileWebNavigationAuthority | undefined
@@ -24,7 +19,7 @@ export async function executeMobileWebNavigationOperation(args: {
   if (args.operation === 'route') {
     const payload = MobileWebNavigationRoutePayloadSchema.parse(args.payload)
     const authority = requireAuthority(args.authority)
-    await authority.route(payload.destination, args.requestId)
+    await authority.route(payload.destination)
     return null
   }
   if (args.operation === 'reconnect') {

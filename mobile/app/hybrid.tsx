@@ -30,9 +30,7 @@ import { mobileWebDiagnosticsStore } from '../src/mobile-web/mobile-web-diagnost
 import { useMobileWebBridgeRuntimeRef } from '../src/mobile-web/use-mobile-web-bridge-runtime-ref'
 import { useMobileWebResumeRouteMemory } from '../src/mobile-web/use-mobile-web-resume-route-memory'
 import { useMobileWebHardwareBackHandoff } from '../src/mobile-web/use-mobile-web-hardware-back-handoff'
-import { MobileWebNativeRouteHandoff } from '../src/mobile-web/mobile-web-native-route-handoff'
 import { useMobileWebNavigationAuthority } from '../src/mobile-web/use-mobile-web-navigation-authority'
-import { handleMobileWebBrokerMessage } from '../src/mobile-web/mobile-web-broker-message-handoff'
 import {
   useRpcClientContext,
   useForceReconnect,
@@ -53,7 +51,6 @@ export default function HybridScreen() {
   const healthDeadlineRef = useRef(new MobileWebHealthDeadline(10_000))
   const brokerRef = useRef<MobileWebCapabilityBroker | null>(null)
   const postInitRef = useRef<() => Promise<void>>(() => Promise.resolve())
-  const nativeRouteHandoffRef = useRef(new MobileWebNativeRouteHandoff())
   useMobileWebAppForegroundAuthority(brokerRef)
   const responseDropRef = useRef(
     new MobileWebOneShotResponseDrop(process.env.EXPO_PUBLIC_ORCA_E2E_MOBILE_WEB_DROP_RESPONSE_ONCE)
@@ -143,8 +140,7 @@ export default function HybridScreen() {
   const pageDocument = useMobileWebPageDocument({
     sessionId: session?.sessionId,
     viewEpoch,
-    healthDeadlineRef,
-    routeHandoffRef: nativeRouteHandoffRef
+    healthDeadlineRef
   })
 
   const postToWeb = useCallback(async (message: MobileWebBridgeShellMessage) => {
@@ -168,7 +164,6 @@ export default function HybridScreen() {
   const navigationAuthority = useMobileWebNavigationAuthority({
     hostId: selectedHost?.id,
     hostPublicKeyB64: selectedHost?.publicKeyB64,
-    routeHandoffRef: nativeRouteHandoffRef,
     router,
     clearColdResumeRoute: coldResumeRoute.clearRoute,
     closeHostClient,
@@ -307,35 +302,11 @@ export default function HybridScreen() {
         } else if (parsed.value.type === 'routeState') {
           brokerRef.current?.rememberRoute(parsed.value.route, parsed.value.pageState)
         } else {
-          await handleMobileWebBrokerMessage({
-            message: parsed.value,
-            brokerRef,
-            activeSessionIdRef,
-            sessionId: current.sessionId,
-            viewRef,
-            routeHandoff: nativeRouteHandoffRef.current,
-            setHostedViewActive,
-            navigateToNativeRoute: (destination) => {
-              if (destination === 'connectionLog') {
-                router.push({
-                  pathname: '/connection-log',
-                  params: { hostId: selectedHostId ?? '' }
-                })
-                return
-              }
-              router.push('/terminal-settings')
-            },
-            onNavigationFailure: (destination) =>
-              showWarning(
-                destination === 'connectionLog'
-                  ? 'Couldn’t open network diagnostics.'
-                  : 'Couldn’t open Terminal settings.'
-              )
-          })
+          await brokerRef.current?.handle(parsed.value)
         }
       }
     },
-    [hardwareBackHandoff, markHealthy, postInit, router, selectedHostId, session, showWarning]
+    [hardwareBackHandoff, markHealthy, postInit, session]
   )
   const shellContext = useMemo(
     () => (session ? { sessionId: session.sessionId, buildId: session.buildId } : null),

@@ -21,10 +21,7 @@ export function webHostScreenShellOperations(
     },
     navigateFromHostList,
     openConnectionDiagnostics() {
-      // A shell older than this page rejects the destination; a no-op beats an unhandled rejection.
-      void requireClient()
-        .navigationRoute({ destination: 'connectionLog' })
-        .catch(() => {})
+      navigateFromHostList('/connection-log')
     },
     async openExternalUrl(url) {
       await requireClient().native.openExternal(url)

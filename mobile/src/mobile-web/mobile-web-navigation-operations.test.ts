@@ -7,17 +7,15 @@ describe('mobile web navigation operations', () => {
 
     await expect(
       executeMobileWebNavigationOperation({
-        requestId: 'A'.repeat(22),
         operation: 'route',
         payload: { destination: 'pairingRepair' },
         authority
       })
     ).resolves.toBeNull()
 
-    expect(authority.route).toHaveBeenCalledWith('pairingRepair', 'A'.repeat(22))
+    expect(authority.route).toHaveBeenCalledWith('pairingRepair')
     await expect(
       executeMobileWebNavigationOperation({
-        requestId: 'B'.repeat(22),
         operation: 'route',
         payload: { destination: 'https://attacker.invalid' },
         authority
@@ -30,7 +28,6 @@ describe('mobile web navigation operations', () => {
 
     await expect(
       executeMobileWebNavigationOperation({
-        requestId: 'C'.repeat(22),
         operation: 'reconnect',
         payload: {},
         authority
@@ -39,18 +36,17 @@ describe('mobile web navigation operations', () => {
     expect(authority.reconnect).toHaveBeenCalledWith()
   })
 
-  it('routes to native settings through the shell authority', async () => {
+  it('rejects a destination the shell no longer owns', async () => {
     const authority = navigationAuthority()
 
     await expect(
       executeMobileWebNavigationOperation({
-        requestId: 'F'.repeat(22),
         operation: 'route',
-        payload: { destination: 'terminalSettings' },
+        payload: { destination: 'connectionLog' },
         authority
       })
-    ).resolves.toBeNull()
-    expect(authority.route).toHaveBeenCalledWith('terminalSettings', 'F'.repeat(22))
+    ).rejects.toBeTruthy()
+    expect(authority.route).not.toHaveBeenCalled()
   })
 
   it('removes the native-selected host without accepting page identity', async () => {
@@ -58,7 +54,6 @@ describe('mobile web navigation operations', () => {
 
     await expect(
       executeMobileWebNavigationOperation({
-        requestId: 'G'.repeat(22),
         operation: 'removeHost',
         payload: { confirmation: 'remove-paired-host' },
         authority
@@ -68,7 +63,6 @@ describe('mobile web navigation operations', () => {
     expect(authority.removeHost).toHaveBeenCalledWith()
     await expect(
       executeMobileWebNavigationOperation({
-        requestId: 'H'.repeat(22),
         operation: 'removeHost',
         payload: { confirmation: 'remove-paired-host', hostId: 'attacker-host' },
         authority

@@ -2,7 +2,6 @@ export type HostScreenShellOperations = {
   openSettings?: () => void
   leaveHost(): void
   navigateFromHostList(target: string): void
-  // Diagnostics read the shell's own transport log, so the hosted page cannot render it.
   openConnectionDiagnostics(): void
   openExternalUrl(url: string): Promise<void>
   reconnect(): Promise<void>

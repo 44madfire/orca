@@ -15,10 +15,6 @@ const hybridPresentation = readFileSync(
   new URL('./MobileWebHybridShellPresentation.tsx', import.meta.url),
   'utf8'
 )
-const brokerMessageHandoff = readFileSync(
-  new URL('./mobile-web-broker-message-handoff.ts', import.meta.url),
-  'utf8'
-)
 const navigationAuthority = readFileSync(
   new URL('./use-mobile-web-navigation-authority.ts', import.meta.url),
   'utf8'
@@ -89,23 +85,16 @@ describe('mobile native shell route ownership', () => {
     }
   })
 
-  it('opens shell-owned screens without clearing the hosted session', () => {
-    const settingsBranch = navigationAuthority.match(
-      /if \(isMobileWebNativeRoute\(destination\)\) \{([\s\S]*?)\n\s*\}/
-    )?.[1]
-    expect(settingsBranch).toContain('routeHandoffRef.current.record(requestId, destination)')
-    expect(hybridShell).toContain('routeHandoffRef: nativeRouteHandoffRef')
-    expect(settingsBranch).not.toContain('setHostedViewActive(false)')
-    expect(hybridShell).toContain('handleMobileWebBrokerMessage')
-    expect(brokerMessageHandoff).toContain('completeMobileWebNativeRouteHandoffAfterResponse')
-    expect(brokerMessageHandoff).toContain('await view.deactivateSessionView()')
-    expect(brokerMessageHandoff).toContain('setHostedViewActive: args.setHostedViewActive')
-    expect(hybridShell).toContain("router.push('/terminal-settings')")
-    expect(hybridShell).toContain("pathname: '/connection-log'")
+  it('keeps every page-owned settings route inside the hosted document', () => {
+    // Only host exits leave the hosted page; the shell owns no workspace-adjacent route.
+    expect(navigationAuthority).not.toContain('isMobileWebNativeRoute')
+    expect(hybridShell).not.toContain("router.push('/terminal-settings')")
+    expect(hybridShell).not.toContain("pathname: '/connection-log'")
+  })
+
+  it('reactivates the hosted session view with the route it left', () => {
     expect(hybridShell).toContain('void view.activateSessionView(sessionId)')
     expect(hybridShell).toContain('return () => setHostedViewActive(false)')
-    expect(settingsBranch).not.toContain('clearRoute')
-    expect(settingsBranch).not.toContain('setSelectedHostId')
     expect(hybridPresentation).toContain('sessionId={hostedViewActive ? session.sessionId : null}')
   })
 

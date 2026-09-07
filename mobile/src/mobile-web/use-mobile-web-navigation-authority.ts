@@ -1,10 +1,6 @@
-import { useMemo, type RefObject } from 'react'
+import { useMemo } from 'react'
 import { leaveHostRoute } from '../host-route-exit'
 import { removeHostAndCloseClient } from '../transport/host-removal-lifecycle'
-import {
-  isMobileWebNativeRoute,
-  type MobileWebNativeRouteHandoff
-} from './mobile-web-native-route-handoff'
 import type { MobileWebNavigationAuthority } from './mobile-web-navigation-operations'
 
 type MobileWebShellRouter = {
@@ -15,7 +11,6 @@ type MobileWebShellRouter = {
 export function useMobileWebNavigationAuthority({
   hostId,
   hostPublicKeyB64,
-  routeHandoffRef,
   router,
   clearColdResumeRoute,
   closeHostClient,
@@ -23,7 +18,6 @@ export function useMobileWebNavigationAuthority({
 }: {
   hostId: string | undefined
   hostPublicKeyB64: string | undefined
-  routeHandoffRef: RefObject<MobileWebNativeRouteHandoff>
   router: MobileWebShellRouter
   clearColdResumeRoute: () => void
   closeHostClient: (hostId: string) => void
@@ -34,12 +28,7 @@ export function useMobileWebNavigationAuthority({
       return undefined
     }
     return {
-      route(destination, requestId) {
-        // Shell-owned screens keep the hosted page mounted; only host exits clear it.
-        if (isMobileWebNativeRoute(destination)) {
-          routeHandoffRef.current.record(requestId, destination)
-          return
-        }
+      route(destination) {
         clearColdResumeRoute()
         if (destination === 'hostPicker') {
           leaveHostRoute(router)
@@ -58,13 +47,5 @@ export function useMobileWebNavigationAuthority({
         return removeHostAndCloseClient(hostId, hostPublicKeyB64, closeHostClient)
       }
     }
-  }, [
-    clearColdResumeRoute,
-    closeHostClient,
-    forceReconnectHost,
-    hostId,
-    hostPublicKeyB64,
-    routeHandoffRef,
-    router
-  ])
+  }, [clearColdResumeRoute, closeHostClient, forceReconnectHost, hostId, hostPublicKeyB64, router])
 }

@@ -47,7 +47,6 @@ async function executeNative(args: Deps, request: OnceRequest): Promise<unknown>
 
 async function executeNavigation(args: Deps, request: OnceRequest): Promise<unknown> {
   return executeMobileWebNavigationOperation({
-    requestId: request.requestId,
     operation: request.operation,
     payload: request.payload,
     authority: args.navigationAuthority
