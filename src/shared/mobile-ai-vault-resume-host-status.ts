@@ -35,7 +35,8 @@ export type MobileAiVaultResumeProjectGroup = {
   id: string
   parentGroupId?: string | null
   connectionId?: string | null
-  executionHostId?: ExecutionHostId | string | null
+  // Rows written before execution hosts were typed still carry a bare string here.
+  executionHostId?: string | null
 }
 
 export function getMobileAiVaultResumeRepoTargetStatus(
