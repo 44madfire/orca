@@ -6,6 +6,8 @@ import type { DiscoveredSkill, SkillDiscoveryResult } from '../../../../shared/s
 import { getNativeChatAgentProfile } from '../../../../shared/native-chat-agent-profiles'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { emitNativeChatSkillDiscovery } from '@/lib/native-chat-telemetry'
+import type { NativeChatSkillDiscoveryErrorKind } from './native-chat-picker-items'
+import { SKILL_DISCOVER_UPDATE_REQUIRED_MESSAGE } from '../../../../shared/skill-install-capability'
 import {
   resolveNativeChatSkillDiscoveryContext,
   selectNativeChatSkillStateInputs,
@@ -29,7 +31,7 @@ export type NativeChatSkillDiscovery = {
   status: 'idle' | 'loading' | 'ready' | 'error'
   skills: DiscoveredSkill[]
   error: Error | null
-  errorKind?: 'unavailable' | 'timeout' | 'host' | 'unknown'
+  errorKind?: NativeChatSkillDiscoveryErrorKind
   retry: () => void
 }
 
@@ -140,21 +142,27 @@ export function useNativeChatSkills(
           return
         }
         const error = reason instanceof Error ? reason : new Error(String(reason))
-        const timedOut = /timed?\s*out|timeout/i.test(error.message)
+        // Why compare the shared constant rather than sniff a code: both sides
+        // import this symbol, so the sentinel cannot drift apart. Skew is
+        // permanent until the user reconnects, so it must not offer Retry.
+        const relayUpgradeRequired = error.message === SKILL_DISCOVER_UPDATE_REQUIRED_MESSAGE
+        const timedOut = !relayUpgradeRequired && /timed?\s*out|timeout/i.test(error.message)
         emitNativeChatSkillDiscovery({
           agent,
-          outcome: timedOut ? 'timeout' : 'error',
+          outcome: relayUpgradeRequired ? 'upgrade-required' : timedOut ? 'timeout' : 'error',
           executionHostKind: context.executionHostKind
         })
         setState({
           status: 'error',
           skills: [],
           error,
-          errorKind: timedOut
-            ? 'timeout'
-            : context.executionHostKind === 'runtime' || context.executionHostKind === 'ssh'
-              ? 'host'
-              : 'unknown',
+          errorKind: relayUpgradeRequired
+            ? 'relay-upgrade-required'
+            : timedOut
+              ? 'timeout'
+              : context.executionHostKind === 'runtime' || context.executionHostKind === 'ssh'
+                ? 'host'
+                : 'unknown',
           contextKey: paneCacheKey
         })
       }

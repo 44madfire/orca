@@ -12,7 +12,8 @@ import {
 import {
   requireSkillSshRelayClient,
   skillSshRelayCapabilities,
-  type SkillSshProviderSource
+  type SkillSshProviderSource,
+  type SkillSshRelayClient
 } from './skill-ssh-relay-client'
 import { getDefaultWslDistro, getWslHome, parseWslPath, toLinuxPath } from '../wsl'
 import { clearSkillRootScanCache, discoverSkills } from './discovery'
@@ -30,6 +31,13 @@ const REMOTE_RESULT_TTL_MS = 10_000
 const MAX_CACHED_SKILL_TARGETS = 32
 // Why below the renderer's 10s budget: a classified relay error must arrive
 // before the renderer's own backstop turns it into a generic timeout.
+//
+// This timer is also the *only* thing bounding a stalled host. The scan
+// coalescer's abandon-for-age aborts its own signal, which this task never
+// reads, so that abort is a no-op here. The mux timer is what expires the
+// request and notifies `rpc.cancel` so the relay stops its filesystem work too
+// (ssh-channel-multiplexer.ts). Do not remove it on the belief the coalescer
+// covers the stall case.
 const SSH_DISCOVERY_TIMEOUT_MS = 9_000
 
 const targetScans = new SkillScanCoalescer<SkillDiscoveryResult>(MAX_CACHED_SKILL_TARGETS)
@@ -37,6 +45,7 @@ const targetScans = new SkillScanCoalescer<SkillDiscoveryResult>(MAX_CACHED_SKIL
 /** Drop every shared scan; used when a skill update run has rewritten disk. */
 export function clearSkillDiscoveryCaches(): void {
   targetScans.clear()
+  sshCapabilitiesByConnection.clear()
   clearSkillRootScanCache()
 }
 
@@ -143,6 +152,28 @@ function scanKey(
 /** Why the capability handshake rather than a method-not-found code: an older
  *  relay's error reaches the picker as an unexplained failure, while the
  *  advertised capability list says up front that the host needs a newer relay. */
+// Why memoized: relay.status is a 15s-timeout round trip that answered for this
+// connection already. Probing per scan doubled the round trips and pushed the
+// worst case far past the renderer's budget. Cleared with the scan caches, so a
+// reconnect re-probes rather than trusting a dead connection's answer.
+const sshCapabilitiesByConnection = new Map<string, Promise<string[]>>()
+
+function cachedSshCapabilities(
+  connectionId: string,
+  client: SkillSshRelayClient
+): Promise<string[]> {
+  const existing = sshCapabilitiesByConnection.get(connectionId)
+  if (existing) {
+    return existing
+  }
+  const probe = skillSshRelayCapabilities(client).catch((error: unknown) => {
+    sshCapabilitiesByConnection.delete(connectionId)
+    throw error
+  })
+  sshCapabilitiesByConnection.set(connectionId, probe)
+  return probe
+}
+
 async function discoverSkillsOnSshHost(
   target: Extract<ResolvedSkillDiscoveryTarget, { kind: 'ssh' }>,
   sshProvider: SkillSshProviderSource | undefined
@@ -151,7 +182,7 @@ async function discoverSkillsOnSshHost(
     throw new Error('skill-discovery-ssh-relay-unavailable')
   }
   const client = requireSkillSshRelayClient(sshProvider)
-  const capabilities = await skillSshRelayCapabilities(client)
+  const capabilities = await cachedSshCapabilities(target.connectionId, client)
   if (!capabilities.includes(SKILL_DISCOVER_CAPABILITY)) {
     throw new Error(SKILL_DISCOVER_UPDATE_REQUIRED_MESSAGE)
   }

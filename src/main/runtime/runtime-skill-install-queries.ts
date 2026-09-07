@@ -212,7 +212,7 @@ export class RuntimeSkillInstallQueries extends RuntimeSkillInstallCommands {
       : null
   }
   async resolveSkillDiscoveryProviderRoots(target: {
-    kind: 'native-host' | 'wsl' | 'ssh'
+    kind: 'native-host' | 'wsl'
     distro?: string
   }) {
     const roots = await this.roots({

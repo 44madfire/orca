@@ -3,6 +3,7 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NativeChatSkillDiscovery } from './use-native-chat-skills'
+import { SKILL_DISCOVER_UPDATE_REQUIRED_MESSAGE } from '../../../../shared/skill-install-capability'
 
 const mocks = vi.hoisted(() => ({
   callRuntimeRpc: vi.fn(),
@@ -182,8 +183,20 @@ describe('useNativeChatSkills', () => {
     )
   })
 
-  // Why 'host' and not 'unavailable': the picker hides Retry for 'unavailable',
-  // and a reachable host that failed one scan must stay retryable.
+  // Capability skew stays broken until the user reconnects, so it must not be
+  // classified as the retryable kind — the picker offers Retry for everything
+  // except the non-retryable kinds.
+  it('classifies relay skew as non-retryable rather than a retryable host error', async () => {
+    mocks.state = stateForHost('ssh:connection-1')
+    mocks.callRuntimeRpc.mockRejectedValue(new Error(SKILL_DISCOVER_UPDATE_REQUIRED_MESSAGE))
+    render(<Probe enabled />)
+
+    await waitFor(() => expect(mocks.snapshots.at(-1)?.status).toBe('error'))
+    expect(mocks.snapshots.at(-1)?.errorKind).toBe('relay-upgrade-required')
+  })
+
+  // Why 'host' and not the non-retryable kind: a reachable host that failed one
+  // scan must stay retryable.
   it('keeps Retry available when an SSH scan fails', async () => {
     mocks.state = stateForHost('ssh:connection-1')
     mocks.callRuntimeRpc.mockRejectedValue(new Error('relay refused'))
