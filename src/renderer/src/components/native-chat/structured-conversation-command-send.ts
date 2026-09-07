@@ -2,6 +2,7 @@ import type {
   AgentSessionConversationCommand,
   AgentSessionConversationCommandResult
 } from '../../../../shared/agent-session-conversation-command'
+import { translate } from '@/i18n/i18n'
 
 export async function sendStructuredConversationCommand(input: {
   command: AgentSessionConversationCommand
@@ -14,7 +15,10 @@ export async function sendStructuredConversationCommand(input: {
   if (input.pending.current || input.blocked) {
     return {
       accepted: false,
-      error: 'Wait for pending work and messages to finish before using this command.'
+      error: translate(
+        'components.native-chat.conversationCommand.pendingWork',
+        'Wait for pending work and messages to finish before using this command.'
+      )
     }
   }
   input.pending.current = true
@@ -22,7 +26,14 @@ export async function sendStructuredConversationCommand(input: {
     const result = await input.send(input.command)
     return {
       accepted: result?.state === 'completed' && !result.error,
-      error: result?.error ?? (result ? null : 'Conversation operation was not confirmed.')
+      error:
+        result?.error ??
+        (result
+          ? null
+          : translate(
+              'components.native-chat.conversationCommand.unconfirmed',
+              'Conversation operation was not confirmed.'
+            ))
     }
   } finally {
     input.pending.current = false
