@@ -20,12 +20,6 @@
       "rules": {
         "max-lines": ["error", { "max": 379, "skipBlankLines": true, "skipComments": true }]
       }
-    },
-    {
-      "files": ["scripts/mock-server.ts"],
-      "rules": {
-        "max-lines": ["error", { "max": 407, "skipBlankLines": true, "skipComments": true }]
-      }
     }
   ]
 }

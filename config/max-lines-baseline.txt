@@ -9,4 +9,3 @@ inline src/main/ssh/ssh-relay-deploy.ts
 inline src/main/ssh/ssh-relay-session.ts
 inline src/relay/pty-handler.ts
 inline src/renderer/src/components/terminal-pane/remote-runtime-pty-transport.ts
-mobile-config scripts/mock-server.ts
