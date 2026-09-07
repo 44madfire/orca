@@ -384,6 +384,47 @@ describe('Relay region preference', () => {
     ])
   })
 
+  it('holds a still-measured incumbent through an incomplete catalog', async () => {
+    // Why: an Asia desktop whose 24 h hint expires during a US roll wave sees a
+    // one-region catalog. Withholding the hint would place it at the director
+    // default for an hour; the incumbent was earned against a full catalog.
+    const path = userDataPath()
+    writeCache(path, 'asia-east2')
+    const events: unknown[] = []
+    const healthy = sampledProbe({ [ASIA]: [90, 30, 32, 34] })
+    await expect(
+      new RelayRegionPreferenceResolver({
+        directorUrl: DIRECTOR,
+        userDataPath: path,
+        fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+        probe: healthy.probe,
+        now: () => 1_000,
+        logEvent: (event) => events.push(event)
+      }).resolve()
+    ).resolves.toBe('asia-east2')
+    expect(JSON.parse(readFileSync(cachePath(path), 'utf8'))).toMatchObject({
+      region: 'asia-east2',
+      expiresAt: 1_000 + 24 * 60 * 60_000
+    })
+    expect(events).toEqual([expect.objectContaining({ chosenRegion: 'asia-east2' })])
+  })
+
+  it('does not promote a lone survivor that is not the incumbent', async () => {
+    const path = userDataPath()
+    writeCache(path, 'us-central1')
+    const healthy = sampledProbe({ [ASIA]: [90, 30, 32, 34] })
+    await expect(
+      new RelayRegionPreferenceResolver({
+        directorUrl: DIRECTOR,
+        userDataPath: path,
+        fetch: catalogFetch([{ region: 'asia-east2', probeOrigins: [ASIA] }]),
+        probe: healthy.probe,
+        now: () => 1_000
+      }).resolve()
+    ).resolves.toBeUndefined()
+    expect(JSON.parse(readFileSync(cachePath(path), 'utf8'))).toMatchObject({ region: null })
+  })
+
   it('uses a valid diagnostic override without network or cache mutation', async () => {
     const path = userDataPath()
     const fetch = vi.fn<typeof globalThis.fetch>()

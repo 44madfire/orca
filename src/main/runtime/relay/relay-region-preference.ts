@@ -183,13 +183,19 @@ export class RelayRegionPreferenceResolver {
       this.log(relayRegionCatalogFailureEvent(this.options.directorUrl))
     )
     const measurements = measuredRegions(reports)
+    const previousRegion = previous?.region ?? null
     // Why: a region may only win against a measured competitor. An unmeasured
     // peer, or one the catalog dropped for having no general cell (a roll wave
     // or heartbeat stall), means director default placement beats a lone survivor.
-    const selected =
-      measurements.length < reports.length || reports.length < RELAY_REGIONS.length
-        ? null
-        : selectRegionMeasurement(measurements, previous?.region ?? null)
+    // The exception is the incumbent: a hint that was earned against a full
+    // catalog and still measures is held, not discarded, or an expiry that lands
+    // during the other region's roll wave would send the desktop to the default.
+    const complete =
+      measurements.length === reports.length && reports.length === RELAY_REGIONS.length
+    const incumbent = measurements.find((measurement) => measurement.region === previousRegion)
+    const selected = complete
+      ? selectRegionMeasurement(measurements, previousRegion)
+      : (incumbent ?? null)
     const ttlMs = selected ? CACHE_TTL_MS : NO_HINT_TTL_MS
     this.log(
       relayRegionRefreshEvent({
