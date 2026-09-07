@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applyAgentPermissionMode, AUTO_TUI_AGENT_ARGS } from './tui-agent-permissions'
 import {
+  resolveAgentLaunchPermissionModeSummary,
   normalizeTuiAgentArgsRecord,
   normalizeTuiAgentEnvRecord,
   resolveTuiAgentLaunchArgs,
@@ -53,5 +54,21 @@ describe('Auto permission launch settings', () => {
         }
       }
     }
+  )
+})
+
+it('classifies effective defaults while preserving explicit Manual and Auto overrides', () => {
+  expect(resolveAgentLaunchPermissionModeSummary({})).toBe('yolo')
+  expect(
+    resolveAgentLaunchPermissionModeSummary({ agentDefaultArgs: {}, agentDefaultEnv: {} })
+  ).toBe('yolo')
+  expect(
+    resolveAgentLaunchPermissionModeSummary(applyAgentPermissionMode({ mode: 'manual' }))
+  ).toBe('manual')
+  expect(resolveAgentLaunchPermissionModeSummary(applyAgentPermissionMode({ mode: 'auto' }))).toBe(
+    'auto'
+  )
+  expect(resolveAgentLaunchPermissionModeSummary({ agentDefaultArgs: { claude: '' } })).toBe(
+    'mixed'
   )
 })

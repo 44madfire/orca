@@ -1,4 +1,7 @@
 import { useMemo } from 'react'
+import { toast } from 'sonner'
+import { translate } from '@/i18n/i18n'
+import { createAgentSettingsUpdateQueue } from './agent-settings-update-queue'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import { getAgentCatalog } from '@/lib/agent-catalog'
@@ -22,12 +25,12 @@ import {
   getTuiAgentDefaultArgs,
   getTuiAgentDefaultEnv,
   resolveTuiAgentLaunchArgs,
-  resolveTuiAgentLaunchEnv
+  resolveTuiAgentLaunchEnv,
+  resolveAgentLaunchPermissionModeSummary
 } from '../../../../shared/tui-agent-launch-defaults'
 import {
   applyAgentPermissionMode,
   applyTuiAgentPermissionMode,
-  resolveAgentPermissionModeSummary,
   resolveTuiAgentPermissionMode
 } from '../../../../shared/tui-agent-permissions'
 import { getSettingOwnershipSummary } from './setting-ownership'
@@ -53,6 +56,7 @@ export {
 type AgentsPaneProps = {
   settings: GlobalSettings
   updateSettings: (updates: Partial<GlobalSettings>) => void | Promise<void>
+  updateLaunchSettings?: (updates: Partial<GlobalSettings>) => void | Promise<void>
   wslSupportedPlatform?: boolean
   wslAvailable?: boolean
   wslDistros?: string[]
@@ -60,10 +64,12 @@ type AgentsPaneProps = {
 }
 
 const enqueueAgentAvailabilityUpdate = createAgentAvailabilityUpdateQueue()
+const enqueueAgentLaunchUpdate = createAgentSettingsUpdateQueue()
 
 export function AgentsPane({
   settings,
   updateSettings,
+  updateLaunchSettings = updateSettings,
   wslSupportedPlatform,
   wslAvailable,
   wslDistros,
@@ -110,6 +116,30 @@ export function AgentsPane({
     (agent) => detectedIds !== null && !detectedIds.has(agent.id)
   )
 
+  const saveLaunchUpdate = (
+    buildUpdate: (latest: GlobalSettings) => Partial<GlobalSettings>
+  ): void => {
+    void enqueueAgentLaunchUpdate({
+      getSettings: () => useAppStore.getState().settings,
+      fallbackSettings: settings,
+      updateSettings: updateLaunchSettings,
+      buildUpdate: (latest) => {
+        if (
+          (latest.activeRuntimeEnvironmentId ?? null) !==
+          (settings.activeRuntimeEnvironmentId ?? null)
+        ) {
+          throw new Error(
+            translate(
+              'auto.components.settings.agents.agentSettingsServerChanged',
+              'The active server changed. Retry the agent settings change.'
+            )
+          )
+        }
+        return buildUpdate(latest)
+      }
+    }).catch((error: unknown) => toast.error(String(error)))
+  }
+
   const setAgentEnabled = (id: TuiAgent, enabled: boolean): void => {
     void enqueueAgentAvailabilityUpdate({
       getSettings: () => useAppStore.getState().settings,
@@ -137,21 +167,22 @@ export function AgentsPane({
     envOverride: resolveTuiAgentLaunchEnv(agent.id, agentDefaultEnv),
     permissionMode: resolveTuiAgentPermissionMode({
       agent: agent.id,
-      agentArgs: agentDefaultArgs[agent.id],
-      agentEnv: agentDefaultEnv[agent.id]
+      agentArgs: resolveTuiAgentLaunchArgs(agent.id, agentDefaultArgs),
+      agentEnv: resolveTuiAgentLaunchEnv(agent.id, agentDefaultEnv)
     }),
-    onSetPermissionMode: (mode) => {
-      const next = applyTuiAgentPermissionMode({
-        agent: agent.id,
-        mode,
-        agentArgs: resolveTuiAgentLaunchArgs(agent.id, agentDefaultArgs),
-        agentEnv: resolveTuiAgentLaunchEnv(agent.id, agentDefaultEnv)
-      })
-      updateSettings({
-        agentDefaultArgs: { ...agentDefaultArgs, [agent.id]: next.agentArgs },
-        agentDefaultEnv: { ...agentDefaultEnv, [agent.id]: next.agentEnv }
-      })
-    },
+    onSetPermissionMode: (mode) =>
+      saveLaunchUpdate((latest) => {
+        const next = applyTuiAgentPermissionMode({
+          agent: agent.id,
+          mode,
+          agentArgs: resolveTuiAgentLaunchArgs(agent.id, latest.agentDefaultArgs),
+          agentEnv: resolveTuiAgentLaunchEnv(agent.id, latest.agentDefaultEnv)
+        })
+        return {
+          agentDefaultArgs: { ...latest.agentDefaultArgs, [agent.id]: next.agentArgs },
+          agentDefaultEnv: { ...latest.agentDefaultEnv, [agent.id]: next.agentEnv }
+        }
+      }),
     onSetDefault: isDetected ? () => updateSettings({ defaultTuiAgent: agent.id }) : () => {},
     onSetEnabled: (enabled) => setAgentEnabled(agent.id, enabled),
     onSaveOverride: isDetected
@@ -166,9 +197,13 @@ export function AgentsPane({
         }
       : () => {},
     onSaveArgs: (value) =>
-      updateSettings({ agentDefaultArgs: { ...agentDefaultArgs, [agent.id]: value } }),
+      saveLaunchUpdate((latest) => ({
+        agentDefaultArgs: { ...latest.agentDefaultArgs, [agent.id]: value }
+      })),
     onSaveEnv: (value) =>
-      updateSettings({ agentDefaultEnv: { ...agentDefaultEnv, [agent.id]: value } }),
+      saveLaunchUpdate((latest) => ({
+        agentDefaultEnv: { ...latest.agentDefaultEnv, [agent.id]: value }
+      })),
     sessionSourceHome:
       isDetected && agent.id === 'codex'
         ? buildCodexSessionSourceHomeControl(settings, updateSettings)
@@ -201,9 +236,15 @@ export function AgentsPane({
       ) : null}
       <AgentCacheTimerSection settings={settings} updateSettings={updateSettings} />
       <AgentPermissionsSetting
-        mode={resolveAgentPermissionModeSummary({ agentDefaultArgs, agentDefaultEnv })}
+        mode={resolveAgentLaunchPermissionModeSummary({ agentDefaultArgs, agentDefaultEnv })}
         onChange={(mode) =>
-          updateSettings(applyAgentPermissionMode({ mode, agentDefaultArgs, agentDefaultEnv }))
+          saveLaunchUpdate((latest) =>
+            applyAgentPermissionMode({
+              mode,
+              agentDefaultArgs: latest.agentDefaultArgs,
+              agentDefaultEnv: latest.agentDefaultEnv
+            })
+          )
         }
       />
       <AgentDetectionCatalog

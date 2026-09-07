@@ -133,6 +133,43 @@ describe('onboarding flow persistence', () => {
     }
   )
 
+  it('does not advance onboarding when saving Auto fails and permits a retry', async () => {
+    const updateSettings = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('connection lost'))
+      .mockResolvedValue(undefined)
+    const onOnboardingChange = vi.fn()
+    const setError = vi.fn()
+    let persist: (() => Promise<{ ok: boolean }>) | undefined
+    function Probe() {
+      persist = usePersistCurrentStep({
+        currentStepId: 'agent',
+        selectedAgent: 'claude',
+        permissionModeSelection: 'auto',
+        theme: 'dark',
+        settings: getDefaultSettings('test-home'),
+        updateSettings,
+        onboardingChecklist: getDefaultOnboardingState().checklist,
+        onOnboardingChange,
+        setError
+      })
+      return null
+    }
+    container = document.createElement('div')
+    root = createRoot(container)
+    act(() => root?.render(createElement(Probe)))
+    await act(async () => {
+      expect(await persist?.()).toEqual({ ok: false })
+    })
+    expect(window.api.onboarding.update).not.toHaveBeenCalled()
+    expect(onOnboardingChange).not.toHaveBeenCalled()
+    expect(setError).toHaveBeenCalledWith('connection lost')
+    await act(async () => {
+      expect(await persist?.()).toEqual({ ok: true })
+    })
+    expect(window.api.onboarding.update).toHaveBeenCalledTimes(1)
+  })
+
   it('builds dismissed telemetry with the triggering advance path', () => {
     expect(
       buildOnboardingDismissedPayload(3, {

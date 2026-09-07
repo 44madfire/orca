@@ -7854,7 +7854,8 @@
             "agentRuntime": "智能体运行时",
             "agentRuntimeDescription": "选择默认在 Windows 还是 WSL 中检测并启动智能体。",
             "auto": "自动"
-          }
+          },
+          "agentSettingsServerChanged": "活动服务器已更改。请重试更改代理设置。"
         },
         "appearance": {
           "search": {

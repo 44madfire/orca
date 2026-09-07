@@ -8640,7 +8640,8 @@
             "agentRuntime": "Runtime des agents",
             "agentRuntimeDescription": "Choisissez si les agents sont détectés et lancés par défaut sous Windows ou dans WSL.",
             "auto": "automatique"
-          }
+          },
+          "agentSettingsServerChanged": "Le serveur actif a changé. Réessayez de modifier les paramètres de l’agent."
         },
         "appearance": {
           "search": {

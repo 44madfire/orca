@@ -7799,7 +7799,8 @@
             "agentRuntime": "Runtime del agente",
             "agentRuntimeDescription": "Elige si los agentes se detectan y ejecutan en Windows o en WSL de forma predeterminada.",
             "auto": "automático"
-          }
+          },
+          "agentSettingsServerChanged": "El servidor activo ha cambiado. Vuelve a intentar cambiar la configuración del agente."
         },
         "appearance": {
           "search": {

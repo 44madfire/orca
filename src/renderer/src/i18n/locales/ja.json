@@ -7821,7 +7821,8 @@
             "agentRuntime": "Agent のランタイム",
             "agentRuntimeDescription": "デフォルトで Agent を Windows または WSL のどちらで検出および起動するかを選択します。",
             "auto": "自動"
-          }
+          },
+          "agentSettingsServerChanged": "アクティブなサーバーが変更されました。Agent 設定の変更を再試行してください。"
         },
         "appearance": {
           "search": {

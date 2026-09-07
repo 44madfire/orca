@@ -1,3 +1,4 @@
+import { resolveAgentLaunchPermissionModeSummary } from '../../../../shared/tui-agent-launch-defaults'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { getAgentCatalog } from '@/lib/agent-catalog'
@@ -12,10 +13,7 @@ import { STEPS } from './use-onboarding-flow-types'
 import { persistStep, useCloseWith, usePersistCurrentStep } from './use-onboarding-flow-persistence'
 import { resolveOnboardingSettingsHydration } from './onboarding-settings-hydration'
 import { translate } from '@/i18n/i18n'
-import {
-  resolveAgentPermissionModeSummary,
-  type AgentPermissionMode
-} from '../../../../shared/tui-agent-permissions'
+import type { AgentPermissionMode } from '../../../../shared/tui-agent-permissions'
 import { isWindowsUserAgent } from '@/components/terminal-pane/pane-helpers'
 import {
   isSkippedStepIndex,
@@ -35,7 +33,7 @@ export function useOnboardingFlow(
   onOnboardingChange: (state: OnboardingState) => void
 ) {
   const settings = useAppStore((s) => s.settings)
-  const updateSettings = useAppStore((s) => s.updateSettings)
+  const updateSettings = useAppStore((s) => s.updateSettingsOrThrow)
   const refreshDetectedAgents = useAppStore((s) => s.refreshDetectedAgents)
   const detectedAgentIds = useAppStore((s) => s.detectedAgentIds)
   const isDetectingAgents = useAppStore((s) => s.isDetectingAgents || s.isRefreshingAgents)
@@ -75,7 +73,7 @@ export function useOnboardingFlow(
   > | null>(null)
   const permissionMode =
     permissionModeSelection ??
-    resolveAgentPermissionModeSummary({
+    resolveAgentLaunchPermissionModeSummary({
       agentDefaultArgs: settings?.agentDefaultArgs,
       agentDefaultEnv: settings?.agentDefaultEnv
     })

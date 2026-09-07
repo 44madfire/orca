@@ -8964,7 +8964,8 @@
             "skip": "skip",
             "checks": "checks",
             "auto": "auto"
-          }
+          },
+          "agentSettingsServerChanged": "The active server changed. Retry the agent settings change."
         },
         "appearance": {
           "search": {

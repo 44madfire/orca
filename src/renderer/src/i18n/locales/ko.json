@@ -7789,7 +7789,8 @@
             "agentRuntime": "Agent 런타임",
             "agentRuntimeDescription": "기본적으로 Windows 또는 WSL에서 agents를 감지하고 시작할지 선택합니다.",
             "auto": "자동"
-          }
+          },
+          "agentSettingsServerChanged": "활성 서버가 변경되었습니다. 에이전트 설정 변경을 다시 시도하세요."
         },
         "appearance": {
           "search": {
