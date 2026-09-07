@@ -54,7 +54,11 @@ export function normalizeNativeChatTaskList(
       continue
     }
     const status =
-      item.status === 'in_progress' || item.status === 'completed' ? item.status : 'pending'
+      item.status === 'in_progress' || (tool === 'update_plan' && item.status === 'inProgress')
+        ? 'in_progress'
+        : item.status === 'completed'
+          ? 'completed'
+          : 'pending'
     const activeForm = tool === 'todowrite' ? nonemptyString(item.activeForm) : undefined
     tasks.push({ content, status, ...(activeForm ? { activeForm } : {}) })
   }

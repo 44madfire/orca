@@ -8,6 +8,7 @@ import { stripNoiseMessages } from './native-chat-noise'
 import { foldToolMessages } from './native-chat-tool-fold'
 import { isNearBottom, shouldShowJumpToLatest, type ScrollGeometry } from './native-chat-autoscroll'
 import { nativeChatTaskListPredecessors } from './native-chat-task-list-history'
+import { projectNativeChatTaskListFrames } from './native-chat-task-list-frames'
 import { MessageRow } from './NativeChatMessageRow'
 import { shouldShowNativeChatTypingIndicator } from './native-chat-typing-indicator'
 import { NativeChatWorkingStatus } from './NativeChatWorkingStatus'
@@ -82,7 +83,10 @@ export function NativeChatMessageList({
 
   // Keep hidden harness turns as fold boundaries, then strip them before render.
   const messages = useMemo(
-    () => stripNoiseMessages(foldToolMessages(orderNativeChatMessages(session.messages))),
+    () =>
+      projectNativeChatTaskListFrames(
+        stripNoiseMessages(foldToolMessages(orderNativeChatMessages(session.messages)))
+      ),
     [session.messages]
   )
   const taskListPredecessors = useMemo(() => nativeChatTaskListPredecessors(messages), [messages])
