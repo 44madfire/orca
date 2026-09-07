@@ -377,7 +377,6 @@ describe('PR E2E gate contract', () => {
     // that no runner names runs nowhere and still reports green — the silent skip this file
     // exists to prevent. Asserting reachability rather than a literal keeps that true when
     // the lanes move.
-    const unreachableSpecs = new Set([])
     // Why comments are stripped: a substring scan would count any spec merely discussed in a
     // runner as claimed by it -- the silent skip this assertion exists to catch, re-entering
     // through the documentation.
@@ -401,26 +400,12 @@ describe('PR E2E gate contract', () => {
     expect(dockerGatedSpecs.length).toBeGreaterThan(0)
 
     const unclaimed = dockerGatedSpecs.filter(
-      (spec) => !unreachableSpecs.has(spec) && !laneRunners.some((runner) => runner.includes(spec))
+      (spec) => !laneRunners.some((runner) => runner.includes(spec))
     )
     expect(
       unclaimed,
       `Docker-gated specs claimed by no lane runner: ${unclaimed.join(', ')}`
     ).toEqual([])
-
-    // Why: an exemption that outlives its spec would quietly excuse a real gap.
-    for (const spec of unreachableSpecs) {
-      expect(dockerGatedSpecs, spec).toContain(spec)
-      // Why also assert absence from every runner: `unreachableSpecs` short-circuits the
-      // unclaimed check above, so a spec could be documented as exempt while a runner still
-      // invokes it -- an exemption that reads as coverage removal but changes nothing, and a
-      // lane that stays red for a reason the file says it excluded.
-      for (const runner of laneRunners) {
-        expect(runner.includes(spec), `${spec} is exempt but still invoked by a lane runner`).toBe(
-          false
-        )
-      }
-    }
 
     const laneStep = e2eWorkflow.jobs['ssh-docker-watcher-isolation'].steps.find(
       (step) => step.name === 'Run remaining Docker SSH E2E'
