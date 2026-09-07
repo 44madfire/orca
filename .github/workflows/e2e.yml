@@ -29,7 +29,8 @@ jobs:
           assert base64.b64encode(hashlib.sha512(package.read_bytes()).digest()).decode()==expected
           extracted=root/'extracted'
           subprocess.run(['dpkg-deb','-x',str(package),str(extracted)],check=True)
-          candidates=[p for p in extracted.rglob('orca-ide') if p.is_file() and not p.is_symlink() and os.access(p,os.X_OK)]
+          candidates=[extracted/'opt'/'Orca'/'orca-ide']
+          assert candidates[0].is_file() and os.access(candidates[0],os.X_OK)
           assert len(candidates)==1,candidates
           with open(os.environ['GITHUB_ENV'],'a') as env: env.write('ORCA_CROSS_VERSION_PACKAGED_EXECUTABLE='+str(candidates[0])+'\n')
           print('Verified old package:',candidates[0])
