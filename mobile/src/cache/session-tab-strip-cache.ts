@@ -27,6 +27,8 @@ const WRITE_DEBOUNCE_MS = 250
 // the stored blob stays small.
 const WORKSPACE_DIGEST_LENGTH = 32
 const TAB_DIGEST_PREFIX = 'cached:'
+// The whole shape, not the prefix: a wire id that merely starts with the prefix is still wire text.
+const DIGESTED_TAB_ID = /^cached:[0-9a-f]{32}$/
 
 type StoredWorkspace = { key: string; preview: MobileSessionTabStripPreview }
 type StoredFile = { workspaces: StoredWorkspace[] }
@@ -150,7 +152,7 @@ function digestWorkspaceId(worktreeId: string): string {
 // Prefixed so a raw id can never be mistaken for one already digested, and so a live tab's
 // id can never collide with a stored row's by construction.
 function digestTabId(tabId: string): string {
-  return tabId.startsWith(TAB_DIGEST_PREFIX) ? tabId : `${TAB_DIGEST_PREFIX}${digestHex(tabId)}`
+  return DIGESTED_TAB_ID.test(tabId) ? tabId : `${TAB_DIGEST_PREFIX}${digestHex(tabId)}`
 }
 
 function digestHex(value: string): string {

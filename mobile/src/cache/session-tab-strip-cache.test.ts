@@ -221,6 +221,19 @@ describe('session tab strip cache', () => {
     expect(loaded?.activeTabId).toBe(digested)
   })
 
+  it('digests a wire id that merely starts with the digest prefix', async () => {
+    const key = getSessionTabStripCacheKey('host-1', 'wt-1')
+    const id = 'cached:/Users/someone/private-file.md'
+    saveCachedSessionTabStrip(key, {
+      tabs: [{ id, type: 'file', title: 'x', agentId: null }],
+      activeTabId: id
+    })
+    await vi.advanceTimersByTimeAsync(300)
+
+    expectDigestedIds(readCachedSessionTabStrip(key)?.tabs.map((tab) => tab.id) ?? [], 1)
+    expect(String(asyncStorage.setItem.mock.calls.at(-1)?.[1])).not.toContain('private-file')
+  })
+
   it('keeps only a known agent id, since the hook-reported one is free text', async () => {
     const key = getSessionTabStripCacheKey('host-1', 'wt-1')
     saveCachedSessionTabStrip(key, {
