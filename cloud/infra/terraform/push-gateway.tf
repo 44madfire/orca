@@ -213,7 +213,7 @@ resource "google_cloud_run_v2_service" "push" {
       name = "cloudsql"
 
       cloud_sql_instance {
-        instances = [local.relay_database_connection_name]
+        instances = [local.push_database_connection_name]
       }
     }
 
@@ -252,8 +252,8 @@ resource "google_cloud_run_v2_service" "push" {
 
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.push_database_url[0].secret_id
-            version = "latest"
+            secret  = local.push_database_secret_id
+            version = local.push_database_secret_version
           }
         }
       }
@@ -304,17 +304,20 @@ resource "google_cloud_run_v2_service" "push" {
   # 100% LATEST would silently undo either, and this root carries unrelated standing drift, so
   # that apply need not be a push change at all.
   lifecycle {
-    # Why: the gateway draws instances x pool from the shared Cloud SQL instance, and a rollout
-    # doubles it, because the tagged candidate is directly addressable and sits outside the
-    # service-wide cap. The instance's 400 connections were already spoken for by the relay
-    # cells, directors, auth, and API, which left five: 4 is the whole of the gateway's share and
-    # it fits, with the doubled 8 still under the API candidate's rollout overlap, the term
-    # dev/scripts/relay-cloud-sql-connection-budget.mjs maximizes over. A fifth connection here
-    # puts the checked budget over its ceiling and blocks Deploy Relay Asia Topology, which gates
-    # on it, so catch a raise at plan time rather than in someone else's rollout.
+    # Shared SQL retains its four-connection allocation until the dedicated attachment is active.
     precondition {
-      condition     = var.push_max_instances * var.push_database_pool_max <= 4
-      error_message = "Push gateway instances x database pool must stay within its 4-connection share of the shared Cloud SQL instance."
+      condition     = var.push_dedicated_database_active || var.push_max_instances * var.push_database_pool_max <= 4
+      error_message = "Push gateway instances x database pool must stay within its 4-connection share while attached to shared Cloud SQL."
+    }
+
+    precondition {
+      condition     = !var.push_dedicated_database_active || var.push_dedicated_database_enabled
+      error_message = "Provision the dedicated push database before activating it."
+    }
+
+    precondition {
+      condition     = !var.push_dedicated_database_active || var.push_max_instances * var.push_database_pool_max * 2 <= 64
+      error_message = "Dedicated push serving and candidate pools must fit the 64-connection rollout budget."
     }
 
     ignore_changes = [
@@ -330,7 +333,9 @@ resource "google_cloud_run_v2_service" "push" {
     google_project_iam_member.push_runtime_cloudsql_client,
     google_secret_manager_secret_iam_member.push_database_url_runtime_accessor,
     google_secret_manager_secret_iam_member.push_provider_runtime_accessor,
-    google_secret_manager_secret_version.push_database_url
+    google_secret_manager_secret_version.push_database_url,
+    google_secret_manager_secret_version.push_dedicated_database_url,
+    google_secret_manager_secret_iam_member.push_dedicated_database_url_accessor
   ]
 }
 

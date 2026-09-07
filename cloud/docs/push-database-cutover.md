@@ -1,53 +1,73 @@
 # Dedicated push database cutover
 
-The gateway currently uses its own database and user on the shared auth/Relay SQL instance.
-`push-dedicated-database.tf` can provision a separate PostgreSQL 16 instance without changing the
-running gateway. Provisioning and cutover are separate operations: an empty database must never
-replace the store holding paired phones.
+The gateway has a dedicated PostgreSQL 17 instance configured in
+`infra/terraform/push-dedicated-database.tf`: regional HA, 2 vCPU, 7.5 GiB RAM, 50 GiB SSD
+with automatic growth, seven retained backups and seven-day point-in-time recovery.
+Cloud SQL and Terraform both protect it from deletion. Connections use the Cloud SQL
+connector and a separate Secret Manager secret pinned to its Terraform-managed version.
 
-The candidate is regional HA with 2 vCPU, 7.5 GiB RAM, 50 GB SSD with automatic growth, seven retained
-backups and seven-day point-in-time recovery. Both Cloud SQL and Terraform protect it from deletion.
-It has its own user, password, and Secret Manager secret; no public authorized network is declared.
-Connections use the Cloud SQL connector. `push_dedicated_database_enabled` defaults to false in every
-environment. No current service attachment, secret, pool size, or traffic target changes when this
-file is introduced.
+Provisioning (`push_dedicated_database_enabled`) and attachment
+(`push_dedicated_database_active`) are separate switches. Neither changes the existing
+shared database or its credentials. The production feature is still in internal testing;
+its owner approved an empty database and discarding the previous test state. No data
+transfer or application maintenance mechanism is needed for this initial activation.
+Test phones must register again; pending notifications and old sessions do not transfer.
+This reset procedure is not suitable after public launch without explicit data-loss approval.
 
-Before enabling provisioning, obtain a current regional pricing quote and review a saved Terraform
-plan. Apply only the intended new resources through the audited infrastructure workflow. This root
-contains unrelated standing drift; an unrestricted apply is not the migration procedure.
+## Provision
 
-## Cutover requirements
+Use the production relay backend and environment variables documented in
+`infra/terraform/README.md`. Save and review a targeted Terraform plan containing only:
 
-1. Record the serving image, revision, database attachment, exact database secret version, and
-   aggregate source row counts. Keep token material, session credentials, and notification content
-   out of logs and artifacts.
-2. Rehearse a whole-database transfer with the production PostgreSQL major version in an isolated
-   environment. Include hosts, devices, sessions, challenges, logical events, recipients, batches,
-   dismissal tombstones, and legacy rollback tables. Preserve primary keys and relationships.
-3. Add and test an explicit maintenance gate that refuses new writes with retryable 503 responses
-   and pauses worker claims. The current application does not yet provide this gate. A no-traffic
-   candidate alone cannot fence writes from the still-serving revision or its background worker.
-4. Acquire the shared SQL rollout lease. Fence all source writers, finish or expire provider leases,
-   and transfer a consistent snapshot through protected streams. Verify schema, aggregate row counts,
-   ownership, and pending work before allowing destination writes. Do not persist plaintext dumps.
-5. Deploy a candidate using the dedicated SQL attachment and a pinned destination secret version.
-   Keep the old database secret unchanged: an old revision referencing its original secret must not
-   silently start using the new store. Verify readiness, immutable image, device registration,
-   duplicate acceptance, pending-work recovery, APNs, and FCM access.
-6. Promote only after those checks. Verify the destination serves real requests and the source has
-   no writers. Preserve the source database for recovery.
+- `google_sql_database_instance.push_dedicated`
+- `google_sql_database.push_dedicated`
+- `random_password.push_dedicated_database`
+- `google_sql_user.push_dedicated`
+- `google_secret_manager_secret.push_dedicated_database_url`
+- `google_secret_manager_secret_version.push_dedicated_database_url`
+- `google_secret_manager_secret_iam_member.push_dedicated_database_url_accessor`
 
-Before destination writes, rollback can return to the fenced source after removing maintenance.
-After destination writes, rolling traffic to the old revision alone loses new registrations and
-queue state. Fence writers again and reconcile the authoritative destination back to the source,
-or roll back application code while keeping the destination database attachment. Rehearse this
-path before production cutover.
+Require exactly seven additions and no updates or deletions for initial provisioning.
+Apply that saved plan with backend locking, then require the same targeted plan to be
+empty. Keep sensitive Terraform plans access-restricted; never print secret values or
+upload raw state/plan JSON. Verify the instance is RUNNABLE with the expected version,
+tier, backup policy, and regional availability. No Cloud Run service changes in this step.
 
-## Capacity after migration
+## Activate the empty store
 
-Do not raise `push_database_pool_max` on the shared instance. Its current four-connection serving
-allocation remains enforced until migration completes. A dedicated pool needs a measured budget
-covering all serving replicas, the tagged deployment candidate, startup migrations, maintenance,
-and operator connections. The local eight-connection probe is evidence of pool contention, not a
-production sizing guarantee. Update the deployment scaling assertions and shared SQL budget contract
-when the attachment changes; preserve rollout serialization until no shared-store writers remain.
+1. Record the current immutable serving image, revision, SQL attachment, and database
+   secret reference. Confirm traffic is pinned to that revision rather than LATEST.
+2. Set `push_dedicated_database_active = true` in production. Save a targeted plan for
+   `google_cloud_run_v2_service.push`. Inspect its dependency closure and reject unrelated
+   changes. Require only the SQL attachment and database secret reference to change.
+3. Hold the existing Cloud SQL rollout lease while applying that saved service-shape plan.
+   Terraform ignores traffic and image; verify traffic remains pinned to the old revision.
+   Do not apply a plan that would shift traffic or revert runtime configuration.
+4. Dispatch `cloud-push-deploy.yml` from main with the exact reviewed source SHA. It creates
+   a no-traffic candidate inheriting the dedicated attachment, probes readiness and provider
+   access, and promotes it under the same rollout lease. Verify the candidate's SQL
+   attachment and pinned secret reference as well as its image and health.
+5. Register a test phone against the deployed origin and prove real APNs delivery. Check
+   database errors and confirm the old revisions have no traffic or tags and source SQL
+   connections have drained. Leave the old database intact; do not delete shared resources.
+
+If activation fails before promotion, the existing serving revision is unchanged.
+The deploy workflow can roll traffic back on failure; in this internal reset rollout,
+that may discard registrations created during the probe window. After successful activation,
+application rollback should retain the dedicated attachment and deploy an older compatible
+image through the workflow. Returning to the shared store is another explicit state reset,
+not a lossless rollback. Future public migrations require a separately rehearsed transfer.
+
+## Capacity and resizing
+
+The initial gateway keeps its existing two-connection pool and two-instance maximum.
+Dedicated database rollout pools are capped at 64 total connections across serving and
+candidate revisions, leaving room for maintenance and operators; this is an admission
+budget, not a throughput claim. Increase the pool only after measuring deployed contention.
+Keep the shared database allocation reserved until source connections have drained.
+
+Cloud SQL CPU/RAM resizing is an in-place infrastructure change but can interrupt database
+connections. HA does not make a resize interruption-free. Durable accepted events remain in
+SQL and workers retry after recovery within their five-minute expiry; requests that never
+reach durable acceptance depend on client retries. Schedule resizes and verify reconnection,
+queue recovery, readiness, and real delivery afterward.

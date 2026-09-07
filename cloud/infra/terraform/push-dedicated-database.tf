@@ -1,13 +1,21 @@
-# Provision independently of cutover: existing registrations stay on the shared instance
-# until a verified migration switches the gateway's SQL attachment and pinned secret.
+# Provision independently of the gateway's SQL attachment switch.
 variable "push_dedicated_database_enabled" {
   type        = bool
   description = "Provision the dedicated push database without switching live gateway traffic."
   default     = false
 }
 
+variable "push_dedicated_database_active" {
+  type        = bool
+  description = "Attach the gateway to the provisioned dedicated database; does not copy existing state."
+  default     = false
+}
+
 locals {
   push_dedicated_database_count = var.push_gateway_enabled && var.push_dedicated_database_enabled ? 1 : 0
+  push_database_connection_name = var.push_dedicated_database_active ? google_sql_database_instance.push_dedicated[0].connection_name : local.relay_database_connection_name
+  push_database_secret_id       = var.push_dedicated_database_active ? google_secret_manager_secret.push_dedicated_database_url[0].secret_id : google_secret_manager_secret.push_database_url[0].secret_id
+  push_database_secret_version  = var.push_dedicated_database_active ? google_secret_manager_secret_version.push_dedicated_database_url[0].version : "latest"
 }
 
 resource "google_sql_database_instance" "push_dedicated" {
@@ -16,7 +24,7 @@ resource "google_sql_database_instance" "push_dedicated" {
   project             = var.project_id
   name                = "${var.name_prefix}-push-db"
   region              = var.region
-  database_version    = "POSTGRES_16"
+  database_version    = "POSTGRES_17"
   deletion_protection = true
 
   settings {
