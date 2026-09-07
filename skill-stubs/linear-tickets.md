@@ -5,7 +5,7 @@ This discovery stub uses the legacy name `linear-tickets` for `orca-linear`; bot
 
 <!-- shared: resolver -->
 
-## Load the full guide before running Orca commands
+## Load the version-matched guide before running Orca commands
 
 ```text
 ORCA skills get linear-tickets

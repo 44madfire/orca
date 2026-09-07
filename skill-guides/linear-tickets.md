@@ -53,6 +53,9 @@ Do not use `ORCA linear attach` to read screenshots. That command creates link a
 
 ## Discovery And Triage
 
+For operations not shown here, run `ORCA linear --help`, then `ORCA linear <command> --help`
+before choosing flags.
+
 Use discovery before mutating fields when you do not already have stable IDs. Run only the command for the metadata you need; do not execute the entire block:
 
 ```bash

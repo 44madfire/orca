@@ -4,7 +4,7 @@ This discovery stub loads the version-matched guide from the Orca executable use
 
 <!-- shared: resolver -->
 
-## Load the full guide before running Orca commands
+## Load the version-matched guide before running Orca commands
 
 ```text
 ORCA skills get orca-linear

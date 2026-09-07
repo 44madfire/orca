@@ -7,7 +7,7 @@ handles device scoping, helper lifecycle, and worktree context.
 
 <!-- shared: resolver -->
 
-## Load the full guide before running Orca commands
+## Load the version-matched guide before running Orca commands
 
 ```text
 ORCA skills get orca-emulator

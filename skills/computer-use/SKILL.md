@@ -29,7 +29,7 @@ same way in POSIX shells, PowerShell, and cmd.exe.
 If the selected executable cannot run, report its exact error and stop. Do not fall through
 to another executable, which could silently target a different Orca build.
 
-## Load the full guide before running Orca commands
+## Load the version-matched guide before running Orca commands
 
 ```text
 ORCA skills get computer-use
