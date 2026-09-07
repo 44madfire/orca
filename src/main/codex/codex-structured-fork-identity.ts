@@ -37,3 +37,22 @@ export function assertCodexForkedIdentities(
     }
   }
 }
+
+export function assertCodexForkedTurnIds(
+  fork: AgentSessionForkTarget,
+  turnIds: readonly string[]
+): void {
+  const expected = new Set(
+    (fork.retainedItemIds ?? []).flatMap((key) => {
+      const identity = parseAgentJournalItemKey(key)
+      return identity?.provider === 'codex' ? [identity.turnId] : []
+    })
+  )
+  if (
+    !expected.has(fork.throughId) ||
+    expected.size !== turnIds.length ||
+    turnIds.some((id) => !expected.has(id))
+  ) {
+    throw new Error('agent_session_fork:proof-mismatch')
+  }
+}

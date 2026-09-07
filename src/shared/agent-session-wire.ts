@@ -1,3 +1,4 @@
+import type { AgentSessionForkSupport } from './agent-session-fork'
 import type { AgentSessionRewindReason, AgentSessionRewindSupport } from './agent-session-rewind'
 import type { AgentSessionConversationCommand } from './agent-session-conversation-command'
 // ─── Structured agent-session wire contract ─────────────────────────────────
@@ -353,7 +354,7 @@ export type AgentSessionCommandsResult = {
 /** Provider-reported choices and effective next-turn values. Additive read-only
  *  surface so older hosts can reject it without changing structured v1 writes. */
 export type AgentSessionOptionsResult = {
-  fork?: { supported: boolean }
+  fork?: AgentSessionForkSupport
   rewind?: AgentSessionRewindSupport
   conversationCommands?: readonly AgentSessionConversationCommand[]
   models: AgentSessionModelOption[]

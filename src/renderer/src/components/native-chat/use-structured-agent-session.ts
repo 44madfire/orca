@@ -1,7 +1,5 @@
-import {
-  structuredSessionForkState,
-  type StructuredSessionConversationSupport
-} from './structured-agent-session-fork-state'
+import { structuredAgentSessionForkAvailable } from '@/runtime/structured-agent-session-client'
+import * as forkState from './structured-agent-session-fork-state'
 import * as conversationCommands from './structured-conversation-command-send'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentType } from '../../../../shared/agent-status-types'
@@ -61,7 +59,7 @@ export function useStructuredAgentSession(args: {
   const [writeError, setWriteError] = useState<string | null>(null)
   const operationIds = useRef(new Map<string, string>())
   const [conversationSupport, setConversationSupport] =
-    useState<StructuredSessionConversationSupport | null>(null)
+    useState<forkState.StructuredSessionConversationSupport | null>(null)
   const commandPending = useRef(false)
   const [optionState, setOptionState] = useState(() =>
     createStructuredAgentSessionOptionState(agent)
@@ -170,12 +168,14 @@ export function useStructuredAgentSession(args: {
         sessionId
       }
     )
-      .then((result) => {
+      .then(async (result) => {
+        const forkAvailable =
+          result.fork?.supported === true && (await structuredAgentSessionForkAvailable(target))
         if (!stale) {
           setConversationSupport({
             sessionId,
             commands: result.conversationCommands ?? [],
-            forkSupported: result.fork?.supported === true
+            forkSupported: forkAvailable
           })
           setOptionState((current) =>
             current.record === activeOptionRecordRef.current
@@ -256,7 +256,7 @@ export function useStructuredAgentSession(args: {
 
   const prompts = pendingStructuredSessionPrompts(state.items)
   return {
-    ...structuredSessionForkState(state, sessionId, conversationSupport),
+    ...forkState.structuredSessionForkState(state, sessionId, conversationSupport),
     conversationCommands:
       conversationSupport?.sessionId === sessionId ? conversationSupport.commands : [],
     runConversationCommand: conversationCommands.structuredConversationCommandRunner(

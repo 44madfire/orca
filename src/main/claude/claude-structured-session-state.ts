@@ -1,4 +1,3 @@
-import type { proveClaudeStructuredFork } from './claude-structured-fork-proof'
 import type {
   AgentJournalItemIdentity,
   AgentSessionJournalIdentity
@@ -77,7 +76,6 @@ export type ClaudeStructuredSessionAdapterDeps = {
   mintAcquisitionGeneration?: () => string
   now?: () => number
   requestTimeoutMs?: number
-  proveFork?: typeof proveClaudeStructuredFork
   initTimeoutMs?: number
   dispatchAckTimeoutMs?: number
   persistHandle?: (input: {

@@ -1,4 +1,7 @@
-import type { AgentSessionForkTarget } from '../../../shared/agent-session-fork'
+import type {
+  AgentSessionForkSupport,
+  AgentSessionForkTarget
+} from '../../../shared/agent-session-fork'
 import type {
   AgentSessionRewindReason,
   AgentSessionRewindSupport
@@ -152,6 +155,7 @@ export type StructuredAgentSessionAdapter = {
     body: AgentJournalMessageItem
     fence: number
   }): Promise<AgentSessionDispatchOutcome>
+  forkSupport?: (sessionId: string) => AgentSessionForkSupport
   rewindSupport?(sessionId: string): AgentSessionRewindSupport
   recoverRewind?(input: {
     sessionId: string

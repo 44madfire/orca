@@ -4,7 +4,10 @@ import type {
   AgentSessionSubscribeEvent
 } from '../../../shared/agent-session-wire'
 import { getRuntimeEnvironmentRevision } from './runtime-environment-revision'
-import { AGENT_SESSION_REWIND_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
+import {
+  AGENT_SESSION_FORK_RUNTIME_CAPABILITY,
+  AGENT_SESSION_REWIND_RUNTIME_CAPABILITY
+} from '../../../shared/protocol-version'
 import {
   callRuntimeRpc,
   runtimeEnvironmentSupportsCapability,
@@ -25,6 +28,15 @@ export async function callStructuredAgentSession<TResult>(
     ))
   ) {
     throw new Error('Rewinding requires a newer Orca server. Update the server and try again.')
+  }
+  if (
+    method === 'agentSession.create' &&
+    params &&
+    typeof params === 'object' &&
+    'forkFrom' in params &&
+    !(await structuredAgentSessionForkAvailable(target))
+  ) {
+    throw new Error('Forking requires a newer Orca server. Update the server and try again.')
   }
   return method === 'agentSession.conversationCommand'
     ? callRuntimeRpc<TResult>(target, method, params, { timeoutMs: 195_000 })
@@ -93,4 +105,13 @@ export function subscribeStructuredAgentSessionStatus(
     onError,
     onClose
   )
+}
+
+export function structuredAgentSessionForkAvailable(target: RuntimeClientTarget): Promise<boolean> {
+  return target.kind === 'local'
+    ? Promise.resolve(true)
+    : runtimeEnvironmentSupportsCapability(
+        target.environmentId,
+        AGENT_SESSION_FORK_RUNTIME_CAPABILITY
+      )
 }

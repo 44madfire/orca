@@ -111,6 +111,7 @@ async function setup(provider: 'claude' | 'codex' = 'codex') {
   })
   const adapter: StructuredAgentSessionAdapter = {
     acquire,
+    forkSupport: () => ({ supported: true }),
     dispatch,
     releaseAcquisition: async () => true,
     closeSession: async () => true,

@@ -1,4 +1,9 @@
-import { assertCodexForkedIdentities } from './codex-structured-fork-identity'
+import type { CodexSession } from './codex-structured-session-state'
+import type { AgentSessionForkSupport } from '../../shared/agent-session-fork'
+import {
+  assertCodexForkedIdentities,
+  assertCodexForkedTurnIds
+} from './codex-structured-fork-identity'
 import type { AgentSessionForkTarget } from '../../shared/agent-session-fork'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import { verifyCodexRevertedHistory } from './codex-structured-rewind'
@@ -13,11 +18,23 @@ export async function verifyCodexForkedHistory(
     { connection, threadId },
     { turnsBackwardsCursor: null, itemsBackwardsCursor: null },
     '',
-    timeoutMs
+    timeoutMs,
+    'absent',
+    (turnIds) => assertCodexForkedTurnIds(fork, turnIds)
   )
   assertCodexForkedIdentities(
     threadId,
     fork,
     items.map((item) => item.identity)
   )
+}
+
+export function codexSessionForkSupport(
+  session: CodexSession | undefined
+): AgentSessionForkSupport {
+  return !session
+    ? { supported: false, reason: 'unsupported' }
+    : session.historyMode === 'legacy'
+      ? { supported: false, reason: 'history-not-paginated' }
+      : { supported: true }
 }

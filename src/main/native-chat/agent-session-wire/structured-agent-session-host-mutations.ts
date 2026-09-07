@@ -158,7 +158,10 @@ export function readStructuredAgentSessionOptions(
     const options = await context.deps.adapter.readOptions({ sessionId, fence: session.fence })
     return {
       ...options,
-      fork: { supported: true },
+      fork: context.deps.adapter.forkSupport?.(sessionId) ?? {
+        supported: false,
+        reason: 'unsupported'
+      },
       rewind:
         context.deps.store.getRecord(sessionId)?.rewind?.phase === 'prepared' ||
         context.deps.store.getRecord(sessionId)?.rewind?.phase === 'provider-succeeded'

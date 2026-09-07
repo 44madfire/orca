@@ -20,7 +20,6 @@ import { attachStructuredAgentSession } from './structured-agent-session-attach-
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-host-mutations'
 import type { StructuredAgentSessionCaller } from './structured-agent-session-host-types'
 import { conversationCommandBlocked } from './structured-conversation-command-admission'
-import { AGENT_SESSION_HISTORY_MAX_PAGE_BYTES } from './agent-session-history-page-bounds'
 
 export function forkStructuredAgentSession(
   context: StructuredAgentSessionMutationContext,
@@ -67,6 +66,10 @@ export function forkStructuredAgentSession(
     }
     let fork = prior
     if (!fork) {
+      const support = context.deps.adapter.forkSupport?.(source.sessionId)
+      if (!support?.supported) {
+        return refuse(support?.reason === 'history-not-paginated' ? support.reason : 'unsupported')
+      }
       const session = context.sessions.get(source.sessionId)
       if (!parent || !session || !agentSessionLeaseAdmitsWriter(parent.lease)) {
         return refuse('busy')
@@ -103,12 +106,6 @@ export function forkStructuredAgentSession(
         body,
         observedAt
       }))
-      if (
-        retained.length > 10_000 ||
-        Buffer.byteLength(JSON.stringify(retained), 'utf8') > AGENT_SESSION_HISTORY_MAX_PAGE_BYTES
-      ) {
-        return refuse('history-limit')
-      }
       try {
         forkJournalSeed(retained, head, head)
       } catch {

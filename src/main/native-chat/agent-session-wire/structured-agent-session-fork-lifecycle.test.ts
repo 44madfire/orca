@@ -157,6 +157,35 @@ describe('durable fork lifecycle', () => {
     }
   )
 
+  it('rolls back the anchor when the fork link fails validation in the owner transaction', async () => {
+    const { root, store, record } = await prepare()
+    await beginStructuredForkAttempt(store, record)
+    await store.commitProcessIdentity({
+      sessionId: record.sessionId,
+      fence: 1,
+      process: { hostId: 'local', pid: 123, processStartTimeMs: NOW, spawnToken: 'child-token' },
+      now: NOW
+    })
+    await expect(
+      store.proveOwner({
+        sessionId: record.sessionId,
+        fence: 1,
+        now: NOW,
+        link: {
+          linkId: 'invalid',
+          handle: { provider: 'codex', threadId: 'child' },
+          origin: 'forked',
+          forkedFromKey: 'codex:wrong-parent',
+          mintedAtFence: 1,
+          observedAt: NOW
+        }
+      })
+    ).rejects.toThrow('agent_session_provider_handle_invalid')
+    const reopened = await AgentSessionRecordStore.open({ directory: root, hostId: 'local' })
+    expect(reopened.getRecord(record.sessionId)?.providerHandleChain).toEqual([])
+    expect(reopened.getRecord(record.sessionId)?.fork?.phase).toBe('attempted')
+  })
+
   it('uses the existing chain validator to reject unchanged roots', async () => {
     const { record } = await prepare()
     expect(() =>

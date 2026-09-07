@@ -33,8 +33,15 @@ export function forkJournalIdentity(
     }
   }
   if (identity.provider === 'claude' && target.provider === 'claude') {
-    // Copied transcript records retain their own sessionId as well as their UUID.
-    return { provider: 'claude', sessionId: identity.sessionId, uuid: identity.uuid }
+    // Forked files rewrite sessionId; retained UUIDs still belong to the parent namespace.
+    return {
+      provider: 'claude',
+      sessionId:
+        identity.sessionId === target.sessionId && source.provider === 'claude'
+          ? source.sessionId
+          : identity.sessionId,
+      uuid: identity.uuid
+    }
   }
   throw new Error('agent_session_identity_required')
 }

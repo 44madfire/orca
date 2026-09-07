@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { ClaudeStructuredSessionAdapter } from './claude-structured-session-adapter'
 import { claudeSessionIdForOrcaSession } from './claude-structured-launch-resolution'
 import {
@@ -15,8 +15,8 @@ const fork = {
   retainedItemIds: [`claude:${PROVIDER_SESSION_ID}:selected`]
 } as const
 
-function setup(proveFork: () => Promise<void>) {
-  const fake = fakeClaude({ initSessionId: childId })
+function setup(initSessionId = childId) {
+  const fake = fakeClaude({ initSessionId })
   const adapter = new ClaudeStructuredSessionAdapter({
     resolveLaunch: async () => ({
       pathToClaudeCodeExecutable: 'claude',
@@ -28,16 +28,14 @@ function setup(proveFork: () => Promise<void>) {
       resumed: true
     }),
     openConnection: fake.openConnection,
-    readProcessStartTime: async () => 123,
-    proveFork
+    readProcessStartTime: async () => 123
   })
   return { fake, adapter }
 }
 
 describe('Claude fork acquisition', () => {
-  it('opens a new provider session and proves the retained cursor before returning ownership', async () => {
-    const prove = vi.fn(async () => {})
-    const { fake, adapter } = setup(prove)
+  it('opens a fork without requiring a lazily created child transcript', async () => {
+    const { fake, adapter } = setup()
     try {
       const acquired = await adapter.acquire({
         identity: identityFor(sessionId),
@@ -56,17 +54,13 @@ describe('Claude fork acquisition', () => {
         resumeSessionAt: 'selected',
         sessionId: childId
       })
-      expect(prove).toHaveBeenCalledTimes(1)
     } finally {
       await adapter.closeSession(sessionId)
     }
   })
 
-  it('closes an unproved child and refuses ownership when history ends at another UUID', async () => {
-    const prove = vi.fn(async () => {
-      throw new Error('agent_session_fork:proof-mismatch')
-    })
-    const { fake, adapter } = setup(prove)
+  it('closes a child that announces an unexpected provider identity', async () => {
+    const { fake, adapter } = setup(PROVIDER_SESSION_ID)
     await expect(
       adapter.acquire({
         identity: identityFor(sessionId),
@@ -74,8 +68,7 @@ describe('Claude fork acquisition', () => {
         spawnToken: 'child-token',
         fork
       })
-    ).rejects.toThrow('proof-mismatch')
+    ).rejects.toThrow()
     expect(fake.connections[0]?.closed).toBe(true)
-    expect(prove).toHaveBeenCalledTimes(1)
   })
 })

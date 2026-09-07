@@ -54,6 +54,26 @@ describe('fork journal identities', () => {
     )
   })
 
+  it('keys a rewritten Claude transcript prefix by the parent session and original UUID', () => {
+    const transcript = [
+      { sessionId: 'child', uuid: 'prompt' },
+      { sessionId: 'child', uuid: 'answer' }
+    ]
+    const seed = forkJournalSeed(
+      transcript.map((row) => ({
+        itemId: agentJournalItemKey({ provider: 'claude', ...row }),
+        body,
+        observedAt: 123
+      })),
+      { provider: 'claude', sessionId: 'parent', leafUuid: 'answer' },
+      { provider: 'claude', sessionId: 'child', leafUuid: 'answer' }
+    )
+    expect(seed.map((item) => agentJournalItemKey(item.identity))).toEqual([
+      'claude:parent:prompt',
+      'claude:parent:answer'
+    ])
+  })
+
   it('refuses foreign provider and thread identities instead of collapsing namespaces', () => {
     expect(() =>
       forkJournalIdentity(

@@ -1,4 +1,3 @@
-import { proveClaudeStructuredFork } from './claude-structured-fork-proof'
 import { applyClaudeStructuredForkLaunch } from './claude-structured-fork-launch'
 import { ClaudeRewindAttempt, proveClaudeRewindRecovery } from './claude-structured-rewind'
 import {
@@ -241,9 +240,6 @@ export async function acquireClaudeSession({
       throw new Error(
         `claude proved session ${init.providerSessionId}, expected ${launch.providerSessionId}`
       )
-    }
-    if (input.fork) {
-      await (deps.proveFork ?? proveClaudeStructuredFork)(launch, input.fork)
     }
     const settings = await connection
       .getSettings({ timeoutMs: deps.requestTimeoutMs })
