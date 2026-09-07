@@ -215,6 +215,26 @@ function quotePortableUnixArg(value: string): string {
   return parts.join('')
 }
 
+/** Characters that stop `quoteStartupArg(value, 'cmd')`'s `"value"` output from
+ * parsing identically in PowerShell. Two reasons a char lands here:
+ *  - cmd quoting `^`-escapes it (`& | < > ( ) ^ % ! "`), and PowerShell does NOT
+ *    strip the caret, so `"a^&b"` arrives as literal `a^&b` in a PowerShell pane;
+ *  - PowerShell expands it inside a double-quoted string while cmd keeps it
+ *    literal — `$` (variables / `$(...)`) and a backtick (escape char). */
+const CMD_QUOTING_POWERSHELL_UNSAFE = /[\^&|<>()%!"$`]/
+
+/** True when `quoteStartupArg(value, 'cmd')` also parses identically in
+ * PowerShell — i.e. `"value"` is the literal `value` in BOTH shells. Used to
+ * decide the resume race guess when the pane's shell is not yet known: cmd
+ * quoting of such a token is safe whether the pane turns out cmd or PowerShell.
+ * A token with an unsafe char, or a trailing backslash (which would turn the
+ * appended closing quote into an escaped quote for the child's
+ * CommandLineToArgvW parser, e.g. `"C:\dir\"`), fails and keeps the caller on
+ * its shell default. */
+export function isCmdQuotingPowerShellSafe(value: string): boolean {
+  return !CMD_QUOTING_POWERSHELL_UNSAFE.test(value) && !value.endsWith('\\')
+}
+
 export function quoteStartupArg(value: string, shell: AgentStartupShell): string {
   if (shell === 'powershell') {
     return `'${value.replace(/'/g, "''")}'`

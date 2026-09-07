@@ -462,10 +462,12 @@ describe('connectPanePty', () => {
   })
 
   // Regression (#12320 residual): a cold restore after restart can run before the
-  // store hydrates `settings`, so terminalWindowsShell is momentarily undefined. The
-  // spawn side then launches %COMSPEC% (cmd.exe), so the resume must be cmd-quoted —
-  // PowerShell single quotes reach cmd.exe literally ("unrecognized subcommand
-  // ''resume''"), which is exactly the field report on a released build.
+  // store hydrates `settings`, so terminalWindowsShell is momentarily undefined and
+  // the pane may be the cmd.exe default. The codex resume argv is cmd-quote-safe, so
+  // the target resolver's race guess picks cmd — a bare "token" that also parses
+  // identically in PowerShell, so it fixes the cmd pane with no PowerShell risk.
+  // Before the guess, PowerShell single quotes reached cmd.exe literally
+  // ("unrecognized subcommand ''resume''"), exactly the field report.
   it('quotes for cmd.exe on cold restore when the shell setting has not hydrated', async () => {
     await expect(runWindowsColdRestoreResume({})).resolves.toBe(
       'codex "--dangerously-bypass-approvals-and-sandbox" "resume" "codex-session-1"'

@@ -3,6 +3,7 @@ import {
   buildShellCommandFromArgv,
   clearEnvCommand,
   commandSeparator,
+  isCmdQuotingPowerShellSafe,
   isPosixStartupShell,
   quoteStartupArg,
   tokenizeStartupCommand
@@ -146,5 +147,50 @@ describe('one Unix startup dialect', () => {
       `pi; command test -n "$fish_pid" && set --erase -g ORCA_PI_PREFILL; command test -z "$fish_pid" && unset ORCA_PI_PREFILL; true`
     )
     expect(plan?.env?.ORCA_PI_PREFILL).toBe('hello')
+  })
+})
+
+describe('isCmdQuotingPowerShellSafe', () => {
+  it('accepts tokens cmd quotes as a bare "token" (safe in cmd AND PowerShell)', () => {
+    // Every id-based resume argv token: binary names, flags and UUIDs.
+    for (const token of [
+      'codex',
+      'resume',
+      'a1b2c3d4-0000-4000-8000-000000000000',
+      '--dangerously-bypass-approvals-and-sandbox',
+      '--resume=abc',
+      'C:\\Users\\neil\\repo'
+    ]) {
+      expect(isCmdQuotingPowerShellSafe(token)).toBe(true)
+      // Contract: a safe token quotes to the same bare "token" in both shells.
+      expect(quoteStartupArg(token, 'cmd')).toBe(`"${token}"`)
+    }
+  })
+
+  it('rejects tokens that cmd would ^-escape, which corrupts them in a PowerShell pane', () => {
+    for (const token of [
+      'C:\\Users\\neil\\AppData (x86)\\omp\\session.jsonl',
+      'a&b',
+      'pct%VALUE%',
+      'a|b',
+      'a<b>c',
+      'has"quote'
+    ]) {
+      expect(isCmdQuotingPowerShellSafe(token)).toBe(false)
+    }
+  })
+
+  it('rejects tokens PowerShell expands inside double quotes ($ and backtick) even though cmd keeps them literal', () => {
+    // `"$env"` / "a`b" parse literally in cmd but expand/escape in PowerShell.
+    for (const token of ['$env', 'a$b', 'has`backtick', '`n']) {
+      expect(isCmdQuotingPowerShellSafe(token)).toBe(false)
+    }
+  })
+
+  it('rejects a trailing backslash, which would escape the appended closing quote', () => {
+    // `"C:\dir\"` → the child CommandLineToArgvW sees \" as a literal quote.
+    expect(isCmdQuotingPowerShellSafe('C:\\dir\\')).toBe(false)
+    // A backslash NOT at the end (a normal Windows path) stays safe.
+    expect(isCmdQuotingPowerShellSafe('C:\\dir\\file.jsonl')).toBe(true)
   })
 })

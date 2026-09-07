@@ -8,6 +8,7 @@ import {
 } from '../../../../../shared/tui-agent-launch-defaults'
 import {
   agentProviderSessionsEqual,
+  getAgentResumeArgv,
   isResumableTuiAgent,
   normalizeAgentProviderSession
 } from '../../../../../shared/agent-session-resume'
@@ -49,6 +50,10 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
     const launchConfig =
       (useLiveEntry && entry ? state.getAgentLaunchConfigForStatusEntry(entry) : undefined) ??
       matchingSleepingLaunchConfig
+    const effectiveAgentArgs =
+      launchConfig !== undefined
+        ? launchConfig.agentArgs
+        : resolveTuiAgentLaunchArgs(agent, state.settings?.agentDefaultArgs)
     // Why: the resume line is typed into this pane's live shell, so its quoting must
     // follow the tab's effective Windows shell, not the win32 PowerShell default.
     const resumeTarget = resolveAgentResumeLaunchTarget({
@@ -57,16 +62,19 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
       executionHostId: session.executionHostId,
       worktreePath: session.worktree?.path,
       terminalWindowsShell: state.settings?.terminalWindowsShell,
-      tabShellOverride: session.shellOverride
+      tabShellOverride: session.shellOverride,
+      // The cold-restore path can run before the store hydrates the shell setting;
+      // pass the resume argv (and agentArgs, unless a custom command supersedes
+      // them) so the target resolver's race guess can prove cmd-quoting is safe.
+      resumeArgv:
+        getAgentResumeArgv(agent, providerSession, launchConfig?.ompResumeFilePath) ?? undefined,
+      resumeAgentArgs: launchConfig?.agentCommand?.trim() ? null : effectiveAgentArgs
     })
     const startupPlan = buildAgentResumeStartupPlan({
       agent,
       providerSession,
       cmdOverrides: state.settings?.agentCmdOverrides ?? {},
-      agentArgs:
-        launchConfig !== undefined
-          ? launchConfig.agentArgs
-          : resolveTuiAgentLaunchArgs(agent, state.settings?.agentDefaultArgs),
+      agentArgs: effectiveAgentArgs,
       agentEnv:
         launchConfig !== undefined
           ? launchConfig.agentEnv

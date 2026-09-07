@@ -68,9 +68,10 @@ describe('resolveLocalWindowsAgentStartupShell', () => {
     ).toBe('posix')
   })
 
-  it('defaults an unset local Windows shell to cmd, mirroring the %COMSPEC% spawn fallback', () => {
-    // Why not PowerShell: the spawn side launches %COMSPEC% (cmd.exe) when no shell
-    // is configured, so quoting must match or single quotes reach cmd.exe literally.
+  it('defaults an unset local Windows shell to PowerShell, matching the win32 default', () => {
+    // The resume race guess that may prefer cmd for an unset shell lives in
+    // resolveAgentResumeLaunchTarget, not here; this resolver reflects only the
+    // configured shell and its win32 default.
     for (const shell of [undefined, null, '', '   ']) {
       expect(
         resolveLocalWindowsAgentStartupShell({
@@ -78,7 +79,7 @@ describe('resolveLocalWindowsAgentStartupShell', () => {
           isRemote: false,
           terminalWindowsShell: shell
         })
-      ).toBe('cmd')
+      ).toBe('powershell')
     }
   })
 })

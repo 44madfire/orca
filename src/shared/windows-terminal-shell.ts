@@ -52,16 +52,5 @@ export function resolveLocalWindowsAgentStartupShell(args: {
   if (args.platform !== 'win32' || args.isRemote) {
     return undefined
   }
-  // Why cmd, not the PowerShell default: with no configured shell the spawn side
-  // falls back to %COMSPEC% (cmd.exe) — local-pty-launch-plan.ts and
-  // local-pty-session-operations.ts both `... || process.env.COMSPEC || 'powershell.exe'`.
-  // A cold restore right after restart can run before the renderer store hydrates
-  // `settings`, so terminalWindowsShell is momentarily empty; predicting PowerShell
-  // then quotes the resume argv in single quotes that cmd.exe passes through
-  // literally, breaking the resume (#12320 residual: codex "unrecognized subcommand
-  // ''resume''", claude reads '--dangerously-skip-permissions' as a prompt).
-  if (!args.terminalWindowsShell?.trim()) {
-    return 'cmd'
-  }
   return resolveWindowsShellStartupFamily(args.terminalWindowsShell)
 }

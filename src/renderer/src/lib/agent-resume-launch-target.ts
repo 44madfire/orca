@@ -4,7 +4,11 @@ import { parseExecutionHostId } from '../../../shared/execution-host'
 import { isWslUncPath } from '../../../shared/wsl-paths'
 import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
 import type { ProjectExecutionRuntimeResolution } from '../../../shared/project-execution-runtime'
-import type { AgentStartupShell } from '../../../shared/tui-agent-startup-shell'
+import {
+  isCmdQuotingPowerShellSafe,
+  tokenizeStartupCommand,
+  type AgentStartupShell
+} from '../../../shared/tui-agent-startup-shell'
 
 export type AgentResumeLaunchTarget = {
   platform: NodeJS.Platform
@@ -22,6 +26,16 @@ export type AgentResumeLaunchTargetArgs = {
   terminalWindowsShell: string | null | undefined
   /** Per-tab Windows shell override, which beats the global setting at spawn time. */
   tabShellOverride?: string | null
+  /** The resume argv this quoting is for. Only consulted for the cold-restore
+   *  race guess below; omit it and the guess never fires. */
+  resumeArgv?: readonly string[] | null
+  /** The raw agentArgs suffix the built command will tokenize and `^`-escape
+   *  per token (unless a custom agentCommand supersedes them, in which case pass
+   *  null). The race-guess gate tokenizes it the same way and vets each token,
+   *  so a cmd guess can never `^`-corrupt an agentArg token in a PowerShell race
+   *  pane — including an INTERIOR token ending in `\`, which a whole-string
+   *  check would miss. */
+  resumeAgentArgs?: string | null
 }
 
 function resolveResumeLaunchPlatform(args: AgentResumeLaunchTargetArgs): NodeJS.Platform {
@@ -47,16 +61,44 @@ export function resolveAgentResumeLaunchTarget(
   args: AgentResumeLaunchTargetArgs
 ): AgentResumeLaunchTarget {
   const platform = resolveResumeLaunchPlatform(args)
-  return {
+  const isRemote =
+    Boolean(args.connectionId) || parseExecutionHostId(args.executionHostId)?.kind !== 'local'
+  const effectiveWindowsShell = resolveWindowsShellOverride(
+    args.tabShellOverride,
+    args.terminalWindowsShell
+  )
+  const shell = resolveLocalWindowsAgentStartupShell({
     platform,
-    shell: resolveLocalWindowsAgentStartupShell({
-      platform,
-      isRemote:
-        Boolean(args.connectionId) || parseExecutionHostId(args.executionHostId)?.kind !== 'local',
-      terminalWindowsShell: resolveWindowsShellOverride(
-        args.tabShellOverride,
-        args.terminalWindowsShell
-      )
-    })
+    isRemote,
+    terminalWindowsShell: effectiveWindowsShell
+  })
+  // Cold-restore race guess (#12320): a resume typed right after restart can run
+  // before the renderer store hydrates `settings`, so terminalWindowsShell is
+  // momentarily empty and we can't read which shell main actually spawned — the
+  // user's configured shell if set, otherwise the powershell.exe default. We
+  // still guess cmd here, but ONLY when every piece of free text the command
+  // `^`-escapes is cmd-quote-safe: `"<token>"` then parses identically in cmd
+  // AND PowerShell, so a configured cmd.exe pane is fixed (single quotes no
+  // longer reach it literally) with no risk to a PowerShell pane. Codex/Claude
+  // and every id-based agent qualify (clean flags + UUIDs). A path-carrying
+  // token (pi/prime-agent/omp transcript path, or a path in agentArgs, e.g.
+  // under `...\dir (x86)\...`) fails the gate and is left on the PowerShell
+  // default, because cmd `^`-escaping would corrupt it in a PowerShell race
+  // pane — never worse than the pre-guard behavior.
+  if (shell === 'powershell' && !effectiveWindowsShell?.trim() && args.resumeArgv) {
+    // Vet agentArgs as the command emits them — tokenized with cmd rules and
+    // `^`-escaped per token — not as one raw string: the safety of a token
+    // ending in `\` (arg-merge in cmd) is positional, so an interior token
+    // would slip a whole-string check.
+    const agentArgs = args.resumeAgentArgs?.trim()
+      ? tokenizeStartupCommand(args.resumeAgentArgs, 'cmd')
+      : null
+    if (!agentArgs || agentArgs.ok) {
+      const guardTokens = [...args.resumeArgv, ...(agentArgs?.tokens ?? [])]
+      if (guardTokens.every((token) => isCmdQuotingPowerShellSafe(token))) {
+        return { platform, shell: 'cmd' }
+      }
+    }
   }
+  return { platform, shell }
 }

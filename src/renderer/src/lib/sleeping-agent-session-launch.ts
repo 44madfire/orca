@@ -13,7 +13,10 @@ import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
 } from '../../../shared/tui-agent-launch-defaults'
-import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
+import {
+  getAgentResumeArgv,
+  type SleepingAgentSessionRecord
+} from '../../../shared/agent-session-resume'
 import { translate } from '@/i18n/i18n'
 
 export type ResumeSleepingAgentSessionsOptions = {
@@ -28,7 +31,11 @@ export type ResumeSleepingAgentSessionsOptions = {
   onSessionLaunched?: (tabId: string) => void
 }
 
-function getResumeLaunchTarget(worktreeId: string): AgentResumeLaunchTarget {
+function getResumeLaunchTarget(
+  record: SleepingAgentSessionRecord,
+  effectiveAgentArgs: string | null | undefined
+): AgentResumeLaunchTarget {
+  const worktreeId = record.worktreeId
   const state = useAppStore.getState()
   const worktree = state.getKnownWorktreeById(worktreeId)
   const repo = worktree ? state.repos.find((entry) => entry.id === worktree.repoId) : null
@@ -38,7 +45,14 @@ function getResumeLaunchTarget(worktreeId: string): AgentResumeLaunchTarget {
     connectionId: repo?.connectionId,
     executionHostId: getExecutionHostIdForWorktree(state, worktreeId),
     worktreePath: worktree?.path,
-    terminalWindowsShell: state.settings?.terminalWindowsShell
+    terminalWindowsShell: state.settings?.terminalWindowsShell,
+    resumeArgv:
+      getAgentResumeArgv(
+        record.agent,
+        record.providerSession,
+        record.launchConfig?.ompResumeFilePath
+      ) ?? undefined,
+    resumeAgentArgs: record.launchConfig?.agentCommand?.trim() ? null : effectiveAgentArgs
   })
 }
 
@@ -68,15 +82,16 @@ export function launchSleepingAgentSession(
 ): boolean {
   const state = useAppStore.getState()
   const launchConfig = record.launchConfig
-  const resumeTarget = getResumeLaunchTarget(record.worktreeId)
+  const effectiveAgentArgs =
+    launchConfig !== undefined
+      ? launchConfig.agentArgs
+      : resolveTuiAgentLaunchArgs(record.agent, state.settings?.agentDefaultArgs)
+  const resumeTarget = getResumeLaunchTarget(record, effectiveAgentArgs)
   const startupPlan = buildAgentResumeStartupPlan({
     agent: record.agent,
     providerSession: record.providerSession,
     cmdOverrides: state.settings?.agentCmdOverrides ?? {},
-    agentArgs:
-      launchConfig !== undefined
-        ? launchConfig.agentArgs
-        : resolveTuiAgentLaunchArgs(record.agent, state.settings?.agentDefaultArgs),
+    agentArgs: effectiveAgentArgs,
     agentEnv:
       launchConfig !== undefined
         ? launchConfig.agentEnv
