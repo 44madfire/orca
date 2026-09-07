@@ -1,34 +1,27 @@
 import {
-  MobileWebHostCatalogPayloadSchema,
-  MobileWebHostCatalogResultSchema,
   MobileWebHostRequestPayloadSchema,
-  mobileWebHostPayloadWithinBounds
+  mobileWebHostPayloadByteLength
 } from '../../../src/shared/mobile-web/host-rpc-contract'
 import type { RpcClient, SendRequestOptions } from '../transport/rpc-client'
 import { MobileWebBrokerError, mobileWebBrokerHostRpcError } from './mobile-web-broker-error'
-import { mobileWebEncodedByteLength } from './mobile-web-request-accounting'
-import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
+import type { MobileWebHostCatalogCache } from './mobile-web-host-catalog-cache'
+import type {
+  MobileWebHostWorkspaceId,
+  MobileWebWorkspaceAuthority
+} from './mobile-web-workspace-authority'
 
-const HOST_REQUEST_TIMEOUT_MS = 15_000
+export const MOBILE_WEB_HOST_REQUEST_TIMEOUT_MS = 15_000
 
-export async function readMobileWebHostCatalog(
-  client: RpcClient,
-  input: unknown,
-  options: SendRequestOptions = { timeoutMs: HOST_REQUEST_TIMEOUT_MS, budgetSpansConnect: true }
-) {
-  const payload = MobileWebHostCatalogPayloadSchema.parse(input)
-  const response = await client.sendRequest('mobileWeb.host.catalog', payload, options)
-  if (!response.ok) {
-    throw mobileWebBrokerHostRpcError(response.error)
-  }
-  if (!mobileWebHostPayloadWithinBounds(response.result)) {
-    throw new MobileWebBrokerError('too_large')
-  }
-  return MobileWebHostCatalogResultSchema.parse(response.result)
+/** The page handle a request is scoped to, resolved once and re-checked at every dispatch. Absent
+ * only for host-scoped grants, which carry no workspace at all. */
+export type MobileWebHostRequestScope = {
+  pageWorkspaceId: string
+  hostWorkspaceId: MobileWebHostWorkspaceId
 }
 
 export type MobileWebHostRequestArguments = {
   client: RpcClient
+  catalog: MobileWebHostCatalogCache
   authority: MobileWebWorkspaceAuthority
   payload: unknown
   isActive: () => boolean
@@ -36,27 +29,31 @@ export type MobileWebHostRequestArguments = {
   requestOptions?: () => SendRequestOptions
 }
 
+export function assertMobileWebHostRequestScope(
+  authority: MobileWebWorkspaceAuthority,
+  scope: MobileWebHostRequestScope | undefined
+): void {
+  if (scope) {
+    authority.assertHostWorkspaceBinding(scope.pageWorkspaceId, scope.hostWorkspaceId)
+  }
+}
+
 export async function prepareMobileWebHostRequest(
   args: MobileWebHostRequestArguments,
   mode: 'once' | 'subscription'
 ) {
   const payload = MobileWebHostRequestPayloadSchema.parse(args.payload)
-  if (!mobileWebHostPayloadWithinBounds(payload.params)) {
-    throw new MobileWebBrokerError('too_large')
-  }
-  const hostWorkspaceId =
+  const scope =
     payload.workspaceId === undefined
       ? undefined
-      : args.authority.hostWorkspaceId(payload.workspaceId)
-  const catalog = await readMobileWebHostCatalog(
-    args.client,
-    { methods: [payload.method] },
-    args.requestOptions?.()
-  )
-  const grant = catalog.grants.find((entry) => entry.method === payload.method)
+      : {
+          pageWorkspaceId: payload.workspaceId,
+          hostWorkspaceId: args.authority.hostWorkspaceId(payload.workspaceId)
+        }
+  const grant = await args.catalog.grant(args.client, payload.method, args.requestOptions?.())
   if (
     !grant ||
-    (grant.scope === 'host') !== (payload.workspaceId === undefined) ||
+    (grant.scope === 'host') !== (scope === undefined) ||
     (grant.mode ?? 'once') !== mode ||
     (mode === 'subscription' && !grant.unsubscribeMethod)
   ) {
@@ -65,9 +62,7 @@ export async function prepareMobileWebHostRequest(
   if (!args.isActive()) {
     throw new MobileWebBrokerError('cancelled')
   }
-  if (payload.workspaceId !== undefined && hostWorkspaceId !== undefined) {
-    args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
-  }
+  assertMobileWebHostRequestScope(args.authority, scope)
   if (
     grant.pageSessionParam &&
     (!args.getPageSessionId || grant.pageSessionParam === grant.workspaceParam)
@@ -76,24 +71,21 @@ export async function prepareMobileWebHostRequest(
   }
   const params = {
     ...payload.params,
-    ...(grant.workspaceParam && hostWorkspaceId
-      ? { [grant.workspaceParam]: `id:${hostWorkspaceId}` }
-      : {}),
+    // Scope agreement above plus the grant schema's refine make workspaceParam present here.
+    ...(scope ? { [grant.workspaceParam!]: `id:${scope.hostWorkspaceId}` } : {}),
     ...(grant.pageSessionParam ? { [grant.pageSessionParam]: await args.getPageSessionId!() } : {})
   }
-  if (
-    !mobileWebHostPayloadWithinBounds(params) ||
-    mobileWebEncodedByteLength(params) > grant.maxRequestBytes
-  ) {
+  const requestBytes = mobileWebHostPayloadByteLength(params)
+  if (requestBytes === undefined || requestBytes > grant.maxRequestBytes) {
     throw new MobileWebBrokerError('too_large')
   }
-  return { payload, hostWorkspaceId, grant, params }
+  return { payload, scope, grant, params }
 }
 
 export async function executeMobileWebHostRequest(
   args: MobileWebHostRequestArguments
 ): Promise<unknown> {
-  const deadline = Date.now() + HOST_REQUEST_TIMEOUT_MS
+  const deadline = Date.now() + MOBILE_WEB_HOST_REQUEST_TIMEOUT_MS
   const beforeSend = () => {
     if (!args.isActive()) {
       throw new MobileWebBrokerError('cancelled')
@@ -106,16 +98,14 @@ export async function executeMobileWebHostRequest(
     beforeSend()
     return { timeoutMs: deadline - Date.now(), budgetSpansConnect: true, beforeSend }
   }
-  const { payload, hostWorkspaceId, grant, params } = await prepareMobileWebHostRequest(
+  const { payload, scope, grant, params } = await prepareMobileWebHostRequest(
     { ...args, requestOptions },
     'once'
   )
   const options = requestOptions()
   options.beforeSend = () => {
     beforeSend()
-    if (payload.workspaceId !== undefined && hostWorkspaceId !== undefined) {
-      args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
-    }
+    assertMobileWebHostRequestScope(args.authority, scope)
   }
   const response = await args.client.sendRequest(payload.method, params, options)
   if (!response.ok) {
@@ -124,13 +114,9 @@ export async function executeMobileWebHostRequest(
   if (!args.isActive()) {
     throw new MobileWebBrokerError('cancelled')
   }
-  if (payload.workspaceId !== undefined && hostWorkspaceId !== undefined) {
-    args.authority.assertHostWorkspaceBinding(payload.workspaceId, hostWorkspaceId)
-  }
-  if (
-    !mobileWebHostPayloadWithinBounds(response.result) ||
-    mobileWebEncodedByteLength(response.result) > grant.maxResponseBytes
-  ) {
+  assertMobileWebHostRequestScope(args.authority, scope)
+  const responseBytes = mobileWebHostPayloadByteLength(response.result)
+  if (responseBytes === undefined || responseBytes > grant.maxResponseBytes) {
     throw new MobileWebBrokerError('too_large')
   }
   return response.result

@@ -415,6 +415,7 @@ describe('hosted mobile bridge over cloud Relay transport', () => {
         source: 'transcript'
       }
     ])
+    // One catalog read per method per connection: bind and read share the second one.
     expect(observedMethods).toEqual([
       'pairing.getEndpoints',
       'runtime.clientCapabilities.update',
@@ -423,9 +424,7 @@ describe('hosted mobile bridge over cloud Relay transport', () => {
       'mobileWeb.page.subscribe',
       'mobileWeb.session.snapshot',
       'mobileWeb.host.catalog',
-      'mobileWeb.host.catalog',
       'mobileWeb.nativeChat.bind',
-      'mobileWeb.host.catalog',
       'mobileWeb.nativeChat.read'
     ])
     expect(JSON.stringify({ sessionSnapshot, transcript })).not.toContain('relay-provider-session')

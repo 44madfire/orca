@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
+import { MobileWebHostCatalogCache } from './mobile-web-host-catalog-cache'
 import { executeMobileWebHostRequest } from './mobile-web-host-requests'
 import { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
-import { MOBILE_WEB_PRODUCTION_GRANTS } from './mobile-web-production-grants'
+import { MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES } from '../../../src/shared/mobile-web/bridge-limits'
+import {
+  MOBILE_WEB_PRODUCTION_GRANT_INDEX,
+  MOBILE_WEB_PRODUCTION_GRANTS
+} from './mobile-web-production-grants'
 import { createMobileWebBridgeRoundtripFixture } from './mobile-web-bridge-roundtrip-fixture'
 
 const grant = {
@@ -18,6 +23,7 @@ function fixture() {
   const sendRequest = vi.fn<RpcClient['sendRequest']>()
   const args = {
     authority,
+    catalog: new MobileWebHostCatalogCache(),
     client: { sendRequest } as unknown as RpcClient,
     isActive: () => true,
     payload: {
@@ -121,14 +127,37 @@ describe('host-advertised unary forwarding', () => {
     expect(sendRequest).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps native hard ceilings even when the trusted host permits a larger result', async () => {
+  it('refuses a grant advertising more than a shipped shell can deliver', async () => {
+    const { args, sendRequest } = fixture()
+    sendRequest.mockResolvedValueOnce({
+      ok: true,
+      result: { grants: [{ ...grant, maxResponseBytes: 10_000_000 }] }
+    })
+    await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({ name: 'ZodError' })
+    expect(sendRequest).toHaveBeenCalledOnce()
+  })
+
+  it('keeps native hard ceilings at the largest grant the desktop may advertise', async () => {
     const { args, sendRequest } = fixture()
     sendRequest
       .mockResolvedValueOnce({
         ok: true,
-        result: { grants: [{ ...grant, maxResponseBytes: 10_000_000 }] }
+        result: {
+          grants: [{ ...grant, maxResponseBytes: MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES }]
+        }
       })
       .mockResolvedValueOnce({ ok: true, result: { text: 'x'.repeat(640 * 1024) } })
+    await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({ code: 'too_large' })
+  })
+
+  it('enforces the advertised response ceiling below the envelope', async () => {
+    const { args, sendRequest } = fixture()
+    sendRequest
+      .mockResolvedValueOnce({
+        ok: true,
+        result: { grants: [{ ...grant, maxResponseBytes: 1024 }] }
+      })
+      .mockResolvedValueOnce({ ok: true, result: { text: 'x'.repeat(4096) } })
     await expect(executeMobileWebHostRequest(args)).rejects.toMatchObject({ code: 'too_large' })
   })
 
@@ -168,7 +197,9 @@ describe('host-advertised unary forwarding', () => {
     })
     const snapshot = await client.workspaceSnapshot({ limit: 10 })
     const payload = { workspaceId: snapshot.workspaces[0]!.id, limit: 10 }
-    for (let i = 0; i < 4; i++) {
+    const ceiling =
+      MOBILE_WEB_PRODUCTION_GRANT_INDEX.get('workspace.hostRequest')!.limits.maxConcurrent
+    for (let i = 0; i < ceiling; i++) {
       const controller = new AbortController()
       const pending = client.sourceControlStatus(payload, { signal: controller.signal })
       const rejection = expect(pending).rejects.toMatchObject({ code: 'cancelled' })
@@ -178,7 +209,7 @@ describe('host-advertised unary forwarding', () => {
     await expect(client.sourceControlStatus(payload)).rejects.toMatchObject({
       code: 'rate_limited'
     })
-    expect(finishCatalog).toHaveLength(4)
+    expect(finishCatalog).toHaveLength(1)
     finishCatalog.forEach((finish) => finish())
   })
 

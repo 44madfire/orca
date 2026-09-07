@@ -1,3 +1,4 @@
+import type { MobileWebHostCatalogCache } from './mobile-web-host-catalog-cache'
 import type { MobileWebHostSubscriptions } from './mobile-web-host-subscriptions'
 import type { MobileWebBridgePageMessage } from '../../../src/shared/mobile-web/bridge-contract'
 import type { RpcClient } from '../transport/rpc-client'
@@ -33,6 +34,7 @@ export type MobileWebCapabilityExecutionDependencies = {
   agentHistoryAuthority: MobileWebAgentHistoryAuthority
   agentHistoryPager: MobileWebAgentHistoryPager
   agentHistoryResume: MobileWebAgentHistoryResume
+  hostCatalog: MobileWebHostCatalogCache
   hostSubscriptions: MobileWebHostSubscriptions
   accountSubscriptions: MobileWebAccountSubscriptions
   browserStreams: MobileWebBrowserStreams

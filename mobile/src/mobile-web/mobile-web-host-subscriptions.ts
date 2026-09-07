@@ -1,23 +1,20 @@
-import { mobileWebHostPayloadWithinBounds } from '../../../src/shared/mobile-web/host-rpc-contract'
+import { mobileWebHostPayloadByteLength } from '../../../src/shared/mobile-web/host-rpc-contract'
 import { MobileWebBrokerError } from './mobile-web-broker-error'
 import {
+  assertMobileWebHostRequestScope,
   prepareMobileWebHostRequest,
-  type MobileWebHostRequestArguments
+  type MobileWebHostRequestArguments,
+  type MobileWebHostRequestScope
 } from './mobile-web-host-requests'
-import { mobileWebEncodedByteLength } from './mobile-web-request-accounting'
 import {
   MobileWebSubscriptionLedger,
   type MobileWebSubscriptionLedgerConfig,
   type MobileWebSubscriptionRecord
 } from './mobile-web-subscription-ledger'
-import type {
-  MobileWebHostWorkspaceId,
-  MobileWebWorkspaceAuthority
-} from './mobile-web-workspace-authority'
+import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
 
 type HostStreamRecord = MobileWebSubscriptionRecord & {
-  pageWorkspaceId: string | undefined
-  hostWorkspaceId: MobileWebHostWorkspaceId | undefined
+  scope: MobileWebHostRequestScope | undefined
   maxEventBytes: number
   closing: boolean
 }
@@ -41,7 +38,7 @@ export class MobileWebHostSubscriptions extends MobileWebSubscriptionLedger<
     }
   ): Promise<void> {
     this.admit(args.subscriptionId)
-    const { payload, hostWorkspaceId, grant, params } = await prepareMobileWebHostRequest(
+    const { payload, scope, grant, params } = await prepareMobileWebHostRequest(
       {
         ...args,
         authority: this.config.workspaceAuthority
@@ -53,8 +50,7 @@ export class MobileWebHostSubscriptions extends MobileWebSubscriptionLedger<
     }
     const record: HostStreamRecord = {
       ...this.newRecord(args.requestId),
-      pageWorkspaceId: payload.workspaceId,
-      hostWorkspaceId,
+      scope,
       maxEventBytes: grant.maxResponseBytes,
       closing: false
     }
@@ -70,12 +66,7 @@ export class MobileWebHostSubscriptions extends MobileWebSubscriptionLedger<
 
   protected override canDeliver(subscriptionId: string, record: HostStreamRecord): boolean {
     try {
-      if (record.pageWorkspaceId !== undefined && record.hostWorkspaceId !== undefined) {
-        this.config.workspaceAuthority.assertHostWorkspaceBinding(
-          record.pageWorkspaceId,
-          record.hostWorkspaceId
-        )
-      }
+      assertMobileWebHostRequestScope(this.config.workspaceAuthority, record.scope)
       return true
     } catch {
       this.cancel(subscriptionId, { code: 'not_found', retryable: false })
@@ -91,10 +82,8 @@ export class MobileWebHostSubscriptions extends MobileWebSubscriptionLedger<
     ) {
       return
     }
-    if (
-      !mobileWebHostPayloadWithinBounds(event) ||
-      mobileWebEncodedByteLength(event) > record.maxEventBytes
-    ) {
+    const eventBytes = mobileWebHostPayloadByteLength(event)
+    if (eventBytes === undefined || eventBytes > record.maxEventBytes) {
       this.cancel(subscriptionId, { code: 'too_large', retryable: false })
       return
     }
