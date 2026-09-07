@@ -142,9 +142,15 @@ export class OrcaRuntimeWithPerformMobileSessionPtyRecordsRefresh extends OrcaRu
       // inventory as connected, so the projection already reports `ready` — but
       // nothing attached it, and its writes go nowhere. Inventory presence is not
       // ownership; only a runtime-owned live binding proves this runtime attached.
+      // The id shape and `runtimeSessionOwned` cannot tell "never attached" from
+      // "the desktop owns it": every SSH PTY gets an `ssh:` id whoever made it,
+      // and a renderer-published PTY is recorded with the field defaulted false.
+      // Renderer-graph membership is the discriminator, as in
+      // `isRuntimeOwnedHeadlessMobileTab`.
       const needsRestoredRuntimeReattach =
         this.hasServeOrSshOwnedBinding(tab) &&
-        !this.hasLiveRuntimeSessionOwnedPtyBinding(worktreeId, tab)
+        !this.hasLiveRuntimeSessionOwnedPtyBinding(worktreeId, tab) &&
+        !this.tabs.has(tab.parentTabId)
       const shouldMaterializePendingTerminal =
         publicTab?.type === 'terminal' &&
         (publicTab.status !== 'ready' || needsRestoredRuntimeReattach) &&
