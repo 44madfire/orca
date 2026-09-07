@@ -29,6 +29,22 @@ export function isShellStartupEnvProbeSupported(): boolean {
   return process.platform !== 'win32'
 }
 
+/**
+ * Whether the environment Orca can already see settles what a launched shell
+ * will export -- i.e. whether an absent override is evidence, not a blind spot.
+ *
+ * POSIX needs the probe: a GUI-launched Orca inherits no interactive exports,
+ * so only the startup files reveal what the PTY will re-export. Windows has no
+ * such gap -- the user/machine environment block is inherited at process
+ * creation, so persisted values are already in `process.env`.
+ *
+ * Known Windows blind spot: a value assigned inside a PowerShell profile or a
+ * Git Bash startup file is shell-runtime state that reaches neither source.
+ */
+export function isLaunchEnvOverrideVisible(): boolean {
+  return process.platform === 'win32' || isShellStartupEnvProbeSupported()
+}
+
 function parseAssignedValue(
   content: string,
   name: string,

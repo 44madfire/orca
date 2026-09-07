@@ -15,13 +15,23 @@ afterEach(() => {
 })
 
 describe('Windows System Default Codex home ownership', () => {
-  it('stays managed when PowerShell profile state cannot be inspected', () => {
-    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
-    delete process.env.CODEX_HOME
-    delete process.env.ORCA_CODEX_HOME
+  it('selects the real home when the inherited environment names no custom CODEX_HOME', () => {
+    // Why: Windows processes inherit the user/machine environment block at
+    // creation, so an absent CODEX_HOME here is evidence, not a blind spot.
+    const service = createWindowsService()
 
-    const service = Object.create(CodexRuntimeHomeService.prototype) as CodexRuntimeHomeService
-    Object.defineProperty(service, 'store', { value: createStore() })
+    expect(
+      service.isHostSystemDefaultRealHomeSelected({
+        HOME: 'C:\\Users\\profile-only-repro',
+        SHELL: 'powershell.exe'
+      })
+    ).toBe(true)
+    expect(service.isHostSystemDefaultSessionMigrationEligible()).toBe(true)
+  })
+
+  it('stays managed when the inherited environment sets a custom CODEX_HOME', () => {
+    const service = createWindowsService()
+    process.env.CODEX_HOME = 'C:\\custom\\codex-home'
 
     expect(
       service.isHostSystemDefaultRealHomeSelected({
@@ -29,9 +39,32 @@ describe('Windows System Default Codex home ownership', () => {
         SHELL: 'powershell.exe'
       })
     ).toBe(false)
-    expect(service.isHostSystemDefaultSessionMigrationEligible()).toBe(true)
+    // Why pinned together: lane routing and session migration read the same
+    // override, so a custom home can never leave one enabled and the other not.
+    expect(service.isHostSystemDefaultSessionMigrationEligible()).toBe(false)
+  })
+
+  it('stays managed when a launch env carries a custom CODEX_HOME the process env lacks', () => {
+    const service = createWindowsService()
+
+    expect(
+      service.isHostSystemDefaultRealHomeSelected({
+        HOME: 'C:\\Users\\profile-only-repro',
+        SHELL: 'powershell.exe',
+        CODEX_HOME: 'C:\\custom\\codex-home'
+      })
+    ).toBe(false)
   })
 })
+
+function createWindowsService(): CodexRuntimeHomeService {
+  Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+  delete process.env.CODEX_HOME
+  delete process.env.ORCA_CODEX_HOME
+  const service = Object.create(CodexRuntimeHomeService.prototype) as CodexRuntimeHomeService
+  Object.defineProperty(service, 'store', { value: createStore() })
+  return service
+}
 
 function createStore() {
   const settings = {
