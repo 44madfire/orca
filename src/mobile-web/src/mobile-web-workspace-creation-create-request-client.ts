@@ -1,3 +1,4 @@
+import { WORKTREE_CREATE_TIMEOUT_MS } from '../../shared/mobile-web/workspace-creation-timeout'
 import {
   MobileWebCreationBlankPayloadSchema,
   MobileWebCreationFromSourcePayloadSchema,
@@ -17,7 +18,8 @@ export class MobileWebWorkspaceCreationCreateRequestClient {
       'creationCreateBlank',
       payload,
       MobileWebCreationBlankPayloadSchema,
-      MobileWebCreationResultSchema
+      MobileWebCreationResultSchema,
+      { timeoutMs: WORKTREE_CREATE_TIMEOUT_MS }
     )
   }
 
@@ -27,7 +29,8 @@ export class MobileWebWorkspaceCreationCreateRequestClient {
       'creationCreateFromSource',
       payload,
       MobileWebCreationFromSourcePayloadSchema,
-      MobileWebCreationResultSchema
+      MobileWebCreationResultSchema,
+      { timeoutMs: WORKTREE_CREATE_TIMEOUT_MS }
     )
   }
 }
