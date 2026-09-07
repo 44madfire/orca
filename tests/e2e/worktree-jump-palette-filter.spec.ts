@@ -1,4 +1,7 @@
 import type { Locator, Page } from '@stablyai/playwright-test'
+import type { ExecutionHostId } from '../../src/shared/execution-host'
+import { getPaletteWorktreeIdentity } from '../../src/renderer/src/lib/palette-repo-resolution'
+import { encodePaletteIdentity } from '../../src/renderer/src/lib/palette-match/palette-ranking'
 import { expect, test } from './helpers/orca-app'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 
@@ -12,6 +15,7 @@ type PaletteFilterFixture = {
   localRepoId: string
   localWorktreeId: string
   remoteWorktreeId: string
+  remoteHostId: ExecutionHostId
 }
 
 async function seedPaletteFilterFixture(page: Page): Promise<PaletteFilterFixture> {
@@ -80,7 +84,8 @@ async function seedPaletteFilterFixture(page: Page): Promise<PaletteFilterFixtur
       return {
         localRepoId: sourceRepo.id,
         localWorktreeId: sourceWorktree.id,
-        remoteWorktreeId
+        remoteWorktreeId,
+        remoteHostId
       }
     },
     {
@@ -92,8 +97,12 @@ async function seedPaletteFilterFixture(page: Page): Promise<PaletteFilterFixtur
   )
 }
 
-function worktreeRow(page: Page, worktreeId: string) {
-  return palette(page).locator(`[cmdk-item][data-value="worktree:${worktreeId}"]`)
+function worktreeRow(page: Page, worktreeId: string, hostId: ExecutionHostId = 'local') {
+  const rowId = encodePaletteIdentity([
+    'worktree',
+    getPaletteWorktreeIdentity({ id: worktreeId, hostId })
+  ])
+  return palette(page).locator(`[cmdk-item][data-value=${JSON.stringify(rowId)}]`)
 }
 
 function palette(page: Page) {
@@ -113,7 +122,7 @@ async function searchFixtureWorkspaces(page: Page, fixture: PaletteFilterFixture
   const input = palette(page).getByPlaceholder(SEARCH_PLACEHOLDER)
   await input.fill('E2E Palette')
   await expect(worktreeRow(page, fixture.localWorktreeId)).toBeVisible()
-  await expect(worktreeRow(page, fixture.remoteWorktreeId)).toBeVisible()
+  await expect(worktreeRow(page, fixture.remoteWorktreeId, fixture.remoteHostId)).toBeVisible()
 }
 
 async function selectRemoteHost(page: Page, useKeyboard = false): Promise<void> {
@@ -175,7 +184,9 @@ test.describe('Worktree jump-palette filters', () => {
     await selectRemoteHost(orcaPage, true)
     await expect(filterTrigger(orcaPage)).toContainText('1')
     await expect(palette(orcaPage).getByLabel(`Remove filter ${REMOTE_HOST}`)).toBeVisible()
-    await expect(worktreeRow(orcaPage, fixture.remoteWorktreeId)).toBeVisible()
+    await expect(
+      worktreeRow(orcaPage, fixture.remoteWorktreeId, fixture.remoteHostId)
+    ).toBeVisible()
     await expect(worktreeRow(orcaPage, fixture.localWorktreeId)).toHaveCount(0)
 
     // P2: host and repository fields intersect, with the filter-specific empty state.
@@ -210,7 +221,9 @@ test.describe('Worktree jump-palette filters', () => {
     await palette(orcaPage).getByPlaceholder(SEARCH_PLACEHOLDER).fill('E2E Palette')
     await expect(filterTrigger(orcaPage)).toContainText('1')
     await expect(worktreeRow(orcaPage, fixture.localWorktreeId)).toBeVisible()
-    await expect(worktreeRow(orcaPage, fixture.remoteWorktreeId)).toHaveCount(0)
+    await expect(worktreeRow(orcaPage, fixture.remoteWorktreeId, fixture.remoteHostId)).toHaveCount(
+      0
+    )
   })
 
   test('opens with the sidebar repository scope without widening it', async ({ orcaPage }) => {
@@ -225,7 +238,9 @@ test.describe('Worktree jump-palette filters', () => {
     await expect(filterTrigger(orcaPage)).toContainText('1')
     await expect(palette(orcaPage).getByLabel(`Remove filter ${LOCAL_PROJECT}`)).toBeVisible()
     await expect(worktreeRow(orcaPage, fixture.localWorktreeId)).toBeVisible()
-    await expect(worktreeRow(orcaPage, fixture.remoteWorktreeId)).toHaveCount(0)
+    await expect(worktreeRow(orcaPage, fixture.remoteWorktreeId, fixture.remoteHostId)).toHaveCount(
+      0
+    )
   })
 
   test('pressing Enter creates a worktree from a typed name', async ({ orcaPage }) => {
