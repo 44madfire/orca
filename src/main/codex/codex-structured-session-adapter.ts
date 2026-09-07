@@ -140,6 +140,9 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     session: CodexSession,
     event: CodexStructuredSessionEvent
   ): CodexJournalTranslationAdmission {
+    if (event.type === 'notification' && !session.backgroundTasks.canObserve(event)) {
+      return { accepted: false, reason: 'failed' }
+    }
     const admission = session.translator?.handle(event) ?? { accepted: true }
     if (!admission.accepted) {
       return admission
