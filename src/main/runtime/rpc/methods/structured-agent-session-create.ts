@@ -24,6 +24,7 @@ import {
 } from '../../../native-chat/agent-session-wire/structured-agent-session-attach'
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import type { StructuredAgentSessionCaller } from '../../../native-chat/agent-session-wire/structured-agent-session-host-types'
+import type { StructuredAgentSessionResumeSource } from '../../../../shared/structured-agent-session-create'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import {
   resolveUncommittedStructuredCreate,
@@ -46,11 +47,13 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
   envelope: AgentSessionMutationEnvelope
   worktree: string
   agent: 'claude' | 'codex'
+  resumeFrom?: StructuredAgentSessionResumeSource
 }): Promise<PreparedStructuredAgentSessionCreate> {
   const resolved = await args.runtime.resolveStructuredAgentSessionCreateIntent({
     envelope: args.envelope,
     worktree: args.worktree,
-    agent: args.agent
+    agent: args.agent,
+    ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {})
   })
   const hostFingerprint = computeAgentSessionPayloadFingerprint({
     method: 'agentSession.attach',

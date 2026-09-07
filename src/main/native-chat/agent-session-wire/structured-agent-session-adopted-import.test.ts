@@ -17,19 +17,23 @@ import {
   attachFingerprintFields,
   type AgentSessionAttachParams
 } from './structured-agent-session-attach'
-import { performAttach } from './structured-agent-session-attach-flow'
+import { performAttach, type AttachFlowInput } from './structured-agent-session-attach-flow'
+import { agentSessionJournalCloseRetries } from '../agent-session-journal/journal-close-retry'
 
 const NOW = 1_800_000_000_000
 const SESSION = 'codex_adopting_session'
 const THREAD = 'adopted-thread'
 const OPERATION = `${NOW}-${'1'.padStart(32, '0')}`
 let root: string | null = null
+let store: AgentSessionRecordStore | null = null
 
 afterEach(async () => {
   if (root) {
     await rm(root, { recursive: true, force: true })
   }
   root = null
+  store = null
+  vi.restoreAllMocks()
 })
 
 /** A minimal Codex rollout the legacy transcript decoder can read back. */
@@ -111,12 +115,14 @@ function adapter(): StructuredAgentSessionAdapter {
   }
 }
 
-async function attach(transcriptPath: string, sessionAdapter: StructuredAgentSessionAdapter) {
+async function attach(
+  transcriptPath: string,
+  sessionAdapter: StructuredAgentSessionAdapter,
+  onAttached: AttachFlowInput['onAttached'] = () => {}
+) {
+  store ??= await AgentSessionRecordStore.open({ directory: join(root!, 'store'), hostId: 'local' })
   return performAttach({
-    store: await AgentSessionRecordStore.open({
-      directory: join(root!, 'store'),
-      hostId: 'local'
-    }),
+    store,
     adapter: sessionAdapter,
     journalRoot: root!,
     authority: {
@@ -128,7 +134,7 @@ async function attach(transcriptPath: string, sessionAdapter: StructuredAgentSes
     callerKey: 'client-1',
     params: attachParams(transcriptPath),
     now: () => NOW,
-    onAttached: () => {}
+    onAttached
   })
 }
 
@@ -148,9 +154,37 @@ describe('adopting a provider conversation on create', () => {
     expect(JSON.stringify(page.items)).toContain('ORCA-ADOPT-1')
   })
 
+  it('replays create without replacing journal-only messages or rereading the source', async () => {
+    root = await mkdtemp(join(tmpdir(), 'orca-adopt-replay-'))
+    const transcriptPath = join(root, 'rollout.jsonl')
+    await writeCodexRollout(transcriptPath, 'original turn')
+    const sessionAdapter = adapter()
+    const first = await attach(transcriptPath, sessionAdapter, async ({ journal }) => {
+      await journal.appendItem(
+        { provider: 'legacy', agent: 'codex', sessionId: THREAD, recordId: 'journal-only' },
+        { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'not yet in rollout' }] },
+        { fence: 1 }
+      )
+      await journal.close()
+    })
+    expect(first.ok).toBe(true)
+    await rm(transcriptPath)
+    const replay = await attach(transcriptPath, sessionAdapter, async ({ journal }) =>
+      journal.close()
+    )
+    expect(replay).toMatchObject({ ok: true, replayed: true })
+    if (!first.ok || !replay.ok) {
+      throw new Error('attach failed')
+    }
+    expect(replay.cursor.epoch).toBe(first.cursor.epoch)
+    expect(JSON.stringify(replay.value.page.items)).toContain('not yet in rollout')
+    expect(sessionAdapter.acquire).toHaveBeenCalledTimes(1)
+  })
+
   it('fails the attach when the adopted transcript cannot be read', async () => {
     root = await mkdtemp(join(tmpdir(), 'orca-adopt-missing-'))
     const sessionAdapter = adapter()
+    const close = vi.spyOn(agentSessionJournalCloseRetries, 'closeOrRetain')
 
     // A post-acquisition failure throws rather than answering a refusal — the same path a journal
     // failure already takes — so the caller learns the outcome is unknown, not that nothing ran.
@@ -160,6 +194,8 @@ describe('adopting a provider conversation on create', () => {
     // The provider had already resumed, so its acquisition is released rather than left holding a
     // conversation no surface will ever show.
     expect(sessionAdapter.releaseAcquisition).toHaveBeenCalled()
+    expect(close).toHaveBeenCalledTimes(1)
+    close.mockRestore()
   })
 
   it('fails the attach when the adopted transcript decodes to no messages', async () => {

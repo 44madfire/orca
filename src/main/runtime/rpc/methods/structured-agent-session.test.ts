@@ -497,6 +497,33 @@ describe('method routing', () => {
     )
   })
 
+  it.each(['claude', 'codex'])(
+    'forwards a %s history resume through create preparation',
+    async (agent) => {
+      const fields = {
+        worktree: 'id:workspace-1',
+        agent,
+        resumeFrom: { providerSessionId: 'prior-session' }
+      }
+      const params = {
+        envelope: envelope({
+          expectedRuntimeFence: null,
+          payloadFingerprint: computeAgentSessionPayloadFingerprint({
+            method: 'agentSession.create',
+            sessionId: SESSION,
+            fields
+          })
+        }),
+        ...fields
+      }
+      expect(await call('agentSession.create', params, STRUCTURED_CLIENT)).toMatchObject({
+        ok: true,
+        result: { ok: true }
+      })
+      expect(runtimeCalls.resolveStructuredAgentSessionCreateIntent).toHaveBeenCalledWith(params)
+    }
+  )
+
   it('routes Claude create support and create through the provider-aware runtime', async () => {
     const worktree = 'id:workspace-1'
     const support = await call(
