@@ -207,10 +207,21 @@ const USER_TURN = {
   blocks: [{ type: 'text', text: 'fix the flaky lease probe' }]
 } as const
 
+const IMAGE_ONLY_TURN = {
+  kind: 'message',
+  role: 'user',
+  blocks: [{ type: 'image', path: '/tmp/shot.png' }]
+} as const
+
 async function dispatchedAdapter(
   codex: ReturnType<typeof namingCodex>,
-  naming: { readNamingAttempted?: () => boolean; markNamingAttempted?: () => void } = {}
+  naming: {
+    readNamingAttempted?: () => boolean
+    markNamingAttempted?: () => void
+    body?: unknown
+  } = {}
 ) {
+  const { body = USER_TURN, ...namingDeps } = naming
   const onConversationName = vi.fn()
   const events: unknown[] = []
   const adapter = new CodexStructuredSessionAdapter({
@@ -225,13 +236,13 @@ async function dispatchedAdapter(
     readProcessStartTime: async () => 1_700_000_000_000,
     onEvent: (event) => events.push(event),
     onConversationName,
-    ...naming
+    ...namingDeps
   })
   await adapter.acquire({ identity, fence: 7, spawnToken: 'spawn-9' })
   await adapter.dispatch({
     sessionId: SESSION,
     clientMessageId: 'client-1',
-    body: USER_TURN as never,
+    body: body as never,
     fence: 7
   })
   return { adapter, onConversationName, events }
@@ -329,6 +340,36 @@ describe('Codex conversation-name generation', () => {
 
     expect(codex.calls.some((call) => call.method === 'thread/name/set')).toBe(false)
     expect(onConversationName).not.toHaveBeenCalled()
+  })
+})
+
+describe('Codex naming attempt accounting', () => {
+  it('leaves the attempt unspent when the first message carries no text', async () => {
+    const codex = namingCodex()
+    const markNamingAttempted = vi.fn()
+    const { adapter, onConversationName } = await dispatchedAdapter(codex, {
+      body: IMAGE_ONLY_TURN,
+      markNamingAttempted
+    })
+    await settle()
+
+    const ephemeralStarts = () =>
+      codex.calls.filter((call) => call.method === 'thread/start' && call.params.ephemeral === true)
+    expect(ephemeralStarts()).toHaveLength(0)
+    expect(markNamingAttempted).not.toHaveBeenCalled()
+
+    // The conversation must stay nameable: a caption-free screenshot is not an
+    // answer, so the next message with text still gets to ask.
+    await adapter.dispatch({
+      sessionId: SESSION,
+      clientMessageId: 'client-2',
+      body: USER_TURN as never,
+      fence: 7
+    })
+    await settle()
+
+    expect(ephemeralStarts()).toHaveLength(1)
+    expect(onConversationName).toHaveBeenCalledExactlyOnceWith(SESSION, 'Fix lease probe')
   })
 })
 

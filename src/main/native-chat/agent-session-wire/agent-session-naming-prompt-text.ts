@@ -14,6 +14,17 @@ export function agentSessionNamingPromptText(body: AgentJournalMessageItem): str
   // `blocks` reaches here as provider/journal data, not something the type system
   // verified: only the RPC send path runs it through a schema. A non-array here
   // would throw on the send path and turn a delivered message into a failed one.
+  // The guards below cover every shape this reads; the catch makes that
+  // structural, so callers may derive the text before the naming attempt is
+  // claimed rather than only from inside the naming promise.
+  try {
+    return readNamingPromptText(body)
+  } catch {
+    return null
+  }
+}
+
+function readNamingPromptText(body: AgentJournalMessageItem): string | null {
   if (!Array.isArray(body?.blocks)) {
     return null
   }

@@ -46,6 +46,33 @@ describe('startClaudeConversationNaming', () => {
     expect(onConversationName).toHaveBeenCalledExactlyOnceWith(SESSION, 'Lease probe flake')
   })
 
+  it('leaves the attempt unspent when the first message carries no text', async () => {
+    const generateSessionTitle = vi.fn(async () => ({
+      outcome: 'named' as const,
+      title: 'Lease probe flake'
+    }))
+    const session = sessionWith(generateSessionTitle)
+    const imageOnly = {
+      kind: 'message',
+      role: 'user',
+      blocks: [{ type: 'image', path: '/tmp/shot.png' }]
+    } as unknown as AgentJournalMessageItem
+
+    startClaudeConversationNaming(SESSION, session, imageOnly, { onConversationName: vi.fn() })
+    await settle()
+
+    expect(generateSessionTitle).not.toHaveBeenCalled()
+    // The conversation must stay nameable: a caption-free screenshot is not an
+    // answer, so the next message with text still gets to ask.
+    expect(session.namingAttempted).toBe(false)
+
+    const onConversationName = vi.fn()
+    startClaudeConversationNaming(SESSION, session, USER_TURN, { onConversationName })
+    await settle()
+
+    expect(onConversationName).toHaveBeenCalledExactlyOnceWith(SESSION, 'Lease probe flake')
+  })
+
   it('passes the user text alone, imposing no title style of its own', async () => {
     const generateSessionTitle = vi.fn(async () => ({
       outcome: 'named' as const,

@@ -1,8 +1,8 @@
 // Naming a Claude conversation.
 //
 // Claude's stream-json protocol carries no title frame, and the CLI's own
-// auto-titling lives in its interactive UI: a session driven over stream-json is
-// never titled on its own. The Agent SDK exposes the request directly, so Orca
+// auto-titling does not fire in practice for a session driven over stream-json
+// on current builds. The Agent SDK exposes the request directly, so Orca
 // asks once, and `persist` makes the CLI write the answer into its transcript as
 // the `ai-title` record a later attach reads back.
 //
@@ -31,9 +31,10 @@ export type ClaudeConversationNamingDeps = {
 /**
  * Names the session once, off the turn's critical path.
  *
- * Asked at most once per CONVERSATION rather than once per session object, and
- * every step runs inside the promise: this sits on the send path, and nothing
- * here may turn a delivered message into a reported failure.
+ * Asked at most once per CONVERSATION rather than once per session object.
+ * Nothing here may turn a delivered message into a reported failure: this sits
+ * on the send path, so the provider call runs inside the promise and the prompt
+ * reader is total by construction.
  */
 export function startClaudeConversationNaming(
   sessionId: string,
@@ -44,15 +45,18 @@ export function startClaudeConversationNaming(
   if (session.namingAttempted || !deps.onConversationName) {
     return
   }
+  // Claimed only once there is text to name from. A caption-free screenshot as
+  // the first message would otherwise spend the conversation's one attempt and
+  // leave it on the placeholder for good.
+  const description = agentSessionNamingPromptText(body)
+  if (!description) {
+    return
+  }
   session.namingAttempted = true
   void Promise.resolve()
     .then(async () => {
       const durable = deps.readNamingState?.(sessionId)
       if (durable?.conversationName || durable?.namingAttempted) {
-        return
-      }
-      const description = agentSessionNamingPromptText(body)
-      if (!description) {
         return
       }
       const result = await session.connection.generateSessionTitle(description, {

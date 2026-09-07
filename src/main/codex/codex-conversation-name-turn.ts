@@ -28,17 +28,6 @@ export type CodexConversationNamingInput = {
   onError?: (scope: string, error: unknown) => void
 }
 
-/**
- * Names the thread once, off the turn's critical path.
- *
- * Asked at most once per CONVERSATION, not once per session object: the durable
- * marker means a thread the model declined to name, and a name a person
- * deliberately cleared, are not re-asked after an eviction or a restart.
- *
- * Everything runs inside the promise, including reading the user's text: this
- * sits on the send path, and nothing here may turn a delivered message into a
- * reported failure.
- */
 /** Shapes the adapter's optional naming deps into a naming turn, one dispatch at a time. */
 export function startCodexConversationNamingForTurn(
   sessionId: string,
@@ -58,19 +47,33 @@ export function startCodexConversationNamingForTurn(
   })
 }
 
+/**
+ * Names the thread once, off the turn's critical path.
+ *
+ * Asked at most once per CONVERSATION, not once per session object: the durable
+ * marker means a thread the model declined to name, and a name a person
+ * deliberately cleared, are not re-asked after an eviction or a restart.
+ *
+ * Nothing here may turn a delivered message into a reported failure: this sits
+ * on the send path, so the provider call runs inside the promise and the prompt
+ * reader is total by construction.
+ */
 export function startCodexConversationNaming(input: CodexConversationNamingInput): void {
   const { session, sessionId } = input
   if (session.namingAttempted || session.conversationName || !input.onConversationName) {
+    return
+  }
+  // Claimed only once there is text to name from. A caption-free screenshot as
+  // the first message would otherwise spend the conversation's one attempt and
+  // leave it on the placeholder for good.
+  const prompt = agentSessionNamingPromptText(input.body)
+  if (!prompt) {
     return
   }
   session.namingAttempted = true
   void Promise.resolve()
     .then(async () => {
       if (input.readNamingAttempted?.(sessionId)) {
-        return
-      }
-      const prompt = agentSessionNamingPromptText(input.body)
-      if (!prompt) {
         return
       }
       const outcome = await generateAndSetCodexConversationName({
