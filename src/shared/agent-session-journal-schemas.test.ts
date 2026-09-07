@@ -202,6 +202,15 @@ describe('optional tool annotations', () => {
       })
     ).toBe(true)
   })
+  it('admits explicit MCP identity without constraining the raw name', () => {
+    expect(
+      isAdmissibleAgentJournalItemBody({
+        ...body,
+        name: 'my_server/ns.tool',
+        mcpIdentity: { server: 'my_server', tool: 'ns.tool' }
+      })
+    ).toBe(true)
+  })
   it.each([
     { exitCode: '127' },
     { exitCode: 1.5 },

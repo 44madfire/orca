@@ -80,3 +80,81 @@ describe('inline tool annotations', () => {
     expect(onLinkClick).toHaveBeenCalledTimes(2)
   })
 })
+
+it.each(['tools/read', 'browser.open', 'package.lock', 'linear/list_issues'])(
+  'keeps an ordinary tool name %s intact',
+  (name) => {
+    render(<NativeChatToolRun blocks={[{ type: 'tool-call', name, input: null }]} expandSignal />)
+    expect(screen.getByText(name, { selector: 'code' })).toBeTruthy()
+    expect(document.querySelector('.lucide-plug')).toBeNull()
+  }
+)
+
+it.each(['running', 'completed'] as const)(
+  'renders provider MCP identity on %s rows and headers',
+  (state) => {
+    const name = 'my_server/ns.tool'
+    render(
+      <NativeChatToolRun
+        blocks={[
+          {
+            type: 'tool-call',
+            name,
+            input: null,
+            state,
+            mcpIdentity: { server: 'my_server', tool: 'ns.tool' }
+          }
+        ]}
+        expandSignal
+        activeTurnIsWorking={state === 'running'}
+      />
+    )
+    expect(screen.getByText('My server')).toBeTruthy()
+    expect(screen.getByText('ns.tool')).toBeTruthy()
+    expect(screen.getByTitle(name)).toBeTruthy()
+    expect(document.querySelectorAll('.lucide-plug')).toHaveLength(2)
+  }
+)
+
+it.each([
+  [{ exitCode: 0 }, 'exit 0', '400ms'],
+  [{ durationMs: 400 }, '400ms', 'exit 0']
+])('renders independently optional command metadata %j', (metadata, present, absent) => {
+  render(
+    <NativeChatToolRun
+      blocks={[{ type: 'tool-call', name: 'shell', input: null, ...metadata }]}
+      expandSignal
+    />
+  )
+  expect(screen.getByText(present)).toBeTruthy()
+  expect(screen.queryByText(absent)).toBeNull()
+})
+
+it('filters untrusted persisted result URLs at the renderer boundary', () => {
+  const onLinkClick = vi.fn((event) => event.preventDefault())
+  render(
+    <NativeChatToolRun
+      blocks={[
+        {
+          type: 'tool-call',
+          name: 'web_search',
+          input: null,
+          webSearchResults: [
+            { title: 'Script', url: 'javascript:alert(1)' },
+            { title: 'Local file', url: 'file:///tmp/secret' },
+            { title: 'App route', url: 'orca://open' },
+            { title: 'Protocol relative', url: '//example.com' },
+            { title: 'Data', url: 'data:text/html,hello' },
+            { title: 'Docs', url: 'https://example.com/docs' }
+          ]
+        }
+      ]}
+      expandSignal
+      onLinkClick={onLinkClick}
+    />
+  )
+  const links = screen.getAllByRole('link')
+  expect(links).toHaveLength(1)
+  fireEvent.click(links[0]!)
+  expect(onLinkClick).toHaveBeenCalledExactlyOnceWith(expect.anything(), 'https://example.com/docs')
+})

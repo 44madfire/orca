@@ -8,7 +8,7 @@ import {
 } from './native-chat-tool-identity'
 
 describe('MCP tool identity', () => {
-  it.each(['mcp__linear__list_issues', 'linear/list_issues', 'linear.list_issues'])(
+  it.each(['mcp__linear__list_issues'])(
     'splits %s for display without changing the identifier',
     (name) => {
       const raw = name
@@ -17,6 +17,13 @@ describe('MCP tool identity', () => {
     }
   )
   it.each([
+    'linear/list_issues',
+    'linear.list_issues',
+    'tools/read',
+    'docs/search',
+    'browser.open',
+    'archive.tar',
+    'package.lock',
     'setup.py',
     'src/read',
     'src/tool.ts',
@@ -31,6 +38,13 @@ describe('MCP tool identity', () => {
     'server.',
     'run_mcp__thing'
   ])('does not claim an MCP identity for %s', (name) => expect(mcpToolIdentity(name)).toBeNull())
+  it('uses explicit provider identity without changing the raw name', () => {
+    const identity = Object.freeze({ server: 'my_server', tool: 'ns.tool' })
+    expect(mcpToolIdentity('my_server/ns.tool', identity)).toEqual({
+      server: 'My server',
+      tool: 'ns.tool'
+    })
+  })
   it('keeps an explicitly qualified tool even when its name resembles a file extension', () => {
     expect(mcpToolIdentity('mcp__server__py')).toEqual({ server: 'Server', tool: 'py' })
   })

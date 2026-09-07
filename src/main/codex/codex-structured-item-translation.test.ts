@@ -614,6 +614,7 @@ describe('codex item bodies', () => {
       // Server-qualified, and the arguments stay top level so the row label can
       // read `query`/`command`/`file_path` out of them.
       name: 'weather/get_forecast',
+      mcpIdentity: { server: 'weather', tool: 'get_forecast' },
       input: { city: 'Oslo' },
       state: 'completed',
       output: { head: '12C', byteLength: 3, truncated: false, digest: expect.any(String) }

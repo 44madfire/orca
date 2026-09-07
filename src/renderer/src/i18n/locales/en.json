@@ -17009,6 +17009,7 @@
       },
       "tool": {
         "exitCode": "exit {{value0}}",
+        "milliseconds": "{{value0}}ms",
         "running": "Running…",
         "result": "Result",
         "countOne": "1 tool call",

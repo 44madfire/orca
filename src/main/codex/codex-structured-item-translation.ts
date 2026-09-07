@@ -161,6 +161,8 @@ function mcpToolArguments(value: unknown): unknown {
 }
 
 function mcpToolCallItem(item: CodexThreadItem): CodexJournalItem {
+  const server = readString(item, 'server')
+  const tool = readString(item, 'tool')
   const failure = readString(readRecord(item.error), 'message')
   const text = failure ?? readTextContent(readRecord(item.result), 'content')
   const bounded = text === null ? null : boundInlineText(text, DEFAULT_JOURNAL_PAYLOAD_LIMITS)
@@ -168,6 +170,7 @@ function mcpToolCallItem(item: CodexThreadItem): CodexJournalItem {
     body: {
       kind: 'tool-call',
       name: mcpToolCallName(item),
+      ...(server && tool ? { mcpIdentity: { server, tool } } : {}),
       input: boundToolInput(mcpToolArguments(item.arguments), DEFAULT_JOURNAL_PAYLOAD_LIMITS),
       state: failure === null ? commandState(item) : 'failed',
       ...(bounded === null ? {} : { output: bounded.bounded })

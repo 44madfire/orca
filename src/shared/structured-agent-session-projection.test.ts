@@ -307,3 +307,18 @@ it('preserves optional tool annotations for desktop and mobile projection', () =
     ...metadata
   })
 })
+
+it('preserves confirmed MCP identity and the raw name through projection', () => {
+  const body = {
+    kind: 'tool-call' as const,
+    name: 'my_server/ns.tool',
+    input: null,
+    mcpIdentity: { server: 'my_server', tool: 'ns.tool' }
+  }
+  const projected = projectStructuredItemToNativeChat(item('mcp', 1, body))
+  expect(projected?.blocks[0]).toMatchObject({
+    name: body.name,
+    mcpIdentity: body.mcpIdentity,
+    type: 'tool-call'
+  })
+})

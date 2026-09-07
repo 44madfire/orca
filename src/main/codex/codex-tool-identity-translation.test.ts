@@ -79,3 +79,14 @@ describe('web result annotations', () => {
     ).not.toHaveProperty('webSearchResults')
   })
 })
+
+it('annotates only confirmed MCP calls and retains the raw server/tool name', () => {
+  expect(
+    codexItemBody({ type: 'mcpToolCall', id: 'm', server: 'my_server', tool: 'ns.tool' })
+  ).toMatchObject({
+    kind: 'tool-call',
+    name: 'my_server/ns.tool',
+    mcpIdentity: { server: 'my_server', tool: 'ns.tool' }
+  })
+  expect(codexItemBody(command)).not.toHaveProperty('mcpIdentity')
+})

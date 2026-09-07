@@ -2,7 +2,10 @@ import { formatNativeChatDuration } from './native-chat-turn-status'
 
 export type NativeChatWebSearchResult = { title: string; url: string }
 
+export type NativeChatMcpIdentity = { server: string; tool: string }
+
 export type NativeChatToolMetadata = {
+  mcpIdentity?: NativeChatMcpIdentity
   exitCode?: number
   durationMs?: number
   webSearchResults?: NativeChatWebSearchResult[]
@@ -20,32 +23,33 @@ export function toolExecutionMetadata(item: Record<string, unknown>): NativeChat
   }
 }
 
-export function formatToolDuration(durationMs: unknown): string | null {
+export function formatToolDuration(
+  durationMs: unknown,
+  formatMilliseconds: (value: number) => string = (value) => `${value}ms`
+): string | null {
   if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) {
     return null
   }
   return durationMs < 1000
-    ? `${Math.round(durationMs)}ms`
+    ? formatMilliseconds(Math.round(durationMs))
     : formatNativeChatDuration(durationMs / 1000)
 }
 
-// Unprefixed qualified names must not turn file names or paths into MCP identities.
-const FILE_EXTENSION =
-  /^(?:[cm]?[jt]sx?|py|rs|go|sh|bash|zsh|ps1|cmd|bat|exe|json|ya?ml|toml|md|txt|css|html|sql|rb|java|c|h|cpp|svg|png)$/i
-const PATH_ROOT = /^(?:src|lib|bin|dist|build|scripts|tests|node_modules)$/i
-
-export function mcpToolIdentity(name: string): { server: string; tool: string } | null {
-  const raw = name.trim()
-  const prefixed = /^mcp__([^\s]+?)__(\S+)$/.exec(raw)
-  const qualified = /^([\w-]+)[/.]([\w-]+)$/.exec(raw)
-  const match = prefixed ?? qualified
-  if (!match || (!prefixed && (FILE_EXTENSION.test(match[2]!) || PATH_ROOT.test(match[1]!)))) {
+/** Only explicit provider identity or the reserved MCP prefix proves a tool is MCP. */
+export function mcpToolIdentity(
+  name: string,
+  identity?: NativeChatMcpIdentity
+): NativeChatMcpIdentity | null {
+  const match = /^mcp__([^\s]+?)__(\S+)$/.exec(name.trim())
+  const server = identity?.server ?? match?.[1]
+  const tool = identity?.tool ?? match?.[2]
+  if (!server || !tool) {
     return null
   }
-  const server = match[1]!.replace(/[_-]+/g, ' ')
+  const label = server.replace(/[_-]+/g, ' ')
   return {
-    server: server.charAt(0).toUpperCase() + server.slice(1),
-    tool: match[2]!.replace(/[_-]+/g, ' ')
+    server: label.charAt(0).toUpperCase() + label.slice(1),
+    tool: tool.replace(/[_-]+/g, ' ')
   }
 }
 

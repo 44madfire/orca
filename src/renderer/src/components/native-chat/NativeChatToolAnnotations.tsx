@@ -3,13 +3,20 @@ import type { CommentMarkdownLinkClickHandler } from '@/components/sidebar/Comme
 import { cn } from '@/lib/utils'
 import type { NativeChatToolCallBlock } from '../../../../shared/native-chat-types'
 import {
+  type NativeChatMcpIdentity,
   formatToolDuration,
   mcpToolIdentity,
   toolWebSearchResults
 } from '../../../../shared/native-chat-tool-identity'
 
-export function NativeChatToolName({ name }: { name: string }): React.JSX.Element {
-  const identity = mcpToolIdentity(name)
+export function NativeChatToolName({
+  name,
+  mcpIdentity
+}: {
+  name: string
+  mcpIdentity?: NativeChatMcpIdentity
+}): React.JSX.Element {
+  const identity = mcpToolIdentity(name, mcpIdentity)
   return identity ? (
     <span title={name} className="inline-flex min-w-0 items-center gap-1.5">
       <span className="truncate">{identity.server}</span>
@@ -26,7 +33,9 @@ export function NativeChatCommandMetadata({
 }: {
   block: NativeChatToolCallBlock
 }): React.JSX.Element | null {
-  const duration = formatToolDuration(block.durationMs)
+  const duration = formatToolDuration(block.durationMs, (value0) =>
+    translate('components.native-chat.tool.milliseconds', '{{value0}}ms', { value0 })
+  )
   const exitCode = Number.isSafeInteger(block.exitCode) ? block.exitCode : undefined
   if (exitCode === undefined && duration === null) {
     return null
