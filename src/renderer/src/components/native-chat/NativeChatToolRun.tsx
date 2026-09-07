@@ -9,12 +9,8 @@ import {
 } from '../../../../shared/native-chat-types'
 import { diffFromText, diffFromToolCall, type DiffLine } from './native-chat-diff'
 import { NativeChatDiffCard } from './NativeChatDiffCard'
-import { pairToolBlocks } from './native-chat-tool-fold'
-import {
-  editFilesFromToolPair,
-  isEditToolName
-} from '../../../../shared/native-chat-edit-normalize'
-import type { NativeChatEditFile } from '../../../../shared/native-chat-edit-model'
+import type { NativeChatDiffReveal } from './native-chat-turn-diffs'
+import { buildEditCards, NO_EDIT_CARDS } from './native-chat-edit-cards'
 import {
   countToolCalls,
   createToolInputDisplay,
@@ -133,61 +129,21 @@ function ToolLine({
   )
 }
 
-type EditCardModel = {
-  editCards: Map<NativeChatBlock, { files: NativeChatEditFile[]; key: string }>
-  /** Result blocks the card already speaks for, so they render no second row. */
-  consumedResults: Set<NativeChatBlock>
-}
-
-const NO_EDIT_CARDS: EditCardModel = { editCards: new Map(), consumedResults: new Set() }
-
-/** An edit renders as one card, so its result block is folded into the call. The
- *  model decides which calls have landed; a call that has not keeps the generic
- *  tool view, its result still visible as the provider's own error. */
-function buildEditCards(blocks: NativeChatBlock[]): EditCardModel {
-  const editCards: EditCardModel['editCards'] = new Map()
-  const consumedResults: EditCardModel['consumedResults'] = new Set()
-  for (const [index, pair] of pairToolBlocks(blocks).entries()) {
-    const call = pair.call
-    if (!call || !isEditToolName(call.name)) {
-      continue
-    }
-    const files = editFilesFromToolPair({
-      name: call.name,
-      input: call.input,
-      ...(call.state ? { state: call.state } : {}),
-      ...(pair.result
-        ? {
-            result: {
-              output: pair.result.output,
-              isError: pair.result.isError,
-              editPatch: pair.result.editPatch
-            }
-          }
-        : {})
-    })
-    if (!files || files.length === 0) {
-      continue
-    }
-    editCards.set(call, { files, key: `${call.name}:${index}` })
-    if (pair.result) {
-      consumedResults.add(pair.result)
-    }
-  }
-  return { editCards, consumedResults }
-}
-
 /** A run of a message's tool calls/results, collapsed to a one-line summary that
  *  expands to the individual inline tool lines. `expandSignal` lets the global
  *  toolbar toggle drive every run at once while still allowing per-run override. */
 export function NativeChatToolRun({
   blocks,
+  revealedDiff,
+  onRevealDiff,
   expandSignal,
   activeTurnIsWorking,
   expandOverride,
   structuredActivityUi = true
 }: {
   blocks: NativeChatBlock[]
+  revealedDiff?: NativeChatDiffReveal
+  onRevealDiff?: (element: HTMLElement) => void
   /** Toolbar-driven desired open state. Each change re-syncs this run's state. */
   expandSignal: boolean
   /** Per-turn disclosure state controlled by the completed turn status row. */
@@ -200,6 +156,12 @@ export function NativeChatToolRun({
   // Re-sync when the global toolbar toggle flips.
   useEffect(() => setOpen(expandOverride ?? expandSignal), [expandOverride, expandSignal])
 
+  useEffect(() => {
+    if (revealedDiff) {
+      setOpen(true)
+    }
+  }, [revealedDiff])
+
   const callCount = countToolCalls(blocks) || blocks.length
   const summary = summarizeToolRun(blocks)
   const latestActiveCall = structuredActivityUi
@@ -209,8 +171,7 @@ export function NativeChatToolRun({
   // The turn caret opens the activity group, while each child tool remains
   // collapsed. The global expand toolbar still opens child details together.
   const expandToolLines = expandOverride === undefined ? open : false
-  // Diffing every edit is the run's most expensive work, so a collapsed run —
-  // which renders none of it — never pays for it.
+  // Other edits remain lazy; journal diffs reuse the rollup's normalized files.
   const { editCards, consumedResults } = useMemo(
     () => (open ? buildEditCards(blocks) : NO_EDIT_CARDS),
     [open, blocks]
@@ -235,6 +196,7 @@ export function NativeChatToolRun({
   if (
     structuredActivityUi &&
     expandOverride === false &&
+    !(revealedDiff && open) &&
     isSettled &&
     activeTurnIsWorking === false
   ) {
@@ -301,6 +263,12 @@ export function NativeChatToolRun({
                       <NativeChatDiffCard
                         key={`${edit.key}:${fileIndex}`}
                         file={file}
+                        revealSignal={
+                          revealedDiff?.editKey === edit.key && revealedDiff.fileIndex === fileIndex
+                            ? revealedDiff.requestId
+                            : undefined
+                        }
+                        onReveal={onRevealDiff}
                         initiallyExpanded={expandToolLines}
                       />
                     ))}
