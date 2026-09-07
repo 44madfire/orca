@@ -236,7 +236,7 @@ describe('federated worker mailbox Run', () => {
   // A database old enough to predate `messages.delivery_contract` is genuinely version-skewed, so
   // the probe still replays the chain and adoption still sweeps by Run. v40 re-homes the rows
   // afterwards, which is the honest degraded outcome: the instruction is redelivered, not lost.
-  it('relocates a pre-contract mailbox before the adoption pass that replays over it', () => {
+  it('redelivers a pre-contract mailbox that the replayed adoption pass swept', () => {
     const path = databasePath()
     const old = new OrchestrationDb(path)
     attachFederatedWorker(old)
