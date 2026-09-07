@@ -340,6 +340,24 @@ describe('relay observability', () => {
     expect(entries[1]).not.toHaveProperty('controlRttMsP50')
   })
 
+  it('samples the whole flooded window rather than its first samples', () => {
+    const entries: Array<Record<string, unknown>> = []
+    const observability = new RelayObservability(
+      { role: 'cell', cellId: 'production-gce-c28', region: 'asia-east2' },
+      (entry) => entries.push(entry)
+    )
+    const half = CONTROL_RTT_RESERVOIR_LIMIT * 10
+    for (let sample = 0; sample < half; sample++) observability.recordControlRtt(10)
+    for (let sample = 0; sample < half; sample++) observability.recordControlRtt(900)
+    observability.flush(counts)
+
+    // Keeping the first N instead would publish a window of nothing but 10s. Each
+    // reservoir slot ends up drawn from the late half with ~1/2 probability, so
+    // fewer than the 5% the p95 needs is out of reach of this suite.
+    expect(entries[0]!.controlRttMsP95).toBe(900)
+    expect(entries[0]!.controlRttMsMax).toBe(900)
+  })
+
   it('observes successful and failed database calls including transactions', async () => {
     const recordSql = vi.fn()
     const underlying: RelayDatabase = {
