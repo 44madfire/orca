@@ -103,7 +103,7 @@ Selectors:
 
 Lineage:
 
-Lineage is a filing choice: it controls how the worktree is grouped in Orca's sidebar and nothing else. It does not affect the branch, the base commit, or the PR, and `worktree set` can change it later.
+Lineage controls sidebar grouping and which descendants participate in group lifecycle actions. It does not affect the branch, the base commit, or the PR, and `worktree set` can change it later.
 
 Each option trades the same two things in opposite directions. Pick against how the user will look for this worktree afterwards, and say which you picked:
 
