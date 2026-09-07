@@ -83,9 +83,12 @@ describe('mobile i18n startup', () => {
     expect(mobileI18n.isInitialized).toBe(true)
   })
 
-  // A locale change restarts the app, so only the fallback and the active locale are
-  // ever needed. Registering all five would parse unused catalogs on every boot.
-  it('registers only the catalogs it has, not every supported locale', () => {
+  // Coverage, not a regression guard: with only en.json present, registering every
+  // supported locale produces the same result as registering the active one, so this
+  // cannot distinguish the two. It pins that a supported locale without a catalog is
+  // never registered. Extraction adds a second catalog, which is what finally makes
+  // the lazy path observable.
+  it('never registers a supported locale that has no catalog', () => {
     expect(mobileI18n.hasResourceBundle('en', 'translation')).toBe(true)
     for (const locale of ['es', 'ja', 'ko', 'zh'] satisfies MobileUiLocale[]) {
       expect(loadMobileLocaleCatalog(locale)).toBeUndefined()
