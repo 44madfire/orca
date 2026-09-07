@@ -30,7 +30,7 @@ describe('mobile web bridge operation registry census', () => {
     }
 
     expect(files.length).toBeGreaterThanOrEqual(40)
-    expect(named.size).toBeGreaterThanOrEqual(126)
+    expect(named.size).toBeGreaterThanOrEqual(88)
     expect([...named].filter((pair) => !registered.has(pair))).toEqual([])
   })
 
@@ -61,7 +61,7 @@ describe('mobile web bridge operation registry census', () => {
       }
     }
 
-    expect(pairs.size).toBeGreaterThanOrEqual(126)
+    expect(pairs.size).toBeGreaterThanOrEqual(88)
     expect([...pairs].filter(([, schemas]) => schemas.size !== 1).map(([key]) => key)).toEqual([])
     expect([...pairs.keys()].filter((key) => !registered.has(key))).toEqual([])
     expect(

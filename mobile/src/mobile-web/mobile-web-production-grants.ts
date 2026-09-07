@@ -7,7 +7,6 @@ import { MOBILE_WEB_PRODUCTION_NATIVE_CHAT_GRANTS } from './mobile-web-productio
 import { MOBILE_WEB_PRODUCTION_SESSION_GRANTS } from './mobile-web-production-session-grants'
 import { MOBILE_WEB_PRODUCTION_SOURCE_CONTROL_GRANTS } from './mobile-web-production-source-control-grants'
 import { MOBILE_WEB_PRODUCTION_SPEECH_GRANTS } from './mobile-web-production-speech-grants'
-import { MOBILE_WEB_PRODUCTION_TASK_GRANTS } from './mobile-web-production-task-grants'
 import { MOBILE_WEB_PRODUCTION_TERMINAL_GRANTS } from './mobile-web-production-terminal-grants'
 import { MOBILE_WEB_PRODUCTION_WORKSPACE_CREATION_GRANTS } from './mobile-web-production-workspace-creation-grants'
 
@@ -31,7 +30,6 @@ export const MOBILE_WEB_PRODUCTION_GRANTS = [
   ...capabilityGrants('account', {
     snapshot: grantLimits(256, 96 * 1024, 2, 6, 1)
   }),
-  ...MOBILE_WEB_PRODUCTION_TASK_GRANTS,
   ...capabilityGrants('account', {
     select: grantLimits(1 * 1024, 256, 1, 4, 1),
     resetCreditCapability: grantLimits(256, 256, 2, 4, 1),

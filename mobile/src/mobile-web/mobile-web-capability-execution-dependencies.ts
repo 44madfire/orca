@@ -12,8 +12,6 @@ import type { MobileWebNativeCapabilityAuthority } from './mobile-web-native-cap
 import type { MobileWebNativeChatAuthority } from './mobile-web-native-chat-authority'
 import type { MobileWebSourceControlBranchComparePager } from './mobile-web-source-control-branch-compare-pager'
 import type { MobileWebSpeechAuthority } from './mobile-web-speech-authority'
-import type { MobileWebTaskTargetAuthority } from './mobile-web-task-target-authority'
-import type { MobileWebTaskProjectTablePager } from './mobile-web-task-project-table-pager'
 import type { MobileWebTerminalArtifactAuthority } from './mobile-web-terminal-artifact-authority'
 import type { MobileWebTerminalStreams } from './mobile-web-terminal-streams'
 import type { MobileWebWorkspaceAuthority } from './mobile-web-workspace-authority'
@@ -40,8 +38,6 @@ export type MobileWebCapabilityExecutionDependencies = {
   terminalStreams: MobileWebTerminalStreams
   commitMessageGeneration: MobileWebCommitMessageGeneration
   terminalArtifactAuthority: MobileWebTerminalArtifactAuthority
-  taskTargetAuthority: MobileWebTaskTargetAuthority
-  taskProjectTable: MobileWebTaskProjectTablePager
   nativeChatAuthority: MobileWebNativeChatAuthority
   workspaceAuthority: MobileWebWorkspaceAuthority
   workspaceSnapshots: MobileWebWorkspaceSnapshotPager

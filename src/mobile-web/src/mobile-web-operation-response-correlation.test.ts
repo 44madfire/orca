@@ -16,8 +16,6 @@ const WORKSPACE_ID = 'workspace-1'
 const OTHER_WORKSPACE_ID = 'workspace-2'
 const REPO_ID = 'repo-1'
 const OTHER_REPO_ID = 'repo-2'
-const TARGET_ID = 'task-target-1'
-const OTHER_TARGET_ID = 'task-target-2'
 
 type CorrelationCase = {
   name: string
@@ -142,66 +140,6 @@ const CORRELATION_CASES: CorrelationCase[] = [
     result: { item: gitHubCreationItem({ number: 43 }) }
   },
   {
-    name: 'task project host',
-    capability: 'task',
-    operation: 'listProjects',
-    invoke: (client) => client.task.listProjects({ host: 'github.com' }),
-    result: {
-      projects: [
-        {
-          id: 'project-1',
-          host: 'enterprise.example',
-          owner: 'orca',
-          ownerType: 'organization',
-          number: 1,
-          title: 'Roadmap',
-          url: 'https://enterprise.example/orca/projects/1',
-          source: 'viewer'
-        }
-      ],
-      partialFailures: []
-    }
-  },
-  {
-    name: 'task project resolution host',
-    capability: 'task',
-    operation: 'resolveProjectRef',
-    invoke: (client) => client.task.resolveProjectRef({ input: 'orca/1', host: 'github.com' }),
-    result: {
-      owner: 'orca',
-      ownerType: 'organization',
-      number: 1,
-      title: 'Roadmap',
-      host: 'enterprise.example'
-    }
-  },
-  {
-    name: 'Linear task target',
-    capability: 'task',
-    operation: 'loadLinearIssue',
-    invoke: (client) => client.task.loadLinearIssue({ targetId: TARGET_ID }),
-    result: { issue: linearIssue(OTHER_TARGET_ID) }
-  },
-  {
-    name: 'Linear task detail target',
-    capability: 'task',
-    operation: 'loadLinearDetail',
-    invoke: (client) => client.task.loadLinearDetail({ targetId: TARGET_ID }),
-    result: { issue: linearIssue(OTHER_TARGET_ID), comments: [] }
-  },
-  {
-    name: 'Linear task list request limit',
-    capability: 'task',
-    operation: 'listLinear',
-    invoke: (client) => client.task.listLinear({ filter: 'all', limit: 1 }),
-    result: {
-      items: [
-        linearIssue('task-target-1'),
-        { ...linearIssue('task-target-2'), id: 'linear-issue-2', identifier: 'ORCA-2' }
-      ]
-    }
-  },
-  {
     name: 'account reset scope',
     capability: 'account',
     operation: 'consumeResetCredit',
@@ -317,21 +255,6 @@ function gitHubCreationItem(overrides: Record<string, unknown> = {}) {
     author: 'orca',
     repoId: REPO_ID,
     ...overrides
-  }
-}
-
-function linearIssue(targetId: string) {
-  return {
-    id: 'linear-issue-1',
-    targetId,
-    identifier: 'ORCA-1',
-    title: 'Issue',
-    url: 'https://linear.app/orca/issue/ORCA-1',
-    state: { name: 'Open', type: 'started', color: '#888888' },
-    team: { id: 'team-1', name: 'Orca', key: 'ORCA' },
-    labels: [],
-    priority: 1,
-    updatedAt: '2026-07-28T00:00:00Z'
   }
 }
 

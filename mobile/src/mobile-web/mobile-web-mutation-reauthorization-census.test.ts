@@ -33,10 +33,6 @@ const REAUTHORIZATION_SITES: Record<string, number> = {
   'mobile-web-source-control-operations.ts': 1,
   'mobile-web-source-control-review-operations.ts': 3,
   'mobile-web-source-control-sync-operations.ts': 6,
-  'mobile-web-task-item-file-operations.ts': 1,
-  'mobile-web-task-item-mutation-operations.ts': 1,
-  'mobile-web-task-item-review-operations.ts': 1,
-  'mobile-web-task-project-mutation-operations.ts': 1,
   'mobile-web-workspace-creation-create-operations.ts': 2
 }
 
@@ -71,16 +67,6 @@ const NO_REAUTHORIZATION_WINDOW: readonly string[] = [
   'settings.update',
   'sourceControl.cancelCommitMessageGeneration',
   'sourceControl.generateCommitMessage',
-  'task.addLinearIssueComment',
-  'task.connectLinear',
-  'task.createLinearIssue',
-  'task.createLinearSubIssue',
-  'task.createProviderIssue',
-  'task.selectLinearWorkspace',
-  'task.updateIssueSource',
-  'task.updateLinearIssueState',
-  'task.updateResume',
-  'task.updateSettings',
   'terminal.attachImage',
   'terminal.clipboardPaste',
   'workspace.creationPersistTrust',
@@ -167,7 +153,7 @@ describe('mobile web mutation reauthorization census', () => {
     }
 
     expect(unaccounted).toEqual([])
-    expect(mutations()).toHaveLength(113)
+    expect(mutations()).toHaveLength(78)
   })
 
   it('exempts only registered mutations', () => {
@@ -185,6 +171,6 @@ describe('mobile web mutation reauthorization census', () => {
     const capabilities = Object.keys(MOBILE_WEB_BRIDGE_OPERATIONS) as MobileWebBridgeCapability[]
 
     expect([...kinds].sort()).toEqual(['mutation', 'read', 'subscription'])
-    expect(capabilities).toHaveLength(14)
+    expect(capabilities).toHaveLength(13)
   })
 })

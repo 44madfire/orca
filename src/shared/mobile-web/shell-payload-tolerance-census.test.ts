@@ -108,7 +108,7 @@ describe('mobile web shell payload tolerance census', () => {
 
   it('derives the shell-authored schema set from the page instead of a hand list', () => {
     expect(schemas.size).toBeGreaterThanOrEqual(300)
-    expect(derived.size).toBeGreaterThanOrEqual(100)
+    expect(derived.size).toBeGreaterThanOrEqual(86)
     expect([...derived]).toContain('MobileWebNativeAlertResultSchema')
     expect([...derived]).toContain('MobileWebHostResultSchema')
     expect([...derived]).not.toContain('MobileWebSessionSnapshotResultSchema')

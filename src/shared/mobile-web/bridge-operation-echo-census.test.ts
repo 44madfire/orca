@@ -63,10 +63,6 @@ const EXPECTED_ECHO_FIELDS: Record<string, readonly string[]> = {
   'sourceControl.stage': ['operation', 'relativePaths.length', 'workspaceId'],
   'sourceControl.unstage': ['operation', 'relativePaths.length', 'workspaceId'],
   'sourceControl.upstream': ['workspaceId'],
-  'task.loadLinearDetail': ['issue.targetId'],
-  'task.loadLinearIssue': ['issue.targetId'],
-  'task.projectTable': ['project', 'selectedView.id'],
-  'task.resolveProjectRef': ['host'],
   'workspace.activate': ['workspaceId'],
   'workspace.creationSaveSparsePreset': ['directories', 'id', 'name', 'repoId'],
   'workspace.creationSparsePresets': ['repoId'],
@@ -296,7 +292,7 @@ describe('mobile web bridge operation echo census', () => {
     )
 
     expect(Object.keys(EXPECTED_ECHO_FIELDS).filter((key) => !registered.has(key))).toEqual([])
-    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(49)
+    expect(Object.keys(EXPECTED_ECHO_FIELDS).length).toBeGreaterThanOrEqual(45)
   })
 
   it('guards the page workspace handle on every workspace-scoped echo it records', () => {
