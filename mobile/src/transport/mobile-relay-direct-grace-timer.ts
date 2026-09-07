@@ -5,7 +5,10 @@ import type { StableLogicalRpcClient } from './stable-logical-rpc-client'
 // cannot even start meanwhile because connecting/handshaking count as live direct
 // progress. Happy eyeballs: give direct this much of a head start, then race the
 // relay dial — migrateTo hands the logical client to whichever authenticates first.
-const DIRECT_DIAL_GRACE_MS = 2500
+// Off-LAN the private-address dial is black-holed, so the whole grace is paid on
+// every cold connect and foreground reconnect; on LAN direct authenticates in tens
+// of milliseconds and connect clears the timer, so a short head start costs nothing.
+const DIRECT_DIAL_GRACE_MS = 500
 
 type DirectGraceTimerDependencies = {
   setTimer: typeof setTimeout

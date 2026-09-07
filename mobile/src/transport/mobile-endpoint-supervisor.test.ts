@@ -847,7 +847,7 @@ describe('mobile endpoint supervisor', () => {
     const supervisor = new MobileEndpointSupervisor(logical, host, deps)
 
     await supervisor.start()
-    await vi.advanceTimersByTimeAsync(2_499)
+    await vi.advanceTimersByTimeAsync(499)
     expect(deps.openRelay).not.toHaveBeenCalled()
     expect(logical.getState()).toBe('connecting')
 
