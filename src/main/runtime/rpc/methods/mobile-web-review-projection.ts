@@ -1,3 +1,4 @@
+import { MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES } from '../../../../shared/mobile-web/bridge-limits'
 import type { PRCheckDetail } from '../../../../shared/github/check-types'
 import type {
   GitHubAssignableUser,
@@ -57,7 +58,7 @@ export function projectMobileWebReview(
   const comments = projectMobileWebReviewComments(details.provider, details.item.comments)
   const files = projectMobileWebReviewFiles(details)
   const participants = details.provider === 'github' ? details.item.item : null
-  return MobileWebProviderReviewSchema.parse({
+  const review = MobileWebProviderReviewSchema.parse({
     ...base,
     ...(headSha ? { headSha } : {}),
     body: details.item.body.slice(0, MOBILE_WEB_PROVIDER_REVIEW_BODY_MAX_CHARACTERS),
@@ -73,6 +74,30 @@ export function projectMobileWebReview(
     canComment: true,
     allowedSubmissionActions: submissionActions(summary, headSha)
   })
+  review.comments = []
+  review.files = []
+  // Reserve room for the response identity; JSON escaping counts toward the shell's byte envelope.
+  let remaining =
+    MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES - 8192 - Buffer.byteLength(JSON.stringify(review))
+  for (const file of files.items) {
+    const bytes = Buffer.byteLength(JSON.stringify(file)) + 1
+    if (bytes > remaining) {
+      break
+    }
+    remaining -= bytes
+    review.files.push(file)
+  }
+  for (const comment of comments.items.toReversed()) {
+    const bytes = Buffer.byteLength(JSON.stringify(comment)) + 1
+    if (bytes > remaining) {
+      break
+    }
+    remaining -= bytes
+    review.comments.unshift(comment)
+  }
+  review.filesTruncated ||= review.files.length < files.items.length
+  review.commentsTruncated ||= review.comments.length < comments.items.length
+  return review
 }
 
 /** A review only accepts a verdict while it is still open, and only against a known head. */

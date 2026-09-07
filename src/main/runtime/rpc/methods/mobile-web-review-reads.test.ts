@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES } from '../../../../shared/mobile-web/bridge-limits'
+import type { MobileWebProviderReview } from '../../../../shared/mobile-web/provider-review-contract'
 import {
   gitHubReviewDetails,
   gitLabReviewDetails,
@@ -107,6 +109,72 @@ describe('host-projected provider review reads', () => {
       }
     })
   })
+
+  it.each([
+    ['github', false],
+    ['gitlab', false],
+    ['github', true]
+  ] as const)(
+    'fits escaped %s review content with crowded checks=%s in the shell envelope',
+    async (provider, crowded) => {
+      const comments = Array.from({ length: 32 }, (_, id) => ({
+        id,
+        author: 'a'.repeat(160),
+        authorAvatarUrl: '',
+        url: '',
+        body: '\u0000'.repeat(4096),
+        createdAt: '2026-09-07'
+      }))
+      const details = {
+        body: '\u0000'.repeat(32 * 1024),
+        comments,
+        files: Array.from({ length: 48 }, (_, index) => ({
+          path: `${index}${'界'.repeat(1000)}`,
+          ...(crowded ? { oldPath: `${index}${'旧'.repeat(1000)}` } : {}),
+          status: 'modified' as const,
+          additions: 0,
+          deletions: 0,
+          isBinary: false
+        }))
+      }
+      const f = reviewRuntime({
+        getRuntimeGitStatus: reviewStatus(),
+        getHostedReviewForBranch: hostedReviewSummary({ provider }),
+        ...(provider === 'github'
+          ? {
+              getRepoWorkItemDetails: gitHubReviewDetails({
+                ...details,
+                checks: crowded
+                  ? Array.from({ length: 128 }, () => ({
+                      name: '\u0000'.repeat(256),
+                      status: 'completed' as const,
+                      conclusion: 'success' as const,
+                      url: null
+                    }))
+                  : []
+              })
+            }
+          : { getGitLabRepoWorkItemDetails: gitLabReviewDetails(details) })
+      })
+      const result = (await runReviewMethod(
+        'mobileWeb.review.read',
+        REVIEW_IDENTITY,
+        f.context
+      )) as { review: MobileWebProviderReview }
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(
+        MOBILE_WEB_BRIDGE_MAX_OPERATION_BYTES
+      )
+      expect(result.review.commentsTruncated).toBe(true)
+      if (!crowded) {
+        expect(result.review.comments.length).toBeGreaterThan(0)
+        expect(result.review.comments.at(-1)?.id).toBe('31')
+        expect(result.review.files).toHaveLength(48)
+      } else {
+        expect(result.review.filesTruncated).toBe(true)
+        expect(result.review.files.length).toBeLessThan(48)
+      }
+    }
+  )
 
   it('refuses a read composed against a head the repository has moved off', async () => {
     const f = reviewRuntime({ getRuntimeGitStatus: reviewStatus({ head: 'c'.repeat(40) }) })
