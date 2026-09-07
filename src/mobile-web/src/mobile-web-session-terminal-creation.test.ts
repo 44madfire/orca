@@ -35,6 +35,7 @@ describe('host session terminal creation page integration', () => {
       expect(f.request.mock.calls[0][2]).toEqual({
         method: 'mobileWeb.session.createTerminal',
         workspaceId: 'workspace',
+        timeoutMs: expect.any(Number),
         params: {
           ...(agent ? { agent: 'codex' } : {}),
           clientMutationId: expect.any(String),

@@ -69,7 +69,8 @@ export function prepareMobileWebHostRequest(args: MobileWebHostRequestArguments)
 export async function executeMobileWebHostRequest(
   args: MobileWebHostRequestArguments
 ): Promise<unknown> {
-  const deadline = Date.now() + MOBILE_WEB_HOST_REQUEST_TIMEOUT_MS
+  const { payload, scope, params, serverUnsubscribeMethod } = prepareMobileWebHostRequest(args)
+  const deadline = Date.now() + (payload.timeoutMs ?? MOBILE_WEB_HOST_REQUEST_TIMEOUT_MS)
   const beforeSend = () => {
     if (!args.isActive()) {
       throw new MobileWebBrokerError('cancelled')
@@ -78,7 +79,6 @@ export async function executeMobileWebHostRequest(
       throw new MobileWebBrokerError('timeout')
     }
   }
-  const { payload, scope, params, serverUnsubscribeMethod } = prepareMobileWebHostRequest(args)
   // A subscribe method answers with stream frames the stream registry consumes, so the unary
   // promise would hang to its deadline while the desktop subscription stayed open uncancellable.
   if (serverUnsubscribeMethod !== undefined) {

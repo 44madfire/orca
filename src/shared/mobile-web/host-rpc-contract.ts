@@ -7,11 +7,16 @@ const MethodSchema = z
   .max(160)
   .regex(/^[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/)
 
+/** Long enough for the slowest host call the page makes, an SSH connect. The shell still applies
+ * its own default when the page names none. */
+export const MOBILE_WEB_HOST_REQUEST_MAX_TIMEOUT_MS = 180_000
+
 export const MobileWebHostRequestPayloadSchema = z
   .object({
     method: MethodSchema,
     workspaceId: z.string().min(1).max(160).optional(),
-    params: z.record(z.string(), z.unknown())
+    params: z.record(z.string(), z.unknown()),
+    timeoutMs: z.number().int().min(1).max(MOBILE_WEB_HOST_REQUEST_MAX_TIMEOUT_MS).optional()
   })
   .strict()
 
