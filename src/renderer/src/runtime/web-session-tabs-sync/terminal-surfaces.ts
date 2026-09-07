@@ -74,7 +74,9 @@ export function buildMirroredAgentTabs(
         worktreeId: snapshot.worktree,
         contentType: 'agent-session',
         agentSessionAgent: tab.agent,
-        label: tab.title.trim() || defaultAgentChatLabel(tab.agent),
+        // Why: `title` is wire data typed `string`; a host that violates that must
+        // degrade to the placeholder, not throw inside the snapshot patch.
+        label: tab.title?.trim() || defaultAgentChatLabel(tab.agent),
         // Why: a manual rename lives only on the client; re-nulling it here made
         // every host snapshot silently discard the user's title.
         customLabel: existing?.customLabel ?? null,

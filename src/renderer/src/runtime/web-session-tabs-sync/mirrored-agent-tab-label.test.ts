@@ -67,6 +67,14 @@ describe('buildMirroredAgentTabs', () => {
     expect(tab.customLabel).toBeNull()
   })
 
+  it('degrades to the placeholder when the host violates the string contract', () => {
+    const snapshot = snapshotWith('claude', 'Named')
+    // The wire type says `string`, but a host clearing a name can send null.
+    ;(snapshot.tabs[0] as { title: unknown }).title = null
+    expect(() => build(snapshot)).not.toThrow()
+    expect(build(snapshot).label).toBe('Claude Chat')
+  })
+
   it('names an agent this build does not know after itself, not Codex', () => {
     const snapshot = snapshotWith('codex', '')
     // Cast: the wire union is claude|codex today, but Tab.agentSessionAgent is
