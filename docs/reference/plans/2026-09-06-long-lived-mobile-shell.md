@@ -33,8 +33,14 @@ Last reconciled: September 6, 2026. Implementation is **in progress**.
 - [x] Generic request dispatch guards: `ceeacb15725`.
 - [x] Desktop catalog authorization correction: `2b354df1463`.
 - [x] Generic native-chat TUI actions: `ca6c17a9cd2`.
+- [x] Hosted Chat settings with iOS persistence: `9be7d26db91`.
+- [x] Desktop terminal metadata actions: `a8a6560a691`.
+- [x] Opaque page resume state: `07df01263c9`.
+- [x] Hosted Browser preferences and Settings menu: `dd93e3b0073`.
+- [x] Bounded Metro script assets: `86215b5dec8`.
 - [x] Full unattended existing adversarial harness on iOS and Android.
-- [ ] Chat-specific interactions, migrated settings and frozen-shell OTA/rollback E2E.
+- [x] Migrated Chat/Browser settings persistence and WebView-restart recovery on iOS.
+- [ ] Chat-specific interactions and frozen-shell OTA/rollback E2E.
 
 Catalog authorization correction committed as `2b354df1463`; corrected iOS rerun passed.
 Investigation found that advertised `mobileWeb.files.*` and `mobileWeb.nativeChat.*`
@@ -116,8 +122,10 @@ work and report a terminal closure to the surviving page.
 - [ ] Verify preferences across real two-page OTA replacement and rollback.
 - [x] Replace hosted AsyncStorage's no-op behavior for page preferences through
       an explicit adapter; do not expose arbitrary native storage keys.
-- [ ] Add bounded page-owned resume state and navigation intents, with legacy
+- [x] Add bounded page-owned resume state and navigation intents, with legacy
       fallback and current host/document fences.
+- [ ] Persist page-owned resume state across native process death and migrate
+      remaining domain route resolution; current page registry covers settings.
 - [ ] Keep notification receipt and host selection native; let the page resolve
       domain routes after readiness. Never persist document-scoped opaque handles
       as though they remain valid after restart.
@@ -128,11 +136,12 @@ Follow `docs/STYLEGUIDE.md`, existing tokens/primitives and shared mobile screen
 components. Reuse presentation; split native dependencies through adapters.
 
 - [x] Native-chat preferences, including iOS persistence and rendered verification.
-- [ ] Browser preferences.
+- [x] Browser preferences, including saved-value consumer and iOS persistence.
 - [ ] Terminal settings, including host settings and device preferences.
 - [ ] Voice and notification settings; native permission/model actions remain
       explicit capabilities.
-- [ ] Settings menu, About, diagnostics and connection-log presentation.
+- [x] Shared Settings menu with hosted Chat/Browser entries.
+- [ ] About, diagnostics, connection-log and remaining Settings entries.
 - [ ] Preserve pairing/onboarding bootstrap and minimal offline recovery when
       no trusted healthy page is available.
 - [ ] Deliberately update route ownership, reachability and parity tests.
@@ -142,8 +151,8 @@ components. Reuse presentation; split native dependencies through adapters.
 - [ ] Externalize changing inline bootstrap code behind stable native CSP while
       retaining cached-page compatibility.
 - [ ] Keep manifest v1 exact keys, canonical hashes and rollback checks intact.
-- [ ] Split content-addressed bundles before reaching the 10 MiB single-asset
-      ceiling; revise the verifier's single-script assumption if needed.
+- [x] Split content-addressed bundles before reaching the 10 MiB single-asset
+      ceiling; remove the verifier's single-script assumption.
 - [ ] Test corruption, interrupted staging, activation health and rollback.
 
 ## Compatibility contract
@@ -496,3 +505,83 @@ The full iOS adversarial run, including Chat settings save/reopen, passes with
 was visually checked; the web switch uses the existing theme thumb token.
 Other settings and page-owned route restoration remain open. Gate logs:
 `/tmp/orca-ota-e2e/chat-settings-gates/`.
+
+### Parallel implementation checkpoint
+
+User authorized parallel agents. Current uncommitted slices: negotiated opaque
+page resume state; hosted Browser preferences and a shared Settings menu;
+Desktop terminal metadata actions; content-addressed Metro module chunks.
+Each has a distinct owner; full gates/export and simulator work remain serialized
+by the primary agent. No platform pass is claimed for these slices yet.
+
+Session audit clarified that hosted structured sessions are not wired today.
+Fingerprint translation is a prospective migration requirement. Desktop's
+existing structured-create adapter already validates the original intent before
+mapping and recomputes the final fingerprint; reuse it. Session snapshot migration
+must move browser/chat binding consumers with it: current snapshots populate
+shell authority registries as well as presentation.
+
+### Parallel slices — full code gates passed, iOS running
+
+Implemented bounded page-owned resume state with `navigation.pageState.v1`,
+legacy fallback and host/document fences. Native cold-resume carries the state
+while rebinding workspace handles; explicit notification/deep-link navigation
+clears it. Current registry covers Settings/Chat/Browser. State survives WebView
+and package replacement within the native session; native process-death storage
+and remaining domain routes are still open. Full gates caught and corrected the
+init-message builder omitting page state; an actual init serialization test now
+covers it.
+
+Browser preference presentation and the Settings menu are shared with native
+screens. Hosted link mode inherits the native setting until a paired-host page
+value is saved. Load/save failures are visible and session refresh retains prior
+state on storage failure. Chat switch readiness now covers both loading and saving.
+The session callback-body parity digest was updated deliberately for the preference
+refresh rejection handler; hook/callback counts and other digests stay intact.
+
+Desktop terminal metadata actions now bind/revalidate a specific terminal before
+clear/rename/display-mode dispatch. Binding precedes stream opening. Old shells
+and hosts use legacy operations only before dispatch; no mutation error retries
+on another lane. Native input, clipboard/image and binary-stream behavior remains.
+
+The packager splits Metro registrations into five ordered content-addressed
+scripts around 2 MiB, allowing indivisible modules up to the existing 10 MiB native
+asset ceiling. The manifest remains v1/[2,2]. Unit execution tests cover ordering,
+directives, Unicode byte limits and invalid shapes. Native CSP externalization
+is still open.
+
+All 11 required gates pass: 845 mobile files / 5,582 tests and 326 root files /
+2,737 tests. Logs: `/tmp/orca-ota-e2e/parallel-integration-gates/`.
+Export: 56 assets / 9,719,623 bytes; build
+`0fa171d14e01d38d09bae36f9734e4027bac2f0b31769e97dd0c8b370b5d5143`.
+The iOS full adversarial run now includes both settings persistence and a real
+WebContent process restart on Chat settings. Running log:
+`/tmp/orca-ota-e2e/ios-parallel-integration.log`; no success claimed yet.
+
+The first integrated iOS run passed Chat persistence and real WebContent-restart
+route/value recovery. It then failed because the Browser fixture selected an
+option before the animated picker was visible. Added a bounded visibility wait;
+page code/export unchanged. Retry: `/tmp/orca-ota-e2e/ios-parallel-integration-retry.log`.
+The recovered Chat screenshot was checked, including the native recovery banner.
+
+### Integrated iOS checkpoint — passed and committed
+
+`/tmp/orca-ota-e2e/ios-parallel-integration-retry.log` exited 0 with `ok: true`.
+This validates five-script page loading, both hosted settings save/reopen flows,
+Chat route/value restoration after a real WebContent process restart, native
+Alert, privacy, Tasks, Source Control/Review, terminal-link native taps and all
+existing adversarial isolation checks. Browser and recovered Chat screenshots
+were visually inspected. The crash recovery banner is expected after deliberate
+WebContent termination. Android's prior pass predates these changes; final smoke
+and real two-page OTA/rollback remain open.
+
+Commits: terminal actions `a8a6560a691`, page resume `07df01263c9`, hosted Browser/menu
+`dd93e3b0073`, Metro chunks `86215b5dec8`. All share the full integration gate and
+export evidence above; the final picker-visibility fixture fix additionally
+passed targeted lint and the complete iOS retry. Nothing was pushed.
+
+Next implementation: host-scoped generic requests for zero-workspace settings,
+Terminal preferences with both readers/writers, and a frozen-shell A→B→A fixture
+using authenticated Desktop delivery and native crash-loop rollback. Session
+migration must account for legacy browser/native-chat resource aliases; no raw
+session snapshot passthrough is planned.
