@@ -267,6 +267,8 @@
         "Mixed-version snapshots without sequence proof intentionally retain legacy behavior."
       ],
       "demotionRule": "Keep experimental or demote if adoption duplicates covered output, drops newer or unproven output, changes terminal ownership, or flakes without explanation."
+    },
+    {
       "id": "terminal-session.io-failure-cleanup",
       "title": "Native PTY I/O failures preserve termination ownership",
       "maturity": "experimental",
@@ -319,7 +321,7 @@
           "command": "pnpm test src/main/daemon/pty-subprocess-io-failure-cleanup.test.ts src/main/daemon/pty-subprocess-handle-lifecycle.test.ts src/main/daemon/terminal-host-session-reaping-leak.test.ts src/main/daemon/terminal-host-teardown-recreate.test.ts src/main/daemon/terminal-session-teardown.test.ts src/main/daemon/session.test.ts",
           "result": "passed",
           "durationSeconds": 0.617,
-          "summary": "110 tests passed across six files; failed-I/O cycle tests cover 64 closures."
+          "summary": "136 tests passed across six files; failed-I/O cycle tests cover 64 closures."
         },
         {
           "date": "2026-09-07",
@@ -328,7 +330,7 @@
           "command": "pnpm test src/main/daemon/pty-subprocess-io-failure-cleanup.test.ts",
           "result": "passed",
           "durationSeconds": 3.71,
-          "summary": "24 tests passed with simulated macOS/Linux/Windows branches, including 192 failed-I/O create/close cycles and exit-listener reentrancy."
+          "summary": "32 tests passed with 4 Windows-only cases skipped; simulated macOS/Linux/Windows branches include 192 failed-I/O create/close cycles and exit-listener reentrancy."
         },
         {
           "date": "2026-09-07",

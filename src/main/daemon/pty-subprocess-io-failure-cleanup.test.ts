@@ -21,7 +21,13 @@ vi.mock('../pty-descendant-termination', () => ({
 }))
 
 function createFixture() {
-  const proc = { ...mockPtyProcess(4242), destroy: vi.fn(), pause: vi.fn(), resume: vi.fn() }
+  const proc = {
+    ...mockPtyProcess(4242),
+    destroy: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    clear: vi.fn()
+  }
   const handle = createDaemonPtySubprocessHandle({
     process: proc as unknown as pty.IPty,
     shellPath: 'bash',
@@ -67,7 +73,13 @@ describe.each(['darwin', 'linux', 'win32'] as const)('%s native-handle contract'
       expect(fixture.proc.resume).toHaveBeenCalledOnce()
       fixture.handle.write('more input')
       fixture.handle.resize(120, 40)
+      fixture.handle.clear?.()
       expect(fixture.proc[operation]).toHaveBeenCalledOnce()
+      for (const suppressed of ['write', 'resize', 'clear'] as const) {
+        if (suppressed !== operation) {
+          expect(fixture.proc[suppressed]).not.toHaveBeenCalled()
+        }
+      }
       fixture.proc._simulateData('still running')
       expect(onData).toHaveBeenCalledWith('still running')
       expect(onExit).not.toHaveBeenCalled()
@@ -171,7 +183,11 @@ describe.each(['darwin', 'linux', 'win32'] as const)('%s native-handle contract'
           signal.mockClear()
           const closing = host.kill(sessionId, { immediate: true })
           // Capture rejection before assertions so a red run cannot leak an unhandled waiter.
-          const settled = closing.catch((error: unknown) => error)
+          const settled = closing.then(
+            () => null,
+            (error: unknown) => error ?? new Error('kill rejected')
+          )
+          let killFailure: unknown = null
           try {
             expect(host.listSessions()).toHaveLength(1)
             expect(fixture.proc.destroy).not.toHaveBeenCalled()
@@ -179,8 +195,9 @@ describe.each(['darwin', 'linux', 'win32'] as const)('%s native-handle contract'
             await vi.waitFor(() => expect(signal).toHaveBeenCalledWith(4242, 'SIGKILL'))
           } finally {
             fixture.proc._simulateExit(137)
-            await settled
+            killFailure = await settled
           }
+          expect(killFailure).toBeNull()
           expect(host.listSessions()).toHaveLength(0)
           expect(onExit).toHaveBeenCalledOnce()
           expect(fixture.proc.destroy).toHaveBeenCalledOnce()
