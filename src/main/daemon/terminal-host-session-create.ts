@@ -174,7 +174,12 @@ async function spawnAndPublishSession(
   deps.onSessionCreated(opts.sessionId, opts.agentSessionGeneration, session.isAlive)
   const token = session.attachClient(opts.streamClient)
 
-  const command = subprocess.startupCommand ?? opts.command
+  // Why no legacy fallback under agentResume: an absent owner-built command means
+  // the resume could not be expressed for the winning shell; the caller's preview
+  // command carries the wrong shell's quoting and must not be written instead.
+  const command = opts.agentResume
+    ? subprocess.startupCommand
+    : (subprocess.startupCommand ?? opts.command)
   const startupCommandWritten = Boolean(command) && !subprocess.startupCommandDeliveredInShellArgs
   // Why: without this, a missing command and a lost one log identically.
   // Length, never the text -- launches can carry credentials.

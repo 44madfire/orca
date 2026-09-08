@@ -41,7 +41,14 @@ describe('daemon structured resume protocol', () => {
     async (inShellArgs) => {
       subprocess.startupCommand = 'codex "resume" "session-1"'
       subprocess.startupCommandDeliveredInShellArgs = inShellArgs
-      await adapter.spawn({ cols: 80, rows: 24, command: "codex 'resume' 'wrong-preview'" })
+      // Why sh: a barrier-capable $SHELL (bash on CI) queues the write behind a
+      // ready marker the mock never emits; sh keeps delivery immediate everywhere.
+      await adapter.spawn({
+        cols: 80,
+        rows: 24,
+        command: "codex 'resume' 'wrong-preview'",
+        env: { SHELL: '/bin/sh' }
+      })
       if (inShellArgs) {
         expect(subprocess.write).not.toHaveBeenCalled()
       } else {
@@ -50,6 +57,23 @@ describe('daemon structured resume protocol', () => {
       }
     }
   )
+
+  it('suppresses the legacy preview when the owner could not build a resume', async () => {
+    await adapter.spawn({
+      cols: 80,
+      rows: 24,
+      command: "codex 'resume' 'wrong-preview'",
+      env: { SHELL: '/bin/sh' },
+      agentResume: {
+        agent: 'codex',
+        providerSession: { key: 'session_id', id: 'session-1' },
+        cmdOverrides: {}
+      }
+    })
+    // The preview carries the requested shell's quoting; with no owner-built
+    // command the host must write nothing rather than fall back to it.
+    expect(subprocess.write).not.toHaveBeenCalled()
+  })
 
   it('rejects structured resumes on an older daemon before creating a process', async () => {
     adapter.dispose()

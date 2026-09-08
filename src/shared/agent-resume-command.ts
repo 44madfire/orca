@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { RESUMABLE_TUI_AGENTS } from './agent-session-resume'
+import { normalizeAgentProviderSession, RESUMABLE_TUI_AGENTS } from './agent-session-resume'
 import { buildAgentResumeStartupPlan } from './tui-agent-resume-startup'
 import { resolveWindowsShellStartupFamily } from './windows-terminal-shell'
 import { resolveAgentLaunchCommand } from './tui-agent-launch-command'
@@ -7,11 +7,16 @@ import { buildShellCommandFromArgv, tokenizeStartupCommand } from './tui-agent-s
 
 export const agentResumeCommandSchema = z.object({
   agent: z.enum(RESUMABLE_TUI_AGENTS),
-  providerSession: z.object({
-    key: z.enum(['session_id', 'conversation_id']),
-    id: z.string().min(1),
-    transcriptPath: z.string().optional()
-  }),
+  // Why preprocess: this id is typed into a live shell; apply the same length and
+  // control-character rejection every other provider-session boundary uses.
+  providerSession: z.preprocess(
+    (raw) => normalizeAgentProviderSession(raw) ?? undefined,
+    z.object({
+      key: z.enum(['session_id', 'conversation_id']),
+      id: z.string().min(1),
+      transcriptPath: z.string().optional()
+    })
+  ),
   cmdOverrides: z.record(z.string(), z.string()),
   agentArgs: z.string().nullish(),
   agentCommand: z.string().nullish(),
@@ -84,4 +89,21 @@ export function resolveAgentResumeCommand(
     throw new Error('The agent resume command could not be built for the selected shell.')
   }
   return plan.launchCommand
+}
+
+/** Delivery-time variant: a resume that cannot be expressed for the winning shell
+ *  is dropped — never mis-quoted, and never allowed to cost the user the terminal. */
+export function resolveAgentResumeDeliveryCommand(
+  request: AgentResumeCommand | undefined,
+  shellPath: string,
+  fallbackCommand?: string
+): string | undefined {
+  try {
+    return resolveAgentResumeCommand(request, shellPath, fallbackCommand)
+  } catch (error) {
+    if (error instanceof AgentResumeShellMismatchError) {
+      return undefined
+    }
+    throw error
+  }
 }

@@ -71,21 +71,25 @@ export function buildWindowsPowerShellSpawnAttempts(args: {
     return []
   }
   const chain = resolveWindowsPowerShellSpawnChain(basename, args.resolveOptions)
-  return chain.flatMap((candidate, index) => {
+  return chain.map((candidate) => {
     try {
-      return [
-        toAttempt(
-          candidate,
-          args.cwd,
-          args.defaultCwd,
-          args.wslContext,
-          args.startupCommand,
-          args.agentResume
-        )
-      ]
+      return toAttempt(
+        candidate,
+        args.cwd,
+        args.defaultCwd,
+        args.wslContext,
+        args.startupCommand,
+        args.agentResume
+      )
     } catch (error) {
-      if (index > 0 && error instanceof AgentResumeShellMismatchError) {
-        return []
+      if (error instanceof AgentResumeShellMismatchError) {
+        // Why a bare attempt, not a dropped one: filtering here can empty the
+        // chain (or rethrow at index 0) and cost the user the terminal itself.
+        // The shell must still open; the resume is dropped for this shell, and
+        // the delivery-time resolver makes the same call so nothing mis-quoted
+        // is written either. The legacy command is dropped with it — its quoting
+        // was authored for the requested shell, not this fallback.
+        return toAttempt(candidate, args.cwd, args.defaultCwd, args.wslContext, undefined)
       }
       throw error
     }

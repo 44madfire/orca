@@ -1,4 +1,4 @@
-import { resolveAgentResumeCommand } from '../../shared/agent-resume-command'
+import { resolveAgentResumeDeliveryCommand } from '../../shared/agent-resume-command'
 import type { AgentResumeCommand } from '../../shared/agent-resume-command'
 import type { SubprocessHandle } from './session-subprocess-handle'
 import { normalizePtySize } from './daemon-pty-size'
@@ -116,7 +116,7 @@ export async function createPtySubprocess(opts: PtySubprocessOptions): Promise<S
     startupAgentRecognition: launch.startupAgentRecognition
   })
   if (process.platform === 'win32' && opts.agentResume) {
-    handle.startupCommand = resolveAgentResumeCommand(
+    handle.startupCommand = resolveAgentResumeDeliveryCommand(
       opts.agentResume,
       spawned.shellPath,
       opts.command

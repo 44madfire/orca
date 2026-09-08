@@ -1,4 +1,4 @@
-import { resolveAgentResumeCommand } from '../../shared/agent-resume-command'
+import { resolveAgentResumeDeliveryCommand } from '../../shared/agent-resume-command'
 import { randomUUID } from 'node:crypto'
 import { win32 as pathWin32 } from 'node:path'
 import * as pty from 'node-pty'
@@ -93,7 +93,7 @@ export async function spawnLocalPty(
   if (process.platform === 'win32' && args.agentResume) {
     args = {
       ...args,
-      command: resolveAgentResumeCommand(args.agentResume, plan.shellPath, args.command)
+      command: resolveAgentResumeDeliveryCommand(args.agentResume, plan.shellPath, args.command)
     }
   }
   // Why: a Windows fallback embeds its startup command in argv; honor the winning shell's delivery flag to avoid a double write.

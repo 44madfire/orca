@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { agentResumeCommandSchema, resolveAgentResumeCommand } from './agent-resume-command'
+import {
+  agentResumeCommandSchema,
+  resolveAgentResumeCommand,
+  resolveAgentResumeDeliveryCommand
+} from './agent-resume-command'
 import { buildAgentResumeStartupPlan } from './tui-agent-resume-startup'
 
 const request = {
@@ -75,9 +79,26 @@ describe('process-owner agent resume commands', () => {
     expect(resolveAgentResumeCommand(undefined, 'cmd.exe', 'custom-command')).toBe('custom-command')
   })
 
+  it('drops an untranslatable resume at delivery time instead of failing the spawn', () => {
+    const custom = {
+      ...request,
+      sourceShell: 'powershell' as const,
+      agentCommand: 'claude --model $env:MODEL'
+    }
+    expect(resolveAgentResumeDeliveryCommand(custom, 'powershell.exe')).toContain('$env:MODEL')
+    expect(resolveAgentResumeDeliveryCommand(custom, 'cmd.exe')).toBeUndefined()
+  })
+
   it('rejects malformed structured requests', () => {
     expect(() =>
       agentResumeCommandSchema.parse({ ...request, providerSession: { id: '' } })
+    ).toThrow()
+    // Boundary hygiene: ids reach a live shell, so control characters must not parse.
+    expect(() =>
+      agentResumeCommandSchema.parse({
+        ...request,
+        providerSession: { key: 'session_id', id: 'session-1\rwhoami' }
+      })
     ).toThrow()
   })
 })

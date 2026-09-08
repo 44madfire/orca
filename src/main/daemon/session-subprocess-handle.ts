@@ -11,9 +11,9 @@ export type SubprocessHandle = {
   confirmForegroundProcess?(): Promise<string | null>
   /** Proves a fresh post-boundary PTY process tree contains only the shell. */
   confirmShellForeground?(): Promise<boolean>
-  /** True when shell launch args already delivered the startup command, so the host skips its stdin fallback write. */
   /** Command rebuilt by the process owner for the winning shell. */
   startupCommand?: string
+  /** True when shell launch args already delivered the startup command, so the host skips its stdin fallback write. */
   startupCommandDeliveredInShellArgs?: boolean
   /** Shell the subprocess actually spawned, after fallbacks. The host reconciles the caller's shell-ready
    *  assumption against it so a fallback shell without a ready marker never gates startup commands. */

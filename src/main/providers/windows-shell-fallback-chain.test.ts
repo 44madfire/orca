@@ -55,7 +55,7 @@ describe('buildWindowsPowerShellSpawnAttempts', () => {
     expect(attempts[2].shellArgs[0]).toBe('/K')
   })
 
-  it('keeps custom PowerShell scripts on compatible shell attempts', () => {
+  it('keeps every shell attempt when a custom PowerShell script cannot be translated', () => {
     restorePlatform = setPlatform('win32')
     const attempts = buildWindowsPowerShellSpawnAttempts({
       shellPath: 'pwsh.exe',
@@ -74,7 +74,12 @@ describe('buildWindowsPowerShellSpawnAttempts', () => {
         isRealExecutable: (p) => p === PWSH7 || p === WINDOWS_POWERSHELL
       }
     })
-    expect(attempts.map((attempt) => attempt.shellPath)).toEqual([PWSH7, WINDOWS_POWERSHELL])
+    // The cmd.exe last resort must survive (dropping it can cost the terminal
+    // itself on machines that block PowerShell); it opens bare instead of
+    // receiving a resume quoted for the wrong shell.
+    expect(attempts.map((attempt) => attempt.shellPath)).toEqual([PWSH7, WINDOWS_POWERSHELL, CMD])
+    expect(attempts[2].shellArgs.join(' ')).not.toContain('claude')
+    expect(attempts[2].startupCommandDeliveredInShellArgs).toBe(false)
   })
 
   it('repro: when pwsh is only a Store alias, the primary attempt is the real Windows PowerShell', () => {
