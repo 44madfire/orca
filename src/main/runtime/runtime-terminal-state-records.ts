@@ -53,6 +53,11 @@ export type RuntimePtyWorktreeRecord = RuntimeTerminalTailState & {
   wslDistro: string | null
   tabId: string | null
   paneKey: string | null
+  launchSurface?: {
+    incarnationId: PtyIncarnationId | null
+    startupCwd?: string
+    viewMode?: 'terminal' | 'chat'
+  }
   launchConfig: SleepingAgentLaunchConfig | null
   launchToken: string | null
   launchIncarnationId: PtyIncarnationId | null

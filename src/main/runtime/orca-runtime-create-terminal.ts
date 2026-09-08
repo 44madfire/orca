@@ -3,6 +3,10 @@ import { OrcaRuntimeWithTerminalCreateDeduplication } from './orca-runtime-termi
 import * as dependencies from './orca-runtime-create-terminal-dependencies'
 import { createDesktopTerminal } from './orca-runtime-create-terminal-desktop'
 import { buildRuntimeAgentTeamsLaunchPlan } from './orca-runtime-agent-teams-launch-plan'
+import {
+  getIncumbentTerminalMetadata,
+  recordTerminalLaunchSurface
+} from './runtime-incumbent-terminal-metadata'
 import { createPtySpawnCommitReporter } from './orca-runtime-report-pty-spawn-commit'
 
 export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreateDeduplication {
@@ -216,6 +220,7 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
         if (pty) {
           pty.runtimeSessionOwned = true
           if (!adoptedOwner) {
+            recordTerminalLaunchSurface(pty, cwd, workspace.path, launchOpts.viewMode)
             if (launchOpts.title) {
               const observedAt = this.nextTitleObservationSequence()
               pty.title = launchOpts.title
@@ -235,16 +240,19 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
           pty.tabId = tabId
           pty.paneKey = paneKey
         }
+        const ownerTabs = this.mobileSessionTabsByWorktree.get(ownerWorktreeId)?.tabs
+        const incumbentMetadata = pty
+          ? getIncumbentTerminalMetadata(pty, ownerTabs, tabId, leafId)
+          : {}
         const handle = pty ? this.issuePtyHandle(pty) : preAllocatedHandle
         if (pty && !result.stablePaneOwner && launchOpts.deferMobileSessionPublish !== true) {
           this.publishPtyBackedMobileSessionTerminal(ownerWorktreeId, pty, {
             tabId,
             leafId,
-            title: adoptedOwner ? (pty?.title ?? null) : (launchOpts.title ?? null),
+            title: adoptedOwner ? (incumbentMetadata.title ?? null) : (launchOpts.title ?? null),
             activate: presentation === 'focused',
             selectIfNoActiveTab: presentation !== 'background',
-            ...(!adoptedOwner && launchOpts.viewMode ? { viewMode: launchOpts.viewMode } : {}),
-            ...(!adoptedOwner && cwd !== workspace.path ? { startupCwd: cwd } : {})
+            ...(incumbentMetadata.viewMode ? { viewMode: incumbentMetadata.viewMode } : {})
           })
         }
         let surface: dependencies.RuntimeTerminalCreate['surface'] = 'background'
@@ -253,14 +261,7 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
           try {
             await this.notifier.revealTerminalSession(ownerWorktreeId, {
               ptyId: result.id,
-              title: adoptedOwner ? (pty?.title ?? null) : (launchOpts.title ?? null),
-              ...(!adoptedOwner && {
-                cwd: cwd !== workspace.path ? cwd : undefined,
-                launchConfig: effectiveLaunchConfig,
-                launchToken,
-                launchAgent: launchOpts.launchAgent,
-                viewMode: launchOpts.viewMode
-              }),
+              ...incumbentMetadata,
               activate: presentation === 'focused',
               ...(presentation ? { presentation } : {}),
               ...dependencies.ownerSurfacing(opts.surfaceOwner !== false),
@@ -281,7 +282,7 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
           paneKey,
           ptyId: result.id,
           worktreeId: ownerWorktreeId,
-          title: pty?.title ?? launchOpts.title ?? null,
+          title: incumbentMetadata.title ?? null,
           ...this.getPtyExecutionHostMetadata(result.id),
           surface,
           ...(result.pid ? { processId: result.pid } : {}),
