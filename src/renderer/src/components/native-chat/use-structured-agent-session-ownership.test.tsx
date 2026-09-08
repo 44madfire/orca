@@ -297,3 +297,13 @@ it('a predecessor refusal cannot rotate or block the operation owned by a pendin
   })
   expect(current.result.current.blockedClientMessageId).toBeNull()
 })
+
+it('mounting beside a pending owner does not recover its live dispatch as an orphan', async () => {
+  mocks.call.mockImplementationOnce(() => new Promise(() => {}))
+  mount()
+  await advance(1000)
+  const second = mount()
+  await advance()
+  expect(mocks.call).toHaveBeenCalledTimes(1)
+  expect(second.result.current.outbox[0].state).toBe('dispatching')
+})

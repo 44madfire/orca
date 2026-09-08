@@ -44,7 +44,7 @@ export function useStructuredAgentSessionOutbox(args: {
   const { fence, sessionId, submissions, target } = args
   const targetKey = target.kind === 'local' ? 'local' : `environment:${target.environmentId}`
   const [outbox, setOutbox] = useState<StructuredAgentSessionOutboxEntry[]>(() =>
-    readOutbox(sessionId)
+    readOutbox(sessionId, false)
   )
   const contextRef = useRef({ sessionId, fence, targetKey })
   contextRef.current = { sessionId, fence, targetKey }
