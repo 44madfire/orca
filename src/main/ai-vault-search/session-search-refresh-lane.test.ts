@@ -70,3 +70,56 @@ it('does not start already-cancelled work and retries failures', async () => {
   await expect(lane.run({}, refresh)).rejects.toThrow('scan failure')
   expect(refresh).toHaveBeenCalledTimes(2)
 })
+
+it('drains abandoned work even when a same-root replacement finishes first', async () => {
+  const lane = new SessionSearchRefreshLane()
+  const started = barrier()
+  const cleanup = barrier()
+  const controller = new AbortController()
+  const abandoned = lane.run(
+    {},
+    async () => {
+      started.release()
+      await cleanup.promise
+    },
+    controller.signal
+  )
+  await started.promise
+  controller.abort()
+  await expect(abandoned).rejects.toMatchObject({ name: 'AbortError' })
+  await lane.run({}, async () => {})
+  let drained = false
+  const draining = lane.drain().then(() => {
+    drained = true
+  })
+  await Promise.resolve()
+  expect(drained).toBe(false)
+  cleanup.release()
+  await draining
+  expect(drained).toBe(true)
+})
+
+it('drains work removed by explicit cancellation, including rejected cleanup', async () => {
+  const lane = new SessionSearchRefreshLane()
+  const started = barrier()
+  const cleanup = barrier()
+  const running = lane
+    .run({}, async () => {
+      started.release()
+      await cleanup.promise
+      throw new Error('cleanup failure')
+    })
+    .catch((error) => error)
+  await started.promise
+  lane.cancel()
+  let drained = false
+  const draining = lane.drain().then(() => {
+    drained = true
+  })
+  await Promise.resolve()
+  expect(drained).toBe(false)
+  cleanup.release()
+  expect(await running).toMatchObject({ message: 'cleanup failure' })
+  await draining
+  await lane.run({}, async () => {})
+})

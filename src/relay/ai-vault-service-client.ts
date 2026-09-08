@@ -84,10 +84,13 @@ export class RelayAiVaultServiceClient implements RelayAiVaultServiceApi {
     }
   }
 
-  private request<T extends AiVaultListResult | AiVaultSessionTitlesResult>(
-    request: RelayAiVaultServiceRequest,
-    signal?: AbortSignal
-  ): Promise<T> {
+  search: NonNullable<RelayAiVaultServiceApi['search']> = (action, params, signal) =>
+    this.request(
+      { type: 'request', id: this.nextId++, operation: 'search', action, params },
+      signal
+    )
+
+  private request<T>(request: RelayAiVaultServiceRequest, signal?: AbortSignal): Promise<T> {
     if (this.disposed) {
       return Promise.reject(new Error('Relay AI Vault service was disposed.'))
     }
@@ -186,8 +189,7 @@ export class RelayAiVaultServiceClient implements RelayAiVaultServiceApi {
     this.child = child
     this.ready = new Promise<ChildProcess>((resolve, reject) => {
       this.readyReject = reject
-      // Why: held on the instance so a crash before ready cannot leave the deadline
-      // armed, where it would later fault the healthy replacement sidecar.
+      // A failed startup must not leave a deadline armed against its replacement.
       this.readyTimer = setTimeout(
         () => this.onFault(new Error('Relay AI Vault service did not become ready.')),
         RELAY_AI_VAULT_READY_TIMEOUT_MS

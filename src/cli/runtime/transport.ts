@@ -1,3 +1,4 @@
+import { abortSignalReason, throwIfSignalAborted } from '../../shared/abort-signal-reason'
 import { createConnection } from 'node:net'
 import { randomUUID } from 'node:crypto'
 import { findTransport, type RuntimeMetadata } from '../../shared/runtime-bootstrap'
@@ -11,8 +12,10 @@ export async function sendRequest<TResult>(
   method: string,
   params: unknown,
   timeoutMs: number,
-  envelope?: RuntimeOrchestrationEnvelope
+  envelope?: RuntimeOrchestrationEnvelope,
+  signal?: AbortSignal
 ): Promise<RuntimeRpcResponse<TResult>> {
+  throwIfSignalAborted(signal)
   if (!isSafeTimerDelayMs(timeoutMs)) {
     throw new RuntimeClientError(
       'invalid_argument',
@@ -32,6 +35,9 @@ export async function sendRequest<TResult>(
     }
     const socket = createConnection(transport.endpoint)
     let lineSegments: string[] = []
+    let lineBytes = 0
+    const searchResponseLimit =
+      method.startsWith('aiVault.') && /search/i.test(method) ? 4 * 1024 * 1024 : Infinity
     let settled = false
     const requestId = randomUUID()
 
@@ -40,6 +46,7 @@ export async function sendRequest<TResult>(
         return
       }
       settled = true
+      signal?.removeEventListener('abort', onAbort)
       lineSegments = []
       socket.destroy()
       reject(
@@ -57,6 +64,7 @@ export async function sendRequest<TResult>(
         return
       }
       settled = true
+      signal?.removeEventListener('abort', onAbort)
       lineSegments = []
       clearTimeout(timeout)
       socket.end()
@@ -67,6 +75,15 @@ export async function sendRequest<TResult>(
       }
     }
 
+    const onAbort = (): void => {
+      finish({ ok: false, error: abortSignalReason(signal!) })
+      socket.destroy()
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) {
+      onAbort()
+      return
+    }
     socket.setEncoding('utf8')
     socket.once('error', () => {
       finish({
@@ -99,6 +116,20 @@ export async function sendRequest<TResult>(
       let cursor = 0
       while (cursor < chunk.length && !settled) {
         const newlineIndex = chunk.indexOf('\n', cursor)
+        lineBytes += Buffer.byteLength(
+          chunk.slice(cursor, newlineIndex === -1 ? undefined : newlineIndex)
+        )
+        if (lineBytes > searchResponseLimit) {
+          finish({
+            ok: false,
+            error: new RuntimeClientError(
+              'invalid_runtime_response',
+              'Search response exceeds the size limit.'
+            )
+          })
+          socket.destroy()
+          return
+        }
         if (newlineIndex === -1) {
           lineSegments.push(chunk.slice(cursor))
           return
@@ -111,6 +142,7 @@ export async function sendRequest<TResult>(
           lineSegments = []
         }
         cursor = newlineIndex + 1
+        lineBytes = 0
         if (line.trim().length === 0) {
           continue
         }

@@ -10,6 +10,7 @@ type Refresh = { controller: AbortController; promise: Promise<void>; users: num
 /** Share concurrent query refreshes, never completed filesystem snapshots. */
 export class SessionSearchRefreshLane {
   private readonly runs = new Map<string, Refresh>()
+  private readonly outstanding = new Set<Refresh>()
 
   async run(
     roots: SessionSearchScanRoots,
@@ -29,11 +30,13 @@ export class SessionSearchRefreshLane {
           return refresh(controller.signal)
         })
         .finally(() => {
+          this.outstanding.delete(current)
           if (this.runs.get(key) === current) {
             this.runs.delete(key)
           }
         })
       this.runs.set(key, run)
+      this.outstanding.add(run)
     }
     run.users++
     try {
@@ -54,6 +57,12 @@ export class SessionSearchRefreshLane {
       run.controller.abort()
     }
     this.runs.clear()
+  }
+
+  async drain(): Promise<void> {
+    const pending = [...this.outstanding].map((run) => run.promise)
+    this.cancel()
+    await Promise.allSettled(pending)
   }
 }
 

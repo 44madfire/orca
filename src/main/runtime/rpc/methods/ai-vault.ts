@@ -1,12 +1,12 @@
 import { z } from 'zod'
+import {
+  SessionSearchConfigureSchema,
+  SessionSearchQuerySchema
+} from '../../../../shared/ai-vault-search-contract'
 import { defineMethod, type RpcMethod } from '../core'
 import { OptionalBoolean } from '../schemas'
 import { restampAiVaultListResult } from '../../../ai-vault/session-list-results'
 import { AI_VAULT_AGENTS, AI_VAULT_SCOPE_PATHS_MAX_COUNT } from '../../../../shared/ai-vault-types'
-import {
-  AI_VAULT_SEARCH_LIMIT_MAX,
-  AI_VAULT_SEARCH_QUERY_MAX_LENGTH
-} from '../../../../shared/ai-vault-search-types'
 import { AI_VAULT_SESSION_TITLE_REQUEST_MAX_COUNT } from '../../../../shared/ai-vault-session-title'
 import type { AiVaultPrepareSessionResumeArgs } from '../../../../shared/ai-vault-resume-preparation'
 import { LOCAL_EXECUTION_HOST_ID, parseExecutionHostId } from '../../../../shared/execution-host'
@@ -84,30 +84,41 @@ export const AiVaultSessionTitlesParams = z.object({
     .max(AI_VAULT_SESSION_TITLE_REQUEST_MAX_COUNT)
 })
 
-export const AiVaultSearchSessionsParams = z.object({
-  query: z.string().trim().min(1).max(AI_VAULT_SEARCH_QUERY_MAX_LENGTH),
-  limit: z.number().int().min(1).max(AI_VAULT_SEARCH_LIMIT_MAX).optional(),
-  agents: z.array(z.enum(AI_VAULT_AGENTS)).max(AI_VAULT_AGENTS.length).optional(),
+export const AiVaultSearchSessionsParams = SessionSearchQuerySchema.extend({
+  // Preserve local RPC coercion and truncation for existing clients.
   scopePaths: z
     .array(z.string().min(1).max(AI_VAULT_SCOPE_PATH_MAX_LENGTH))
     .transform((paths) => paths.slice(0, AI_VAULT_SCOPE_PATHS_MAX_COUNT))
     .optional(),
-  since: z.string().datetime({ offset: true }).optional(),
-  sort: z.enum(['relevance', 'newest']).optional(),
-  tier: z.enum(['full', 'conversation']).optional(),
   refresh: OptionalBoolean,
   executionHostId: executionHostIdSchema.optional()
 })
 
-export const AiVaultConfigureSessionSearchParams = z.object({
+export const AiVaultConfigureSessionSearchParams = SessionSearchConfigureSchema.extend({
   enabled: OptionalBoolean,
-  paused: z.boolean().optional(),
-  historyDays: z.number().int().positive().max(3650).nullable().optional(),
   clearIndex: OptionalBoolean,
   executionHostId: executionHostIdSchema.optional()
 })
 
 export const AI_VAULT_METHODS: RpcMethod[] = [
+  defineMethod({
+    name: 'aiVault.sshSearchSessions',
+    params: SessionSearchQuerySchema.extend({ targetId: z.string().min(1).max(512) }),
+    handler: ({ targetId, ...params }, { runtime, signal }) =>
+      runtime.sshSearchAiVault(targetId, 'query', params, signal)
+  }),
+  defineMethod({
+    name: 'aiVault.sshSearchIndexStatus',
+    params: z.object({ targetId: z.string().min(1).max(512) }),
+    handler: ({ targetId }, { runtime, signal }) =>
+      runtime.sshSearchAiVault(targetId, 'status', {}, signal)
+  }),
+  defineMethod({
+    name: 'aiVault.sshSearchConfigure',
+    params: SessionSearchConfigureSchema.extend({ targetId: z.string().min(1).max(512) }),
+    handler: ({ targetId, ...params }, { runtime, signal }) =>
+      runtime.sshSearchAiVault(targetId, 'configure', params, signal)
+  }),
   defineMethod({
     name: 'aiVault.searchSessions',
     params: AiVaultSearchSessionsParams,

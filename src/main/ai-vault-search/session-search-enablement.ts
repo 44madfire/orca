@@ -1,4 +1,6 @@
-import { statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
+import { getAiVaultServiceEntryPath } from '../ai-vault/session-scanner-service-entry-path'
+import { sessionSearchCapability } from './session-search-capability'
 import type { AiVaultSearchCoverage } from '../../shared/ai-vault-search-types'
 import {
   resolveAiVaultSearchSettings,
@@ -28,35 +30,64 @@ export function installAiVaultSearchSettingsSource(source: SettingsSource | null
  */
 export function applyAiVaultSearchSettings(
   settings: Pick<GlobalSettings, 'aiVaultSearch'>,
-  options: { clearIndex?: boolean } = {}
+  options: { clearIndex?: boolean; persist?: () => void | Promise<void> } = {}
 ): Promise<AiVaultSearchCoverage | null> {
   const databasePath = getSessionSearchDatabasePath()
   if (!databasePath) {
-    return Promise.resolve(null)
+    return Promise.reject(new Error('Session search paths are not initialized.'))
   }
   const policy: AiVaultSearchSettings = resolveAiVaultSearchSettings(settings)
   // Why: each call resolves scan roots before it reaches the scanner, so two
   // overlapping toggles could land out of order; apply them one after another.
+  const generation = ++applyGeneration
+  policyApplied = false
   const applied = applyChain
     .catch(() => undefined)
-    .then(() =>
-      configureAiVaultSearch({ databasePath, ...policy }, { clearIndex: options.clearIndex })
-    )
+    .then(async () => {
+      const result = await configureAiVaultSearch(
+        { databasePath, ...policy },
+        { clearIndex: options.clearIndex }
+      )
+      await options.persist?.()
+      if (generation === applyGeneration) {
+        policyApplied = true
+      }
+      return result
+    })
   applyChain = applied
   return applied
 }
 
 let applyChain: Promise<unknown> = Promise.resolve()
+let policyApplied = true
+let applyGeneration = 0
 
 export function readAiVaultSearchIndexStatus(): AiVaultSearchIndexStatus {
-  return { ...getSessionSearchPolicy(), indexSizeBytes: readAiVaultSearchIndexSizeBytes() }
+  const capability = sessionSearchCapability()
+  const available =
+    capability.available &&
+    !!getSessionSearchDatabasePath() &&
+    existsSync(getAiVaultServiceEntryPath())
+  return {
+    ...getSessionSearchPolicy(),
+    indexSizeBytes: readAiVaultSearchIndexSizeBytes(),
+    available,
+    applied: available && policyApplied,
+    ...(!available
+      ? { reason: capability.reason ?? 'Session search service is not installed or initialized.' }
+      : !policyApplied
+        ? { reason: 'Index policy application or persistence failed or is pending.' }
+        : {})
+  }
 }
 
 /** Deletes the database and its sidecars, then rebuilds if consent still stands. */
-export function clearAiVaultSearchIndex(): Promise<AiVaultSearchCoverage | null> {
+export function clearAiVaultSearchIndex(
+  persist: () => void | Promise<void>
+): Promise<AiVaultSearchCoverage | null> {
   return applyAiVaultSearchSettings(
     { aiVaultSearch: getSessionSearchPolicy() },
-    { clearIndex: true }
+    { clearIndex: true, persist }
   )
 }
 

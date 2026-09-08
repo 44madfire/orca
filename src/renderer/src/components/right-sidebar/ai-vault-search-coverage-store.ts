@@ -27,22 +27,38 @@ export function createSearchCoverageStore() {
     snapshot = { ...snapshot, ...next }
     listeners.forEach((listener) => listener())
   }
-  const refresh = async (): Promise<void> => {
-    const issued = ++generation
-    try {
-      const coverage = await window.api.aiVault.searchCoverage()
-      if (issued === generation) {
-        publish({ coverage, unavailable: false, observedAt: Date.now() })
-      }
-    } catch {
-      if (issued === generation) {
-        publish({ coverage: null, unavailable: true })
-      }
+  let pending: Promise<void> | null = null
+  const refresh = (afterControl = false): Promise<void> => {
+    if (snapshot.busy && !afterControl) {
+      return Promise.resolve()
     }
+    if (pending) {
+      return pending
+    }
+    const issued = generation
+    const request = (async () => {
+      try {
+        const coverage = await window.api.aiVault.searchCoverage()
+        if (issued === generation) {
+          publish({ coverage, unavailable: false, observedAt: Date.now() })
+        }
+      } catch {
+        if (issued === generation) {
+          publish({ coverage: null, unavailable: true })
+        }
+      }
+    })().finally(() => {
+      if (pending === request) {
+        pending = null
+      }
+    })
+    pending = request
+    return request
   }
+
   return {
     getSnapshot: () => snapshot,
-    refresh,
+    refresh: () => refresh(),
     subscribe(listener: () => void): () => void {
       listeners.add(listener)
       if (listeners.size === 1) {
@@ -57,6 +73,7 @@ export function createSearchCoverageStore() {
           stop?.()
           stop = null
           generation++
+          pending = null
           snapshot = {
             coverage: null,
             error: false,
@@ -71,14 +88,22 @@ export function createSearchCoverageStore() {
       if (snapshot.busy) {
         return
       }
+      const controlled = ++generation
+      pending = null
       publish({ busy: true, error: false })
       try {
         await action()
-        await refresh()
+        if (controlled === generation) {
+          await refresh(true)
+        }
       } catch {
-        publish({ error: true })
+        if (controlled === generation) {
+          publish({ error: true })
+        }
       } finally {
-        publish({ busy: false })
+        if (controlled === generation) {
+          publish({ busy: false })
+        }
       }
     }
   }

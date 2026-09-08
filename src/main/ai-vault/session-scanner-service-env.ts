@@ -10,6 +10,7 @@
 // What Node and libuv need to start and resolve a home, temp dir and locale.
 // Exported for sibling plain-node forks (the WSL transcript fs process).
 export const RUNTIME_ENV_ALLOWLIST = [
+  'ORCA_BACKGROUND_LAUNCH',
   'PATH',
   'HOME',
   'USERPROFILE',

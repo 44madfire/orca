@@ -1,6 +1,8 @@
+import { throwIfAiVaultScanCancelled } from './ai-vault-scan-cancellation'
 import type { AiVaultSession } from '../../shared/ai-vault-types'
 import type { SessionSearchIndexSink, SessionSearchIndexUpdate } from './session-search-capture'
 import {
+  getSessionSearchCaptureSignal,
   withSessionSearchCapture,
   withStreamingSessionSearchCapture
 } from './session-search-capture'
@@ -14,10 +16,18 @@ export async function captureIndexedSessionParse<T>(
   base: Pick<SessionSearchIndexUpdate, 'candidate' | 'mode' | 'previousByteOffset'>,
   parse: () => Promise<Parsed<T>>
 ): Promise<T> {
+  const signal = getSessionSearchCaptureSignal()
+  const read = async (): Promise<Parsed<T>> => {
+    throwIfAiVaultScanCancelled(signal)
+    const result = await parse()
+    throwIfAiVaultScanCancelled(signal)
+    return result
+  }
   if (!sink.streamingCapture) {
-    const captured = await withSessionSearchCapture(parse)
+    const captured = await withSessionSearchCapture(read)
     await sink.apply({
       ...base,
+      signal,
       session: captured.value.session,
       byteOffset: captured.value.byteOffset,
       messages: captured.messages
@@ -25,9 +35,14 @@ export async function captureIndexedSessionParse<T>(
     return captured.value.value
   }
   const channel = new SessionSearchMessageChannel()
-  const parsed = withStreamingSessionSearchCapture(channel, parse)
+  const stop = (): void => channel.stop()
+  signal?.addEventListener('abort', stop, { once: true })
+  if (signal?.aborted) {
+    stop()
+  }
+  const parsed = withStreamingSessionSearchCapture(channel, read)
   const indexing = Promise.resolve(
-    sink.apply({ ...base, messages: channel, result: parsed })
+    sink.apply({ ...base, signal, messages: channel, result: parsed })
   ).finally(() => channel.stop())
   void indexing.catch(() => undefined)
   try {
@@ -39,5 +54,7 @@ export async function captureIndexedSessionParse<T>(
     channel.close(error)
     await indexing.catch(() => undefined)
     throw error
+  } finally {
+    signal?.removeEventListener('abort', stop)
   }
 }

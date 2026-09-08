@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   applyAiVaultSearchSettings,
+  clearAiVaultSearchIndex,
   installAiVaultSearchSettingsSource,
   readAiVaultSearchIndexStatus
 } from './session-search-enablement'
@@ -17,6 +18,10 @@ import { resetSessionSearchPolicyForTests } from './session-search-policy'
 const configureAiVaultSearch = vi.fn()
 vi.mock('../ai-vault/cached-session-list', () => ({
   configureAiVaultSearch: (...args: unknown[]) => configureAiVaultSearch(...args)
+}))
+
+vi.mock('../ai-vault/session-scanner-service-entry-path', () => ({
+  getAiVaultServiceEntryPath: () => process.execPath
 }))
 
 let tempRoots: string[] = []
@@ -67,10 +72,10 @@ describe('session search policy source', () => {
 })
 
 describe('applyAiVaultSearchSettings', () => {
-  it('does nothing before the index path is known', async () => {
+  it('refuses to acknowledge a policy change before the index path is known', async () => {
     await expect(
       applyAiVaultSearchSettings({ aiVaultSearch: { enabled: true, historyDays: null } })
-    ).resolves.toBeNull()
+    ).rejects.toThrow('not initialized')
     expect(configureAiVaultSearch).not.toHaveBeenCalled()
   })
 
@@ -92,6 +97,19 @@ describe('applyAiVaultSearchSettings', () => {
       { clearIndex: true }
     )
   })
+})
+
+it('reports failed application rather than claiming the saved policy is effective', async () => {
+  initSessionSearchPaths(await makeUserDataDir())
+  configureAiVaultSearch.mockRejectedValueOnce(new Error('scanner unavailable'))
+  await expect(
+    applyAiVaultSearchSettings(
+      { aiVaultSearch: { enabled: false, historyDays: null } },
+      { clearIndex: true }
+    )
+  ).rejects.toThrow('scanner unavailable')
+  expect(readAiVaultSearchIndexStatus().applied).toBe(false)
+  await applyAiVaultSearchSettings({ aiVaultSearch: { enabled: false, historyDays: null } })
 })
 
 describe('readAiVaultSearchIndexStatus', () => {
@@ -131,4 +149,67 @@ it('preserves the paused preference in scanner initialization and configuration'
     expect.objectContaining({ paused: true }),
     expect.anything()
   )
+})
+
+it('retains failed durability in status until a complete transition succeeds', async () => {
+  initSessionSearchPaths(await makeUserDataDir())
+  const settings = { aiVaultSearch: { enabled: true, historyDays: null } }
+  installAiVaultSearchSettingsSource(() => settings)
+  await expect(
+    applyAiVaultSearchSettings(settings, {
+      persist: async () => {
+        throw new Error('disk full')
+      }
+    })
+  ).rejects.toThrow('disk full')
+  expect(readAiVaultSearchIndexStatus()).toMatchObject({ enabled: true, applied: false })
+  expect(readAiVaultSearchIndexStatus().reason).toContain('persistence')
+  await applyAiVaultSearchSettings(settings, { persist: async () => undefined })
+  expect(readAiVaultSearchIndexStatus()).toMatchObject({ applied: true })
+})
+
+it('does not mark a newer queued policy applied when an older flush completes', async () => {
+  initSessionSearchPaths(await makeUserDataDir())
+  let releaseFirst!: () => void
+  const first = applyAiVaultSearchSettings(
+    { aiVaultSearch: { enabled: true, historyDays: null } },
+    {
+      persist: () =>
+        new Promise<void>((resolve) => {
+          releaseFirst = resolve
+        })
+    }
+  )
+  await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'))
+  let releaseSecond!: () => void
+  const second = applyAiVaultSearchSettings(
+    { aiVaultSearch: { enabled: false, historyDays: null } },
+    {
+      persist: () =>
+        new Promise<void>((resolve) => {
+          releaseSecond = resolve
+        })
+    }
+  )
+  releaseFirst()
+  await first
+  expect(readAiVaultSearchIndexStatus().applied).toBe(false)
+  await vi.waitFor(() => expect(releaseSecond).toBeTypeOf('function'))
+  releaseSecond()
+  await second
+  expect(readAiVaultSearchIndexStatus().applied).toBe(true)
+})
+
+it('requires desktop clear to retry a failed policy flush before reporting applied', async () => {
+  initSessionSearchPaths(await makeUserDataDir())
+  const settings = { aiVaultSearch: { enabled: true, historyDays: null } }
+  installAiVaultSearchSettingsSource(() => settings)
+  const persist = vi.fn().mockRejectedValue(new Error('disk full'))
+  await expect(applyAiVaultSearchSettings(settings, { persist })).rejects.toThrow('disk full')
+  await expect(clearAiVaultSearchIndex(persist)).rejects.toThrow('disk full')
+  expect(persist).toHaveBeenCalledTimes(2)
+  expect(readAiVaultSearchIndexStatus().applied).toBe(false)
+  persist.mockResolvedValue(undefined)
+  await clearAiVaultSearchIndex(persist)
+  expect(readAiVaultSearchIndexStatus().applied).toBe(true)
 })

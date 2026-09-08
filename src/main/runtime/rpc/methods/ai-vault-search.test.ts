@@ -37,16 +37,23 @@ const searchAiVaultSessions = vi.fn()
 const readAiVaultSearchCoverage = vi.fn()
 const readAiVaultSearchIndexStatus = vi.fn()
 const configureAiVaultSessionSearch = vi.fn()
+const sshSearchAiVault = vi.fn()
 
-function makeDispatcher(): RpcDispatcher {
+function makeDispatcher(legacy = false): RpcDispatcher {
   const runtime = {
     getRuntimeId: () => 'test-runtime',
     searchAiVaultSessions,
     readAiVaultSearchCoverage,
     readAiVaultSearchIndexStatus,
-    configureAiVaultSessionSearch
+    configureAiVaultSessionSearch,
+    sshSearchAiVault
   } as unknown as OrcaRuntimeService
-  return new RpcDispatcher({ runtime, methods: AI_VAULT_METHODS })
+  return new RpcDispatcher({
+    runtime,
+    methods: legacy
+      ? AI_VAULT_METHODS.filter((method) => !method.name.startsWith('aiVault.sshSearch'))
+      : AI_VAULT_METHODS
+  })
 }
 
 beforeEach(() => {
@@ -58,6 +65,32 @@ beforeEach(() => {
   readAiVaultSearchIndexStatus.mockReturnValue(INDEX_STATUS)
   configureAiVaultSessionSearch.mockReset()
   configureAiVaultSessionSearch.mockResolvedValue(INDEX_STATUS)
+  sshSearchAiVault.mockReset().mockResolvedValue(RESULT)
+})
+
+describe('targeted SSH search wire boundary', () => {
+  it('passes final target identity and cancellation without invoking the controlling runtime index', async () => {
+    const signal = new AbortController().signal
+    expect(
+      await makeDispatcher().dispatch(
+        makeRequest('aiVault.sshSearchSessions', { targetId: 'C', query: 'needle' }),
+        { signal }
+      )
+    ).toMatchObject({ ok: true, result: RESULT })
+    expect(sshSearchAiVault).toHaveBeenCalledWith('C', 'query', { query: 'needle' }, signal)
+    expect(searchAiVaultSessions).not.toHaveBeenCalled()
+  })
+  it('an older registry refuses targeted query and clear instead of stripping the target and executing locally', async () => {
+    for (const method of ['aiVault.sshSearchSessions', 'aiVault.sshSearchConfigure']) {
+      expect(
+        await makeDispatcher(true).dispatch(
+          makeRequest(method, { targetId: 'C', query: 'needle', clearIndex: true })
+        )
+      ).toMatchObject({ ok: false, error: { code: 'method_not_found' } })
+    }
+    expect(searchAiVaultSessions).not.toHaveBeenCalled()
+    expect(configureAiVaultSessionSearch).not.toHaveBeenCalled()
+  })
 })
 
 describe('AiVaultSearchSessionsParams', () => {

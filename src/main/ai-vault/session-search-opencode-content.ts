@@ -1,9 +1,12 @@
 import type SyncDatabase from '../sqlite/sync-database'
 import { captureIndexableText, toolCallText } from './session-search-content'
-import { isSessionSearchCaptureActive } from './session-search-capture'
+import {
+  checkpointSessionSearchCapture,
+  isSessionSearchCaptureActive
+} from './session-search-capture'
 
 /** The preview ring is deliberately small; search consumes every part once. */
-export function captureOpenCodeSession(db: SyncDatabase, sessionId: string): void {
+export async function captureOpenCodeSession(db: SyncDatabase, sessionId: string): Promise<void> {
   if (!isSessionSearchCaptureActive()) {
     return
   }
@@ -27,5 +30,6 @@ export function captureOpenCodeSession(db: SyncDatabase, sessionId: string): voi
         captureIndexableText('tool', part.state.output, row.ts)
       }
     }
+    await checkpointSessionSearchCapture()
   }
 }

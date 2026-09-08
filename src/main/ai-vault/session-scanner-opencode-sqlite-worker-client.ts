@@ -1,14 +1,19 @@
 import type { Worker } from 'node:worker_threads'
 import type { AiVaultScanIssue, AiVaultSession } from '../../shared/ai-vault-types'
 import type {
-  OpenCodeSqliteListRequest,
   OpenCodeSqliteListValue,
-  OpenCodeSqliteParseRequest,
+  OpenCodeSqliteRequestBody,
   OpenCodeSqliteParseValue,
-  OpenCodeSqliteWorkerRequest,
   OpenCodeSqliteWorkerResponse
 } from './session-scanner-opencode-sqlite-worker-protocol'
-import { captureSessionSearchMessage, isSessionSearchCaptureActive } from './session-search-capture'
+import { createAiVaultScanCancelledError } from './ai-vault-scan-cancellation'
+import { isSessionSearchCaptureActive } from './session-search-capture'
+import {
+  bindOpenCodeCaptureConsumer,
+  bindOpenCodeCaptureCancellation,
+  receiveOpenCodeCaptureBatch,
+  type OpenCodePendingCall as PendingCall
+} from './session-search-opencode-worker-receiver'
 import type { SessionFileCandidate } from './session-scanner-types'
 import { errorMessage } from './session-scanner-values'
 
@@ -28,20 +33,6 @@ export const IDLE_TEARDOWN_MS = 30_000
 export const MAX_CONSECUTIVE_DEATHS = 3
 
 export type WorkerFactory = () => Worker
-
-// Omit<union, 'id'> collapses to the shared keys, so omit each member and let
-// the client stamp the correlation id.
-type OpenCodeSqliteRequestBody =
-  | Omit<OpenCodeSqliteListRequest, 'id'>
-  | Omit<OpenCodeSqliteParseRequest, 'id'>
-
-type PendingCall = {
-  request: OpenCodeSqliteWorkerRequest
-  timeoutMs: number
-  resolve: (value: unknown) => void
-  reject: (error: Error) => void
-  timer: NodeJS.Timeout | null
-}
 
 // Distinguishes "no worker available at all" from a timeout or crash so callers
 // can surface a precise issue while keeping synchronous SQLite off the main thread.
@@ -141,12 +132,9 @@ export class OpenCodeSqliteWorkerClient {
           platform: args.platform,
           capture
         },
-        PARSE_TIMEOUT_MS
+        PARSE_TIMEOUT_MS,
+        capture ? bindOpenCodeCaptureConsumer() : undefined
       )) as OpenCodeSqliteParseValue | null
-      // Replay on this thread: the capture scope the index reads lives here.
-      for (const message of value?.messages ?? []) {
-        captureSessionSearchMessage(message)
-      }
       return value?.session ?? null
     } catch (err) {
       if (err instanceof OpenCodeSqliteWorkerUnavailableError) {
@@ -157,7 +145,11 @@ export class OpenCodeSqliteWorkerClient {
     }
   }
 
-  private dispatch(request: OpenCodeSqliteRequestBody, timeoutMs: number): Promise<unknown> {
+  private dispatch(
+    request: OpenCodeSqliteRequestBody,
+    timeoutMs: number,
+    capture?: PendingCall['capture']
+  ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++
       // A fresh burst from full idle starts a new scan: clear any death count
@@ -165,15 +157,25 @@ export class OpenCodeSqliteWorkerClient {
       if (!this.active && this.queue.length === 0) {
         this.consecutiveDeaths = 0
       }
-      this.queue.push({
-        request: { ...request, id } as OpenCodeSqliteWorkerRequest,
+      const call: PendingCall = {
+        request: { ...request, id } as PendingCall['request'],
         timeoutMs,
-        resolve,
-        reject,
-        timer: null
-      })
+        ...bindOpenCodeCaptureCancellation(resolve, reject, () => this.cancel(call)),
+        timer: null,
+        capture
+      }
+      this.queue.push(call)
       this.pump()
     })
+  }
+
+  private cancel(call: PendingCall): void {
+    if (this.active === call) {
+      this.destroyWorker()
+    }
+    this.queue = this.queue.filter((pending) => pending !== call)
+    this.settle(call, () => call.reject(createAiVaultScanCancelledError()))
+    this.afterSettle()
   }
 
   private pump(): void {
@@ -234,6 +236,17 @@ export class OpenCodeSqliteWorkerClient {
   private onMessage(response: OpenCodeSqliteWorkerResponse): void {
     const call = this.active
     if (!call || call.request.id !== response.id) {
+      return
+    }
+    if (response.ok && response.captureBatch !== undefined) {
+      receiveOpenCodeCaptureBatch({
+        call,
+        response,
+        worker: this.worker,
+        isActive: () => this.active === call,
+        onTimeout: () => this.onTimeout(call),
+        onError: (error) => this.onWorkerFault(error)
+      })
       return
     }
     this.consecutiveDeaths = 0

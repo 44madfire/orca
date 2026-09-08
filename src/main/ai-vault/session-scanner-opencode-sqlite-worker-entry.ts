@@ -1,3 +1,4 @@
+import { OpenCodeWorkerSearchCapture } from './session-search-opencode-worker-capture'
 import { parentPort } from 'node:worker_threads'
 import type { AiVaultScanIssue, AiVaultSession } from '../../shared/ai-vault-types'
 import { listOpenCodeSqliteSessions } from './session-scanner-opencode-sqlite-list'
@@ -5,9 +6,10 @@ import { parseOpenCodeSqliteSession } from './session-scanner-opencode-sqlite'
 import type {
   OpenCodeSqliteParseValue,
   OpenCodeSqliteWorkerRequest,
+  OpenCodeSqliteParentMessage,
   OpenCodeSqliteWorkerResponse
 } from './session-scanner-opencode-sqlite-worker-protocol'
-import { withSessionSearchCapture } from './session-search-capture'
+import { withStreamingSessionSearchCapture } from './session-search-capture'
 
 // Why (#8864): OpenCode SQLite reads use synchronous node:sqlite. Running them
 // on this worker thread keeps the multi-GB-DB scan off the Electron main-process
@@ -18,6 +20,7 @@ if (!parentPort) {
   throw new Error('OpenCode SQLite worker must run with a parent port.')
 }
 const port = parentPort
+const captures = new Map<number, OpenCodeWorkerSearchCapture>()
 
 async function handleRequest(
   request: OpenCodeSqliteWorkerRequest
@@ -38,8 +41,7 @@ async function handleRequest(
   }
 }
 
-// The parsers emit index rows into a capture scope, and that scope cannot span
-// threads; capture here and hand the rows back with the session.
+// The final reply follows all acknowledged capture batches.
 async function parseSession(
   request: Extract<OpenCodeSqliteWorkerRequest, { kind: 'parse' }>
 ): Promise<OpenCodeSqliteParseValue> {
@@ -50,13 +52,24 @@ async function parseSession(
       platform: request.platform
     })
   if (!request.capture) {
-    return { session: await parse(), messages: [] }
+    return { session: await parse() }
   }
-  const captured = await withSessionSearchCapture(parse)
-  return { session: captured.value, messages: captured.messages }
+  const capture = new OpenCodeWorkerSearchCapture(request.id, (batch) => port.postMessage(batch))
+  captures.set(request.id, capture)
+  try {
+    const session = await withStreamingSessionSearchCapture(capture, parse)
+    await capture.flush()
+    return { session }
+  } finally {
+    captures.delete(request.id)
+  }
 }
 
-port.on('message', (request: OpenCodeSqliteWorkerRequest) => {
+port.on('message', (request: OpenCodeSqliteParentMessage) => {
+  if (request.kind === 'captureAck') {
+    captures.get(request.id)?.acknowledge(request.batch)
+    return
+  }
   void handleRequest(request).then((response) => {
     try {
       port.postMessage(response)

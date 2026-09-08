@@ -278,7 +278,9 @@ export function registerSettingsHandlers(
       applyAppIcon(result.appIcon)
     }
     if ('aiVaultSearch' in sanitizedArgs) {
-      await applyAiVaultSearchSettings(result)
+      await applyAiVaultSearchSettings(result, {
+        persist: () => store.flushPendingOrThrowAsync({ drainToStableGeneration: false })
+      })
     }
 
     // Why: telemetry-plan.md§Settings — fire `settings_changed` only for
@@ -328,9 +330,7 @@ export function registerSettingsHandlers(
     }
   )
 
-  ipcMain.handle('settings:listFonts', () => {
-    return listSystemFontFamilies()
-  })
+  ipcMain.handle('settings:listFonts', () => listSystemFontFamilies())
 
   ipcMain.handle('settings:previewGhosttyImport', () => {
     return previewGhosttyImport(store)

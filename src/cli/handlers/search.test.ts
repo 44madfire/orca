@@ -72,7 +72,11 @@ describe('orca search --agent-session', () => {
   it('sends the query with relevance sort by default', async () => {
     await runSearch({ 'agent-session': 'strict mode violation' })
 
-    expect(callMock).toHaveBeenCalledWith('aiVault.searchSessions', expect.any(Object))
+    expect(callMock).toHaveBeenCalledWith(
+      'aiVault.searchSessions',
+      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeoutMs: expect.any(Number) })
+    )
     expect(searchParams()).toMatchObject({ query: 'strict mode violation', sort: 'relevance' })
     expect(searchParams().executionHostId).toBeUndefined()
     expect(logSpy).toHaveBeenCalledTimes(1)
@@ -157,14 +161,17 @@ describe('orca search --agent-session', () => {
     expect(searchParams().since).toBe('2026-07-31T22:00:00.000Z')
   })
 
-  it('rejects an ssh host because the index lives with the transcripts', async () => {
-    const error = await runSearch({ 'agent-session': 'q', host: 'ssh:dev-box' }).catch(
-      (caught: unknown) => caught
+  it('resolves SSH labels and invokes only the targeted host method', async () => {
+    callMock.mockResolvedValueOnce({
+      result: { targets: [{ id: 'ssh-1', label: 'dev-box', connected: true }] }
+    })
+    await runSearch({ 'agent-session': 'q', host: 'ssh:dev-box' })
+    expect(callMock).toHaveBeenLastCalledWith(
+      'aiVault.sshSearchSessions',
+      expect.objectContaining({ targetId: 'ssh-1', query: 'q' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
-    expect(error).toBeInstanceOf(RuntimeClientError)
-    expect((error as RuntimeClientError).code).toBe('invalid_argument')
-    expect((error as Error).message).toMatch(/runtime host/)
-    expect(callMock).not.toHaveBeenCalled()
+    expect(callMock.mock.calls.map(([method]) => method)).not.toContain('aiVault.searchSessions')
   })
 
   it('forwards a runtime host id', async () => {
@@ -227,7 +234,11 @@ describe('orca search --agent-session with the index turned off', () => {
 
     await runSearch({ enable: true })
 
-    expect(callMock).toHaveBeenCalledWith('aiVault.configureSessionSearch', { enabled: true })
+    expect(callMock).toHaveBeenCalledWith(
+      'aiVault.configureSessionSearch',
+      { enabled: true },
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
     expect(logSpy.mock.calls[0]?.[0] as string).toContain(
       'Session search is on for the last 90 days.'
     )
@@ -261,9 +272,13 @@ describe('orca search --agent-session with the index turned off', () => {
 
     await runSearch({ enable: true, host: 'runtime:env-1' })
 
-    expect(callMock).toHaveBeenCalledWith('aiVault.configureSessionSearch', {
-      enabled: true,
-      executionHostId: 'runtime:env-1'
-    })
+    expect(callMock).toHaveBeenCalledWith(
+      'aiVault.configureSessionSearch',
+      {
+        enabled: true,
+        executionHostId: 'runtime:env-1'
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
   })
 })

@@ -3,6 +3,7 @@
 import { createElement, StrictMode, type ReactNode } from 'react'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createSearchCoverageStore } from './ai-vault-search-coverage-store'
 import type { AiVaultSearchCoverage } from '../../../../shared/ai-vault-search-types'
 import {
   AI_VAULT_SEARCH_COVERAGE_POLL_MS,
@@ -59,25 +60,16 @@ describe('useAiVaultSearchCoveragePoll', () => {
     expect(searchCoverage).toHaveBeenCalledTimes(callsAfterFirstRead + 3)
   })
 
-  it('ignores a slow running answer that lands after a newer complete one', async () => {
-    let releaseFirst: (value: ReturnType<typeof coverage>) => void = () => undefined
-    searchCoverage
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            releaseFirst = resolve
-          })
-      )
-      .mockResolvedValueOnce(coverage('complete'))
-    const { result } = renderHook(() => useAiVaultSearchCoveragePoll(true), { wrapper })
+  it('publishes consistently slow successes without overlapping polls', async () => {
+    searchCoverage.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(coverage('running')), 5_000))
+    )
+    const { result } = renderHook(() => useAiVaultSearchCoveragePoll(true))
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+      await vi.advanceTimersByTimeAsync(20_000)
     })
-    expect(result.current?.backfill).toBe('complete')
-    await act(async () => {
-      releaseFirst(coverage('running'))
-    })
-    expect(result.current?.backfill).toBe('complete')
+    expect(result.current?.backfill).toBe('running')
+    expect(searchCoverage).toHaveBeenCalledTimes(3)
   })
 
   it('keeps polling while the backfill is still running', async () => {
@@ -146,4 +138,32 @@ it('shares a single polling subscription between surfaces', async () => {
     await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
   })
   expect(searchCoverage).toHaveBeenCalledTimes(3)
+})
+
+it('observes controls after mutation and ignores the outstanding older poll', async () => {
+  let releaseOld!: (value: AiVaultSearchCoverage) => void
+  let finishAction!: () => void
+  searchCoverage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        releaseOld = resolve
+      })
+  )
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  const controlled = store.control(
+    () =>
+      new Promise<void>((resolve) => {
+        finishAction = resolve
+      })
+  )
+  await vi.advanceTimersByTimeAsync(8_000)
+  expect(searchCoverage).toHaveBeenCalledTimes(1)
+  finishAction()
+  await controlled
+  expect(store.getSnapshot().coverage?.backfill).toBe('complete')
+  releaseOld(coverage('running'))
+  await Promise.resolve()
+  expect(store.getSnapshot().coverage?.backfill).toBe('complete')
+  unsubscribe()
 })

@@ -10,10 +10,9 @@ import type { AiVaultSession } from '../../shared/ai-vault-types'
  * `refreshCachedCodexMetadata`) and `remote-session-parse-cache.ts` (relay
  * provider, whose reader lives in `remote-session-scanner-codex-index.ts`).
  */
-export async function refreshCodexTitleFromIndex(
-  session: AiVaultSession,
-  readIndexedTitle: (sessionId: string) => Promise<string | null>
-): Promise<AiVaultSession> {
+export async function refreshCodexTitleFromIndex<
+  T extends Pick<AiVaultSession, 'sessionId' | 'title'>
+>(session: T, readIndexedTitle: (sessionId: string) => Promise<string | null>): Promise<T> {
   const title = await readIndexedTitle(session.sessionId)
   return title && title !== session.title ? { ...session, title } : session
 }

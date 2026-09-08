@@ -24,6 +24,7 @@ import {
 } from './session-scanner-resume-point'
 import {
   getSessionSearchIndexMode,
+  isSessionSearchFileCurrent,
   getSessionSearchIndexSink,
   withoutSessionSearchCapture,
   type SessionSearchIndexSink
@@ -134,13 +135,7 @@ async function parseCachedInLane(
   const registeredSink = getSessionSearchIndexSink()
   const sink = registeredSink?.acceptsCandidate?.(candidate) === false ? null : registeredSink
   const indexed = sink ? sink.indexedFile(file.path, fileIdentity(file)) : null
-  const indexCurrent =
-    sink === null ||
-    (indexed !== null &&
-      indexed.mtimeMs === file.mtimeMs &&
-      (indexed.sizeBytes === null ||
-        file.sizeBytes === undefined ||
-        indexed.sizeBytes === file.sizeBytes))
+  const indexCurrent = sink === null || isSessionSearchFileCurrent(indexed, file)
   // In `required` mode a file the index has not caught up on is never
   // "unchanged"; in `opportunistic` mode it is reused and handed to the backfill.
   const indexRequired = sink !== null && getSessionSearchIndexMode() === 'required'

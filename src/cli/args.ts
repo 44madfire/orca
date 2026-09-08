@@ -24,9 +24,17 @@ export const BOOLEAN_FLAGS = CLI_BOOLEAN_FLAGS
 export const REPEATED_FLAG_SEPARATOR = '\u0000'
 const REPEATABLE_STRING_FLAGS = new Set(['label', 'skill'])
 
-function setFlagValue(flags: Map<string, string | boolean>, name: string, value: string): void {
+function setFlagValue(
+  flags: Map<string, string | boolean>,
+  name: string,
+  value: string,
+  search = false
+): void {
   const existing = flags.get(name)
-  if (typeof existing === 'string' && REPEATABLE_STRING_FLAGS.has(name)) {
+  if (
+    typeof existing === 'string' &&
+    (REPEATABLE_STRING_FLAGS.has(name) || (search && (name === 'agent' || name === 'path')))
+  ) {
     flags.set(name, `${existing}${REPEATED_FLAG_SEPARATOR}${value}`)
     return
   }
@@ -51,12 +59,23 @@ export function parseArgs(argv: string[], commandPaths?: readonly string[][]): P
     // treats a `--`-leading next token as a new flag, so it can't express one.
     const equalsIndex = assignment.indexOf('=')
     if (equalsIndex !== -1) {
-      setFlagValue(flags, assignment.slice(0, equalsIndex), assignment.slice(equalsIndex + 1))
+      setFlagValue(
+        flags,
+        assignment.slice(0, equalsIndex),
+        assignment.slice(equalsIndex + 1),
+        (argv[commandIndex] ?? commandPath[0]) === 'search'
+      )
       continue
     }
 
     const flag = assignment
-    if (BOOLEAN_FLAGS.has(flag)) {
+    if (
+      BOOLEAN_FLAGS.has(flag) ||
+      ((argv[commandIndex] ?? commandPath[0]) === 'search' &&
+        ['enable', 'disable', 'clear-index', 'index-status', 'pause', 'resume-indexing'].includes(
+          flag
+        ))
+    ) {
       flags.set(flag, true)
       continue
     }
@@ -71,7 +90,7 @@ export function parseArgs(argv: string[], commandPaths?: readonly string[][]): P
       flags.set(flag, true)
       continue
     }
-    setFlagValue(flags, flag, next)
+    setFlagValue(flags, flag, next, (argv[commandIndex] ?? commandPath[0]) === 'search')
     i += 1
   }
 

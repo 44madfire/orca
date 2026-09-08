@@ -102,14 +102,19 @@ export function openSessionSearchDatabase(path: string): SyncDatabase {
 
 function openWithPragmas(path: string): SyncDatabase {
   const db = new SyncDatabase(path)
-  // Why: only takes effect on an empty file; it is what lets a purge hand pages
-  // back in bounded steps instead of a full VACUUM. Set before any table exists.
-  db.pragma('auto_vacuum = INCREMENTAL')
-  db.pragma('journal_mode = WAL')
-  db.pragma('synchronous = NORMAL')
-  db.pragma('journal_size_limit = 8388608')
-  db.pragma('busy_timeout = 5000')
-  return db
+  try {
+    // Why: only takes effect on an empty file; it is what lets a purge hand pages
+    // back in bounded steps instead of a full VACUUM. Set before any table exists.
+    db.pragma('auto_vacuum = INCREMENTAL')
+    db.pragma('journal_mode = WAL')
+    db.pragma('synchronous = NORMAL')
+    db.pragma('journal_size_limit = 8388608')
+    db.pragma('busy_timeout = 5000')
+    return db
+  } catch (error) {
+    db.close()
+    throw error
+  }
 }
 
 export function removeSessionSearchDatabase(path: string): void {

@@ -55,6 +55,17 @@ export class AiVaultHandler {
     dispatcher.onRequest(SSH_AI_VAULT_RESOLVE_SESSION_TITLES_METHOD, (params, context) =>
       this.resolveSessionTitles(service, params, context.signal)
     )
+    if (service.search) {
+      for (const [suffix, action] of [
+        ['Sessions', 'query'],
+        ['IndexStatus', 'status'],
+        ['Configure', 'configure']
+      ] as const) {
+        dispatcher.onRequest(`aiVault.search${suffix}`, (params, context) =>
+          service.search!(action, params, context.signal)
+        )
+      }
+    }
   }
 
   private async resolveSessionTitles(

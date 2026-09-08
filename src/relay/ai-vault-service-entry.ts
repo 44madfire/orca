@@ -1,4 +1,5 @@
 import { LOCAL_EXECUTION_HOST_ID } from '../shared/execution-host'
+import { RelaySessionSearchOwner } from './session-search-owner'
 import { scanRemoteAiVaultSessions } from '../main/ai-vault/remote-session-scanner'
 import { readAiVaultSessionTitlesFromFiles } from '../main/ai-vault/session-title-file-reader'
 import { createRelayAiVaultFilesystemProvider } from './ai-vault-service-filesystem'
@@ -24,6 +25,7 @@ let init: RelayAiVaultServiceInit | null = null
 let cacheLane = Promise.resolve()
 let interactiveLane = Promise.resolve()
 let shuttingDown = false
+let searchOwner: RelaySessionSearchOwner | null = null
 
 function send(message: RelayAiVaultServiceChildMessage): void {
   process.send?.(message)
@@ -38,6 +40,12 @@ async function execute(request: RelayAiVaultServiceRequest): Promise<void> {
   try {
     if (!init) {
       throw new Error('Relay AI Vault service is not initialized.')
+    }
+    if (request.operation === 'search') {
+      searchOwner ??= new RelaySessionSearchOwner(init.remoteHome)
+      const value = await searchOwner.request(request.action, request.params, controller.signal)
+      send({ type: 'result', id: request.id, operation: 'search', value })
+      return
     }
     if (request.operation === 'titles') {
       const value = await readAiVaultSessionTitlesFromFiles(request.requests, {
@@ -79,6 +87,7 @@ async function shutdown(): Promise<void> {
     controller.abort()
   }
   await Promise.allSettled([cacheLane, interactiveLane])
+  await searchOwner?.close()
   process.disconnect?.()
 }
 

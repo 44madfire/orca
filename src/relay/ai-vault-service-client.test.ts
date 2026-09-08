@@ -114,6 +114,38 @@ describe('RelayAiVaultServiceClient', () => {
     await disposing
   })
 
+  it('dispatches search and controls while a history scan is pending', async () => {
+    const children: AiVaultServiceTestChild[] = []
+    const client = createClient(children)
+    const list = client.listSessions({})
+    const child = children[0]!
+    readyAiVaultServiceChild(child)
+    await Promise.resolve()
+    for (const action of ['query', 'status', 'configure'] as const) {
+      const pending = client.search(action, action === 'configure' ? { paused: true } : {})
+      await Promise.resolve()
+      const request = relayRequests(child, 'search').at(-1)
+      expect(request, `${action} dispatches before list completion`).toBeDefined()
+      child.emit('message', {
+        type: 'result',
+        id: request!.id,
+        operation: 'search',
+        value: { action }
+      })
+      await expect(pending).resolves.toEqual({ action })
+    }
+    child.emit('message', {
+      type: 'result',
+      id: relayRequestId(child, 'list'),
+      operation: 'list',
+      value: { sessions: [], issues: [], scannedAt: '2026-08-09T00:00:00.000Z' }
+    })
+    await list
+    const disposing = client.dispose()
+    child.emit('exit', 0)
+    await disposing
+  })
+
   it('does not start queued cache work until cancelled work acknowledges', async () => {
     vi.useFakeTimers()
     const children: AiVaultServiceTestChild[] = []

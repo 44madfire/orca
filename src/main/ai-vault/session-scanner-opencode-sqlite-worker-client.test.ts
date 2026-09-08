@@ -9,16 +9,20 @@ import {
 } from './session-scanner-opencode-sqlite-worker-client'
 import type {
   OpenCodeSqliteParseValue,
-  OpenCodeSqliteWorkerRequest,
+  OpenCodeSqliteParentMessage,
   OpenCodeSqliteWorkerResponse
 } from './session-scanner-opencode-sqlite-worker-protocol'
-import { isSessionSearchCaptureActive, withSessionSearchCapture } from './session-search-capture'
+import {
+  isSessionSearchCaptureActive,
+  withSessionSearchCapture,
+  withStreamingSessionSearchCapture
+} from './session-search-capture'
 import type { AiVaultScanIssue, AiVaultSession } from '../../shared/ai-vault-types'
 
 // A worker_threads stand-in the tests drive directly: it records posted requests
 // and lets a test emit message/error/exit without a built worker bundle.
 class FakeWorker {
-  postedRequests: OpenCodeSqliteWorkerRequest[] = []
+  postedRequests: OpenCodeSqliteParentMessage[] = []
   terminated = false
   unrefed = false
   private listeners = new Map<string, Set<(arg?: unknown) => void>>()
@@ -48,7 +52,7 @@ class FakeWorker {
     return 1
   }
 
-  postMessage(request: OpenCodeSqliteWorkerRequest): void {
+  postMessage(request: OpenCodeSqliteParentMessage): void {
     this.postedRequests.push(request)
   }
 
@@ -71,7 +75,7 @@ class FakeWorker {
 // The lifecycle cases only care which call settles, so they tag the session
 // with a sentinel and let the protocol shape carry it.
 function parseValue(sessionId: string): OpenCodeSqliteParseValue {
-  return { session: sessionId as unknown as AiVaultSession, messages: [] }
+  return { session: sessionId as unknown as AiVaultSession }
 }
 
 function makeFactory(workers: FakeWorker[]): () => Worker {
@@ -101,7 +105,7 @@ describe('OpenCodeSqliteWorkerClient', () => {
     worker!.emit('message', {
       id: worker!.lastId(),
       ok: true,
-      value: { session: { sessionId: 'a' }, messages: [] }
+      value: { session: { sessionId: 'a' } }
     } satisfies OpenCodeSqliteWorkerResponse)
 
     await expect(parsePromise).resolves.toEqual({ sessionId: 'a' })
@@ -380,11 +384,17 @@ describe('OpenCodeSqliteWorkerClient search capture', () => {
       worker.emit('message', {
         id: worker.lastId(),
         ok: true,
-        value: {
-          session: { sessionId: 'a' },
-          messages: [{ role: 'user', text: 'ballast tanks', timestamp: null }]
-        }
+        captureBatch: 1,
+        value: [{ role: 'user', text: 'ballast tanks', timestamp: null }]
       } satisfies OpenCodeSqliteWorkerResponse)
+      await vi.waitFor(() =>
+        expect(worker.postedRequests.at(-1)).toMatchObject({ kind: 'captureAck', batch: 1 })
+      )
+      worker.emit('message', {
+        id: worker.lastId(),
+        ok: true,
+        value: { session: { sessionId: 'a' } }
+      })
       return parsePromise
     })
 
@@ -403,9 +413,87 @@ describe('OpenCodeSqliteWorkerClient search capture', () => {
     worker.emit('message', {
       id: worker.lastId(),
       ok: true,
-      value: { session: null, messages: [] }
+      value: { session: null }
     } satisfies OpenCodeSqliteWorkerResponse)
 
     await expect(parsePromise).resolves.toBeNull()
   })
+})
+
+it('acknowledges capture only after the caller channel drains, including across async scopes', async () => {
+  const workers: FakeWorker[] = []
+  const client = new OpenCodeSqliteWorkerClient({ workerFactory: makeFactory(workers), log() {} })
+  let release!: () => void
+  const drained = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const push = vi.fn()
+  const checkpoint = vi.fn(() => drained)
+  const parsed = withStreamingSessionSearchCapture({ push, checkpoint }, () =>
+    client.parse({ dbPath: '/db', sessionId: 'a', platform: process.platform })
+  )
+  const worker = workers[0]!
+  worker.emit('message', {
+    id: worker.lastId(),
+    ok: true,
+    captureBatch: 1,
+    value: [{ role: 'user', text: 'late marker', timestamp: null }]
+  })
+  await Promise.resolve()
+  expect(push).toHaveBeenCalledOnce()
+  expect(checkpoint).toHaveBeenCalledOnce()
+  expect(worker.postedRequests).toHaveLength(1)
+  release()
+  await vi.waitFor(() =>
+    expect(worker.postedRequests.at(-1)).toMatchObject({ kind: 'captureAck', batch: 1 })
+  )
+  worker.emit('message', { id: worker.lastId(), ok: true, value: { session: { sessionId: 'a' } } })
+  expect(await parsed).toEqual({ sessionId: 'a' })
+})
+
+it('rejects the parse and retires its worker when the capture consumer fails', async () => {
+  const workers: FakeWorker[] = []
+  const client = new OpenCodeSqliteWorkerClient({ workerFactory: makeFactory(workers), log() {} })
+  const parsed = withStreamingSessionSearchCapture(
+    {
+      push() {},
+      checkpoint: async () => {
+        throw new Error('capture stopped')
+      }
+    },
+    () => client.parse({ dbPath: '/db', sessionId: 'a', platform: process.platform })
+  )
+  const rejected = expect(parsed).rejects.toThrow('capture stopped')
+  workers[0]!.emit('message', { id: workers[0]!.lastId(), ok: true, captureBatch: 1, value: [] })
+  await rejected
+  expect(workers[0]!.terminated).toBe(true)
+  expect(workers[0]!.postedRequests).toHaveLength(1)
+})
+
+it('suspends the producer timeout during backpressure and restores it after acknowledgement', async () => {
+  vi.useFakeTimers()
+  try {
+    const workers: FakeWorker[] = []
+    const client = new OpenCodeSqliteWorkerClient({ workerFactory: makeFactory(workers), log() {} })
+    let release!: () => void
+    const drained = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const parsed = withStreamingSessionSearchCapture({ push() {}, checkpoint: () => drained }, () =>
+      client.parse({ dbPath: '/db', sessionId: 'a', platform: process.platform })
+    )
+    const failure = expect(parsed).rejects.toThrow('timed out')
+    const worker = workers[0]!
+    worker.emit('message', { id: worker.lastId(), ok: true, captureBatch: 1, value: [] })
+    await vi.advanceTimersByTimeAsync(PARSE_TIMEOUT_MS + 1)
+    expect(worker.terminated).toBe(false)
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(worker.postedRequests.at(-1)).toMatchObject({ kind: 'captureAck', batch: 1 })
+    await vi.advanceTimersByTimeAsync(PARSE_TIMEOUT_MS)
+    await failure
+    expect(worker.terminated).toBe(true)
+  } finally {
+    vi.useRealTimers()
+  }
 })

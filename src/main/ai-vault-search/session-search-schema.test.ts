@@ -1,9 +1,9 @@
 import { mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTree } from '../../shared/windows-transient-lock-removal'
-import type SyncDatabase from '../sqlite/sync-database'
+import SyncDatabase from '../sqlite/sync-database'
 import {
   SESSION_SEARCH_SCHEMA_VERSION,
   openSessionSearchDatabase,
@@ -83,4 +83,19 @@ describe('openSessionSearchDatabase', () => {
       await expect(stat(`${path}${suffix}`)).rejects.toMatchObject({ code: 'ENOENT' })
     }
   })
+})
+
+it('closes the SQLite handle when corrupt data fails initialization', async () => {
+  const path = await tempDatabasePath()
+  await writeFile(path, 'not a SQLite database')
+  const close = vi.spyOn(SyncDatabase.prototype, 'close')
+  try {
+    expect(() => openSessionSearchDatabase(path)).toThrow()
+    expect(close).toHaveBeenCalledTimes(1)
+  } finally {
+    close.mockRestore()
+  }
+  removeSessionSearchDatabase(path)
+  const recovered = openSessionSearchDatabase(path)
+  recovered.close()
 })

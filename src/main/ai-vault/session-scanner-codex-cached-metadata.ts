@@ -6,10 +6,9 @@ import { readCodexSessionIndexTitle } from './session-scanner-codex-title-index'
 
 // Cache hits skip the parser entirely, so the same lazily-written Codex metadata
 // the parser folds in at finalize has to be re-applied to the restored session.
-export async function refreshCachedCodexMetadata(
-  candidate: SessionFileCandidate,
-  session: AiVaultSession
-): Promise<AiVaultSession> {
+export async function refreshCachedCodexMetadata<
+  T extends Pick<AiVaultSession, 'sessionId' | 'title' | 'cwd' | 'branch' | 'updatedAt'>
+>(candidate: SessionFileCandidate, session: T): Promise<T> {
   const refreshed = await refreshCodexTitleFromIndex(session, (sessionId) =>
     readCodexSessionIndexTitle(candidate.file.path, candidate.codexHome, sessionId)
   )

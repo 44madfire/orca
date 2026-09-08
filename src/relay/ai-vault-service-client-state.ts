@@ -73,10 +73,7 @@ export function requeueRelayAiVaultServiceStart(
   return true
 }
 
-export function settleRelayAiVaultServiceCall(
-  call: RelayAiVaultServiceCall,
-  value: Error | AiVaultListResult | AiVaultSessionTitlesResult
-): void {
+export function settleRelayAiVaultServiceCall(call: RelayAiVaultServiceCall, value: unknown): void {
   // A cancelled call is settled before its cancel watchdog is armed, so the
   // timer has to be cleared even when the reject/resolve is already done.
   if (call.timer) {
@@ -102,7 +99,7 @@ export type RelayAiVaultServiceCall = {
   lane: RelayAiVaultServiceLane
   signal?: AbortSignal
   forceStart: boolean
-  resolve: (value: AiVaultListResult | AiVaultSessionTitlesResult) => void
+  resolve: (value: unknown) => void
   reject: (error: Error) => void
   timer: NodeJS.Timeout | null
   onAbort: (() => void) | null
@@ -113,6 +110,11 @@ export type RelayAiVaultServiceCall = {
 }
 
 export type RelayAiVaultServiceApi = {
+  search?(
+    action: 'query' | 'status' | 'configure',
+    params: unknown,
+    signal?: AbortSignal
+  ): Promise<unknown>
   listSessions(params: SshAiVaultRelayListParams, signal?: AbortSignal): Promise<AiVaultListResult>
   resolveSessionTitles(
     requests: AiVaultSessionTitleRequest[],

@@ -19,6 +19,11 @@ export { chunkMessageText } from './session-search-message-rows'
 export const SEARCH_WRITE_ROWS_PER_STEP = 128
 export const SEARCH_WRITE_CHARS_PER_STEP = 256 * 1024
 
+export type SessionSearchMetadata = Pick<
+  AiVaultSession,
+  'sessionId' | 'filePath' | 'title' | 'cwd' | 'branch' | 'updatedAt'
+>
+
 type FileRow = {
   dev: number | null
   ino: number | null
@@ -53,16 +58,27 @@ export class SessionSearchIndexWriter {
     return { byteOffset: row.byte_offset, mtimeMs: row.mtime_ms, sizeBytes: row.size_bytes }
   }
 
-  updateMetadata(path: string, session: AiVaultSession): void {
+  indexedMetadata(path: string): SessionSearchMetadata | null {
+    return (
+      (this.db
+        .prepare(`SELECT session_id AS sessionId, file_path AS filePath,
+      title, cwd, branch, updated_at AS updatedAt FROM sessions
+      WHERE id = (SELECT session_row_id FROM files WHERE path = ?)`)
+        .get(path) as SessionSearchMetadata | undefined) ?? null
+    )
+  }
+
+  updateMetadata(path: string, session: SessionSearchMetadata): void {
     this.db
       .prepare(`UPDATE sessions SET title = ?, cwd = ?, cwd_key = ?, branch = ?
-      WHERE id = (SELECT session_row_id FROM files WHERE path = ?)`)
+      WHERE id = (SELECT session_row_id FROM files WHERE path = ?) AND session_id = ?`)
       .run(
         redactSessionSearchText(session.title),
         session.cwd,
         session.cwd ? sessionSearchPathKey(session.cwd, session.filePath) : null,
         session.branch,
-        path
+        path,
+        session.sessionId
       )
   }
 

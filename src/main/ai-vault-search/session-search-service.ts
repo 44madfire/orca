@@ -1,3 +1,4 @@
+import { searchPresentSessionSources } from './session-search-source-presence'
 import { SessionSearchRefreshLane, discoverRecentSearchFiles } from './session-search-refresh-lane'
 import { recordSearchDiscovered } from './session-search-discovered-counts'
 import { mkdirSync } from 'node:fs'
@@ -87,7 +88,12 @@ export class SessionSearchService {
         )
       }
       void backfill
-      return store.search(args)
+      return await searchPresentSessionSources(
+        args,
+        (query) => store.search(query),
+        (paths) => this.invalidate(paths),
+        signal
+      )
     } finally {
       this.searchesInFlight -= 1
       this.releaseBackfill?.()
@@ -207,6 +213,10 @@ export class SessionSearchService {
     this.closeStore()
   }
 
+  async close(): Promise<void> {
+    await this.stop({ drainRefreshes: true })
+  }
+
   private open(): SessionSearchStore {
     mkdirSync(dirname(this.databasePath), { recursive: true })
     this.store = new SessionSearchStore(this.databasePath)
@@ -218,9 +228,11 @@ export class SessionSearchService {
   }
 
   /** Waits for the aborted backfill so its last parse cannot write to a closed store. */
-  private async stop(options: { keepStore?: boolean } = {}): Promise<void> {
+  private async stop(
+    options: { keepStore?: boolean; drainRefreshes?: boolean } = {}
+  ): Promise<void> {
     this.stopping = true
-    this.refreshLane.cancel()
+    const refreshes = options.drainRefreshes ? this.refreshLane.drain() : this.refreshLane.cancel()
     this.store?.setAcceptingWrites(false)
     try {
       this.backfillController?.abort()
@@ -229,6 +241,7 @@ export class SessionSearchService {
       if (run) {
         await run.catch(() => undefined)
       }
+      await refreshes
       if (!options.keepStore) {
         this.closeStore()
       }

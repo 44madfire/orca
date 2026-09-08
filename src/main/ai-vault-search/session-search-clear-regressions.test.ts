@@ -28,7 +28,7 @@ it('clears persisted index before a scanner has been started', async () => {
     installAiVaultSearchSettingsSource(() => ({
       aiVaultSearch: { enabled: false, historyDays: null }
     }))
-    await clearAiVaultSearchIndex()
+    await clearAiVaultSearchIndex(async () => undefined)
     expect(existsSync(path)).toBe(false)
     expect(existsSync(`${path}-wal`)).toBe(false)
   } finally {

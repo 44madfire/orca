@@ -1,5 +1,12 @@
+import { inSessionParseFileLane } from '../ai-vault/session-parse-file-lane'
+import { refreshCachedCodexMetadata } from '../ai-vault/session-scanner-codex-cached-metadata'
+import { getSessionParseCacheEntry } from '../ai-vault/session-parse-cache-store'
+import { fileIdentity } from '../ai-vault/session-scanner-resume-point'
 import { withCursorChatMetaScan } from '../ai-vault/session-scanner-cursor-chat-meta'
-import { withSessionSearchIndexRequired } from '../ai-vault/session-search-capture'
+import {
+  isSessionSearchFileCurrent,
+  withSessionSearchIndexRequired
+} from '../ai-vault/session-search-capture'
 import {
   createSessionParseStats,
   parseAgentSessionFileCached
@@ -27,8 +34,39 @@ export async function parseSearchCandidates(
         const failures = store.failures
         let failed = false
         try {
-          await parseAgentSessionFileCached(candidate, process.platform, stats)
+          // Retain cached metadata refreshes, but a cold index-only pass needs no preview parse.
+          if (
+            getSessionParseCacheEntry(candidate.file.path) ||
+            !isSessionSearchFileCurrent(
+              store.indexedFile(candidate.file.path, fileIdentity(candidate.file)),
+              candidate.file
+            )
+          ) {
+            await parseAgentSessionFileCached(candidate, process.platform, stats)
+          } else if (candidate.agent === 'codex') {
+            await inSessionParseFileLane(candidate.file.path, async () => {
+              throwIfAiVaultScanCancelled(signal)
+              if (
+                !store.acceptsCandidate(candidate) ||
+                !isSessionSearchFileCurrent(
+                  store.indexedFile(candidate.file.path, fileIdentity(candidate.file)),
+                  candidate.file
+                )
+              ) {
+                return
+              }
+              const metadata = store.indexedMetadata(candidate.file.path)
+              if (metadata) {
+                const refreshed = await refreshCachedCodexMetadata(candidate, metadata)
+                throwIfAiVaultScanCancelled(signal)
+                if (refreshed !== metadata) {
+                  store.updateMetadata(candidate, refreshed)
+                }
+              }
+            })
+          }
         } catch (error) {
+          throwIfAiVaultScanCancelled(signal)
           failed = true
           store.recordParseFailure(candidate.agent)
           console.warn(
@@ -47,6 +85,6 @@ export async function parseSearchCandidates(
           await pauseBackfill(signal)
         }
       }
-    })
+    }, signal)
   )
 }

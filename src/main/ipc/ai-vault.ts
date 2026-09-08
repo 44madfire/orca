@@ -76,6 +76,7 @@ const AI_VAULT_ALL_HOST_SSH_TIMEOUT_MS = 20_000
 
 type AiVaultHandlerOptions = AiVaultSessionSources &
   AiVaultResumeHandlerOptions & {
+    persistSearchPolicy?: () => Promise<void>
     getActiveRuntimeAiVaultHostInfos?: () => readonly RuntimeAiVaultHostInfo[]
     scanRuntimeAiVaultSessions?: RuntimeAiVaultScanner
     resolveRuntimeAiVaultSessionTitles?: RuntimeAiVaultSessionTitleResolver
@@ -267,7 +268,12 @@ export function registerAiVaultHandlers(options: AiVaultHandlerOptions = {}): vo
   ipcMain.handle('aiVault:searchIndexSize', () => ({
     bytes: readAiVaultSearchIndexSizeBytes()
   }))
-  ipcMain.handle('aiVault:clearSearchIndex', () => clearAiVaultSearchIndex())
+  ipcMain.handle('aiVault:clearSearchIndex', () => {
+    if (!options.persistSearchPolicy) {
+      throw new Error('Search policy persistence is unavailable.')
+    }
+    return clearAiVaultSearchIndex(options.persistSearchPolicy)
+  })
   ipcMain.handle(
     'aiVault:resolveSessionTitles',
     (_event, args: AiVaultSessionTitlesArgs): Promise<AiVaultSessionTitlesResult> =>

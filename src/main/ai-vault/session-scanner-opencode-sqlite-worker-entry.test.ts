@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Database from '../sqlite/sync-database'
+import { parseOpenCodeSqliteSession } from './session-scanner-opencode-sqlite'
+import { withStreamingSessionSearchCapture } from './session-search-capture'
 import {
   applyOpenCodeSqliteSchema,
   insertOpenCodeMessage,
@@ -11,24 +13,30 @@ import {
 } from './session-scanner-opencode-sqlite-fixtures'
 import type {
   OpenCodeSqliteParseValue,
-  OpenCodeSqliteWorkerRequest,
+  OpenCodeSqliteParentMessage,
   OpenCodeSqliteWorkerResponse
 } from './session-scanner-opencode-sqlite-worker-protocol'
 
 // A parent-port stand-in: the entry registers on it at import time, so the test
 // drives the worker loop without spawning a thread.
 const posted: OpenCodeSqliteWorkerResponse[] = []
-let handler: ((request: OpenCodeSqliteWorkerRequest) => void) | null = null
+let acknowledge = true
+let handler: ((request: OpenCodeSqliteParentMessage) => void) | null = null
 
 vi.mock('node:worker_threads', () => ({
   parentPort: {
-    on(event: string, listener: (request: OpenCodeSqliteWorkerRequest) => void) {
+    on(event: string, listener: (request: OpenCodeSqliteParentMessage) => void) {
       if (event === 'message') {
         handler = listener
       }
     },
     postMessage(response: OpenCodeSqliteWorkerResponse) {
       posted.push(response)
+      if (acknowledge && response.ok && response.captureBatch !== undefined) {
+        queueMicrotask(() =>
+          handler?.({ id: response.id, kind: 'captureAck', batch: response.captureBatch! })
+        )
+      }
     }
   }
 }))
@@ -40,6 +48,7 @@ let tempDirs: string[] = []
 
 beforeEach(async () => {
   posted.length = 0
+  acknowledge = true
   await import('./session-scanner-opencode-sqlite-worker-entry')
 })
 
@@ -80,8 +89,10 @@ function createDbWithOneTurn(): string {
 
 async function parseOnWorker(dbPath: string, capture: boolean): Promise<OpenCodeSqliteParseValue> {
   handler?.({ id: 1, kind: 'parse', dbPath, sessionId: SESSION_ID, platform: 'darwin', capture })
-  await vi.waitFor(() => expect(posted).toHaveLength(1))
-  const response = posted[0]!
+  await vi.waitFor(() =>
+    expect(posted.some((reply) => !reply.ok || reply.captureBatch === undefined)).toBe(true)
+  )
+  const response = posted.at(-1)!
   if (!response.ok) {
     throw new Error(response.error)
   }
@@ -93,7 +104,11 @@ describe('OpenCode SQLite worker entry', () => {
     const value = await parseOnWorker(createDbWithOneTurn(), true)
 
     expect(value.session?.sessionId).toBe(SESSION_ID)
-    expect(value.messages).toEqual([
+    expect(
+      posted
+        .filter((reply) => reply.ok && reply.captureBatch !== undefined)
+        .flatMap((reply) => (reply.ok ? reply.value : []))
+    ).toEqual([
       { role: 'user', text: 'recalibrate the ballast pump', timestamp: expect.any(String) }
     ])
   })
@@ -102,6 +117,80 @@ describe('OpenCode SQLite worker entry', () => {
     const value = await parseOnWorker(createDbWithOneTurn(), false)
 
     expect(value.session?.sessionId).toBe(SESSION_ID)
-    expect(value.messages).toEqual([])
+    expect(
+      posted
+        .filter((reply) => reply.ok && reply.captureBatch !== undefined)
+        .flatMap((reply) => (reply.ok ? reply.value : []))
+    ).toEqual([])
   })
+})
+
+it('waits for downstream acknowledgement between bounded batches without dropping the tail', async () => {
+  const dbPath = createDbWithOneTurn()
+  const db = new Database(dbPath)
+  const count = 256
+  const text = 'bounded history '.repeat(4096)
+  db.exec('BEGIN')
+  for (let i = 0; i < count; i++) {
+    insertOpenCodePart(db, {
+      id: `part_${i}`,
+      messageId: 'msg_1',
+      sessionId: SESSION_ID,
+      timeCreated: CREATED_MS + 600 + i,
+      text: `${i} ${text}`
+    })
+  }
+  db.exec('COMMIT')
+  db.close()
+  acknowledge = false
+  handler?.({
+    id: 2,
+    kind: 'parse',
+    dbPath,
+    sessionId: SESSION_ID,
+    platform: process.platform,
+    capture: true
+  })
+  await vi.waitFor(() => expect(posted).toHaveLength(1))
+  const first = posted[0]!
+  expect(first).toMatchObject({ ok: true, captureBatch: 1 })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  expect(posted).toHaveLength(1)
+  acknowledge = true
+  handler?.({ id: 2, kind: 'captureAck', batch: 1 })
+  await vi.waitFor(() =>
+    expect(posted.at(-1)).toMatchObject({ ok: true, value: { session: { sessionId: SESSION_ID } } })
+  )
+  const batches = posted.flatMap((reply) =>
+    reply.ok && reply.captureBatch !== undefined ? [reply.value as { text: string }[]] : []
+  )
+  expect(batches.length).toBeGreaterThan(2)
+  expect(batches.flat()).toHaveLength(count + 1)
+  expect(batches.flat().at(-1)?.text).toBe(`${count - 1} ${text}`.trim())
+  for (const batch of batches) {
+    expect(batch.length).toBeLessThanOrEqual(129)
+    expect(batch.reduce((sum, message) => sum + message.text.length, 0)).toBeLessThan(512 * 1024)
+  }
+})
+
+it('closes its source database if downstream capture fails while the cursor is suspended', async () => {
+  const dbPath = createDbWithOneTurn()
+  const close = vi.spyOn(Database.prototype, 'close')
+  try {
+    await expect(
+      withStreamingSessionSearchCapture(
+        {
+          push() {},
+          checkpoint: async () => {
+            throw new Error('downstream failed')
+          }
+        },
+        () =>
+          parseOpenCodeSqliteSession({ dbPath, sessionId: SESSION_ID, platform: process.platform })
+      )
+    ).rejects.toThrow('downstream failed')
+    expect(close).toHaveBeenCalledOnce()
+  } finally {
+    close.mockRestore()
+  }
 })

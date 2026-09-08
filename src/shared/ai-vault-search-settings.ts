@@ -46,6 +46,9 @@ export function resolveAiVaultSearchSettings(
 
 /** What Settings shows about the local index: the policy plus its disk footprint. */
 export type AiVaultSearchIndexStatus = AiVaultSearchSettings & {
+  available?: boolean
+  applied?: boolean
+  reason?: string
   /** Database + WAL sidecars in bytes; null when no index file exists. */
   indexSizeBytes: number | null
 }

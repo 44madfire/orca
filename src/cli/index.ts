@@ -126,20 +126,22 @@ export async function main(
     // retargeting a mutation to another server is the bug this flag already had.
     // An ambient pairing code cannot be resolved to an id to compare, so the
     // explicit flag simply wins there.
-    const hostEnvironmentId = ignoreRemoteSelection
-      ? null
-      : await resolveHostFlagEnvironmentId(parsed.flags, {
-          // Why: only consulted when the name missed, and against this machine's own runtime —
-          // SSH targets are registered there, not in the paired server we failed to find.
-          listSshTargets: listSshTargetsForSuggestion,
-          pairingCode: typeof pairingCode === 'string' ? pairingCode : null,
-          environmentSelector:
-            typeof environmentSelector === 'string'
-              ? { value: environmentSelector, label: '--environment' }
-              : process.env.ORCA_ENVIRONMENT
-                ? { value: process.env.ORCA_ENVIRONMENT, label: 'ORCA_ENVIRONMENT' }
-                : null
-        })
+    const hostEnvironmentId =
+      ignoreRemoteSelection ||
+      (parsed.commandPath[0] === 'search' && parsed.flags.get('host') === 'all')
+        ? null
+        : await resolveHostFlagEnvironmentId(parsed.flags, {
+            // Why: only consulted when the name missed, and against this machine's own runtime —
+            // SSH targets are registered there, not in the paired server we failed to find.
+            listSshTargets: listSshTargetsForSuggestion,
+            pairingCode: typeof pairingCode === 'string' ? pairingCode : null,
+            environmentSelector:
+              typeof environmentSelector === 'string'
+                ? { value: environmentSelector, label: '--environment' }
+                : process.env.ORCA_ENVIRONMENT
+                  ? { value: process.env.ORCA_ENVIRONMENT, label: 'ORCA_ENVIRONMENT' }
+                  : null
+          })
     // Why: --host runtime:<name> is canonicalized to the environment's id so downstream host-id
     // comparisons against stored rows still match; rewrite the flag once, here, rather than
     // resolving the name again at every consumer.

@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer, type Socket } from 'node:net'
@@ -50,6 +50,78 @@ describe('runtime transport timeout validation', () => {
 // Why: these tests create Unix domain socket servers in temp directories.
 // Windows does not support Unix domain sockets in the same way.
 describe.skipIf(process.platform === 'win32')('runtime transport', () => {
+  it('cancellation closes a dispatched search socket instead of only discarding its response', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'orca-search-cancel-'))
+    const endpoint = join(directory, 'runtime.sock')
+    const controller = new AbortController()
+    let closed!: () => void
+    const socketClosed = new Promise<void>((resolve) => {
+      closed = resolve
+    })
+    const server = createServer((socket) => {
+      sockets.add(socket)
+      socket.once('close', () => {
+        sockets.delete(socket)
+        closed()
+      })
+      socket.once('data', () => controller.abort(new Error('search cancelled')))
+    })
+    servers.add(server)
+    await new Promise<void>((resolve) => server.listen(endpoint, resolve))
+    try {
+      await expect(
+        sendRequest(
+          {
+            runtimeId: 'test',
+            pid: 1,
+            transports: [{ kind: 'unix', endpoint }],
+            authToken: 'fixture',
+            startedAt: 1
+          },
+          'aiVault.searchSessions',
+          { query: 'fixture' },
+          30_000,
+          undefined,
+          controller.signal
+        )
+      ).rejects.toThrow('search cancelled')
+      await socketClosed
+      expect(sockets.size).toBe(0)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects an oversized search frame before buffering the complete response', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'orca-search-size-'))
+    const endpoint = join(directory, 'runtime.sock')
+    const server = createServer((socket) => {
+      sockets.add(socket)
+      socket.on('error', () => undefined)
+      socket.once('close', () => sockets.delete(socket))
+      socket.once('data', () => socket.write(Buffer.alloc(4 * 1024 * 1024 + 1, 'a')))
+    })
+    servers.add(server)
+    await new Promise<void>((resolve) => server.listen(endpoint, resolve))
+    try {
+      await expect(
+        sendRequest(
+          {
+            runtimeId: 'test',
+            pid: 1,
+            transports: [{ kind: 'unix', endpoint }],
+            authToken: 'fixture',
+            startedAt: 1
+          },
+          'aiVault.searchSessions',
+          { query: 'fixture' },
+          30_000
+        )
+      ).rejects.toMatchObject({ code: 'invalid_runtime_response' })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
   it('refreshes the per-call timeout when the runtime sends keepalive frames', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-transport-'))
     const endpoint = join(userDataPath, 'runtime.sock')

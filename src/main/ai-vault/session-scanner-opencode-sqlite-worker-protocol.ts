@@ -20,7 +20,7 @@ export type OpenCodeSqliteParseRequest = {
   sessionId: string
   platform: NodeJS.Platform
   // Set when the caller parses inside a search-capture scope: AsyncLocalStorage
-  // does not cross threads, so the worker has to collect the rows and ship them.
+  // does not cross threads, so the worker sends acknowledged capture batches.
   capture?: boolean
 }
 
@@ -34,13 +34,24 @@ export type OpenCodeSqliteListValue = {
   issues: AiVaultScanIssue[]
 }
 
-// The parse leg returns the session plus the index rows captured while parsing
-// it; `messages` is empty unless the request asked for capture.
+// Final metadata follows acknowledgement of every capture batch.
 export type OpenCodeSqliteParseValue = {
   session: AiVaultSession | null
-  messages: SessionSearchCapturedMessage[]
 }
 
 export type OpenCodeSqliteWorkerResponse =
-  | { id: number; ok: true; value: unknown }
+  | { id: number; ok: true; value: unknown; captureBatch?: number }
   | { id: number; ok: false; error: string }
+
+export type OpenCodeSqliteCaptureAck = { id: number; kind: 'captureAck'; batch: number }
+export type OpenCodeSqliteParentMessage = OpenCodeSqliteWorkerRequest | OpenCodeSqliteCaptureAck
+export type OpenCodeSqliteCaptureBatch = {
+  id: number
+  ok: true
+  captureBatch: number
+  value: SessionSearchCapturedMessage[]
+}
+
+export type OpenCodeSqliteRequestBody =
+  | Omit<OpenCodeSqliteListRequest, 'id'>
+  | Omit<OpenCodeSqliteParseRequest, 'id'>

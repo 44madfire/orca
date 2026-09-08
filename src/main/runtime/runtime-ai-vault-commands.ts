@@ -28,20 +28,24 @@ import type {
   AiVaultSearchResult
 } from '../../shared/ai-vault-search-types'
 import { resolveLocalAiVaultSessionTitles } from '../ai-vault/session-title-resolver'
+import type { IPtyProvider } from '../providers/types'
+import { projectSessionSearchResult } from '../../shared/ai-vault-search-projection'
+import {
+  SessionSearchConfigureSchema,
+  SessionSearchQuerySchema,
+  type SessionSearchConfigure
+} from '../../shared/ai-vault-search-contract'
 
-export type AiVaultSessionSearchConfigureArgs = {
-  enabled?: boolean
-  paused?: boolean
-  historyDays?: number | null
-  clearIndex?: boolean
-}
+export type AiVaultSessionSearchConfigureArgs = SessionSearchConfigure
 
 export class RuntimeAiVaultCommands {
   constructor(
     private readonly getPrepareResume: () =>
       | ((args: AiVaultPrepareSessionResumeArgs) => Promise<AiVaultPrepareSessionResumeResult>)
       | null,
-    private readonly getStore: () => RuntimeStore | null = () => null
+    private readonly getStore: () => RuntimeStore | null = () => null,
+    private readonly getSshProvider: (targetId: string) => IPtyProvider | undefined = () =>
+      undefined
   ) {}
 
   list(args?: AiVaultListArgs): Promise<AiVaultListResult> {
@@ -49,7 +53,55 @@ export class RuntimeAiVaultCommands {
   }
 
   search(args: AiVaultSearchArgs, signal?: AbortSignal): Promise<AiVaultSearchResult> {
-    return searchAiVaultSessions(args, { signal })
+    const status = this.searchIndexStatus()
+    if (status.available === false || status.applied === false) {
+      throw new Error(status.reason)
+    }
+    return searchAiVaultSessions(args, { signal }).then(projectSessionSearchResult)
+  }
+
+  async sshSearch(
+    targetId: string,
+    operation: 'query' | 'status' | 'configure',
+    args: unknown,
+    signal?: AbortSignal
+  ): Promise<unknown> {
+    const provider = this.getSshProvider(targetId)
+    if (!provider?.requestHostRpc) {
+      throw new Error('SSH search unavailable: target is not connected to this runtime.')
+    }
+    const params =
+      operation === 'query'
+        ? SessionSearchQuerySchema.parse(args)
+        : operation === 'configure'
+          ? SessionSearchConfigureSchema.parse(args)
+          : {}
+    try {
+      return await provider.requestHostRpc(
+        `aiVault.search${{ query: 'Sessions', status: 'IndexStatus', configure: 'Configure' }[operation]}`,
+        params,
+        { signal, timeoutMs: 15_000 }
+      )
+    } catch (error) {
+      if (
+        operation === 'status' &&
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        error.code === -32601
+      ) {
+        return {
+          enabled: false,
+          historyDays: null,
+          indexSizeBytes: null,
+          available: false,
+          applied: false,
+          reason:
+            'This SSH relay does not support full-text search. Update the controlling Orca runtime and reconnect the target.'
+        }
+      }
+      throw error
+    }
   }
 
   searchCoverage(signal?: AbortSignal): Promise<AiVaultSearchCoverage> {
@@ -68,8 +120,16 @@ export class RuntimeAiVaultCommands {
     args: AiVaultSessionSearchConfigureArgs
   ): Promise<AiVaultSearchIndexStatus> {
     const store = this.getStore()
-    if (!store?.getSettings || !store.updateSettings) {
+    if (
+      !store?.getSettings ||
+      !store.updateSettings ||
+      (!store.flushPendingOrThrowAsync && !store.flushOrThrow)
+    ) {
       throw new Error('runtime_unavailable')
+    }
+    const status = this.searchIndexStatus()
+    if (status.available === false) {
+      throw new Error(status.reason)
     }
     const current = resolveAiVaultSearchSettings(store.getSettings())
     const next = {
@@ -81,8 +141,20 @@ export class RuntimeAiVaultCommands {
           : normalizeAiVaultSearchHistoryDays(args.historyDays)
     }
     store.updateSettings({ aiVaultSearch: next }, { notifyListeners: true })
-    await applyAiVaultSearchSettings({ aiVaultSearch: next }, { clearIndex: args.clearIndex })
-    return { ...next, indexSizeBytes: readAiVaultSearchIndexStatus().indexSizeBytes }
+    await applyAiVaultSearchSettings(
+      { aiVaultSearch: next },
+      {
+        clearIndex: args.clearIndex,
+        persist: async () => {
+          if (store.flushPendingOrThrowAsync) {
+            await store.flushPendingOrThrowAsync({ drainToStableGeneration: false })
+          } else {
+            store.flushOrThrow!()
+          }
+        }
+      }
+    )
+    return readAiVaultSearchIndexStatus()
   }
 
   resolveTitles(

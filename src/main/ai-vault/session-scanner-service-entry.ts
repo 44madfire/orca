@@ -103,6 +103,7 @@ async function executeRequest(request: AiVaultServiceRequest): Promise<AiVaultSe
       }
     }
     if (request.operation === 'searchConfigure') {
+      sessionSearch ??= new SessionSearchService({ ...request.request.init, enabled: false })
       return {
         operation: 'searchConfigure',
         value: await requireSessionSearch().configure(request.request.init, request.request.roots, {

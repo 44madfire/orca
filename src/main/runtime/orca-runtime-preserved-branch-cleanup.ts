@@ -298,7 +298,8 @@ export class OrcaRuntimeWithPreservedBranchCleanup extends OrcaRuntimeWithTermin
 
   protected readonly aiVault = new RuntimeAiVaultCommands(
     () => this.prepareAiVaultSessionResumeFn,
-    () => this.store ?? null
+    () => this.store ?? null,
+    (targetId) => this.getSshProviderFn?.(targetId)
   )
 
   protected readonly claudeAgentTeams = new ClaudeAgentTeamsService()

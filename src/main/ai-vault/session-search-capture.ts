@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { throwIfAiVaultScanCancelled } from './ai-vault-scan-cancellation'
 import type { AiVaultSession } from '../../shared/ai-vault-types'
-import type { SessionFileCandidate } from './session-scanner-types'
+import type { FileWithMtime, SessionFileCandidate } from './session-scanner-types'
 
 // Why: the parsers already fold every provider's transcript into one
 // accumulator. Instead of a second reader per format, a parse runs inside a
@@ -17,6 +18,7 @@ export type SessionSearchCapturedMessage = {
 }
 
 export type SessionSearchIndexUpdate = {
+  signal?: AbortSignal
   candidate: SessionFileCandidate
   /** Null when the parser rejected the file (e.g. a Codex worker transcript): drop its rows. */
   session: AiVaultSession | null
@@ -73,15 +75,25 @@ type CaptureScope = {
 } | null
 
 const captureStorage = new AsyncLocalStorage<CaptureScope>()
-const indexModeStorage = new AsyncLocalStorage<SessionSearchIndexMode>()
+const indexModeStorage = new AsyncLocalStorage<{
+  mode: SessionSearchIndexMode
+  signal?: AbortSignal
+}>()
 let sink: SessionSearchIndexSink | null = null
 
 export function getSessionSearchIndexMode(): SessionSearchIndexMode {
-  return indexModeStorage.getStore() ?? 'opportunistic'
+  return indexModeStorage.getStore()?.mode ?? 'opportunistic'
 }
 
-export function withSessionSearchIndexRequired<T>(fn: () => Promise<T>): Promise<T> {
-  return indexModeStorage.run('required', fn)
+export function getSessionSearchCaptureSignal(): AbortSignal | undefined {
+  return indexModeStorage.getStore()?.signal
+}
+
+export function withSessionSearchIndexRequired<T>(
+  fn: () => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  return indexModeStorage.run({ mode: 'required', signal }, fn)
 }
 
 export function registerSessionSearchIndexSink(next: SessionSearchIndexSink | null): void {
@@ -113,8 +125,11 @@ export async function withSessionSearchCapture<T>(
   return { value, messages: scope.messages }
 }
 
-export function checkpointSessionSearchCapture(): Promise<void> | undefined {
-  return captureStorage.getStore()?.checkpoint?.()
+export async function checkpointSessionSearchCapture(): Promise<void> {
+  const signal = getSessionSearchCaptureSignal()
+  throwIfAiVaultScanCancelled(signal)
+  await captureStorage.getStore()?.checkpoint?.()
+  throwIfAiVaultScanCancelled(signal)
 }
 
 export function withStreamingSessionSearchCapture<T>(
@@ -122,4 +137,17 @@ export function withStreamingSessionSearchCapture<T>(
   fn: () => Promise<T>
 ): Promise<T> {
   return captureStorage.run({ messages, checkpoint: () => messages.checkpoint() }, fn)
+}
+
+export function isSessionSearchFileCurrent(
+  indexed: SessionSearchIndexedFile | null,
+  file: FileWithMtime
+): boolean {
+  return (
+    indexed !== null &&
+    indexed.mtimeMs === file.mtimeMs &&
+    (indexed.sizeBytes === null ||
+      file.sizeBytes === undefined ||
+      indexed.sizeBytes === file.sizeBytes)
+  )
 }

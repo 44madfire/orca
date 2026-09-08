@@ -49,6 +49,9 @@ export type AiVaultSearchHit = {
 export type AiVaultSearchRoute = 'phrase' | 'and' | 'or' | 'typo+phrase' | 'typo+and' | 'typo+or'
 
 export type AiVaultSearchResult = {
+  omittedHits?: number
+  truncatedSnippets?: number
+  sourceUnavailableFiles?: number
   hits: AiVaultSearchHit[]
   route: AiVaultSearchRoute
   /** Query terms after typo repair, when any were changed. */

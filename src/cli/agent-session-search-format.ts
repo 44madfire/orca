@@ -2,7 +2,6 @@ import {
   stripAnsiEscapeSequences,
   TERMINAL_CONTROL_CHARACTER_PATTERN
 } from '../shared/ansi-escape-sequences'
-import { basename } from 'node:path'
 import type { AiVaultSearchIndexStatus } from '../shared/ai-vault-search-settings'
 import { aiVaultAgentLabel } from '../shared/ai-vault-types'
 import { aiVaultSearchUnindexedProviders } from '../shared/ai-vault-search-coverage'
@@ -41,43 +40,54 @@ function relativeAge(iso: string | null, now = Date.now()): string {
 }
 
 function projectLabel(hit: AiVaultSearchHit): string {
-  const cwd = hit.cwd ? basename(hit.cwd) : '—'
+  const cwd = hit.cwd ? (hit.cwd.replaceAll('\\', '/').split('/').findLast(Boolean) ?? '—') : '—'
   return hit.branch ? `${cwd} · ${hit.branch}` : cwd
 }
 
 // Why: transcript text reaches the terminal verbatim; an OSC 52 or cursor
 // sequence inside a tool log would otherwise execute on the user's terminal.
-function terminalSafe(value: string): string {
+export function terminalSafe(value: string): string {
   return stripAnsiEscapeSequences(value).replace(TERMINAL_CONTROL_CHARACTER_PATTERN, '')
 }
 
-function formatHit(index: number, hit: AiVaultSearchHit): string {
+function formatHit(index: number, hit: AiVaultSearchHit, owner?: string): string {
   const header = `${String(index + 1).padStart(2)}. ${terminalSafe(hit.title)}`
   const meta = `${aiVaultAgentLabel(hit.agent)} · ${terminalSafe(projectLabel(hit))} · ${relativeAge(hit.updatedAt)}`
   const evidence = hit.evidence.snippet
     ? `    ${ROLE_LABEL[hit.evidence.role]} ▸ ${terminalSafe(hit.evidence.snippet).replaceAll('\n', ' ')}`
     : null
-  const resume = `    resume: ${terminalSafe(hit.resumeCommand)}${hit.cwd ? `  (cwd ${terminalSafe(hit.cwd)})` : ''}`
+  const resume = `    ${owner ? `run on ${terminalSafe(owner)}` : 'resume'}: ${terminalSafe(hit.resumeCommand)}${hit.cwd ? `  (cwd ${terminalSafe(hit.cwd)})` : ''}`
   return [`${header}    ${meta}`, evidence, resume].filter(Boolean).join('\n')
 }
 
 export function formatAgentSessionSearch(
   result: AiVaultSearchResult,
-  context: { query: string; cwd: string }
+  context: { query: string; cwd: string; owner?: string }
 ): string {
   const lines: string[] = []
+  if (result.sourceUnavailableFiles) {
+    lines.push(
+      `${result.sourceUnavailableFiles} source files could not be verified; their hits are omitted.`
+    )
+  }
+  if (result.omittedHits) {
+    lines.push(`${result.omittedHits} hits omitted by the response limit.`)
+  }
+  if (result.truncatedSnippets) {
+    lines.push(`${result.truncatedSnippets} snippets shortened.`)
+  }
   if (result.hits.length === 0) {
-    lines.push(`No sessions match "${context.query}".`)
+    lines.push(`No sessions match "${terminalSafe(context.query)}".`)
   } else {
-    lines.push(...result.hits.map((hit, index) => formatHit(index, hit)), '')
+    lines.push(...result.hits.map((hit, index) => formatHit(index, hit, context.owner)), '')
   }
   if (result.repairedTerms) {
-    lines.push(`Searched for: ${result.repairedTerms.join(' ')}`)
+    lines.push(`Searched for: ${terminalSafe(result.repairedTerms.join(' '))}`)
   }
   const { coverage } = result
   const scope = `${coverage.sessionsIndexed.toLocaleString()} sessions indexed`
   const pending =
-    coverage.backfill === 'running'
+    coverage.backfill !== 'complete'
       ? ', still indexing older sessions'
       : coverage.filesPending > 0
         ? `, ${coverage.filesPending} changed files pending`
@@ -99,6 +109,18 @@ export function formatAgentSessionSearchEnabled(status: AiVaultSearchIndexStatus
       : `the last ${status.historyDays.toLocaleString()} days`
   return [
     `Session search is on for ${scope}.`,
-    'Indexing runs in the background; searches answer from what is covered so far.'
+    status.paused
+      ? 'Indexing is paused; existing data remains searchable.'
+      : 'Indexing runs in the background; searches answer from what is covered so far.',
+    `Index size: ${status.indexSizeBytes === null ? 'no index file' : `${status.indexSizeBytes} bytes`}.`
   ].join('\n')
+}
+
+export function formatAgentSessionSearchStatus(status: AiVaultSearchIndexStatus): string {
+  if (status.available === false || status.applied === false) {
+    return `Session search is unavailable: ${terminalSafe(status.reason ?? 'index policy is not applied')}. Saved policy: ${status.enabled ? 'on' : 'off'}.`
+  }
+  return status.enabled
+    ? formatAgentSessionSearchEnabled(status)
+    : `Session search is off. Retention: ${status.historyDays === null ? 'all history' : `${status.historyDays} days`}. Index size: ${status.indexSizeBytes ?? 0} bytes.`
 }

@@ -109,13 +109,18 @@ export function readAiVaultSearchCoverageInService(
 }
 
 /**
- * Null when no child has ever been started: a consent change has nothing to
- * reach, and the next spawn reads the new policy from its init payload.
+ * Explicit enabling starts backfill; disabling an absent writer needs no child.
  */
 export function configureAiVaultSearchInService(
   request: AiVaultServiceSearchConfigureRequest,
   signal?: AbortSignal
 ): Promise<AiVaultSearchCoverage> | null {
+  if (request.init.enabled) {
+    return getSharedClient().request(
+      { type: 'request', operation: 'searchConfigure', request },
+      signal
+    )
+  }
   if (!sharedClient && request.clearIndex) {
     removeSessionSearchDatabase(request.init.databasePath)
   }

@@ -11,6 +11,104 @@
   },
   "gates": [
     {
+      "id": "agent-session.remote-search-ownership",
+      "title": "Remote search preserves host consent, ownership and bounded partial results",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "agent-session-history",
+      "layer": "cli-runtime-relay-unit-and-process",
+      "surfaces": ["agent-session search", "host index policy"],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "ssh", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local", "ssh", "remote-runtime"],
+      "coverageNotes": "Synthetic CLI/RPC/provider contracts and real scanner processes run on macOS. Separate live checks exercised authenticated paired orcad and Linux Docker SSH; native Windows/WSL and rendered UI remain unverified.",
+      "motivatingLinks": ["docs/reference/agent-session-search.md"],
+      "invariant": "Targeted search and clear never fall back to an intermediate index; unknown policy and disconnected inventory never become complete empty results; only one relay process can own an index.",
+      "oracle": "Owner-separated five-plus-five results, sixteen-route/three-concurrent budgets, aborted socket closure, legacy targeted-method refusal, and a second scanner unable to clear until the first exits.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/cli/session-search-all-hosts.test.ts src/cli/runtime/transport.test.ts src/cli/handlers/search.test.ts src/cli/search-interruption.test.ts src/cli/search-command-arguments.test.ts src/main/runtime/runtime-ai-vault-ssh-search.test.ts src/main/runtime/rpc/methods/ai-vault-search.test.ts src/relay/session-search-owner.test.ts src/relay/session-search-owner-progress.test.ts src/relay/session-search-owner-process.test.ts src/shared/ai-vault-search-projection.test.ts",
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/runtime-ai-vault-search-durability.test.ts src/main/ai-vault-search/session-search-source-presence.test.ts src/main/ai-vault-search/session-search-source-refill.test.ts src/main/ai-vault-search/session-search-refresh-lane.test.ts src/main/ai-vault/session-scanner-search-recovery.test.ts src/main/ai-vault/session-scanner-service-env.test.ts"
+      ],
+      "testFiles": [
+        "src/cli/session-search-all-hosts.test.ts",
+        "src/cli/runtime/transport.test.ts",
+        "src/cli/handlers/search.test.ts",
+        "src/cli/search-interruption.test.ts",
+        "src/cli/search-command-arguments.test.ts",
+        "src/main/runtime/runtime-ai-vault-ssh-search.test.ts",
+        "src/main/runtime/rpc/methods/ai-vault-search.test.ts",
+        "src/relay/session-search-owner.test.ts",
+        "src/relay/session-search-owner-progress.test.ts",
+        "src/relay/session-search-owner-process.test.ts",
+        "src/shared/ai-vault-search-projection.test.ts",
+        "src/main/runtime/runtime-ai-vault-search-durability.test.ts",
+        "src/main/ai-vault-search/session-search-source-presence.test.ts",
+        "src/main/ai-vault-search/session-search-source-refill.test.ts",
+        "src/main/ai-vault-search/session-search-refresh-lane.test.ts",
+        "src/main/ai-vault/session-scanner-search-recovery.test.ts",
+        "src/main/ai-vault/session-scanner-service-env.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/cli/session-search-all-hosts.test.ts",
+          "assertions": [
+            "returns five plus five in separate owner groups despite identical session IDs and paths",
+            "queries at most sixteen routes with no more than three simultaneous host legs"
+          ]
+        },
+        {
+          "file": "src/relay/session-search-owner-process.test.ts",
+          "assertions": [
+            "excludes a second scanner process, then releases ownership on owner crash without replaying clear"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/cli/session-search-all-hosts.test.ts src/cli/runtime/transport.test.ts src/cli/handlers/search.test.ts src/cli/search-interruption.test.ts src/cli/search-command-arguments.test.ts src/main/runtime/runtime-ai-vault-ssh-search.test.ts src/main/runtime/rpc/methods/ai-vault-search.test.ts src/relay/session-search-owner.test.ts src/relay/session-search-owner-progress.test.ts src/relay/session-search-owner-process.test.ts src/shared/ai-vault-search-projection.test.ts",
+          "result": "passed",
+          "durationSeconds": 2.51,
+          "summary": "74 tests passed across eleven files, including slow-pass handoff, queued pause/resume, interruption and process-crash exclusion."
+        },
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/runtime-ai-vault-search-durability.test.ts src/main/ai-vault-search/session-search-source-presence.test.ts src/main/ai-vault-search/session-search-source-refill.test.ts src/main/ai-vault-search/session-search-refresh-lane.test.ts src/main/ai-vault/session-scanner-search-recovery.test.ts src/main/ai-vault/session-scanner-service-env.test.ts",
+          "result": "passed",
+          "durationSeconds": 0.499,
+          "summary": "28 tests passed across six files, including durable policy acknowledgement, common source validation/refill, refresh draining and corrupt scanner recovery."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 15,
+        "scope": "synthetic fixtures and scanner-process crash recovery"
+      },
+      "flakeHistory": {
+        "status": "not-started",
+        "evidence": "Initial local verification; no soak claim."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "Live paired-orcad immediate restart lost enabled policy before the durable flush fix and preserved it afterward. Repeated CLI filters failed before the parser change. The legacy registry is explicitly exercised for fail-closed routing. A full historical build comparison of the new surface is not claimed."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "Tests bound queried routes to sixteen, simultaneous legs to three, abort listener/socket cleanup, response bytes, and per-host/inventory deadlines."
+      },
+      "promotionCriteria": ["Collect CI soak history and add native Windows/WSL live coverage."],
+      "knownGaps": [
+        "Live Docker and paired-orcad smoke checks are not part of this automatic unit gate.",
+        "Rendered desktop/web host selection is follow-on scope.",
+        "A different relay generation waits for the active pass or same-owner pause; ten-minute idle retirement can interrupt unfinished discovery."
+      ],
+      "demotionRule": "Keep experimental until reproducible cross-platform and soak evidence exists."
+    },
+    {
       "id": "terminal-performance.padded-fullscreen-redraw",
       "title": "Fullscreen redraw padding does not stall terminal delivery",
       "maturity": "experimental",

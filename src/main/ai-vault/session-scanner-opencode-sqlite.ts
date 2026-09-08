@@ -11,7 +11,7 @@ import {
   normalizeFullFirstUserPromptText,
   shouldCaptureFullFirstUserPrompt
 } from './session-scanner-first-user-prompt'
-import { readOpenCodeDatabase } from './session-scanner-opencode-sqlite-open'
+import { readOpenCodeDatabaseAsync } from './session-scanner-opencode-sqlite-open'
 import { normalizeTitleText } from './session-scanner-values'
 import type SyncDatabase from '../sqlite/sync-database'
 import { columnExists, tableExists } from '../opencode-usage/schema-helpers'
@@ -251,19 +251,19 @@ export async function parseOpenCodeSqliteSession(args: {
   sessionId: string
   platform: NodeJS.Platform
 }): Promise<AiVaultSession | null> {
-  return readOpenCodeDatabase({
+  return readOpenCodeDatabaseAsync({
     dbPath: args.dbPath,
     read: (db) => readSession({ db, ...args })
   })
 }
 
 // Extracted so the open wrapper owns the handle's lifetime.
-function readSession(args: {
+async function readSession(args: {
   db: SyncDatabase
   dbPath: string
   sessionId: string
   platform: NodeJS.Platform
-}): AiVaultSession | null {
+}): Promise<AiVaultSession | null> {
   const { db, dbPath, sessionId, platform } = args
   if (!canReadOpenCodeSessions(db)) {
     return null
@@ -299,7 +299,7 @@ function readSession(args: {
 
   const previewSql = buildPreviewQuery(db)
   if (previewSql) {
-    captureOpenCodeSession(db, sessionId)
+    await captureOpenCodeSession(db, sessionId)
     // Why: SQL already dropped anything older than the newest-N window, so the
     // accumulator never shifts and cannot detect the truncation itself. Ask for
     // one extra row so an exactly-full window is not mistaken for a trimmed one.

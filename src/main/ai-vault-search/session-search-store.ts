@@ -2,7 +2,7 @@ import { SessionSearchIndexingProgress } from './session-search-indexing-progres
 import { SessionSearchMaintenance } from './session-search-maintenance'
 import { recoverSearchWrites } from './session-search-write-recovery'
 import { deleteExpiredSearchFiles } from './session-search-retention-delete'
-import type { AiVaultAgent, AiVaultSession } from '../../shared/ai-vault-types'
+import type { AiVaultAgent } from '../../shared/ai-vault-types'
 import { aiVaultSearchHistoryCutoffMs } from '../../shared/ai-vault-search-settings'
 import type SyncDatabase from '../sqlite/sync-database'
 import type {
@@ -18,7 +18,7 @@ import type {
   SessionSearchIndexWrite
 } from '../ai-vault/session-search-capture'
 import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
-import { SessionSearchIndexWriter } from './session-search-index-writer'
+import { SessionSearchIndexWriter, type SessionSearchMetadata } from './session-search-index-writer'
 import { SessionSearchQuery } from './session-search-query'
 import { openSessionSearchDatabase } from './session-search-schema'
 
@@ -96,7 +96,11 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     )
   }
 
-  updateMetadata(candidate: SessionFileCandidate, session: AiVaultSession): void {
+  indexedMetadata(path: string): SessionSearchMetadata | null {
+    return this.writer.indexedMetadata(path)
+  }
+
+  updateMetadata(candidate: SessionFileCandidate, session: SessionSearchMetadata): void {
     if (!this.acceptsCandidate(candidate)) {
       return
     }
@@ -117,7 +121,10 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     try {
       const applied = await this.writer.apply(
         update,
-        () => epoch === this.writeEpoch && this.acceptsCandidate(update.candidate),
+        () =>
+          !update.signal?.aborted &&
+          epoch === this.writeEpoch &&
+          this.acceptsCandidate(update.candidate),
         undefined,
         () => !this.closed
       )
@@ -132,6 +139,9 @@ export class SessionSearchStore implements SessionSearchIndexSink {
       this.lastIndexedAt = new Date().toISOString()
     } catch (error) {
       this.markStale(update.candidate)
+      if (update.signal?.aborted) {
+        return
+      }
       this.applyFailures += 1
       this.indexing.writeFailed()
       this.onError(error)

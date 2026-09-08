@@ -19,6 +19,13 @@ export type RelayAiVaultServiceRequest =
   | {
       type: 'request'
       id: number
+      operation: 'search'
+      action: 'query' | 'status' | 'configure'
+      params: unknown
+    }
+  | {
+      type: 'request'
+      id: number
       operation: 'list'
       params: SshAiVaultRelayListParams
     }
@@ -32,11 +39,11 @@ export type RelayAiVaultServiceRequest =
 export type RelayAiVaultServiceLane = 'cache' | 'interactive'
 export type RelayAiVaultServiceOperation = RelayAiVaultServiceRequest['operation']
 
-/** Title reads must not queue behind a full scan; they back interactive UI. */
+/** Queries, controls and title reads must not queue behind a full history scan. */
 export function relayAiVaultServiceLane(
   operation: RelayAiVaultServiceOperation
 ): RelayAiVaultServiceLane {
-  return operation === 'titles' ? 'interactive' : 'cache'
+  return operation === 'list' ? 'cache' : 'interactive'
 }
 
 export type RelayAiVaultServiceParentMessage =
@@ -46,6 +53,7 @@ export type RelayAiVaultServiceParentMessage =
   | { type: 'shutdown' }
 
 export type RelayAiVaultServiceChildMessage =
+  | { type: 'result'; id: number; operation: 'search'; value: unknown }
   | {
       type: 'ready'
       protocol: typeof RELAY_AI_VAULT_SERVICE_PROTOCOL
@@ -68,7 +76,9 @@ export function isRelayAiVaultServiceRequest(value: unknown): value is RelayAiVa
   return (
     message.type === 'request' &&
     Number.isSafeInteger(message.id) &&
-    (message.operation === 'list' || message.operation === 'titles')
+    (message.operation === 'list' ||
+      message.operation === 'titles' ||
+      message.operation === 'search')
   )
 }
 
