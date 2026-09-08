@@ -14209,9 +14209,6 @@
           "filtersSection": "フィルター",
           "viewSection": "表示"
         },
-        "ActivityScopeFilterControls": {
-          "resetScope": "すべてのホストとプロジェクトを表示"
-        },
         "ActivityThreadRow": {
           "clearNotification": "通知を消去"
         },
