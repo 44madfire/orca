@@ -123,6 +123,7 @@
           "file": "src/shared/agent-status-osc.test.ts",
           "assertions": [
             "uses the earliest mixed terminator and counts only parsed payload offsets",
+            "keeps a distant ST usable after many intervening BEL frames",
             "preserves every split of prefixes, JSON, and both terminators across independent streams",
             "applies the pending cap only to incomplete frames"
           ]

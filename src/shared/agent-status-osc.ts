@@ -31,6 +31,8 @@ function findAgentStatusTerminator(
   next: { belIndex: number; stIndex: number }
 ): { index: number; length: 1 | 2 } | null {
   // Reuse forward matches, including absence, for this chunk's remaining frames.
+  // Requires `searchFrom` to increase on every call for one `data`; a rewind would
+  // reuse a match that is no longer the earliest.
   if (next.belIndex !== -1 && next.belIndex < searchFrom) {
     next.belIndex = data.indexOf('\x07', searchFrom)
   }

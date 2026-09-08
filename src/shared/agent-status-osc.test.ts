@@ -134,6 +134,26 @@ describe('createAgentStatusOscProcessor', () => {
     }
   })
 
+  it('keeps a distant ST usable after many intervening BEL frames', () => {
+    const count = 200
+    const bel = Array.from(
+      { length: count },
+      (_, index) => `\x1b]9999;{"state":"working","prompt":"${index}"}\x07`
+    ).join('')
+    const result = createAgentStatusOscProcessor()(
+      `${bel}\x1b]9999;{"state":"done","prompt":"last"}\x1b\\tail`
+    )
+
+    expect(result.payloads).toEqual([
+      ...Array.from({ length: count }, (_, index) => ({
+        state: 'working',
+        prompt: String(index)
+      })),
+      { state: 'done', prompt: 'last' }
+    ])
+    expect(result.cleanData).toBe('tail')
+  })
+
   it('applies the pending cap only to incomplete frames', () => {
     const marker = '\x1b]9999;{"state":"working"}'
     const atCap = marker + ' '.repeat(64 * 1024 - marker.length)
