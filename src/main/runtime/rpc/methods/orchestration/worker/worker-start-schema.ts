@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OptionalFiniteNumber, OptionalString, requiredString } from '../../../schemas'
+import { OptionalFiniteNumber, OptionalString } from '../../../schemas'
 
 export const OptionalWorkerLaunchPreference = z
   .string()
@@ -17,7 +17,9 @@ export const WorkerStartParams = z
     parent: OptionalString,
     on: OptionalString,
     run: OptionalString,
-    from: requiredString('Missing --from'),
+    from: z.string().min(1).optional(),
+    agentSessionId: OptionalString,
+    runtimeFence: OptionalFiniteNumber,
     worktree: OptionalString,
     name: OptionalString,
     repo: OptionalString,

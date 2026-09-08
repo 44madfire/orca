@@ -42,7 +42,8 @@ import { structuredWorkerIdentities } from './structured-worker-identity'
 
 export function structuredWorkerChildIdentityEnv(
   sessionId: string,
-  childEnv: Record<string, string>
+  childEnv: Record<string, string>,
+  runtimeFence?: number
 ): Record<string, string> {
   const identity = structuredWorkerIdentities.getBySessionId(sessionId)
   if (!identity) {
@@ -51,6 +52,10 @@ export function structuredWorkerChildIdentityEnv(
   const env: Record<string, string> = {
     ...childEnv,
     ORCA_TERMINAL_HANDLE: identity.handle,
+    ORCA_AGENT_SESSION_ID: sessionId,
+    ...(runtimeFence !== undefined
+      ? { ORCA_AGENT_SESSION_RUNTIME_FENCE: String(runtimeFence) }
+      : {}),
     ORCA_CLI_COMMAND: 'orca'
   }
   applyOrcaCliPath(env)
