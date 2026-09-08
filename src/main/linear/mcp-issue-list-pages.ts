@@ -1,3 +1,4 @@
+import { finishIssueList } from './mcp-issue-list-result'
 import type {
   LinearMcpIssueListRequest,
   LinearMcpIssueListResult
@@ -73,7 +74,7 @@ export async function readIssueListPages(
         const page = await owner
           .read(position.id, async (signal) => {
             return acquireIssueListPage(
-              { apiKey: entry.apiKey },
+              entry.client.options,
               {
                 first,
                 after: position.after,
@@ -164,8 +165,14 @@ export async function readIssueListPages(
           )
         }
         owner.signal?.throwIfAborted()
-        const current = getStatus().workspaces?.find((w) => w.id === position.id)
-        if (!current || (current.credentialRevision ?? 0) !== position.credentialRevision) {
+        const roster = getStatus().workspaces ?? []
+        if (
+          (request.workspaceId === 'all' && roster.length !== state.workspaces.length) ||
+          state.workspaces.some((expected) => {
+            const current = roster.find((w) => w.id === expected.id)
+            return !current || (current.credentialRevision ?? 0) !== expected.credentialRevision
+          })
+        ) {
           throw linearError(
             'linear_list_stale_recovery',
             'Linear account changed before page commit.'
@@ -191,7 +198,12 @@ export async function readIssueListPages(
               'Linear listing failed; retry from the returned position.'
             )
       const item = {
-        workspace: { id: position.id, name: position.id },
+        workspace: {
+          id: position.id,
+          name:
+            getStatus().workspaces?.find((w) => w.id === position.id)?.organizationName ??
+            position.id
+        },
         code: failure.code,
         message: failure.message,
         data: {
@@ -201,7 +213,8 @@ export async function readIssueListPages(
               ? { cursor: encodeIssueListCursor(position.id, position.after) }
               : {})
           },
-          detailsComplete: false
+          detailsComplete: false,
+          ...(failure.code === 'linear_list_record_too_large' ? { maxBytes: 896 * 1024 } : {})
         }
       }
       try {
@@ -212,69 +225,23 @@ export async function readIssueListPages(
       }
       failed.add(position.id)
       state.nextWorkspaceIndex = (index + 1) % state.workspaces.length
+      if (owner.cleanupPending) {
+        stopReason = 'cleanup_pending'
+        break
+      }
+      if (failure.code === 'linear_list_metadata_capacity') {
+        stopReason = 'metadata_capacity'
+        break
+      }
     }
   }
-  const hasMore = state.workspaces.some((w) => !w.done)
-  const pageRecovery = request.pageRecovery
-    ? {
-        version: 1 as const,
-        continuation: encodePageRecovery(state),
-        ordering: 'admitted_batch' as const,
-        consistency: 'best_effort' as const,
-        ...(stopReason ? { stopReason } : {})
-      }
-    : undefined
-  if (request.workspaceId === 'all' && hasMore && !pageRecovery) {
-    throw linearError(
-      'linear_list_concrete_workspace_required',
-      'Incomplete all-workspace listing requires concrete workspace restart and reconciliation.'
-    )
-  }
-  if (admission.issues.length === 0 && hasMore) {
-    const failure = failures[0]
-    throw linearError(
-      failure?.code ?? 'linear_timeout',
-      failure?.message ?? 'Linear listing stopped before a page was admitted.',
-      {
-        ...(pageRecovery
-          ? { pageRecovery }
-          : {
-              retryPosition: {
-                workspaceId: state.workspaces[0].id,
-                ...(state.workspaces[0].after
-                  ? {
-                      cursor: encodeIssueListCursor(
-                        state.workspaces[0].id,
-                        state.workspaces[0].after
-                      )
-                    }
-                  : {})
-              }
-            }),
-        detailsComplete: false
-      }
-    )
-  }
-  admission.issues.sort((a, b) =>
-    (b[request.orderBy ?? 'updatedAt'] ?? '').localeCompare(a[request.orderBy ?? 'updatedAt'] ?? '')
-  )
-  const concrete = request.workspaceId !== 'all' ? state.workspaces[0] : undefined
-  return {
-    issues: admission.issues,
-    truncated: hasMore,
-    meta: {
-      limit,
-      returned: admission.issues.length,
-      hasMore,
-      ...(concrete && hasMore && concrete.after
-        ? { nextCursor: encodeIssueListCursor(concrete.id, concrete.after) }
-        : {}),
-      ...(pageRecovery ? { pageRecovery } : {}),
-      orderBy: request.orderBy ?? 'updatedAt',
-      workspaceId: concrete?.id ?? 'all',
-      partial: failures.length + omittedWorkspaceErrors > 0,
-      workspaceErrors: failures,
-      ...(omittedWorkspaceErrors ? { omittedWorkspaceErrors } : {})
-    }
-  }
+  return finishIssueList({
+    request,
+    state,
+    admission,
+    failures,
+    limit,
+    stopReason,
+    omittedWorkspaceErrors
+  })
 }

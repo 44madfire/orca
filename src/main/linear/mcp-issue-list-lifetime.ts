@@ -21,6 +21,10 @@ export class IssueListLifetime {
     this.deadline = Date.now() + budgetMs
   }
 
+  get cleanupPending(): boolean {
+    return this.pending > 0
+  }
+
   finish(): void {
     this.finished = true
     this.maybeRelease()
@@ -33,6 +37,9 @@ export class IssueListLifetime {
   }
 
   async read<T>(workspaceId: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (this.pending > 0) {
+      throw linearError('linear_list_capacity', 'Previous Linear page cleanup is still pending.')
+    }
     this.signal?.throwIfAborted()
     const remaining = this.deadline - Date.now()
     if (remaining <= 0) {
@@ -57,6 +64,7 @@ export class IssueListLifetime {
         return await operation(signal)
       } catch (error) {
         if (error instanceof LinearAgentAccessError && error.code === 'linear_auth_expired') {
+          account.dispose()
           clearToken(workspaceId)
         }
         throw error

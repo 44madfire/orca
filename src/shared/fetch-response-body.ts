@@ -77,13 +77,17 @@ export async function readFetchResponseBytesWithinLimit(
   try {
     while (true) {
       signal?.throwIfAborted()
-      const { done, value } = await reader.read()
+      const chunk = await reader.read()
       signal?.throwIfAborted()
-      if (done) {
+      if (chunk.done) {
         return output.subarray(0, byteLength)
       }
+      let value = chunk.value
       const nextLength = byteLength + value.byteLength
       if (!Number.isSafeInteger(nextLength) || nextLength > maxBytes) {
+        output = new Uint8Array()
+        chunk.value = new Uint8Array()
+        value = new Uint8Array()
         await cancelReader(reader)
         throw new FetchResponseBodyTooLargeError(nextLength, maxBytes)
       }

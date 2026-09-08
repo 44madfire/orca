@@ -51,7 +51,6 @@ export async function listMcpIssues(
   if (!selected.length) {
     throw linearError('linear_not_connected', 'Linear is not connected.')
   }
-  boundedListJson(selected)
   const state = createPageRecovery(request, selected)
   if (!request.pageRecovery && pagination.linearCursor) {
     state.workspaces[0].after = pagination.linearCursor

@@ -20,7 +20,11 @@ vi.mock('./client', () => ({
   getClients: (id: string) =>
     state.workspaces
       .filter((w) => w.id === id)
-      .map((workspace) => ({ workspace, apiKey: workspace.id }))
+      .map((workspace) => ({
+        workspace,
+        client: { options: { apiKey: workspace.id } },
+        apiKey: workspace.id
+      }))
 }))
 vi.mock('./linear-token-store', () => ({ clearToken: vi.fn() }))
 
@@ -63,6 +67,7 @@ function provider(rows: ReturnType<typeof row>[]) {
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 beforeEach(() => {
   state.workspaces = [
@@ -247,6 +252,57 @@ describe('actual page-owned Linear producer', () => {
       data: { retryPosition: { workspaceId: 'a' } }
     })
   })
+  it.each([
+    { cursors: [null], admitted: 0, code: 'linear_list_invalid_response' },
+    { cursors: ['a', 'a'], admitted: 1, code: 'linear_list_cursor_cycle' },
+    { cursors: ['a', 'b', 'a'], admitted: 2, code: 'linear_list_cursor_cycle' }
+  ])(
+    'diagnoses missing and cycling cursors without committing rejected rows',
+    async ({ cursors, admitted, code }) => {
+      let page = 0
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          const index = page++
+          return Response.json({
+            data: {
+              issues: {
+                nodes: [row(index)],
+                pageInfo: { hasNextPage: true, endCursor: cursors[index] }
+              }
+            }
+          })
+        })
+      )
+      if (!admitted) {
+        await expect(listMcpIssues({ workspaceId: 'a' })).rejects.toMatchObject({ code })
+      } else {
+        const result = await listMcpIssues({ workspaceId: 'a' })
+        expect(result.issues.map((issue) => issue.id)).toEqual(
+          Array.from({ length: admitted }, (_, i) => String(i))
+        )
+        expect(result.meta.workspaceErrors[0].code).toBe(code)
+        expect(decodeIssueListCursor(result.meta.nextCursor!)?.cursor).toBe(cursors[admitted - 1])
+      }
+      expect(page).toBe(admitted + 1)
+    }
+  )
+  it('does not invent a failed workspace when the deadline expires before a turn starts', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(20_001)
+    const failure = await listMcpIssues({ workspaceId: 'all', pageRecovery: { version: 1 } }).catch(
+      (error) => error
+    )
+    expect(failure.code).toBe('linear_timeout')
+    const vector = JSON.parse(
+      Buffer.from(failure.data.pageRecovery.continuation, 'base64url').toString()
+    )
+    expect(vector.nextWorkspaceIndex).toBe(0)
+    expect(vector.workspaces[0]).not.toHaveProperty('after')
+    expect(failure.data).not.toHaveProperty('workspaceErrors')
+    expect(fetch).not.toHaveBeenCalled()
+  })
   it('suppresses a page invalidated during acquisition', async () => {
     vi.stubGlobal(
       'fetch',
@@ -258,7 +314,7 @@ describe('actual page-owned Linear producer', () => {
       })
     )
     await expect(listMcpIssues({ workspaceId: 'a' })).rejects.toMatchObject({
-      code: 'linear_network_error'
+      code: 'linear_list_stale_recovery'
     })
   })
 })

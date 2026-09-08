@@ -1,8 +1,13 @@
+import { invalidateLinearAccountReads } from './linear-account-read-lifetime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IssueListLifetime } from './mcp-issue-list-lifetime'
+import { linearError } from './issue-context-errors'
 import { acquire, release } from './linear-request-concurrency'
 import { readFetchResponseBytesWithinLimit } from '../../shared/fetch-response-body'
-vi.mock('./linear-token-store', () => ({ clearToken: vi.fn() }))
+vi.mock('./linear-token-store', async () => {
+  const { invalidateLinearAccountReads } = await import('./linear-account-read-lifetime')
+  return { clearToken: vi.fn((id: string) => invalidateLinearAccountReads(id)) }
+})
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -82,6 +87,36 @@ describe('Linear list lease lifetime', () => {
       expect(reader.releaseLock).toHaveBeenCalledOnce()
     }
   )
+  it('cannot start a second page while an invalidated read still owns cleanup', async () => {
+    const owner = new IssueListLifetime()
+    const held = deferred<string>()
+    const pending = owner.read('fixture', () => held.promise)
+    const observed = expect(pending).rejects.toMatchObject({ code: 'linear_list_stale_recovery' })
+    await Promise.resolve()
+    invalidateLinearAccountReads('fixture')
+    await observed
+    expect(owner.cleanupPending).toBe(true)
+    const next = vi.fn(async () => 'next')
+    await expect(owner.read('healthy', next)).rejects.toMatchObject({
+      code: 'linear_list_capacity'
+    })
+    expect(next).not.toHaveBeenCalled()
+    owner.finish()
+    held.resolve('late page')
+    await vi.waitFor(() => expect(owner.cleanupPending).toBe(false))
+  })
+  it('keeps auth expiration typed when clearing tokens invalidates sibling reads', async () => {
+    const owner = new IssueListLifetime()
+    try {
+      await expect(
+        owner.read('fixture', async () => {
+          throw linearError('linear_auth_expired', 'Linear authentication expired.')
+        })
+      ).rejects.toMatchObject({ code: 'linear_auth_expired' })
+    } finally {
+      owner.finish()
+    }
+  })
   it('holds a completed result until delivery handoff', async () => {
     const owners = Array.from({ length: 28 }, () => new IssueListLifetime())
     expect(await owners[0].read('fixture', async () => 'complete')).toBe('complete')

@@ -72,6 +72,9 @@ export class LinearListSshDelivery implements LinearListDeliveryContext {
 
   bound(response: JsonRpcResponse): JsonRpcResponse {
     try {
+      if (response.error) {
+        throw new Error('Linear reply failed')
+      }
       if (!Number.isSafeInteger(response.id)) {
         throw new Error('invalid correlation')
       }

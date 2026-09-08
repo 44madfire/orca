@@ -1,3 +1,4 @@
+import { linearError } from './issue-context-errors'
 const reads = new Map<string, Set<AbortController>>()
 
 export function registerLinearAccountRead(workspaceId: string): {
@@ -11,11 +12,16 @@ export function registerLinearAccountRead(workspaceId: string): {
     reads.set(workspaceId, active)
   }
   active.add(controller)
+  let disposed = false
   return {
     signal: controller.signal,
     dispose: () => {
+      if (disposed) {
+        return
+      }
+      disposed = true
       active.delete(controller)
-      if (active.size === 0) {
+      if (active.size === 0 && reads.get(workspaceId) === active) {
         reads.delete(workspaceId)
       }
     }
@@ -24,6 +30,11 @@ export function registerLinearAccountRead(workspaceId: string): {
 
 export function invalidateLinearAccountReads(workspaceId: string): void {
   for (const controller of reads.get(workspaceId) ?? []) {
-    controller.abort(new Error('Linear account changed during the read.'))
+    controller.abort(
+      linearError(
+        'linear_list_stale_recovery',
+        'Linear account changed during the read; restart and reconcile.'
+      )
+    )
   }
 }

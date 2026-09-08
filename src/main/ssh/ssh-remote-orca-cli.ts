@@ -17,7 +17,7 @@ import {
   type RemoteOrcaCliRequest,
   type RemoteOrcaCliResult
 } from './ssh-remote-cli-host-passthrough'
-import { RemoteCliArgumentError, type ParsedRemoteCli } from './ssh-remote-cli-argument-error'
+import type { ParsedRemoteCli } from './ssh-remote-cli-argument-error'
 import {
   optionalRemoteCliNumber,
   optionalRemoteCliString,
@@ -26,7 +26,7 @@ import {
   requiredRemoteCliString,
   resolveRemoteCliHandle
 } from './ssh-remote-cli-args'
-import { buildRemoteCliError } from './ssh-remote-cli-error-response'
+import { buildRemoteCliError, buildRemoteCliFailure } from './ssh-remote-cli-error-response'
 import { getRemoteLinearHelp, tryDispatchRemoteLinearCli } from './ssh-remote-linear-cli'
 import {
   getRemoteOrchestrationPayload,
@@ -122,23 +122,7 @@ async function runLegacyRemoteOrcaCli(
     )
     return formatInProcessRemoteCliResult(parsed, request.env, response, json)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    const code =
-      err instanceof RemoteCliArgumentError
-        ? err.code
-        : err instanceof Error &&
-            'code' in err &&
-            typeof (err as { code: unknown }).code === 'string'
-          ? (err as { code: string }).code
-          : 'runtime_error'
-    if (json) {
-      return {
-        stdout: `${JSON.stringify(buildRemoteCliError(message, code), null, 2)}\n`,
-        stderr: '',
-        exitCode: 1
-      }
-    }
-    return { stdout: '', stderr: `${message}\n`, exitCode: 1 }
+    return buildRemoteCliFailure(err, json, parsed.commandPath.join(' '))
   }
 }
 

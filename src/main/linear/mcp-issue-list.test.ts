@@ -22,7 +22,7 @@ const clientEntry = (
 ) => ({
   workspace: workspace(id, organizationName),
   apiKey: id,
-  client: { client: { rawRequest: request } }
+  client: { options: { apiKey: id }, client: { rawRequest: request } }
 })
 
 vi.mock('./linear-request-concurrency', () => ({
@@ -255,7 +255,7 @@ describe('MCP-compatible Linear issue listing', () => {
     expect(result.meta).toMatchObject({ partial: true, returned: 1 })
     expect(result.meta.workspaceErrors).toMatchObject([
       {
-        workspace: { id: 'workspace-2', name: 'workspace-2' },
+        workspace: { id: 'workspace-2', name: 'Beta' },
         code: 'linear_rate_limited',
         message: 'Linear provider request failed (HTTP 429).'
       }

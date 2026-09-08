@@ -78,9 +78,20 @@ export function createPageRecovery(
       includeArchived: request.includeArchived ?? false
     })
   )
-  const roster = workspaces
-    .map(({ id, credentialRevision }) => ({ id, credentialRevision: credentialRevision ?? 0 }))
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const roster: { id: string; credentialRevision: number }[] = []
+  let rosterBytes = 2
+  for (const { id, credentialRevision } of workspaces) {
+    const entry = { id, credentialRevision: credentialRevision ?? 0 }
+    rosterBytes += Buffer.byteLength(boundedListJson(entry)) + 1
+    if (rosterBytes > LIST_CONTEXT_BYTES) {
+      throw linearError(
+        'linear_list_metadata_capacity',
+        'Linear roster exceeds capacity; use a concrete workspace.'
+      )
+    }
+    roster.push(entry)
+  }
+  roster.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const rosterHash = hash(roster)
   const initial: IssueListRecoveryVector = {
     version: 1,
