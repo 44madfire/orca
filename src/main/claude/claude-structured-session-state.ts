@@ -161,6 +161,8 @@ export type ClaudeSession = {
   /** Guards a second attempt within this live session only; the durable marker
    *  on the record is what survives eviction. See claude-conversation-name-turn. */
   namingAttempted: boolean
+  conversationNameRead?: Promise<ClaudeTranscriptConversationName>
+  conversationNameReadSequence?: number
   /** The `/` surface the CLI reports for itself; seeded from init, kept current
    *  by later init and `commands_changed` frames. */
   commands: ClaudeSlashCommandCatalog

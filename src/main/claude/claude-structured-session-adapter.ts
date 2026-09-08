@@ -77,7 +77,19 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
       }
     })
     const { sessionId } = input.identity
-    reportPersistedClaudeConversationName(sessionId, this.sessions.get(sessionId), this.deps)
+    const session = this.sessions.get(sessionId)
+    if (session) {
+      const sequence = (session.conversationNameReadSequence ?? 0) + 1
+      session.conversationNameReadSequence = sequence
+      session.conversationNameRead = reportPersistedClaudeConversationName(
+        sessionId,
+        session,
+        this.deps,
+        () =>
+          this.sessions.get(sessionId) === session &&
+          session.conversationNameReadSequence === sequence
+      )
+    }
     return acquired
   }
 

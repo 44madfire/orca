@@ -1,34 +1,17 @@
-// The conversation name Claude has already written into a session transcript,
-// and how a live session hands it on.
-//
-// Claude's stream-json protocol carries no title frame, so the transcript is the
-// only place a name it generated (or a name the user set from the CLI) survives.
-// `custom-title` and `ai-title` are appended, last-wins records, so the file is
-// read backwards in bounded chunks: a full parse on every acquisition competes
-// with the attach it runs alongside, on files that reach many megabytes.
-//
-// Bounded means a title older than the tail limit is NOT found. That reads as
-// "no name yet", never as "this conversation has no name".
-//
-// This runs on EVERY acquisition, deliberately: it is how a rename made in the
-// CLI reaches Orca at all, so gating it on "already named" would freeze the
-// first name forever. It both fills and clears, and clearing an already-cleared
-// record is a no-op, so the repeat costs a bounded read and nothing else.
-
+// Claude stores manual and generated titles in independent transcript slots.
 import { normalizeTitleText, parseJsonObject } from '../ai-vault/session-scanner-values'
 import {
   claudeTranscriptTailLines,
   type ClaudeTranscriptTailScan
 } from './claude-transcript-tail-scan'
 
-/** What the transcript's tail says about this conversation's name. */
+/** The effective name stored in the transcript. */
 export type ClaudeTranscriptConversationName =
   | { kind: 'named'; title: string }
   /** The newest title record positively removes the name, and the whole file
    *  was visible, so there is no older generated name to fall back to. */
   | { kind: 'cleared' }
-  /** No title record in the tail. NOT evidence the conversation is unnamed: the
-   *  scan is bounded, so an older record simply is not visible from here. */
+  /** No readable title record was found. */
   | { kind: 'unknown' }
 
 /**
@@ -51,7 +34,7 @@ export async function readClaudeTranscriptConversationName(
   let generated: string | null = null
   let customCleared = false
   const scan: ClaudeTranscriptTailScan = { reachedFileStart: false }
-  for await (const line of claudeTranscriptTailLines(transcriptPath, scan)) {
+  for await (const line of claudeTranscriptTailLines(transcriptPath, scan, Infinity)) {
     if (!line.includes('-title')) {
       continue
     }
@@ -79,12 +62,10 @@ export async function readClaudeTranscriptConversationName(
       generated = normalizeTitleText(record.aiTitle)
     }
   }
-  if (generated) {
+  if (generated && (customCleared || scan.reachedFileStart)) {
     return { kind: 'named', title: generated }
   }
-  // An emptied custom slot only clears when the scan saw the whole file: an
-  // `ai-title` beyond the tail bound is still this conversation's name, and
-  // clearing on the bound would revert the tab while the CLI still shows it.
+  // A truncated read cannot establish that no generated fallback exists.
   return customCleared && scan.reachedFileStart ? { kind: 'cleared' } : { kind: 'unknown' }
 }
 
@@ -133,33 +114,41 @@ export function reportPersistedClaudeConversationName(
   session:
     | { providerSessionId: string; claudeConfigDir: string; namingAttempted?: boolean }
     | undefined,
-  source: ClaudeConversationNameReporterSource
-): void {
+  source: ClaudeConversationNameReporterSource,
+  isCurrent: () => boolean = () => true
+): Promise<ClaudeTranscriptConversationName> {
   const deps = claudeConversationNameReporterDeps(source)
   const read = deps.readTranscriptConversationName
   if (!session || !read || !deps.onConversationName) {
-    return
+    return Promise.resolve({ kind: 'unknown' })
   }
-  void read({
+  return read({
     providerSessionId: session.providerSessionId,
     claudeConfigDir: session.claudeConfigDir
   })
     .then((found) => {
+      if (!isCurrent()) {
+        return { kind: 'unknown' as const }
+      }
       if (found.kind === 'cleared') {
         // The user deleted the name in the CLI; a stale one here keeps rendering.
         // Marked attempted for the same reason the durable clear is: their next
         // message must not quietly generate a replacement.
         session.namingAttempted = true
         deps.onConversationNameCleared?.(sessionId)
-        return
+        return found
       }
       if (found.kind !== 'named') {
-        return
+        return found
       }
       // A transcript that already holds a name is a conversation that is already
       // named; nothing should generate another one for it.
       session.namingAttempted = true
       deps.onConversationName?.(sessionId, found.title)
+      return found
     })
-    .catch((error: unknown) => deps.onError?.('claude-transcript-name', error))
+    .catch((error: unknown) => {
+      deps.onError?.('claude-transcript-name', error)
+      return { kind: 'unknown' as const }
+    })
 }

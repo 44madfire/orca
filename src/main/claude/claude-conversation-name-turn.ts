@@ -13,9 +13,11 @@
 import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
 import { agentSessionNamingPromptText } from '../native-chat/agent-session-wire/agent-session-naming-prompt-text'
 import type { ClaudeSession } from './claude-structured-session-state'
+import type { ClaudeConversationNameReporter } from './claude-transcript-conversation-name'
 
 export type ClaudeConversationNamingDeps = {
   requestTimeoutMs?: number
+  readTranscriptConversationName?: ClaudeConversationNameReporter['readTranscriptConversationName']
   onConversationName?: (sessionId: string, conversationName: string) => void
   /** The durable naming state. Claude rebuilds its session object on every
    *  acquisition, so an in-memory flag alone would retitle the conversation —
@@ -55,6 +57,10 @@ export function startClaudeConversationNaming(
   session.namingAttempted = true
   void Promise.resolve()
     .then(async () => {
+      const existing = await session.conversationNameRead
+      if (existing && existing.kind !== 'unknown') {
+        return
+      }
       const durable = deps.readNamingState?.(sessionId)
       if (durable?.conversationName || durable?.namingAttempted) {
         return
@@ -69,9 +75,33 @@ export function startClaudeConversationNaming(
       if (result.outcome === 'unsupported') {
         return
       }
+      if (hasPublishedName()) {
+        return
+      }
+      let title = result.outcome === 'named' ? result.title : null
+      if (title && deps.readTranscriptConversationName) {
+        const persisted = await deps.readTranscriptConversationName({
+          providerSessionId: session.providerSessionId,
+          claudeConfigDir: session.claudeConfigDir
+        })
+        if (hasPublishedName()) {
+          return
+        }
+        if (persisted.kind === 'named') {
+          title = persisted.title
+        }
+        if (persisted.kind === 'cleared') {
+          title = null
+        }
+      }
       deps.markNamingAttempted?.(sessionId)
-      if (result.outcome === 'named') {
-        deps.onConversationName?.(sessionId, result.title)
+      if (title) {
+        deps.onConversationName?.(sessionId, title)
+      }
+
+      function hasPublishedName(): boolean {
+        const current = deps.readNamingState?.(sessionId)
+        return Boolean(current?.conversationName || current?.namingAttempted)
       }
     })
     .catch((error: unknown) => deps.onError?.('claude-conversation-naming', error))

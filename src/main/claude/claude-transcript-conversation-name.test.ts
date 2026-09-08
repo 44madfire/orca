@@ -101,9 +101,8 @@ describe('readClaudeTranscriptConversationName clearing', () => {
     })
   })
 
-  it('reports unknown, not cleared, when the bounded scan never saw the ai-title', async () => {
-    // The emptied custom slot is at the tail; the generated name it falls back
-    // to sits beyond the read limit, so absence here is the bound, not a clear.
+  it('finds a generated fallback beyond the tail window', async () => {
+    // Title precedence can depend on a record anywhere in the transcript.
     const filler = `${'x'.repeat(1023)}\n`
     const path = join(root, 'huge.jsonl')
     await writeFile(
@@ -116,7 +115,10 @@ describe('readClaudeTranscriptConversationName clearing', () => {
       'utf8'
     )
 
-    await expect(readClaudeTranscriptConversationName(path)).resolves.toEqual({ kind: 'unknown' })
+    await expect(readClaudeTranscriptConversationName(path)).resolves.toEqual({
+      kind: 'named',
+      title: 'Lease probe flake'
+    })
   })
 
   it.each([
@@ -328,5 +330,43 @@ describe('claudeConversationNameReporterDeps', () => {
     expect(mapped.readTranscriptConversationName).toBe(readTranscriptConversationName)
     expect(mapped.onConversationName).toBe(onConversationName)
     expect(mapped.onConversationNameCleared).toBe(onConversationNameCleared)
+  })
+})
+
+describe('Claude title precedence across long transcripts', () => {
+  it('keeps a manual title older than the tail window ahead of a new generated title', async () => {
+    const path = await transcript([
+      { type: 'custom-title', customTitle: 'My manual name' },
+      { type: 'assistant', text: 'x'.repeat(TRANSCRIPT_TAIL_READ_LIMIT_BYTES + 1024) },
+      { type: 'ai-title', aiTitle: 'Generated replacement' }
+    ])
+    await expect(readClaudeTranscriptConversationName(path)).resolves.toEqual({
+      kind: 'named',
+      title: 'My manual name'
+    })
+  })
+})
+
+describe('Claude acquisition title ordering', () => {
+  it('does not publish a read superseded by another acquisition', async () => {
+    let complete!: (value: { kind: 'named'; title: string }) => void
+    const read = new Promise<{ kind: 'named'; title: string }>((resolve) => {
+      complete = resolve
+    })
+    let current = true
+    const onConversationName = vi.fn()
+    const result = reportPersistedClaudeConversationName(
+      'session-1',
+      {
+        providerSessionId: 'provider-1',
+        claudeConfigDir: '/tmp'
+      },
+      { readTranscriptConversationName: () => read, onConversationName },
+      () => current
+    )
+    current = false
+    complete({ kind: 'named', title: 'Old title' })
+    await expect(result).resolves.toEqual({ kind: 'unknown' })
+    expect(onConversationName).not.toHaveBeenCalled()
   })
 })

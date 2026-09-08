@@ -266,3 +266,61 @@ describe('startClaudeConversationNaming host failures stay askable', () => {
     expect(tracker.wasAttempted()).toBe(true)
   })
 })
+
+describe('Claude naming result ownership', () => {
+  it.each([
+    { conversationName: 'My manual name', namingAttempted: false },
+    { conversationName: null, namingAttempted: true }
+  ])('preserves a name or clear published during generation: %j', async (changed) => {
+    let complete!: (value: { outcome: 'named'; title: string }) => void
+    let current = { conversationName: null as string | null, namingAttempted: false }
+    const generate = vi.fn(
+      () =>
+        new Promise<{ outcome: 'named'; title: string }>((resolve) => {
+          complete = resolve
+        })
+    )
+    const onConversationName = vi.fn()
+    startClaudeConversationNaming(SESSION, sessionWith(generate), USER_TURN, {
+      readNamingState: () => current,
+      onConversationName
+    })
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce())
+    current = changed
+    complete({ outcome: 'named', title: 'Generated replacement' })
+    await settle()
+    expect(onConversationName).not.toHaveBeenCalled()
+  })
+
+  it('uses the effective persisted title when a CLI manual rename races generation', async () => {
+    const generate = vi.fn(async () => ({
+      outcome: 'named' as const,
+      title: 'Generated replacement'
+    }))
+    const onConversationName = vi.fn()
+    startClaudeConversationNaming(SESSION, sessionWith(generate), USER_TURN, {
+      onConversationName,
+      readTranscriptConversationName: async () => ({ kind: 'named', title: 'My CLI name' })
+    })
+    await vi.waitFor(() => expect(onConversationName).toHaveBeenCalledWith(SESSION, 'My CLI name'))
+    expect(onConversationName).not.toHaveBeenCalledWith(SESSION, 'Generated replacement')
+  })
+
+  it('waits for acquisition metadata before deciding whether generation is needed', async () => {
+    let complete!: (value: { kind: 'named'; title: string }) => void
+    const generate = vi.fn(async () => ({
+      outcome: 'named' as const,
+      title: 'Generated replacement'
+    }))
+    const session = sessionWith(generate)
+    session.conversationNameRead = new Promise((resolve) => {
+      complete = resolve
+    })
+    startClaudeConversationNaming(SESSION, session, USER_TURN, { onConversationName: vi.fn() })
+    await settle()
+    expect(generate).not.toHaveBeenCalled()
+    complete({ kind: 'named', title: 'Existing CLI name' })
+    await settle()
+    expect(generate).not.toHaveBeenCalled()
+  })
+})
