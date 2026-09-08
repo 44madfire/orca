@@ -113,15 +113,19 @@ for (const dpr of [1, 1.25, 2]) {
 
               expect(sample.dpr).toBe(dpr)
               expect(sample.webgl).toBe(gpu === 'on')
-              expect(sample.width).toBeCloseTo(sample.expectedWidth, 1)
-              expect(sample.caretRight).toBeCloseTo(sample.expectedWidth, 1)
-              expect(sample.textareaWidth).toBeCloseTo(sample.expectedWidth, 1)
+              // Inline runs and their container round to Chromium's 1/64px layout units.
+              const tolerance = Math.max(0.05, (sample.underlines.length + 1) / 64)
+              for (const width of [sample.width, sample.caretRight, sample.textareaWidth]) {
+                expect(Math.abs(width - sample.expectedWidth)).toBeLessThan(tolerance)
+              }
               expect(sample.underlines.length).toBeLessThanOrEqual(sample.committed.length)
               expect(
                 sample.underlines.every((decoration) => decoration.includes('underline'))
               ).toBe(true)
               for (const [index, cell] of sample.committed.entries()) {
-                expect(sample.starts[index]).toBeCloseTo(cell.column * sample.cellWidth, 1)
+                expect(
+                  Math.abs(sample.starts[index] - cell.column * sample.cellWidth)
+                ).toBeLessThan(tolerance)
               }
               if (options.fontSize === 13 && options.letterSpacing === 0 && text.startsWith('あ')) {
                 await testInfo.attach('preedit-cell-grid', {
