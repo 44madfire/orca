@@ -176,6 +176,9 @@ describe('LocalPtyProvider', () => {
           rows: 24,
           cwd: 'C:\\repo',
           command: "codex 'resume' 'wrong-preview'",
+          // Why: the Codex preflight rebuilds cmd.exe argv late and once embedded
+          // the renderer's wrongly-quoted preview command there (masking stdin delivery).
+          env: { ORCA_CODEX_LAUNCH_PREFLIGHT: CODEX_LAUNCH_PREFLIGHT },
           agentResume: {
             agent: 'codex',
             providerSession: { key: 'session_id', id: 'session-1' },
@@ -187,6 +190,8 @@ describe('LocalPtyProvider', () => {
         expect(written).toContain('"resume" "session-1"')
         expect(written).not.toContain('wrong-preview')
         expect(written.match(/session-1/g)).toHaveLength(1)
+        const spawnedArgs = (spawnMock.mock.calls.at(-1)?.[1] ?? []) as string[]
+        expect(spawnedArgs.join(' ')).not.toContain('wrong-preview')
       }
     )
 
