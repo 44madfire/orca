@@ -23,22 +23,21 @@ export function usePierreDiffSearchResults(request: DiffSearchRequest | null) {
           type: 'module'
         })
         worker.onmessage = ({ data }: MessageEvent<DiffSearchResult>) => finish(data)
-        worker.onerror = () =>
-          finish({ matches: [], truncated: false, error: 'Could not search this file' })
+        worker.onerror = () => finish({ matches: [], truncated: false, errorCode: 'search-failed' })
         worker.onmessageerror = () =>
-          finish({ matches: [], truncated: false, error: 'Could not read search results' })
+          finish({ matches: [], truncated: false, errorCode: 'invalid-result' })
         timeout = setTimeout(
           () =>
             finish({
               matches: [],
               truncated: false,
-              error: 'Search took too long. Try a simpler expression.'
+              errorCode: 'timeout'
             }),
           5_000
         )
         worker.postMessage(request)
       } catch {
-        finish({ matches: [], truncated: false, error: 'Could not start search' })
+        finish({ matches: [], truncated: false, errorCode: 'start-failed' })
       }
     }, 120)
     return () => {

@@ -52,7 +52,7 @@ it('terminates a stalled worker and reports a recoverable timeout', () => {
   const hook = setup()
   act(() => vi.advanceTimersByTime(5_000))
   expect(workers[0].terminate).toHaveBeenCalled()
-  expect(hook.result.current?.error).toContain('Search took too long')
+  expect(hook.result.current?.errorCode).toBe('timeout')
 })
 
 it('terminates active work on unmount', () => {

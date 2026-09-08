@@ -16,6 +16,7 @@ export function PRFilesCombinedDiffBody({
   repoPath,
   repoId,
   prNumber,
+  viewStateKey,
   fileTreeCollapsed,
   allSectionsCollapsed,
   sideBySide,
@@ -48,6 +49,7 @@ export function PRFilesCombinedDiffBody({
   repoPath: string
   repoId: string
   prNumber: number
+  viewStateKey: string
   fileTreeCollapsed: boolean
   allSectionsCollapsed: boolean
   sideBySide: boolean
@@ -120,6 +122,7 @@ export function PRFilesCombinedDiffBody({
                 >
                   <DiffSectionItem
                     section={section}
+                    editStateKey={`${viewStateKey}:${section.key}`}
                     index={virtualItem.index}
                     isBranchMode={false}
                     sideBySide={sideBySide}

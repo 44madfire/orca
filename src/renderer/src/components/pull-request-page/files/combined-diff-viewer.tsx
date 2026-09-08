@@ -344,6 +344,7 @@ export function PRFilesCombinedDiffViewer({
                   >
                     <DiffSectionItem
                       section={section}
+                      editStateKey={`pr-page:${viewStateKey}:${section.key}`}
                       index={virtualItem.index}
                       isBranchMode={false}
                       sideBySide={sideBySide}

@@ -9,7 +9,18 @@ export type DiffSearchQuery = {
 }
 export type DiffSearchMatch = { range: Range; start: number; end: number; replacement: string }
 export type DiffSearchRequest = { text: string; query: DiffSearchQuery; replacement: string }
-export type DiffSearchResult = { matches: DiffSearchMatch[]; truncated: boolean; error?: string }
+export type DiffSearchResult = {
+  matches: DiffSearchMatch[]
+  truncated: boolean
+  errorCode?: DiffSearchError
+}
+export type DiffSearchError =
+  | 'invalid-regex'
+  | 'replacement-too-large'
+  | 'search-failed'
+  | 'invalid-result'
+  | 'timeout'
+  | 'start-failed'
 export const MAX_DIFF_SEARCH_MATCHES = 10_000
 
 function replacementText(template: string, match: RegExpExecArray, text: string): string {
@@ -54,7 +65,7 @@ export function searchPierreDiff({
   try {
     pattern = new RegExp(source, query.matchCase ? 'gmu' : 'gimu')
   } catch {
-    return { matches: [], truncated: false, error: 'Invalid regular expression' }
+    return { matches: [], truncated: false, errorCode: 'invalid-regex' }
   }
   const document = new TextDocument('diff-search', text)
   const matches: DiffSearchMatch[] = []
@@ -70,7 +81,7 @@ export function searchPierreDiff({
       const nextReplacement = query.regex ? replacementText(replacement, match, text) : replacement
       replacementCharacters += nextReplacement.length
       if (replacementCharacters > 16_000_000) {
-        return { matches: [], truncated: false, error: 'Replacement is too large' }
+        return { matches: [], truncated: false, errorCode: 'replacement-too-large' }
       }
       matches.push({
         start,

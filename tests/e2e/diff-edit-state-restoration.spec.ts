@@ -53,7 +53,7 @@ for (const surface of ['file', 'combined']) {
     await code.evaluate((node) => {
       node.scrollLeft = 0
     })
-    await line.click({ timeout: 20_000 })
+    await line.click({ timeout: 20_000, position: { x: 12, y: 8 } })
     await orcaPage.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
     await orcaPage.keyboard.type('X')
     await expect(line).toHaveText(`${modified.trimEnd()}X`)

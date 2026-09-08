@@ -9,6 +9,7 @@ import type {
   VirtualizedFileDiff
 } from '@pierre/diffs'
 import type { Editor, EditorOptions } from '@pierre/diffs/edit'
+import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 import { RecoverableRenderErrorBoundary } from '@/components/error-boundaries/RecoverableRenderErrorBoundary'
 import type { DecoratedDiffComment } from '../../diff-comments/decorated-diff-comment'
@@ -157,7 +158,9 @@ export function PierreDiffSurface({
       enableGutterUtility: Boolean(onAddComment),
       canUseGutterUtility: (range: SelectedLineRange) =>
         canCommentOnPierreRange(range, commentableLines),
-      gutterUtilityLabel: addCommentLabel ?? 'Add note for the AI',
+      gutterUtilityLabel:
+        addCommentLabel ??
+        translate('auto.components.editor.MarkdownPreview.d737791433', 'Add note for the AI'),
       onGutterUtilityClick: onAddComment
         ? (range: SelectedLineRange) => {
             if (!canCommentOnPierreRange(range, commentableLines)) {
@@ -261,6 +264,7 @@ export function PierreDiffSurface({
     // handler would never fire. Focus on pointer-down makes the diff the key target like before.
     <div
       ref={containerRef}
+      data-editor-keyboard-scope
       tabIndex={-1}
       className={className}
       onMouseDown={(event) => {
@@ -296,8 +300,11 @@ export function PierreDiffSurface({
         surface="page"
         compact
         resetKey={fileDiff.name}
-        title="This diff could not be rendered"
-        description="Reopen the file or reload to try again."
+        title={translate('editor.diff.renderFailed', 'This diff could not be rendered')}
+        description={translate(
+          'editor.diff.renderRetry',
+          'Reopen the file or reload to try again.'
+        )}
       >
         <FileDiff<PierreDiffAnnotationData>
           fileDiff={fileDiff}

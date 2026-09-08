@@ -12,6 +12,6 @@ scope.onmessage = ({ data }) => {
   try {
     scope.postMessage(searchPierreDiff(data))
   } catch {
-    scope.postMessage({ matches: [], truncated: false, error: 'Could not search this file' })
+    scope.postMessage({ matches: [], truncated: false, errorCode: 'search-failed' })
   }
 }

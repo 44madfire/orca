@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { resolveFindAgainShortcut, type Editor } from '@pierre/diffs/edit'
 import type { FileDiffMetadata } from '@pierre/diffs'
+import { translate } from '@/i18n/i18n'
+import { translateDiffSearchError } from './pierre-diff-search-status'
 import { getShortcutPlatform } from '@/lib/shortcut-platform'
 import { isImeCompositionKeyDown } from '@/lib/ime-composition-keyboard-event'
 import { editorShortcutMatches } from '../editor-shortcuts'
@@ -95,7 +97,7 @@ export function usePierreDiffFind({
       !editor ||
       !request ||
       !result ||
-      result.error ||
+      result.errorCode ||
       request.text !== editor.getText() ||
       (all && result.truncated)
     ) {
@@ -178,13 +180,13 @@ export function usePierreDiffFind({
         canNavigate: Boolean(matches?.length),
         canReplaceAll: Boolean(matches?.length) && !result?.truncated,
         status:
-          result?.error ??
+          (result?.errorCode ? translateDiffSearchError(result.errorCode) : null) ??
           (!query.text
             ? '0/0'
             : !result
-              ? 'Searching…'
+              ? translate('editor.diff.search.searching', 'Searching…')
               : !matches?.length
-                ? 'No results'
+                ? translate('auto.components.editor.MarkdownPreview.c5dc92cfe3', 'No results')
                 : `${index + 1}/${matches.length}${result.truncated ? '+' : ''}`),
         onQuery: setQuery,
         onReplacement: setReplacement,

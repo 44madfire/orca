@@ -374,7 +374,12 @@ async function clickVisibleDiffLine(page: Page): Promise<void> {
             ])
             .find((line) => {
               const rect = line.getBoundingClientRect()
+              const x = rect.left + Math.min(12, Math.max(1, rect.width / 2))
+              const y = rect.top + rect.height / 2
+              const root = line.getRootNode() as ShadowRoot
               return (
+                document.elementFromPoint(x, y) === root.host &&
+                line.contains(root.elementFromPoint(x, y)) &&
                 rect.height > 0 &&
                 rect.bottom > containerRect.top &&
                 rect.top < containerRect.bottom &&

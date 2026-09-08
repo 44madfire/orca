@@ -78,6 +78,7 @@ for (const mode of ['editable-file', 'readonly-combined']) {
       const row = host
         .locator('[data-code] [data-line][data-line-type="change-addition"]')
         .filter({ hasText: 'newOnly' })
+      await search.getByRole('button', { name: 'Close search', exact: true }).click()
       await row.click()
       await orcaPage.keyboard.type('CORRUPTED')
       await expect(row).toHaveText('export const newOnly = 1\n')

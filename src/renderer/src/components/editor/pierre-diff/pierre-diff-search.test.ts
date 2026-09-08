@@ -32,7 +32,7 @@ it('expands capture replacements with lookbehind and named groups', () => {
 })
 
 it('reports invalid expressions and makes progress through zero-width Unicode matches', () => {
-  expect(search('text', '[', { regex: true }).error).toBe('Invalid regular expression')
+  expect(search('text', '[', { regex: true }).errorCode).toBe('invalid-regex')
   expect(search('😀a', '(?=.)', { regex: true }).matches.map((match) => match.start)).toEqual([
     0, 2
   ])

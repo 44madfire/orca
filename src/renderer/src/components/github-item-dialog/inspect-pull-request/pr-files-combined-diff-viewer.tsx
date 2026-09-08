@@ -28,6 +28,8 @@ import {
   togglePRFilesCombinedDiffSection
 } from './pr-files-combined-diff-load'
 import { PierreDiffProviders } from '@/components/editor/pierre-diff/PierreDiffProviders'
+import { githubRepoIdentityKey } from '../../../../../shared/github/repository-identity-key'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../../shared/execution-host'
 
 type PRFilesCombinedDiffSectionsProps = PRFilesCombinedDiffViewerProps & {
   signature: string
@@ -92,6 +94,13 @@ function PRFilesCombinedDiffSections({
   setFileTreeCollapsed
 }: PRFilesCombinedDiffSectionsProps): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
+  const viewStateKey = [
+    'pr-dialog',
+    sourceContext?.hostId ?? LOCAL_EXECUTION_HOST_ID,
+    repoId || repoPath,
+    prRepo ? githubRepoIdentityKey(prRepo) : '',
+    prNumber
+  ].join('\0')
   // Why: this subtree is keyed by the diff signature, so its file set is fixed for the
   // mount. Freezing it in state keeps a stable identity without caching through a ref.
   const [entries] = useState<GitBranchChangeEntry[]>(() =>
@@ -331,6 +340,7 @@ function PRFilesCombinedDiffSections({
   return (
     <PierreDiffProviders scrollContainerRef={scrollContainerRef}>
       <PRFilesCombinedDiffBody
+        viewStateKey={viewStateKey}
         files={files}
         repoPath={repoPath}
         repoId={repoId}
