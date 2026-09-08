@@ -10,7 +10,8 @@ export function linkedReviewOperationTarget(
   if (
     !isPositiveHostedReviewNumber(worktree?.linkedPR) &&
     !isPositiveHostedReviewNumber(worktree?.linkedGitLabMR) &&
-    !isPositiveHostedReviewNumber(fallbackGitHubPR)
+    !isPositiveHostedReviewNumber(fallbackGitHubPR) &&
+    !worktree?.pushTarget
   ) {
     return requested
   }

@@ -36,3 +36,11 @@ it('reads SSH-owned metadata without substituting the local row', () => {
   ).toThrow('unresolved')
   expect(store.getAllWorktreeMetaForHost).toHaveBeenCalledWith('ssh:host')
 })
+
+it('retains a persisted queue target when the API request omits its target', () => {
+  const pushTarget = reviewTarget('origin', 'feature')
+  const store = {
+    getAllWorktreeMetaForHost: () => ({ 'repo::/repo/wt': { pushTarget } })
+  } as unknown as Store
+  expect(resolveStoredReviewPushTarget(store, { worktreePath: '/repo/wt' })).toEqual(pushTarget)
+})

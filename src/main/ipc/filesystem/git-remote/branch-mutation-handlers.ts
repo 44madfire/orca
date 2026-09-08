@@ -34,12 +34,13 @@ export function registerGitRemoteBranchMutationHandlers(context: FilesystemHandl
     ): Promise<void> => {
       // Why: coerce to strict boolean so a malformed payload (e.g. string 'false') can't enable --set-upstream; mirror in src/relay/git-handler.ts.
       const publish = args.publish === true
-      args = { ...args, pushTarget: resolveStoredReviewPushTarget(store, args) }
       if (args.connectionId) {
+        const connectionId = args.connectionId
+        args = { ...args, pushTarget: resolveStoredReviewPushTarget(store, args) }
         if (args.pushTarget) {
           assertGitPushTargetShape(args.pushTarget)
         }
-        const provider = getSshGitProvider(args.connectionId)
+        const provider = getSshGitProvider(connectionId)
         if (!provider) {
           throw new Error(SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE)
         }
@@ -59,6 +60,10 @@ export function registerGitRemoteBranchMutationHandlers(context: FilesystemHandl
         })
       }
       const worktreePath = await resolveRegisteredWorktreePath(args.worktreePath, store)
+      args = {
+        ...args,
+        pushTarget: resolveStoredReviewPushTarget(store, { ...args, worktreePath })
+      }
       const gitOptions = getLocalGitOptionsForRegisteredWorktree(
         store,
         args.worktreePath,
