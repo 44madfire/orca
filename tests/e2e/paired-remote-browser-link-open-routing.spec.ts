@@ -121,6 +121,32 @@ async function readRemotePaneUrls(page: Page, worktreeId: string): Promise<strin
   }, worktreeId)
 }
 
+/**
+ * The link opens with `focusOnCreate: false`, and a group only renders its active tab, so the new
+ * background tab never mounts a `remote-browser-pane` — the mirrored handle is the only observable
+ * the client publishes for it. The URL lands a beat after the handle, hence the polled pair.
+ */
+async function expectMirroredRemoteHandles(
+  page: Page,
+  worktreeId: string,
+  expected: { count: number; linkUrl: string }
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const urls = await readRemotePaneUrls(page, worktreeId)
+        return (
+          urls.length === expected.count && urls.some((url) => url.startsWith(expected.linkUrl))
+        )
+      },
+      {
+        timeout: 60_000,
+        message: 'the client never mirrored the link as a remote handle carrying its URL'
+      }
+    )
+    .toBe(true)
+}
+
 /** The client mirrors host browser tabs on its own; this finds the mirrored page for one URL. */
 async function findMirroredPage(
   page: Page,
@@ -299,15 +325,16 @@ test('opens a remote pane link on the pane runtime and refuses to fall back to t
         message: 'the runtime process never held a page for the link'
       })
       .toHaveLength(1)
-    // The cold background page is mirrored as a handle before it publishes its loaded URL.
-    await expect
-      .poll(async () => (await readRemotePaneUrls(page, worktreeId)).length, { timeout: 60_000 })
-      .toBe(remoteHandleCountBeforeOpen + 1)
+    await expectMirroredRemoteHandles(page, worktreeId, {
+      count: remoteHandleCountBeforeOpen + 1,
+      linkUrl: fixture.linkUrl
+    })
     expect(await readLocalBrowserViewUrls(page)).toHaveLength(0)
 
     // Drop every tab except the pane's, so the next act drives the pane it started with against a
     // host that no longer holds the link.
     await closeBrowserTabsExceptPane(page, worktreeId, fixture.paneUrl)
+    // The background link tab never mounted a pane, so its handle going away is the mirror's signal.
     await expect
       .poll(async () => (await readRemotePaneUrls(page, worktreeId)).length, { timeout: 60_000 })
       .toBe(remoteHandleCountBeforeOpen)
@@ -349,9 +376,10 @@ test('opens a remote pane link on the pane runtime and refuses to fall back to t
       .toHaveLength(1)
     expect(await readOwnedPageUrls(client!.app, fixture.linkUrl)).toHaveLength(0)
     expect(await readLocalBrowserViewUrls(page)).toHaveLength(0)
-    await expect
-      .poll(async () => (await readRemotePaneUrls(page, worktreeId)).length, { timeout: 60_000 })
-      .toBe(remoteHandleCountBeforeOpen + 1)
+    await expectMirroredRemoteHandles(page, worktreeId, {
+      count: remoteHandleCountBeforeOpen + 1,
+      linkUrl: fixture.linkUrl
+    })
 
     // The store drops the tab synchronously and only then fires browser.tabClose, so settle the
     // mirror, host inventory, and host guest before act 3 reads them as its own baseline.
