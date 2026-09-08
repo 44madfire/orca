@@ -77,7 +77,7 @@ async function getCurrentBranchName(runGit: GitCommandRunner): Promise<string | 
 async function getConfiguredUpstream(
   runGit: GitCommandRunner,
   currentBranchName: string | null
-): Promise<EffectiveGitUpstream | null> {
+): Promise<Extract<EffectiveGitUpstream, { isConfiguredUpstream: true }> | null> {
   if (!currentBranchName) {
     return null
   }

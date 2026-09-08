@@ -277,7 +277,7 @@ describe('getStatusOp', () => {
         return { stdout: 'feature\n', stderr: '' }
       }
       if (args[0] === 'for-each-ref') {
-        return { stdout: '\0\n' }
+        return { stdout: '\0\n', stderr: '' }
       }
       if (args[0] === 'config' || args[0] === 'rev-parse') {
         throw Object.assign(new Error('missing fixture value'), { code: 1 })
@@ -311,7 +311,7 @@ describe('getStatusOp', () => {
         return { stdout: 'feature\n', stderr: '' }
       }
       if (args[0] === 'for-each-ref') {
-        return { stdout: '\0\n' }
+        return { stdout: '\0\n', stderr: '' }
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature')) {
         throw Object.assign(new Error('missing remote branch'), { code: 1 })
@@ -339,7 +339,7 @@ describe('getStatusOp', () => {
       }
       if (args[0] === 'for-each-ref') {
         await Promise.resolve()
-        return { stdout: '\0\n' }
+        return { stdout: '\0\n', stderr: '' }
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature')) {
         await Promise.resolve()
@@ -375,7 +375,7 @@ describe('getStatusOp', () => {
         return { stdout: `${branch}\n`, stderr: '' }
       }
       if (args[0] === 'for-each-ref') {
-        return { stdout: '\0\n' }
+        return { stdout: '\0\n', stderr: '' }
       }
       if (args[0] === 'rev-parse' && args.some((arg) => arg.startsWith('refs/remotes/origin/'))) {
         throw Object.assign(new Error('missing remote branch'), { code: 1 })
@@ -409,7 +409,7 @@ describe('getStatusOp', () => {
         return { stdout: 'feature/fix\n', stderr: '' }
       }
       if (args[0] === 'for-each-ref') {
-        return { stdout: '\0\n' }
+        return { stdout: '\0\n', stderr: '' }
       }
       if (args[0] === 'config' && args.includes('branch.feature/fix.pushRemote')) {
         return { stdout: 'fork\n', stderr: '' }
