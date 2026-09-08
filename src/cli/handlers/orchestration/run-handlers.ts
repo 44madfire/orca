@@ -44,10 +44,14 @@ export const ORCHESTRATION_RUN_HANDLERS: Record<string, CommandHandler> = {
   },
 
   'orchestration run-current': async ({ flags, client, cwd, json }) => {
-    const from = await resolveCoordinatorTerminalHandle(flags, cwd, client)
+    const sessionId = resolveOrchestrationAgentSessionId()
+    const from = sessionId ? undefined : await resolveCoordinatorTerminalHandle(flags, cwd, client)
     const result = await client.call<{
       run: { id: string; objective: string } | null
-    }>('orchestration.runCurrent', { from })
+    }>('orchestration.runCurrent', {
+      ...(from ? { from } : {}),
+      ...(sessionId ? { agentSessionId: sessionId } : {})
+    })
     printResult(result, json, (r) =>
       r.run ? `${r.run.id} ${r.run.objective}` : 'No Run is bound to this terminal.'
     )

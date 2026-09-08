@@ -25,7 +25,7 @@ const RunUseParams = z.object({
   takeoverLegacy: OptionalBoolean
 })
 
-const RunCurrentParams = z.object({ from: requiredString('Missing coordinator terminal') })
+const RunCurrentParams = z.object({ from: OptionalString, agentSessionId: OptionalString })
 const RunListParams = z.object({
   limit: z.number().int().min(1).max(ORCHESTRATION_RUN_PAGE_LIMIT).optional(),
   cursor: z.string().min(1).optional()
@@ -146,6 +146,13 @@ export const ORCHESTRATION_RUN_METHODS: RpcMethod[] = [
     name: 'orchestration.runCurrent',
     params: RunCurrentParams,
     handler: (params, { orchestrationCompatibilityEvidence, runtime }) => {
+      if (params.agentSessionId) {
+        const run = runtime.getOrchestrationDb().getCurrentRunForAgentSession(params.agentSessionId)
+        return { run: run ? exposeRun(run) : null }
+      }
+      if (!params.from) {
+        throw new OrchestrationError('stable_pane_required', 'Missing coordinator identity.')
+      }
       const paneKey = resolveOrchestrationCaller(runtime, {
         callerTerminalHandle: params.from,
         callerEvidence: orchestrationCompatibilityEvidence,

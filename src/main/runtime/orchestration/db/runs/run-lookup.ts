@@ -119,6 +119,19 @@ export function getCurrentRunForPane(this: OrchestrationDb, paneKey: string): Ru
   return run ? exposeRunTimestamps(run) : undefined
 }
 
+export function getCurrentRunForAgentSession(
+  this: OrchestrationDb,
+  agentSessionId: string
+): RunRow | undefined {
+  const run = this.db
+    .prepare(
+      `SELECT * FROM runs WHERE legacy = 0 AND coordinator_agent_session_id = ?
+       ORDER BY updated_at DESC, id DESC LIMIT 1`
+    )
+    .get(agentSessionId) as RunRow | undefined
+  return run ? exposeRunTimestamps(run) : undefined
+}
+
 // Why: the indexed suffix only narrows candidates; isEquivalentPaneKey still decides, so
 // reminted tab halves keep matching and unparseable keys keep requiring an exact match.
 export function runsBoundToPane(this: OrchestrationDb, paneKey: string): RunRow[] {
@@ -175,6 +188,7 @@ export type RunLookupMethods = {
   getRunMailboxOwnerIdsForAgentSession: typeof getRunMailboxOwnerIdsForAgentSession
   listRuns: typeof listRuns
   getCurrentRunForPane: typeof getCurrentRunForPane
+  getCurrentRunForAgentSession: typeof getCurrentRunForAgentSession
   runsBoundToPane: typeof runsBoundToPane
   getRunRaw: typeof getRunRaw
   unbindOtherRunsForPane: typeof unbindOtherRunsForPane
@@ -190,6 +204,7 @@ export function attachRunLookup(ctor: { prototype: object }): void {
     getRunMailboxOwnerIdsForAgentSession,
     listRuns,
     getCurrentRunForPane,
+    getCurrentRunForAgentSession,
     runsBoundToPane,
     getRunRaw,
     unbindOtherRunsForPane,
