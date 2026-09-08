@@ -7,7 +7,7 @@ type Observation = {
 }
 const handles = new WeakMap<Entry, Observation>()
 // Only unresolved staged operations are indexed; terminal outcomes remove their group.
-const pending = new Map<string, Set<Observation>>()
+const pending = new Map<string, Map<string, Set<Observation>>>()
 
 function operationKey(entry: Entry): string {
   return JSON.stringify([entry.sessionId, entry.clientMessageId, entry.deliveryIncarnation ?? 0])
@@ -18,9 +18,11 @@ export function retainOutboxSettlement(entry: Entry): void {
   const observation = Promise.withResolvers<OutboxSettlement>()
   handles.set(entry, observation)
   const key = operationKey(entry)
-  const group = pending.get(key) ?? new Set<Observation>()
+  const session = pending.get(entry.sessionId) ?? new Map<string, Set<Observation>>()
+  const group = session.get(key) ?? new Set<Observation>()
   group.add(observation)
-  pending.set(key, group)
+  session.set(key, group)
+  pending.set(entry.sessionId, session)
 }
 
 export function bindOutboxSettlement(source: Entry, handle: Entry): void {
@@ -37,8 +39,12 @@ export function observeOutboxSettlement(entry: Entry): Promise<OutboxSettlement>
 
 export function settleOutboxObservation(entry: Entry, result: OutboxSettlement): void {
   const key = operationKey(entry)
-  const group = pending.get(key)
-  pending.delete(key)
+  const session = pending.get(entry.sessionId)
+  const group = session?.get(key)
+  session?.delete(key)
+  if (!session?.size) {
+    pending.delete(entry.sessionId)
+  }
   for (const observation of group ?? []) {
     observation.resolve(result)
   }
@@ -59,6 +65,16 @@ export function publishOutboxSettlements(
       settleOutboxObservation(entry, 'discarded')
     } else if (successor.dispatchBlocked) {
       settleOutboxObservation(entry, 'blocked')
+    }
+  }
+}
+
+export function settleUnavailableOutboxSession(sessionId: string): void {
+  const session = pending.get(sessionId)
+  pending.delete(sessionId)
+  for (const group of session?.values() ?? []) {
+    for (const observation of group) {
+      observation.resolve('unavailable')
     }
   }
 }

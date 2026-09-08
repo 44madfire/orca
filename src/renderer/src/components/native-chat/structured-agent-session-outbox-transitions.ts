@@ -1,18 +1,33 @@
 import type { StructuredAgentSessionOutboxEntry as Entry } from '../../../../shared/structured-agent-session-outbox'
 import {
   publishOutboxSettlements,
+  settleUnavailableOutboxSession,
   settleOutboxObservation
 } from './structured-agent-session-outbox-settlement'
-import { readOutbox, writeOutbox } from './structured-agent-session-outbox-storage'
+import { readOutboxEvidence, writeOutbox } from './structured-agent-session-outbox-storage'
 
 // The desktop main renderer owns this storage partition; popouts use a separate partition.
 // Synchronous read/transition/write serializes all pane and launch writers without holding an RPC lock.
 export function transitionOutbox(
   sessionId: string,
   update: (entries: Entry[]) => Entry[],
-  accepted: readonly Entry[] = []
-): { ok: boolean; entries: Entry[] } {
-  const current = readOutbox(sessionId, false)
+  accepted: readonly Entry[] = [],
+  unavailableTargets?: readonly Entry[]
+):
+  | { ok: true; entries: Entry[] }
+  | { ok: false; reason: 'unavailable' | 'invalid' | 'write-failed' } {
+  const read = readOutboxEvidence(sessionId, false)
+  if (read.status !== 'readable') {
+    if (unavailableTargets) {
+      for (const entry of unavailableTargets) {
+        settleOutboxObservation(entry, 'unavailable')
+      }
+    } else {
+      settleUnavailableOutboxSession(sessionId)
+    }
+    return { ok: false, reason: read.status }
+  }
+  const current = read.entries
   const next = update(current)
   if (next.length === current.length && next.every((entry, index) => entry === current[index])) {
     return { ok: true, entries: current }
@@ -44,7 +59,7 @@ export function transitionOutbox(
       }
     }
   }
-  return { ok, entries: ok ? stamped : current }
+  return ok ? { ok: true, entries: stamped } : { ok: false, reason: 'write-failed' }
 }
 
 export function transitionOutboxEntry(
@@ -68,12 +83,15 @@ export function transitionOutboxEntry(
         changed = next !== current
         return next ? [next] : []
       }),
-    accepted ? [expected] : []
+    accepted ? [expected] : [],
+    [expected]
   )
   return {
     ok: result.ok,
     changed: changed && result.ok,
-    entry: result.entries.find((entry) => entry.clientMessageId === expected.clientMessageId)
+    entry: result.ok
+      ? result.entries.find((entry) => entry.clientMessageId === expected.clientMessageId)
+      : undefined
   }
 }
 
@@ -93,7 +111,12 @@ export function forgetOutboxDispatch(entry: Entry): void {
   }
 }
 export function claimOutboxDispatch(entry: Entry) {
-  if (readOutbox(entry.sessionId, false)[0]?.clientMessageId !== entry.clientMessageId) {
+  const read = readOutboxEvidence(entry.sessionId, false)
+  if (read.status !== 'readable') {
+    settleOutboxObservation(entry, 'unavailable')
+    return { ok: false, changed: false, entry: undefined }
+  }
+  if (read.entries[0]?.clientMessageId !== entry.clientMessageId) {
     return { ok: true, changed: false, entry: undefined }
   }
   let pendingClaim: Entry | undefined
@@ -125,7 +148,11 @@ function uncertainDispatch(entry: Entry): Entry {
   return {
     ...entry,
     state: 'unconfirmed',
-    recovery: entry.recovery ?? { attempts: 0, nextProbeAt: null, parkedReason: null }
+    recovery: entry.recovery ?? {
+      attempts: 0,
+      nextProbeAt: null,
+      parkedReason: null
+    }
   }
 }
 

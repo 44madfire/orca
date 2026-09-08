@@ -26,26 +26,48 @@ export function storageKey(sessionId: string): string {
   return `${OUTBOX_PREFIX}${encodeURIComponent(sessionId)}`
 }
 
+export type OutboxRead =
+  | { status: 'readable'; entries: StructuredAgentSessionOutboxEntry[] }
+  | { status: 'unavailable' | 'invalid' }
+
+export function readOutboxEvidence(sessionId: string, recoverDispatching = true): OutboxRead {
+  let raw: string | null
+  try {
+    raw = localStorage.getItem(storageKey(sessionId))
+  } catch {
+    return { status: 'unavailable' }
+  }
+  try {
+    const value: unknown = JSON.parse(raw ?? '[]')
+    if (!Array.isArray(value)) {
+      return { status: 'invalid' }
+    }
+    const entries = value.map((entry) => parseStructuredAgentSessionOutboxEntry(entry, sessionId))
+    if (entries.some((entry) => entry === null)) {
+      return { status: 'invalid' }
+    }
+    return {
+      status: 'readable',
+      entries: (entries as StructuredAgentSessionOutboxEntry[])
+        .map((entry) =>
+          recoverDispatching && entry.state === 'dispatching'
+            ? { ...entry, state: 'unconfirmed' as const }
+            : entry
+        )
+        .sort((left, right) => left.queuedAt - right.queuedAt)
+    }
+  } catch {
+    return { status: 'invalid' }
+  }
+}
+
+// Presentation compatibility only; mutation and retirement require readable evidence.
 export function readOutbox(
   sessionId: string,
   recoverDispatching = true
 ): StructuredAgentSessionOutboxEntry[] {
-  try {
-    const value = JSON.parse(localStorage.getItem(storageKey(sessionId)) ?? '[]')
-    return Array.isArray(value)
-      ? value
-          .map((entry) => parseStructuredAgentSessionOutboxEntry(entry, sessionId))
-          .filter((entry): entry is StructuredAgentSessionOutboxEntry => entry !== null)
-          .map((entry) =>
-            recoverDispatching && entry.state === 'dispatching'
-              ? { ...entry, state: 'unconfirmed' as const }
-              : entry
-          )
-          .sort((left, right) => left.queuedAt - right.queuedAt)
-      : []
-  } catch {
-    return []
-  }
+  const result = readOutboxEvidence(sessionId, recoverDispatching)
+  return result.status === 'readable' ? result.entries : []
 }
 
 export function writeOutbox(

@@ -18,7 +18,7 @@ import {
   settleOutboxObservation
 } from '@/components/native-chat/structured-agent-session-outbox-settlement'
 import {
-  readOutbox,
+  readOutboxEvidence,
   subscribeOutbox
 } from '@/components/native-chat/structured-agent-session-outbox-storage'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
@@ -78,7 +78,10 @@ async function dispatchStructuredLaunchPrompt(
       dispatchState === 'accepted'
     )
   } catch {
-    transitionOutboxEntry(claim, (current) => ({ ...current, state: 'unconfirmed' }))
+    transitionOutboxEntry(claim, (current) => ({
+      ...current,
+      state: 'unconfirmed'
+    }))
   } finally {
     forgetOutboxDispatch(claim)
   }
@@ -100,7 +103,12 @@ export function settleStructuredAgentLaunchPrompt(args: {
       const settlement = observeOutboxSettlement(args.stagedEntry)
       const staged = args.stagedEntry
       const dispatch = () => {
-        const head = readOutbox(staged.sessionId, false)[0]
+        const read = readOutboxEvidence(staged.sessionId, false)
+        if (read.status !== 'readable') {
+          settleOutboxObservation(staged, 'unavailable')
+          return
+        }
+        const head = read.entries[0]
         if (
           head?.clientMessageId === staged.clientMessageId &&
           head.deliveryIncarnation === staged.deliveryIncarnation

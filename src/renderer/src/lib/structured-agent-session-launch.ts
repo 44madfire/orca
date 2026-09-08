@@ -38,6 +38,7 @@ import {
   hasStructuredLaunchCancellation,
   persistStructuredLaunchCancellation,
   retryStructuredLaunchCancellation,
+  trackStructuredLaunchCancellationTargets,
   subscribeStructuredLaunchCancellation
 } from './structured-agent-session-launch-cancellation'
 
@@ -46,6 +47,7 @@ export type { StructuredAgentLaunchOptions, StructuredAgentLaunchReceipt }
 type StructuredLaunchState = StructuredLaunchRecoveryState & {
   identity: string
   callers: StructuredLaunchCallerGroup
+  cancellationTargets: ReturnType<typeof trackStructuredLaunchCancellationTargets>
 }
 
 type StructuredLaunchStateResult = {
@@ -114,13 +116,6 @@ export function useStructuredAgentLaunchStatus(
   )
 }
 
-// Why keyed by agent too: one worktree can hold a Claude and a Codex launch at once, and a shared
-// key would hand the second caller the first agent's intent.
-//
-// Why keyed by the adopted conversation as well: a joining caller is handed the EXISTING intent and
-// contributes only its prompt, so without this a resume that arrives while a blank launch is pending
-// would be silently dropped — the user would get a blank chat, or another row's conversation, with
-// no error. A launch that adopts a conversation is a different launch.
 function launchIdentity(
   worktreeId: string,
   agent: AgentSessionHandleProvider,
@@ -133,6 +128,7 @@ function launchIdentity(
 
 function cleanupLaunchState(state: StructuredLaunchState): void {
   if (pendingStructuredLaunchesByIdentity.get(state.identity) === state) {
+    state.cancellationTargets.detach()
     pendingStructuredLaunchesByIdentity.delete(state.identity)
     notifyStructuredLaunchListeners()
   }
@@ -214,12 +210,10 @@ function structuredAgentLaunchState(
     }
   }
 
-  // Only pass the third argument when adopting: every ordinary launch keeps the two-argument call
-  // it has always made, so this change adds no trailing `undefined` for call-site assertions to
-  // absorb.
   const intent = options.resumeFrom
     ? createStructuredAgentSessionLaunchIntent(worktreeId, agent, options.resumeFrom)
     : createStructuredAgentSessionLaunchIntent(worktreeId, agent)
+  const cancellationTargets = trackStructuredLaunchCancellationTargets(intent.sessionId)
   const text = options.prompt?.trim() ?? ''
   const stagedPrompt = text
     ? enqueueStructuredAgentSessionLaunchPrompt(intent.sessionId, text)
@@ -232,7 +226,8 @@ function structuredAgentLaunchState(
     visibilityUnknown: false,
     cancelled: false,
     onVisibilityChanged: notifyStructuredLaunchListeners,
-    callers
+    callers,
+    cancellationTargets
   }
   callers.onSettled = () => maybeCleanupLaunchState(state)
   state.promise =
@@ -273,8 +268,9 @@ export function cancelStructuredAgentLaunch(worktreeId: string, sessionId: strin
   }
   // Stop create reconciliation now; durable discard has its own retry owner.
   state.cancelled = true
+  const targets = state.cancellationTargets.snapshot()
   cleanupLaunchState(state)
-  const persisted = persistStructuredLaunchCancellation(state.intent)
+  const persisted = persistStructuredLaunchCancellation(state.intent, targets)
   settleStructuredLaunchCallersWithoutFallback(state.callers, 'cancelled')
   cleanupLaunchState(state)
   notifyStructuredLaunchListeners()

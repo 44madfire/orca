@@ -4,7 +4,7 @@ import {
   type StructuredAgentSessionLaunchIntent
 } from './launch-structured-agent-session'
 import {
-  readOutbox,
+  readOutboxEvidence,
   subscribeOutbox
 } from '@/components/native-chat/structured-agent-session-outbox-storage'
 import { transitionOutbox } from '@/components/native-chat/structured-agent-session-outbox-transitions'
@@ -12,7 +12,7 @@ import type { StructuredAgentSessionOutboxEntry } from '../../../shared/structur
 
 type CancellationObligation = {
   intent: StructuredAgentSessionLaunchIntent
-  incarnations: Set<string>
+  incarnations: Set<string> | null
   detach: () => void
   retryQueued: boolean
   retrying: boolean
@@ -24,6 +24,21 @@ const listeners = new Set<() => void>()
 
 function incarnationKey(entry: StructuredAgentSessionOutboxEntry): string {
   return JSON.stringify([entry.clientMessageId, entry.deliveryIncarnation ?? 0])
+}
+
+export function trackStructuredLaunchCancellationTargets(sessionId: string) {
+  const read = readOutboxEvidence(sessionId, false)
+  let incarnations = read.status === 'readable' ? new Set(read.entries.map(incarnationKey)) : null
+  const detach = subscribeOutbox(sessionId, (entries) => {
+    incarnations = new Set(entries.map(incarnationKey))
+  })
+  return {
+    detach: () => {
+      detach()
+      incarnations = null
+    },
+    snapshot: () => (incarnations === null ? null : new Set(incarnations))
+  }
 }
 
 function notify(): void {
@@ -53,15 +68,17 @@ function retryCancellation(obligation: CancellationObligation): boolean {
   }
   obligation.retrying = true
   const result = transitionOutbox(intent.sessionId, (entries) =>
-    entries.filter((entry) => !incarnations.has(incarnationKey(entry)))
+    incarnations === null
+      ? entries
+      : entries.filter((entry) => !incarnations.has(incarnationKey(entry)))
   )
   obligation.retrying = false
-  if (!result.ok) {
+  if (!result.ok || (incarnations === null && result.entries.length > 0)) {
     return false
   }
   cancellations.delete(intent.sessionId)
   obligation.detach()
-  incarnations.clear()
+  incarnations?.clear()
   abandonStructuredAgentSessionLaunchIntent(intent)
   notify()
   return true
@@ -76,15 +93,17 @@ export function retryStructuredLaunchCancellation(
 }
 
 export function persistStructuredLaunchCancellation(
-  intent: StructuredAgentSessionLaunchIntent
+  intent: StructuredAgentSessionLaunchIntent,
+  captured: Set<string> | null = null
 ): boolean {
   const existing = cancellations.get(intent.sessionId)
   if (existing) {
     return retryCancellation(existing)
   }
+  const read = readOutboxEvidence(intent.sessionId, false)
   const obligation: CancellationObligation = {
     intent,
-    incarnations: new Set(readOutbox(intent.sessionId, false).map(incarnationKey)),
+    incarnations: read.status === 'readable' ? new Set(read.entries.map(incarnationKey)) : captured,
     detach: () => {},
     retryQueued: false,
     retrying: false
