@@ -265,3 +265,35 @@ it('failed persistence cannot grant either owner a dispatch claim', async () => 
   expect(first.result.current.recoveryPaused).toBe(true)
   storage.mockRestore()
 })
+
+it('a predecessor refusal cannot rotate or block the operation owned by a pending successor', async () => {
+  let refuseOld!: (value: unknown) => void
+  mocks.call.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        refuseOld = resolve
+      })
+  )
+  const old = mount()
+  await advance(1000)
+  old.unmount()
+  mocks.call.mockImplementationOnce(() => new Promise(() => {}))
+  const current = mount()
+  await advance(2000)
+  expect(mocks.call).toHaveBeenCalledTimes(2)
+  await act(async () => {
+    refuseOld({
+      ok: false,
+      refusal: {
+        code: 'agent_session_operation_conflict',
+        message: 'old conflict'
+      }
+    })
+  })
+  expect(current.result.current.outbox[0]).toMatchObject({
+    clientMessageId: 'op',
+    state: 'dispatching',
+    recovery: { attempts: 2 }
+  })
+  expect(current.result.current.blockedClientMessageId).toBeNull()
+})
