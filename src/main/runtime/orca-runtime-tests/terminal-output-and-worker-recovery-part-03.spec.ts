@@ -350,6 +350,13 @@ describe('OrcaRuntimeService', () => {
     expect(
       harness.getSession().sleepingAgentSessionsByPaneKey?.[harness.workerPaneKey]
     ).toBeDefined()
+    // The surface unbinds from an id a replacement now holds — that is our own tab bookkeeping —
+    // while the dispatch defers and no exit is ever certified.
+    expect(harness.resolveLegacyWorkerTerminalRecovery).toHaveBeenCalledWith(
+      harness.workerPaneKey,
+      'rolled_back',
+      harness.ptyId
+    )
     expect(harness.resolveLegacyWorkerTerminalRecovery).not.toHaveBeenCalledWith(
       harness.workerPaneKey,
       'exited'
@@ -403,22 +410,26 @@ describe('OrcaRuntimeService', () => {
     expect(
       harness.getSession().sleepingAgentSessionsByPaneKey?.[harness.workerPaneKey]
     ).toBeDefined()
-    // The adopted surface is NOT retired here: retiring it is what `exited` settlement does, and
-    // this sweep reached no verdict. The next sweep re-reads the identity.
-    expect(harness.getSession().tabsByWorktree[TEST_WORKTREE_ID]).toEqual([
-      expect.objectContaining({ id: 'legacy-post-reveal', ptyId: 'pty-post-reveal' })
-    ])
+    // The adopted surface IS retired: leaving it bound points the pane at the replacement shell.
     const runtimeState = harness.runtime as unknown as {
       tabs: Map<string, unknown>
       leaves: Map<string, unknown>
       ptysById: Map<string, { connected: boolean; incarnationId: string | null }>
     }
-    expect(runtimeState.tabs.has('legacy-post-reveal')).toBe(true)
+    expect(runtimeState.tabs.has('legacy-post-reveal')).toBe(false)
+    expect([...runtimeState.leaves.keys()].some((key) => key.includes('legacy-post-reveal'))).toBe(
+      false
+    )
     expect(runtimeState.ptysById.get(harness.ptyId)).toMatchObject({
       connected: true,
       incarnationId: replacement.incarnationId
     })
     expect(harness.kill).not.toHaveBeenCalled()
+    expect(harness.resolveLegacyWorkerTerminalRecovery).toHaveBeenCalledWith(
+      harness.workerPaneKey,
+      'rolled_back',
+      harness.ptyId
+    )
     expect(harness.resolveLegacyWorkerTerminalRecovery).not.toHaveBeenCalledWith(
       harness.workerPaneKey,
       'exited'

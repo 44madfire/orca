@@ -65,11 +65,17 @@ export async function reconcileLegacyWorkerCandidate(args: {
         return await settleAbsentCandidate(ports, candidate)
       }
       const preAdoptionIdentity = preAdoptionInventory.terminalIdentityByPtyId.get(candidate.ptyId)
+      if (!preAdoptionIdentity) {
+        return 'unverifiable'
+      }
       if (
-        !preAdoptionIdentity ||
         preAdoptionIdentity.handle !== candidate.terminalHandle ||
         preAdoptionIdentity.incarnationId !== candidate.incarnationId
       ) {
+        // The pane's binding to this id is our own tab bookkeeping, and the id now routes to a
+        // different shell, so retire the surface. The dispatch still defers: a recycled id is not
+        // a death.
+        ports.rollback(candidate)
         return 'unverifiable'
       }
       const exactSurfaceAlreadyPublished =
@@ -155,12 +161,18 @@ export async function reconcileLegacyWorkerCandidate(args: {
     return
   }
   const finalIdentity = finalInventory.terminalIdentityByPtyId.get(candidate.ptyId)
+  if (!finalIdentity) {
+    controller.deleteReceipt(candidate.paneKey)
+    args.deferredDispatchIds.add(candidate.dispatchId)
+    return
+  }
   if (
-    !finalIdentity ||
     finalIdentity.handle !== candidate.terminalHandle ||
     finalIdentity.incarnationId !== candidate.incarnationId
   ) {
     controller.deleteReceipt(candidate.paneKey)
+    // Same as the pre-adoption mismatch: unbind the surface, but certify nothing about the process.
+    ports.rollback(candidate)
     args.deferredDispatchIds.add(candidate.dispatchId)
     return
   }
