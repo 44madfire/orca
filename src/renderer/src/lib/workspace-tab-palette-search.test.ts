@@ -8,7 +8,12 @@ import type { Tab, TabGroup } from '../../../shared/tab-types'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import type { Worktree } from '../../../shared/worktree/types'
 import { PALETTE_QUERY_MAX_TOKENS } from './palette-match/palette-query'
-import { buildSearchableWorkspaceTabs, searchWorkspaceTabs } from './workspace-tab-palette-search'
+import {
+  buildSearchableWorkspaceTabs,
+  buildWorkspaceTabPaletteEntries,
+  prepareSearchableWorkspaceTabs,
+  searchWorkspaceTabs
+} from './workspace-tab-palette-search'
 
 const WT_ROOT = path.join('tmp', 'wt-1')
 const SRC_APP_RELATIVE_PATH = path.join('src', 'app.ts')
@@ -106,10 +111,12 @@ function makeAgentEntry(overrides: Partial<AgentStatusEntry> = {}): AgentStatusE
   }
 }
 
-function buildEntries(overrides: Partial<Parameters<typeof buildSearchableWorkspaceTabs>[0]> = {}) {
+function buildEntryOptions(
+  overrides: Partial<Parameters<typeof buildSearchableWorkspaceTabs>[0]> = {}
+): Parameters<typeof buildSearchableWorkspaceTabs>[0] {
   const worktree = makeWorktree()
   const tab = makeUnifiedTab()
-  return buildSearchableWorkspaceTabs({
+  return {
     worktrees: [worktree],
     repoMap: new Map([[worktree.repoId, { displayName: 'repo/orca' }]]),
     worktreeOrder: new Map([[worktree.id, 0]]),
@@ -130,10 +137,21 @@ function buildEntries(overrides: Partial<Parameters<typeof buildSearchableWorksp
     activeTabTypeByWorktree: { [worktree.id]: 'terminal' },
     generatedTitlesEnabled: true,
     ...overrides
-  })
+  }
+}
+
+function buildEntries(overrides: Partial<Parameters<typeof buildSearchableWorkspaceTabs>[0]> = {}) {
+  return buildSearchableWorkspaceTabs(buildEntryOptions(overrides))
 }
 
 describe('workspace-tab-palette-search', () => {
+  it('keeps navigation metadata separate from prepared search documents', () => {
+    const entries = buildWorkspaceTabPaletteEntries(buildEntryOptions())
+
+    expect(entries[0]).not.toHaveProperty('document')
+    expect(prepareSearchableWorkspaceTabs(entries)[0]?.document).toBeDefined()
+  })
+
   it('stamps the row execution host so activation never resolves by id alone', () => {
     // Why: worktree ids repeat across hosts, so a host-blind activation opened the other
     // host's workspace behind a row labelled with this one's name and branch.

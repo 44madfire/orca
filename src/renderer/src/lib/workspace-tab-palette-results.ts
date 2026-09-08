@@ -28,6 +28,7 @@ import type { TuiAgent } from '../../../shared/tui-agent'
 import { getUnifiedTabPaletteExecutionHostId } from './unified-tab-host-ownership'
 import type {
   SearchableWorkspaceTab,
+  WorkspaceTabPaletteEntry,
   WorkspaceTabContentType
 } from './workspace-tab-palette-search'
 
@@ -90,7 +91,7 @@ function compareEmptyQueryResults(
   return compareText(a.title, b.title)
 }
 
-function positionScore(entry: SearchableWorkspaceTab): number {
+function positionScore(entry: WorkspaceTabPaletteEntry): number {
   // Why: current tab, then current worktree, then rendered tab order.
   const base = entry.worktreeSortIndex * 100 + entry.groupSortIndex * 10 + entry.tabSortIndex
   if (entry.isCurrentTab) {
@@ -99,7 +100,7 @@ function positionScore(entry: SearchableWorkspaceTab): number {
   return entry.isCurrentWorktree ? base - 1000 : base
 }
 
-function resolveWorkspaceTabLastActiveAt(entry: SearchableWorkspaceTab): number | null {
+function resolveWorkspaceTabLastActiveAt(entry: WorkspaceTabPaletteEntry): number | null {
   return maxValidPaletteActivityTimestamp([
     maxAgentActivityAt(entry.agentMetadata),
     entry.tab.lastFocusedAt,
@@ -108,7 +109,7 @@ function resolveWorkspaceTabLastActiveAt(entry: SearchableWorkspaceTab): number 
 }
 
 function baseResult(
-  entry: SearchableWorkspaceTab,
+  entry: WorkspaceTabPaletteEntry,
   context: PaletteSearchContext
 ): WorkspaceTabPaletteSearchResult {
   const executionHostId = getUnifiedTabPaletteExecutionHostId(entry.tab, entry.worktree)
@@ -215,6 +216,14 @@ function matchEntry(
   }
 }
 
+export function listWorkspaceTabs(
+  entries: readonly WorkspaceTabPaletteEntry[],
+  options: { context?: PaletteSearchContext } = {}
+): WorkspaceTabPaletteSearchResult[] {
+  const context = options.context ?? createPaletteSearchContext(Date.now())
+  return entries.map((entry) => baseResult(entry, context)).sort(compareEmptyQueryResults)
+}
+
 export function searchWorkspaceTabs(
   entries: readonly SearchableWorkspaceTab[],
   query: string,
@@ -229,7 +238,7 @@ export function searchWorkspaceTabs(
   }
   const prepared = preparePaletteTabQuery(query)
   if (!prepared) {
-    return entries.map((entry) => baseResult(entry, context)).sort(compareEmptyQueryResults)
+    return listWorkspaceTabs(entries, { context })
   }
 
   const results: WorkspaceTabPaletteSearchResult[] = []

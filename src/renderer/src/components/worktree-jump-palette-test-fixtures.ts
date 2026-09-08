@@ -138,6 +138,85 @@ export function makeRecentTabState(overrides: Partial<AppState> = {}): Partial<A
   }
 }
 
+/** Recent terminal, editor, simulator and browser rows across two worktrees. */
+export function makeMixedRecentTabState(): Partial<AppState> {
+  const state = makeRecentTabState()
+  const editorFileId = '/tmp/wt-alpha/notes.ts'
+  return {
+    ...state,
+    openFiles: [
+      {
+        id: editorFileId,
+        filePath: editorFileId,
+        relativePath: 'notes.ts',
+        worktreeId: 'wt-alpha',
+        language: 'typescript',
+        isDirty: false,
+        mode: 'edit'
+      }
+    ],
+    browserTabsByWorktree: {
+      'wt-alpha': [
+        {
+          id: 'browser-workspace',
+          worktreeId: 'wt-alpha',
+          activePageId: 'browser-page',
+          pageIds: ['browser-page'],
+          url: 'https://example.com/needle',
+          title: 'Needle browser',
+          loading: false,
+          faviconUrl: null,
+          canGoBack: false,
+          canGoForward: false,
+          loadError: null,
+          createdAt: 0
+        }
+      ]
+    },
+    browserPagesByWorkspace: {
+      'browser-workspace': [
+        {
+          id: 'browser-page',
+          workspaceId: 'browser-workspace',
+          worktreeId: 'wt-alpha',
+          url: 'https://example.com/needle',
+          title: 'Needle browser',
+          loading: false,
+          faviconUrl: null,
+          canGoBack: false,
+          canGoForward: false,
+          loadError: null,
+          createdAt: 0
+        }
+      ]
+    },
+    unifiedTabsByWorktree: {
+      ...state.unifiedTabsByWorktree,
+      'wt-alpha': [
+        ...(state.unifiedTabsByWorktree?.['wt-alpha'] ?? []),
+        {
+          ...makeUnifiedTab('tab-editor', 'wt-alpha', editorFileId, 'notes.ts'),
+          contentType: 'editor'
+        },
+        {
+          ...makeUnifiedTab('tab-simulator', 'wt-alpha', 'simulator', 'Needle simulator'),
+          contentType: 'simulator'
+        },
+        {
+          ...makeUnifiedTab('tab-browser', 'wt-alpha', 'browser-workspace', 'Needle browser'),
+          contentType: 'browser'
+        }
+      ]
+    },
+    groupsByWorktree: {
+      ...state.groupsByWorktree,
+      'wt-alpha': [
+        makeGroup('wt-alpha', ['tab-alpha', 'tab-editor', 'tab-simulator', 'tab-browser'])
+      ]
+    }
+  }
+}
+
 /** Two host-qualified worktrees intentionally publish the same unified tab id. */
 export function makeDuplicateRecentTabState(): Partial<AppState> {
   const alpha = makeWorktree('wt-alpha', 'Alpha workspace', { hostId: 'ssh:alpha' })

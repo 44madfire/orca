@@ -142,7 +142,7 @@ const SURFACE_ROWS: readonly SurfaceRow[] = [
   {
     row: 52,
     path: 'src/renderer/src/lib/workspace-tab-palette-entry-builder.ts',
-    marker: 'buildSearchableWorkspaceTabEntries'
+    marker: 'buildWorkspaceTabPaletteEntries'
   },
   {
     row: 53,

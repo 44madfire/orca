@@ -4,18 +4,83 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as ReactModule from 'react'
 import type * as ReactI18Next from 'react-i18next'
+import type * as TabDocumentModule from '@/lib/palette-match/tab-document'
+import type * as ChecksReviewIndexModule from '@/components/cmd-j/worktree-checks-review-index'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { encodePaletteIdentity } from '@/lib/palette-match/palette-ranking'
 import WorktreeJumpPalette from './WorktreeJumpPalette'
-import { makeRepo, makeWorktree } from './worktree-jump-palette-test-fixtures'
+import type * as WorktreeDocumentIndexModule from './worktree-jump-palette-document-index'
+import {
+  makeMixedRecentTabState,
+  makeRepo,
+  makeWorktree
+} from './worktree-jump-palette-test-fixtures'
 
-const { activateAndRevealWorktree } = vi.hoisted(() => ({
-  activateAndRevealWorktree: vi.fn(() => false)
+const {
+  activateAndRevealWorktree,
+  buildChecksReviewIndex,
+  buildWorktreeDocumentIndex,
+  buildTabDocument,
+  deferQuery
+} = vi.hoisted(() => ({
+  activateAndRevealWorktree: vi.fn(() => false),
+  buildChecksReviewIndex: vi.fn(),
+  buildWorktreeDocumentIndex: vi.fn(),
+  buildTabDocument: vi.fn((_input: unknown) => undefined),
+  deferQuery: vi.fn((_query: string, useActual: () => string) => useActual())
 }))
 
-vi.mock('@/lib/worktree-activation', () => ({ activateAndRevealWorktree }))
+vi.mock('@/components/cmd-j/worktree-checks-review-index', async (importOriginal) => {
+  const actual = await importOriginal<typeof ChecksReviewIndexModule>()
+  return {
+    ...actual,
+    buildWorktreeChecksReviewIndex: (
+      ...args: Parameters<typeof actual.buildWorktreeChecksReviewIndex>
+    ) => {
+      buildChecksReviewIndex()
+      return actual.buildWorktreeChecksReviewIndex(...args)
+    }
+  }
+})
+
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof ReactModule>()
+  return {
+    ...actual,
+    useDeferredValue: (query: string) => deferQuery(query, () => actual.useDeferredValue(query))
+  }
+})
+
+vi.mock('./worktree-jump-palette-document-index', async (importOriginal) => {
+  const actual = await importOriginal<typeof WorktreeDocumentIndexModule>()
+  return {
+    ...actual,
+    buildWorktreeJumpPaletteDocumentIndex: (
+      ...args: Parameters<typeof actual.buildWorktreeJumpPaletteDocumentIndex>
+    ) => {
+      buildWorktreeDocumentIndex()
+      return actual.buildWorktreeJumpPaletteDocumentIndex(...args)
+    }
+  }
+})
+
+vi.mock('@/lib/palette-match/tab-document', async (importOriginal) => {
+  const actual = await importOriginal<typeof TabDocumentModule>()
+  return {
+    ...actual,
+    buildPaletteTabDocument: (...args: Parameters<typeof actual.buildPaletteTabDocument>) => {
+      buildTabDocument(args[0])
+      return actual.buildPaletteTabDocument(...args)
+    }
+  }
+})
+
+vi.mock('@/lib/worktree-activation', () => ({
+  activateAndRevealWorktree
+}))
 
 vi.mock('react-i18next', async (importOriginal) => {
   const actual = await importOriginal<typeof ReactI18Next>()
@@ -194,10 +259,83 @@ describe('WorktreeJumpPalette', () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     setCommandQuery = null
     activateAndRevealWorktree.mockClear()
+    buildChecksReviewIndex.mockClear()
+    buildWorktreeDocumentIndex.mockClear()
+    buildTabDocument.mockClear()
+    deferQuery.mockReset()
+    deferQuery.mockImplementation((_query: string, useActual: () => string) => useActual())
     useAppStore.setState(initialAppState, true)
     testContainer = document.createElement('div')
     document.body.appendChild(testContainer)
     testRoot = createRoot(testContainer)
+  })
+
+  it('builds documents only for a live query and restores recents before deferral catches up', async () => {
+    let deferredQuery = ''
+    deferQuery.mockImplementation(() => deferredQuery)
+    await renderPalette(makeMixedRecentTabState())
+
+    expect(buildWorktreeDocumentIndex).not.toHaveBeenCalled()
+    expect(buildChecksReviewIndex).not.toHaveBeenCalled()
+    expect(buildTabDocument).not.toHaveBeenCalled()
+
+    deferredQuery = '   '
+    await act(async () => {
+      setCommandQuery?.('   ')
+    })
+    expect(buildWorktreeDocumentIndex).not.toHaveBeenCalled()
+    expect(buildChecksReviewIndex).not.toHaveBeenCalled()
+    expect(buildTabDocument).not.toHaveBeenCalled()
+
+    deferredQuery = 'alpha'
+    await act(async () => {
+      setCommandQuery?.('alpha')
+    })
+    await flushEffects()
+
+    expect(buildWorktreeDocumentIndex).toHaveBeenCalledTimes(1)
+    expect(buildChecksReviewIndex).toHaveBeenCalledTimes(1)
+    expect(buildTabDocument).toHaveBeenCalled()
+    expect(
+      buildTabDocument.mock.calls.map(([input]) => (input as { title: string }).title)
+    ).toEqual(
+      expect.arrayContaining([
+        'Alpha chat',
+        'Beta chat',
+        'notes.ts',
+        'Needle simulator',
+        'Needle browser'
+      ])
+    )
+    expect(getWorktreeRows().some((row) => row.includes('Beta workspace'))).toBe(false)
+    expect(testContainer.textContent).not.toContain('Beta chat')
+
+    const initialTabBuildCount = buildTabDocument.mock.calls.length
+    deferredQuery = 'beta'
+    await act(async () => {
+      setCommandQuery?.('beta')
+    })
+    expect(buildWorktreeDocumentIndex).toHaveBeenCalledTimes(1)
+    expect(buildChecksReviewIndex).toHaveBeenCalledTimes(1)
+    expect(buildTabDocument).toHaveBeenCalledTimes(initialTabBuildCount)
+    expect(getWorktreeRows().some((row) => row.includes('Beta workspace'))).toBe(true)
+    expect(testContainer.textContent).toContain('Beta chat')
+
+    await act(async () => {
+      useAppStore.setState({ agentStatusByPaneKey: {} })
+    })
+    expect(buildWorktreeDocumentIndex).toHaveBeenCalledTimes(1)
+
+    const tabBuildCount = buildTabDocument.mock.calls.length
+    await act(async () => {
+      setCommandQuery?.('')
+    })
+
+    expect(buildWorktreeDocumentIndex).toHaveBeenCalledTimes(1)
+    expect(buildChecksReviewIndex).toHaveBeenCalledTimes(1)
+    expect(buildTabDocument).toHaveBeenCalledTimes(tabBuildCount)
+    expect(getWorktreeRows().some((row) => row.includes('Beta workspace'))).toBe(true)
+    expect(testContainer.textContent).toContain('Beta chat')
   })
 
   afterEach(async () => {

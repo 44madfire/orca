@@ -3,7 +3,11 @@ import type { BrowserPage, BrowserWorkspace } from '../../../shared/browser-work
 import type { Tab } from '../../../shared/tab-types'
 import type { Worktree } from '../../../shared/worktree/types'
 import { getWorktreeHostIdentity } from '../../../shared/worktree/host-qualified-identity'
-import { buildSearchableBrowserPages } from './browser-palette-page-entries'
+import {
+  buildBrowserPalettePageEntries,
+  buildSearchableBrowserPages,
+  prepareSearchableBrowserPages
+} from './browser-palette-page-entries'
 import { searchBrowserPages } from './browser-palette-search'
 
 function makeWorktree(overrides: Partial<Worktree> = {}): Worktree {
@@ -79,10 +83,10 @@ const worktreeOrder = new Map([
   ['wt-2', 1]
 ])
 
-function buildFixture(
+function buildFixtureOptions(
   overrides: Partial<Parameters<typeof buildSearchableBrowserPages>[0]> = {}
-): ReturnType<typeof buildSearchableBrowserPages> {
-  return buildSearchableBrowserPages({
+): Parameters<typeof buildSearchableBrowserPages>[0] {
+  return {
     worktrees: [worktreeA, worktreeB],
     repoMap,
     worktreeOrder,
@@ -126,10 +130,23 @@ function buildFixture(
     activeWorktreeId: 'wt-1',
     activeTabType: 'browser',
     ...overrides
-  })
+  }
+}
+
+function buildFixture(
+  overrides: Partial<Parameters<typeof buildSearchableBrowserPages>[0]> = {}
+): ReturnType<typeof buildSearchableBrowserPages> {
+  return buildSearchableBrowserPages(buildFixtureOptions(overrides))
 }
 
 describe('buildSearchableBrowserPages', () => {
+  it('keeps navigation metadata separate from prepared search documents', () => {
+    const entries = buildBrowserPalettePageEntries(buildFixtureOptions())
+
+    expect(entries[0]).not.toHaveProperty('document')
+    expect(prepareSearchableBrowserPages(entries)[0]?.document).toBeDefined()
+  })
+
   it('treats an unstamped legacy worktree as local when its tab is stamped', () => {
     expect(
       buildFixture({

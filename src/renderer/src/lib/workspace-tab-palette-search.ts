@@ -7,8 +7,13 @@ import type { TuiAgent } from '../../../shared/tui-agent'
 import type { Worktree } from '../../../shared/worktree/types'
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import type { AgentMetadata, WorkspaceTabAgentMetadataState } from './workspace-tab-agent-metadata'
-import { buildSearchableWorkspaceTabEntries } from './workspace-tab-palette-entry-builder'
+import { buildWorkspaceTabPaletteEntries } from './workspace-tab-palette-entry-builder'
+import {
+  buildSearchableWorkspaceTabs,
+  prepareSearchableWorkspaceTabs
+} from './workspace-tab-palette-documents'
 export {
+  listWorkspaceTabs,
   searchWorkspaceTabs,
   type WorkspaceTabPaletteSearchResult
 } from './workspace-tab-palette-results'
@@ -20,7 +25,7 @@ export type WorkspaceTabContentType =
   | 'conflict-review'
   | 'check-details'
 
-export type SearchableWorkspaceTab = {
+export type WorkspaceTabPaletteEntry = {
   tab: Tab & { contentType: WorkspaceTabContentType }
   worktree: Worktree
   repoName: string
@@ -36,14 +41,14 @@ export type SearchableWorkspaceTab = {
    * the row secondary — the content icon already conveys type.
    */
   typeSearchAliases?: readonly string[]
-  /** Normalized field index, built once per entry rather than per keystroke. */
-  document: PaletteDocument
   agentMetadata: AgentMetadata[]
   /** Confident occupant for the row icon; null when the pane is a plain shell. */
   occupantAgent: TuiAgent | null
   isCurrentTab: boolean
   isCurrentWorktree: boolean
 }
+
+export type SearchableWorkspaceTab = WorkspaceTabPaletteEntry & { document: PaletteDocument }
 
 // Why search-only: the status/content icon already says "terminal"; a fixed
 // secondary crowds the row. Keep these matchable so typing "terminal" still finds them.
@@ -75,4 +80,8 @@ export type BuildSearchableWorkspaceTabsOptions = WorkspaceTabAgentMetadataState
   paneForegroundAgentByPaneKey?: Record<string, PaneForegroundAgentEntry>
 }
 
-export const buildSearchableWorkspaceTabs = buildSearchableWorkspaceTabEntries
+export {
+  buildSearchableWorkspaceTabs,
+  buildWorkspaceTabPaletteEntries,
+  prepareSearchableWorkspaceTabs
+}

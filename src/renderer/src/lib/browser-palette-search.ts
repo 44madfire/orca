@@ -28,7 +28,7 @@ import {
 
 const NO_RANGES: readonly MatchRange[] = []
 
-export type SearchableBrowserPage = {
+export type BrowserPalettePageEntry = {
   page: BrowserPage
   workspace: BrowserWorkspace
   worktree: Worktree
@@ -40,9 +40,9 @@ export type SearchableBrowserPage = {
   /** Last time the owning browser workspace was focused; null when never focused. */
   lastActiveAt?: number | null
   lastFocusedAt?: number
-  /** Normalized field index, built once per entry rather than per keystroke. */
-  document: PaletteDocument
 }
+
+export type SearchableBrowserPage = BrowserPalettePageEntry & { document: PaletteDocument }
 
 export type BrowserPaletteSearchResult = {
   /** Worktree ids collide across hosts; activation must not resolve by id alone. */
@@ -151,7 +151,7 @@ function compareEmptyQueryResults(
 
 // Why: empty-query browser ordering is intentionally deterministic and context-first;
 // lastActiveAt only breaks ties between equally-ranked query matches.
-function positionScore(entry: SearchableBrowserPage): number {
+function positionScore(entry: BrowserPalettePageEntry): number {
   if (entry.isCurrentPage) {
     return entry.worktreeSortIndex * 100 - 4000
   }
@@ -159,7 +159,7 @@ function positionScore(entry: SearchableBrowserPage): number {
 }
 
 function baseResult(
-  entry: SearchableBrowserPage,
+  entry: BrowserPalettePageEntry,
   context: PaletteSearchContext
 ): BrowserPaletteSearchResult {
   const formattedUrl = formatBrowserPaletteUrl(entry.page.url)
@@ -203,6 +203,14 @@ function baseResult(
   }
 }
 
+export function listBrowserPages(
+  entries: readonly BrowserPalettePageEntry[],
+  options: { context?: PaletteSearchContext } = {}
+): BrowserPaletteSearchResult[] {
+  const context = options.context ?? createPaletteSearchContext(Date.now())
+  return entries.map((entry) => baseResult(entry, context)).sort(compareEmptyQueryResults)
+}
+
 export function searchBrowserPages(
   entries: readonly SearchableBrowserPage[],
   query: string,
@@ -216,9 +224,7 @@ export function searchBrowserPages(
   if (!prepared) {
     // Why not [] on an over-token query: the empty branch also serves the no-query
     // listing, so the invalid case is filtered out by the token guard below.
-    return query.trim()
-      ? []
-      : entries.map((entry) => baseResult(entry, context)).sort(compareEmptyQueryResults)
+    return query.trim() ? [] : listBrowserPages(entries, { context })
   }
 
   const results: BrowserPaletteSearchResult[] = []

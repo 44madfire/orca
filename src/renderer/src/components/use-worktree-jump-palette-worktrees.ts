@@ -28,6 +28,11 @@ import type { WorktreeJumpPaletteStoreState } from './use-worktree-jump-palette-
 import { buildWorktreeJumpPaletteDocumentIndex } from './worktree-jump-palette-document-index'
 import { buildWorktreeJumpPaletteWorktreeMaps } from './worktree-jump-palette-worktree-maps'
 import type { PaletteSearchContext } from '@/lib/palette-match/palette-ranking'
+import type { PaletteDocument } from '@/lib/palette-match/palette-document'
+import type { HostedReviewInfo } from '../../../shared/hosted-review'
+
+const EMPTY_WORKTREE_DOCUMENTS: ReadonlyMap<string, PaletteDocument> = new Map()
+const EMPTY_CHECKS_REVIEW_INDEX: ReadonlyMap<Worktree, HostedReviewInfo | null> = new Map()
 
 type WorktreeJumpPaletteWorktreesInput = WorktreeJumpPaletteStoreState &
   Pick<
@@ -228,31 +233,36 @@ export function useWorktreeJumpPaletteWorktrees({
   )
   const checksReviewByWorktree = useMemo(
     () =>
-      buildWorktreeChecksReviewIndex({
-        worktrees: allWorktrees,
-        repoByHostIdentity,
-        prCache,
-        hostedReviewCache,
-        settings
-      }),
-    [allWorktrees, hostedReviewCache, prCache, repoByHostIdentity, settings]
+      hasQuery
+        ? buildWorktreeChecksReviewIndex({
+            worktrees: allWorktrees,
+            repoByHostIdentity,
+            prCache,
+            hostedReviewCache,
+            settings
+          })
+        : EMPTY_CHECKS_REVIEW_INDEX,
+    [allWorktrees, hasQuery, hostedReviewCache, prCache, repoByHostIdentity, settings]
   )
   const worktreeDocuments = useMemo(
     () =>
-      buildWorktreeJumpPaletteDocumentIndex({
-        worktrees: allWorktrees,
-        repoMap,
-        repoByHostIdentity,
-        hostOptions,
-        hostFilterActive,
-        prCache,
-        issueCache,
-        workspacePortScan,
-        checksReviewByWorktree
-      }),
+      hasQuery
+        ? buildWorktreeJumpPaletteDocumentIndex({
+            worktrees: allWorktrees,
+            repoMap,
+            repoByHostIdentity,
+            hostOptions,
+            hostFilterActive,
+            prCache,
+            issueCache,
+            workspacePortScan,
+            checksReviewByWorktree
+          })
+        : EMPTY_WORKTREE_DOCUMENTS,
     [
       allWorktrees,
       checksReviewByWorktree,
+      hasQuery,
       hostFilterActive,
       hostOptions,
       issueCache,

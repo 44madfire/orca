@@ -9,6 +9,7 @@ import {
 } from './palette-repo-resolution'
 import {
   buildSearchableBrowserPageDocument,
+  type BrowserPalettePageEntry,
   type SearchableBrowserPage
 } from './browser-palette-search'
 import {
@@ -37,7 +38,7 @@ export type BuildSearchableBrowserPagesOptions = {
   activeTabType: BrowserPaletteActiveTabType
 }
 
-export function buildSearchableBrowserPages({
+export function buildBrowserPalettePageEntries({
   worktrees,
   ownershipWorktrees,
   repoMap,
@@ -50,8 +51,8 @@ export function buildSearchableBrowserPages({
   activeWorktreeId,
   activeWorkspaceExecutionHostId,
   activeTabType
-}: BuildSearchableBrowserPagesOptions): SearchableBrowserPage[] {
-  const entries: SearchableBrowserPage[] = []
+}: BuildSearchableBrowserPagesOptions): BrowserPalettePageEntry[] {
+  const entries: BrowserPalettePageEntry[] = []
   const ambiguousWorktreeIds = findAmbiguousWorktreeIds(ownershipWorktrees ?? worktrees)
   const allUnifiedTabs = Object.values(unifiedTabsByWorktree ?? {}).flatMap((tabs) => tabs ?? [])
   const duplicateTabIds = findDuplicateIds(allUnifiedTabs)
@@ -133,11 +134,25 @@ export function buildSearchableBrowserPages({
           lastActiveAt:
             workspace.activePageId === page.id && workspaceFocusedAt
               ? maxValidPaletteActivityTimestamp([workspaceFocusedAt, page.createdAt])
-              : maxValidPaletteActivityTimestamp([page.createdAt]),
-          document: buildSearchableBrowserPageDocument({ page, workspace, worktree, repoName })
+              : maxValidPaletteActivityTimestamp([page.createdAt])
         })
       }
     }
   }
   return entries
+}
+
+export function prepareSearchableBrowserPages(
+  entries: readonly BrowserPalettePageEntry[]
+): SearchableBrowserPage[] {
+  return entries.map((entry) => ({
+    ...entry,
+    document: buildSearchableBrowserPageDocument(entry)
+  }))
+}
+
+export function buildSearchableBrowserPages(
+  options: BuildSearchableBrowserPagesOptions
+): SearchableBrowserPage[] {
+  return prepareSearchableBrowserPages(buildBrowserPalettePageEntries(options))
 }

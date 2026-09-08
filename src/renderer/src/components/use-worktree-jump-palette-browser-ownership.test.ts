@@ -53,7 +53,7 @@ it('keeps same-id browser results on their owner with recency, and follows owner
     worktreeOrder: new Map(),
     worktreeMatches: [],
     hasQuery: true,
-    deferredQuery: 'Browser proof',
+    paletteSearchQuery: 'Browser proof',
     browserTabsByWorktree: { 'same-id': [workspace] },
     browserPagesByWorkspace: { browser: [page] },
     unifiedTabsByWorktree: { 'same-id': [tab] }

@@ -4,7 +4,6 @@ import {
 } from '../../../shared/tab-title-resolution'
 import type { Tab } from '../../../shared/tab-types'
 import { getEditorDisplayLabel } from '@/components/editor/editor-labels'
-import { buildPaletteTabDocument } from './palette-match/tab-document'
 import {
   getPaletteWorktreeIdentity,
   isPaletteCurrentWorktree,
@@ -12,16 +11,12 @@ import {
 } from './palette-repo-resolution'
 import { resolveOpenTabOccupantAgent } from './open-tab-occupant-agent'
 import {
-  resolveWorktreeBranchLabel,
-  resolveWorktreeDisplayName
-} from './worktree-default-display-name'
-import {
   buildAgentMetadataTabIndex,
   collectAgentMetadataFromIndex
 } from './workspace-tab-agent-metadata'
 import type {
   BuildSearchableWorkspaceTabsOptions,
-  SearchableWorkspaceTab,
+  WorkspaceTabPaletteEntry,
   WorkspaceTabContentType
 } from './workspace-tab-palette-search'
 import {
@@ -96,7 +91,7 @@ function isCurrentWorkspaceTab({
     : (activeFileIdByWorktree[tab.worktreeId] ?? activeFileId) === tab.entityId
 }
 
-export function buildSearchableWorkspaceTabEntries({
+export function buildWorkspaceTabPaletteEntries({
   worktrees,
   ownershipWorktrees,
   repoMap,
@@ -121,8 +116,8 @@ export function buildSearchableWorkspaceTabEntries({
   generatedTitlesEnabled,
   terminalLayoutsByTabId,
   paneForegroundAgentByPaneKey
-}: BuildSearchableWorkspaceTabsOptions): SearchableWorkspaceTab[] {
-  const entries: SearchableWorkspaceTab[] = []
+}: BuildSearchableWorkspaceTabsOptions): WorkspaceTabPaletteEntry[] {
+  const entries: WorkspaceTabPaletteEntry[] = []
   const seenTabIdentities = new Set<string>()
   const openFilesById = new Map<string, OpenFile[]>()
   for (const file of openFiles) {
@@ -143,8 +138,6 @@ export function buildSearchableWorkspaceTabEntries({
   for (const worktree of worktrees) {
     const repoName =
       resolvePaletteRepoForWorktree(worktree, repoMap, repoMapByHostIdentity)?.displayName ?? ''
-    const worktreeName = resolveWorktreeDisplayName(worktree)
-    const branch = resolveWorktreeBranchLabel(worktree)
     const worktreeSortIndex =
       worktreeOrder.get(getPaletteWorktreeIdentity(worktree)) ??
       worktreeOrder.get(worktree.id) ??
@@ -236,15 +229,6 @@ export function buildSearchableWorkspaceTabEntries({
           titleSearchText: title,
           secondarySearchTexts: [],
           typeSearchAliases: ['terminal tab', 'terminal'],
-          document: buildPaletteTabDocument({
-            id: tab.id,
-            title,
-            secondaryTexts: [],
-            worktreeName,
-            branch,
-            repoName,
-            typeAliases: ['terminal tab', 'terminal']
-          }),
           agentMetadata: collectAgentMetadataFromIndex(
             agentIndex,
             tab.entityId,
@@ -288,14 +272,6 @@ export function buildSearchableWorkspaceTabEntries({
         secondaryText: file.relativePath,
         titleSearchText: title,
         secondarySearchTexts: [file.relativePath, file.filePath],
-        document: buildPaletteTabDocument({
-          id: tab.id,
-          title,
-          secondaryTexts: [file.relativePath, file.filePath],
-          worktreeName,
-          branch,
-          repoName
-        }),
         agentMetadata: [],
         occupantAgent: null
       })

@@ -12,7 +12,9 @@ import {
   SIMULATOR_PALETTE_QUERY_MAX_BYTES,
   SIMULATOR_TYPE_SEARCH_ALIASES,
   buildSearchableSimulatorTabs,
+  buildSimulatorPaletteTabEntries,
   isSimulatorPaletteQueryTooLarge,
+  prepareSearchableSimulatorTabs,
   searchSimulatorTabs,
   simulatorPaletteTabTitle,
   type SearchableSimulatorTab
@@ -120,6 +122,23 @@ describe('simulator-palette-search lastActiveAt', () => {
 })
 
 describe('simulator-palette-search', () => {
+  it('keeps navigation metadata separate from prepared search documents', () => {
+    const worktree = makeWorktree()
+    const entries = buildSimulatorPaletteTabEntries({
+      worktrees: [worktree],
+      repoMap: new Map([[worktree.repoId, { displayName: 'repo/mobile' }]]),
+      worktreeOrder: new Map([[worktree.id, 0]]),
+      unifiedTabsByWorktree: { [worktree.id]: [makeTab()] },
+      activeGroupIdByWorktree: { [worktree.id]: 'group-1' },
+      groupsByWorktree: { [worktree.id]: [makeGroup()] },
+      activeWorktreeId: null,
+      activeTabType: 'terminal'
+    })
+
+    expect(entries[0]).not.toHaveProperty('document')
+    expect(prepareSearchableSimulatorTabs(entries)[0]?.document).toBeDefined()
+  })
+
   it('keeps same-id simulator tabs isolated by execution host', () => {
     const sharedId = 'repo-shared::/workspace'
     const local = makeWorktree({ id: sharedId, hostId: 'local', displayName: 'Local workspace' })

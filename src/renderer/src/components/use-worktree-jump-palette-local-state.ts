@@ -33,7 +33,9 @@ export function useWorktreeJumpPaletteLocalState({
   // react-doctor-disable-next-line react-doctor/no-ref-current-in-render
   liveQueryRef.current = query
   const taskSourceUrl = useMemo(() => parseCmdJTaskSourceUrl(query), [query])
-  const paletteSearchQuery = taskSourceUrl ? query.trim() : deferredQuery.trim()
+  const rawSearchQuery = query.trim()
+  const paletteSearchQuery =
+    rawSearchQuery && !taskSourceUrl ? deferredQuery.trim() : rawSearchQuery
   const deferredCreateAction = useMemo(
     () => getWorktreePaletteCreateActionState({ query: deferredQuery }),
     [deferredQuery]
