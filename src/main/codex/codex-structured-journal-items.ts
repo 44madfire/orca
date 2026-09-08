@@ -80,6 +80,9 @@ export class CodexJournalItems {
     if (source === 'live' && item.type === 'userMessage') {
       return { handled: true, admission: CODEX_JOURNAL_ADMITTED }
     }
+    if (item.type === 'contextCompaction' && event.method === 'item/started') {
+      return { handled: true, admission: CODEX_JOURNAL_ADMITTED }
+    }
     if (
       event.method !== 'item/completed' &&
       !this.streams.canTrack(event.threadId, item, identity)

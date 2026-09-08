@@ -28,11 +28,11 @@ import { callStructuredAgentSession } from '@/runtime/structured-agent-session-c
 import { useStructuredAgentSessionHold } from './use-structured-agent-session-hold'
 import { useStructuredAgentSessionRead } from './use-structured-agent-session-read'
 import {
-  projectStructuredAgentSessionMessages,
   pendingStructuredSessionPrompts,
   type StructuredPromptItem
 } from './structured-agent-session-message-projection'
 import { structuredSessionBackgroundTasksView } from './structured-session-background-tasks-view'
+import { useStructuredAgentSessionMessages } from './use-structured-agent-session-messages'
 import { selectStructuredAgentTurnActivity } from './native-chat-turn-activity'
 import { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-settings-write'
 
@@ -184,6 +184,8 @@ export function useStructuredAgentSession(args: {
   )
 
   const prompts = pendingStructuredSessionPrompts(state.items)
+  const { outbox } = outboxController
+  const messages = useStructuredAgentSessionMessages(state.items, outbox, state.submissions)
   return {
     conversationCommands:
       conversationSupport?.sessionId === sessionId ? conversationSupport.commands : [],
@@ -195,7 +197,7 @@ export function useStructuredAgentSession(args: {
           turnId ||
           prompts.length ||
           backgroundTasksView.isMonitoringBackgroundTasks ||
-          outboxController.outbox.length
+          outbox.length
         ),
         send: (command) =>
           mutate<AgentSessionConversationCommandResult>(
@@ -204,18 +206,14 @@ export function useStructuredAgentSession(args: {
             { command }
           )
       }),
-    messages: projectStructuredAgentSessionMessages(
-      state.items,
-      outboxController.outbox,
-      state.submissions
-    ),
+    messages,
     status: state.status,
     error: state.error ?? writeError ?? outboxController.error,
     hasOlder: state.hasOlder,
     loadingOlder,
     loadOlder,
     prompts,
-    outbox: outboxController.outbox,
+    outbox,
     blockedClientMessageId: outboxController.blockedClientMessageId,
     send: (...input: Parameters<typeof outboxController.send>) =>
       !commandPending.current && outboxController.send(...input),

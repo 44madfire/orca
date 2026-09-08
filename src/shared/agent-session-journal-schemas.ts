@@ -34,6 +34,13 @@ const ProviderFrame = z.object({
   payload: BoundedPayload
 })
 
+const ToolMetadata = {
+  mcpIdentity: z.object({ server: z.string(), tool: z.string() }).optional(),
+  exitCode: z.number().int().optional(),
+  durationMs: z.number().nonnegative().optional(),
+  webSearchResults: z.array(z.object({ title: z.string(), url: z.string() })).optional()
+}
+
 const KNOWN_BLOCK_TYPES = new Set([
   'text',
   'tool-call',
@@ -61,11 +68,18 @@ const Block = z.union([
     z.object({
       type: z.literal('text'),
       text: z.string(),
+      presentation: z.string().optional(),
+      tone: z.string().optional(),
       providerFrame: ProviderFrame.optional()
     }),
     // `input: undefined` loses its key under JSON.stringify, so a persisted
     // canonical tool call may lack it entirely.
-    z.object({ type: z.literal('tool-call'), name: z.string(), input: z.unknown().optional() }),
+    z.object({
+      type: z.literal('tool-call'),
+      name: z.string(),
+      input: z.unknown().optional(),
+      ...ToolMetadata
+    }),
     z.object({
       type: z.literal('tool-result'),
       output: z.string(),
@@ -122,6 +136,7 @@ export const AgentJournalItemBodySchema = z.discriminatedUnion('kind', [
   MessageBody,
   z.object({
     kind: z.literal('tool-call'),
+    ...ToolMetadata,
     name: z.string(),
     // See the tool-call block: the key itself is lost when `input` is undefined.
     input: z.unknown().optional(),
@@ -147,6 +162,8 @@ export const AgentJournalItemBodySchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('status'),
     text: z.string(),
+    presentation: z.string().optional(),
+    tone: z.string().optional(),
     turnLifecycle: z.object({ turnId: z.string(), state: z.string().min(1) }).optional(),
     providerFrame: ProviderFrame.optional()
   })
