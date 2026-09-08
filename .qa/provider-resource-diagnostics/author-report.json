@@ -1,5 +1,5 @@
 {
-  "status": "Complete; new draft PR pending fresh independent review",
+  "status": "Draft PR created; pending fresh independent review",
   "baseline": "7adb5b3dc4cbee526434167e0281ba4d3cda708f",
   "branch": "brennanb2025/provider-resource-diagnostics-3fe00094",
   "contract": "Opt-in, bounded execution-owner diagnostics connected to wake and legacy AI Vault Resume; no authority or launch-decision changes.",
@@ -143,7 +143,8 @@
       "failure_count_verified": true
     }
   ],
-  "pr": "pending",
+  "pr": "https://github.com/stablyai/orca/pull/19526",
   "source_commit_before_ablations": "561209685f",
-  "ablation_restore": "cp backup/restore plus cmp and git diff verified exact source; rg confirmed nonzero failure counts; restored and final suite each 111 pass/0 fail."
+  "ablation_restore": "cp backup/restore plus cmp and git diff verified exact source; rg confirmed nonzero failure counts; restored and final suite each 111 pass/0 fail.",
+  "validated_source_commit": "d705f068c86f1ee7d06d82c99c8adda0af00e339"
 }

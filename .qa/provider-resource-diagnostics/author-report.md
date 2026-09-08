@@ -1,6 +1,6 @@
 # Provider resource diagnostic author report
 
-Status: complete and ready for a new draft PR. Fresh independent review required before endorsement.
+Status: [draft PR #19526](https://github.com/stablyai/orca/pull/19526) created; validated source commit `d705f068c86f1ee7d06d82c99c8adda0af00e339`. Fresh independent review required before endorsement.
 
 ## Requested outcome and failure mechanism
 
