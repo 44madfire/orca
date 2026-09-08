@@ -1,40 +1,44 @@
-import type {
-  RuntimeMobileSessionRetiredTerminalSurface,
-  RuntimeMobileSessionSnapshotTab,
-  RuntimeMobileSessionTabsSnapshot
-} from '../../shared/runtime-types'
+import type { RuntimeMobileSessionTabsSnapshot } from '../../shared/runtime-types'
+import {
+  appendRetiredTerminalSurfaceProofs,
+  dropRetirementProofsForLiveSurfaces
+} from '../../shared/terminal-retirement-proof-ledger'
 
-const MAX_RETIRED_TERMINAL_SURFACE_PROOFS = 64
+export {
+  appendRetiredTerminalSurfaceProofs,
+  dropRetirementProofsForLiveSurfaces
+} from '../../shared/terminal-retirement-proof-ledger'
 
-const surfaceKey = (surface: { parentTabId: string; leafId: string }): string =>
-  `${surface.parentTabId}\0${surface.leafId}`
-
-/** A surface published again is no longer retired, whatever handle now occupies it. */
-export function dropRetirementProofsForLiveSurfaces(
-  retired: readonly RuntimeMobileSessionRetiredTerminalSurface[],
-  tabs: readonly RuntimeMobileSessionSnapshotTab[]
-): RuntimeMobileSessionRetiredTerminalSurface[] {
-  const live = new Set(tabs.flatMap((tab) => (tab.type === 'terminal' ? [surfaceKey(tab)] : [])))
-  return retired.filter((surface) => !live.has(surfaceKey(surface)))
-}
-
-/** Renderer snapshots omit the host's durable close acknowledgements; carry them forward. */
+/**
+ * Renderer snapshots omit the host's durable close acknowledgements; carry them forward.
+ *
+ * Why the identity inheritance: host-authored writes never set `worktreeInstanceId`. Without it
+ * the stored entry forgets which occupant minted the proofs, and renderer(A) -> host write ->
+ * renderer(B) would launder A's proofs into B.
+ */
 export function preserveTerminalRetirementProofs(
   snapshot: RuntimeMobileSessionTabsSnapshot,
   existing: RuntimeMobileSessionTabsSnapshot | undefined
 ): RuntimeMobileSessionTabsSnapshot {
+  if (!existing || existing.worktree !== snapshot.worktree) {
+    return snapshot
+  }
   if (
-    !existing?.retiredTerminalSurfaces?.length ||
-    existing.worktree !== snapshot.worktree ||
-    // Fence on instance identity only when both sides know it: host-authored snapshots never set it.
-    (existing.worktreeInstanceId !== undefined &&
-      snapshot.worktreeInstanceId !== undefined &&
-      existing.worktreeInstanceId !== snapshot.worktreeInstanceId)
+    existing.worktreeInstanceId !== undefined &&
+    snapshot.worktreeInstanceId !== undefined &&
+    existing.worktreeInstanceId !== snapshot.worktreeInstanceId
   ) {
     return snapshot
   }
+  const identified =
+    snapshot.worktreeInstanceId === undefined && existing.worktreeInstanceId !== undefined
+      ? { ...snapshot, worktreeInstanceId: existing.worktreeInstanceId }
+      : snapshot
+  if (!existing.retiredTerminalSurfaces?.length) {
+    return identified
+  }
   return {
-    ...snapshot,
+    ...identified,
     retiredTerminalSurfaces: dropRetirementProofsForLiveSurfaces(
       appendRetiredTerminalSurfaceProofs(
         existing.retiredTerminalSurfaces,
@@ -43,29 +47,4 @@ export function preserveTerminalRetirementProofs(
       snapshot.tabs
     )
   }
-}
-
-export function appendRetiredTerminalSurfaceProofs(
-  existing: readonly RuntimeMobileSessionRetiredTerminalSurface[] | undefined,
-  retired: readonly RuntimeMobileSessionRetiredTerminalSurface[]
-): RuntimeMobileSessionRetiredTerminalSurface[] {
-  const next = new Map(
-    (existing ?? []).map((surface) => [
-      `${surface.parentTabId}\0${surface.leafId}\0${surface.terminal}`,
-      surface
-    ])
-  )
-  for (const evidence of retired) {
-    const key = `${evidence.parentTabId}\0${evidence.leafId}\0${evidence.terminal}`
-    next.delete(key)
-    next.set(key, evidence)
-  }
-  while (next.size > MAX_RETIRED_TERMINAL_SURFACE_PROOFS) {
-    const oldest = next.keys().next().value
-    if (typeof oldest !== 'string') {
-      break
-    }
-    next.delete(oldest)
-  }
-  return [...next.values()]
 }
