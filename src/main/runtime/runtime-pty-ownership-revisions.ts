@@ -11,24 +11,28 @@ type OwnershipObservation = {
   cleared: boolean
 }
 
-// Revisions live only as long as outstanding observations, including removed/new PTY IDs.
+// Custody spans reading, admission and application, including removed/new PTY IDs.
 export class RuntimePtyOwnershipRevisions {
   private revision = 0
   private observations = new Set<OwnershipObservation>()
 
-  async observe<T>(
-    read: () => Promise<T>
-  ): Promise<{ observation: OwnershipObservation; result: T }> {
+  async withObservation<T>(
+    operation: (observation: OwnershipObservation) => Promise<T>
+  ): Promise<T> {
     const observation = this.capture()
     try {
-      return { observation, result: await read() }
+      return await operation(observation)
     } finally {
       this.release(observation)
     }
   }
 
   private capture(): OwnershipObservation {
-    const observation = { revision: this.revision, changes: new Map(), cleared: false }
+    const observation = {
+      revision: this.revision,
+      changes: new Map(),
+      cleared: false
+    }
     this.observations.add(observation)
     return observation
   }
@@ -58,7 +62,7 @@ export class RuntimePtyOwnershipRevisions {
     handles: ReadonlyMap<string, string>,
     connectionId?: string | null
   ): boolean {
-    if (observation.cleared) {
+    if (!this.observations.has(observation) || observation.cleared) {
       return false
     }
     const sessionsById = new Map(sessions.map((session) => [session.id, session]))
