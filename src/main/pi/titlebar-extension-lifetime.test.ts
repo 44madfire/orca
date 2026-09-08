@@ -180,7 +180,9 @@ describe('generated titlebar registration lifetime', () => {
     await old.call('session_shutdown')
     const calls = old.calls()
     await old.call('agent_end')
-    for (let i = 0; i < 3 && h.timeouts.size; i++) first(h.timeouts)()
+    for (let i = 0; i < 3 && h.timeouts.size; i++) {
+      first(h.timeouts)()
+    }
     expect(old.calls()).toBe(calls)
     expect(h.timeouts.size).toBe(0)
     expect(h.intervals.size).toBe(0)
@@ -188,7 +190,9 @@ describe('generated titlebar registration lifetime', () => {
     const fresh = h.registration()
     await fresh.call('agent_end')
     expect(h.timeouts.size).toBe(1)
-    for (let i = 0; i < 3; i++) first(h.timeouts)()
+    for (let i = 0; i < 3; i++) {
+      first(h.timeouts)()
+    }
     expect(fresh.calls()).toBe(3)
     expect(h.timeouts.size).toBe(1)
     fresh.setIdle()
