@@ -6,6 +6,9 @@ import { removeTree } from '../../shared/windows-transient-lock-removal'
 import type SyncDatabase from '../sqlite/sync-database'
 import { resetSessionParseCacheForTests } from '../ai-vault/session-scanner-parse-cache'
 import { registerSessionSearchIndexSink } from '../ai-vault/session-search-capture'
+import { indexTokens } from './session-search-query-planner'
+import { sessionRowFilter } from './session-search-row-filter'
+import { splitAiVaultSearchQuery } from '../../shared/ai-vault-search-query-operators'
 import { openSessionSearchDatabase } from './session-search-schema'
 import { SessionSearchStore } from './session-search-store'
 import { parseTranscript as parse, userRecord } from './session-search-transcript-fixtures'
@@ -231,5 +234,45 @@ describe('SessionSearchStore.search snippets', () => {
       true
     )
     store.close()
+  })
+})
+
+describe('the planner tokenizer draws the same boundaries as unicode61', () => {
+  // unicode61 folds case and strips Latin diacritics on both index and query side.
+  function asIndexed(token: string): string {
+    return token.toLowerCase().normalize('NFD').replaceAll(/\p{M}/gu, '')
+  }
+
+  it('produces exactly the terms fts5vocab reports for the same text', async () => {
+    const db = await openDatabase()
+    const corpus =
+      'resolveTerminalPath src/main/foo-bar.ts a.b C++ #123 修复 café naïve MAX_TOKEN x'
+    insertMessageRow(db, FIRST_ROWID, corpus)
+    const indexed = (
+      db.prepare('SELECT term FROM messages_vocab ORDER BY term').all() as { term: string }[]
+    ).map((row) => row.term)
+
+    expect([...new Set(indexTokens(corpus).map(asIndexed))].sort()).toEqual(indexed)
+  })
+})
+
+describe('a cwd scope seeks the cwd_key index instead of scanning it', () => {
+  it('plans the scope condition as a SEARCH on sessions_cwd_key', async () => {
+    const db = await openDatabase()
+    const filter = sessionRowFilter(
+      { query: 'needle', scopePaths: ['/work/app'] },
+      splitAiVaultSearchQuery('needle')
+    )
+    const plan = (
+      db
+        .prepare(
+          `EXPLAIN QUERY PLAN SELECT id FROM sessions WHERE ${filter.conditions.join(' AND ')}`
+        )
+        .all(...filter.values) as { detail: string }[]
+    ).map((row) => row.detail)
+
+    expect(plan.join(' | ')).toContain('sessions_cwd_key')
+    expect(plan.some((detail) => detail.startsWith('SEARCH'))).toBe(true)
+    expect(plan.some((detail) => detail.startsWith('SCAN sessions'))).toBe(false)
   })
 })

@@ -11,6 +11,7 @@ import { AI_VAULT_SESSION_TITLE_REQUEST_MAX_COUNT } from '../../../../shared/ai-
 import type { AiVaultPrepareSessionResumeArgs } from '../../../../shared/ai-vault-resume-preparation'
 import { LOCAL_EXECUTION_HOST_ID, parseExecutionHostId } from '../../../../shared/execution-host'
 import { describeAiVaultScanError } from '../../../../shared/ai-vault-scan-error-message'
+import { SESSION_SEARCH_METHODS } from '../../../../shared/ai-vault-search-rpc-methods'
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import {
   assertLegacyAiVaultResumeAllowed,
@@ -23,6 +24,13 @@ import {
 const AI_VAULT_SCOPE_PATH_MAX_LENGTH = 4096
 const AI_VAULT_LIMIT_MAX = 2000
 
+// Why: this is the whole SSH/foreign-host boundary for the aiVault surface. The
+// scan and the index are host-local, so a caller must not be able to name a host
+// this process does not execute on — an `ssh:` or `local` id is refused here
+// rather than silently answered with this runtime's own transcripts
+// (docs/reference/ssh-execution-boundary.md rule 1). A `runtime:` id names the
+// *client's* saved environment, whose id this host never learns, so it is
+// accepted for restamping only and never routes anything.
 const executionHostIdSchema = z.string().transform((value, ctx): `runtime:${string}` => {
   const parsed = parseExecutionHostId(value)
   if (parsed?.kind === 'runtime') {
@@ -102,25 +110,25 @@ export const AiVaultConfigureSessionSearchParams = SessionSearchConfigureSchema.
 
 export const AI_VAULT_METHODS: RpcMethod[] = [
   defineMethod({
-    name: 'aiVault.sshSearchSessions',
+    name: SESSION_SEARCH_METHODS.query.runtimeSsh,
     params: SessionSearchQuerySchema.extend({ targetId: z.string().min(1).max(512) }),
     handler: ({ targetId, ...params }, { runtime, signal }) =>
       runtime.sshSearchAiVault(targetId, 'query', params, signal)
   }),
   defineMethod({
-    name: 'aiVault.sshSearchIndexStatus',
+    name: SESSION_SEARCH_METHODS.status.runtimeSsh,
     params: z.object({ targetId: z.string().min(1).max(512) }),
     handler: ({ targetId }, { runtime, signal }) =>
       runtime.sshSearchAiVault(targetId, 'status', {}, signal)
   }),
   defineMethod({
-    name: 'aiVault.sshSearchConfigure',
+    name: SESSION_SEARCH_METHODS.configure.runtimeSsh,
     params: SessionSearchConfigureSchema.extend({ targetId: z.string().min(1).max(512) }),
     handler: ({ targetId, ...params }, { runtime, signal }) =>
       runtime.sshSearchAiVault(targetId, 'configure', params, signal)
   }),
   defineMethod({
-    name: 'aiVault.searchSessions',
+    name: SESSION_SEARCH_METHODS.query.runtime,
     params: AiVaultSearchSessionsParams,
     // Why: the index lives with the transcripts, so this runs on the host the
     // client addressed; the id only names that host, it never redirects the search.
@@ -133,12 +141,12 @@ export const AI_VAULT_METHODS: RpcMethod[] = [
     handler: (_params, { runtime, signal }) => runtime.readAiVaultSearchCoverage(signal)
   }),
   defineMethod({
-    name: 'aiVault.searchIndexStatus',
+    name: SESSION_SEARCH_METHODS.status.runtime,
     params: z.object({ executionHostId: executionHostIdSchema.optional() }),
     handler: (_params, { runtime }) => runtime.readAiVaultSearchIndexStatus()
   }),
   defineMethod({
-    name: 'aiVault.configureSessionSearch',
+    name: SESSION_SEARCH_METHODS.configure.runtime,
     params: AiVaultConfigureSessionSearchParams,
     // Why: consent is per machine and the index lives with the transcripts, so
     // this writes the addressed host's own setting; the id never redirects it.

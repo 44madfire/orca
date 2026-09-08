@@ -62,10 +62,7 @@ export async function consumeCompleteJsonlLines(args: {
       }
       newlineIndex = data.indexOf(NEWLINE_BYTE, lineStart)
     }
-    const checkpoint = checkpointSessionSearchCapture()
-    if (checkpoint) {
-      await checkpoint
-    }
+    await checkpointSessionSearchCapture()
     consumedThrough += lineStart
     if (stopped) {
       remainderParts = []

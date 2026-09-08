@@ -13064,7 +13064,6 @@
             "searchMatches_other": "{{count}} matches",
             "searchMatches": "{{count}} matches",
             "localSearchOnly": "Conversation search covers this computer only. Remote hosts use title search.",
-            "searchUpdating": "Updating search results…",
             "resumeInChatConflict": "Another chat is already holding this conversation.",
             "resumeInChatTranscriptMissing": "This conversation's history could not be loaded, so it cannot be resumed in chat.",
             "resumeInChatFailed": "Could not resume this session in a new chat."
@@ -17820,7 +17819,8 @@
       "counts": "Searchable conversations: {{sessions}} · Messages: {{messages}}",
       "failures": "{{count}} indexing issues. Retry to check the remaining files.",
       "unavailable": "Could not update index status. Please try again.",
-      "openSettings": "Open settings",
+      "segmentProgress": "{{phase}} · {{percent}}%",
+      "segmentTooltip": "{{status}}. Click to open search settings.",
       "settingsError": "Could not save search settings. Please try again.",
       "idle": "Waiting to index",
       "start": "Index now"

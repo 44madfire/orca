@@ -1,4 +1,3 @@
-import { assertSearchWalBudget } from './session-search-wal-budget'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import type SyncDatabase from '../sqlite/sync-database'
 import { inSessionParseFileLane } from '../ai-vault/session-parse-file-lane'
@@ -55,7 +54,6 @@ export async function deleteExpiredSearchFiles(
         if (!pending) {
           return
         }
-        assertSearchWalBudget(db)
         db.exec('BEGIN IMMEDIATE')
         try {
           const ids = db

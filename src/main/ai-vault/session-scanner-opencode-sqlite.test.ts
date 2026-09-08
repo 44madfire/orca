@@ -443,4 +443,47 @@ describe('parseOpenCodeSqliteSession', () => {
 
     expect(session!.firstUserPrompt).toBe('the real typed ask')
   })
+
+  it('still returns the session when a corrupt part blob breaks the preview read', async () => {
+    const { db, path } = createTempDb()
+    applyOpenCodeSqliteSchema(db)
+    insertOpenCodeSession(db, {
+      id: 'ses_badblob',
+      title: 'Ballast planning',
+      timeCreated: 1_777_634_000_000,
+      timeUpdated: 1_777_634_900_000
+    })
+    insertOpenCodeMessage(db, {
+      id: 'msg_1',
+      sessionId: 'ses_badblob',
+      role: 'user',
+      timeCreated: 1_777_634_000_000
+    })
+    insertOpenCodePart(db, {
+      id: 'part_ok',
+      messageId: 'msg_1',
+      sessionId: 'ses_badblob',
+      timeCreated: 10,
+      text: 'readable turn'
+    })
+    // Truncated JSON, so the preview query's json_extract raises rather than
+    // returning NULL. One corrupt row must not cost the session its listing.
+    db.prepare(
+      `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+       VALUES ('part_bad', 'msg_1', 'ses_badblob', 20, 20, '{"type":')`
+    ).run()
+    db.close()
+
+    const session = await parseOpenCodeSqliteSession({
+      dbPath: path,
+      sessionId: 'ses_badblob',
+      platform: 'darwin'
+    })
+
+    expect(session).not.toBeNull()
+    expect(session!.sessionId).toBe('ses_badblob')
+    expect(session!.title).toBe('Ballast planning')
+    // The preview degrades to empty rather than taking the session with it.
+    expect(session!.previewMessages).toEqual([])
+  })
 })

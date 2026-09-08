@@ -39,18 +39,27 @@ export type OpenCodeSqliteParseValue = {
   session: AiVaultSession | null
 }
 
+// One acknowledged slice of a parse's index rows, sent before that parse's
+// result. `batch` numbers them so a late ack cannot release the wrong one.
+export type OpenCodeSqliteCaptureBatch = {
+  id: number
+  kind: 'batch'
+  batch: number
+  messages: SessionSearchCapturedMessage[]
+}
+
+export type OpenCodeSqliteWorkerResult = { id: number; kind: 'result'; value: unknown }
+export type OpenCodeSqliteWorkerFailure = { id: number; kind: 'error'; error: string }
+
+// Tagged rather than a boolean plus an optional field: the tag is what lets the
+// client narrow to the batch shape without casting its payload.
 export type OpenCodeSqliteWorkerResponse =
-  | { id: number; ok: true; value: unknown; captureBatch?: number }
-  | { id: number; ok: false; error: string }
+  | OpenCodeSqliteCaptureBatch
+  | OpenCodeSqliteWorkerResult
+  | OpenCodeSqliteWorkerFailure
 
 export type OpenCodeSqliteCaptureAck = { id: number; kind: 'captureAck'; batch: number }
 export type OpenCodeSqliteParentMessage = OpenCodeSqliteWorkerRequest | OpenCodeSqliteCaptureAck
-export type OpenCodeSqliteCaptureBatch = {
-  id: number
-  ok: true
-  captureBatch: number
-  value: SessionSearchCapturedMessage[]
-}
 
 export type OpenCodeSqliteRequestBody =
   | Omit<OpenCodeSqliteListRequest, 'id'>

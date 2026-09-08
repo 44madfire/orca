@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SessionSearchStore } from './session-search-store'
+import { openSessionSearchIndexFile } from './session-search-staged-write-test-fixture'
 import { SessionSearchTypoRepair } from './session-search-typo-repair'
 
 describe('typo repair policy', () => {
@@ -12,19 +12,19 @@ describe('typo repair policy', () => {
     { input: 'calm', candidate: 'clam', copies: 2, exact: false, expected: null }
   ])(
     'repairs $input to $expected with $copies postings (exact=$exact)',
-    ({ input, candidate, copies, exact, expected }) => {
-      const store = new SessionSearchStore(':memory:')
+    async ({ input, candidate, copies, exact, expected }) => {
+      const index = await openSessionSearchIndexFile('ss-typo-policy')
       try {
-        const insert = store.db.prepare('INSERT INTO messages_fts(user_text) VALUES (?)')
+        const insert = index.db.prepare('INSERT INTO messages_fts(user_text) VALUES (?)')
         for (let i = 0; i < copies; i++) {
           insert.run(candidate)
         }
         if (exact) {
           insert.run(input)
         }
-        expect(new SessionSearchTypoRepair(store.db).correct(input)).toBe(expected)
+        expect(new SessionSearchTypoRepair(index.db).correct(input)).toBe(expected)
       } finally {
-        store.close()
+        await index.close()
       }
     }
   )

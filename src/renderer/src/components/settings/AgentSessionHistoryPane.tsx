@@ -71,14 +71,11 @@ export function AgentSessionHistoryPane({
     }
   }, [mountedRef])
 
+  // Why: the file only grows while the index is working, so one coverage read serves both numbers
+  // and the size stops being re-read the moment indexing settles.
   useEffect(() => {
     void refreshIndexSize()
-    if (!policy.enabled) {
-      return
-    }
-    const timer = setInterval(() => void refreshIndexSize(), 4000)
-    return () => clearInterval(timer)
-  }, [policy.enabled, refreshIndexSize])
+  }, [indexing.observedAt, refreshIndexSize])
 
   const apply = (next: AiVaultSearchSettings): void => {
     void indexing.control(() => updateSettings({ aiVaultSearch: next }))
@@ -126,7 +123,7 @@ export function AgentSessionHistoryPane({
         onChange={() => apply({ ...policy, enabled: !policy.enabled })}
       />
 
-      {!policy.enabled && indexing.error ? (
+      {!policy.enabled && indexing.failed ? (
         <p role="alert" className="text-xs text-destructive">
           {translate(
             'sessionSearch.indexing.settingsError',

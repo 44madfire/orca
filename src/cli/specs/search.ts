@@ -23,6 +23,16 @@ export const SEARCH_COMMAND_SPECS: CommandSpec[] = [
       'pause',
       'resume-indexing'
     ],
+    booleanFlags: [
+      'enable',
+      'disable',
+      'clear-index',
+      'index-status',
+      'pause',
+      'resume-indexing',
+      'newest'
+    ],
+    repeatableFlags: ['agent', 'path'],
     notes: [
       'Searches what you typed, what the agent said, the commands it ran, and the first 3 KB of each tool output across Claude Code, Codex, Cursor, Gemini, OpenCode, and the other agents Orca scans.',
       'Quote paths, identifiers, or error text to match them exactly; plain words match anywhere. A misspelled word is repaired from the index vocabulary when nothing matches.',

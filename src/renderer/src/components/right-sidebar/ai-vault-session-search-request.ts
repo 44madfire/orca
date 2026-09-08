@@ -13,8 +13,6 @@ export type AiVaultSearchRequestState = {
   result: AiVaultSearchResult | null
   /** No answer for any query yet; the list should show its spinner. */
   loading: boolean
-  /** An answer is on screen but a newer query is still in flight. */
-  updating: boolean
   error: string | null
   flush: () => void
 }
@@ -119,7 +117,6 @@ export function useAiVaultSessionSearchRequest(
     flush,
     result: current?.result ?? previous,
     loading: argsKey !== '' && current === null && previous === null,
-    updating: argsKey !== '' && !current?.full,
     error: current?.error ?? null
   }
 }

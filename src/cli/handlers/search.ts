@@ -14,11 +14,11 @@ import {
 import { listSshTargets, findSshTargetByName } from '../host-selector-alternatives'
 import { searchAllHosts } from '../session-search-all-hosts'
 import {
-  searchHostMethod,
+  createSearchHostCall,
   SEARCH_ALL_TIMEOUT_MS,
   type SearchHost
 } from '../session-search-host-query'
-import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
+import type { SessionSearchOperation } from '../../shared/ai-vault-search-rpc-methods'
 
 export const SEARCH_DISABLED_MESSAGE =
   'Session search is off. Enable it in Settings > Agent Session History, or run `orca search --agent-session --enable`.'
@@ -39,10 +39,6 @@ export const SEARCH_HANDLERS: Record<string, CommandHandler> = {
       controller.abort(new Error('Search interrupted.'))
     }
     process.once('SIGINT', interrupt)
-    const options = (): { signal: AbortSignal; timeoutMs: number } => ({
-      signal: controller.signal,
-      timeoutMs: Math.max(1, deadline - Date.now())
-    })
     try {
       if (command.host === 'all') {
         const result = await searchAllHosts(client, command, controller.signal, deadline)
@@ -96,16 +92,16 @@ export const SEARCH_HANDLERS: Record<string, CommandHandler> = {
         host.targetId = target.id
         host.name = target.label
       }
-      const target = host.targetId
-        ? { targetId: host.targetId }
-        : command.host?.kind === 'runtime'
+      // Why: `--host runtime:<env>` already selected that runtime's transport, so
+      // the id only restamps the answer; the targetId spread lives in the shared
+      // call factory with the method routing and the deadline.
+      const stamp =
+        !host.targetId && command.host?.kind === 'runtime'
           ? { executionHostId: command.host.id }
           : {}
-      const call = (operation: 'query' | 'status' | 'configure', params: object) =>
-        waitForPromiseWithSignal(
-          client.call(searchHostMethod(host, operation), { ...params, ...target }, options()),
-          controller.signal
-        )
+      const send = createSearchHostCall(host, controller.signal, deadline)
+      const call = (operation: SessionSearchOperation, params: object) =>
+        send(operation, { ...params, ...stamp })
       if (command.configure || command.status) {
         const response = await call(
           command.configure ? 'configure' : 'status',

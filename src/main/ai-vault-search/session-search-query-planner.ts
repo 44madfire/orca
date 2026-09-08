@@ -32,13 +32,20 @@ export function isLiteralQuery(query: string): boolean {
   return QUOTED.test(query) || LITERAL_SHAPE.test(query)
 }
 
-function indexTokens(query: string): string[] {
+/**
+ * The tokenizer contract, unfolded: the same boundaries FTS5 draws for
+ * `unicode61 tokenchars '_.-/+'`. Pinned against real `fts5vocab` output in
+ * session-search-fts5-contract.test.ts, which is what makes it safe to plan a
+ * query without asking SQLite.
+ */
+export function indexTokens(query: string, limit = Number.POSITIVE_INFINITY): string[] {
   const out: string[] = []
   for (const match of query.matchAll(INDEX_TOKEN)) {
     const token = match[0]
+    // Separators alone (`--`, `...`) are a token to FTS5 but never a search term.
     if (/[\p{L}\p{N}\p{Co}]/u.test(token)) {
       out.push(token)
-      if (out.length >= MAX_BODY_TERMS) {
+      if (out.length >= limit) {
         break
       }
     }
@@ -47,7 +54,7 @@ function indexTokens(query: string): string[] {
 }
 
 export function planSessionSearchQuery(query: string): SessionSearchQueryPlan {
-  const raw = indexTokens(query)
+  const raw = indexTokens(query, MAX_BODY_TERMS)
   let body = isLiteralQuery(query)
     ? raw
     : raw.filter((token) => !STOP_WORDS.has(token.toLowerCase()))

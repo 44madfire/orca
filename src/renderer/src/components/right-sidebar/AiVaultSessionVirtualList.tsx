@@ -20,7 +20,6 @@ import {
   VAULT_GROUP_HEADER_ROW_HEIGHT,
   VAULT_SESSION_ROW_HEIGHT
 } from './ai-vault-virtual-rows'
-import type { AiVaultResumeInChatEligibility } from './ai-vault-session-resume-in-chat'
 import { AiVaultVirtualRow, type AiVaultListRow } from './AiVaultVirtualRow'
 
 const VAULT_ROW_OVERSCAN = 8
@@ -73,7 +72,7 @@ export function AiVaultSessionVirtualList({
   getSessionResumeActions: (session: AiVaultSession) => AiVaultSessionResumeActions
   /** Search results only: the matched transcript line rendered under a row. */
   getSearchEvidence?: (session: AiVaultSession) => AiVaultSearchEvidence | null
-  getSessionResumeInChat: (session: AiVaultSession) => AiVaultResumeInChatEligibility
+  getSessionResumeInChat: (session: AiVaultSession) => string | null
   onToggleGroup: (key: string) => void
   onJumpToOriginalPane: (session: AiVaultSession) => void
   onJumpToWorktree: (worktreeId: string) => void

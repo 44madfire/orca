@@ -37,7 +37,7 @@ import {
   normalizeComputerAwakeMode
 } from '../../shared/computer-awake-mode'
 import {
-  applyAiVaultSearchSettings,
+  applyAiVaultSearchSettingsChange,
   installAiVaultSearchSettingsSource
 } from '../ai-vault-search/session-search-enablement'
 import { resolveAiVaultSearchSettings } from '../../shared/ai-vault-search-settings'
@@ -278,9 +278,9 @@ export function registerSettingsHandlers(
       applyAppIcon(result.appIcon)
     }
     if ('aiVaultSearch' in sanitizedArgs) {
-      await applyAiVaultSearchSettings(result, {
-        persist: () => store.flushPendingOrThrowAsync({ drainToStableGeneration: false })
-      })
+      applyAiVaultSearchSettingsChange(before, result, () =>
+        store.flushPendingOrThrowAsync({ drainToStableGeneration: false })
+      )
     }
 
     // Why: telemetry-plan.md§Settings — fire `settings_changed` only for

@@ -78,11 +78,11 @@ it('finishes a slow parse before handing ownership to another relay', async () =
   let complete: (() => void) | undefined
   let parseSignal: AbortSignal | undefined
   vi.spyOn(candidateParser, 'parseSearchCandidates').mockImplementation(
-    (_store, _candidates, signal) =>
+    (_store, _candidates, options) =>
       new Promise<void>((resolve) => {
         complete = resolve
-        parseSignal = signal
-        signal?.addEventListener('abort', () => resolve(), { once: true })
+        parseSignal = options?.signal
+        options?.signal?.addEventListener('abort', () => resolve(), { once: true })
       })
   )
   const state = vi.spyOn(SessionSearchStore.prototype, 'setBackfillState')

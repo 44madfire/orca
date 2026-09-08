@@ -1,9 +1,14 @@
 import type { RuntimeClient } from './runtime-client'
+import type { RuntimeRpcSuccess } from './runtime/types'
 import {
   SessionSearchResultSchema,
   SessionSearchStatusSchema
 } from '../shared/ai-vault-search-contract'
 import type { AiVaultSearchResult } from '../shared/ai-vault-search-types'
+import {
+  SESSION_SEARCH_METHODS,
+  type SessionSearchOperation
+} from '../shared/ai-vault-search-rpc-methods'
 import type { SearchCommand } from './search-command-arguments'
 import { waitForPromiseWithSignal } from '../shared/abort-signal-reason'
 
@@ -33,46 +38,53 @@ export const SEARCH_ALL_HOST_LIMIT = 16
 
 export function searchHostMethod(
   host: Pick<SearchHost, 'targetId'>,
-  operation: 'query' | 'status' | 'configure'
+  operation: SessionSearchOperation
 ): string {
-  if (host.targetId) {
-    return `aiVault.sshSearch${{ query: 'Sessions', status: 'IndexStatus', configure: 'Configure' }[operation]}`
+  const methods = SESSION_SEARCH_METHODS[operation]
+  return host.targetId ? methods.runtimeSsh : methods.runtime
+}
+
+/**
+ * The one place that knows a search host's method routing, its target spread and
+ * its deadline, so the single-host and all-hosts paths cannot arm two of any of
+ * them for the same call.
+ */
+export function createSearchHostCall(
+  host: Pick<SearchHost, 'client' | 'targetId'>,
+  signal: AbortSignal,
+  deadline: number
+): (operation: SessionSearchOperation, params?: object) => Promise<RuntimeRpcSuccess<unknown>> {
+  return (operation, params = {}) => {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) {
+      return Promise.reject(new Error('Search host deadline exceeded.'))
+    }
+    return waitForPromiseWithSignal(
+      host.client.call(
+        searchHostMethod(host, operation),
+        { ...params, ...(host.targetId ? { targetId: host.targetId } : {}) },
+        { timeoutMs: remaining, signal }
+      ),
+      signal
+    )
   }
-  return {
-    query: 'aiVault.searchSessions',
-    status: 'aiVault.searchIndexStatus',
-    configure: 'aiVault.configureSessionSearch'
-  }[operation]
 }
 
 export async function querySearchHost(
   host: SearchHost,
   command: SearchCommand,
   aggregate: boolean,
-  signal: AbortSignal
+  signal: AbortSignal,
+  deadline = Date.now() + SEARCH_HOST_TIMEOUT_MS
 ): Promise<SearchHostResult> {
   const identity: SearchHostResult['host'] = {
     id: host.id,
     name: host.name,
     selector: host.selector
   }
-  const deadline = Date.now() + SEARCH_HOST_TIMEOUT_MS
-  const call = async (operation: 'query' | 'status', args: object = {}): Promise<unknown> => {
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) {
-      throw new Error('Search host deadline exceeded.')
-    }
-    const response = await waitForPromiseWithSignal(
-      host.client.call(
-        searchHostMethod(host, operation),
-        {
-          ...args,
-          ...(host.targetId ? { targetId: host.targetId } : {})
-        },
-        { timeoutMs: remaining, signal }
-      ),
-      signal
-    )
+  const send = createSearchHostCall(host, signal, deadline)
+  const call = async (operation: SessionSearchOperation, args: object = {}): Promise<unknown> => {
+    const response = await send(operation, args)
     if (response._meta?.runtimeId) {
       identity.runtimeId = response._meta.runtimeId.slice(0, 512)
     }

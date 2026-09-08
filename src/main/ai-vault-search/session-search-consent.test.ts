@@ -54,6 +54,7 @@ import type * as ParseCachePersistence from '../ai-vault/session-parse-cache-per
 import type * as SourceDiscovery from '../ai-vault/session-scanner-source-discovery'
 import { resetSessionParseCacheForTests } from '../ai-vault/session-scanner-parse-cache'
 import { isolatedScanRoots, jsonLines } from '../ai-vault/session-scanner-test-fixtures'
+import * as sourcePresence from './session-search-source-presence'
 import { SessionSearchService, type SessionSearchScanRoots } from './session-search-service'
 
 let tempRoots: string[] = []
@@ -66,9 +67,8 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  for (const service of services) {
-    service.dispose()
-  }
+  vi.restoreAllMocks()
+  await Promise.all(services.map((service) => service.close()))
   services = []
   await Promise.all(tempRoots.map((root) => rm(root, { recursive: true, force: true })))
   tempRoots = []
@@ -343,6 +343,74 @@ describe('SessionSearchService consent gate', () => {
         (hit) => hit.sessionId
       )
     ).toEqual(['recent-session'])
+  })
+
+  it('answers with no hits when a disable closes the index between query rounds', async () => {
+    const { roots, databasePath } = await scanRoots()
+    await writeClaudeTranscript(roots, 'closed-session', 'the vacuum quota never settles')
+    const service = makeService(databasePath, { enabled: true, historyDays: null })
+    await service.ensureBackfill(roots)
+
+    // The presence pass awaits a stat between rounds; a disable landing there
+    // used to leave the resumed round querying a closed database handle.
+    let indexedHits = 0
+    vi.spyOn(sourcePresence, 'searchPresentSessionSources').mockImplementation(
+      async (args, search) => {
+        indexedHits = search(args).hits.length
+        await service.configure({ enabled: false, historyDays: null }, roots)
+        return search(args)
+      }
+    )
+
+    const result = await service.search({ query: 'vacuum', refresh: false }, roots)
+
+    expect(indexedHits).toBeGreaterThan(0)
+    expect(result.hits).toEqual([])
+  })
+
+  it('waits for a parked backfill before the shutdown drops the sink', async () => {
+    const { roots, databasePath } = await scanRoots()
+    await writeClaudeTranscript(roots, 'draining-session', 'the vacuum quota never settles')
+    const service = makeService(databasePath, { enabled: true, historyDays: null })
+    let releaseBackfill!: () => void
+    holdNextParseCacheLoad = new Promise<void>((resolve) => {
+      releaseBackfill = resolve
+    })
+    const backfill = service.ensureBackfill(roots)
+    await vi.waitFor(() => expect(parseCacheLoads).toBe(1))
+
+    // A parse parked in the backfill must finish before the store closes under
+    // it, so the sink survives until the drain completes.
+    let closed = false
+    const closing = service.close().then(() => {
+      closed = true
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(closed).toBe(false)
+    expect(getSessionSearchIndexSink()).not.toBeNull()
+
+    releaseBackfill()
+    await closing
+    await backfill
+    expect(getSessionSearchIndexSink()).toBeNull()
+  })
+
+  it("leaves a replacement service's sink registered when the old one closes late", async () => {
+    const { roots, databasePath } = await scanRoots()
+    await writeClaudeTranscript(roots, 'handover-session', 'the vacuum quota never settles')
+    const retiring = makeService(databasePath, { enabled: true, historyDays: null })
+    await retiring.ensureBackfill(roots)
+
+    // Shutdown is async, so a replacement can claim the process-global sink
+    // first; the late close must not clear a sink it no longer owns.
+    const replacement = makeService(databasePath, { enabled: true, historyDays: null })
+    await retiring.close()
+
+    expect(getSessionSearchIndexSink()).not.toBeNull()
+    await replacement.ensureBackfill(roots)
+    expect(
+      (await replacement.search({ query: 'vacuum', refresh: false }, roots)).hits.length
+    ).toBeGreaterThan(0)
   })
 
   it('skips transcripts older than the history bound', async () => {

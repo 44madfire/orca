@@ -32,12 +32,10 @@ export type SessionSearchIndexUpdate = {
 
 export type SessionSearchIndexResult = Pick<SessionSearchIndexUpdate, 'session' | 'byteOffset'>
 
-/** Streaming writes receive final metadata only when parsing completes. */
-export type SessionSearchIndexWrite =
-  | SessionSearchIndexUpdate
-  | (Omit<SessionSearchIndexUpdate, 'session' | 'byteOffset'> & {
-      result: Promise<SessionSearchIndexResult>
-    })
+/** Final metadata and cursor arrive only when the streamed parse completes. */
+export type SessionSearchIndexWrite = Omit<SessionSearchIndexUpdate, 'session' | 'byteOffset'> & {
+  result: Promise<SessionSearchIndexResult>
+}
 
 export type SessionSearchFileIdentity = { dev: number; ino: number } | null
 
@@ -48,7 +46,6 @@ export type SessionSearchIndexedFile = {
 }
 
 export type SessionSearchIndexSink = {
-  streamingCapture?: boolean
   acceptsCandidate?(candidate: SessionFileCandidate): boolean
   updateMetadata?(candidate: SessionFileCandidate, session: AiVaultSession): void
   /**
@@ -115,14 +112,6 @@ export function isSessionSearchCaptureActive(): boolean {
 /** Runs `fn` with capture suppressed: display-only re-reads must not emit rows. */
 export function withoutSessionSearchCapture<T>(fn: () => T): T {
   return captureStorage.run(null, fn)
-}
-
-export async function withSessionSearchCapture<T>(
-  fn: () => Promise<T>
-): Promise<{ value: T; messages: SessionSearchCapturedMessage[] }> {
-  const scope = { messages: [] as SessionSearchCapturedMessage[] }
-  const value = await captureStorage.run(scope, fn)
-  return { value, messages: scope.messages }
 }
 
 export async function checkpointSessionSearchCapture(): Promise<void> {

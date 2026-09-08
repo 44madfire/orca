@@ -4,19 +4,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import SyncDatabase from '../../src/main/sqlite/sync-database'
-import { SessionSearchStore } from '../../src/main/ai-vault-search/session-search-store'
+import { SessionSearchQuery } from '../../src/main/ai-vault-search/session-search-query'
+import { openSessionSearchDatabase } from '../../src/main/ai-vault-search/session-search-schema'
 import { deleteExpiredSearchFiles } from '../../src/main/ai-vault-search/session-search-retention-delete'
-import { SearchWalBackpressureError } from '../../src/main/ai-vault-search/session-search-wal-budget'
 
 // Bundle with esbuild --bundle --platform=node, then run on the host under test.
 const root = await mkdtemp(join(tmpdir(), 'orca-search-retention-bench-'))
 try {
   for (const mode of ['whole-file', 'batched', 'batched-pinned-reader']) {
     const path = join(root, `${mode}.sqlite`)
-    const store = new SessionSearchStore(path)
+    const db = openSessionSearchDatabase(path)
     let reader: SyncDatabase | null = null
     try {
-      const db = store.db
+      const query = new SessionSearchQuery(db)
       db.exec(`INSERT INTO sessions(id,agent,session_id,file_path,title,cwd,cwd_key,resume_command)
         VALUES (1,'claude','1','fixture','synthetic benchmark','/fixture','/fixture','');
         INSERT INTO files(path,byte_offset,mtime_ms,session_row_id) VALUES ('fixture',1,1,1);
@@ -28,7 +28,7 @@ try {
           FROM messages;
         INSERT INTO conversation_fts(rowid,user_text) SELECT rowid,user_text FROM messages_fts;
         COMMIT; PRAGMA wal_checkpoint(TRUNCATE)`)
-      assert.equal(store.search({ query: 'needle' }).hits.length, 1)
+      assert.equal(query.execute({ query: 'needle' }, null).hits.length, 1)
       if (mode === 'batched-pinned-reader') {
         reader = new SyncDatabase(path, { readonly: true })
         reader.exec('BEGIN')
@@ -56,29 +56,11 @@ try {
           () => {},
           async () => {
             intervals.push(performance.now() - previous)
-            assert.equal(store.search({ query: 'needle' }).hits.length, 0)
+            assert.equal(query.execute({ query: 'needle' }, null).hits.length, 0)
             await yieldToEventLoop()
             previous = performance.now()
           }
-        ).catch(async (error: unknown) => {
-          if (!(error instanceof SearchWalBackpressureError) || !reader) {
-            throw error
-          }
-          console.log(
-            JSON.stringify({
-              mode,
-              backpressured: true,
-              walBytes: (await stat(`${path}-wal`)).size
-            })
-          )
-          reader.exec('COMMIT')
-          await deleteExpiredSearchFiles(
-            db,
-            null,
-            () => false,
-            () => {}
-          )
-        })
+        )
       }
       const wallMs = performance.now() - started
       assert.equal(
@@ -106,7 +88,7 @@ try {
       )
     } finally {
       reader?.close()
-      store.close()
+      db.close()
     }
   }
 } finally {

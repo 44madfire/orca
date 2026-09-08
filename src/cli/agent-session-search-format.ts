@@ -5,6 +5,7 @@ import {
 import type { AiVaultSearchIndexStatus } from '../shared/ai-vault-search-settings'
 import { aiVaultAgentLabel } from '../shared/ai-vault-types'
 import { aiVaultSearchUnindexedProviders } from '../shared/ai-vault-search-coverage'
+import { getRuntimePathBasename } from '../shared/cross-platform-path'
 import type { AiVaultSearchHit, AiVaultSearchResult } from '../shared/ai-vault-search-types'
 
 const ROLE_LABEL: Record<AiVaultSearchHit['evidence']['role'], string> = {
@@ -40,7 +41,9 @@ function relativeAge(iso: string | null, now = Date.now()): string {
 }
 
 function projectLabel(hit: AiVaultSearchHit): string {
-  const cwd = hit.cwd ? (hit.cwd.replaceAll('\\', '/').split('/').findLast(Boolean) ?? '—') : '—'
+  // Why: the path comes from the execution host, so node:path would read a
+  // Windows path with POSIX rules (and the reverse) when the two disagree.
+  const cwd = (hit.cwd ? getRuntimePathBasename(hit.cwd) : '') || '—'
   return hit.branch ? `${cwd} · ${hit.branch}` : cwd
 }
 

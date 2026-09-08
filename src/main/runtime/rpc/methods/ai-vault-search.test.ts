@@ -269,14 +269,44 @@ describe('aiVault.searchCoverage handler', () => {
     ).resolves.toMatchObject({ ok: true, result: COVERAGE })
     expect(readAiVaultSearchCoverage).toHaveBeenCalledWith(controller.signal)
   })
+})
 
-  it('rejects a non-runtime execution host id', async () => {
+describe('host-local execution boundary', () => {
+  // Every one of these runs on this host's own index. An id naming a host this
+  // process does not execute on must be refused, not answered locally.
+  const methods = [
+    ['aiVault.searchSessions', { query: 'q' }],
+    ['aiVault.searchCoverage', {}],
+    ['aiVault.searchIndexStatus', {}],
+    ['aiVault.configureSessionSearch', { enabled: true }]
+  ] as const
+
+  it.each(['ssh:build-server', 'local', 'not-a-host'])(
+    'refuses %s on every search method instead of answering with this host',
+    async (executionHostId) => {
+      const dispatcher = makeDispatcher()
+      for (const [method, params] of methods) {
+        await expect(
+          dispatcher.dispatch(makeRequest(method, { ...params, executionHostId }))
+        ).resolves.toMatchObject({ ok: false })
+      }
+      expect(searchAiVaultSessions).not.toHaveBeenCalled()
+      expect(readAiVaultSearchCoverage).not.toHaveBeenCalled()
+      expect(readAiVaultSearchIndexStatus).not.toHaveBeenCalled()
+      expect(configureAiVaultSessionSearch).not.toHaveBeenCalled()
+    }
+  )
+
+  it('accepts a runtime id on every search method without letting it route the call', async () => {
     const dispatcher = makeDispatcher()
-
-    await expect(
-      dispatcher.dispatch(makeRequest('aiVault.searchCoverage', { executionHostId: 'ssh:box' }))
-    ).resolves.toMatchObject({ ok: false })
-    expect(readAiVaultSearchCoverage).not.toHaveBeenCalled()
+    for (const [method, params] of methods) {
+      await expect(
+        dispatcher.dispatch(makeRequest(method, { ...params, executionHostId: 'runtime:env-1' }))
+      ).resolves.toMatchObject({ ok: true })
+    }
+    expect(searchAiVaultSessions.mock.calls[0]?.[0]).not.toHaveProperty('executionHostId')
+    expect(configureAiVaultSessionSearch.mock.calls[0]?.[0]).not.toHaveProperty('executionHostId')
+    expect(sshSearchAiVault).not.toHaveBeenCalled()
   })
 })
 

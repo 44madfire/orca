@@ -41,6 +41,24 @@ it('groups adjacent live writes into one burst and keeps failures visible', () =
   expect(progress.snapshot()).toMatchObject({ phase: 'updating', filesTotal: 2, startedAt })
   progress.writeFailed()
   second()
+  expect(progress.snapshot()).toMatchObject({ phase: 'error', failures: 1 })
+})
+
+it('lets a later successful write supersede a write error, but not a failed backfill', () => {
+  const progress = new SessionSearchIndexingProgress()
+  const failing = progress.beginWrite()
+  progress.writeFailed()
+  failing()
+  expect(progress.snapshot().phase).toBe('error')
+  progress.beginWrite()()
+  expect(progress.snapshot().phase).toBe('complete')
+
+  // A failed backfill stays red: configure() reads this phase to decide whether
+  // to drop the memoized pass and enumerate again.
+  progress.discover()
+  progress.discovered(1, 0)
+  progress.processed(true)
+  progress.finish()
   expect(progress.snapshot().phase).toBe('error')
   progress.beginWrite()()
   expect(progress.snapshot().phase).toBe('error')

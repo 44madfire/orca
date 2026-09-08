@@ -186,7 +186,7 @@ async function shutdown(): Promise<void> {
   }
   await Promise.allSettled([cacheLane, interactiveLane])
   await flushSessionParseCachePersist()
-  sessionSearch?.dispose()
+  await sessionSearch?.close()
   process.disconnect?.()
 }
 
@@ -204,7 +204,12 @@ process.on('message', (raw: AiVaultServiceParentMessage) => {
       try {
         sessionSearch = new SessionSearchService(raw.sessionSearch)
       } catch (error) {
-        console.error('[ai-vault] session search index unavailable:', error)
+        // Name only: this stream is piped to the parent's console, so nothing
+        // from a transcript-bearing failure may ride out on it.
+        console.error(
+          '[ai-vault] session search index unavailable:',
+          error instanceof Error ? error.name : 'IndexOpenError'
+        )
       }
     }
     send({ type: 'ready', protocol: AI_VAULT_SERVICE_PROTOCOL_VERSION, pid: process.pid })

@@ -33,11 +33,15 @@ async function handleRequest(
         limit: request.limit,
         issues
       })
-      return { id: request.id, ok: true, value: { candidates, issues } }
+      return { id: request.id, kind: 'result', value: { candidates, issues } }
     }
-    return { id: request.id, ok: true, value: await parseSession(request) }
+    return { id: request.id, kind: 'result', value: await parseSession(request) }
   } catch (err) {
-    return { id: request.id, ok: false, error: err instanceof Error ? err.message : String(err) }
+    return {
+      id: request.id,
+      kind: 'error',
+      error: err instanceof Error ? err.message : String(err)
+    }
   }
 }
 
@@ -78,7 +82,7 @@ port.on('message', (request: OpenCodeSqliteParentMessage) => {
       // waiting out its timeout; fail that request fast instead.
       port.postMessage({
         id: request.id,
-        ok: false,
+        kind: 'error',
         error: 'OpenCode SQLite worker result could not be serialized.'
       })
     }

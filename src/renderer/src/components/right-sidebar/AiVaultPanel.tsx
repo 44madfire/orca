@@ -45,6 +45,7 @@ import { AiVaultPanelHeader } from './AiVaultPanelHeader'
 import { AiVaultSessionVirtualList } from './AiVaultSessionVirtualList'
 import { useAiVaultSessionRefresh } from './ai-vault-session-refresh'
 import {
+  aiVaultHostScopeOptionsIncludeRemote,
   buildAiVaultHostScopeOptions,
   buildRuntimeAiVaultHostScopeOptions,
   useAiVaultExecutionHostScope
@@ -111,11 +112,7 @@ export default function AiVaultPanel(): React.JSX.Element {
       availableExecutionHostScopes
     })
   const hostScopeOptions = useMemo(
-    () =>
-      buildAiVaultHostScopeOptions({
-        activeExecutionHostScope,
-        runtimeHostOptions
-      }),
+    () => buildAiVaultHostScopeOptions({ activeExecutionHostScope, runtimeHostOptions }),
     [activeExecutionHostScope, runtimeHostOptions]
   )
   const activeWorktreePath = activeWorktree?.path ?? null
@@ -316,6 +313,9 @@ export default function AiVaultPanel(): React.JSX.Element {
     // 'All' must not be narrowed; the scoped views restrict the index the same way they restrict the scan.
     scopePaths: scope === 'all' ? [] : scope === 'workspace' ? activeWorktreePaths : scopePaths,
     executionHostScope,
+    // Why: on desktop only remote hosts fall back to title search, so the notice about that is
+    // worth showing only when the panel can actually address one.
+    remoteHostsAvailable: aiVaultHostScopeOptionsIncludeRemote(hostScopeOptions),
     sessions
   })
 

@@ -185,6 +185,26 @@ describe('OpenCode SQLite session freshness', () => {
     expect(store.coverage().messagesIndexed).toBe(2)
   })
 
+  it('keeps listing a session whose part blob the capture read cannot decode', async () => {
+    const dbPath = await createOpenCodeDb()
+    const db = new Database(dbPath)
+    // Valid JSON that is not an object, so SQLite's json_extract tolerates it in
+    // the preview query and only the search capture read has to survive it.
+    db.prepare(
+      `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+       VALUES ('prt_bad', 'msg_1', ?, ?, ?, 'null')`
+    ).run(SESSION_ID, CREATED_MS + 600, CREATED_MS + 600)
+    db.close()
+
+    // The parse must not reject: an index failure may never cost the session its
+    // place in the list, and the readable turns must still reach the index.
+    await expect(refreshRecent(dbPath)).resolves.toMatchObject({ fullParses: 1 })
+    expect(store.search({ query: 'vacuum quota' }).hits).toMatchObject([
+      { agent: 'opencode', sessionId: SESSION_ID }
+    ])
+    expect(store.coverage().messagesIndexed).toBe(1)
+  })
+
   it('reuses the cached parse and leaves the index alone when nothing changed', async () => {
     const dbPath = await createOpenCodeDb()
     await refreshRecent(dbPath)

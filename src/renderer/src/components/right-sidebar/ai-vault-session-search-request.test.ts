@@ -172,7 +172,6 @@ describe('useAiVaultSessionSearchRequest', () => {
       flush: expect.any(Function),
       result: null,
       loading: false,
-      updating: false,
       error: null
     })
   })
@@ -201,7 +200,6 @@ describe('useAiVaultSessionSearchRequest', () => {
     })
 
     expect(result.current.result?.repairedTerms).toEqual(['alpha'])
-    expect(result.current.updating).toBe(true)
     expect(result.current.loading).toBe(false)
   })
 

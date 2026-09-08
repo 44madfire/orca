@@ -8,7 +8,10 @@ import type {
   AiVaultSearchCoverage,
   AiVaultSearchResult
 } from '../../shared/ai-vault-search-types'
-import { DISABLED_AI_VAULT_SEARCH_COVERAGE as DISABLED_COVERAGE } from '../../shared/ai-vault-search-coverage'
+import {
+  DISABLED_AI_VAULT_SEARCH_COVERAGE as DISABLED_COVERAGE,
+  NO_AI_VAULT_SEARCH_INDEX_RESULT as NO_INDEX_RESULT
+} from '../../shared/ai-vault-search-coverage'
 import {
   aiVaultSearchHistoryCutoffMs,
   narrowsAiVaultSearchHistory,
@@ -20,7 +23,10 @@ import { sessionCandidatesFromDiscoveries } from '../ai-vault/session-scanner-ca
 import { discoverAiVaultSessionSources } from '../ai-vault/session-scanner-source-discovery'
 import type { AiVaultScanIssue } from '../../shared/ai-vault-types'
 import type { AiVaultScanOptions, SessionFileCandidate } from '../ai-vault/session-scanner-types'
-import { registerSessionSearchIndexSink } from '../ai-vault/session-search-capture'
+import {
+  getSessionSearchIndexSink,
+  registerSessionSearchIndexSink
+} from '../ai-vault/session-search-capture'
 import { parseSearchCandidates } from './session-search-parse-candidates'
 import { removeSessionSearchDatabase } from './session-search-schema'
 import { SessionSearchStore } from './session-search-store'
@@ -53,7 +59,7 @@ export class SessionSearchService {
     this.databasePath = options.databasePath
     this.policy = { ...options }
     if (this.policy.enabled) {
-      this.open()
+      this.applyPolicyToStore(this.openStore())
     }
   }
 
@@ -63,9 +69,8 @@ export class SessionSearchService {
     roots: SessionSearchScanRoots,
     signal?: AbortSignal
   ): Promise<AiVaultSearchResult> {
-    const store = this.store
-    if (!store) {
-      return { hits: [], route: 'and', durationMs: 0, coverage: DISABLED_COVERAGE }
+    if (!this.store) {
+      return NO_INDEX_RESULT
     }
     const backfill = this.ensureBackfill(roots)
     // Why: the backfill parses in this same process and an 80 MB transcript
@@ -80,7 +85,7 @@ export class SessionSearchService {
           async (sharedSignal) => {
             await this.parseAll(
               this.withinHistory(await discoverRecentSearchFiles(roots, sharedSignal)),
-              sharedSignal
+              { signal: sharedSignal }
             )
             await this.reindexStale(sharedSignal)
           },
@@ -88,9 +93,12 @@ export class SessionSearchService {
         )
       }
       void backfill
+      // Why: presence checks await between query rounds, and a configure() in
+      // that window closes the database; read the handle per round so a closed
+      // store yields no hits instead of throwing on a freed statement.
       return await searchPresentSessionSources(
         args,
-        (query) => store.search(query),
+        (query) => this.store?.search(query) ?? NO_INDEX_RESULT,
         (paths) => this.invalidate(paths),
         signal
       )
@@ -138,8 +146,6 @@ export class SessionSearchService {
     const wasEnabled = this.policy.enabled
     const previousDays = this.policy.historyDays
     this.policy = { ...next }
-    this.store?.indexing.setPaused(next.paused === true)
-    this.store?.setHistoryDays(next.historyDays)
     if (options.clearIndex || (wasEnabled && !next.enabled)) {
       await this.stop()
     } else if (wasEnabled && (next.paused || previousDays !== next.historyDays)) {
@@ -152,9 +158,8 @@ export class SessionSearchService {
     if (!next.enabled) {
       return DISABLED_COVERAGE
     }
-    const store = this.store ?? this.open()
-    store.setAcceptingWrites(!next.paused)
-    store.indexing.setPaused(next.paused === true)
+    const store = this.store ?? this.openStore()
+    this.applyPolicyToStore(store)
     const cutoff = aiVaultSearchHistoryCutoffMs(next.historyDays)
     if (
       wasEnabled &&
@@ -208,23 +213,24 @@ export class SessionSearchService {
     }
   }
 
-  dispose(): void {
-    this.backfillController?.abort()
-    this.closeStore()
-  }
-
   async close(): Promise<void> {
     await this.stop({ drainRefreshes: true })
   }
 
-  private open(): SessionSearchStore {
+  /** Creation only; the caller applies the policy before anything can await. */
+  private openStore(): SessionSearchStore {
     mkdirSync(dirname(this.databasePath), { recursive: true })
-    this.store = new SessionSearchStore(this.databasePath)
-    this.store.setHistoryDays(this.policy.historyDays)
-    this.store.setAcceptingWrites(!this.policy.paused)
-    this.store.indexing.setPaused(this.policy.paused === true)
-    registerSessionSearchIndexSink(this.store)
-    return this.store
+    const store = new SessionSearchStore(this.databasePath)
+    this.store = store
+    registerSessionSearchIndexSink(store)
+    return store
+  }
+
+  /** The only writer of policy-derived store state, so the bits cannot drift. */
+  private applyPolicyToStore(store: SessionSearchStore): void {
+    store.setHistoryDays(this.policy.historyDays)
+    store.setAcceptingWrites(!this.policy.paused)
+    store.indexing.setPaused(this.policy.paused === true)
   }
 
   /** Waits for the aborted backfill so its last parse cannot write to a closed store. */
@@ -247,9 +253,6 @@ export class SessionSearchService {
       }
     } finally {
       this.stopping = false
-      if (options.keepStore) {
-        this.store?.setAcceptingWrites(!this.policy.paused)
-      }
     }
   }
 
@@ -260,7 +263,11 @@ export class SessionSearchService {
     if (!store) {
       return
     }
-    registerSessionSearchIndexSink(null)
+    // Why: shutdown is async, so a replacement service may already own the sink;
+    // clearing it unconditionally would silently stop feeding the new index.
+    if (getSessionSearchIndexSink() === store) {
+      registerSessionSearchIndexSink(null)
+    }
     store.close()
   }
 
@@ -271,7 +278,7 @@ export class SessionSearchService {
       return
     }
     try {
-      await this.parseAll(this.withinHistory(stale), signal)
+      await this.parseAll(this.withinHistory(stale), { signal })
     } catch (error) {
       // Why: a cancelled search (the renderer retires them per keystroke) must
       // not lose the queue; whatever did not get parsed goes back for next time.
@@ -312,7 +319,7 @@ export class SessionSearchService {
       recordSearchDiscovered(store, discoveries, issues)
       const eligible = this.withinHistory(candidates)
       store.indexing.discovered(eligible.length, issues.length)
-      await this.parseAll(eligible, signal, { yieldToSearches: signal })
+      await this.parseAll(eligible, { signal, backfillSignal: signal })
       store.indexing.finish()
       store.setBackfillState('complete')
     } catch (error) {
@@ -322,20 +329,26 @@ export class SessionSearchService {
     }
   }
 
+  /** `backfillSignal` marks the long tail: those files report progress and yield to searches. */
   private async parseAll(
     candidates: SessionFileCandidate[],
-    signal?: AbortSignal,
-    options: { yieldToSearches?: AbortSignal } = {}
+    options: { signal?: AbortSignal; backfillSignal?: AbortSignal }
   ): Promise<void> {
-    if (this.store) {
-      await parseSearchCandidates(
-        this.store,
-        candidates,
-        signal,
-        options.yieldToSearches
-          ? () => this.waitForIdleSearches(options.yieldToSearches!)
-          : undefined
-      )
+    const store = this.store
+    const backfillSignal = options.backfillSignal
+    if (!store) {
+      return
     }
+    await parseSearchCandidates(store, candidates, {
+      signal: options.signal,
+      ...(backfillSignal
+        ? {
+            onFileProcessed: async (failed: boolean) => {
+              store.indexing.processed(failed)
+              await this.waitForIdleSearches(backfillSignal)
+            }
+          }
+        : {})
+    })
   }
 }

@@ -58,7 +58,7 @@ it('checks individual OpenCode identities when several sessions share one databa
   }
 })
 
-it('omits unreadable sources without treating them as confirmed deletion', async () => {
+it('keeps unreadable sources as hits and flags them instead of dropping them', async () => {
   const root = await mkdtemp(join(tmpdir(), 'orca-search-unreadable-'))
   try {
     const filePath = join(root, 'opencode.db')
@@ -73,7 +73,8 @@ it('omits unreadable sources without treating them as confirmed deletion', async
       } as AiVaultSearchResult,
       invalidate
     )
-    expect(result).toMatchObject({ hits: [], sourceUnavailableFiles: 1 })
+    expect(result.hits.map((hit) => hit.sessionId)).toEqual(['fixture'])
+    expect(result).toMatchObject({ sourceUnavailableFiles: 1 })
     expect(invalidate).not.toHaveBeenCalled()
   } finally {
     await rm(root, { recursive: true, force: true })

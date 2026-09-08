@@ -21,12 +21,17 @@ export async function discoverFiles(args: {
 }): Promise<SessionFileDiscovery> {
   const files = new SessionNewestFiles(args.limit)
   try {
-    await walkSessionFiles(args.rootDir, args.agent, args.issues, {
-      extensions: new Set(args.extensions),
-      signal: args.signal,
-      filePredicate: args.filePredicate,
-      directoryPredicate: args.directoryPredicate,
-      onFile: async (path) => {
+    await forEachSessionFile(
+      args.rootDir,
+      args.agent,
+      args.issues,
+      {
+        extensions: new Set(args.extensions),
+        signal: args.signal,
+        filePredicate: args.filePredicate,
+        directoryPredicate: args.directoryPredicate
+      },
+      async (path) => {
         args.signal?.throwIfAborted()
         try {
           const fileStat = await wslGatedStat(path, 'scan')
@@ -53,8 +58,11 @@ export async function discoverFiles(args: {
           })
         }
       }
-    })
+    )
   } catch (err) {
+    // Why: discoverAiVaultSessionSources fans out with Promise.all, so one
+    // stalled distro would otherwise reject the whole vault scan — including
+    // every healthy local agent. Contain it to this root.
     if (!(err instanceof WslTranscriptFsError)) {
       throw err
     }
@@ -85,22 +93,39 @@ async function optionalContentDependencyStat(
   }
 }
 
+export type SessionFileWalkOptions = {
+  extensions: Set<string>
+  filePredicate?: (path: string) => boolean
+  // Return false to skip descending into a directory; depth 0 is a child of
+  // rootDir, so pruned subtrees are never stat'd or parsed.
+  directoryPredicate?: (name: string, depth: number) => boolean
+  readDirectory?: (dirPath: string) => Promise<Dirent[]>
+  signal?: AbortSignal
+}
+
+/** Collecting form for callers that want every match; large scans use `forEachSessionFile`. */
 export async function walkSessionFiles(
   dirPath: string,
   agent: AiVaultAgent,
   issues: AiVaultScanIssue[],
-  options: {
-    extensions: Set<string>
-    filePredicate?: (path: string) => boolean
-    // Return false to skip descending into a directory; depth 0 is a child of
-    // rootDir, so pruned subtrees are never stat'd or parsed.
-    directoryPredicate?: (name: string, depth: number) => boolean
-    readDirectory?: (dirPath: string) => Promise<Dirent[]>
-    signal?: AbortSignal
-    onFile?: (path: string) => Promise<void>
-  },
-  depth = 0
+  options: SessionFileWalkOptions
 ): Promise<string[]> {
+  const files: string[] = []
+  await forEachSessionFile(dirPath, agent, issues, options, async (path) => {
+    files.push(path)
+  })
+  return files
+}
+
+/** Streams matches to `onFile` so a bounded consumer never retains the whole tree. */
+export async function forEachSessionFile(
+  dirPath: string,
+  agent: AiVaultAgent,
+  issues: AiVaultScanIssue[],
+  options: SessionFileWalkOptions,
+  onFile: (path: string) => Promise<void>,
+  depth = 0
+): Promise<void> {
   options.signal?.throwIfAborted()
   let entries
   try {
@@ -114,10 +139,9 @@ export async function walkSessionFiles(
     if (error instanceof WslTranscriptFsError) {
       throw error
     }
-    return []
+    return
   }
 
-  const files: string[] = []
   for (const entry of entries) {
     options.signal?.throwIfAborted()
     const fullPath = join(dirPath, entry.name)
@@ -125,7 +149,7 @@ export async function walkSessionFiles(
       // Skip whole subtrees an agent never wants (e.g. subagent transcripts),
       // avoiding the readdir cost of descending into them.
       if (options.directoryPredicate?.(entry.name, depth) ?? true) {
-        files.push(...(await walkSessionFiles(fullPath, agent, issues, options, depth + 1)))
+        await forEachSessionFile(fullPath, agent, issues, options, onFile, depth + 1)
       }
       continue
     }
@@ -134,12 +158,7 @@ export async function walkSessionFiles(
       options.extensions.has(extname(entry.name).toLowerCase()) &&
       (options.filePredicate?.(fullPath) ?? true)
     ) {
-      if (options.onFile) {
-        await options.onFile(fullPath)
-      } else {
-        files.push(fullPath)
-      }
+      await onFile(fullPath)
     }
   }
-  return files
 }

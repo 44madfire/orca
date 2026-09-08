@@ -100,7 +100,7 @@ async function checkSearchSources(
   throwIfSignalAborted(signal)
 }
 
-/** Refill limited results after filtering, without deleting unreadable sources or unbounded scans. */
+/** Refill limited results after dropping deleted sources, without unbounded scans. */
 export async function searchPresentSessionSources(
   args: AiVaultSearchArgs,
   search: (args: AiVaultSearchArgs) => AiVaultSearchResult,
@@ -120,7 +120,10 @@ export async function searchPresentSessionSources(
     const result = search({ ...args, limit })
     durationMs += result.durationMs
     await checkSearchSources(result.hits, known, unavailable, invalidate, signal)
-    const hits = result.hits.filter((hit) => known.get(candidatePath(hit)) === 'present')
+    // Why: loss of contact is not evidence of absence (see
+    // docs/reference/ssh-execution-boundary.md). Only a proven deletion drops a
+    // hit; an unreadable source is still shown, counted in sourceUnavailableFiles.
+    const hits = result.hits.filter((hit) => known.get(candidatePath(hit)) !== 'missing')
     const missing = result.hits.some((hit) => known.get(candidatePath(hit)) === 'missing')
     const exhausted = result.hits.length < limit && !missing
     const budgetExhausted =

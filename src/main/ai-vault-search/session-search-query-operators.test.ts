@@ -10,6 +10,7 @@ import { parseTranscript, userRecord } from './session-search-transcript-fixture
 const APP_ID = 'aaaaaaaa-0000-4000-8000-00000000000a'
 const SERVICE_ID = 'aaaaaaaa-0000-4000-8000-00000000000b'
 const NEWER_APP_ID = 'aaaaaaaa-0000-4000-8000-00000000000c'
+const ACCENTED_ID = 'aaaaaaaa-0000-4000-8000-00000000000d'
 
 let tempRoots: string[] = []
 let root: string
@@ -91,6 +92,30 @@ describe('repo: and path: operators at the query level', () => {
     )
     expect(sessionIds('harbor repo:service', { scopePaths: ['/repo'] })).toEqual([])
     expect(sessionIds('repo:service', { scopePaths: ['/repo'] })).toEqual([])
+  })
+
+  it('ORs terms within one operator key and ANDs across keys', () => {
+    expect(sessionIds('harbor repo:app repo:service').sort()).toEqual(
+      [APP_ID, NEWER_APP_ID, SERVICE_ID].sort()
+    )
+    expect(sessionIds('harbor path:/repo path:/other').sort()).toEqual(
+      [APP_ID, NEWER_APP_ID, SERVICE_ID].sort()
+    )
+    // Two absolute paths would be unsatisfiable if same-key terms ANDed.
+    expect(sessionIds('harbor path:/repo/app path:/other').sort()).toEqual(
+      [APP_ID, NEWER_APP_ID, SERVICE_ID].sort()
+    )
+    expect(sessionIds('harbor repo:app path:/other')).toEqual([])
+  })
+
+  it('folds a substring path term as far as SQLite can, and an absolute one not at all', async () => {
+    // LIKE folds ASCII on both sides; `lower()` would fold ASCII and still miss `É`.
+    await indexSession(ACCENTED_ID, '/repo/CAFÉ', 'harbor lantern')
+    expect(sessionIds('harbor path:café')).toEqual([])
+    expect(sessionIds('harbor path:CAFÉ')).toEqual([ACCENTED_ID])
+    expect(sessionIds('harbor path:APP').sort()).toEqual([APP_ID, NEWER_APP_ID].sort())
+    // An absolute term is an identity claim, so POSIX case is not folded.
+    expect(sessionIds('harbor path:/REPO/app')).toEqual([])
   })
 
   it('keeps operator text out of the FTS expression', () => {

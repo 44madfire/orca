@@ -62,6 +62,31 @@ let applyChain: Promise<unknown> = Promise.resolve()
 let policyApplied = true
 let applyGeneration = 0
 
+/**
+ * Reconciles a settings write. An unchanged policy is not forwarded, so re-saving
+ * the same value never restarts a running backfill, and a scanner that cannot
+ * apply must not fail or delay the settings save — `readAiVaultSearchIndexStatus`
+ * reports that through `applied` and `reason`.
+ */
+export function applyAiVaultSearchSettingsChange(
+  before: Pick<GlobalSettings, 'aiVaultSearch'>,
+  after: Pick<GlobalSettings, 'aiVaultSearch'>,
+  persist: () => void | Promise<void>
+): void {
+  const previous = resolveAiVaultSearchSettings(before)
+  const next = resolveAiVaultSearchSettings(after)
+  if (
+    previous.enabled === next.enabled &&
+    previous.historyDays === next.historyDays &&
+    (previous.paused ?? false) === (next.paused ?? false)
+  ) {
+    return
+  }
+  void applyAiVaultSearchSettings(after, { persist }).catch((error: unknown) => {
+    console.warn('[settings] failed to apply agent session search settings:', error)
+  })
+}
+
 export function readAiVaultSearchIndexStatus(): AiVaultSearchIndexStatus {
   const capability = sessionSearchCapability()
   const available =

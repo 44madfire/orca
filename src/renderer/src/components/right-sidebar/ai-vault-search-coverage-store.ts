@@ -3,30 +3,91 @@ import { installWindowVisibilityInterval } from '@/lib/window-visibility-interva
 
 export const AI_VAULT_SEARCH_COVERAGE_POLL_MS = 4_000
 
+/** Phases that advance on their own. Every other state changes only when someone acts on it. */
+const SELF_ADVANCING_PHASES: ReadonlySet<string> = new Set([
+  'idle',
+  'discovering',
+  'indexing',
+  'updating'
+])
+
 type Snapshot = {
   coverage: AiVaultSearchCoverage | null
-  error: boolean
   busy: boolean
+  /** A read or a control action did not land; both read the same to the user. */
+  failed: boolean
+  /** Renderer clock of the newest read, so callers never subtract the host's clock from ours. */
   observedAt: number
-  unavailable: boolean
+  /** Renderer clock of the first read that reported the run now on screen. */
+  phaseSince: number
+}
+
+/** Identity of one indexing run, so a re-read of the same run does not restart its age. */
+function runKey(coverage: AiVaultSearchCoverage | null): string {
+  const indexing = coverage?.indexing
+  return indexing ? `${indexing.phase}:${indexing.startedAt}` : ''
 }
 
 /** Settings, status bar and search share a single observation per index owner. */
 export function createSearchCoverageStore() {
   let snapshot: Snapshot = {
     coverage: null,
-    error: false,
     busy: false,
+    failed: false,
     observedAt: 0,
-    unavailable: false
+    phaseSince: 0
   }
   let generation = 0
   let stop: (() => void) | null = null
+  let unsubscribeFocus: (() => void) | null = null
   const listeners = new Set<() => void>()
+
+  // Why: an index that reached a resting phase cannot change until the user acts or the app is
+  // refocused, so a standing interval would keep a scanner worker resident for nothing.
+  const shouldPoll = (): boolean => {
+    if (!listeners.size) {
+      return false
+    }
+    const phase = snapshot.coverage?.indexing?.phase
+    if (phase) {
+      return SELF_ADVANCING_PHASES.has(phase)
+    }
+    return snapshot.coverage === null && !snapshot.failed
+  }
+
+  const syncPolling = (): void => {
+    const wanted = shouldPoll()
+    if (wanted === (stop !== null)) {
+      return
+    }
+    if (wanted) {
+      stop = installWindowVisibilityInterval({
+        run: () => void refresh(),
+        intervalMs: AI_VAULT_SEARCH_COVERAGE_POLL_MS
+      })
+      return
+    }
+    stop?.()
+    stop = null
+  }
+
   const publish = (next: Partial<Snapshot>): void => {
     snapshot = { ...snapshot, ...next }
     listeners.forEach((listener) => listener())
+    syncPolling()
   }
+
+  const record = (coverage: AiVaultSearchCoverage): void => {
+    const observedAt = Date.now()
+    const sameRun = runKey(coverage) === runKey(snapshot.coverage)
+    publish({
+      coverage,
+      failed: false,
+      observedAt,
+      phaseSince: sameRun ? snapshot.phaseSince : observedAt
+    })
+  }
+
   let pending: Promise<void> | null = null
   const refresh = (afterControl = false): Promise<void> => {
     if (snapshot.busy && !afterControl) {
@@ -40,11 +101,11 @@ export function createSearchCoverageStore() {
       try {
         const coverage = await window.api.aiVault.searchCoverage()
         if (issued === generation) {
-          publish({ coverage, unavailable: false, observedAt: Date.now() })
+          record(coverage)
         }
       } catch {
         if (issued === generation) {
-          publish({ coverage: null, unavailable: true })
+          publish({ coverage: null, failed: true })
         }
       }
     })().finally(() => {
@@ -59,29 +120,25 @@ export function createSearchCoverageStore() {
   return {
     getSnapshot: () => snapshot,
     refresh: () => refresh(),
+    /** Publishes a read the caller already holds; a search result carries the freshest coverage. */
+    observe(coverage: AiVaultSearchCoverage): void {
+      if (!snapshot.busy) {
+        record(coverage)
+      }
+    },
     subscribe(listener: () => void): () => void {
       listeners.add(listener)
       if (listeners.size === 1) {
-        stop = installWindowVisibilityInterval({
-          run: () => void refresh(),
-          intervalMs: AI_VAULT_SEARCH_COVERAGE_POLL_MS
-        })
+        unsubscribeFocus = window.api.aiVault.onWindowFocused?.(() => void refresh()) ?? null
       }
+      syncPolling()
       return () => {
         listeners.delete(listener)
         if (!listeners.size) {
-          stop?.()
-          stop = null
-          generation++
-          pending = null
-          snapshot = {
-            coverage: null,
-            error: false,
-            busy: false,
-            observedAt: 0,
-            unavailable: false
-          }
+          unsubscribeFocus?.()
+          unsubscribeFocus = null
         }
+        syncPolling()
       }
     },
     async control(action: () => Promise<void>): Promise<void> {
@@ -90,7 +147,7 @@ export function createSearchCoverageStore() {
       }
       const controlled = ++generation
       pending = null
-      publish({ busy: true, error: false })
+      publish({ busy: true, failed: false })
       try {
         await action()
         if (controlled === generation) {
@@ -98,7 +155,7 @@ export function createSearchCoverageStore() {
         }
       } catch {
         if (controlled === generation) {
-          publish({ error: true })
+          publish({ failed: true })
         }
       } finally {
         if (controlled === generation) {

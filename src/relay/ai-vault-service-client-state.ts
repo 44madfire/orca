@@ -4,6 +4,7 @@ import type {
   AiVaultSessionTitleRequest,
   AiVaultSessionTitlesResult
 } from '../shared/ai-vault-session-title'
+import type { SessionSearchOperation } from '../shared/ai-vault-search-rpc-methods'
 import type { SshAiVaultRelayListParams } from '../shared/ssh-ai-vault-relay'
 import type { RemoteHostPlatform } from '../main/ssh/ssh-remote-platform'
 import {
@@ -44,7 +45,7 @@ export function createRelayAiVaultServiceCall(args: {
 }): RelayAiVaultServiceCall {
   return {
     request: args.request,
-    lane: relayAiVaultServiceLane(args.request.operation),
+    lane: relayAiVaultServiceLane(args.request),
     signal: args.signal,
     forceStart: args.request.operation === 'list' && args.request.params.force === true,
     resolve: args.resolve,
@@ -110,11 +111,7 @@ export type RelayAiVaultServiceCall = {
 }
 
 export type RelayAiVaultServiceApi = {
-  search?(
-    action: 'query' | 'status' | 'configure',
-    params: unknown,
-    signal?: AbortSignal
-  ): Promise<unknown>
+  search(action: SessionSearchOperation, params: unknown, signal?: AbortSignal): Promise<unknown>
   listSessions(params: SshAiVaultRelayListParams, signal?: AbortSignal): Promise<AiVaultListResult>
   resolveSessionTitles(
     requests: AiVaultSessionTitleRequest[],

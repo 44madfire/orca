@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { walkSessionFiles } from './session-scanner-discovery'
+import { forEachSessionFile, walkSessionFiles } from './session-scanner-discovery'
 
 let tempRoot: string | null = null
 
@@ -76,13 +76,14 @@ it('visits file contents before descending further without retaining paths', asy
       a.name.localeCompare(b.name)
     )
   })
-  const retained = await walkSessionFiles(tempRoot, 'claude', [], {
-    extensions: new Set(['.jsonl']),
-    readDirectory,
-    onFile: async (path) => {
+  await forEachSessionFile(
+    tempRoot,
+    'claude',
+    [],
+    { extensions: new Set(['.jsonl']), readDirectory },
+    async (path) => {
       visited.push(path)
     }
-  })
-  expect(retained).toEqual([])
+  )
   expect(visited).toHaveLength(2)
 })

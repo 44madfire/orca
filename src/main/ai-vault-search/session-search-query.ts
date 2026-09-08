@@ -5,12 +5,16 @@ import type {
   AiVaultSearchRoute
 } from '../../shared/ai-vault-search-types'
 import {
-  AI_VAULT_SEARCH_LIMIT_DEFAULT,
-  AI_VAULT_SEARCH_LIMIT_MAX,
   AI_VAULT_SEARCH_SNIPPET_MARK_CLOSE,
   AI_VAULT_SEARCH_SNIPPET_MARK_OPEN
 } from '../../shared/ai-vault-search-types'
-import { sessionFields, type SessionRow } from './session-search-session-row'
+import {
+  rankSessionHits,
+  resolveLimit,
+  sessionFields,
+  type MessageRow,
+  type SessionRow
+} from './session-search-hit-ranking'
 import {
   andExpression,
   orExpression,
@@ -18,7 +22,7 @@ import {
   planSessionSearchQuery,
   type SessionSearchQueryPlan
 } from './session-search-query-planner'
-import { isCollapsibleContentHash } from './session-search-content-hash'
+import { VISIBLE_MESSAGES, VISIBLE_SESSIONS } from './session-search-schema'
 import { SessionSearchTypoRepair } from './session-search-typo-repair'
 import { sessionRowFilter, type SessionRowFilter } from './session-search-row-filter'
 import {
@@ -31,28 +35,11 @@ const FULL_WEIGHTS = '3.0, 2.0, 1.0, 1.0'
 const CONVERSATION_WEIGHTS = '3.0, 2.0'
 // Candidate messages fetched before rolling up to sessions; more does not help.
 const MESSAGE_CANDIDATE_LIMIT = 600
-// Subtracted per session: `0.02 · ln(1 + messages)`; slightly positive on both eval sets.
-const LENGTH_PRIOR = 0.02
 const SNIPPET_TOKENS = 12
 // Why: single brackets are everywhere in code transcripts (`arr[0]`, regex
 // classes, markdown links) and would read as matches; doubled ones are rare.
 const SNIPPET_MARK_OPEN = AI_VAULT_SEARCH_SNIPPET_MARK_OPEN
 const SNIPPET_MARK_CLOSE = AI_VAULT_SEARCH_SNIPPET_MARK_CLOSE
-
-type MessageRow = {
-  rowid: number
-  score: number
-  session_row_id: number
-  role: string
-  ts: string | null
-}
-
-type ScoredSession = {
-  session: SessionRow
-  message: MessageRow
-  score: number
-  duplicateCount: number
-}
 
 /** One search pass: the caller's args plus everything the operators decided. */
 type Retrieval = {
@@ -81,14 +68,8 @@ export class SessionSearchQuery {
     const retrieval: Retrieval = {
       args,
       tier: args.tier ?? 'full',
-      filter: sessionRowFilter(args, split),
+      filter: sessionRowFilter(args, split, cutoffMs),
       text: split.text
-    }
-    if (cutoffMs !== null) {
-      retrieval.filter.conditions.push(
-        'id IN (SELECT session_row_id FROM files WHERE mtime_ms >= ?)'
-      )
-      retrieval.filter.values.push(String(cutoffMs))
     }
     const plan = planSessionSearchQuery(retrieval.text)
     if (plan.terms.length === 0) {
@@ -124,7 +105,7 @@ export class SessionSearchQuery {
     return (
       this.db
         .prepare(
-          `SELECT * FROM sessions ${where} ORDER BY updated_at DESC LIMIT ${resolveLimit(retrieval.args)}`
+          `SELECT * FROM ${VISIBLE_SESSIONS} ${where} ORDER BY updated_at DESC LIMIT ${resolveLimit(retrieval.args)}`
         )
         .all(...values) as SessionRow[]
     ).map((session) => ({
@@ -172,22 +153,21 @@ export class SessionSearchQuery {
   private match(expression: string, retrieval: Retrieval): MessageRow[] {
     const { tier, filter, args } = retrieval
     const eligible = filter.conditions.length
-      ? ` AND m.session_row_id IN (SELECT id FROM sessions WHERE ${filter.conditions.join(' AND ')})`
+      ? ` AND m.session_row_id IN (SELECT id FROM ${VISIBLE_SESSIONS} WHERE ${filter.conditions.join(' AND ')})`
       : ''
     const table = tier === 'full' ? 'messages_fts' : 'conversation_fts'
     const weights = tier === 'full' ? FULL_WEIGHTS : CONVERSATION_WEIGHTS
     const matched = `SELECT ${table}.rowid AS rowid, -bm25(${table}, ${weights}) AS score,
       m.session_row_id, m.role, m.ts, s.updated_at
-      FROM ${table} JOIN messages m ON m.id = ${table}.rowid
-      JOIN sessions s ON s.id = m.session_row_id WHERE ${table} MATCH ?${eligible}
-      AND (m.batch_id IS NULL OR m.batch_id NOT IN (SELECT id FROM search_write_batches WHERE published=0))`
-    // Collapse messages before newest ordering so one long session cannot occupy the whole page.
-    const sql =
-      args.sort === 'newest'
-        ? `WITH matched AS MATERIALIZED (${matched})
-         SELECT rowid, max(score) AS score, session_row_id, role, ts FROM matched
-         GROUP BY session_row_id ORDER BY updated_at DESC, score DESC LIMIT ${MESSAGE_CANDIDATE_LIMIT}`
-        : `${matched} ORDER BY score DESC LIMIT ${MESSAGE_CANDIDATE_LIMIT}`
+      FROM ${table} JOIN ${VISIBLE_MESSAGES} m ON m.id = ${table}.rowid
+      JOIN ${VISIBLE_SESSIONS} s ON s.id = m.session_row_id WHERE ${table} MATCH ?${eligible}`
+    // Why: collapse to one row per session BEFORE the candidate limit, on both
+    // sort orders, so a single long session cannot occupy the whole page.
+    // `max(score)` makes SQLite pick that session's best row for the bare columns.
+    const order = args.sort === 'newest' ? 'updated_at DESC, score DESC' : 'score DESC'
+    const sql = `WITH matched AS MATERIALIZED (${matched})
+      SELECT rowid, max(score) AS score, session_row_id, role, ts FROM matched
+      GROUP BY session_row_id ORDER BY ${order} LIMIT ${MESSAGE_CANDIDATE_LIMIT}`
     return this.db.prepare(sql).all(expression, ...filter.values) as MessageRow[]
   }
 
@@ -196,46 +176,18 @@ export class SessionSearchQuery {
     retrieval: Retrieval,
     plan: SessionSearchQueryPlan
   ): AiVaultSearchHit[] {
-    const best = new Map<number, MessageRow>()
-    for (const row of rows) {
-      const current = best.get(row.session_row_id)
-      if (!current || row.score > current.score) {
-        best.set(row.session_row_id, row)
-      }
-    }
+    // `match` already grouped to one best row per session.
+    const best = new Map(rows.map((row) => [row.session_row_id, row]))
     if (best.size === 0) {
       return []
     }
-    const sessions = this.loadSessions([...best.keys()], retrieval.filter)
-    const scored = collapseForks(
-      sessions.map((session) => {
-        const message = best.get(session.id)!
-        return {
-          session,
-          message,
-          score: message.score - LENGTH_PRIOR * Math.log(1 + session.message_count),
-          duplicateCount: 1
-        }
-      })
-    )
-    scored.sort((left, right) =>
-      retrieval.args.sort === 'newest'
-        ? (right.session.updated_at ?? '').localeCompare(left.session.updated_at ?? '')
-        : right.score - left.score
-    )
     const table = retrieval.tier === 'full' ? 'messages_fts' : 'conversation_fts'
-    return scored
-      .slice(0, resolveLimit(retrieval.args))
-      .map(({ session, message, score, duplicateCount }) => ({
-        ...sessionFields(session),
-        score,
-        ...(duplicateCount > 1 ? { duplicateCount } : {}),
-        evidence: {
-          role: message.role as AiVaultSearchHit['evidence']['role'],
-          timestamp: message.ts,
-          snippet: this.snippet(table, message.rowid, plan)
-        }
-      }))
+    return rankSessionHits(
+      this.loadSessions([...best.keys()], retrieval.filter),
+      best,
+      retrieval.args,
+      (message) => this.snippet(table, message.rowid, plan)
+    )
   }
 
   // Why: the snippet must highlight the terms that actually retrieved the row,
@@ -274,50 +226,7 @@ export class SessionSearchQuery {
   private loadSessions(ids: number[], filter: SessionRowFilter): SessionRow[] {
     const conditions = [`id IN (${ids.map(() => '?').join(',')})`, ...filter.conditions]
     return this.db
-      .prepare(`SELECT * FROM sessions WHERE ${conditions.join(' AND ')}`)
+      .prepare(`SELECT * FROM ${VISIBLE_SESSIONS} WHERE ${conditions.join(' AND ')}`)
       .all(...ids, ...filter.values) as SessionRow[]
   }
-}
-
-// Why: the desktop IPC forwards its payload unvalidated, so a non-positive
-// limit must be clamped here or `LIMIT -1` / `slice(0, -1)` leak through.
-function resolveLimit(args: AiVaultSearchArgs): number {
-  const requested = Number.isInteger(args.limit)
-    ? (args.limit as number)
-    : AI_VAULT_SEARCH_LIMIT_DEFAULT
-  return Math.min(Math.max(1, requested), AI_VAULT_SEARCH_LIMIT_MAX)
-}
-
-/**
- * Folds forked copies of one conversation into a single hit: same opening
- * prefix, newest `updated_at` wins, the rest become `duplicateCount`. Done here
- * and not at write time so index rows stay per file (cursors and deletes).
- */
-function collapseForks(scored: ScoredSession[]): ScoredSession[] {
-  const groups = new Map<string, ScoredSession[]>()
-  for (const entry of scored) {
-    const { content_hash: hash, content_hash_count: count, id } = entry.session
-    const key = isCollapsibleContentHash(hash, count) ? `hash:${hash}` : `session:${id}`
-    const group = groups.get(key)
-    if (group) {
-      group.push(entry)
-    } else {
-      groups.set(key, [entry])
-    }
-  }
-  const collapsed: ScoredSession[] = []
-  for (const group of groups.values()) {
-    if (group.length === 1) {
-      collapsed.push(group[0]!)
-      continue
-    }
-    const winner = group.reduce((best, entry) => (isNewer(entry, best) ? entry : best))
-    collapsed.push({ ...winner, duplicateCount: group.length })
-  }
-  return collapsed
-}
-
-function isNewer(entry: ScoredSession, best: ScoredSession): boolean {
-  const order = (entry.session.updated_at ?? '').localeCompare(best.session.updated_at ?? '')
-  return order === 0 ? entry.score > best.score : order > 0
 }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as transcriptFs from '../native-chat/wsl-transcript-fs-access'
 import { SessionSearchStore } from './session-search-store'
-import { stagedWriteUpdate } from './session-search-staged-write-fixtures'
+import { stagedWriteUpdate } from './session-search-staged-write-test-fixture'
 import { searchPresentSessionSources } from './session-search-source-presence'
 import type { AiVaultSearchArgs, AiVaultSearchResult } from '../../shared/ai-vault-search-types'
 
@@ -49,7 +49,7 @@ it('refills a deleted top hit in the first query with a real index', async () =>
   expect(result.omittedHits).toBeUndefined()
 })
 
-it('refills past an unreadable top hit without deleting it or recounting it', async () => {
+it('keeps an unreadable top hit instead of refilling past it or deleting it', async () => {
   const { store, search, invalidate } = await fixture()
   const args = { query: 'refillneedle', limit: 1 }
   const top = store.search(args).hits[0]
@@ -63,15 +63,15 @@ it('refills past an unreadable top hit without deleting it or recounting it', as
       return stat(path, priority, signal)
     })
   const result = await searchPresentSessionSources(args, search, invalidate)
-  expect(result.hits).toHaveLength(1)
-  expect(result.hits[0].filePath).not.toBe(top.filePath)
+  // Loss of contact is not evidence of absence: the hit stays, flagged.
+  expect(result.hits.map((hit) => hit.filePath)).toEqual([top.filePath])
   expect(result.sourceUnavailableFiles).toBe(1)
   expect(invalidate).not.toHaveBeenCalled()
   expect(store.search({ query: 'refillneedle' }).hits).toHaveLength(2)
   expect(probe.mock.calls.filter(([path]) => path === top.filePath)).toHaveLength(1)
 })
 
-it('bounds refill and reports omissions when unavailable hits consume the budget', async () => {
+it('bounds refill and reports omissions when deleted hits consume the budget', async () => {
   const { store } = await fixture()
   const base = store.search({ query: 'refillneedle' })
   const source = base.hits[0]
@@ -80,7 +80,7 @@ it('bounds refill and reports omissions when unavailable hits consume the budget
     filePath: join(source.filePath, String(i))
   }))
   vi.spyOn(transcriptFs, 'wslGatedStat').mockRejectedValue(
-    Object.assign(new Error('denied'), { code: 'EACCES' })
+    Object.assign(new Error('gone'), { code: 'ENOENT' })
   )
   const search = vi.fn((args: AiVaultSearchArgs) => ({ ...base, hits: hits.slice(0, args.limit) }))
   const invalidate = vi.fn()
@@ -91,8 +91,9 @@ it('bounds refill and reports omissions when unavailable hits consume the budget
   )
   expect(search).toHaveBeenCalledTimes(4)
   expect(search.mock.calls.map(([args]) => args.limit)).toEqual([1, 2, 4, 8])
-  expect(result).toMatchObject({ hits: [], omittedHits: 8, sourceUnavailableFiles: 8 })
-  expect(invalidate).not.toHaveBeenCalled()
+  expect(result).toMatchObject({ hits: [], omittedHits: 8 })
+  expect(result.sourceUnavailableFiles).toBeUndefined()
+  expect(invalidate).toHaveBeenCalled()
 })
 
 it('does not invalidate a WSL source when its share reports ENOENT', async () => {
@@ -106,7 +107,7 @@ it('does not invalidate a WSL source when its share reports ENOENT', async () =>
   const invalidate = vi.fn()
   expect(
     await searchPresentSessionSources({ query: 'refillneedle' }, () => result, invalidate)
-  ).toMatchObject({ hits: [], sourceUnavailableFiles: 1 })
+  ).toMatchObject({ hits: [{ filePath }], sourceUnavailableFiles: 1 })
   expect(invalidate).not.toHaveBeenCalled()
 })
 

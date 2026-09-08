@@ -35,8 +35,16 @@ import {
   SessionSearchQuerySchema,
   type SessionSearchConfigure
 } from '../../shared/ai-vault-search-contract'
+import {
+  SESSION_SEARCH_METHODS,
+  type SessionSearchOperation
+} from '../../shared/ai-vault-search-rpc-methods'
 
 export type AiVaultSessionSearchConfigureArgs = SessionSearchConfigure
+
+// Why: `reason` is optional on the wire type, so a host that omits it must not
+// surface an `undefined` message.
+const SEARCH_UNAVAILABLE_MESSAGE = 'Session search is unavailable on this host.'
 
 export class RuntimeAiVaultCommands {
   constructor(
@@ -54,15 +62,18 @@ export class RuntimeAiVaultCommands {
 
   search(args: AiVaultSearchArgs, signal?: AbortSignal): Promise<AiVaultSearchResult> {
     const status = this.searchIndexStatus()
-    if (status.available === false || status.applied === false) {
-      throw new Error(status.reason)
+    // Why: an in-flight policy apply leaves `applied` false while the existing
+    // index is still valid; refusing there would fail every query issued during
+    // a settings write. `searchIndexStatus` remains the channel for that.
+    if (status.available === false) {
+      throw new Error(status.reason ?? SEARCH_UNAVAILABLE_MESSAGE)
     }
     return searchAiVaultSessions(args, { signal }).then(projectSessionSearchResult)
   }
 
   async sshSearch(
     targetId: string,
-    operation: 'query' | 'status' | 'configure',
+    operation: SessionSearchOperation,
     args: unknown,
     signal?: AbortSignal
   ): Promise<unknown> {
@@ -77,11 +88,10 @@ export class RuntimeAiVaultCommands {
           ? SessionSearchConfigureSchema.parse(args)
           : {}
     try {
-      return await provider.requestHostRpc(
-        `aiVault.search${{ query: 'Sessions', status: 'IndexStatus', configure: 'Configure' }[operation]}`,
-        params,
-        { signal, timeoutMs: 15_000 }
-      )
+      return await provider.requestHostRpc(SESSION_SEARCH_METHODS[operation].relay, params, {
+        signal,
+        timeoutMs: 15_000
+      })
     } catch (error) {
       if (
         operation === 'status' &&
@@ -129,7 +139,7 @@ export class RuntimeAiVaultCommands {
     }
     const status = this.searchIndexStatus()
     if (status.available === false) {
-      throw new Error(status.reason)
+      throw new Error(status.reason ?? SEARCH_UNAVAILABLE_MESSAGE)
     }
     const current = resolveAiVaultSearchSettings(store.getSettings())
     const next = {

@@ -19,6 +19,7 @@ import {
   mergeAiVaultListResults
 } from '../ai-vault/session-list-results'
 import type { AiVaultSearchArgs } from '../../shared/ai-vault-search-types'
+import { projectSessionSearchResult } from '../../shared/ai-vault-search-projection'
 import { scanSshAiVaultSessions } from '../ai-vault/ssh-session-list'
 import { AiVaultScanCoordinator } from '../ai-vault/ai-vault-scan-coordinator'
 import type { AiVaultDeleteSessionArgs } from '../../shared/ai-vault-session-deletion'
@@ -260,9 +261,10 @@ export function registerAiVaultHandlers(options: AiVaultHandlerOptions = {}): vo
     }
   })
   // Local-only: the search index is built beside the transcripts on this host,
-  // so a remote scope has nothing to consult here.
+  // so a remote scope has nothing to consult here. Projected all the same, so the
+  // renderer sees one result shape whether the host is local or remote.
   ipcMain.handle('aiVault:searchSessions', (_event, args: AiVaultSearchArgs) =>
-    searchAiVaultSessions(args)
+    searchAiVaultSessions(args).then(projectSessionSearchResult)
   )
   ipcMain.handle('aiVault:searchCoverage', () => readAiVaultSearchCoverage())
   ipcMain.handle('aiVault:searchIndexSize', () => ({

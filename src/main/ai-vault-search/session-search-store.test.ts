@@ -7,6 +7,7 @@ import {
   registerSessionSearchIndexSink,
   withSessionSearchIndexRequired
 } from '../ai-vault/session-search-capture'
+import SyncDatabase from '../sqlite/sync-database'
 import { SessionSearchStore } from './session-search-store'
 import {
   assistantRecord,
@@ -16,11 +17,13 @@ import {
 } from './session-search-transcript-fixtures'
 let tempRoots: string[] = []
 let store: SessionSearchStore
+let databasePath: string
 
 beforeEach(async () => {
   resetSessionParseCacheForTests()
   const root = await makeTempDir()
-  store = new SessionSearchStore(join(root, 'index.sqlite'), (error) => {
+  databasePath = join(root, 'index.sqlite')
+  store = new SessionSearchStore(databasePath, (error) => {
     throw error
   })
   registerSessionSearchIndexSink(store)
@@ -279,14 +282,19 @@ describe('SessionSearchStore', () => {
       await writeFile(path, `${userRecord(0, `padding ${filler}`, id)}\n`)
       await parse(path)
     }
-    const pageCount = (): number => Number(store.db.pragma('page_count', { simple: true }))
-    const before = pageCount()
+    const reader = new SyncDatabase(databasePath, { readonly: true })
+    try {
+      const pageCount = (): number => Number(reader.pragma('page_count', { simple: true }))
+      const before = pageCount()
 
-    await store.purgeOlderThan(Date.now() + 60_000)
+      await store.purgeOlderThan(Date.now() + 60_000)
 
-    expect(store.coverage().sessionsIndexed).toBe(0)
-    expect(Number(store.db.pragma('freelist_count', { simple: true }))).toBe(0)
-    expect(pageCount()).toBeLessThan(before)
+      expect(store.coverage().sessionsIndexed).toBe(0)
+      expect(Number(reader.pragma('freelist_count', { simple: true }))).toBe(0)
+      expect(pageCount()).toBeLessThan(before)
+    } finally {
+      reader.close()
+    }
   })
 
   it('warms once and survives a close mid-way', async () => {

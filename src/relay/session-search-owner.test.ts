@@ -136,3 +136,57 @@ it('retains an initialization failure in status until successful recovery', asyn
     applied: true
   })
 })
+
+it('keeps its lease through an invalid query instead of dropping the lock', async () => {
+  const { make } = await fixture()
+  const first = make()
+  const second = make()
+  await first.request('configure', { enabled: true, paused: true })
+
+  await expect(first.request('query', { query: '   ' })).rejects.toThrow()
+
+  await expect(second.request('configure', { enabled: false })).rejects.toThrow('in use')
+  expect(await first.request('status', {})).toMatchObject({ enabled: true, applied: true })
+})
+
+it('still answers index-status for a policy it cannot vouch for, and a clear recovers it', async () => {
+  const { directory, make } = await fixture()
+  const first = make()
+  await first.request('configure', { enabled: true })
+  await first.close()
+  await writeFile(
+    join(directory, 'policy.json'),
+    JSON.stringify({
+      home: '/somewhere/else',
+      version: 1,
+      policy: { enabled: true, historyDays: null }
+    })
+  )
+  const replacement = make()
+
+  expect(await replacement.request('status', {})).toMatchObject({
+    available: true,
+    applied: false,
+    reason: expect.stringContaining('must be reviewed')
+  })
+  await expect(replacement.request('query', { query: 'needle' })).rejects.toThrow(
+    'must be reviewed'
+  )
+  expect(
+    await replacement.request('configure', { enabled: false, clearIndex: true })
+  ).toMatchObject({ enabled: false, applied: true })
+})
+
+it('records consent durably even when applying it to the index fails', async () => {
+  const { directory, make } = await fixture()
+  const first = make()
+  await first.request('configure', { enabled: false })
+  await first.close()
+  await writeFile(join(directory, 'index.sqlite'), 'not a SQLite database')
+  const replacement = make()
+
+  await expect(replacement.request('configure', { enabled: true })).rejects.toThrow()
+  await replacement.close()
+
+  expect(await make().request('status', {})).toMatchObject({ enabled: true })
+})

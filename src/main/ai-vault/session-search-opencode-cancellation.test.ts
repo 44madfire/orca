@@ -34,7 +34,7 @@ it('cancels a queued parse without terminating the ordinary list ahead of it', a
   expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
   worker.emit('message', {
     id: worker.requests[0].id,
-    ok: true,
+    kind: 'result',
     value: { candidates: [], issues: [] }
   })
   expect(await list).toEqual([])
@@ -63,9 +63,9 @@ it('cancels during backpressure without a late ack and allows the queued list to
   const list = client.list({ dbPaths: [args.dbPath], limit: 10, issues: [] })
   workers[0].emit('message', {
     id: workers[0].requests[0].id,
-    ok: true,
-    captureBatch: 1,
-    value: []
+    kind: 'batch',
+    batch: 1,
+    messages: []
   })
   expect(checkpoint).toHaveBeenCalledOnce()
   controller.abort()
@@ -78,7 +78,7 @@ it('cancels during backpressure without a late ack and allows the queued list to
   expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
   workers[1].emit('message', {
     id: workers[1].requests[0].id,
-    ok: true,
+    kind: 'result',
     value: { candidates: [], issues: [] }
   })
   expect(await list).toEqual([])
@@ -90,7 +90,7 @@ it('removes the cancellation listener after success and rejects pre-aborted work
   const client = new OpenCodeSqliteWorkerClient({ workerFactory: factory })
   const controller = new AbortController()
   const parsed = withSessionSearchIndexRequired(() => client.parse(args), controller.signal)
-  worker.emit('message', { id: worker.requests[0].id, ok: true, value: { session: null } })
+  worker.emit('message', { id: worker.requests[0].id, kind: 'result', value: { session: null } })
   expect(await parsed).toBeNull()
   expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
   controller.abort()
@@ -126,7 +126,6 @@ it('unblocks a local capture checkpoint on abort while an ordinary list still co
     previousByteOffset: 0
   }
   const sink = {
-    streamingCapture: true,
     indexedFile: () => null,
     markStale() {},
     async apply() {

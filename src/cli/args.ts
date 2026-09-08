@@ -5,7 +5,8 @@ import {
   CLI_BOOLEAN_FLAGS,
   CLI_GLOBAL_FLAGS,
   CLI_GLOBAL_VALUE_FLAGS,
-  findCliCommandIndex
+  findCliCommandIndex,
+  findCliCommandPathAt
 } from '../shared/cli-argument-boundary'
 
 export { specPaths }
@@ -28,23 +29,60 @@ function setFlagValue(
   flags: Map<string, string | boolean>,
   name: string,
   value: string,
-  search = false
+  repeatable: ReadonlySet<string>
 ): void {
   const existing = flags.get(name)
-  if (
-    typeof existing === 'string' &&
-    (REPEATABLE_STRING_FLAGS.has(name) || (search && (name === 'agent' || name === 'path')))
-  ) {
+  if (typeof existing === 'string' && repeatable.has(name)) {
     flags.set(name, `${existing}${REPEATED_FLAG_SEPARATOR}${value}`)
     return
   }
   flags.set(name, value)
 }
 
-export function parseArgs(argv: string[], commandPaths?: readonly string[][]): ParsedArgs {
+/** The most specific spec whose path prefixes `path`, so a group never shadows a leaf. */
+function specForPathPrefix(
+  specs: readonly CommandSpec[],
+  path: readonly string[]
+): CommandSpec | undefined {
+  let best: { spec: CommandSpec; length: number } | undefined
+  for (const spec of specs) {
+    for (const candidate of specPaths(spec)) {
+      if (
+        candidate.length <= path.length &&
+        candidate.every((part, index) => part === path[index]) &&
+        (!best || candidate.length > best.length)
+      ) {
+        best = { spec, length: candidate.length }
+      }
+    }
+  }
+  return best?.spec
+}
+
+export function parseArgs(
+  argv: string[],
+  commandPaths?: readonly string[][],
+  specs: readonly CommandSpec[] = []
+): ParsedArgs {
   const commandPath: string[] = []
   const flags = new Map<string, string | boolean>()
-  const commandIndex = findCliCommandIndex(argv, commandPaths ?? [])
+  const paths = commandPaths ?? []
+  // Why: the boundary scan and the flag reader must agree on which flags take no
+  // value, so both read the global set widened by every spec's own vocabulary.
+  const allBooleanFlags = new Set([
+    ...BOOLEAN_FLAGS,
+    ...specs.flatMap((spec) => spec.booleanFlags ?? [])
+  ])
+  const commandIndex = findCliCommandIndex(argv, paths, [], allBooleanFlags)
+  const pinned =
+    commandIndex === -1 ? null : findCliCommandPathAt(argv, paths, commandIndex, allBooleanFlags)
+  // Resolved lazily: without a registry the command is only known once its
+  // leading tokens have been read.
+  const activeSpec = (): CommandSpec | undefined => specForPathPrefix(specs, pinned ?? commandPath)
+  const repeatableFlags = (): ReadonlySet<string> => {
+    const scoped = activeSpec()?.repeatableFlags
+    return scoped ? new Set([...REPEATABLE_STRING_FLAGS, ...scoped]) : REPEATABLE_STRING_FLAGS
+  }
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i]
@@ -63,19 +101,13 @@ export function parseArgs(argv: string[], commandPaths?: readonly string[][]): P
         flags,
         assignment.slice(0, equalsIndex),
         assignment.slice(equalsIndex + 1),
-        (argv[commandIndex] ?? commandPath[0]) === 'search'
+        repeatableFlags()
       )
       continue
     }
 
     const flag = assignment
-    if (
-      BOOLEAN_FLAGS.has(flag) ||
-      ((argv[commandIndex] ?? commandPath[0]) === 'search' &&
-        ['enable', 'disable', 'clear-index', 'index-status', 'pause', 'resume-indexing'].includes(
-          flag
-        ))
-    ) {
+    if (BOOLEAN_FLAGS.has(flag) || (activeSpec()?.booleanFlags?.includes(flag) ?? false)) {
       flags.set(flag, true)
       continue
     }
@@ -90,7 +122,7 @@ export function parseArgs(argv: string[], commandPaths?: readonly string[][]): P
       flags.set(flag, true)
       continue
     }
-    setFlagValue(flags, flag, next, (argv[commandIndex] ?? commandPath[0]) === 'search')
+    setFlagValue(flags, flag, next, repeatableFlags())
     i += 1
   }
 

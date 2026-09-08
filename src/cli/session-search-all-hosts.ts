@@ -137,29 +137,25 @@ export async function searchAllHosts(
         message: 'Overall search deadline exceeded.'
       }
     }
-    const controller = new AbortController()
-    const timer = setTimeout(
-      () => controller.abort(new Error('Search host deadline exceeded.')),
-      Math.min(SEARCH_HOST_TIMEOUT_MS, deadline - Date.now())
+    // Why: querySearchHost owns the per-host deadline; arming a second one here
+    // produced two timers and two error messages for one call.
+    const result = await querySearchHost(
+      host,
+      command,
+      true,
+      signal,
+      Math.min(deadline, Date.now() + SEARCH_HOST_TIMEOUT_MS)
     )
-    const abort = (): void => controller.abort(signal.reason)
-    signal.addEventListener('abort', abort, { once: true })
-    try {
-      const result = await querySearchHost(host, command, true, controller.signal)
-      const bytes = Buffer.byteLength(JSON.stringify(result))
-      if (bytes > bytesRemaining) {
-        return {
-          host: result.host,
-          outcome: 'omitted',
-          message: 'Aggregate response limit reached.'
-        }
+    const bytes = Buffer.byteLength(JSON.stringify(result))
+    if (bytes > bytesRemaining) {
+      return {
+        host: result.host,
+        outcome: 'omitted',
+        message: 'Aggregate response limit reached.'
       }
-      bytesRemaining -= bytes
-      return result
-    } finally {
-      clearTimeout(timer)
-      signal.removeEventListener('abort', abort)
     }
+    bytesRemaining -= bytes
+    return result
   })
   const combined = [...results, ...skipped]
   if (

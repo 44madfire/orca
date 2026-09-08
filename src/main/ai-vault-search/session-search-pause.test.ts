@@ -36,7 +36,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  service.dispose()
+  await service.close()
   await rm(root, { recursive: true, force: true })
 })
 
@@ -65,7 +65,7 @@ it('pauses ordinary scanner writes and query refreshes, then catches up without 
 it('keeps pause across a scanner restart and preserves saved results', async () => {
   await service.ensureBackfill(roots)
   await service.configure({ ...enabled, paused: true }, roots)
-  service.dispose()
+  await service.close()
   service = new SessionSearchService({ databasePath, ...enabled, paused: true })
   await appendFile(file, `${userRecord(1, 'restartneedle')}\n`)
   await service.ensureBackfill(roots)
@@ -94,7 +94,7 @@ it('clear while paused stays paused; disabling closes the sink and retains the p
 
 it('an interrupted write cannot be revived by a quick resume', async () => {
   const { SessionSearchStore } = await import('./session-search-store')
-  const { stagedWriteUpdate } = await import('./session-search-staged-write-fixtures')
+  const { stagedWriteUpdate } = await import('./session-search-staged-write-test-fixture')
   const store = getSessionSearchIndexSink() as InstanceType<typeof SessionSearchStore>
   await store.apply(stagedWriteUpdate('savedneedle', 1))
   let entered!: () => void

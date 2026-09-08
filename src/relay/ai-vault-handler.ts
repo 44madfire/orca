@@ -18,6 +18,10 @@ import { parseUnameToRelayPlatform } from '../main/ssh/relay-protocol'
 import { relayLogLine } from './relay-diagnostic-log'
 import type { RelayDispatcher } from './dispatcher'
 import { AiVaultScanCoordinator } from '../main/ai-vault/ai-vault-scan-coordinator'
+import {
+  SESSION_SEARCH_METHODS,
+  SESSION_SEARCH_OPERATIONS
+} from '../shared/ai-vault-search-rpc-methods'
 import type { RelayAiVaultServiceApi } from './ai-vault-service-client-state'
 
 type AiVaultHandlerOptions = {
@@ -55,16 +59,10 @@ export class AiVaultHandler {
     dispatcher.onRequest(SSH_AI_VAULT_RESOLVE_SESSION_TITLES_METHOD, (params, context) =>
       this.resolveSessionTitles(service, params, context.signal)
     )
-    if (service.search) {
-      for (const [suffix, action] of [
-        ['Sessions', 'query'],
-        ['IndexStatus', 'status'],
-        ['Configure', 'configure']
-      ] as const) {
-        dispatcher.onRequest(`aiVault.search${suffix}`, (params, context) =>
-          service.search!(action, params, context.signal)
-        )
-      }
+    for (const operation of SESSION_SEARCH_OPERATIONS) {
+      dispatcher.onRequest(SESSION_SEARCH_METHODS[operation].relay, (params, context) =>
+        service.search(operation, params, context.signal)
+      )
     }
   }
 

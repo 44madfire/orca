@@ -3,7 +3,6 @@ import type { AiVaultSession } from '../../shared/ai-vault-types'
 import type { SessionSearchIndexSink, SessionSearchIndexUpdate } from './session-search-capture'
 import {
   getSessionSearchCaptureSignal,
-  withSessionSearchCapture,
   withStreamingSessionSearchCapture
 } from './session-search-capture'
 import { SessionSearchMessageChannel } from './session-search-message-channel'
@@ -22,17 +21,6 @@ export async function captureIndexedSessionParse<T>(
     const result = await parse()
     throwIfAiVaultScanCancelled(signal)
     return result
-  }
-  if (!sink.streamingCapture) {
-    const captured = await withSessionSearchCapture(read)
-    await sink.apply({
-      ...base,
-      signal,
-      session: captured.value.session,
-      byteOffset: captured.value.byteOffset,
-      messages: captured.messages
-    })
-    return captured.value.value
   }
   const channel = new SessionSearchMessageChannel()
   const stop = (): void => channel.stop()

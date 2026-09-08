@@ -1,23 +1,43 @@
-import { SessionSearchResultSchema } from './ai-vault-search-contract'
+import { SessionSearchHitSchema, SessionSearchResultSchema } from './ai-vault-search-contract'
 import type { AiVaultSearchResult } from './ai-vault-search-types'
+import {
+  AI_VAULT_SEARCH_LIMIT_MAX,
+  AI_VAULT_SEARCH_SNIPPET_MARK_CLOSE,
+  AI_VAULT_SEARCH_SNIPPET_MARK_OPEN
+} from './ai-vault-search-types'
+
+const MAX_SNIPPET_BYTES = 4096
+const MAX_RESPONSE_BYTES = 512 * 1024
+// Metadata alone (coverage, counters) must leave room for at least some hits.
+const MAX_METADATA_BYTES = 64 * 1024
+// The `{"hits":[ ... ]}` framing the per-hit sizes below do not include.
+const RESPONSE_ENVELOPE_BYTES = 256
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
 function snippet(text: string): string {
   const bytes = encoder.encode(text)
-  if (bytes.length <= 4096) {
+  if (bytes.length <= MAX_SNIPPET_BYTES) {
     return text
   }
-  let end = 4096
+  let end = MAX_SNIPPET_BYTES
   while (end > 0) {
     try {
-      return decoder.decode(bytes.subarray(0, end))
+      return balanceMarks(decoder.decode(bytes.subarray(0, end)))
     } catch {
       end--
     }
   }
   return ''
+}
+
+/** A cut between `[[` and `]]` hands the renderer a mark it can never close. */
+function balanceMarks(text: string): string {
+  const opened = text.lastIndexOf(AI_VAULT_SEARCH_SNIPPET_MARK_OPEN)
+  return opened !== -1 && !text.includes(AI_VAULT_SEARCH_SNIPPET_MARK_CLOSE, opened)
+    ? text.slice(0, opened)
+    : text
 }
 
 /** Bound before every host transport; never shorten session identities or resume paths. */
@@ -26,8 +46,8 @@ export function projectSessionSearchResult(result: AiVaultSearchResult): AiVault
   const hits: AiVaultSearchResult['hits'] = []
   let truncatedSnippets = result.truncatedSnippets ?? 0
   let omittedHits = result.omittedHits ?? 0
-  let bytes = encoder.encode(JSON.stringify(metadata)).length + 256
-  if (bytes > 64 * 1024) {
+  let bytes = encoder.encode(JSON.stringify(metadata)).length + RESPONSE_ENVELOPE_BYTES
+  if (bytes > MAX_METADATA_BYTES) {
     throw new Error('Search metadata exceeds the response limit.')
   }
   for (const hit of result.hits) {
@@ -35,9 +55,9 @@ export function projectSessionSearchResult(result: AiVaultSearchResult): AiVault
     const projected = { ...hit, evidence: { ...hit.evidence, snippet: text } }
     const size = encoder.encode(JSON.stringify(projected)).length + 1
     if (
-      hits.length >= 100 ||
-      bytes + size > 512 * 1024 ||
-      !SessionSearchResultSchema.shape.hits.element.safeParse(projected).success
+      hits.length >= AI_VAULT_SEARCH_LIMIT_MAX ||
+      bytes + size > MAX_RESPONSE_BYTES ||
+      !SessionSearchHitSchema.safeParse(projected).success
     ) {
       omittedHits++
       continue

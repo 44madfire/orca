@@ -2,7 +2,9 @@ import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
+import SyncDatabase from '../sqlite/sync-database'
 import { SessionSearchStore } from './session-search-store'
+import { openSessionSearchDatabase } from './session-search-schema'
 import { parseSearchCandidates } from './session-search-parse-candidates'
 import {
   userRecord,
@@ -23,10 +25,20 @@ import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
 
 vi.mock('./session-search-backfill-pacing', () => ({ pauseBackfill: async () => {} }))
 let directory: string | undefined
+let databasePath = ''
 let store: SessionSearchStore | undefined
+let reader: SyncDatabase | undefined
+
+/** The store keeps its connection private; row assertions read the same file separately. */
+function rows(sql: string, ...values: unknown[]): unknown[] {
+  reader ??= new SyncDatabase(databasePath, { readonly: true })
+  return reader.prepare(sql).all(...(values as never[]))
+}
 
 afterEach(async () => {
   registerSessionSearchIndexSink(null)
+  reader?.close()
+  reader = undefined
   store?.close()
   resetSessionParseCacheForTests()
   resetCodexSessionIndexTitleCacheForTests()
@@ -43,7 +55,7 @@ async function fixture() {
     `${userRecord(0, 'ordinary title')}\n${assistantRecord(1, 'durableneedle')}\n`
   )
   const candidate = await candidateAt(path)
-  const databasePath = join(directory, 'index.sqlite')
+  databasePath = join(directory, 'index.sqlite')
   store = new SessionSearchStore(databasePath)
   registerSessionSearchIndexSink(store)
   await parseSearchCandidates(store, [candidate])
@@ -73,14 +85,11 @@ async function candidateAt(path: string): Promise<SessionFileCandidate> {
 it('reuses an unchanged reopened index without a preview cache or replacement write', async () => {
   const { candidate, store } = await fixture()
   const apply = vi.spyOn(store, 'apply')
-  const before = store.db
-    .prepare('SELECT session_row_id FROM files WHERE path=?')
-    .get(candidate.file.path)
+  const fileRow = 'SELECT session_row_id FROM files WHERE path=?'
+  const before = rows(fileRow, candidate.file.path)
   await parseSearchCandidates(store, [candidate])
   expect(apply).not.toHaveBeenCalled()
-  expect(
-    store.db.prepare('SELECT session_row_id FROM files WHERE path=?').get(candidate.file.path)
-  ).toEqual(before)
+  expect(rows(fileRow, candidate.file.path)).toEqual(before)
   expect(store.search({ query: 'durableneedle' }).hits).toHaveLength(1)
   // Listing still needs its preview, even when backfill can reuse the index.
   expect(
@@ -102,7 +111,10 @@ it('does not skip a changed or atomically replaced transcript', async () => {
 })
 
 it('keeps durable reuse beyond the 4096-entry preview cache', async () => {
-  store = new SessionSearchStore(':memory:')
+  directory = await mkdtemp(join(tmpdir(), 'search-durable-cache-'))
+  databasePath = join(directory, 'index.sqlite')
+  const seedConnection = openSessionSearchDatabase(databasePath)
+  store = new SessionSearchStore(databasePath)
   registerSessionSearchIndexSink(store)
   const now = Date.now()
   const candidates: SessionFileCandidate[] = Array.from({ length: 4097 }, (_, i) => ({
@@ -117,14 +129,15 @@ it('keeps durable reuse beyond the 4096-entry preview cache', async () => {
       ino: i + 1
     }
   }))
-  store.db.exec('BEGIN')
-  const insert = store.db.prepare(
+  seedConnection.exec('BEGIN')
+  const insert = seedConnection.prepare(
     'INSERT INTO files(path,dev,ino,mtime_ms,size_bytes,byte_offset) VALUES(?,?,?,?,?,?)'
   )
   for (const { file } of candidates) {
     insert.run(file.path, file.dev!, file.ino!, now, 1, 1)
   }
-  store.db.exec('COMMIT')
+  seedConnection.exec('COMMIT')
+  seedConnection.close()
   seedSessionParseCache(
     candidates.map(({ file }) => [
       file.path,
@@ -142,11 +155,14 @@ it('refreshes external Codex titles on cold reuse without replacing transcript r
   const path = join(directory, CODEX_ROLLOUT_FILE)
   await writeFile(path, `${codexRolloutLines(['echo'], 'output', 'titleneedle').join('\n')}\n`)
   const candidate = await sessionCandidate('codex', path, directory)
-  const databasePath = join(directory, 'index.sqlite')
+  databasePath = join(directory, 'index.sqlite')
   store = new SessionSearchStore(databasePath)
   registerSessionSearchIndexSink(store)
   await parseSearchCandidates(store, [candidate])
-  const before = store.db.prepare('SELECT id FROM sessions WHERE index_ready = 1').all()
+  const readyRows = 'SELECT id FROM sessions WHERE index_ready = 1'
+  const before = rows(readyRows)
+  reader?.close()
+  reader = undefined
   store.close()
   resetSessionParseCacheForTests()
   resetCodexSessionIndexTitleCacheForTests()
@@ -163,5 +179,5 @@ it('refreshes external Codex titles on cold reuse without replacing transcript r
   await parseSearchCandidates(store, [candidate])
   expect(store.search({ query: 'titleneedle' }).hits[0].title).toBe('Renamed durable title')
   expect(apply).not.toHaveBeenCalled()
-  expect(store.db.prepare('SELECT id FROM sessions WHERE index_ready = 1').all()).toEqual(before)
+  expect(rows(readyRows)).toEqual(before)
 })

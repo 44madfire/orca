@@ -6,13 +6,17 @@ import {
 import { captureIndexedSessionParse } from '../ai-vault/session-search-indexed-parse'
 import { SessionSearchIndexWriter } from './session-search-index-writer'
 import { SessionSearchStore } from './session-search-store'
-import { stagedWriteUpdate } from './session-search-staged-write-fixtures'
+import {
+  openSessionSearchIndexFile,
+  stagedWriteUpdate
+} from './session-search-staged-write-test-fixture'
 
 it.each(['publish', 'reject', 'throw', 'cancel'] as const)(
   'streams capture with atomic %s',
   async (outcome) => {
-    const store = new SessionSearchStore(':memory:')
-    const writer = new SessionSearchIndexWriter(store.db)
+    const index = await openSessionSearchIndexFile('ss-streaming')
+    const store = new SessionSearchStore(index.path)
+    const writer = new SessionSearchIndexWriter(index.db)
     const original = stagedWriteUpdate('oldneedle', 1)
     const replacement = stagedWriteUpdate('newneedle', 600)
     let active = true
@@ -20,16 +24,10 @@ it.each(['publish', 'reject', 'throw', 'cancel'] as const)(
       await writer.apply(original)
       const parse = captureIndexedSessionParse(
         {
-          streamingCapture: true,
           indexedFile: () => null,
           markStale: () => {},
           apply: async (update) => {
-            await writer.apply(
-              update,
-              () => active,
-              undefined,
-              () => true
-            )
+            await writer.apply(update, { active: () => active, available: () => true })
           }
         },
         replacement,
@@ -40,7 +38,7 @@ it.each(['publish', 'reject', 'throw', 'cancel'] as const)(
             if (i === 400) {
               expect(
                 Number(
-                  (store.db.prepare('SELECT count(*) AS n FROM messages').get() as { n: number }).n
+                  (index.db.prepare('SELECT count(*) AS n FROM messages').get() as { n: number }).n
                 )
               ).toBeGreaterThan(128)
               expect(store.search({ query: 'newneedle' }).hits).toHaveLength(0)
@@ -76,18 +74,18 @@ it.each(['publish', 'reject', 'throw', 'cancel'] as const)(
         expect(store.search({ query: 'newneedle' }).hits[0].title).toBe('newneedle')
       }
       await store.purgeOlderThan(null)
-      expect(
-        store.db.prepare('SELECT id FROM search_write_batches WHERE published=0').all()
-      ).toHaveLength(0)
+      expect(index.db.prepare('SELECT id FROM search_write_batches').all()).toHaveLength(0)
     } finally {
       store.close()
+      await index.close()
     }
   }
 )
 
 it('waits for final metadata after the last message without mutating the write', async () => {
-  const store = new SessionSearchStore(':memory:')
-  const writer = new SessionSearchIndexWriter(store.db)
+  const index = await openSessionSearchIndexFile('ss-streaming-final')
+  const store = new SessionSearchStore(index.path)
+  const writer = new SessionSearchIndexWriter(index.db)
   const replacement = stagedWriteUpdate('finaltitle', 1)
   const { promise: result, resolve } = Promise.withResolvers<{
     session: typeof replacement.session
@@ -117,5 +115,6 @@ it('waits for final metadata after the last message without mutating the write',
   } finally {
     resolve({ session: null, byteOffset: 0 })
     store.close()
+    await index.close()
   }
 })

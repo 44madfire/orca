@@ -1,14 +1,19 @@
 import { rmSync } from 'node:fs'
 import SyncDatabase from '../sqlite/sync-database'
+import { transientLockRemovalOptions } from '../../shared/windows-transient-lock-removal'
 
 // Bump to drop and rebuild: the index is a cache over the transcripts, never a source.
-export const SESSION_SEARCH_SCHEMA_VERSION = 9
+export const SESSION_SEARCH_SCHEMA_VERSION = 10
 
 // unicode61 keeps `_ . - /` inside tokens so paths and identifiers match exactly;
 // the `identifiers` column carries the split form (see session-search-identifier-split).
 // Why: `+` keeps `C++` a token of its own instead of the letter `c`; `#` is
 // left out so `#123` still answers a search for `123`.
 const TOKENIZER = `tokenize="unicode61 tokenchars '_.-/+'"`
+
+/** Sessions and messages a read may return: published, not tombstoned. */
+export const VISIBLE_SESSIONS = 'visible_sessions'
+export const VISIBLE_MESSAGES = 'visible_messages'
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -35,6 +40,7 @@ CREATE TABLE IF NOT EXISTS sessions(
 CREATE INDEX IF NOT EXISTS sessions_agent ON sessions(agent);
 CREATE INDEX IF NOT EXISTS sessions_content_hash ON sessions(content_hash);
 CREATE INDEX IF NOT EXISTS sessions_updated_at ON sessions(updated_at);
+CREATE INDEX IF NOT EXISTS sessions_cwd_key ON sessions(cwd_key);
 CREATE TABLE IF NOT EXISTS files(
   path TEXT PRIMARY KEY,
   dev INTEGER,
@@ -49,13 +55,12 @@ CREATE TABLE IF NOT EXISTS search_pending_deletes(
   session_row_id INTEGER NOT NULL,
   batch_id INTEGER
 );
+-- A row exists only while its batch is in flight; publish clears its messages and deletes it.
 CREATE TABLE IF NOT EXISTS search_write_batches(
   id INTEGER PRIMARY KEY,
-  session_row_id INTEGER NOT NULL,
-  published INTEGER NOT NULL DEFAULT 0
+  session_row_id INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS search_write_batches_session ON search_write_batches(session_row_id);
-CREATE INDEX IF NOT EXISTS search_write_batches_pending ON search_write_batches(published);
 CREATE TABLE IF NOT EXISTS messages(
   id INTEGER PRIMARY KEY,
   session_row_id INTEGER NOT NULL,
@@ -80,6 +85,13 @@ CREATE TABLE IF NOT EXISTS search_log(
   hits INTEGER NOT NULL,
   duration_ms REAL NOT NULL
 );
+-- Why: staged rows must never reach a result. One definition per half, so a new
+-- read site cannot forget one; SQLite flattens both into the caller's plan.
+CREATE VIEW IF NOT EXISTS ${VISIBLE_SESSIONS} AS SELECT * FROM sessions
+  WHERE index_ready = 1
+    AND id NOT IN (SELECT session_row_id FROM search_pending_deletes WHERE batch_id IS NULL);
+CREATE VIEW IF NOT EXISTS ${VISIBLE_MESSAGES} AS SELECT * FROM messages
+  WHERE batch_id IS NULL;
 `
 
 export function openSessionSearchDatabase(path: string): SyncDatabase {
@@ -122,14 +134,8 @@ export function removeSessionSearchDatabase(path: string): void {
     return
   }
   for (const suffix of ['', '-wal', '-shm', '-journal']) {
-    rmSync(`${path}${suffix}`, { force: true })
+    rmSync(`${path}${suffix}`, transientLockRemovalOptions())
   }
-}
-
-export function openSessionSearchDatabaseReadOnly(path: string): SyncDatabase {
-  const db = new SyncDatabase(path, { readonly: true, fileMustExist: true })
-  db.pragma('busy_timeout = 1500')
-  return db
 }
 
 function readSchemaVersion(db: SyncDatabase): number | null {

@@ -92,36 +92,6 @@ describe.skipIf(process.platform === 'win32')('runtime transport', () => {
     }
   })
 
-  it('rejects an oversized search frame before buffering the complete response', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-search-size-'))
-    const endpoint = join(directory, 'runtime.sock')
-    const server = createServer((socket) => {
-      sockets.add(socket)
-      socket.on('error', () => undefined)
-      socket.once('close', () => sockets.delete(socket))
-      socket.once('data', () => socket.write(Buffer.alloc(4 * 1024 * 1024 + 1, 'a')))
-    })
-    servers.add(server)
-    await new Promise<void>((resolve) => server.listen(endpoint, resolve))
-    try {
-      await expect(
-        sendRequest(
-          {
-            runtimeId: 'test',
-            pid: 1,
-            transports: [{ kind: 'unix', endpoint }],
-            authToken: 'fixture',
-            startedAt: 1
-          },
-          'aiVault.searchSessions',
-          { query: 'fixture' },
-          30_000
-        )
-      ).rejects.toMatchObject({ code: 'invalid_runtime_response' })
-    } finally {
-      rmSync(directory, { recursive: true, force: true })
-    }
-  })
   it('refreshes the per-call timeout when the runtime sends keepalive frames', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-transport-'))
     const endpoint = join(userDataPath, 'runtime.sock')
@@ -210,4 +180,47 @@ describe.skipIf(process.platform === 'win32')('runtime transport', () => {
     })
     expect(Date.now() - start).toBeLessThan(5000)
   })
+})
+
+it('reads a large response frame on any method, without a per-method size rule', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'orca-search-size-'))
+  const endpoint = join(directory, 'runtime.sock')
+  const padding = 'a'.repeat(5 * 1024 * 1024)
+  const server = createServer((socket) => {
+    sockets.add(socket)
+    socket.on('error', () => undefined)
+    socket.once('close', () => sockets.delete(socket))
+    let request = ''
+    socket.on('data', (chunk: Buffer) => {
+      request += chunk.toString('utf8')
+      const newline = request.indexOf('\n')
+      if (newline === -1) {
+        return
+      }
+      const { id } = JSON.parse(request.slice(0, newline))
+      socket.write(
+        `${JSON.stringify({ id, ok: true, result: { padding }, _meta: { runtimeId: 'test' } })}\n`
+      )
+    })
+  })
+  servers.add(server)
+  await new Promise<void>((resolve) => server.listen(endpoint, resolve))
+  try {
+    const response = await sendRequest<{ padding: string }>(
+      {
+        runtimeId: 'test',
+        pid: 1,
+        transports: [{ kind: 'unix', endpoint }],
+        authToken: 'fixture',
+        startedAt: 1
+      },
+      'aiVault.searchSessions',
+      { query: 'fixture' },
+      30_000
+    )
+    expect(response.ok).toBe(true)
+    expect(response.ok === true && response.result.padding.length).toBe(padding.length)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })

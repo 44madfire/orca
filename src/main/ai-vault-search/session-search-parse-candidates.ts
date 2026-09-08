@@ -16,11 +16,16 @@ import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
 import type { SessionSearchStore } from './session-search-store'
 import { pauseBackfill } from './session-search-backfill-pacing'
 
+export type ParseSearchCandidatesOptions = {
+  signal?: AbortSignal
+  /** Backfill only: report each file to the progress bar and yield to waiting searches. */
+  onFileProcessed?: (failed: boolean) => Promise<void>
+}
+
 export async function parseSearchCandidates(
   store: SessionSearchStore,
   candidates: SessionFileCandidate[],
-  signal?: AbortSignal,
-  waitForSearches?: () => Promise<void>
+  { signal, onFileProcessed }: ParseSearchCandidatesOptions = {}
 ): Promise<void> {
   const stats = createSessionParseStats()
   let sinceYield = 0
@@ -75,9 +80,8 @@ export async function parseSearchCandidates(
             error instanceof Error ? error.name : 'ParseError'
           )
         }
-        if (waitForSearches && !signal?.aborted) {
-          store.indexing.processed(failed || store.failures > failures)
-          await waitForSearches()
+        if (onFileProcessed && !signal?.aborted) {
+          await onFileProcessed(failed || store.failures > failures)
         }
         sinceYield++
         if (sinceYield >= 8) {

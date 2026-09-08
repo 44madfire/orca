@@ -35,9 +35,6 @@ export async function sendRequest<TResult>(
     }
     const socket = createConnection(transport.endpoint)
     let lineSegments: string[] = []
-    let lineBytes = 0
-    const searchResponseLimit =
-      method.startsWith('aiVault.') && /search/i.test(method) ? 4 * 1024 * 1024 : Infinity
     let settled = false
     const requestId = randomUUID()
 
@@ -80,10 +77,6 @@ export async function sendRequest<TResult>(
       socket.destroy()
     }
     signal?.addEventListener('abort', onAbort, { once: true })
-    if (signal?.aborted) {
-      onAbort()
-      return
-    }
     socket.setEncoding('utf8')
     socket.once('error', () => {
       finish({
@@ -116,20 +109,6 @@ export async function sendRequest<TResult>(
       let cursor = 0
       while (cursor < chunk.length && !settled) {
         const newlineIndex = chunk.indexOf('\n', cursor)
-        lineBytes += Buffer.byteLength(
-          chunk.slice(cursor, newlineIndex === -1 ? undefined : newlineIndex)
-        )
-        if (lineBytes > searchResponseLimit) {
-          finish({
-            ok: false,
-            error: new RuntimeClientError(
-              'invalid_runtime_response',
-              'Search response exceeds the size limit.'
-            )
-          })
-          socket.destroy()
-          return
-        }
         if (newlineIndex === -1) {
           lineSegments.push(chunk.slice(cursor))
           return
@@ -142,7 +121,6 @@ export async function sendRequest<TResult>(
           lineSegments = []
         }
         cursor = newlineIndex + 1
-        lineBytes = 0
         if (line.trim().length === 0) {
           continue
         }

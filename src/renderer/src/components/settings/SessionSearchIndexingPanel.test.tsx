@@ -20,8 +20,7 @@ function panel(indexing?: AiVaultSearchCoverage['indexing']) {
     <SessionSearchIndexingPanel
       coverage={{ ...base, indexing }}
       busy={false}
-      error={false}
-      unavailable={false}
+      failed={false}
       onControl={onControl}
     />
   )
@@ -73,4 +72,16 @@ it('does not offer unsupported controls for legacy coverage', () => {
   panel()
   expect(screen.queryByRole('button')).toBeNull()
   expect(screen.getByText('Searchable conversations: 12 · Messages: 30')).toBeTruthy()
+})
+
+it('falls back to an indeterminate bar rather than printing 12,000 of 10,000 as 100%', () => {
+  panel({
+    phase: 'updating',
+    filesProcessed: 12_000,
+    filesTotal: 10_000,
+    failures: 0,
+    startedAt: 0
+  })
+  expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBeNull()
+  expect(screen.queryByText(/Files processed/)).toBeNull()
 })

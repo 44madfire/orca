@@ -15,6 +15,7 @@ export function useSearchIndexing(enabled: boolean, ownerKey = '') {
     ...snapshot,
     coverage: enabled ? snapshot.coverage : null,
     control: store.control,
+    observe: store.observe,
     refresh: store.refresh
   }
 }
@@ -24,11 +25,13 @@ export function useAiVaultSearchCoveragePoll(
   latest: AiVaultSearchCoverage | null = null,
   ownerKey = ''
 ): AiVaultSearchCoverage | null {
-  const { coverage, refresh } = useSearchIndexing(enabled, ownerKey)
+  const { coverage, observe } = useSearchIndexing(enabled, ownerKey)
+  // Why: a search result carries coverage read at answer time, so publishing it is strictly
+  // fresher than asking the index again for what the caller is already holding.
   useEffect(() => {
     if (enabled && latest) {
-      void refresh()
+      observe(latest)
     }
-  }, [enabled, latest, refresh])
+  }, [enabled, latest, observe])
   return enabled ? (coverage ?? latest) : null
 }

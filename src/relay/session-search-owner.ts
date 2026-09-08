@@ -1,16 +1,8 @@
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  closeSync,
-  openSync
-} from 'node:fs'
+import { existsSync, mkdirSync, statSync, closeSync, openSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import Database from '../main/sqlite/sync-database'
-import { hardenSecurePath, writeDurableSecureJsonFile } from '../shared/secure-file'
+import { hardenSecurePath } from '../shared/secure-file'
 import { restrictWindowsPathSync } from '../shared/secure-path-windows-acl'
 import {
   SessionSearchService,
@@ -27,6 +19,13 @@ import {
   SessionSearchQuerySchema,
   type SessionSearchConfigure
 } from '../shared/ai-vault-search-contract'
+import {
+  assertOwnedSearchPath,
+  readSessionSearchOwnerPolicy,
+  writeSessionSearchOwnerPolicy,
+  SESSION_SEARCH_POLICY_RECOVERY_HINT
+} from './session-search-owner-policy-file'
+import type { SessionSearchOperation } from '../shared/ai-vault-search-rpc-methods'
 import { throwIfSignalAborted } from '../shared/abort-signal-reason'
 import { projectSessionSearchResult } from '../shared/ai-vault-search-projection'
 
@@ -39,6 +38,7 @@ export class RelaySessionSearchOwner {
   private timer: NodeJS.Timeout | null = null
   private disposed = false
   private applicationError: string | undefined
+  private policyError: string | undefined
   private readonly directory: string
   private readonly roots: SessionSearchScanRoots
 
@@ -58,19 +58,20 @@ export class RelaySessionSearchOwner {
     }
   }
 
-  request(
-    operation: 'query' | 'status' | 'configure',
-    raw: unknown,
-    signal?: AbortSignal
-  ): Promise<unknown> {
+  request(operation: SessionSearchOperation, raw: unknown, signal?: AbortSignal): Promise<unknown> {
     return this.serialize(async () => {
       throwIfSignalAborted(signal)
       if (this.disposed) {
         throw new Error('Search owner is closed.')
       }
+      // Validate before acquiring: a rejected `--since` must not close a warm
+      // service and drop the exclusion lock the next query would have to retake.
+      const configureArgs =
+        operation === 'configure' ? SessionSearchConfigureSchema.parse(raw) : undefined
+      const query = operation === 'query' ? SessionSearchQuerySchema.parse(raw) : undefined
       const capability = sessionSearchCapability()
       if (operation === 'status' && !this.lock) {
-        this.policy = this.readPolicy()
+        this.policy = this.readRecordedPolicy()
         // An existing owner's effective policy is only observable while holding the lock.
         if (!existsSync(join(this.directory, 'owner.sqlite'))) {
           return this.status(capability.available, capability.reason)
@@ -87,17 +88,25 @@ export class RelaySessionSearchOwner {
         if (operation === 'status') {
           return this.status(true)
         }
-        if (operation === 'configure') {
-          const args = SessionSearchConfigureSchema.parse(raw)
-          await this.configure(args)
+        // A policy this host cannot vouch for may cover different sources, so the
+        // only operation it still permits is the clear that resets it.
+        if (this.policyError && !configureArgs?.clearIndex) {
+          throw new Error(`${this.policyError} ${SESSION_SEARCH_POLICY_RECOVERY_HINT}`)
+        }
+        if (configureArgs) {
+          await this.configure(configureArgs)
           return this.status(true)
         }
-        const query = SessionSearchQuerySchema.parse(raw)
         this.service ??= this.createService()
-        const result = await this.service.search(query, this.roots, signal)
+        const result = await this.service.search(query!, this.roots, signal)
         return projectSessionSearchResult(result)
       } catch (error) {
-        await this.release()
+        // Why: a caller's cancellation says nothing about the index. Only a
+        // failure from the service itself makes this owner's state suspect
+        // enough to be worth a reacquire and a policy reread.
+        if (!signal?.aborted) {
+          await this.release()
+        }
         throw error
       }
     })
@@ -113,38 +122,18 @@ export class RelaySessionSearchOwner {
     return result
   }
 
-  private readPolicy(): AiVaultSearchSettings {
-    const file = join(this.directory, 'policy.json')
-    if (!existsSync(file)) {
+  /**
+   * Records an unreadable policy instead of throwing, so `--index-status` — the
+   * one command a user would run to diagnose it — still answers.
+   */
+  private readRecordedPolicy(): AiVaultSearchSettings {
+    try {
+      const policy = readSessionSearchOwnerPolicy(this.directory, this.home)
+      this.policyError = undefined
+      return policy
+    } catch (error) {
+      this.policyError = error instanceof Error ? error.message : 'Search policy is unreadable.'
       return { ...DEFAULT_AI_VAULT_SEARCH_SETTINGS }
-    }
-    this.assertOwned(file, false)
-    if (statSync(file).size > 8192) {
-      throw new Error('Search policy exceeds its size limit.')
-    }
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
-    if (saved.home !== this.home || saved.sources !== 1) {
-      throw new Error('Search source configuration changed; host policy must be reviewed.')
-    }
-    const policy = SessionSearchConfigureSchema.parse(saved.policy)
-    if (typeof policy.enabled !== 'boolean' || policy.historyDays === undefined) {
-      throw new Error('Invalid search policy.')
-    }
-    return {
-      enabled: policy.enabled,
-      historyDays: policy.historyDays,
-      ...(policy.paused ? { paused: true } : {})
-    }
-  }
-
-  private assertOwned(path: string, directory: boolean): void {
-    const stat = lstatSync(path)
-    if (
-      stat.isSymbolicLink() ||
-      (directory ? !stat.isDirectory() : !stat.isFile()) ||
-      (process.getuid && stat.uid !== process.getuid())
-    ) {
-      throw new Error('Unsafe search owner path.')
     }
   }
 
@@ -153,10 +142,10 @@ export class RelaySessionSearchOwner {
       return
     }
     if (existsSync(dirname(this.directory))) {
-      this.assertOwned(dirname(this.directory), true)
+      assertOwnedSearchPath(dirname(this.directory), true)
     }
     mkdirSync(this.directory, { recursive: true, mode: 0o700 })
-    this.assertOwned(this.directory, true)
+    assertOwnedSearchPath(this.directory, true)
     if (process.platform === 'win32') {
       if (!restrictWindowsPathSync(this.directory, true)) {
         throw new Error('Could not secure the host search directory.')
@@ -176,11 +165,11 @@ export class RelaySessionSearchOwner {
         throw error
       }
     }
-    this.assertOwned(path, false)
+    assertOwnedSearchPath(path, false)
     for (const suffix of ['', '-wal', '-shm', '-journal']) {
       const file = `${this.databasePath}${suffix}`
       if (existsSync(file)) {
-        this.assertOwned(file, false)
+        assertOwnedSearchPath(file, false)
       }
     }
     const lock = new Database(path, { timeout: 0 })
@@ -193,14 +182,11 @@ export class RelaySessionSearchOwner {
       )
     }
     this.lock = lock
-    try {
-      this.policy = this.readPolicy()
-    } catch (error) {
-      this.lock = null
-      lock.close()
-      throw error
-    }
-    // Do not extend on traffic: a newer relay generation must get a chance to acquire.
+    this.policy = this.readRecordedPolicy()
+    // Do not extend on traffic: a newer relay generation must get a chance to
+    // acquire. The one exception is an active backfill pass — yieldBackfill
+    // waits for it rather than restarting discovery on the replacement — so the
+    // lease is bounded by quiet traffic, not by wall-clock time.
     this.timer = setTimeout(() => {
       void this.serialize(() => this.yieldBackfill()).catch(() => undefined)
     }, 5_000)
@@ -214,19 +200,16 @@ export class RelaySessionSearchOwner {
       ...((args.paused ?? this.policy.paused) ? { paused: true } : {})
     }
     try {
+      // Persist before applying: consent that is not durable must never be the
+      // thing an index was built under, so a crash between the two can only ever
+      // leave a recorded policy whose apply is retried, not an index nobody
+      // consented to on the next start.
+      writeSessionSearchOwnerPolicy(this.directory, this.home, next)
+      this.policy = next
+      this.policyError = undefined
       // Configuration must remain usable even when the existing index cannot be opened.
       this.service ??= this.createService(false)
       await this.service.configure(next, this.roots, { clearIndex: args.clearIndex })
-      if (
-        !writeDurableSecureJsonFile(join(this.directory, 'policy.json'), {
-          home: this.home,
-          sources: 1,
-          policy: next
-        })
-      ) {
-        throw new Error('Could not secure the host search policy.')
-      }
-      this.policy = next
       this.applicationError = undefined
     } catch (error) {
       this.applicationError =
@@ -262,12 +245,15 @@ export class RelaySessionSearchOwner {
         }
       }, 0)
     }
+    const failure =
+      this.applicationError ??
+      (this.policyError && `${this.policyError} ${SESSION_SEARCH_POLICY_RECOVERY_HINT}`)
     return {
       ...this.policy,
       available,
-      applied: available && !this.applicationError,
+      applied: available && !failure,
       indexSizeBytes,
-      ...((reason ?? this.applicationError) ? { reason: reason ?? this.applicationError } : {})
+      ...((reason ?? failure) ? { reason: reason ?? failure } : {})
     }
   }
 

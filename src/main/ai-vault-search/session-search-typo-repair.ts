@@ -1,4 +1,6 @@
 import type SyncDatabase from '../sqlite/sync-database'
+import { quoteFtsTerm } from './session-search-query-planner'
+import { VISIBLE_MESSAGES, VISIBLE_SESSIONS } from './session-search-schema'
 
 // Why: a query term with zero postings is usually a typo. The index's own
 // vocabulary (fts5vocab) is the dictionary, so repair needs no model and can
@@ -43,13 +45,12 @@ export class SessionSearchTypoRepair {
 
   constructor(db: SyncDatabase) {
     this.unpublished = db.prepare(
-      'SELECT 1 FROM search_write_batches WHERE published=0 UNION ALL SELECT 1 FROM search_pending_deletes LIMIT 1'
+      'SELECT 1 FROM search_write_batches UNION ALL SELECT 1 FROM search_pending_deletes LIMIT 1'
     )
     this.visiblePostings =
-      db.prepare(`SELECT m.id FROM messages_fts JOIN messages m ON m.id=messages_fts.rowid
-      JOIN sessions s ON s.id=m.session_row_id WHERE messages_fts MATCH ? AND s.index_ready=1
-      AND s.id NOT IN (SELECT session_row_id FROM search_pending_deletes WHERE batch_id IS NULL)
-      AND (m.batch_id IS NULL OR m.batch_id NOT IN (SELECT id FROM search_write_batches WHERE published=0)) LIMIT 2`)
+      db.prepare(`SELECT m.id FROM messages_fts JOIN ${VISIBLE_MESSAGES} m ON m.id=messages_fts.rowid
+      JOIN ${VISIBLE_SESSIONS} s ON s.id=m.session_row_id WHERE messages_fts MATCH ?
+      LIMIT ${MIN_DOC_FREQUENCY}`)
 
     this.exactMatch = db.prepare(
       'SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? LIMIT 1'
@@ -65,15 +66,19 @@ export class SessionSearchTypoRepair {
   }
 
   hasPostings(term: string): boolean {
-    if (this.unpublished.get()) {
-      return this.visiblePostings.all(`"${term.replaceAll('"', '""')}"`).length > 0
+    if (this.hasUnpublishedWrites()) {
+      return this.visiblePostings.all(quoteFtsTerm(term)).length > 0
     }
     const row = this.documentFrequency.get(term.toLowerCase()) as VocabRow | undefined
     // unicode61 also folds Latin diacritics; raw vocabulary spelling alone can miss an exact hit.
     return (
-      (row !== undefined && row.doc > 0) ||
-      this.exactMatch.get(`"${term.replaceAll('"', '""')}"`) !== undefined
+      (row !== undefined && row.doc > 0) || this.exactMatch.get(quoteFtsTerm(term)) !== undefined
     )
+  }
+
+  /** A staged write is uncommitted, so `messages_vocab` can list a term no visible row has yet. */
+  private hasUnpublishedWrites(): boolean {
+    return this.unpublished.get() !== undefined
   }
 
   /** Returns the closest indexed term, or null when `term` exists or nothing is close enough. */
@@ -87,30 +92,38 @@ export class SessionSearchTypoRepair {
     }
     // Two-letter prefix first (a typo rarely hits both), then the transposed
     // pair, then the bare first letter as the wide fallback.
-    const unpublished = this.unpublished.get() !== undefined
     const prefixes = [lowered.slice(0, 2), lowered[1] + lowered[0], lowered[0]]
-    let best: { term: string; score: number; doc: number } | null = null
     for (const prefix of prefixes) {
-      for (const row of this.candidates(prefix, lowered.length)) {
-        const score = similarity(lowered, row.term)
-        if (score < MIN_SIMILARITY) {
-          continue
-        }
-        if (
-          unpublished &&
-          this.visiblePostings.all(`"${row.term.replaceAll('"', '""')}"`).length < MIN_DOC_FREQUENCY
-        ) {
-          continue
-        }
-        if (!best || score > best.score || (score === best.score && row.doc > best.doc)) {
-          best = { term: row.term, score, doc: row.doc }
-        }
-      }
-      if (best) {
+      const best = this.closest(lowered, prefix)
+      // Why the visibility probe is on the winner alone: ranking is pure CPU,
+      // but each probe is an FTS MATCH, and during a backfill — exactly when
+      // people search — one per candidate is thousands of queries per prefix.
+      if (best && this.isVisible(best.term)) {
         return best.term
       }
     }
     return null
+  }
+
+  private closest(lowered: string, prefix: string): { term: string; score: number } | null {
+    let best: { term: string; score: number; doc: number } | null = null
+    for (const row of this.candidates(prefix, lowered.length)) {
+      const score = similarity(lowered, row.term)
+      if (score < MIN_SIMILARITY) {
+        continue
+      }
+      if (!best || score > best.score || (score === best.score && row.doc > best.doc)) {
+        best = { term: row.term, score, doc: row.doc }
+      }
+    }
+    return best
+  }
+
+  private isVisible(term: string): boolean {
+    return (
+      !this.hasUnpublishedWrites() ||
+      this.visiblePostings.all(quoteFtsTerm(term)).length >= MIN_DOC_FREQUENCY
+    )
   }
 
   private candidates(prefix: string, length: number): VocabRow[] {

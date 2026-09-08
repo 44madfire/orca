@@ -1,12 +1,15 @@
 import { sessionSearchPathKey } from './session-search-path-key'
 import type { AiVaultSearchArgs } from '../../shared/ai-vault-search-types'
 import type { AiVaultSearchQuerySplit } from '../../shared/ai-vault-search-query-operators'
-import { isRuntimePathAbsolute } from '../../shared/cross-platform-path'
+import {
+  isRuntimePathAbsolute,
+  normalizeRuntimePathSeparators
+} from '../../shared/cross-platform-path'
 
 /** SQL fragments for the `sessions` WHERE clause; every condition is ANDed. */
 export type SessionRowFilter = {
   conditions: string[]
-  values: string[]
+  values: (string | number)[]
 }
 
 // Stored identity preserves execution-host case and WSL distro semantics.
@@ -15,16 +18,28 @@ const CWD = 'cwd_key'
 // last segment off, leaving the parent prefix to delete out of p.
 const CWD_BASENAME = `replace(${CWD}, rtrim(${CWD}, replace(${CWD}, '/', '')), '')`
 
+/**
+ * Every caller-supplied narrowing in one place, so `match`, `recent`, and
+ * `loadSessions` cannot drift apart. Row visibility is not here: it belongs to
+ * the `visible_sessions` / `visible_messages` views these conditions run over.
+ *
+ * Case rule, one for the whole file: a comparison that claims *identity*
+ * (`scopePaths`, an absolute `path:`) compares the stored key as-is, so it folds
+ * exactly where the execution host folds — Windows drives and the WSL distro
+ * segment, never a POSIX directory name. A comparison that is only a *substring
+ * probe* (a relative `path:`, any `repo:`) uses LIKE, which folds ASCII and
+ * nothing else; SQLite has no Unicode fold, and `lower()` would fold ASCII twice
+ * while still missing `É`, so it is not used.
+ */
 export function sessionRowFilter(
   args: AiVaultSearchArgs,
-  split: AiVaultSearchQuerySplit
+  split: AiVaultSearchQuerySplit,
+  cutoffMs: number | null = null
 ): SessionRowFilter {
-  const filter: SessionRowFilter = {
-    conditions: [
-      'index_ready = 1',
-      'id NOT IN (SELECT session_row_id FROM search_pending_deletes WHERE batch_id IS NULL)'
-    ],
-    values: []
+  const filter: SessionRowFilter = { conditions: [], values: [] }
+  if (cutoffMs !== null) {
+    filter.conditions.push('id IN (SELECT session_row_id FROM files WHERE mtime_ms >= ?)')
+    filter.values.push(cutoffMs)
   }
   if (args.agents && args.agents.length > 0) {
     filter.conditions.push(`agent IN (${args.agents.map(() => '?').join(',')})`)
@@ -35,53 +50,65 @@ export function sessionRowFilter(
     filter.values.push(args.since)
   }
   if (args.scopePaths && args.scopePaths.length > 0) {
-    filter.conditions.push(
-      `(${args.scopePaths.map(() => `(${CWD} = ? OR substr(${CWD}, 1, length(?)) = ?)`).join(' OR ')})`
+    addGroup(
+      filter,
+      args.scopePaths.map((scope) => insideCondition(filter, sessionSearchPathKey(scope)))
     )
-    for (const scope of args.scopePaths) {
-      // Literal prefixes keep `%` and `_` in folder names from widening scope.
-      const normalized = sessionSearchPathKey(scope)
-      filter.values.push(normalized, `${normalized}/`, `${normalized}/`)
-    }
   }
-  // Operators narrow, never widen: each one is its own ANDed condition on top
-  // of whatever scope the caller already asked for.
-  for (const term of split.pathTerms) {
-    addPathTerm(filter, term)
-  }
-  for (const term of split.repoTerms) {
+  // Operators narrow the caller's scope, never widen it, and follow the usual
+  // qualifier semantics: OR within one key, AND across keys, so `path:a path:b`
+  // means either while `repo:x path:a` means both.
+  addGroup(
+    filter,
+    split.pathTerms.map((term) => pathTermCondition(filter, term))
+  )
+  addGroup(
+    filter,
     // Why: a folder workspace has no repo name beyond its own folder, so the
     // last segment of cwd is the only honest local proxy for `repo:`.
-    filter.conditions.push(`lower(${CWD_BASENAME}) LIKE ? ESCAPE '\\'`)
-    filter.values.push(likeContains(term))
-  }
+    split.repoTerms.map((term) => containsCondition(filter, CWD_BASENAME, term))
+  )
   return filter
 }
 
-function addPathTerm(filter: SessionRowFilter, term: string): void {
-  const normalized = normalizeCwdTerm(term)
-  if (!normalized) {
-    return
+function addGroup(filter: SessionRowFilter, conditions: (string | null)[]): void {
+  const present = conditions.filter((condition) => condition !== null)
+  if (present.length > 0) {
+    filter.conditions.push(`(${present.join(' OR ')})`)
   }
+}
+
+function pathTermCondition(filter: SessionRowFilter, term: string): string | null {
   if (isRuntimePathAbsolute(term)) {
-    const key = sessionSearchPathKey(term)
-    filter.conditions.push(`(${CWD} = ? OR substr(${CWD}, 1, length(?)) = ?)`)
-    filter.values.push(key, `${key}/`, `${key}/`)
-    return
+    return insideCondition(filter, sessionSearchPathKey(term))
   }
-  filter.conditions.push(`lower(${CWD}) LIKE ? ESCAPE '\\'`)
-  filter.values.push(likeContains(normalized))
+  // A bare fragment cannot prove Windows semantics, so fold separators anyway:
+  // `path:Work\App` is a Windows user typing, never a POSIX file named `Work\App`.
+  const fragment = normalizeRuntimePathSeparators(term.normalize('NFC')).replace(/\/+$/, '')
+  return fragment ? containsCondition(filter, CWD, fragment) : null
 }
 
-function normalizeCwdTerm(term: string): string {
-  return term.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
+/**
+ * `key` itself, or anything below it. Why a half-open range and not
+ * `substr(key, 1, length(?)) = ?`: only `>=`/`<` can seek `sessions_cwd_key`;
+ * the substr form scans it. The bound is the child prefix with its last byte
+ * incremented, so it stops at the end of that prefix and nowhere else. The two
+ * arms cannot merge: one range over the bare key would also swallow a sibling
+ * like `/work/app-other`. No wildcards, so `%`/`_` in a folder name are literal.
+ */
+function insideCondition(filter: SessionRowFilter, key: string): string {
+  const children = `${key}/`
+  filter.values.push(key, children, nextAfterPrefix(children))
+  return `(${CWD} = ? OR (${CWD} >= ? AND ${CWD} < ?))`
 }
 
-function likeContains(value: string): string {
-  return `%${escapeLike(value)}%`
+/** The first string that sorts after every string starting with `prefix`. */
+function nextAfterPrefix(prefix: string): string {
+  return prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1)
 }
 
-// LIKE wildcards inside a user-typed term are literal text, not a pattern.
-function escapeLike(value: string): string {
-  return value.replaceAll(/[\\%_]/g, '\\$&')
+function containsCondition(filter: SessionRowFilter, column: string, term: string): string {
+  // LIKE wildcards inside a user-typed term are literal text, not a pattern.
+  filter.values.push(`%${term.normalize('NFC').replaceAll(/[\\%_]/g, '\\$&')}%`)
+  return `${column} LIKE ? ESCAPE '\\'`
 }

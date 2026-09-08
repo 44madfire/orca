@@ -82,7 +82,7 @@ class LoopbackWorker extends EventEmitter {
     )
       .then(async (session) => {
         await capture.flush()
-        this.emit('message', { id: request.id, ok: true, value: { session } })
+        this.emit('message', { id: request.id, kind: 'result', value: { session } })
       })
       .catch((error) => {
         if (!this.terminated) {

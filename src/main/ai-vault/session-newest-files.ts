@@ -7,10 +7,11 @@ export class SessionNewestFiles {
   private readonly limit: number
 
   constructor(limit: number) {
-    this.limit = limit === Infinity ? limit : Math.max(0, Math.trunc(limit) || 0)
+    this.limit = Math.max(0, Math.trunc(limit) || 0)
   }
 
   add(file: FileWithMtime): void {
+    // The backfill enumerates with no limit; skip the insert search entirely.
     if (!Number.isFinite(this.limit)) {
       this.files.push(file)
       return
@@ -42,7 +43,8 @@ export class SessionNewestFiles {
     return this.files.length
   }
 
+  /** The unbounded path appends in traversal order, so the sort is not redundant. */
   newest(): FileWithMtime[] {
-    return this.files.sort((a, b) => b.mtimeMs - a.mtimeMs)
+    return [...this.files].sort((a, b) => b.mtimeMs - a.mtimeMs)
   }
 }

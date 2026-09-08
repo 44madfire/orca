@@ -3,6 +3,7 @@ import { sessionCandidatesFromDiscoveries } from '../ai-vault/session-scanner-ca
 import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
 
 import { waitForPromiseWithSignal, throwIfSignalAborted } from '../../shared/abort-signal-reason'
+import { stableInFlightKey } from '../../shared/in-flight-promise-dedupe'
 import type { SessionSearchScanRoots } from './session-search-service'
 
 type Refresh = { controller: AbortController; promise: Promise<void>; users: number }
@@ -18,7 +19,7 @@ export class SessionSearchRefreshLane {
     signal?: AbortSignal
   ): Promise<void> {
     throwIfSignalAborted(signal)
-    const key = JSON.stringify(Object.entries(roots).sort(([a], [b]) => a.localeCompare(b)))
+    const key = stableInFlightKey(Object.entries(roots).sort(([a], [b]) => a.localeCompare(b)))
     let run = this.runs.get(key)
     if (!run) {
       const controller = new AbortController()

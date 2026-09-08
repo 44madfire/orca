@@ -1,14 +1,33 @@
+import type * as NodeFs from 'node:fs'
 import { mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { removeTree } from '../../shared/windows-transient-lock-removal'
+import {
+  removeTree,
+  WINDOWS_RM_MAX_RETRIES,
+  WINDOWS_RM_RETRY_DELAY_MS
+} from '../../shared/windows-transient-lock-removal'
 import SyncDatabase from '../sqlite/sync-database'
 import {
   SESSION_SEARCH_SCHEMA_VERSION,
   openSessionSearchDatabase,
-  removeSessionSearchDatabase
+  removeSessionSearchDatabase,
+  VISIBLE_MESSAGES,
+  VISIBLE_SESSIONS
 } from './session-search-schema'
+
+const recordedRmSync = vi.hoisted(() => vi.fn())
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof NodeFs>('node:fs')
+  return {
+    ...actual,
+    rmSync: (...args: Parameters<typeof actual.rmSync>) => {
+      recordedRmSync(...args)
+      return actual.rmSync(...args)
+    }
+  }
+})
 
 let roots: string[] = []
 
@@ -98,4 +117,49 @@ it('closes the SQLite handle when corrupt data fails initialization', async () =
   removeSessionSearchDatabase(path)
   const recovered = openSessionSearchDatabase(path)
   recovered.close()
+})
+
+describe('visibility views', () => {
+  it('hides a staging session, a tombstoned session and an in-flight batch', async () => {
+    const db = openSessionSearchDatabase(await tempDatabasePath())
+    try {
+      db.exec(`INSERT INTO sessions(id,index_ready,agent,session_id,file_path,title,resume_command)
+        VALUES (1,1,'claude','a','a','published',''),(2,0,'claude','b','b','staging',''),
+               (3,1,'claude','c','c','tombstoned','');
+        INSERT INTO search_pending_deletes(path,session_row_id) VALUES ('c',3);
+        INSERT INTO search_write_batches(id,session_row_id) VALUES (7,1);
+        INSERT INTO messages(id,session_row_id,batch_id,role) VALUES (1,1,NULL,'user'),(2,1,7,'user')`)
+      expect(db.prepare(`SELECT title FROM ${VISIBLE_SESSIONS} ORDER BY id`).all()).toEqual([
+        { title: 'published' }
+      ])
+      expect(db.prepare(`SELECT id FROM ${VISIBLE_MESSAGES} ORDER BY id`).all()).toEqual([
+        { id: 1 }
+      ])
+      // Publish clears the pointer, so visibility never depends on the batch row surviving.
+      db.exec(
+        'UPDATE messages SET batch_id=NULL WHERE batch_id=7; DELETE FROM search_write_batches'
+      )
+      expect(db.prepare(`SELECT count(*) AS n FROM ${VISIBLE_MESSAGES}`).get()).toEqual({ n: 2 })
+    } finally {
+      db.close()
+    }
+  })
+})
+
+it('gives Windows the shared retry options for a late handle release', async () => {
+  const path = await tempDatabasePath()
+  vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+  recordedRmSync.mockClear()
+  try {
+    removeSessionSearchDatabase(path)
+    expect(recordedRmSync).toHaveBeenCalled()
+    for (const [, options] of recordedRmSync.mock.calls) {
+      expect(options).toMatchObject({
+        maxRetries: WINDOWS_RM_MAX_RETRIES,
+        retryDelay: WINDOWS_RM_RETRY_DELAY_MS
+      })
+    }
+  } finally {
+    vi.restoreAllMocks()
+  }
 })

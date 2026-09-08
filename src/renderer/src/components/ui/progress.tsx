@@ -19,7 +19,8 @@ function Progress({
         data-slot="progress-indicator"
         className={cn(
           'h-full w-full flex-1 bg-primary transition-all duration-300 ease-out',
-          value === null && 'w-1/3 animate-pulse'
+          // Why: an indeterminate bar must still read as indeterminate without motion.
+          value === null && 'w-1/3 animate-pulse motion-reduce:animate-none'
         )}
         style={value === null ? undefined : { transform: `translateX(-${100 - (value || 0)}%)` }}
       />

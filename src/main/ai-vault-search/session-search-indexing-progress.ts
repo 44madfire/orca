@@ -13,6 +13,9 @@ export class SessionSearchIndexingProgress {
   private backfilling = false
   private activeWrites = 0
   private lastWriteAt = 0
+  // Why: a failed backfill keeps the badge red until it is retried, but a
+  // transient write failure must not outlive the next successful write.
+  private failedWrite = false
 
   snapshot(): AiVaultSearchIndexingProgress {
     return { ...this.value, ...(this.paused ? { phase: 'paused' as const } : {}) }
@@ -24,6 +27,7 @@ export class SessionSearchIndexingProgress {
 
   discover(): void {
     this.backfilling = true
+    this.failedWrite = false
     this.value = {
       phase: 'discovering',
       filesProcessed: 0,
@@ -51,7 +55,7 @@ export class SessionSearchIndexingProgress {
 
   beginWrite(): () => void {
     this.activeWrites++
-    if (!this.backfilling && !this.paused && this.value.phase !== 'error') {
+    if (!this.backfilling && !this.paused && (this.value.phase !== 'error' || this.failedWrite)) {
       if (Date.now() - this.lastWriteAt > 1000 && this.activeWrites === 1) {
         this.value = {
           phase: 'updating',
@@ -72,6 +76,7 @@ export class SessionSearchIndexingProgress {
         this.value.filesProcessed++
         if (this.activeWrites === 0) {
           this.value.phase = 'complete'
+          this.failedWrite = false
         }
       }
     }
@@ -79,6 +84,7 @@ export class SessionSearchIndexingProgress {
 
   writeFailed(): void {
     if (!this.backfilling) {
+      this.failedWrite = true
       this.value.failures++
       this.value.phase = 'error'
     }

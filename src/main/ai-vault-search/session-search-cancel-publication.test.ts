@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { SessionSearchStore } from './session-search-store'
 import { parseSearchCandidates } from './session-search-parse-candidates'
 import { sessionCandidate } from './session-search-transcript-fixtures'
-import { stagedWriteUpdate } from './session-search-staged-write-fixtures'
+import { stagedWriteUpdate } from './session-search-staged-write-test-fixture'
 import { registerSessionSearchIndexSink } from '../ai-vault/session-search-capture'
 import { resetSessionParseCacheForTests } from '../ai-vault/session-scanner-parse-cache'
 import * as sourceRead from '../native-chat/wsl-transcript-fs-access'
@@ -38,7 +38,9 @@ it('preserves published content and cursor when a whole-JSON refresh is canceled
       return text
     })
     const controller = new AbortController()
-    parsing = parseSearchCandidates(store, [candidate], controller.signal).catch((error) => error)
+    parsing = parseSearchCandidates(store, [candidate], { signal: controller.signal }).catch(
+      (error) => error
+    )
     await reached.promise
     controller.abort()
     held.resolve()

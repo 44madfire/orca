@@ -4,7 +4,7 @@ import type { SessionSearchCapturedMessage } from './session-search-capture'
 export class SessionSearchMessageChannel implements AsyncIterable<SessionSearchCapturedMessage> {
   private queued: SessionSearchCapturedMessage[] = []
   private wake: (() => void) | null = null
-  private drained: (() => void) | null = null
+  private drained: (() => void)[] = []
   private ended = false
   private stopped = false
   private failure: unknown
@@ -19,8 +19,10 @@ export class SessionSearchMessageChannel implements AsyncIterable<SessionSearchC
     if (!this.queued.length || this.stopped) {
       return Promise.resolve()
     }
+    // Why: concurrent producers each need their own resolver; a single slot
+    // would strand every waiter but the last one inside its parse.
     return new Promise((resolve) => {
-      this.drained = resolve
+      this.drained.push(resolve)
     })
   }
   close(error?: unknown): void {
@@ -31,9 +33,17 @@ export class SessionSearchMessageChannel implements AsyncIterable<SessionSearchC
   stop(): void {
     this.stopped = true
     this.queued = []
-    this.drained?.()
+    this.releaseDrained()
     this.wake?.()
   }
+  private releaseDrained(): void {
+    const waiting = this.drained
+    this.drained = []
+    for (const resolve of waiting) {
+      resolve()
+    }
+  }
+
   async *[Symbol.asyncIterator](): AsyncGenerator<SessionSearchCapturedMessage> {
     while (!this.stopped) {
       const batch = this.queued
@@ -41,8 +51,7 @@ export class SessionSearchMessageChannel implements AsyncIterable<SessionSearchC
       for (const message of batch) {
         yield message
       }
-      this.drained?.()
-      this.drained = null
+      this.releaseDrained()
       if (this.failure) {
         throw this.failure
       }

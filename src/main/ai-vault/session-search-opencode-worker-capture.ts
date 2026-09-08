@@ -39,7 +39,7 @@ export class OpenCodeWorkerSearchCapture {
     try {
       await new Promise<void>((resolve) => {
         this.acknowledgeBatch = resolve
-        this.send({ id: this.id, ok: true, captureBatch: sequence, value: messages })
+        this.send({ id: this.id, kind: 'batch', batch: sequence, messages })
       })
     } finally {
       this.acknowledgeBatch = null

@@ -84,7 +84,7 @@ export class RelayAiVaultServiceClient implements RelayAiVaultServiceApi {
     }
   }
 
-  search: NonNullable<RelayAiVaultServiceApi['search']> = (action, params, signal) =>
+  search: RelayAiVaultServiceApi['search'] = (action, params, signal) =>
     this.request(
       { type: 'request', id: this.nextId++, operation: 'search', action, params },
       signal
@@ -121,7 +121,7 @@ export class RelayAiVaultServiceClient implements RelayAiVaultServiceApi {
     if (this.disposed || this.restartPolicy.restartScheduled) {
       return
     }
-    for (const lane of ['cache', 'interactive'] as const) {
+    for (const lane of ['cache', 'interactive', 'search'] as const) {
       if (this.active.has(lane)) {
         continue
       }

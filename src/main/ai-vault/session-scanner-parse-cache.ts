@@ -177,8 +177,13 @@ async function parseCachedInLane(
     // Codex titles come from session_index.jsonl, which mtime+size can't see.
     // Remote counterpart: remote-session-scanner.ts's reusedCodexTitleRefresh.
     if (entry.session && candidate.agent === 'codex') {
+      // Why: the refresh returns the same reference when nothing changed, and a
+      // list scan runs every ~5 s; writing regardless is one UPDATE per session.
+      const previous = entry.session
       entry.session = await refreshCachedCodexMetadata(candidate, entry.session)
-      sink?.updateMetadata?.(candidate, entry.session)
+      if (entry.session !== previous) {
+        sink?.updateMetadata?.(candidate, entry.session)
+      }
     }
     storeSessionParseCacheEntry(file.path, entry)
     return entry.session
@@ -318,6 +323,9 @@ async function parseResumableCandidate(args: {
     }
     return {
       value: entry,
+      // Why: the index must see the state without the partial line. finalize only
+      // reads the accumulator (rows are emitted in consumeLine), so this second
+      // call recomputes metadata without re-emitting any captured message.
       session: displayState === state ? session : await state.finalize(args.platform),
       byteOffset: readResult.consumedThrough
     }

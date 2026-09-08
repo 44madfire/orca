@@ -32,9 +32,9 @@ vi.mock('node:worker_threads', () => ({
     },
     postMessage(response: OpenCodeSqliteWorkerResponse) {
       posted.push(response)
-      if (acknowledge && response.ok && response.captureBatch !== undefined) {
+      if (acknowledge && response.kind === 'batch') {
         queueMicrotask(() =>
-          handler?.({ id: response.id, kind: 'captureAck', batch: response.captureBatch! })
+          handler?.({ id: response.id, kind: 'captureAck', batch: response.batch })
         )
       }
     }
@@ -89,12 +89,13 @@ function createDbWithOneTurn(): string {
 
 async function parseOnWorker(dbPath: string, capture: boolean): Promise<OpenCodeSqliteParseValue> {
   handler?.({ id: 1, kind: 'parse', dbPath, sessionId: SESSION_ID, platform: 'darwin', capture })
-  await vi.waitFor(() =>
-    expect(posted.some((reply) => !reply.ok || reply.captureBatch === undefined)).toBe(true)
-  )
+  await vi.waitFor(() => expect(posted.some((reply) => reply.kind !== 'batch')).toBe(true))
   const response = posted.at(-1)!
-  if (!response.ok) {
+  if (response.kind === 'error') {
     throw new Error(response.error)
+  }
+  if (response.kind !== 'result') {
+    throw new Error('worker replied with a capture batch instead of a result')
   }
   return response.value as OpenCodeSqliteParseValue
 }
@@ -104,11 +105,7 @@ describe('OpenCode SQLite worker entry', () => {
     const value = await parseOnWorker(createDbWithOneTurn(), true)
 
     expect(value.session?.sessionId).toBe(SESSION_ID)
-    expect(
-      posted
-        .filter((reply) => reply.ok && reply.captureBatch !== undefined)
-        .flatMap((reply) => (reply.ok ? reply.value : []))
-    ).toEqual([
+    expect(posted.flatMap((reply) => (reply.kind === 'batch' ? reply.messages : []))).toEqual([
       { role: 'user', text: 'recalibrate the ballast pump', timestamp: expect.any(String) }
     ])
   })
@@ -117,11 +114,7 @@ describe('OpenCode SQLite worker entry', () => {
     const value = await parseOnWorker(createDbWithOneTurn(), false)
 
     expect(value.session?.sessionId).toBe(SESSION_ID)
-    expect(
-      posted
-        .filter((reply) => reply.ok && reply.captureBatch !== undefined)
-        .flatMap((reply) => (reply.ok ? reply.value : []))
-    ).toEqual([])
+    expect(posted.flatMap((reply) => (reply.kind === 'batch' ? reply.messages : []))).toEqual([])
   })
 })
 
@@ -153,17 +146,18 @@ it('waits for downstream acknowledgement between bounded batches without droppin
   })
   await vi.waitFor(() => expect(posted).toHaveLength(1))
   const first = posted[0]!
-  expect(first).toMatchObject({ ok: true, captureBatch: 1 })
+  expect(first).toMatchObject({ kind: 'batch', batch: 1 })
   await new Promise((resolve) => setTimeout(resolve, 20))
   expect(posted).toHaveLength(1)
   acknowledge = true
   handler?.({ id: 2, kind: 'captureAck', batch: 1 })
   await vi.waitFor(() =>
-    expect(posted.at(-1)).toMatchObject({ ok: true, value: { session: { sessionId: SESSION_ID } } })
+    expect(posted.at(-1)).toMatchObject({
+      kind: 'result',
+      value: { session: { sessionId: SESSION_ID } }
+    })
   )
-  const batches = posted.flatMap((reply) =>
-    reply.ok && reply.captureBatch !== undefined ? [reply.value as { text: string }[]] : []
-  )
+  const batches = posted.flatMap((reply) => (reply.kind === 'batch' ? [reply.messages] : []))
   expect(batches.length).toBeGreaterThan(2)
   expect(batches.flat()).toHaveLength(count + 1)
   expect(batches.flat().at(-1)?.text).toBe(`${count - 1} ${text}`.trim())

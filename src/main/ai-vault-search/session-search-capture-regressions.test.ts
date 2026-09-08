@@ -2,6 +2,7 @@ import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import SyncDatabase from '../sqlite/sync-database'
 import { SessionSearchStore } from './session-search-store'
 import { SessionSearchService } from './session-search-service'
 import { registerSessionSearchIndexSink } from '../ai-vault/session-search-capture'
@@ -21,10 +22,12 @@ import {
 } from './session-search-transcript-fixtures'
 let root: string
 let store: SessionSearchStore
+let databasePath: string
 beforeEach(async () => {
   resetSessionParseCacheForTests()
   root = await mkdtemp(join(tmpdir(), 'ss-capture-audit-'))
-  store = new SessionSearchStore(join(root, 'index.sqlite'))
+  databasePath = join(root, 'index.sqlite')
+  store = new SessionSearchStore(databasePath)
   registerSessionSearchIndexSink(store)
 })
 afterEach(async () => {
@@ -61,15 +64,36 @@ it('refreshes indexed Codex metadata when the title index changes', async () => 
   expect(listed?.title).toBe('Renamed synthetic title')
   expect(store.search({ query: 'needle' }).hits[0]?.title).toBe('Renamed synthetic title')
 })
+it('does not rewrite indexed Codex metadata when the refresh finds no change', async () => {
+  const path = join(root, CODEX_ROLLOUT_FILE)
+  await writeFile(
+    path,
+    `${codexRolloutLines(['echo'], 'synthetic output', 'synthetic needle').join('\n')}\n`
+  )
+  const candidate = await sessionCandidate('codex', path, root)
+  await parseAgentSessionFileCached(candidate, process.platform)
+  // A cache hit still re-reads the Codex title index; an unchanged read must
+  // not issue an UPDATE, because list scans repeat every few seconds.
+  const update = vi.spyOn(store, 'updateMetadata')
+  await parseAgentSessionFileCached(candidate, process.platform)
+  expect(update).not.toHaveBeenCalled()
+})
 it('redacts credential-shaped content copied into session titles', async () => {
   const fakeKey = `sk-${'x'.repeat(40)}`
   const path = join(root, `${CLAUDE_SESSION_ID}.jsonl`)
   await writeFile(path, `${userRecord(0, `synthetic needle ${fakeKey}`)}\n`)
   await parseAgentSessionFileCached(await sessionCandidate('claude', path), process.platform)
-  const body = store.db.prepare('SELECT user_text FROM messages_fts').get() as { user_text: string }
-  expect(body.user_text).not.toContain(fakeKey)
-  const row = store.db.prepare('SELECT title FROM sessions').get() as { title: string }
-  expect(row.title).not.toContain(fakeKey)
+  const reader = new SyncDatabase(databasePath, { readonly: true })
+  try {
+    const body = reader.prepare('SELECT user_text FROM messages_fts').get() as {
+      user_text: string
+    }
+    expect(body.user_text).not.toContain(fakeKey)
+    const row = reader.prepare('SELECT title FROM sessions').get() as { title: string }
+    expect(row.title).not.toContain(fakeKey)
+  } finally {
+    reader.close()
+  }
 })
 it('does not log malformed JSON transcript excerpts during backfill', async () => {
   const roots = isolatedScanRoots(root)
@@ -92,6 +116,6 @@ it('does not log malformed JSON transcript excerpts during backfill', async () =
       .join(' ')
     expect(logged).not.toContain('private_sy')
   } finally {
-    service.dispose()
+    await service.close()
   }
 })

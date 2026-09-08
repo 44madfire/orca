@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   applyAiVaultSearchSettings,
+  applyAiVaultSearchSettingsChange,
   clearAiVaultSearchIndex,
   installAiVaultSearchSettingsSource,
   readAiVaultSearchIndexStatus
@@ -212,4 +213,69 @@ it('requires desktop clear to retry a failed policy flush before reporting appli
   persist.mockResolvedValue(undefined)
   await clearAiVaultSearchIndex(persist)
   expect(readAiVaultSearchIndexStatus().applied).toBe(true)
+})
+
+describe('applyAiVaultSearchSettingsChange', () => {
+  it('does not reconfigure the scanner when the saved policy is unchanged', async () => {
+    initSessionSearchPaths(await makeUserDataDir())
+    const settings = { aiVaultSearch: { enabled: true, historyDays: 90 } }
+    const persist = vi.fn()
+
+    applyAiVaultSearchSettingsChange(
+      settings,
+      { aiVaultSearch: { ...settings.aiVaultSearch } },
+      persist
+    )
+    // The apply chain is shared and serialized, so awaiting a later apply proves
+    // the unchanged write never queued one of its own.
+    await applyAiVaultSearchSettings({ aiVaultSearch: { enabled: false, historyDays: 90 } })
+
+    expect(configureAiVaultSearch).toHaveBeenCalledTimes(1)
+    expect(configureAiVaultSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: false }),
+      expect.anything()
+    )
+    expect(persist).not.toHaveBeenCalled()
+  })
+
+  it('forwards a pause that leaves consent and retention alone', async () => {
+    initSessionSearchPaths(await makeUserDataDir())
+    applyAiVaultSearchSettingsChange(
+      { aiVaultSearch: { enabled: true, historyDays: 90 } },
+      { aiVaultSearch: { enabled: true, historyDays: 90, paused: true } },
+      () => undefined
+    )
+
+    await vi.waitFor(() =>
+      expect(configureAiVaultSearch).toHaveBeenCalledWith(
+        expect.objectContaining({ paused: true }),
+        expect.anything()
+      )
+    )
+  })
+
+  it('reports a failed apply through the index status instead of throwing at the caller', async () => {
+    initSessionSearchPaths(await makeUserDataDir())
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    configureAiVaultSearch.mockRejectedValueOnce(new Error('scanner unavailable'))
+    try {
+      applyAiVaultSearchSettingsChange(
+        { aiVaultSearch: { enabled: false, historyDays: null } },
+        { aiVaultSearch: { enabled: true, historyDays: null } },
+        () => undefined
+      )
+      await vi.waitFor(() => expect(readAiVaultSearchIndexStatus().applied).toBe(false))
+      expect(readAiVaultSearchIndexStatus().reason).toContain('failed or is pending')
+      // The scanner failure must have been absorbed, not left for the caller.
+      await vi.waitFor(() =>
+        expect(warn).toHaveBeenCalledWith(
+          '[settings] failed to apply agent session search settings:',
+          expect.any(Error)
+        )
+      )
+    } finally {
+      warn.mockRestore()
+    }
+    await applyAiVaultSearchSettings({ aiVaultSearch: { enabled: true, historyDays: null } })
+  })
 })

@@ -12,6 +12,10 @@ import {
   shouldCaptureFullFirstUserPrompt
 } from './session-scanner-first-user-prompt'
 import { readOpenCodeDatabaseAsync } from './session-scanner-opencode-sqlite-open'
+import {
+  canCountOpenCodeMessages,
+  canReadOpenCodeMessageParts
+} from './session-scanner-opencode-sqlite-schema'
 import { normalizeTitleText } from './session-scanner-values'
 import type SyncDatabase from '../sqlite/sync-database'
 import { columnExists, tableExists } from '../opencode-usage/schema-helpers'
@@ -70,14 +74,6 @@ function sessionColumnSelect(db: SyncDatabase, columnName: string): string {
 
 function sessionNumberColumnSelect(db: SyncDatabase, columnName: string): string {
   return columnExists(db, 'session', columnName) ? `s.${columnName}` : '0'
-}
-
-function canCountOpenCodeMessages(db: SyncDatabase): boolean {
-  return (
-    tableExists(db, 'message') &&
-    columnExists(db, 'message', 'session_id') &&
-    columnExists(db, 'message', 'data')
-  )
 }
 
 function buildSessionQuery(db: SyncDatabase): string {
@@ -156,14 +152,7 @@ function extractPartText(partData: string): string | null {
 }
 
 function readFirstUserPromptFromOpenCodeDb(db: SyncDatabase, sessionId: string): string | null {
-  if (
-    !canCountOpenCodeMessages(db) ||
-    !tableExists(db, 'part') ||
-    !columnExists(db, 'message', 'id') ||
-    !columnExists(db, 'part', 'message_id') ||
-    !columnExists(db, 'part', 'time_created') ||
-    !columnExists(db, 'part', 'data')
-  ) {
+  if (!canReadOpenCodeMessageParts(db)) {
     return null
   }
 
@@ -208,14 +197,7 @@ function readFirstUserPromptFromOpenCodeDb(db: SyncDatabase, sessionId: string):
 }
 
 function buildPreviewQuery(db: SyncDatabase): string | null {
-  if (
-    !canCountOpenCodeMessages(db) ||
-    !tableExists(db, 'part') ||
-    !columnExists(db, 'message', 'id') ||
-    !columnExists(db, 'part', 'message_id') ||
-    !columnExists(db, 'part', 'time_created') ||
-    !columnExists(db, 'part', 'data')
-  ) {
+  if (!canReadOpenCodeMessageParts(db)) {
     return null
   }
   return `SELECT json_extract(m.data, '$.role') AS role,
@@ -232,6 +214,29 @@ function buildPreviewQuery(db: SyncDatabase): string | null {
             AND json_extract(p.data, '$.type') = 'text'
           ORDER BY p.time_created DESC
           LIMIT ?`
+}
+
+/**
+ * Run the preview query, or null when it cannot be read.
+ *
+ * `json_extract` raises on a malformed part blob, so an unguarded read here
+ * would drop the whole session from the list over one corrupt row. Degrade to
+ * "no preview" instead, matching every other read in this module.
+ */
+function readPreviewRows(
+  db: SyncDatabase,
+  previewSql: string,
+  sessionId: string
+): PreviewRow[] | null {
+  try {
+    return db.prepare(previewSql).all(sessionId, OPENCODE_SQLITE_PREVIEW_LIMIT + 1) as PreviewRow[]
+  } catch (error) {
+    console.warn(
+      '[ai-vault] opencode preview skipped',
+      error instanceof Error ? error.name : 'ReadError'
+    )
+    return null
+  }
 }
 
 /**
@@ -298,14 +303,11 @@ async function readSession(args: {
   updateTimeline(accumulator, row.time_updated)
 
   const previewSql = buildPreviewQuery(db)
-  if (previewSql) {
-    await captureOpenCodeSession(db, sessionId)
-    // Why: SQL already dropped anything older than the newest-N window, so the
-    // accumulator never shifts and cannot detect the truncation itself. Ask for
-    // one extra row so an exactly-full window is not mistaken for a trimmed one.
-    const probedRows = db
-      .prepare(previewSql)
-      .all(sessionId, OPENCODE_SQLITE_PREVIEW_LIMIT + 1) as PreviewRow[]
+  // Why: SQL already dropped anything older than the newest-N window, so the
+  // accumulator never shifts and cannot detect the truncation itself. Ask for
+  // one extra row so an exactly-full window is not mistaken for a trimmed one.
+  const probedRows = previewSql ? readPreviewRows(db, previewSql, sessionId) : null
+  if (probedRows) {
     if (probedRows.length > OPENCODE_SQLITE_PREVIEW_LIMIT) {
       accumulator.previewMessagesTruncated = true
     }
@@ -339,6 +341,8 @@ async function readSession(args: {
       }
     }
   }
+
+  await captureOpenCodeSession(db, sessionId)
 
   // Why: list preview only joins the newest messages. On-demand copy needs the
   // session's earliest real user text part, not a later turn still in the window.

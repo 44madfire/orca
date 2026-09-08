@@ -3,16 +3,19 @@ import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { SessionSearchStore } from '../../src/main/ai-vault-search/session-search-store'
+import { deleteExpiredSearchFiles } from '../../src/main/ai-vault-search/session-search-retention-delete'
 import { SessionSearchIndexWriter } from '../../src/main/ai-vault-search/session-search-index-writer'
-import { stagedWriteUpdate } from '../../src/main/ai-vault-search/session-search-staged-write-fixtures'
+import { SessionSearchQuery } from '../../src/main/ai-vault-search/session-search-query'
+import { openSessionSearchDatabase } from '../../src/main/ai-vault-search/session-search-schema'
+import { stagedWriteUpdate } from '../../src/main/ai-vault-search/session-search-staged-write-test-fixture'
 
 const root = await mkdtemp(join(tmpdir(), 'orca-search-write-bench-'))
 try {
   const path = join(root, 'index.sqlite')
-  const store = new SessionSearchStore(path)
+  const db = openSessionSearchDatabase(path)
   try {
-    const writer = new SessionSearchIndexWriter(store.db)
+    const writer = new SessionSearchIndexWriter(db)
+    const query = new SessionSearchQuery(db)
     for (const mode of ['replace', 'append', 'replace'] as const) {
       const update = stagedWriteUpdate(
         `benchmarkneedle ${'synthetic coding context src/example.ts '.repeat(5)}`,
@@ -22,20 +25,18 @@ try {
       const steps: number[] = []
       let before = performance.now()
       const start = before
-      await writer.apply(
-        update,
-        () => true,
-        async () => {
+      await writer.apply(update, {
+        yieldStep: async () => {
           steps.push(performance.now() - before)
           await yieldToEventLoop()
           before = performance.now()
         }
-      )
+      })
       const wallMs = performance.now() - start
       if (!steps.length) {
         steps.push(wallMs)
       }
-      assert.equal(store.search({ query: 'benchmarkneedle' }).hits.length, 1)
+      assert.equal(query.execute({ query: 'benchmarkneedle' }, null).hits.length, 1)
       console.log(
         JSON.stringify({
           platform: process.platform,
@@ -48,10 +49,15 @@ try {
           walBytes: (await stat(`${path}-wal`)).size
         })
       )
-      await store.purgeOlderThan(null)
+      await deleteExpiredSearchFiles(
+        db,
+        null,
+        () => false,
+        () => {}
+      )
     }
   } finally {
-    store.close()
+    db.close()
   }
 } finally {
   await rm(root, { recursive: true, force: true })

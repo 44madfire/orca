@@ -26,10 +26,9 @@ const AI_VAULT_SEARCH_PANEL_LIMIT = 50
 export type AiVaultSessionSearchView = {
   /** True once the text half of the query is non-empty; the plain list is hidden. */
   active: boolean
-  localOnly: boolean
+  /** A host the index cannot reach is in scope, so those rows match on title only. */
+  remoteHostsTitleOnly: boolean
   loading: boolean
-  /** Results are on screen but a newer query is still resolving. */
-  updating: boolean
   error: string | null
   coverage: AiVaultSearchCoverage | null
   /** Terms the index corrected before searching; empty when the query ran as typed. */
@@ -53,16 +52,24 @@ export function useAiVaultSessionSearchResults(input: {
   agents: readonly AiVaultAgent[]
   scopePaths: readonly string[]
   executionHostScope: ExecutionHostScope
+  /** Whether any host other than this computer can be chosen in the panel's host menu. */
+  remoteHostsAvailable: boolean
   sessions: readonly AiVaultSession[]
 }): AiVaultSessionSearchView {
   const [newestFirst, setNewestFirst] = useState(false)
   const { agents, enabled, executionHostScope, query, scopePaths, sessions } = input
 
-  const localOnly = !isWebClientLocation()
+  // The desktop app searches its own index; a paired web client searches the runtime it addresses.
+  const isDesktopApp = !isWebClientLocation()
   const supportedHost =
-    !localOnly ||
+    !isDesktopApp ||
     executionHostScope === LOCAL_EXECUTION_HOST_ID ||
     executionHostScope === ALL_EXECUTION_HOSTS_SCOPE
+  const remoteHostsTitleOnly =
+    isDesktopApp &&
+    (executionHostScope === ALL_EXECUTION_HOSTS_SCOPE
+      ? input.remoteHostsAvailable
+      : executionHostScope !== LOCAL_EXECUTION_HOST_ID)
 
   const args = useMemo((): AiVaultSearchArgs | null => {
     if (!enabled || !supportedHost || agents.length === 0 || !query.trim()) {
@@ -77,21 +84,18 @@ export function useAiVaultSessionSearchResults(input: {
     }
   }, [agents, enabled, newestFirst, query, scopePaths, supportedHost])
 
-  const { error, flush, loading, result, updating } = useAiVaultSessionSearchRequest(
-    args,
-    executionHostScope
-  )
+  const { error, flush, loading, result } = useAiVaultSessionSearchRequest(args, executionHostScope)
   // With an empty box no search runs, so the panel reads coverage directly to
   // report what is already searchable while the backfill is still going.
   const polledCoverage = useAiVaultSearchCoveragePoll(
     enabled && supportedHost,
     result?.coverage ?? null,
-    localOnly ? '' : executionHostScope
+    isDesktopApp ? '' : executionHostScope
   )
   // Desktop search always reads this machine's index; a paired web client's
   // reads its runtime host, which is the scope it is pinned to.
   const executionHostId =
-    localOnly || executionHostScope === ALL_EXECUTION_HOSTS_SCOPE
+    isDesktopApp || executionHostScope === ALL_EXECUTION_HOSTS_SCOPE
       ? LOCAL_EXECUTION_HOST_ID
       : executionHostScope
 
@@ -120,11 +124,10 @@ export function useAiVaultSessionSearchResults(input: {
   return useMemo(
     () => ({
       active: args !== null,
-      localOnly,
+      remoteHostsTitleOnly,
       loading,
-      updating,
       error,
-      coverage: polledCoverage ?? result?.coverage ?? null,
+      coverage: polledCoverage,
       repairedTerms: result?.repairedTerms ?? [],
       disabled: isAiVaultSearchDisabled(result?.coverage),
       flush,
@@ -142,12 +145,11 @@ export function useAiVaultSessionSearchResults(input: {
       groups,
       hitSessions,
       loading,
-      localOnly,
       newestFirst,
       polledCoverage,
+      remoteHostsTitleOnly,
       result,
-      sessions.length,
-      updating
+      sessions.length
     ]
   )
 }

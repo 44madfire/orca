@@ -1,4 +1,8 @@
-import type { AiVaultSearchCoverage, AiVaultSearchProviderCoverage } from './ai-vault-search-types'
+import type {
+  AiVaultSearchCoverage,
+  AiVaultSearchProviderCoverage,
+  AiVaultSearchResult
+} from './ai-vault-search-types'
 
 /** What a host reports while transcript search is switched off. */
 export const DISABLED_AI_VAULT_SEARCH_COVERAGE: AiVaultSearchCoverage = {
@@ -9,6 +13,14 @@ export const DISABLED_AI_VAULT_SEARCH_COVERAGE: AiVaultSearchCoverage = {
   backfill: 'idle',
   filesPending: 0,
   lastIndexedAt: null
+}
+
+/** What a query answers with when there is no index to read: off, closing, or closed. */
+export const NO_AI_VAULT_SEARCH_INDEX_RESULT: AiVaultSearchResult = {
+  hits: [],
+  route: 'and',
+  durationMs: 0,
+  coverage: DISABLED_AI_VAULT_SEARCH_COVERAGE
 }
 
 /** Old hosts omit the flag; only an explicit `false` means the user opted out. */

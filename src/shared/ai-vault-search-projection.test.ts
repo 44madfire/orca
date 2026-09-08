@@ -1,5 +1,7 @@
-import { expect, it } from 'vitest'
+import type { z } from 'zod'
+import { expect, expectTypeOf, it } from 'vitest'
 import { projectSessionSearchResult } from './ai-vault-search-projection'
+import { SessionSearchResultSchema } from './ai-vault-search-contract'
 import type { AiVaultSearchResult, AiVaultSearchHit } from './ai-vault-search-types'
 
 const hit: AiVaultSearchHit = {
@@ -47,4 +49,54 @@ it('omits oversized identities and caps serialized response size with explicit a
   )
   expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThanOrEqual(512 * 1024)
   expect(projected.omittedHits! + projected.hits.length).toBe(101)
+})
+
+it('never truncates a snippet into an unclosable mark', () => {
+  const cutInsideAMark = {
+    ...hit,
+    evidence: { ...hit.evidence, snippet: `${'a'.repeat(4094)}[[needle]]` }
+  }
+  const snippet = projectSessionSearchResult(result([cutInsideAMark])).hits[0]!.evidence.snippet
+  expect(snippet).not.toContain('[[')
+  expect(snippet).toBe('a'.repeat(4094))
+})
+
+// A client and the host it queries update independently, so one unknown enum
+// value must cost at most the hit that carries it.
+it('keeps a response a newer host filled with values this build does not know', () => {
+  const fromNewerHost: unknown = {
+    ...result([]),
+    hits: [
+      { ...hit, evidence: { ...hit.evidence, role: 'planner', snippet: '' } },
+      { ...hit, agent: 'agent-from-the-future', evidence: { ...hit.evidence, snippet: '' } }
+    ],
+    route: 'vector',
+    coverage: {
+      sessionsIndexed: 0,
+      messagesIndexed: 0,
+      providers: [],
+      backfill: 'draining',
+      filesPending: 0,
+      lastIndexedAt: null,
+      indexing: {
+        phase: 'compacting',
+        filesProcessed: 0,
+        filesTotal: null,
+        failures: 0,
+        startedAt: 0
+      }
+    }
+  }
+  const parsed = SessionSearchResultSchema.parse(fromNewerHost)
+  expect(parsed.hits.map((entry) => entry.evidence.role)).toEqual(['unknown'])
+  expect(parsed.route).toBe('or')
+  expect(parsed.coverage.backfill).toBe('running')
+  expect(parsed.coverage.indexing?.phase).toBe('indexing')
+})
+
+// Why both directions: a field only on the type is stripped before transport,
+// and a field only in the schema rejects a successful local search on arrival.
+it('keeps the wire schema and the result type in step', () => {
+  expectTypeOf<AiVaultSearchResult>().toExtend<z.infer<typeof SessionSearchResultSchema>>()
+  expectTypeOf<z.infer<typeof SessionSearchResultSchema>>().toExtend<AiVaultSearchResult>()
 })

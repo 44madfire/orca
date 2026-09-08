@@ -5,6 +5,10 @@ import type {
 } from '../shared/ai-vault-session-title'
 import type { SshAiVaultRelayListParams } from '../shared/ssh-ai-vault-relay'
 import type { RemoteHostPlatform } from '../main/ssh/ssh-remote-platform'
+import {
+  SESSION_SEARCH_OPERATIONS,
+  type SessionSearchOperation
+} from '../shared/ai-vault-search-rpc-methods'
 
 export const RELAY_AI_VAULT_SERVICE_PROTOCOL = 1
 
@@ -20,7 +24,7 @@ export type RelayAiVaultServiceRequest =
       type: 'request'
       id: number
       operation: 'search'
-      action: 'query' | 'status' | 'configure'
+      action: SessionSearchOperation
       params: unknown
     }
   | {
@@ -36,14 +40,21 @@ export type RelayAiVaultServiceRequest =
       requests: AiVaultSessionTitleRequest[]
     }
 
-export type RelayAiVaultServiceLane = 'cache' | 'interactive'
-export type RelayAiVaultServiceOperation = RelayAiVaultServiceRequest['operation']
+export type RelayAiVaultServiceLane = 'cache' | 'interactive' | 'search'
 
-/** Queries, controls and title reads must not queue behind a full history scan. */
+/**
+ * `list` is a full history scan and a search `query` can drive a backfill pass,
+ * so neither may queue ahead of the interactive lane that title reads and the
+ * search controls run on. Search stays correct across the split because
+ * `RelaySessionSearchOwner` serializes every operation it owns.
+ */
 export function relayAiVaultServiceLane(
-  operation: RelayAiVaultServiceOperation
+  request: RelayAiVaultServiceRequest
 ): RelayAiVaultServiceLane {
-  return operation === 'list' ? 'cache' : 'interactive'
+  if (request.operation === 'list') {
+    return 'cache'
+  }
+  return request.operation === 'search' && request.action === 'query' ? 'search' : 'interactive'
 }
 
 export type RelayAiVaultServiceParentMessage =
@@ -78,7 +89,8 @@ export function isRelayAiVaultServiceRequest(value: unknown): value is RelayAiVa
     Number.isSafeInteger(message.id) &&
     (message.operation === 'list' ||
       message.operation === 'titles' ||
-      message.operation === 'search')
+      (message.operation === 'search' &&
+        SESSION_SEARCH_OPERATIONS.includes(message.action as SessionSearchOperation)))
   )
 }
 

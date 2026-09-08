@@ -1,4 +1,4 @@
-import { assertSearchWalBudget } from './session-search-wal-budget'
+import { assertSearchWalBudget, SEARCH_WAL_PENDING_BYTES } from './session-search-wal-budget'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import type { AiVaultSession } from '../../shared/ai-vault-types'
 import type SyncDatabase from '../sqlite/sync-database'
@@ -11,13 +11,26 @@ import type {
 import { EMPTY_CONTENT_HASH, foldContentHash } from './session-search-content-hash'
 import { SessionSearchFileRecords } from './session-search-file-records'
 import { insertSearchMessage, searchMessageRows } from './session-search-message-rows'
-import { discardSearchBatch, retireSearchSession } from './session-search-write-recovery'
+import { discardSearchBatch, retireSearchSession } from './session-search-pending-deletes'
 import { redactSessionSearchText } from './session-search-redaction'
 import { sessionSearchPathKey } from './session-search-path-key'
 export { chunkMessageText } from './session-search-message-rows'
 
 export const SEARCH_WRITE_ROWS_PER_STEP = 128
 export const SEARCH_WRITE_CHARS_PER_STEP = 256 * 1024
+// Why sampled: the checkpoint costs more than the step it guards, and the backlog it
+// watches only grows while a second connection pins a snapshot, which takes seconds.
+const WAL_BUDGET_EVERY_STEPS = 16
+
+export type SessionSearchApplyOptions = {
+  /** False once this write is superseded; staging stops without publishing. */
+  active?: () => boolean
+  yieldStep?: () => Promise<void>
+  /** False once the database is gone; gates the discard tombstone. Defaults to `active`. */
+  available?: () => boolean
+}
+
+type ResolvedApplyOptions = Required<SessionSearchApplyOptions>
 
 export type SessionSearchMetadata = Pick<
   AiVaultSession,
@@ -38,7 +51,10 @@ export class SessionSearchIndexWriter {
   private activePath: string | null = null
   private invalidated = false
   private pending: Promise<unknown> = Promise.resolve()
-  constructor(private readonly db: SyncDatabase) {
+  constructor(
+    private readonly db: SyncDatabase,
+    private readonly walBudgetBytes: number = SEARCH_WAL_PENDING_BYTES
+  ) {
     this.records = new SessionSearchFileRecords(db)
   }
   indexedFile(path: string, identity: SessionSearchFileIdentity): SessionSearchIndexedFile | null {
@@ -84,17 +100,21 @@ export class SessionSearchIndexWriter {
 
   apply(
     update: SessionSearchIndexWrite,
-    active: () => boolean = () => true,
-    yieldStep: () => Promise<void> = yieldToEventLoop,
-    available: () => boolean = active
+    options: SessionSearchApplyOptions = {}
   ): Promise<boolean> {
+    const active = options.active ?? (() => true)
+    const resolved: ResolvedApplyOptions = {
+      active,
+      yieldStep: options.yieldStep ?? yieldToEventLoop,
+      available: options.available ?? active
+    }
     const run = this.pending
       .catch(() => undefined)
       .then(async () => {
         this.activePath = update.candidate.file.path
         this.invalidated = false
         try {
-          return await this.stage(update, active, yieldStep, available)
+          return await this.stage(update, resolved)
         } finally {
           this.activePath = null
         }
@@ -130,14 +150,11 @@ export class SessionSearchIndexWriter {
 
   private async stage(
     update: SessionSearchIndexWrite,
-    active: () => boolean,
-    yieldStep: () => Promise<void>,
-    available: () => boolean
+    { active, yieldStep, available }: ResolvedApplyOptions
   ): Promise<boolean> {
     if (!active()) {
       return false
     }
-    assertSearchWalBudget(this.db)
     const path = update.candidate.file.path
     const existing = this.file(path)
     const append =
@@ -183,6 +200,7 @@ export class SessionSearchIndexWriter {
       }
       const rows = capturedRows()
       let next = await rows.next()
+      let step = 0
       while (!next.done) {
         const batch: SessionSearchCapturedMessage[] = []
         let chars = 0
@@ -199,7 +217,9 @@ export class SessionSearchIndexWriter {
           await rows.return(undefined)
           return false
         }
-        assertSearchWalBudget(this.db)
+        if (step++ % WAL_BUDGET_EVERY_STEPS === 0) {
+          assertSearchWalBudget(this.db, this.walBudgetBytes)
+        }
         this.db.exec('BEGIN IMMEDIATE')
         try {
           for (const message of batch) {
@@ -212,7 +232,7 @@ export class SessionSearchIndexWriter {
         }
         await yieldStep()
       }
-      const result = 'result' in update ? await update.result : update
+      const result = await update.result
       if (!active() || !unchanged()) {
         return false
       }
@@ -231,7 +251,10 @@ export class SessionSearchIndexWriter {
           retireSearchSession(this.db, existing.session_row_id)
         }
         this.db.prepare('UPDATE sessions SET index_ready=1 WHERE id=?').run(sessionId)
-        this.db.prepare('UPDATE search_write_batches SET published=1 WHERE id=?').run(batchId)
+        // Clearing the pointer before dropping the batch is what makes a recycled
+        // rowid harmless: no published row can name a later in-flight batch.
+        this.db.prepare('UPDATE messages SET batch_id=NULL WHERE batch_id=?').run(batchId)
+        this.db.prepare('DELETE FROM search_write_batches WHERE id=?').run(batchId)
         this.records.upsertFile(update.candidate, result.byteOffset, sessionId)
         this.db.exec('COMMIT')
       } catch (error) {
@@ -240,13 +263,12 @@ export class SessionSearchIndexWriter {
       }
       return true
     } finally {
-      if (available()) {
-        const batch = this.db
-          .prepare('SELECT published FROM search_write_batches WHERE id=?')
-          .get(batchId) as { published: number } | undefined
-        if (batch?.published === 0) {
-          discardSearchBatch(this.db, sessionId, batchId, !append)
-        }
+      // A surviving batch row means publish never ran, whatever ended the stage.
+      if (
+        available() &&
+        this.db.prepare('SELECT 1 FROM search_write_batches WHERE id=?').get(batchId)
+      ) {
+        discardSearchBatch(this.db, sessionId, batchId, !append)
       }
     }
   }

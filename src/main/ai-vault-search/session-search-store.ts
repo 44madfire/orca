@@ -1,6 +1,8 @@
 import { SessionSearchIndexingProgress } from './session-search-indexing-progress'
-import { SessionSearchMaintenance } from './session-search-maintenance'
-import { recoverSearchWrites } from './session-search-write-recovery'
+import { compactSessionSearchIndex } from './session-search-index-compaction'
+import { logSessionSearchQuery } from './session-search-query-log'
+import { warmSessionSearchPages } from './session-search-page-warmup'
+import { recoverSearchWrites } from './session-search-pending-deletes'
 import { deleteExpiredSearchFiles } from './session-search-retention-delete'
 import type { AiVaultAgent } from '../../shared/ai-vault-types'
 import { aiVaultSearchHistoryCutoffMs } from '../../shared/ai-vault-search-settings'
@@ -20,19 +22,26 @@ import type {
 import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
 import { SessionSearchIndexWriter, type SessionSearchMetadata } from './session-search-index-writer'
 import { SessionSearchQuery } from './session-search-query'
-import { openSessionSearchDatabase } from './session-search-schema'
+import {
+  openSessionSearchDatabase,
+  VISIBLE_MESSAGES,
+  VISIBLE_SESSIONS
+} from './session-search-schema'
 
 export type SessionSearchBackfillState = 'idle' | 'running' | 'complete'
 
 type ProviderDiscovery = { files: number; parseFailures: number; scanIssues: number }
 
+export type SessionSearchStoreOptions = {
+  /** The WAL backlog a staging write refuses to grow past. Only tests narrow it. */
+  walBudgetBytes?: number
+}
+
 /** Owns the index database: the scanner writes through it, search reads from it. */
 export class SessionSearchStore implements SessionSearchIndexSink {
-  readonly streamingCapture = true
   readonly indexing = new SessionSearchIndexingProgress()
   private writeEpoch = 0
-  /** Exposed for tests that assert on file-level state (page counts). */
-  readonly db: SyncDatabase
+  private readonly db: SyncDatabase
   private readonly writer: SessionSearchIndexWriter
   private readonly query: SessionSearchQuery
   private backfill: SessionSearchBackfillState = 'idle'
@@ -43,7 +52,7 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     null
   private cleanupRequested = false
   private cleanup: Promise<void> | null = null
-  private readonly maintenance: SessionSearchMaintenance
+  private warmed: Promise<void> | null = null
   private lastIndexedAt: string | null = null
   private applyFailures = 0
   private readonly stale = new Map<string, SessionFileCandidate>()
@@ -55,13 +64,13 @@ export class SessionSearchStore implements SessionSearchIndexSink {
       console.warn(
         '[ai-vault-search] index write failed:',
         error instanceof Error ? error.name : 'IndexError'
-      )
+      ),
+    options: SessionSearchStoreOptions = {}
   ) {
     this.db = openSessionSearchDatabase(path)
     recoverSearchWrites(this.db)
-    this.writer = new SessionSearchIndexWriter(this.db)
+    this.writer = new SessionSearchIndexWriter(this.db, options.walBudgetBytes)
     this.query = new SessionSearchQuery(this.db)
-    this.maintenance = new SessionSearchMaintenance(this.db, () => this.closed, this.onError)
   }
 
   indexedFile(path: string, identity: SessionSearchFileIdentity): SessionSearchIndexedFile | null {
@@ -119,15 +128,13 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     const epoch = this.writeEpoch
     const finish = this.indexing.beginWrite()
     try {
-      const applied = await this.writer.apply(
-        update,
-        () =>
+      const applied = await this.writer.apply(update, {
+        active: () =>
           !update.signal?.aborted &&
           epoch === this.writeEpoch &&
           this.acceptsCandidate(update.candidate),
-        undefined,
-        () => !this.closed
-      )
+        available: () => !this.closed
+      })
       if (!applied) {
         this.markStale(update.candidate)
         return
@@ -162,10 +169,6 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     const candidates = [...this.stale.values()]
     this.stale.clear()
     return candidates
-  }
-
-  get staleCount(): number {
-    return this.stale.size
   }
 
   removeFile(path: string): void {
@@ -221,7 +224,7 @@ export class SessionSearchStore implements SessionSearchIndexSink {
         }
       )
       if (!this.closed && !signal?.aborted) {
-        await this.maintenance.compact(signal)
+        await compactSessionSearchIndex(this.db, () => this.closed || signal?.aborted === true)
       }
     } catch (error) {
       if (!this.closed) {
@@ -231,7 +234,10 @@ export class SessionSearchStore implements SessionSearchIndexSink {
   }
 
   warm(): Promise<void> {
-    return this.maintenance.warm()
+    this.warmed ??= warmSessionSearchPages(this.db, () => this.closed).catch((error) =>
+      this.onError(error)
+    )
+    return this.warmed
   }
 
   setBackfillState(state: SessionSearchBackfillState): void {
@@ -253,7 +259,16 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     const startedAt = performance.now()
     const execution = this.query.execute(args, aiVaultSearchHistoryCutoffMs(this.historyDays))
     const durationMs = performance.now() - startedAt
-    this.maintenance.logQuery(args.query, execution.route, execution.hits.length, durationMs)
+    try {
+      logSessionSearchQuery(this.db, {
+        query: args.query,
+        route: execution.route,
+        hits: execution.hits.length,
+        durationMs
+      })
+    } catch (error) {
+      this.onError(error)
+    }
     return {
       hits: execution.hits,
       route: execution.route,
@@ -267,9 +282,7 @@ export class SessionSearchStore implements SessionSearchIndexSink {
     const providers = (this.providerCounts ??= this.db
       .prepare(
         `SELECT s.agent AS agent, COUNT(DISTINCT s.id) AS sessions, COUNT(m.id) AS messages
-         FROM sessions s LEFT JOIN messages m ON m.session_row_id = s.id
-           AND (m.batch_id IS NULL OR m.batch_id NOT IN (SELECT id FROM search_write_batches WHERE published=0))
-         WHERE s.index_ready=1 AND s.id NOT IN (SELECT session_row_id FROM search_pending_deletes WHERE batch_id IS NULL)
+         FROM ${VISIBLE_SESSIONS} s LEFT JOIN ${VISIBLE_MESSAGES} m ON m.session_row_id = s.id
          GROUP BY s.agent ORDER BY s.agent`
       )
       .all() as { agent: AiVaultAgent; sessions: number; messages: number }[])

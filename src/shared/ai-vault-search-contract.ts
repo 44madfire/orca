@@ -35,31 +35,41 @@ export const SessionSearchStatusSchema = z.object({
 })
 
 const boundedText = z.string().max(32768)
+
+/**
+ * Why the received-payload enums fall back instead of failing: a client and the
+ * host it queries update independently, so a host that learns one new route,
+ * indexing phase, or message role must not cost an older client the whole
+ * response. Each fallback is the value that already means "nothing specific".
+ */
+export const SessionSearchHitSchema = z.object({
+  agent: z.enum(AI_VAULT_AGENTS),
+  sessionId: boundedText,
+  filePath: boundedText,
+  codexHome: boundedText.nullable(),
+  title: boundedText,
+  cwd: boundedText.nullable(),
+  branch: boundedText.nullable(),
+  updatedAt: boundedText.nullable(),
+  messageCount: z.number().nonnegative(),
+  resumeCommand: boundedText,
+  score: z.number(),
+  duplicateCount: z.number().optional(),
+  evidence: z.object({
+    role: z.enum(['user', 'assistant', 'tool', 'system', 'unknown']).catch('unknown'),
+    timestamp: boundedText.nullable(),
+    snippet: boundedText
+  })
+})
+
 export const SessionSearchResultSchema = z.object({
+  // Why per-hit and not per-response: an agent the client cannot name has no
+  // resume command it could run, so that hit is the only thing it should lose.
   hits: z
-    .array(
-      z.object({
-        agent: z.enum(AI_VAULT_AGENTS),
-        sessionId: boundedText,
-        filePath: boundedText,
-        codexHome: boundedText.nullable(),
-        title: boundedText,
-        cwd: boundedText.nullable(),
-        branch: boundedText.nullable(),
-        updatedAt: boundedText.nullable(),
-        messageCount: z.number().nonnegative(),
-        resumeCommand: boundedText,
-        score: z.number(),
-        duplicateCount: z.number().optional(),
-        evidence: z.object({
-          role: z.enum(['user', 'assistant', 'tool', 'system', 'unknown']),
-          timestamp: boundedText.nullable(),
-          snippet: boundedText
-        })
-      })
-    )
-    .max(AI_VAULT_SEARCH_LIMIT_MAX),
-  route: z.enum(['phrase', 'and', 'or', 'typo+phrase', 'typo+and', 'typo+or']),
+    .array(SessionSearchHitSchema.nullable().catch(null))
+    .max(AI_VAULT_SEARCH_LIMIT_MAX)
+    .transform((hits) => hits.filter((hit) => hit !== null)),
+  route: z.enum(['phrase', 'and', 'or', 'typo+phrase', 'typo+and', 'typo+or']).catch('or'),
   repairedTerms: z.array(boundedText).max(512).optional(),
   durationMs: z.number().nonnegative(),
   coverage: z.object({
@@ -78,20 +88,17 @@ export const SessionSearchResultSchema = z.object({
         })
       )
       .max(AI_VAULT_AGENTS.length),
-    backfill: z.enum(['idle', 'running', 'complete']),
+    // An unknown backfill state is not evidence the index is finished.
+    backfill: z.enum(['idle', 'running', 'complete']).catch('running'),
     filesPending: z.number().nonnegative(),
     lastIndexedAt: boundedText.nullable(),
     indexing: z
       .object({
-        phase: z.enum([
-          'idle',
-          'discovering',
-          'indexing',
-          'updating',
-          'paused',
-          'complete',
-          'error'
-        ]),
+        // Unknown phases report as work in flight; `idle` would claim the
+        // opposite of what a newer host is telling us.
+        phase: z
+          .enum(['idle', 'discovering', 'indexing', 'updating', 'paused', 'complete', 'error'])
+          .catch('indexing'),
         filesProcessed: z.number().nonnegative(),
         filesTotal: z.number().nonnegative().nullable(),
         failures: z.number().nonnegative(),

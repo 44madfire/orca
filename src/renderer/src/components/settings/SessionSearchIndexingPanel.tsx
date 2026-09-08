@@ -1,4 +1,7 @@
-import type { AiVaultSearchCoverage } from '../../../../shared/ai-vault-search-types'
+import type {
+  AiVaultSearchCoverage,
+  AiVaultSearchIndexingProgress
+} from '../../../../shared/ai-vault-search-types'
 import { Button } from '../ui/button'
 import { Progress } from '../ui/progress'
 import { translate } from '@/i18n/i18n'
@@ -22,44 +25,54 @@ export function indexingPhaseLabel(phase: string): string {
   }
 }
 
+/**
+ * Null when the total is unknown or already overtaken. Capping at 100% instead would print
+ * "12,000 / 10,000 · 100%"; an indeterminate bar is the honest answer to an unknown total.
+ */
+export function aiVaultIndexingPercentage(
+  progress: AiVaultSearchIndexingProgress | undefined
+): number | null {
+  if (!progress?.filesTotal || progress.filesProcessed > progress.filesTotal) {
+    return null
+  }
+  return Math.floor((progress.filesProcessed / progress.filesTotal) * 100)
+}
+
+/** A run that is moving. Paused and failed runs must not show a bar that looks like progress. */
+function indexingUnderway(phase: string | undefined): boolean {
+  return phase === 'discovering' || phase === 'indexing' || phase === 'updating'
+}
+
 export function SessionSearchIndexingPanel({
   coverage,
   busy,
-  error,
-  unavailable,
+  failed,
   onControl
 }: {
   coverage: AiVaultSearchCoverage | null
   busy: boolean
-  error: boolean
-  unavailable: boolean
+  /** A read or a control action did not land. */
+  failed: boolean
   onControl: (paused: boolean) => void
 }): React.JSX.Element {
   const progress = coverage?.indexing
   const phase = progress?.phase
   const canPause = phase !== 'paused' && phase !== 'error' && phase !== 'idle'
-  const percentage =
-    progress?.filesTotal != null && progress.filesTotal > 0
-      ? Math.min(100, Math.floor((progress.filesProcessed / progress.filesTotal) * 100))
-      : null
-  const label = unavailable
-    ? translate('sessionSearch.indexing.statusUnavailable', 'Index status unavailable')
-    : phase
-      ? indexingPhaseLabel(phase)
-      : coverage
-        ? indexingPhaseLabel(coverage.backfill === 'complete' ? 'complete' : 'indexing')
-        : translate('sessionSearch.indexing.loading', 'Reading index status…')
+  const percentage = aiVaultIndexingPercentage(progress)
+  const label =
+    failed && !coverage
+      ? translate('sessionSearch.indexing.statusUnavailable', 'Index status unavailable')
+      : phase
+        ? indexingPhaseLabel(phase)
+        : coverage
+          ? indexingPhaseLabel(coverage.backfill === 'complete' ? 'complete' : 'indexing')
+          : translate('sessionSearch.indexing.loading', 'Reading index status…')
   return (
     <div className="space-y-3" data-testid="session-search-indexing-panel">
       <div className="flex items-center justify-between gap-4">
         <span className="text-sm font-medium">{label}</span>
         {progress ? (
-          <Button
-            variant="outline"
-            size="xs"
-            disabled={busy || unavailable}
-            onClick={() => onControl(canPause)}
-          >
+          <Button variant="outline" size="xs" disabled={busy} onClick={() => onControl(canPause)}>
             {busy
               ? translate('sessionSearch.indexing.applying', 'Applying…')
               : canPause
@@ -72,7 +85,7 @@ export function SessionSearchIndexingPanel({
           </Button>
         ) : null}
       </div>
-      {progress && phase !== 'complete' && (percentage !== null || phase === 'discovering') ? (
+      {progress && phase !== 'complete' && (percentage !== null || indexingUnderway(phase)) ? (
         <>
           <Progress value={percentage} aria-label={label} className="h-1.5 bg-muted" />
           {percentage !== null ? (
@@ -127,7 +140,7 @@ export function SessionSearchIndexingPanel({
           )}
         </p>
       ) : null}
-      {error || unavailable ? (
+      {failed ? (
         <p role="alert" className="text-xs text-destructive">
           {translate(
             'sessionSearch.indexing.unavailable',
