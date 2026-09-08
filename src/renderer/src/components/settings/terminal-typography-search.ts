@@ -132,11 +132,11 @@ export const getTerminalRenderingSearchEntries = createLocalizedCatalog(() => [
   {
     title: translate(
       'auto.components.settings.terminal.search.minimumContrast.title',
-      'Minimum Contrast Ratio'
+      'Color Contrast'
     ),
     description: translate(
       'auto.components.settings.terminal.search.minimumContrast.description',
-      'Lifts terminal foreground colors that sit too close to the background. Leave blank for automatic, or set 1 to render program colors exactly as sent.'
+      'Improve text readability or preserve the colors chosen by terminal programs.'
     ),
     keywords: [
       ...translateSearchKeyword('auto.components.settings.terminal.search.f66a7cf715', 'terminal'),
