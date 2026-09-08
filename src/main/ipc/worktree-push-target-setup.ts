@@ -1,4 +1,6 @@
 import { assertGitReviewPushAuthority } from '../../shared/git-review-push-authority'
+import { readCurrentGitBranchName } from '../../shared/git-current-branch'
+import { readGitRemoteTrackingRef } from '../../shared/git-remote-tracking-ref'
 // Why: preparing a fork-PR push target means adding (or reusing) the contributor's
 // fork as a git remote, fetching the head, and wiring the new branch's upstream.
 // The git-driven core lives here behind an injectable `execGit` seam so the
@@ -57,14 +59,7 @@ export async function resolveCheckedOutBranchName(
   execGit: GitRemoteExec,
   repoPath: string
 ): Promise<string | null> {
-  try {
-    const { stdout } = await execGit(['symbolic-ref', '--short', 'HEAD'], repoPath)
-    const branch = stdout.trim()
-    return branch.length > 0 ? branch : null
-  } catch {
-    // Detached HEAD or an unreadable ref -- nothing to point upstream.
-    return null
-  }
+  return readCurrentGitBranchName((args) => execGit(args, repoPath))
 }
 
 export async function ensureUniqueRemoteName(
@@ -209,9 +204,14 @@ export async function configureCreatedWorktreePushTargetWithExec(
   branchName: string,
   target: GitPushTarget
 ): Promise<GitPushTarget> {
-  await execGit(
-    ['branch', '--set-upstream-to', `${target.remoteName}/${target.branchName}`, branchName],
-    worktreePath
+  const trackingRef = await readGitRemoteTrackingRef(
+    (args) => execGit(args, worktreePath),
+    target.remoteName,
+    target.branchName
   )
+  if (!trackingRef) {
+    throw new Error('Cannot restore upstream: configured remote tracking ref is unavailable.')
+  }
+  await execGit(['branch', '--set-upstream-to', trackingRef, branchName], worktreePath)
   return target
 }

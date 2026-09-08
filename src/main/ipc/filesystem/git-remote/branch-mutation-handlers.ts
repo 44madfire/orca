@@ -1,4 +1,4 @@
-import { resolveStoredReviewPushTarget } from '../../worktree-review-push-target'
+import { resolveReviewPushWorkspace } from '../../worktree-review-push-target'
 import { ipcMain } from 'electron'
 import type { GitPushTarget } from '../../../../shared/worktree/types'
 import { gitFastForward, gitPull, gitPullRebaseFromBase, gitPush } from '../../../git/remote'
@@ -34,9 +34,10 @@ export function registerGitRemoteBranchMutationHandlers(context: FilesystemHandl
     ): Promise<void> => {
       // Why: coerce to strict boolean so a malformed payload (e.g. string 'false') can't enable --set-upstream; mirror in src/relay/git-handler.ts.
       const publish = args.publish === true
+      const resolved = await resolveReviewPushWorkspace(store, args)
+      args = { ...args, worktreePath: resolved.worktreePath, pushTarget: resolved.pushTarget }
       if (args.connectionId) {
         const connectionId = args.connectionId
-        args = { ...args, pushTarget: resolveStoredReviewPushTarget(store, args) }
         if (args.pushTarget) {
           assertGitPushTargetShape(args.pushTarget)
         }
@@ -59,16 +60,8 @@ export function registerGitRemoteBranchMutationHandlers(context: FilesystemHandl
           forceWithLease: args.forceWithLease === true
         })
       }
-      const worktreePath = await resolveRegisteredWorktreePath(args.worktreePath, store)
-      args = {
-        ...args,
-        pushTarget: resolveStoredReviewPushTarget(store, { ...args, worktreePath })
-      }
-      const gitOptions = getLocalGitOptionsForRegisteredWorktree(
-        store,
-        args.worktreePath,
-        worktreePath
-      )
+      const worktreePath = resolved.worktreePath
+      const gitOptions = resolved.gitOptions
       const materializedPushTarget = args.pushTarget
         ? await materializeWorktreePushTargetRemote(
             worktreePath,

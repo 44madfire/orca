@@ -1,4 +1,8 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import type { FilesystemHandlerContext } from '../ipc/filesystem/filesystem-handler-context'
+import type { IFilesystemProvider } from '../providers/types'
+import type { Store } from '../persistence'
+import type { WorktreeMeta } from '../../shared/worktree/meta-types'
+import { mkdtemp, readFile, realpath, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:net'
@@ -14,7 +18,14 @@ const state = vi.hoisted(() => ({
   root: '',
   endpoint: '',
   env: {} as NodeJS.ProcessEnv,
-  pushes: [] as string[]
+  pushes: [] as string[],
+  handlers: new Map<string, (_event: unknown, args: unknown) => Promise<void>>()
+}))
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: (name: string, handler: (_event: unknown, args: unknown) => Promise<void>) =>
+      state.handlers.set(name, handler)
+  }
 }))
 vi.mock('./gh-utils', () => ({
   acquire: async () => {},
@@ -48,6 +59,9 @@ vi.mock('./client/pull-request-lookup-candidates', () => ({
   ]
 }))
 vi.mock('./client', async () => ({
+  createGitHubPullRequest: vi.fn(() => {
+    throw new Error('Unexpected live forge request')
+  }),
   getPullRequestPushTarget: (await import('./client/lookup/pull-request-push-target'))
     .getPullRequestPushTarget,
   getWorkItem: async () => ({ type: 'pr', branchName: 'feature' })
@@ -262,4 +276,109 @@ it('uses Git rewrite and pushurl selection rules without changing configuration 
   await git('remote', 'set-url', 'origin', state.endpoint)
   await git('config', '--add', 'remote.origin.url', other)
   await verify(false, [state.endpoint, other])
+})
+
+it('carries provider-produced authority through omitted-target SSH IPC aliases to host execution', async () => {
+  const { registerGitRemoteBranchMutationHandlers } =
+    await import('../ipc/filesystem/git-remote/branch-mutation-handlers')
+  const { registerSshGitProvider, unregisterSshGitProvider } =
+    await import('../providers/ssh-git-dispatch')
+  const { registerSshFilesystemProvider, unregisterSshFilesystemProvider } =
+    await import('../providers/ssh-filesystem-dispatch')
+  const { SshGitProvider } = await import('../providers/ssh-git-provider')
+  const { createMockMux } = await import('../providers/ssh-git-provider-test-harness')
+  const canonical = await realpath(root)
+  const alias = join(root, 'workspace-alias')
+  await symlink(canonical, alias, 'dir')
+  await git('config', '--unset-all', 'remote.origin.pushurl').catch(() => {})
+  await git('config', '--replace-all', 'remote.origin.url', state.endpoint)
+  const target = (await getPullRequestPushTarget(root, 42))?.pushTarget
+  expect(target?.reviewHead).toBeDefined()
+  const metadata: Record<string, WorktreeMeta> = {
+    [`repo::${canonical}`]: { pushTarget: target! }
+  }
+  const store = {
+    getRepos: () => [{ id: 'repo', path: canonical, connectionId: 'identity-fixture' }],
+    getAllWorktreeMetaForHost: () => metadata
+  } as unknown as Store
+  const mux = createMockMux()
+  const pushes: string[] = []
+  mux.request.mockImplementation(async (method, params) => {
+    if (method === 'git.exec') {
+      expect(params.cwd).toBe(canonical)
+      return run(params.args)
+    }
+    if (method === 'git.listWorktrees') {
+      expect(await git('rev-parse', '--show-toplevel')).toBe(canonical)
+      return [{ path: canonical, head: '', branch: 'feature', isBare: false, isMainWorktree: true }]
+    }
+    expect(method).toBe('git.push')
+    expect(params.worktreePath).toBe(canonical)
+    const resolved = await resolveRelayPushTarget((args) => run(args), canonical, params.pushTarget)
+    pushes.push(
+      (
+        await run([
+          'push',
+          '--dry-run',
+          '--porcelain',
+          resolved?.remote ?? 'origin',
+          resolved?.refspec ?? 'HEAD'
+        ])
+      ).stdout
+    )
+  })
+  registerSshGitProvider('identity-fixture', new SshGitProvider('identity-fixture', mux as never))
+  registerSshFilesystemProvider('identity-fixture', {
+    realpath
+  } as IFilesystemProvider)
+  try {
+    registerGitRemoteBranchMutationHandlers({
+      store
+    } as FilesystemHandlerContext)
+    const push = state.handlers.get('git:push')!
+    const before = await refs()
+    for (const path of [canonical, `${canonical}/.`, `${canonical}/`, alias]) {
+      await push(null, { worktreePath: path, connectionId: 'identity-fixture' })
+      expect(pushes.at(-1)).toContain(state.endpoint)
+    }
+    await git('config', 'remote.origin.pushurl', other)
+    const config = await readFile(join(root, '.git/config'))
+    for (const provider of ['github', 'gitlab']) {
+      metadata[`repo::${canonical}`] = {
+        pushTarget: {
+          ...target!,
+          reviewHead: { ...target!.reviewHead!, provider: provider as 'github' | 'gitlab' }
+        }
+      }
+      await expect(
+        push(null, { worktreePath: alias, connectionId: 'identity-fixture' })
+      ).rejects.toThrow('mismatch')
+      metadata[`repo::${canonical}`] =
+        provider === 'github' ? { linkedPR: 42 } : { linkedGitLabMR: 42 }
+      await expect(
+        push(null, { worktreePath: `${canonical}/.`, connectionId: 'identity-fixture' })
+      ).rejects.toThrow('unresolved')
+    }
+    metadata[`repo::${canonical}`] = { pushTarget: target! }
+    await expect(
+      push(null, {
+        worktreePath: alias,
+        connectionId: 'identity-fixture',
+        pushTarget: { ...target!, remoteName: 'stale' }
+      })
+    ).rejects.toThrow('changed')
+    expect(pushes).toHaveLength(4)
+    expect(await refs()).toEqual(before)
+    expect(await readFile(join(root, '.git/config'))).toEqual(config)
+    await git('config', 'remote.origin.pushurl', state.endpoint)
+    delete metadata[`repo::${canonical}`]
+    await push(null, { worktreePath: alias, connectionId: 'identity-fixture' })
+    expect(pushes).toHaveLength(5)
+    expect(pushes.at(-1)).toContain(state.endpoint)
+    expect(await refs()).toEqual(before)
+  } finally {
+    unregisterSshGitProvider('identity-fixture')
+    unregisterSshFilesystemProvider('identity-fixture')
+    await rm(alias)
+  }
 })

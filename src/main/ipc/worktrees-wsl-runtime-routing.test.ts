@@ -372,6 +372,13 @@ describe('registerWorktreeHandlers', () => {
 
   it('routes selected PR branch conflict lookup through the selected WSL project runtime', async () => {
     mockSelectedWslProjectRuntime()
+    gitExecFileAsyncMock.mockImplementation(async (args: string[]) => ({
+      stdout:
+        args[0] === 'config' && args[1] === '--get-all'
+          ? '+refs/heads/*:refs/remotes/origin/*\n'
+          : '',
+      stderr: ''
+    }))
     getBranchConflictKindMock.mockResolvedValueOnce('remote')
     getPRForBranchMock.mockResolvedValueOnce({
       number: 42,

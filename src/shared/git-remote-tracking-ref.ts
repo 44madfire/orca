@@ -57,7 +57,8 @@ async function resolveAbbreviatedFetchSource(
 export async function readGitRemoteTrackingRef(
   runGit: GitCommandRunner,
   remote: string,
-  branch: string
+  branch: string,
+  options: { requireExisting?: boolean } = {}
 ): Promise<string | null> {
   let stdout: string
   try {
@@ -96,6 +97,9 @@ export async function readGitRemoteTrackingRef(
         : `refs/heads/${destination}`
     if (!isSafeGitRefName(ref)) {
       continue
+    }
+    if (options.requireExisting === false) {
+      return ref
     }
     try {
       await runGit(['rev-parse', '--verify', '--quiet', ref])
