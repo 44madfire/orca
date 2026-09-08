@@ -12,7 +12,10 @@ import { RuntimeClient } from './client'
 import { launchOrcaApp } from './launch'
 import { formatCliError, reportCliError } from '../cli-error'
 
-vi.mock('./metadata', () => ({ tryReadMetadata: vi.fn(), getDefaultUserDataPath: vi.fn() }))
+vi.mock('./metadata', () => ({
+  tryReadMetadata: vi.fn(),
+  getDefaultUserDataPath: vi.fn()
+}))
 vi.mock('./runtime-remote-pairing', () => ({ resolveRemotePairing: vi.fn() }))
 vi.mock('./transport', () => ({ sendRequest: vi.fn() }))
 vi.mock('./launch', () => ({ launchOrcaApp: vi.fn() }))
@@ -76,7 +79,9 @@ describe('local status evidence boundary', () => {
     'preserves %s code without a successful state',
     async (code) => {
       vi.mocked(sendRequest).mockRejectedValue(new RuntimeClientError(code, 'test'))
-      await expect(getCliStatus('synthetic-folder')).rejects.toMatchObject({ code })
+      await expect(getCliStatus('synthetic-folder')).rejects.toMatchObject({
+        code
+      })
     }
   )
   it.each(['EPERM', 'EACCES', 'EINVAL'])('PID %s is unverifiable', async (code) => {
@@ -87,7 +92,16 @@ describe('local status evidence boundary', () => {
       data: { statusObservation: { process: 'unverifiable' } }
     })
   })
-  it('positive ESRCH permits stale bootstrap', async () => {
+  it('positive ESRCH and refused endpoint permit stale bootstrap', async () => {
+    vi.mocked(sendRequest).mockRejectedValue(
+      new RuntimeClientError('runtime_unavailable', 'test', {
+        transportFailure: {
+          outcome: 'socket_error',
+          code: 'ECONNREFUSED',
+          connected: false
+        }
+      })
+    )
     vi.mocked(process.kill).mockImplementation(() => {
       throw Object.assign(new Error('test'), { code: 'ESRCH' })
     })
@@ -134,10 +148,17 @@ describe('local status evidence boundary', () => {
     async (graphStatus) => {
       vi.mocked(sendRequest).mockResolvedValue({
         ...ready,
-        result: { ...ready.result, graphStatus, desktopWindowStatus: 'initializing' }
+        result: {
+          ...ready.result,
+          graphStatus,
+          desktopWindowStatus: 'initializing'
+        }
       })
       expect((await getCliStatus('synthetic-folder')).result).toMatchObject({
-        runtime: { state: graphStatus === 'ready' ? 'ready' : 'graph_not_ready', reachable: true },
+        runtime: {
+          state: graphStatus === 'ready' ? 'ready' : 'graph_not_ready',
+          reachable: true
+        },
         graph: { state: graphStatus },
         app: { desktopWindowStatus: 'initializing' }
       })
@@ -151,7 +172,10 @@ describe('local status evidence boundary', () => {
     reportCliError(error, true)
     expect(JSON.parse(log.mock.calls[0][0])).toMatchObject({
       ok: false,
-      error: { code: 'runtime_unavailable', data: { statusObservation: { process: 'live' } } }
+      error: {
+        code: 'runtime_unavailable',
+        data: { statusObservation: { process: 'live' } }
+      }
     })
   })
 })
@@ -159,7 +183,9 @@ describe('local status evidence boundary', () => {
 describe('open owns only its own bounded startup wait', () => {
   const client = () => new RuntimeClient('synthetic-folder', 100, null, null)
   it('does not launch or wait over an existing unobservable runtime', async () => {
-    await expect(client().openOrca(500)).rejects.toMatchObject({ code: 'runtime_unavailable' })
+    await expect(client().openOrca(500)).rejects.toMatchObject({
+      code: 'runtime_unavailable'
+    })
     expect(launchOrcaApp).not.toHaveBeenCalled()
     expect(sendRequest).toHaveBeenCalledTimes(1)
   })

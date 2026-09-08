@@ -48,7 +48,13 @@ describe('transport failure capture', () => {
       expect(error).toMatchObject({
         code: 'runtime_unavailable',
         data: {
-          transportFailure: { outcome: 'socket_error', code, errno: -4048, syscall: 'connect' }
+          transportFailure: {
+            outcome: 'socket_error',
+            code,
+            errno: -4048,
+            syscall: 'connect',
+            connected: false
+          }
         }
       })
       expect(JSON.stringify(error)).not.toContain('private-fixture')
@@ -56,6 +62,14 @@ describe('transport failure capture', () => {
       expect(socket.end).toHaveBeenCalledOnce()
     }
   )
+  it('records connection establishment before a later socket error', async () => {
+    const pending = sendRequest(metadata, 'status.get', undefined, 1000)
+    socket.emit('connect')
+    socket.emit('error', { code: 'ECONNREFUSED' })
+    await expect(pending).rejects.toMatchObject({
+      data: { transportFailure: { outcome: 'socket_error', connected: true } }
+    })
+  })
   it('rejects arbitrary diagnostic text', async () => {
     const pending = sendRequest(metadata, 'status.get', undefined, 1000)
     socket.emit('error', {

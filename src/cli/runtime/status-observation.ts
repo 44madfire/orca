@@ -1,3 +1,7 @@
+import type { RuntimeMetadata } from '../../shared/runtime-bootstrap'
+import type { RuntimeStatus } from '../../shared/runtime-types'
+import { sendRequest } from './transport'
+import { validateStatusResult } from './status-result'
 import { RuntimeClientError, RuntimeRpcFailureError } from './types'
 
 export type ProcessObservation = 'live' | 'unverifiable' | 'exited'
@@ -54,4 +58,51 @@ export function isStatusObservationError(error: unknown): error is RuntimeClient
     'target' in observation &&
     observation.target === 'local'
   )
+}
+
+// A dead cached PID authorizes launch only when its endpoint also refused connection.
+function isAbsentEndpoint(error: unknown): boolean {
+  if (!(error instanceof RuntimeClientError) || error instanceof RuntimeRpcFailureError) {
+    return false
+  }
+  const data = error.data
+  if (!data || typeof data !== 'object' || !('transportFailure' in data)) {
+    return false
+  }
+  const failure = data.transportFailure
+  return (
+    !!failure &&
+    typeof failure === 'object' &&
+    'outcome' in failure &&
+    failure.outcome === 'socket_error' &&
+    'connected' in failure &&
+    failure.connected === false &&
+    'code' in failure &&
+    (failure.code === 'ENOENT' || failure.code === 'ECONNREFUSED')
+  )
+}
+
+// Only failed connection establishment can combine with cached-process exit as absence.
+export async function observeRuntimeStatus(
+  metadata: RuntimeMetadata
+): Promise<RuntimeStatus | null> {
+  let response
+  try {
+    response = await sendRequest<RuntimeStatus>(metadata, 'status.get', undefined, 1000)
+  } catch (error) {
+    const process = observeLocalProcess(metadata.pid)
+    if (process === 'exited' && isAbsentEndpoint(error)) {
+      return null
+    }
+    throw statusObservationError(process, error)
+  }
+  try {
+    if (response.ok === false) {
+      throw new RuntimeRpcFailureError(response)
+    }
+    validateStatusResult(response.result, metadata.runtimeId)
+    return response.result
+  } catch (error) {
+    throw statusObservationError(observeLocalProcess(metadata.pid), error)
+  }
 }

@@ -1,5 +1,6 @@
 export type TransportFailure = {
   outcome: 'socket_error' | 'timeout' | 'closed' | 'invalid_response' | 'identity_changed'
+  connected?: boolean
   code?: string
   errno?: number
   syscall?: string

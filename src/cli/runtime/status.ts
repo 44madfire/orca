@@ -1,14 +1,17 @@
-import type { CliStatusResult, RuntimeStatus } from '../../shared/runtime-types'
+import type { CliStatusResult } from '../../shared/runtime-types'
 import { runtimeHostConnectionState } from '../../shared/runtime-host-connection-state'
 import { findTransport } from '../../shared/runtime-bootstrap'
 import { tryReadMetadata } from './metadata'
-import { sendRequest } from './transport'
 import {
   projectRemoteAppStatus,
   resolveDesktopWindowStatus
 } from '../../shared/cli-app-status-projection'
-import { RuntimeClientError, RuntimeRpcFailureError, type RuntimeRpcSuccess } from './types'
-import { observeLocalProcess, statusObservationError } from './status-observation'
+import { RuntimeClientError, type RuntimeRpcSuccess } from './types'
+import {
+  observeLocalProcess,
+  statusObservationError,
+  observeRuntimeStatus
+} from './status-observation'
 
 export { projectRemoteAppStatus, resolveDesktopWindowStatus }
 
@@ -42,13 +45,10 @@ export async function getCliStatus(
     })
   }
 
-  try {
-    const response = await sendRequest<RuntimeStatus>(metadata, 'status.get', undefined, 1000)
-    if (response.ok === false) {
-      throw new RuntimeRpcFailureError(response)
-    }
-    const graphState = response.result.graphStatus
-    const desktopWindowStatus = resolveDesktopWindowStatus(response.result)
+  const status = await observeRuntimeStatus(metadata)
+  if (status) {
+    const graphState = status.graphStatus
+    const desktopWindowStatus = resolveDesktopWindowStatus(status)
     return buildCliStatusResponse({
       app: {
         running: true,
@@ -60,41 +60,34 @@ export async function getCliStatus(
         reachable: true,
         connectionState: runtimeHostConnectionState({
           hasStatusEntry: true,
-          status: response.result
+          status: status
         }),
-        runtimeId: response.result.runtimeId,
-        ...(response.result.appVersion ? { appVersion: response.result.appVersion } : {}),
-        ...(response.result.remoteUpdateSupport
-          ? { remoteUpdateSupport: response.result.remoteUpdateSupport }
-          : {}),
-        ...(response.result.capabilities ? { capabilities: response.result.capabilities } : {}),
-        ...(response.result.degradations ? { degradations: response.result.degradations } : {})
+        runtimeId: status.runtimeId,
+        ...(status.appVersion ? { appVersion: status.appVersion } : {}),
+        ...(status.remoteUpdateSupport ? { remoteUpdateSupport: status.remoteUpdateSupport } : {}),
+        ...(status.capabilities ? { capabilities: status.capabilities } : {}),
+        ...(status.degradations ? { degradations: status.degradations } : {})
       },
       graph: {
         state: graphState
       }
     })
-  } catch (error) {
-    const processObservation = observeLocalProcess(metadata.pid)
-    if (processObservation !== 'exited') {
-      throw statusObservationError(processObservation, error)
-    }
-    return buildCliStatusResponse({
-      app: {
-        running: false,
-        pid: null
-      },
-      runtime: {
-        state: 'stale_bootstrap',
-        reachable: false,
-        connectionState: 'disconnected',
-        runtimeId: null
-      },
-      graph: {
-        state: 'not_running'
-      }
-    })
   }
+  return buildCliStatusResponse({
+    app: {
+      running: false,
+      pid: null
+    },
+    runtime: {
+      state: 'stale_bootstrap',
+      reachable: false,
+      connectionState: 'disconnected',
+      runtimeId: null
+    },
+    graph: {
+      state: 'not_running'
+    }
+  })
 }
 
 function buildCliStatusResponse(result: CliStatusResult): RuntimeRpcSuccess<CliStatusResult> {

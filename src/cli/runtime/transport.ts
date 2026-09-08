@@ -34,6 +34,7 @@ export async function sendRequest<TResult>(
     const socket = createConnection(transport.endpoint)
     let lineSegments: string[] = []
     let settled = false
+    let connected = false
     const requestId = randomUUID()
 
     const timeout = setTimeout(() => {
@@ -76,7 +77,7 @@ export async function sendRequest<TResult>(
         error: new RuntimeClientError(
           'runtime_unavailable',
           'Could not communicate with the Orca runtime. Check runtime access from this execution context.',
-          { transportFailure: socketFailure(error) }
+          { transportFailure: { ...socketFailure(error), connected } }
         )
       })
     })
@@ -197,6 +198,7 @@ export async function sendRequest<TResult>(
       }
     })
     socket.on('connect', () => {
+      connected = true
       socket.write(
         `${JSON.stringify({
           id: requestId,
