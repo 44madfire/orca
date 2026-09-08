@@ -14,7 +14,7 @@ import { dispatchClaudeTurn } from './claude-structured-dispatch'
 import { StructuredSessionCompaction } from '../native-chat/agent-session-wire/structured-session-compaction'
 import { releaseClaudeAcquisition } from './claude-structured-acquisition-release'
 import { acquireClaudeSession } from './claude-structured-session-acquisition'
-import { reportPersistedClaudeConversationName } from './claude-transcript-conversation-name'
+import { hydrateClaudeConversationName } from './claude-conversation-name-hydration'
 export { CLAUDE_STRUCTURED_INIT_TIMEOUT_MS } from './claude-structured-session-acquisition'
 import { supportsClaudeStructuredLocation } from './claude-structured-location-support'
 import { setClaudeStructuredOption } from './claude-structured-options'
@@ -76,20 +76,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
         settleExit: (sessionId, exit) => this.settleUnexpectedExit(sessionId, exit)
       }
     })
-    const { sessionId } = input.identity
-    const session = this.sessions.get(sessionId)
-    if (session) {
-      const sequence = (session.conversationNameReadSequence ?? 0) + 1
-      session.conversationNameReadSequence = sequence
-      session.conversationNameRead = reportPersistedClaudeConversationName(
-        sessionId,
-        session,
-        this.deps,
-        () =>
-          this.sessions.get(sessionId) === session &&
-          session.conversationNameReadSequence === sequence
-      )
-    }
+    hydrateClaudeConversationName(input.identity.sessionId, this.sessions, this.deps)
     return acquired
   }
 
