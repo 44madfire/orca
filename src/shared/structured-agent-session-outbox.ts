@@ -17,6 +17,9 @@ export type StructuredAgentSessionOutboxEntry = {
   state: StructuredAgentSessionOutboxState
   queuedAt: number
   recovery?: StructuredAgentSessionRecovery
+  transitionRevision?: number
+  deliveryIncarnation?: number
+  dispatchBlocked?: boolean
   lastAttemptAt: number | null
   retryAfterUnknownSubmittedAt: number | null
 }
@@ -143,6 +146,13 @@ export function parseStructuredAgentSessionOutboxEntry(
     ...(entry.recovery === undefined
       ? {}
       : { recovery: parseStructuredAgentSessionRecovery(entry.recovery) }),
+    ...(typeof entry.transitionRevision === 'number'
+      ? { transitionRevision: entry.transitionRevision }
+      : {}),
+    ...(typeof entry.deliveryIncarnation === 'number'
+      ? { deliveryIncarnation: entry.deliveryIncarnation }
+      : {}),
+    ...(entry.dispatchBlocked === true ? { dispatchBlocked: true } : {}),
     queuedAt: entry.queuedAt,
     lastAttemptAt: typeof entry.lastAttemptAt === 'number' ? entry.lastAttemptAt : null,
     retryAfterUnknownSubmittedAt:

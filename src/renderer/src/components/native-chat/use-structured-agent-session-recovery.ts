@@ -4,7 +4,7 @@ import {
   advanceStructuredAgentSessionRecovery,
   resumeStructuredAgentSessionRecovery
 } from '../../../../shared/structured-agent-session-recovery'
-import { writeOutbox } from './structured-agent-session-outbox-storage'
+import { transitionOutboxEntry } from './structured-agent-session-outbox-transitions'
 
 export function useStructuredAgentSessionRecovery(args: {
   sessionId: string
@@ -13,26 +13,24 @@ export function useStructuredAgentSessionRecovery(args: {
   head: StructuredAgentSessionOutboxEntry | undefined
   hostObserved: boolean
   outboxRef: MutableRefObject<StructuredAgentSessionOutboxEntry[]>
-  setOutbox: (entries: StructuredAgentSessionOutboxEntry[]) => void
   setError: (error: string | null) => void
 }) {
-  const { sessionId, fence, targetKey, head, hostObserved, outboxRef, setOutbox, setError } = args
+  const { sessionId, fence, targetKey, head, hostObserved, outboxRef, setError } = args
   const [storageBlockedId, setStorageBlockedId] = useState<string | null>(null)
   const commit = useCallback(
-    (entry: StructuredAgentSessionOutboxEntry): boolean => {
-      const next = outboxRef.current.map((current) =>
-        current.clientMessageId === entry.clientMessageId ? entry : current
-      )
-      if (!writeOutbox(sessionId, next)) {
+    (
+      expected: StructuredAgentSessionOutboxEntry,
+      entry: StructuredAgentSessionOutboxEntry
+    ): boolean => {
+      const result = transitionOutboxEntry(expected, () => entry)
+      if (!result.ok) {
         setStorageBlockedId(entry.clientMessageId)
         setError('Message could not be saved to the outbox')
         return false
       }
-      outboxRef.current = next
-      setOutbox(next)
       return true
     },
-    [outboxRef, sessionId, setError, setOutbox]
+    [setError]
   )
 
   useEffect(() => {
@@ -47,7 +45,7 @@ export function useStructuredAgentSessionRecovery(args: {
     }
     const next = advanceStructuredAgentSessionRecovery(head, Date.now())
     // Reserve the budget and deadline durably before any timer can dispatch it.
-    if (next !== head && !commit(next)) {
+    if (next !== head && !commit(head, next)) {
       return
     }
     if (
@@ -60,10 +58,16 @@ export function useStructuredAgentSessionRecovery(args: {
     }
     const timer = setTimeout(
       () => {
-        if (outboxRef.current[0] !== next) {
+        if (
+          outboxRef.current[0]?.clientMessageId !== next.clientMessageId ||
+          outboxRef.current[0]?.recovery?.nextProbeAt !== next.recovery?.nextProbeAt
+        ) {
           return
         }
-        commit(advanceStructuredAgentSessionRecovery(next, Date.now()))
+        commit(
+          outboxRef.current[0],
+          advanceStructuredAgentSessionRecovery(outboxRef.current[0], Date.now())
+        )
       },
       Math.max(0, next.recovery.nextProbeAt - Date.now())
     )
@@ -76,12 +80,14 @@ export function useStructuredAgentSessionRecovery(args: {
       !current ||
       current.sessionId !== sessionId ||
       current.clientMessageId !== clientMessageId ||
-      hostObserved
+      hostObserved ||
+      (current.recovery?.parkedReason !== 'budget-exhausted' &&
+        storageBlockedId !== clientMessageId)
     ) {
       return
     }
     const next = resumeStructuredAgentSessionRecovery(current)
-    if (next !== current && commit(next)) {
+    if (next !== current && commit(current, next)) {
       setStorageBlockedId(null)
       setError(null)
     }
