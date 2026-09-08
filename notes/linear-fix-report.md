@@ -49,3 +49,9 @@ All PR numbers above link under `https://github.com/stablyai/orca/pull/<number>`
 ## Remaining work
 
 Review this focused draft alongside the existing PRs above; validate hidden live provider sessions on isolated Windows/WSL and SSH hosts, including configured Ctrl+Enter and provider-local commands. Preserve separately owned automation/session changes. Coordinator handles Linear accounting; do not close partially covered reports.
+
+## Published artifact
+
+Draft PR: https://github.com/stablyai/orca/pull/19417
+
+Implementation commit: `80252600fc9` (`fix(notes): reuse verified host prompt delivery`). Pushed to `origin/nwparker/linear-prompt-delivery`, targeting `stablyai/orca:main`; not merged. Worktree clean after publication.
