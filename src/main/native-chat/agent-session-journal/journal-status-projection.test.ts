@@ -39,9 +39,14 @@ describe('journal status projection', () => {
         title: 'Allow?',
         detail: null,
         options: [],
-        resolution: { state: 'pending' }
+        resolution: { state: 'pending', selectedOptionId: null, resolvedBy: null, resolvedAt: null }
       },
-      { kind: 'question', question: 'Which?', options: [], resolution: { state: 'pending' } },
+      {
+        kind: 'question',
+        question: 'Which?',
+        options: [],
+        resolution: { state: 'pending', selectedOptionId: null, resolvedBy: null, resolvedAt: null }
+      },
       { kind: 'status', text: '', turnLifecycle: { state: 'running', turnId: 'turn' } },
       { kind: 'status', text: '', turnLifecycle: { state: 'completed', turnId: 'turn' } },
       { kind: 'tool-call', name: 'Read', input: { path: '/file' }, state: 'running' },
