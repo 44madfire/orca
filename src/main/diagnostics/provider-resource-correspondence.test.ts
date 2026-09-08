@@ -207,4 +207,31 @@ describe('atomic hook and transcript correspondence', () => {
     await hook(b)
     expect((await query(b)).facts).toBeUndefined()
   })
+  it('releases a queued replacement descriptor when expiry occurs during a query', async () => {
+    owner.dispose()
+    let now = Date.now()
+    owner = new ProviderResourceObservations(() => now)
+    const opened = vi.spyOn(fs, 'open')
+    owner.captureLaunch({ ptyId: 'pty', incarnationId: 'incarnation', env })
+    await hook(a)
+    await expect.poll(async () => (await query()).facts?.objectObserved).toBe(true)
+    const handle = await opened.mock.results[0].value
+    const stat = fs.stat
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const spy = vi.spyOn(fs, 'stat')
+    spy.mockImplementationOnce(stat).mockImplementationOnce(async (...args) => {
+      await gate
+      return stat(...args)
+    })
+    const pending = query()
+    await expect.poll(() => spy.mock.calls.length).toBe(2)
+    await hook(b)
+    now += 15 * 60_000
+    release()
+    expect((await pending).facts).toBeUndefined()
+    await expect(handle.stat()).rejects.toThrow()
+  })
 })

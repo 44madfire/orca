@@ -260,6 +260,8 @@ export class ProviderResourceObservations {
     delete record.pendingHook
     if (pendingHook && this.retains(record)) {
       void pendingHook.run()
+    } else {
+      pendingHook?.cancel()
     }
   }
 
