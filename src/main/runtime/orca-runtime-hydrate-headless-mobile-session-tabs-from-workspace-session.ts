@@ -164,8 +164,11 @@ export class OrcaRuntimeWithHydrateHeadlessMobileSessionTabsFromWorkspaceSession
         (options.onlyRuntimeOwnedTerminals === true || preserveNonTerminalSnapshot) && existing
           ? mergeMobileSessionSnapshotTabs(existingMergeBaseTabs, tabs)
           : tabs
+      // Why: resolve against the MERGED tabs, not the merge base — the base
+      // drops every existing browser and the live ones return through `tabs`,
+      // so searching the base moves an active live browser onto a terminal.
       const mergedActiveTab =
-        existingMergeBaseTabs?.find((tab) => tab.id === existing?.activeTabId) ??
+        mergedTabs.find((tab) => tab.id === existing?.activeTabId) ??
         activeTab ??
         mergedTabs[0] ??
         null

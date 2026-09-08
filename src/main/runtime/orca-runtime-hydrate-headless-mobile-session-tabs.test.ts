@@ -306,6 +306,53 @@ describe('chat-only fall-through hygiene', () => {
     expect(result.tabGroups!.flatMap((group) => group.tabOrder)).not.toContain('browser')
   })
 
+  it('keeps a live browser active instead of moving onto a rebuilt terminal', () => {
+    const { runtime, snapshot } = setup()
+    const browser = { ...browserTab(), isActive: true }
+    snapshot.tabs[0]!.isActive = false
+    snapshot.tabs.push(browser)
+    snapshot.tabGroups!.push({ id: 'browser-group', activeTabId: 'browser', tabOrder: ['browser'] })
+    snapshot.activeGroupId = 'browser-group'
+    snapshot.activeTabId = 'browser'
+    snapshot.activeTabType = 'browser'
+    runtime.buildHeadlessMobileSessionBrowserTabs = vi.fn(() => [browser])
+
+    runtime.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(WORKTREE, {
+      allowAttachedWindow: true
+    })
+
+    const result = runtime.mobileSessionTabsByWorktree.get(WORKTREE)!
+    expect(result.activeTabId).toBe('browser')
+    expect(result.activeTabType).toBe('browser')
+    expect(result.activeGroupId).toBe('browser-group')
+    expect(
+      result.tabGroups!.find((group) => group.id === result.activeGroupId)!.tabOrder
+    ).toContain('browser')
+  })
+
+  it('seats the active group on a persisted split when nothing was published yet', () => {
+    const { runtime, session } = setup()
+    runtime.mobileSessionTabsByWorktree.delete(WORKTREE)
+    session.tabGroups = {
+      [WORKTREE]: [
+        { id: 'left', worktreeId: WORKTREE, activeTabId: 'first', tabOrder: ['first'] },
+        { id: 'right', worktreeId: WORKTREE, activeTabId: 'second', tabOrder: ['second'] }
+      ]
+    }
+
+    runtime.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(WORKTREE, {
+      allowAttachedWindow: true
+    })
+
+    const result = runtime.mobileSessionTabsByWorktree.get(WORKTREE)!
+    const activeTab = result.tabs.find((tab) => tab.id === result.activeTabId)!
+    const activeTopLevelId = activeTab.type === 'terminal' ? activeTab.parentTabId : activeTab.id
+    expect(result.tabGroups!.map((group) => group.id)).toEqual(['left', 'right'])
+    expect(
+      result.tabGroups!.find((group) => group.id === result.activeGroupId)?.tabOrder
+    ).toContain(activeTopLevelId)
+  })
+
   it('reseats the active group when the stale browser emptied it', () => {
     const { runtime, snapshot } = setup()
     snapshot.tabs.push(browserTab())
