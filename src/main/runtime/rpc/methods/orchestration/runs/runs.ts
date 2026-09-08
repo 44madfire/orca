@@ -153,6 +153,10 @@ export const ORCHESTRATION_RUN_METHODS: RpcMethod[] = [
     params: RunCurrentParams,
     handler: (params, { orchestrationCompatibilityEvidence, runtime }) => {
       if (params.agentSessionId) {
+        if (params.runtimeFence === undefined) {
+          throw new OrchestrationError('consumer_fenced', 'Missing native session lease fence.')
+        }
+        resolveNativeCoordinatorSession(runtime, params.agentSessionId, params.runtimeFence)
         const run = runtime.getOrchestrationDb().getCurrentRunForAgentSession(params.agentSessionId)
         return { run: run ? exposeRun(run) : null }
       }
