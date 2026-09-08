@@ -8,15 +8,17 @@ export function createRun(
   this: OrchestrationDb,
   params: {
     objective: string
-    coordinatorHandle: string
-    coordinatorPaneKey: string
+    coordinatorHandle?: string | null
+    coordinatorPaneKey?: string | null
     coordinatorAgentSessionId?: string | null
   }
 ): RunRow {
   const id = generateId('run')
   this.db.exec('BEGIN IMMEDIATE')
   try {
-    this.unbindOtherRunsForPane(params.coordinatorPaneKey)
+    if (params.coordinatorPaneKey) {
+      this.unbindOtherRunsForPane(params.coordinatorPaneKey)
+    }
     this.db
       .prepare(
         `INSERT INTO runs (
@@ -27,11 +29,13 @@ export function createRun(
       .run(
         id,
         params.objective,
-        params.coordinatorHandle,
-        params.coordinatorPaneKey,
+        params.coordinatorHandle ?? null,
+        params.coordinatorPaneKey ?? null,
         params.coordinatorAgentSessionId ?? null
       )
-    this.rememberRunCoordinatorHandle(id, params.coordinatorHandle)
+    if (params.coordinatorHandle) {
+      this.rememberRunCoordinatorHandle(id, params.coordinatorHandle)
+    }
     this.db.exec('COMMIT')
   } catch (error) {
     this.db.exec('ROLLBACK')
