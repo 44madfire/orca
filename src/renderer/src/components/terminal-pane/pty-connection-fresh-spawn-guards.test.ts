@@ -238,7 +238,16 @@ describe('connectPanePty', () => {
 
     const retain = createdTransportOptions[0]?.retainDisposedSpawn as (() => boolean) | undefined
     expect(retain?.()).toBe(true)
-    mockStoreState = { ...mockStoreState, tabsByWorktree: { 'wt-1': [] } }
+    mockStoreState = {
+      ...mockStoreState,
+      deleteStateByWorktreeId: { 'wt-1': { isDeleting: true, phase: 'deleting' } }
+    }
+    expect(retain?.()).toBe(false)
+    mockStoreState = {
+      ...mockStoreState,
+      deleteStateByWorktreeId: {},
+      tabsByWorktree: { 'wt-1': [] }
+    }
     expect(retain?.()).toBe(false)
   })
 

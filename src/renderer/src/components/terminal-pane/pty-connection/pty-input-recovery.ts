@@ -112,6 +112,7 @@ export function installPtyInputRecovery(session: ConnectPanePtySession): void {
     retainDisposedSpawn: () =>
       shouldRetainDisposedPaneSpawn(
         useAppStore.getState(),
+        session.deps.worktreeId,
         session.deps.tabId,
         session.pane.leafId
       ),

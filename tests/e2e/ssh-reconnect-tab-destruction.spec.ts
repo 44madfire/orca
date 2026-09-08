@@ -124,10 +124,13 @@ test.describe('SSH reconnect tab destruction', () => {
         'the tab survived but its pane manager did not'
       ).toBeGreaterThanOrEqual(1)
 
-      // NOT asserted here: that the surviving pane reaches its shell again. That is a different
-      // failure with a different cause — the disposed first transport killing the PTY its remounted
-      // successor was handed (disposed-spawn-retention.ts) — and it is asserted over enough rounds to
-      // separate a fix from luck in ssh-reconnect-new-tab-liveness.spec.ts.
+      // NOT asserted here: that the surviving pane's shell answers a command. Measured on the
+      // disposed-spawn-retention.ts fix at 2 misses in 5 and 1 in 6, so that fix did not close it,
+      // and the miss is a different shape: the pane binds a PTY, the shell behind it is alive on the
+      // host (a `tee` in the echoed command writes its file), and the pane's xterm receives nothing —
+      // an output-delivery gap for the preserved tab's PTY, not a dead shell. Tracked in
+      // docs/reference/ssh-reconnect-source-recovery.md; a newly opened tab's liveness is asserted in
+      // ssh-reconnect-new-tab-liveness.spec.ts.
     } finally {
       if (target) {
         cleanupDockerSshRelayTarget(target)

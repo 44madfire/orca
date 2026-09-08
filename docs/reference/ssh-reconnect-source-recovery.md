@@ -141,18 +141,42 @@ The cause was not the reattach path this section guessed at. The reconnect's pan
 a tab created seconds after the reconnect is exactly that. The bump remounts the pane while its
 first spawn is still in flight; main's pane-spawn reservation (`spawn-begin.ts`) hands the remounted
 pane the SAME PTY the first spawn is about to receive; and the disposed first transport then killed
-that PTY as an orphan (`ipc-pty-connect.ts` `retireFreshSpawn`). One kill, two symptoms: when the
+that PTY as an orphan (`ipc-pty-connect.ts`, now `retireDisposedSpawn`). One kill, two symptoms: when the
 relay reported a proven exit the tab closed on `pty-exit`; when only the synthetic `-1` arrived the
 tab stayed bound to a dead shell.
 
 The fix keeps the kill for a genuinely ownerless PTY and skips it while the pane surface still
-exists (`disposed-spawn-retention.ts`): the tab is present and, if a layout exists, still names the
-leaf. Direction is deliberately leak-over-kill. `ssh-reconnect-new-tab-liveness.spec.ts` asserts
-liveness over six rounds.
+exists (`disposed-spawn-retention.ts`): the tab is present, the worktree is not being deleted, and,
+if a layout exists, the layout still names the leaf. Direction is deliberately leak-over-kill. The
+retention is consulted only when the transport was DESTROYED mid-spawn. A live transport that
+refuses the id it was handed (`admitPtyId`, the direct-SSH retry admission) is still the pane's only
+transport, so nothing else can own that PTY and it is killed unconditionally, as #11003 intended —
+`ipc-pty-connect.ts` keeps the two retirements as separate closures so the guard cannot drift back
+onto the refusal path. Scope: `createIpcPtyTransport` only; the remote-runtime transport has no
+disposed-spawn kill to guard.
 
-What this does NOT cover: a persistent state where every new terminal on a long-lived connection
-comes up blank until Orca restarts (#17047's report). That shape needs no reconnect and was not
-reproduced on this mechanism; it stays open.
+`ssh-reconnect-new-tab-liveness.spec.ts` asserts a NEWLY opened tab's liveness over six rounds.
+
+What this does NOT cover:
+
+- **The preserved tab in `ssh-reconnect-tab-destruction.spec.ts` — still open.** The original note
+  below measured its pane failing to come back at three runs in four. Re-measured on this fix with a
+  liveness probe (select the tab, write `echo MARKER | tee /tmp/MARKER`, wait for the marker to
+  paint): 2 misses in 5 and 1 in 6. So this fix did not close it, and the miss has a different
+  shape from the one fixed here: the pane binds a PTY (`pty2:…:2`), the shell behind it is alive on
+  the host (the `tee` file exists with the marker in it), and the pane's xterm holds zero bytes
+  before and after the write. That is an output-delivery gap for the preserved tab's PTY, not a
+  killed shell and not the disposed-spawn kill. Two things are known about it: the preserved tab
+  loses selection on the second reconnect (the merge takes the host's `activeTabId`, which never
+  learned the tab), and selecting it again before writing does not recover delivery. Not asserted
+  in the spec for the reason the original note gives.
+- A persistent state where every new terminal on a long-lived connection comes up blank until Orca
+  restarts (#17047's report). That shape needs no reconnect and was not reproduced on this
+  mechanism; it stays open. The preserved-tab gap above — live shell, empty pane — is the closer
+  candidate for it.
+- Splitting a tab immediately after opening it right after a reconnect was seen to lose the split
+  (`{panes: 1, bound: 1}`) in roughly 2 of 18 rounds during review. Same remount window, no layout
+  code touched here; not attributed and not asserted.
 
 The paragraphs below are the pre-fix record, kept because the measurement method is still the right
 one for this class of bug.
