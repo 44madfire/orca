@@ -273,6 +273,7 @@ export type TaskRow = {
 }
 
 export type DispatchContextRow = {
+  assignee_agent_session_id: string | null
   id: string
   run_id: string
   task_id: string
