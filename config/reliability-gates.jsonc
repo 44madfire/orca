@@ -178,7 +178,7 @@
       "coveredPlatforms": ["macos"],
       "coveredProviders": ["local"],
       "motivatingLinks": [
-        "https://github.com/stablyai/orca/blob/main/.agents/skills/perf/SKILL.md"
+        "https://github.com/stablyai/orca/blob/main/src/renderer/src/lib/ai-vault-tab-title-sync-inputs.ts"
       ],
       "flakeHistory": {
         "status": "not-started",
@@ -275,6 +275,7 @@
             "does not rejoin accumulated previews for timestamp-only heartbeats",
             "still rebuilds when an entry changes",
             "still rebuilds when a pane is removed, even though every survivor is reused",
+            "still rebuilds when key membership swaps at a constant entry count",
             "still rebuilds when a pane is added"
           ]
         }

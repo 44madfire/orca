@@ -167,6 +167,20 @@ describe('agent-status projection join short circuit', () => {
     )
   })
 
+  it('still rebuilds when key membership swaps at a constant entry count', () => {
+    // The entry-count check cannot see a same-size swap; only the per-key lookup does.
+    resetRuntimeMobileAgentStatusProjectionCacheForTests()
+    const map = mapOf([0, 1])
+    const first = buildRuntimeMobileAgentStatusProjectionForTests(map)
+
+    const swapped = { 'tab-0:leaf-0': map['tab-0:leaf-0'], 'tab-9:leaf-0': makeEntry(9) }
+    const result = buildRuntimeMobileAgentStatusProjectionForTests(swapped)
+
+    expect(result).not.toBe(first)
+    expect(result).toContain('tab-9:leaf-0')
+    expect(result).not.toContain('tab-1:leaf-0')
+  })
+
   it('still rebuilds when a pane is added', () => {
     resetRuntimeMobileAgentStatusProjectionCacheForTests()
     const map = mapOf([0])
