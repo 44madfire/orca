@@ -69,7 +69,7 @@ const fiftyEightRemotes: RemoteRow[] = [
 ]
 
 describe('hasConfiguredBranchPushTarget', () => {
-  it('resolves both URL-valued remotes from one remote table read at 58 remotes', async () => {
+  it('preserves both URL-valued selectors without reading the remote table', async () => {
     const { runGit, spawns } = makeRunner({
       remotes: fiftyEightRemotes,
       config: {
@@ -82,7 +82,7 @@ describe('hasConfiguredBranchPushTarget', () => {
     await expect(hasConfiguredBranchPushTarget(runGit, BRANCH)).resolves.toBe(true)
 
     // Both the push remote and the branch remote name the same URL, so one table read answers.
-    expect(spawns.filter((args) => args[0] === 'remote')).toEqual([['remote', '-v']])
+    expect(spawns.filter((args) => args[0] === 'remote')).toEqual([])
     expect(spawns.filter((args) => args[1] === 'get-url')).toEqual([])
   })
 
@@ -125,6 +125,7 @@ describe('getConfiguredBranchRemoteUpstream', () => {
     await expect(
       getConfiguredBranchRemoteUpstream(runGit, BRANCH, remoteTrackingRefExists)
     ).resolves.toEqual({
+      operationSelector: { kind: 'literal-url', value: FORK_URL },
       upstreamName: `fork-a/${BRANCH}`,
       remoteName: 'fork-a',
       branchName: BRANCH,

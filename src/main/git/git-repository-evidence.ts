@@ -1,3 +1,4 @@
+import type { GitOperationSelector } from '../../shared/git-operation-selector'
 import type { GitRemoteTopologySnapshot } from './git-remote-topology-snapshot'
 import type { GitRemoteRoleProvenance, GitRemoteRoleResolution } from './git-operation-remote-roles'
 
@@ -10,7 +11,7 @@ export type GitRepositoryRole<T> =
   | {
       kind: 'resolved'
       repository: T
-      remoteName: string
+      selector: GitOperationSelector
       direction: 'fetch' | 'push'
       provenance: GitRemoteRoleProvenance
       confidence: 'tracked' | 'inferred'
@@ -20,6 +21,7 @@ export type GitRepositoryRole<T> =
   | { kind: 'unresolved' }
 
 export type GitRemoteRepositories<T> = {
+  selectors: Map<string, { fetch: GitRepositoryEvidence<T>; push: GitRepositoryEvidence<T>[] }>
   fetch: Map<string, GitRepositoryEvidence<T>>
   push: Map<string, GitRepositoryEvidence<T>[]>
 }
@@ -47,7 +49,14 @@ export async function resolveSnapshotRepositories<T>(
       push.set(name, await Promise.all((snapshot.pushUrls.get(name) ?? []).map(resolve)))
     })
   )
-  return { fetch, push }
+  const selectors: GitRemoteRepositories<T>['selectors'] = new Map()
+  for (const [value, endpoints] of snapshot.selectorEndpoints ?? []) {
+    selectors.set(value, {
+      fetch: await resolve(endpoints.fetch),
+      push: await Promise.all(endpoints.push.map(resolve))
+    })
+  }
+  return { fetch, push, selectors }
 }
 
 export function plausibleRepositoryRemotes<T>(
@@ -64,16 +73,25 @@ export function bindRepositoryRole<T>(
   if (role.kind !== 'resolved') {
     return role
   }
-  const evidence =
-    direction === 'fetch'
-      ? [repositories.fetch.get(role.remoteName) ?? { kind: 'unverifiable' as const }]
-      : (repositories.push.get(role.remoteName) ?? [])
+  const value = role.selector.value
+  const literal = role.selector.kind === 'literal-url'
+  const evidence = literal
+    ? direction === 'fetch'
+      ? [
+          repositories.selectors.get(value)?.fetch ?? {
+            kind: 'unverifiable' as const
+          }
+        ]
+      : (repositories.selectors.get(value)?.push ?? [])
+    : direction === 'fetch'
+      ? [repositories.fetch.get(value) ?? { kind: 'unverifiable' as const }]
+      : (repositories.push.get(value) ?? [])
   if (evidence.length > 1) {
-    return { kind: 'ambiguous', remoteNames: [role.remoteName] }
+    return { kind: 'ambiguous', remoteNames: [value] }
   }
   const identity = evidence[0]
   if (!identity || identity.kind === 'unverifiable') {
-    return { kind: 'unverifiable', remoteNames: [role.remoteName] }
+    return { kind: 'unverifiable', remoteNames: [value] }
   }
   if (identity.kind === 'non-provider') {
     return { kind: 'unresolved' }

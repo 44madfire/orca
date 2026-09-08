@@ -1,10 +1,5 @@
 import type { GitCommandRunner } from './git-effective-upstream'
 import { gitRefTargetsBranchOnRemote } from './git-remote-branch-name'
-import {
-  isUrlValuedGitRemote,
-  normalizeConfiguredGitRemote,
-  parseGitRemoteFetchUrls
-} from './git-remote-url-index'
 
 export type ResolvedGitPushTarget = {
   remote: string
@@ -26,27 +21,6 @@ type ConfiguredPushRemote = {
   branchRemote: string | null
 }
 
-// One `git remote -v` instead of `git remote` plus a serial `git remote get-url`
-// per remote; both print the same insteadOf-expanded fetch URL.
-async function findRemoteNameForUrl(
-  runGit: GitCommandRunner,
-  remoteUrl: string
-): Promise<string | null> {
-  try {
-    const { stdout } = await runGit(['remote', '-v'])
-    return normalizeConfiguredGitRemote(remoteUrl, parseGitRemoteFetchUrls(stdout))
-  } catch {
-    return null
-  }
-}
-
-async function normalizePushRemote(runGit: GitCommandRunner, remote: string): Promise<string> {
-  if (!isUrlValuedGitRemote(remote)) {
-    return remote
-  }
-  return (await findRemoteNameForUrl(runGit, remote)) ?? remote
-}
-
 async function getConfiguredPushRemote(
   runGit: GitCommandRunner,
   branch: string
@@ -59,16 +33,7 @@ async function getConfiguredPushRemote(
   if (!remote) {
     return null
   }
-  const normalizedRemote = await normalizePushRemote(runGit, remote)
-  // The two usually name the same URL; resolving it twice reads the remote table twice.
-  if (!branchRemote) {
-    return { remote: normalizedRemote, branchRemote: null }
-  }
-  return {
-    remote: normalizedRemote,
-    branchRemote:
-      branchRemote === remote ? normalizedRemote : await normalizePushRemote(runGit, branchRemote)
-  }
+  return { remote, branchRemote }
 }
 
 async function branchMergeTargetsConfiguredBase(

@@ -1,3 +1,4 @@
+import { captureGitSelectorEndpoints, type GitSelectorEndpoints } from './git-selector-endpoints'
 import {
   parseGitRemoteFetchUrls,
   parseGitRemoteVerboseLine
@@ -12,6 +13,7 @@ import type { GitAdmissionTier } from './command-runner/git-exec-options'
 import { gitExecFileAsync } from './runner'
 
 export type GitRemoteTopologySnapshot = {
+  selectorEndpoints?: Map<string, GitSelectorEndpoints>
   config: Map<string, string>
   localBranchOids: Map<string, string>
   remoteBranchOids: Map<string, string>
@@ -151,8 +153,18 @@ async function probeSnapshot(
   if (remoteNames.length > SNAPSHOT_MAX_REMOTES) {
     throw new Error('Git remote topology has too many remotes to resolve safely.')
   }
+  const config = parseConfigSnapshot(configResult.stdout)
+  const selectorEndpoints = await captureGitSelectorEndpoints(
+    config,
+    remoteNames,
+    runGit,
+    SNAPSHOT_MAX_URLS -
+      fetchUrls.size -
+      [...pushUrls.values()].reduce((sum, urls) => sum + urls.length, 0)
+  )
   return {
-    config: parseConfigSnapshot(configResult.stdout),
+    config,
+    selectorEndpoints,
     ...refs,
     remoteNames,
     fetchUrls,

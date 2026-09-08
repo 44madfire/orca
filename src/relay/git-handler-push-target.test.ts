@@ -126,7 +126,7 @@ describe('resolveRelayPushTarget', () => {
     })
   })
 
-  it('normalizes a URL-valued branch remote to a matching named remote', async () => {
+  it('preserves a URL-valued branch remote despite a matching named remote', async () => {
     const forkUrl = 'https://github.com/contributor/orca.git'
     const git = gitForConfig({
       pushRemote: new Error('missing pushRemote'),
@@ -140,7 +140,7 @@ describe('resolveRelayPushTarget', () => {
     })
 
     await expect(resolveRelayPushTarget(git, '/repo', undefined)).resolves.toEqual({
-      remote: 'pr-contributor-orca',
+      remote: forkUrl,
       refspec: 'HEAD:feature/fix'
     })
   })

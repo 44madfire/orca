@@ -10,7 +10,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { gitExecFileAsyncMock } = vi.hoisted(() => ({ gitExecFileAsyncMock: vi.fn() }))
+const { gitExecFileAsyncMock } = vi.hoisted(() => ({
+  gitExecFileAsyncMock: vi.fn()
+}))
 
 vi.mock('../main/git/runner', () => ({
   gitExecFileAsync: gitExecFileAsyncMock
@@ -173,7 +175,7 @@ describe('relay/desktop push-target parity', () => {
     )
   })
 
-  it('resolves a URL-valued pushRemote back to its remote name', async () => {
+  it('preserves a URL-valued pushRemote through local and relay execution', async () => {
     await expectSamePushArgv(
       {
         branch: 'review/pr-1738',
@@ -185,7 +187,7 @@ describe('relay/desktop push-target parity', () => {
           fork: 'git@example.invalid:contributor/repo.git'
         }
       },
-      ['push', '--set-upstream', 'fork', 'HEAD:contributor/fix']
+      ['push', '--set-upstream', 'git@example.invalid:contributor/repo.git', 'HEAD:contributor/fix']
     )
   })
 

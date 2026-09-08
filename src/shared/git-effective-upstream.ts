@@ -1,3 +1,4 @@
+import type { GitOperationSelector } from './git-operation-selector'
 import { isNoUpstreamError } from './git-remote-error'
 import type { GitUpstreamStatus } from './git-status-types'
 import {
@@ -24,6 +25,7 @@ export type EffectiveGitUpstream =
       remoteName: string
       branchName: string
       isConfiguredUpstream: false
+      operationSelector?: GitOperationSelector
     }
 
 function hasMultipleSlashSegments(refName: string): boolean {

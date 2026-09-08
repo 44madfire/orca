@@ -1,3 +1,4 @@
+import type { GitOperationSelector } from './git-operation-selector'
 import { gitRefTargetsBranchOnRemote } from './git-remote-branch-name'
 import { findGitRemoteNameByFetchUrl } from './git-remote-url-index'
 
@@ -6,6 +7,7 @@ type GitCommandRunner = (args: string[]) => Promise<{ stdout: string }>
 type RemoteTrackingRefExists = (remoteName: string, branchName: string) => Promise<boolean>
 
 export type ConfiguredBranchRemoteUpstream = {
+  operationSelector?: GitOperationSelector
   upstreamName: string
   remoteName: string
   branchName: string
@@ -64,6 +66,9 @@ export async function getConfiguredBranchRemoteUpstream(
     return null
   }
   return {
+    ...(remote !== remoteName
+      ? { operationSelector: { kind: 'literal-url' as const, value: remote } }
+      : {}),
     upstreamName: `${remoteName}/${branchName}`,
     remoteName,
     branchName,
@@ -87,26 +92,12 @@ export async function hasConfiguredBranchPushTarget(
   if (!remote || remote === '.' || !branchName || branchName === mergeRef) {
     return false
   }
-  const pushRemoteName = isUrlValuedRemote(remote)
-    ? ((await findRemoteNameForUrl(runGit, remote)) ?? remote)
-    : remote
-  // The two usually name the same URL; resolving it twice reads the remote table twice.
-  const branchRemoteName = !branchRemote
-    ? null
-    : branchRemote === remote
-      ? pushRemoteName
-      : isUrlValuedRemote(branchRemote)
-        ? ((await findRemoteNameForUrl(runGit, branchRemote)) ?? branchRemote)
-        : branchRemote
-  if (gitRefTargetsBranchOnRemote(baseRef, pushRemoteName, branchName)) {
+  if (gitRefTargetsBranchOnRemote(baseRef, remote, branchName)) {
     return false
   }
   // Why: branch.merge belongs to branch.remote. Do not combine a user's
   // pushDefault fork with an origin/main merge target and call it pushable.
-  if (
-    branchName !== currentBranchName &&
-    (pushRemoteName === 'origin' || branchRemoteName !== pushRemoteName)
-  ) {
+  if (branchName !== currentBranchName && (remote === 'origin' || branchRemote !== remote)) {
     return false
   }
   return true

@@ -76,7 +76,9 @@ function localProbe(args: {
     const remoteRefs = (args.matchingRemotes ?? []).map(
       (remote) => `refs/remotes/${remote}/${branch}\0${oid}`
     )
-    return { stdout: [`refs/heads/${branch}\0${oid}`, ...remoteRefs].join('\n') }
+    return {
+      stdout: [`refs/heads/${branch}\0${oid}`, ...remoteRefs].join('\n')
+    }
   })
 }
 
@@ -104,13 +106,20 @@ describe('git operation remote roles', () => {
       localProbe({ remotes: ['origin', remote], matchingRemotes: [remote] })
 
       await expect(resolve(['origin', remote])).resolves.toMatchObject({
-        head: { kind: 'resolved', remoteName: remote, provenance: 'matching-remote-branch' }
+        head: {
+          kind: 'resolved',
+          selector: { kind: 'named-remote', value: remote },
+          provenance: 'matching-remote-branch'
+        }
       })
     }
   )
 
   it('keeps two matching head remotes explicitly ambiguous', async () => {
-    localProbe({ remotes: ['fork-a', 'fork-b'], matchingRemotes: ['fork-a', 'fork-b'] })
+    localProbe({
+      remotes: ['fork-a', 'fork-b'],
+      matchingRemotes: ['fork-a', 'fork-b']
+    })
 
     await expect(resolve(['fork-a', 'fork-b'])).resolves.toMatchObject({
       head: {
@@ -133,7 +142,11 @@ describe('git operation remote roles', () => {
     })
 
     await expect(resolve(['origin', 'fork'])).resolves.toMatchObject({
-      head: { kind: 'resolved', remoteName: 'fork', provenance: 'matching-remote-branch' }
+      head: {
+        kind: 'resolved',
+        selector: { kind: 'named-remote', value: 'fork' },
+        provenance: 'matching-remote-branch'
+      }
     })
   })
 
@@ -151,7 +164,7 @@ describe('git operation remote roles', () => {
     ).resolves.toMatchObject({
       issueSource: {
         kind: 'resolved',
-        remoteName: 'company',
+        selector: { kind: 'named-remote', value: 'company' },
         provenance: 'persisted-exact-remote'
       }
     })
@@ -162,7 +175,7 @@ describe('git operation remote roles', () => {
     await expect(resolve(['gitlab-only'])).resolves.toMatchObject({
       issueSource: {
         kind: 'resolved',
-        remoteName: 'gitlab-only',
+        selector: { kind: 'named-remote', value: 'gitlab-only' },
         provenance: 'sole-provider-remote'
       }
     })
@@ -223,7 +236,10 @@ describe('git operation remote roles', () => {
 
     localProbe({ remotes: ['fork'], matchingRemotes: ['fork'] })
     await expect(resolve(['fork'])).resolves.toMatchObject({
-      head: { kind: 'resolved', remoteName: 'fork' }
+      head: {
+        kind: 'resolved',
+        selector: { kind: 'named-remote', value: 'fork' }
+      }
     })
   })
 
@@ -236,7 +252,9 @@ describe('git operation remote roles', () => {
         if (command[0] === 'config') {
           return { stdout: '' }
         }
-        return { stdout: 'refs/heads/feature\0one\nrefs/remotes/old/feature\0one' }
+        return {
+          stdout: 'refs/heads/feature\0one\nrefs/remotes/old/feature\0one'
+        }
       })
     }
     const secondProvider = {
@@ -247,7 +265,9 @@ describe('git operation remote roles', () => {
         if (command[0] === 'config') {
           return { stdout: '' }
         }
-        return { stdout: 'refs/heads/feature\0two\nrefs/remotes/new/feature\0two' }
+        return {
+          stdout: 'refs/heads/feature\0two\nrefs/remotes/new/feature\0two'
+        }
       })
     }
     getSshGitProviderMock.mockReturnValue(firstProvider)
@@ -258,7 +278,9 @@ describe('git operation remote roles', () => {
         connectionId: 'ssh-1',
         eligibleRemotes: async (names) => names
       })
-    ).resolves.toMatchObject({ head: { remoteName: 'old' } })
+    ).resolves.toMatchObject({
+      head: { selector: { kind: 'named-remote', value: 'old' } }
+    })
 
     getSshGitProviderGenerationMock.mockReturnValue(1)
     getSshGitProviderMock.mockReturnValue(secondProvider)
@@ -269,6 +291,8 @@ describe('git operation remote roles', () => {
         connectionId: 'ssh-1',
         eligibleRemotes: async (names) => names
       })
-    ).resolves.toMatchObject({ head: { remoteName: 'new' } })
+    ).resolves.toMatchObject({
+      head: { selector: { kind: 'named-remote', value: 'new' } }
+    })
   })
 })

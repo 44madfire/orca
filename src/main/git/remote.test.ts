@@ -170,7 +170,7 @@ describe('git remote operations', () => {
     )
   })
 
-  it('normalizes a URL-valued branch remote to a matching named remote before pushing', async () => {
+  it('preserves a URL-valued branch remote before pushing', async () => {
     gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
       if (args[0] === 'symbolic-ref') {
         return { stdout: 'imp/chinese-translation\n', stderr: '' }
@@ -213,14 +213,19 @@ describe('git remote operations', () => {
     await gitPush('/repo', false)
 
     expect(gitExecFileAsyncMock).toHaveBeenLastCalledWith(
-      ['push', '--set-upstream', 'pr-pynickle-orca', 'HEAD:imp/chinese-translation'],
+      [
+        'push',
+        '--set-upstream',
+        'https://github.com/pynickle/orca.git',
+        'HEAD:imp/chinese-translation'
+      ],
       { cwd: '/repo' }
     )
   })
 
   // Regression: normalizing a URL-valued push remote used to run `git remote` and then a
   // serial `git remote get-url` per remote -- 59 subprocesses on a 58-remote repo.
-  it('normalizes a URL-valued push remote from one remote table read at 58 remotes', async () => {
+  it('preserves a URL-valued push remote without scanning 58 named remotes', async () => {
     const remotes = [
       { name: 'origin', url: 'https://github.com/stablyai/orca.git' },
       ...Array.from({ length: 56 }, (_, index) => ({
@@ -259,9 +264,14 @@ describe('git remote operations', () => {
     await gitPush('/repo', false)
 
     const remoteReads = gitExecFileAsyncMock.mock.calls.filter(([args]) => args[0] === 'remote')
-    expect(remoteReads.map(([args]) => args)).toEqual([['remote', '-v']])
+    expect(remoteReads.map(([args]) => args)).toEqual([])
     expect(gitExecFileAsyncMock).toHaveBeenLastCalledWith(
-      ['push', '--set-upstream', 'pr-pynickle-orca', 'HEAD:imp/chinese-translation'],
+      [
+        'push',
+        '--set-upstream',
+        'https://github.com/pynickle/orca.git',
+        'HEAD:imp/chinese-translation'
+      ],
       { cwd: '/repo' }
     )
   })

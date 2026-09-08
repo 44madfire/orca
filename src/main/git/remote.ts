@@ -82,7 +82,12 @@ async function gitPullWithArgs(
       // Why: legacy Orca branches may still track origin/main while pushes
       // target origin/<branch>. Pull the same effective branch the UI reports.
       await gitExecFileAsync(
-        ['pull', ...effectiveArgs, upstream.remoteName, upstream.branchName],
+        [
+          'pull',
+          ...effectiveArgs,
+          upstream.operationSelector?.value ?? upstream.remoteName,
+          upstream.branchName
+        ],
         gitOptionsForWorktree(worktreePath, options)
       )
       return
