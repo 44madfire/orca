@@ -224,7 +224,7 @@ describe('mobile web package downloader', () => {
     ).rejects.toMatchObject({ code: 'invalid_chunk' })
   })
 
-  it('aborts staging when the selected host session is cancelled', async () => {
+  it('leaves staging alone when the selected host session is cancelled', async () => {
     const controller = new AbortController()
     const fixture = createFixture({ afterFirstChunk: () => controller.abort() })
     const stager = createStager()
@@ -235,7 +235,7 @@ describe('mobile web package downloader', () => {
         signal: controller.signal
       })
     ).rejects.toMatchObject({ code: 'cancelled' })
-    expect(stager.abort).toHaveBeenCalledOnce()
+    expect(stager.abort).not.toHaveBeenCalled()
     expect(stager.commit).not.toHaveBeenCalled()
   })
 

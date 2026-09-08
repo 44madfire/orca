@@ -15,6 +15,59 @@ import {
 } from './mobile-web-package-downloader'
 
 describe('mobile web package download abort sites', () => {
+  it('preserves the newer same-host build staging when an older attempt aborts late', async () => {
+    const fixture = createFixture()
+    const controller = new AbortController()
+    const firstWritten = Promise.withResolvers<void>()
+    const secondWritten = Promise.withResolvers<void>()
+    const releaseFirst = Promise.withResolvers<void>()
+    const releaseSecond = Promise.withResolvers<void>()
+    const staged = new Map<string, Uint8Array>()
+    const stager = {
+      writeAsset: vi.fn(async (buildId, asset, bytes) => {
+        staged.set(`${buildId}/${asset.path}`, bytes)
+        if (stager.writeAsset.mock.calls.length === 1) {
+          firstWritten.resolve()
+          await releaseFirst.promise
+        } else {
+          secondWritten.resolve()
+          await releaseSecond.promise
+        }
+      }),
+      commit: vi.fn(async (manifest) => {
+        for (const asset of manifest.assets) {
+          const bytes = staged.get(`${manifest.buildId}/${asset.path}`)
+          if (!bytes || sha256Hex(bytes) !== asset.sha256) {
+            throw new Error('staged asset missing or corrupt')
+          }
+        }
+        return { generation: manifest.buildId }
+      }),
+      abort: vi.fn(async (buildId) => {
+        for (const asset of fixture.manifest.assets) {
+          staged.delete(`${buildId}/${asset.path}`)
+        }
+      })
+    } satisfies MobileWebPackageStager<{ generation: string }>
+
+    const first = downloadMobileWebPackage(fixture.request, stager, {
+      shellBridgeVersion: 1,
+      signal: controller.signal
+    })
+    await firstWritten.promise
+    const second = downloadMobileWebPackage(fixture.request, stager, { shellBridgeVersion: 1 })
+    await secondWritten.promise
+    controller.abort()
+    releaseFirst.resolve()
+    await expect(first).rejects.toMatchObject({ code: 'cancelled' })
+    releaseSecond.resolve()
+
+    await expect(second).resolves.toMatchObject({
+      commit: { generation: fixture.manifest.buildId }
+    })
+    expect(stager.abort).not.toHaveBeenCalled()
+  })
+
   it('stages and commits when the download is never aborted', async () => {
     const fixture = createFixture()
     const stager = createStager()
@@ -94,7 +147,7 @@ describe('mobile web package download abort sites', () => {
 
     expect(stager.writeAsset).toHaveBeenCalledOnce()
     expect(stager.commit).not.toHaveBeenCalled()
-    expect(stager.abort).toHaveBeenCalledOnce()
+    expect(stager.abort).not.toHaveBeenCalled()
   })
 })
 

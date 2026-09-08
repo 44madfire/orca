@@ -112,9 +112,11 @@ describe('mobile web package download pipelining', () => {
       })
     ).rejects.toMatchObject({ code: 'cancelled' })
     expect(stager.commit).not.toHaveBeenCalled()
-    expect(stager.abort).toHaveBeenCalledOnce()
+    // A cancelled attempt leaves its stage: the next attempt overwrites it and startup sweeps it,
+    // whereas deleting it here could destroy a newer attempt's stage for the same build.
+    expect(stager.abort).not.toHaveBeenCalled()
 
-    // Backgrounding aborts the same way, and nothing survives it: the retry re-reads offset 0.
+    // Backgrounding aborts the same way, and the retry re-reads offset 0.
     fixture.paramsByCall.length = 0
     await downloadMobileWebPackage(fixture.request, createStager(), { shellBridgeVersion: 1 })
     expect(fixture.paramsByCall[0]?.offset).toBe(0)

@@ -144,8 +144,10 @@ export async function downloadMobileWebPackage<TCommit>(
     })
     return { manifest, commit, reusedVerifiedBuild: false }
   } catch (error) {
-    // Disk full is a write that throws, so the only cleanup left is dropping the staged tree.
-    await stager.abort(manifest.buildId).catch(() => {})
+    // A superseded attempt no longer owns the host/build staging directory.
+    if (!options.signal?.aborted) {
+      await stager.abort(manifest.buildId).catch(() => {})
+    }
     if (error instanceof MobileWebPackageDownloadError) {
       throw error
     }
