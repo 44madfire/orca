@@ -10,7 +10,6 @@ import {
   type WorkerReleaseReceipt
 } from './worker-release-completion'
 import { WorkerDispatchParams, WorkerRetainParams } from './worker-release-schemas'
-import { recordWorkerTerminalUserTakeover } from '../../worker-terminal-user-takeover'
 
 export const ORCHESTRATION_WORKER_RELEASE_METHODS: RpcMethod[] = [
   defineMethod({
@@ -155,7 +154,10 @@ export const ORCHESTRATION_WORKER_RELEASE_METHODS: RpcMethod[] = [
         (params.sessionId
           ? runtime.getStructuredWorkerPaneKeyForSession(params.sessionId)
           : runtime.getTerminalPaneKey(params.terminal!))
-      return { changed: recordWorkerTerminalUserTakeover(runtime, paneKey) }
+      const changed = paneKey
+        ? runtime.getOrchestrationDb().markWorkerTerminalUserOwned(paneKey)
+        : 0
+      return { changed }
     }
   })
 ]
