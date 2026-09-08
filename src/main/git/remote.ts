@@ -19,8 +19,14 @@ import { runWithGitWorktreeOperationLock } from '../../shared/git-worktree-opera
 
 export { gitPullRebaseFromBase } from './remote-rebase'
 
-function explicitPushTarget(target: GitPushTarget): { remote: string; refspec: string } {
-  return { remote: target.remoteName, refspec: `HEAD:${target.branchName}` }
+function explicitPushTarget(target: GitPushTarget): {
+  remote: string
+  refspec: string
+} {
+  return {
+    remote: target.remoteName,
+    refspec: `HEAD:refs/heads/${target.branchName}`
+  }
 }
 
 export async function gitPush(

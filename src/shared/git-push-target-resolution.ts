@@ -1,3 +1,4 @@
+import { readCurrentGitBranchName } from './git-current-branch'
 import type { GitCommandRunner } from './git-effective-upstream'
 import { gitRefTargetsBranchOnRemote } from './git-remote-branch-name'
 
@@ -77,8 +78,7 @@ export async function resolveConfiguredGitPushTarget(
   runGit: GitCommandRunner
 ): Promise<ResolvedGitPushTarget | null> {
   try {
-    const { stdout: branchStdout } = await runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'])
-    const branch = branchStdout.trim()
+    const branch = await readCurrentGitBranchName(runGit)
     if (!branch) {
       return null
     }
@@ -98,7 +98,7 @@ export async function resolveConfiguredGitPushTarget(
     if (!canPushConfiguredMergeBranch(pushRemote, branch, branchRef)) {
       return null
     }
-    return { remote, refspec: `HEAD:${branchRef}` }
+    return { remote, refspec: `HEAD:${mergeRef}` }
   } catch {
     return null
   }

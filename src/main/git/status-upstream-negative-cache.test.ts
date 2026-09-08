@@ -65,7 +65,7 @@ describe('local upstream negative cache', () => {
         }
       }
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
-        return { stdout: 'feature\n' }
+        return { stdout: 'refs/heads/feature\n' }
       }
       if (args[0] === 'for-each-ref') {
         return { stdout: '\0\n' }
@@ -112,7 +112,7 @@ describe('local upstream negative cache', () => {
         }
       }
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
-        return { stdout: 'feature\n' }
+        return { stdout: 'refs/heads/feature\n' }
       }
       if (args[0] === 'for-each-ref') {
         return { stdout: '\0\n' }
@@ -177,7 +177,7 @@ describe('local upstream negative cache', () => {
         }
       }
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
-        return { stdout: `${currentBranch}\n` }
+        return { stdout: `refs/heads/${currentBranch}\n` }
       }
       if (args[0] === 'for-each-ref') {
         return { stdout: '\0\n' }
@@ -243,7 +243,7 @@ describe('local upstream negative cache', () => {
         }
       }
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
-        return { stdout: `${currentBranch}\n` }
+        return { stdout: `refs/heads/${currentBranch}\n` }
       }
       if (args[0] === 'for-each-ref') {
         return { stdout: '\0\n' }
@@ -303,7 +303,7 @@ describe('local upstream negative cache', () => {
         }
       }
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
-        return { stdout: `${currentBranch}\n` }
+        return { stdout: `refs/heads/${currentBranch}\n` }
       }
       if (args[0] === 'for-each-ref') {
         return { stdout: '\0\n' }
@@ -337,7 +337,7 @@ describe('local upstream negative cache', () => {
         }
       }
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
-        return { stdout: `${currentBranch}\n` }
+        return { stdout: `refs/heads/${currentBranch}\n` }
       }
       if (args[0] === 'for-each-ref') {
         return { stdout: '\0\n' }

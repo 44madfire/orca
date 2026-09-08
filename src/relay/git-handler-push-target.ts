@@ -22,6 +22,6 @@ export async function resolveRelayPushTarget(
   await git(['check-ref-format', '--branch', explicitTarget.branchName], worktreePath)
   return {
     remote: explicitTarget.remoteName,
-    refspec: `HEAD:${explicitTarget.branchName}`
+    refspec: `HEAD:refs/heads/${explicitTarget.branchName}`
   }
 }

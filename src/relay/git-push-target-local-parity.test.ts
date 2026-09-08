@@ -26,7 +26,7 @@ import { createMockDispatcher, type RelayDispatcher } from './git-handler-test-s
 const WORKTREE_PATH = '/worktree'
 
 type GitConfigFixture = {
-  /** Empty means detached HEAD: `symbolic-ref --quiet --short HEAD` prints nothing. */
+  /** Empty means detached HEAD: `symbolic-ref --quiet HEAD` prints nothing. */
   branch: string
   merge?: string
   branchRemote?: string
@@ -61,7 +61,10 @@ function scriptGit(fixture: GitConfigFixture) {
     run: async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
       calls.push(args)
       if (args[0] === 'symbolic-ref') {
-        return { stdout: `${fixture.branch}\n`, stderr: '' }
+        return {
+          stdout: fixture.branch ? `refs/heads/${fixture.branch}\n` : '',
+          stderr: ''
+        }
       }
       if (args[0] === 'config' && args[1] === '--get') {
         const value = configValues.get(args[2] ?? '')
@@ -133,7 +136,7 @@ describe('relay/desktop push-target parity', () => {
         branchRemote: 'fork',
         pushDefault: 'fork'
       },
-      ['push', '--set-upstream', 'fork', 'HEAD:contributor/fix']
+      ['push', '--set-upstream', 'fork', 'HEAD:refs/heads/contributor/fix']
     )
   })
 
@@ -187,7 +190,12 @@ describe('relay/desktop push-target parity', () => {
           fork: 'git@example.invalid:contributor/repo.git'
         }
       },
-      ['push', '--set-upstream', 'git@example.invalid:contributor/repo.git', 'HEAD:contributor/fix']
+      [
+        'push',
+        '--set-upstream',
+        'git@example.invalid:contributor/repo.git',
+        'HEAD:refs/heads/contributor/fix'
+      ]
     )
   })
 

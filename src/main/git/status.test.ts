@@ -311,7 +311,7 @@ describe('getStatus', () => {
         })
       }
       if (args[0] === 'symbolic-ref') {
-        return Promise.resolve({ stdout: 'feature/prompts\n' })
+        return Promise.resolve({ stdout: 'refs/heads/feature/prompts\n' })
       }
       if (args[0] === 'for-each-ref') {
         return Promise.resolve({ stdout: '\0\n' })
@@ -343,7 +343,7 @@ describe('getStatus', () => {
         stdout:
           '# branch.oid abcdef1234567890\n# branch.head feature/prompts\n# branch.upstream origin/main\n# branch.ab +1 -0\n'
       })
-      .mockResolvedValueOnce({ stdout: 'feature/prompts\n' })
+      .mockResolvedValueOnce({ stdout: 'refs/heads/feature/prompts\n' })
       .mockResolvedValueOnce({ stdout: 'origin/main\n' })
       .mockResolvedValueOnce({ stdout: 'abc123\n' })
       .mockResolvedValueOnce({ stdout: '3\t1\n' })

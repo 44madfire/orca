@@ -111,6 +111,36 @@ describeBinaryCompatibility('real Git binary compatibility', () => {
     }
   })
 
+  it('preserves full symbolic branch identity and optional tracking atoms', async () => {
+    const original = (await runGit(['symbolic-ref', '--quiet', 'HEAD'])).stdout.trim()
+    await runGit(['branch', 'compat-identity'])
+    await runGit(['tag', 'compat-identity'])
+    await runGit(['symbolic-ref', 'HEAD', 'refs/heads/compat-identity'])
+    const metadata = [
+      'for-each-ref',
+      '--format=%(upstream:short)%00%(upstream:trackshort)%00%(refname)',
+      'refs/heads/compat-identity'
+    ]
+    try {
+      expect((await runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'])).stdout.trim()).toBe(
+        'heads/compat-identity'
+      )
+      expect((await runGit(['symbolic-ref', '--quiet', 'HEAD'])).stdout.trim()).toBe(
+        'refs/heads/compat-identity'
+      )
+      expect((await runGit(metadata)).stdout.trim()).toBe('\0\0refs/heads/compat-identity')
+      await runGit(['config', 'branch.compat-identity.remote', '.'])
+      await runGit(['config', 'branch.compat-identity.merge', original])
+      expect((await runGit(metadata)).stdout.trim()).toBe(
+        `${original.slice('refs/heads/'.length)}\0=\0refs/heads/compat-identity`
+      )
+    } finally {
+      await runGit(['symbolic-ref', 'HEAD', original])
+      await runGit(['branch', '-D', 'compat-identity'])
+      await runGit(['tag', '-d', 'compat-identity'])
+    }
+  })
+
   it('quietly distinguishes present and absent branch refs', async () => {
     const head = (await runGit(['rev-parse', 'HEAD'])).stdout.trim()
     await runGit(['branch', 'quiet-probe-present', head])

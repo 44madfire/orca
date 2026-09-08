@@ -27,7 +27,7 @@ it.each([
     const script = async (args: string[]) => {
       calls.push(args)
       if (args[0] === 'symbolic-ref') {
-        return { stdout: 'feature', stderr: '' }
+        return { stdout: 'refs/heads/feature', stderr: '' }
       }
       if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
         throw new Error(

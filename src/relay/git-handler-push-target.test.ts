@@ -17,7 +17,7 @@ function gitForConfig(config: {
   const merge = config.merge ?? `refs/heads/${branch}`
   return vi.fn(async (args: GitArgs) => {
     if (args[0] === 'symbolic-ref') {
-      return { stdout: `${branch}\n`, stderr: '' }
+      return { stdout: `refs/heads/${branch}\n`, stderr: '' }
     }
     if (args[0] === 'config' && args[2] === `branch.${branch}.pushRemote`) {
       if (config.pushRemote instanceof Error) {
@@ -81,7 +81,7 @@ describe('resolveRelayPushTarget', () => {
 
     await expect(resolveRelayPushTarget(git, '/repo', undefined)).resolves.toEqual({
       remote: 'fork',
-      refspec: 'HEAD:contributor/fix'
+      refspec: 'HEAD:refs/heads/contributor/fix'
     })
   })
 
@@ -109,7 +109,7 @@ describe('resolveRelayPushTarget', () => {
 
     await expect(resolveRelayPushTarget(git, '/repo', undefined)).resolves.toEqual({
       remote: 'fork',
-      refspec: 'HEAD:main'
+      refspec: 'HEAD:refs/heads/main'
     })
   })
 
@@ -122,7 +122,7 @@ describe('resolveRelayPushTarget', () => {
 
     await expect(resolveRelayPushTarget(git, '/repo', undefined)).resolves.toEqual({
       remote: 'fork',
-      refspec: 'HEAD:feature/fix'
+      refspec: 'HEAD:refs/heads/feature/fix'
     })
   })
 
@@ -141,7 +141,7 @@ describe('resolveRelayPushTarget', () => {
 
     await expect(resolveRelayPushTarget(git, '/repo', undefined)).resolves.toEqual({
       remote: forkUrl,
-      refspec: 'HEAD:feature/fix'
+      refspec: 'HEAD:refs/heads/feature/fix'
     })
   })
 
@@ -158,7 +158,7 @@ describe('resolveRelayPushTarget', () => {
 
     await expect(resolveRelayPushTarget(git, '/repo', undefined)).resolves.toEqual({
       remote: forkUrl,
-      refspec: 'HEAD:feature/fix'
+      refspec: 'HEAD:refs/heads/feature/fix'
     })
   })
 
@@ -172,7 +172,7 @@ describe('resolveRelayPushTarget', () => {
       })
     ).resolves.toEqual({
       remote: 'fork',
-      refspec: 'HEAD:feature/head'
+      refspec: 'HEAD:refs/heads/feature/head'
     })
     expect(git).toHaveBeenCalledWith(['check-ref-format', '--branch', 'feature/head'], '/repo')
   })
