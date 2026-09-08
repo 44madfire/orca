@@ -26,6 +26,33 @@ function isMissingTrackingRef(error: unknown): boolean {
   return candidate.code === 1 || /(?:exited with|exit code) 1\b/i.test(candidate.message)
 }
 
+async function resolveAbbreviatedFetchSource(
+  runGit: GitCommandRunner,
+  remote: string,
+  abbreviation: string,
+  source: string
+): Promise<boolean> {
+  // Git remote.c chooses the highest-ranked refname_match, including tags before heads.
+  const candidates = [
+    abbreviation,
+    `refs/${abbreviation}`,
+    `refs/tags/${abbreviation}`,
+    `refs/heads/${abbreviation}`,
+    `refs/remotes/${abbreviation}`,
+    `refs/remotes/${abbreviation}/HEAD`
+  ]
+  if (!candidates.includes(source)) {
+    return false
+  }
+  try {
+    const { stdout } = await runGit(['ls-remote', '--refs', '--', remote, ...candidates])
+    const refs = new Set(stdout.split(/\r?\n/).map((line) => line.split('\t')[1]))
+    return candidates.find((candidate) => refs.has(candidate)) === source
+  } catch {
+    return false
+  }
+}
+
 // Only configured fetch destinations establish tracking authority, regardless of namespace.
 export async function readGitRemoteTrackingRef(
   runGit: GitCommandRunner,
@@ -51,11 +78,22 @@ export async function readGitRemoteTrackingRef(
     if (!from || !to || extra !== undefined) {
       continue
     }
-    const match = refspecMatch(from, source)
+    const match =
+      refspecMatch(from, source) ??
+      (!from.includes('*') &&
+      !from.startsWith('refs/') &&
+      (await resolveAbbreviatedFetchSource(runGit, remote, from, source))
+        ? ''
+        : null)
     if (match === null || from.includes('*') !== to.includes('*') || to.split('*').length > 2) {
       continue
     }
-    const ref = to.replace('*', () => match)
+    const destination = to.replace('*', () => match)
+    const ref = destination.startsWith('refs/')
+      ? destination
+      : /^(heads|tags|remotes)\//.test(destination)
+        ? `refs/${destination}`
+        : `refs/heads/${destination}`
     if (!isSafeGitRefName(ref)) {
       continue
     }

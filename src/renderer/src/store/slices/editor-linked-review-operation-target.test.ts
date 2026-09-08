@@ -1,3 +1,4 @@
+import { reviewTarget } from '../../../../shared/__fixtures__/git-review-target'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { createEditorStore } from './editor-slice-test-harness'
 import { makeWorktree } from './worktrees-slice-test-fixtures'
@@ -53,16 +54,19 @@ it.each(['linkedPR', 'linkedGitLabMR'] as const)(
     // A failed lookup retains the same unresolved state; no configured push fallback is admitted.
     await expect(store.getState().pushBranch('wt', '/repo')).rejects.toThrow('unresolved')
     for (const remoteName of ['contributor', 'other-repository']) {
-      worktree.pushTarget = { remoteName, branchName: 'feature' }
+      worktree.pushTarget = reviewTarget(
+        remoteName,
+        'feature',
+        link === 'linkedPR' ? 'github' : 'gitlab'
+      )
       await store.getState().pushBranch('wt', '/repo')
       expect(push).toHaveBeenLastCalledWith(
         expect.objectContaining({ pushTarget: worktree.pushTarget })
       )
       await expect(
-        store.getState().pushBranch('wt', '/repo', false, undefined, {
-          remoteName: 'origin',
-          branchName: 'feature'
-        })
+        store
+          .getState()
+          .pushBranch('wt', '/repo', false, undefined, reviewTarget('origin', 'feature'))
       ).rejects.toThrow('changed')
     }
   }

@@ -163,12 +163,21 @@ describe('resolveRelayPushTarget', () => {
   })
 
   it('uses an explicit push target without reading branch config', async () => {
-    const git = vi.fn(async () => ({ stdout: '', stderr: '' }))
+    const git = vi.fn(async () => ({
+      stdout: 'fork\thttps://github.com/team/repo.git (push)',
+      stderr: ''
+    }))
 
     await expect(
       resolveRelayPushTarget(git, '/repo', {
         remoteName: 'fork',
-        branchName: 'feature/head'
+        branchName: 'feature/head',
+        reviewHead: {
+          provider: 'github',
+          host: 'github.com',
+          repository: 'team/repo',
+          branchName: 'feature/head'
+        }
       })
     ).resolves.toEqual({
       remote: 'fork',

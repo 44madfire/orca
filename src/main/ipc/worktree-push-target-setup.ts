@@ -1,3 +1,4 @@
+import { assertGitReviewPushAuthority } from '../../shared/git-review-push-authority'
 // Why: preparing a fork-PR push target means adding (or reusing) the contributor's
 // fork as a git remote, fetching the head, and wiring the new branch's upstream.
 // The git-driven core lives here behind an injectable `execGit` seam so the
@@ -109,6 +110,12 @@ export async function prepareWorktreePushTargetWithExec(
     const existingRemote = await findRemoteForUrl(execGit, repoPath, target.remoteUrl)
     if (existingRemote) {
       remoteName = existingRemote
+      if (target.reviewHead) {
+        await assertGitReviewPushAuthority((args) => execGit(args, repoPath), {
+          ...target,
+          remoteName
+        })
+      }
       // Why: if a later PR worktree reuses an Orca-created fork remote, it
       // must inherit ownership so deleting the final user can remove it.
       remoteCreated = isRemoteCreatedByKnownWorktree(existingRemote)
@@ -144,6 +151,12 @@ export async function prepareWorktreePushTargetWithExec(
   }
 
   try {
+    if (target.reviewHead) {
+      await assertGitReviewPushAuthority((args) => execGit(args, repoPath), {
+        ...target,
+        remoteName
+      })
+    }
     await execGit(
       ['fetch', remoteName, buildNarrowForkFetchRefspec(remoteName, target.branchName)],
       repoPath

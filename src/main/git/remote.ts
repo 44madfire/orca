@@ -1,3 +1,4 @@
+import { assertGitReviewPushAuthority } from '../../shared/git-review-push-authority'
 import {
   normalizeGitErrorMessage,
   runPullWithDivergenceFallback
@@ -38,6 +39,10 @@ export async function gitPush(
   try {
     if (pushTarget) {
       await validateGitPushTarget(worktreePath, pushTarget, options)
+      await assertGitReviewPushAuthority(
+        (args) => gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options)),
+        pushTarget
+      )
     }
     // Why: push to the branch's configured upstream when one exists. PR-created
     // worktrees can track a contributor fork remote; hardcoding origin here

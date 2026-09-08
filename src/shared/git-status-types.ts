@@ -1,3 +1,4 @@
+import type { GitReviewPushAuthority } from './git-review-push-authority'
 import type { GitUpstreamStatusIdentity } from './git-upstream-identity'
 export type GitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'copied'
 export type GitStagingArea = 'staged' | 'unstaged' | 'untracked'
@@ -93,6 +94,8 @@ export type GitStatusResult = {
 // Kept as a named type because explicit upstream refreshes can still fail for
 // reasons unrelated to working-tree status (e.g., no upstream is expected).
 export type GitUpstreamStatus = {
+  /** Absent on old peers: never authorizes a review push. */
+  reviewPushAuthority?: GitReviewPushAuthority
   hasUpstream: boolean
   upstreamName?: string
   /** Optional on older execution hosts; absence does not establish operation identity. */

@@ -73,7 +73,9 @@ it.each([
       trackingRef: upstreamBefore!.upstreamRef
     })
     const pushTarget = { remoteName: remote, branchName: expectedBranch }
-    expect(hasUsableHostedReviewPushTarget({ pushTarget, upstreamStatus: statusBefore })).toBe(true)
+    expect(hasUsableHostedReviewPushTarget({ pushTarget, upstreamStatus: statusBefore })).toBe(
+      false
+    )
     const { upstreamIdentity: _identity, ...oldPeerStatus } = statusBefore
     expect(hasUsableHostedReviewPushTarget({ pushTarget, upstreamStatus: oldPeerStatus })).toBe(
       false
@@ -86,7 +88,7 @@ it.each([
           upstreamName: 'unrelated/display/label'
         }
       })
-    ).toBe(true)
+    ).toBe(false)
     const watch = (trackingRef?: string) =>
       resolveGitStatusUpstreamRef(
         (args) => run(args),

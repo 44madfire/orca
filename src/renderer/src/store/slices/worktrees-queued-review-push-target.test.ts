@@ -1,3 +1,4 @@
+import { reviewTarget } from '../../../../shared/__fixtures__/git-review-target'
 import { beforeEach, expect, it, vi } from 'vitest'
 import type { AppState } from '../types'
 import { makeWorktree } from './worktrees-slice-test-fixtures'
@@ -48,7 +49,7 @@ it('hydrates queued review repository identity and rejects a superseded queue lo
     worktreesByRepo: { repo1: [wt] },
     prCache: queued(42)
   } as Partial<AppState>)
-  const target = { remoteName: 'contributor', branchName: 'feature' }
+  const target = reviewTarget('contributor', 'feature')
   let resolve!: (value: unknown) => void
   mockApi.worktrees.resolvePrBase.mockImplementationOnce(
     () =>

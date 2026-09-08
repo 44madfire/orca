@@ -1,3 +1,4 @@
+import { readGitReviewPushAuthority } from './git-review-push-authority'
 import { readGitRemoteTrackingRef } from './git-remote-tracking-ref'
 import type { GitUpstreamStatusIdentity } from './git-upstream-identity'
 import type { GitUpstreamStatus } from './git-status-types'
@@ -19,6 +20,7 @@ export async function getPublishTargetStatus(
   target: GitPushTarget,
   getBehindCommitsArePatchEquivalent?: (upstreamName: string) => Promise<boolean>
 ): Promise<GitUpstreamStatus> {
+  const reviewPushAuthority = await readGitReviewPushAuthority(runGit, target)
   const upstreamName = getPublishTargetDisplayName(target)
   const remoteRef = await readGitRemoteTrackingRef(runGit, target.remoteName, target.branchName)
   const upstreamIdentity: GitUpstreamStatusIdentity = {
@@ -29,6 +31,7 @@ export async function getPublishTargetStatus(
 
   if (!remoteRef) {
     return {
+      ...(target.reviewHead ? { reviewPushAuthority } : {}),
       hasUpstream: false,
       upstreamName,
       upstreamIdentity: { ...upstreamIdentity, trackingRef: null },
@@ -53,6 +56,7 @@ export async function getPublishTargetStatus(
       : undefined
 
   return {
+    ...(target.reviewHead ? { reviewPushAuthority } : {}),
     hasUpstream: true,
     upstreamName,
     upstreamIdentity,

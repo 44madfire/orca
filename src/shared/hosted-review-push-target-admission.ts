@@ -1,3 +1,4 @@
+import { reviewHeadKey } from './git-review-push-authority'
 import type { GitUpstreamStatus } from './git-status-types'
 import type { GitPushTarget } from './worktree/types'
 
@@ -10,10 +11,13 @@ export function hasUsableHostedReviewPushTarget(args: {
   const identity = args.upstreamStatus?.upstreamIdentity
   if (args.pushTarget) {
     return (
-      args.upstreamStatus === undefined ||
-      (identity?.selector.kind === 'named-remote' &&
-        identity.selector.value === args.pushTarget.remoteName &&
-        identity.mergeRef === `refs/heads/${args.pushTarget.branchName}`)
+      !!args.pushTarget.reviewHead &&
+      args.upstreamStatus?.reviewPushAuthority?.kind === 'verified' &&
+      reviewHeadKey(args.upstreamStatus.reviewPushAuthority.reviewHead) ===
+        reviewHeadKey(args.pushTarget.reviewHead) &&
+      identity?.selector.kind === 'named-remote' &&
+      identity.selector.value === args.pushTarget.remoteName &&
+      identity.mergeRef === `refs/heads/${args.pushTarget.branchName}`
     )
   }
   if (args.hasResolvableHostedReviewPushTargetLink) {

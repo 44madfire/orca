@@ -284,11 +284,18 @@ describe('git remote operations', () => {
   })
 
   it('uses an explicit push target even when it differs from the local branch name', async () => {
-    gitExecFileAsyncMock
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '', stderr: '' }).mockResolvedValueOnce({
+      stdout: 'origin\thttps://github.com/team/repo.git (push)',
+      stderr: ''
+    })
 
     await gitPush('/repo', false, {
+      reviewHead: {
+        provider: 'github',
+        host: 'github.com',
+        repository: 'team/repo',
+        branchName: 'contributor/fix-sidebar'
+      },
       remoteName: 'origin',
       branchName: 'contributor/fix-sidebar'
     })
@@ -297,13 +304,7 @@ describe('git remote operations', () => {
       ['push', '--set-upstream', 'origin', 'HEAD:refs/heads/contributor/fix-sidebar'],
       { cwd: '/repo' }
     )
-    expect(gitExecFileAsyncMock.mock.calls).toEqual([
-      [['check-ref-format', '--branch', 'contributor/fix-sidebar'], { cwd: '/repo' }],
-      [
-        ['push', '--set-upstream', 'origin', 'HEAD:refs/heads/contributor/fix-sidebar'],
-        { cwd: '/repo' }
-      ]
-    ])
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['remote', '-v'], { cwd: '/repo' })
   })
 
   it('passes --force-with-lease when requested', async () => {

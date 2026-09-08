@@ -13,7 +13,7 @@ export function createEnsureHostedReviewPushTarget(
 ): WorktreeSlice['ensureHostedReviewPushTarget'] {
   return async (worktreeId) => {
     const worktree = get().getKnownWorktreeById(worktreeId)
-    if (!worktree || worktree.pushTarget) {
+    if (!worktree || worktree.pushTarget?.reviewHead) {
       return
     }
     const lookup = getHostedReviewPushTargetLookup(
@@ -35,7 +35,7 @@ export function createEnsureHostedReviewPushTarget(
         return
       }
       const current = get().getKnownWorktreeById(worktreeId)
-      if (!current || current.pushTarget) {
+      if (!current || current.pushTarget?.reviewHead) {
         return
       }
       const currentLookup = getHostedReviewPushTargetLookup(

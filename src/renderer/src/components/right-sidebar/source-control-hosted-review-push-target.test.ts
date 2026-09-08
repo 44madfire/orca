@@ -1,3 +1,4 @@
+import { reviewTarget } from '../../../../shared/__fixtures__/git-review-target'
 import { describe, expect, it } from 'vitest'
 import {
   hasPositiveHostedReviewNumberLink,
@@ -239,6 +240,10 @@ describe('hasUsableHostedReviewPushTarget', () => {
 
   it('distinguishes equal labels with different named remote and merge identities', () => {
     const upstreamStatus = {
+      reviewPushAuthority: {
+        kind: 'verified' as const,
+        reviewHead: reviewTarget('origin/team', 'feature').reviewHead
+      },
       hasUpstream: true,
       upstreamName: 'origin/team/feature',
       ahead: 1,
@@ -252,7 +257,7 @@ describe('hasUsableHostedReviewPushTarget', () => {
     expect(
       hasUsableHostedReviewPushTarget({
         upstreamStatus,
-        pushTarget: { remoteName: 'origin/team', branchName: 'feature' }
+        pushTarget: reviewTarget('origin/team', 'feature')
       })
     ).toBe(true)
     expect(
@@ -270,7 +275,7 @@ describe('hasUsableHostedReviewPushTarget', () => {
             selector: { kind: 'literal-url' }
           }
         },
-        pushTarget: { remoteName: 'origin/team', branchName: 'feature' }
+        pushTarget: reviewTarget('origin/team', 'feature')
       })
     ).toBe(false)
   })
@@ -303,12 +308,12 @@ describe('hasUsableHostedReviewPushTarget', () => {
     ).toBe(false)
   })
 
-  it('accepts either persisted target metadata or branch-configured push metadata', () => {
+  it('rejects legacy target metadata and retains ordinary configured push policy', () => {
     expect(
       hasUsableHostedReviewPushTarget({
         pushTarget: { remoteName: 'fork', branchName: 'feature' }
       })
-    ).toBe(true)
+    ).toBe(false)
     expect(
       hasUsableHostedReviewPushTarget({
         pushTarget: { remoteName: 'fork', branchName: 'feature' },
@@ -324,7 +329,7 @@ describe('hasUsableHostedReviewPushTarget', () => {
           behind: 0
         }
       })
-    ).toBe(true)
+    ).toBe(false)
     expect(
       hasUsableHostedReviewPushTarget({
         upstreamStatus: {

@@ -1,3 +1,4 @@
+import { reviewTarget } from '../../../../shared/__fixtures__/git-review-target'
 import type { GitUpstreamStatus } from '../../../../shared/git-status-types'
 import { hasUsableHostedReviewPushTarget } from '../../../../shared/hosted-review-push-target-admission'
 import { describe, expect, it, vi } from 'vitest'
@@ -571,12 +572,16 @@ it('preserves identity-only upstream delivery and old-peer uncertainty', () => {
     store.getState().setUpstreamStatus('wt-identity', upstreamStatus)
   const usable = () =>
     hasUsableHostedReviewPushTarget({
-      pushTarget: { remoteName: 'origin/team', branchName: 'feature' },
+      pushTarget: reviewTarget('origin/team', 'feature'),
       upstreamStatus: store.getState().remoteStatusesByWorktree['wt-identity']
     })
   const oldPeer = { hasUpstream: true, upstreamName: 'origin/team/feature', ahead: 1, behind: 0 }
   const canonical: GitUpstreamStatus = {
     ...oldPeer,
+    reviewPushAuthority: {
+      kind: 'verified',
+      reviewHead: reviewTarget('origin/team', 'feature').reviewHead
+    },
     upstreamIdentity: {
       selector: { kind: 'named-remote', value: 'origin/team' },
       mergeRef: 'refs/heads/feature',

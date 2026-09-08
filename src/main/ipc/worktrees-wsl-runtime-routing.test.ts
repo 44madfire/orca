@@ -463,8 +463,7 @@ describe('registerWorktreeHandlers', () => {
     expect(result).toMatchObject({
       baseBranch: 'def456',
       headSha: 'def456',
-      branchNameOverride: 'feature/add-feature',
-      pushTarget: { remoteName: 'origin', branchName: 'feature/add-feature' }
+      branchNameOverride: 'feature/add-feature'
     })
   })
 

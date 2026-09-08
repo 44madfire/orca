@@ -1,3 +1,4 @@
+import { readGitRemoteTrackingRef } from './git-remote-tracking-ref'
 import { execFile } from 'node:child_process'
 import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -70,6 +71,23 @@ describeBinaryCompatibility('real Git binary compatibility', () => {
       maxBuffer: 2 * 1024 * 1024
     })
   }
+
+  it('resolves abbreviated fetch mappings using Git-ranked source evidence', async () => {
+    await runGit(['update-ref', 'refs/heads/abbreviated-source', 'HEAD'])
+    await runGit(['clone', '--bare', '.', 'abbreviated-remote.git'])
+    await runGit(['remote', 'add', 'abbreviated', './abbreviated-remote.git'])
+    await runGit([
+      'config',
+      'remote.abbreviated.fetch',
+      'abbreviated-source:refs/custom/abbreviated'
+    ])
+    await runGit(['fetch', 'abbreviated'])
+    expect(await readGitRemoteTrackingRef(runGit, 'abbreviated', 'abbreviated-source')).toBe(
+      'refs/custom/abbreviated'
+    )
+    await runGit(['--git-dir=abbreviated-remote.git', 'tag', 'abbreviated-source', 'HEAD'])
+    expect(await readGitRemoteTrackingRef(runGit, 'abbreviated', 'abbreviated-source')).toBeNull()
+  })
 
   function supports(major: number, minor: number): boolean {
     return version.major > major || (version.major === major && version.minor >= minor)

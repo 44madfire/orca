@@ -29,7 +29,7 @@ export async function resolveGitHubReviewPushTarget(
       console.warn(`Failed to resolve push target for PR #${prNumber}: ${result.error}`)
       return undefined
     }
-    return result.pushTarget
+    return result.pushTarget?.reviewHead ? result.pushTarget : undefined
   } catch (error) {
     console.warn(
       `Failed to resolve push target for PR #${prNumber}:`,
@@ -59,7 +59,7 @@ export async function resolveGitLabReviewPushTarget(
       console.warn(`Failed to resolve push target for MR !${mrIid}: ${result.error}`)
       return undefined
     }
-    return result.pushTarget
+    return result.pushTarget?.reviewHead ? result.pushTarget : undefined
   } catch (error) {
     console.warn(
       `Failed to resolve push target for MR !${mrIid}:`,

@@ -1,3 +1,4 @@
+import { resolveStoredReviewPushTarget } from '../../worktree-review-push-target'
 import { ipcMain } from 'electron'
 import type { GitPushTarget } from '../../../../shared/worktree/types'
 import { gitFastForward, gitPull, gitPullRebaseFromBase, gitPush } from '../../../git/remote'
@@ -33,6 +34,7 @@ export function registerGitRemoteBranchMutationHandlers(context: FilesystemHandl
     ): Promise<void> => {
       // Why: coerce to strict boolean so a malformed payload (e.g. string 'false') can't enable --set-upstream; mirror in src/relay/git-handler.ts.
       const publish = args.publish === true
+      args = { ...args, pushTarget: resolveStoredReviewPushTarget(store, args) }
       if (args.connectionId) {
         if (args.pushTarget) {
           assertGitPushTargetShape(args.pushTarget)

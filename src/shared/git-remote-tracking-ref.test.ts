@@ -50,3 +50,26 @@ it('does not promote a stale second destination when the first configured mappin
     'refs/remotes/origin/feature'
   ])
 })
+
+it.each([
+  ['feature:refs/custom/feature', 'refs/custom/feature'],
+  ['heads/feature:refs/custom/feature', 'refs/custom/feature'],
+  ['feature:custom', 'refs/heads/custom'],
+  ['feature:heads/tracked', 'refs/heads/tracked'],
+  ['feature:remotes/origin/tracked', 'refs/remotes/origin/tracked'],
+  ['refs/tags/feature:refs/custom/tag', null],
+  ['feature*:refs/custom/wild*', null]
+])(
+  'resolves Git exact abbreviations separately from wildcard patterns %s',
+  async (mapping, expected) => {
+    const run = vi.fn(async (args: string[]) => ({
+      stdout:
+        args[0] === 'config'
+          ? mapping!
+          : args[0] === 'ls-remote'
+            ? 'oid\trefs/heads/feature'
+            : 'oid'
+    }))
+    expect(await readGitRemoteTrackingRef(run, 'origin', 'feature')).toBe(expected)
+  }
+)

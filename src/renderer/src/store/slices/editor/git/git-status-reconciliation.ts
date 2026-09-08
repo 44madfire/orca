@@ -1,3 +1,4 @@
+import { reviewHeadKey } from '../../../../../../shared/git-review-push-authority'
 import { areGitUpstreamIdentitiesEqual } from '../../../../../../shared/git-upstream-identity'
 import { translate } from '@/i18n/i18n'
 import type {
@@ -120,6 +121,9 @@ export function areUpstreamStatusesEqual(
     prev !== undefined &&
     prev.hasUpstream === next.hasUpstream &&
     prev.upstreamName === next.upstreamName &&
+    prev.reviewPushAuthority?.kind === next.reviewPushAuthority?.kind &&
+    reviewHeadKey(prev.reviewPushAuthority?.reviewHead) ===
+      reviewHeadKey(next.reviewPushAuthority?.reviewHead) &&
     areGitUpstreamIdentitiesEqual(prev.upstreamIdentity, next.upstreamIdentity) &&
     prev.ahead === next.ahead &&
     prev.behind === next.behind &&
