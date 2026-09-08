@@ -189,6 +189,10 @@ jobs:
           if-no-files-found: ignore
 
   changed-e2e:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     name: changed e2e specs
     needs: [build, prepare-native-cache]
     if: inputs.test_files != ''
@@ -264,6 +268,12 @@ jobs:
           path: test-results/
           retention-days: 30
           if-no-files-found: ignore
+
+      - name: Publish PR 19376 screenshot gallery
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/pr-19376-visual-proof.mjs
 
   ssh-docker-watcher-isolation:
     name: ssh docker watcher isolation
