@@ -116,3 +116,50 @@ it('the report is reachable from a mobile-scoped device token', async () => {
     await import('../../../../runtime-rpc/runtime-rpc-mobile-method-allowlist')
   expect(MOBILE_RPC_METHOD_ALLOWLIST.has('orchestration.workerTerminalUserInput')).toBe(true)
 })
+
+// Round-1 regression (#19337 review): a phone key landing inside the worker's boot wait used to
+// find no `owned` row, report `changed: 0`, and still arm the client's 30 s gate — so the real
+// takeover was suppressed and `worker-release` closed the pane. #19608 writes custody at terminal
+// creation, so the boot-wait key itself takes the pane.
+it('a phone report during the boot wait takes the pane and fences the later release', async () => {
+  const gate = h.deferred<unknown>()
+  vi.spyOn(h.runtime, 'waitForTerminal').mockReturnValue(gate.promise as never)
+  const task = h.db.createTask({ spec: 'mid-boot phone takeover', runId: h.activeRunId })
+  const start = h.call('orchestration.workerStart', {
+    task: task.id,
+    from: 'term_coord',
+    agent: 'codex'
+  })
+  await vi.waitFor(() => expect(h.runtime.waitForTerminal).toHaveBeenCalled())
+  const dispatchId = (
+    h.db.db.prepare("SELECT dispatch_id FROM worker_dispatches WHERE state = 'starting'").get() as {
+      dispatch_id: string
+    }
+  ).dispatch_id
+
+  h.runtime.registerPreAllocatedHandleForPty('pty-worker', 'term_worker')
+  h.runtime.registerPty('pty-worker', 'repo::worktree', undefined, {
+    tabId: 'tab_worker',
+    leafId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  })
+  vi.mocked(h.runtime.getTerminalPaneKey).mockRestore()
+  await expect(
+    h.call('orchestration.workerTerminalUserInput', { terminal: 'term_worker' })
+  ).resolves.toEqual({ changed: 1 })
+
+  gate.resolve({
+    handle: 'term_worker',
+    condition: 'tui-idle',
+    satisfied: true,
+    status: 'running',
+    exitCode: null
+  })
+  await expect(start).resolves.toMatchObject({ state: 'ready' })
+  expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)?.ownership_state).toBe('user_owned')
+
+  h.settle(task.id, dispatchId, 'succeeded')
+  await expect(
+    h.call('orchestration.workerRelease', { dispatch: dispatchId })
+  ).resolves.toMatchObject({ state: 'retained', reason: 'user_takeover', processAction: 'none' })
+  expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
+})
