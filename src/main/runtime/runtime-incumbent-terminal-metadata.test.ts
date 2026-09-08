@@ -37,7 +37,11 @@ function fixture() {
         ...options.agentSessionEnsure!,
         spawn: async () => ({ ptyId: `synthetic-${++spawns}` })
       })
-      return { id: ensured.owner.ptyId, agentSessionEnsure: ensured }
+      return {
+        id: ensured.owner.ptyId,
+        incarnationId: 'incumbent-incarnation',
+        agentSessionEnsure: ensured
+      }
     },
     write: () => true,
     kill: () => true,
@@ -80,7 +84,11 @@ describe('incumbent terminal publication metadata', () => {
         title: 'requester',
         viewMode: 'terminal'
       })
-      expect(second).toMatchObject({ ptyId: first.ptyId, worktreeId: 'a', title: 'incumbent' })
+      expect(second).toMatchObject({
+        ptyId: first.ptyId,
+        worktreeId: 'a',
+        title: 'incumbent'
+      })
       expect(spawns()).toBe(1)
       expect(internals.mobileSessionTabsByWorktree.get('a')?.tabs[0]).toMatchObject({
         startupCwd: cwd,
@@ -141,11 +149,11 @@ describe('incumbent terminal publication metadata', () => {
     expect(
       getIncumbentTerminalMetadata(record, tabs, surface.parentTabId, surface.leafId).cwd
     ).toBeUndefined()
-    record.launchSurface = {
-      incarnationId: 'old',
-      startupCwd: join(process.cwd(), 'old'),
-      viewMode: 'chat'
-    }
+    runtime.registerPty(first.ptyId!, 'a', null, {
+      tabId: surface.parentTabId,
+      leafId: surface.leafId,
+      incarnationId: 'replacement'
+    })
     surface.incarnationId = 'old'
     expect(
       getIncumbentTerminalMetadata(record, tabs, surface.parentTabId, surface.leafId)

@@ -78,7 +78,7 @@ export class OrcaRuntimeWithRegisterPty extends OrcaRuntimeWithInvalidateAllHand
         : {}),
       ...(isWsl !== undefined ? { isWsl } : {}),
       ...(binding && paneKey ? { tabId: binding.tabId, paneKey } : {}),
-      ...(binding?.incarnationId ? { incarnationId: binding.incarnationId } : {})
+      incarnationId: binding?.incarnationId ?? null
     })
     const agentLaunchAuthority = binding?.agentLaunchAuthority
     if (
@@ -162,7 +162,7 @@ export class OrcaRuntimeWithRegisterPty extends OrcaRuntimeWithInvalidateAllHand
     const pty = this.ptysById.get(ptyId)
     if (pty) {
       // Why: a reconnect attach reply can prove the exit generation after stale local proof was cleared.
-      pty.incarnationId = incarnationId
+      this.transitionPtyIncarnation(pty, incarnationId)
     }
   }
 

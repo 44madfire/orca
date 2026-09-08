@@ -21,10 +21,7 @@ import {
   inferWorktreeIdFromPtyId,
   runtimeWorktreeIdsEqual
 } from './runtime-worktree-path-identity'
-import {
-  indexPersistedPtySurfaceBindings,
-  indexPersistedPtyWorktreeBindings
-} from './runtime-worktree-binding-index'
+import { createPersistedPtyBindingLookup } from './runtime-worktree-binding-index'
 import { parseAppSshPtyId } from '../../shared/ssh-pty-id'
 import { NO_OBSERVING_PROVIDER_REASON } from '../../shared/pty-liveness-verdict'
 import { buildControllerTerminalIdentities } from './orca-runtime-build-controller-terminal-identities'
@@ -73,7 +70,9 @@ export class OrcaRuntimeWithRefreshPtyWorktreeRecordsWithControllerInventory ext
       deadlineMs: Date.now() + Math.max(1, listBudgetMs - PTY_CONTROLLER_LIST_PROVIDER_MARGIN_MS),
       ...(inventoryOptions?.includeForegroundProcessEvidence === undefined
         ? {}
-        : { includeForegroundProcessEvidence: inventoryOptions.includeForegroundProcessEvidence })
+        : {
+            includeForegroundProcessEvidence: inventoryOptions.includeForegroundProcessEvidence
+          })
     }
     const processInventory =
       connectionId === undefined && this.ptyController.listProcessesWithHostScope
@@ -127,26 +126,9 @@ export class OrcaRuntimeWithRefreshPtyWorktreeRecordsWithControllerInventory ext
     }
     const { controllerIdentityByPtyId } = buildControllerTerminalIdentities(sessions)
     const findResolvedWorktree = createIncrementalResolvedWorktreeLookup(resolvedWorktrees)
-    const persistedIndexesByHostId = new Map<
-      ExecutionHostId,
-      {
-        worktreeIdByPtyId: ReadonlyMap<string, string>
-        surfaceByPtyId: ReturnType<typeof indexPersistedPtySurfaceBindings>
-      }
-    >()
-    const getPersistedIndexes = (hostId: ExecutionHostId) => {
-      const existing = persistedIndexesByHostId.get(hostId)
-      if (existing) {
-        return existing
-      }
-      const persistedSession = this.store?.getWorkspaceSession?.(hostId)
-      const indexes = {
-        worktreeIdByPtyId: indexPersistedPtyWorktreeBindings(persistedSession),
-        surfaceByPtyId: indexPersistedPtySurfaceBindings(persistedSession)
-      }
-      persistedIndexesByHostId.set(hostId, indexes)
-      return indexes
-    }
+    const getPersistedIndexes = createPersistedPtyBindingLookup((hostId) =>
+      this.store?.getWorkspaceSession?.(hostId)
+    )
     const allLivePtyIds = new Set(sessions.map((session) => session.id))
     const selectedLivePtyIds = new Set<string>()
     for (const session of sessions) {
@@ -194,7 +176,9 @@ export class OrcaRuntimeWithRefreshPtyWorktreeRecordsWithControllerInventory ext
         session.id,
         controllerIdentity?.handle ?? session.terminalHandle,
         controllerIdentity?.incarnationId ?? session.incarnationId,
-        { exactRestoredSurface: Boolean(restoresExactSurface && controllerIdentity) }
+        {
+          exactRestoredSurface: Boolean(restoresExactSurface && controllerIdentity)
+        }
       )
       if (
         !targetWorktreeId ||
@@ -216,13 +200,19 @@ export class OrcaRuntimeWithRefreshPtyWorktreeRecordsWithControllerInventory ext
       if (worktreeId) {
         const pty = this.recordPtyWorktree(session.id, worktreeId, {
           connected: true,
-          ...(session.incarnationId ? { incarnationId: session.incarnationId } : {}),
+          incarnationId: session.incarnationId ?? null,
           agentSessionOwners: session.incarnationId ? (session.agentSessionOwners ?? []) : [],
           ...(session.wslDistro !== undefined
-            ? { isWsl: Boolean(session.wslDistro), wslDistro: session.wslDistro }
+            ? {
+                isWsl: Boolean(session.wslDistro),
+                wslDistro: session.wslDistro
+              }
             : {}),
           ...(restoresExactSurface
-            ? { tabId: persistedSurface.tabId, paneKey: persistedSurface.paneKey }
+            ? {
+                tabId: persistedSurface.tabId,
+                paneKey: persistedSurface.paneKey
+              }
             : {})
         })
         if (restoresExactSurface && controllerIdentity) {

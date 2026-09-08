@@ -10,6 +10,7 @@ export function getIncumbentTerminalMetadata(
 ) {
   const surface = tabs?.find(
     (tab) =>
+      pty.incarnationId !== null &&
       tab.type === 'terminal' &&
       tab.parentTabId === tabId &&
       tab.leafId === leafId &&
@@ -17,8 +18,7 @@ export function getIncumbentTerminalMetadata(
       (tab.incarnationId ?? null) === pty.incarnationId
   )
   const terminal = surface?.type === 'terminal' ? surface : undefined
-  const launch =
-    pty.launchSurface?.incarnationId === pty.incarnationId ? pty.launchSurface : undefined
+  const launch = pty.launchSurface
   return {
     title: getLatestPtyTitle(pty) ?? terminal?.title ?? null,
     // An explicit root launch must not inherit a prior surface's subdirectory.
@@ -37,7 +37,6 @@ export function recordTerminalLaunchSurface(
   viewMode?: 'terminal' | 'chat'
 ): void {
   pty.launchSurface = {
-    incarnationId: pty.incarnationId,
     ...(cwd !== workspacePath ? { startupCwd: cwd } : {}),
     ...(viewMode ? { viewMode } : {})
   }

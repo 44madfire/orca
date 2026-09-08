@@ -81,17 +81,17 @@ export class OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal extends OrcaRu
     const viewMode =
       args.viewMode ??
       incumbentMetadata.viewMode ??
-      existingTab?.viewMode ??
       existing?.tabs.find(
         (candidate): candidate is RuntimeMobileSessionTerminalTab =>
           candidate.type === 'terminal' &&
           candidate.parentTabId === args.tabId &&
+          candidate.leafId !== args.leafId &&
+          candidate.ptyId !== pty.ptyId &&
           candidate.viewMode !== undefined
       )?.viewMode
-    const startupCwd =
-      pty.launchSurface?.incarnationId === pty.incarnationId
-        ? incumbentMetadata.cwd
-        : (incumbentMetadata.cwd ?? args.startupCwd)
+    const startupCwd = pty.launchSurface
+      ? incumbentMetadata.cwd
+      : (incumbentMetadata.cwd ?? args.startupCwd)
     const tab: RuntimeMobileSessionTerminalTab = {
       type: 'terminal',
       id: `${args.tabId}::${args.leafId}`,

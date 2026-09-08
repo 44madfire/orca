@@ -53,8 +53,8 @@ export type RuntimePtyWorktreeRecord = RuntimeTerminalTailState & {
   wslDistro: string | null
   tabId: string | null
   paneKey: string | null
+  // Process metadata is retired together by transitionPtyIncarnation before changing owners.
   launchSurface?: {
-    incarnationId: PtyIncarnationId | null
     startupCwd?: string
     viewMode?: 'terminal' | 'chat'
   }

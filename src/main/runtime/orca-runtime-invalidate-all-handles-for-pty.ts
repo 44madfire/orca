@@ -141,9 +141,7 @@ export class OrcaRuntimeWithInvalidateAllHandlesForPty extends OrcaRuntimeWithRe
     this.terminalViewSubscribers.markSpawnPublished(ptyId)
     const pty = this.getOrCreatePtyWorktreeRecord(ptyId)
     if (pty) {
-      if (incarnationId) {
-        pty.incarnationId = incarnationId
-      }
+      this.transitionPtyIncarnation(pty, incarnationId ?? null)
       pty.connected = true
       pty.disconnectedAt = null
     }
