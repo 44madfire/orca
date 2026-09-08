@@ -14,6 +14,7 @@ import {
   insertJournalRow,
   upsertJournalSessionRow
 } from '../agent-session-journal/journal-row-table'
+import * as journalReducer from '../agent-session-journal/journal-reducer'
 import * as rowSchema from '../agent-session-journal/journal-row-schema'
 import { createTrackedJournalOpener } from '../agent-session-journal/journal-store-test-open'
 import { AgentSessionSubscribers } from './structured-agent-session-subscribers'
@@ -119,6 +120,23 @@ describe('forward history SQL read budget', () => {
     expect(batches.at(-1)?.batch.cursor).toEqual(journal.cursor())
     expect(returnedRows).toEqual([...Array<number>(9).fill(201), 200])
     expect(parse).toHaveBeenCalledTimes(2_009)
+  })
+
+  it('reduces the timeline once for the whole catch-up, not once per page', async () => {
+    const journal = await seedJournal(2_000)
+    const render = vi.spyOn(journalReducer, 'renderJournalState')
+    const events: AgentSessionSubscribeEvent[] = []
+    new AgentSessionSubscribers().open({
+      id: 'reader',
+      sessionId: identity.sessionId,
+      journal,
+      fence: 1,
+      cursor: { epoch: journal.epoch, sequence: 1 },
+      emit: (event) => events.push(event)
+    })
+    // Catch-up is synchronous, so the reduced timeline cannot change between pages.
+    expect(events.filter((event) => event.type === 'batch')).toHaveLength(10)
+    expect(render).toHaveBeenCalledTimes(1)
   })
 
   it('keeps an exact final page final and preserves unlimited journal readers', async () => {
