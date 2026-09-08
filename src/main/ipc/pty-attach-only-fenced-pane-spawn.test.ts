@@ -1,3 +1,7 @@
+import { OrcaRuntimeService } from '../runtime/orca-runtime'
+import { TERMINAL_LIFECYCLE_METHODS } from '../runtime/rpc/methods/terminal/terminal-lifecycle-methods'
+import { TERMINAL_FENCED_CREATE_RUNTIME_CAPABILITY } from '../../shared/protocol-version'
+import type { RpcMethod } from '../runtime/rpc/core'
 import { describe, expect, it, vi } from 'vitest'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { SessionNotFoundError } from '../daemon/daemon-errors'
@@ -78,7 +82,10 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
         }
       },
       sleepingAgentSessionsByPaneKey: {
-        [paneKey]: { worktreeId, automaticResumeBlockedBy: 'legacy-orchestration-worker' }
+        [paneKey]: {
+          worktreeId,
+          automaticResumeBlockedBy: 'legacy-orchestration-worker'
+        }
       },
       terminalPtyIncarnationsByPaneKey: { [paneKey]: `inc-${name}` }
     }
@@ -122,7 +129,11 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
       leafId,
       sessionId: ptyId,
       initiallyHidden: true,
-      env: { ORCA_PANE_KEY: paneKey, ORCA_TAB_ID: tabId, ORCA_WORKTREE_ID: worktreeId }
+      env: {
+        ORCA_PANE_KEY: paneKey,
+        ORCA_TAB_ID: tabId,
+        ORCA_WORKTREE_ID: worktreeId
+      }
     }
     return { ptyId, store, runtime, spawnArgs }
   }
@@ -133,7 +144,11 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
       if (!options.attachOnly) {
         throw new Error('a fenced pane must never reach a fresh spawn')
       }
-      return { id: options.sessionId!, incarnationId: 'inc-fenced-live-worker', isReattach: true }
+      return {
+        id: options.sessionId!,
+        incarnationId: 'inc-fenced-live-worker',
+        isReattach: true
+      }
     })
     installDaemonTestProvider({ spawn: providerSpawn })
     registerPtyHandlers(
@@ -203,7 +218,9 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
       leafId: '6c6c6c6c-6c6c-4c6c-8c6c-6c6c6c6c6c6c'
     })
 
-    expect(providerSpawn.mock.calls.at(-1)?.[0]).not.toMatchObject({ attachOnly: true })
+    expect(providerSpawn.mock.calls.at(-1)?.[0]).not.toMatchObject({
+      attachOnly: true
+    })
   })
   it.each([new Error('daemon timeout'), new Error('Session not found: untyped')])(
     'preserves every binding on unverifiable local evidence: %s',
@@ -279,7 +296,10 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
         spawn: (args: unknown) => Promise<unknown>
       }
       await expect(
-        controller.spawn({ ...spawnArgs, sessionId: supplied ? spawnArgs.sessionId : undefined })
+        controller.spawn({
+          ...spawnArgs,
+          sessionId: supplied ? spawnArgs.sessionId : undefined
+        })
       ).resolves.toMatchObject({ reattachUnverifiable: true })
       expect(providerSpawn).not.toHaveBeenCalled()
       expect(runtime.beginPtyRegistration).not.toHaveBeenCalled()
@@ -305,7 +325,10 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
     )
     try {
       await expect(
-        handlers.get('pty:spawn')!(null, { ...spawnArgs, initiallyHidden: true })
+        handlers.get('pty:spawn')!(null, {
+          ...spawnArgs,
+          initiallyHidden: true
+        })
       ).resolves.toEqual({ id: spawnArgs.sessionId, exitedBeforeAttach: true })
       expect(providerSpawn).toHaveBeenCalledTimes(1)
       expect(runtime.cancelPendingPtyRegistration).toHaveBeenCalledWith(spawnArgs.sessionId)
@@ -315,7 +338,10 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
       expect(store.setWorkspaceSession).not.toHaveBeenCalled()
       expect(store.persistPtyBinding).not.toHaveBeenCalled()
       expect(isHiddenRendererPty(spawnArgs.sessionId)).toBe(false)
-      expect(ptySizes.get(spawnArgs.sessionId)).toEqual({ cols: 120, rows: 40 })
+      expect(ptySizes.get(spawnArgs.sessionId)).toEqual({
+        cols: 120,
+        rows: 40
+      })
       expect(paneSpawnReservationsByOwnerKey.size).toBe(0)
     } finally {
       earlyAdoption.mockRestore()
@@ -345,7 +371,12 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
         controller.spawn({
           ...spawnArgs,
           ...(ensureClaim
-            ? { agentSessionEnsure: { claim: recoveredAgentClaim, surface: recoveredAgentSurface } }
+            ? {
+                agentSessionEnsure: {
+                  claim: recoveredAgentClaim,
+                  surface: recoveredAgentSurface
+                }
+              }
             : {})
         })
       ).resolves.toEqual({
@@ -396,7 +427,10 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
             }
           : {})
       })
-      expect(result).toEqual({ id: spawnArgs.sessionId, reattachUnverifiable: true })
+      expect(result).toEqual({
+        id: spawnArgs.sessionId,
+        reattachUnverifiable: true
+      })
       expect(runtime.assertPtyRegistrationAllowed).not.toHaveBeenCalled()
       if (preAdopted) {
         expect(spawn).not.toHaveBeenCalled()
@@ -435,7 +469,10 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
         entry === 'ipc'
           ? await handlers.get('pty:spawn')!(null, spawnArgs)
           : await controller.spawn(spawnArgs)
-      expect(result).toEqual({ id: spawnArgs.sessionId, reattachUnverifiable: true })
+      expect(result).toEqual({
+        id: spawnArgs.sessionId,
+        reattachUnverifiable: true
+      })
       expect(spawn).toHaveBeenCalledTimes(1)
       expect(store.setWorkspaceSession).not.toHaveBeenCalled()
       expect(runtime.onPtyExit).not.toHaveBeenCalled()
@@ -468,7 +505,10 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
     await expect(
       controller.spawn({
         ...spawnArgs,
-        agentSessionEnsure: { claim: recoveredAgentClaim, surface: recoveredAgentSurface }
+        agentSessionEnsure: {
+          claim: recoveredAgentClaim,
+          surface: recoveredAgentSurface
+        }
       })
     ).resolves.toEqual({ id: spawnArgs.sessionId, reattachUnverifiable: true })
     expect(listProcesses).toHaveBeenCalled()
@@ -478,5 +518,185 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
     expect(store.setWorkspaceSession).not.toHaveBeenCalled()
     expect(runtime.cancelPendingPtyRegistration).toHaveBeenCalledWith(spawnArgs.sessionId)
     expect(paneSpawnReservationsByOwnerKey.size).toBe(0)
+  })
+  it.each(['ipc', 'runtime'] as const)(
+    '%s refuses a new-pane resume from the host record despite an empty renderer mirror',
+    async (entry) => {
+      for (const connectionId of [null, 'ssh-host']) {
+        const { store, runtime, spawnArgs } = buildFencedPaneContext('resume-source')
+        const sourcePaneKey = makePaneKey(spawnArgs.tabId, spawnArgs.leafId)
+        const session = store.getWorkspaceSession()
+        const record = {
+          ...session.sleepingAgentSessionsByPaneKey[sourcePaneKey],
+          worktreeId: 'folder:resume-source',
+          agent: 'claude',
+          providerSession: { key: 'session_id', id: 'fenced-provider-session' }
+        }
+        session.sleepingAgentSessionsByPaneKey[sourcePaneKey] = record
+        store.getWorkspaceSession.mockImplementation((...args: unknown[]) =>
+          args[0] === (connectionId ? `ssh:${connectionId}` : undefined)
+            ? session
+            : { ...session, sleepingAgentSessionsByPaneKey: {} }
+        )
+        const spawn = installDaemonTestProvider()
+        registerPtyHandlers(
+          mainWindow as never,
+          runtime as never,
+          undefined,
+          undefined,
+          undefined,
+          store as never
+        )
+        const controller = runtime.setPtyController.mock.calls[0]![0] as {
+          spawn: (args: unknown) => Promise<unknown>
+        }
+        const request = {
+          ...spawnArgs,
+          worktreeId: record.worktreeId,
+          connectionId,
+          sessionId: undefined,
+          tabId: 'tab-new-resume',
+          launchAgent: 'claude',
+          resumeProviderSession: record.providerSession,
+          agentSessionEnsure: {
+            claim: recoveredAgentClaim,
+            surface: recoveredAgentSurface
+          }
+        }
+        const result =
+          entry === 'ipc'
+            ? await handlers.get('pty:spawn')!(null, request)
+            : await controller.spawn(request)
+        expect(result).toEqual({ id: '', reattachUnverifiable: true })
+        expect(spawn).not.toHaveBeenCalled()
+        expect(runtime.registerPty).not.toHaveBeenCalled()
+        expect(store.setWorkspaceSession).not.toHaveBeenCalled()
+        expect(store.persistPtyBinding).not.toHaveBeenCalled()
+        expect(session.sleepingAgentSessionsByPaneKey[sourcePaneKey]).toBe(record)
+        expect(session.tabsByWorktree).not.toHaveProperty(record.worktreeId)
+      }
+    }
+  )
+
+  it.each([null, 'ssh-host'])(
+    'paired terminal.create refuses the fenced folder resume on host %s before publication',
+    async (connectionId) => {
+      const { store, runtime, spawnArgs } = buildFencedPaneContext('paired-resume-source')
+      const sourcePaneKey = makePaneKey(spawnArgs.tabId, spawnArgs.leafId)
+      const session = store.getWorkspaceSession()
+      const record = {
+        ...session.sleepingAgentSessionsByPaneKey[sourcePaneKey],
+        worktreeId: 'folder:paired-resume-source',
+        agent: 'claude',
+        providerSession: {
+          key: 'session_id',
+          id: 'paired-fenced-provider-session'
+        }
+      }
+      session.sleepingAgentSessionsByPaneKey[sourcePaneKey] = record
+      store.getWorkspaceSession.mockImplementation((...args: unknown[]) =>
+        args[0] === (connectionId ? `ssh:${connectionId}` : undefined)
+          ? session
+          : { ...session, sleepingAgentSessionsByPaneKey: {} }
+      )
+      const spawn = installDaemonTestProvider()
+      registerPtyHandlers(
+        mainWindow as never,
+        runtime as never,
+        undefined,
+        undefined,
+        undefined,
+        store as never
+      )
+      const host = new OrcaRuntimeService()
+      host.setPtyController(runtime.setPtyController.mock.calls[0]![0] as never)
+      vi.spyOn(
+        host as unknown as {
+          resolveTerminalWorkspaceLaunchScope: (...args: unknown[]) => Promise<unknown>
+        },
+        'resolveTerminalWorkspaceLaunchScope'
+      ).mockResolvedValue({
+        id: record.worktreeId,
+        path: '/folder',
+        connectionId,
+        repo: null,
+        folderWorkspace: null
+      } as never)
+      vi.spyOn(host, 'dedupeTerminalCreate').mockImplementation(
+        async (_client, selector, _mutation, _reconcile, create) => create(selector, undefined)
+      )
+      const registerPty = vi.spyOn(host, 'registerPty')
+      const definition = TERMINAL_LIFECYCLE_METHODS.find(
+        (method) => method.name === 'terminal.create'
+      )! as RpcMethod
+      const result = await definition.handler(
+        {
+          worktree: record.worktreeId,
+          tabId: 'tab-paired-resume',
+          leafId: spawnArgs.leafId,
+          launchAgent: 'claude',
+          resumeProviderSession: record.providerSession
+        },
+        {
+          runtime: host,
+          clientKind: 'desktop',
+          clientCapabilities: [TERMINAL_FENCED_CREATE_RUNTIME_CAPABILITY]
+        } as never
+      )
+      expect(result).toMatchObject({
+        terminal: { reattachUnverifiable: true }
+      })
+      expect(spawn).not.toHaveBeenCalled()
+      expect(registerPty).not.toHaveBeenCalled()
+      expect(store.setWorkspaceSession).not.toHaveBeenCalled()
+      expect(store.persistPtyBinding).not.toHaveBeenCalled()
+      expect(session.sleepingAgentSessionsByPaneKey[sourcePaneKey]).toBe(record)
+      expect(session.tabsByWorktree).not.toHaveProperty(record.worktreeId)
+    }
+  )
+  it('rechecks the sleeping source fence when claim reconciliation awaited a provider', async () => {
+    const { store, runtime, spawnArgs } = buildFencedPaneContext('late-source-fence')
+    const sourcePaneKey = makePaneKey(spawnArgs.tabId, spawnArgs.leafId)
+    const session = store.getWorkspaceSession()
+    const record = {
+      ...session.sleepingAgentSessionsByPaneKey[sourcePaneKey],
+      automaticResumeBlockedBy: '',
+      agent: 'claude',
+      providerSession: { key: 'session_id', id: 'late-fenced-session' }
+    }
+    session.sleepingAgentSessionsByPaneKey[sourcePaneKey] = record
+    const spawn = vi.fn(async () => ({ id: 'replacement' }))
+    const listProcesses = vi.fn(async () => {
+      record.automaticResumeBlockedBy = 'legacy-orchestration-worker'
+      return []
+    })
+    installDaemonTestProvider({ spawn, listProcesses })
+    registerPtyHandlers(
+      mainWindow as never,
+      runtime as never,
+      undefined,
+      undefined,
+      undefined,
+      store as never
+    )
+    const controller = runtime.setPtyController.mock.calls[0]![0] as {
+      spawn: (args: unknown) => Promise<unknown>
+    }
+    await expect(
+      controller.spawn({
+        ...spawnArgs,
+        sessionId: undefined,
+        tabId: 'tab-late-resume',
+        launchAgent: 'claude',
+        resumeProviderSession: record.providerSession,
+        agentSessionEnsure: { claim: recoveredAgentClaim, surface: recoveredAgentSurface }
+      })
+    ).resolves.toMatchObject({ reattachUnverifiable: true })
+    expect(listProcesses).toHaveBeenCalled()
+    expect(spawn).not.toHaveBeenCalled()
+    expect(runtime.registerPty).not.toHaveBeenCalled()
+    expect(store.setWorkspaceSession).not.toHaveBeenCalled()
+    expect(store.persistPtyBinding).not.toHaveBeenCalled()
+    expect(session.sleepingAgentSessionsByPaneKey[sourcePaneKey]).toBe(record)
   })
 })

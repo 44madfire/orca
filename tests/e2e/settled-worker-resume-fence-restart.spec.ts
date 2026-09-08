@@ -11,7 +11,6 @@ import {
 } from './helpers/terminal'
 import { FAKE_AGENT_WINDOWS_SHELL } from './helpers/fake-agent-command-override'
 import {
-  cleanupCompletedWorkerFixture,
   clearCompletedWorkerLedger,
   completedWorkerFakeCodexCommand,
   completedWorkerLaunchEnv,
@@ -28,10 +27,6 @@ import { splitWorktreeIdForFilesystem } from '../../src/shared/worktree/id'
 const PROVIDER_SESSION_ID = '019feb51-2269-71c2-89c6-faa8dc65c8dd'
 
 test.describe.configure({ mode: 'serial' })
-
-test.afterAll(() => {
-  cleanupCompletedWorkerFixture()
-})
 
 async function findSecondaryWorktree(
   page: Page,

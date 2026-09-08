@@ -536,6 +536,7 @@ describe('remote hidden-output restore abandonment (issue2-hidden-output-skip)',
       retainedAgentsByPaneKey: {},
       paneForegroundAgentByPaneKey: {} as Record<string, unknown>,
       sleepingAgentSessionsByPaneKey: {} as Record<string, unknown>,
+      legacyWorkerResumeFencesByPaneKey: {},
       suppressedPtyExitIds: {},
       agentLaunchConfigByPaneKey: {} as Record<string, { launchConfig: unknown }>,
       getAgentLaunchConfigForStatusEntry: vi.fn((entry: { paneKey: string }) => {

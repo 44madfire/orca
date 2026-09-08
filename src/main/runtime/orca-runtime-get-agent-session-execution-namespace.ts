@@ -180,6 +180,7 @@ export class OrcaRuntimeWithGetAgentSessionExecutionNamespace extends OrcaRuntim
       tabId: request.placement?.tabId,
       leafId: request.placement?.leafId,
       agentSessionClaim: claim,
+      resumeProviderSession: request.providerSession,
       ...(handoffAuthority
         ? {
             launchToken: handoffAuthority.spawnToken,

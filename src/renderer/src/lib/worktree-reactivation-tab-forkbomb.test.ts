@@ -201,7 +201,7 @@ describe('STA-1111 worktree reopen does not fork-bomb tabs', () => {
       expect(state.automaticAgentResumeClaimsByTabId[tabs[0]!.id]?.providerSession).toEqual(
         providerSession
       )
-      expect(state.sleepingAgentSessionsByPaneKey[paneKey]).toBeUndefined()
+      expect(state.sleepingAgentSessionsByPaneKey[paneKey]).toBeDefined()
 
       if (reopen === 0) {
         expect(state.consumeTabStartupCommand(tabs[0]!.id)?.resumeProviderSession).toEqual(

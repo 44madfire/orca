@@ -124,7 +124,6 @@ export function launchSleepingAgentSession(
     },
     ...(options?.suppressNavigation ? { activate: false, recordInteraction: false } : {})
   })
-  state.clearSleepingAgentSession(record.paneKey)
   if (!options?.suppressNavigation) {
     state.setActiveTabType('terminal')
   }

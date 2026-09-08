@@ -22,9 +22,6 @@ afterEach(() => {
   useAppStore.setState({ legacyWorkerResumeFencesByPaneKey: {} })
 })
 
-// The ping carries no state, so the renderer re-reads the runtime-authored set. Reads are
-// serialized and coalesced: the last read is the last write, which is why no version is needed to
-// stop an older reply from reinstating a fence the runtime already retired.
 describe('re-reading the fenced-pane set after main invalidates it', () => {
   it('installs the set main reports', async () => {
     stubFences({ [PANE_KEY]: true })
@@ -40,17 +37,6 @@ describe('re-reading the fenced-pane set after main invalidates it', () => {
 
     await refreshLegacyWorkerResumeFences()
 
-    expect(useAppStore.getState().legacyWorkerResumeFencesByPaneKey).toEqual({})
-  })
-
-  it('coalesces pings that arrive during a read and ends on the newest set', async () => {
-    const get = stubFences({ [PANE_KEY]: true }, {})
-
-    const first = refreshLegacyWorkerResumeFences()
-    const second = refreshLegacyWorkerResumeFences()
-    await Promise.all([first, second])
-
-    expect(get).toHaveBeenCalledTimes(2)
     expect(useAppStore.getState().legacyWorkerResumeFencesByPaneKey).toEqual({})
   })
 

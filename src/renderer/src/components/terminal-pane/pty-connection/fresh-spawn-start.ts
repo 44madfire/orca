@@ -1,3 +1,4 @@
+import { settleAutomaticResumeSpawn } from '@/lib/automatic-resume-spawn-settlement'
 import { mayStartFreshPaneSession } from './fresh-spawn-eligibility'
 import { useAppStore } from '@/store'
 import { hasPtySerializer } from '../pty-buffer-serializer'
@@ -167,12 +168,13 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
           clearPreSignaledSerializer()
           return null
         }
-        const resolvedPtyId =
+        const connectResult =
           spawnedPtyId && typeof spawnedPtyId === 'object' && 'id' in spawnedPtyId
-            ? spawnedPtyId.id
-            : typeof spawnedPtyId === 'string'
-              ? spawnedPtyId
-              : session.transport.getPtyId()
+            ? spawnedPtyId
+            : null
+        const resolvedPtyId =
+          connectResult?.id ??
+          (typeof spawnedPtyId === 'string' ? spawnedPtyId : session.transport.getPtyId())
         if (resolvedPtyId && !session.claimCapturedDirectSshRetryPty(resolvedPtyId)) {
           releaseDeferredCwdFence()
           session.finishReattachLiveDataDeferral(false, outputCallbacks.generation)
@@ -181,15 +183,15 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
           clearPreSignaledSerializer()
           return null
         }
-        const connectResult =
-          spawnedPtyId && typeof spawnedPtyId === 'object' && 'id' in spawnedPtyId
-            ? spawnedPtyId
-            : null
         // Old hosts may return a string or an object without the optional
         // field; either way remote evidence must remain client-only
         // unverifiable until a stamped attach result arrives.
         session.remotePtyIncarnationId = connectResult?.incarnationId ?? null
-        if (connectResult?.isReattach) {
+        if (
+          connectResult?.isReattach ||
+          connectResult?.reattachUnverifiable ||
+          connectResult?.exitedBeforeAttach
+        ) {
           session.pendingStartupCommand = null
           const accepted = await session.handleReattachResult(
             connectResult,
@@ -207,6 +209,8 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
           if (!accepted) {
             // A rejected reattach ends this spawn; nothing later clears the fence.
             releaseDeferredCwdFence()
+          } else {
+            settleAutomaticResumeSpawn(session.deps.tabId, true)
           }
           return accepted ? resolvedPtyId : null
         }
@@ -237,6 +241,7 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
           } else if (coldRestoreOverride?.hasSleepingRecord) {
             session.showSessionRestoredBanner()
           }
+          settleAutomaticResumeSpawn(session.deps.tabId, true)
           session.clearSleepingRecordAfterColdRestoreSpawn(coldRestoreOverride)
         } else if (
           session.paneStartup?.launchConfig ||

@@ -1,7 +1,12 @@
 import type { AppState } from '../types'
 import type { WorkspaceSessionState } from '../../../../shared/workspace-session-state-types'
 import { parseAppSshPtyId } from '../../../../shared/ssh-pty-id'
-import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../../../shared/stable-pane-id'
+import {
+  isTerminalLeafId,
+  makePaneKey,
+  parsePaneKey,
+  parseLegacyNumericPaneKey
+} from '../../../../shared/stable-pane-id'
 import { resolveAgentPaneAuthorityKey } from '../slices/agent-pane-authority'
 import type { HydrateWorkspaceSessionOptions } from './terminal-contracts'
 import { omitUnverifiedPtyLossTabIds } from './terminal-unverified-pty-loss'
@@ -23,6 +28,7 @@ export type WorkspaceHydrationPatch = Pick<
   | 'closedTerminalTabTombstonesByTabId'
   | 'automaticAgentResumeClaimsByTabId'
   | 'sleepingAgentSessionsByPaneKey'
+  | 'legacyWorkerResumeFencesByPaneKey'
   | 'pendingReconnectWorktreeIds'
   | 'pendingReconnectTabByWorktree'
   | 'pendingReconnectPtyIdByTabId'
@@ -197,6 +203,19 @@ export function targetScopedWorkspaceHydrationPatch(
       targetTabIds
     ),
     sleepingAgentSessionsByPaneKey,
+    legacyWorkerResumeFencesByPaneKey: replaceHydratedRecordKeys(
+      state.legacyWorkerResumeFencesByPaneKey,
+      hydrated.legacyWorkerResumeFencesByPaneKey,
+      new Set(
+        [
+          ...Object.keys(state.legacyWorkerResumeFencesByPaneKey),
+          ...Object.keys(hydrated.legacyWorkerResumeFencesByPaneKey)
+        ].filter((key) => {
+          const tabId = parsePaneKey(key)?.tabId ?? parseLegacyNumericPaneKey(key)?.tabId
+          return tabId !== undefined && targetTabIds.has(tabId)
+        })
+      )
+    ),
     pendingReconnectWorktreeIds: [
       ...state.pendingReconnectWorktreeIds.filter((key) => !workspaceKeys.has(key)),
       ...hydrated.pendingReconnectWorktreeIds.filter((key) => workspaceKeys.has(key))

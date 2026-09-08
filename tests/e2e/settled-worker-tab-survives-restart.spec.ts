@@ -21,7 +21,7 @@ import {
   listRuntimeTerminals,
   readCompletedWorkerDispatchCapability,
   readCompletedWorkerLedger,
-  readPersistedWorkerRecoveryRecord,
+  readPersistedWorkerResumeFence,
   seedCurrentCodexTranscript
 } from './helpers/completed-worker-retirement-fixture'
 import { RuntimeClient } from '../../src/cli/runtime-client'
@@ -266,25 +266,22 @@ for (const daemonSessionGone of [false, true]) {
         { orchestrationCapability: dispatchCapability }
       )
       expect(completed.result.message.type).toBe('worker_done')
-      // The settlement sweep stamps the resume fence on the renderer's record before the tab closes.
+      // Main publishes its durable fence as an advisory renderer hint.
       await expect
         .poll(
           () =>
             first.page.evaluate(
               (paneKey) =>
-                window.__store?.getState().sleepingAgentSessionsByPaneKey[paneKey]
-                  ?.automaticResumeBlockedBy ?? null,
+                window.__store?.getState().legacyWorkerResumeFencesByPaneKey[paneKey] === true,
               workerPaneKey
             ),
           { timeout: 30_000, message: 'settled worker pane was never fenced' }
         )
-        .toBe('legacy-orchestration-worker')
+        .toBe(true)
 
       await session.close(firstApp)
       firstApp = null
-      expect(readPersistedWorkerRecoveryRecord(session.userDataDir, workerPaneKey)).toMatchObject({
-        automaticResumeBlockedBy: 'legacy-orchestration-worker'
-      })
+      expect(readPersistedWorkerResumeFence(session.userDataDir, workerPaneKey)).toBe(true)
       expect(readCompletedWorkerLedger().filter((event) => event.event === 'normal-exit')).toEqual(
         []
       )

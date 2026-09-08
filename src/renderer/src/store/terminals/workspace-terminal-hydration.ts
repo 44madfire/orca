@@ -1,4 +1,4 @@
-import { hydrateRuntimeSessionFields } from '@/lib/runtime-session-application'
+import { readWorkspaceSessionResumeFences } from '../../../../shared/workspace-session-resume-fences'
 import type { WorkspaceKey } from '../../../../shared/folder-workspace-types'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import {
@@ -32,14 +32,6 @@ export function createWorkspaceTerminalHydrationActions(
 ): Pick<TerminalSlice, 'hydrateWorkspaceSession'> {
   return {
     hydrateWorkspaceSession: (session, options) => {
-      const targetTabIds = options?.replaceWorkspaceKeys
-        ? new Set(
-            options.replaceWorkspaceKeys.flatMap((key) => [
-              ...(get().tabsByWorktree[key] ?? []).map((tab) => tab.id),
-              ...(session.tabsByWorktree[key] ?? []).map((tab) => tab.id)
-            ])
-          )
-        : undefined
       const ownershipTransferTabIds = options?.replaceWorkspaceKeys
         ? new Set(
             options.replaceWorkspaceKeys.flatMap((workspaceKey) =>
@@ -203,6 +195,7 @@ export function createWorkspaceTerminalHydrationActions(
           closedTerminalTabTombstonesByTabId: session.closedTerminalTabTombstonesByTabId ?? {},
           automaticAgentResumeClaimsByTabId: {},
           sleepingAgentSessionsByPaneKey,
+          legacyWorkerResumeFencesByPaneKey: readWorkspaceSessionResumeFences(session),
           pendingReconnectWorktreeIds,
           pendingReconnectTabByWorktree,
           pendingReconnectPtyIdByTabId,
@@ -224,12 +217,9 @@ export function createWorkspaceTerminalHydrationActions(
             validTabIds
           })
         }
-        return {
-          ...(options?.replaceWorkspaceKeys
-            ? targetScopedWorkspaceHydrationPatch(s, hydrated, session, options)
-            : hydrated),
-          ...hydrateRuntimeSessionFields(session, get, targetTabIds)
-        }
+        return options?.replaceWorkspaceKeys
+          ? targetScopedWorkspaceHydrationPatch(s, hydrated, session, options)
+          : hydrated
       })
       for (const [tabId, transfers] of ownershipTransfersByTabId) {
         transferNormalizedTerminalLayoutPtyOwnership(get(), tabId, transfers)

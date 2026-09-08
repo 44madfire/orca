@@ -114,7 +114,7 @@ describe('sleeping-agent resume across the direct-SSH hydration gap', () => {
     expect(launched, 'the deferred agent never woke after the host answered').toBe(1)
     const state = useAppStore.getState()
     expect(state.tabsByWorktree[WORKTREE_ID]?.[0]?.launchAgent).toBe('claude')
-    expect(state.sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
+    expect(state.sleepingAgentSessionsByPaneKey[record.paneKey]).toEqual(record)
   })
 
   it('leaves a purely local workspace resuming with no added latency', () => {

@@ -103,6 +103,7 @@ function activeOrQueuedResumeClaimsProviderSession(
       entry.state !== 'done' &&
       agentProviderSessionsEqual(record.agent, entry.providerSession, record.providerSession)
     ) {
+      state.clearSleepingAgentSession(record.paneKey)
       return true
     }
   }
@@ -239,9 +240,7 @@ export function resumeSleepingAgentSessionsForWorktree(
       continue
     }
     if (activeOrQueuedResumeClaimsProviderSession(record, currentState, isPaneOwned)) {
-      // Why: main can replay the old wake record after the same provider
-      // session was already queued in a fresh tab; clear the stale replay.
-      state.clearSleepingAgentSession(record.paneKey)
+      // Keep the source until the queued spawn is admitted by its host.
       continue
     }
     const paneOwnedClaimKeys = getCurrentPaneOwnedClaimKeys(activeWorktreeRecords)

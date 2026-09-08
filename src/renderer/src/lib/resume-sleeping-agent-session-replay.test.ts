@@ -113,7 +113,7 @@ describe('resumeSleepingAgentSessionsForWorktree replay protection', () => {
 
     expect(resumeSleepingAgentSessionsForWorktree('wt-1')).toBe(0)
     expect(useAppStore.getState().tabsByWorktree['wt-1']).toHaveLength(1)
-    expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
+    expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toEqual(record)
   })
 
   it('does not fork after startup is consumed but before hooks report live status', () => {
@@ -133,7 +133,7 @@ describe('resumeSleepingAgentSessionsForWorktree replay protection', () => {
     } as never)
     expect(resumeSleepingAgentSessionsForWorktree('wt-1')).toBe(0)
     expect(useAppStore.getState().tabsByWorktree['wt-1']).toHaveLength(1)
-    expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
+    expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toEqual(record)
   })
 
   it('does not fork when the same provider session is already live', () => {

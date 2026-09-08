@@ -12,7 +12,10 @@ import {
   paneSpawnReservationsByOwnerKey,
   pendingRuntimePaneCreatesByOwnerKey
 } from '../pane/spawn-reservation'
-import { isStablePaneResumeBlocked } from '../pane/stable-pane-resume-fence'
+import {
+  isSleepingAgentResumeBlocked,
+  isStablePaneResumeBlocked
+} from '../pane/stable-pane-resume-fence'
 import { resolveStablePaneOwner } from '../pane/stable-owner'
 import type { PtyIpcSpawnState } from './spawn-state'
 
@@ -20,6 +23,9 @@ export async function beginPtyIpcSpawn(
   ctx: PtyIpcSpawnState
 ): Promise<PtySpawnResult | { isReattach: true } | null> {
   const args = ctx.args
+  if (isSleepingAgentResumeBlocked(ctx.deps.store, args)) {
+    return { id: args.sessionId ?? '', reattachUnverifiable: true as const }
+  }
   ctx.codexHomeLaunchStartedAt = !args.connectionId ? new Date() : undefined
   ctx.codexHomeLaunchStartedSequence = !args.connectionId
     ? allocatePtyLifecycleSequence()

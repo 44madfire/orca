@@ -1,5 +1,6 @@
 import {
   isStablePaneResumeBlocked,
+  isSleepingAgentResumeBlocked,
   StablePaneResumeBlockedError
 } from '../pane/stable-pane-resume-fence'
 import type { PtySpawnResult } from '../../../providers/types'
@@ -30,6 +31,9 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
     ? await acquireWorktreeSpawn.call(runtime, args.worktreeId)
     : undefined
   try {
+    if (isSleepingAgentResumeBlocked(ctx.deps.store, args)) {
+      throw new StablePaneResumeBlockedError()
+    }
     if (args.preAllocatedHandle) {
       ctx.deps.trustedTerminalHandleEnv.add(args.preAllocatedHandle)
     }
@@ -73,8 +77,7 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
         args.connectionId
       )
     ) {
-      // Why: daemon-backed claims can outlive this controller; import all
-      // proven owners before deciding that an identity is absent.
+      // Claims survive the controller; import proven owners before deciding absence.
       await reconcileAgentSessionOwnerListings()
       const recoveredOwner = agentSessionOwners.find(args.agentSessionEnsure.claim)
       if (recoveredOwner && ctx.pendingRegistrationPtyId !== recoveredOwner.ptyId) {
@@ -94,6 +97,7 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
         spawn: async () => {
           assertClientStillConnected()
           if (
+            isSleepingAgentResumeBlocked(ctx.deps.store, args) ||
             isStablePaneResumeBlocked(
               ctx.deps.store,
               ctx.spawnIdentityPaneKey,
@@ -113,8 +117,7 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
             providerResult.incarnationId
           )
           if (providerResult.incarnationId) {
-            // Why: local providers cannot serialize controller claims, so liveness proof
-            // needs the exact incarnation before the registry promotes the new owner.
+            // Preserve the incarnation before the registry promotes the owner.
             ptyIncarnationById.set(providerResult.id, providerResult.incarnationId)
           }
           const providerEnsure = providerResult.agentSessionEnsure
@@ -253,14 +256,7 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
       Boolean(args.connectionId) &&
       (spawnError.message.includes(SSH_SESSION_EXPIRED_ERROR) ||
         rawMessage.includes(SSH_SESSION_EXPIRED_ERROR))
-    // The message alone cannot carry this decision. All three reattach refusals are minted with the
-    // same `SSH_SESSION_EXPIRED` text, and only one of them observed the process: `restoreRequired`
-    // means the PTY is LIVE and only its source stream needs rebuilding, which
-    // `ssh-pty-errors.ts` states outright. Expiring its lease and deleting its ownership erases
-    // this client's last record of a running remote process, and #9819's sweep reads a PTY it has
-    // no record of as one it may SIGKILL on the next connect. Only positive host-reported absence
-    // may reach that bookkeeping; being too strict here merely leaves a dead lease for the next
-    // reattach to retire on real host evidence.
+    // Only host-proven absence may retire a remote lease; transport loss leaves it unverifiable.
     const relayReportedSessionAbsent = isExpiredSshSession && isSshPtyAbsentFromRelayError(err)
     const exitedBeforeSpawnReply =
       ctx.rejectedRegistrationCandidate?.exitedBeforeSpawnReply === true

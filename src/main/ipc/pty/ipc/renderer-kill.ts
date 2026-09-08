@@ -8,6 +8,7 @@ import { ptyOwnership } from '../provider/ownership-state'
 import { getProviderForPty, sshProviders, tryGetProviderForPty } from '../provider/registry'
 import { finishPtyShutdown, isPtyAlreadyGoneError } from '../provider/liveness'
 import { recordUndeliveredSshPtyKill } from '../runtime/undelivered-ssh-kill'
+import { assertPtyHibernationAllowed } from '../pane/hibernation-admission'
 
 export type PtyKillIpcDeps = {
   store?: Store
@@ -41,7 +42,6 @@ export function installPtyKillIpcHandler(deps: PtyKillIpcDeps): void {
       // Why: runtime terminal handles belong to terminal.close; unowned PTY routing could target the local provider.
       throw new Error('Invalid PTY provider id')
     }
-    runtime?.markPtyStopRequested?.(args.id)
     const ownedConnectionId = ptyOwnership.get(args.id)
     const parsedSshId = ownedConnectionId === undefined ? parseAppSshPtyId(args.id) : null
     const connectionId = ownedConnectionId ?? parsedSshId?.connectionId
@@ -54,6 +54,10 @@ export function installPtyKillIpcHandler(deps: PtyKillIpcDeps): void {
     // hibernation, and only hibernation passes keepHistory. Recording a replayable kill for a
     // hibernating pane would destroy it on the next handshake.
     const reversible = args.keepHistory === true
+    if (reversible) {
+      assertPtyHibernationAllowed(store, args.id, connectionId)
+    }
+    runtime?.markPtyStopRequested?.(args.id)
     const provider = connectionId ? sshProviders.get(connectionId) : tryGetProviderForPty(args.id)
     if (!provider && connectionId) {
       // Why: detached SSH PTYs intentionally keep ownership after their

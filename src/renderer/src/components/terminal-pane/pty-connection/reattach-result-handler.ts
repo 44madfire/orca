@@ -1,3 +1,4 @@
+import { settleAutomaticResumeSpawn } from '@/lib/automatic-resume-spawn-settlement'
 import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import type { PtyBufferSnapshot, PtyConnectResult } from '../pty-transport'
 import { warnTerminalLifecycleAnomaly } from '../terminal-lifecycle-diagnostics'
@@ -91,6 +92,13 @@ export function bindHandleReattachResult(sessionBag: ConnectPanePtySession): voi
       // Legacy hosts do not publish an incarnation; force client-only
       // unverifiable evidence until a fresh attach returns one.
       session.remotePtyIncarnationId = null
+    }
+
+    if (
+      (connectResult?.reattachUnverifiable || connectResult?.exitedBeforeAttach) &&
+      settleAutomaticResumeSpawn(session.deps.tabId, false)
+    ) {
+      return false
     }
 
     if (connectResult?.exitedBeforeAttach) {

@@ -216,61 +216,64 @@ describe('shutdownWorktreeTerminals (sleep) — agent status hygiene', () => {
     expect(state.agentStatusByPaneKey[targetPaneKey]).toBeDefined()
   })
 
-  it('rolls back the sleeping record and suppression when the hibernation kill fails', async () => {
-    // Record written before the kill (pty:exit can beat it back); both it and the suppression must roll back if the kill fails.
-    const store = createTestStore()
-    const wt = 'repo1::/path/wt1'
-    const targetLeaf = '11111111-1111-4111-8111-111111111111'
-    const targetPaneKey = `tab-1:${targetLeaf}`
+  it.each(['kill_failed', 'agent_hibernation_automatic_resume_blocked'])(
+    'rolls back with an empty advisory fence when main rejects: %s',
+    async (refusal) => {
+      // Record written before the kill (pty:exit can beat it back); both it and the suppression must roll back if the kill fails.
+      const store = createTestStore()
+      const wt = 'repo1::/path/wt1'
+      const targetLeaf = '11111111-1111-4111-8111-111111111111'
+      const targetPaneKey = `tab-1:${targetLeaf}`
 
-    seedStore(store, {
-      worktreesByRepo: {
-        repo1: [makeWorktree({ id: wt, repoId: 'repo1', path: '/path/wt1' })]
-      },
-      tabsByWorktree: {
-        [wt]: [makeTab({ id: 'tab-1', worktreeId: wt, title: 'Claude', ptyId: 'pty-agent' })]
-      },
-      terminalLayoutsByTabId: {
-        'tab-1': {
-          root: { type: 'leaf', leafId: targetLeaf },
-          activeLeafId: targetLeaf,
-          expandedLeafId: null,
-          ptyIdsByLeafId: { [targetLeaf]: 'pty-agent' }
-        }
-      },
-      ptyIdsByTabId: { 'tab-1': ['pty-agent'] }
-    })
-    store
-      .getState()
-      .setAgentStatus(
-        targetPaneKey,
-        { state: 'done', prompt: 'resume target', agentType: 'claude' },
-        'Claude',
-        { updatedAt: 2000, stateStartedAt: 1000 },
-        { tabId: 'tab-1', worktreeId: wt },
-        { providerSession: { key: 'session_id', id: 'sess-rollback-1' } }
-      )
-    mockApi.pty.kill.mockRejectedValueOnce(new Error('kill_failed'))
-
-    await expect(
-      store.getState().shutdownCompletedAgentPaneForHibernation(wt, {
-        paneKey: targetPaneKey,
-        tabId: 'tab-1',
-        leafId: targetLeaf,
-        ptyId: 'pty-agent'
+      seedStore(store, {
+        worktreesByRepo: {
+          repo1: [makeWorktree({ id: wt, repoId: 'repo1', path: '/path/wt1' })]
+        },
+        tabsByWorktree: {
+          [wt]: [makeTab({ id: 'tab-1', worktreeId: wt, title: 'Claude', ptyId: 'pty-agent' })]
+        },
+        terminalLayoutsByTabId: {
+          'tab-1': {
+            root: { type: 'leaf', leafId: targetLeaf },
+            activeLeafId: targetLeaf,
+            expandedLeafId: null,
+            ptyIdsByLeafId: { [targetLeaf]: 'pty-agent' }
+          }
+        },
+        ptyIdsByTabId: { 'tab-1': ['pty-agent'] }
       })
-    ).rejects.toThrow('kill_failed')
+      store
+        .getState()
+        .setAgentStatus(
+          targetPaneKey,
+          { state: 'done', prompt: 'resume target', agentType: 'claude' },
+          'Claude',
+          { updatedAt: 2000, stateStartedAt: 1000 },
+          { tabId: 'tab-1', worktreeId: wt },
+          { providerSession: { key: 'session_id', id: 'sess-rollback-1' } }
+        )
+      mockApi.pty.kill.mockRejectedValueOnce(new Error(refusal))
 
-    const state = store.getState()
-    expect(state.suppressedPtyExitIds['pty-agent']).toBeUndefined()
-    // Why: a done resumable agent retains its origin:'live' recovery anchor (#9454), so a failed shutdown rolls back to it, not to undefined — and must not commit a worktree-sleep record.
-    expect(state.sleepingAgentSessionsByPaneKey[targetPaneKey]).toMatchObject({
-      origin: 'live',
-      agent: 'claude',
-      providerSession: { key: 'session_id', id: 'sess-rollback-1' }
-    })
-    expect(state.agentStatusByPaneKey[targetPaneKey]).toBeDefined()
-  })
+      await expect(
+        store.getState().shutdownCompletedAgentPaneForHibernation(wt, {
+          paneKey: targetPaneKey,
+          tabId: 'tab-1',
+          leafId: targetLeaf,
+          ptyId: 'pty-agent'
+        })
+      ).rejects.toThrow(refusal)
+
+      const state = store.getState()
+      expect(state.suppressedPtyExitIds['pty-agent']).toBeUndefined()
+      // Why: a done resumable agent retains its origin:'live' recovery anchor (#9454), so a failed shutdown rolls back to it, not to undefined — and must not commit a worktree-sleep record.
+      expect(state.sleepingAgentSessionsByPaneKey[targetPaneKey]).toMatchObject({
+        origin: 'live',
+        agent: 'claude',
+        providerSession: { key: 'session_id', id: 'sess-rollback-1' }
+      })
+      expect(state.agentStatusByPaneKey[targetPaneKey]).toBeDefined()
+    }
+  )
 
   it('persists the sleeping record and suppression before issuing the hibernation kill', async () => {
     // pty:exit can beat the kill promise back; the record must be in the store before the kill or the wake never arms.

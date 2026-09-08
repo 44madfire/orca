@@ -8,7 +8,10 @@ import {
   reservePaneSpawn,
   resolvePaneSpawnReservation
 } from '../pane/spawn-reservation'
-import { isStablePaneResumeBlocked } from '../pane/stable-pane-resume-fence'
+import {
+  isSleepingAgentResumeBlocked,
+  isStablePaneResumeBlocked
+} from '../pane/stable-pane-resume-fence'
 import { resolveStablePaneOwner } from '../pane/stable-owner'
 import { ptySizes } from '../delivery/visibility-state'
 import type { PtyRuntimeControllerDeps } from './controller-deps'
@@ -56,6 +59,9 @@ export async function spawnPtyFromRuntimeController(
   args: RuntimePtySpawnArgs
 ) {
   const ctx = createRuntimePtySpawnState(deps, args)
+  if (isSleepingAgentResumeBlocked(deps.store, args)) {
+    return { id: args.sessionId ?? '', reattachUnverifiable: true as const }
+  }
   if (!args.adoptedStablePane) {
     const leafId =
       typeof args.leafId === 'string' && isTerminalLeafId(args.leafId) ? args.leafId : null

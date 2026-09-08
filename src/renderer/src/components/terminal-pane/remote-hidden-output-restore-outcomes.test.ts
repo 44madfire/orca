@@ -25,9 +25,7 @@ async function drainFakeTimerWork(limit = 20): Promise<void> {
 const LEAF_1 = '11111111-1111-4111-8111-111111111111' as const
 const LEAF_2 = '22222222-2222-4222-8222-222222222222' as const
 
-function leafIdForPane(paneId: number): string {
-  return paneId === 2 ? LEAF_2 : LEAF_1
-}
+const leafIdForPane = (paneId: number): string => (paneId === 2 ? LEAF_2 : LEAF_1)
 
 type ConnectCallbacks = {
   onReattachDetermined?: () => void
@@ -507,6 +505,7 @@ describe('remote hidden-output restore outcomes', () => {
       retainedAgentsByPaneKey: {},
       paneForegroundAgentByPaneKey: {} as Record<string, unknown>,
       sleepingAgentSessionsByPaneKey: {} as Record<string, unknown>,
+      legacyWorkerResumeFencesByPaneKey: {},
       suppressedPtyExitIds: {},
       agentLaunchConfigByPaneKey: {} as Record<string, { launchConfig: unknown }>,
       getAgentLaunchConfigForStatusEntry: vi.fn((entry: { paneKey: string }) => {

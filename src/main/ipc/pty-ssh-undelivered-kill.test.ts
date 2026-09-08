@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
+import { ptyOwnership } from './pty/provider/ownership-state'
+import { makePaneKey } from '../../shared/stable-pane-id'
+import { toSshExecutionHostId } from '../../shared/execution-host'
+import { StablePaneResumeBlockedError } from './pty/pane/stable-pane-resume-fence'
 import { SSH_SESSION_EXPIRED_ERROR } from '../providers/ssh-pty-errors'
 import {
   registerPtyHandlers,
@@ -115,6 +119,106 @@ describe('undelivered SSH stops', () => {
       runtime
     }
   }
+
+  it.each([null, 'ssh-1'])(
+    'main refuses hibernation with an empty mirror on host %s',
+    async (connectionId) => {
+      const ptyId = connectionId ? SCOPED_PTY_ID : 'local-fenced'
+      const worktreeId = 'folder:fenced-worker'
+      const leafId = '11111111-1111-4111-8111-111111111111'
+      const paneKey = makePaneKey('fenced-tab', leafId)
+      const record = {
+        worktreeId,
+        automaticResumeBlockedBy: 'legacy-orchestration-worker',
+        providerSession: { key: 'session_id', id: 'live-worker' }
+      }
+      const session = {
+        tabsByWorktree: { [worktreeId]: [{ id: 'fenced-tab', worktreeId }] },
+        terminalLayoutsByTabId: { 'fenced-tab': { ptyIdsByLeafId: { [leafId]: ptyId } } },
+        sleepingAgentSessionsByPaneKey: { [paneKey]: record },
+        legacyWorkerResumeFencesByPaneKey: { [paneKey]: true }
+      }
+      const partition = connectionId ? toSshExecutionHostId(connectionId) : undefined
+      const store = {
+        ...createKillStore(),
+        getWorkspaceSession: vi.fn((hostId) => (hostId === partition ? session : {}))
+      }
+      const shutdown = vi.fn(async () => {})
+      if (connectionId) {
+        registerSshPtyProvider(connectionId, sshProviderStub(shutdown))
+      }
+      setPtyOwnership(ptyId, connectionId)
+      const { runtime, stopAndWait } = install(store)
+      try {
+        await expect(
+          handlers.get('pty:kill')!(null, { id: ptyId, keepHistory: true })
+        ).rejects.toThrow(StablePaneResumeBlockedError)
+        await expect(stopAndWait(ptyId, { keepHistory: true })).rejects.toThrow(
+          'agent_hibernation_automatic_resume_blocked'
+        )
+        expect(ptyOwnership.has(ptyId)).toBe(true)
+        expect(shutdown).not.toHaveBeenCalled()
+        expect(runtime.markPtyStopRequested).not.toHaveBeenCalled()
+        expect(runtime.onPtyExit).not.toHaveBeenCalled()
+        expect(store.markSshRemotePtyLease).not.toHaveBeenCalled()
+        expect(store.recordSshRemotePtyKillIntent).not.toHaveBeenCalled()
+        expect(session.sleepingAgentSessionsByPaneKey[paneKey]).toBe(record)
+        expect(session.terminalLayoutsByTabId['fenced-tab'].ptyIdsByLeafId[leafId]).toBe(ptyId)
+        expect(store.getWorkspaceSession).toHaveBeenCalledWith(partition)
+        if (connectionId) {
+          await handlers.get('pty:kill')!(null, { id: ptyId })
+          expect(shutdown).toHaveBeenCalledTimes(1)
+          expect(ptyOwnership.has(ptyId)).toBe(false)
+        }
+      } finally {
+        if (connectionId) {
+          unregisterSshPtyProvider(connectionId)
+        }
+        deletePtyOwnership(ptyId)
+      }
+    }
+  )
+
+  it.each([null, 'ssh-1'])(
+    'refuses recordless canonical hibernation fences on host %s',
+    async (connectionId) => {
+      const ptyId = connectionId ? SCOPED_PTY_ID : 'local-recordless-fence'
+      const worktreeId = 'folder:recordless-worker'
+      const leafId = '11111111-1111-4111-8111-111111111111'
+      const paneKey = makePaneKey('recordless-tab', leafId)
+      const session = {
+        tabsByWorktree: { [worktreeId]: [{ id: 'recordless-tab', worktreeId }] },
+        terminalLayoutsByTabId: { 'recordless-tab': { ptyIdsByLeafId: { [leafId]: ptyId } } },
+        sleepingAgentSessionsByPaneKey: {},
+        legacyWorkerResumeFencesByPaneKey: { [paneKey]: true }
+      }
+      const partition = connectionId ? toSshExecutionHostId(connectionId) : undefined
+      const store = {
+        ...createKillStore(),
+        getWorkspaceSession: vi.fn((hostId) => (hostId === partition ? session : {}))
+      }
+      // No SSH provider is registered: admission must preserve even disconnected ownership.
+      setPtyOwnership(ptyId, connectionId)
+      const { runtime, stopAndWait } = install(store)
+      try {
+        await expect(
+          handlers.get('pty:kill')!(null, { id: ptyId, keepHistory: true })
+        ).rejects.toThrow('agent_hibernation_automatic_resume_blocked')
+        await expect(stopAndWait(ptyId, { keepHistory: true })).rejects.toThrow(
+          'agent_hibernation_automatic_resume_blocked'
+        )
+        expect(ptyOwnership.has(ptyId)).toBe(true)
+        expect(runtime.markPtyStopRequested).not.toHaveBeenCalled()
+        expect(runtime.onPtyExit).not.toHaveBeenCalled()
+        expect(store.markSshRemotePtyLease).not.toHaveBeenCalled()
+        expect(store.recordSshRemotePtyKillIntent).not.toHaveBeenCalled()
+        expect(session.legacyWorkerResumeFencesByPaneKey[paneKey]).toBe(true)
+        expect(session.terminalLayoutsByTabId['recordless-tab'].ptyIdsByLeafId[leafId]).toBe(ptyId)
+      } finally {
+        deletePtyOwnership(ptyId)
+      }
+    }
+  )
 
   // The leak: the shutdown died on the transport, the verdict is correctly `unverifiable`, and
   // before this fix nothing retried — the remote shell survived forever.
