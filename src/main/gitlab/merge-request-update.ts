@@ -45,17 +45,23 @@ export async function updateMR(
         }
 
         const endpoint = `projects/${encodedProject(projectRef.path)}/merge_requests/${iid}`
-        let title = updates.title?.trim()
+        const title = updates.title?.trim()
+        // GitLab owns the draft/title transition atomically; a REST title read followed by PUT
+        // races with concurrent title edits on the same MR.
         if (updates.readyForReview) {
+          const query = `mutation UpdateMergeRequest($input: MergeRequestUpdateInput!) { updateMergeRequest(input: $input) { mergeRequest { iid } errors } }`
+          const variables = JSON.stringify({ input: { projectPath: projectRef.path, iid: String(iid), draft: false } })
           const response = await glabExecFileAsync(
-            ['api', ...glabHostnameArgs(projectRef, connectionId), endpoint],
+            ['api', ...glabHostnameArgs(projectRef, connectionId), 'graphql', '-f', `query=${query}`, '-f', `variables=${variables}`],
             glabRepoExecOptions(repoPath, connectionId, localGitOptions)
           )
-          const currentTitle = (JSON.parse(response.stdout) as { title?: unknown }).title
-          if (typeof currentTitle !== 'string') {
-            return { ok: false, error: 'Could not read the current merge request title' }
-          }
-          title = stripGitLabDraftTitlePrefix(currentTitle) ?? undefined
+          let payload: unknown
+          try { payload = JSON.parse(response.stdout) } catch { return { ok: false, error: 'Malformed GitLab GraphQL response' } }
+          const root = payload as { errors?: unknown; data?: { updateMergeRequest?: { errors?: unknown; mergeRequest?: unknown } } }
+          if (Array.isArray(root.errors) && root.errors.length > 0) return { ok: false, error: 'GitLab GraphQL mutation failed' }
+          const mutation = root.data?.updateMergeRequest
+          if (!mutation || !Array.isArray(mutation.errors) || mutation.errors.length > 0 || !mutation.mergeRequest) return { ok: false, error: 'GitLab rejected the merge request readiness mutation' }
+          return { ok: true }
         }
 
         const fields: string[] = []
