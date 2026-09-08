@@ -55,7 +55,7 @@ export async function readGitRemoteTrackingRef(
     if (match === null || from.includes('*') !== to.includes('*') || to.split('*').length > 2) {
       continue
     }
-    const ref = to.replace('*', match)
+    const ref = to.replace('*', () => match)
     if (!isSafeGitRefName(ref)) {
       continue
     }

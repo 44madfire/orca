@@ -28,7 +28,7 @@ export function getShortBranchName(branch: string | undefined): string | null {
 export async function readOrProbeEffectiveUpstreamStatus(
   cacheKey: string,
   worktreePath: string,
-  branchName: string,
+  _branchName: string,
   options: GitRuntimeOptions = {},
   bypassCache = false
 ): Promise<GitUpstreamStatus> {
@@ -49,7 +49,6 @@ export async function readOrProbeEffectiveUpstreamStatus(
   const probe = probeOrRevalidateEffectiveUpstreamStatus(
     cacheKey,
     worktreePath,
-    branchName,
     options,
     bypassCache
   ).then((result) => {
@@ -72,7 +71,6 @@ export async function readOrProbeEffectiveUpstreamStatus(
 async function probeOrRevalidateEffectiveUpstreamStatus(
   cacheKey: string,
   worktreePath: string,
-  branchName: string,
   options: GitRuntimeOptions = {},
   bypassCache = false
 ): Promise<{ status: GitUpstreamStatus }> {

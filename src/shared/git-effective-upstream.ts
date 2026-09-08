@@ -90,7 +90,7 @@ export async function resolveEffectiveGitUpstreamForBranch(
       configured.remoteName === 'origin'
         ? await readGitRemoteTrackingRef(runGit, configured.remoteName, currentBranchName)
         : null
-    if (publishRef) {
+    if (configured.remoteName && publishRef) {
       return {
         upstreamName: gitTrackingRefDisplayName(publishRef),
         upstreamRef: publishRef,

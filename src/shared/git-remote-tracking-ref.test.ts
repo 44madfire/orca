@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest'
 import { readGitRemoteTrackingRef } from './git-remote-tracking-ref'
 
 it.each([
+  ['+refs/heads/*:refs/custom/*', 'feature-$&', 'refs/custom/feature-$&'],
   ['+refs/heads/*:refs/custom/origin/*', 'feature', 'refs/custom/origin/feature'],
   [
     '+refs/heads/feature*:refs/heads/tracking/feature*',
