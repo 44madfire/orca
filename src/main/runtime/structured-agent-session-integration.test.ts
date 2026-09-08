@@ -125,7 +125,13 @@ function fakeCodex(): CodexScript {
     return connection
   }) as typeof openCodexAppServerConnection
   const live = (): FakeConnection => {
-    const connection = connections.at(-1)
+    const connection = connections.findLast((candidate) =>
+      candidate.calls.some(
+        (call) =>
+          call.method === 'thread/resume' ||
+          (call.method === 'thread/start' && call.params?.ephemeral !== true)
+      )
+    )
     if (!connection) {
       throw new Error('no codex app-server has been opened')
     }
