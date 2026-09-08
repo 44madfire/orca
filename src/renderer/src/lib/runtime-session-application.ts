@@ -4,7 +4,11 @@ import { parsePaneKey, parseLegacyNumericPaneKey } from '../../../shared/stable-
 import type { TerminalStoreGet, TerminalStoreSet } from '../store/terminals/terminal-state'
 
 const pendingReads: (() => void)[] = []
-let hydratedDuringRead = new Map<TerminalStoreGet, ReadonlySet<string> | null>()
+type HydratedAuthority = {
+  tabIds: ReadonlySet<string> | null
+  paneKeys: ReadonlySet<string>
+}
+let hydratedDuringRead = new Map<TerminalStoreGet, HydratedAuthority>()
 let reading = false
 const appliedSessions = new WeakMap<TerminalStoreGet, WeakSet<WorkspaceSessionState>>()
 
@@ -58,7 +62,7 @@ export function applyReadRuntimeSession(
 ): void {
   const fields = runtimeSessionFields(session, get, targetTabIds)
   const superseded = hydratedDuringRead.get(get)
-  if (superseded === null) {
+  if (superseded?.tabIds === null) {
     return
   }
   if (superseded) {
@@ -66,13 +70,21 @@ export function applyReadRuntimeSession(
     fields.legacyWorkerResumeFencesByPaneKey = {
       ...Object.fromEntries(
         Object.entries(fields.legacyWorkerResumeFencesByPaneKey).filter(
-          ([key]) => !paneInScope(key, superseded)
+          ([key]) => !authorityIncludesPane(key, superseded)
         )
       ),
-      ...Object.fromEntries(Object.entries(current).filter(([key]) => paneInScope(key, superseded)))
+      ...Object.fromEntries(
+        Object.entries(current).filter(([key]) => authorityIncludesPane(key, superseded))
+      )
     }
   }
   set(fields)
+}
+
+function authorityIncludesPane(key: string, authority: HydratedAuthority): boolean {
+  return (
+    authority.paneKeys.has(key) || authority.tabIds === null || paneInScope(key, authority.tabIds)
+  )
 }
 
 function paneInScope(key: string, tabIds: ReadonlySet<string>): boolean {
@@ -121,12 +133,28 @@ export function hydrateRuntimeSessionFields(
     return { legacyWorkerResumeFencesByPaneKey: get().legacyWorkerResumeFencesByPaneKey }
   }
   if (reading) {
-    const previous = hydratedDuringRead.get(get)
-    // Track snapshot scopes, never policy values, until the older read settles.
-    hydratedDuringRead.set(
-      get,
-      !targetTabIds || previous === null ? null : new Set([...(previous ?? []), ...targetTabIds])
-    )
+    const prior = hydratedDuringRead.get(get)
+    const previous = prior?.tabIds
+    if (session.legacyWorkerResumeFencesByPaneKey !== undefined) {
+      hydratedDuringRead.set(get, {
+        tabIds:
+          !targetTabIds || previous === null
+            ? null
+            : new Set([...(previous ?? []), ...targetTabIds]),
+        paneKeys: prior?.paneKeys ?? new Set()
+      })
+    } else {
+      const protectedKeys = Object.keys(readWorkspaceSessionResumeFences(session)).filter(
+        (key) => !targetTabIds || paneInScope(key, targetTabIds)
+      )
+      // Legacy records supply protection for individual panes, never scope-wide retirement authority.
+      if (protectedKeys.length > 0) {
+        hydratedDuringRead.set(get, {
+          tabIds: previous === undefined ? new Set() : previous,
+          paneKeys: new Set([...(prior?.paneKeys ?? []), ...protectedKeys])
+        })
+      }
+    }
   }
   return runtimeSessionFields(session, get, targetTabIds)
 }
