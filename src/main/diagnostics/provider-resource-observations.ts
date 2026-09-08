@@ -30,17 +30,19 @@ export type LaunchObservation = {
   root?: ObjectWitness
   rootHandle?: FileHandle
   expiry?: ReturnType<typeof setTimeout>
-  pendingHook?: ProviderResourceDiagnosticHook
+  pendingHook?: { run: () => Promise<void>; cancel: () => void }
   expiresAt: number
   busy: boolean
-  transcript?: { handle: FileHandle; path: string; object: ObjectWitness; observationId: string }
-  hook?: {
-    sessionId: string
-    sessionCorrelationId: string
-    launchTokenMatches: boolean
-    sequence: number
-    receivedAt: number
-    kind: string
+  observation?: {
+    transcript?: { handle: FileHandle; path: string; object: ObjectWitness; observationId: string }
+    hook: {
+      sessionId: string
+      sessionCorrelationId: string
+      launchTokenMatches: boolean
+      sequence: number
+      receivedAt: number
+      kind: string
+    }
   }
 }
 
@@ -148,57 +150,70 @@ export class ProviderResourceObservations {
       return
     }
     const record = matchingLaunches[0]!
-    if (record.busy) {
-      record.pendingHook = event
-      return
+    const previous = record.observation
+    const observation: NonNullable<LaunchObservation['observation']> = {
+      hook: {
+        sessionId: session.id,
+        sessionCorrelationId:
+          previous?.hook.sessionId === session.id
+            ? previous.hook.sessionCorrelationId
+            : randomUUID(),
+        launchTokenMatches: true,
+        sequence,
+        receivedAt: this.now(),
+        kind: event.hookEventName!
+      }
     }
-    if (record.hook && record.hook.sessionId !== session.id && record.transcript) {
-      void record.transcript.handle.close().catch(() => {})
-      delete record.transcript
-    }
-    record.hook = {
-      sessionId: session.id,
-      sessionCorrelationId:
-        record.hook?.sessionId === session.id ? record.hook.sessionCorrelationId : randomUUID(),
-      launchTokenMatches: true,
-      sequence,
-      receivedAt: this.now(),
-      kind: event.hookEventName!
+    // A new report invalidates the entire correspondence, including during an in-flight probe.
+    record.observation = observation
+    record.pendingHook?.cancel()
+    delete record.pendingHook
+    const releasePrevious = () => {
+      void previous?.transcript?.handle.close().catch(() => {})
     }
     const path = session.transcriptPath
     if (!path || !isAbsolute(path) || !path.endsWith('.jsonl') || path.length > 4096) {
+      releasePrevious()
       return
     }
     if (process.platform === 'win32' && isWslUncPath(path)) {
+      releasePrevious()
       return
     }
-    await this.probe(record, async () => {
-      const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK)
-      try {
-        const object = await handle.stat({ bigint: true })
-        if (!object.isFile() || !this.retains(record) || record.hook?.sequence !== sequence) {
-          return
+    const probe = () =>
+      this.probe(record, async () => {
+        const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK)
+        try {
+          const object = await handle.stat({ bigint: true })
+          if (!object.isFile() || !this.retains(record) || record.observation !== observation) {
+            return
+          }
+          const retainedAlias = [...this.records.values()].find(
+            (candidate) =>
+              candidate.observation?.transcript &&
+              sameObject(candidate.observation.transcript.object, object)
+          )
+          observation.transcript = {
+            handle,
+            path,
+            object,
+            observationId:
+              retainedAlias?.observation?.transcript?.observationId ??
+              (previous?.transcript && sameObject(previous.transcript.object, object)
+                ? previous.transcript.observationId
+                : randomUUID())
+          }
+        } finally {
+          if (observation.transcript?.handle !== handle) {
+            await handle.close()
+          }
         }
-        const previous = record.transcript
-        if (previous && !sameObject(previous.object, object)) {
-          return
-        }
-        const retainedAlias = [...this.records.values()].find(
-          (candidate) => candidate.transcript && sameObject(candidate.transcript.object, object)
-        )
-        record.transcript = {
-          handle,
-          path,
-          object,
-          observationId: retainedAlias?.transcript?.observationId ?? randomUUID()
-        }
-        await previous?.handle.close()
-      } finally {
-        if (record.transcript?.handle !== handle) {
-          await handle.close()
-        }
-      }
-    })
+      }).finally(releasePrevious)
+    if (record.busy) {
+      record.pendingHook = { run: probe, cancel: releasePrevious }
+    } else {
+      await probe()
+    }
   }
 
   async query(
@@ -244,7 +259,7 @@ export class ProviderResourceObservations {
     const pendingHook = record.pendingHook
     delete record.pendingHook
     if (pendingHook && this.retains(record)) {
-      void this.observeHook(pendingHook)
+      void pendingHook.run()
     }
   }
 
@@ -263,7 +278,9 @@ export class ProviderResourceObservations {
   private remove(record: LaunchObservation): void {
     this.records.delete(record.id)
     clearTimeout(record.expiry)
-    void record.transcript?.handle.close().catch(() => {})
+    record.pendingHook?.cancel()
+    delete record.pendingHook
+    void record.observation?.transcript?.handle.close().catch(() => {})
     void record.rootHandle?.close().catch(() => {})
   }
 

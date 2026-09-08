@@ -51,13 +51,14 @@ export async function queryProviderResourceObservation(
   try {
     const object = await stat(path, { bigint: true })
     const candidates = [...records.values()].filter(
-      (record) => record.transcript && sameObject(record.transcript.object, object)
+      (record) =>
+        record.observation?.transcript && sameObject(record.observation.transcript.object, object)
     )
     if (candidates.length > 1) {
       return missing('conflicting-candidates')
     }
     const record = candidates[0]
-    if (!record?.transcript || !record.hook) {
+    if (!record?.observation?.transcript) {
       return missing('missing-retention')
     }
     if (record.busy) {
@@ -65,9 +66,13 @@ export async function queryProviderResourceObservation(
     }
     record.busy = true
     activeRecord = record
-    const transcript = record.transcript
+    const observation = record.observation
+    const { transcript, hook } = observation
+    if (!transcript) {
+      return missing('missing-retention')
+    }
     const currentObject = await stat(transcript.path, { bigint: true })
-    if (!retains(record) || record.transcript !== transcript) {
+    if (!retains(record) || record.observation !== observation) {
       return missing('missing-retention')
     }
     if (!sameObject(currentObject, transcript.object)) {
@@ -83,19 +88,19 @@ export async function queryProviderResourceObservation(
       record.pid && record.processStartTimeMs != null && process.platform !== 'win32'
         ? await readProcessStartTimeMs(record.pid)
         : null
-    if (!retains(record) || record.transcript !== transcript) {
+    if (!retains(record) || record.observation !== observation) {
       return missing('missing-retention')
     }
     return {
       ...missing('missing-lifecycle-contract'),
-      observationId: record.transcript.observationId,
+      observationId: transcript.observationId,
       facts: {
         rootResolved: Boolean(record.root),
         objectObserved: true,
         objectScope: 'host-retained-read-descriptor',
         providerOpenHolder: 'unverifiable',
-        reportedSessionMatches: query.sessionId === record.hook.sessionId,
-        launchTokenMatches: record.hook.launchTokenMatches,
+        reportedSessionMatches: query.sessionId === hook.sessionId,
+        launchTokenMatches: hook.launchTokenMatches,
         pty: {
           id: record.ptyId,
           incarnationId: record.incarnationId,
@@ -104,10 +109,10 @@ export async function queryProviderResourceObservation(
         providerProcess: 'unverifiable',
         ptyRootStartTimeMatches: start === null ? null : start === record.processStartTimeMs,
         lifecycleBound: false,
-        hookSequence: record.hook.sequence,
-        hookKind: record.hook.kind,
-        receivedAt: record.hook.receivedAt,
-        sessionCorrelationId: record.hook.sessionCorrelationId
+        hookSequence: hook.sequence,
+        hookKind: hook.kind,
+        receivedAt: hook.receivedAt,
+        sessionCorrelationId: hook.sessionCorrelationId
       }
     }
   } catch {
