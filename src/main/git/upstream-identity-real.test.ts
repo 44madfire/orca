@@ -1,3 +1,4 @@
+import { resolveGitStatusUpstreamRef } from './status-upstream-ref'
 import { hasUsableHostedReviewPushTarget } from '../../shared/hosted-review-push-target-admission'
 import { readOrProbeEffectiveUpstreamStatus } from './source-control/effective-upstream-status-probe'
 import { resolvedUpstreamNameCache } from './source-control/resolved-upstream-name-cache'
@@ -83,6 +84,16 @@ it.each([
         }
       })
     ).toBe(true)
+    const watch = (trackingRef?: string) =>
+      resolveGitStatusUpstreamRef(
+        (args) => run(args),
+        root,
+        'refs/heads/feature',
+        statusBefore.upstreamName!,
+        new AbortController().signal,
+        trackingRef
+      )
+    expect(await watch()).toBe(upstreamBefore!.upstreamRef)
     const pushBefore = await resolveConfiguredGitPushTarget(run)
     const tracking = mapping.replace('*', merge)
     for (const tag of [
@@ -93,6 +104,10 @@ it.each([
     ]) {
       await git('tag', '-f', tag, 'refs/heads/main')
     }
+    expect(await watch()).toBe(upstreamBefore!.upstreamRef)
+    expect(await watch(statusBefore.upstreamIdentity!.trackingRef!)).toBe(
+      upstreamBefore!.upstreamRef
+    )
     expect(await resolveEffectiveGitUpstream(run)).toEqual(upstreamBefore)
     expect(await getEffectiveGitUpstreamStatus(run)).toEqual(statusBefore)
     expect(await readOrProbeEffectiveUpstreamStatus(root, root, 'feature')).toEqual(statusBefore)

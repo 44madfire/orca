@@ -37,6 +37,7 @@ export type GitInspectionApi = {
     connectionId?: string
     branch?: string
     upstreamName?: string
+    upstreamRef?: string
   }) => Promise<void>
   submoduleStatus: (args: {
     worktreePath: string

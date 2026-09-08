@@ -27,6 +27,9 @@ export function useGitStatusUpstreamRefWatch(args: {
       const upstreamName = status.upstreamStatus?.hasUpstream
         ? status.upstreamStatus.upstreamName
         : undefined
+      const upstreamRef = status.upstreamStatus?.hasUpstream
+        ? status.upstreamStatus.upstreamIdentity?.trackingRef
+        : undefined
       void setRuntimeGitStatusUpstreamRefWatch(
         {
           settings: { activeRuntimeEnvironmentId: runtimeEnvironmentId },
@@ -37,7 +40,8 @@ export function useGitStatusUpstreamRefWatch(args: {
         {
           executionHostId: args.executionHostId,
           ...(status.branch ? { branch: status.branch } : {}),
-          ...(upstreamName ? { upstreamName } : {})
+          ...(upstreamName ? { upstreamName } : {}),
+          ...(upstreamRef ? { upstreamRef } : {})
         }
       ).catch(() => {})
     },

@@ -24,6 +24,7 @@ export const gitApi = {
     connectionId?: string
     branch?: string
     upstreamName?: string
+    upstreamRef?: string
   }): Promise<void> => ipcRenderer.invoke('git:setStatusUpstreamRefWatch', args),
   submoduleStatus: (args: {
     worktreePath: string

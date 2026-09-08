@@ -53,7 +53,8 @@ export function applyGitStatusUpstreamRefWatchRequest(
           args.worktreePath,
           args.branch,
           args.upstreamName,
-          signal
+          signal,
+          args.upstreamRef
         )
       }
 
@@ -71,7 +72,8 @@ export function applyGitStatusUpstreamRefWatchRequest(
         worktreePath,
         args.branch,
         args.upstreamName,
-        signal
+        signal,
+        args.upstreamRef
       )
     }
   )

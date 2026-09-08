@@ -38,6 +38,7 @@ export type GitStatusRefBindingRequest = {
   providerGeneration?: number
   branch?: string
   upstreamName?: string
+  upstreamRef?: string
 }
 
 const FAILED_RESOLUTION_RETRY_MS = 5 * 60_000
@@ -119,7 +120,8 @@ function resolutionKey(args: GitStatusRefBindingRequest): string {
     args.worktreeId,
     args.worktreePath,
     args.branch,
-    args.upstreamName
+    args.upstreamName,
+    args.upstreamRef
   ].join('\0')
 }
 

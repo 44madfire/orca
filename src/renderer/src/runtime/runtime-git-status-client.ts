@@ -69,7 +69,7 @@ export async function getRuntimeGitStatus(
 
 export async function setRuntimeGitStatusUpstreamRefWatch(
   context: RuntimeGitContext,
-  args: { executionHostId: string; branch?: string; upstreamName?: string }
+  args: { executionHostId: string; branch?: string; upstreamName?: string; upstreamRef?: string }
 ): Promise<void> {
   const target = getActiveRuntimeTarget(context.settings)
   if (target.kind !== 'local' || !context.worktreeId) {
@@ -81,7 +81,8 @@ export async function setRuntimeGitStatusUpstreamRefWatch(
     executionHostId: args.executionHostId,
     ...(context.connectionId ? { connectionId: context.connectionId } : {}),
     ...(args.branch ? { branch: args.branch } : {}),
-    ...(args.upstreamName ? { upstreamName: args.upstreamName } : {})
+    ...(args.upstreamName ? { upstreamName: args.upstreamName } : {}),
+    ...(args.upstreamRef ? { upstreamRef: args.upstreamRef } : {})
   })
 }
 

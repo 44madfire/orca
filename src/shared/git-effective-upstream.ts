@@ -86,7 +86,7 @@ async function remoteTrackingRefExists(
   }
 }
 
-async function resolveEffectiveGitUpstreamForBranch(
+export async function resolveEffectiveGitUpstreamForBranch(
   runGit: GitCommandRunner,
   currentBranchName: string | null
 ): Promise<EffectiveGitUpstream | null> {

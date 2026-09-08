@@ -1,4 +1,9 @@
 import { isSafeGitRefName } from '../../shared/git-status-upstream-ref'
+import {
+  gitBranchNameFromFullRef,
+  gitTrackingRefDisplayName
+} from '../../shared/git-upstream-identity'
+import { resolveEffectiveGitUpstreamForBranch } from '../../shared/git-effective-upstream'
 
 type GitStatusUpstreamRefExec = (
   args: string[],
@@ -6,47 +11,41 @@ type GitStatusUpstreamRefExec = (
   signal: AbortSignal
 ) => Promise<{ stdout: string }>
 
-function exactRefFromOutput(stdout: string): string | undefined {
-  const refs = stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(isSafeGitRefName)
-  return refs.length === 1 ? refs[0] : undefined
-}
-
 export async function resolveGitStatusUpstreamRef(
   execGit: GitStatusUpstreamRefExec,
   worktreePath: string,
   branch: string,
   upstreamName: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  trackingRef?: string
 ): Promise<string | undefined> {
-  if (!branch.startsWith('refs/heads/') || !isSafeGitRefName(branch)) {
+  const branchName = gitBranchNameFromFullRef(branch)
+  if (!branchName || !isSafeGitRefName(branch)) {
     return undefined
   }
-  const result = await execGit(
-    ['for-each-ref', '--format=%(refname)%00%(upstream)%00%(upstream:short)', '--count=1', branch],
-    worktreePath,
-    signal
-  )
+  const runGit = (args: string[]): Promise<{ stdout: string }> =>
+    execGit(args, worktreePath, signal)
+  const result = await runGit([
+    'for-each-ref',
+    '--format=%(refname)%00%(upstream)',
+    '--count=1',
+    branch
+  ])
   const fields = result.stdout.replace(/\r?\n$/, '').split('\0')
-  if (fields.length !== 3 || fields[0] !== branch) {
+  if (fields.length !== 2 || fields[0] !== branch) {
     return undefined
   }
-  if (fields[2] === upstreamName) {
-    return exactRefFromOutput(fields[1])
+  if (trackingRef !== undefined) {
+    return isSafeGitRefName(trackingRef) ? trackingRef : undefined
   }
-  try {
-    const effective = await execGit(
-      ['rev-parse', '--symbolic-full-name', '--end-of-options', upstreamName],
-      worktreePath,
-      signal
-    )
-    return exactRefFromOutput(effective.stdout)
-  } catch {
-    if (signal.aborted) {
-      throw signal.reason
-    }
-    return undefined
+  // Older status publishers can be matched to host-owned refs, never parsed into revisions.
+  if (isSafeGitRefName(fields[1]) && gitTrackingRefDisplayName(fields[1]) === upstreamName) {
+    return fields[1]
   }
+  const effective = await resolveEffectiveGitUpstreamForBranch(runGit, branchName)
+  return effective?.upstreamName === upstreamName &&
+    effective.upstreamRef &&
+    isSafeGitRefName(effective.upstreamRef)
+    ? effective.upstreamRef
+    : undefined
 }
