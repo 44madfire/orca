@@ -34,6 +34,15 @@ export class OrcaRuntimeWithRecordPtyWorktree extends OrcaRuntimeWithRefreshRepo
     > = {}
   ): RuntimePtyWorktreeRecord {
     let pty = this.ptysById.get(ptyId)
+    if (
+      !pty ||
+      pty.worktreeId !== worktreeId ||
+      ['connectionId', 'tabId', 'paneKey', 'connected', 'runtimeSessionOwned'].some(
+        (key) => state[key] !== undefined && state[key] !== pty?.[key]
+      )
+    ) {
+      this.ptyOwnershipRevisions.advance(ptyId)
+    }
     if (!pty) {
       const titleObservedAt = state.title ? this.nextTitleObservationSequence() : null
       const connectionId = state.connectionId ?? parseAppSshPtyId(ptyId)?.connectionId ?? null
@@ -164,6 +173,7 @@ export class OrcaRuntimeWithRecordPtyWorktree extends OrcaRuntimeWithRefreshRepo
     pty: RuntimePtyWorktreeRecord,
     incarnationId: RuntimePtyWorktreeRecord['incarnationId']
   ): void {
+    this.ptyOwnershipRevisions.advance(pty.ptyId)
     // Only positive identity equality authorizes retaining process metadata.
     if (incarnationId !== null && pty.incarnationId === incarnationId) {
       return

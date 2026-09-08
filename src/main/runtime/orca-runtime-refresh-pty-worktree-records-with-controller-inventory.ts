@@ -50,8 +50,7 @@ export class OrcaRuntimeWithRefreshPtyWorktreeRecordsWithControllerInventory ext
     if (!this.ptyController?.listProcesses) {
       return null
     }
-    const inventoryGeneration = this.ptyControllerInventorySequence + 1
-    this.ptyControllerInventorySequence = inventoryGeneration
+    const inventoryGeneration = ++this.ptyControllerInventorySequence
     const providerKey = typeof connectionId === 'string' ? `ssh:${connectionId}` : 'local'
     const livenessObservationAtStart = this.ptyLivenessObservationSequence
     if (connectionId === undefined) {
@@ -74,17 +73,20 @@ export class OrcaRuntimeWithRefreshPtyWorktreeRecordsWithControllerInventory ext
             includeForegroundProcessEvidence: inventoryOptions.includeForegroundProcessEvidence
           })
     }
-    const processInventory =
-      connectionId === undefined && this.ptyController.listProcessesWithHostScope
-        ? this.ptyController.listProcessesWithHostScope(providerListOpts)
-        : this.ptyController.listProcesses(connectionId, providerListOpts).then((processes) => {
-            const hostId: ExecutionHostId =
-              connectionId === undefined || connectionId === null
-                ? LOCAL_EXECUTION_HOST_ID
-                : toSshExecutionHostId(connectionId)
-            return { processes, hostIds: [hostId] }
-          })
-    const sessionsResult = await withTimeoutResult(processInventory, listBudgetMs)
+    const { observation: ownershipObservation, result: sessionsResult } =
+      await this.ptyOwnershipRevisions.observe(() => {
+        const processInventory =
+          connectionId === undefined && this.ptyController.listProcessesWithHostScope
+            ? this.ptyController.listProcessesWithHostScope(providerListOpts)
+            : this.ptyController.listProcesses(connectionId, providerListOpts).then((processes) => {
+                const hostId: ExecutionHostId =
+                  connectionId === undefined || connectionId === null
+                    ? LOCAL_EXECUTION_HOST_ID
+                    : toSshExecutionHostId(connectionId)
+                return { processes, hostIds: [hostId] }
+              })
+        return withTimeoutResult(processInventory, listBudgetMs)
+      })
     if (!sessionsResult.ok) {
       // Why: a transient controller failure is not evidence that retained PTYs exited.
       return null
@@ -115,6 +117,17 @@ export class OrcaRuntimeWithRefreshPtyWorktreeRecordsWithControllerInventory ext
       return null
     }
     const sessions = sessionsResult.value.processes
+    if (
+      !this.ptyOwnershipRevisions.admits(
+        ownershipObservation,
+        sessions,
+        this.ptysById,
+        this.handleByPtyId,
+        connectionId
+      )
+    ) {
+      return null
+    }
     const queriedHostIds = new Set<ExecutionHostId>(sessionsResult.value.hostIds)
     if (connectionId === undefined) {
       for (const session of sessions) {

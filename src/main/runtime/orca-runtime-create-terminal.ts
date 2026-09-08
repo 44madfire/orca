@@ -239,6 +239,7 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
           }
           pty.tabId = tabId
           pty.paneKey = paneKey
+          this.ptyOwnershipRevisions.advance(result.id, pty.incarnationId)
         }
         const ownerTabs = this.mobileSessionTabsByWorktree.get(ownerWorktreeId)?.tabs
         const incumbentMetadata = pty
