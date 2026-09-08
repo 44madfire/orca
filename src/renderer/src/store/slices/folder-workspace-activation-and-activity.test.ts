@@ -121,6 +121,71 @@ describe('folder workspace generic activation and activity', () => {
     })
   })
 
+  it.each([
+    ['simulator', 'local'],
+    ['agent-session', 'local'],
+    ['simulator', 'ssh:test-host'],
+    ['agent-session', 'ssh:test-host']
+  ] as const)(
+    'restores a folder %s tab on %s using its concrete visible type',
+    (contentType, executionHostId) => {
+      const folder = makeFolderWorkspace({ executionHostId })
+      const workspaceKey = folderWorkspaceKey(folder.id)
+      const store = seedLocalFolderStore(folder)
+      store.getState().createUnifiedTab(workspaceKey, contentType, { id: 'selected' })
+      store.setState({ activeTabTypeByWorktree: { [workspaceKey]: 'editor' } })
+
+      store.getState().setActiveWorktree(workspaceKey, executionHostId)
+
+      expect(store.getState().activeWorkspaceExecutionHostId).toBe(executionHostId)
+      expect(store.getState().activeTabType).toBe(contentType)
+      expect(store.getState().activeTabTypeByWorktree[workspaceKey]).toBe(contentType)
+      expect(store.getState().getActiveTab(workspaceKey)?.id).toBe('selected')
+    }
+  )
+
+  it('does not let remembered browser state select content in an empty folder group', () => {
+    const folder = makeFolderWorkspace()
+    const workspaceKey = folderWorkspaceKey(folder.id)
+    const store = seedLocalFolderStore(folder)
+    store.setState({
+      groupsByWorktree: {
+        [workspaceKey]: [
+          {
+            id: 'empty',
+            worktreeId: workspaceKey,
+            activeTabId: null,
+            tabOrder: []
+          }
+        ]
+      },
+      activeGroupIdByWorktree: { [workspaceKey]: 'empty' },
+      browserTabsByWorktree: {
+        [workspaceKey]: [
+          {
+            id: 'remembered',
+            worktreeId: workspaceKey,
+            url: 'about:blank',
+            title: 'Browser',
+            loading: false,
+            faviconUrl: null,
+            canGoBack: false,
+            canGoForward: false,
+            loadError: null,
+            createdAt: 1
+          }
+        ]
+      },
+      activeBrowserTabIdByWorktree: { [workspaceKey]: 'remembered' },
+      activeTabTypeByWorktree: { [workspaceKey]: 'browser' }
+    } as Partial<AppState>)
+
+    store.getState().setActiveWorktree(workspaceKey)
+
+    expect(store.getState().activeTabType).toBe('terminal')
+    expect(store.getState().activeBrowserTabId).toBe('remembered')
+  })
+
   it('coalesces repeated activity persistence while keeping local activity current', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
