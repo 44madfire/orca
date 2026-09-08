@@ -22,7 +22,7 @@ export function createRun(
         `INSERT INTO runs (
            id, objective, coordinator_handle, coordinator_pane_key, coordinator_agent_session_id,
            consumer_generation, legacy
-         ) VALUES (?, ?, ?, ?, 1, 0)`
+         ) VALUES (?, ?, ?, ?, ?, 1, 0)`
       )
       .run(
         id,
