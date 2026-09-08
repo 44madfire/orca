@@ -7,7 +7,10 @@ import { splitWorktreeIdForFilesystem } from '../../shared/worktree/id'
 import { linkedReviewOperationTarget } from '../../shared/linked-review-operation-target'
 import type { GitPushTarget } from '../../shared/worktree/types'
 import type { WorktreeMeta } from '../../shared/worktree/meta-types'
-import { readAllWorktreeMetaForHost } from '../persistence/host-qualified-worktree-meta'
+import {
+  readAllWorktreeMetaForHost,
+  readWorktreeMetaForHost
+} from '../persistence/host-qualified-worktree-meta'
 import { requireSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import { getLocalWorktreePathAccess } from '../local-worktree-filesystem'
 import { listRepoWorktreesForDetectedScan } from '../repo-worktrees'
@@ -30,18 +33,46 @@ export async function resolveReviewPushWorkspace(
 }> {
   const host = args.connectionId ? toSshExecutionHostId(args.connectionId) : LOCAL_EXECUTION_HOST_ID
   const repos = store.getRepos().filter((repo) => getRepoExecutionHostId(repo) === host)
-  const metadata = Object.entries(readAllWorktreeMetaForHost(store, host))
-  if (
-    !args.worktreePath ||
-    args.worktreePath.includes('\0') ||
-    repos.length > 128 ||
-    metadata.length > 512
-  ) {
+  if (!args.worktreePath || args.worktreePath.includes('\0')) {
     throw new Error('Review push workspace identity is unverifiable.')
   }
   const remoteFilesystem = args.connectionId
     ? requireSshFilesystemProvider(args.connectionId)
     : null
+  if (args.worktreeId) {
+    const parsed = splitWorktreeIdForFilesystem(args.worktreeId)
+    const repo = repos.find((candidate) => candidate.id === parsed?.repoId)
+    if (!repo || !parsed?.worktreePath || parsed.worktreePath.includes('\0')) {
+      throw new Error('Review push workspace identity is unverifiable.')
+    }
+    const gitOptions = remoteFilesystem ? {} : getLocalGitOptionsForRepo(store, repo)
+    const filesystem = remoteFilesystem ?? getLocalWorktreePathAccess(gitOptions)
+    const initialMeta = readWorktreeMetaForHost(store, args.worktreeId, host)
+    const path = await filesystem.realpath(parsed.worktreePath)
+    if (path !== (await filesystem.realpath(args.worktreePath))) {
+      throw new Error('Review push workspace identity is unverifiable.')
+    }
+    if (!initialMeta) {
+      // Only this owner's catalog can establish an unlinked workspace.
+      const rows = await listRepoWorktreesForDetectedScan(repo, gitOptions)
+      if (!rows.some((row) => `${repo.id}::${row.path}` === args.worktreeId)) {
+        throw new Error('Review push workspace identity is unverifiable.')
+      }
+    }
+    const currentMeta = readWorktreeMetaForHost(store, args.worktreeId, host)
+    if (initialMeta && !currentMeta) {
+      throw new Error('Review push workspace metadata changed during identity resolution.')
+    }
+    return {
+      worktreePath: path,
+      gitOptions,
+      pushTarget: linkedReviewOperationTarget(currentMeta, args.pushTarget)
+    }
+  }
+  const metadata = Object.entries(readAllWorktreeMetaForHost(store, host))
+  if (repos.length > 128 || metadata.length > 512) {
+    throw new Error('Review push workspace identity is unverifiable.')
+  }
   const matches: {
     id: string
     path: string
@@ -79,16 +110,14 @@ export async function resolveReviewPushWorkspace(
       }
     }
   }
-  const selected = args.worktreeId
-    ? matches.filter((match) => match.id === args.worktreeId)
-    : matches
+  const selected = matches
   if (selected.length !== 1) {
     throw new Error(
       `Review push workspace identity is ${selected.length ? 'ambiguous' : 'unverifiable'}.`
     )
   }
   const owner = selected[0]!
-  const currentMeta = readAllWorktreeMetaForHost(store, host)[owner.id]
+  const currentMeta = readWorktreeMetaForHost(store, owner.id, host)
   if (owner.meta && !currentMeta) {
     throw new Error('Review push workspace metadata changed during identity resolution.')
   }

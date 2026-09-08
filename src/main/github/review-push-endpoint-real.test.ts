@@ -299,7 +299,8 @@ it('carries provider-produced authority through omitted-target SSH IPC aliases t
   }
   const store = {
     getRepos: () => [{ id: 'repo', path: canonical, connectionId: 'identity-fixture' }],
-    getAllWorktreeMetaForHost: () => metadata
+    getAllWorktreeMetaForHost: () => metadata,
+    getWorktreeMetaForHost: (id: string) => metadata[id]
   } as unknown as Store
   const mux = createMockMux()
   const pushes: string[] = []
