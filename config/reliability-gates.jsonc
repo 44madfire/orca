@@ -625,7 +625,7 @@
       "demotionRule": "Keep experimental until CI soak; investigate failures without relaxing fidelity or resource-count assertions.",
       "coverageNotes": "Pure shared-host string semantics and main runtime tests cover the production scanner on macOS. Folder/git workspaces, local/daemon/SSH/remote-runtime authority, wire content and mobile/relay behavior are unchanged. No live native remote session was launched.",
       "invariant": "Main terminal preview/read tails choose the same append/redraw path while ordinary text is skipped without a JavaScript code-unit walk. Complete string-control payloads are not interpreted as vertical controls; incomplete controls stop at the same point.",
-      "oracle": "Plain, colored and vertical-CSI output uses fewer than 16 code-unit inspections with the same recognition result. Canonical and noncanonical CSI, embedded CSI in OSC/DCS/SOS/PM/APC and incomplete sequences preserve decisions. Production normalization and tail append retain exact cursor-up redraw rows.",
+      "oracle": "Plain, colored and vertical-CSI output uses fewer than 16 code-unit inspections with the same recognition result. Canonical and noncanonical CSI, embedded CSI in OSC/DCS/SOS/PM/APC, ESC inside CSI parameter bytes, back-to-back controls and incomplete sequences preserve decisions. Production normalization and tail append retain exact cursor-up redraw rows.",
       "commands": [
         "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/runtime/terminal-vertical-control-scan.test.ts"
       ],
@@ -637,6 +637,7 @@
             "bounds code-unit inspections on %s output",
             "preserves numeric CSI A recognition for %j",
             "skips embedded CSI and stops at an incomplete %s",
+            "resumes scanning after a parsed control for %j",
             "preserves tail rows when ordinary output is followed by a cursor-up redraw"
           ]
         }
@@ -649,7 +650,7 @@
           "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/runtime/terminal-vertical-control-scan.test.ts",
           "result": "passed",
           "durationSeconds": 0.325,
-          "summary": "22 scanner work-budget, control recognition and complete-tail integration tests passed."
+          "summary": "29 scanner work-budget, control recognition, scan-resumption and complete-tail integration tests passed."
         }
       ],
       "runtimeBudget": {

@@ -56,6 +56,19 @@ describe('terminal vertical-control scanning', () => {
     expect(containsTerminalVerticalLineControl(`${incomplete}${terminator}\x1b[3A`)).toBe(true)
   })
 
+  it.each([
+    // An ESC inside CSI parameter bytes is consumed by that control, not treated as a new introducer.
+    ['\x1b[\x1b[A', false],
+    ['\x1b[\x1b[2A\x1b[1A', true],
+    ['\x1b[31m\x1b[1A', true],
+    ['\x1b]0;t\x07\x1b[1A', true],
+    ['\x1b[1A\x1b', true],
+    ['ordinary\x1b', false],
+    ['ordinary\x1b[0m more\x1b[1;A', true]
+  ] as const)('resumes scanning after a parsed control for %j', (input, expected) => {
+    expect(containsTerminalVerticalLineControl(input)).toBe(expected)
+  })
+
   it('preserves tail rows when ordinary output is followed by a cursor-up redraw', () => {
     const first = appendNormalizedToTailBuffer([], '', 'first\nold\n')
     const normalized = normalizeTerminalChunk('\x1b[1A\x1b[2K\x1b[32mnew\x1b[0m\n')
