@@ -31,15 +31,20 @@ it.each(['local', 'ssh'])(
       leafId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
     })
     vi.mocked(h.runtime.getTerminalPaneKey).mockRestore()
+    // Why: a takeover drops the worker's row from the recovery plan, so its resume fence must lift
+    // in the same call, once per transition rather than once per report.
+    const swept = vi.spyOn(h.runtime, 'prepareLegacyWorkerTerminalRecovery')
     await expect(
       h.call('orchestration.workerTerminalUserInput', { terminal: 'term_worker' })
     ).resolves.toEqual({ changed: 1 })
     expect(h.db.getWorkerTerminalResourceByOwner(worker.dispatchId)?.ownership_state).toBe(
       'user_owned'
     )
+    expect(swept).toHaveBeenCalledTimes(1)
     await expect(
       h.call('orchestration.workerTerminalUserInput', { terminal: 'term_worker' })
     ).resolves.toEqual({ changed: 0 })
+    expect(swept).toHaveBeenCalledTimes(1)
     await expect(
       h.call('orchestration.workerRelease', { dispatch: worker.dispatchId })
     ).resolves.toMatchObject({ state: 'retained', reason: 'user_takeover' })
@@ -107,4 +112,12 @@ it.each(['unary', 'stream'])('mobile %s bytes do no orchestration database work'
   expect(prepare).not.toHaveBeenCalled()
   expect(exec).not.toHaveBeenCalled()
   expect(h.db.getWorkerTerminalResourceByOwner(worker.dispatchId)?.ownership_state).toBe('owned')
+})
+
+it('the report is reachable from a mobile-scoped device token', async () => {
+  // Why: mobile tokens are gated by an allowlist before dispatch. The phone reporter swallows a
+  // refusal, so a missing entry silently reverts every phone to the unfenced behaviour.
+  const { MOBILE_RPC_METHOD_ALLOWLIST } =
+    await import('../../../../runtime-rpc/runtime-rpc-mobile-method-allowlist')
+  expect(MOBILE_RPC_METHOD_ALLOWLIST.has('orchestration.workerTerminalUserInput')).toBe(true)
 })
