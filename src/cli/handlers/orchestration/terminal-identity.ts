@@ -48,6 +48,17 @@ export async function resolveOrchestrationTerminalHandle(
   return await getTerminalHandle(flags, cwd, client)
 }
 
+/** Durable orchestration identity propagated to PTY and native chat providers. */
+export function resolveOrchestrationAgentSessionId(): string | undefined {
+  const value = process.env.ORCA_AGENT_SESSION_ID
+  return value && value.length > 0 ? value : undefined
+}
+
+export function resolveOrchestrationRuntimeFence(): string | undefined {
+  const value = process.env.ORCA_AGENT_SESSION_RUNTIME_FENCE
+  return value && value.length > 0 ? value : undefined
+}
+
 /**
  * Whether the handle this process was born with still names a live identity.
  *
