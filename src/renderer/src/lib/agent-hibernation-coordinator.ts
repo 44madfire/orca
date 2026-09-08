@@ -133,6 +133,10 @@ async function collectRuntimePtyLiveness(
   const targets = getRuntimeLivenessTargetWorktrees(state, targetWorktreeId)
   const runtimeLivePtyIdsByWorktreeId: Record<string, string[]> = {}
   const runtimeLivenessRequiredWorktreeIds = [...targets.keys()]
+  if (targets.size === 0) {
+    // Why: an all-local install has nothing to ask, so it must not pay the status scan below.
+    return { runtimeLivePtyIdsByWorktreeId, runtimeLivenessRequiredWorktreeIds }
+  }
   const completedTabIds = new Set<string>()
   for (const entry of Object.values(state.agentStatusByPaneKey)) {
     const tabId = entry?.state === 'done' ? getEntryTabId(entry) : null
