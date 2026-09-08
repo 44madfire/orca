@@ -226,7 +226,7 @@ it('failed acceptance persistence does not publish acceptance and leaves the kno
 })
 
 it('only the original staged handles can read receipts from 64 completed deliveries', async () => {
-  const handles = []
+  const handles: NonNullable<ReturnType<typeof enqueueStructuredAgentSessionLaunchPrompt>>[] = []
   for (let i = 0; i < 64; i++) {
     const staged = enqueueStructuredAgentSessionLaunchPrompt(sessionId, `launch ${i}`)!
     expect(await launch(staged)).toMatchObject({ delivered: true })
