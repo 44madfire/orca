@@ -32,7 +32,10 @@ import {
 import { clientHostedBrowserCloseIntentSchema } from './client-hosted-browser-close-intent'
 import { persistedClientHostedBrowserPageSchema } from './client-hosted-browser-page-record'
 import { persistedOpenFileSchema } from './workspace-session-editor-schema'
-import { sleepingAgentSessionsByPaneKeySchema } from './workspace-session-sleeping-agents'
+import {
+  agentProviderSessionSchema,
+  sleepingAgentSessionsByPaneKeySchema
+} from './workspace-session-sleeping-agents'
 import {
   tabContentTypeSchema,
   workspaceVisibleTabTypeSchema
@@ -103,6 +106,7 @@ const terminalTabSchema = z.object({
   createdAt: z.number(),
   generation: z.number().optional(),
   startupCwd: z.string().min(1).optional(),
+  resumeProviderSession: agentProviderSessionSchema.optional().catch(undefined),
   // Why: persist the launched agent so a restored idle agent tab keeps its
   // provider icon before any hook fires. `.catch(undefined)` keeps a stale or
   // unknown agent id from failing the whole-session parse (which would reset

@@ -149,6 +149,11 @@ describe('undelivered SSH stops', () => {
       }
       setPtyOwnership(ptyId, connectionId)
       const { runtime, stopAndWait } = install(store)
+      Object.assign(runtime, {
+        resolveTerminalPane: vi.fn(() => {
+          throw new Error('terminal_not_found')
+        })
+      })
       try {
         await expect(
           handlers.get('pty:kill')!(null, { id: ptyId, keepHistory: true })
@@ -494,4 +499,84 @@ describe('undelivered SSH stops', () => {
       }
     }
   )
+  it.each([undefined, 'ssh:ssh-1', 'ssh:foreign'])(
+    'recordless runtime owner refuses hibernation with host metadata %s',
+    async (executionHostId) => {
+      const leaf = '11111111-1111-4111-8111-111111111111',
+        wt = 'folder-worker',
+        paneKey = makePaneKey('worker', leaf)
+      const session = {
+        tabsByWorktree: {},
+        terminalLayoutsByTabId: { worker: { ptyIdsByLeafId: { [leaf]: 'ssh:ssh-1@@stale' } } },
+        sleepingAgentSessionsByPaneKey: {},
+        legacyWorkerResumeFencesByPaneKey: { [paneKey]: true }
+      }
+      const store = {
+        ...createKillStore(),
+        getWorkspaceSession: vi.fn((host) => (host === 'ssh:ssh-1' ? session : {}))
+      }
+      const shutdown = vi.fn(async () => {})
+      registerSshPtyProvider('ssh-1', sshProviderStub(shutdown))
+      setPtyOwnership(SCOPED_PTY_ID, 'ssh-1')
+      const { runtime } = install(store)
+      const resolvedRuntime = Object.assign(runtime, {
+        resolveTerminalPane: vi.fn(() => ({
+          executionHostId,
+          ptyId: SCOPED_PTY_ID,
+          tabId: 'worker',
+          leafId: leaf,
+          worktreeId: wt,
+          connected: true
+        }))
+      })
+      try {
+        await expect(
+          handlers.get('pty:kill')!(null, { id: SCOPED_PTY_ID, keepHistory: true })
+        ).rejects.toThrow(
+          executionHostId === 'ssh:foreign'
+            ? 'terminal_pane_owner_host_mismatch'
+            : 'agent_hibernation_automatic_resume_blocked'
+        )
+        expect(shutdown).not.toHaveBeenCalled()
+        expect(resolvedRuntime.resolveTerminalPane).toHaveBeenCalledWith(paneKey)
+        expect(ptyOwnership.has(SCOPED_PTY_ID)).toBe(true)
+      } finally {
+        unregisterSshPtyProvider('ssh-1')
+        deletePtyOwnership(SCOPED_PTY_ID)
+      }
+    }
+  )
+  it('review: resolver exception refuses the kill', async () => {
+    const leaf = '11111111-1111-4111-8111-111111111111',
+      wt = 'folder-worker',
+      paneKey = makePaneKey('worker', leaf)
+    const session = {
+      tabsByWorktree: { [wt]: [{ id: 'worker', worktreeId: wt }] },
+      terminalLayoutsByTabId: { worker: { ptyIdsByLeafId: { [leaf]: 'ssh:ssh-1@@stale' } } },
+      sleepingAgentSessionsByPaneKey: {},
+      legacyWorkerResumeFencesByPaneKey: { [paneKey]: true }
+    }
+    const store = {
+      ...createKillStore(),
+      getWorkspaceSession: vi.fn((host) => (host === 'ssh:ssh-1' ? session : {}))
+    }
+    const shutdown = vi.fn(async () => {})
+    registerSshPtyProvider('ssh-1', sshProviderStub(shutdown))
+    setPtyOwnership(SCOPED_PTY_ID, 'ssh-1')
+    const { runtime } = install(store)
+    Object.assign(runtime, {
+      resolveTerminalPane: () => {
+        throw new Error('terminal_pane_owner_host_mismatch')
+      }
+    })
+    try {
+      await expect(
+        handlers.get('pty:kill')!(null, { id: SCOPED_PTY_ID, keepHistory: true })
+      ).rejects.toThrow()
+      expect(shutdown).not.toHaveBeenCalled()
+    } finally {
+      unregisterSshPtyProvider('ssh-1')
+      deletePtyOwnership(SCOPED_PTY_ID)
+    }
+  })
 })

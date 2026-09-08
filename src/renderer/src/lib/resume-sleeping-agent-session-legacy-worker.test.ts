@@ -22,7 +22,8 @@ describe('legacy worker sleeping-session recovery', () => {
       state: 'working',
       capturedAt: 1,
       updatedAt: 1,
-      origin: 'live'
+      origin: 'live',
+      automaticResumeBlockedBy: 'legacy-orchestration-worker'
     }
     useAppStore.setState({
       legacyWorkerResumeFencesByPaneKey: { 'tab-legacy:leaf-legacy': true },

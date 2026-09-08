@@ -26,7 +26,19 @@ export function settleAutomaticResumeSpawn(tabId: string, admitted: boolean): bo
     })
     return true
   }
-  clearAutomaticAgentResumeClaim(tabId)
+  useAppStore.setState({
+    automaticAgentResumeClaimsByTabId: omitRecordKeys(state.automaticAgentResumeClaimsByTabId, [
+      tabId
+    ]),
+    tabsByWorktree: {
+      ...state.tabsByWorktree,
+      [claim.worktreeId]: (state.tabsByWorktree[claim.worktreeId] ?? []).map((tab) =>
+        tab.id === tabId
+          ? { ...tab, launchAgent: claim.launchAgent, resumeProviderSession: claim.providerSession }
+          : tab
+      )
+    }
+  })
   for (const record of Object.values(state.sleepingAgentSessionsByPaneKey)) {
     if (
       record.worktreeId === claim.worktreeId &&

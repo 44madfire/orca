@@ -118,21 +118,52 @@ it.each(
   }
 )
 
-it('drops an older refresh reply after a newer refresh retires the hint', async () => {
-  let reply!: (value: Record<string, true>) => void
-  const get = stubFences({})
-  get
-    .mockReset()
-    .mockResolvedValue({})
-    .mockImplementationOnce(
-      () =>
-        new Promise<Record<string, true>>((resolve) => {
-          reply = resolve
-        })
+it.each([true, false])(
+  'retirement remains eligible with disjoint hydration: %s',
+  async (disjoint) => {
+    const key = 'historical:11111111-1111-4111-8111-111111111111',
+      wt = 'folder:worker'
+    const record = {
+      paneKey: key,
+      tabId: 'historical',
+      worktreeId: wt,
+      agent: 'codex' as const,
+      providerSession: { key: 'session_id' as const, id: 'session-worker' },
+      state: 'working' as const,
+      prompt: 'continue',
+      capturedAt: 1,
+      updatedAt: 1,
+      origin: 'live' as const
+    }
+    useAppStore.getState().hydrateWorkspaceSession(
+      {
+        ...getDefaultWorkspaceSession(),
+        sleepingAgentSessionsByPaneKey: { [key]: record },
+        legacyWorkerResumeFencesByPaneKey: { [key]: true }
+      },
+      { additionalValidWorkspaceKeys: [wt] }
     )
-  const pending = refreshLegacyWorkerResumeFences()
-  await refreshLegacyWorkerResumeFences()
-  reply({ [PANE_KEY]: true })
-  await pending
-  expect(useAppStore.getState().legacyWorkerResumeFencesByPaneKey).toEqual({})
-})
+    let reply!: (v: Record<string, true>) => void
+    vi.stubGlobal('window', {
+      api: {
+        app: {
+          getLegacyWorkerResumeFences: () => new Promise<Record<string, true>>((r) => (reply = r))
+        }
+      }
+    })
+    const pending = refreshLegacyWorkerResumeFences()
+    if (disjoint) {
+      useAppStore.getState().hydrateWorkspaceSession(
+        { ...getDefaultWorkspaceSession(), legacyWorkerResumeFencesByPaneKey: {} },
+        {
+          additionalValidWorkspaceKeys: ['folder:sibling'],
+          replaceWorkspaceKeys: ['folder:sibling']
+        }
+      )
+    }
+    reply({})
+    await pending
+    const count = resumeSleepingAgentSessionsForWorktree(wt)
+    expect(count).toBe(1)
+  }
+)

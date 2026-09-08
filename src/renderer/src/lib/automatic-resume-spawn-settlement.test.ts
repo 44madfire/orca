@@ -162,3 +162,40 @@ describe('automatic resume host admission settlement with empty renderer fence h
     expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[sibling.paneKey]).toEqual(sibling)
   })
 })
+
+it('review: admitted bound tab deduplicates after startup is consumed and source rehydrates', () => {
+  const { tab, record } = queueResume()
+  settleAutomaticResumeSpawn(tab.id, true)
+  useAppStore.getState().updateTabPtyId(tab.id, 'admitted-pty')
+  useAppStore.getState().setTabLayout(tab.id, {
+    root: { type: 'leaf', leafId: '99999999-9999-4999-8999-999999999999' },
+    activeLeafId: '99999999-9999-4999-8999-999999999999',
+    expandedLeafId: null,
+    ptyIdsByLeafId: { '99999999-9999-4999-8999-999999999999': 'admitted-pty' }
+  })
+  useAppStore.getState().consumeTabStartupCommand(tab.id)
+  useAppStore.getState().hydrateWorkspaceSession(
+    {
+      ...buildWorkspaceSessionPayload(useAppStore.getState()),
+      sleepingAgentSessionsByPaneKey: { [record.paneKey]: record }
+    },
+    { additionalValidWorkspaceKeys: [record.worktreeId as never] }
+  )
+  const count = resumeSleepingAgentSessionsForWorktree(record.worktreeId)
+  expect(count).toBe(0)
+})
+
+it('skips a protected record even when the separately fetched hint is empty', () => {
+  const { record } = queueResume()
+  useAppStore.setState({
+    tabsByWorktree: { [record.worktreeId]: [] },
+    pendingStartupByTabId: {},
+    automaticAgentResumeClaimsByTabId: {},
+    sleepingAgentSessionsByPaneKey: {
+      [record.paneKey]: { ...record, automaticResumeBlockedBy: 'legacy-orchestration-worker' }
+    },
+    legacyWorkerResumeFencesByPaneKey: {}
+  })
+  expect(resumeSleepingAgentSessionsForWorktree(record.worktreeId)).toBe(0)
+  expect(useAppStore.getState().tabsByWorktree[record.worktreeId]).toEqual([])
+})

@@ -12,7 +12,7 @@ const terminalTabIdSchema = z
   .min(1)
   .refine(isValidTerminalTabId, 'terminal tab id must not contain ":"')
 
-const agentProviderSessionSchema = z.preprocess(
+export const agentProviderSessionSchema = z.preprocess(
   (raw) => normalizeAgentProviderSession(raw) ?? undefined,
   z.object({
     key: z.enum(['session_id', 'conversation_id']),

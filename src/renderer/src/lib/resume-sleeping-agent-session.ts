@@ -88,9 +88,8 @@ function activeOrQueuedResumeClaimsProviderSession(
   state: ReturnType<typeof useAppStore.getState>,
   samePaneOwnsRecovery: boolean
 ): boolean {
-  const worktreeTabIds = new Set(
-    (state.tabsByWorktree[record.worktreeId] ?? []).map((tab) => tab.id)
-  )
+  const tabs = state.tabsByWorktree[record.worktreeId] ?? []
+  const worktreeTabIds = new Set(tabs.map((tab) => tab.id))
   for (const entry of Object.values(state.agentStatusByPaneKey)) {
     // Why: only an owned pane needs its record; hidden/live panes still dedupe by status.
     if (samePaneOwnsRecovery && entry.paneKey === record.paneKey) {
@@ -108,31 +107,21 @@ function activeOrQueuedResumeClaimsProviderSession(
     }
   }
 
-  for (const [tabId, startup] of Object.entries(state.pendingStartupByTabId)) {
-    if (
-      worktreeTabIds.has(tabId) &&
-      startup.launchAgent === record.agent &&
-      agentProviderSessionsEqual(
-        record.agent,
-        startup.resumeProviderSession,
-        record.providerSession
-      )
-    ) {
-      return true
-    }
-  }
-
-  for (const [tabId, claim] of Object.entries(state.automaticAgentResumeClaimsByTabId)) {
-    if (
-      worktreeTabIds.has(tabId) &&
-      claim.worktreeId === record.worktreeId &&
-      claim.launchAgent === record.agent &&
-      agentProviderSessionsEqual(record.agent, claim.providerSession, record.providerSession)
-    ) {
-      return true
-    }
-  }
-  return false
+  return tabs.some((tab) =>
+    [
+      tab,
+      state.pendingStartupByTabId[tab.id],
+      state.automaticAgentResumeClaimsByTabId[tab.id]
+    ].some(
+      (owner) =>
+        owner?.launchAgent === record.agent &&
+        agentProviderSessionsEqual(
+          record.agent,
+          'providerSession' in owner ? owner.providerSession : owner.resumeProviderSession,
+          record.providerSession
+        )
+    )
+  )
 }
 
 // Why: an interrupted turn is still resumable — `claude --resume` reopens the transcript at the
@@ -211,7 +200,7 @@ export function resumeSleepingAgentSessionsForWorktree(
     if (options?.skipClaimKeys?.has(claimKey)) {
       continue
     }
-    if (currentState.legacyWorkerResumeFencesByPaneKey[record.paneKey]) {
+    if (record.automaticResumeBlockedBy === 'legacy-orchestration-worker') {
       continue
     }
     if (isInvalidWorktreeActivationRecord(record)) {

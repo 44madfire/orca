@@ -157,7 +157,12 @@ describe('parseWorkspaceSession', () => {
             color: null,
             sortOrder: 0,
             createdAt: 1,
-            launchAgent: 'codex'
+            launchAgent: 'codex',
+            resumeProviderSession: {
+              key: 'session_id',
+              id: 'admitted-session',
+              transcriptPath: '/sessions/worker.jsonl'
+            }
           }
         ]
       },
@@ -166,6 +171,11 @@ describe('parseWorkspaceSession', () => {
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.value.tabsByWorktree.wt[0].launchAgent).toBe('codex')
+      expect(result.value.tabsByWorktree.wt[0].resumeProviderSession).toEqual({
+        key: 'session_id',
+        id: 'admitted-session',
+        transcriptPath: '/sessions/worker.jsonl'
+      })
     }
   })
 
