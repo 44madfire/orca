@@ -4,7 +4,7 @@ import {
   NativeChatCommandMetadata,
   NativeChatSearchResults
 } from './NativeChatToolAnnotations'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Check, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
@@ -354,27 +354,30 @@ export function NativeChatToolRun({
                   header that grows to three rows stops reading as a header. */}
               <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
                 {keyedSummaryMembers.map((member, index) => (
-                  <span
-                    key={member.key}
-                    data-tool-run-member
-                    className={cn(index > 0 && 'ml-3')}
-                  >
-                    <NativeChatToolIcon
-                      rowWord={member.name}
-                      mcpIdentity={member.mcpIdentity}
-                      className="mr-1 inline-flex size-3.5 align-middle"
-                    />
-                    {member.name}
-                    {member.arg ? (
-                      <span className="text-muted-foreground/70">{` ${member.arg}`}</span>
-                    ) : null}
-                  </span>
+                  <Fragment key={member.key}>
+                    {/* A real space, not just the margin: a CSS gap is invisible to
+                        a copied selection and to the button's accessible name, which
+                        would otherwise run one member's argument into the next
+                        member's name. The margin is trimmed to pay for its width. */}
+                    {index > 0 ? ' ' : null}
+                    <span data-tool-run-member className={cn(index > 0 && 'ml-2')}>
+                      <NativeChatToolIcon
+                        rowWord={member.name}
+                        mcpIdentity={member.mcpIdentity}
+                        className="mr-1 inline-flex size-3.5 align-middle"
+                      />
+                      {member.name}
+                      {member.arg ? (
+                        <span className="text-muted-foreground/70">{` ${member.arg}`}</span>
+                      ) : null}
+                    </span>
+                  </Fragment>
                 ))}
               </span>
               {hiddenCallCount > 0 ? (
                 /* Outside the truncating span, so the count of what is not shown
                    survives a list the pane is too narrow to print. */
-                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
                   {translate(
                     'components.native-chat.tool.moreCalls',
                     NATIVE_CHAT_TOOL_ACTIVITY_COPY.moreCalls,

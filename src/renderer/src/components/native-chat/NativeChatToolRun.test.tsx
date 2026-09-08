@@ -298,7 +298,9 @@ describe('NativeChatToolRun', () => {
 
       const header = runHeader(container)
       expect(header.querySelector('[data-tool-run-member] .lucide-plug')).toBeInTheDocument()
-      expect(header.querySelector('[data-tool-run-member] .lucide-square-terminal')).toBeInTheDocument()
+      expect(
+        header.querySelector('[data-tool-run-member] .lucide-square-terminal')
+      ).toBeInTheDocument()
       // The run-wide glyph still reads generic, the categories being mixed.
       expect(header.firstElementChild?.querySelector('.lucide-wrench')).toBeInTheDocument()
     })
@@ -314,6 +316,17 @@ describe('NativeChatToolRun', () => {
 
       expect(runHeader(container)).toHaveTextContent('+2 more')
       expect(runHeader(container).querySelectorAll('[data-tool-run-member]')).toHaveLength(3)
+    })
+
+    // A margin is invisible to a copied selection and to the accessible name, so
+    // the boundary needs a real space too — otherwise the header reads
+    // `ls -latools/read`.
+    it('separates members with real whitespace, not only a margin', () => {
+      const { container } = render(<NativeChatToolRun blocks={batch} expandSignal={false} />)
+
+      expect(runHeader(container).textContent).toBe(
+        '3\u00d7mcp__linear__list_issues todo Bash ls -la tools/read README.md'
+      )
     })
 
     it('leaves no remainder marker when every member is shown', () => {
