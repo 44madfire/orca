@@ -1,3 +1,4 @@
+import { DaemonRouterSessionCustody } from './daemon-router-session-custody'
 import { CLEAN_DISCONNECT_PROTOCOL_VERSION } from './types'
 import { reconcileDaemonRouterSessions } from './daemon-pty-router-reconciliation'
 import type { DaemonPtyAdapter } from './daemon-pty-adapter'
@@ -11,15 +12,13 @@ import type {
   PtySpawnResult
 } from '../providers/types'
 import type { PtyProcessInspection } from '../providers/pty-process-inspection'
-import { shouldHandoffDaemonHistory } from './daemon-history-handoff'
 import type { DaemonPtyRouterDataEvent, DaemonPtyRouterExitEvent } from './daemon-pty-router-events'
 import { DaemonSessionOwnerResolver } from './daemon-session-owner-resolution'
 import type { WriteSettlement } from '../../shared/pty-write-settlement'
 
 export class DaemonPtyRouter implements IPtyProvider {
+  private readonly custody: DaemonRouterSessionCustody
   private readonly retirements = new Map<DaemonPtyAdapter, Promise<void>>()
-  private readonly releasing = new Map<DaemonPtyAdapter, number>()
-  private readonly releasingIds = new Map<string, number>()
   private disposed = false
   private current: DaemonPtyAdapter
   private legacy: DaemonPtyAdapter[]
@@ -31,10 +30,13 @@ export class DaemonPtyRouter implements IPtyProvider {
     this.current = opts.current
     this.legacy = opts.legacy
     this.ownerResolver = new DaemonSessionOwnerResolver(this.allAdapters(), this.sessionAdapters)
+    this.custody = new DaemonRouterSessionCustody(this.current, this.ownerResolver, (id) =>
+      this.adapterFor(id)
+    )
     this.subscriptions = new DaemonPtyAdapterSubscriptionFanout(
       this.allAdapters(),
       (id, adapter) => {
-        if (!this.releasingIds.has(id)) {
+        if (!this.custody.releasingIds.has(id)) {
           this.ownerResolver.forgetRoute(id, adapter)
           void this.retireLegacyAdapter(adapter)
         }
@@ -49,6 +51,12 @@ export class DaemonPtyRouter implements IPtyProvider {
   }
 
   async spawn(opts: PtySpawnOptions): Promise<PtySpawnResult> {
+    return opts.sessionId
+      ? this.custody.run(opts.sessionId, () => this.spawnWithCustody(opts))
+      : this.spawnWithCustody(opts)
+  }
+
+  private async spawnWithCustody(opts: PtySpawnOptions): Promise<PtySpawnResult> {
     if (opts.attachOnly && opts.sessionId) {
       return await this.ownerResolver.spawnAttachOnly({ ...opts, sessionId: opts.sessionId })
     }
@@ -85,7 +93,7 @@ export class DaemonPtyRouter implements IPtyProvider {
   }
 
   async attach(id: string): ReturnType<IPtyProvider['attach']> {
-    return await this.adapterFor(id).attach(id)
+    return this.custody.run(id, () => this.adapterFor(id).attach(id))
   }
 
   hasPty(id: string): boolean {
@@ -128,37 +136,7 @@ export class DaemonPtyRouter implements IPtyProvider {
     id: string,
     opts: { immediate?: boolean; keepHistory?: boolean; deadlineMs?: number }
   ): Promise<void> {
-    const adapter = this.adapterFor(id)
-    this.releasing.set(adapter, (this.releasing.get(adapter) ?? 0) + 1)
-    this.releasingIds.set(id, (this.releasingIds.get(id) ?? 0) + 1)
-    try {
-      await adapter.shutdown(id, opts)
-      const migrateHistory =
-        shouldHandoffDaemonHistory(opts.keepHistory, adapter, this.current) &&
-        (adapter.protocolVersion < CLEAN_DISCONNECT_PROTOCOL_VERSION ||
-          (await adapter.canHandoffHistoryTo(this.current, id)))
-      if (!opts.keepHistory || migrateHistory) {
-        if (migrateHistory) {
-          adapter.ackColdRestore(id)
-        }
-        this.ownerResolver.forgetRoute(id, adapter)
-      } else {
-        this.ownerResolver.recordRoute(id, adapter)
-      }
-    } finally {
-      const pending = this.releasingIds.get(id)! - 1
-      if (pending === 0) {
-        this.releasingIds.delete(id)
-      } else {
-        this.releasingIds.set(id, pending)
-      }
-      const remaining = this.releasing.get(adapter)! - 1
-      if (remaining === 0) {
-        this.releasing.delete(adapter)
-      } else {
-        this.releasing.set(adapter, remaining)
-      }
-    }
+    const adapter = await this.custody.shutdown(id, opts)
     await this.retireLegacyAdapter(adapter)
   }
 
@@ -346,7 +324,7 @@ export class DaemonPtyRouter implements IPtyProvider {
       this.disposed ||
       adapter.protocolVersion < CLEAN_DISCONNECT_PROTOCOL_VERSION ||
       !this.legacy.includes(adapter) ||
-      this.releasing.has(adapter) ||
+      this.custody.releasing.has(adapter) ||
       [...this.sessionAdapters.values()].includes(adapter)
     ) {
       return Promise.resolve()

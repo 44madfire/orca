@@ -423,4 +423,60 @@ describe('shipping router legacy retirement', () => {
     await Promise.all([firstDiscovery, secondDiscovery])
     await assertRetired()
   })
+  it.each(['handoff', 'refusal', 'failure'])(
+    'serializes concurrent wake through the sleep custody commit: %s',
+    async (outcome) => {
+      const id = 'handoff-race'
+      await legacy.spawn({ sessionId: id, cols: 80, rows: 24 })
+      child.output('RACE-RECOVERY-MARKER')
+      await router.discoverLegacySessions()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let checking = false
+      const original = legacy.canHandoffHistoryTo.bind(legacy)
+      vi.spyOn(legacy, 'canHandoffHistoryTo').mockImplementation(async (...args) => {
+        const readable = await original(...args)
+        checking = true
+        await gate
+        if (outcome === 'failure') {
+          throw new Error('handoff interrupted')
+        }
+        return outcome === 'handoff' && readable
+      })
+      const sleeping = router
+        .shutdown(id, { immediate: true, keepHistory: true })
+        .catch((error: Error) => error)
+      await vi.waitFor(() => expect(checking).toBe(true))
+      let woke = false
+      const waking = router.spawn({ sessionId: id, cols: 80, rows: 24 }).then((result) => {
+        woke = true
+        return result
+      })
+      try {
+        await router.spawn({ sessionId: 'unrelated', cols: 80, rows: 24 })
+        expect(woke).toBe(false)
+      } finally {
+        release()
+        const result = await sleeping
+        if (outcome === 'failure') {
+          expect(result).toEqual(new Error('handoff interrupted'))
+        } else {
+          expect(result).toBeUndefined()
+        }
+      }
+      const awakened = await waking
+      expect(awakened.coldRestore?.scrollback).toContain('RACE-RECOVERY-MARKER')
+      const owner = outcome === 'handoff' ? current : legacy
+      const other = outcome === 'handoff' ? legacy : current
+      expect(owner.hasPty(id)).toBe(true)
+      expect(other.hasPty(id)).toBe(false)
+      const ownerWrite = vi.spyOn(owner, 'write')
+      const otherWrite = vi.spyOn(other, 'write')
+      router.write(id, 'wake-input')
+      expect(otherWrite).not.toHaveBeenCalled()
+      expect(ownerWrite).toHaveBeenCalledWith(id, 'wake-input')
+    }
+  )
 })

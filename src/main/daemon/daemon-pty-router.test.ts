@@ -148,6 +148,7 @@ describe('DaemonPtyRouter', () => {
     const router = new DaemonPtyRouter({ current, legacy: [] })
 
     const spawning = router.spawn({ cols: 80, rows: 24, sessionId: 'raced-session' })
+    await vi.waitFor(() => expect(finishSpawn).toBeDefined())
     finishSpawn?.({
       id: 'raced-session',
       incarnationId: 'raced-incarnation',
@@ -173,6 +174,7 @@ describe('DaemonPtyRouter', () => {
     const router = new DaemonPtyRouter({ current, legacy: [] })
 
     const spawning = router.spawn({ cols: 80, rows: 24, sessionId: 'reused-session' })
+    await vi.waitFor(() => expect(finishSpawn).toBeDefined())
     current.emitExit('reused-session', 0, 'incarnation-old')
     finishSpawn?.({ id: 'reused-session', incarnationId: 'incarnation-current' })
     await spawning
@@ -200,6 +202,7 @@ describe('DaemonPtyRouter', () => {
       sessionId: 'requested-session',
       agentSessionEnsure: {} as never
     })
+    await vi.waitFor(() => expect(finishSpawn).toBeDefined())
     finishSpawn?.({
       id: 'canonical-session',
       incarnationId: 'canonical-incarnation',
