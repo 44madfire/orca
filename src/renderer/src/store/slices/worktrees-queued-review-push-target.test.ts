@@ -20,8 +20,20 @@ it('hydrates queued review repository identity and rejects a superseded queue lo
     path: '/path/wt1',
     branch: 'refs/heads/feature'
   })
-  const queued = (number: number) =>
-    ({ 'repo1::feature': { data: { number } } }) as AppState['prCache']
+  const queued = (number: number): AppState['prCache'] => ({
+    'repo1::feature': {
+      fetchedAt: Date.now(),
+      data: {
+        number,
+        title: 'Queued review',
+        state: 'open',
+        url: `https://github.com/canonical/repo/pull/${number}`,
+        checksStatus: 'success',
+        updatedAt: '2026-09-07T00:00:00Z',
+        mergeable: 'UNKNOWN'
+      }
+    }
+  })
   store.setState({
     repos: [
       {

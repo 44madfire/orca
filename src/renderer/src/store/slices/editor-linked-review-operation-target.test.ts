@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { createEditorStore } from './editor-slice-test-harness'
-import type { Worktree } from '../../../../shared/worktree/types'
+import { makeWorktree } from './worktrees-slice-test-fixtures'
 import { hasUsableHostedReviewPushTarget } from '../../../../shared/hosted-review-push-target-admission'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
@@ -27,7 +27,7 @@ it.each(['linkedPR', 'linkedGitLabMR'] as const)(
   'keeps %s unresolved through the shipping push and sync dispatcher until target hydration',
   async (link) => {
     const store = createEditorStore()
-    const worktree = { id: 'wt', repoId: 'repo', [link]: 42 } as Worktree
+    const worktree = makeWorktree({ id: 'wt', repoId: 'repo', [link]: 42 })
     store.setState({ getKnownWorktreeById: () => worktree })
     const upstreamStatus = {
       hasUpstream: true,
