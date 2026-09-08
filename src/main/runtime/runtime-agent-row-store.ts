@@ -83,17 +83,18 @@ export class RuntimeAgentRowStore {
   }): {
     status: NonNullable<RuntimeTerminalAgentStatus['status']>
     updatedAt: number
-    stateStartedAt: number
+    stateStartedAt: number | null
   } | null {
     const now = Date.now()
     let bestStatus: NonNullable<RuntimeTerminalAgentStatus['status']> | null = null
     let bestUpdatedAt = -1
-    let bestStateStartedAt = -1
+    let bestStateStartedAt: number | null = null
     const consider = (
       state: AgentStatusEntry['state'] | undefined,
       updatedAt: number | null | undefined,
       restoredUnconfirmed = false,
-      stateStartedAt?: number | null
+      stateStartedAt?: number | null,
+      evidenceObservedAt?: number | null
     ): void => {
       if (!state || restoredUnconfirmed || typeof updatedAt !== 'number') {
         return
@@ -105,7 +106,10 @@ export class RuntimeAgentRowStore {
       if (updatedAt > bestUpdatedAt || (updatedAt === bestUpdatedAt && status === 'permission')) {
         bestStatus = status
         bestUpdatedAt = updatedAt
-        bestStateStartedAt = typeof stateStartedAt === 'number' ? stateStartedAt : updatedAt
+        bestStateStartedAt =
+          typeof stateStartedAt === 'number' && Number.isFinite(stateStartedAt)
+            ? Math.min(stateStartedAt, evidenceObservedAt ?? updatedAt)
+            : null
       }
     }
     if (args.paneKey) {
@@ -116,10 +120,19 @@ export class RuntimeAgentRowStore {
       if (row.terminalHandle !== args.handle && (!args.paneKey || row.paneKey !== args.paneKey)) {
         continue
       }
-      consider(row.state, row.receivedAt, row.restoredUnconfirmed, row.stateStartedAt)
+      // Replayed observations cannot create a new resume transition.
+      const transitionAt =
+        row.observation?.kind === 'snapshot' || row.observation?.kind === 'identity-only'
+          ? null
+          : row.stateStartedAt
+      consider(row.state, row.receivedAt, row.restoredUnconfirmed, transitionAt, row.evidenceObservedAt)
     }
     return bestStatus
-      ? { status: bestStatus, updatedAt: bestUpdatedAt, stateStartedAt: bestStateStartedAt }
+      ? {
+          status: bestStatus,
+          updatedAt: bestUpdatedAt,
+          stateStartedAt: bestStateStartedAt
+        }
       : null
   }
 }

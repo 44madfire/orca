@@ -167,8 +167,9 @@ export class OrcaRuntimeWithStopRequestedPtyIds extends OrcaRuntimeWithRuntimeId
     getLiveLeaf: (handle) => this.getLiveLeafForHandle(handle),
     getPrimaryLeaf: (ptyId) => this.getPrimaryLeafForPty(ptyId),
     getTabTitle: (tabId) => this.tabs.get(tabId)?.title ?? null,
-    getExplicitStatus: (handle) => this.getFreshExplicitAgentStatusForHandle(handle),
+    getExplicitStatus: (handle, ptyId) => this.getFreshExplicitAgentStatusForPty(handle, ptyId),
     getLifecycleStatus: (ptyId) => this.agentPromptLifecycleByPtyId.get(ptyId),
+    getLifecycleGeneration: (ptyId) => this.getPtyLifecycleGeneration(ptyId),
     isRunning: (handle) => this.isTerminalRunningAgent(handle)
   })
 

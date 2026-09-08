@@ -2,7 +2,6 @@
 import { OrcaRuntimeWithResolveExitWaiters } from './orca-runtime-resolve-exit-waiters'
 import type { RuntimeLeafRecord } from './runtime-terminal-state-records'
 import { formatMessagePointer } from './orchestration/formatter'
-import { isCursorAgentOrchestrationTarget } from './orca-runtime-core'
 
 export class OrcaRuntimeWithDeliverPendingMessages extends OrcaRuntimeWithResolveExitWaiters {
   // Why: normal delivery stays event-driven; the bounded mailbox retry only repairs missed liveness edges.
@@ -150,12 +149,6 @@ export class OrcaRuntimeWithDeliverPendingMessages extends OrcaRuntimeWithResolv
         pointedIdsAfterWrite.add(message.id)
       }
       this.pointedMessageIdsByHandle.set(mailboxHandle, pointedIdsAfterWrite)
-
-      const tabTitle = this.tabs.get(leaf.tabId)?.title
-      if (isCursorAgentOrchestrationTarget(leaf, tabTitle)) {
-        // Why: Cursor Agent treats injected PTY text as editable prompt input, so submitting must stay under user control.
-        return
-      }
 
       // Why: agent TUIs can swallow a \r in the same PTY write; submit separately after a delay.
       flight.enterTimer = setTimeout(() => {

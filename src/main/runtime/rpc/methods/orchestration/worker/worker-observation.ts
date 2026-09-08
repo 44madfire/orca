@@ -227,6 +227,7 @@ export function projectFleetWorkerPage(
   }
   const now = Date.now()
   return projectWorkerFleet({
+    db,
     rows,
     attentionFacts: db.getWorkerAttentionFactsForDispatches([dispatchId], now),
     statuses: runtime.getOrchestrationFleetAgentStatusSnapshot(),

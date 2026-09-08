@@ -122,6 +122,7 @@ export class OrcaRuntimeWithMaybeHydrateHeadlessFromRenderer extends OrcaRuntime
       const observedAt = this.nextTitleObservationSequence()
       pty.lastOscTitle = seededTitle
       pty.lastOscTitleAt = observedAt
+      pty.lastOscTitleEpochMs = null
       this.setPtyManagementTitleFromObservedTitle(pty, seededTitle, observedAt)
     }
     for (const leaf of this.getLeavesForPty(ptyId)) {
@@ -130,6 +131,7 @@ export class OrcaRuntimeWithMaybeHydrateHeadlessFromRenderer extends OrcaRuntime
       // title rather than treating the leaf as agentless.
       leaf.lastOscTitle = seededTitle
       leaf.lastOscTitleAt = this.nextTitleObservationSequence()
+      leaf.lastOscTitleEpochMs = null
       if (status !== null) {
         leaf.lastAgentStatus = status
       }

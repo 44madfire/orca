@@ -204,6 +204,7 @@ async function projectWorkerListPageWithFilteredSnapshot(
   )
   const statuses = runtime.getOrchestrationFleetAgentStatusSnapshot()
   const fleet = projectWorkerFleet({
+    db,
     rows: pageRows,
     attentionFacts,
     statuses,

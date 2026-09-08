@@ -6,6 +6,7 @@ import {
 import { resolveFleetWorkerOutcome } from '../../../../../../shared/orchestration-fleet-outcome-resolution'
 import type { WorkerTerminalListState } from '../../../../orchestration/worker-terminal-ownership'
 import type { OrchestrationDb } from '../../../../orchestration/db'
+import { applyStructuredWorkerObservations } from './worker-structured-observation'
 
 export type WorkerListPageParams = {
   run?: string
@@ -15,6 +16,7 @@ export type WorkerListPageParams = {
 }
 
 export function projectWorkerFleet(args: {
+  db: OrchestrationDb
   rows: ReturnType<OrchestrationDb['listWorkerTerminalResources']>
   attentionFacts: ReturnType<OrchestrationDb['getWorkerAttentionFactsForDispatches']>
   statuses: Parameters<typeof projectOrchestrationFleet>[0]['statuses']
@@ -48,14 +50,19 @@ export function projectWorkerFleet(args: {
     }
   })
   const durable = new Map(workers.map((worker) => [worker.dispatchId, worker]))
+  const project = (rows: FleetDurableWorker[], limit: number) => {
+    const page = projectOrchestrationFleet({
+      workers: rows,
+      statuses: args.statuses,
+      limit,
+      now: args.now
+    })
+    applyStructuredWorkerObservations(page.workers, durable, args.db, args.now)
+    return page
+  }
   if (!args.completeProjection) {
     return {
-      ...projectOrchestrationFleet({
-        workers,
-        statuses: args.statuses,
-        limit: args.limit,
-        now: args.now
-      }),
+      ...project(workers, args.limit),
       durable
     }
   }
@@ -63,12 +70,10 @@ export function projectWorkerFleet(args: {
   const projections: ReturnType<typeof projectOrchestrationFleet>['workers'] = []
   for (let offset = 0; offset < workers.length; offset += ORCHESTRATION_FLEET_PAGE_MAX) {
     projections.push(
-      ...projectOrchestrationFleet({
-        workers: workers.slice(offset, offset + ORCHESTRATION_FLEET_PAGE_MAX),
-        statuses: args.statuses,
-        limit: ORCHESTRATION_FLEET_PAGE_MAX,
-        now: args.now
-      }).workers
+      ...project(
+        workers.slice(offset, offset + ORCHESTRATION_FLEET_PAGE_MAX),
+        ORCHESTRATION_FLEET_PAGE_MAX
+      ).workers
     )
   }
   return {

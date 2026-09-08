@@ -8,6 +8,7 @@ import {
 } from './runs/run-coordinator-mail-routing'
 import { createTables } from './schema/create-tables'
 import { migrate } from './schema/migrate'
+import { mailboxReservations } from './messages/mailbox-reservation-projection'
 
 class OrchestrationDbCore {
   db: Database.Database
@@ -31,9 +32,11 @@ class OrchestrationDbCore {
     createCoordinatorMailRoutingTrigger.call(this as unknown as OrchestrationDb)
     rememberCurrentRunCoordinatorHandles.call(this as unknown as OrchestrationDb)
     hardenOrchestrationDatabaseFiles(dbPath)
+    mailboxReservations(this as unknown as OrchestrationDb)
   }
 
   close(): void {
+    mailboxReservations(this as unknown as OrchestrationDb).close()
     this.db.close()
   }
 }

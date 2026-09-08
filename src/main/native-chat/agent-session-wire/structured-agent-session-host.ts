@@ -161,6 +161,10 @@ export class StructuredAgentSessionHost {
   private now = (): number => this.deps.now?.() ?? Date.now()
 
   hasSession = (sessionId: string): boolean => this.sessions.has(sessionId)
+  hasProviderChild = (sessionId: string, runtimeFence: number): boolean => {
+    const session = this.sessions.get(sessionId)
+    return session?.hasProviderChild === true && session.fence === runtimeFence
+  }
   isHeld = (sessionId: string): boolean => this.holds.isHeld(sessionId)
 
   /** A surface bound to this session and wants it live. The FIRST hold on a session with no
@@ -327,8 +331,6 @@ export class StructuredAgentSessionHost {
   history: StructuredAgentSessionBackgroundTaskChannel['history'] = (request) =>
     this.backgroundTasks.history(request)
 
-  /** The fully reduced timeline, for readers that cannot tolerate a page's ambiguity — a settled
-   *  turn is tombstoned, so an item's ABSENCE from a bounded page proves nothing. */
   journalSnapshot = (sessionId: string): AgentJournalSnapshot =>
     this.requireSession(sessionId).journal.snapshot()
 
@@ -342,7 +344,6 @@ export class StructuredAgentSessionHost {
     this.backgroundTasks.publish(...args)
   unsubscribe = (sessionId: string, id: string): void => this.subscribers.close(sessionId, id)
 
-  /** Every session's projected status for session lists; unlike `subscribe`, retains nothing. */
   subscribeStatus: StructuredAgentSessionStatusFeed['subscribe'] = (subscriber) =>
     this.statusFeed.subscribe(subscriber)
 

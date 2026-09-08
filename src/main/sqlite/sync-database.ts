@@ -39,6 +39,23 @@ function loadDatabaseSync(): typeof DatabaseSync {
 class SyncDatabase {
   private readonly db: DatabaseSync
   private readonly statementCache = new Map<string, StatementSync>()
+  private readonly executionObservers = new Set<() => void>()
+
+  observeExecution(observer: () => void): () => void {
+    this.executionObservers.add(observer)
+    this.statementCache.clear()
+    return () => this.executionObservers.delete(observer)
+  }
+
+  function(name: string, callback: () => number): void {
+    this.db.function(name, callback)
+  }
+
+  private didExecute(): void {
+    for (const observer of this.executionObservers) {
+      observer()
+    }
+  }
 
   constructor(path: SqlitePath, options: SyncDatabaseOptions = {}) {
     if (
@@ -61,7 +78,11 @@ class SyncDatabase {
     if (SCHEMA_CHANGING_SQL.test(sql)) {
       this.statementCache.clear()
     }
-    this.db.exec(sql)
+    try {
+      this.db.exec(sql)
+    } finally {
+      this.didExecute()
+    }
   }
 
   prepare(sql: string): StatementSync {
@@ -71,7 +92,40 @@ class SyncDatabase {
       this.statementCache.set(sql, cached)
       return cached
     }
-    const statement = this.db.prepare(sql)
+    const native = this.db.prepare(sql)
+    const statement =
+      this.executionObservers.size === 0
+        ? native
+        : new Proxy(native, {
+            get: (target, property) => {
+              const value = Reflect.get(target, property, target)
+              if (typeof value !== 'function') {
+                return value
+              }
+              if (property === 'iterate') {
+                return (...args: unknown[]) => {
+                  const iterator = value.apply(target, args)
+                  const didExecute = () => this.didExecute()
+                  return (function* () {
+                    try {
+                      yield* iterator
+                    } finally {
+                      didExecute()
+                    }
+                  })()
+                }
+              }
+              return (...args: unknown[]) => {
+                try {
+                  return value.apply(target, args)
+                } finally {
+                  if (property === 'run' || property === 'get' || property === 'all') {
+                    this.didExecute()
+                  }
+                }
+              }
+            }
+          })
     if (isStatementCacheable(sql)) {
       if (this.statementCache.size >= STATEMENT_CACHE_LIMIT) {
         const oldest = this.statementCache.keys().next().value
@@ -101,6 +155,7 @@ class SyncDatabase {
   }
 
   close(): void {
+    this.executionObservers.clear()
     this.statementCache.clear()
     this.db.close()
   }

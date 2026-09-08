@@ -40,6 +40,7 @@ export type RuntimeLeafRecord = RuntimeSyncedLeaf &
     lastAgentStatusObservedLive: boolean
     lastOscTitle: string | null
     lastOscTitleAt: number | null
+    lastOscTitleEpochMs?: number | null
     paneTitleUpdatedAt: number | null
   }
 

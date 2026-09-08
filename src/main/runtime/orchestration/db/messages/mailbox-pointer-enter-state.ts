@@ -1,6 +1,7 @@
 import type { MessageRow } from '../../types'
 import type { OrchestrationDb } from '../orchestration-db'
 import { ORCHESTRATION_DELIVERY_BATCH_LIMIT } from './mailbox-routing-page'
+import { hasMailboxReservation } from './mailbox-reservation-projection'
 
 export const MAILBOX_POINTER_RESERVED = 1
 export const MAILBOX_POINTER_WRITE_ATTEMPTED = 2
@@ -154,7 +155,14 @@ export function releaseMailboxPointerEnter(
   }))
 }
 
-export function releasePendingMailboxPointerForPty(this: OrchestrationDb, ptyId: string): void {
+export function releasePendingMailboxPointerForPty(
+  this: OrchestrationDb,
+  ptyId: string,
+  processIncarnation?: string
+): void {
+  if (!hasMailboxReservation(this, ptyId)) {
+    return
+  }
   this.db
     .prepare(
       `UPDATE messages
@@ -165,9 +173,14 @@ export function releasePendingMailboxPointerForPty(this: OrchestrationDb, ptyId:
            END,
            pointer_enter_pending = 0, pointer_pty_id = NULL,
            pointer_process_incarnation = NULL
-       WHERE pointer_enter_pending > 0 AND pointer_pty_id = ?`
+       WHERE pointer_enter_pending > 0 AND pointer_pty_id = ?
+         ${processIncarnation === undefined ? '' : 'AND pointer_process_incarnation = ?'}`
     )
-    .run(MAILBOX_POINTER_RESERVED, ptyId)
+    .run(
+      MAILBOX_POINTER_RESERVED,
+      ptyId,
+      ...(processIncarnation === undefined ? [] : [processIncarnation])
+    )
 }
 
 function mutatePointerMessages(

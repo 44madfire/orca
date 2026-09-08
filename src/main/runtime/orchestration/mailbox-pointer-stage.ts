@@ -1,4 +1,4 @@
-import { isCursorAgentTitle } from '../../../shared/agent-detection'
+import { mailboxReservations } from './db/messages/mailbox-reservation-projection'
 import { formatMessagePointer } from './formatter'
 import type {
   OrchestrationMailboxPointerMessage,
@@ -9,9 +9,10 @@ import {
   type OrchestrationMessageWaiter
 } from './mailbox-pointer-eligibility'
 import type { OrchestrationMailboxLeaf } from './mailbox-owner'
-import type {
-  OrchestrationMailboxDeliveryFlight,
-  OrchestrationMailboxPointerState
+import {
+  getMailboxPointerFlightDb,
+  type OrchestrationMailboxDeliveryFlight,
+  type OrchestrationMailboxPointerState
 } from './mailbox-pointer-state'
 import { submitOrchestrationMailboxPointer } from './mailbox-pointer-submit'
 import type { OrchestrationMailboxPointerSubmitTarget } from './mailbox-pointer-submit'
@@ -58,6 +59,12 @@ export function stageOrchestrationMailboxPointer<TWaiter extends OrchestrationMe
     return
   }
   const flight = args.state.beginFlight(ptyId)
+  flight.reservation = {
+    db,
+    connection: db.db,
+    generation: mailboxReservations(db).generation,
+    processIncarnation: expectedTarget.processIncarnation
+  }
   flight.stagedMessageIds = args.messages.map((message) => message.id)
   try {
     if (
@@ -123,9 +130,19 @@ function finishPointerWriteAndStageEnter<TWaiter extends OrchestrationMessageWai
     if (!args.state.isCurrentFlight(ptyId, flight)) {
       return
     }
-    const db = args.deps.getDb()
+    const db = getMailboxPointerFlightDb(flight, args.deps.getDb)
+    if (!db) {
+      return
+    }
     if (settlement.outcome === 'refused') {
-      db?.markAsUndelivered(flight.stagedMessageIds)
+      db.releaseMailboxPointerEnter(
+        flight.stagedMessageIds,
+        {
+          ptyId,
+          processIncarnation: expectedTarget.processIncarnation
+        },
+        [2]
+      )
       if (args.state.clearWatermark(args.mailboxHandle, args.newestSequence, ptyId)) {
         // A delivery parked behind this watermark has to drain now that it is gone.
         args.redrive(args.mailboxHandle)
@@ -144,16 +161,6 @@ function finishPointerWriteAndStageEnter<TWaiter extends OrchestrationMessageWai
       if (args.state.clearWatermark(args.mailboxHandle, args.newestSequence, ptyId)) {
         args.redrive(args.mailboxHandle)
       }
-      return
-    }
-    if (
-      [args.leaf.lastOscTitle, args.leaf.paneTitle, args.deps.getTabTitle(args.leaf.tabId)].some(
-        isCursorAgentTitle
-      )
-    ) {
-      db.markAsDelivered(flight.stagedMessageIds)
-      args.state.clearWatermark(args.mailboxHandle, args.newestSequence, ptyId)
-      args.redrive(args.mailboxHandle)
       return
     }
     const submitEnter = (): void =>

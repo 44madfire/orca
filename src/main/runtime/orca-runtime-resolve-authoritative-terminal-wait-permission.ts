@@ -3,8 +3,7 @@ import { OrcaRuntimeWithAgentPromptRequestCorrelation } from './orca-runtime-age
 import type { RuntimeTerminalAgentStatusSnapshot } from './runtime-terminal-agent-status-query'
 import type { AgentStatus } from '../../shared/agent-detection'
 import type { RuntimeTerminalWaitBlockedReason } from '../../shared/runtime-types'
-import { detectTerminalWaitBlockedReason } from './terminal-wait-detection'
-import { isOpenCodeNativeTitle } from '../../shared/agent-detection'
+import { selectTerminalWaitPermissionEvidence } from './runtime-terminal-agent-status-evidence'
 import type { AgentStatusEntry } from '../../shared/agent-status-types'
 import type { RuntimePtyWorktreeRecord } from './runtime-terminal-state-records'
 import { renewRuntimeMobileAgentStatusFromPtyTitle } from './runtime-mobile-agent-status-projection'
@@ -22,32 +21,7 @@ export class OrcaRuntimeWithResolveAuthoritativeTerminalWaitPermission extends O
     explicitStatus: { status: AgentStatus; updatedAt: number } | null,
     lifecycle: { status: AgentStatus | null; updatedAt: number } | null | undefined
   ): RuntimeTerminalWaitBlockedReason | null {
-    const blockedByWaitText = detectTerminalWaitBlockedReason(terminal.waitText)
-    if (!blockedByWaitText) {
-      return null
-    }
-    const liveTitleClearsBlockedText =
-      terminal.titleStatusIsLive &&
-      terminal.titleStatus !== null &&
-      terminal.titleStatus !== 'permission' &&
-      !isOpenCodeNativeTitle(terminal.title) &&
-      blockedByWaitText !== 'agent-approval-prompt'
-    if (liveTitleClearsBlockedText && lifecycle?.status !== terminal.titleStatus) {
-      return null
-    }
-    if (blockedByWaitText === 'agent-approval-prompt') {
-      return blockedByWaitText
-    }
-    const newestPermissionAt = Math.max(
-      explicitStatus?.status === 'permission' ? explicitStatus.updatedAt : -1,
-      lifecycle?.status === 'permission' ? lifecycle.updatedAt : -1,
-      terminal.waitBlockedAt ?? -1
-    )
-    const newestClearAt = Math.max(
-      explicitStatus && explicitStatus.status !== 'permission' ? explicitStatus.updatedAt : -1,
-      lifecycle?.status && lifecycle.status !== 'permission' ? lifecycle.updatedAt : -1
-    )
-    return newestPermissionAt >= 0 && newestPermissionAt >= newestClearAt ? blockedByWaitText : null
+    return selectTerminalWaitPermissionEvidence(terminal, explicitStatus, lifecycle)?.reason ?? null
   }
 
   renewMobileAgentStatusFromPtyTitle(

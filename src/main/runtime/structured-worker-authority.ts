@@ -14,6 +14,7 @@ import type { OrchestrationDb } from './orchestration/db'
 import {
   isStructuredWorkerHandle,
   structuredWorkerIdentities,
+  structuredWorkerHostScope,
   structuredWorkerRecordIsCurrent,
   type StructuredWorkerIdentity
 } from './structured-worker-identity'
@@ -114,6 +115,9 @@ export function observeStructuredWorker(
   if (!record) {
     return { status: 'unverifiable', reason: 'No durable record backs this structured session.' }
   }
+  if (!structuredWorkerHostScope(record.location)) {
+    return { status: 'unverifiable', reason: 'The session belongs to another execution host.' }
+  }
   if (record.lease.claimStatus === 'released' && record.lease.deathEvidence) {
     return { status: 'exited' }
   }
@@ -123,7 +127,10 @@ export function observeStructuredWorker(
       reason: 'The session lease is held by a terminal owner, not this structured host.'
     }
   }
-  if (host.hasSession(identity.sessionId) && record.lease.claimStatus === 'live') {
+  if (
+    record.lease.claimStatus === 'live' &&
+    host.hasProviderChild(identity.sessionId, record.lease.runtimeFence)
+  ) {
     return { status: 'live' }
   }
   return {

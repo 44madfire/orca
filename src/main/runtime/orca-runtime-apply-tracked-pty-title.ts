@@ -25,6 +25,7 @@ export class OrcaRuntimeWithApplyTrackedPtyTitle extends OrcaRuntimeWithGetUnper
     const identityOnlyTitle = this.isLiveCursorNativeTitle(rawTitle, meta)
     const recordedTitle = identityOnlyTitle ? null : normalizedTitle
     const agentStatus = identityOnlyTitle ? null : detectAgentStatusFromTitle(rawTitle)
+    const observedAtEpochMs = identityOnlyTitle ? null : Date.now()
     this.recordAgentPromptLifecycleState(ptyId, agentStatus)
     let ptyRecordChanged = false
     const pty = this.ptysById.get(ptyId)
@@ -32,7 +33,6 @@ export class OrcaRuntimeWithApplyTrackedPtyTitle extends OrcaRuntimeWithGetUnper
       const prevStatus = pty.lastAgentStatus
       const prevTitle = pty.lastOscTitle
       const observedAt = this.nextTitleObservationSequence()
-      const observedAtEpochMs = identityOnlyTitle ? null : Date.now()
       pty.lastOscTitle = recordedTitle
       pty.lastOscTitleAt = identityOnlyTitle ? null : observedAt
       pty.lastOscTitleEpochMs = observedAtEpochMs
@@ -97,6 +97,7 @@ export class OrcaRuntimeWithApplyTrackedPtyTitle extends OrcaRuntimeWithGetUnper
       const prevObservedLive = leaf.lastAgentStatusObservedLive
       leaf.lastOscTitle = recordedTitle
       leaf.lastOscTitleAt = identityOnlyTitle ? null : this.nextTitleObservationSequence()
+      leaf.lastOscTitleEpochMs = observedAtEpochMs
       // Why: when a new OSC title doesn't classify as an agent state (e.g.
       // bare shell title after the agent exits), clear lastAgentStatus so
       // it is no longer sticky. Tui-idle waiters that needed the previous
@@ -168,6 +169,7 @@ export class OrcaRuntimeWithApplyTrackedPtyTitle extends OrcaRuntimeWithGetUnper
     for (const leaf of this.getLeavesForPty(ptyId)) {
       leaf.lastOscTitle = null
       leaf.lastOscTitleAt = null
+      leaf.lastOscTitleEpochMs = null
       leaf.lastAgentStatus = null
       leaf.lastAgentStatusObservedLive = false
       leaf.waitBlockedAt = null

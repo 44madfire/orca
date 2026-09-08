@@ -1,7 +1,5 @@
 import {
   detectAgentStatusFromTitle,
-  isOpenCodeNativeTitle,
-  isQuarterCircleSpinnerOnlyAgentTitle,
   isShellProcess,
   type AgentStatus
 } from '../../shared/agent-detection'
@@ -13,7 +11,7 @@ import {
   terminalTitleBlocksExplicitAgentStatus,
   getLatestAgentCandidateTitleInfo
 } from './runtime-worktree-status-projection'
-import { detectTerminalWaitBlockedReason } from './terminal-wait-detection'
+import { selectTerminalAgentStatusEvidence } from './runtime-terminal-agent-status-evidence'
 import { getTerminalState } from './terminal-wait-results'
 import { buildTerminalWaitText } from './terminal-wait-tail-state'
 
@@ -23,6 +21,8 @@ export type RuntimeTerminalAgentStatusSnapshot = {
   title: string | null
   titleStatus: AgentStatus | null
   titleStatusIsLive: boolean
+  /** Local receipt time, absent when the selected title has no matching OSC observation. */
+  titleUpdatedAt?: number | null
 }
 
 type Dependencies = {
@@ -32,30 +32,41 @@ type Dependencies = {
   getPrimaryLeaf(ptyId: string): RuntimeLeafRecord | null
   getTabTitle(tabId: string): string | null
   getExplicitStatus(
-    handle: string
-  ): { status: NonNullable<RuntimeTerminalAgentStatus['status']>; updatedAt: number } | null
+    handle: string,
+    ptyId: string
+  ): {
+    status: NonNullable<RuntimeTerminalAgentStatus['status']>
+    updatedAt: number
+    stateStartedAt?: number | null
+  } | null
   getLifecycleStatus(
     ptyId: string
   ): { status: AgentStatus | null; updatedAt: number } | null | undefined
+  getLifecycleGeneration?(ptyId: string): number
   isRunning(handle: string): Promise<boolean>
 }
 
 export class RuntimeTerminalAgentStatusQuery {
-  private readonly inFlight = new Map<string, Promise<RuntimeTerminalAgentStatus>>()
+  private readonly inFlight = new Map<
+    string,
+    { ptyId: string; generation: number | undefined; request: Promise<RuntimeTerminalAgentStatus> }
+  >()
 
   constructor(private readonly deps: Dependencies) {}
 
   async getStatus(handle: string): Promise<RuntimeTerminalAgentStatus> {
+    const ptyId = this.getPtyId(handle)
+    const generation = this.deps.getLifecycleGeneration?.(ptyId)
     const existing = this.inFlight.get(handle)
-    if (existing) {
-      return existing
+    if (existing?.ptyId === ptyId && existing.generation === generation) {
+      return existing.request
     }
     const request = this.readStatus(handle)
-    this.inFlight.set(handle, request)
+    this.inFlight.set(handle, { ptyId, generation, request })
     try {
       return await request
     } finally {
-      if (this.inFlight.get(handle) === request) {
+      if (this.inFlight.get(handle)?.request === request) {
         this.inFlight.delete(handle)
       }
     }
@@ -63,70 +74,24 @@ export class RuntimeTerminalAgentStatusQuery {
 
   private async readStatus(handle: string): Promise<RuntimeTerminalAgentStatus> {
     const ptyId = this.getPtyId(handle)
+    const generation = this.deps.getLifecycleGeneration?.(ptyId)
     const terminal = this.getSnapshot(handle, ptyId)
-    const explicitStatus = this.deps.getExplicitStatus(handle)
+    const explicitStatus = this.deps.getExplicitStatus(handle, ptyId)
     const lifecycle = this.deps.getLifecycleStatus(ptyId)
-    const blockedByWaitText = detectTerminalWaitBlockedReason(terminal.waitText)
-    const liveTitleClearsBlockedText =
-      terminal.titleStatusIsLive &&
-      terminal.titleStatus !== null &&
-      terminal.titleStatus !== 'permission' &&
-      !isOpenCodeNativeTitle(terminal.title) &&
-      blockedByWaitText !== 'agent-approval-prompt'
-    const newestPermissionAt = Math.max(
-      explicitStatus?.status === 'permission' ? explicitStatus.updatedAt : -1,
-      lifecycle?.status === 'permission' ? lifecycle.updatedAt : -1,
-      terminal.waitBlockedAt ?? -1
-    )
-    const newestClearAt = Math.max(
-      explicitStatus && explicitStatus.status !== 'permission' ? explicitStatus.updatedAt : -1,
-      lifecycle?.status && lifecycle.status !== 'permission' ? lifecycle.updatedAt : -1
-    )
-    if (terminal.titleStatus === 'permission' && terminal.titleStatusIsLive) {
-      return { handle, isRunningAgent: true, status: 'permission' }
-    }
-    if (
-      blockedByWaitText &&
-      (!liveTitleClearsBlockedText || lifecycle?.status === terminal.titleStatus) &&
-      (blockedByWaitText === 'agent-approval-prompt' ||
-        (newestPermissionAt >= 0 && newestPermissionAt >= newestClearAt))
-    ) {
-      return { handle, isRunningAgent: true, status: 'permission' }
-    }
-    if (explicitStatus) {
-      // Why: permission titles can linger after hooks report the agent resumed.
-      // Fresh hook state is tighter, but current shell/management evidence wins.
-      const isRunningAgent =
+    const evidence = selectTerminalAgentStatusEvidence(terminal, explicitStatus, lifecycle)
+    let isRunningAgent = true
+    if (evidence.corroboration === 'shell') {
+      isRunningAgent =
         !terminalTitleBlocksExplicitAgentStatus(terminal.title) &&
         !(await this.terminalHasShellForegroundProcess(handle, ptyId))
-      this.assertTerminalAgentStatusPtyBinding(handle, ptyId)
-      return {
-        handle,
-        isRunningAgent,
-        status: isRunningAgent ? explicitStatus.status : null
-      }
+    } else if (evidence.corroboration === 'agent') {
+      isRunningAgent = await this.deps.isRunning(handle)
     }
-    if (terminal.titleStatus) {
-      // Why: an OpenCode marker and a lone quarter-circle spinner (STA-4028) are activity,
-      // not identity, so resolve both through the identity/foreground evidence path.
-      if (
-        isOpenCodeNativeTitle(terminal.title) ||
-        isQuarterCircleSpinnerOnlyAgentTitle(terminal.title)
-      ) {
-        const isRunningAgent = await this.deps.isRunning(handle)
-        this.assertTerminalAgentStatusPtyBinding(handle, ptyId)
-        return {
-          handle,
-          isRunningAgent,
-          status: isRunningAgent ? terminal.titleStatus : null
-        }
-      }
-      return { handle, isRunningAgent: true, status: terminal.titleStatus }
-    }
-
-    const isRunningAgent = await this.deps.isRunning(handle)
     this.assertTerminalAgentStatusPtyBinding(handle, ptyId)
-    return { handle, isRunningAgent, status: null }
+    if (this.deps.getLifecycleGeneration?.(ptyId) !== generation) {
+      throw new Error('terminal_handle_stale')
+    }
+    return { handle, isRunningAgent, status: isRunningAgent ? evidence.status : null }
   }
 
   getPtyId(handle: string): string {
@@ -156,16 +121,7 @@ export class RuntimeTerminalAgentStatusQuery {
     throw new Error('terminal_handle_stale')
   }
 
-  getSnapshot(
-    handle: string,
-    expectedPtyId: string
-  ): {
-    waitText: string
-    waitBlockedAt: number | null
-    title: string | null
-    titleStatus: AgentStatus | null
-    titleStatusIsLive: boolean
-  } {
+  getSnapshot(handle: string, expectedPtyId: string): RuntimeTerminalAgentStatusSnapshot {
     const pty = this.deps.getLivePty(handle)
     if (pty) {
       if (!pty.pty.connected || pty.pty.ptyId !== expectedPtyId) {
@@ -173,16 +129,24 @@ export class RuntimeTerminalAgentStatusQuery {
       }
       const leaf = this.deps.getPrimaryLeaf(pty.pty.ptyId)
       const leafTitle = leaf
-        ? getLatestAgentCandidateTitleInfo(
+        ? getLatestTitleEvidence(
             { title: leaf.paneTitle, updatedAt: leaf.paneTitleUpdatedAt },
-            { title: leaf.lastOscTitle, updatedAt: leaf.lastOscTitleAt }
+            {
+              title: leaf.lastOscTitle,
+              updatedAt: leaf.lastOscTitleAt,
+              receivedAt: leaf.lastOscTitleEpochMs
+            }
           )
         : null
       const ptyTitle =
         leafTitle ??
-        getLatestAgentCandidateTitleInfo(
+        getLatestTitleEvidence(
           { title: pty.pty.title, updatedAt: pty.pty.titleUpdatedAt },
-          { title: pty.pty.lastOscTitle, updatedAt: pty.pty.lastOscTitleAt }
+          {
+            title: pty.pty.lastOscTitle,
+            updatedAt: pty.pty.lastOscTitleAt,
+            receivedAt: pty.pty.lastOscTitleEpochMs
+          }
         )
       const waitText = buildTerminalWaitText(
         pty.pty.tailBuffer,
@@ -193,6 +157,7 @@ export class RuntimeTerminalAgentStatusQuery {
         waitText,
         waitBlockedAt: pty.pty.waitBlockedAt,
         title: ptyTitle?.title ?? null,
+        titleUpdatedAt: ptyTitle?.receivedAt ?? null,
         titleStatus: ptyTitle
           ? detectAgentStatusFromTitle(ptyTitle.title)
           : pty.pty.lastAgentStatus,
@@ -210,15 +175,20 @@ export class RuntimeTerminalAgentStatusQuery {
     if (leaf.ptyId !== expectedPtyId) {
       throw new Error('terminal_not_writable')
     }
-    const title = getLatestAgentCandidateTitleInfo(
+    const title = getLatestTitleEvidence(
       { title: leaf.paneTitle, updatedAt: leaf.paneTitleUpdatedAt },
-      { title: leaf.lastOscTitle, updatedAt: leaf.lastOscTitleAt },
+      {
+        title: leaf.lastOscTitle,
+        updatedAt: leaf.lastOscTitleAt,
+        receivedAt: leaf.lastOscTitleEpochMs
+      },
       { title: this.deps.getTabTitle(leaf.tabId), updatedAt: 0 }
     )
     return {
       waitText: buildTerminalWaitText(leaf.tailBuffer, leaf.tailPartialLine, leaf.preview),
       waitBlockedAt: leaf.waitBlockedAt,
       title: title?.title ?? null,
+      titleUpdatedAt: title?.receivedAt ?? null,
       titleStatus: title ? detectAgentStatusFromTitle(title.title) : leaf.lastAgentStatus,
       titleStatusIsLive: (title?.updatedAt ?? 0) > 0
     }
@@ -256,4 +226,22 @@ export class RuntimeTerminalAgentStatusQuery {
     // prove that some recognized agent still owns this exact PTY.
     return recognizeAgentProcess(confirmedProcess) === null
   }
+}
+
+function getLatestTitleEvidence(
+  ...candidates: {
+    title: string | null | undefined
+    updatedAt: number | null | undefined
+    receivedAt?: number | null
+  }[]
+): { title: string; updatedAt: number; receivedAt: number | null } | null {
+  const latest = getLatestAgentCandidateTitleInfo(...candidates)
+  if (!latest) {
+    return null
+  }
+  // Preserve the selected observation's clock; identical title text is not observation identity.
+  const selected = candidates.find(
+    (candidate) => candidate.title?.trim() && (candidate.updatedAt ?? 0) === latest.updatedAt
+  )
+  return { ...latest, receivedAt: selected?.receivedAt ?? null }
 }

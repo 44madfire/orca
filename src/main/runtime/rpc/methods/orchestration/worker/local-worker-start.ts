@@ -211,7 +211,7 @@ export async function startLocalWorker(args: {
 
     failedStage = 'agent_readiness'
     // A structured session is ready the moment its attach returns ok: there is no boot-to-idle
-    // gap and no terminal title to read an idle edge from.
+    // gap and no shared live-status edge to consume.
     if (!structuredSession) {
       const wait = await runtime.waitForTerminal(terminalHandle, {
         condition: 'tui-idle',

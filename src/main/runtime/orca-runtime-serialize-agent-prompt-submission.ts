@@ -179,7 +179,7 @@ export class OrcaRuntimeWithSerializeAgentPromptSubmission extends OrcaRuntimeWi
   ): {
     status: NonNullable<RuntimeTerminalAgentStatus['status']>
     updatedAt: number
-    stateStartedAt: number
+    stateStartedAt: number | null
   } | null {
     return this.agentRows.getFreshExplicit({
       handle,

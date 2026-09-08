@@ -6,6 +6,7 @@ import type {
   RuntimeTerminalInteractiveWait
 } from '../../shared/runtime-types'
 import type { RuntimeTerminalAgentStatusSnapshot } from './runtime-terminal-agent-status-query'
+import { selectTerminalAgentStatusEvidence } from './runtime-terminal-agent-status-evidence'
 import { withTimeout } from './runtime-async-boundaries'
 import { TERMINAL_INTERACTIVE_WAIT_PROBE_TIMEOUT_MS } from './orca-runtime-core'
 import { parsePaneKey } from '../../shared/stable-pane-id'
@@ -27,7 +28,7 @@ export class OrcaRuntimeWithGetTerminalInteractiveWait extends OrcaRuntimeWithAd
     } catch {
       return undefined
     }
-    const explicitStatus = this.getFreshExplicitAgentStatusForHandle(handle)
+    const explicitStatus = this.getFreshExplicitAgentStatusForPty(handle, ptyId)
     const promptReason = this.resolveAuthoritativeTerminalWaitPermission(
       terminal,
       explicitStatus,
@@ -40,7 +41,16 @@ export class OrcaRuntimeWithGetTerminalInteractiveWait extends OrcaRuntimeWithAd
         ...(terminal.waitBlockedAt !== null ? { since: terminal.waitBlockedAt } : {})
       }
     }
-    if (terminal.titleStatus === 'permission' && terminal.titleStatusIsLive) {
+    const evidence = selectTerminalAgentStatusEvidence(
+      terminal,
+      explicitStatus,
+      this.agentPromptLifecycleByPtyId.get(ptyId)
+    )
+    if (
+      evidence.source === 'title' &&
+      evidence.status === 'permission' &&
+      terminal.titleStatusIsLive
+    ) {
       return { source: 'title' }
     }
     if (explicitStatus?.status !== 'permission') {
