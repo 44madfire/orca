@@ -18721,7 +18721,7 @@
         "https://github.com/stablyai/orca/pull/16904"
       ],
       "invariant": "A PTY id is certified exited only by the relay that owned the record and watched the process end: node-pty's onExit, or a pid probe that answered ESRCH. Every other disappearance of a record - a shutdown that stopped waiting for an uninterruptible child, the torn-down-record sweep, an evicted or forgotten observation, an id this relay never held, a revive in flight, a record mid-teardown, and a host too old to answer - is unverifiable, and recovery defers instead of retiring the worker.",
-      "oracle": "The relay probe answers live/exited/unknown for each of those states directly. The provider maps only live and exited, and maps a JSON-RPC -32601 rejection to null with no capability handshake. At the recovery seam, an observed exit converges to an exited resolution that releases the Task, while the shutdown-timeout case (with and without a sibling kill failure) and the old-relay case produce no resolution and a deferred dispatch, with a real orchestration DB refusing Task reuse.",
+      "oracle": "The relay probe answers live/exited/unverifiable for each of those states directly, and binds the answer to one incarnation: admission under a reused id clears the prior observation, and only the incarnation that currently owns the id may record one, including a callback that arrives after teardown removed the record. The provider maps only live and exited, and maps a JSON-RPC -32601 rejection to null with no capability handshake. At the recovery seam, an observed exit converges to an exited resolution that releases the Task, while the shutdown-timeout case (with and without a sibling kill failure) and the old-relay case produce no resolution and a deferred dispatch, with a real orchestration DB refusing Task reuse.",
       "commands": [
         "ORCA_BACKGROUND_LAUNCH=1 node_modules/.bin/vitest run --config config/vitest.config.ts src/relay/pty-handler-liveness-probe.test.ts src/relay/pty-handler-ssh-exit-certification.test.ts src/relay/pty-handler-ssh-recovery-convergence.test.ts src/main/providers/ssh-pty-liveness-probe.test.ts src/main/providers/ssh-pty-provider-liveness-readback.test.ts src/main/runtime/runtime-legacy-worker-terminal-exit-certification.test.ts"
       ],
@@ -18738,9 +18738,12 @@
           "file": "src/relay/pty-handler-liveness-probe.test.ts",
           "assertions": [
             "separates a real exit from a teardown removal in the same shutdown",
+            "certifies an exit node-pty reported after the shutdown wait had given up",
             "stays unverifiable after the listing sweeps a torn-down record away",
             "stays unverifiable while a revive holds the id, and answers for the new record after",
-            "forgets its oldest observation at the ledger cap instead of growing without bound",
+            "does not certify a revived process with the exit of the one it replaced",
+            "does not let a superseded incarnation certify the id once both records are gone",
+            "evicts observations in the order it made them, not the order it was asked",
             "forgets every observation when the relay restarts, even under the same mint epoch"
           ]
         },
@@ -18748,6 +18751,8 @@
           "file": "src/relay/pty-handler-ssh-recovery-convergence.test.ts",
           "assertions": [
             "recovers a worker after the connected relay observed its physical exit while the client was absent",
+            "recovers a worker whose exit the relay observed after its shutdown wait gave up",
+            "does not retire a revived worker with the exit of the process it replaced",
             "does not certify an unexited shutdown record; sibling kill failure=%s"
           ]
         },
@@ -18755,7 +18760,9 @@
           "file": "src/relay/pty-handler-ssh-exit-certification.test.ts",
           "assertions": [
             "does not certify exit after shutdown bookkeeping removes an unexited PTY",
-            "keeps missing shutdown records unverifiable when another failed kill leaves the relay serving"
+            "keeps missing shutdown records unverifiable when another failed kill leaves the relay serving",
+            "publishes nothing that names the generation which minted its PTY ids",
+            "leaves a shutdown-removed id unverifiable for a client that infers from listings"
           ]
         },
         {
@@ -18782,13 +18789,13 @@
           "platform": "macos",
           "command": "ORCA_BACKGROUND_LAUNCH=1 node_modules/.bin/vitest run --config config/vitest.config.ts src/relay/pty-handler-liveness-probe.test.ts src/relay/pty-handler-ssh-exit-certification.test.ts src/relay/pty-handler-ssh-recovery-convergence.test.ts src/main/providers/ssh-pty-liveness-probe.test.ts src/main/providers/ssh-pty-provider-liveness-readback.test.ts src/main/runtime/runtime-legacy-worker-terminal-exit-certification.test.ts",
           "result": "passed",
-          "durationSeconds": 1.43,
-          "summary": "6 files, 47 tests passed. The convergence file fails 1/3 without the owner readback; six mutations of the probe and its forwarder each fail at least one of these tests."
+          "durationSeconds": 1.27,
+          "summary": "6 files, 56 tests passed. The convergence file fails 1/3 without the owner readback; twelve mutations of the probe, its incarnation binding, the published capabilities, the bounded map and the forwarder each fail at least one of these tests."
         }
       ],
       "runtimeBudget": {
         "p95Seconds": 30,
-        "scope": "Six unit/service-level files; the ledger-eviction case drives 4,097 spawn-and-exit cycles through the real handler and dominates the run at roughly 0.8 s."
+        "scope": "Six unit/service-level files; the ledger-eviction case drives 4,097 spawn-and-exit cycles through the real handler and reads the oldest entry before the overflow and dominates the run at roughly 0.8 s."
       },
       "flakeHistory": {
         "status": "not-started",
@@ -18796,7 +18803,7 @@
       },
       "redGreenEvidence": {
         "status": "complete",
-        "evidence": "Red: the archived round-3 reproduction failed 1/3 at head 0be1813781 with an empty resolution list, and the round-2 reproduction failed 2/4 against the removed client-side epoch inference. Green at this head. Six independent mutations (record in the shared reap, dropped disposed check, dropped pending-revive check, absent-record-as-exited, provider unknown-as-exited, provider rejection-as-exited) each fail a checked-in test."
+        "evidence": "Red: the archived round-3 reproduction failed 1/3 at head 0be1813781 with an empty resolution list, and the round-2 reproduction failed 2/4 against the removed client-side epoch inference. The round-4 review reproduced three more at head 03af416c38 - a revived id certified from its predecessor's exit, an exit observed after disposal lost forever, and an old client's inference restored by a published mint epoch. Green at this head. Twelve independent mutations (record in the shared reap, dropped disposed check, dropped pending-revive check, absent-record-as-exited, provider unknown-as-exited, provider rejection-as-exited, read-reordered ledger eviction, dropped admission invalidation, dropped incarnation guard, incarnation guard weakened to an empty pool, recording moved back below the disposed guard, republished mint epoch) each fail a checked-in test."
       },
       "performanceBudget": {
         "required": false,
@@ -18810,7 +18817,7 @@
       "knownGaps": [
         "No live SSH server, real relay process restart, or kernel-uninterruptible child; the shutdown-timeout and restart cases are simulated at the handler seam.",
         "The observed-exit ledger is in-memory and per relay process; a relay that restarts between the observation and the question answers unverifiable forever for that id, and only manual stop/abandon releases the worker.",
-        "A disposed record left in the pool is not reachable from any current teardown, so that guard is exercised by constructing the state rather than by a production path.",
+        "A disposed record left in the pool is not reachable from any current teardown, so that guard, and the twice-superseded-id ordering built on top of it, are exercised by constructing the state rather than by a production path.",
         "Local and daemon providers keep their existing readback; this gate makes no claim about them."
       ],
       "demotionRule": "Any failure that shows an exit certified without an observation is a P0 revert of the probe, not a test relaxation; unverifiable answers that merely defer stay experimental while the live SSH journey is missing."

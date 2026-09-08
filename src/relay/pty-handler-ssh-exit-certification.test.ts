@@ -60,24 +60,62 @@ describe('SSH exit certification across relay shutdown', () => {
     await endPtyHandlerTest(handler, originalPlatform)
   })
 
-  async function capabilities(): Promise<{ ptyIdMintEpoch?: unknown }> {
-    return (await dispatcher.callRequest('pty.getCapabilities', {})) as { ptyIdMintEpoch?: unknown }
+  async function capabilities(): Promise<Record<string, unknown>> {
+    return (await dispatcher.callRequest('pty.getCapabilities', {})) as Record<string, unknown>
   }
 
-  it('names the generation that minted its PTY ids', async () => {
+  /**
+   * The rule an older client applied, reproduced here rather than shipped: an id missing from
+   * `pty.listProcesses` was an exit whenever its mint epoch matched one the host published. Mixed
+   * client and host versions are the normal state (docs/reference/remote-wire-compatibility.md),
+   * so what this host publishes has to keep that client unable to reach a verdict — a host cannot
+   * fix an old client, only decline to hand it the second half of the inference.
+   */
+  async function inferLivenessFromListingAndEpoch(relayPtyId: string): Promise<boolean | null> {
+    const listed = (await dispatcher.callRequest('pty.listProcesses', {
+      includeForegroundProcessEvidence: false
+    })) as { id?: unknown }[]
+    if (listed.some((session) => session.id === relayPtyId)) {
+      return true
+    }
+    const mintEpoch = parseRelayPtyMintEpoch(relayPtyId)
+    if (!mintEpoch) {
+      return null
+    }
+    return Object.values(await capabilities()).includes(mintEpoch) ? false : null
+  }
+
+  it('publishes nothing that names the generation which minted its PTY ids', async () => {
     const { id } = await spawnPty()
 
     const mintEpoch = parseRelayPtyMintEpoch(id)
     expect(mintEpoch).toBeTruthy()
-    expect((await capabilities()).ptyIdMintEpoch).toBe(mintEpoch)
+    expect(Object.values(await capabilities())).not.toContain(mintEpoch)
   })
 
-  it('keeps that generation stable across ids and reads', async () => {
-    const first = await spawnPty()
-    const second = await spawnPty()
+  it('leaves a shutdown-removed id unverifiable for a client that infers from listings', async () => {
+    const { id } = await spawnPty()
+    const disposal = handler.dispose()
+    await vi.advanceTimersByTimeAsync(8_001)
+    await disposal
 
-    expect(parseRelayPtyMintEpoch(second.id)).toBe(parseRelayPtyMintEpoch(first.id))
-    expect((await capabilities()).ptyIdMintEpoch).toBe((await capabilities()).ptyIdMintEpoch)
+    expect(await inferLivenessFromListingAndEpoch(id)).toBeNull()
+  })
+
+  it('keeps that inference unreachable when a failed kill leaves the relay serving', async () => {
+    const { id } = await spawnPty()
+    const failedKill = vi.fn<() => void>(() => {
+      throw new Error('host refused kill')
+    })
+    mockPtySpawn.mockReturnValueOnce({ ...mockPtyInstance, kill: failedKill })
+    await spawnPty()
+    const disposal = handler.dispose().catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(8_001)
+    expect(await disposal).toMatchObject({ message: 'host refused kill' })
+    failedKill.mockImplementation(() => {})
+
+    expect(() => process.kill(process.pid, 0)).not.toThrow()
+    expect(await inferLivenessFromListingAndEpoch(id)).toBeNull()
   })
   it('does not certify exit after shutdown bookkeeping removes an unexited PTY', async () => {
     const { id } = await spawnPty()

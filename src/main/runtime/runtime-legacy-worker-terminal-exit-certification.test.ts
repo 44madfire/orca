@@ -175,7 +175,7 @@ describe('legacy worker recovery: certifying that a worker PTY exited', () => {
   it('defers an SSH candidate the owning relay will not certify', async () => {
     const { pendingResolutions, deferredDispatchIds } = await reconcile({
       inventory: listingWithoutThePty,
-      isPtyProvenAbsent: provenAbsentViaRelay(async () => ({ status: 'unknown' }))
+      isPtyProvenAbsent: provenAbsentViaRelay(async () => ({ status: 'unverifiable' }))
     })
 
     expect(pendingResolutions).toEqual([])

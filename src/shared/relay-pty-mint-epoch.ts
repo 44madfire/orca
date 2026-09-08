@@ -1,10 +1,13 @@
 /**
- * A relay PTY id carries the mint epoch of the relay process that allocated it, so a client can
- * tell the two halves of "this relay does not list that id" apart: the relay minted it and no
- * longer has it, which is an exit the host observed, versus the relay never had it, which is every
- * id minted before a restart and is evidence of nothing (docs/reference/ssh-execution-boundary.md).
+ * A relay PTY id carries the mint epoch of the relay process that allocated it, so ids from
+ * different generations of the same relay cannot collide. The shape lives here so the relay that
+ * mints it and anything that reads it back cannot drift.
  *
- * The id shape lives here so the relay that mints and the client that reads it cannot drift.
+ * The epoch certifies nothing on its own, and this relay no longer publishes it. Pairing it with
+ * `pty.listProcesses` used to read an id's absence from a same-epoch listing as an exit, which is
+ * unsound: the relay also removes a record it never watched end, so a shutdown that gave up waiting
+ * for an uninterruptible child produced that same absence. Only the owner's exact-id
+ * `pty.probeLiveness` answers whether a process ended (docs/reference/ssh-execution-boundary.md).
  */
 const MINT_EPOCH_PTY_ID_PREFIX = 'pty2:'
 
@@ -12,7 +15,7 @@ export function toRelayPtyIdWithMintEpoch(mintEpoch: string, sequence: number): 
   return `${MINT_EPOCH_PTY_ID_PREFIX}${encodeURIComponent(mintEpoch)}:${sequence}`
 }
 
-/** Null for a legacy `pty-N` id, which names no epoch and so can never certify an exit. */
+/** Null for a legacy `pty-N` id, which names no generation. */
 export function parseRelayPtyMintEpoch(relayPtyId: string): string | null {
   if (!relayPtyId.startsWith(MINT_EPOCH_PTY_ID_PREFIX)) {
     return null

@@ -149,4 +149,61 @@ describe('SSH recovery convergence', () => {
       db.close()
     }
   })
+  it('recovers a worker whose exit the relay observed after its shutdown wait gave up', async () => {
+    const { id } = (await dispatcher.callRequest('pty.spawn', {})) as { id: string }
+    const exit = mockPtyInstance.onExit.mock.calls.at(-1)![0] as (event: {
+      exitCode: number
+    }) => void
+    const failedKill = vi.fn<() => void>(() => {
+      throw new Error('host refused kill')
+    })
+    mockPtySpawn.mockReturnValueOnce({ ...mockPtyInstance, kill: failedKill })
+    await dispatcher.callRequest('pty.spawn', {})
+    const disposal = handler.dispose().catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(8001)
+    expect(await disposal).toMatchObject({ message: 'host refused kill' })
+    failedKill.mockImplementation(() => {})
+    const appId = toAppSshPtyId(connection, id)
+    expect(await probePtyLivenessFromRuntimeController(deps, appId)).toBeNull()
+
+    exit({ exitCode: 0 })
+
+    // The owner watched this process end, after the timeout that removed its record. Recovery has
+    // to see that, or the sweep defers this worker forever.
+    const result = await candidateResult(appId)
+    expect(result.pendingResolutions).toEqual([
+      { candidate: { dispatchId: 'review-worker', ptyId: appId }, resolution: 'exited' }
+    ])
+  })
+  it('does not retire a revived worker with the exit of the process it replaced', async () => {
+    const id = 'pty-7'
+    const state = JSON.stringify([{ id, pid: process.pid, cols: 80, rows: 24, cwd: process.cwd() }])
+    await dispatcher.callRequest('pty.revive', { state })
+    const supersededExit = mockPtyInstance.onExit.mock.calls.at(-1)![0] as (event: {
+      exitCode: number
+    }) => void
+    supersededExit({ exitCode: 0 })
+    await dispatcher.callRequest('pty.revive', { state })
+    const appId = toAppSshPtyId(connection, id)
+    expect(await probePtyLivenessFromRuntimeController(deps, appId)).toBe(true)
+    const failedKill = vi.fn<() => void>(() => {
+      throw new Error('host refused kill')
+    })
+    mockPtySpawn.mockReturnValueOnce({ ...mockPtyInstance, kill: failedKill })
+    await dispatcher.callRequest('pty.spawn', {})
+    const exitsBefore = dispatcher._notifications.filter((n) => n.method === 'pty.exit').length
+    const disposal = handler.dispose().catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(8001)
+    expect(await disposal).toMatchObject({ message: 'host refused kill' })
+    failedKill.mockImplementation(() => {})
+
+    // Nothing watched the revived process end, and its pid is this live test process.
+    expect(() => process.kill(process.pid, 0)).not.toThrow()
+    expect(dispatcher._notifications.filter((n) => n.method === 'pty.exit')).toHaveLength(
+      exitsBefore
+    )
+    const result = await candidateResult(appId)
+    expect(result.pendingResolutions).toEqual([])
+    expect([...result.deferredDispatchIds]).toEqual(['review-worker'])
+  })
 })

@@ -551,8 +551,25 @@ export class PtyHandler {
    * fail-closed direction, where persisting it would have to survive the ambiguity of the crash
    * that lost the records. Bounded for the same reason: an evicted id answers unverifiable
    * (docs/reference/ssh-execution-boundary.md).
+   *
+   * An entry describes ONE incarnation. `pty.revive` re-creates a process under an id this relay
+   * already watched end, so admission clears the id's entry and only the incarnation that currently
+   * owns the id may write one; see {@link ptyIdIncarnationOwners}.
    */
   private readonly observedPtyExitIds = new BoundedMap<string, true>({
+    maxEntries: OBSERVED_PTY_EXIT_HISTORY
+  })
+  /**
+   * The incarnation that most recently took each id. `this.ptys` answers that question only while
+   * the record is still in the pool, and the observation this ledger needs can arrive after it left
+   * — a shutdown that stopped waiting removes the record, and the process ends afterwards. Without
+   * this, that late callback could not be told apart from one belonging to a process a `pty.revive`
+   * has since replaced under the same id, and would certify the replacement's exit.
+   *
+   * Bounded like the ledger, and forgetting fails closed: an unrecognized incarnation records
+   * nothing, so the id stays unverifiable.
+   */
+  private readonly ptyIdIncarnationOwners = new BoundedMap<string, string>({
     maxEntries: OBSERVED_PTY_EXIT_HISTORY
   })
   private creationFenced = false
@@ -792,6 +809,18 @@ export class PtyHandler {
     this.observedPtyExitIds.set(id, true)
   }
 
+  /**
+   * Whether this record still speaks for its id. An exit observed for a superseded incarnation is
+   * evidence about the process that ended, never about the one occupying the id now. `peek` rather
+   * than `get` so asking does not extend an owner's retention past older ones.
+   */
+  private stillOwnsPtyId(managed: ManagedPty): boolean {
+    return (
+      this.ptys.get(managed.id) === managed ||
+      this.ptyIdIncarnationOwners.peek(managed.id) === managed.incarnationId
+    )
+  }
+
   // Why: the sole removal path, so the three exit routes can't drift on who announces an empty pool.
   private removePty(id: string): void {
     this.ptys.delete(id)
@@ -968,6 +997,11 @@ export class PtyHandler {
   /** Wire onData/onExit listeners for a managed PTY and store it. */
   private wireAndStore(managed: ManagedPty): void {
     managed.physicalExit = new PhysicalExitTracker()
+    // Why here: this is the single admission site, so it is where an id changes hands. A new
+    // incarnation inherits no exit evidence — the observation described the process it replaced —
+    // and becomes the only one whose exit may be recorded for this id.
+    this.observedPtyExitIds.delete(managed.id)
+    this.ptyIdIncarnationOwners.set(managed.id, managed.incarnationId)
     this.ptys.set(managed.id, managed)
     // Why: a PTY joining the pool under this paneKey means the surface exists again (reopened pane
     // or revive), so a prior retirement no longer describes anything and must not mute its hooks.
@@ -1034,6 +1068,12 @@ export class PtyHandler {
     })
     managed.pty.onExit(({ exitCode }: { exitCode: number }) => {
       managed.physicalExit?.markExited()
+      // Why before the disposed guard: this callback IS the observation. Teardown that stopped
+      // waiting removed the record and marked it disposed, but the process ending afterwards is
+      // still this relay watching it end, and dropping it left the worker unverifiable forever.
+      if (this.stillOwnsPtyId(managed)) {
+        this.recordObservedPtyExit(managed.id)
+      }
       if (managed.disposed) {
         return
       }
@@ -1066,7 +1106,6 @@ export class PtyHandler {
       this.publishPendingExit(managed.id)
       this.notifyExitListener(managed)
       this.agentSessionOwners.release(managed.id)
-      this.recordObservedPtyExit(managed.id)
       this.removePty(managed.id)
       this.clearPtyInputState(managed.id)
       // Why: release the ptmx fd on natural exit, else the master fd leaks until GC (docs/fix-pty-fd-leak.md).
@@ -1120,11 +1159,10 @@ export class PtyHandler {
       agentSessionCreateOperationVersion: AGENT_SESSION_CREATE_OPERATION_PROTOCOL_VERSION,
       // Additive capability: clients may request the no-process-table inventory
       // projection and consume fenced inspect evidence on this host.
-      foregroundProcessEvidenceVersion: 1,
-      // Additive: names the generation that minted this relay's ids, so a client can read an id's
-      // absence from `pty.listProcesses` as an exit this host observed rather than as a restart.
-      // A relay that omits it leaves every absence unverifiable, which is the shipped behaviour.
-      ptyIdMintEpoch: this.ptyIdMintEpoch
+      foregroundProcessEvidenceVersion: 1
+      // Deliberately publishes no mint epoch. Pairing one with `pty.listProcesses` is how a client
+      // used to read an id's absence as an exit, and absence is also what a shutdown that stopped
+      // waiting for an uninterruptible child leaves behind. `pty.probeLiveness` is the only answer.
     }))
     this.dispatcher.onRequest('pty.probeLiveness', async (params) => this.probeLiveness(params))
     this.dispatcher.onRequest('pty.listProcesses', (params) => this.listProcesses(params))
@@ -2643,22 +2681,23 @@ export class PtyHandler {
    * (docs/reference/ssh-execution-boundary.md).
    *
    * `exited` requires an observation — a live record whose pid probes absent, or an id in
-   * {@link observedPtyExitIds}. Everything else is `unknown`: an id this relay never held or never
-   * saw end, a revive in flight, and a record mid-teardown.
+   * {@link observedPtyExitIds}. Everything else is `unverifiable`, the execution boundary's word
+   * for doubt: an id this relay never held or never saw end, a revive in flight, and a record
+   * mid-teardown.
    */
   private async probeLiveness(
     params: Record<string, unknown>
-  ): Promise<{ status: 'live' | 'exited' | 'unknown' }> {
+  ): Promise<{ status: 'live' | 'exited' | 'unverifiable' }> {
     const id = typeof params.id === 'string' ? params.id : ''
     const managed = this.ptys.get(id)
     if (managed) {
       if (managed.disposed) {
-        return { status: 'unknown' }
+        return { status: 'unverifiable' }
       }
       return { status: this.reapPtyProvenExited(managed) ? 'exited' : 'live' }
     }
     if (this.pendingReviveIds.has(id)) {
-      return { status: 'unknown' }
+      return { status: 'unverifiable' }
     }
     // The ledger is the only gate, deliberately. A blanket "shutdown has started" refusal would
     // also mask a wrong entry in it, since teardown only ever runs behind that fence — and it
@@ -2666,7 +2705,7 @@ export class PtyHandler {
     // held: ids minted with this generation's epoch, plus any id `pty.revive` re-created a process
     // under. An id another generation minted and this one never revived is therefore absent, and
     // absent is unverifiable.
-    return { status: this.observedPtyExitIds.has(id) ? 'exited' : 'unknown' }
+    return { status: this.observedPtyExitIds.has(id) ? 'exited' : 'unverifiable' }
   }
 
   private async hasChildProcesses(params: Record<string, unknown>): Promise<boolean> {

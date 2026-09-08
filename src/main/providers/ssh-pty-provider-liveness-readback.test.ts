@@ -15,7 +15,7 @@ const APP_PTY_ID = toAppSshPtyId(CONNECTION_ID, RELAY_PTY_ID)
  * for every SSH id and no SSH worker can ever be certified exited. The verdict itself belongs to
  * the relay; this class only carries the question to it.
  */
-function makeProvider(status: 'live' | 'exited' | 'unknown') {
+function makeProvider(status: 'live' | 'exited' | 'unverifiable') {
   const request = vi.fn(async (method: string) => {
     if (method === 'pty.probeLiveness') {
       return { status }
@@ -32,7 +32,7 @@ function makeProvider(status: 'live' | 'exited' | 'unknown') {
 
 describe('SshPtyProvider liveness readback', () => {
   it('exposes the readback the liveness rule asks the owning provider for', () => {
-    const { provider } = makeProvider('unknown')
+    const { provider } = makeProvider('unverifiable')
 
     expect(typeof provider.probePtyLiveness).toBe('function')
   })

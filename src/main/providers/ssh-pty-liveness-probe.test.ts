@@ -18,7 +18,7 @@ describe('SSH PTY liveness forwarder', () => {
   it.each([
     ['live', true],
     ['exited', false],
-    ['unknown', null]
+    ['unverifiable', null]
   ])('maps the owner verdict %s', async (status, expected) => {
     const request = relay({ status })
 

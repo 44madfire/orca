@@ -89,6 +89,31 @@ describe('PtyHandler.probeLiveness', () => {
     managed.disposed = true
   }
 
+  /** Tear a record down and let the listing sweep it away; nothing watched the process end. */
+  async function forgetRecordWithoutObservingItsExit(id: string): Promise<void> {
+    tearDownRecordWithoutRemovingIt(id)
+    await dispatcher.callRequest('pty.listProcesses', { includeForegroundProcessEvidence: false })
+  }
+
+  /** The state `pty.revive` re-creates a process from, for an id this relay did not mint. */
+  function serializedState(id: string): string {
+    return JSON.stringify([{ id, pid: process.pid, cols: 80, rows: 24, cwd: process.cwd() }])
+  }
+
+  /** A shutdown whose sibling refuses to die: the aggregate fails and the relay keeps serving. */
+  async function failedShutdownThatKeepsTheRelayServing(): Promise<void> {
+    const failedKill = vi.fn<() => void>(() => {
+      throw new Error('host refused kill')
+    })
+    mockPtySpawn.mockReturnValueOnce({ ...mockPtyInstance, kill: failedKill })
+    await spawnPty()
+    const disposal = handler.dispose().catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(8_001)
+    expect(await disposal).toMatchObject({ message: 'host refused kill' })
+    // Let the fixture be cleaned up now that the refusal has been asserted.
+    failedKill.mockImplementation(() => {})
+  }
+
   describe('observed exits', () => {
     it('answers live while the relay owns a running record', async () => {
       const { id } = await spawnPty()
@@ -117,6 +142,22 @@ describe('PtyHandler.probeLiveness', () => {
       // the recovery sweep that drives this asks again on every pass.
       expect(await probe(id)).toBe('exited')
     })
+
+    it('certifies an exit node-pty reported after the shutdown wait had given up', async () => {
+      const { id } = await spawnPty()
+      const exiting = mockPtyInstance.onExit.mock.calls.at(-1)?.[0] as (event: {
+        exitCode: number
+      }) => void
+
+      await failedShutdownThatKeepsTheRelayServing()
+
+      // The record was removed on a timeout, which watched nothing.
+      expect(await probe(id)).toBe('unverifiable')
+      exiting({ exitCode: 0 })
+      // Disposal is bookkeeping; the callback that follows it is still this relay watching this
+      // process end, and losing it is what left these workers unverifiable forever.
+      expect(await probe(id)).toBe('exited')
+    })
   })
 
   describe('bookkeeping removals and states that observed nothing', () => {
@@ -127,11 +168,11 @@ describe('PtyHandler.probeLiveness', () => {
       await disposal
 
       expect(handler.activePtyCount).toBe(0)
-      expect(await probe(id)).toBe('unknown')
+      expect(await probe(id)).toBe('unverifiable')
     })
 
     it('stays unverifiable for an id this relay never minted', async () => {
-      expect(await probe(testPtyId(99))).toBe('unknown')
+      expect(await probe(testPtyId(99))).toBe('unverifiable')
     })
 
     it('stays unverifiable for an id another relay generation minted', async () => {
@@ -141,13 +182,13 @@ describe('PtyHandler.probeLiveness', () => {
 
       // Ledger keys are the whole ids of records this relay held, so no number of exits it has
       // watched can put another generation's id in it.
-      expect(await probe('pty2:some-other-generation:1')).toBe('unknown')
+      expect(await probe('pty2:some-other-generation:1')).toBe('unverifiable')
     })
 
     it.each(['pty-7', '', 'not-a-pty-id'])(
       'stays unverifiable for the id shape %s, which names no generation',
       async (id) => {
-        expect(await probe(id)).toBe('unknown')
+        expect(await probe(id)).toBe('unverifiable')
       }
     )
 
@@ -162,7 +203,7 @@ describe('PtyHandler.probeLiveness', () => {
 
       // Both records are gone from the map; only one of them was ever watched ending.
       expect(await probe(exiting.id)).toBe('exited')
-      expect(await probe(tornDown.id)).toBe('unknown')
+      expect(await probe(tornDown.id)).toBe('unverifiable')
     })
 
     it('keeps a record a shutdown could not kill live, rather than retiring it on paper', async () => {
@@ -186,7 +227,7 @@ describe('PtyHandler.probeLiveness', () => {
       tearDownRecordWithoutRemovingIt(id)
 
       // The pid is this test process, so without the guard the record reads as a live PTY.
-      expect(await probe(id)).toBe('unknown')
+      expect(await probe(id)).toBe('unverifiable')
     })
 
     it('stays unverifiable after the listing sweeps a torn-down record away', async () => {
@@ -196,7 +237,7 @@ describe('PtyHandler.probeLiveness', () => {
       await dispatcher.callRequest('pty.listProcesses', { includeForegroundProcessEvidence: false })
 
       expect(handler.activePtyCount).toBe(0)
-      expect(await probe(id)).toBe('unknown')
+      expect(await probe(id)).toBe('unverifiable')
     })
 
     it('never certifies an exit from a worktree removal it could not prove', async () => {
@@ -219,25 +260,32 @@ describe('PtyHandler.probeLiveness', () => {
       // The revive is about to put a different process on this id, so the observation it would
       // otherwise be certified from describes a process that no longer occupies it.
       const revived = dispatcher.callRequest('pty.revive', { state })
-      expect(await probe(id)).toBe('unknown')
+      expect(await probe(id)).toBe('unverifiable')
       await revived
 
       expect(await probe(id)).toBe('live')
     })
 
-    it('forgets its oldest observation at the ledger cap instead of growing without bound', async () => {
+    it('evicts observations in the order it made them, not the order it was asked', async () => {
       let oldest = ''
       let newest = ''
-      for (let index = 0; index <= OBSERVED_PTY_EXIT_HISTORY; index++) {
+      for (let index = 0; index < OBSERVED_PTY_EXIT_HISTORY; index++) {
         const { id } = await spawnPty()
         reportExitOfLatestPty()
         oldest ||= id
         newest = id
       }
 
+      // Asking about the oldest entry at the cap must not renew it: retention is observation
+      // order, so the next observation still pushes exactly this one out.
+      expect(await probe(oldest)).toBe('exited')
       expect(await probe(newest)).toBe('exited')
+      const overflowing = await spawnPty()
+      reportExitOfLatestPty()
+
+      expect(await probe(overflowing.id)).toBe('exited')
       // Evicted, not remembered as absent: a forgotten observation is unverifiable, never exited.
-      expect(await probe(oldest)).toBe('unknown')
+      expect(await probe(oldest)).toBe('unverifiable')
     })
 
     it('forgets every observation when the relay restarts, even under the same mint epoch', async () => {
@@ -250,10 +298,80 @@ describe('PtyHandler.probeLiveness', () => {
       const restartedDispatcher = createMockDispatcher()
       const restarted = createTestPtyHandler(restartedDispatcher)
       try {
-        expect(await probe(id, restartedDispatcher)).toBe('unknown')
+        expect(await probe(id, restartedDispatcher)).toBe('unverifiable')
       } finally {
         await restarted.dispose({ waitForPhysicalExit: false }).catch(() => {})
       }
+    })
+  })
+
+  describe('incarnations sharing one id, which `pty.revive` re-creates a process under', () => {
+    it.each(['pty-7', 'pty2:previous-generation:99'])(
+      'certifies the exit of the process it revived under %s, and only for itself',
+      async (id) => {
+        await dispatcher.callRequest('pty.revive', { state: serializedState(id) })
+        expect(await probe(id)).toBe('live')
+
+        reportExitOfLatestPty()
+
+        expect(await probe(id)).toBe('exited')
+        // Reviving is what put the id in this relay's hands; whatever its shape, it names nothing
+        // on a relay that never held it.
+        const otherDispatcher = createMockDispatcher()
+        const other = createTestPtyHandler(otherDispatcher)
+        try {
+          expect(await probe(id, otherDispatcher)).toBe('unverifiable')
+        } finally {
+          await other.dispose({ waitForPhysicalExit: false }).catch(() => {})
+        }
+      }
+    )
+
+    it('stays unverifiable for an id whose revive never created a record', async () => {
+      mockPtySpawn.mockImplementationOnce(() => {
+        throw new Error('spawn refused')
+      })
+
+      await expect(
+        dispatcher.callRequest('pty.revive', { state: serializedState('pty-77') })
+      ).rejects.toThrow('spawn refused')
+
+      expect(await probe('pty-77')).toBe('unverifiable')
+    })
+
+    it('does not certify a revived process with the exit of the one it replaced', async () => {
+      const id = 'pty-7'
+      await dispatcher.callRequest('pty.revive', { state: serializedState(id) })
+      reportExitOfLatestPty()
+      expect(await probe(id)).toBe('exited')
+
+      // Admitting a second incarnation clears that observation: it described the process this one
+      // replaced, so the id starts again with nothing to certify from.
+      await dispatcher.callRequest('pty.revive', { state: serializedState(id) })
+      expect(await probe(id)).toBe('live')
+
+      await failedShutdownThatKeepsTheRelayServing()
+
+      // The revived record left the pool on a timeout, and its process is still running.
+      expect(() => process.kill(process.pid, 0)).not.toThrow()
+      expect(await probe(id)).toBe('unverifiable')
+    })
+
+    it('does not let a superseded incarnation certify the id once both records are gone', async () => {
+      const id = 'pty-7'
+      await dispatcher.callRequest('pty.revive', { state: serializedState(id) })
+      const supersededExit = mockPtyInstance.onExit.mock.calls.at(-1)?.[0] as (event: {
+        exitCode: number
+      }) => void
+      await forgetRecordWithoutObservingItsExit(id)
+      await dispatcher.callRequest('pty.revive', { state: serializedState(id) })
+      await forgetRecordWithoutObservingItsExit(id)
+
+      // The first process really did end. The id belongs to a later one that nothing watched end,
+      // so an empty pool is not permission for this callback to answer for it.
+      supersededExit({ exitCode: 0 })
+
+      expect(await probe(id)).toBe('unverifiable')
     })
   })
 })
