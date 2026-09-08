@@ -16,7 +16,10 @@ import {
   resolveCompatibilityCliCommand,
   resolvePackagedWindowsCompatibilityCommand
 } from './runtime-compatibility'
-import { orchestrationSessionPayload, resolveOrchestrationTerminalHandle } from './terminal-identity'
+import {
+  orchestrationSessionPayload,
+  resolveOrchestrationTerminalHandle
+} from './terminal-identity'
 
 export const ORCHESTRATION_QUESTION_HANDLER: Record<string, CommandHandler> = {
   'orchestration ask': async ({ flags, client, cwd, json }) => {
