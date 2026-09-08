@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { formatPrimaryShortcutLabel } from '@/hooks/useShortcutLabel'
+import { formatOptionalPrimaryShortcutLabel } from '@/hooks/useShortcutLabel'
 import { translate } from '@/i18n/i18n'
 import { openWorkspaceCreationComposerWithTourHandoff } from '../contextual-tours/workspace-creation-tour-handoff'
 import SidebarWorkspaceOptionsMenu from './SidebarWorkspaceOptionsMenu'
@@ -26,7 +26,10 @@ function SidebarCreateMenu({
   const menuContentRef = useRef<HTMLDivElement | null>(null)
   // Why primary: workspace.create binds both Mod+N and Mod+Shift+N, and listing
   // every alias in a two-row menu reads as noise rather than help.
-  const newWorktreeShortcutLabel = formatPrimaryShortcutLabel('workspace.create', keybindings)
+  const newWorktreeShortcutLabel = formatOptionalPrimaryShortcutLabel(
+    'workspace.create',
+    keybindings
+  )
   const boardAttr = preserveWorkspaceBoardOpen ? '' : undefined
 
   // Why query, not a ref on the item: Radix wraps each item in a roving-focus Slot,
@@ -89,9 +92,9 @@ function SidebarCreateMenu({
           {/* GitBranchPlus matches the create-workspace button on the landing screen. */}
           <GitBranchPlus className="size-3.5" strokeWidth={2.25} />
           {translate('auto.components.sidebar.SidebarHeader.92154beb7e', 'New workspace')}
-          {newWorktreeShortcutLabel === 'Unassigned' ? null : (
+          {newWorktreeShortcutLabel ? (
             <DropdownMenuShortcut>{newWorktreeShortcutLabel}</DropdownMenuShortcut>
-          )}
+          ) : null}
         </DropdownMenuItem>
         <DropdownMenuItem
           className="cursor-pointer gap-2.5 py-1.5"

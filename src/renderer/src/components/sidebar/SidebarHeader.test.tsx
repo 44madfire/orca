@@ -5,14 +5,19 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SidebarHeader from './SidebarHeader'
 
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-const mocks = vi.hoisted(() => ({
-  openWorkspaceCreationComposerWithTourHandoff: vi.fn(),
-  popoverContentProps: { current: null as Record<string, unknown> | null },
-  shortcutLabel: { current: '⌘N' },
-  toast: vi.fn()
-}))
+const mocks = vi.hoisted(() => {
+  const popoverContentProps: { current: Record<string, unknown> | null } = { current: null }
+  const shortcutLabel: { current: string | null } = { current: '⌘N' }
+
+  return {
+    openWorkspaceCreationComposerWithTourHandoff: vi.fn(),
+    popoverContentProps,
+    shortcutLabel,
+    toast: vi.fn()
+  }
+})
 
 type MockState = {
   repos: { id: string }[]
@@ -57,7 +62,7 @@ vi.mock('./workspace-options-menu-items', () => ({
 
 vi.mock('@/hooks/useShortcutLabel', () => ({
   useShortcutLabel: () => '⌘N',
-  formatPrimaryShortcutLabel: () => mocks.shortcutLabel.current
+  formatOptionalPrimaryShortcutLabel: () => mocks.shortcutLabel.current
 }))
 
 vi.mock('@/components/ui/tooltip', () => ({
@@ -190,7 +195,7 @@ describe('SidebarHeader', () => {
   })
 
   it('omits the shortcut hint when workspace creation is unassigned', async () => {
-    mocks.shortcutLabel.current = 'Unassigned'
+    mocks.shortcutLabel.current = null
     act(() => {
       root.render(<SidebarHeader onWorkspaceBoardMenuOpenChange={vi.fn()} />)
     })
