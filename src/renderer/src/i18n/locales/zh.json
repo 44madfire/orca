@@ -14287,6 +14287,10 @@
           "filtersSection": "筛选",
           "viewSection": "视图"
         },
+
+        "ActivityScopeFilterControls": {
+          "resetScope": "显示所有主机和项目"
+        },
         "ActivityThreadRow": {
           "clearNotification": "清除通知"
         },
