@@ -37,9 +37,14 @@ export class DaemonSessionOwnerResolver<T extends IPtyProvider> {
   private epoch = 0
 
   constructor(
-    private readonly providers: readonly T[],
+    private providers: readonly T[],
     private readonly routes: Map<string, IPtyProvider>
   ) {}
+
+  removeProvider(provider: T): void {
+    this.invalidateProvider(provider)
+    this.providers = this.providers.filter((candidate) => candidate !== provider)
+  }
 
   invalidateProvider(provider: T): void {
     this.epoch += 1
