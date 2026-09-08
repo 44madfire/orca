@@ -29,12 +29,15 @@ export const ORCHESTRATION_RUN_HANDLERS: Record<string, CommandHandler> = {
   },
 
   'orchestration run-use': async ({ flags, client, cwd, json }) => {
-    const from = await resolveCoordinatorTerminalHandle(flags, cwd, client)
+    const sessionId = resolveOrchestrationAgentSessionId()
+    const fence = resolveOrchestrationRuntimeFence()
+    const from = sessionId ? undefined : await resolveCoordinatorTerminalHandle(flags, cwd, client)
     const result = await callOrchestrationMutation<{
       run: { id: string; objective: string; consumer_generation: number }
     }>(client, flags, 'orchestration.runUse', {
       id: getRequiredStringFlag(flags, 'id'),
-      from,
+      ...(from ? { from } : {}),
+      ...(sessionId ? { agentSessionId: sessionId, runtimeFence: Number(fence) } : {}),
       ...(flags.has('takeover-legacy') ? { takeoverLegacy: true } : {})
     })
     printResult(result, json, (r) => `Using Run ${r.run.id}: ${r.run.objective}`)
