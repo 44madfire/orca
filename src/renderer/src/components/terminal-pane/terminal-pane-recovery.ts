@@ -34,7 +34,7 @@ export type TerminalPaneRecoveryReason =
   // binding. pty:data for the old id then lands in the pre-handler buffer, which
   // ACKs it — main's delivery health stays green while the pane shows nothing.
   | 'spawn-left-pane-unbound'
-  // pty:data kept arriving for a pane with no handler and sat parked, un-ACKed, for
+  // pty:data kept arriving for a pane with no handler and sat parked for
   // two watchdog ticks. Skips the liveness probe like 'input-rejected-by-host', but for a
   // simpler reason: it renders no verdict on the PTY at all. A remount preserves the PTY
   // whether or not it is still alive, so nothing here reads silence as death — which is what

@@ -25,12 +25,11 @@ const LIVE_PTY_ID = 'pty-live'
 const WEDGED_TAB_ID = 'tab-wedged'
 const WEDGED_OUTPUT = 'output nobody renders'
 
-/** Main is healthy overall — some other pane ACKed a moment ago — but holds this pane's debt. */
+/** Parked output has already returned all producer credit. */
 const BUSY_MAIN: PtyRendererDeliveryHealthReply = {
-  inFlightTotalChars: WEDGED_OUTPUT.length,
-  inFlightPtyCount: 1,
-  msSinceLastAck: 200,
-  stalledPtys: [{ id: WEDGED_PTY_ID, inFlightChars: WEDGED_OUTPUT.length, msSinceLastAck: null }]
+  inFlightTotalChars: 0,
+  inFlightPtyCount: 0,
+  msSinceLastAck: 200
 }
 
 type PtyDataPayload = { id: string; data: string }
@@ -96,7 +95,7 @@ describe('per-PTY parked delivery stall', () => {
     const dispatcher = await import('./pty-dispatcher')
     dispatcher.ptyDataHandlers.set(LIVE_PTY_ID, () => {})
     dispatcher.ensurePtyDispatcher()
-    const { getParkedPreHandlerCharsByPty } = await import('./pty-parked-delivery-debt')
+    const { getParkedPreHandlerCharsByPty } = await import('./pty-pre-handler-buffer')
     return {
       parkedCharsByPty: getParkedPreHandlerCharsByPty,
       streamLiveOutput: () => emitPtyData({ id: LIVE_PTY_ID, data: 'still streaming' })
@@ -120,51 +119,67 @@ describe('per-PTY parked delivery stall', () => {
     streamLiveOutput()
     await vi.advanceTimersByTimeAsync(INTERVAL_MS)
     expect(storeState.remountTerminalTabForRecovery).not.toHaveBeenCalled()
-    expect(reportMock.mock.calls[0]![0]).toMatchObject({
-      parkedCharsByPty: { [WEDGED_PTY_ID]: WEDGED_OUTPUT.length }
-    })
+    expect(reportMock.mock.calls[0]![0]).not.toHaveProperty('parkedCharsByPty')
 
     streamLiveOutput()
     await vi.advanceTimersByTimeAsync(INTERVAL_MS)
 
-    // The remount is the heal for an owned pane: rebinding drains the parked bytes and
-    // their held ACK repays the debt. No push listener churn for one pane.
+    // Local occupancy drives recovery even with zero main debt.
     expect(storeState.remountTerminalTabForRecovery).toHaveBeenCalledWith(WEDGED_TAB_ID)
     expect(reattachMock).not.toHaveBeenCalled()
     expect(healCalls()).toHaveLength(0)
   })
 
-  it('writes off an orphan-parked pane and drops the superseded bytes', async () => {
-    reportMock.mockImplementation((args) =>
-      Promise.resolve(
-        (args as { heal?: boolean }).heal
-          ? {
-              inFlightTotalChars: 0,
-              inFlightPtyCount: 0,
-              msSinceLastAck: 0,
-              writtenOff: [{ id: WEDGED_PTY_ID, writtenOffChars: WEDGED_OUTPUT.length }]
-            }
-          : BUSY_MAIN
-      )
-    )
+  it('keeps unowned output bounded without requesting a credit write-off', async () => {
+    reportMock.mockResolvedValue(BUSY_MAIN)
     const { parkedCharsByPty, streamLiveOutput } = await startDispatcherAndWatchdog()
-
-    // No tab owns this pty, so there is nothing to remount; only a write-off frees the debt.
-    emitPtyData({ id: WEDGED_PTY_ID, data: WEDGED_OUTPUT })
+    emitPtyData({ id: WEDGED_PTY_ID, data: 'x'.repeat(512 * 1024) })
     streamLiveOutput()
     await vi.advanceTimersByTimeAsync(INTERVAL_MS)
+    emitPtyData({ id: WEDGED_PTY_ID, data: 'tail' })
     streamLiveOutput()
     await vi.advanceTimersByTimeAsync(INTERVAL_MS)
-
+    expect(parkedCharsByPty()).toEqual({ [WEDGED_PTY_ID]: 4 })
     expect(storeState.remountTerminalTabForRecovery).not.toHaveBeenCalled()
-    expect(healCalls()).toHaveLength(1)
-    expect(healCalls()[0]).toMatchObject({
-      heal: true,
-      parkedCharsByPty: { [WEDGED_PTY_ID]: WEDGED_OUTPUT.length }
-    })
-    // A very late bind must not paint bytes the restore marker already superseded.
-    expect(parkedCharsByPty()).toEqual({})
+    expect(healCalls()).toHaveLength(0)
     expect(reattachMock).not.toHaveBeenCalled()
+  })
+
+  it('recovers local occupancy even when the main health reply is unavailable', async () => {
+    storeState.ptyIdsByTabId = { [WEDGED_TAB_ID]: [WEDGED_PTY_ID] }
+    reportMock.mockResolvedValue(null)
+    await startDispatcherAndWatchdog()
+    emitPtyData({ id: WEDGED_PTY_ID, data: WEDGED_OUTPUT })
+    await vi.advanceTimersByTimeAsync(INTERVAL_MS * 2)
+    expect(storeState.remountTerminalTabForRecovery).toHaveBeenCalledWith(WEDGED_TAB_ID)
+  })
+
+  it('does not mistake byte-cap eviction for consumer progress', async () => {
+    storeState.ptyIdsByTabId = { [WEDGED_TAB_ID]: [WEDGED_PTY_ID] }
+    reportMock.mockResolvedValue(BUSY_MAIN)
+    await startDispatcherAndWatchdog()
+    emitPtyData({ id: WEDGED_PTY_ID, data: 'x'.repeat(512 * 1024) })
+    await vi.advanceTimersByTimeAsync(INTERVAL_MS)
+    emitPtyData({ id: WEDGED_PTY_ID, data: 'tail' })
+    await vi.advanceTimersByTimeAsync(INTERVAL_MS)
+    expect(storeState.remountTerminalTabForRecovery).toHaveBeenCalledWith(WEDGED_TAB_ID)
+  })
+
+  it('heals an unreceived PTY while siblings stream and nothing is parked', async () => {
+    reportMock.mockResolvedValue({
+      ...BUSY_MAIN,
+      inFlightTotalChars: 100,
+      inFlightPtyCount: 1,
+      stalledPtys: [{ id: WEDGED_PTY_ID, inFlightChars: 100, msSinceLastAck: null }]
+    })
+    const { streamLiveOutput } = await startDispatcherAndWatchdog()
+    streamLiveOutput()
+    await vi.advanceTimersByTimeAsync(INTERVAL_MS)
+    streamLiveOutput()
+    await vi.advanceTimersByTimeAsync(INTERVAL_MS)
+    expect(healCalls()).toHaveLength(1)
+    expect(reattachMock).not.toHaveBeenCalled()
+    expect(storeState.remountTerminalTabForRecovery).not.toHaveBeenCalled()
   })
 
   it('leaves the ordinary pre-attach race alone: parked bytes that drain never heal', async () => {

@@ -188,7 +188,7 @@ describe('registerPtyHandlers', () => {
       }
     ])
   })
-  it('pauses the shell for a pane whose bytes are parked, and releases it on the write-off', () => {
+  it('pauses the shell for lost push delivery and releases it on write-off', () => {
     vi.useFakeTimers()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
@@ -196,8 +196,7 @@ describe('registerPtyHandlers', () => {
       registerPtyHandlers(mainWindow as never)
       mainWindow.webContents.send.mockClear()
 
-      // Backpressure for free: the renderer withholds the ACK for bytes nothing consumes, and
-      // main's existing in-flight window turns that into a paused producer. No new mechanism.
+      // No push bytes arrive, so main retains credit until the invoke heal recovers delivery.
       provider.emitData('parked-pty', 'x'.repeat(900 * 1024))
       vi.advanceTimersByTime(2)
       for (let index = 0; index < 400; index++) {
@@ -211,9 +210,8 @@ describe('registerPtyHandlers', () => {
       expect(getPtyDataSendCalls()).toHaveLength(sendsWhileParked)
 
       const healed = reportRendererDeliveryState({
-        receivedCharsByPty: { 'parked-pty': 512 * 1024 },
+        receivedCharsByPty: {},
         processedCharsByPty: {},
-        parkedCharsByPty: { 'parked-pty': 512 * 1024 },
         heal: true
       })
 

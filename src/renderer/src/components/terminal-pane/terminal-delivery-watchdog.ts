@@ -11,15 +11,17 @@
  * channel that is dead (upstream precedent: electron#37067, one-directional
  * Mojo IPC death). This watchdog is the missing lane: it detects the wedge
  * and heals over invoke — the direction proven alive — with zero cost on the
- * data hot path (one Map upsert per received chunk; a tick does no IPC while
- * output flows or while no PTY delivery is expected).
+ * data hot path (one Map upsert per received chunk; probes run every 15 seconds
+ * while PTY delivery is expected).
  */
 import { e2eConfig } from '@/lib/e2e-config'
 import type { PtyRendererDeliveryHealthReply } from '../../../../shared/pty-renderer-delivery-health'
 import { redactPtyIdForDiagnostics } from '../../../../shared/pty-delivery-diagnostics'
 import { deliverPulledPtyModelRestoreMarkers } from './pty-model-restore-channel'
-import { getParkedPreHandlerCharsByPty } from './pty-parked-delivery-debt'
-import { discardParkedPtyDataAfterWriteOff } from './pty-pre-handler-buffer'
+import {
+  getParkedPreHandlerCharsByPty,
+  discardParkedPtyDataAfterWriteOff
+} from './pty-pre-handler-buffer'
 import {
   advanceParkedDeliveryStallStreaks,
   advanceStalledPtyStreaks,
@@ -48,11 +50,11 @@ type TerminalDeliveryWatchdogDeps = {
   reattachPushListeners: () => void
   /** True while any PTY handler or eager buffer expects push delivery. */
   hasAttachedPtys: () => boolean
-  /** Remount the tabs owning these parked ptys; answers which ids a tab actually owned.
+  /** Remount the tabs owning these parked ptys.
    *  Injected, and loaded lazily by the dispatcher, because resolving ownership reads the app
    *  store: a static edge would close an import cycle and drag the store into the
    *  freeze-report graph, which runs in bare-node contexts. */
-  recoverParkedPanes: (ptyIds: string[]) => Promise<string[]>
+  recoverParkedPanes: (ptyIds: string[]) => Promise<void>
 }
 
 const receivedPtyCharTotals = new Map<string, number>()
@@ -90,10 +92,6 @@ export function isPtyPushDeliveryBlackholed(): boolean {
   return blackholePtyPushDelivery
 }
 
-export function isTerminalDeliveryWatchdogArmed(): boolean {
-  return watchdogDeps !== null
-}
-
 function isMainDeliveryStalled(health: PtyRendererDeliveryHealthReply): boolean {
   // Why msSinceLastAck may be null: a wedged-from-first-byte session (the
   // field case's brand-new terminal) never ACKs; in-flight debt alone is the
@@ -117,19 +115,7 @@ async function runWatchdogTick(): Promise<void> {
   eventCountAtLastTick = receivedPtyDataEventCount
   const parkedCharsByPty = getParkedPreHandlerCharsByPty()
   const hasParked = Object.keys(parkedCharsByPty).length > 0
-  // Keeps "no IPC while output flows": an empty parked map is the cheap proof there is no
-  // per-pane debt to ask main about.
-  if (!hasParked && (globalEventsMoved || !deps.hasAttachedPtys())) {
-    stallStreakTicks = 0
-    resetParkedDeliveryStallStreaks()
-    return
-  }
-  const health = await report({
-    receivedCharsByPty: Object.fromEntries(receivedPtyCharTotals),
-    processedCharsByPty: getProcessedPtyCharTotals(),
-    ...(hasParked ? { parkedCharsByPty } : {})
-  })
-  if (!health) {
+  if (!hasParked && !deps.hasAttachedPtys()) {
     stallStreakTicks = 0
     resetParkedDeliveryStallStreaks()
     return
@@ -138,17 +124,22 @@ async function runWatchdogTick(): Promise<void> {
     parkedCharsByPty,
     watchdogConfig.stallTicksToHeal
   )
-  // A remount is the heal for an owned pane: rebinding drains the parked bytes and their held
-  // ACK repays the debt. Its own budget/cooldown is the churn control, so it is not gated on
-  // the write-off cooldown below.
-  const ownedParkedPtyIds = new Set(
-    stalledParkedPtyIds.length > 0 ? await deps.recoverParkedPanes(stalledParkedPtyIds) : []
-  )
-  const orphanParkedPtyIds = stalledParkedPtyIds.filter((id) => !ownedParkedPtyIds.has(id))
-  // An owned parked pane is already routed to the remount; letting it also drive a write-off
-  // would forgive the very bytes the rebind is about to drain.
+  // Local consumer recovery does not depend on main's debt or a successful health reply.
+  if (stalledParkedPtyIds.length > 0) {
+    await deps.recoverParkedPanes(stalledParkedPtyIds)
+  }
+  // Probe attached panes even while a sibling streams: global movement cannot rule out
+  // a single PTY whose push events never arrive.
+  const health = await report({
+    receivedCharsByPty: Object.fromEntries(receivedPtyCharTotals),
+    processedCharsByPty: getProcessedPtyCharTotals()
+  })
+  if (!health) {
+    stallStreakTicks = 0
+    return
+  }
   const perPtyStalled = advanceStalledPtyStreaks(
-    health.stalledPtys?.filter((entry) => !ownedParkedPtyIds.has(entry.id)),
+    health.stalledPtys,
     receivedPtyCharTotals,
     watchdogConfig.stallTicksToHeal
   )
@@ -165,32 +156,20 @@ async function runWatchdogTick(): Promise<void> {
     })
   }
   const globalWedge = stallStreakTicks >= watchdogConfig.stallTicksToHeal
-  if (!globalWedge && !perPtyStalled && orphanParkedPtyIds.length === 0) {
+  if (!globalWedge && !perPtyStalled) {
     return
   }
   if (lastHealAtMs !== null && Date.now() - lastHealAtMs < watchdogConfig.healCooldownMs) {
     return
   }
-  await healDeadPushDelivery(deps, report, health, {
-    parkedCharsByPty,
-    // Only the session-wide wedge implicates the push listeners; a single parked pane
-    // must not churn every pane's subscription.
-    reattachPushListeners: globalWedge,
-    ownedParkedPtyCount: ownedParkedPtyIds.size,
-    orphanParkedPtyCount: orphanParkedPtyIds.length
-  })
+  await healDeadPushDelivery(deps, report, health, globalWedge)
 }
 
 async function healDeadPushDelivery(
   deps: TerminalDeliveryWatchdogDeps,
   report: NonNullable<Window['api']['pty']['reportRendererDeliveryState']>,
   stalled: PtyRendererDeliveryHealthReply,
-  context: {
-    parkedCharsByPty: Record<string, number>
-    reattachPushListeners: boolean
-    ownedParkedPtyCount: number
-    orphanParkedPtyCount: number
-  }
+  reattachPushListeners: boolean
 ): Promise<void> {
   lastHealAtMs = Date.now()
   stallStreakTicks = 0
@@ -200,15 +179,12 @@ async function healDeadPushDelivery(
   // bug to hunt); ≥1 = events are being dropped below the emitter (channel
   // dead, platform-level). The single most valuable field discriminator.
   const listenerCountBeforeReattach = window.api?.pty?.getPtyDataListenerCount?.() ?? null
-  if (context.reattachPushListeners) {
+  if (reattachPushListeners) {
     deps.reattachPushListeners()
   }
   const healed = await report({
     receivedCharsByPty: Object.fromEntries(receivedPtyCharTotals),
     processedCharsByPty: getProcessedPtyCharTotals(),
-    ...(Object.keys(context.parkedCharsByPty).length > 0
-      ? { parkedCharsByPty: context.parkedCharsByPty }
-      : {}),
     heal: true,
     rendererPtyDataListenerCount: listenerCountBeforeReattach
   })
@@ -226,8 +202,6 @@ async function healDeadPushDelivery(
     )
   }
   recordTerminalFreezeBreadcrumb('watchdog-heal', {
-    orphanParkedPtyCount: context.orphanParkedPtyCount,
-    ownedParkedPtyCount: context.ownedParkedPtyCount,
     listenerCountBeforeReattach,
     writtenOffPtyCount: writtenOff.length,
     writtenOffChars: writtenOff.reduce((sum, entry) => sum + entry.writtenOffChars, 0)

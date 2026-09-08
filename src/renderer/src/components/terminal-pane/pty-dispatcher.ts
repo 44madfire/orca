@@ -4,8 +4,7 @@ import {
   clearProcessedPtyCharTotal,
   deliverPtyDataWithDeferredAck,
   exposeE2eTerminalPtyAckGate,
-  getProcessedPtyCharTotals,
-  takeCurrentPtyDeliveryAckCredit
+  getProcessedPtyCharTotals
 } from './terminal-pty-ack-gate'
 import { clampUtf8Tail, type EagerBufferChunk } from './pty-eager-buffer-clamp'
 import {
@@ -16,11 +15,9 @@ import {
 } from './pty-pre-handler-buffer'
 import { buildPtyDataMeta, type PtyDataPayload } from './pty-data-meta'
 import { deliverPtyExitToHandlers } from './pty-exit-delivery'
-import { settleParkedPtyDeliveryDebtsForPty } from './pty-parked-delivery-debt'
 import {
   clearReceivedPtyCharTotal,
   isPtyPushDeliveryBlackholed,
-  isTerminalDeliveryWatchdogArmed,
   recordPtyDataReceived,
   startTerminalDeliveryWatchdog
 } from './terminal-delivery-watchdog'
@@ -97,8 +94,8 @@ export function ensurePtyDispatcher(): void {
       import('./terminal-parked-pane-recovery')
         .then((module) => module.recoverParkedPanes(ptyIds))
         // Why swallowed: a failed chunk load must not reject out of the tick before the heal
-        // runs. Claiming no owner is the safe answer — the write-off lane still forgives.
-        .catch(() => [])
+        // runs. A later tick retries ownership without holding producer credit.
+        .catch(() => {})
   })
 }
 
@@ -129,13 +126,8 @@ function handleDispatchedPtyData(payload: PtyDataPayload): void {
     if (handler) {
       handler(payload.data, meta)
     } else {
-      // Why hold the ACK: crediting bytes no handler will consume left main's in-flight window
-      // empty for a dead pane, so its flow control read healthy and it kept flooding. Gated on
-      // the watchdog because held debt with no heal lane is a paused shell nobody can unstick.
-      bufferPreHandlerPtyData(payload.id, payload.data, meta, {
-        chars,
-        settle: isTerminalDeliveryWatchdogArmed() ? takeCurrentPtyDeliveryAckCredit() : null
-      })
+      // No consumer owns parse credit; retain a bounded tail and report occupancy separately.
+      bufferPreHandlerPtyData(payload.id, payload.data, meta)
     }
     const sidecars = ptyDataSidecars.get(payload.id)
     if (sidecars && sidecars.size > 0) {
@@ -172,11 +164,6 @@ function attachPtySecondaryPushListeners(unsubscribes: (() => void)[]): void {
         // Why: host-initiated remote sleep has no requester transaction in this renderer; classify its ordered exit before pane cleanup runs.
         markCommittedPtyShutdowns([payload.id])
       }
-      // Why before the totals are cleared: main deletes this pty's accounting on exit, so
-      // parked credit held past here can be repaid by no drain and forgiven by no write-off.
-      // An exit with no primary handler never reaches a drain at all, which pinned the debt —
-      // and with it the session in-flight total — until the window reloaded.
-      settleParkedPtyDeliveryDebtsForPty(payload.id)
       const sidecars = ptyExitSidecars.get(payload.id)
       if (sidecars) {
         ptyExitSidecars.delete(payload.id)

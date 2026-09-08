@@ -225,12 +225,8 @@ export function writeOffLostRendererDelivery(
       continue
     }
     const receivedChars = sanitizeReportedChars(report.receivedCharsByPty?.[id])
-    // Parked bytes sit in the renderer's pre-handler buffer with no handler to consume them
-    // and a withheld ACK, so they can never repay themselves; only what is left in the live
-    // parse path does. Absent field ⇒ 0 parked ⇒ the predicate this replaced, byte for byte.
-    const parkedChars = sanitizeReportedChars(report.parkedCharsByPty?.[id])
     // Why skip: received-but-unparsed bytes are alive in the renderer write queue; their deferred ACK still repays this debt.
-    if (receivedChars - parkedChars > accounting.ackedChars) {
+    if (receivedChars > accounting.ackedChars) {
       continue
     }
     const acknowledged = applyCumulativeAck(session, id, accounting.sentChars)

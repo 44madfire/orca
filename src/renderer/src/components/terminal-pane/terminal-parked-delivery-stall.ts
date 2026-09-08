@@ -18,8 +18,7 @@ type StallStreak = { previous: number; ticks: number }
 const parkedStreakByPty = new Map<string, StallStreak>()
 const wedgedStreakByPty = new Map<string, StallStreak>()
 
-/** Advance one id's streak. Progress — parked chars falling, or received chars moving — is
- *  evidence a consumer exists, and resets it. */
+/** Advance a sampled stall streak, restarting when its progress predicate changes. */
 function advanceStreak(
   streaks: Map<string, StallStreak>,
   id: string,
@@ -44,9 +43,9 @@ function retainStreaks(streaks: Map<string, StallStreak>, liveIds: Set<string>):
   }
 }
 
-/** Ids whose held debt has not shrunk for `stallTicksToHeal` ticks. A drain zeroes a pty's
- *  parked total, so "still parked, no smaller" is the honest evidence that nothing consumed
- *  it — new bytes arriving for the same dead pane do not make it healthier. */
+/** Ids whose buffer has remained occupied for `stallTicksToHeal` ticks. A drain zeroes a pty's
+ *  parked total, so "still parked" is the honest evidence that nothing consumed
+ *  it — byte-cap eviction is not consumer progress. */
 export function advanceParkedDeliveryStallStreaks(
   parkedCharsByPty: Record<string, number>,
   stallTicksToHeal: number
@@ -57,10 +56,7 @@ export function advanceParkedDeliveryStallStreaks(
     if (chars <= 0) {
       continue
     }
-    if (
-      advanceStreak(parkedStreakByPty, ptyId, chars, (previous) => chars >= previous) >=
-      stallTicksToHeal
-    ) {
+    if (advanceStreak(parkedStreakByPty, ptyId, chars, () => true) >= stallTicksToHeal) {
       stalled.push(ptyId)
     }
   }

@@ -1,25 +1,18 @@
 import { isPtyIncarnationId } from '../../../../shared/pty-incarnation'
 import { clampUtf8Tail } from './pty-eager-buffer-clamp'
-import {
-  openParkedPtyDeliveryDebt,
-  settleParkedPtyDeliveryDebts,
-  type ParkedPtyDeliveryDebt
-} from './pty-parked-delivery-debt'
 import type { PtyDataMeta } from './pty-dispatcher'
 
 type BufferedPreHandlerPtyData = {
   data: string
   bytes: number
   meta?: PtyDataMeta
-  /** Withheld ACK for this chunk. Settled exactly once, on whichever of drain, eviction,
-   *  clear or write-off discard takes the chunk out of the buffer. */
-  debt?: ParkedPtyDeliveryDebt
 }
 
 type BufferedPreHandlerPtyState = {
   chunks: BufferedPreHandlerPtyData[]
   head: number
   bytes: number
+  chars: number
   /** Sequence of the newest chunk, used to fence state left by a prior incarnation of a reused id. */
   sequence: number
 }
@@ -72,22 +65,17 @@ export function currentPreHandlerPtySequence(): number {
 }
 
 /** Map preserves insertion order, so the first key is the least recently admitted id.
- *  Returns the evicted entry so the caller can drop state keyed alongside it — and, for
- *  buffered data, repay the credit those now-unreachable chunks were holding. */
-function evictOldestPtyIfAtCap<V>(
-  map: Map<string, V>,
-  ptyId: string,
-  cap: number
-): [string, V] | null {
+ *  Returns the evicted id so the caller can drop state keyed alongside the entry. */
+function evictOldestPtyIfAtCap<V>(map: Map<string, V>, ptyId: string, cap: number): string | null {
   if (map.has(ptyId) || map.size < cap) {
     return null
   }
-  const oldest = map.entries().next().value
-  if (!oldest) {
-    return null
+  const oldestPtyId = map.keys().next().value
+  if (typeof oldestPtyId === 'string') {
+    map.delete(oldestPtyId)
+    return oldestPtyId
   }
-  map.delete(oldest[0])
-  return oldest
+  return null
 }
 
 /** Drop a buffered exit proven to describe a different lifetime of `ptyId` than the one now
@@ -137,29 +125,22 @@ function retainPreHandlerPtyExits(
   preHandlerPtyExit.set(ptyId, kept)
 }
 
-/** `ack` carries the dispatcher's claim on this chunk's delivery credit. Every return path
- *  here must repay it: a claim that never settles is permanent debt, and main answers
- *  permanent debt by pausing a healthy shell forever. */
-export function bufferPreHandlerPtyData(
-  ptyId: string,
-  data: string,
-  meta?: PtyDataMeta,
-  ack?: { chars: number; settle: (() => void) | null }
-): void {
+export function bufferPreHandlerPtyData(ptyId: string, data: string, meta?: PtyDataMeta): void {
   if (discardedPreHandlerPtyStates.has(ptyId)) {
-    ack?.settle?.()
     return
   }
   const chunk = clampUtf8Tail(data, PRE_HANDLER_PTY_DATA_MAX_BYTES)
   if (!chunk.data) {
-    ack?.settle?.()
     return
   }
-  const evicted = evictOldestPtyIfAtCap(preHandlerPtyData, ptyId, PRE_HANDLER_PTY_DATA_MAX_PTYS)
-  if (evicted !== null) {
+  const evictedPtyId = evictOldestPtyIfAtCap(
+    preHandlerPtyData,
+    ptyId,
+    PRE_HANDLER_PTY_DATA_MAX_PTYS
+  )
+  if (evictedPtyId !== null) {
     // The warn breadcrumb describes buffered bytes that no longer exist.
-    warnedLostHandlerPtyIds.delete(evicted[0])
-    settleParkedPtyDeliveryDebts(evicted[1])
+    warnedLostHandlerPtyIds.delete(evictedPtyId)
   }
   const bufferedMeta =
     meta && chunk.data.length !== data.length && typeof meta.rawLength === 'number'
@@ -167,26 +148,22 @@ export function bufferPreHandlerPtyData(
       : meta
   let state = preHandlerPtyData.get(ptyId)
   if (!state) {
-    state = { chunks: [], head: 0, bytes: 0, sequence: 0 }
+    state = { chunks: [], head: 0, bytes: 0, chars: 0, sequence: 0 }
     preHandlerPtyData.set(ptyId, state)
   }
   state.sequence = nextPreHandlerPtySequence()
-  const debt = ack ? openParkedPtyDeliveryDebt(ptyId, ack.chars, ack.settle) : null
   state.chunks.push({
     data: chunk.data,
     bytes: chunk.bytes,
-    ...(bufferedMeta ? { meta: bufferedMeta } : {}),
-    ...(debt ? { debt } : {})
+    ...(bufferedMeta ? { meta: bufferedMeta } : {})
   })
   state.bytes += chunk.bytes
+  state.chars += chunk.data.length
   // Why: a missing handler can accumulate many small chunks; a stored total
   // and head index keep that failure path linear instead of rescanning/shifting.
   while (state.bytes > PRE_HANDLER_PTY_DATA_MAX_BYTES && state.head < state.chunks.length - 1) {
     state.bytes -= state.chunks[state.head].bytes
-    // Why settle on evict: this buffer caps UTF-8 BYTES while main's window counts UTF-16
-    // chars, so eviction can precede main's pause. An evicted chunk that kept its credit
-    // would leave debt larger than the parked bytes, which no later drain can repay.
-    state.chunks[state.head].debt?.settle()
+    state.chars -= state.chunks[state.head].data.length
     state.chunks[state.head] = { data: '', bytes: 0 }
     state.head += 1
   }
@@ -213,30 +190,10 @@ export function drainPreHandlerPtyData(
     return
   }
   preHandlerPtyData.delete(ptyId)
-  try {
-    for (let index = state.head; index < state.chunks.length; index += 1) {
-      const chunk = state.chunks[index]
-      handler(chunk.data, chunk.meta)
-    }
-  } finally {
-    // Handing the bytes to the pane's write path is the consume point; settle even when the
-    // handler throws, because the chunks are already out of the buffer and their debt would
-    // otherwise have no payer left.
-    settleParkedPtyDeliveryDebts(state)
+  for (let index = state.head; index < state.chunks.length; index += 1) {
+    const chunk = state.chunks[index]
+    handler(chunk.data, chunk.meta)
   }
-}
-
-/** Drop parked bytes for PTYs main just wrote off. Their credit is forgiven (a post-write-off
- *  ACK is a clamped no-op main-side) and a very late bind must not paint bytes the restore
- *  marker already superseded. */
-export function discardParkedPtyDataAfterWriteOff(ptyIds: string[]): void {
-  ptyIds.forEach(dropParkedPreHandlerPtyData)
-}
-
-function dropParkedPreHandlerPtyData(ptyId: string): void {
-  settleParkedPtyDeliveryDebts(preHandlerPtyData.get(ptyId))
-  preHandlerPtyData.delete(ptyId)
-  warnedLostHandlerPtyIds.delete(ptyId)
 }
 
 /** Replay buffered startup bytes without taking them from the future primary handler. */
@@ -302,7 +259,8 @@ export function discardPreHandlerPtyStateFromPriorIncarnation(
   retainPreHandlerPtyExits(ptyId, (exit) => exit.sequence > fenceSequence)
   const data = preHandlerPtyData.get(ptyId)
   if (data && data.sequence <= fenceSequence) {
-    dropParkedPreHandlerPtyData(ptyId)
+    preHandlerPtyData.delete(ptyId)
+    warnedLostHandlerPtyIds.delete(ptyId)
   }
   // Why: the id now names a different, live PTY, so a prior incarnation's consumed/discarded marks
   // must not suppress this one's own exit — the same admission boundary a same-id reattach gets.
@@ -407,7 +365,7 @@ export function drainPreHandlerPtyExit(
 }
 
 export function clearPreHandlerPtyState(ptyId: string): void {
-  dropParkedPreHandlerPtyData(ptyId)
+  preHandlerPtyData.delete(ptyId)
   preHandlerPtyExit.delete(ptyId)
   consumedPreHandlerPtyExits.delete(ptyId)
   const discardTimer = discardedPreHandlerPtyStates.get(ptyId)
@@ -415,4 +373,18 @@ export function clearPreHandlerPtyState(ptyId: string): void {
     clearTimeout(discardTimer)
   }
   discardedPreHandlerPtyStates.delete(ptyId)
+  warnedLostHandlerPtyIds.delete(ptyId)
+}
+
+/** Buffer occupancy is a pane-health signal, independent of producer delivery credit. */
+export function getParkedPreHandlerCharsByPty(): Record<string, number> {
+  return Object.fromEntries(Array.from(preHandlerPtyData, ([id, state]) => [id, state.chars]))
+}
+
+/** A restore supersedes these bytes, including for a pane that binds later. */
+export function discardParkedPtyDataAfterWriteOff(ptyIds: string[]): void {
+  for (const id of ptyIds) {
+    preHandlerPtyData.delete(id)
+    warnedLostHandlerPtyIds.delete(id)
+  }
 }

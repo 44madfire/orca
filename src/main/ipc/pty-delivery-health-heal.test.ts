@@ -294,32 +294,6 @@ describe('registerPtyHandlers', () => {
       vi.useRealTimers()
     }
   })
-  it('writes off parked bytes the renderer reported as having no consumer', async () => {
-    vi.useFakeTimers()
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const mockProc = createMockProc()
-    spawnMock.mockReturnValue(mockProc.proc)
-
-    try {
-      const spawnResult = await spawnAndSaturateRendererDeliveryGate(mockProc)
-
-      // The renderer received every byte but has no handler for them, so they sit in the
-      // pre-handler buffer un-ACKed. Received-minus-parked is what can still repay itself.
-      const healed = reportRendererDeliveryState({
-        receivedCharsByPty: { [spawnResult.id]: 512 * 1024 },
-        processedCharsByPty: {},
-        parkedCharsByPty: { [spawnResult.id]: 512 * 1024 },
-        heal: true,
-        rendererPtyDataListenerCount: 1
-      })
-
-      expect(healed.writtenOff).toEqual([{ id: spawnResult.id, writtenOffChars: 512 * 1024 }])
-      expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({ rendererInFlightChars: 0 })
-    } finally {
-      warnSpy.mockRestore()
-      vi.useRealTimers()
-    }
-  })
   it('still heals when the same report repairs a lost ACK for the wedged PTY', async () => {
     vi.useFakeTimers()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -334,9 +308,8 @@ describe('registerPtyHandlers', () => {
       // lastAckAtMs, and reading that stamp back would veto the heal the report asked for —
       // a recovered ACK is evidence of a LOST one, never of a live consumer.
       const healed = reportRendererDeliveryState({
-        receivedCharsByPty: { [spawnResult.id]: 512 * 1024 },
+        receivedCharsByPty: { [spawnResult.id]: 1 },
         processedCharsByPty: { [spawnResult.id]: 1 },
-        parkedCharsByPty: { [spawnResult.id]: 512 * 1024 },
         heal: true,
         rendererPtyDataListenerCount: 1
       })
@@ -345,31 +318,6 @@ describe('registerPtyHandlers', () => {
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({ rendererInFlightChars: 0 })
     } finally {
       warnSpy.mockRestore()
-      vi.useRealTimers()
-    }
-  })
-  it('still skips a PTY whose received bytes are only partly parked', async () => {
-    vi.useFakeTimers()
-    const mockProc = createMockProc()
-    spawnMock.mockReturnValue(mockProc.proc)
-
-    try {
-      const spawnResult = await spawnAndSaturateRendererDeliveryGate(mockProc)
-
-      // Half the bytes are still in the live parse path; their deferred ACK repays that half,
-      // so nothing here is provably lost and the write-off must stay out of it.
-      const health = reportRendererDeliveryState({
-        receivedCharsByPty: { [spawnResult.id]: 512 * 1024 },
-        processedCharsByPty: {},
-        parkedCharsByPty: { [spawnResult.id]: 256 * 1024 },
-        heal: true
-      })
-
-      expect(health.writtenOff).toBeUndefined()
-      expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
-        rendererInFlightChars: 512 * 1024
-      })
-    } finally {
       vi.useRealTimers()
     }
   })
@@ -391,9 +339,8 @@ describe('registerPtyHandlers', () => {
       getPtyAckDataListener()(null, { id: 'pty-live', processedChars: 512 * 1024 })
 
       const healed = reportRendererDeliveryState({
-        receivedCharsByPty: { 'pty-wedged': 512 * 1024 },
+        receivedCharsByPty: {},
         processedCharsByPty: {},
-        parkedCharsByPty: { 'pty-wedged': 512 * 1024 },
         heal: true,
         rendererPtyDataListenerCount: 1
       })
@@ -426,9 +373,8 @@ describe('registerPtyHandlers', () => {
       getPtyAckDataListener()(null, { id: 'pty-live', processedChars: 256 * 1024 })
 
       const healed = reportRendererDeliveryState({
-        receivedCharsByPty: { 'pty-wedged': 512 * 1024 },
+        receivedCharsByPty: {},
         processedCharsByPty: {},
-        parkedCharsByPty: { 'pty-wedged': 512 * 1024 },
         heal: true,
         rendererPtyDataListenerCount: 1
       })
