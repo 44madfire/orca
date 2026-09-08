@@ -102,7 +102,9 @@ function rebaseTabGroups(
         ...group,
         tabOrder,
         activeTabId,
-        ...(recentTabIds && recentTabIds.length > 0 ? { recentTabIds } : {})
+        // Why assigned even when it filters to empty: omitting the key lets `...group`
+        // re-introduce the unfiltered array, persisting ids for tabs the host dropped.
+        ...(group.recentTabIds ? { recentTabIds: recentTabIds ?? [] } : {})
       }
     ]
   })
