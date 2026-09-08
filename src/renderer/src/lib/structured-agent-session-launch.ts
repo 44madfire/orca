@@ -305,10 +305,12 @@ export function cancelStructuredAgentLaunch(worktreeId: string, sessionId: strin
   if (!state) {
     return false
   }
+  if (!discardStructuredAgentSessionLaunchOutbox(state.intent.sessionId)) {
+    return false
+  }
   state.cancelled = true
   settleStructuredLaunchCallersWithoutFallback(state.callers, 'cancelled')
   cleanupLaunchState(state)
-  discardStructuredAgentSessionLaunchOutbox(state.intent.sessionId)
   abandonStructuredAgentSessionLaunchIntent(state.intent)
   notifyStructuredLaunchListeners()
   return true

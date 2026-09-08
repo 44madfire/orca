@@ -69,6 +69,7 @@ import {
 import { refreshLocalStructuredSessionTabs } from '@/runtime/local-structured-session-tabs-sync'
 import {
   cancelStructuredAgentLaunch,
+  getStructuredAgentLaunchStatus,
   startStructuredAgentLaunch
 } from './structured-agent-session-launch'
 import { readOutbox } from '@/components/native-chat/structured-agent-session-outbox-storage'
@@ -670,6 +671,29 @@ describe('startStructuredAgentLaunch', () => {
     expect(readOutbox(intent.sessionId)).toEqual([])
     resolveRefresh([])
     await flushLaunchSettlement()
+  })
+
+  it('keeps cancellation retryable when discarding the staged prompt cannot persist', async () => {
+    const worktreeId = 'wt-close-storage-failure'
+    const intent = launchIntent(worktreeId)
+    mocks.createIntent.mockReturnValueOnce(intent)
+    mocks.launch.mockImplementationOnce(() => new Promise(() => {}))
+    startStructuredAgentLaunch(worktreeId, 'codex', { prompt: 'retain on failed cancellation' })
+    const staged = readOutbox(intent.sessionId, false)
+    const spy = vi.spyOn(localStorage, 'removeItem').mockImplementation(() => {
+      throw new Error('synthetic storage failure')
+    })
+    try {
+      expect(cancelStructuredAgentLaunch(worktreeId, intent.sessionId)).toBe(false)
+      expect(readOutbox(intent.sessionId, false)).toEqual(staged)
+      expect(mocks.abandonIntent).not.toHaveBeenCalled()
+      expect(getStructuredAgentLaunchStatus(worktreeId, 'codex')).toBe('pending')
+    } finally {
+      spy.mockRestore()
+    }
+    expect(cancelStructuredAgentLaunch(worktreeId, intent.sessionId)).toBe(true)
+    expect(readOutbox(intent.sessionId, false)).toEqual([])
+    expect(mocks.abandonIntent).toHaveBeenCalledWith(intent)
   })
 
   it('suppresses a close that races the retry verification catch', async () => {

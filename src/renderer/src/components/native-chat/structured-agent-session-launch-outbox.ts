@@ -34,6 +34,6 @@ export function enqueueStructuredAgentSessionLaunchPrompt(
   return staged
 }
 
-export function discardStructuredAgentSessionLaunchOutbox(sessionId: string): void {
-  transitionOutbox(sessionId, () => [])
+export function discardStructuredAgentSessionLaunchOutbox(sessionId: string): boolean {
+  return transitionOutbox(sessionId, () => []).ok
 }

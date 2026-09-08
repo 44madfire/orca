@@ -27,7 +27,7 @@ export function transitionOutbox(
           transitionRevision: (previous?.transitionRevision ?? 0) + 1
         }
   })
-  return writeOutbox(sessionId, stamped, () => {
+  const ok = writeOutbox(sessionId, stamped, () => {
     const retained = new Set(stamped.map(claimKey))
     for (const entry of current) {
       if (!retained.has(claimKey(entry))) {
@@ -36,8 +36,15 @@ export function transitionOutbox(
     }
     publishOutboxSettlements(current, stamped, accepted)
   })
-    ? { ok: true, entries: stamped }
-    : { ok: false, entries: current }
+  if (!ok) {
+    const successors = new Map(next.map((entry) => [claimKey(entry), entry]))
+    for (const entry of current) {
+      if (successors.get(claimKey(entry)) !== entry) {
+        settleOutboxObservation(entry, 'unavailable')
+      }
+    }
+  }
+  return { ok, entries: ok ? stamped : current }
 }
 
 export function transitionOutboxEntry(
@@ -63,9 +70,6 @@ export function transitionOutboxEntry(
       }),
     accepted ? [expected] : []
   )
-  if (!result.ok) {
-    settleOutboxObservation(expected, 'unavailable')
-  }
   return {
     ok: result.ok,
     changed: changed && result.ok,

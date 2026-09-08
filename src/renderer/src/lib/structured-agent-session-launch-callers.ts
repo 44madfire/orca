@@ -44,6 +44,7 @@ export type StructuredLaunchCallerGroup = {
     resolve: (ran: boolean) => void
     reject: (error: unknown) => void
     settled: boolean
+    ran: boolean
     failure: { error: unknown } | null
   }
   onSettled: () => void
@@ -60,19 +61,37 @@ export function createStructuredLaunchCallerGroup(): StructuredLaunchCallerGroup
       resolve: refusalSettlement.resolve,
       reject: refusalSettlement.reject,
       settled: false,
+      ran: false,
       failure: null
     },
     onSettled: () => {}
   }
 }
 
-function settleCallerWithoutFallback(caller: StructuredLaunchCaller): void {
+function retireSettledCaller(
+  group: StructuredLaunchCallerGroup,
+  caller: StructuredLaunchCaller
+): void {
+  if (
+    caller.refusalFallback.settled &&
+    (!caller.promptDeliveryResult || !group.promptDeliveryResults.has(caller.promptDeliveryResult))
+  ) {
+    group.entries.delete(caller)
+  }
+}
+
+function settleCallerWithoutFallback(
+  group: StructuredLaunchCallerGroup,
+  caller: StructuredLaunchCaller
+): void {
   if (caller.refusalFallback.settled) {
     return
   }
   caller.refusalFallback.settled = true
+  caller.refusalFallback.callback = null
   caller.refusalFallback.resolve(false)
   caller.refusalFallback.resolvePromptDelivery(null)
+  retireSettledCaller(group, caller)
 }
 
 function finalizeRefusalSettlement(group: StructuredLaunchCallerGroup): void {
@@ -87,7 +106,7 @@ function finalizeRefusalSettlement(group: StructuredLaunchCallerGroup): void {
   if (group.refusalSettlement.failure) {
     group.refusalSettlement.reject(group.refusalSettlement.failure.error)
   } else {
-    group.refusalSettlement.resolve([...group.entries].some((caller) => caller.refusalFallback.ran))
+    group.refusalSettlement.resolve(group.refusalSettlement.ran)
   }
   group.onSettled()
 }
@@ -102,7 +121,7 @@ function runCallerRefusalFallback(
   caller.refusalFallback.started = true
   const fallback = caller.refusalFallback.callback
   if (!fallback) {
-    settleCallerWithoutFallback(caller)
+    settleCallerWithoutFallback(group, caller)
     finalizeRefusalSettlement(group)
     return
   }
@@ -111,6 +130,7 @@ function runCallerRefusalFallback(
     .then(
       (result) => {
         caller.refusalFallback.ran = true
+        group.refusalSettlement.ran = true
         caller.refusalFallback.resolve(true)
         caller.refusalFallback.resolvePromptDelivery(result ?? null)
       },
@@ -122,17 +142,21 @@ function runCallerRefusalFallback(
     )
     .finally(() => {
       caller.refusalFallback.settled = true
+      caller.refusalFallback.callback = null
+      retireSettledCaller(group, caller)
       finalizeRefusalSettlement(group)
     })
 }
 
 function trackPromptDelivery(
   group: StructuredLaunchCallerGroup,
-  promptDeliveryResult: Promise<StructuredPromptDeliveryResult>
+  promptDeliveryResult: Promise<StructuredPromptDeliveryResult>,
+  caller: StructuredLaunchCaller
 ): void {
   group.promptDeliveryResults.add(promptDeliveryResult)
   const settled = (): void => {
     group.promptDeliveryResults.delete(promptDeliveryResult)
+    retireSettledCaller(group, caller)
     group.onSettled()
   }
   void promptDeliveryResult.then(settled, settled)
@@ -177,10 +201,10 @@ export function addStructuredLaunchCaller(args: {
     return { delivered: false, failureNotified: true }
   })
   if (caller.promptDeliveryResult) {
-    trackPromptDelivery(args.group, caller.promptDeliveryResult)
+    trackPromptDelivery(args.group, caller.promptDeliveryResult, caller)
   }
   if (['published', 'failed', 'cancelled'].includes(args.group.outcome)) {
-    settleCallerWithoutFallback(caller)
+    settleCallerWithoutFallback(args.group, caller)
   } else if (args.group.outcome === 'refused') {
     queueMicrotask(() => runCallerRefusalFallback(args.group, caller))
   }
@@ -193,7 +217,7 @@ export function settleStructuredLaunchCallersWithoutFallback(
 ): void {
   group.outcome = outcome
   for (const caller of group.entries) {
-    settleCallerWithoutFallback(caller)
+    settleCallerWithoutFallback(group, caller)
   }
   if (!group.refusalSettlement.settled) {
     group.refusalSettlement.settled = true
@@ -220,7 +244,9 @@ export function claimStructuredLaunchCallerFallback(
   caller: StructuredLaunchCaller,
   fallback: StructuredRefusalFallback
 ): Promise<boolean> {
-  caller.refusalFallback.callback ??= fallback
+  if (!caller.refusalFallback.settled && !caller.refusalFallback.started) {
+    caller.refusalFallback.callback ??= fallback
+  }
   if (group.outcome === 'refused') {
     runCallerRefusalFallback(group, caller)
   }
@@ -234,7 +260,7 @@ export function releaseStructuredLaunchCallerAfterUnknownOutcome(
   if (group.outcome !== 'unknown' || !group.entries.delete(caller)) {
     return false
   }
-  settleCallerWithoutFallback(caller)
+  settleCallerWithoutFallback(group, caller)
   group.onSettled()
   return true
 }
