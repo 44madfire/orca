@@ -9,7 +9,8 @@ export type MobileNativeChatDraftOwnership = {
 export type MobileNativeChatDraftAction =
   | { type: 'seed'; value: SetStateAction<Record<string, string>> }
   | { type: 'edit'; draftKey: string; value: SetStateAction<string> }
-  | { type: 'capture' | 'release'; origin: MobileNativeChatSendOrigin }
+  | { type: 'capture'; origin: MobileNativeChatSendOrigin }
+  | { type: 'release'; origin: MobileNativeChatSendOrigin }
   | { type: 'clear' | 'restore'; origin: MobileNativeChatSendOrigin; text: string }
 
 export function createMobileNativeChatDraftOwnership(): MobileNativeChatDraftOwnership {
