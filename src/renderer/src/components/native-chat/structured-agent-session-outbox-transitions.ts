@@ -12,10 +12,9 @@ export function transitionOutbox(
   if (next.length === current.length && next.every((entry, index) => entry === current[index])) {
     return { ok: true, entries: current }
   }
+  const previousById = new Map(current.map((entry) => [entry.clientMessageId, entry]))
   const stamped = next.map((entry) => {
-    const previous = current.find(
-      (candidate) => candidate.clientMessageId === entry.clientMessageId
-    )
+    const previous = previousById.get(entry.clientMessageId)
     return entry === previous
       ? entry
       : {
