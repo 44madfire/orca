@@ -1489,7 +1489,7 @@
       "Landing": {
         "76a95f7f47": "Create",
         "f05d237049": "Add a project first",
-        "f9eaa9e12d": "Add Project",
+        "f9eaa9e12d": "Add project",
         "6ca6ff404e": "ORCA",
         "520304a067": "Orca logo",
         "ce44fad849": "Missing dependencies",
@@ -5293,14 +5293,13 @@
         "SidebarHeader": {
           "projects": "Projects",
           "spaces": "Spaces",
-          "25a95899c9": "Add Project",
           "92154beb7e": "New workspace",
           "49f62c5665": "Workspace board",
           "5c9c7c16aa": "Add a project to create workspaces",
-          "ca6f729da2": "New workspace ({{value0}})",
           "a30e34eb5c": "Close workspace board",
           "views": "Sidebar view",
-          "moreActions": "More workspace actions"
+          "createMenu": "Create",
+          "addProject": "Add project"
         },
         "SidebarNav": {
           "80611a8b10": "Search",
@@ -10489,7 +10488,20 @@
             "agent": "agent",
             "process": "process",
             "prompt": "prompt",
-            "stop": "stop"
+            "stop": "stop",
+            "minimumContrast": {
+              "title": "Color Contrast",
+              "description": "Improve text readability or preserve the colors chosen by terminal programs.",
+              "contrast": "contrast",
+              "minimum": "minimum",
+              "ratio": "ratio",
+              "readability": "readability",
+              "wcag": "wcag",
+              "powerline": "powerline",
+              "statusline": "statusline",
+              "dim": "dim",
+              "colors": "colors"
+            }
           },
           "windows": {
             "search": {
@@ -11100,7 +11112,8 @@
           "signInAgain": "Sign in again for Relay",
           "localTitle": "LAN",
           "localDescription": "Phone must be on this Wi‑Fi or connected through Tailscale. No account needed.",
-          "retrying": "Retrying"
+          "retrying": "Retrying",
+          "relayCell": "Relay cell"
         },
         "MobilePairingSetupSection": {
           "title": "Pair a phone",
@@ -11813,6 +11826,20 @@
         },
         "NativeChatSupportedAgents": {
           "label": "Supported agents:"
+        },
+        "contrast": {
+          "title": "Color Contrast",
+          "description": "Improve text readability or preserve the colors chosen by terminal programs.",
+          "ratio": "Contrast target",
+          "autoDescription": "Balances readability with your terminal theme. Recommended.",
+          "offDescription": "Keeps program colors unchanged, including dim text and Powerline separators.",
+          "customDescription": "Choose how much to increase contrast between text and its background.",
+          "auto": "Automatic",
+          "off": "Off",
+          "custom": "Custom",
+          "targetDescription": "Higher values increase contrast where possible. Background colors stay unchanged.",
+          "subtle": "Subtle",
+          "strong": "Strong"
         }
       },
       "right": {
@@ -13612,7 +13639,7 @@
           },
           "ProjectCombobox": {
             "empty": "No projects match your search.",
-            "addProject": "Add a new project",
+            "addProject": "Add project",
             "label": "Project",
             "browse": "Browse projects",
             "listLabel": "Projects",
@@ -16226,6 +16253,7 @@
           "showChildAgents": "Show child agents",
           "activityOptions": "Activity options",
           "threadListOptionsFiltered": "Thread list options, filters active",
+          "showSearch": "Show search",
           "interrupted": "Interrupted",
           "state": {
             "working": "Working",
@@ -16966,6 +16994,11 @@
       "empty": "No users found"
     },
     "native-chat": {
+      "notices": {
+        "compaction": "Context compacted",
+        "details": "Details",
+        "plan": "Plan"
+      },
       "composer": {
         "imageUnsupported": "Image paste is not supported for this agent.",
         "send": "Send",
@@ -17031,10 +17064,13 @@
         "imagePreviewUnavailable": "Preview unavailable"
       },
       "tool": {
+        "exitCode": "exit {{value0}}",
+        "milliseconds": "{{value0}}ms",
         "running": "Running…",
         "result": "Result",
         "countOne": "1 tool call",
         "countN": "{{value0}} tool calls",
+        "moreCalls": "+{{value0}} more",
         "runningPreview": "Running {{preview}}",
         "runningCommand": "Running command",
         "runningNamedPreview": "Running {{toolName}} {{preview}}",
