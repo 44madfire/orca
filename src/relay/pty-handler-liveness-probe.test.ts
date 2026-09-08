@@ -374,4 +374,50 @@ describe('PtyHandler.probeLiveness', () => {
       expect(await probe(id)).toBe('unverifiable')
     })
   })
+
+  describe('owner entries evicted from the bounded map while a record outlives them', () => {
+    async function churnOwnersPastTheCap(): Promise<void> {
+      for (let index = 0; index < OBSERVED_PTY_EXIT_HISTORY; index++) {
+        await spawnPty()
+        reportExitOfLatestPty()
+      }
+    }
+
+    function ownerEntry(id: string): string | undefined {
+      return (
+        handler as unknown as { ptyIdIncarnationOwners: { peek(key: string): string | undefined } }
+      ).ptyIdIncarnationOwners.peek(id)
+    }
+
+    it('certifies a long-lived resident whose owner entry was evicted', async () => {
+      const { id } = await spawnPty()
+      const exit = mockPtyInstance.onExit.mock.calls.at(-1)?.[0] as (event: {
+        exitCode: number
+      }) => void
+      await churnOwnersPastTheCap()
+      expect(ownerEntry(id)).toBeUndefined()
+      expect(await probe(id)).toBe('live')
+
+      // The record is still in the pool, so it speaks for the id without the owner map: a PTY
+      // that outlives 4,096 admissions must still certify its own exit.
+      exit({ exitCode: 0 })
+
+      expect(await probe(id)).toBe('exited')
+    })
+
+    it('withholds a late observation once both the record and its owner entry are gone', async () => {
+      const { id } = await spawnPty()
+      const exit = mockPtyInstance.onExit.mock.calls.at(-1)?.[0] as (event: {
+        exitCode: number
+      }) => void
+      await forgetRecordWithoutObservingItsExit(id)
+      await churnOwnersPastTheCap()
+      expect(ownerEntry(id)).toBeUndefined()
+
+      // Forgetting fails closed: with no owner to compare against, nothing may record.
+      exit({ exitCode: 0 })
+
+      expect(await probe(id)).toBe('unverifiable')
+    })
+  })
 })

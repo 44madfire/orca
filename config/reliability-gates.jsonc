@@ -18744,7 +18744,9 @@
             "does not certify a revived process with the exit of the one it replaced",
             "does not let a superseded incarnation certify the id once both records are gone",
             "evicts observations in the order it made them, not the order it was asked",
-            "forgets every observation when the relay restarts, even under the same mint epoch"
+            "forgets every observation when the relay restarts, even under the same mint epoch",
+            "certifies a long-lived resident whose owner entry was evicted",
+            "withholds a late observation once both the record and its owner entry are gone"
           ]
         },
         {
@@ -18790,12 +18792,12 @@
           "command": "ORCA_BACKGROUND_LAUNCH=1 node_modules/.bin/vitest run --config config/vitest.config.ts src/relay/pty-handler-liveness-probe.test.ts src/relay/pty-handler-ssh-exit-certification.test.ts src/relay/pty-handler-ssh-recovery-convergence.test.ts src/main/providers/ssh-pty-liveness-probe.test.ts src/main/providers/ssh-pty-provider-liveness-readback.test.ts src/main/runtime/runtime-legacy-worker-terminal-exit-certification.test.ts",
           "result": "passed",
           "durationSeconds": 1.27,
-          "summary": "6 files, 56 tests passed. The convergence file fails 1/3 without the owner readback; twelve mutations of the probe, its incarnation binding, the published capabilities, the bounded map and the forwarder each fail at least one of these tests."
+          "summary": "6 files, 58 tests passed. The convergence file fails 1/3 without the owner readback; thirteen mutations of the probe, its incarnation binding, the published capabilities, the bounded map and the forwarder each fail at least one of these tests."
         }
       ],
       "runtimeBudget": {
         "p95Seconds": 30,
-        "scope": "Six unit/service-level files; the ledger-eviction case drives 4,097 spawn-and-exit cycles through the real handler and reads the oldest entry before the overflow and dominates the run at roughly 0.8 s."
+        "scope": "Six unit/service-level files; the ledger-eviction and owner-eviction cases each drive 4,096+ spawn-and-exit cycles through the real handler and reads the oldest entry before the overflow and dominates the run at roughly 0.8 s."
       },
       "flakeHistory": {
         "status": "not-started",
