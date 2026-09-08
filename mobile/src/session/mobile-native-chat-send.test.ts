@@ -309,10 +309,13 @@ describe('typeMobileNativeChatCommandWithOutcome', () => {
 
     await expect(result).resolves.toBe('accepted')
     expect(
-      vi.mocked(client.sendRequest).mock.calls.map((call) => {
-        const params = call[1] as { text: string; enter: boolean }
-        return { text: params.text, enter: params.enter }
-      })
+      vi
+        .mocked(client.sendRequest)
+        .mock.calls.filter(([method]) => method === 'terminal.send')
+        .map((call) => {
+          const params = call[1] as { text: string; enter: boolean }
+          return { text: params.text, enter: params.enter }
+        })
     ).toEqual(
       ['\x15', '/', 'm', 'o', 'd', 'e', 'l', '\r'].map((text) => ({
         text,

@@ -7,12 +7,12 @@ import { TerminalSend } from './unary-schemas'
 import {
   assertTerminalSendExactPtyBinding,
   assertTerminalSendTextWithinLimit,
+  commitMobileInputFloorClaim,
   getTerminalSendGuardRefusedReason,
   isTerminalInputLockedForClient,
   isTerminalSendGuardNotWritable,
-  newTerminalInputWrite,
   resolveMobileFloorClientId,
-  settleTerminalInputWrite
+  type MobileInputFloorClaimHolder
 } from './terminal-input-delivery'
 import { updateViewportForClient } from './terminal-viewport-update'
 import {
@@ -181,7 +181,7 @@ export const TERMINAL_SEND_METHODS: RpcAnyMethod[] = [
         }
       }
       const mobileFloorClientId = resolveMobileFloorClientId(driver, params.client)
-      const inputWrite = newTerminalInputWrite(params, driver?.kind === 'mobile')
+      const mobileFloorClaim: MobileInputFloorClaimHolder = { current: null }
       const beforeWrite =
         orchestrationMutation && params.agentPrompt === true
           ? async (ptyId?: string): Promise<void> => {
@@ -203,7 +203,7 @@ export const TERMINAL_SEND_METHODS: RpcAnyMethod[] = [
               if (!claim) {
                 throw new Error('mobile_input_floor_unavailable')
               }
-              inputWrite.floorClaim = claim
+              mobileFloorClaim.current = claim
             }
           : undefined
       let result
@@ -236,11 +236,13 @@ export const TERMINAL_SEND_METHODS: RpcAnyMethod[] = [
                 beforeWrite,
                 signal,
                 ...(reserveWrite ? { reserveWrite } : {}),
-                afterWrite: () => settleTerminalInputWrite(runtime, inputWrite)
+                ...(params.inputKind !== 'query-reply' && mobileFloorClientId
+                  ? { afterWrite: () => commitMobileInputFloorClaim(mobileFloorClaim) }
+                  : {})
               }
             )
       } catch (error) {
-        inputWrite.floorClaim?.rollback()
+        mobileFloorClaim.current?.rollback()
         if (isAgentSessionPtyWriteRefusedError(error)) {
           // Why: name the owner and the stage instead of a bare not-writable, so a client can say
           // who holds the session rather than retrying into a lease it will never win.
@@ -279,7 +281,7 @@ export const TERMINAL_SEND_METHODS: RpcAnyMethod[] = [
         throw error
       }
       if (result.accepted !== true) {
-        inputWrite.floorClaim?.rollback()
+        mobileFloorClaim.current?.rollback()
       }
       if (
         result.accepted === true &&
