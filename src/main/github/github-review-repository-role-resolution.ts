@@ -51,19 +51,22 @@ export async function resolveGitHubReviewRepositoryRoles(args: {
     return resolveConventionalCandidates(args.resolveRemote)
   }
   const snapshot = await getGitRemoteTopologySnapshot(args)
-  const repositories = await resolveSnapshotRepositories(snapshot, async (url) => {
-    const repository = await resolveGitHubRepositoryUrl(
-      url,
-      args.repoPath,
-      args.connectionId,
-      args.localGitOptions
-    )
-    if (repository) {
-      return { kind: 'verified', repository }
+  const repositories = await resolveSnapshotRepositories<GitHubApiRepository>(
+    snapshot,
+    async (url) => {
+      const repository = await resolveGitHubRepositoryUrl(
+        url,
+        args.repoPath,
+        args.connectionId,
+        args.localGitOptions
+      )
+      if (repository) {
+        return { kind: 'verified', repository }
+      }
+      // Authentication failure cannot exclude an otherwise plausible forge URL.
+      return { kind: parseGitHubRemoteIdentity(url) ? 'unverifiable' : 'non-provider' }
     }
-    // Authentication failure cannot exclude an otherwise plausible forge URL.
-    return { kind: parseGitHubRemoteIdentity(url) ? 'unverifiable' : 'non-provider' }
-  })
+  )
   const plausible = snapshot.remoteNames.filter(
     (name) =>
       repositories.fetch.get(name)?.kind !== 'non-provider' ||
