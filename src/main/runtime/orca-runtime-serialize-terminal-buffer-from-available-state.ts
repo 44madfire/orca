@@ -143,25 +143,21 @@ export class OrcaRuntimeWithSerializeTerminalBufferFromAvailableState extends Or
         }
       })
     }
-    if (acquisition.timedOut) {
-      return null
-    }
     if (typeof wait.timeoutMs !== 'number') {
       return acquisition.promise
     }
-    const result = await withTimeout<
-      { settled: true; value: PtyProviderBufferSnapshot | null } | { settled: false }
-    >(
-      acquisition.promise.then((value) => ({ settled: true as const, value })),
+    // Undefined marks a timeout; null is a settled provider with no snapshot.
+    const result = await withTimeout<PtyProviderBufferSnapshot | null | undefined>(
+      acquisition.promise,
       wait.timeoutMs,
-      { settled: false as const }
+      undefined
     )
-    if (!result.settled) {
+    if (result === undefined) {
       if (wait.retireOnTimeout) {
         acquisition.timedOut = true
       }
       return null
     }
-    return result.value
+    return result
   }
 }
