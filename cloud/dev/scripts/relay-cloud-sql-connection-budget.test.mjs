@@ -22,7 +22,7 @@ test('production plus the push gateway keeps allowance and reserve below the cei
   assert.equal(report.rolloutOverlap.relayDirectorCandidate, 30)
   assert.equal(report.rolloutOverlap.apiCandidate, 65)
   assert.equal(report.rolloutOverlap.authCandidate, 35)
-  assert.equal(report.rolloutOverlap.pushCandidate, 19)
+  assert.equal(report.rolloutOverlap.pushCandidate, 23)
   assert.equal(report.rolloutOverlap.relayCells, 15)
   assert.equal(report.rolloutOverlap.retainedDirectorRollback, 15)
   // The gateway does not set the maximum; the API candidate does, as it did before it existed.
@@ -65,10 +65,10 @@ test('the same relay shape without the gateway stays inside the ceiling', () => 
   assert.equal(report.withinBudget, true)
 })
 
-// Why: a tagged candidate is directly addressable and sits outside the service-wide cap, so both
+// Why: a tagged candidate is directly addressable and sits outside the service-wide cap, so all three
 // push revisions can reach the ceiling at once. The API and auth candidates add one copy; this
 // one adds two, like the director candidate.
-test('the push rollout scenario doubles the gateway draw over the retained director', () => {
+test('the push rollout scenario triples the gateway draw over the retained director', () => {
   const report = calculateRelayCloudSqlConnectionBudget({
     cellPoolTotal: 0,
     asiaCellCount: 0,
@@ -87,8 +87,8 @@ test('the push rollout scenario doubles the gateway draw over the retained direc
   })
 
   assert.equal(report.consumers.push, 4)
-  // 15 retained director rollback, plus the 4-connection draw counted twice.
-  assert.equal(report.rolloutOverlap.pushCandidate, 19)
+  // Serving is in the base; overlap adds 15 retained director plus two 4-connection pools.
+  assert.equal(report.rolloutOverlap.pushCandidate, 23)
 })
 
 test('fails closed when pool growth consumes the explicit reserve', () => {
@@ -176,7 +176,7 @@ test('a tfvars push_max_instances override wins over the variable default', () =
   })
 
   assert.equal(report.consumers.push, 6)
-  assert.equal(report.rolloutOverlap.pushCandidate, 9)
+  assert.equal(report.rolloutOverlap.pushCandidate, 15)
 })
 
 test('requires strict headroom below the physical ceiling', () => {

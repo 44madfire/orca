@@ -240,7 +240,7 @@ test('the summary is written before anything that can fail after the shift', () 
   const summary = indexOfStep('Publish the rollout summary')
   assert.ok(summary > indexOfStep('Shift all traffic to the verified candidate'))
   assert.ok(summary < indexOfStep('Verify the public origin after the shift'))
-  assert.match(workflow, /--to-revisions \$\{ROLLBACK_REVISION\}=100/)
+  assert.match(workflow, /Known-good image:/)
   assert.match(workflow, /GITHUB_STEP_SUMMARY/)
 })
 
@@ -262,7 +262,7 @@ test('a failure after the shift rolls production back automatically', () => {
   )
   assert.match(
     body,
-    /if: \$\{\{ \(failure\(\) \|\| cancelled\(\)\) && env\.TRAFFIC_SHIFT_ATTEMPTED == 'true' \}\}/,
+    /if: \$\{\{ \(failure\(\) \|\| cancelled\(\)\) && env\.TRAFFIC_SHIFT_ATTEMPTED == 'true' && env\.ROLLOUT_VERIFIED != 'true' \}\}/,
     'the rollback must be conditioned on both failure and the shift marker'
   )
   assert.match(body, /test -n "\$\{ROLLBACK_REVISION:-\}"/)
@@ -273,15 +273,15 @@ test('a failure after the shift rolls production back automatically', () => {
 
 // Why: a candidate that never took traffic still holds a warm instance and a Cloud SQL pool. Its
 // tag comes off first, because Cloud Run refuses to delete a revision a traffic target names.
-test('a failure before the shift deletes the candidate it created', () => {
+test('verified recovery authorizes rejected candidate deletion', () => {
   const body = workflow.slice(
     workflow.indexOf('- name: Delete the rejected candidate revision'),
     workflow.indexOf('- name: Drop the candidate traffic tag')
   )
   assert.match(
     body,
-    /env\.TRAFFIC_SHIFT_ATTEMPTED != 'true' \|\| env\.TRAFFIC_ROLLED_BACK == 'true'/,
-    'the cleanup must be conditioned on both failure and the absence of the shift marker'
+    /env\.RECOVERY_VERIFIED == 'true'/,
+    'cleanup must wait for verified recovery traffic and public checks'
   )
   assert.match(body, /if test -z "\$\{CANDIDATE_REVISION:-\}"; then/)
   assert.ok(
@@ -307,4 +307,9 @@ test('push credentials cannot assume the shared Relay deploy identity', () => {
   assert.match(source, /attribute\.push_deploy\/production/)
   assert.doesNotMatch(workflow, /PRODUCTION_GCP_RELAY_DEPLOY_/)
   assert.doesNotMatch(terraform('push-gateway.tf'), /member\s*=\s*local\.relay_github_deploy_service_account_member/)
+})
+
+// A latest revision needs a successor even when validation is inert.
+test('dedicated database admits three simultaneous revision pools', () => {
+  assert.match(terraform('push-gateway.tf'), /var\.push_max_instances \* var\.push_database_pool_max \* 3 <= 64/)
 })

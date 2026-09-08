@@ -310,8 +310,8 @@ resource "google_cloud_run_v2_service" "push" {
     }
 
     precondition {
-      condition     = !var.push_dedicated_database_active || var.push_max_instances * var.push_database_pool_max * 2 <= 64
-      error_message = "Dedicated push serving and candidate pools must fit the 64-connection rollout budget."
+      condition     = !var.push_dedicated_database_active || var.push_max_instances * var.push_database_pool_max * 3 <= 64
+      error_message = "Dedicated push serving, validation/rejected and successor pools must fit the 64-connection rollout budget."
     }
 
     ignore_changes = [

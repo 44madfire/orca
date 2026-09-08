@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import { readRelayWorkflow } from './relay-repository.mjs'
@@ -12,272 +13,361 @@ function step(name) {
   assert.notEqual(start, -1)
   const end = workflow.indexOf('\n      - ', start + 1)
   const block = workflow.slice(start, end === -1 ? undefined : end)
-  return block.slice(block.indexOf('        run: |\n') + '        run: |\n'.length)
-    .split('\n').filter((line) => line.startsWith('          ')).map((line) => line.slice(10)).join('\n')
+  return block
+    .slice(block.indexOf('        run: |\n') + '        run: |\n'.length)
+    .split('\n')
+    .filter((line) => line.startsWith('          '))
+    .map((line) => line.slice(10))
+    .join('\n')
 }
-const candidate = step('Deploy the candidate revision with no traffic')
-const shift = step('Shift all traffic to the verified candidate')
-const rollback = step('Roll traffic back to the previous revision')
-const cleanup = step('Delete the rejected candidate revision')
-const env = { SERVICE_NAME: 'push-test', GCP_PROJECT_ID: 'test', GCP_REGION: 'test',
-  GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', IMAGE: 'synthetic-image',
-  CANDIDATE_REVISION: 'push-test-c123-1', ROLLBACK_REVISION: 'push-test-old',
-  ROLLBACK_IMAGE: 'registry/push@sha256:' + 'a'.repeat(64), PUSH_MIN_INSTANCES: '1', PUSH_MAX_INSTANCES: '2' }
-
-function exercise(body, setup = () => {}) {
+const names = {
+  preflight: 'Record the serving revision and require its Terraform-owned scaling',
+  candidate: 'Deploy the candidate revision with no traffic',
+  activate: 'Retire inert validation and activate the verified image',
+  shift: 'Shift all traffic to the verified candidate',
+  public: 'Verify the public origin after the shift',
+  rollback: 'Roll traffic back to the previous revision',
+  restore: 'Restore the known-good service template',
+  promoteRecovery: 'Promote and verify the known-good recovery revision',
+  cleanup: 'Delete the rejected candidate revision',
+  retire: 'Retire previous consumers after public checks'
+}
+const image = `registry/push@sha256:${'a'.repeat(64)}`
+const spec = {
+  serviceAccountName: 'runtime@test',
+  containerConcurrency: 40,
+  containers: [
+    {
+      image,
+      name: 'push-test-1',
+      env: [
+        {
+          name: 'ORCA_PUSH_DATABASE_URL',
+          valueFrom: { secretKeyRef: { name: 'database', key: '7' } }
+        },
+        { name: 'ORCA_PUSH_DATABASE_POOL_MAX', value: '2' }
+      ]
+    }
+  ]
+}
+const prior = {
+  metadata: {
+    name: 'push-test-old',
+    annotations: {
+      'autoscaling.knative.dev/minScale': '1',
+      'autoscaling.knative.dev/maxScale': '2'
+    }
+  },
+  spec,
+  status: { imageDigest: image }
+}
+const model = fileURLToPath(new URL('./push-cloud-run-model.mjs', import.meta.url))
+const options = { skip: process.platform === 'win32' }
+function exercise(callback) {
   const dir = mkdtempSync(join(tmpdir(), 'push-workflow-'))
+  const statePath = join(dir, 'state.json')
+  writeFileSync(
+    statePath,
+    JSON.stringify({
+      revisions: { 'push-test-old': prior },
+      latest: 'push-test-old',
+      serving: 'push-test-old',
+      tags: {},
+      peak: 1,
+      trace: []
+    })
+  )
+  writeFileSync(join(dir, 'env'), '')
+  const env = {
+    ...process.env,
+    SERVICE_NAME: 'push-test',
+    GCP_PROJECT_ID: 'test',
+    GCP_REGION: 'test',
+    GITHUB_RUN_ID: '123',
+    GITHUB_RUN_ATTEMPT: '1',
+    IMAGE: `registry/push@sha256:${'b'.repeat(64)}`,
+    PUSH_MIN_INSTANCES: '1',
+    PUSH_MAX_INSTANCES: '2',
+    PUSH_RUNTIME_SERVICE_ACCOUNT: 'runtime@test',
+    PUSH_ORIGIN: 'https://public.test',
+    MODEL_STATE: statePath,
+    MODEL_SCRIPT: model,
+    RUNNER_TEMP: dir,
+    GITHUB_ENV: join(dir, 'env'),
+    GITHUB_STEP_SUMMARY: join(dir, 'summary')
+  }
+  const state = () => JSON.parse(readFileSync(statePath, 'utf8'))
+  const change = (edit) => {
+    const value = state()
+    edit(value)
+    writeFileSync(statePath, JSON.stringify(value))
+  }
+  const run = (key, ok = true, extra = '') => {
+    const result = spawnSync(
+      'bash',
+      [
+        '-c',
+        `
+      set -a
+      source "$GITHUB_ENV"
+      gcloud() { node "$MODEL_SCRIPT" "$@"; }
+      curl() { node "$MODEL_SCRIPT" curl "$@"; }
+      sleep() { :; }
+      ${extra}
+      ${names[key] ? step(names[key]) : key}
+    `
+      ],
+      { cwd: dir, env, encoding: 'utf8', timeout: 30000 }
+    )
+    assert.equal(result.status === 0, ok, `${key}: ${result.stderr}\n${result.stdout}`)
+    return result
+  }
   try {
-    setup(dir)
-    const run = spawnSync('bash', ['-c', body], { encoding: 'utf8', timeout: 10000, cwd: dir,
-      env: { ...process.env, ...env, RUNNER_TEMP: dir, GITHUB_ENV: join(dir, 'env'), GITHUB_STEP_SUMMARY: join(dir, 'summary'),
-        TRACE: join(dir, 'trace'), STATE: join(dir, 'state') } })
-    assert.equal(run.status, 0, run.stderr)
-  } finally { rmSync(dir, { recursive: true, force: true }) }
+    callback({ run, state, change, dir })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+function recover(h) {
+  h.change((state) => {
+    delete state.failure
+  })
+  h.run('restore')
+  h.run('promoteRecovery')
+  h.run('cleanup')
+  h.run('retire')
+  const state = h.state()
+  assert.equal(state.serving, 'push-test-r123-1')
+  assert.equal(state.latest, state.serving)
+  assert.deepEqual(Object.keys(state.revisions), [state.serving])
+  assert.equal(state.revisions[state.serving].spec.containers[0].image, image)
+  assert.ok(state.peak <= 3)
 }
 
-// Workflow shell behavior is Linux-specific; these tests never call a real cloud CLI.
-test('failed candidate discovery retains enough state to remove tag and revision', { skip: process.platform === 'win32' }, () => {
-  exercise(`
-    gcloud() {
-      case "$*" in
-        'run deploy '*) echo deployed > "$STATE" ;;
-        'run services describe '*) return 1 ;;
-        'run revisions list '*) echo "$CANDIDATE_REVISION" ;;
-        *) echo "$*" >> "$TRACE" ;;
-      esac
-    }
-    jq() { return 1; }
-    ( ${candidate} )
-    test "$?" != 0 || exit 1
-    source "$GITHUB_ENV"
-    test "$CANDIDATE_TAG" = c123-1 || exit 1
-    test "$CANDIDATE_REVISION" = push-test-c123-1 || exit 1
-    ( ${cleanup} ) || exit 1
-    grep -q -- '--remove-tags c123-1' "$TRACE" || exit 1
-    grep -q 'run revisions delete push-test-c123-1' "$TRACE" || exit 1
-  `)
-})
+test(
+  'the executable Cloud Run model rejects deleting latest even without tags or traffic',
+  options,
+  () =>
+    exercise((h) => {
+      h.run('preflight')
+      h.run('candidate')
+      h.run('gcloud run services update-traffic "$SERVICE_NAME" --clear-tags')
+      const result = h.run('gcloud run revisions delete "$CANDIDATE_REVISION"', false)
+      assert.match(result.stderr, /FAILED_PRECONDITION: latest created Revision/)
+    })
+)
 
-test('failed post-promotion read retains intent and restores previous traffic', { skip: process.platform === 'win32' }, () => {
-  exercise(`
-    gcloud() {
-      case "$*" in
-        'run services update-traffic '*) echo "$*" >> "$TRACE" ;;
-        'run services describe '*) return 1 ;;
-      esac
-    }
-    jq() { return 1; }
-    ( ${shift} )
-    test "$?" != 0 || exit 1
-    source "$GITHUB_ENV"
-    test "$TRAFFIC_SHIFT_ATTEMPTED" = true || exit 1
-    gcloud() {
-      case "$*" in
-        'run services update-traffic '*) echo "$*" >> "$TRACE" ;;
-        'run services describe '*) echo '{}' ;;
-      esac
-    }
-    jq() { echo "$ROLLBACK_REVISION"; }
-    ( ${rollback} ) || exit 1
-    source "$GITHUB_ENV"
-    test "$TRAFFIC_ROLLED_BACK" = true || exit 1
-    grep -q -- '--to-revisions push-test-old=100' "$TRACE" || exit 1
-  `)
-})
+test(
+  'success creates successor before retirement and repeated rollouts retain one consumer',
+  options,
+  () =>
+    exercise((h) => {
+      for (const attempt of ['1', '2']) {
+        if (attempt === '2') {
+          writeFileSync(join(h.dir, 'env'), 'GITHUB_RUN_ATTEMPT=2\n')
+        }
+        for (const key of ['preflight', 'candidate', 'activate', 'shift', 'public', 'retire']) {
+          h.run(key)
+        }
+        const state = h.state()
+        assert.equal(state.serving, `push-test-a123-${attempt}`)
+        assert.deepEqual(Object.keys(state.revisions), [state.serving])
+        assert.equal(state.peak, 3)
+      }
+    })
+)
 
-test('ambiguous promotion failure also leaves rollback intent', { skip: process.platform === 'win32' }, () => {
-  exercise(`
-    gcloud() { return 1; }
-    ( ${shift} )
-    test "$?" != 0 || exit 1
-    source "$GITHUB_ENV"
-    test "$TRAFFIC_SHIFT_ATTEMPTED" = true
-  `)
-})
+for (const failure of ['deploy-before', 'deploy-after', 'describe']) {
+  test(`validation ${failure} recovers without deleting latest`, options, () =>
+    exercise((h) => {
+      h.run('preflight')
+      h.change((state) => {
+        state.failure = failure
+      })
+      h.run('candidate', false)
+      recover(h)
+    })
+  )
+}
+for (const failure of ['deploy-before', 'deploy-after', 'delete', 'describe']) {
+  test(
+    `activation ${failure} frees validation slot before recovery and stays within three`,
+    options,
+    () =>
+      exercise((h) => {
+        h.run('preflight')
+        h.run('candidate')
+        h.change((state) => {
+          state.failure = failure
+        })
+        h.run('activate', false)
+        recover(h)
+      })
+  )
+}
 
-const activate = step('Retire inert validation and activate the verified image')
-test('partial activation records the new revision before deploy and deletes its consumer', { skip: process.platform === 'win32' }, () => {
-  exercise(`
-    CANDIDATE_TAG=c123-1
-    sleep() { :; }
-    gcloud() {
-      echo "$*" >> "$TRACE"
-      case "$*" in
-        'run deploy '*) return 1 ;;
-        'run revisions list '*) echo "$CANDIDATE_REVISION" ;;
-      esac
-    }
-    ( ${activate} )
-    test "$?" != 0 || exit 1
-    source "$GITHUB_ENV"
-    test "$ACTIVATION_ATTEMPTED" = true || exit 1
-    test "$CANDIDATE_REVISION" = push-test-a123-1 || exit 1
-    test "$CANDIDATE_TAG" = a123-1 || exit 1
-    ( ${cleanup} ) || exit 1
-    grep -q 'run revisions delete push-test-c123-1' "$TRACE" || exit 1
-    grep -q 'run revisions delete push-test-a123-1' "$TRACE" || exit 1
-    grep -q -- '--remove-env-vars ORCA_PUSH_MODE' "$TRACE" || exit 1
-    test "$(grep -n 'run revisions delete push-test-c123-1' "$TRACE" | cut -d: -f1)" -lt \
-      "$(grep -n 'run deploy' "$TRACE" | cut -d: -f1)" || exit 1
-  `)
-})
+test(
+  'ambiguous traffic shift records intent before mutation, rolls back and recovers',
+  options,
+  () =>
+    exercise((h) => {
+      h.run('preflight')
+      h.run('candidate')
+      h.run('activate')
+      h.change((state) => {
+        state.failure = 'traffic-after'
+      })
+      h.run('shift', false)
+      assert.match(readFileSync(join(h.dir, 'env'), 'utf8'), /TRAFFIC_SHIFT_ATTEMPTED=true/)
+      h.change((state) => {
+        delete state.failure
+      })
+      h.run('rollback')
+      recover(h)
+    })
+)
 
-test('failed validation retirement never activates another consumer', { skip: process.platform === 'win32' }, () => {
-  exercise(`
-    CANDIDATE_TAG=c123-1
-    gcloud() {
-      echo "$*" >> "$TRACE"
-      case "$*" in
-        'run revisions delete '*) return 1 ;;
-      esac
+test('failed public check rolls back and recovers', options, () =>
+  exercise((h) => {
+    for (const key of ['preflight', 'candidate', 'activate', 'shift']) {
+      h.run(key)
     }
-    ( ${activate} )
-    test "$?" != 0 || exit 1
-    ! grep -q 'run deploy' "$TRACE" || exit 1
-    ! grep -q ACTIVATION_ATTEMPTED "$GITHUB_ENV" 2>/dev/null || exit 1
-  `)
-})
+    h.change((state) => {
+      state.failure = 'public'
+    })
+    h.run('public', false)
+    h.change((state) => {
+      delete state.failure
+    })
+    h.run('rollback')
+    recover(h)
+  })
+)
+
+for (const defect of [
+  'runtime',
+  'secret',
+  'mode',
+  'image',
+  'traffic',
+  'scaling',
+  'deploy-before',
+  'deploy-after'
+]) {
+  test(`recovery rejects ${defect} and preserves partial-create state`, options, () =>
+    exercise((h) => {
+      h.run('preflight')
+      h.run('candidate')
+      h.change((state) => {
+        const revision = state.revisions[state.latest]
+        if (defect === 'runtime') {
+          revision.spec.serviceAccountName = 'wrong@test'
+        }
+        if (defect === 'secret') {
+          revision.spec.containers[0].env[0].valueFrom.secretKeyRef.key = '8'
+        }
+        if (defect === 'scaling') {
+          revision.metadata.annotations['autoscaling.knative.dev/maxScale'] = '3'
+        }
+        if (defect === 'traffic') {
+          state.serving = state.latest
+        }
+        if (defect.startsWith('deploy-')) {
+          state.failure = defect
+        }
+      })
+      // Corrupt the recovery response after the modeled deploy while keeping real jq assertions.
+      const extra = ['mode', 'image'].includes(defect)
+        ? `
+      gcloud() {
+        node "$MODEL_SCRIPT" "$@" > "$RUNNER_TEMP/out" || return $?
+        if [[ "$*" == 'run services describe '* && "$*" == *'--format=json'* ]]; then
+          jq '${defect === 'mode' ? '.spec.template.spec.containers[0].env += [{name:"ORCA_PUSH_MODE",value:"validation"}]' : '.spec.template.spec.containers[0].image = "wrong"'}' "$RUNNER_TEMP/out"
+        else cat "$RUNNER_TEMP/out"; fi
+      }`
+        : ''
+      h.run('restore', false, extra)
+      const recorded = readFileSync(join(h.dir, 'env'), 'utf8')
+      assert.match(recorded, /TEMPLATE_RECOVERY_REVISION=push-test-r123-1/)
+      assert.doesNotMatch(recorded, /TEMPLATE_RESTORED=true/)
+      assert.ok(h.state().peak <= 3)
+    })
+  )
+}
+
+test('failed validation retirement blocks a fourth revision during recovery', options, () =>
+  exercise((h) => {
+    h.run('preflight')
+    h.run('candidate')
+    h.change((state) => {
+      state.failure = 'delete'
+    })
+    h.run('activate', false)
+    h.run('restore', false)
+    assert.equal(h.state().peak, 3)
+    assert.equal(h.state().revisions['push-test-r123-1'], undefined)
+  })
+)
+
+test(
+  'failed retirement after public checks leaves verified serving and blocks the next run',
+  options,
+  () =>
+    exercise((h) => {
+      for (const key of ['preflight', 'candidate', 'activate', 'shift', 'public']) {
+        h.run(key)
+      }
+      h.change((state) => {
+        state.failure = 'delete'
+      })
+      h.run('retire', false)
+      assert.equal(h.state().serving, 'push-test-a123-1')
+      h.run('preflight', false)
+      assert.match(workflow, /env.ROLLOUT_VERIFIED != 'true'/)
+    })
+)
+
+test(
+  'recovery promotion failure keeps consumers for operator diagnosis and blocks new rollout',
+  options,
+  () =>
+    exercise((h) => {
+      h.run('preflight')
+      h.run('candidate')
+      h.run('restore')
+      h.change((state) => {
+        state.failure = 'public'
+      })
+      h.run('promoteRecovery', false)
+      assert.doesNotMatch(readFileSync(join(h.dir, 'env'), 'utf8'), /RECOVERY_VERIFIED=true/)
+      h.run('preflight', false)
+    })
+)
 
 const capability = step('Require image support for inert validation')
-for (const [label, source, expected] of [
-  ['old image', 'export function loadPushConfig() { return {}; }', 1],
-  ['invalid mode accepted', 'export function loadPushConfig(env) { return { mode: env.ORCA_PUSH_MODE }; }', 1],
-  ['validation supported', `export function loadPushConfig(env) {
+for (const [label, source, ok] of [
+  ['old image', 'export function loadPushConfig() { return {}; }', false],
+  [
+    'invalid mode accepted',
+    'export function loadPushConfig(env) { return { mode: env.ORCA_PUSH_MODE }; }',
+    false
+  ],
+  [
+    'validation supported',
+    `export function loadPushConfig(env) {
     if (env.ORCA_PUSH_MODE !== 'validation') throw new Error('invalid mode');
     return { mode: 'validation' };
-  }`, 0]
+  }`,
+    true
+  ]
 ]) {
-  test(`pre-production image smoke: ${label}`, { skip: process.platform === 'win32' }, () => {
-    exercise(`
-      docker() { node "\${@: -3}"; }
-      ( ${capability} )
-      test "$?" = ${expected}
-    `, (dir) => {
-      const dist = join(dir, 'apps', 'push', 'dist')
+  test(`pre-production image smoke: ${label}`, options, () =>
+    exercise((h) => {
+      const dist = join(h.dir, 'apps', 'push', 'dist')
       mkdirSync(dist, { recursive: true })
-      writeFileSync(join(dir, 'package.json'), '{"type":"module"}')
+      writeFileSync(join(h.dir, 'package.json'), '{"type":"module"}')
       writeFileSync(join(dist, 'config.js'), source)
+      h.run(capability, ok, 'docker() { node "${@: -3}"; }')
     })
-  })
+  )
 }
-
-const restore = step('Restore the known-good service template')
-const priorSpec = { serviceAccountName: 'runtime@test', containerConcurrency: 40,
-  containers: [{ image: env.ROLLBACK_IMAGE, env: [
-    { name: 'ORCA_PUSH_DATABASE_URL', valueFrom: { secretKeyRef: { name: 'database', key: '7' } } },
-    { name: 'ORCA_PUSH_DATABASE_POOL_MAX', value: '2' }
-  ] }] }
-const recoveredService = { spec: { template: { spec: priorSpec, metadata: { annotations: {
-  'autoscaling.knative.dev/minScale': '1', 'autoscaling.knative.dev/maxScale': '2'
-} } } }, status: { traffic: [{ revisionName: env.ROLLBACK_REVISION, percent: 100 }] } }
-function recoveryFiles(dir, service = recoveredService) {
-  writeFileSync(join(dir, 'push-rollback-revision.json'), JSON.stringify({ spec: priorSpec }))
-  writeFileSync(join(dir, 'recovered.json'), JSON.stringify(service))
-}
-
-test('recovery requires cleanup success and restores no traffic before verified rollback', { skip: process.platform === 'win32' }, () => {
-  const block = workflow.slice(workflow.indexOf('- name: Restore the known-good service template'))
-  assert.match(block, /env.VALIDATION_DEPLOY_ATTEMPTED == 'true' && env.CANDIDATE_DELETED == 'true'/)
-  assert.ok(workflow.indexOf('- name: Delete the rejected candidate revision') <
-    workflow.indexOf('- name: Restore the known-good service template'))
-  exercise(`
-    TRAFFIC_SHIFT_ATTEMPTED=true
-    gcloud() { echo unexpected >> "$TRACE"; }
-    ( ${restore} )
-    test "$?" != 0 || exit 1
-    test ! -e "$TRACE"
-  `)
-})
-
-for (const absent of [false, true]) {
-  test(`failed validation restores known-good template after candidate ${absent ? 'was never created' : 'deletion'}`, { skip: process.platform === 'win32' }, () => {
-    exercise(`
-      CANDIDATE_TAG=c123-1
-      sleep() { echo shutdown-allowance >> "$TRACE"; }
-      gcloud() {
-        echo "$*" >> "$TRACE"
-        case "$*" in
-          'run revisions list '*) ${absent ? ':' : 'echo "$CANDIDATE_REVISION"'} ;;
-          'run services describe '*) cat "$RUNNER_TEMP/recovered.json" ;;
-        esac
-      }
-      ( ${cleanup} ) || exit 1
-      source "$GITHUB_ENV"
-      test "$CANDIDATE_DELETED" = true || exit 1
-      ( ${restore} ) || exit 1
-      source "$GITHUB_ENV"
-      test "$TEMPLATE_RESTORED" = true || exit 1
-      grep -q -- '--image registry/push@sha256:' "$TRACE" || exit 1
-      grep -q -- '--remove-env-vars ORCA_PUSH_MODE --no-traffic' "$TRACE" || exit 1
-      test "$(grep -n shutdown-allowance "$TRACE" | cut -d: -f1)" -lt \
-        "$(grep -n 'run deploy' "$TRACE" | cut -d: -f1)"
-    `, recoveryFiles)
-  })
-}
-
-test('failed candidate deletion does not authorize template recovery', { skip: process.platform === 'win32' }, () => {
-  exercise(`
-    gcloud() {
-      case "$*" in
-        'run revisions list '*) echo "$CANDIDATE_REVISION" ;;
-        'run revisions delete '*) return 1 ;;
-      esac
-    }
-    ( ${cleanup} )
-    test "$?" != 0 || exit 1
-    ! grep -q CANDIDATE_DELETED=true "$GITHUB_ENV" 2>/dev/null
-  `)
-})
-
-for (const defect of ['runtime', 'secret', 'mode', 'image', 'traffic', 'scaling', 'deploy']) {
-  test(`template recovery rejects ${defect} failure and records attempted revision`, { skip: process.platform === 'win32' }, () => {
-    const service = structuredClone(recoveredService)
-    if (defect === 'runtime') service.spec.template.spec.serviceAccountName = 'wrong@test'
-    if (defect === 'secret') service.spec.template.spec.containers[0].env[0].valueFrom.secretKeyRef.key = '8'
-    if (defect === 'mode') service.spec.template.spec.containers[0].env.push({ name: 'ORCA_PUSH_MODE', value: 'validation' })
-    if (defect === 'image') service.spec.template.spec.containers[0].image = 'rejected'
-    if (defect === 'traffic') service.status.traffic[0].revisionName = 'rejected'
-    if (defect === 'scaling') service.spec.template.metadata.annotations['autoscaling.knative.dev/maxScale'] = '3'
-    exercise(`
-      sleep() { :; }
-      gcloud() {
-        case "$*" in
-          'run deploy '*) ${defect === 'deploy' ? 'return 1' : ':'} ;;
-          'run services describe '*) cat "$RUNNER_TEMP/recovered.json" ;;
-        esac
-      }
-      ( ${restore} )
-      test "$?" != 0 || exit 1
-      source "$GITHUB_ENV"
-      test "$TEMPLATE_RECOVERY_REVISION" = push-test-r123-1 || exit 1
-      test -z "\${TEMPLATE_RESTORED:-}"
-    `, (dir) => recoveryFiles(dir, service))
-  })
-}
-
-const retireRecovery = step('Retire the template recovery revision')
-for (const absent of [false, true]) {
-  test(`recovery retirement handles ${absent ? 'partial creation without a revision' : 'an existing recovery consumer'}`, { skip: process.platform === 'win32' }, () => {
-    exercise(`
-      TEMPLATE_RECOVERY_REVISION=push-test-r123-1
-      sleep() { echo shutdown-allowance >> "$TRACE"; }
-      gcloud() {
-        echo "$*" >> "$TRACE"
-        case "$*" in
-          'run revisions list '*) ${absent ? ':' : 'echo "$TEMPLATE_RECOVERY_REVISION"'} ;;
-        esac
-      }
-      ( ${retireRecovery} ) || exit 1
-      ${absent ? '!' : ''} grep -q 'run revisions delete' "$TRACE" || exit 1
-      grep -q shutdown-allowance "$TRACE"
-    `)
-  })
-}
-
-test('recovery retirement runs after success or failure without mutating the restored template', () => {
-  const block = workflow.slice(workflow.indexOf('- name: Retire the template recovery revision'),
-    workflow.indexOf('- name: Drop the candidate traffic tag'))
-  assert.match(block, /always\(\) && env.TEMPLATE_RECOVERY_REVISION != ''/)
-  assert.doesNotMatch(retireRecovery, /run (deploy|services update|services replace)/)
-  assert.match(workflow, /image="\$\(jq -er '\.status.imageDigest'/)
-})

@@ -73,8 +73,8 @@ export function calculateRelayCloudSqlConnectionBudget(inputs) {
     relayDirectorCandidate: retainedDirectorRollback * 2,
     apiCandidate: retainedDirectorRollback + inputs.apiInstances * inputs.apiPoolMax,
     authCandidate: retainedDirectorRollback + inputs.authInstances * inputs.authPoolMax,
-    // Serving push pools are already in configuredMaximum; the tagged candidate adds one copy.
-    pushCandidate: retainedDirectorRollback + pushDraw,
+    // Serving is already counted; validation/rejected and its successor add two pools.
+    pushCandidate: retainedDirectorRollback + pushDraw * 2,
     relayCells: retainedDirectorRollback
   }
   const rolloutOverlap = Math.max(...Object.values(candidateOverlap))

@@ -15,7 +15,7 @@ const activation = position('Retire inert validation and activate the verified i
 const shift = position('Shift all traffic to the verified candidate')
 
 test('the exact build digest must support validation before production boot', () => {
-  assert.match(workflow, /docker buildx build --push --metadata-file/)
+  assert.match(workflow, /docker buildx build --push --platform linux\/amd64 --provenance=false --metadata-file/)
   assert.match(workflow, /containerimage\.digest/)
   assert.doesNotMatch(workflow, /gcloud artifacts docker images describe/)
   assert.ok(capability < deploy)
@@ -30,7 +30,7 @@ test('inert validation and credential checks precede deliberate activation of th
   assert.match(workflow.slice(deploy, activation), /\.mode == "validation"/)
   assert.ok(position('Prove the runtime identity can reach FCM') < activation)
   const active = workflow.slice(activation, shift)
-  assert.ok(active.indexOf('gcloud run revisions delete') < active.indexOf('gcloud run deploy'))
+  assert.ok(active.indexOf('gcloud run deploy') < active.indexOf('gcloud run revisions delete'))
   assert.match(active, /--image "\$\{IMAGE\}"/)
   assert.match(active, /--remove-env-vars ORCA_PUSH_MODE/)
   assert.match(active, /\.spec\.containers\[0\]\.image == \$image/)

@@ -36,7 +36,7 @@ coalescing window lives in instance memory, so the floor is what keeps a notific
 ceiling is a different question, answered below.
 
 The maximum and the pool are set by the connection budget, not by the gateway's own appetite. Two
-instances times a two-connection pool is a draw of 4, and a rollout doubles it to 8, because the
+instances times a two-connection pool is a draw of 4, and a rollout triples it to 12, because the
 tagged candidate is directly addressable and sits outside the service-wide cap. The shared Cloud
 SQL instance's 400 connections were already spoken for by the relay cells, the directors, auth,
 and the API, which left five. Four is the whole of the room there was, and the gateway fits in
@@ -181,61 +181,70 @@ asserts Terraform-owned scaling. It deploys a tagged, zero-traffic validation re
   prove schema compatibility, provider delivery, or active-worker readiness. Container probes
   can still use `/health` without treating an inert process as unhealthy.
 
+The build explicitly targets `linux/amd64` with provenance disabled so build metadata records a
+single manifest digest, rather than an OCI index that Cloud Run resolves to a different digest.
 The workflow verifies the exact image and scaling, probes readiness and mode, and checks the
-runtime identity with a validate-only FCM request. It then removes the tag and deletes validation,
-allowing ten seconds for shutdown before starting another revision. This orders the rollout
-within the two-revision connection budget; the delay is not proof of SQL connection drain.
-Verify revision termination and SQL sessions during controlled rollout acceptance.
+runtime identity with a validate-only FCM request. Cloud Run rejects deletion of the latest
+created revision even when it has no tag or traffic. Activation therefore creates a successor
+before removing the validation tag and deleting validation. The dedicated 64-connection budget
+and legacy shared budget reserve three simultaneous revision pools: serving, validation/rejected,
+and active/recovery successor (12 configured pool connections at the current two-by-two shape).
+Revision deletion is not proof of physical SQL session drain; verify termination and SQL sessions
+in controlled rollout acceptance. There is no shutdown sleep used as a drain gate.
 
-**The next step deliberately activates production effects.** It deploys a distinct revision of
-the exact validated digest, removing the validation override so the default `active` mode applies.
-Schema setup runs on its existing one-connection untimed pool, followed by workers and pruners.
-These can mutate production and send notifications **before HTTP traffic moves**. The workflow
-checks the active revision's digest, runtime identity, scaling, readiness and mode, then moves all
-HTTP traffic and checks the public origin. The summary records activation intent and rollback.
-Terraform continues to own configuration and scaling; the temporary validation environment entry
-is removed on activation, so no new ignored Terraform field is needed.
+**Activation deliberately starts production effects.** The distinct active revision uses the exact
+validated digest with the validation override removed. Schema setup runs on its existing
+one-connection untimed pool, followed by workers and pruners, before HTTP promotion. The workflow
+checks digest, full runtime spec and secret-reference shape, scaling, readiness and active mode,
+then moves HTTP traffic and checks the public origin. Those checks commit the new serving revision;
+subsequent retirement failures do not trigger rollback to a possibly deleted previous revision.
+The previous consumer is retired and all tags are cleared. Retain the previous immutable image
+from the summary: later recovery redeploys that digest, because the previous revision is deleted.
 
-Failure before activation deletes the inert candidate. Failure during activation also deletes the
-partially created active revision when traffic has not moved. After any attempted traffic shift,
-the workflow first restores and verifies previous traffic, then removes the candidate tag and
-deletes the rejected revision. It then restores the service template with the previous serving
-revision’s resolved image digest and no validation override, leaving traffic on the old revision.
-This creates an untagged recovery revision: known-good schema and workers can execute before
-it is retired, even with no HTTP traffic. The workflow verifies the template’s runtime settings,
-secret references, scaling and normal mode, then deletes the recovery revision under the same
-lease. Deletion leaves the safe service template in place for later Terraform reconciliation.
-If candidate deletion fails, no recovery revision is created; failed recovery attempts still
-record their revision name for retirement and operator diagnosis.
+Before any candidate creation, the workflow requires exactly one revision resource, the sole HTTP
+serving revision. Existing historical revisions or leftovers from interrupted runs require explicit
+operator review and cleanup under the lease first; the workflow does not blindly delete them.
+This gate and retirement after every successful rollout prevent repeated runs accumulating workers.
+Terraform still owns configuration and scaling; removing validation mode adds no ignored field.
 
-Traffic restoration alone does **not** stop queue consumers. If rollback, template restoration
-or deletion fails, operator recovery must complete under the rollout lease; do not call
-the rollout recovered merely because the old origin answers. A canceled runner can also require
-manual cleanup. Successful rollout removes the active candidate tag.
+On failure before public checks pass, any attempted traffic shift is first rolled back and verified.
+If partial activation created a successor, recovery retires non-latest validation first; deletion
+failure stops recovery before a fourth resource can be created. Recovery then deploys the captured
+known-good digest as a tagged, zero-traffic successor with normal mode. It verifies template shape,
+secret references and scaling, probes tagged readiness and active mode, promotes the recovery
+revision, verifies traffic and public health, and only then deletes rejected and previous revisions.
+The latest recovery revision remains serving. Known-good recovery schema and workers can execute
+before promotion; neither recovery nor traffic rollback undoes schema changes or sent notifications.
 
-Manual rollback must restore traffic, retire the rejected revision, and restore the service
-template under the rollout lease. Use the exact names and known-good image digest from the summary:
+Partial creates record deterministic names before mutation. Failed recovery or deletion requires
+operator cleanup under the lease; the next automated run refuses leftover resources. A canceled
+runner can require the same intervention. Traffic restoration alone does not stop queue consumers.
+
+Manual recovery must preserve the three-resource bound and keep the successor serving:
 
 ```sh
-gcloud run services update-traffic orca-cloud-push \
-  --project onorca-cloud --region us-central1 --to-revisions <previous-revision>=100
-gcloud run services update-traffic orca-cloud-push \
-  --project onorca-cloud --region us-central1 --remove-tags <candidate-tag>
-gcloud run revisions delete <rejected-active-revision> \
-  --project onorca-cloud --region us-central1
-# Verify termination/drain before creating another revision.
+# Hold the rollout lease; inspect latest, traffic, tags and existing revisions first.
+# If three resources remain after partial activation, retire non-latest inert validation first.
+# Restore previous traffic if its revision still exists and a failed candidate took traffic.
 gcloud run deploy orca-cloud-push \
   --project onorca-cloud --region us-central1 --image <known-good-image-at-digest> \
-  --remove-env-vars ORCA_PUSH_MODE --no-traffic --revision-suffix <unique-recovery-suffix>
-# Verify template image/mode/runtime/secret references/scaling and unchanged traffic, then retire it.
-gcloud run revisions delete <recovery-revision> \
+  --remove-env-vars ORCA_PUSH_MODE --no-traffic \
+  --tag <unique-recovery-tag> --revision-suffix <unique-recovery-suffix>
+# Verify exact digest, template spec/secret references/scaling, tagged /ready and active /health.
+gcloud run services update-traffic orca-cloud-push \
+  --project onorca-cloud --region us-central1 --to-revisions <recovery-revision>=100
+# Verify traffic and public /ready and /health before retiring old consumers.
+gcloud run services update-traffic orca-cloud-push \
+  --project onorca-cloud --region us-central1 --clear-tags
+gcloud run revisions delete <rejected-or-previous-revision> \
   --project onorca-cloud --region us-central1
+# Repeat only for reviewed obsolete revisions; retain the latest serving recovery revision.
 ```
 
 Never merely remove validation mode while the template still holds a rejected image. Terraform
 owns environment configuration but ignores the image, so that would activate rejected code.
-Remove a tag only if it remains present. Verify the old revision is serving, the template is safe,
-and both rejected/recovery revision deletion and connection drain completed;
+Remove a tag only if it remains present. Verify the recovery revision is serving, the template is safe,
+and obsolete revision deletion and connection drain completed;
 already accepted provider sends cannot be undone. Activation-time schema changes must be additive
 and compatible with the rollback image: rollback does not reverse migrations or queue mutations.
 The inert phase intentionally cannot validate a new schema by applying it to production. Review
@@ -351,9 +360,10 @@ issuance and breaks Cloud Run host routing.
 
 Candidate tags and deterministic revision names are recorded before deployment. Promotion intent is
 recorded before changing traffic, so a failed verification or ambiguous mutation result still triggers
-rollback. Failed candidates are deleted only before attempted promotion or after verified rollback.
-A known-good template is restored after successful cleanup, and its untagged recovery revision
-is retired so it cannot remain an extra consumer. The summary runs even if candidate discovery or traffic verification fails.
+rollback. A known-good successor must exist before the rejected latest revision can be deleted.
+After verified recovery promotion and public checks, rejected and previous consumers are retired;
+the recovery revision remains serving. Failed cleanup blocks subsequent rollout admission.
+The summary runs even if candidate discovery or traffic verification fails.
 
 Push uses the relay's schema-startup retry implementation through `@orca-cloud/postgres-schema`.
 Session replacement is serialized per host and a unique host index upgrades older databases by

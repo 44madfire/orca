@@ -45,7 +45,7 @@ tier, backup policy, and regional availability. No Cloud Run service changes in 
    Do not apply a plan that would shift traffic or revert runtime configuration.
 4. Dispatch `cloud-push-deploy.yml` from main with the exact reviewed source SHA. It creates
    an inert, read-only candidate inheriting the dedicated attachment, probes readiness and provider
-   access, then deletes it and deliberately activates the same digest under the same lease.
+   access, then deliberately creates an active successor of the same digest before deleting validation.
    Activation starts schema writes and workers before HTTP promotion. Verify the candidate's SQL
    attachment and pinned secret reference as well as its image and health.
 5. Register a test phone against the deployed origin and prove real APNs delivery. Check
@@ -53,11 +53,16 @@ tier, backup policy, and regional availability. No Cloud Run service changes in 
    connections have drained. Leave the old database intact; do not delete shared resources.
 
 If activation fails before promotion, the existing HTTP serving revision is unchanged, but
-activated workers may already have sent notifications or mutated the queue. Delete the rejected
-revision to stop those workers; traffic rollback alone does not stop consumers. After cleanup,
-the workflow restores the known-good image and normal mode in the service template, verifies
-runtime settings and secret references, and retires the untagged recovery revision. Recovery
-can run known-good schema/workers; it does not undo earlier queue or schema changes.
+activated workers may already have sent notifications or mutated the queue. Cloud Run will not
+delete the latest created revision, even untagged at zero traffic. Recovery creates a known-good
+successor first, verifies its template/runtime/secret shape and health, promotes and verifies it,
+then deletes rejected and previous consumers. The recovery successor remains serving; it can run
+known-good schema/workers before promotion and does not undo earlier queue or schema changes.
+A partial activation leaving three resources must retire non-latest inert validation before
+recovery creates another; failed retirement stops automation. Every deploy requires a single
+serving revision resource at admission, so review and retire historical/leftover revisions under
+the lease before dispatch. A Terraform attachment update can itself create such a revision:
+verify/promote that known-good image and attachment and retire the former revision before dispatch.
 The deploy workflow can roll traffic back on failure; in this internal reset rollout,
 that may discard registrations created during the probe window. After successful activation,
 application rollback should retain the dedicated attachment and deploy an older compatible
@@ -67,8 +72,8 @@ not a lossless rollback. Future public migrations require a separately rehearsed
 ## Capacity and resizing
 
 The initial gateway keeps its existing two-connection pool and two-instance maximum.
-Dedicated database rollout pools are capped at 64 total connections across serving and
-candidate revisions, leaving room for maintenance and operators; this is an admission
+Dedicated database rollout pools are capped at 64 total configured pool connections across three simultaneous
+revision resources (serving, validation/rejected, and active/recovery successor), leaving room for maintenance and operators; this is an admission
 budget, not a throughput claim. Increase the pool only after measuring deployed contention.
 Keep the shared database allocation reserved until source connections have drained.
 
