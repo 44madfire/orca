@@ -30,7 +30,11 @@ function response(owner = 'contributor', branch = 'feature') {
         updated_at: '2026-03-28T00:00:00Z',
         mergeable: true,
         base: { ref: 'main', sha: 'base' },
-        head: { ref: branch, sha: 'head', repo: { name: 'repo', owner: { login: owner } } }
+        head: {
+          ref: branch,
+          sha: 'head',
+          repo: { name: 'repo', owner: { login: owner } }
+        }
       }
     ])
   }
@@ -150,6 +154,105 @@ describe('shipping branch lookup with real Git ownership evidence', () => {
     await expect(getPRForBranchOutcome(repo, 'feature')).resolves.toMatchObject({
       kind: 'upstream-error',
       errorType: 'repo_unavailable'
+    })
+  })
+
+  it.each(['ambiguous', 'multiple-push', 'unresolved'])(
+    'rejects an unrelated positive with %s owner evidence',
+    async (topology) => {
+      if (topology === 'multiple-push') {
+        git(
+          repo,
+          'remote',
+          'set-url',
+          '--push',
+          'origin',
+          'https://github.com/contributor/repo.git'
+        )
+        git(
+          repo,
+          'remote',
+          'set-url',
+          '--add',
+          '--push',
+          'origin',
+          'https://github.com/another/repo.git'
+        )
+        git(repo, 'config', 'branch.feature.pushRemote', 'origin')
+        git(repo, 'update-ref', 'refs/remotes/fork/feature', 'HEAD')
+      } else if (topology === 'unresolved') {
+        git(repo, 'remote', 'remove', 'origin')
+        git(repo, 'remote', 'remove', 'fork')
+      }
+      const foreign = {
+        number: 99,
+        title: 'Unrelated same-name branch',
+        state: 'OPEN',
+        url: 'https://github.com/canonical/repo/pull/99',
+        updatedAt: '',
+        mergeable: 'MERGEABLE',
+        statusCheckRollup: [],
+        headRefName: 'feature',
+        headRefOid: 'unrelated',
+        headRepositoryOwner: { login: 'stranger' }
+      }
+      gh.mockImplementation(async (args: string[]) => ({
+        stdout: JSON.stringify(args[1] === 'list' ? [foreign] : foreign)
+      }))
+      await expect(getPRForBranchOutcome(repo, 'feature')).resolves.toMatchObject({
+        kind: 'upstream-error',
+        errorType: 'repo_unavailable'
+      })
+      expect(gh.mock.calls.some(([args]) => args[0] === 'pr' && args[1] === 'list')).toBe(false)
+    }
+  )
+
+  it('recovers a true tracked owner through ambiguous push intent', async () => {
+    git(repo, 'remote', 'set-url', '--push', 'origin', 'https://github.com/contributor/repo.git')
+    git(
+      repo,
+      'remote',
+      'set-url',
+      '--add',
+      '--push',
+      'origin',
+      'https://github.com/another/repo.git'
+    )
+    git(repo, 'config', 'branch.feature.pushRemote', 'origin')
+    git(repo, 'update-ref', 'refs/remotes/fork/published', 'HEAD')
+    git(repo, 'config', 'branch.feature.remote', 'fork')
+    git(repo, 'config', 'branch.feature.merge', 'refs/heads/published')
+    gh.mockImplementation(async (args: string[]) =>
+      args.join(' ').includes('head=contributor%3Apublished')
+        ? response('contributor', 'published')
+        : { stdout: '[]' }
+    )
+    await expect(getPRForBranchOutcome(repo, 'feature')).resolves.toMatchObject({
+      kind: 'found',
+      pr: { number: 42, headRepo: { owner: 'contributor' } }
+    })
+  })
+
+  it('recovers an explicit fallback number after ambiguous branch ownership', async () => {
+    gh.mockImplementation(async (args: string[]) => ({
+      stdout: JSON.stringify(
+        args[0] === 'pr' && args[1] === 'view'
+          ? {
+              number: 42,
+              title: 'Exact recovery',
+              state: 'OPEN',
+              url: 'https://github.com/canonical/repo/pull/42',
+              updatedAt: '',
+              mergeable: 'MERGEABLE',
+              statusCheckRollup: [],
+              headRefName: 'feature'
+            }
+          : []
+      )
+    }))
+    await expect(getPRForBranchOutcome(repo, 'feature', null, null, 42)).resolves.toMatchObject({
+      kind: 'found',
+      pr: { number: 42 }
     })
   })
 

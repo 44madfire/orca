@@ -17,7 +17,7 @@ import {
   type PullRequestLookupData,
   type GitHubPRBranchLookupOptions
 } from './pull-request-lookup-data'
-import { lookupPRByBranchName } from './pr-branch-lookup'
+import { lookupPRByBranchEvidence } from './pr-branch-admission'
 import { lookupPRByNumber } from './pr-number-lookup'
 import { derivePRRefreshData } from './branch-lookup-derived-data'
 import { assemblePRRefreshFoundOutcome } from './pr-refresh-outcome-assembly'
@@ -156,9 +156,11 @@ export async function resolvePRForBranchOutcome(input: {
     dataRepo = exactLookup.dataRepo
   } else if (branchName) {
     // During a rebase (detached HEAD) branch is empty; an empty --head filter makes gh return an arbitrary PR.
-    const branchLookup = await lookupPRByBranchName({
+    const branchLookup = await lookupPRByBranchEvidence({
       candidates,
       headRepo,
+      head,
+      unverifiableRemotes,
       branchName,
       ghOptions,
       executionScope
@@ -176,7 +178,7 @@ export async function resolvePRForBranchOutcome(input: {
         !headRepo ||
         githubRepoIdentityKey(trackedHead.repository) !== githubRepoIdentityKey(headRepo))
     ) {
-      const upstreamLookup = await lookupPRByBranchName({
+      const upstreamLookup = await lookupPRByBranchEvidence({
         candidates,
         headRepo: trackedHead.repository,
         branchName: trackedHead.branchName,
@@ -192,17 +194,6 @@ export async function resolvePRForBranchOutcome(input: {
       if (data) {
         dataHeadRepo = trackedHead.repository
       }
-    }
-    if (
-      !data &&
-      !hasPendingBranchLookupError &&
-      (unverifiableRemotes?.length ||
-        (head && (head.kind !== 'resolved' || head.confidence === 'inferred')))
-    ) {
-      pendingBranchLookupError = new Error(
-        'Could not resolve to a Repository: repository evidence does not establish the review branch owner.'
-      )
-      hasPendingBranchLookupError = true
     }
   }
 
