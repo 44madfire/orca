@@ -1,3 +1,4 @@
+import { areGitUpstreamIdentitiesEqual } from '../../../../../../shared/git-upstream-identity'
 import { translate } from '@/i18n/i18n'
 import type {
   GitConflictKind,
@@ -119,6 +120,7 @@ export function areUpstreamStatusesEqual(
     prev !== undefined &&
     prev.hasUpstream === next.hasUpstream &&
     prev.upstreamName === next.upstreamName &&
+    areGitUpstreamIdentitiesEqual(prev.upstreamIdentity, next.upstreamIdentity) &&
     prev.ahead === next.ahead &&
     prev.behind === next.behind &&
     prev.hasConfiguredPushTarget === next.hasConfiguredPushTarget &&

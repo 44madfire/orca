@@ -51,3 +51,21 @@ export function projectGitUpstreamIdentity(
     trackingRef: identity.trackingRef
   }
 }
+
+export function areGitUpstreamIdentitiesEqual(
+  previous: GitUpstreamStatusIdentity | undefined,
+  next: GitUpstreamStatusIdentity | undefined
+): boolean {
+  return (
+    previous === next ||
+    Boolean(
+      previous &&
+      next &&
+      previous.mergeRef === next.mergeRef &&
+      previous.trackingRef === next.trackingRef &&
+      previous.selector.kind === next.selector.kind &&
+      (previous.selector.kind !== 'named-remote' ||
+        (next.selector.kind === 'named-remote' && previous.selector.value === next.selector.value))
+    )
+  )
+}
