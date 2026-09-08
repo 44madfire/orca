@@ -107,7 +107,7 @@ describe('useStructuredAgentSessionOutbox', () => {
     )
   })
 
-  it('requeues across a fence change and ignores the stale settlement', async () => {
+  it('spends a recovery probe across a fence change and ignores the stale settlement', async () => {
     const first = deferred<ReturnType<typeof acceptedResult>>()
     const second = deferred<ReturnType<typeof acceptedResult>>()
     mocks.call.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
@@ -126,7 +126,9 @@ describe('useStructuredAgentSessionOutbox', () => {
     await waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(1))
 
     rerender({ fence: 2 })
-    await waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(2))
+    expect(mocks.call).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(2), { timeout: 2000 })
+    expect(result.current.outbox[0]?.recovery?.attempts).toBe(1)
     expect(mocks.call.mock.calls[1]?.[2]).toMatchObject({
       envelope: { expectedRuntimeFence: 2 }
     })

@@ -18,7 +18,8 @@ import { callStructuredAgentSession } from '@/runtime/structured-agent-session-c
 import {
   claimOutboxDispatch,
   forgetOutboxDispatch,
-  hasOutboxDispatch,
+  recoverOutboxDispatches,
+  releaseOutboxDispatch,
   transitionOutbox,
   transitionOutboxEntry
 } from './structured-agent-session-outbox-transitions'
@@ -46,8 +47,6 @@ export function useStructuredAgentSessionOutbox(args: {
   const [outbox, setOutbox] = useState<StructuredAgentSessionOutboxEntry[]>(() =>
     readOutbox(sessionId, false)
   )
-  const contextRef = useRef({ sessionId, fence, targetKey })
-  contextRef.current = { sessionId, fence, targetKey }
   const outboxRef = useRef(outbox)
   const claimRef = useRef<StructuredAgentSessionOutboxEntry | undefined>(undefined)
   const dispatchGenerationRef = useRef(0)
@@ -73,28 +72,12 @@ export function useStructuredAgentSessionOutbox(args: {
   useLayoutEffect(() => {
     dispatchGenerationRef.current += 1
     blockedIdRef.current = null
-    // Recover persisted dispatches after renderer restart, never another mounted owner's claim.
-    transitionOutbox(sessionId, (entries) =>
-      entries.map((entry) =>
-        entry.state === 'dispatching' && !hasOutboxDispatch(entry)
-          ? { ...entry, state: entry.recovery ? ('unconfirmed' as const) : ('queued' as const) }
-          : entry
-      )
-    )
+    recoverOutboxDispatches(sessionId)
     return () => {
       const claim = claimRef.current
       claimRef.current = undefined
       if (claim) {
-        forgetOutboxDispatch(claim)
-        transitionOutboxEntry(claim, (entry) => ({
-          ...entry,
-          state:
-            !entry.recovery &&
-            contextRef.current.sessionId === sessionId &&
-            (contextRef.current.fence !== fence || contextRef.current.targetKey !== targetKey)
-              ? 'queued'
-              : 'unconfirmed'
-        }))
+        releaseOutboxDispatch(claim)
       }
     }
   }, [fence, sessionId, targetKey])
@@ -109,8 +92,15 @@ export function useStructuredAgentSessionOutbox(args: {
       setError(null)
       blockedIdRef.current = null
     }
-    const result = transitionOutbox(sessionId, (entries) =>
-      reconcileStructuredAgentSessionOutbox(entries, submissions)
+    const acceptedIds = new Set(
+      submissions
+        .filter((entry) => entry.dispatchState === 'accepted')
+        .map((entry) => entry.clientMessageId)
+    )
+    const result = transitionOutbox(
+      sessionId,
+      (entries) => reconcileStructuredAgentSessionOutbox(entries, submissions),
+      outboxRef.current.filter((entry) => acceptedIds.has(entry.clientMessageId))
     )
     if (!result.ok) {
       setError('Message could not be saved to the outbox')

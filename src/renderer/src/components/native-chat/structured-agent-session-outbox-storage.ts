@@ -50,7 +50,8 @@ export function readOutbox(
 
 export function writeOutbox(
   sessionId: string,
-  entries: readonly StructuredAgentSessionOutboxEntry[]
+  entries: readonly StructuredAgentSessionOutboxEntry[],
+  onCommitted?: () => void
 ): boolean {
   try {
     if (entries.length === 0) {
@@ -58,6 +59,7 @@ export function writeOutbox(
     } else {
       localStorage.setItem(storageKey(sessionId), JSON.stringify(entries))
     }
+    onCommitted?.()
     for (const listener of listeners.get(sessionId) ?? []) {
       listener(entries.slice())
     }
