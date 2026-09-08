@@ -7,6 +7,7 @@
 // instances, Maps, or Dates.
 
 import type { AgentType } from './agent-status-types'
+import type { NativeChatToolMetadata } from './native-chat-tool-identity'
 
 export type { AgentType }
 
@@ -31,6 +32,9 @@ export type NativeChatRole = (typeof NATIVE_CHAT_ROLES)[number]
 export type NativeChatTextBlock = {
   type: 'text'
   text: string
+  /** Optional journal display hints; readers narrow only the values they know. */
+  presentation?: string
+  tone?: string
   /** Optional structured detail for an otherwise ordinary fallback line. */
   providerFrame?: {
     provider: string
@@ -47,7 +51,7 @@ export type NativeChatTextBlock = {
 /** A tool invocation by the agent. `input` is the (already-serialized) tool
  *  argument payload; kept as `unknown` because each tool's shape differs and
  *  the renderer only previews it. */
-export type NativeChatToolCallBlock = {
+export type NativeChatToolCallBlock = NativeChatToolMetadata & {
   type: 'tool-call'
   name: string
   input: unknown
