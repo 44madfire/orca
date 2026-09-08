@@ -159,9 +159,14 @@ benchmark comparison.
 
 Both 1x and 2x display-density checks passed 720 ring comparisons each: 6/8 px
 rings, light/dark themes, supported zoom extremes, all 12 phases, long elapsed
-times, and the daily wrap. Pixel tolerance is one channel level for floating-point
-antialias rounding. Checks also cover shared phase, reduced motion, initial
-offscreen reveal, repeated scroll-away/reveal, and `display:none` restoration.
+times, and the daily wrap. The comparison pauses each animation and sets its
+`currentTime`, so the long-elapsed and daily-wrap cases exercise the deterministic
+style path rather than a running compositor animation. Against that path the
+tolerance is one channel level for floating-point antialias rounding. A running
+animation at multi-hour ages can differ by a few channels on the ring edge — a
+fraction-of-a-pixel antialias difference at large accumulated angles, not a phase
+or shape change. Checks also cover shared phase, reduced motion, initial offscreen
+reveal, repeated scroll-away/reveal, and `display:none` restoration.
 
 ## Limits and rejected approaches
 
