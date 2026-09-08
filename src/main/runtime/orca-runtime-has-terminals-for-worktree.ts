@@ -42,6 +42,9 @@ export class OrcaRuntimeWithHasTerminalsForWorktree extends OrcaRuntimeWithStopE
         recovery: this.shouldRestoreHeadlessGraph(windowId) ? 'headless' : 'reloading'
       }
     }
+    if (this.graphStatus === 'unavailable' && this.rendererGeneration === null) {
+      return null
+    }
     const recovery = this.graphStatus === 'ready' ? 'renderer' : 'unavailable'
     return { revision: this.beginGraphReload(windowId), recovery }
   }

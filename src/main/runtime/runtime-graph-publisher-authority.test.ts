@@ -99,7 +99,8 @@ describe('runtime graph publisher authority', () => {
       tabId: 'duplicate',
       worktreeId: 'folder:fixture',
       title: 'tab',
-      activeLeafId: null
+      activeLeafId: null,
+      layout: null
     }
     expect(() => runtime.syncWindowGraph(1, { ...graph(), tabs: [tab, tab] })).toThrow(
       'duplicate_runtime_tab_id'
