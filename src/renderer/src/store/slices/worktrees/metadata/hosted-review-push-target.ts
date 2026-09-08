@@ -69,13 +69,17 @@ export async function resolveGitLabReviewPushTarget(
   }
 }
 
-export function getHostedReviewPushTargetLookup(worktree: Worktree): {
+export function getHostedReviewPushTargetLookup(
+  worktree: Worktree,
+  fallbackGitHubPR?: number
+): {
   key: string
   resolve: (settings: AppState['settings']) => Promise<GitPushTarget | undefined>
 } | null {
   const hostScope = worktree.hostId ?? ''
-  if (isPositiveHostedReviewNumber(worktree.linkedPR)) {
-    const prNumber = worktree.linkedPR
+  const linkedPR = worktree.linkedPR ?? (worktree.linkedGitLabMR ? undefined : fallbackGitHubPR)
+  if (isPositiveHostedReviewNumber(linkedPR)) {
+    const prNumber = linkedPR
     return {
       key: `${worktree.id}:${hostScope}:github:${prNumber}`,
       resolve: (settings) => resolveGitHubReviewPushTarget(settings, worktree.repoId, prNumber)

@@ -708,7 +708,7 @@ describe('resolveDropdownItems with an unhydrated linked-review push target', ()
     )
   }
 
-  it('enables Push and Force Push when the real upstream is the same-repo review head', () => {
+  it('disables Push and Force Push until review repository hydration', () => {
     const byKind = pipeline({
       branchName: 'mobile-resume-suspected-fixes',
       upstreamStatus: {
@@ -723,11 +723,11 @@ describe('resolveDropdownItems with an unhydrated linked-review push target', ()
         behind: 2
       }
     })
-    expect(byKind.push.disabled).toBe(false)
-    expect(byKind.push.title).not.toBe('Linked review branch target is unavailable')
-    expect(byKind.force_push.disabled).toBe(false)
-    expect(byKind.pull.disabled).toBe(false)
-    expect(byKind.sync.disabled).toBe(false)
+    expect(byKind.push.disabled).toBe(true)
+    expect(byKind.push.title).toBe('Linked review branch target is unavailable')
+    expect(byKind.force_push.disabled).toBe(true)
+    expect(byKind.pull.disabled).toBe(true)
+    expect(byKind.sync.disabled).toBe(true)
     expect(byKind.publish.disabled).toBe(true)
   })
 

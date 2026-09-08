@@ -57,6 +57,9 @@ describe('probeBranchUpstream', () => {
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature')) {
         return { stdout: '', stderr: '' }
       }
+      if (args[0] === 'config' && args[1] === '--get-all') {
+        return { stdout: '+refs/heads/*:refs/remotes/origin/*' }
+      }
       if (args[0] === 'config') {
         throw Object.assign(new Error('missing config'), { code: 1 })
       }

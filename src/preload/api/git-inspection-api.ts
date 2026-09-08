@@ -1,3 +1,4 @@
+import type { GitUpstreamStatusIdentity } from '../../shared/git-upstream-identity'
 import type {
   GitBranchCompareResult,
   GitCommitCompareResult,
@@ -38,6 +39,7 @@ export type GitInspectionApi = {
     branch?: string
     upstreamName?: string
     upstreamRef?: string
+    upstreamIdentity?: GitUpstreamStatusIdentity
   }) => Promise<void>
   submoduleStatus: (args: {
     worktreePath: string

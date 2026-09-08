@@ -1,3 +1,4 @@
+import { readGitRemoteTrackingRef } from './git-remote-tracking-ref'
 import { readCurrentGitBranchName } from './git-current-branch'
 import type { GitOperationSelector } from './git-operation-selector'
 import type { GitUpstreamStatus } from './git-status-types'
@@ -70,22 +71,6 @@ async function getConfiguredUpstream(
   }
 }
 
-async function remoteTrackingRefExists(
-  runGit: GitCommandRunner,
-  remoteName: string,
-  branchName: string
-): Promise<boolean> {
-  try {
-    await runGit(['rev-parse', '--verify', '--quiet', `refs/remotes/${remoteName}/${branchName}`])
-    return true
-  } catch (error) {
-    if ((error as { code?: unknown } | null)?.code === 1) {
-      return false
-    }
-    throw error
-  }
-}
-
 export async function resolveEffectiveGitUpstreamForBranch(
   runGit: GitCommandRunner,
   currentBranchName: string | null
@@ -101,13 +86,14 @@ export async function resolveEffectiveGitUpstreamForBranch(
     // though pushes target origin/<current-branch>. If that same-name remote
     // exists, source-control pull/sync must follow the publish branch rather
     // than the base branch.
-    if (
-      configured.remoteName === 'origin' &&
-      (await remoteTrackingRefExists(runGit, configured.remoteName, currentBranchName))
-    ) {
+    const publishRef =
+      configured.remoteName === 'origin'
+        ? await readGitRemoteTrackingRef(runGit, configured.remoteName, currentBranchName)
+        : null
+    if (publishRef) {
       return {
-        upstreamName: `${configured.remoteName}/${currentBranchName}`,
-        upstreamRef: `refs/remotes/${configured.remoteName}/${currentBranchName}`,
+        upstreamName: gitTrackingRefDisplayName(publishRef),
+        upstreamRef: publishRef,
         remoteName: configured.remoteName,
         branchName: currentBranchName,
         mergeRef: `refs/heads/${currentBranchName}`,
@@ -122,7 +108,7 @@ export async function resolveEffectiveGitUpstreamForBranch(
     const branchRemoteUpstream = await getConfiguredBranchRemoteUpstream(
       runGit,
       currentBranchName,
-      (remoteName, branchName) => remoteTrackingRefExists(runGit, remoteName, branchName)
+      (remoteName, branchName) => readGitRemoteTrackingRef(runGit, remoteName, branchName)
     )
     if (branchRemoteUpstream) {
       // Why: Git cannot resolve HEAD@{u} when branch.<name>.remote is a URL,
@@ -131,10 +117,13 @@ export async function resolveEffectiveGitUpstreamForBranch(
     }
   }
 
-  if (currentBranchName && (await remoteTrackingRefExists(runGit, 'origin', currentBranchName))) {
+  const fallbackRef = currentBranchName
+    ? await readGitRemoteTrackingRef(runGit, 'origin', currentBranchName)
+    : null
+  if (currentBranchName && fallbackRef) {
     return {
-      upstreamName: `origin/${currentBranchName}`,
-      upstreamRef: `refs/remotes/origin/${currentBranchName}`,
+      upstreamName: gitTrackingRefDisplayName(fallbackRef),
+      upstreamRef: fallbackRef,
       remoteName: 'origin',
       branchName: currentBranchName,
       mergeRef: `refs/heads/${currentBranchName}`,

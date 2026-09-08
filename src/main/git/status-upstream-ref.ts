@@ -1,8 +1,7 @@
+import { readGitRemoteTrackingRef } from '../../shared/git-remote-tracking-ref'
+import type { GitUpstreamStatusIdentity } from '../../shared/git-upstream-identity'
 import { isSafeGitRefName } from '../../shared/git-status-upstream-ref'
-import {
-  gitBranchNameFromFullRef,
-  gitTrackingRefDisplayName
-} from '../../shared/git-upstream-identity'
+import { gitBranchNameFromFullRef } from '../../shared/git-upstream-identity'
 import { resolveEffectiveGitUpstreamForBranch } from '../../shared/git-effective-upstream'
 
 type GitStatusUpstreamRefExec = (
@@ -11,41 +10,54 @@ type GitStatusUpstreamRefExec = (
   signal: AbortSignal
 ) => Promise<{ stdout: string }>
 
-export async function resolveGitStatusUpstreamRef(
+export async function resolveGitStatusUpstreamRefBinding(
   execGit: GitStatusUpstreamRefExec,
   worktreePath: string,
   branch: string,
   upstreamName: string,
   signal: AbortSignal,
-  trackingRef?: string
-): Promise<string | undefined> {
+  trackingRef?: string,
+  identity?: GitUpstreamStatusIdentity
+): Promise<GitStatusUpstreamRefResolution | undefined> {
   const branchName = gitBranchNameFromFullRef(branch)
   if (!branchName || !isSafeGitRefName(branch)) {
     return undefined
   }
   const runGit = (args: string[]): Promise<{ stdout: string }> =>
     execGit(args, worktreePath, signal)
-  const result = await runGit([
-    'for-each-ref',
-    '--format=%(refname)%00%(upstream)',
-    '--count=1',
-    branch
-  ])
-  const fields = result.stdout.replace(/\r?\n$/, '').split('\0')
-  if (fields.length !== 2 || fields[0] !== branch) {
+  if (identity) {
+    if (identity.selector.kind !== 'named-remote') {
+      return undefined
+    }
+    const mergeBranch = gitBranchNameFromFullRef(identity.mergeRef)
+    if (!mergeBranch) {
+      return undefined
+    }
+    const resolved = await readGitRemoteTrackingRef(runGit, identity.selector.value, mergeBranch)
+    return resolved && resolved === trackingRef && resolved === identity.trackingRef
+      ? { trackingRef: resolved, remoteName: identity.selector.value }
+      : undefined
+  }
+  // Old publishers are reconciled against execution-host intent, never namespace guesses.
+  const effective = await resolveEffectiveGitUpstreamForBranch(runGit, branchName)
+  if (
+    !effective?.remoteName ||
+    !effective.upstreamRef ||
+    (!effective.isConfiguredUpstream && effective.operationSelector?.kind === 'literal-url')
+  ) {
     return undefined
   }
-  if (trackingRef !== undefined) {
-    return isSafeGitRefName(trackingRef) ? trackingRef : undefined
-  }
-  // Older status publishers can be matched to host-owned refs, never parsed into revisions.
-  if (isSafeGitRefName(fields[1]) && gitTrackingRefDisplayName(fields[1]) === upstreamName) {
-    return fields[1]
-  }
-  const effective = await resolveEffectiveGitUpstreamForBranch(runGit, branchName)
-  return effective?.upstreamName === upstreamName &&
-    effective.upstreamRef &&
-    isSafeGitRefName(effective.upstreamRef)
-    ? effective.upstreamRef
+  return (trackingRef
+    ? effective.upstreamRef === trackingRef
+    : effective.upstreamName === upstreamName) && isSafeGitRefName(effective.upstreamRef)
+    ? { trackingRef: effective.upstreamRef, remoteName: effective.remoteName }
     : undefined
+}
+
+export type GitStatusUpstreamRefResolution = { trackingRef: string; remoteName: string }
+
+export async function resolveGitStatusUpstreamRef(
+  ...args: Parameters<typeof resolveGitStatusUpstreamRefBinding>
+): Promise<string | undefined> {
+  return (await resolveGitStatusUpstreamRefBinding(...args))?.trackingRef
 }

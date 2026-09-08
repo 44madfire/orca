@@ -2,12 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { resolveGitStatusUpstreamRef } from './status-upstream-ref'
 
 const signal = (): AbortSignal => new AbortController().signal
+const metadata = (ref: string, remote = 'origin') => ({
+  stdout: `${ref}\0=\0refs/heads/feature\0${remote}\0refs/heads/feature\n`
+})
 
 describe('resolveGitStatusUpstreamRef', () => {
-  it.each(['refs/remotes/team/fork/feature', 'refs/custom/feature', 'refs/heads/feature/base'])(
-    'retains the full configured ref %s for old status publishers',
+  it.each(['refs/remotes/team/fork/feature', 'refs/custom/feature', 'refs/heads/tracking/feature'])(
+    'retains host-owned remote tracking ref %s for old publishers',
     async (ref) => {
-      const exec = vi.fn().mockResolvedValue({ stdout: `refs/heads/feature\0${ref}\n` })
+      const exec = vi.fn().mockResolvedValue(metadata(ref))
       const label = ref.replace(/^refs\/(remotes|heads)\//, '')
       expect(
         await resolveGitStatusUpstreamRef(exec, '/repo', 'refs/heads/feature', label, signal())
@@ -15,10 +18,15 @@ describe('resolveGitStatusUpstreamRef', () => {
       expect(exec).toHaveBeenCalledOnce()
     }
   )
-  it('uses canonical metadata for an explicit publish target independently of its label', async () => {
-    const exec = vi
-      .fn()
-      .mockResolvedValue({ stdout: 'refs/heads/feature\0refs/remotes/origin/main\n' })
+  it('corroborates explicit canonical metadata against the configured fetch mapping', async () => {
+    const exec = vi.fn().mockImplementation(async (args: string[]) => ({
+      stdout: args[0] === 'config' ? '+refs/heads/*:refs/custom/fork/*' : 'oid'
+    }))
+    const identity = {
+      selector: { kind: 'named-remote' as const, value: 'fork' },
+      mergeRef: 'refs/heads/feature',
+      trackingRef: 'refs/custom/fork/feature'
+    }
     expect(
       await resolveGitStatusUpstreamRef(
         exec,
@@ -26,43 +34,49 @@ describe('resolveGitStatusUpstreamRef', () => {
         'refs/heads/feature',
         'unrelated/display',
         signal(),
-        'refs/custom/fork/feature'
+        identity.trackingRef,
+        identity
       )
-    ).toBe('refs/custom/fork/feature')
-    expect(exec).toHaveBeenCalledOnce()
+    ).toBe(identity.trackingRef)
+    expect(
+      await resolveGitStatusUpstreamRef(
+        exec,
+        '/repo',
+        'refs/heads/feature',
+        'unrelated/display',
+        signal(),
+        'refs/remotes/fork/feature',
+        identity
+      )
+    ).toBeUndefined()
   })
-  it('resolves an old publisher legacy override through shared host policy', async () => {
+  it('resolves legacy overrides through configured fetch mappings', async () => {
     const exec = vi
       .fn()
-      .mockResolvedValueOnce({ stdout: 'refs/heads/feature\0refs/remotes/origin/main\n' })
       .mockResolvedValueOnce({
         stdout: 'refs/remotes/origin/main\0=\0refs/heads/feature\0origin\0refs/heads/main\n'
       })
+      .mockResolvedValueOnce({ stdout: '+refs/heads/*:refs/custom/origin/*' })
       .mockResolvedValueOnce({ stdout: 'oid' })
     expect(
       await resolveGitStatusUpstreamRef(
         exec,
         '/repo',
         'refs/heads/feature',
-        'origin/feature',
+        'refs/custom/origin/feature',
         signal()
       )
-    ).toBe('refs/remotes/origin/feature')
-    expect(exec.mock.calls.flat(2)).not.toContain('origin/feature')
+    ).toBe('refs/custom/origin/feature')
   })
-  it('rejects a stale branch and unsafe metadata without interpreting labels', async () => {
-    const exec = vi
-      .fn()
-      .mockResolvedValueOnce({ stdout: '' })
-      .mockResolvedValueOnce({ stdout: 'refs/heads/feature\0refs/remotes/origin/main\n' })
+  it('excludes local upstream provenance regardless of namespace', async () => {
+    const exec = vi.fn().mockResolvedValue(metadata('refs/heads/feature/base', '.'))
     expect(
       await resolveGitStatusUpstreamRef(
         exec,
         '/repo',
-        'refs/heads/old',
-        'origin/old',
-        signal(),
-        'refs/remotes/origin/old'
+        'refs/heads/feature',
+        'feature/base',
+        signal()
       )
     ).toBeUndefined()
     expect(
@@ -70,7 +84,25 @@ describe('resolveGitStatusUpstreamRef', () => {
         exec,
         '/repo',
         'refs/heads/feature',
-        'origin/main',
+        'feature/base',
+        signal(),
+        'refs/custom/local',
+        {
+          selector: { kind: 'local' },
+          mergeRef: 'refs/heads/feature',
+          trackingRef: 'refs/custom/local'
+        }
+      )
+    ).toBeUndefined()
+  })
+  it('rejects unsafe metadata without interpreting labels', async () => {
+    const exec = vi.fn().mockResolvedValue(metadata('refs/remotes/origin/feature'))
+    expect(
+      await resolveGitStatusUpstreamRef(
+        exec,
+        '/repo',
+        'refs/heads/feature',
+        'origin/feature',
         signal(),
         'refs/../bad'
       )

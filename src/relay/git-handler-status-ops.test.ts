@@ -279,6 +279,9 @@ describe('getStatusOp', () => {
       if (args[0] === 'for-each-ref') {
         return { stdout: '\0\n', stderr: '' }
       }
+      if (args[0] === 'config' && args[1] === '--get-all') {
+        return { stdout: '+refs/heads/*:refs/remotes/origin/*', stderr: '' }
+      }
       if (args[0] === 'config' || args[0] === 'rev-parse') {
         throw Object.assign(new Error('missing fixture value'), { code: 1 })
       }
@@ -316,6 +319,9 @@ describe('getStatusOp', () => {
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature')) {
         throw Object.assign(new Error('missing remote branch'), { code: 1 })
       }
+      if (args[0] === 'config' && args[1] === '--get-all') {
+        return { stdout: '+refs/heads/*:refs/remotes/origin/*', stderr: '' }
+      }
       if (args[0] === 'config' || args[0] === 'rev-parse') {
         throw Object.assign(new Error('missing fixture value'), { code: 1 })
       }
@@ -344,6 +350,9 @@ describe('getStatusOp', () => {
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature')) {
         await Promise.resolve()
         throw Object.assign(new Error('missing remote branch'), { code: 1 })
+      }
+      if (args[0] === 'config' && args[1] === '--get-all') {
+        return { stdout: '+refs/heads/*:refs/remotes/origin/*', stderr: '' }
       }
       if (args[0] === 'config' || args[0] === 'rev-parse') {
         throw Object.assign(new Error('missing fixture value'), { code: 1 })
@@ -379,6 +388,9 @@ describe('getStatusOp', () => {
       }
       if (args[0] === 'rev-parse' && args.some((arg) => arg.startsWith('refs/remotes/origin/'))) {
         throw Object.assign(new Error('missing remote branch'), { code: 1 })
+      }
+      if (args[0] === 'config' && args[1] === '--get-all') {
+        return { stdout: '+refs/heads/*:refs/remotes/origin/*', stderr: '' }
       }
       if (args[0] === 'config' || args[0] === 'rev-parse') {
         throw Object.assign(new Error('missing fixture value'), { code: 1 })
@@ -428,6 +440,9 @@ describe('getStatusOp', () => {
       }
       if (args[0] === 'rev-parse' && args.some((arg) => arg.startsWith('refs/remotes/'))) {
         throw Object.assign(new Error('missing remote branch'), { code: 1 })
+      }
+      if (args[0] === 'config' && args[1] === '--get-all') {
+        return { stdout: '+refs/heads/*:refs/remotes/origin/*', stderr: '' }
       }
       if (args[0] === 'config' || args[0] === 'rev-parse') {
         throw Object.assign(new Error('missing fixture value'), { code: 1 })

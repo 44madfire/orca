@@ -12,7 +12,10 @@ function isConfigListSnapshotCommand(args: string[]): boolean {
 }
 
 function emptyGitConfigSnapshot(): { stdout: string } {
-  return { stdout: 'core.repositoryformatversion\n0\0' }
+  return {
+    stdout:
+      'core.repositoryformatversion\n0\0remote.origin.fetch\n+refs/heads/*:refs/remotes/origin/*\0'
+  }
 }
 
 describe('relay upstream negative cache', () => {

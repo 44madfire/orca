@@ -275,7 +275,7 @@ describe('hasUsableHostedReviewPushTarget', () => {
     ).toBe(false)
   })
 
-  it('uses the full merge branch before hydration regardless of tag-shaped labels', () => {
+  it('keeps branch identity unresolved before hydration regardless of tag-shaped labels', () => {
     const upstreamStatus = {
       hasUpstream: true,
       upstreamName: 'remotes/origin/heads/feature',
@@ -293,7 +293,7 @@ describe('hasUsableHostedReviewPushTarget', () => {
         branchName: 'heads/feature',
         hasResolvableHostedReviewPushTargetLink: true
       })
-    ).toBe(true)
+    ).toBe(false)
     expect(
       hasUsableHostedReviewPushTarget({
         upstreamStatus,
@@ -355,9 +355,7 @@ describe('hasUsableHostedReviewPushTarget', () => {
     expect(hasUsableHostedReviewPushTarget({ upstreamStatus: unrelatedUpstream })).toBe(false)
   })
 
-  it('treats a same-repo review upstream that already tracks the branch as usable', () => {
-    // Why: a same-repo review must not stay blocked while its push target is
-    // unhydrated — the real upstream already targets the review head.
+  it('requires review repository evidence even when an upstream branch matches', () => {
     expect(
       hasUsableHostedReviewPushTarget({
         hasResolvableHostedReviewPushTargetLink: true,
@@ -374,7 +372,7 @@ describe('hasUsableHostedReviewPushTarget', () => {
           behind: 2
         }
       })
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('keeps blocking a review whose upstream tracks an unrelated fork/helper head', () => {
@@ -399,7 +397,7 @@ describe('hasUsableHostedReviewPushTarget', () => {
 })
 
 describe('resolveHostedReviewActionUpstreamStatus with a same-repo upstream', () => {
-  it('does not synthesize hasUpstream:false when the real upstream is the review head', () => {
+  it('keeps an unhydrated review unresolved despite matching upstream', () => {
     const realUpstream = {
       hasUpstream: true,
       upstreamName: 'origin/mobile-resume-suspected-fixes',
@@ -416,7 +414,7 @@ describe('resolveHostedReviewActionUpstreamStatus with a same-repo upstream', ()
       branchName: 'mobile-resume-suspected-fixes',
       upstreamStatus: realUpstream
     })
-    expect(canUseHostedReviewPushTarget).toBe(true)
+    expect(canUseHostedReviewPushTarget).toBe(false)
     expect(
       resolveHostedReviewActionUpstreamStatus({
         hasHostedReviewLink: true,
@@ -426,10 +424,10 @@ describe('resolveHostedReviewActionUpstreamStatus with a same-repo upstream', ()
         canUseHostedReviewPushTarget,
         upstreamStatus: realUpstream
       })
-    ).toBe(realUpstream)
+    ).toMatchObject({ hasUpstream: false, ahead: 0, behind: 0 })
   })
 
-  it('does not block push for a queue-discovered open PR whose upstream tracks the branch', () => {
+  it('blocks queue-discovered review push until its target is resolved', () => {
     // Why: a child worktree with no persisted linkedPR discovers its open PR via
     // the queue (fallbackGitHubPR). Before the fix, that PR counted as a hosted
     // review link but not a resolvable target, so the real matching upstream was
@@ -456,7 +454,7 @@ describe('resolveHostedReviewActionUpstreamStatus with a same-repo upstream', ()
       branchName: 'fix-f1-codex-wsl-path-trust',
       upstreamStatus: realUpstream
     })
-    expect(canUseHostedReviewPushTarget).toBe(true)
+    expect(canUseHostedReviewPushTarget).toBe(false)
     expect(
       resolveHostedReviewActionUpstreamStatus({
         hasHostedReviewLink: true,
@@ -466,6 +464,6 @@ describe('resolveHostedReviewActionUpstreamStatus with a same-repo upstream', ()
         canUseHostedReviewPushTarget,
         upstreamStatus: realUpstream
       })
-    ).toBe(realUpstream)
+    ).toMatchObject({ hasUpstream: false, ahead: 0, behind: 0 })
   })
 })

@@ -83,11 +83,11 @@ it.each(['path', 'unmatched-file', 'matched-file', 'rewritten-scp', 'no-remotes'
     if (!upstream || upstream.isConfiguredUpstream) {
       throw new Error('Expected explicit pull intent')
     }
-    expect(upstream.upstreamName).toBe(kind === 'matched-file' ? 'origin/feature' : null)
+    expect(upstream.upstreamName).toBe(null)
     const status = await getEffectiveGitUpstreamStatus(run)
     expect(status.upstreamIdentity?.selector).toEqual({ kind: 'literal-url' })
     expect(status.upstreamIdentity?.mergeRef).toBe('refs/heads/feature')
-    expect(status.hasUpstream).toBe(kind === 'matched-file')
+    expect(status.hasUpstream).toBe(false)
     const refs = async () =>
       Promise.all(
         [root, canonical, contributor].map(

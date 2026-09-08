@@ -542,6 +542,7 @@ describe('git remote operations', () => {
         stdout: 'refs/remotes/origin/main\0=\0refs/heads/feature\0origin\0refs/heads/main\n',
         stderr: ''
       })
+      .mockResolvedValueOnce({ stdout: '+refs/heads/*:refs/remotes/origin/*\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
 
@@ -550,6 +551,7 @@ describe('git remote operations', () => {
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['symbolic-ref', '--quiet', 'HEAD'], { cwd: '/repo' }],
       [upstreamMetadataArgs, { cwd: '/repo' }],
+      [['config', '--get-all', 'remote.origin.fetch'], { cwd: '/repo' }],
       [['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/feature'], { cwd: '/repo' }],
       [['pull', 'origin', 'refs/heads/feature'], { cwd: '/repo' }]
     ])

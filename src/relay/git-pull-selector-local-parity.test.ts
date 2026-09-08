@@ -61,7 +61,7 @@ it.each([
     run.mockImplementation(script)
     await gitPull('/repo')
     expect(calls.find((args) => args[0] === 'pull')).toEqual(['pull', url, 'refs/heads/feature'])
-    expect(calls.some((args) => args.includes('refs/remotes/origin/feature'))).toBe(matched)
+    expect(calls.some((args) => args.includes('refs/remotes/origin/feature'))).toBe(false)
     expect(calls.some((args) => args.includes('HEAD@{u}'))).toBe(false)
     calls.length = 0
     await gitFastForward('/repo')

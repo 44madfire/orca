@@ -1,11 +1,15 @@
-import { gitBranchNameFromFullRef, gitUpstreamIdentity } from './git-upstream-identity'
+import {
+  gitBranchNameFromFullRef,
+  gitUpstreamIdentity,
+  gitTrackingRefDisplayName
+} from './git-upstream-identity'
 import { gitOperationSelector, type GitOperationSelector } from './git-operation-selector'
 import { gitRefTargetsBranchOnRemote } from './git-remote-branch-name'
 import { findGitRemoteNameByFetchUrl, parseGitRemoteVerboseLine } from './git-remote-url-index'
 
 type GitCommandRunner = (args: string[]) => Promise<{ stdout: string }>
 
-type RemoteTrackingRefExists = (remoteName: string, branchName: string) => Promise<boolean>
+type RemoteTrackingRef = (remoteName: string, branchName: string) => Promise<string | null>
 
 export type ConfiguredBranchRemoteUpstream = {
   operationSelector: GitOperationSelector
@@ -37,7 +41,7 @@ async function getGitConfigValue(
 export async function getConfiguredBranchRemoteUpstream(
   runGit: GitCommandRunner,
   currentBranchName: string,
-  remoteTrackingRefExists: RemoteTrackingRefExists
+  remoteTrackingRef: RemoteTrackingRef
 ): Promise<ConfiguredBranchRemoteUpstream | null> {
   const [remote, mergeRef, baseRef] = await Promise.all([
     getGitConfigValue(runGit, `branch.${currentBranchName}.remote`, true),
@@ -67,12 +71,12 @@ export async function getConfiguredBranchRemoteUpstream(
   if (remoteName && gitRefTargetsBranchOnRemote(baseRef, remoteName, branchName)) {
     return null
   }
-  const hasTrackingRef =
-    remoteName !== null && (await remoteTrackingRefExists(remoteName, branchName))
+  const trackingRef =
+    operationSelector.kind === 'named-remote' ? await remoteTrackingRef(remote, branchName) : null
   return {
     operationSelector,
-    upstreamRef: hasTrackingRef ? `refs/remotes/${remoteName}/${branchName}` : null,
-    upstreamName: hasTrackingRef ? `${remoteName}/${branchName}` : null,
+    upstreamRef: trackingRef,
+    upstreamName: trackingRef ? gitTrackingRefDisplayName(trackingRef) : null,
     remoteName: remoteName ?? remote,
     branchName,
     mergeRef: identity.mergeRef,

@@ -1,4 +1,7 @@
-import { resolveGitStatusUpstreamRef } from './status-upstream-ref'
+import {
+  resolveGitStatusUpstreamRef,
+  resolveGitStatusUpstreamRefBinding
+} from './status-upstream-ref'
 import { hasUsableHostedReviewPushTarget } from '../../shared/hosted-review-push-target-admission'
 import { readOrProbeEffectiveUpstreamStatus } from './source-control/effective-upstream-status-probe'
 import { resolvedUpstreamNameCache } from './source-control/resolved-upstream-name-cache'
@@ -143,5 +146,102 @@ it.each([
       operationSelector: { kind: 'literal-url', value: target },
       branchName: 'heads/feature'
     })
+  }
+)
+
+it.each(['origin', 'origin/team'])(
+  'uses only configured tracking evidence through status, cache and watch for %s',
+  async (remote) => {
+    const { updateActiveGitStatusRefBinding, clearActiveGitStatusRefBinding } =
+      await import('../ipc/worktree-git-status-ref-watch')
+    const { classifyWorktreeBaseChange } =
+      await import('../ipc/worktree-base-directory-event-filter')
+    await git('remote', 'add', remote, target)
+    await git('fetch', '-q', remote)
+    await git('config', 'branch.feature.remote', remote)
+    await git('config', 'branch.feature.merge', 'refs/heads/feature')
+    const oid = await git('rev-parse', `refs/remotes/${remote}/feature`)
+    const watch = {
+      kind: 'git-common' as const,
+      key: root,
+      path: join(root, '.git'),
+      repos: new Map([['repo', { repoId: 'repo', repoName: 'repo', nestWorkspaces: false }]]),
+      gitStatusRefPaths: new Set<string>()
+    }
+    for (const namespace of ['refs/custom/tracking', 'refs/heads/tracking']) {
+      const ref = `${namespace}/feature`
+      await git('config', `remote.${remote}.fetch`, `+refs/heads/*:${namespace}/*`)
+      const missing = await getEffectiveGitUpstreamStatus(run)
+      expect(missing).toMatchObject({
+        hasUpstream: false,
+        ahead: 0,
+        behind: 0,
+        upstreamIdentity: { selector: { kind: 'named-remote', value: remote }, trackingRef: null }
+      })
+      expect(await resolveEffectiveGitUpstream(run)).toMatchObject({
+        remoteName: remote,
+        mergeRef: 'refs/heads/feature',
+        upstreamRef: null
+      })
+      resolvedUpstreamNameCache.delete(root)
+      expect(await readOrProbeEffectiveUpstreamStatus(root, root, 'feature')).toMatchObject({
+        hasUpstream: false
+      })
+      await git('update-ref', ref, oid)
+      const status = await getEffectiveGitUpstreamStatus(run)
+      expect(status).toMatchObject({
+        hasUpstream: true,
+        behind: 1,
+        upstreamIdentity: { trackingRef: ref }
+      })
+      resolvedUpstreamNameCache.delete(root)
+      expect(await readOrProbeEffectiveUpstreamStatus(root, root, 'feature')).toEqual(status)
+      expect(await readOrProbeEffectiveUpstreamStatus(root, root, 'feature')).toEqual(status)
+      await updateActiveGitStatusRefBinding(
+        {
+          worktreeId: `repo::${root}`,
+          worktreePath: root,
+          executionHostId: 'local',
+          branch: 'refs/heads/feature',
+          upstreamName: status.upstreamName,
+          upstreamRef: ref,
+          upstreamIdentity: status.upstreamIdentity
+        },
+        () => [watch],
+        (signal) =>
+          resolveGitStatusUpstreamRefBinding(
+            (args) => run(args),
+            root,
+            'refs/heads/feature',
+            status.upstreamName!,
+            signal,
+            ref,
+            status.upstreamIdentity
+          )
+      )
+      expect([...watch.gitStatusRefPaths]).toEqual([join(root, '.git', ref)])
+      expect(
+        classifyWorktreeBaseChange(watch, { type: 'update', path: join(root, '.git', ref) })
+          .gitStatusRepoIds
+      ).toEqual(['repo'])
+      expect(
+        classifyWorktreeBaseChange(watch, {
+          type: 'update',
+          path: join(root, '.git', `${ref}-other`)
+        }).gitStatusRepoIds
+      ).toEqual([])
+    }
+    await git('config', 'branch.feature.remote', '.')
+    await git('config', 'branch.feature.merge', 'refs/heads/main')
+    expect(
+      await resolveGitStatusUpstreamRef(
+        (args) => run(args),
+        root,
+        'refs/heads/feature',
+        'main',
+        new AbortController().signal
+      )
+    ).toBeUndefined()
+    clearActiveGitStatusRefBinding()
   }
 )

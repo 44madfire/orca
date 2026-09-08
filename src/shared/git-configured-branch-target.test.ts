@@ -107,9 +107,10 @@ describe('hasConfiguredBranchPushTarget', () => {
 })
 
 describe('getConfiguredBranchRemoteUpstream', () => {
-  const remoteTrackingRefExists = async (): Promise<boolean> => true
+  const remoteTrackingRefExists = async (remote: string, branch: string): Promise<string> =>
+    `refs/remotes/${remote}/${branch}`
 
-  it('picks the first remote holding a duplicated URL', async () => {
+  it('does not promote a duplicated fetch URL into tracking authority', async () => {
     const { runGit, spawns } = makeRunner({
       remotes: [
         { name: 'origin', fetchUrl: UPSTREAM_URL },
@@ -126,8 +127,8 @@ describe('getConfiguredBranchRemoteUpstream', () => {
       getConfiguredBranchRemoteUpstream(runGit, BRANCH, remoteTrackingRefExists)
     ).resolves.toEqual({
       operationSelector: { kind: 'literal-url', value: FORK_URL },
-      upstreamName: `fork-a/${BRANCH}`,
-      upstreamRef: `refs/remotes/fork-a/${BRANCH}`,
+      upstreamName: null,
+      upstreamRef: null,
       remoteName: 'fork-a',
       branchName: BRANCH,
       mergeRef: `refs/heads/${BRANCH}`,
@@ -191,7 +192,7 @@ it.each(['config', 'remote', 'tracking'])(
     const { runGit } = makeRunner({
       remotes: [{ name: 'origin', fetchUrl: FORK_URL }],
       config: {
-        [`branch.${BRANCH}.remote`]: FORK_URL,
+        [`branch.${BRANCH}.remote`]: 'origin',
         [`branch.${BRANCH}.merge`]: `refs/heads/${BRANCH}`
       }
     })
@@ -209,7 +210,7 @@ it.each(['config', 'remote', 'tracking'])(
           if (failure === 'tracking') {
             throw error
           }
-          return true
+          return `refs/remotes/origin/${BRANCH}`
         }
       )
     ).rejects.toBe(error)

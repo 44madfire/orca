@@ -94,7 +94,12 @@ describe('useGitStatusUpstreamRefWatch', () => {
         executionHostId: 'ssh:ssh-1',
         branch: 'refs/heads/feature/local',
         upstreamName: 'team/fork/feature/local',
-        upstreamRef: 'refs/custom/feature/local'
+        upstreamRef: 'refs/custom/feature/local',
+        upstreamIdentity: {
+          selector: { kind: 'named-remote', value: 'team/fork' },
+          mergeRef: 'refs/heads/feature/local',
+          trackingRef: 'refs/custom/feature/local'
+        }
       }
     )
   })

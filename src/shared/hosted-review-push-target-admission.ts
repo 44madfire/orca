@@ -17,12 +17,8 @@ export function hasUsableHostedReviewPushTarget(args: {
     )
   }
   if (args.hasResolvableHostedReviewPushTargetLink) {
-    // Older peers supply only a label; wait for authoritative target metadata.
-    return (
-      args.upstreamStatus?.hasUpstream === true &&
-      args.branchName !== undefined &&
-      identity?.mergeRef === `refs/heads/${args.branchName}`
-    )
+    // A branch match cannot identify the repository that owns a linked review.
+    return false
   }
   return args.upstreamStatus?.hasConfiguredPushTarget === true
 }

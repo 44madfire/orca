@@ -25,6 +25,10 @@ describe('getUpstreamStatus', () => {
       return
     }
     gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return Promise.resolve({ stdout: `+refs/heads/*:refs/remotes/${remote}/*\n` })
+      }
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'refs/heads/main\n' })
       }
@@ -81,6 +85,10 @@ describe('getUpstreamStatus', () => {
       resolveSymbolicRef = resolve
     })
     gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return { stdout: `+refs/heads/*:refs/remotes/${remote}/*\n`, stderr: '' }
+      }
       if (args[0] === 'symbolic-ref') {
         await symbolicRefGate
         return { stdout: 'refs/heads/main\n' }
@@ -117,6 +125,10 @@ describe('getUpstreamStatus', () => {
 
   it('isolates physical reads by worktree, native or WSL host, and every target field', async () => {
     gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return Promise.resolve({ stdout: `+refs/heads/*:refs/remotes/${remote}/*\n` })
+      }
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'refs/heads/main\n' })
       }
@@ -195,6 +207,10 @@ describe('getUpstreamStatus', () => {
       resolve: (value: { stdout: string }) => void
     }[] = []
     gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return Promise.resolve({ stdout: `+refs/heads/*:refs/remotes/${remote}/*\n` })
+      }
       if (args[0] === 'symbolic-ref') {
         let resolve!: (value: { stdout: string }) => void
         const promise = new Promise<{ stdout: string }>((innerResolve) => {
@@ -364,6 +380,7 @@ describe('getUpstreamStatus', () => {
       .mockResolvedValueOnce({
         stdout: 'refs/remotes/origin/main\0=\0refs/heads/feature\0origin\0refs/heads/main\n'
       })
+      .mockResolvedValueOnce({ stdout: '+refs/heads/*:refs/remotes/origin/*\n' })
       .mockResolvedValueOnce({ stdout: 'abc123\n' })
       .mockResolvedValueOnce({ stdout: '3\t1\n' })
       .mockResolvedValueOnce({ stdout: '+ def456 remote work\n' })
@@ -379,8 +396,12 @@ describe('getUpstreamStatus', () => {
     })
   })
 
-  it('uses a named remote that matches a URL-valued branch remote', async () => {
+  it('preserves literal intent without adopting a matching named remote tracking ref', async () => {
     gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return Promise.resolve({ stdout: `+refs/heads/*:refs/remotes/${remote}/*\n` })
+      }
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({
           stdout: 'refs/heads/imp/chinese-translation\n'
@@ -438,15 +459,18 @@ describe('getUpstreamStatus', () => {
     const result = await getUpstreamStatus('/repo')
 
     expect(result).toMatchObject({
-      hasUpstream: true,
-      upstreamName: 'pr-pynickle-orca/imp/chinese-translation',
-      ahead: 2,
+      hasUpstream: false,
+      ahead: 0,
       behind: 0
     })
   })
 
   it('uses a fork head branch even when its name matches the base branch', async () => {
     gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return Promise.resolve({ stdout: `+refs/heads/*:refs/remotes/${remote}/*\n` })
+      }
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'refs/heads/review/pr-1\n' })
       }
@@ -489,6 +513,10 @@ describe('getUpstreamStatus', () => {
 
   it('marks a URL-valued branch push target when no matching remote is configured', async () => {
     gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return Promise.resolve({ stdout: `+refs/heads/*:refs/remotes/${remote}/*\n` })
+      }
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({
           stdout: 'refs/heads/imp/chinese-translation\n'
@@ -542,6 +570,10 @@ describe('getUpstreamStatus', () => {
 
   it('marks a fork head push target when the same-named base branch is on another remote', async () => {
     gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return Promise.resolve({ stdout: `+refs/heads/*:refs/remotes/${remote}/*\n` })
+      }
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'refs/heads/review/pr-1\n' })
       }
@@ -590,6 +622,10 @@ describe('getUpstreamStatus', () => {
 
   it('does not mark origin base-branch config as a push target', async () => {
     gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return Promise.resolve({ stdout: `+refs/heads/*:refs/remotes/${remote}/*\n` })
+      }
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'refs/heads/feature\n' })
       }
@@ -641,6 +677,10 @@ describe('getUpstreamStatus', () => {
 
   it('does not mark remote.pushDefault plus origin base branch as a push target', async () => {
     gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return Promise.resolve({ stdout: `+refs/heads/*:refs/remotes/${remote}/*\n` })
+      }
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'refs/heads/feature/fix\n' })
       }
@@ -687,6 +727,10 @@ describe('getUpstreamStatus', () => {
 
   it('keeps a configured upstream whose remote name contains a slash', async () => {
     gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args[0] === 'config' && args[1] === '--get-all' && args[2]?.endsWith('.fetch')) {
+        const remote = args[2].slice('remote.'.length, -'.fetch'.length)
+        return Promise.resolve({ stdout: `+refs/heads/*:refs/remotes/${remote}/*\n` })
+      }
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'refs/heads/feature\n' })
       }
@@ -725,113 +769,5 @@ describe('getUpstreamStatus', () => {
       ahead: 2,
       behind: 0
     })
-  })
-
-  it('uses an explicit publish target instead of the configured upstream', async () => {
-    gitExecFileAsyncMock
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '1\t2\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '+ def456 remote work\n', stderr: '' })
-
-    const result = await getUpstreamStatus('/repo', {
-      remoteName: 'fork',
-      branchName: 'feature/fix'
-    })
-
-    expect(result).toMatchObject({
-      hasUpstream: true,
-      upstreamName: 'fork/feature/fix',
-      ahead: 1,
-      behind: 2,
-      behindCommitsArePatchEquivalent: false
-    })
-    expect(gitExecFileAsyncMock.mock.calls).toEqual([
-      [['check-ref-format', '--branch', 'feature/fix'], { cwd: '/repo' }],
-      [['rev-parse', '--verify', '--quiet', 'refs/remotes/fork/feature/fix'], { cwd: '/repo' }],
-      [
-        ['rev-list', '--left-right', '--count', 'HEAD...refs/remotes/fork/feature/fix'],
-        { cwd: '/repo' }
-      ],
-      [
-        [
-          'log',
-          '--oneline',
-          '--cherry-mark',
-          '--right-only',
-          'HEAD...refs/remotes/fork/feature/fix',
-          '--'
-        ],
-        { cwd: '/repo' }
-      ]
-    ])
-  })
-
-  it('routes explicit publish-target probes through the selected WSL distro', async () => {
-    gitExecFileAsyncMock
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '0\t0\n', stderr: '' })
-
-    await expect(
-      getUpstreamStatus(
-        '/repo',
-        {
-          remoteName: 'fork',
-          branchName: 'feature/fix'
-        },
-        { wslDistro: 'Ubuntu' }
-      )
-    ).resolves.toMatchObject({
-      hasUpstream: true,
-      upstreamName: 'fork/feature/fix',
-      ahead: 0,
-      behind: 0
-    })
-    expect(gitExecFileAsyncMock.mock.calls).toEqual([
-      [['check-ref-format', '--branch', 'feature/fix'], { cwd: '/repo', wslDistro: 'Ubuntu' }],
-      [
-        ['rev-parse', '--verify', '--quiet', 'refs/remotes/fork/feature/fix'],
-        { cwd: '/repo', wslDistro: 'Ubuntu' }
-      ],
-      [
-        ['rev-list', '--left-right', '--count', 'HEAD...refs/remotes/fork/feature/fix'],
-        { cwd: '/repo', wslDistro: 'Ubuntu' }
-      ]
-    ])
-  })
-
-  it('reports no upstream when an explicit publish target has not been fetched yet', async () => {
-    gitExecFileAsyncMock
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockRejectedValueOnce(Object.assign(new Error('git exited with 1.'), { stderr: '' }))
-
-    await expect(
-      getUpstreamStatus('/repo', {
-        remoteName: 'fork',
-        branchName: 'feature/fix'
-      })
-    ).resolves.toMatchObject({
-      hasUpstream: false,
-      upstreamName: 'fork/feature/fix',
-      ahead: 0,
-      behind: 0,
-      hasConfiguredPushTarget: true
-    })
-  })
-
-  it('does not hide git failures while checking an explicit publish target', async () => {
-    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '', stderr: '' }).mockRejectedValueOnce(
-      Object.assign(new Error('fatal: not a git repository'), {
-        stderr: 'fatal: not a git repository'
-      })
-    )
-
-    await expect(
-      getUpstreamStatus('/repo', {
-        remoteName: 'fork',
-        branchName: 'feature/fix'
-      })
-    ).rejects.toThrow('fatal: not a git repository')
   })
 })

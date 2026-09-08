@@ -89,7 +89,9 @@ function topologyProbe(args: string[]) {
         ? 'origin\thttps://github.com/acme/widgets (fetch)\norigin\thttps://github.com/acme/widgets (push)'
         : args[0] === 'for-each-ref'
           ? `refs/heads/${MERGED_BRANCH}\0oid\0refs/remotes/origin/contributor/original\n`
-          : '',
+          : args[0] === 'config'
+            ? `branch.${MERGED_BRANCH}.remote\norigin\0branch.${MERGED_BRANCH}.merge\nrefs/heads/contributor/original\0`
+            : '',
     stderr: ''
   }
 }

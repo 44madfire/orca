@@ -1,3 +1,4 @@
+import { readGitRemoteTrackingRef } from './git-remote-tracking-ref'
 import type { GitUpstreamStatusIdentity } from './git-upstream-identity'
 import type { GitUpstreamStatus } from './git-status-types'
 import type { GitPushTarget } from './worktree/types'
@@ -13,37 +14,20 @@ export function getPublishTargetRemoteRef(target: GitPushTarget): string {
   return `refs/remotes/${target.remoteName}/${target.branchName}`
 }
 
-function isMissingRemoteTrackingRefError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-  const candidate = error as Error & { code?: unknown; stderr?: unknown }
-  const stderr = typeof candidate.stderr === 'string' ? candidate.stderr.trim() : ''
-  if (stderr.length > 0) {
-    return false
-  }
-  return candidate.code === 1 || /(?:exited with|exit code) 1\b/i.test(candidate.message)
-}
-
 export async function getPublishTargetStatus(
   runGit: GitCommandRunner,
   target: GitPushTarget,
   getBehindCommitsArePatchEquivalent?: (upstreamName: string) => Promise<boolean>
 ): Promise<GitUpstreamStatus> {
   const upstreamName = getPublishTargetDisplayName(target)
-  const remoteRef = getPublishTargetRemoteRef(target)
+  const remoteRef = await readGitRemoteTrackingRef(runGit, target.remoteName, target.branchName)
   const upstreamIdentity: GitUpstreamStatusIdentity = {
     selector: { kind: 'named-remote', value: target.remoteName },
     mergeRef: `refs/heads/${target.branchName}`,
     trackingRef: remoteRef
   }
 
-  try {
-    await runGit(['rev-parse', '--verify', '--quiet', remoteRef])
-  } catch (error) {
-    if (!isMissingRemoteTrackingRefError(error)) {
-      throw error
-    }
+  if (!remoteRef) {
     return {
       hasUpstream: false,
       upstreamName,

@@ -41,7 +41,9 @@ export function useGitStatusUpstreamRefWatch(args: {
           executionHostId: args.executionHostId,
           ...(status.branch ? { branch: status.branch } : {}),
           ...(upstreamName ? { upstreamName } : {}),
-          ...(upstreamRef ? { upstreamRef } : {})
+          ...(upstreamRef
+            ? { upstreamRef, upstreamIdentity: status.upstreamStatus?.upstreamIdentity }
+            : {})
         }
       ).catch(() => {})
     },

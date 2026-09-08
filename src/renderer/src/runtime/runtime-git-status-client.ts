@@ -1,3 +1,4 @@
+import type { GitUpstreamStatusIdentity } from '../../../shared/git-upstream-identity'
 import type { GitHistoryOptions, GitHistoryResult } from '../../../shared/git-history'
 import type {
   GitConflictOperation,
@@ -69,7 +70,13 @@ export async function getRuntimeGitStatus(
 
 export async function setRuntimeGitStatusUpstreamRefWatch(
   context: RuntimeGitContext,
-  args: { executionHostId: string; branch?: string; upstreamName?: string; upstreamRef?: string }
+  args: {
+    executionHostId: string
+    branch?: string
+    upstreamName?: string
+    upstreamRef?: string
+    upstreamIdentity?: GitUpstreamStatusIdentity
+  }
 ): Promise<void> {
   const target = getActiveRuntimeTarget(context.settings)
   if (target.kind !== 'local' || !context.worktreeId) {
@@ -82,7 +89,8 @@ export async function setRuntimeGitStatusUpstreamRefWatch(
     ...(context.connectionId ? { connectionId: context.connectionId } : {}),
     ...(args.branch ? { branch: args.branch } : {}),
     ...(args.upstreamName ? { upstreamName: args.upstreamName } : {}),
-    ...(args.upstreamRef ? { upstreamRef: args.upstreamRef } : {})
+    ...(args.upstreamRef ? { upstreamRef: args.upstreamRef } : {}),
+    ...(args.upstreamIdentity ? { upstreamIdentity: args.upstreamIdentity } : {})
   })
 }
 

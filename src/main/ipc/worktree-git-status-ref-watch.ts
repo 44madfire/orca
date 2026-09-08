@@ -1,5 +1,10 @@
+import type { GitStatusUpstreamRefResolution } from '../git/status-upstream-ref'
+import type { GitUpstreamStatusIdentity } from '../../shared/git-upstream-identity'
 import { resolveRuntimePath } from '../../shared/cross-platform-path'
-import { isSafeGitStatusUpstreamRef } from '../../shared/git-status-upstream-ref'
+import {
+  isSafeGitCommonRefName,
+  isSafeGitStatusUpstreamRef
+} from '../../shared/git-status-upstream-ref'
 import { getRepoIdFromWorktreeId } from '../../shared/worktree/id'
 import {
   pathRelativeToWorktreeWatchRoot,
@@ -39,6 +44,7 @@ export type GitStatusRefBindingRequest = {
   branch?: string
   upstreamName?: string
   upstreamRef?: string
+  upstreamIdentity?: GitUpstreamStatusIdentity
 }
 
 const FAILED_RESOLUTION_RETRY_MS = 5 * 60_000
@@ -121,14 +127,17 @@ function resolutionKey(args: GitStatusRefBindingRequest): string {
     args.worktreePath,
     args.branch,
     args.upstreamName,
-    args.upstreamRef
+    args.upstreamRef,
+    JSON.stringify(args.upstreamIdentity)
   ].join('\0')
 }
 
 export function updateActiveGitStatusRefBinding(
   args: GitStatusRefBindingRequest,
   getWatches: () => Iterable<GitStatusRefWatchTarget>,
-  resolveUpstreamRef: (signal: AbortSignal) => Promise<string | undefined>
+  resolveUpstreamRef: (
+    signal: AbortSignal
+  ) => Promise<string | GitStatusUpstreamRefResolution | undefined>
 ): Promise<void> {
   if (!args.branch || !args.upstreamName) {
     clearResolutionForWorktree(args.worktreeId, getWatches)
@@ -157,12 +166,17 @@ export function updateActiveGitStatusRefBinding(
   }
   resolution.promise = Promise.resolve()
     .then(() => resolveUpstreamRef(controller.signal))
-    .then((upstreamRef) => {
+    .then((resolved) => {
+      const upstreamRef = typeof resolved === 'string' ? resolved : resolved?.trackingRef
+      const hasRemoteProvenance = typeof resolved === 'object' && Boolean(resolved.remoteName)
       if (activeResolution !== resolution) {
         return
       }
       activeBinding =
-        upstreamRef && isSafeGitStatusUpstreamRef(upstreamRef)
+        upstreamRef &&
+        (hasRemoteProvenance
+          ? isSafeGitCommonRefName(upstreamRef)
+          : isSafeGitStatusUpstreamRef(upstreamRef))
           ? {
               worktreeId: args.worktreeId,
               repoId: getRepoIdFromWorktreeId(args.worktreeId),
