@@ -13,7 +13,6 @@ export const RUN_COLUMNS = [
   'home_database',
   'coordinator_handle',
   'coordinator_agent_session_id',
-  'coordinator_agent_session_id',
   'coordinator_pane_key',
   'consumer_generation',
   'legacy',
