@@ -53,7 +53,11 @@ function mockMergedBranchPRLookup(): void {
           updated_at: '2026-06-20T04:53:05Z',
           draft: false,
           mergeable_state: 'clean',
-          head: { ref: MERGED_BRANCH, sha: MERGED_HEAD_OID },
+          head: {
+            ref: MERGED_BRANCH,
+            sha: MERGED_HEAD_OID,
+            repo: { name: 'widgets', owner: { login: 'acme' } }
+          },
           base: { ref: 'main', sha: 'base-oid' }
         }
       ])
@@ -107,7 +111,11 @@ function mockUpstreamOnlyPRLookup(): void {
           draft: false,
           mergeable: true,
           base: { ref: 'main', sha: 'base-oid' },
-          head: { ref: 'contributor/original', sha: 'upstream-head-oid' }
+          head: {
+            ref: 'contributor/original',
+            sha: 'upstream-head-oid',
+            repo: { name: 'widgets', owner: { login: 'acme' } }
+          }
         }
       ])
     })

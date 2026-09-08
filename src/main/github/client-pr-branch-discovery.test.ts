@@ -54,7 +54,11 @@ describe('getPRForBranch', () => {
           draft: false,
           mergeable: true,
           base: { ref: 'main', sha: 'base-oid' },
-          head: { ref: 'feature/test', sha: 'head-oid' }
+          head: {
+            ref: 'feature/test',
+            sha: 'head-oid',
+            repo: { name: 'widgets', owner: { login: 'acme' } }
+          }
         }
       ])
     })
@@ -70,7 +74,7 @@ describe('getPRForBranch', () => {
     expect(pr?.state).toBe('open')
     expect(pr?.mergeable).toBe('MERGEABLE')
     expect(pr?.prRepo).toEqual({ owner: 'acme', repo: 'widgets' })
-    expect(pr?.headRepo).toEqual({ owner: 'acme', repo: 'widgets' })
+    expect(pr?.headRepo).toEqual({ owner: 'acme', repo: 'widgets', host: 'github.com' })
   })
 
   it('resolves fork PRs from the upstream PR repo with the origin head owner', async () => {
@@ -92,7 +96,11 @@ describe('getPRForBranch', () => {
           draft: false,
           mergeable_state: 'clean',
           base: { ref: 'main', sha: 'base-oid' },
-          head: { ref: 'feature/test', sha: 'head-oid' }
+          head: {
+            ref: 'feature/test',
+            sha: 'head-oid',
+            repo: { name: 'orca', owner: { login: 'fork' } }
+          }
         }
       ])
     })
@@ -122,7 +130,11 @@ describe('getPRForBranch', () => {
           updated_at: '2026-03-28T00:00:00Z',
           draft: false,
           mergeable: true,
-          head: { ref: 'feature/test', sha: 'rest-head-oid' },
+          head: {
+            ref: 'feature/test',
+            sha: 'rest-head-oid',
+            repo: { name: 'widgets', owner: { login: 'acme' } }
+          },
           base: { ref: 'main', sha: 'rest-base-oid' }
         }
       ])
@@ -188,7 +200,7 @@ describe('getPRForBranch', () => {
         '--repo',
         'acme/widgets',
         '--json',
-        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid'
+        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid,headRepository,headRepositoryOwner'
       ],
       { cwd: '/repo-root' }
     )

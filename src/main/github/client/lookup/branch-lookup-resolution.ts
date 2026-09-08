@@ -68,7 +68,6 @@ export async function resolvePRForBranchOutcome(input: {
   }
   let data: PullRequestLookupData | null = null
   let dataRepo: OwnerRepo | null = null
-  let dataHeadRepo: OwnerRepo | null = headRepo
   let pendingBranchLookupError: unknown
   let hasPendingBranchLookupError = false
   let currentHeadOidForMergedImplicit: string | null | undefined
@@ -191,9 +190,6 @@ export async function resolvePRForBranchOutcome(input: {
         pendingBranchLookupError = upstreamLookup.pendingError
         hasPendingBranchLookupError = true
       }
-      if (data) {
-        dataHeadRepo = trackedHead.repository
-      }
     }
   }
 
@@ -202,7 +198,6 @@ export async function resolvePRForBranchOutcome(input: {
     mergedBranchLookupNumber = data?.number ?? null
     data = null
     dataRepo = null
-    dataHeadRepo = headRepo
   }
   if (!data && typeof linkedPRNumber !== 'number' && typeof fallbackPRNumber === 'number') {
     usedExactNumberLookup = true
@@ -270,7 +265,6 @@ export async function resolvePRForBranchOutcome(input: {
   return assemblePRRefreshFoundOutcome({
     data,
     dataRepo,
-    dataHeadRepo,
     stack,
     mergeable,
     stackMergeQueueRequired,

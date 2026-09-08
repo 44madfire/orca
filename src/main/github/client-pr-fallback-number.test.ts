@@ -49,7 +49,11 @@ describe('getPRForBranch', () => {
             updated_at: '2026-03-28T00:00:00Z',
             draft: false,
             mergeable: true,
-            head: { ref: 'feature/test', sha: 'branch-head-oid' },
+            head: {
+              ref: 'feature/test',
+              sha: 'branch-head-oid',
+              repo: { name: 'widgets', owner: { login: 'acme' } }
+            },
             base: { ref: 'main', sha: 'branch-base-oid' }
           }
         ])
@@ -119,7 +123,7 @@ describe('getPRForBranch', () => {
         '--repo',
         'acme/widgets',
         '--json',
-        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid'
+        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid,headRepository,headRepositoryOwner'
       ],
       { cwd: '/repo-root' }
     )
@@ -155,7 +159,7 @@ describe('getPRForBranch', () => {
         '--limit',
         '1',
         '--json',
-        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,baseRefName,headRefName,baseRefOid,headRefOid'
+        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,baseRefName,headRefName,baseRefOid,headRefOid,headRepository,headRepositoryOwner'
       ],
       { cwd: '/repo-root' }
     )
@@ -225,7 +229,11 @@ describe('getPRForBranch', () => {
             draft: false,
             mergeable: true,
             base: { ref: 'main', sha: 'base-oid' },
-            head: { ref: 'feature/test', sha: 'retry-head-oid' }
+            head: {
+              ref: 'feature/test',
+              sha: 'retry-head-oid',
+              repo: { name: 'widgets', owner: { login: 'acme' } }
+            }
           }
         ])
       })
@@ -301,7 +309,7 @@ describe('getPRForBranch', () => {
         '--repo',
         'stablyai/orca',
         '--json',
-        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid'
+        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid,headRepository,headRepositoryOwner'
       ],
       { cwd: '/repo-root' }
     )
@@ -374,7 +382,7 @@ describe('getPRForBranch', () => {
         '--limit',
         '1',
         '--json',
-        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,baseRefName,headRefName,baseRefOid,headRefOid'
+        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,baseRefName,headRefName,baseRefOid,headRefOid,headRepository,headRepositoryOwner'
       ],
       { cwd: '/repo-root' }
     )
@@ -394,7 +402,11 @@ describe('getPRForBranch', () => {
             updated_at: '2026-06-16T17:15:33Z',
             draft: false,
             mergeable_state: 'clean',
-            head: { ref: 'feature/test', sha: 'merged-head-oid' },
+            head: {
+              ref: 'feature/test',
+              sha: 'merged-head-oid',
+              repo: { name: 'widgets', owner: { login: 'acme' } }
+            },
             base: { ref: 'main', sha: 'base-oid' }
           }
         ])
@@ -451,7 +463,11 @@ describe('getPRForBranch', () => {
             updated_at: '2026-06-16T17:15:33Z',
             draft: false,
             mergeable_state: 'clean',
-            head: { ref: 'feature/test', sha: 'merged-head-oid' },
+            head: {
+              ref: 'feature/test',
+              sha: 'merged-head-oid',
+              repo: { name: 'widgets', owner: { login: 'acme' } }
+            },
             base: { ref: 'main', sha: 'base-oid' }
           }
         ])
@@ -500,7 +516,7 @@ describe('getPRForBranch', () => {
         '--repo',
         'acme/widgets',
         '--json',
-        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid'
+        'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid,headRepository,headRepositoryOwner'
       ],
       { cwd: '/repo-root' }
     )
@@ -529,7 +545,11 @@ describe('getPRForBranch', () => {
             updated_at: '2026-06-16T17:15:33Z',
             draft: false,
             mergeable_state: 'clean',
-            head: { ref: 'contributor/original', sha: 'merged-head-oid' },
+            head: {
+              ref: 'contributor/original',
+              sha: 'merged-head-oid',
+              repo: { name: 'orca', owner: { login: 'fork-owner' } }
+            },
             base: { ref: 'main', sha: 'base-oid' }
           }
         ])
@@ -572,7 +592,7 @@ describe('getPRForBranch', () => {
     expect(pr).toMatchObject({
       number: 42,
       title: 'Open fallback PR',
-      headRepo: { owner: 'origin-owner', repo: 'orca' }
+      headRepo: undefined
     })
   })
 

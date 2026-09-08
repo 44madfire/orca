@@ -18,7 +18,7 @@ export async function lookupPRByBranchEvidence(
     return inconclusive()
   }
   const result = await lookupPRByBranchName(args)
-  // Owner-scoped positives corroborate inference; only tracked evidence establishes absence.
+  // Full head identity corroborates positives; only tracked evidence establishes absence.
   if (
     !result.data &&
     !('pendingError' in result) &&
