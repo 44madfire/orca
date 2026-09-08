@@ -127,6 +127,21 @@ async function openMobileFileTapAsync<T extends FileTapSessionTab>(
     return
   }
   if (resolved.kind === 'web-artifact') {
+    triggerMobileTerminalOpenFeedback(options.triggerOpenFeedback)
+    options.pushPreviewRoute(
+      createMobileFilePreviewHref({
+        hostId: options.hostId,
+        worktreeId: resolvedWorktreeId,
+        source: 'webArtifact',
+        terminal: sourceTabId,
+        pathText: resolved.pathText,
+        previewKind: resolved.previewKind,
+        name: resolved.displayName,
+        ...(options.line !== null ? { line: String(options.line) } : {}),
+        ...(options.column !== null ? { column: String(options.column) } : {}),
+        ...(resolvedWorktreeName ? { worktreeName: resolvedWorktreeName } : {})
+      })
+    )
     return
   }
 

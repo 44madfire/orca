@@ -91,29 +91,45 @@ async function readWebHostSessionImage(
   client: MobileWebBridgeClient,
   request: MobileFileTabDocRequest
 ): Promise<MobileFileTabDoc> {
-  const chunks: MobileWebFileChunkResult[] = []
-  let offset = 0
-  let eof = false
-  while (!eof && offset < MOBILE_WEB_RASTER_IMAGE_MAX_BYTES) {
-    const chunk = await client.fileReadChunk({
+  const bytes = await readWebHostChunks(MOBILE_WEB_RASTER_IMAGE_MAX_BYTES, (offset, length) =>
+    client.fileReadChunk({
       workspaceId: request.worktreeId,
       relativePath: request.relativePath,
       offset,
-      length: Math.min(MOBILE_WEB_FILE_CHUNK_MAX_BYTES, MOBILE_WEB_RASTER_IMAGE_MAX_BYTES - offset)
+      length
     })
-    chunks.push(chunk)
+  )
+  const dataUri = buildImageDataUri(rasterMimeType(request.relativePath), bytes.toString('base64'))
+  if (!dataUri) {
+    throw new Error('binary_file')
+  }
+  return { status: 'ready', kind: 'image', dataUri }
+}
+
+/** Reads a host file through the chunk RPC up to `maximum` bytes; throws `file_too_large` past it. */
+export async function readWebHostChunks(
+  maximum: number,
+  readChunk: (
+    offset: number,
+    length: number
+  ) => Promise<Pick<MobileWebFileChunkResult, 'bytes' | 'bytesRead' | 'eof'>>
+): Promise<Buffer> {
+  const chunks: Uint8Array[] = []
+  let offset = 0
+  let eof = false
+  while (!eof && offset < maximum) {
+    const chunk = await readChunk(
+      offset,
+      Math.min(MOBILE_WEB_FILE_CHUNK_MAX_BYTES, maximum - offset)
+    )
+    chunks.push(chunk.bytes)
     offset += chunk.bytesRead
     eof = chunk.eof
   }
   if (!eof) {
     throw new Error('file_too_large')
   }
-  const bytes = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.bytes)))
-  const dataUri = buildImageDataUri(rasterMimeType(request.relativePath), bytes.toString('base64'))
-  if (!dataUri) {
-    throw new Error('binary_file')
-  }
-  return { status: 'ready', kind: 'image', dataUri }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)))
 }
 
 function rasterMimeType(relativePath: string): string | undefined {

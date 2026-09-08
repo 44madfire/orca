@@ -90,6 +90,8 @@ export function MobileFilePreviewScreen({
   const routeTerminal = previewParams?.terminal
   const routePathText = previewParams?.pathText
   const routeCwd = previewParams?.cwd
+  const routePreviewKind = previewParams?.previewKind
+  const routeName = previewParams?.name
   const routePreviewSource = useMemo(
     () =>
       previewHostId && routeWorktreeId
@@ -102,13 +104,17 @@ export function MobileFilePreviewScreen({
             grantId: routeGrantId,
             terminal: routeTerminal,
             pathText: routePathText,
-            cwd: routeCwd
+            cwd: routeCwd,
+            previewKind: routePreviewKind,
+            name: routeName
           })
         : null,
     [
       previewHostId,
       routeAbsolutePath,
       routeCwd,
+      routePreviewKind,
+      routeName,
       routeGrantId,
       routePathText,
       routeRelativePath,
@@ -240,7 +246,7 @@ export function MobileFilePreviewScreen({
   const displayPath =
     previewParams?.source === 'terminalArtifact'
       ? (previewParams.absolutePath ?? '')
-      : (previewParams?.relativePath ?? '')
+      : (previewParams?.pathText ?? previewParams?.relativePath ?? '')
   const title = previewParams?.name ?? displayNameFromPreviewPath(displayPath)
   const worktreeLabel = getWorktreeLabel(
     previewParams?.worktreeName,

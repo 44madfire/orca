@@ -76,6 +76,57 @@ describe('MobileFilePreviewScreen', () => {
     vi.restoreAllMocks()
   })
 
+  it('passes hosted artifact route metadata to the adapter and keeps the preview read-only', async () => {
+    const operations: HostFilePreviewOperations = {
+      load: vi
+        .fn()
+        .mockResolvedValue({
+          status: 'ready',
+          kind: 'text',
+          content: 'result',
+          truncated: false,
+          byteLength: 6
+        }),
+      saveTerminalArtifact: vi.fn(),
+      reconnect: vi.fn(),
+      openExternalUrl: vi.fn()
+    }
+    await act(async () => {
+      renderer = create(
+        createElement(MobileFilePreviewScreen, {
+          route: {
+            ok: true,
+            params: {
+              hostId: 'host-1',
+              worktreeId: 'folder-1',
+              source: 'webArtifact',
+              terminal: 'terminal-1',
+              pathText: '/tmp/result.txt',
+              name: 'result.txt',
+              previewKind: 'text'
+            }
+          },
+          operations,
+          connectionState: 'connected',
+          nativeHostBinding: false
+        })
+      )
+    })
+    expect(operations.load).toHaveBeenCalledWith(
+      {
+        source: 'webArtifact',
+        worktreeId: 'folder-1',
+        tabId: 'terminal-1',
+        pathText: '/tmp/result.txt',
+        displayName: 'result.txt',
+        previewKind: 'text'
+      },
+      expect.anything()
+    )
+    expect(renderer!.root.findAllByType('Save' as never)).toHaveLength(0)
+    expect(JSON.stringify(renderer!.toJSON())).toContain('result')
+  })
+
   it('treats empty terminal artifact text previews as editable', () => {
     expect(isEditableMobileTerminalArtifactPreview({ status: 'empty', kind: 'text' })).toBe(true)
     expect(
