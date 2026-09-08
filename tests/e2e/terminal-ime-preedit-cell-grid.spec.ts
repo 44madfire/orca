@@ -16,8 +16,12 @@ for (const dpr of [1, 1.25, 2]) {
       test.use({ orcaAppExtraArgs: [`--force-device-scale-factor=${dpr}`] })
 
       test('matches committed character advances across font and spacing changes', async ({
-        orcaPage
+        orcaPage,
+        electronApp
       }, testInfo) => {
+        await electronApp.evaluate(({ BrowserWindow }) => {
+          BrowserWindow.getAllWindows()[0].setSize(1920, 1080)
+        })
         const arena = await openTerminalImePaneArena(orcaPage)
         let completed = false
         try {
