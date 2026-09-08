@@ -1,12 +1,14 @@
 import { acquire, release, reserveLinearListing } from './linear-request-concurrency'
 import { registerLinearAccountRead } from './linear-account-read-lifetime'
 import { LinearAgentAccessError, linearError } from './issue-context-errors'
+import { getStatus } from './client'
 import { clearToken } from './linear-token-store'
 
 export class IssueListLifetime {
   private readonly releaseReservation: () => void
   private pending = 0
   private finished = false
+  readonly expiredAccounts = new Set<string>()
   readonly deadline: number
 
   constructor(
@@ -64,8 +66,12 @@ export class IssueListLifetime {
         return await operation(signal)
       } catch (error) {
         if (error instanceof LinearAgentAccessError && error.code === 'linear_auth_expired') {
-          account.dispose()
-          clearToken(workspaceId)
+          account.mutateIfCurrent(() => {
+            clearToken(workspaceId)
+            if (!getStatus().workspaces?.some((w) => w.id === workspaceId)) {
+              this.expiredAccounts.add(workspaceId)
+            }
+          })
         }
         throw error
       } finally {

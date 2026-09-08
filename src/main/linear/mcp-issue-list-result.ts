@@ -3,6 +3,11 @@ import type {
   LinearMcpIssueListResult
 } from '../../shared/linear/mcp-issue-list'
 import type { IssueListAdmission } from './mcp-issue-list-admission'
+import {
+  authorizeIssueListAccounts,
+  concreteIssueListRecovery,
+  validateIssueListContinuation
+} from './mcp-issue-list-continuation'
 import { linearError } from './issue-context-errors'
 import { encodeIssueListCursor } from './mcp-issue-list-cursor'
 import { encodePageRecovery, type IssueListRecoveryVector } from './mcp-issue-list-recovery'
@@ -14,7 +19,8 @@ export function finishIssueList({
   failures,
   limit,
   stopReason,
-  omittedWorkspaceErrors
+  omittedWorkspaceErrors,
+  expiredAccounts
 }: {
   request: LinearMcpIssueListRequest
   state: IssueListRecoveryVector
@@ -23,18 +29,35 @@ export function finishIssueList({
   limit: number | null
   stopReason?: string
   omittedWorkspaceErrors: number
+  expiredAccounts: ReadonlySet<string>
 }): LinearMcpIssueListResult {
+  authorizeIssueListAccounts(request, state, expiredAccounts)
   const hasMore = state.workspaces.some((w) => !w.done)
-  const pageRecovery = request.pageRecovery
-    ? {
-        version: 1 as const,
-        continuation: encodePageRecovery(state),
-        ordering: 'admitted_batch' as const,
-        consistency: 'best_effort' as const,
-        ...(stopReason ? { stopReason } : {})
+  try {
+    validateIssueListContinuation(request, state, expiredAccounts)
+  } catch {
+    throw linearError(
+      'linear_list_metadata_capacity',
+      'Linear continuation cannot fit the unchanged query; restart concrete workspaces and reconcile.',
+      {
+        ...(expiredAccounts.size ? {} : { pageRecovery: request.pageRecovery }),
+        restartConcreteWorkspaces: true,
+        detailsComplete: false
       }
-    : undefined
-  if (request.workspaceId === 'all' && hasMore && !pageRecovery) {
+    )
+  }
+  const concreteRecovery = expiredAccounts.size ? concreteIssueListRecovery(state) : undefined
+  const pageRecovery =
+    request.pageRecovery && !concreteRecovery
+      ? {
+          version: 1 as const,
+          continuation: encodePageRecovery(state),
+          ordering: 'admitted_batch' as const,
+          consistency: 'best_effort' as const,
+          ...(stopReason ? { stopReason } : {})
+        }
+      : undefined
+  if (request.workspaceId === 'all' && hasMore && !request.pageRecovery) {
     throw linearError(
       'linear_list_concrete_workspace_required',
       'Incomplete all-workspace listing requires concrete workspace restart and reconciliation.',
@@ -60,6 +83,7 @@ export function finishIssueList({
       failure?.message ?? 'Linear listing stopped before a page was admitted.',
       {
         ...(failure?.data && typeof failure.data === 'object' ? failure.data : {}),
+        ...(concreteRecovery ? { concreteRecovery, restartConcreteWorkspaces: true } : {}),
         ...(pageRecovery
           ? { pageRecovery }
           : {
@@ -97,6 +121,7 @@ export function finishIssueList({
         ? { nextCursor: encodeIssueListCursor(concrete.id, concrete.after) }
         : {}),
       ...(pageRecovery ? { pageRecovery } : {}),
+      ...(concreteRecovery ? { concreteRecovery } : {}),
       orderBy: request.orderBy ?? 'updatedAt',
       workspaceId: concrete?.id ?? 'all',
       partial: failures.length + omittedWorkspaceErrors > 0,

@@ -139,7 +139,11 @@ export function formatLinearMcpIssueList(result: LinearMcpIssueListResult): stri
 }
 
 export function printLinearMcpIssueListWarnings(result: LinearMcpIssueListResult): void {
-  if (result.meta.pageRecovery && result.meta.hasMore) {
+  if (result.meta.concreteRecovery && result.meta.hasMore) {
+    console.error(
+      'warning: account roster changed; reconnect failed accounts and use --json concreteRecovery positions with the unchanged query, reconciling by workspace and issue ID'
+    )
+  } else if (result.meta.pageRecovery && result.meta.hasMore) {
     console.error(
       `warning: admitted batch; continue with --workspace all --page-recovery ${result.meta.pageRecovery.continuation}`
     )

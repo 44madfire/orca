@@ -1,3 +1,7 @@
+import {
+  authorizeIssueListAccounts,
+  validateIssueListContinuation
+} from './mcp-issue-list-continuation'
 import { finishIssueList } from './mcp-issue-list-result'
 import type {
   LinearMcpIssueListRequest,
@@ -15,7 +19,6 @@ import { IssueListAdmission } from './mcp-issue-list-admission'
 import type { IssueListLifetime } from './mcp-issue-list-lifetime'
 import {
   boundedListJson,
-  encodePageRecovery,
   LIST_CURSOR_BYTES,
   type IssueListRecoveryVector
 } from './mcp-issue-list-recovery'
@@ -157,7 +160,7 @@ export async function readIssueListPages(
             i === index ? { ...w, after: more ? after : undefined, done: !more } : w
           )
         }
-        encodePageRecovery(next)
+        validateIssueListContinuation(request, next, owner.expiredAccounts)
         if (more && encodeIssueListCursor(position.id, after!).length > 4096) {
           throw linearError(
             'linear_list_metadata_capacity',
@@ -165,19 +168,7 @@ export async function readIssueListPages(
           )
         }
         owner.signal?.throwIfAborted()
-        const roster = getStatus().workspaces ?? []
-        if (
-          (request.workspaceId === 'all' && roster.length !== state.workspaces.length) ||
-          state.workspaces.some((expected) => {
-            const current = roster.find((w) => w.id === expected.id)
-            return !current || (current.credentialRevision ?? 0) !== expected.credentialRevision
-          })
-        ) {
-          throw linearError(
-            'linear_list_stale_recovery',
-            'Linear account changed before page commit.'
-          )
-        }
+        authorizeIssueListAccounts(request, state, owner.expiredAccounts)
         staged.commit()
         if (rows.length) {
           average = staged.bytes / rows.length
@@ -207,6 +198,15 @@ export async function readIssueListPages(
         code: failure.code,
         message: failure.message,
         data: {
+          ...(failure.data &&
+          typeof failure.data === 'object' &&
+          'retryAfterSeconds' in failure.data &&
+          typeof failure.data.retryAfterSeconds === 'number' &&
+          Number.isFinite(failure.data.retryAfterSeconds) &&
+          failure.data.retryAfterSeconds >= 0 &&
+          failure.data.retryAfterSeconds <= 86_400
+            ? { retryAfterSeconds: failure.data.retryAfterSeconds }
+            : {}),
           retryPosition: {
             workspaceId: position.id,
             ...(position.after
@@ -242,6 +242,7 @@ export async function readIssueListPages(
     failures,
     limit,
     stopReason,
-    omittedWorkspaceErrors
+    omittedWorkspaceErrors,
+    expiredAccounts: owner.expiredAccounts
   })
 }

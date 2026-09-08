@@ -29,7 +29,7 @@ export type LinearMcpIssueListResult = {
   // must fall back to meta rather than read absence as "complete".
   truncated?: boolean
   meta: {
-    // null when the caller set no --limit, i.e. every matching issue was read.
+    // null when the caller set no --limit, capacity/time bounds still apply.
     limit: number | null
     returned: number
     hasMore: boolean
@@ -41,6 +41,7 @@ export type LinearMcpIssueListResult = {
       consistency: 'best_effort'
       stopReason?: string
     }
+    concreteRecovery?: { workspaceId: string; cursor?: string; done: boolean }[]
     omittedWorkspaceErrors?: number
     orderBy: 'createdAt' | 'updatedAt'
     workspaceId?: (string & {}) | 'all'

@@ -4,6 +4,7 @@ const reads = new Map<string, Set<AbortController>>()
 export function registerLinearAccountRead(workspaceId: string): {
   signal: AbortSignal
   dispose: () => void
+  mutateIfCurrent: (mutation: () => void) => boolean
 } {
   const controller = new AbortController()
   let active = reads.get(workspaceId)
@@ -13,17 +14,26 @@ export function registerLinearAccountRead(workspaceId: string): {
   }
   active.add(controller)
   let disposed = false
+  const dispose = (): void => {
+    if (disposed) {
+      return
+    }
+    disposed = true
+    active.delete(controller)
+    if (active.size === 0 && reads.get(workspaceId) === active) {
+      reads.delete(workspaceId)
+    }
+  }
   return {
     signal: controller.signal,
-    dispose: () => {
-      if (disposed) {
-        return
+    dispose,
+    mutateIfCurrent: (mutation) => {
+      if (disposed || controller.signal.aborted) {
+        return false
       }
-      disposed = true
-      active.delete(controller)
-      if (active.size === 0 && reads.get(workspaceId) === active) {
-        reads.delete(workspaceId)
-      }
+      dispose()
+      mutation()
+      return true
     }
   }
 }
