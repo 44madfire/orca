@@ -3,7 +3,6 @@ import {
   MOBILE_WEB_TERMINAL_ARTIFACT_TEXT_MAX_BYTES,
   MOBILE_WEB_TERMINAL_ARTIFACT_RASTER_MAX_BYTES
 } from '../../../src/shared/mobile-web/terminal-artifact-contract'
-import type { MobileFilePreviewSource } from './mobile-file-preview-request'
 import type { MobileWebBridgeClient } from '../../../src/mobile-web/src/mobile-web-bridge-client'
 import { validateMobileWebRasterImage } from '../../../src/mobile-web/src/mobile-web-raster-image'
 import {
@@ -12,7 +11,11 @@ import {
 } from '../session/web-host-session-file-operations'
 import type { HostFilePreviewOperations } from './host-file-preview-operations'
 import type { MobileFileTabDoc } from './mobile-file-tab-doc'
-import { previewError, type MobileFilePreviewResult } from './mobile-file-preview-request'
+import {
+  previewError,
+  type MobileFilePreviewResult,
+  type MobileFilePreviewSource
+} from './mobile-file-preview-request'
 import { isMarkdownPath } from './file-tree'
 
 export function webHostFilePreviewOperations(
