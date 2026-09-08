@@ -42,9 +42,9 @@ vi.mock('../agent-hooks/managed-agent-hook-registry', async () => {
 vi.mock('../git-bash', () => ({ isGitBashAvailable: () => true }))
 import { installManagedAgentHooks } from '../agent-hooks/managed-agent-hook-controls'
 import { getManagedStatusLineScript } from './statusline-script'
-import { OPENCLAUDE_HOOK_SETTINGS } from './hook-settings'
 import { ClaudeHookService } from './hook-service'
 import {
+  OPENCLAUDE_HOOK_SETTINGS,
   getConfigPath,
   getStatusLineInstallMarkerPath,
   getStatusLineScriptPath,
