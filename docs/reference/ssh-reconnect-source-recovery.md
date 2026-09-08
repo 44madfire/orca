@@ -129,7 +129,7 @@ the renderer retries.
 The SSH e2e lane must be green and triggering on **source** changes before any of this is attempted.
 It was skipping for 15 specs; four regressions reached a user during that window.
 
-## RESOLVED: the pane behind a preserved tab did not always rebind
+## RESOLVED (one cause): a tab opened during a reconnect lost its shell
 
 Measured on the Docker-SSH lane with a multi-round probe (four independent 10-round runs before the
 fix; 30 rounds after). The failure needed no second reconnect: a tab opened right after ONE reconnect
@@ -149,6 +149,10 @@ The fix keeps the kill for a genuinely ownerless PTY and skips it while the pane
 exists (`disposed-spawn-retention.ts`): the tab is present and, if a layout exists, still names the
 leaf. Direction is deliberately leak-over-kill. `ssh-reconnect-new-tab-liveness.spec.ts` asserts
 liveness over six rounds.
+
+What this does NOT cover: a persistent state where every new terminal on a long-lived connection
+comes up blank until Orca restarts (#17047's report). That shape needs no reconnect and was not
+reproduced on this mechanism; it stays open.
 
 The paragraphs below are the pre-fix record, kept because the measurement method is still the right
 one for this class of bug.

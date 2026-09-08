@@ -64,9 +64,12 @@ test.describe('SSH reconnect new-tab liveness', () => {
         await reconnectDockerSshRelayTarget(orcaPage, remote.targetId)
         // Deliberately no wait for the reconnected pane to rebind: the race needs the new tab's
         // first spawn to still be in flight when the reconnect ledger bumps its generation.
+        const priorTabId = await orcaPage.evaluate(() => window.__store?.getState().activeTabId)
         await openTerminalTabInActiveGroup(orcaPage)
         const newTabId = await orcaPage.evaluate(() => window.__store?.getState().activeTabId)
         expect(newTabId, `round ${round}: no tab was opened`).toBeTruthy()
+        // Without this the round could measure the prior (already live) tab instead of the new one.
+        expect(newTabId, `round ${round}: the active tab is not a new tab`).not.toBe(priorTabId)
 
         let ptyId: string | null = null
         await expect
