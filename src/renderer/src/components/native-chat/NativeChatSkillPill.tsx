@@ -1,5 +1,5 @@
 import { NodeViewWrapper, type NodeViewProps } from '@tiptap/react'
-import { Cuboid } from 'lucide-react'
+import { Package } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
 function skillLabel(token: string): string {
@@ -20,7 +20,7 @@ export function NativeChatSkillPill({ node, selected }: NodeViewProps): React.JS
         data-native-chat-skill={token}
         className={`gap-1 border-border px-1.5 py-0 text-sm font-medium text-muted-foreground align-baseline ${selected ? 'ring-1 ring-ring' : ''}`}
       >
-        <Cuboid className="size-4" aria-hidden="true" />
+        <Package className="size-4" aria-hidden="true" />
         {skillLabel(token)}
       </Badge>
     </NodeViewWrapper>
