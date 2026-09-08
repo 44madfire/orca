@@ -161,8 +161,7 @@ export class StructuredAgentSessionHost {
 
   private now = (): number => this.deps.now?.() ?? Date.now()
 
-  hasSession = (sessionId: string): boolean => this.sessions.has(sessionId)
-  isHeld = (sessionId: string): boolean => this.holds.isHeld(sessionId)
+  hasSession = (sessionId: string): boolean => this.sessions.has(sessionId); isHeld = (sessionId: string): boolean => this.holds.isHeld(sessionId)
 
   /** A surface bound to this session and wants it live. The FIRST hold on a session with no
    *  provider child is what resumes one; a retained hold (a subscription) only keeps it. */
