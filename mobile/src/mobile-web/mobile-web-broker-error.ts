@@ -22,18 +22,24 @@ export function isRetryableMobileWebBridgeError(code: MobileWebBridgeErrorCode):
  * the method, which is the same structural absence; the bridge has no `forbidden` code, and
  * `unsupported_capability` is the one the page already handles for an operation it cannot reach.
  */
-export function mobileWebBrokerHostRpcError(error: { code?: unknown }): MobileWebBrokerError {
+export function mobileWebBrokerHostRpcError(error: {
+  code?: unknown
+  message?: unknown
+}): MobileWebBrokerError {
   return new MobileWebBrokerError(mobileWebBridgeErrorCodeForHostRpc(error))
 }
 
 export function mobileWebBridgeErrorCodeForHostRpc(error: {
   code?: unknown
+  message?: unknown
 }): MobileWebBridgeErrorCode {
   switch (typeof error.code === 'string' ? error.code : '') {
     case 'method_not_found':
     case 'method_not_supported':
     case 'forbidden':
       return 'unsupported_capability'
+    case 'runtime_error':
+      return error.message === 'conflict' ? 'conflict' : 'host_error'
     default:
       return 'host_error'
   }

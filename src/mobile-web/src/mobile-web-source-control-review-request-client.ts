@@ -22,6 +22,7 @@ import {
   type MobileWebSourceControlReviewTerminalSendPayload,
   type MobileWebSourceControlReviewTerminalSendResult
 } from '../../shared/mobile-web/source-control-review-contract'
+import { rethrowMobileWebReviewError } from './mobile-web-provider-review-conflict'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import { withPageWorkspaceId } from './mobile-web-host-workspace-result'
 import { MobileWebSourceControlHostClient } from './mobile-web-source-control-host-client'
@@ -55,7 +56,9 @@ export class MobileWebSourceControlReviewRequestClient extends MobileWebSourceCo
         reviewState: payload.reviewState
       },
       options
-    ).then((result) => this.parseMetadata(result, payload.workspaceId))
+    )
+      .then((result) => this.parseMetadata(result, payload.workspaceId))
+      .catch(rethrowMobileWebReviewError)
   }
 
   link(

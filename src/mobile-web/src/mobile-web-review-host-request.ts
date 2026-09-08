@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import { rethrowMobileWebReviewError } from './mobile-web-provider-review-conflict'
 import { MobileWebBridgeClientError } from './mobile-web-bridge-client-error'
 import type { MobileWebBridgeRequestOptions } from './mobile-web-bridge-request-state'
 import { requestMobileWebHost } from './mobile-web-host-request-client'
@@ -20,16 +21,18 @@ export function requestMobileWebReviewHost<TPayload extends { workspaceId: strin
     return Promise.reject(new MobileWebBridgeClientError('invalid_request', false))
   }
   const { workspaceId, ...params } = parsedPayload.data
-  return requestMobileWebHost(requests, method, workspaceId, params, options).then((result) => {
-    if (typeof result !== 'object' || result === null || Array.isArray(result)) {
-      throw new MobileWebBridgeClientError('invalid_message', false)
-    }
-    const parsed = resultSchema.safeParse({ ...result, workspaceId })
-    if (!parsed.success) {
-      throw new MobileWebBridgeClientError('invalid_message', false)
-    }
-    return parsed.data
-  })
+  return requestMobileWebHost(requests, method, workspaceId, params, options)
+    .then((result) => {
+      if (typeof result !== 'object' || result === null || Array.isArray(result)) {
+        throw new MobileWebBridgeClientError('invalid_message', false)
+      }
+      const parsed = resultSchema.safeParse({ ...result, workspaceId })
+      if (!parsed.success) {
+        throw new MobileWebBridgeClientError('invalid_message', false)
+      }
+      return parsed.data
+    })
+    .catch(rethrowMobileWebReviewError)
 }
 
 export function assertMobileWebReviewEcho(matches: boolean): void {

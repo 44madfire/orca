@@ -1,3 +1,4 @@
+import { MobileWebBridgeClientError } from '../../../src/mobile-web/src/mobile-web-bridge-client-error'
 import type { RpcFailure, RpcResponse, RpcSuccess } from '../transport/types'
 
 const HOSTED_SOURCE_CONTROL_RUNTIME_ID = 'hosted-source-control'
@@ -28,7 +29,10 @@ export async function hostedSourceControlResponse(
 ): Promise<RpcResponse> {
   try {
     return hostedSourceControlSuccess(await request())
-  } catch {
+  } catch (error) {
+    if (error instanceof MobileWebBridgeClientError) {
+      return hostedSourceControlFailure(error.code, error.message)
+    }
     return hostedSourceControlFailure('host_error')
   }
 }
