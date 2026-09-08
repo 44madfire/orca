@@ -153,7 +153,7 @@ export type AgentJournalStatusItem = {
   tone?: string
   /** Durable root-turn lifecycle used by clients to expose cancellation only
    *  while the provider can still accept it. */
-  turnLifecycle?: { turnId: string; state: 'running' | 'completed' }
+  turnLifecycle?: { turnId: string; state: 'running' | 'completed'; startedAt?: number; completedAt?: number }
   /** Additive fallback for provider traffic this host cannot model yet. Older
    *  clients still render `text`; newer clients expose the bounded frame. */
   providerFrame?: {

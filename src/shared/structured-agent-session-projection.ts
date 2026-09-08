@@ -158,6 +158,22 @@ export function activeStructuredAgentSessionTurnId(
   return null
 }
 
+export function structuredAgentSessionTurnTiming(items: readonly AgentJournalRenderItem[]): {
+  startedAt: number | null
+  completedAt: number | null
+} {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const lifecycle = items[index]?.body
+    if (lifecycle?.kind === 'status' && lifecycle.turnLifecycle) {
+      return {
+        startedAt: lifecycle.turnLifecycle.startedAt ?? null,
+        completedAt: lifecycle.turnLifecycle.completedAt ?? null
+      }
+    }
+  }
+  return { startedAt: null, completedAt: null }
+}
+
 export function hasPersistedStructuredAgentSessionTurn(
   items: readonly AgentJournalRenderItem[]
 ): boolean {
