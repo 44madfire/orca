@@ -1,3 +1,4 @@
+import { HOST_INTERACTIVE_COMMANDS } from './ssh-remote-cli-interactive-commands'
 import type { CliStatusResult, RuntimeStatus } from '../../shared/runtime-types'
 import { runtimeHostConnectionState } from '../../shared/runtime-host-connection-state'
 import { projectRemoteAppStatus } from '../../shared/cli-app-status-projection'
@@ -35,20 +36,6 @@ import { formatInProcessRemoteCliResult } from './ssh-remote-cli-in-process-resu
 
 export type { RemoteOrcaCliRequest, RemoteOrcaCliResult } from './ssh-remote-cli-host-passthrough'
 
-// Why: these commands run a foreground/interactive process attached to the
-// caller's TTY (or a local tmux pane), which a buffered one-shot relay bridge
-// cannot host. Everything else routes through the full host CLI.
-const HOST_INTERACTIVE_COMMANDS: Record<string, string> = {
-  serve:
-    'orca serve starts a foreground headless Orca server and cannot run through the SSH relay bridge. Run it directly on the machine that should host Orca.',
-  'claude-teams':
-    'orca claude-teams starts an interactive Claude Code session and cannot run through the SSH relay bridge. Run it in a terminal on the Orca host machine.',
-  'agent-teams-tmux':
-    'orca agent-teams-tmux is a tmux pane shim for the Orca host machine and cannot run through the SSH relay bridge.',
-  'account add':
-    'orca account add runs an interactive agent login and cannot run through the buffered SSH relay bridge. Run it directly in a terminal on the Orca host machine.'
-}
-
 export async function runRemoteOrcaCli(
   runtime: OrcaRuntimeService,
   request: RemoteOrcaCliRequest,
@@ -82,6 +69,16 @@ export async function runRemoteOrcaCli(
     )
   }
 
+  if (command === 'linear list-issues' && !parsed.flags.has('help')) {
+    request.delivery?.signal.throwIfAborted()
+    return runLegacyRemoteOrcaCli(
+      runtime,
+      request,
+      parsed,
+      json,
+      new HostCliUnavailableError('Linear page delivery is owned by the runtime dispatcher')
+    )
+  }
   let passthroughFailure: HostCliUnavailableError | null = null
   try {
     return await runHostOrcaCliPassthrough(request, passthroughOptions)
@@ -104,7 +101,11 @@ async function runLegacyRemoteOrcaCli(
   json: boolean,
   passthroughFailure: HostCliUnavailableError
 ): Promise<RemoteOrcaCliResult> {
-  const dispatcher = new RpcDispatcher({ runtime, methods: ALL_RPC_METHODS })
+  const dispatcher = new RpcDispatcher({
+    runtime,
+    methods: ALL_RPC_METHODS,
+    linearListDelivery: request.delivery
+  })
   const help = getRemoteLinearHelp(parsed)
   if (help) {
     return { stdout: `${help}\n`, stderr: '', exitCode: 0 }

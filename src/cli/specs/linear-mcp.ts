@@ -53,6 +53,7 @@ export const LINEAR_MCP_COMMAND_SPECS: CommandSpec[] = [
       'query',
       'state',
       'cursor',
+      'page-recovery',
       'order-by',
       'project',
       'release',

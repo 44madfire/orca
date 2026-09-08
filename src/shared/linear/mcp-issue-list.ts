@@ -8,6 +8,7 @@ export type LinearMcpIssueListRequest = {
   limit?: number
   query?: string
   state?: string
+  pageRecovery?: { version: 1; continuation?: string }
   cursor?: string
   orderBy?: 'createdAt' | 'updatedAt'
   project?: string
@@ -33,6 +34,14 @@ export type LinearMcpIssueListResult = {
     returned: number
     hasMore: boolean
     nextCursor?: string
+    pageRecovery?: {
+      version: 1
+      continuation: string
+      ordering: 'admitted_batch'
+      consistency: 'best_effort'
+      stopReason?: string
+    }
+    omittedWorkspaceErrors?: number
     orderBy: 'createdAt' | 'updatedAt'
     workspaceId?: (string & {}) | 'all'
     partial: boolean
@@ -40,6 +49,7 @@ export type LinearMcpIssueListResult = {
       workspace: LinearWorkspaceCandidate
       code: LinearErrorCode
       message: string
+      data?: unknown
     }[]
   }
 }

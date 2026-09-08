@@ -284,6 +284,9 @@ function linearListWarnings(
 }
 
 function linearMcpListWarnings(result: LinearMcpIssueListResult): string {
+  if (result.meta.hasMore && result.meta.pageRecovery) {
+    return `warning: admitted batch; continue with --workspace all --page-recovery ${result.meta.pageRecovery.continuation}\n`
+  }
   const warnings = result.meta.workspaceErrors.map(
     (error) => `warning: ${error.workspace.name} unavailable for Linear: ${error.message}`
   )

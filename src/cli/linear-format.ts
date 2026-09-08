@@ -139,7 +139,11 @@ export function formatLinearMcpIssueList(result: LinearMcpIssueListResult): stri
 }
 
 export function printLinearMcpIssueListWarnings(result: LinearMcpIssueListResult): void {
-  if (result.meta.hasMore) {
+  if (result.meta.pageRecovery && result.meta.hasMore) {
+    console.error(
+      `warning: admitted batch; continue with --workspace all --page-recovery ${result.meta.pageRecovery.continuation}`
+    )
+  } else if (result.meta.hasMore) {
     const workspaceHint =
       result.meta.nextCursor && result.meta.workspaceId !== 'all' && result.meta.workspaceId
         ? `; continue with --workspace ${result.meta.workspaceId}`

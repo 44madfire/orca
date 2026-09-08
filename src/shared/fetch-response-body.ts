@@ -46,7 +46,8 @@ async function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): Pr
 
 export async function readFetchResponseBytesWithinLimit(
   response: Response,
-  maxBytes = API_RESPONSE_MAX_BYTES
+  maxBytes = API_RESPONSE_MAX_BYTES,
+  signal?: AbortSignal
 ): Promise<Uint8Array> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
     throw new RangeError('Response body limit must be a non-negative safe integer')
@@ -64,9 +65,20 @@ export async function readFetchResponseBytesWithinLimit(
   const reader = response.body.getReader()
   let output = new Uint8Array(Math.min(maxBytes, INITIAL_RESPONSE_CAPACITY_BYTES))
   let byteLength = 0
+  let cancellation: Promise<void> | undefined
+  const abort = (): void => {
+    output = new Uint8Array()
+    cancellation ??= cancelReader(reader)
+  }
+  signal?.addEventListener('abort', abort, { once: true })
+  if (signal?.aborted) {
+    abort()
+  }
   try {
     while (true) {
+      signal?.throwIfAborted()
       const { done, value } = await reader.read()
+      signal?.throwIfAborted()
       if (done) {
         return output.subarray(0, byteLength)
       }
@@ -88,6 +100,8 @@ export async function readFetchResponseBytesWithinLimit(
       byteLength = nextLength
     }
   } finally {
+    signal?.removeEventListener('abort', abort)
+    await cancellation
     reader.releaseLock()
   }
 }
