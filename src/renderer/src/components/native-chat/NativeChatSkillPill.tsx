@@ -20,7 +20,7 @@ export function NativeChatSkillPill({ node, selected }: NodeViewProps): React.JS
         data-native-chat-skill={token}
         className={`gap-1 border-border px-1.5 py-0 text-sm font-medium text-muted-foreground align-baseline ${selected ? 'ring-1 ring-ring' : ''}`}
       >
-        <Cuboid className="size-4 text-blue-500" aria-hidden="true" />
+        <Cuboid className="size-4" aria-hidden="true" />
         {skillLabel(token)}
       </Badge>
     </NodeViewWrapper>
