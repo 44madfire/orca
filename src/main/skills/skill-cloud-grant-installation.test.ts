@@ -133,3 +133,38 @@ describe('installSkillCloudGrant', () => {
     )
   })
 })
+
+it.each(['skill-install-cancelled', 'skill-install-filesystem-failed'])(
+  'indexes selected IDs when reporting %s',
+  async (code) => {
+    let reads = 0
+    const ids = Array.from({ length: 1000 }, (_, index) => `skill-${index}`)
+    const selectedSkillIds = new Proxy(ids, {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) {
+          reads += 1
+        }
+        return Reflect.get(target, key, receiver)
+      }
+    })
+    const skills = ids.map((id) => ({ id, name: id, digest: 'a'.repeat(64), files: [] }))
+    const bundleGrant = {
+      ...grant,
+      version: { ...grant.version, manifest: { skills, bundleDigest: 'c'.repeat(64) } }
+    } as unknown as SkillCloudDownloadGrant
+    const runtime = {
+      installSharedSkillBundleRequest: vi.fn().mockRejectedValue(new Error(code))
+    } as unknown as OrcaRuntimeService
+    const result = await installSkillBundleCloudGrant(runtime, bundleGrant, {
+      operationId: 'op',
+      selectedSkillIds,
+      destination: { scope: 'global' }
+    })
+    expect(result.status).toBe('ok')
+    if (result.status === 'ok') {
+      expect(result.value.skills.map((skill) => skill.skillId)).toEqual(ids)
+      expect(result.value.status).toBe(code.includes('cancelled') ? 'cancelled' : 'failed')
+    }
+    expect(reads).toBeLessThanOrEqual(2000)
+  }
+)

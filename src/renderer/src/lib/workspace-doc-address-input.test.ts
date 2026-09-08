@@ -145,3 +145,14 @@ describe('resolveWorkspaceDocAddressTarget', () => {
     ).toEqual({ status: 'unsupported', message: 'no channel' })
   })
 })
+
+it('resolves a current-workspace address without enumerating unrelated workspace roots', () => {
+  const state = makeState()
+  state.allWorktrees = vi.fn(() => {
+    throw new Error('unnecessary global workspace enumeration')
+  })
+  expect(
+    resolveWorkspaceDocAddressTarget(state, CURRENT, '/home/alice/wt1/docs/index.html').status
+  ).toBe('workspace-doc')
+  expect(state.allWorktrees).not.toHaveBeenCalled()
+})

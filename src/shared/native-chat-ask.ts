@@ -102,6 +102,7 @@ export function parseAskFromStatus(
 export function extractPendingAsk(messages: readonly NativeChatMessage[]): AskPrompt | null {
   let pending: AskPrompt | null = null
   const outstanding: (AskPrompt | null)[] = []
+  let outstandingHead = 0
   for (const message of messages) {
     // A new user turn (or an interrupt row) ends the turn that owns whatever
     // calls are still in flight: their results never arrive, and `tool_use_id`
@@ -111,6 +112,7 @@ export function extractPendingAsk(messages: readonly NativeChatMessage[]): AskPr
     // composer (#11761). Claude's tool-result turns decode as role 'tool'.
     if (message.role === 'user' || isInterruptedStatusMessage(message)) {
       outstanding.length = 0
+      outstandingHead = 0
       pending = null
     }
     for (const block of message.blocks) {
@@ -120,8 +122,13 @@ export function extractPendingAsk(messages: readonly NativeChatMessage[]): AskPr
           pending = parsed
         }
         outstanding.push(parsed)
-      } else if (block.type === 'tool-result' && outstanding.length > 0) {
-        const resolved = outstanding.shift()
+      } else if (block.type === 'tool-result' && outstandingHead < outstanding.length) {
+        const resolved = outstanding[outstandingHead]
+        outstanding[outstandingHead++] = null
+        if (outstandingHead === outstanding.length) {
+          outstanding.length = 0
+          outstandingHead = 0
+        }
         if (resolved && resolved === pending) {
           pending = null
         }

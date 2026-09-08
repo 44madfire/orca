@@ -24,5 +24,15 @@ export const MAX_COMMAND_LINE_CHARS = 30_000
  * quote-heavy ~26KB script on argv and over the real limit.
  */
 export function commandLineLength(args: readonly string[]): number {
-  return args.reduce((total, arg) => total + arg.length + 3 + (arg.match(/["\\]/g)?.length ?? 0), 0)
+  let total = 0
+  for (const arg of args) {
+    total += arg.length + 3
+    for (let index = 0; index < arg.length; index += 1) {
+      const code = arg.charCodeAt(index)
+      if (code === 34 || code === 92) {
+        total += 1
+      }
+    }
+  }
+  return total
 }

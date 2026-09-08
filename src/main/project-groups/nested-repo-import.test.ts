@@ -138,7 +138,9 @@ describe('createNestedProjectGroupResolver', () => {
       parentPath: '/workspace',
       groupName: 'workspace',
       mode: 'separate',
-      repoPaths: ['/workspace/services/api', '/workspace/services/worker'],
+      get repoPaths(): readonly string[] {
+        throw new Error('separate imports must not build unused folder scopes')
+      },
       createGroup: () => {
         throw new Error('should not create a group')
       }

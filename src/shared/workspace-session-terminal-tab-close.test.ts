@@ -230,4 +230,35 @@ describe('closeTerminalTabInWorkspaceSession', () => {
     expect(current.tabsByWorktree[WORKTREE_ID]).toEqual([])
     expect(current.terminalLayoutsByTabId).toEqual({})
   })
+  it('selects the previous neighbor in linear work when closing the last of many tabs', () => {
+    let reads = 0
+    const ids = Array.from({ length: 1000 }, (_, i) => `tab-${i}`)
+    const tabOrder = [...ids, 'terminal-1']
+    for (let i = 0; i < tabOrder.length; i++) {
+      const value = tabOrder[i]
+      Object.defineProperty(tabOrder, i, {
+        get: () => {
+          reads++
+          return value
+        }
+      })
+    }
+    const initial = session()
+    initial.tabGroups![WORKTREE_ID][0].tabOrder = tabOrder
+    initial.tabGroups![WORKTREE_ID][0].recentTabIds = []
+    const result = closeTerminalTabInWorkspaceSession(initial, WORKTREE_ID, 'terminal-1')
+    expect(result.session.tabGroups![WORKTREE_ID][0].activeTabId).toBe('tab-999')
+    expect(result.session.tabGroups![WORKTREE_ID][0].tabOrder).toEqual(ids)
+    expect(reads).toBeLessThan(6000)
+  })
+
+  it('preserves first-occurrence neighbor semantics for duplicate legacy order entries', () => {
+    const initial = session()
+    initial.tabGroups![WORKTREE_ID][0].tabOrder = ['a', 'terminal-1', 'a', 'b']
+    initial.tabGroups![WORKTREE_ID][0].recentTabIds = ['absent', 'terminal-1']
+    const result = closeTerminalTabInWorkspaceSession(initial, WORKTREE_ID, 'terminal-1')
+    expect(result.session.tabGroups![WORKTREE_ID][0].activeTabId).toBe('b')
+    expect(result.session.tabGroups![WORKTREE_ID][0].tabOrder).toEqual(['a', 'a', 'b'])
+    expect(result.session.tabGroups![WORKTREE_ID][0].recentTabIds).toEqual([])
+  })
 })

@@ -44,17 +44,6 @@ export function isYamlFile(filePath: string): boolean {
   return YAML_EXTENSIONS.has(path.extname(filePath).toLowerCase())
 }
 
-export function compareThemeFileLabels(
-  left: ThemeFileCandidate,
-  right: ThemeFileCandidate
-): number {
-  return left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
-}
-
-function compareDirentNames(left: Dirent<string>, right: Dirent<string>): number {
-  return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
-}
-
 function isYamlFileEntry(entry: Dirent<string>): boolean {
   return (entry.isFile() || entry.isSymbolicLink()) && isYamlFile(entry.name)
 }
@@ -141,7 +130,8 @@ async function collectYamlFilesFromDirectory(
     return
   }
 
-  const sortedEntries = entries.sort(compareDirentNames)
+  const compareNames = new Intl.Collator(undefined, { sensitivity: 'base' }).compare
+  const sortedEntries = entries.sort((left, right) => compareNames(left.name, right.name))
   if (previewBudgetExpiredWhileReading) {
     return
   }

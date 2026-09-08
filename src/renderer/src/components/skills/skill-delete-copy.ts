@@ -73,8 +73,9 @@ export function skillDeletePlacementSummary(plan: SkillDeletePlan): string | nul
     folders > 0 ? foldersLabel(folders) : null,
     links > 0 ? linksLabel(links) : null
   ].filter((part): part is string => part !== null)
+  const compareLabels = new Intl.Collator(undefined, { sensitivity: 'base' }).compare
   const roots = [...new Set(placements.map((placement) => placement.rootLabel))].sort((a, b) =>
-    a.localeCompare(b, undefined, { sensitivity: 'base' })
+    compareLabels(a, b)
   )
   return translate(
     'auto.components.skills.SkillDelete.placementSummaryParts',

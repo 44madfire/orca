@@ -452,3 +452,41 @@ function browserUnifiedTab(
     createdAt: 0
   }
 }
+
+it('indexes workspace tabs when building a large browser palette', () => {
+  let reads = 0
+  const workspaces = Array.from({ length: 1000 }, (_, i) =>
+    makeWorkspace({ id: `workspace-${i}`, activePageId: `page-${i}` })
+  )
+  const tabs: Tab[] = workspaces.map((workspace, i) => ({
+    id: `tab-${i}`,
+    get entityId() {
+      reads++
+      return workspace.id
+    },
+    groupId: 'group-1',
+    worktreeId: 'wt-1',
+    contentType: 'browser',
+    label: 'Example',
+    customLabel: null,
+    color: null,
+    sortOrder: i,
+    createdAt: 0
+  }))
+  const pages = Object.fromEntries(
+    workspaces.map((workspace, i) => [
+      workspace.id,
+      [makePage({ id: `page-${i}`, workspaceId: workspace.id })]
+    ])
+  )
+  const entries = buildFixture({
+    worktrees: [worktreeA],
+    browserTabsByWorktree: { 'wt-1': workspaces },
+    browserPagesByWorkspace: pages,
+    unifiedTabsByWorktree: { 'wt-1': tabs }
+  })
+  expect(reads).toBeLessThan(6000)
+  expect(entries.map((entry) => entry.workspace.id)).toEqual(
+    workspaces.map((workspace) => workspace.id)
+  )
+})

@@ -77,7 +77,7 @@ export function createLocalFileSink(opts: LocalFileSinkOptions): LocalFileSink {
   let fd: number = openAppend(filePath)
   let currentBytes: number = safeFstatSize(fd)
 
-  let buffer: string[] = []
+  let buffer: (string | null)[] = []
   let timer: NodeJS.Timeout | null = null
   let closed = false
 
@@ -171,11 +171,10 @@ export function createLocalFileSink(opts: LocalFileSinkOptions): LocalFileSink {
     }
 
     for (const line of lines) {
-      const lineBytes = Buffer.byteLength(line, 'utf8')
-      if (lineBytes > maxBytes) {
-        // Oversized single span would blow the maxFiles × maxBytes envelope; drop just this record.
+      if (line === null) {
         continue
       }
+      const lineBytes = Buffer.byteLength(line, 'utf8')
       if (pendingChunkBytes > 0 && currentBytes + pendingChunkBytes + lineBytes > maxBytes) {
         flushPendingChunk()
       }
@@ -216,7 +215,12 @@ export function createLocalFileSink(opts: LocalFileSinkOptions): LocalFileSink {
         // Redactor handles cycles upstream; a throw here means pre-redact data slipped in — drop rather than crash (best-effort).
         return
       }
-      buffer.push(line)
+      // UTF-8 uses at most three bytes per UTF-16 unit; small records need no admission scan.
+      const oversized =
+        line.length > maxBytes ||
+        (line.length * 3 > maxBytes && Buffer.byteLength(line, 'utf8') > maxBytes)
+      // Count rejected records toward the flush threshold without retaining their payloads.
+      buffer.push(oversized ? null : line)
       if (buffer.length >= flushThreshold) {
         flushBuffer()
       } else {

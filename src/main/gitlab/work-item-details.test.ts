@@ -459,3 +459,14 @@ describe('countDiffLines', () => {
     expect(countDiffLines('@@ -1 +1 @@\n-@@ old\n+@@ new')).toEqual({ additions: 1, deletions: 1 })
   })
 })
+
+it('counts large diff prefixes without allocating a string array for every line', () => {
+  const diff = `--- a/file\n+++ b/file\n@@ -1 +1 @@\n${'-old\n+new\n context\n'.repeat(10000)}`
+  const split = vi.spyOn(String.prototype, 'split')
+  try {
+    expect(countDiffLines(diff)).toEqual({ additions: 10000, deletions: 10000 })
+    expect(split.mock.calls.length).toBe(0)
+  } finally {
+    split.mockRestore()
+  }
+})

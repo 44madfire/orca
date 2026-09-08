@@ -37,6 +37,14 @@ export function createBrowserHistoryActions(
           title ?? existing?.title,
           docLocation
         )
+        if (
+          existing &&
+          !bump &&
+          normalizedTitle === existing.title &&
+          s.workspaceDocHistory.length <= MAX_WORKSPACE_DOC_HISTORY_ENTRIES
+        ) {
+          return s
+        }
         const next: WorkspaceDocHistoryEntry[] = existing
           ? s.workspaceDocHistory.map((entry) =>
               entry === existing

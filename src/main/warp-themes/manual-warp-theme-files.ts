@@ -2,14 +2,10 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { BrowserWindow, dialog, type OpenDialogOptions, type WebContents } from 'electron'
 import type { WarpThemeImportSkippedFile } from '../../shared/terminal-custom-themes'
-import {
-  compareThemeFileLabels,
-  isYamlFile,
-  MAX_THEME_FILES,
-  type ThemeFileCandidate
-} from './theme-file-scanner'
+import { isYamlFile, MAX_THEME_FILES, type ThemeFileCandidate } from './theme-file-scanner'
 
 export function createManualWarpThemeFileCandidates(filePaths: string[]): ThemeFileCandidate[] {
+  const compareLabels = new Intl.Collator(undefined, { sensitivity: 'base' }).compare
   return filePaths
     .map((filePath) => ({
       path: filePath,
@@ -17,13 +13,13 @@ export function createManualWarpThemeFileCandidates(filePaths: string[]): ThemeF
       contentHashDiscriminator: true
     }))
     .sort((left, right) => {
-      const labelComparison = compareThemeFileLabels(left, right)
+      const labelComparison = compareLabels(left.label, right.label)
       if (labelComparison !== 0) {
         return labelComparison
       }
       // Why: manual dialogs can return selections in click order. Sort only in
       // main so duplicate basenames get deterministic IDs without persisting paths.
-      return left.path.localeCompare(right.path, undefined, { sensitivity: 'base' })
+      return compareLabels(left.path, right.path)
     })
 }
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   compareCodexSessionBackfillDates,
   expandCodexSessionBackfillDatesThroughToday,
@@ -98,5 +98,36 @@ describe('codex session backfill scan dates', () => {
     expect(
       expandCodexSessionBackfillDatesThroughToday([['2026', '01', '01']], ['2026', '08', '07'], 31)
     ).toBeNull()
+  })
+})
+
+describe('bounded backfill range construction', () => {
+  it('does not allocate rejected dates for a decades-old pending marker', () => {
+    const advance = vi.spyOn(Date.prototype, 'setUTCDate')
+    try {
+      expect(
+        expandCodexSessionBackfillDatesThroughToday(
+          [['2000', '01', '01']],
+          ['2026', '09', '07'],
+          31
+        )
+      ).toBeNull()
+      expect(advance).not.toHaveBeenCalled()
+    } finally {
+      advance.mockRestore()
+    }
+  })
+
+  it('keeps exact, fractional, leap-day and future-clock bounds', () => {
+    const dates = [['2024', '02', '28']] as [string, string, string][]
+    expect(expandCodexSessionBackfillDatesThroughToday(dates, ['2024', '03', '01'], 3)).toEqual([
+      ['2024', '02', '28'],
+      ['2024', '02', '29'],
+      ['2024', '03', '01']
+    ])
+    expect(expandCodexSessionBackfillDatesThroughToday(dates, ['2024', '03', '01'], 2.5)).toBeNull()
+    expect(
+      expandCodexSessionBackfillDatesThroughToday([['2024', '03', '01']], ['2024', '02', '28'], 3)
+    ).toEqual(expandCodexSessionBackfillDatesThroughToday(dates, ['2024', '03', '01'], 3))
   })
 })

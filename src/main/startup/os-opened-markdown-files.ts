@@ -106,6 +106,9 @@ export class OsOpenedMarkdownFileState {
     }
     const merged = [...this.pending]
     for (const filePath of filePaths) {
+      if (merged.length >= MAX_PENDING_OS_OPENED_MARKDOWN_FILES) {
+        break
+      }
       if (!merged.includes(filePath)) {
         merged.push(filePath)
       }

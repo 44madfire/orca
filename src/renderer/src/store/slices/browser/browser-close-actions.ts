@@ -135,14 +135,15 @@ export function createBrowserCloseActions(
         }
         delete nextRecentlyClosedBrowserPagesByWorkspace[tabId]
 
+        const closedPageIds = new Set(closedPages.map((page) => page.id))
         const nextPendingAddressBarFocusByPageId = Object.fromEntries(
           Object.entries(s.pendingAddressBarFocusByPageId).filter(
-            ([pageId]) => !closedPages.some((page) => page.id === pageId)
+            ([pageId]) => !closedPageIds.has(pageId)
           )
         )
         const nextPendingAddressBarFocusByTabId = Object.fromEntries(
           Object.entries(s.pendingAddressBarFocusByTabId).filter(
-            ([focusId]) => focusId !== tabId && !closedPages.some((page) => page.id === focusId)
+            ([focusId]) => focusId !== tabId && !closedPageIds.has(focusId)
           )
         )
 

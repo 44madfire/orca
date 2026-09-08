@@ -43,6 +43,33 @@ describe('getWarpThemeDirectories', () => {
     readdirSyncMock.mockReturnValue([])
   })
 
+  it('sorts dynamic directories with one collator and preserves locale ties', () => {
+    platformMock.mockReturnValue('darwin')
+    const names = ['éclair', 'Eclair', 'item2', 'item10', 'Ångström', 'zebra', 'İstanbul'].map(
+      (name) => `.warp-${name}`
+    )
+    readdirSyncMock.mockReturnValue(names.map(directoryEntry))
+    const expected = [...names].sort((a, b) =>
+      // oxlint-disable-next-line sort-comparator-performance/no-repeated-collator -- Preserve the old comparator as the parity oracle.
+      a.localeCompare(b, undefined, { sensitivity: 'base' })
+    )
+    const NativeCollator = Intl.Collator
+    const construct = vi.spyOn(Intl, 'Collator').mockImplementation(function (locales, options) {
+      return new NativeCollator(locales, options)
+    })
+    const localeCompare = vi.spyOn(String.prototype, 'localeCompare')
+    try {
+      expect(getWarpThemeDirectories().slice(6)).toEqual(
+        expected.map((name) => `/Users/alice/${name}/themes`)
+      )
+      expect(construct).toHaveBeenCalledExactlyOnceWith(undefined, { sensitivity: 'base' })
+      expect(localeCompare).not.toHaveBeenCalled()
+    } finally {
+      construct.mockRestore()
+      localeCompare.mockRestore()
+    }
+  })
+
   it('returns macOS Warp channel theme directories in stable-first order', () => {
     platformMock.mockReturnValue('darwin')
     expect(getWarpThemeDirectories()).toEqual([

@@ -172,3 +172,24 @@ describe('browser network tunnel stream framing', () => {
     expect(onError).not.toHaveBeenCalled()
   })
 })
+
+it('rejects saturated writer frames before encoding and copying their payloads', () => {
+  const writer = new BrowserNetworkTunnelStreamFrameWriter(
+    () => {},
+    () => {},
+    { maxQueuedFrames: 1 }
+  )
+  const frame = new Uint8Array(65536)
+  expect(writer.send(frame)).toBe(true)
+  const set = vi.spyOn(Uint8Array.prototype, 'set')
+  try {
+    for (let index = 0; index < 1000; index += 1) {
+      expect(writer.send(frame)).toBe(false)
+    }
+    expect(set.mock.calls.length).toBe(0)
+    expect(writer.queuedBytes).toBe(65540)
+  } finally {
+    set.mockRestore()
+    writer.close()
+  }
+})

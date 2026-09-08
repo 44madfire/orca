@@ -83,7 +83,9 @@ export function removePaneKeys<T>(
   record: Record<string, T>,
   paneKeys: ReadonlySet<string>
 ): Record<string, T> {
-  const matchingKeys = Object.keys(record).filter((key) => paneKeys.has(key))
+  const matchingKeys = [...paneKeys].filter((key) =>
+    Object.prototype.propertyIsEnumerable.call(record, key)
+  )
   if (matchingKeys.length === 0) {
     return record
   }

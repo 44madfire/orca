@@ -40,10 +40,11 @@ export function selectForegroundProcessCandidate(
     const outer = [...recognized].sort(
       (left, right) => left.candidate.depth - right.candidate.depth
     )[0]
+    const ancestry = new Map<number, boolean>()
     if (
       !outer ||
       !recognized.every((entry) =>
-        isAncestorOrSelf(outer.candidate, entry.candidate, candidatesByPid)
+        isAncestorOrSelf(outer.candidate, entry.candidate, candidatesByPid, ancestry)
       )
     ) {
       // Distinct sibling agents do not provide a trustworthy identity.
@@ -66,15 +67,32 @@ function foregroundCandidateScore(candidate: ForegroundProcessCandidate): number
 function isAncestorOrSelf(
   ancestor: ForegroundProcessCandidate,
   descendant: ForegroundProcessCandidate,
-  candidatesByPid: ReadonlyMap<number, ForegroundProcessCandidate>
+  candidatesByPid: ReadonlyMap<number, ForegroundProcessCandidate>,
+  ancestry: Map<number, boolean>
 ): boolean {
   let currentPid = descendant.pid
+  const visited = new Set<number>()
+  let matches = true
   while (currentPid !== ancestor.pid) {
+    const cached = ancestry.get(currentPid)
+    if (cached !== undefined) {
+      matches = cached
+      break
+    }
+    if (visited.has(currentPid)) {
+      matches = false
+      break
+    }
+    visited.add(currentPid)
     const current = candidatesByPid.get(currentPid)
     if (!current) {
-      return false
+      matches = false
+      break
     }
     currentPid = current.ppid
   }
-  return true
+  for (const pid of visited) {
+    ancestry.set(pid, matches)
+  }
+  return matches
 }

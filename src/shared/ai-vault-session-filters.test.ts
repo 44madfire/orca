@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AiVaultSession } from './ai-vault-types'
 import {
   agentLabel,
@@ -197,4 +197,96 @@ describe('/shared ai-vault-session-filters (lifted core)', () => {
   it('builds preview search text from conversation turns', () => {
     expect(sessionPreviewSearchText(baseSession)).toContain('scope tabs')
   })
+})
+
+it('prepares workspace path matching once for a large session filter pass', () => {
+  const sessions = Array.from({ length: 1000 }, (_, i) => ({
+    ...baseSession,
+    id: String(i),
+    cwd: `/other/${i}`
+  }))
+  const activeWorktreePaths = Array.from({ length: 100 }, (_, i) => `/repo/${i}`)
+  const normalize = vi.spyOn(String.prototype, 'normalize')
+  try {
+    expect(
+      filterAiVaultSessions(sessions, {
+        query: '',
+        agents: ['claude'],
+        scope: 'workspace',
+        sort: 'updated',
+        activeWorktreePaths,
+        hideEmptySessions: false
+      })
+    ).toEqual([])
+    expect(normalize.mock.calls.length).toBeLessThanOrEqual(1100)
+  } finally {
+    normalize.mockRestore()
+  }
+})
+
+it('does not read transcript previews for empty or field-only queries', () => {
+  let reads = 0
+  const sessions = Array.from({ length: 1000 }, (_, i) => ({
+    ...baseSession,
+    id: String(i),
+    get previewMessages() {
+      reads++
+      return baseSession.previewMessages
+    }
+  }))
+  for (const query of ['', 'repo:repo', 'path:app']) {
+    expect(
+      filterAiVaultSessions(sessions, {
+        query,
+        agents: ['claude'],
+        scope: 'all',
+        sort: 'updated',
+        activeWorktreePaths: [],
+        hideEmptySessions: false
+      })
+    ).toHaveLength(1000)
+  }
+  expect(reads).toBe(0)
+  expect(
+    filterAiVaultSessions(sessions, {
+      query: 'scope',
+      agents: ['claude'],
+      scope: 'all',
+      sort: 'updated',
+      activeWorktreePaths: [],
+      hideEmptySessions: false
+    })
+  ).toHaveLength(1000)
+  expect(reads).toBeGreaterThan(0)
+})
+
+it('parses each sort timestamp once with original ordering, including invalid dates', () => {
+  const sessions = Array.from({ length: 2000 }, (_, i) => ({
+    ...baseSession,
+    id: String(i),
+    updatedAt:
+      i % 131 === 0 ? 'invalid' : new Date(1700000000000 + ((i * 173) % 1999) * 1000).toISOString()
+  }))
+  const parse = vi.spyOn(Date, 'parse')
+  let actual: AiVaultSession[]
+  let expected: AiVaultSession[]
+  try {
+    expected = [...sessions].sort(
+      (a, b) => Date.parse(b.updatedAt ?? b.modifiedAt) - Date.parse(a.updatedAt ?? a.modifiedAt)
+    )
+    expect(parse.mock.calls.length).toBeGreaterThan(10_000)
+    parse.mockClear()
+    actual = filterAiVaultSessions(sessions, {
+      query: '',
+      agents: ['claude'],
+      scope: 'all',
+      sort: 'updated',
+      activeWorktreePaths: [],
+      hideEmptySessions: false
+    })
+    expect(parse).toHaveBeenCalledTimes(2000)
+  } finally {
+    parse.mockRestore()
+  }
+  actual.forEach((session, i) => expect(session).toBe(expected[i]))
 })

@@ -304,3 +304,23 @@ describe('resolveOpenedMarkdownDocuments', () => {
     expect(authorizeExternalPath).not.toHaveBeenCalled()
   })
 })
+
+it('stops merging an OS file batch at the pending delivery cap', () => {
+  const state = new OsOpenedMarkdownFileState()
+  const includes = vi.spyOn(Array.prototype, 'includes')
+  let probes: number
+  try {
+    state.captureFilePaths(
+      Array.from({ length: 10000 }, (_, index) => resolve(`/notes/${index}.md`))
+    )
+    probes = includes.mock.calls.length
+  } finally {
+    includes.mockRestore()
+  }
+  expect(probes).toBeLessThan(100)
+  expect(state.consume()).toEqual(
+    Array.from({ length: MAX_PENDING_OS_OPENED_MARKDOWN_FILES }, (_, index) =>
+      resolve(`/notes/${index}.md`)
+    )
+  )
+})

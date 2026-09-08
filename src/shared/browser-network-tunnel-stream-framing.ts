@@ -134,16 +134,16 @@ export class BrowserNetworkTunnelStreamFrameWriter {
     if (this.closed) {
       return false
     }
+    if (
+      this.retainedBytes + LENGTH_BYTES + frame.byteLength > this.maxQueuedBytes ||
+      this.frames.length + (this.writing ? 1 : 0) >= this.maxQueuedFrames
+    ) {
+      return false
+    }
     let encoded: Uint8Array
     try {
       encoded = encodeBrowserNetworkTunnelStreamFrame(frame)
     } catch {
-      return false
-    }
-    if (
-      this.retainedBytes + encoded.byteLength > this.maxQueuedBytes ||
-      this.frames.length + (this.writing ? 1 : 0) >= this.maxQueuedFrames
-    ) {
       return false
     }
     this.frames.push(encoded)

@@ -151,4 +151,57 @@ describe('closeBrowserTab with reason cleanup', () => {
 
     expect(recordFeatureInteraction).toHaveBeenCalledWith('terminal-tabs')
   })
+  it('clears focus for closed pages without rescanning pages for unrelated focus entries', () => {
+    const { store, workspaceId } = storeWithOnlyBrowserTab()
+    const original = store.getState().browserPagesByWorkspace[workspaceId][0]
+    let idReads = 0
+    const pages = Array.from({ length: 1000 }, (_, index) => ({
+      ...original,
+      get id() {
+        idReads++
+        return `closed-${index}`
+      }
+    }))
+    const unrelated = Object.fromEntries(
+      Array.from({ length: 1000 }, (_, i) => [`other-${i}`, true as const])
+    )
+    store.setState({
+      browserPagesByWorkspace: { [workspaceId]: pages },
+      pendingAddressBarFocusByPageId: { ...unrelated, 'closed-999': true, [workspaceId]: true },
+      pendingAddressBarFocusByTabId: { ...unrelated, 'closed-999': true, [workspaceId]: true }
+    })
+    idReads = 0
+    store.getState().closeBrowserTab(workspaceId, { reason: 'cleanup' })
+    expect(store.getState().pendingAddressBarFocusByPageId).toEqual({
+      ...unrelated,
+      [workspaceId]: true
+    })
+    expect(store.getState().pendingAddressBarFocusByTabId).toEqual(unrelated)
+    expect(idReads).toBeLessThan(10_000)
+  })
+})
+
+describe('workspace document history title refresh', () => {
+  it('does not publish unchanged titles but preserves real visits and title changes', () => {
+    const store = createTestStore()
+    const location = {
+      kind: 'workspace-doc' as const,
+      worktreeId: WT,
+      filePath: '/path/wt1/doc.html'
+    }
+    store.getState().recordWorkspaceDocVisit(location, 'Document')
+    const history = store.getState().workspaceDocHistory
+    const listener = vi.fn()
+    const unsubscribe = store.subscribe(listener)
+    for (let i = 0; i < 200; i++) {
+      store.getState().recordWorkspaceDocVisit(location, 'Document', { bump: false })
+    }
+    expect(listener).not.toHaveBeenCalled()
+    expect(store.getState().workspaceDocHistory).toBe(history)
+    store.getState().recordWorkspaceDocVisit(location, 'Renamed', { bump: false })
+    expect(store.getState().workspaceDocHistory[0]).toEqual({ ...history[0], title: 'Renamed' })
+    store.getState().recordWorkspaceDocVisit(location, 'Renamed')
+    expect(store.getState().workspaceDocHistory[0].visitCount).toBe(2)
+    unsubscribe()
+  })
 })

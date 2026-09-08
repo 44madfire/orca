@@ -28,22 +28,25 @@ export function selectHostBalancedPage<TRow>(
     }
   })
   const buckets = [...indicesByHost.values()]
-  const cursors = buckets.map(() => 0)
   const chosen: number[] = []
-  while (chosen.length < limit) {
-    let advanced = false
-    for (let bucket = 0; bucket < buckets.length && chosen.length < limit; bucket += 1) {
-      const cursor = cursors[bucket] ?? 0
-      const index = buckets[bucket]?.[cursor]
-      if (index !== undefined) {
-        chosen.push(index)
-        cursors[bucket] = cursor + 1
-        advanced = true
+  let activeCount = buckets.length
+  let round = 0
+  while (chosen.length < limit && activeCount > 0) {
+    let nextActiveCount = 0
+    for (
+      let bucketIndex = 0;
+      bucketIndex < activeCount && chosen.length < limit;
+      bucketIndex += 1
+    ) {
+      const bucket = buckets[bucketIndex]
+      chosen.push(bucket[round])
+      if (bucket.length > round + 1) {
+        buckets[nextActiveCount] = bucket
+        nextActiveCount += 1
       }
     }
-    if (!advanced) {
-      break
-    }
+    activeCount = nextActiveCount
+    round += 1
   }
   return chosen.sort((left, right) => left - right).map((index) => rows[index] as TRow)
 }

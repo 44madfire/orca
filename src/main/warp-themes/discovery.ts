@@ -18,9 +18,9 @@ const WARP_CHANNELS = [
 
 function readDirectoryEntries(directoryPath: string): Dirent[] {
   try {
-    return readdirSync(directoryPath, { withFileTypes: true }).sort((left, right) =>
-      left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
-    )
+    const entries = readdirSync(directoryPath, { withFileTypes: true })
+    const compareNames = new Intl.Collator(undefined, { sensitivity: 'base' }).compare
+    return entries.sort((left, right) => compareNames(left.name, right.name))
   } catch {
     return []
   }

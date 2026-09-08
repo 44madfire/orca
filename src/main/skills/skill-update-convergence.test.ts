@@ -169,4 +169,24 @@ describe('convergableSkillNames', () => {
     )
     expect([...result]).toEqual(['orca-cli'])
   })
+  it('indexes placements once across many independent locked skills', () => {
+    let nameReads = 0
+    const installations = Array.from({ length: 1000 }, (_, index) => ({
+      ...placement(`skill-${index}`, index % 2 ? 2 : 1),
+      get name() {
+        nameReads++
+        return `skill-${index}`
+      }
+    }))
+    const locks = new Map(installations.map((entry) => [entry.name, STUB.gitTreeSha!]))
+    const snapshots = Object.fromEntries([...locks.keys()].map((name) => [name, [PRE_STUB, STUB]]))
+    nameReads = 0
+    expect([...convergableSkillNames(installations, locks, snapshots)]).toEqual(
+      [...locks.keys()].filter((_, index) => index % 2 === 1)
+    )
+    expect(nameReads).toBeLessThanOrEqual(1000)
+    nameReads = 0
+    expect([...convergableSkillNames(installations, new Map(), snapshots)]).toEqual([])
+    expect(nameReads).toBe(0)
+  })
 })

@@ -9,7 +9,7 @@ import { quoteBashString } from '../wsl-bash-command'
 import { runWslProcess } from '../wsl/wsl-runner'
 import {
   buildSkillDiscoverySources,
-  compareSkills,
+  sortDiscoveredSkills,
   sourceKindForSkill,
   sourceLabelForSkill,
   stablePathId,
@@ -161,11 +161,10 @@ export function parseWslSkillDiscoveryOutput(
       skippedReason: exists ? undefined : 'missing'
     }
   })
+  const compareSourceLabels = new Intl.Collator(undefined, { sensitivity: 'base' }).compare
   return {
-    skills: [...skillsByCanonicalPath.values()].sort(compareSkills),
-    sources: sources.sort((a, b) =>
-      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
-    ),
+    skills: sortDiscoveredSkills([...skillsByCanonicalPath.values()]),
+    sources: sources.sort((a, b) => compareSourceLabels(a.label, b.label)),
     scannedAt
   }
 }

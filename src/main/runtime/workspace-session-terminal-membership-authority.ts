@@ -93,11 +93,10 @@ function rebaseTabGroups(
     if (tabOrder.length === 0) {
       return []
     }
+    const tabIds = new Set(tabOrder)
     const activeTabId =
-      group.activeTabId && tabOrder.includes(group.activeTabId)
-        ? group.activeTabId
-        : (tabOrder[0] ?? null)
-    const recentTabIds = group.recentTabIds?.filter((tabId) => tabOrder.includes(tabId))
+      group.activeTabId && tabIds.has(group.activeTabId) ? group.activeTabId : (tabOrder[0] ?? null)
+    const recentTabIds = group.recentTabIds?.filter((tabId) => tabIds.has(tabId))
     return [
       {
         ...group,

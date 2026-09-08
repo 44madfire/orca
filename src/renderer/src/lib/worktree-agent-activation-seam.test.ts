@@ -111,10 +111,12 @@ function stubInventory(args?: {
 } {
   const worktree = makeWorktree()
   const runtimeCall = vi.fn(async ({ method }: { method: string }) => {
-    if (method === 'session.tabs.listAll') {
+    if (method === 'session.tabs.list') {
       return {
         ok: true,
-        result: { snapshots: args?.structured ? [structuredSnapshot(worktree.id)] : [] }
+        result: args?.structured
+          ? structuredSnapshot(worktree.id)
+          : { ...structuredSnapshot(worktree.id), tabs: [] }
       }
     }
     if (method === 'agentSession.handoffStatus') {
@@ -282,14 +284,18 @@ describe('worktree agent activation seam', () => {
   it('does not spawn before a structured chat tab hydrates', async () => {
     const worktree = makeWorktree()
     useAppStore.setState(baseState())
-    const { runtimeCall } = stubInventory({ structured: true })
+    const { runtimeCall, listSessions } = stubInventory({ structured: true })
 
     expect(activateAndRevealWorktree(worktree.id)).toEqual({ primaryTabId: null })
     await waitForWorktreeAgentActivationGateForTests(worktree.id)
 
     expect(useAppStore.getState().unifiedTabsByWorktree[worktree.id] ?? []).toHaveLength(0)
     expect(useAppStore.getState().tabsByWorktree[worktree.id] ?? []).toHaveLength(0)
-    expect(runtimeCall).toHaveBeenCalledWith({ method: 'session.tabs.listAll', params: {} })
+    expect(runtimeCall).toHaveBeenCalledWith({
+      method: 'session.tabs.list',
+      params: { worktree: `id:${worktree.id}` }
+    })
+    expect(listSessions).toHaveBeenCalledExactlyOnceWith({ connectionId: null })
     expect(runtimeCall).toHaveBeenCalledWith({
       method: 'agentSession.handoffStatus',
       params: { sessionId: 'chat-1' }

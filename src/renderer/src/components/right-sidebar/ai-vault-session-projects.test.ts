@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ProjectHostSetupProjection } from '../../../../shared/project-host-setup-projection'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
 import type { Project, ProjectHostSetup } from '../../../../shared/project-types'
+import * as paths from '../../../../shared/cross-platform-path'
 import type { Repo } from '../../../../shared/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import {
@@ -600,3 +601,47 @@ function makeProjection(
     ...overrides
   }
 }
+
+it('shares project attribution only within the same host and raw cwd during one build', () => {
+  const repos = Array.from({ length: 200 }, (_, i) =>
+    makeRepo({ id: `repo-${i}`, path: `/repo-${i}` })
+  )
+  const sessions = Array.from({ length: 1000 }, (_, i) => ({
+    ...baseSession,
+    id: String(i),
+    cwd: '/repo-199/sub'
+  }))
+  let comparisons = 0
+  const original = paths.createNormalizedPathInsideOrEqualMatcher
+  const spy = vi
+    .spyOn(paths, 'createNormalizedPathInsideOrEqualMatcher')
+    .mockImplementation((root) => {
+      const matches = original(root)
+      return (cwd) => {
+        comparisons++
+        return matches(cwd)
+      }
+    })
+  let result: ReturnType<typeof buildAiVaultSessionProjectById>
+  try {
+    result = buildAiVaultSessionProjectById({
+      repos,
+      worktrees: [],
+      projectHostSetupProjection: { projects: [], setups: [] },
+      sessions
+    })
+    expect(comparisons).toBe(200)
+  } finally {
+    spy.mockRestore()
+  }
+  expect(result.get('0')?.key).toBe('repo:repo-199')
+  expect(result.get('0')).toEqual(result.get('999'))
+  expect(result.get('0')).not.toBe(result.get('999'))
+  const hosts = buildAiVaultSessionProjectById({
+    repos,
+    worktrees: [],
+    projectHostSetupProjection: { projects: [], setups: [] },
+    sessions: [sessions[0], { ...sessions[0], id: 'remote', executionHostId: 'ssh:other' }]
+  })
+  expect(hosts.get('remote')?.kind).toBe('folder')
+})

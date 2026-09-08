@@ -28,18 +28,33 @@ export function convergableSkillNames(
   knownSnapshots: Readonly<Record<string, SkillKnownSnapshot[]>>
 ): ReadonlySet<string> {
   const convergable = new Set(globalSkillLocks.keys())
+  if (convergable.size === 0) {
+    return convergable
+  }
+  const observableByName = new Map<string, SkillFreshnessInstallation[]>()
+  for (const entry of installations) {
+    const name = entry.name
+    if (
+      !globalSkillLocks.has(name) ||
+      !SUPPORTED_GLOBAL_SKILL_TOPOLOGIES.has(entry.topology) ||
+      !entry.observedPackageDigest
+    ) {
+      continue
+    }
+    const entries = observableByName.get(name)
+    if (entries) {
+      entries.push(entry)
+    } else {
+      observableByName.set(name, [entry])
+    }
+  }
   for (const [name, lockHash] of globalSkillLocks) {
     // Why: judged only over the placements the command writes, like eligibility
     // itself. A plugin-cache or repo copy is never the command's to converge, so
     // it must neither gate the name nor rescue it — an unidentifiable cache copy
     // (or one parked at the lock's own revision) would otherwise defeat the gate
     // and re-arm the unwinnable update.
-    const observable = installations.filter(
-      (entry) =>
-        entry.name === name &&
-        SUPPORTED_GLOBAL_SKILL_TOPOLOGIES.has(entry.topology) &&
-        entry.observedPackageDigest
-    )
+    const observable = observableByName.get(name) ?? []
     if (observable.length === 0) {
       continue
     }

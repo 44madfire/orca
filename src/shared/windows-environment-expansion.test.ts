@@ -44,3 +44,24 @@ describe('expandWindowsPathEnvironmentVariables', () => {
     expect(env.PATH).toBe('%ROOT%/bin:/usr/bin')
   })
 })
+
+it('enumerates fallback keys once for a PATH containing repeated mixed-case variables', () => {
+  let enumerations = 0
+  const env = new Proxy(
+    { ROOT: 'C:\\root', OTHER: 'unused' },
+    {
+      ownKeys(target) {
+        enumerations += 1
+        return Reflect.ownKeys(target)
+      }
+    }
+  )
+  const value = Array.from({ length: 1000 }, () => '%root%').join(';')
+  expect(expandWindowsEnvironmentVariables(value, env)).toBe(Array(1000).fill('C:\\root').join(';'))
+  expect(enumerations).toBe(1)
+})
+
+it('preserves exact casing authority and first fallback keys including undefined values', () => {
+  const env = { Root: undefined, ROOT: 'upper', root: 'lower' }
+  expect(expandWindowsEnvironmentVariables('%ROOT%:%root%:%rOoT%', env)).toBe('upper:lower:%rOoT%')
+})

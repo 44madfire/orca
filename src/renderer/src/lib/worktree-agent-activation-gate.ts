@@ -3,6 +3,8 @@ import type { PtyListedSession } from '../../../shared/pty-listed-session'
 import { parsePtySessionId, PTY_SESSION_ID_SEPARATOR } from '../../../shared/pty-session-id-format'
 import { parsePaneKey } from '../../../shared/stable-pane-id'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
+import { worktreeIdsEqual } from '../../../shared/worktree/id'
+import { resolveActivationPtyListScope } from './worktree-activation-pty-inventory'
 import {
   resumeSleepingAgentSessionsForWorktree,
   type ResumeSleepingAgentSessionsOptions
@@ -194,7 +196,9 @@ export async function runWorktreeAgentActivationGate(
   }
 
   const liveWorkspaceSessions = sessions.filter((session) =>
-    sessionBelongsToWorkspace(session.id, worktreeId)
+    session.worktreeId
+      ? worktreeIdsEqual(session.worktreeId, worktreeId)
+      : sessionBelongsToWorkspace(session.id, worktreeId)
   )
   const liveWorkspacePtyIds = new Set(liveWorkspaceSessions.map((session) => session.id))
   for (const owner of structuredInventory?.ownerBySessionId.values() ?? []) {
@@ -266,7 +270,11 @@ export function gateWorktreeAgentActivation(
     getState: () => useAppStore.getState(),
     awaitReady: waitForWorkspaceSessionReady,
     listSessions: () =>
-      typeof window === 'undefined' ? Promise.resolve([]) : window.api.pty.listSessions(),
+      typeof window === 'undefined'
+        ? Promise.resolve([])
+        : window.api.pty.listSessions(
+            resolveActivationPtyListScope(useAppStore.getState(), worktreeId)
+          ),
     listSurfaceOwners: readWorktreeLiveTerminalSurfaceOwners,
     hasStructuredSession: readWorktreeStructuredActivationInventory,
     resume: resumeSleepingAgentSessionsForWorktree

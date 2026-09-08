@@ -20,6 +20,7 @@ export type ResourceSessionBindingIndex = {
   ptyIdToTabId: Map<string, string>
   tabIdToWorktreeId: Map<string, string>
   boundPtyIds: Set<string>
+  tabsByIdByWorktree: Map<string, Map<string, { tab: TerminalTab; index: number }>>
 }
 
 function addBinding(
@@ -34,14 +35,26 @@ function addBinding(
 }
 
 export function buildResourceSessionBindingIndex(
-  inputs: ResourceSessionBindingInputs
+  inputs: ResourceSessionBindingInputs,
+  includeTabLabels = false
 ): ResourceSessionBindingIndex {
   const ptyIdToTabId = new Map<string, string>()
   const tabIdToWorktreeId = new Map<string, string>()
+  const tabsByIdByWorktree: ResourceSessionBindingIndex['tabsByIdByWorktree'] = new Map()
 
   for (const [worktreeId, tabs] of Object.entries(inputs.tabsByWorktree)) {
-    for (const tab of tabs) {
-      tabIdToWorktreeId.set(tab.id, worktreeId)
+    const byId = includeTabLabels
+      ? new Map<string, { tab: TerminalTab; index: number }>()
+      : undefined
+    tabs.forEach((tab, index) => {
+      const id = tab.id
+      tabIdToWorktreeId.set(id, worktreeId)
+      if (byId && !byId.has(id)) {
+        byId.set(id, { tab, index })
+      }
+    })
+    if (byId) {
+      tabsByIdByWorktree.set(worktreeId, byId)
     }
   }
 
@@ -81,6 +94,7 @@ export function buildResourceSessionBindingIndex(
   return {
     ptyIdToTabId,
     tabIdToWorktreeId,
+    tabsByIdByWorktree,
     boundPtyIds: inputs.workspaceSessionReady ? new Set(ptyIdToTabId.keys()) : new Set()
   }
 }

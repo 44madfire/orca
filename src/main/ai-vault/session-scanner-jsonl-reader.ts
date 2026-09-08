@@ -36,23 +36,25 @@ export async function consumeCompleteJsonlLines(args: {
       remainderLength += chunk.length
       continue
     }
-    const data =
-      remainderLength > 0
-        ? Buffer.concat([...remainderParts, chunk], remainderLength + chunk.length)
-        : chunk
-    remainderParts = []
-    remainderLength = 0
+    const data = chunk
+    const carriedLength = remainderLength
     let lineStart = 0
     let newlineIndex = data.indexOf(NEWLINE_BYTE, lineStart)
     while (newlineIndex !== -1) {
-      let lineEnd = newlineIndex
-      if (lineEnd > lineStart && data[lineEnd - 1] === CARRIAGE_RETURN_BYTE) {
-        lineEnd--
-      }
+      const line =
+        remainderLength > 0
+          ? Buffer.concat(
+              [...remainderParts, data.subarray(lineStart, newlineIndex)],
+              remainderLength + newlineIndex - lineStart
+            )
+          : data.subarray(lineStart, newlineIndex)
+      remainderParts = []
+      remainderLength = 0
+      const lineEnd = line.at(-1) === CARRIAGE_RETURN_BYTE ? line.length - 1 : line.length
       if (args.onLineBytes) {
-        args.onLineBytes(data.subarray(lineStart, lineEnd))
+        args.onLineBytes(line.subarray(0, lineEnd))
       } else {
-        args.onLine(data.toString('utf-8', lineStart, lineEnd))
+        args.onLine(line.toString('utf-8', 0, lineEnd))
       }
       lineStart = newlineIndex + 1
       if (args.shouldStop?.()) {
@@ -61,7 +63,7 @@ export async function consumeCompleteJsonlLines(args: {
       }
       newlineIndex = data.indexOf(NEWLINE_BYTE, lineStart)
     }
-    consumedThrough += lineStart
+    consumedThrough += carriedLength + lineStart
     if (stopped) {
       remainderParts = []
       remainderLength = 0

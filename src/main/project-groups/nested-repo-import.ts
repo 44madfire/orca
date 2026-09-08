@@ -150,10 +150,10 @@ export function createNestedProjectGroupResolver(args: {
   createGroup: (input: CreateGroupInput) => ProjectGroup
 }): NestedProjectGroupResolver {
   const createdGroups: ProjectGroup[] = []
-  const folderScopes = buildSparseFolderScopes({
-    parentPath: args.parentPath,
-    repoPaths: args.repoPaths ?? []
-  })
+  const folderScopes =
+    args.mode === 'group'
+      ? buildSparseFolderScopes({ parentPath: args.parentPath, repoPaths: args.repoPaths ?? [] })
+      : []
   const folderScopesByRelativePath = new Map(
     folderScopes.map((scope) => [scope.relativePath, scope])
   )

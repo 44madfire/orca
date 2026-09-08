@@ -1,4 +1,3 @@
-import { browserPageDocLocationsEqual } from './browser-page-doc-location'
 import type { BrowserPageDocLocation } from './browser-workspace-types'
 import { isDocPreviewUrl } from './doc-preview-scheme'
 
@@ -32,6 +31,7 @@ export function normalizeWorkspaceDocHistoryEntries(
   entries: readonly WorkspaceDocHistoryEntry[]
 ): WorkspaceDocHistoryEntry[] {
   const normalized: WorkspaceDocHistoryEntry[] = []
+  const seenPathsByWorktree = new Map<string, Set<string>>()
   const candidates = [...entries].sort((a, b) => b.lastVisitedAt - a.lastVisitedAt)
   for (const entry of candidates) {
     if (
@@ -41,10 +41,15 @@ export function normalizeWorkspaceDocHistoryEntries(
     ) {
       continue
     }
-    if (
-      normalized.some((kept) => browserPageDocLocationsEqual(kept.docLocation, entry.docLocation))
-    ) {
+    const { worktreeId, filePath } = entry.docLocation
+    const seenPaths = seenPathsByWorktree.get(worktreeId)
+    if (seenPaths?.has(filePath)) {
       continue
+    }
+    if (seenPaths) {
+      seenPaths.add(filePath)
+    } else {
+      seenPathsByWorktree.set(worktreeId, new Set([filePath]))
     }
     normalized.push({
       ...entry,
