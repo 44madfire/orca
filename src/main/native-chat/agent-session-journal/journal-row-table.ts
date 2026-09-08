@@ -20,7 +20,6 @@ const SELECT_EPOCH_ROWS = `SELECT epoch, seq, ts, row_json FROM journal_rows
 WHERE session_id = ? AND epoch = ? ORDER BY seq ASC`
 const SELECT_ROWS_AFTER = `SELECT epoch, seq, ts, row_json FROM journal_rows
 WHERE session_id = ? AND epoch = ? AND seq > ? ORDER BY seq ASC`
-const DELETE_SUFFIX = 'DELETE FROM journal_rows WHERE session_id = ? AND epoch = ? AND seq >= ?'
 
 export function readJournalSessionEpoch(db: Database.Database, sessionId: string): string | null {
   const row = db.prepare(SELECT_SESSION).get(sessionId) as { epoch?: string } | undefined
@@ -63,25 +62,12 @@ export function readJournalRowsAfter(
   return toStoredRows(db.prepare(SELECT_ROWS_AFTER).all(sessionId, epoch, afterSeq))
 }
 
-/**
- * Unqualified on purpose. One database per session means every row here belongs
- * to this session, and the unqualified form takes SQLite's truncate
- * optimization: measured at 0.26% of the database in WAL bytes where the
- * `WHERE session_id = ?` form rewrote every emptied leaf at up to 99%.
- */
+/** Normal rollover may reclaim live history, never sealed recovery evidence. */
 export function deleteAllJournalRows(db: Database.Database): void {
-  db.exec('DELETE FROM journal_rows')
-}
-
-/** Drop the rejected suffix a repair found, from `fromSeq` to the tip. */
-export function deleteJournalRowSuffix(
-  db: Database.Database,
-  sessionId: string,
-  epoch: string,
-  fromSeq: number
-): number {
-  const deleted = db.prepare(DELETE_SUFFIX).run(sessionId, epoch, fromSeq)
-  return Number(deleted.changes ?? 0)
+  db.exec(`DELETE FROM journal_rows WHERE NOT EXISTS (
+    SELECT 1 FROM journal_recovery_epochs AS recovery
+    WHERE recovery.session_id = journal_rows.session_id AND recovery.epoch = journal_rows.epoch
+  )`)
 }
 
 function toStoredRows(rows: readonly unknown[]): JournalStoredRow[] {
