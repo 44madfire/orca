@@ -34,6 +34,7 @@ import {
   resolveRelaySpawnCwd,
   type RelaySpawnCwdResolution
 } from './pty-spawn-cwd'
+import { BoundedMap } from '../shared/bounded-map'
 import { PhysicalExitTracker } from '../shared/physical-exit-tracker'
 import { PTY_ATTACH_PROVEN_EXITED_MARKER } from '../shared/pty-attach-absence-evidence'
 import { toRelayPtyIdWithMintEpoch } from '../shared/relay-pty-mint-epoch'
@@ -356,7 +357,7 @@ const PTY_FORCE_KILL_RETRY_DELAY_MS = 250
 const PTY_FORCE_KILL_MAX_ATTEMPTS = 2
 
 /** Cap on remembered observed exits. Eviction answers unverifiable, never a false exit. */
-const OBSERVED_PTY_EXIT_HISTORY = 4_096
+export const OBSERVED_PTY_EXIT_HISTORY = 4_096
 const ALLOWED_SIGNALS = new Set([
   'SIGINT',
   'SIGTERM',
@@ -542,10 +543,18 @@ export class PtyHandler {
    * that answered ESRCH. Every other removal is bookkeeping — a shutdown that gave up waiting for
    * an uninterruptible child still deletes the record — so absence from `this.ptys` cannot be read
    * as an exit. This is the positive half, recorded where the observation happens, and a liveness
-   * probe certifies an exit from nothing else. Bounded: an evicted id answers unverifiable, which
-   * is the safe direction (docs/reference/ssh-execution-boundary.md).
+   * probe certifies an exit from nothing else.
+   *
+   * Only ids this relay itself held can enter it, so "this relay never had that id" is the same
+   * answer as "never watched it end": unverifiable. Deliberately in memory and per process — a
+   * relay that restarts between the observation and the question forgets, and forgetting is the
+   * fail-closed direction, where persisting it would have to survive the ambiguity of the crash
+   * that lost the records. Bounded for the same reason: an evicted id answers unverifiable
+   * (docs/reference/ssh-execution-boundary.md).
    */
-  private readonly observedPtyExitIds = new Set<string>()
+  private readonly observedPtyExitIds = new BoundedMap<string, true>({
+    maxEntries: OBSERVED_PTY_EXIT_HISTORY
+  })
   private creationFenced = false
   private pendingCreationDrainResolvers = new Set<() => void>()
   private worktreeRemovalCoordinator: RelayPtyWorktreeRemovalCoordinator | null = null
@@ -780,13 +789,7 @@ export class PtyHandler {
 
   /** Called only where the process end was observed; see {@link observedPtyExitIds}. */
   private recordObservedPtyExit(id: string): void {
-    if (this.observedPtyExitIds.size >= OBSERVED_PTY_EXIT_HISTORY) {
-      const oldest = this.observedPtyExitIds.values().next()
-      if (!oldest.done) {
-        this.observedPtyExitIds.delete(oldest.value)
-      }
-    }
-    this.observedPtyExitIds.add(id)
+    this.observedPtyExitIds.set(id, true)
   }
 
   // Why: the sole removal path, so the three exit routes can't drift on who announces an empty pool.
@@ -2640,9 +2643,8 @@ export class PtyHandler {
    * (docs/reference/ssh-execution-boundary.md).
    *
    * `exited` requires an observation — a live record whose pid probes absent, or an id in
-   * {@link observedPtyExitIds}. Everything else is `unknown`: an id this generation never minted
-   * or never saw end, a revive in flight, a record mid-teardown, and any id at all once a shutdown
-   * has been fenced, because that is when records start leaving without proof.
+   * {@link observedPtyExitIds}. Everything else is `unknown`: an id this relay never held or never
+   * saw end, a revive in flight, and a record mid-teardown.
    */
   private async probeLiveness(
     params: Record<string, unknown>
@@ -2660,8 +2662,10 @@ export class PtyHandler {
     }
     // The ledger is the only gate, deliberately. A blanket "shutdown has started" refusal would
     // also mask a wrong entry in it, since teardown only ever runs behind that fence — and it
-    // would withhold exits this relay really did observe. Keyed by the whole id, which embeds this
-    // generation, so an id another generation minted can never be in it.
+    // would withhold exits this relay really did observe. Keys are whole ids of records this relay
+    // held: ids minted with this generation's epoch, plus any id `pty.revive` re-created a process
+    // under. An id another generation minted and this one never revived is therefore absent, and
+    // absent is unverifiable.
     return { status: this.observedPtyExitIds.has(id) ? 'exited' : 'unknown' }
   }
 

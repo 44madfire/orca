@@ -182,6 +182,22 @@ describe('legacy worker recovery: certifying that a worker PTY exited', () => {
     expect([...deferredDispatchIds]).toEqual(['dispatch_1'])
   })
 
+  it('defers when the host is too old to know the readback, without a capability handshake', async () => {
+    // A relay predating `pty.probeLiveness` answers JSON-RPC -32601, which arrives as a rejection.
+    // The old client behaviour is preserved by deferring, not by asking the host what it supports.
+    const request = vi.fn(async () => {
+      throw new Error('Method not found: pty.probeLiveness')
+    })
+    const { pendingResolutions, deferredDispatchIds } = await reconcile({
+      inventory: listingWithoutThePty,
+      isPtyProvenAbsent: provenAbsentViaRelay(request)
+    })
+
+    expect(pendingResolutions).toEqual([])
+    expect([...deferredDispatchIds]).toEqual(['dispatch_1'])
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
   it('control: still adopts a PTY the listing names with the recorded identity', async () => {
     const { pendingResolutions, deferredDispatchIds, ports } = await reconcile({
       inventory: listingWithThePty,
