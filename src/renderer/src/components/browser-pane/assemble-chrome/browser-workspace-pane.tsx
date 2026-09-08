@@ -22,6 +22,7 @@ import { WorkspaceDocPagePane } from '../workspace-doc/workspace-doc-page-pane'
 import { DeferredBrowserContent } from './DeferredBrowserContent'
 import { isBrowserPagePanePaintable } from '../host-guest/browser-page-paintability'
 import { SshRoutedBrowserPageGate } from './ssh-routed-browser-page-gate'
+import { useAnyBrowserPageMountAdmission } from '../host-guest/browser-page-mount-admission'
 
 export default function BrowserPane({
   browserTab,
@@ -71,6 +72,7 @@ export default function BrowserPane({
     () => localBrowserPages.map((page) => page.id),
     [localBrowserPages]
   )
+  const hasAdmittedPage = useAnyBrowserPageMountAdmission(localBrowserPageIds)
   const pageDriver = useBrowserDriverForPage(activeBrowserPageId)
   // Why: a runtime-backed page is streamed, never locally driven, so its driver must read idle.
   const activeBrowserDriver = runtimeEnvironmentActive ? IDLE_BROWSER_DRIVER : pageDriver
@@ -166,7 +168,7 @@ export default function BrowserPane({
                   key={page.id}
                   retainMounted={isWorktreeActive}
                   mountEligible={isBrowserPagePanePaintable({
-                    isActive: isActive && page.id === activeBrowserPageId,
+                    isActive: (isActive && page.id === activeBrowserPageId) || hasAdmittedPage,
                     isAutomationVisible: automationVisiblePageIds.has(page.id),
                     isMobileDriven: mobileDrivenPageIds.has(page.id),
                     hasRemoteViewer: remotelyViewedPageIds.has(page.id)
