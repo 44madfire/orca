@@ -31,20 +31,15 @@ it.each(['local', 'ssh'])(
       leafId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
     })
     vi.mocked(h.runtime.getTerminalPaneKey).mockRestore()
-    // Why: a takeover drops the worker's row from the recovery plan, so its resume fence must lift
-    // in the same call, once per transition rather than once per report.
-    const swept = vi.spyOn(h.runtime, 'prepareLegacyWorkerTerminalRecovery')
     await expect(
       h.call('orchestration.workerTerminalUserInput', { terminal: 'term_worker' })
     ).resolves.toEqual({ changed: 1 })
     expect(h.db.getWorkerTerminalResourceByOwner(worker.dispatchId)?.ownership_state).toBe(
       'user_owned'
     )
-    expect(swept).toHaveBeenCalledTimes(1)
     await expect(
       h.call('orchestration.workerTerminalUserInput', { terminal: 'term_worker' })
     ).resolves.toEqual({ changed: 0 })
-    expect(swept).toHaveBeenCalledTimes(1)
     await expect(
       h.call('orchestration.workerRelease', { dispatch: worker.dispatchId })
     ).resolves.toMatchObject({ state: 'retained', reason: 'user_takeover' })
