@@ -45,14 +45,16 @@ describe('session tabs retirement proof delta', () => {
     expect(project(frame(2, [proof(1), proof(2)]))).toEqual(frame(2, [proof(1), proof(2)]))
   })
 
-  it('sends each proof once and omits the field when nothing is new', () => {
+  // Why `[]` rather than omitting the field: absence is the host's "I hold no proofs" signal and
+  // tells the client to forget, so a delta with nothing new must stay distinguishable from it.
+  it('sends each proof once and an empty list when nothing is new', () => {
     const project = createSessionTabsRetirementProofDelta([
       SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY
     ])
     expect(project(frame(1, [proof(1)]))).toEqual(frame(1, [proof(1)]))
-    expect(project(frame(2, [proof(1)]))).toEqual(frame(2))
+    expect(project(frame(2, [proof(1)]))).toEqual(frame(2, []))
     expect(project(frame(3, [proof(1), proof(2)]))).toEqual(frame(3, [proof(2)]))
-    expect(project(frame(4, [proof(1), proof(2)]))).toEqual(frame(4))
+    expect(project(frame(4, [proof(1), proof(2)]))).toEqual(frame(4, []))
   })
 
   it('resends a proof that left the host list and came back', () => {
@@ -143,15 +145,14 @@ describe('session.tabs.subscribe retirement proof payload', () => {
     const legacyTick = JSON.parse(legacy.tick).result
     const deltaTick = JSON.parse(delta.tick).result
     expect(legacyTick.retiredTerminalSurfaces).toHaveLength(64)
-    expect(deltaTick.retiredTerminalSurfaces).toBeUndefined()
+    expect(deltaTick.retiredTerminalSurfaces).toEqual([])
     // Both clients still receive the full list on the initial snapshot.
     expect(JSON.parse(legacy.initial).result.retiredTerminalSurfaces).toHaveLength(64)
     expect(JSON.parse(delta.initial).result.retiredTerminalSurfaces).toHaveLength(64)
 
+    // The delta tick keeps a two-byte `[]` so the client can tell "nothing new" from "no proofs".
     const proofBytes = Buffer.byteLength(JSON.stringify(proofs))
     expect(proofBytes).toBeGreaterThan(8_000)
-    expect(Buffer.byteLength(legacy.tick) - Buffer.byteLength(delta.tick)).toBeGreaterThanOrEqual(
-      proofBytes
-    )
+    expect(Buffer.byteLength(legacy.tick) - Buffer.byteLength(delta.tick)).toBe(proofBytes - 2)
   })
 })

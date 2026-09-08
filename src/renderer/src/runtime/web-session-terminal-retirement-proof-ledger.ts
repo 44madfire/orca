@@ -36,15 +36,23 @@ export function mergeRetainedTerminalRetirementProofs(
     retainedByKey.delete(key)
     return snapshot
   }
+  // Why: a host that holds no proofs omits the field; a delta host with nothing new sends `[]`.
+  // Absence therefore means "forget" — which is also what a recreated worktree's fresh host entry
+  // publishes, so a new occupant never inherits its predecessor's proofs even if the removed
+  // frame was missed.
+  if (snapshot.retiredTerminalSurfaces === undefined) {
+    retainedByKey.delete(key)
+    return snapshot
+  }
   const connectionGeneration = getRuntimeEnvironmentConnectionGeneration(environmentId)
   const cached = retainedByKey.get(key)
   const retained = cached?.connectionGeneration === connectionGeneration ? cached.proofs : undefined
-  if (!retained && !snapshot.retiredTerminalSurfaces?.length) {
+  if (!retained && snapshot.retiredTerminalSurfaces.length === 0) {
     retainedByKey.delete(key)
     return snapshot
   }
   const merged = dropRetirementProofsForLiveSurfaces(
-    appendRetiredTerminalSurfaceProofs(retained, snapshot.retiredTerminalSurfaces ?? []),
+    appendRetiredTerminalSurfaceProofs(retained, snapshot.retiredTerminalSurfaces),
     snapshot.tabs
   )
   retainedByKey.delete(key)

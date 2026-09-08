@@ -38,6 +38,31 @@ function frame(
 describe('web session terminal retirement proof ledger', () => {
   beforeEach(() => clearRetainedTerminalRetirementProofsForTests())
 
+  // Why: a recreated worktree keeps the same environment and worktree id but its fresh host entry
+  // holds no proofs and omits the field. Absence must forget, so the successor occupant never
+  // inherits its predecessor's proofs even when the removed frame was missed. A delta host with
+  // nothing new sends `[]`, which keeps what was retained.
+  it('forgets on an absent field but keeps proofs on an empty delta', () => {
+    mergeRetainedTerminalRetirementProofs(
+      ENVIRONMENT_ID,
+      frame(1, { retiredTerminalSurfaces: [retired] })
+    )
+    expect(
+      mergeRetainedTerminalRetirementProofs(
+        ENVIRONMENT_ID,
+        frame(2, { retiredTerminalSurfaces: [] })
+      ).retiredTerminalSurfaces
+    ).toEqual([retired])
+    const successor = frame(3)
+    expect(mergeRetainedTerminalRetirementProofs(ENVIRONMENT_ID, successor)).toBe(successor)
+    expect(
+      mergeRetainedTerminalRetirementProofs(
+        ENVIRONMENT_ID,
+        frame(4, { retiredTerminalSurfaces: [] })
+      ).retiredTerminalSurfaces
+    ).toEqual([])
+  })
+
   it('carries a proof sent once into later delta frames for the same worktree', () => {
     expect(
       mergeRetainedTerminalRetirementProofs(
@@ -46,11 +71,17 @@ describe('web session terminal retirement proof ledger', () => {
       ).retiredTerminalSurfaces
     ).toEqual([retired])
     expect(
-      mergeRetainedTerminalRetirementProofs(ENVIRONMENT_ID, frame(2)).retiredTerminalSurfaces
+      mergeRetainedTerminalRetirementProofs(
+        ENVIRONMENT_ID,
+        frame(2, { retiredTerminalSurfaces: [] })
+      ).retiredTerminalSurfaces
     ).toEqual([retired])
     expect(
-      mergeRetainedTerminalRetirementProofs('other-environment', frame(3)).retiredTerminalSurfaces
-    ).toBeUndefined()
+      mergeRetainedTerminalRetirementProofs(
+        'other-environment',
+        frame(3, { retiredTerminalSurfaces: [] })
+      ).retiredTerminalSurfaces
+    ).toEqual([])
   })
 
   it('forgets a proof once the host publishes its surface live again', () => {
@@ -146,11 +177,9 @@ describe('orphan recovery over delta frames', () => {
 
     const second = await recoverWebSessionTerminalOrphansBeforeApply(
       state,
-      frame(2),
+      frame(2, { retiredTerminalSurfaces: [] }),
       ENVIRONMENT_ID,
-      {
-        call: call as never
-      }
+      { call: call as never }
     )
     expect(second?.tabs).toEqual([])
     expect(second?.retiredTerminalSurfaces).toEqual([retired])
