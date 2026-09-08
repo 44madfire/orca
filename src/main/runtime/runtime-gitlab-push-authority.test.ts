@@ -27,6 +27,7 @@ it.each([
     mapMRToWorkItem(
       {
         title: 'Review',
+        state: 'opened',
         source_branch: 'feature',
         target_branch: 'main',
         source_project_id: 7,
