@@ -1,6 +1,6 @@
 # Provider resource diagnostic author report
 
-Status: implementation complete; final compiler slot and committed-source ablations pending. Fresh independent review required before endorsement.
+Status: complete and ready for a new draft PR. Fresh independent review required before endorsement.
 
 ## Requested outcome and failure mechanism
 
@@ -28,7 +28,7 @@ Existing connection authorization is unchanged. SSH uses the selected remote pro
 
 ## Validation and remaining gaps
 
-The final focused run passed 111 tests in ten files with zero failures. Coverage includes actual native authenticated daemon JSON routing with mocked node-pty, relay normalized HTTP ingress, real wake/legacy AI Vault consumer functions, old bridge behavior, object alias/copy/replacement, generation/session fencing, bounded retention and source-host refusal. All three second-pass typechecks passed sequentially; a final pass is queued after small review edits.
+The final focused run passed 111 tests in ten files with zero failures. Coverage includes actual native authenticated daemon JSON routing with mocked node-pty, relay normalized HTTP ingress, real wake/legacy AI Vault consumer functions, old bridge behavior, object alias/copy/replacement, generation/session fencing, bounded retention and source-host refusal. All three final typechecks passed sequentially with actual zero exit codes. Shared schema and final node/renderer changes justified rechecking node/web/CLI. Final changed-source lint and diff checks pass.
 
 Actual macOS source relay smoke passed 11 assertions each on Node 18.20.8 and Node 24.18.0 with real node-pty, synthetic provider, shipping HTTP normalization and JSON multiplexer. Checks include actual final root, PTY incarnation/start correspondence, provider-closed transcript, hardlink identity, host PTY exit with resource verdict still unverifiable, replacement and recorded fixture PID absence. No provider authentication or real profile was used. The transport is same-bundle and in-memory, not network SSH or a packaged relay update.
 
@@ -36,4 +36,10 @@ No Electron was launched; no rendered or focus-dependent UI was exercised. Nativ
 
 ## Historical failures
 
-The JSON companion enumerates the earlier 16 consumer failures, two fixture failures, three initial node typing errors, one retention-cap timing assertion, and the synthetic dispatcher settlement failure on Node18/24, with their fixes. None are omitted from the validation record. Final ablation evidence and compiler results will be added after the source commit.
+The JSON companion enumerates the earlier 16 consumer failures, two fixture failures, three initial node typing errors, one retention-cap timing assertion, and the synthetic dispatcher settlement failure on Node18/24, with their fixes. None are omitted from the validation record. A post-commit max-lines failure (302 effective router lines) was fixed by reusing the existing unavailable-result constructor, with no disable or limit change.
+
+## Committed-source ablations
+
+Source was committed as `561209685f` before temporary changes. Removing the production wake diagnostic request produced one failing consumer test (two passed); removing relay normalized-hook forwarding produced one failing ingress test. Each source file was backed up/restored with `cp`, compared with `cmp`, and checked against the commit; `rg` verified nonzero failure counts. The restored suite and final suite both passed 111 tests in ten files. Final sequential node/web/CLI typechecks each exited zero, and the compiler slot was explicitly released.
+
+Detailed local synthetic artifacts remain beside this report; fixture homes and downloaded runtimes are intentionally not committed. The draft remains pending a fresh independent architecture and correctness review, including deployment continuity and unsupported-host gaps above.

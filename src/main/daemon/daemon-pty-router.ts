@@ -36,12 +36,10 @@ export class DaemonPtyRouter implements IPtyProvider {
       return null
     }
     if (matches.length > 1) {
-      return {
-        version: 1,
-        requestId: operation.query.requestId,
-        verdict: 'unverifiable',
-        reason: 'conflicting-candidates'
-      }
+      return unavailableProviderResourceDiagnostic(
+        operation.query.requestId,
+        'conflicting-candidates'
+      )
     }
     return (
       matches[0] ??
