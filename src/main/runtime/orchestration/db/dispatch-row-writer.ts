@@ -18,7 +18,7 @@ export const DISPATCH_CONTEXT_CLAIM_SQL = `INSERT INTO dispatch_contexts (
   creator_dispatch_id, creator_handle, creator_pane_key,
   status, failure_count, depth, dispatched_at
 )
-SELECT ?, run_id, id, ?, ?, ?, ?, ?, ?, ?, ?, 'dispatched', ?, ?, datetime('now')
+SELECT ?, run_id, id, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'dispatched', ?, ?, datetime('now')
 FROM tasks
 WHERE id = ? AND status = 'ready'
   AND NOT EXISTS (
@@ -99,7 +99,6 @@ export function claimDispatchContextRow(
       params.depth,
       params.taskId,
       params.assigneeHandle,
-      params.assigneeAgentSessionId ?? null,
       params.assigneePaneKey,
       params.assigneePaneKey,
       params.paneSuffix,
