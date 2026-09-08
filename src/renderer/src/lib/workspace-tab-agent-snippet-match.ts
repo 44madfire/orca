@@ -43,6 +43,9 @@ function coverAllTokens(
   tokens: readonly PaletteQueryToken[],
   agentMetadata: readonly AgentMetadata[]
 ): MatchRange[] | null {
+  // Why the cheap path first: this tier scans long agent text for every row the structured
+  // matcher rejected, and U+0130 is the only code point `toLowerCase` lengthens — so folding
+  // (and the cache behind it) stays unreachable for ASCII and every other script.
   const lowered = text.toLowerCase()
   const folded = lowered.length === text.length ? null : getFoldedSnippet(text, agentMetadata)
   const haystack = folded ? folded.normalized : lowered

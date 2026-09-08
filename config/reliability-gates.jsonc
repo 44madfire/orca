@@ -45,7 +45,9 @@
             "normalizes later candidates only when earlier candidates fail",
             "keeps case expansion offsets and merged highlights stable across query edits",
             "uses rebuilt metadata independently of the previous snapshot with the same pane id",
-            "does not retain metadata after its palette entries are released"
+            "does not retain metadata after its palette entries are released",
+            "does not retain metadata pinned by a match the caller still holds",
+            "skips folding for scripts whose lowercase preserves code-unit offsets"
           ]
         }
       ],
@@ -56,8 +58,8 @@
           "platform": "macos",
           "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/renderer/src/lib/workspace-tab-agent-snippet-match.test.ts src/renderer/src/lib/workspace-tab-agent-metadata.test.ts src/renderer/src/lib/workspace-tab-palette-search.test.ts src/renderer/src/lib/workspace-tab-palette-results.test.ts",
           "result": "passed",
-          "durationSeconds": 0.462,
-          "summary": "55 tests across four matcher/metadata/search/result files passed. Independent repeat passed the same 55 tests in 720 ms."
+          "durationSeconds": 2.82,
+          "summary": "57 tests across four matcher/metadata/search/result files passed, including a retained-match GC oracle and a non-expanding-script no-fold oracle. Independent repeat passed the same 57 tests in 720 ms."
         }
       ],
       "runtimeBudget": {
@@ -77,7 +79,7 @@
         "evidence": "Full production search with capped 200-character prompts and 20 history rows: 400 all-Unicode tabs unmatched 189.17 to 6.95 ms warm, 188.38 to 56.64 ms with fresh metadata; 2,000 tabs/10% Unicode 106.75 to 18.04 ms warm, 118.00 to 42.75 ms fresh. Fresh first-prompt match at 400 Unicode tabs 5.43 to 5.53 ms. ASCII full unmatched search 5.567 to 5.505 ms; no ASCII gain claimed and no cache accesses. 400 all-Unicode tabs retain 4,245,152 heap plus 7,075,200 offset-buffer bytes; 2,000 tabs/10% Unicode retain 2,207,456 plus 3,537,600 bytes. All offset buffers release with metadata. Cache is bounded by distinct Unicode text in live immutable metadata, not by query count; no fixed byte cap. Eager preparation was rejected due to cold-query regressions."
       },
       "knownGaps": [
-        "No rendered Electron input/frame-latency measurement or live SSH/WSL/Linux/Windows journey. Unicode fixture intentionally includes Turkish uppercase dotted I; prevalence is not production telemetry.",
+        "No rendered Electron input/frame-latency measurement or live SSH/WSL/Linux/Windows journey. Scope is narrow by construction: U+0130 is the only code point whose toLowerCase lengthens, so folding, the cache and its memory are unreachable for ASCII, CJK, Cyrillic, Greek, accented Latin and emoji. The fixture is therefore Turkish/Azerbaijani-specific and its speedup does not generalize; prevalence is not production telemetry.",
         "Caching trades temporary open-palette memory for CPU; future in-place growth of metadata strings would retain old folds until that array is discarded, although current producers publish fresh snapshots."
       ],
       "promotionCriteria": [

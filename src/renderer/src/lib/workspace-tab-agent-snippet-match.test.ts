@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as normalizedText from './palette-match/normalized-text'
 import { preparePaletteTabQuery } from './palette-match/tab-match'
 import type { AgentMetadata } from './workspace-tab-agent-metadata'
-import { matchWorkspaceTabAgentSnippet } from './workspace-tab-agent-snippet-match'
+import {
+  matchWorkspaceTabAgentSnippet,
+  type WorkspaceTabAgentSnippetMatch
+} from './workspace-tab-agent-snippet-match'
 
 function metadata(snippetCandidates: string[], textParts: string[] = []): AgentMetadata {
   return { paneKey: 'terminal:leaf', snippetCandidates, textParts, lastActivityAt: 1 }
@@ -14,6 +17,22 @@ function query(text: string) {
     throw new Error(`Invalid test query: ${text}`)
   }
   return prepared
+}
+
+/** Drains microtasks between forced collections so a released array cannot linger on a stack slot. */
+async function collect(reference: WeakRef<AgentMetadata[]>): Promise<AgentMetadata[] | undefined> {
+  const gc = global.gc
+  if (!gc) {
+    throw new Error('This test requires --expose-gc')
+  }
+  for (let i = 0; i < 10; i++) {
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    gc()
+    if (!reference.deref()) {
+      break
+    }
+  }
+  return reference.deref()
 }
 
 afterEach(() => vi.restoreAllMocks())
@@ -100,24 +119,41 @@ describe('workspace terminal agent snippet search', () => {
     expect(matchWorkspaceTabAgentSnippet(previous, query('nebula'))).toBeNull()
   })
 
+  it('skips folding for scripts whose lowercase preserves code-unit offsets', () => {
+    const entries = [
+      metadata([
+        'ЗАПУСТИТЬ ТЕРМИНАЛ СЕЙЧАС',
+        '终端任务调查报告',
+        'ÉCRIRE UN TEST ÀÉÎÔÜ',
+        'ΕΛΛΗΝΙΚΆ ΚΕΊΜΕΝΟ',
+        '🚀 emoji terminal 🎉',
+        'ＦＵＬＬＷＩＤＴＨ ＴＥＸＴ'
+      ])
+    ]
+    const prepared = query('missing')
+    const normalize = vi.spyOn(normalizedText, 'normalizePaletteText')
+    expect(matchWorkspaceTabAgentSnippet(entries, prepared)).toBeNull()
+    expect(normalize).not.toHaveBeenCalled()
+  })
+
   it('does not retain metadata after its palette entries are released', async () => {
-    const gc = global.gc
-    if (!gc) {
-      throw new Error('This test requires --expose-gc')
-    }
     function searchTransientEntries(): WeakRef<AgentMetadata[]> {
       const entries = [metadata(['Transient Terminal İnvestigation'])]
       matchWorkspaceTabAgentSnippet(entries, query('missing'))
       return new WeakRef(entries)
     }
-    const reference = searchTransientEntries()
-    for (let i = 0; i < 10; i++) {
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      gc()
-      if (!reference.deref()) {
-        break
-      }
+    expect(await collect(searchTransientEntries())).toBeUndefined()
+  })
+
+  it('does not retain metadata pinned by a match the caller still holds', async () => {
+    let retained: WorkspaceTabAgentSnippetMatch | null = null
+    function searchTransientEntries(): WeakRef<AgentMetadata[]> {
+      const entries = [metadata(['Retained İnvestigation atlas'])]
+      retained = matchWorkspaceTabAgentSnippet(entries, query('atlas'))
+      return new WeakRef(entries)
     }
-    expect(reference.deref()).toBeUndefined()
+    const reference = searchTransientEntries()
+    expect(await collect(reference)).toBeUndefined()
+    expect(retained).not.toBeNull()
   })
 })
