@@ -46,9 +46,7 @@ export function MobileAgentSessionHistoryList({
         .then((turns) => {
           setPreviews((current) => new Map(current).set(id, turns))
         })
-        .catch(() => {
-          setPreviews((current) => new Map(current).set(id, []))
-        })
+        .catch(() => {})
     },
     [expandedId, loadPreview, previews]
   )

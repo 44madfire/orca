@@ -78,11 +78,7 @@ export default function HostMobileWebAgentHistoryRoute() {
         })
       } catch {
         if (loadGenerationRef.current === generation) {
-          setState((current) =>
-            current.kind === 'ready'
-              ? current
-              : { kind: 'error', message: 'Unable to load agent sessions' }
-          )
+          setState({ kind: 'error', message: 'Unable to load agent sessions' })
         }
       }
     },
