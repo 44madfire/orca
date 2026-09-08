@@ -1,4 +1,8 @@
-import { parseExecutionHostId, type ExecutionHostId } from './execution-host'
+import {
+  parseExecutionHostId,
+  type ExecutionHostId,
+  type ParsedExecutionHost
+} from './execution-host'
 
 /**
  * What a bounded listing did and did not cover, by execution host. An absent scope means the
@@ -38,4 +42,36 @@ export function hostScopeCensusIsComplete(scope: RuntimeListingHostScope | undef
     return false
   }
   return scope.omittedHostIds.every((hostId) => parseExecutionHostId(hostId)?.kind === 'runtime')
+}
+
+function hostIdentity(parsed: ParsedExecutionHost): string {
+  return parsed.kind === 'ssh'
+    ? parsed.targetId
+    : parsed.kind === 'runtime'
+      ? parsed.environmentId
+      : parsed.id
+}
+
+/**
+ * Whether a worktree-scoped listing actually covered the workspace's own execution host.
+ *
+ * A scoped listing names every host but the target's as omitted by design, so
+ * `hostScopeCensusIsComplete` — the unscoped gate — is the wrong question here. The right one
+ * is narrower: did the host that owns these PTYs answer? Absence of a scope is never coverage;
+ * a host too old to publish one cannot claim it.
+ */
+export function hostScopeCoveredExecutionHost(
+  scope: RuntimeListingHostScope | undefined,
+  hostId: ExecutionHostId
+): boolean {
+  const expected = parseExecutionHostId(hostId)
+  if (scope === undefined || !expected) {
+    return false
+  }
+  // Compare the decoded identity, not the raw id: two spellings of one percent-encoded target
+  // name the same host, and reading them as different hosts would report a false gap.
+  return scope.hostIds.some((covered) => {
+    const parsed = parseExecutionHostId(covered)
+    return parsed?.kind === expected.kind && hostIdentity(parsed) === hostIdentity(expected)
+  })
 }

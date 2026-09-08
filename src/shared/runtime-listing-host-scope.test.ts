@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { hostScopeCensusIsComplete } from './runtime-listing-host-scope'
+import {
+  hostScopeCensusIsComplete,
+  hostScopeCoveredExecutionHost
+} from './runtime-listing-host-scope'
 
 /**
  * The gate and the disclosure list answer different questions off the same field. These pin the
@@ -76,6 +79,45 @@ describe('hostScopeCensusIsComplete', () => {
         hostIds: ['local'],
         omittedHostIds: ['runtime:' as never]
       })
+    ).toBe(false)
+  })
+})
+
+// A worktree-scoped listing names every host but the target's as omitted by design, so the
+// unscoped census gate is the wrong question for it. This one asks only whether the host that
+// owns the workspace's PTYs actually answered.
+describe('hostScopeCoveredExecutionHost', () => {
+  it('accepts the scoped listing that covered the workspace SSH host', () => {
+    expect(
+      hostScopeCoveredExecutionHost(
+        { hostIds: ['ssh:box-1'], omittedHostIds: ['local'] },
+        'ssh:box-1'
+      )
+    ).toBe(true)
+  })
+
+  it('refuses a listing that answered only for other hosts', () => {
+    expect(
+      hostScopeCoveredExecutionHost(
+        { hostIds: ['local'], omittedHostIds: ['ssh:box-1'] },
+        'ssh:box-1'
+      )
+    ).toBe(false)
+  })
+
+  it('refuses a host too old to publish a scope, because absence is never coverage', () => {
+    expect(hostScopeCoveredExecutionHost(undefined, 'ssh:box-1')).toBe(false)
+  })
+
+  it('matches two spellings of one percent-encoded target rather than reporting a false gap', () => {
+    expect(
+      hostScopeCoveredExecutionHost({ hostIds: ['ssh:box%2D1'], omittedHostIds: [] }, 'ssh:box-1')
+    ).toBe(true)
+  })
+
+  it('does not let an ssh host stand in for a runtime host of the same name', () => {
+    expect(
+      hostScopeCoveredExecutionHost({ hostIds: ['ssh:env-1'], omittedHostIds: [] }, 'runtime:env-1')
     ).toBe(false)
   })
 })

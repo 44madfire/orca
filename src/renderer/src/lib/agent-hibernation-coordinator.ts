@@ -23,12 +23,11 @@ import {
 } from './agent-hibernation-pane-age'
 import { mergePendingTerminalInputActivity } from './terminal-input-activity-coalescing'
 import { getRuntimeEnvironmentIdForWorktree } from './worktree-runtime-owner'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
-import type {
-  RuntimeTerminalListResult,
-  RuntimeTerminalSummary
-} from '../../../shared/runtime-types'
+import {
+  collectHostPtyLiveness,
+  getHostLivenessTarget,
+  type HostLivenessSample
+} from './agent-hibernation-host-liveness'
 import { getWindowParkVisible, subscribeWindowParkVisibility } from './window-park-visibility'
 
 export const AGENT_HIBERNATION_TICK_MS = 60 * 1000
@@ -58,15 +57,10 @@ const coordinator: AgentHibernationCoordinatorState = {
   now: () => Date.now()
 }
 
-type RuntimePtyLivenessSample = {
-  runtimeLivePtyIdsByWorktreeId: Record<string, string[]>
-  runtimeLivenessRequiredWorktreeIds: string[]
-}
-
 function snapshotFromState(
   state: AppState,
   now: number,
-  runtimeLiveness: RuntimePtyLivenessSample,
+  hostLiveness: HostLivenessSample,
   targetWorktreeId?: string
 ): AgentHibernationPlannerSnapshot {
   return {
@@ -78,8 +72,9 @@ function snapshotFromState(
       : state.tabsByWorktree,
     terminalLayoutsByTabId: state.terminalLayoutsByTabId,
     ptyIdsByTabId: state.ptyIdsByTabId,
-    runtimeLivePtyIdsByWorktreeId: runtimeLiveness.runtimeLivePtyIdsByWorktreeId,
-    runtimeLivenessRequiredWorktreeIds: runtimeLiveness.runtimeLivenessRequiredWorktreeIds,
+    runtimeLivePtyIdsByWorktreeId: hostLiveness.runtimeLivePtyIdsByWorktreeId,
+    runtimeLivenessRequiredWorktreeIds: hostLiveness.runtimeLivenessRequiredWorktreeIds,
+    hostConfirmedLivenessWorktreeIds: hostLiveness.hostConfirmedLivenessWorktreeIds,
     mobileLockedPtyIds: [...getAllDrivers()]
       .filter(([, driver]) => driver.kind === 'mobile')
       .map(([ptyId]) => ptyId),
@@ -96,81 +91,8 @@ function snapshotFromState(
   }
 }
 
-function getRuntimeLivenessTargetWorktrees(
-  state: AppState,
-  targetWorktreeId?: string
-): Map<string, string> {
-  const targets = new Map<string, string>()
-  const worktreeIds = targetWorktreeId
-    ? Object.hasOwn(state.tabsByWorktree, targetWorktreeId)
-      ? [targetWorktreeId]
-      : []
-    : Object.keys(state.tabsByWorktree)
-  for (const worktreeId of worktreeIds) {
-    const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
-    if (runtimeEnvironmentId) {
-      targets.set(worktreeId, runtimeEnvironmentId)
-    }
-  }
-  return targets
-}
-
-function getTypedRuntimePtyId(terminal: RuntimeTerminalSummary): string | null {
-  if (terminal.ptyId) {
-    return terminal.ptyId
-  }
-  if (terminal.tabId.startsWith('pty:') && terminal.tabId === terminal.leafId) {
-    return terminal.tabId.slice('pty:'.length) || null
-  }
-  return null
-}
-
-async function collectRuntimePtyLiveness(
-  state: AppState,
-  targetWorktreeId?: string
-): Promise<RuntimePtyLivenessSample> {
-  const targets = getRuntimeLivenessTargetWorktrees(state, targetWorktreeId)
-  const runtimeLivePtyIdsByWorktreeId: Record<string, string[]> = {}
-  const runtimeLivenessRequiredWorktreeIds = [...targets.keys()]
-  await Promise.all(
-    [...targets].map(async ([worktreeId, runtimeEnvironmentId]) => {
-      try {
-        const result = await callRuntimeRpc<RuntimeTerminalListResult>(
-          { kind: 'environment', environmentId: runtimeEnvironmentId },
-          'terminal.list',
-          {
-            worktree: toRuntimeWorktreeSelector(worktreeId),
-            limit: 10_000,
-            requireFreshPtyLiveness: true,
-            includeVisualLayouts: false
-          },
-          { timeoutMs: 10_000 }
-        )
-        if (result.truncated) {
-          return
-        }
-        const ptyIds = new Set<string>()
-        for (const terminal of result.terminals) {
-          if (!terminal.connected || terminal.worktreeId !== worktreeId) {
-            continue
-          }
-          const ptyId = getTypedRuntimePtyId(terminal)
-          if (ptyId) {
-            ptyIds.add(ptyId)
-          }
-        }
-        runtimeLivePtyIdsByWorktreeId[worktreeId] = [...ptyIds].sort()
-      } catch {
-        // Why: stale runtime liveness is unsafe for all-or-nothing hibernation;
-        // omitting the worktree makes the planner fail closed for this pass.
-      }
-    })
-  )
-  return { runtimeLivePtyIdsByWorktreeId, runtimeLivenessRequiredWorktreeIds }
-}
-
 async function currentCandidates(now: number, targetWorktreeId?: string) {
-  const runtimeLiveness = await collectRuntimePtyLiveness(useAppStore.getState(), targetWorktreeId)
+  const hostLiveness = await collectHostPtyLiveness(useAppStore.getState(), targetWorktreeId)
   const freshState = useAppStore.getState()
   // Why: age the PTY bindings from the same state the plan is built from, so a pane
   // observed for the first time this pass cannot also be judged long-idle in it.
@@ -181,14 +103,11 @@ async function currentCandidates(now: number, targetWorktreeId?: string) {
     idleMs: getEffectiveAgentHibernationIdleMs(freshState.settings?.agentHibernationIdleMs)
   })
   return planAgentHibernationCandidates(
-    snapshotFromState(freshState, now, runtimeLiveness, targetWorktreeId)
+    snapshotFromState(freshState, now, hostLiveness, targetWorktreeId)
   )
     .filter((candidate) => {
-      const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(
-        freshState,
-        candidate.worktreeId
-      )
-      return !runtimeEnvironmentId || candidate.expectedRuntimePtyIds.length === 1
+      const hostTarget = getHostLivenessTarget(freshState, candidate.worktreeId)
+      return !hostTarget || candidate.expectedRuntimePtyIds.length === 1
     })
     .map((candidate) => ({
       ...candidate,

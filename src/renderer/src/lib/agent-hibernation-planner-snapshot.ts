@@ -12,6 +12,12 @@ export type AgentHibernationPlannerSnapshot = {
   ptyIdsByTabId: Record<string, string[] | undefined>
   runtimeLivePtyIdsByWorktreeId?: Record<string, string[] | undefined>
   runtimeLivenessRequiredWorktreeIds?: string[]
+  /**
+   * Subset of the above whose host evidence CONFIRMS the client's own PTY bindings instead of
+   * replacing them. An SSH box is driven by this client, so the client owns the pane-to-PTY
+   * binding and the host only says which of those are still alive.
+   */
+  hostConfirmedLivenessWorktreeIds?: string[]
   mobileLockedPtyIds: string[]
   agentStatusByPaneKey: Record<string, AgentStatusEntry | undefined>
   sleepingAgentSessionsByPaneKey: Record<string, SleepingAgentSessionRecord | undefined>

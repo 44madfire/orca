@@ -35,26 +35,41 @@ export function getEffectiveAgentHibernationIdleMs(value: unknown): number {
     : DEFAULT_AGENT_HIBERNATION_IDLE_MS
 }
 
+/**
+ * How a worktree's live-PTY set is established.
+ * - `client`: no host owns this workspace's execution, so the renderer's own bindings stand.
+ * - `host-authoritative`: a paired runtime peer owns the whole inventory; its listing replaces
+ *   the client's view (the renderer's map is empty for remote panes).
+ * - `host-confirming`: this client owns the pane-to-PTY binding and the execution host only
+ *   confirms life, so the two must agree. Strictly narrower than `client`.
+ */
+export type LivePtyEvidenceMode = 'client' | 'host-authoritative' | 'host-confirming'
+
+function toNormalizedPtyIds(ids: readonly (string | undefined)[] | undefined): Set<string> {
+  const normalized = new Set<string>()
+  for (const id of ids ?? []) {
+    if (typeof id === 'string' && id.length > 0) {
+      normalized.add(toRuntimePtyId(id))
+    }
+  }
+  return normalized
+}
+
 function getLivePtyIdsForTab(
   tab: TerminalTab,
   ptyIdsByTabId: Record<string, string[] | undefined>,
   runtimeLivePtyIdsByWorktreeId: Record<string, string[] | undefined> | undefined,
-  runtimeLivenessRequired: boolean
+  mode: LivePtyEvidenceMode
 ): string[] {
-  const ids = new Set<string>()
-  for (const id of runtimeLivePtyIdsByWorktreeId?.[tab.worktreeId] ?? []) {
-    if (typeof id === 'string' && id.length > 0) {
-      ids.add(toRuntimePtyId(id))
-    }
+  const hostIds = toNormalizedPtyIds(runtimeLivePtyIdsByWorktreeId?.[tab.worktreeId])
+  if (mode === 'host-authoritative') {
+    return [...hostIds]
   }
-  if (!runtimeLivenessRequired) {
-    for (const id of ptyIdsByTabId[tab.id] ?? []) {
-      if (typeof id === 'string' && id.length > 0) {
-        ids.add(toRuntimePtyId(id))
-      }
-    }
+  const clientIds = toNormalizedPtyIds(ptyIdsByTabId[tab.id])
+  if (mode === 'host-confirming') {
+    return [...hostIds].filter((id) => clientIds.has(id))
   }
-  return [...ids]
+  return [...new Set([...hostIds, ...clientIds])]
 }
 
 function signatureFor(worktreeId: string, panes: EligiblePane[]): string {
@@ -109,6 +124,7 @@ export function planAgentHibernationCandidates(
   const runtimeLivenessRequiredWorktreeIds = new Set(
     snapshot.runtimeLivenessRequiredWorktreeIds ?? []
   )
+  const hostConfirmedLivenessWorktreeIds = new Set(snapshot.hostConfirmedLivenessWorktreeIds ?? [])
   const agentEntriesByTabId = getAgentEntriesByTabId(snapshot.agentStatusByPaneKey)
   const candidates: AgentHibernationCandidate[] = []
   for (const [worktreeId, tabs] of Object.entries(snapshot.tabsByWorktree)) {
@@ -119,12 +135,18 @@ export function planAgentHibernationCandidates(
     if (!worktreeId || tabs.length === 0) {
       continue
     }
+    const hostEvidenceRequired = runtimeLivenessRequiredWorktreeIds.has(worktreeId)
     if (
-      runtimeLivenessRequiredWorktreeIds.has(worktreeId) &&
+      hostEvidenceRequired &&
       !Object.hasOwn(snapshot.runtimeLivePtyIdsByWorktreeId ?? {}, worktreeId)
     ) {
       continue
     }
+    const evidenceMode: LivePtyEvidenceMode = !hostEvidenceRequired
+      ? 'client'
+      : hostConfirmedLivenessWorktreeIds.has(worktreeId)
+        ? 'host-confirming'
+        : 'host-authoritative'
     for (const tab of tabs) {
       if (foregroundTerminalTabIds.has(tab.id)) {
         continue
@@ -133,7 +155,7 @@ export function planAgentHibernationCandidates(
         tab,
         snapshot.ptyIdsByTabId,
         snapshot.runtimeLivePtyIdsByWorktreeId,
-        runtimeLivenessRequiredWorktreeIds.has(worktreeId)
+        evidenceMode
       )
       if (tabLivePtyIds.length === 0) {
         continue
