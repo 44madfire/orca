@@ -196,8 +196,8 @@ export class ClaudeBackgroundTaskTracker {
         continue
       }
       // An authoritative live roster supersedes an earlier terminal edge.
-      this.retention.forget(id)
-      const existing = prior.get(id)
+      const retained = this.retention.resume(id)
+      const existing = prior.get(id) ?? retained
       const kind = classifyClaudeBackgroundTaskKind(task.task_type)
       this.tasks.set(id, {
         backgrounded: true,
@@ -217,20 +217,7 @@ export class ClaudeBackgroundTaskTracker {
   }
 
   private upsert(id: string, task: TrackedClaudeBackgroundTask): void {
-    const existing = this.tasks.get(id)
-    if (existing) {
-      this.tasks.set(id, {
-        backgrounded: existing.backgrounded || task.backgrounded,
-        kind: task.kind !== 'unknown' ? task.kind : existing.kind,
-        description: task.description ?? existing.description,
-        name: task.name ?? existing.name,
-        state: task.state ?? existing.state,
-        startedAt: existing.startedAt,
-        totalTokens: existing.totalTokens
-      })
-      return
-    }
-    if (this.tasks.size >= MAX_TRACKED_TASKS) {
+    if (!this.tasks.has(id) && this.tasks.size >= MAX_TRACKED_TASKS) {
       let foregroundId: string | undefined
       for (const [candidateId, candidate] of this.tasks) {
         if (!candidate.backgrounded) {
@@ -242,6 +229,20 @@ export class ClaudeBackgroundTaskTracker {
         return
       }
       this.tasks.delete(foregroundId)
+    }
+    const existing = this.tasks.get(id) ?? this.retention.resume(id)
+    this.terminalTaskIds.delete(id)
+    if (existing) {
+      this.tasks.set(id, {
+        backgrounded: existing.backgrounded || task.backgrounded,
+        kind: task.kind !== 'unknown' ? task.kind : existing.kind,
+        description: task.description ?? existing.description,
+        name: task.name ?? existing.name,
+        state: task.state ?? existing.state,
+        startedAt: existing.startedAt,
+        totalTokens: existing.totalTokens
+      })
+      return
     }
     this.tasks.set(id, task)
   }

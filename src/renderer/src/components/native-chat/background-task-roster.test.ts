@@ -200,3 +200,24 @@ describe('resolveBackgroundTaskName', () => {
     ).toBe('Background command')
   })
 })
+
+describe('resumed tasks from mixed-version hosts', () => {
+  it('renders one live owner per id and counts only the two dispatched agents', () => {
+    const live = agent('resumed', { totalTokens: 20000 })
+    const settled = agent('resumed', { state: 'done', totalTokens: 19003 })
+    const shells = Array.from({ length: 4 }, (_, index) =>
+      agent(`shell-${index}`, { kind: 'command' })
+    )
+    const groups = buildBackgroundTaskGroups(
+      [live, ...shells],
+      [settled, agent('sibling', { state: 'done' })]
+    )
+    expect(
+      groups.flatMap((group) => group.tasks).filter((entry) => entry.task.id === live.id)
+    ).toEqual([{ task: live, settled: false, state: 'working', name: 'Background agent' }])
+    expect(backgroundTasksHeaderContent(groups, { narrow: false, now: NOW }).segments).toEqual([
+      '2 agents',
+      '4 shells'
+    ])
+  })
+})

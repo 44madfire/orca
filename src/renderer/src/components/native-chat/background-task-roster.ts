@@ -76,20 +76,22 @@ export function buildBackgroundTaskGroups(
   tasks: readonly AgentSessionBackgroundTask[],
   settledTasks: readonly AgentSessionBackgroundTask[]
 ): BackgroundTaskGroup[] {
-  const entries: BackgroundRosterTask[] = [
-    ...tasks.map((task) => ({
-      task,
-      settled: false,
-      state: effectiveState(task, false),
-      name: resolveBackgroundTaskName(task)
-    })),
-    ...settledTasks.map((task) => ({
-      task,
-      settled: true,
-      state: effectiveState(task, true),
-      name: resolveBackgroundTaskName(task)
-    }))
-  ]
+  // Older hosts can retain a previous turn beside its resumed live task.
+  const owners = new Map<string, BackgroundRosterTask>()
+  for (const [roster, settled] of [
+    [settledTasks, true],
+    [tasks, false]
+  ] as const) {
+    for (const task of roster) {
+      owners.set(task.id, {
+        task,
+        settled,
+        state: effectiveState(task, settled),
+        name: resolveBackgroundTaskName(task)
+      })
+    }
+  }
+  const entries = [...owners.values()]
   entries.sort((left, right) => {
     const startDelta = (left.task.startedAt ?? 0) - (right.task.startedAt ?? 0)
     return startDelta !== 0 ? startDelta : left.task.id < right.task.id ? -1 : 1

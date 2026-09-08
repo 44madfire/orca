@@ -93,9 +93,17 @@ export class ClaudeSettledBackgroundTasks {
     this.recentlyRemoved.delete(id)
   }
 
-  forget(id: string): void {
+  /** Positive live evidence transfers identity back to the tracker, never the old outcome. */
+  resume(id: string): TrackedClaudeBackgroundTask | undefined {
+    const settled = this.settled.get(id)
+    const removed = this.recentlyRemoved.get(id)
     this.settled.delete(id)
     this.recentlyRemoved.delete(id)
+    const source = settled ?? removed
+    if (!source || source.startedAt === undefined) {
+      return undefined
+    }
+    return { ...source, backgrounded: true, state: undefined, startedAt: source.startedAt }
   }
 
   get hasSettled(): boolean {
