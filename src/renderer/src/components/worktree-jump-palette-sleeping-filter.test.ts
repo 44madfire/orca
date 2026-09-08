@@ -41,7 +41,7 @@ describe('Cmd+J empty-query "Hide sleeping" pass (#8873)', () => {
     const filterPass = worktreeSource.slice(start, end)
 
     expect(filterPass).toContain(
-      '!isSleepingSweepExemptWorkspace(worktree, alwaysShowDefaultBranchWorkspace)'
+      'isSleepingSweepExemptWorkspace(worktree, alwaysShowDefaultBranchWorkspace)'
     )
     expect(filterPass).toContain('alwaysShowDefaultBranchWorkspace,')
   })

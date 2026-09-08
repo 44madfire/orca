@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
   isAutomationGeneratedWorkspace,
   isCliCreatedWorkspace,
@@ -126,20 +126,17 @@ export function useWorktreeJumpPaletteWorktrees({
         ) {
           return false
         }
-        if (
-          !showSleepingWorkspaces &&
-          !isSleepingSweepExemptWorkspace(worktree, alwaysShowDefaultBranchWorkspace) &&
-          isInactiveWorkspace(
+        return (
+          showSleepingWorkspaces ||
+          isSleepingSweepExemptWorkspace(worktree, alwaysShowDefaultBranchWorkspace) ||
+          !isInactiveWorkspace(
             worktree.id,
             tabsByWorktree,
             ptyIdsByTabId,
             browserTabsByWorktree,
             worktreeIdsWithLiveAgent
           )
-        ) {
-          return false
-        }
-        return true
+        )
       }),
     [
       allWorktrees,
@@ -221,10 +218,9 @@ export function useWorktreeJumpPaletteWorktrees({
     () => buildPaletteWorktreeIndex(browserSortedWorktrees),
     [browserSortedWorktrees]
   )
-  const resolveWorktree = useMemo(
-    () =>
-      (worktreeId: string, hostId: Worktree['hostId'] | undefined): Worktree | undefined =>
-        resolvePaletteWorktree(paletteWorktreeIndex, worktreeId, hostId),
+  const resolveWorktree = useCallback(
+    (worktreeId: string, hostId: Worktree['hostId'] | undefined): Worktree | undefined =>
+      resolvePaletteWorktree(paletteWorktreeIndex, worktreeId, hostId),
     [paletteWorktreeIndex]
   )
   const { worktreeMap, worktreeOrder } = useMemo(
