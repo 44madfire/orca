@@ -115,8 +115,12 @@ describe('Codex naming process lifecycle', () => {
       const result = task.result.catch(() => null)
       await settle()
       await vi.advanceTimersByTimeAsync(1000)
-      await result
-      expect(f.close).toHaveBeenCalled()
+      try {
+        expect(f.close).toHaveBeenCalled()
+      } finally {
+        await task.close()
+        await result
+      }
       expect(f.userConnection.request).not.toHaveBeenCalled()
       expect(vi.getTimerCount()).toBe(0)
     }
