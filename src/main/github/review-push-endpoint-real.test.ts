@@ -226,3 +226,40 @@ it('carries shipping hydrated identity through status, admission, local and rela
     expect(await readFile(join(root, '.git/config'))).toEqual(configBefore)
   }
 })
+
+it('uses Git rewrite and pushurl selection rules without changing configuration during execution', async () => {
+  await git('config', '--unset-all', 'remote.origin.pushurl')
+  await git('remote', 'set-url', 'origin', 'fixture:review')
+  await git('config', `url.${state.endpoint}.insteadOf`, 'fixture:review')
+  const before = await refs()
+  const verify = async (accepted: boolean, destinations: string[]): Promise<void> => {
+    const config = await readFile(join(root, '.git/config'))
+    const resolved = await getPullRequestPushTarget(root, 42)
+    expect(!!resolved?.pushTarget).toBe(accepted)
+    if (resolved?.pushTarget) {
+      await gitPush(root, false, resolved.pushTarget)
+    }
+    const dryRun = await git(
+      'push',
+      '--dry-run',
+      '--porcelain',
+      'origin',
+      'HEAD:refs/heads/feature'
+    )
+    for (const destination of destinations) {
+      expect(dryRun).toContain(destination)
+    }
+    expect(await refs()).toEqual(before)
+    expect(await readFile(join(root, '.git/config'))).toEqual(config)
+  }
+  await verify(true, [state.endpoint])
+  await git('config', `url.${other}.pushInsteadOf`, 'fixture:review')
+  await verify(false, [other])
+  await git('config', 'remote.origin.pushurl', state.endpoint)
+  await verify(true, [state.endpoint])
+  await git('config', '--unset-all', 'remote.origin.pushurl')
+  await git('config', '--unset-all', `url.${other}.pushInsteadOf`)
+  await git('remote', 'set-url', 'origin', state.endpoint)
+  await git('config', '--add', 'remote.origin.url', other)
+  await verify(false, [state.endpoint, other])
+})
