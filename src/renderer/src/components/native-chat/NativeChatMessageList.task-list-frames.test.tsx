@@ -69,27 +69,31 @@ function transcript(messages: NativeChatMessage[], sessionId = 'live-codex') {
 }
 
 describe('live Codex checklist frames', () => {
-  it('renders journalled notifications through checklist diffing and updates on pagination', () => {
+  it('updates one pinned checklist from journal notifications without rewinding on pagination', () => {
     const first = frame(1, 'pending')
     const active = frame(2, 'inProgress')
     const last = frame(3, 'completed')
-    const { rerender } = render(transcript([last]))
+    const { rerender, container } = render(transcript([first]))
+    const toggle = screen.getByRole('button', { name: 'Tasks 0 of 1 tasks completed' })
+    const viewport = container.querySelector('.overflow-y-auto')!
+    expect(viewport.contains(toggle)).toBe(false)
+    fireEvent.click(toggle)
+    rerender(transcript([first, active]))
+    expect(screen.getByText('Verify').closest('li')).toHaveClass('text-foreground')
+    rerender(transcript([last]))
     expect(screen.getByText('Verify')).toHaveClass('line-through')
     expect(screen.getByText('Keep verification visible')).toBeInTheDocument()
-    expect(screen.queryByText('notification:turn/plan/updated')).toBeNull()
-
     rerender(transcript([first, active, last]))
-    expect(screen.getByText('Started Verify')).toBeInTheDocument()
-    expect(screen.getByText('Completed Verify')).toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Full task list' })[1])
-    expect(screen.getAllByText('Verify')).toHaveLength(2)
-    expect(screen.getByLabelText('1 of 1 tasks completed')).toBeInTheDocument()
+    expect(screen.getAllByText('Verify')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Tasks 1 of 1 tasks completed' })).toBe(toggle)
+    expect(screen.queryByText('Started Verify')).toBeNull()
+    expect(screen.queryByText('notification:turn/plan/updated')).toBeNull()
     expect(projectNativeChatTaskListFrames([last])[0]).toBe(
       projectNativeChatTaskListFrames([last])[0]
     )
   })
 
-  it('shares the Codex tool-call baseline while keeping Claude lists independent', () => {
+  it('uses the latest complete snapshot across Codex tool calls and notifications', () => {
     const tool: NativeChatMessage = {
       id: 'tool',
       role: 'assistant',
@@ -103,21 +107,10 @@ describe('live Codex checklist frames', () => {
         }
       ]
     }
-    const claude: NativeChatMessage = {
-      ...tool,
-      id: 'claude',
-      timestamp: 2,
-      blocks: [
-        {
-          type: 'tool-call',
-          name: 'TodoWrite',
-          input: { todos: [{ content: 'Unrelated', status: 'pending' }] }
-        }
-      ]
-    }
-    render(transcript([tool, claude, frame(3, 'completed')]))
-    expect(screen.getByText('Completed Verify')).toBeInTheDocument()
-    expect(screen.queryByText('Removed Unrelated')).toBeNull()
+    render(transcript([tool, frame(3, 'completed')]))
+    fireEvent.click(screen.getByRole('button', { name: 'Tasks 1 of 1 tasks completed' }))
+    expect(screen.getAllByText('Verify')).toHaveLength(1)
+    expect(screen.getByText('Verify')).toHaveClass('line-through')
   })
 
   it('keeps malformed, truncated, other-provider, and plan-document frames unchanged', () => {
@@ -153,7 +146,7 @@ describe('live Codex checklist frames', () => {
       ]
     }
     render(transcript([frame(1, 'pending'), command]))
-    expect(screen.getByText('Verify')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tasks 0 of 1 tasks completed' })).toBeInTheDocument()
     expect(screen.getByText('Verification failed', { selector: 'pre' })).toHaveClass(
       'text-destructive'
     )
@@ -161,7 +154,7 @@ describe('live Codex checklist frames', () => {
 })
 
 describe('NativeChatMessageList task list history', () => {
-  it('updates a memoized row when pagination supplies a predecessor and resets between sessions', () => {
+  it('keeps the latest Claude state after pagination and resets disclosure between sessions', () => {
     const first = {
       id: 'first-list',
       role: 'assistant' as const,
@@ -199,15 +192,18 @@ describe('NativeChatMessageList task list history', () => {
       ]
     }
     const { rerender } = render(transcript([last]))
-    expect(screen.queryByText('Completed Read')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Tasks 1 of 2 tasks completed' }))
     rerender(transcript([first, last]))
-    expect(screen.getByText('Completed Read')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Full task list' })).toHaveAttribute(
+    expect(screen.getAllByText('Read')).toHaveLength(1)
+    expect(screen.getByText('Read')).toHaveClass('line-through')
+    expect(screen.getByText('Ready for verification')).toBeInTheDocument()
+    rerender(transcript([first], 'two'))
+    expect(screen.getByRole('button', { name: 'Tasks 0 of 2 tasks completed' })).toHaveAttribute(
       'aria-expanded',
       'false'
     )
-    rerender(transcript([last], 'two'))
-    expect(screen.queryByText('Completed Read')).toBeNull()
-    expect(screen.getByText('Read')).toHaveClass('line-through')
+    expect(screen.queryByText('Read')).toBeNull()
+    rerender(transcript([], 'three'))
+    expect(screen.queryByText('Tasks')).toBeNull()
   })
 })

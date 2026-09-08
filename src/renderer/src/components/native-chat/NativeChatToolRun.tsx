@@ -12,7 +12,6 @@ import {
   isToolCallBlock,
   isToolResultBlock,
   type NativeChatBlock,
-  type NativeChatToolCallBlock,
   type NativeChatSubagentGroupBlock
 } from '../../../../shared/native-chat-types'
 import { isRenderableSubagentGroup } from '../../../../shared/native-chat-subagent-summary'
@@ -35,8 +34,6 @@ import {
   selectActiveToolCall
 } from '../../../../shared/native-chat-tool-activity'
 import { nativeChatToolRunIconName } from '../../../../shared/native-chat-tool-icon'
-import { NativeChatTaskList } from './NativeChatTaskList'
-import { buildNativeChatTaskListRows } from './native-chat-task-list-history'
 import { NativeChatDiffView } from './NativeChatDiffView'
 import { NativeChatSubagentRun } from './NativeChatSubagentRun'
 import { NativeChatToolIcon, NativeChatToolRunIcon } from './NativeChatToolIcon'
@@ -208,8 +205,6 @@ function buildEditCards(blocks: NativeChatBlock[]): EditCardModel {
  *  toolbar toggle drive every run at once while still allowing per-run override. */
 export function NativeChatToolRun({
   blocks,
-  previousTodoWrite,
-  previousUpdatePlan,
   subagentGroups = NO_SUBAGENT_GROUPS,
   expandSignal,
   activeTurnIsWorking,
@@ -218,8 +213,6 @@ export function NativeChatToolRun({
   onLinkClick
 }: {
   blocks: NativeChatBlock[]
-  previousTodoWrite?: NativeChatToolCallBlock
-  previousUpdatePlan?: NativeChatToolCallBlock
   /** Spawn-group rosters that belong with this run's activity, one row each. */
   subagentGroups?: NativeChatSubagentGroupBlock[]
   /** Toolbar-driven desired open state. Each change re-syncs this run's state. */
@@ -257,16 +250,6 @@ export function NativeChatToolRun({
   const { editCards, consumedResults } = useMemo(
     () => (open ? buildEditCards(blocks) : NO_EDIT_CARDS),
     [open, blocks]
-  )
-  const taskLists = useMemo(
-    () =>
-      open
-        ? buildNativeChatTaskListRows(blocks, {
-            todowrite: previousTodoWrite,
-            update_plan: previousUpdatePlan
-          })
-        : null,
-    [open, blocks, previousTodoWrite, previousUpdatePlan]
   )
   // Only the settled header reads this. It stands over `summary`, which speaks
   // for the run's first calls rather than its last, so a glyph taken from one
@@ -366,14 +349,7 @@ export function NativeChatToolRun({
         <div className="mt-1">
           {(() => {
             const seen = new Map<string, number>()
-            return blocks.map((block, blockIndex) => {
-              const taskList = taskLists?.rows.get(block)
-              if (taskList) {
-                return <NativeChatTaskList key={`tasks:${blockIndex}`} {...taskList} />
-              }
-              if (taskLists?.consumedResults.has(block)) {
-                return null
-              }
+            return blocks.map((block) => {
               const edit = editCards.get(block)
               if (edit) {
                 return (

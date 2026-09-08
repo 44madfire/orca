@@ -5,10 +5,6 @@ export type NativeChatTask = {
   activeForm?: string
 }
 export type NativeChatTaskList = { tasks: NativeChatTask[]; explanation?: string }
-export type NativeChatTaskChange = {
-  kind: 'added' | 'removed' | 'started' | 'completed' | 'pending' | 'updated'
-  task: NativeChatTask
-}
 export type NativeChatTaskListTool = 'todowrite' | 'update_plan'
 
 export function nativeChatTaskListTool(name: string): NativeChatTaskListTool | null {
@@ -71,52 +67,4 @@ export function normalizeNativeChatTaskList(
 
 export function nativeChatTaskLabel(task: NativeChatTask): string {
   return task.status === 'in_progress' && task.activeForm ? task.activeForm : task.content
-}
-
-/** Content plus occurrence is the only identity the providers give these entries. */
-export function diffNativeChatTaskLists(
-  previous: NativeChatTaskList,
-  current: NativeChatTaskList
-): NativeChatTaskChange[] {
-  const byContent = new Map<string, NativeChatTask[]>()
-  for (const task of previous.tasks) {
-    const matches = byContent.get(task.content)
-    if (matches) {
-      matches.push(task)
-    } else {
-      byContent.set(task.content, [task])
-    }
-  }
-  const occurrences = new Map<string, number>()
-  const consumed = new Set<NativeChatTask>()
-  const changes: NativeChatTaskChange[] = []
-  for (const task of current.tasks) {
-    const occurrence = occurrences.get(task.content) ?? 0
-    occurrences.set(task.content, occurrence + 1)
-    const before = byContent.get(task.content)?.[occurrence]
-    if (!before) {
-      changes.push({ kind: 'added', task })
-      continue
-    }
-    consumed.add(before)
-    if (before.status !== task.status) {
-      changes.push({
-        kind:
-          task.status === 'completed'
-            ? 'completed'
-            : task.status === 'in_progress'
-              ? 'started'
-              : 'pending',
-        task
-      })
-    } else if (before.activeForm !== task.activeForm) {
-      changes.push({ kind: 'updated', task })
-    }
-  }
-  for (const task of previous.tasks) {
-    if (!consumed.has(task)) {
-      changes.push({ kind: 'removed', task })
-    }
-  }
-  return changes
 }
