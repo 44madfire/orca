@@ -42,6 +42,7 @@ test.describe('Markdown nested toggle regression', () => {
       await waitForRichMarkdownEditor(orcaPage)
 
       await expectEditableNestedToggles(orcaPage)
+      await orcaPage.screenshot({ path: testInfo.outputPath('verified-editor.png') })
     } finally {
       await cleanupMarkdownFixture(filePath)
     }
@@ -83,6 +84,7 @@ test.describe('Markdown nested toggle regression', () => {
       await waitForRichMarkdownEditor(orcaPage)
       await expectEditableNestedToggles(orcaPage)
       await expectSentinelInsideNestedToggle(orcaPage, sentinel)
+      await orcaPage.screenshot({ path: testInfo.outputPath('verified-editor.png') })
     } finally {
       await cleanupMarkdownFixture(filePath)
     }
@@ -106,6 +108,7 @@ test.describe('Markdown nested toggle regression', () => {
       await waitForRichMarkdownEditor(orcaPage)
 
       await expectPassthroughFallback(orcaPage)
+      await orcaPage.screenshot({ path: testInfo.outputPath('verified-editor.png') })
     } finally {
       await cleanupMarkdownFixture(filePath)
     }

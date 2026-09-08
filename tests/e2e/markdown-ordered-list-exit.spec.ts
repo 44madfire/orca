@@ -84,7 +84,8 @@ test.describe('Markdown ordered-list exit regression', () => {
 
         await expectSentinelParagraphOutsideOrderedList(orcaPage, row.sentinel)
         await expectSerializedDraftOutsideOrderedList(orcaPage, draftKey, row.sentinel)
-      } finally {
+        await orcaPage.screenshot({ path: testInfo.outputPath('verified-editor.png') })
+    } finally {
         await cleanupMarkdownFixture(filePath)
       }
     })

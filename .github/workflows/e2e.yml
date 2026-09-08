@@ -3,6 +3,9 @@ name: E2E
 run-name: E2E ${{ inputs.ref || github.ref }}
 
 # Why: checkout + artifact upload only; callers can only further restrict.
+env:
+  ORCA_BACKGROUND_LAUNCH: "1"
+
 permissions:
   contents: read
 
@@ -177,12 +180,12 @@ jobs:
       # them as an artifact makes post-mortem debugging on CI possible without
       # re-running locally.
       - name: Upload Playwright traces
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: playwright-traces-${{ matrix.shard_name }}
           path: test-results/
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: ignore
 
   changed-e2e:
@@ -254,12 +257,12 @@ jobs:
             pnpm run test:e2e "${TEST_FILES[@]}" --workers=1 "${E2E_PROJECT_ARGS[@]}"
 
       - name: Upload Playwright traces
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: playwright-traces-changed
           path: test-results/
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: ignore
 
   ssh-docker-watcher-isolation:
@@ -349,12 +352,12 @@ jobs:
           fi
 
       - name: Upload watcher isolation traces
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: playwright-traces-ssh-docker-watcher-isolation
           path: e2e-traces/
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: ignore
 
   ssh-browser-network-route:
@@ -434,9 +437,9 @@ jobs:
           ORCA_E2E_FORWARD_APP_LOGS: '1'
         run: xvfb-run --auto-servernum bash .github/scripts/e2e-with-window-manager.sh pnpm exec playwright test --config tests/playwright.config.ts tests/e2e/ssh-localhost.spec.ts --project=electron-headless --workers=1
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: always()
         with:
           name: localhost-ssh-traces
           path: test-results/
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: ignore

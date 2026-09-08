@@ -110,6 +110,7 @@ for (const workspace of ['git', 'folder', 'paired remote'] as const) {
         body: await page.screenshot(),
         contentType: 'image/png'
       })
+      await page.screenshot({ path: testInfo.outputPath('reopened-editor.png') })
       await closeActiveEditorTab(page, filePath)
     } finally {
       await client?.dispose()

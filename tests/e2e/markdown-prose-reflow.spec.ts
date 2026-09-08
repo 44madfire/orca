@@ -169,6 +169,7 @@ test.describe('Markdown prose reflow', () => {
       expect(metrics.sourceLineCount).toBe(4)
       expect(metrics.whiteSpace).toBe('normal')
       expect(metrics.lineCount).toBeLessThan(metrics.sourceLineCount)
+      await orcaPage.screenshot({ path: testInfo.outputPath('verified-editor.png') })
     } finally {
       await cleanupMarkdownFixture(filePath)
     }
@@ -192,6 +193,7 @@ test.describe('Markdown prose reflow', () => {
       expect(metrics.sourceLineCount).toBe(4)
       expect(metrics.whiteSpace).toBe('normal')
       expect(metrics.lineCount).toBeLessThan(metrics.sourceLineCount)
+      await orcaPage.screenshot({ path: testInfo.outputPath('verified-editor.png') })
     } finally {
       await cleanupMarkdownFixture(filePath)
     }
@@ -217,6 +219,7 @@ test.describe('Markdown prose reflow', () => {
       expect(metrics.sourceLineCount).toBe(4)
       expect(metrics.whiteSpace).toBe('normal')
       expect(metrics.lineCount).toBeLessThan(metrics.sourceLineCount)
+      await orcaPage.screenshot({ path: testInfo.outputPath('verified-editor.png') })
     } finally {
       await cleanupMarkdownFixture(filePath)
     }
@@ -239,6 +242,7 @@ test.describe('Markdown prose reflow', () => {
       expect(metrics.sourceLineCount).toBe(4)
       expect(metrics.whiteSpace).toBe('normal')
       expect(metrics.lineCount).toBeLessThan(metrics.sourceLineCount)
+      await orcaPage.screenshot({ path: testInfo.outputPath('verified-editor.png') })
     } finally {
       await cleanupMarkdownFixture(filePath)
     }

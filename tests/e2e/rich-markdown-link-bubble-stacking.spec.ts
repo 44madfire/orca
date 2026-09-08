@@ -101,6 +101,7 @@ test.describe('Rich markdown link bubble stacking', () => {
       expect(overlap.bubbleRight).toBeGreaterThan(overlap.explorerLeft)
       expect(overlap.overlapWidth).toBeGreaterThan(8)
       expect(overlap.topElementIsBubble).toBe(true)
+      await orcaPage.screenshot({ path: testInfo.outputPath('link-bubble-over-explorer.png') })
 
       // The Edit action exposes its label via aria-label (a shadcn Button +
       // Radix tooltip), not a title attribute, so match by accessible name.
@@ -115,6 +116,7 @@ test.describe('Rich markdown link bubble stacking', () => {
       await expect(input).toBeFocused()
       await input.fill(`https://example.com/${'long-url-segment/'.repeat(30)}`)
       await input.press('End')
+      await orcaPage.screenshot({ path: testInfo.outputPath('link-bubble-edit.png') })
       expect(await input.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
       await expect(input).toBeFocused()
       await expect(bubble).toBeVisible()
