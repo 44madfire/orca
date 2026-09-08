@@ -61,7 +61,9 @@ export function extractPartialEscapeTail(stream: string): string {
   for (let i = 0; i < stream.length; i++) {
     if (state === 'ground') {
       // Only ESC leaves ground; skip ordinary text without a per-code-unit walk.
-      const escape = stream.indexOf('\x1b', i)
+      // Check the current unit first: on dense escape streams it is usually the
+      // ESC itself, and indexOf's call + SIMD setup costs more than the compare.
+      const escape = stream.charCodeAt(i) === ESC ? i : stream.indexOf('\x1b', i)
       if (escape === -1) {
         return ''
       }
