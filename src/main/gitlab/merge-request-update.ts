@@ -40,7 +40,7 @@ export async function updateMR(
       }
       await acquire()
       try {
-        if (updates.readyForReview && (updates.title !== undefined || updates.body !== undefined || (updates.addLabels ?? []).some((label) => label.trim()) || (updates.removeLabels ?? []).some((label) => label.trim()))) {
+        if (updates.readyForReview && (updates.title !== undefined || updates.body !== undefined || updates.addLabels !== undefined || updates.removeLabels !== undefined)) {
           return { ok: false, error: 'Cannot update the title while marking a merge request ready' }
         }
 

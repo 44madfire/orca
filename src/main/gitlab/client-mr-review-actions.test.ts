@@ -228,39 +228,9 @@ describe('gitlab client — MR operations', () => {
       )
     })
 
-    it('fetches the current title before marking a merge request ready', async () => {
-      glabExecFileAsyncMock
-        .mockResolvedValueOnce({ stdout: JSON.stringify({ title: 'Draft: Fresh title' }) })
-        .mockResolvedValueOnce({ stdout: '{}' })
-
-      await expect(
-        updateMR('/repo', 12, { readyForReview: true }, 'upstream', 'conn-1')
-      ).resolves.toEqual({ ok: true })
-
-      expect(glabExecFileAsyncMock).toHaveBeenNthCalledWith(
-        1,
-        ['api', '--hostname', 'git.internal', 'projects/g%2Fp/merge_requests/12'],
-        {}
-      )
-      expect(glabExecFileAsyncMock).toHaveBeenNthCalledWith(
-        2,
-        [
-          'api',
-          '--hostname',
-          'git.internal',
-          '-X',
-          'PUT',
-          'projects/g%2Fp/merge_requests/12',
-          '-f',
-          'title=Fresh title'
-        ],
-        {}
-      )
-    })
-
-    it('treats a freshly markerless title as already ready', async () => {
+    it('uses GitLab SetDraft mutation without reading or writing the title', async () => {
       glabExecFileAsyncMock.mockResolvedValueOnce({
-        stdout: JSON.stringify({ title: 'Fresh title' })
+        stdout: JSON.stringify({ data: { mergeRequestSetDraft: { mergeRequest: { iid: '12' }, errors: [] } } })
       })
 
       await expect(
@@ -268,16 +238,24 @@ describe('gitlab client — MR operations', () => {
       ).resolves.toEqual({ ok: true })
 
       expect(glabExecFileAsyncMock).toHaveBeenCalledTimes(1)
+      const args = glabExecFileAsyncMock.mock.calls[0][0] as string[]
+      expect(args.slice(0, 3)).toEqual(['api', '--hostname', 'git.internal'])
+      expect(args).toContain('graphql')
+      expect(args.join(' ')).toContain('mergeRequestSetDraft')
+      expect(args.join(' ')).toContain('"draft":false')
     })
 
-    it('rejects a draft marker that would leave an empty title', async () => {
-      glabExecFileAsyncMock.mockResolvedValueOnce({ stdout: JSON.stringify({ title: 'Draft:' }) })
-
+    it.each([
+      { addLabels: [] },
+      { removeLabels: [] },
+      { body: '' },
+      { title: 'New title' }
+    ])('rejects ready combined with update %s', async (update) => {
       await expect(
-        updateMR('/repo', 12, { readyForReview: true }, 'upstream', 'conn-1')
-      ).resolves.toEqual({ ok: false, error: 'Title is required' })
+        updateMR('/repo', 12, { readyForReview: true, ...update }, 'upstream', 'conn-1')
+      ).resolves.toEqual({ ok: false, error: 'Cannot update the title while marking a merge request ready' })
 
-      expect(glabExecFileAsyncMock).toHaveBeenCalledTimes(1)
+      expect(glabExecFileAsyncMock).not.toHaveBeenCalled()
     })
   })
 
