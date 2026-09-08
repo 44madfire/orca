@@ -4,8 +4,7 @@ import {
   hasStructuredLaunchCancellation,
   persistStructuredLaunchCancellation,
   retryStructuredLaunchCancellation,
-  subscribeStructuredLaunchCancellation,
-  trackStructuredLaunchCancellationTargets
+  subscribeStructuredLaunchCancellation
 } from './structured-agent-session-launch-cancellation'
 import { enqueueStructuredAgentSessionLaunchPrompt } from '@/components/native-chat/structured-agent-session-launch-outbox'
 import * as storage from '@/components/native-chat/structured-agent-session-outbox-storage'
@@ -207,17 +206,5 @@ describe('cancellation persistence ownership', () => {
     expect(abandon).not.toHaveBeenCalled()
     transitionOutbox(launch.sessionId, () => [])
     expect(retryStructuredLaunchCancellation(launch.worktreeId, launch.sessionId)).toBe(true)
-  })
-  it('disposes the launch target subscription and clears identity metadata without following later commits', () => {
-    const launch = intent('cancel-target-disposal')
-    const targets = trackStructuredLaunchCancellationTargets(launch.sessionId)
-    expect(targets.snapshot()?.size).toBe(0)
-    enqueueStructuredAgentSessionLaunchPrompt(launch.sessionId, 'tracked')
-    expect(targets.snapshot()?.size).toBe(1)
-    const frozen = targets.snapshot()
-    targets.detach()
-    enqueueStructuredAgentSessionLaunchPrompt(launch.sessionId, 'later')
-    expect(targets.snapshot()).toBeNull()
-    expect(frozen?.size).toBe(1)
   })
 })

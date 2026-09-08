@@ -116,7 +116,7 @@ export function createStructuredAgentSessionLaunchIntent(
 }
 
 export function abandonStructuredAgentSessionLaunchIntent(
-  intent: StructuredAgentSessionLaunchIntent
+  intent: Pick<StructuredAgentSessionLaunchIntent, 'worktreeId' | 'sessionId'>
 ): void {
   clearWebSessionFocusIntentIfMatches(
     { environmentId: LOCAL_STRUCTURED_SESSION_OWNER },

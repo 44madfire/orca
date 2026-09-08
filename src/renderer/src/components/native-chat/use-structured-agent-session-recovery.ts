@@ -1,10 +1,21 @@
-import { useCallback, useEffect, useState, type MutableRefObject } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type MutableRefObject
+} from 'react'
 import type { StructuredAgentSessionOutboxEntry } from '../../../../shared/structured-agent-session-outbox'
 import {
   advanceStructuredAgentSessionRecovery,
   resumeStructuredAgentSessionRecovery
 } from '../../../../shared/structured-agent-session-recovery'
-import { transitionOutboxEntry } from './structured-agent-session-outbox-transitions'
+import {
+  hasOutboxDispatch,
+  subscribeOutboxDispatches,
+  uncertainDispatch,
+  transitionOutboxEntry
+} from './structured-agent-session-outbox-transitions'
 
 export function useStructuredAgentSessionRecovery(args: {
   sessionId: string
@@ -16,6 +27,12 @@ export function useStructuredAgentSessionRecovery(args: {
   setError: (error: string | null) => void
 }) {
   const { sessionId, fence, targetKey, head, hostObserved, outboxRef, setError } = args
+  const liveClaim = useSyncExternalStore(
+    subscribeOutboxDispatches,
+    () => !!head && hasOutboxDispatch(head),
+    () => false
+  )
+  const orphanedDispatch = head?.state === 'dispatching' && !liveClaim
   const [storageBlockedId, setStorageBlockedId] = useState<string | null>(null)
   const commit = useCallback(
     (
@@ -81,22 +98,31 @@ export function useStructuredAgentSessionRecovery(args: {
       current.sessionId !== sessionId ||
       current.clientMessageId !== clientMessageId ||
       hostObserved ||
+      (current.state === 'dispatching' && hasOutboxDispatch(current)) ||
       (current.recovery?.parkedReason !== 'budget-exhausted' &&
-        storageBlockedId !== clientMessageId)
+        storageBlockedId !== clientMessageId &&
+        !(current.state === 'dispatching' && !hasOutboxDispatch(current)))
     ) {
       return
     }
-    const next = resumeStructuredAgentSessionRecovery(current)
+    const next =
+      current.state === 'dispatching'
+        ? advanceStructuredAgentSessionRecovery(uncertainDispatch(current), Date.now())
+        : current.recovery?.parkedReason === 'budget-exhausted'
+          ? resumeStructuredAgentSessionRecovery(current)
+          : advanceStructuredAgentSessionRecovery(current, Date.now())
     if (next !== current && commit(current, next)) {
       setStorageBlockedId(null)
       setError(null)
     }
   }
   const recoveryPaused =
-    head?.state === 'unconfirmed' &&
+    (head?.state === 'unconfirmed' || orphanedDispatch) &&
+    !!head &&
     head.retryAfterUnknownSubmittedAt === null &&
     !hostObserved &&
-    (head.recovery?.parkedReason === 'budget-exhausted' ||
+    (orphanedDispatch ||
+      head.recovery?.parkedReason === 'budget-exhausted' ||
       storageBlockedId === head.clientMessageId)
   return { resumeChecking, recoveryPaused }
 }

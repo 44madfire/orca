@@ -38,16 +38,20 @@ import {
   hasStructuredLaunchCancellation,
   persistStructuredLaunchCancellation,
   retryStructuredLaunchCancellation,
-  trackStructuredLaunchCancellationTargets,
   subscribeStructuredLaunchCancellation
 } from './structured-agent-session-launch-cancellation'
+
+import {
+  establishStructuredLaunchCancellationAuthority,
+  reconcileStructuredLaunchCancellationAuthority,
+  requestStructuredLaunchCancellation
+} from './structured-agent-session-cancellation-authority'
 
 export type { StructuredAgentLaunchOptions, StructuredAgentLaunchReceipt }
 
 type StructuredLaunchState = StructuredLaunchRecoveryState & {
   identity: string
   callers: StructuredLaunchCallerGroup
-  cancellationTargets: ReturnType<typeof trackStructuredLaunchCancellationTargets>
 }
 
 type StructuredLaunchStateResult = {
@@ -128,7 +132,7 @@ function launchIdentity(
 
 function cleanupLaunchState(state: StructuredLaunchState): void {
   if (pendingStructuredLaunchesByIdentity.get(state.identity) === state) {
-    state.cancellationTargets.detach()
+    reconcileStructuredLaunchCancellationAuthority(state.intent.sessionId)
     pendingStructuredLaunchesByIdentity.delete(state.identity)
     notifyStructuredLaunchListeners()
   }
@@ -194,6 +198,7 @@ function structuredAgentLaunchState(
       trackLaunchFailureToast(existing)
       notifyStructuredLaunchListeners()
     }
+    establishStructuredLaunchCancellationAuthority(existing.intent)
     const text = options.prompt?.trim() ?? ''
     const stagedPrompt =
       text && existing.callers.outcome !== 'refused'
@@ -213,7 +218,7 @@ function structuredAgentLaunchState(
   const intent = options.resumeFrom
     ? createStructuredAgentSessionLaunchIntent(worktreeId, agent, options.resumeFrom)
     : createStructuredAgentSessionLaunchIntent(worktreeId, agent)
-  const cancellationTargets = trackStructuredLaunchCancellationTargets(intent.sessionId)
+  establishStructuredLaunchCancellationAuthority(intent)
   const text = options.prompt?.trim() ?? ''
   const stagedPrompt = text
     ? enqueueStructuredAgentSessionLaunchPrompt(intent.sessionId, text)
@@ -226,8 +231,7 @@ function structuredAgentLaunchState(
     visibilityUnknown: false,
     cancelled: false,
     onVisibilityChanged: notifyStructuredLaunchListeners,
-    callers,
-    cancellationTargets
+    callers
   }
   callers.onSettled = () => maybeCleanupLaunchState(state)
   state.promise =
@@ -264,13 +268,13 @@ export function cancelStructuredAgentLaunch(worktreeId: string, sessionId: strin
       candidate.intent.worktreeId === worktreeId && candidate.intent.sessionId === sessionId
   )
   if (!state) {
-    return false
+    return requestStructuredLaunchCancellation(worktreeId, sessionId) ?? false
   }
   // Stop create reconciliation now; durable discard has its own retry owner.
   state.cancelled = true
-  const targets = state.cancellationTargets.snapshot()
-  cleanupLaunchState(state)
-  const persisted = persistStructuredLaunchCancellation(state.intent, targets)
+  const persisted =
+    requestStructuredLaunchCancellation(worktreeId, sessionId) ??
+    persistStructuredLaunchCancellation(state.intent)
   settleStructuredLaunchCallersWithoutFallback(state.callers, 'cancelled')
   cleanupLaunchState(state)
   notifyStructuredLaunchListeners()

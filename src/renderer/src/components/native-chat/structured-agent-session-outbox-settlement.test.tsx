@@ -204,7 +204,7 @@ it('a parked operation keeps its joined observation through same-operation Resum
   expect(mocks.call.mock.lastCall?.[2].retryUnknown).toBeUndefined()
 })
 
-it('failed acceptance persistence does not publish acceptance and leaves the known remount limitation', async () => {
+it('failed acceptance persistence exposes mounted recovery without upgrading the unavailable receipt', async () => {
   const staged = enqueueStructuredAgentSessionLaunchPrompt(sessionId, 'launch')!
   const finish = Promise.withResolvers<unknown>()
   mocks.call.mockReturnValueOnce(finish.promise)
@@ -221,8 +221,16 @@ it('failed acceptance persistence does not publish acceptance and leaves the kno
   expect(await delivery).toMatchObject({ delivered: false })
   expect(callback).not.toHaveBeenCalled()
   expect(pane.result.current.error).toBe('Message could not be saved to the outbox')
-  expect(pane.result.current.recoveryPaused).toBe(false)
+  expect(pane.result.current.recoveryPaused).toBe(true)
   expect(readOutbox(sessionId, false)[0].state).toBe('dispatching')
+  mocks.call.mockResolvedValue(accepted())
+  act(() => pane.result.current.resumeChecking(staged.clientMessageId))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000)
+  })
+  expect(readOutbox(sessionId)).toEqual([])
+  expect(await delivery).toMatchObject({ delivered: false })
+  expect(callback).not.toHaveBeenCalled()
 })
 
 it('only the original staged handles can read receipts from 64 completed deliveries', async () => {

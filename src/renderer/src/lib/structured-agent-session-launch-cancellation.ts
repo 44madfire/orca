@@ -11,7 +11,7 @@ import { transitionOutbox } from '@/components/native-chat/structured-agent-sess
 import type { StructuredAgentSessionOutboxEntry } from '../../../shared/structured-agent-session-outbox'
 
 type CancellationObligation = {
-  intent: StructuredAgentSessionLaunchIntent
+  intent: Pick<StructuredAgentSessionLaunchIntent, 'sessionId' | 'worktreeId' | 'agent'>
   incarnations: Set<string> | null
   detach: () => void
   retryQueued: boolean
@@ -22,23 +22,8 @@ type CancellationObligation = {
 const cancellations = new Map<string, CancellationObligation>()
 const listeners = new Set<() => void>()
 
-function incarnationKey(entry: StructuredAgentSessionOutboxEntry): string {
+export function structuredLaunchCancellationKey(entry: StructuredAgentSessionOutboxEntry): string {
   return JSON.stringify([entry.clientMessageId, entry.deliveryIncarnation ?? 0])
-}
-
-export function trackStructuredLaunchCancellationTargets(sessionId: string) {
-  const read = readOutboxEvidence(sessionId, false)
-  let incarnations = read.status === 'readable' ? new Set(read.entries.map(incarnationKey)) : null
-  const detach = subscribeOutbox(sessionId, (entries) => {
-    incarnations = new Set(entries.map(incarnationKey))
-  })
-  return {
-    detach: () => {
-      detach()
-      incarnations = null
-    },
-    snapshot: () => (incarnations === null ? null : new Set(incarnations))
-  }
 }
 
 function notify(): void {
@@ -70,7 +55,7 @@ function retryCancellation(obligation: CancellationObligation): boolean {
   const result = transitionOutbox(intent.sessionId, (entries) =>
     incarnations === null
       ? entries
-      : entries.filter((entry) => !incarnations.has(incarnationKey(entry)))
+      : entries.filter((entry) => !incarnations.has(structuredLaunchCancellationKey(entry)))
   )
   obligation.retrying = false
   if (!result.ok || (incarnations === null && result.entries.length > 0)) {
@@ -93,7 +78,7 @@ export function retryStructuredLaunchCancellation(
 }
 
 export function persistStructuredLaunchCancellation(
-  intent: StructuredAgentSessionLaunchIntent,
+  intent: Pick<StructuredAgentSessionLaunchIntent, 'sessionId' | 'worktreeId' | 'agent'>,
   captured: Set<string> | null = null
 ): boolean {
   const existing = cancellations.get(intent.sessionId)
@@ -102,8 +87,12 @@ export function persistStructuredLaunchCancellation(
   }
   const read = readOutboxEvidence(intent.sessionId, false)
   const obligation: CancellationObligation = {
-    intent,
-    incarnations: read.status === 'readable' ? new Set(read.entries.map(incarnationKey)) : captured,
+    intent: { sessionId: intent.sessionId, worktreeId: intent.worktreeId, agent: intent.agent },
+    incarnations:
+      captured ??
+      (read.status === 'readable'
+        ? new Set(read.entries.map(structuredLaunchCancellationKey))
+        : null),
     detach: () => {},
     retryQueued: false,
     retrying: false

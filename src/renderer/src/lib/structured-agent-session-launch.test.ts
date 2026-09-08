@@ -585,7 +585,9 @@ describe('startStructuredAgentLaunch', () => {
     )
     await expect(fallbackResult).resolves.toBe(true)
     expect(mocks.launch).not.toHaveBeenCalled()
-    expect(mocks.abandonIntent).toHaveBeenCalledWith(intent)
+    expect(mocks.abandonIntent).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreeId: intent.worktreeId, sessionId: intent.sessionId })
+    )
     storageFailure.mockRestore()
   })
 
@@ -649,7 +651,9 @@ describe('startStructuredAgentLaunch', () => {
     await flushLaunchSettlement()
 
     expect(mocks.launch).toHaveBeenCalledOnce()
-    expect(mocks.abandonIntent).toHaveBeenCalledWith(intent)
+    expect(mocks.abandonIntent).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreeId: intent.worktreeId, sessionId: intent.sessionId })
+    )
     expect(toast.error).not.toHaveBeenCalled()
   })
 
@@ -694,7 +698,9 @@ describe('startStructuredAgentLaunch', () => {
     }
     expect(cancelStructuredAgentLaunch(worktreeId, intent.sessionId)).toBe(true)
     expect(readOutbox(intent.sessionId, false)).toEqual([])
-    expect(mocks.abandonIntent).toHaveBeenCalledWith(intent)
+    expect(mocks.abandonIntent).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreeId: intent.worktreeId, sessionId: intent.sessionId })
+    )
   })
 
   it('suppresses a close that races the retry verification catch', async () => {
@@ -716,7 +722,9 @@ describe('startStructuredAgentLaunch', () => {
     await flushLaunchSettlement()
 
     expect(mocks.launch).toHaveBeenCalledTimes(2)
-    expect(mocks.abandonIntent).toHaveBeenCalledWith(intent)
+    expect(mocks.abandonIntent).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreeId: intent.worktreeId, sessionId: intent.sessionId })
+    )
     expect(toast.error).not.toHaveBeenCalled()
   })
 

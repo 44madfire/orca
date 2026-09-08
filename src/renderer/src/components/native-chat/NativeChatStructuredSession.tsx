@@ -116,6 +116,7 @@ export function NativeChatStructuredSession(
         ]
       : [])
   const retryableOutboxEntry =
+    (controller.recoveryPaused ? controller.outbox[0] : undefined) ??
     controller.outbox.find((entry) => entry.state === 'unconfirmed') ??
     controller.outbox.find(
       (entry) => entry.clientMessageId === controller.blockedClientMessageId

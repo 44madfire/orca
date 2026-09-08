@@ -95,6 +95,19 @@ export function transitionOutboxEntry(
   }
 }
 
+const claimListeners = new Set<() => void>()
+export function subscribeOutboxDispatches(listener: () => void): () => void {
+  claimListeners.add(listener)
+  return () => {
+    claimListeners.delete(listener)
+  }
+}
+function notifyClaims(): void {
+  for (const listener of claimListeners) {
+    listener()
+  }
+}
+
 const activeClaims = new Map<string, Set<number | undefined>>()
 function claimKey(entry: Entry): string {
   return JSON.stringify([entry.sessionId, entry.clientMessageId, entry.deliveryIncarnation ?? 0])
@@ -105,9 +118,12 @@ export function hasOutboxDispatch(entry: Entry): boolean {
 export function forgetOutboxDispatch(entry: Entry): void {
   const key = claimKey(entry)
   const group = activeClaims.get(key)
-  group?.delete(entry.transitionRevision)
+  const removed = group?.delete(entry.transitionRevision)
   if (!group?.size) {
     activeClaims.delete(key)
+  }
+  if (removed) {
+    notifyClaims()
   }
 }
 export function claimOutboxDispatch(entry: Entry) {
@@ -135,6 +151,7 @@ export function claimOutboxDispatch(entry: Entry) {
     const group = activeClaims.get(key) ?? new Set<number | undefined>()
     group.add(claim.transitionRevision)
     activeClaims.set(key, group)
+    notifyClaims()
     pendingClaim = claim
     return claim
   })
@@ -144,7 +161,7 @@ export function claimOutboxDispatch(entry: Entry) {
   return result
 }
 
-function uncertainDispatch(entry: Entry): Entry {
+export function uncertainDispatch(entry: Entry): Entry {
   return {
     ...entry,
     state: 'unconfirmed',
