@@ -100,9 +100,9 @@
         "https://github.com/stablyai/orca/blob/main/src/renderer/src/lib/agent-hibernation-coordinator.test.ts"
       ],
       "invariant": "Automatic hibernation must retain two stable confirmations and fresh execution-host evidence before shutdown. Skipping a workspace with no completed agent must not authorize a newly completed pane using stale client PTYs.",
-      "oracle": "100 remote workspaces containing working/waiting agents issue zero runtime calls. A skipped workspace completing while another inventory awaits remains ineligible until two later host-confirmed passes. Folder and git workspaces hibernate the exact host PTY; rejected/truncated inventories and intervening input/output or state changes block shutdown.",
+      "oracle": "100 remote workspaces containing working/waiting agents issue zero runtime calls. A skipped workspace completing while another inventory awaits remains ineligible until two later host-confirmed passes, and so does a workspace that only becomes runtime-owned while an inventory is outstanding — a pass carrying no host evidence for a workspace never counts as one of its two confirmations. Folder and git workspaces hibernate the exact host PTY; rejected/truncated inventories and intervening input/output or state changes block shutdown.",
       "commands": [
-        "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/renderer/src/lib/agent-hibernation-coordinator.test.ts src/renderer/src/lib/agent-hibernation-planner.test.ts src/renderer/src/lib/agent-hibernation-confirmation.test.ts src/renderer/src/lib/agent-hibernation-pane-age.test.ts src/renderer/src/lib/agent-hibernation-output-activity.test.ts src/renderer/src/lib/agent-hibernation-visibility.test.ts src/renderer/src/lib/foreground-terminal-tabs.test.ts"
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/renderer/src/lib/agent-hibernation-coordinator.test.ts src/renderer/src/lib/agent-hibernation-planner.test.ts src/renderer/src/lib/agent-hibernation-confirmation.test.ts src/renderer/src/lib/agent-hibernation-pane-age.test.ts src/renderer/src/lib/agent-hibernation-output-activity.test.ts src/renderer/src/lib/agent-hibernation-visibility.test.ts src/renderer/src/lib/foreground-terminal-tabs.test.ts src/renderer/src/lib/agent-hibernation-runtime-liveness-race.test.ts"
       ],
       "testFiles": [
         "src/renderer/src/lib/agent-hibernation-coordinator.test.ts",
@@ -111,7 +111,8 @@
         "src/renderer/src/lib/agent-hibernation-pane-age.test.ts",
         "src/renderer/src/lib/agent-hibernation-output-activity.test.ts",
         "src/renderer/src/lib/agent-hibernation-visibility.test.ts",
-        "src/renderer/src/lib/foreground-terminal-tabs.test.ts"
+        "src/renderer/src/lib/foreground-terminal-tabs.test.ts",
+        "src/renderer/src/lib/agent-hibernation-runtime-liveness-race.test.ts"
       ],
       "assertionRefs": [
         {
@@ -123,6 +124,12 @@
             "fails closed on truncated runtime liveness samples",
             "fails closed when fresh runtime liveness rejects after an earlier good sample"
           ]
+        },
+        {
+          "file": "src/renderer/src/lib/agent-hibernation-runtime-liveness-race.test.ts",
+          "assertions": [
+            "requires host evidence when a workspace becomes runtime-owned during an inventory request"
+          ]
         }
       ],
       "evidenceRuns": [
@@ -130,10 +137,10 @@
           "date": "2026-09-07",
           "runner": "local",
           "platform": "macos",
-          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/renderer/src/lib/agent-hibernation-coordinator.test.ts src/renderer/src/lib/agent-hibernation-planner.test.ts src/renderer/src/lib/agent-hibernation-confirmation.test.ts src/renderer/src/lib/agent-hibernation-pane-age.test.ts src/renderer/src/lib/agent-hibernation-output-activity.test.ts src/renderer/src/lib/agent-hibernation-visibility.test.ts src/renderer/src/lib/foreground-terminal-tabs.test.ts",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/renderer/src/lib/agent-hibernation-coordinator.test.ts src/renderer/src/lib/agent-hibernation-planner.test.ts src/renderer/src/lib/agent-hibernation-confirmation.test.ts src/renderer/src/lib/agent-hibernation-pane-age.test.ts src/renderer/src/lib/agent-hibernation-output-activity.test.ts src/renderer/src/lib/agent-hibernation-visibility.test.ts src/renderer/src/lib/foreground-terminal-tabs.test.ts src/renderer/src/lib/agent-hibernation-runtime-liveness-race.test.ts",
           "result": "passed",
-          "durationSeconds": 32.19,
-          "summary": "92 tests passed across seven coordinator, planner, confirmation, age, activity and visibility files."
+          "durationSeconds": 48.18,
+          "summary": "93 tests passed across eight coordinator, liveness-race, planner, confirmation, age, activity and visibility files."
         }
       ],
       "runtimeBudget": {
@@ -146,11 +153,11 @@
       },
       "redGreenEvidence": {
         "status": "complete",
-        "evidence": "Baseline made 101 runtime calls in the new no-completed-agent fixture; candidate makes zero. Existing confirmation, final recheck and failure-path assertions continue to pass, including completion during an outstanding request."
+        "evidence": "Baseline made 101 runtime calls in the new no-completed-agent fixture; candidate makes zero. Existing confirmation, final recheck and failure-path assertions continue to pass, including completion during an outstanding request. Separately, baseline hibernated a workspace that became runtime-owned mid-inventory one tick early, taking its first confirmation from a pass planned entirely from client PTYs; candidate withholds that pass and requires two host-confirmed ones."
       },
       "performanceBudget": {
         "required": true,
-        "evidence": "The 100-workspace fixture falls from 100 terminal.list calls plus one compatibility handshake to zero calls. Two-workspace confirmation/recheck fixture falls from five inventories to three. A single status scan and tab membership lookups precede existing requests. No new timer, concurrency, subprocess or retry; only active when experimental automatic hibernation is enabled."
+        "evidence": "The 100-workspace fixture falls from 100 terminal.list calls plus one compatibility handshake to zero calls. Two-workspace confirmation/recheck fixture falls from five inventories to three. A single status scan and tab membership lookups precede existing requests. Recomputing the required-worktree set from the post-await state adds one in-memory owner resolution per workspace per tick and no RPC. No new timer, concurrency, subprocess or retry; only active when experimental automatic hibernation is enabled."
       },
       "knownGaps": [
         "Remote contracts use mocked runtime replies; no live SSH/network-fault, Windows/Linux/WSL or relay run.",

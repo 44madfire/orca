@@ -80,7 +80,17 @@ function snapshotFromState(
     terminalLayoutsByTabId: state.terminalLayoutsByTabId,
     ptyIdsByTabId: state.ptyIdsByTabId,
     runtimeLivePtyIdsByWorktreeId: runtimeLiveness.runtimeLivePtyIdsByWorktreeId,
-    runtimeLivenessRequiredWorktreeIds: runtimeLiveness.runtimeLivenessRequiredWorktreeIds,
+    // Why: a workspace can gain tabs or resolve its runtime owner while the inventory above
+    // is in flight, and the plan is built from this later state. Union the fresh targets in
+    // so such a workspace is required-but-absent and the planner skips it, rather than
+    // answering for the execution host from client PTYs. Union, never replace: dropping a
+    // pre-await target would narrow the fail-closed set instead of widening it.
+    runtimeLivenessRequiredWorktreeIds: [
+      ...new Set([
+        ...runtimeLiveness.runtimeLivenessRequiredWorktreeIds,
+        ...getRuntimeLivenessTargetWorktrees(state, targetWorktreeId).keys()
+      ])
+    ],
     mobileLockedPtyIds: [...getAllDrivers()]
       .filter(([, driver]) => driver.kind === 'mobile')
       .map(([ptyId]) => ptyId),
