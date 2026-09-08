@@ -71,6 +71,7 @@ export function sendPtyDataToRenderer(
     session.rendererDeliveryAccountingByPty.set(id, {
       sentChars: charCount,
       ackedChars: 0,
+      writtenOffChars: 0,
       lastSendAtMs: Date.now(),
       lastAckAtMs: null
     })

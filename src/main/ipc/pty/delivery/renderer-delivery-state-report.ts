@@ -10,7 +10,7 @@ import type {
 } from '../../../../shared/pty-renderer-delivery-health'
 import { tryGetProviderForPty } from '../provider/registry'
 import {
-  applyCumulativeAck,
+  applyRendererCumulativeAck,
   collectAckSilentPtyIdsForHeal,
   hasAckSilentRendererDeliveryDebt,
   hasUnreceivedRendererDelivery,
@@ -32,7 +32,7 @@ export function applyRendererProcessedCharTotals(
     if (typeof processedChars !== 'number' || !Number.isFinite(processedChars)) {
       continue
     }
-    const acknowledged = applyCumulativeAck(session, id, Math.max(0, processedChars))
+    const acknowledged = applyRendererCumulativeAck(session, id, Math.max(0, processedChars))
     if (acknowledged > 0) {
       creditedAny = true
       tryGetProviderForPty(id)?.acknowledgeDataEvent(id, acknowledged)

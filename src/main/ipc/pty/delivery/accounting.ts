@@ -160,6 +160,16 @@ export function applyCumulativeAck(
   return acknowledged
 }
 
+// Renderer totals exclude lost pushes; main totals retain them as written-off credit.
+export function applyRendererCumulativeAck(
+  session: PtyIpcSession,
+  id: string,
+  processedChars: number
+): number {
+  const writtenOffChars = session.rendererDeliveryAccountingByPty.get(id)?.writtenOffChars ?? 0
+  return applyCumulativeAck(session, id, processedChars + writtenOffChars)
+}
+
 export function schedulePendingDataAfterCreditReport(
   session: PtyIpcSession,
   creditedAny: boolean
@@ -217,7 +227,7 @@ export function hasUnreceivedRendererDelivery(
 ): boolean {
   return (
     accounting.sentChars > accounting.ackedChars &&
-    sanitizeReportedChars(receivedChars) <= accounting.ackedChars
+    sanitizeReportedChars(receivedChars) + accounting.writtenOffChars <= accounting.ackedChars
   )
 }
 
@@ -239,6 +249,7 @@ export function writeOffLostRendererDelivery(
     if (acknowledged <= 0) {
       continue
     }
+    accounting.writtenOffChars += acknowledged
     tryGetProviderForPty(id)?.acknowledgeDataEvent(id, acknowledged)
     // Why drop pending: everything at/before markerSeq comes from the snapshot, so flushing pre-marker bytes would double-paint the restore.
     const pending = session.pendingData.get(id)

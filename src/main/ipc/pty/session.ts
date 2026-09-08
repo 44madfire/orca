@@ -34,6 +34,7 @@ export type PtyDataPayload = {
 export type RendererPtyDeliveryAccounting = {
   sentChars: number
   ackedChars: number
+  writtenOffChars: number
   lastSendAtMs: number
   lastAckAtMs: number | null
 }

@@ -261,6 +261,110 @@ describe('registerPtyHandlers', () => {
       vi.useRealTimers()
     }
   })
+  it.each(['cumulative ACK', 'health repair', 'legacy ACK'])(
+    'holds fresh parser bytes after writing off old loss until %s',
+    (creditPath) => {
+      vi.useFakeTimers()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const provider = installObservableDaemonTestProvider()
+        registerPtyHandlers(mainWindow as never)
+        const id = 'post-heal-pty'
+        provider.emitData(id, 'x'.repeat(201))
+        vi.advanceTimersByTime(100)
+        const lost = reportRendererDeliveryState({
+          receivedCharsByPty: {},
+          processedCharsByPty: {},
+          heal: true
+        })
+        expect(lost.writtenOff).toEqual([{ id, writtenOffChars: 201 }])
+        provider.emitData(id, 'y'.repeat(199))
+        vi.advanceTimersByTime(10_000)
+        const held = reportRendererDeliveryState({
+          receivedCharsByPty: { [id]: 199 },
+          processedCharsByPty: {},
+          heal: true
+        })
+        expect(held.writtenOff).toBeUndefined()
+        expect(held.inFlightTotalChars).toBe(199)
+        if (creditPath === 'health repair') {
+          reportRendererDeliveryState({
+            receivedCharsByPty: { [id]: 199 },
+            processedCharsByPty: { [id]: 199 }
+          })
+        } else {
+          getPtyAckDataListener()(null, {
+            id,
+            ...(creditPath === 'legacy ACK' ? { charCount: 199 } : { processedChars: 199 })
+          })
+        }
+        expect(getPtyRendererDeliveryDebugSnapshot().rendererInFlightChars).toBe(0)
+        provider.emitData(id, 'z'.repeat(17))
+        vi.advanceTimersByTime(10_000)
+        // Repeated reports must neither credit fresh loss nor count the old writeoff twice.
+        const nextLoss = reportRendererDeliveryState({
+          receivedCharsByPty: { [id]: 199 },
+          processedCharsByPty: { [id]: 199 },
+          heal: true
+        })
+        expect(nextLoss.writtenOff).toEqual([{ id, writtenOffChars: 17 }])
+        provider.emitData(id, 'fresh')
+        vi.advanceTimersByTime(10_000)
+        expect(
+          reportRendererDeliveryState({
+            receivedCharsByPty: { [id]: 204 },
+            processedCharsByPty: { [id]: 199 },
+            heal: true
+          })
+        ).toMatchObject({ inFlightTotalChars: 5 })
+      } finally {
+        warn.mockRestore()
+        vi.useRealTimers()
+      }
+    }
+  )
+
+  it.each(['exit', 'navigation'])(
+    'discards writeoff coordinates on %s before the PTY id is reused',
+    (lifecycle) => {
+      vi.useFakeTimers()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const provider = installObservableDaemonTestProvider()
+        registerPtyHandlers(mainWindow as never)
+        const id = 'reused-healed-pty'
+        provider.emitData(id, 'x'.repeat(201))
+        vi.advanceTimersByTime(100)
+        expect(
+          reportRendererDeliveryState({
+            receivedCharsByPty: {},
+            processedCharsByPty: {},
+            heal: true
+          }).writtenOff
+        ).toEqual([{ id, writtenOffChars: 201 }])
+        if (lifecycle === 'exit') {
+          provider.emitExit(id)
+        } else {
+          getMainFrameNavigationListener()()
+          getPtyRendererDispatcherReadyListener()()
+        }
+        provider.emitData(id, 'fresh')
+        vi.advanceTimersByTime(100)
+        expect(
+          reportRendererDeliveryState({
+            receivedCharsByPty: { [id]: 5 },
+            processedCharsByPty: {}
+          }).inFlightTotalChars
+        ).toBe(5)
+        getPtyAckDataListener()(null, { id, processedChars: 1 })
+        expect(getPtyRendererDeliveryDebugSnapshot().rendererInFlightChars).toBe(4)
+      } finally {
+        warn.mockRestore()
+        vi.useRealTimers()
+      }
+    }
+  )
+
   it('refuses a heal while main has seen a recent ACK', async () => {
     vi.useFakeTimers()
     const mockProc = createMockProc()

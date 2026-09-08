@@ -17,6 +17,7 @@ describe('bounded delivery health recovery candidates', () => {
         accounting.set(id, {
           sentChars: 2000,
           ackedChars: 1000,
+          writtenOffChars: 0,
           lastSendAtMs: now,
           lastAckAtMs: siblingState === 'streaming' ? now : now - 60_000
         })
@@ -25,6 +26,7 @@ describe('bounded delivery health recovery candidates', () => {
       accounting.set('lost', {
         sentChars: 100,
         ackedChars: 0,
+        writtenOffChars: 0,
         lastSendAtMs: now - 60_000,
         lastAckAtMs: null
       })

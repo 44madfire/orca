@@ -26,7 +26,7 @@ import {
   mainDeliveryBreadcrumbs,
   resetRendererDeliveryAccountingForLifecycleReset
 } from '../delivery/debug'
-import { applyCumulativeAck } from '../delivery/accounting'
+import { applyCumulativeAck, applyRendererCumulativeAck } from '../delivery/accounting'
 import {
   applyRendererProcessedCharTotals,
   handleRendererDeliveryStateReport
@@ -105,7 +105,11 @@ export function installPtyResizeVisibilityIpc(session: PtyIpcSession): void {
       session.deliveryResyncUnansweredWarnLogged = false
       let acknowledged = 0
       if (typeof args.processedChars === 'number' && Number.isFinite(args.processedChars)) {
-        acknowledged = applyCumulativeAck(session, args.id, Math.max(0, args.processedChars))
+        acknowledged = applyRendererCumulativeAck(
+          session,
+          args.id,
+          Math.max(0, args.processedChars)
+        )
       } else {
         // Why: tolerate legacy per-chunk delta payloads — dev hot-reload can pair an old renderer with a new main.
         const accounting = session.rendererDeliveryAccountingByPty.get(args.id)

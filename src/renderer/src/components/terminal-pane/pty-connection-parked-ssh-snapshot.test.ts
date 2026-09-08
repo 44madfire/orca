@@ -213,6 +213,54 @@ describe('connectPanePty', () => {
     expect(api.pty.signal).toHaveBeenCalledWith('leaf-session', 'SIGWINCH')
   })
 
+  it('paints a bound parked SSH normal-buffer snapshot once after reattach', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const sshPtyId = toAppSshPtyId('conn-1', 'relay-pty-1')
+    const reattach = createDeferred<{ id: string; isReattach: true }>()
+    const transport = createMockTransport(sshPtyId)
+    transport.connect.mockReturnValue(reattach.promise)
+    transportFactoryQueue.push(transport)
+    vi.mocked(window.api.pty.getMainBufferSnapshot).mockResolvedValue({
+      data: 'PARKED-NORMAL-HISTORY\r\nPARKED-NORMAL-SCREEN\r\n',
+      cols: 80,
+      rows: 24,
+      seq: 123,
+      source: 'headless',
+      alternateScreen: false
+    })
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: sshPtyId }] },
+      ptyIdsByTabId: { 'tab-1': [sshPtyId] },
+      repos: [{ id: 'repo1', connectionId: 'conn-1' }],
+      sshConnectionStates: new Map([['conn-1', { status: 'connected' }]]),
+      deferredSshSessionIdsByTabId: { 'tab-1': sshPtyId }
+    }
+    const pane = createPane(1)
+    const { writes, parseCallbacks } = captureCallbackTerminalWrites(pane)
+    const binding = connectPanePty(
+      pane as never,
+      createManager(1) as never,
+      createDeps({
+        mountFollowsTerminalPark: true,
+        restoredLeafId: LEAF_1,
+        restoredPtyIdByLeafId: { [LEAF_1]: sshPtyId }
+      }) as never
+    )
+    await flushAsyncTicks(20)
+    expect(transport.connect).toHaveBeenCalledOnce()
+    expect(window.api.pty.getMainBufferSnapshot).not.toHaveBeenCalled()
+    reattach.resolve({ id: sshPtyId, isReattach: true })
+    for (let step = 0; step < 40; step += 1) {
+      parseCallbacks.shift()?.()
+      await flushAsyncTicks(2)
+    }
+    expect(window.api.pty.getMainBufferSnapshot).toHaveBeenCalledOnce()
+    expect(writes.join('').match(/PARKED-NORMAL-HISTORY/g)).toHaveLength(1)
+    expect(writes.join('').match(/PARKED-NORMAL-SCREEN/g)).toHaveLength(1)
+    binding.dispose()
+  })
+
   it('keeps a too-wide parked SSH alt frame while no live process can repaint it', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const sshPtyId = toAppSshPtyId('conn-1', 'relay-pty-1')
@@ -231,7 +279,7 @@ describe('connectPanePty', () => {
     })
     mockStoreState = {
       ...mockStoreState,
-      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: sshPtyId }] },
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null }] },
       ptyIdsByTabId: { 'tab-1': [sshPtyId] },
       repos: [{ id: 'repo1', connectionId: 'conn-1' }],
       sshConnectionStates: new Map([['conn-1', { status: 'disconnected' }]]),
@@ -294,7 +342,7 @@ describe('connectPanePty', () => {
     vi.mocked(window.api.ssh.connect).mockReturnValue(sshConnect.promise)
     mockStoreState = {
       ...mockStoreState,
-      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: sshPtyId, generation: 7 }] },
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null, generation: 7 }] },
       ptyIdsByTabId: { 'tab-1': [sshPtyId] },
       repos: [{ id: 'repo1', connectionId: 'conn-1' }],
       sshConnectionStates: new Map([
@@ -373,7 +421,7 @@ describe('connectPanePty', () => {
     })
     mockStoreState = {
       ...mockStoreState,
-      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: foreignPtyId }] },
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null }] },
       ptyIdsByTabId: { 'tab-1': [foreignPtyId] },
       repos: [{ id: 'repo1', connectionId: 'conn-1' }],
       sshConnectionStates: new Map([['conn-1', { status: 'disconnected' }]]),
@@ -425,7 +473,7 @@ describe('connectPanePty', () => {
     vi.mocked(window.api.pty.getMainBufferSnapshot).mockReturnValue(snapshot.promise)
     mockStoreState = {
       ...mockStoreState,
-      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: sshPtyId }] },
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null }] },
       ptyIdsByTabId: { 'tab-1': [sshPtyId] },
       repos: [{ id: 'repo1', connectionId: 'conn-1' }],
       sshConnectionStates: new Map([['conn-1', { status: 'connected' }]]),

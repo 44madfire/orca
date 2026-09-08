@@ -63,8 +63,10 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
     )
     const legacyWorkerOwnsPane = session.isLegacyWorkerAutomaticResumeBlocked()
     if (gate.enterDeferredFlow && (!legacyWorkerOwnsPane || !gate.sshConnected)) {
-      // Paint main's parked model while SSH recovery continues off the render path.
-      session.prepaintParkedSshSnapshot(pendingSessionId)
+      // Bound parked panes paint within reattach; only unbound deferred sessions need early paint.
+      if (tabPtyId !== pendingSessionId) {
+        session.prepaintParkedSshSnapshot(pendingSessionId)
+      }
       void (async () => {
         // Why: for a passphrase target with no cached credential, don't auto-fire ssh.connect — a prompt popping just from focusing a tab / Cmd+J would surprise the user.
         // Wait for a user-initiated connect first; no-passphrase targets return false here and auto-connect as before.
