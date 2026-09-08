@@ -20,34 +20,24 @@ const row = (id: string, incarnationId?: string): PtyProcessInfo => ({
 })
 
 describe('authoritative route publication', () => {
-  it.each(['discovery', 'probe', 'reconciliation'])(
+  it.each(['discovery', 'probe'])(
     'fences delayed %s against same-ID wake without blocking other IDs',
     async (source) => {
-      const legacy = createAdapter('legacy', ['session'], undefined, 29)
-      const current = createAdapter('current', [], undefined, 36)
+      const legacy = createAdapter('legacy', ['session'], 29)
+      const current = createAdapter('current', [], 36)
       const router = new DaemonPtyRouter({ current, legacy: [legacy] })
       await router.discoverLegacySessions()
       const captured = gate<void>()
       const delayed = gate<void>()
-      if (source === 'reconciliation') {
-        vi.mocked(legacy.reconcileOnStartup).mockImplementationOnce(async () => {
-          captured.resolve()
-          await delayed.promise
-          return { alive: ['session'], killed: [] }
-        })
-      } else {
-        vi.mocked(legacy.listProcesses).mockImplementationOnce(async () => {
-          captured.resolve()
-          await delayed.promise
-          return [row('session', 'old')]
-        })
-      }
+      vi.mocked(legacy.listProcesses).mockImplementationOnce(async () => {
+        captured.resolve()
+        await delayed.promise
+        return [row('session', 'old')]
+      })
       const pending =
-        source === 'reconciliation'
-          ? router.reconcileOnStartup(new Set())
-          : source === 'probe'
-            ? router.probePtyLiveness('other-missing')
-            : router.discoverLegacySessions()
+        source === 'probe'
+          ? router.probePtyLiveness('other-missing')
+          : router.discoverLegacySessions()
       await captured.promise
       await router.shutdown('session', { keepHistory: true })
       await router.spawn({ sessionId: 'session', cols: 80, rows: 24 })
@@ -62,7 +52,7 @@ describe('authoritative route publication', () => {
   )
 
   it('does not delete a new incarnation after a delayed false direct probe', async () => {
-    const owner = createAdapter('owner', [], undefined, 36)
+    const owner = createAdapter('owner', [], 36)
     const router = new DaemonPtyRouter({ current: owner, legacy: [] })
     await router.spawn({ sessionId: 'session', cols: 80, rows: 24 })
     const delayed = gate<boolean>()
@@ -77,7 +67,7 @@ describe('authoritative route publication', () => {
   })
 
   it('does not resurrect an exited session from an inventory begun before its first route', async () => {
-    const owner = createAdapter('owner', [], undefined, 36)
+    const owner = createAdapter('owner', [], 36)
     const routes = new Map<string, IPtyProvider>()
     const resolver = new DaemonSessionOwnerResolver([owner], routes)
     const delayed = gate<PtyProcessInfo[]>()
@@ -90,7 +80,7 @@ describe('authoritative route publication', () => {
   })
 
   it('queues exits behind spawn and rejects the predecessor incarnation', async () => {
-    const owner = createAdapter('owner', [], undefined, 36)
+    const owner = createAdapter('owner', [], 36)
     const router = new DaemonPtyRouter({ current: owner, legacy: [] })
     const entered = gate<void>()
     const delayed = gate<void>()
@@ -115,7 +105,7 @@ describe('authoritative route publication', () => {
   it.each(['disposeRouterOnly', 'disconnectOnly'] as const)(
     'rejects late spawn and inventory after %s',
     async (method) => {
-      const owner = createAdapter('owner', [], undefined, 36)
+      const owner = createAdapter('owner', [], 36)
       const router = new DaemonPtyRouter({ current: owner, legacy: [] })
       const delayed = gate<void>()
       const entered = gate<void>()
@@ -143,7 +133,7 @@ describe('authoritative route publication', () => {
   it.each(['matching', 'different', 'newer-route', 'disconnect'])(
     'requires fresh incarnation proof after provider invalidation: %s',
     async (control) => {
-      const owner = createAdapter('owner', [], undefined, 36)
+      const owner = createAdapter('owner', [], 36)
       const routes = new Map<string, IPtyProvider>()
       const resolver = new DaemonSessionOwnerResolver([owner], routes)
       const refresh = gate<PtyProcessInfo[]>()
@@ -184,7 +174,7 @@ describe('authoritative route publication', () => {
     }
   )
   it('does not refresh over a route committed before the invalidated spawn reply', async () => {
-    const owner = createAdapter('owner', [], undefined, 36)
+    const owner = createAdapter('owner', [], 36)
     const routes = new Map<string, IPtyProvider>()
     const resolver = new DaemonSessionOwnerResolver([owner], routes)
     vi.mocked(owner.spawn).mockImplementationOnce(async () => {

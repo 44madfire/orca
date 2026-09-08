@@ -4,7 +4,7 @@ import { createAdapter } from './daemon-pty-router-test-adapter'
 
 it('unsubscribes only the retired adapter including existing auxiliary subscriptions', async () => {
   const current = createAdapter('current')
-  const legacy = createAdapter('legacy', [], undefined, 29)
+  const legacy = createAdapter('legacy', [], 29)
   vi.mocked(legacy.retireIfIdle).mockResolvedValue(true)
   const router = new DaemonPtyRouter({ current, legacy: [legacy] })
   const data = vi.fn()

@@ -20,7 +20,6 @@ type AdapterMock = DaemonPtyAdapter & {
 export function createAdapter(
   label: string,
   sessions: string[] = [],
-  reconcileResult?: { alive: string[]; killed: string[] },
   protocolVersion = GIT_CREDENTIAL_GUARD_HOST_PROTOCOL_VERSION
 ): AdapterMock {
   const writes: { id: string; data: string }[] = []
@@ -137,7 +136,6 @@ export function createAdapter(
     }),
     ackColdRestore: vi.fn(),
     clearTombstone: vi.fn(),
-    reconcileOnStartup: vi.fn(async () => reconcileResult ?? { alive: sessions, killed: [] }),
     dispose: vi.fn(),
     disconnectOnly: vi.fn(async () => {}),
     emitData: (id: string, data: string, sequenceChars?: number) => {

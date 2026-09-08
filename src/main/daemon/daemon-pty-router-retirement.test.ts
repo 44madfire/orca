@@ -142,6 +142,29 @@ describe('shipping router legacy retirement', () => {
     }
   )
 
+  it('preserves discovered incarnation through routed input and final exit', async () => {
+    const spawned = await legacy.spawn({
+      worktreeId: 'folder-fixture::/workspace',
+      cols: 80,
+      rows: 24
+    })
+    expect(spawned.incarnationId).toEqual(expect.any(String))
+    await router.discoverLegacySessions()
+    await router.discoverLegacySessions()
+    expect(await router.listProcesses()).toEqual([
+      expect.objectContaining({ id: spawned.id, incarnationId: spawned.incarnationId })
+    ])
+    router.write(spawned.id, 'routed input')
+    await vi.waitFor(() => expect(child.write).toHaveBeenCalledWith('routed input'))
+    const exited = vi.fn()
+    router.onExit(exited)
+    child.exit()
+    await assertRetired()
+    expect(exited).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: spawned.id, incarnationId: spawned.incarnationId })
+    )
+  })
+
   it('retries after explicit last-route shutdown', async () => {
     await legacy.spawn({ sessionId: 'last', cols: 80, rows: 24 })
     await router.discoverLegacySessions()

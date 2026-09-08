@@ -1,6 +1,5 @@
 import { DaemonRouterSessionCustody } from './daemon-router-session-custody'
 import { CLEAN_DISCONNECT_PROTOCOL_VERSION } from './types'
-import { reconcileDaemonRouterSessions } from './daemon-pty-router-reconciliation'
 import type { DaemonPtyAdapter } from './daemon-pty-adapter'
 import { DaemonPtyAdapterSubscriptionFanout } from './daemon-pty-adapter-subscription-fanout'
 import type {
@@ -260,13 +259,6 @@ export class DaemonPtyRouter implements IPtyProvider {
 
   clearTombstone(sessionId: string): void {
     this.adapterFor(sessionId).clearTombstone(sessionId)
-  }
-
-  async reconcileOnStartup(validWorktreeIds: Set<string>): Promise<{
-    alive: string[]
-    killed: string[]
-  }> {
-    return reconcileDaemonRouterSessions(this.allAdapters(), this.ownerResolver, validWorktreeIds)
   }
 
   dispose(): void {

@@ -6,8 +6,8 @@ describe('router custody admission', () => {
   it.each(['attach', 'attachOnly', 'spawn'])(
     'preserves ownership and unblocks %s after shutdown cancellation',
     async (operation) => {
-      const legacy = createAdapter('legacy', ['sleeping'], undefined, 29)
-      const current = createAdapter('current', [], undefined, 36)
+      const legacy = createAdapter('legacy', ['sleeping'], 29)
+      const current = createAdapter('current', [], 36)
       const router = new DaemonPtyRouter({ current, legacy: [legacy] })
       await router.discoverLegacySessions()
       let cancel!: () => void
