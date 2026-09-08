@@ -28,6 +28,8 @@ export type RunScopeParams = {
   runId?: string
   callerTerminalHandle?: string
   callerPaneKey?: string
+  callerAgentSessionId?: string
+  callerRuntimeFence?: number
   requireCurrentConsumer: boolean
   legacyCoordinatorRunId?: string
   // Why: the caller's declared handle is a user param; this is the attested one to check it against.
@@ -55,6 +57,8 @@ export function assertCallerHandleMatchesEvidence(
 
 export type OrchestrationCallerParams = {
   callerTerminalHandle: string
+  callerAgentSessionId?: string
+  callerRuntimeFence?: number
   callerEvidence?: OrchestrationCompatibilityEvidence
   callerAuthority?: OrchestrationCompatibilityCallerAuthority
   /** Preserve legacy callers that treated a missing pane as an ordinary fence. */
@@ -106,6 +110,20 @@ export function resolveRunScope(runtime: OrcaRuntimeService, params: RunScopePar
 
   if (!params.requireCurrentConsumer && explicit) {
     return explicit
+  }
+  if (params.callerAgentSessionId) {
+    if (params.callerRuntimeFence === undefined) {
+      throw new OrchestrationError('consumer_fenced', 'Missing native session lease fence.')
+    }
+    resolveNativeCoordinatorSession(runtime, params.callerAgentSessionId, params.callerRuntimeFence)
+    const current = db.getCurrentRunForAgentSession(params.callerAgentSessionId)
+    if (!current || (explicit && current.id !== explicit.id)) {
+      throw new OrchestrationError(
+        'consumer_fenced',
+        'This native session is not bound to that Run.'
+      )
+    }
+    return current
   }
   if (!params.callerTerminalHandle) {
     throw new OrchestrationError(

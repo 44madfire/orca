@@ -25,7 +25,11 @@ const RunUseParams = z.object({
   takeoverLegacy: OptionalBoolean
 })
 
-const RunCurrentParams = z.object({ from: OptionalString, agentSessionId: OptionalString })
+const RunCurrentParams = z.object({
+  from: OptionalString,
+  agentSessionId: OptionalString,
+  runtimeFence: z.number().int().positive().optional()
+})
 const RunListParams = z.object({
   limit: z.number().int().min(1).max(ORCHESTRATION_RUN_PAGE_LIMIT).optional(),
   cursor: z.string().min(1).optional()
@@ -103,6 +107,8 @@ export const ORCHESTRATION_RUN_METHODS: RpcMethod[] = [
       }
       const paneKey = resolveOrchestrationCaller(runtime, {
         callerTerminalHandle: params.from,
+        callerAgentSessionId: params.agentSessionId,
+        callerRuntimeFence: params.runtimeFence,
         callerEvidence: orchestrationCompatibilityEvidence,
         callerAuthority,
         requireStablePane: true,
@@ -155,6 +161,8 @@ export const ORCHESTRATION_RUN_METHODS: RpcMethod[] = [
       }
       const paneKey = resolveOrchestrationCaller(runtime, {
         callerTerminalHandle: params.from,
+        callerAgentSessionId: params.agentSessionId,
+        callerRuntimeFence: params.runtimeFence,
         callerEvidence: orchestrationCompatibilityEvidence,
         requireStablePane: true
       })
