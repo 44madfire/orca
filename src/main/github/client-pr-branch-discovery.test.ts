@@ -26,7 +26,7 @@ vi.mock('./github-api-repository', async (importOriginal) =>
   )
 )
 
-import { getPRForBranch } from './client'
+import { getPRForBranch, getPRForBranchOutcome } from './client'
 import { resetPRForBranchMocks } from './client-test-harness'
 
 const {
@@ -203,5 +203,32 @@ describe('getPRForBranch', () => {
     const pr = await getPRForBranch('/repo-root', 'no-pr-branch')
 
     expect(pr).toBeNull()
+  })
+
+  it('returns an inconclusive error when multiple remotes could own an unlinked branch', async () => {
+    resolvePRRepositoryCandidatesMock.mockResolvedValueOnce({
+      candidates: [
+        { owner: 'stablyai', repo: 'orca' },
+        { owner: 'fork', repo: 'orca' }
+      ],
+      headRepo: null,
+      headAmbiguous: true
+    })
+    ghExecFileAsyncMock.mockResolvedValue({ stdout: JSON.stringify([]) })
+    clientMocks.gitExecFileAsyncMock.mockResolvedValue({
+      stdout: 'feature\0\n',
+      stderr: ''
+    })
+
+    await expect(getPRForBranchOutcome('/repo-root', 'feature')).resolves.toMatchObject({
+      kind: 'upstream-error',
+      errorType: 'repo_unavailable'
+    })
+    expect(resolvePRRepositoryCandidatesMock).toHaveBeenCalledWith(
+      '/repo-root',
+      undefined,
+      {},
+      'feature'
+    )
   })
 })

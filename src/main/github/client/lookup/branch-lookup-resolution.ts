@@ -50,10 +50,11 @@ export async function resolvePRForBranchOutcome(input: {
     ghOptions,
     executionScope
   } = input
-  const { candidates, headRepo } = await resolveGitHubApiRepositoryCandidates(
+  const { candidates, headRepo, headAmbiguous } = await resolveGitHubApiRepositoryCandidates(
     repoPath,
     connectionId,
-    localGitOptions
+    localGitOptions,
+    typeof linkedPRNumber === 'number' ? undefined : branchName
   )
   // Why: connection-backed gh runs without a repository cwd. A bare lookup
   // here can honor process GH_REPO/GH_HOST and return an unrelated PR.
@@ -168,6 +169,12 @@ export async function resolvePRForBranchOutcome(input: {
     dataRepo = branchLookup.dataRepo
     if ('pendingError' in branchLookup) {
       pendingBranchLookupError = branchLookup.pendingError
+      hasPendingBranchLookupError = true
+    }
+    if (!data && headAmbiguous && !hasPendingBranchLookupError) {
+      pendingBranchLookupError = new Error(
+        'Could not resolve to a Repository: multiple remotes could own this review branch.'
+      )
       hasPendingBranchLookupError = true
     }
     if (!data) {
