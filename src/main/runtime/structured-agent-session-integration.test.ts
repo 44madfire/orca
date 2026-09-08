@@ -16,6 +16,12 @@ import type {
   openCodexAppServerConnection
 } from '../codex/codex-app-server-connection'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
+import { agentJournalSubmissionKey } from '../../shared/agent-session-journal-item-key'
+import { projectStructuredItemsToNativeChat } from '../../shared/structured-agent-session-projection'
+import {
+  EMPTY_STRUCTURED_AGENT_SESSION,
+  reduceStructuredAgentSession
+} from '../../shared/structured-agent-session-reducer'
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../shared/protocol-version'
 import type { AgentJournalRenderItem } from '../../shared/agent-session-journal-types'
 import type {
@@ -607,6 +613,11 @@ describe('a structured codex session over agentSession.*', () => {
     // are not.
     await call('agentSession.unsubscribe', { sessionId: SESSION })
     const lastCursor = cursorOf(stream)
+    const userBeforeDisconnect = itemsOf(stream).find(
+      (item) => item.itemId === agentJournalSubmissionKey(sent.clientMessageId)
+    )!
+    expect(userBeforeDisconnect.turnTiming?.start).toBeDefined()
+    expect(userBeforeDisconnect.turnTiming?.end).toBeUndefined()
     codex.notify('item/completed', {
       item: { type: 'agentMessage', id: 'item-3', text: 'Stopped.' }
     })
@@ -621,7 +632,37 @@ describe('a structured codex session over agentSession.*', () => {
         (item) => item.body?.kind === 'tool-call' && item.body.state === 'failed'
       )
     ).toBe(true)
-    expect(itemsOf(missed).map(textOf).filter(Boolean)).toEqual(['Stopped.'])
+    expect(itemsOf(missed).map(textOf).filter(Boolean)).toEqual(['list files', 'Stopped.'])
+    // Completion republishes timing on the same user item, without revising its content.
+    const replayedUser = itemsOf(missed).find(
+      (item) => item.itemId === userBeforeDisconnect.itemId
+    )!
+    expect(replayedUser).toEqual({
+      ...userBeforeDisconnect,
+      turnTiming: {
+        ...userBeforeDisconnect.turnTiming,
+        end: { at: expect.any(Number), source: 'host', clock: expect.any(String) }
+      },
+      turnTimingSequence: expect.any(Number)
+    })
+    expect(replayedUser.turnTiming!.end!.at).toBeGreaterThanOrEqual(
+      replayedUser.turnTiming!.start!.at
+    )
+    expect(replayedUser.turnTiming!.end!.clock).toBe(replayedUser.turnTiming!.start!.clock)
+    expect(replayedUser.turnTimingSequence).toBeGreaterThan(lastCursor.sequence)
+    const client = [...stream, ...missed].reduce(
+      (state, event) => reduceStructuredAgentSession(state, { type: 'event', event }),
+      EMPTY_STRUCTURED_AGENT_SESSION
+    )
+    const projectedUsers = projectStructuredItemsToNativeChat(client.items).filter(
+      (message) => message.role === 'user'
+    )
+    expect(projectedUsers).toHaveLength(1)
+    expect(projectedUsers[0]).toMatchObject({
+      id: userBeforeDisconnect.itemId,
+      blocks: body.blocks,
+      turnTiming: replayedUser.turnTiming
+    })
 
     // A runtime taking the session over is the other half of reconnect: the
     // fence advances, the old child is reaped, and its replacement resumes the
