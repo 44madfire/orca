@@ -40,7 +40,8 @@ export function structuredRuntimeWorktreeAgentSources(
       toolInput: summary.toolInput ?? null,
       interrupted: false,
       stateStartedAt: summary.updatedAt,
-      updatedAt: summary.updatedAt
+      updatedAt: summary.updatedAt,
+      authority: 'structured-host'
     })
   }
   return sources

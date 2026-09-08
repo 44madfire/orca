@@ -80,7 +80,10 @@ async function awaitingApproval() {
   return { feed, sessions }
 }
 
-function worktreeFor(feed: StructuredAgentSessionStatusFeed): RuntimeWorktreePsSummary {
+function worktreeFor(
+  feed: StructuredAgentSessionStatusFeed,
+  summaries = feed.liveSessionSummaries()
+): RuntimeWorktreePsSummary {
   const row = {
     worktreeId: WORKTREE_ID,
     status: 'inactive',
@@ -96,7 +99,7 @@ function worktreeFor(feed: StructuredAgentSessionStatusFeed): RuntimeWorktreePsS
       connectedPtyEvidence: { tabIds: new Set(), paneKeys: new Set(), ptyIds: new Set() },
       retainedSnapshots: [],
       hookSnapshots: [],
-      structuredSummaries: feed.liveSessionSummaries()
+      structuredSummaries: summaries
     }),
     orchestrationByPaneKey: null,
     getSummary: (map, _paths, _missing, id) => map.get(id) ?? null
@@ -121,5 +124,32 @@ describe('worktree ps and a closed structured chat', () => {
     const row = worktreeFor(feed)
     expect(row.agents).toHaveLength(0)
     expect(row.status).toBe('inactive')
+  })
+
+  it('keeps an aged host-held working state authoritative', async () => {
+    const { feed } = await awaitingApproval()
+    const aged = feed.liveSessionSummaries().map((summary) => ({
+      ...summary,
+      updatedAt: Date.now() - 30 * 60 * 1000 - 1,
+      status: 'working' as const
+    }))
+    const row = worktreeFor(feed, aged)
+    expect(row.agents).toHaveLength(1)
+    expect(row.agents[0]?.state).toBe('working')
+    expect(row.status).toBe('working')
+    expect(row.agents[0]?.updatedAt).toBe(aged[0]?.updatedAt)
+  })
+
+  it('keeps an aged host-held approval state authoritative', async () => {
+    const { feed } = await awaitingApproval()
+    const aged = feed.liveSessionSummaries().map((summary) => ({
+      ...summary,
+      updatedAt: Date.now() - 30 * 60 * 1000 - 1
+    }))
+    const row = worktreeFor(feed, aged)
+    expect(row.agents).toHaveLength(1)
+    expect(row.agents[0]?.state).toBe('blocked')
+    expect(row.status).toBe('permission')
+    expect(row.agents[0]?.updatedAt).toBe(aged[0]?.updatedAt)
   })
 })

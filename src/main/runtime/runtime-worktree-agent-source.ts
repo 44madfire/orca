@@ -16,4 +16,6 @@ export type RuntimeWorktreeAgentSource = {
   interrupted: boolean
   stateStartedAt: number
   updatedAt: number
+  /** Structured host projections remain authoritative after PTY freshness expiry. */
+  authority?: 'structured-host'
 }
