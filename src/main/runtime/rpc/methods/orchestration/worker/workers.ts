@@ -79,7 +79,7 @@ export const ORCHESTRATION_WORKER_START_METHODS: RpcMethod[] = [
         return receipt && typeof receipt === 'object' ? { ...receipt, mode } : receipt
       }
       return startLocalWorker({
-        params: { ...params, timeoutMs: readinessTimeoutMs },
+        params: { ...params, from: params.from ?? '', timeoutMs: readinessTimeoutMs } as never,
         runtime,
         db,
         run,

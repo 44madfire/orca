@@ -51,11 +51,16 @@ export async function startLocalWorker(args: {
   mode: WorkerStartModeReceipt
 }): Promise<unknown> {
   const { params, runtime, db, run, coordinatorPane, existingTask, orchestrationMutation } = args
-  const requestedWorktree = params.worktree ?? 'current'
+  const paramsWithFrom = { ...params, from: params.from ?? '' }
+  const requestedWorktree = paramsWithFrom.worktree ?? 'current'
   const createsWorktree = requestedWorktree === 'new-child' || requestedWorktree === 'new-top-level'
-  const { agent, launch } = prepareLocalWorkerStart({ params, createsWorktree, runtime })
+  const { agent, launch } = prepareLocalWorkerStart({
+    params: paramsWithFrom,
+    createsWorktree,
+    runtime
+  })
 
-  const coordinatorWorktreeId = await resolveDispatchCallerWorktreeId(runtime, params.from)
+  const coordinatorWorktreeId = await resolveDispatchCallerWorktreeId(runtime, paramsWithFrom.from)
   const creationWorktree = createsWorktree
     ? await runtime.showManagedWorktree(`id:${coordinatorWorktreeId}`)
     : undefined
@@ -75,7 +80,7 @@ export async function startLocalWorker(args: {
     await assertExplicitWorkerTerminalUsable({
       runtime,
       terminal: params.terminal,
-      from: params.from,
+      from: paramsWithFrom.from,
       coordinatorPane,
       resolvedWorktreeId: resolvedWorktree?.id
     })
@@ -101,7 +106,7 @@ export async function startLocalWorker(args: {
       : 'existing_worktree'
   }
   const started = db.createStartingWorkerDispatch({
-    creator: resolveDispatchCreator(runtime, params.from),
+    creator: resolveDispatchCreator(runtime, paramsWithFrom.from),
     maxDepth: runtime.getNestedWorkerMaxDepth(),
     taskId: existingTask?.id,
     taskSpec: params.spec,
@@ -109,10 +114,10 @@ export async function startLocalWorker(args: {
     taskDeps: parseTaskDeps(params.deps),
     taskParentId: params.parent,
     taskRunId: run.id,
-    taskCreatedByTerminalHandle: params.from,
+    taskCreatedByTerminalHandle: paramsWithFrom.from,
     taskCreatedByPaneKey: coordinatorPane ?? undefined,
     taskCreatedByProcessIncarnation:
-      runtime.getTerminalProcessIncarnation(params.from) ?? undefined,
+      runtime.getTerminalProcessIncarnation(paramsWithFrom.from) ?? undefined,
     taskCreatedByRunGeneration: run.consumer_generation,
     retryOf: params.retryOf,
     startOptions,
@@ -150,7 +155,7 @@ export async function startLocalWorker(args: {
         dispatchId: started.dispatch.id,
         requestedWorktree,
         coordinatorWorktree: creationWorktree,
-        params,
+        params: paramsWithFrom,
         agent: agent as TuiAgent,
         launchPreferences: launch.preferences,
         effects
@@ -251,7 +256,7 @@ export async function startLocalWorker(args: {
       dispatchDepth: started.dispatch.depth,
       taskId: task.id,
       taskSpec: task.spec,
-      coordinatorHandle: params.from,
+      coordinatorHandle: paramsWithFrom.from,
       dispatchCapability: capability,
       devMode: params.devMode,
       requestId: orchestrationMutation?.requestId ?? started.dispatch.id
