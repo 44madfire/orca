@@ -18778,6 +18778,78 @@
         "Default config paths are shared with GNOME on a disposable hosted CI runner; nested mode refuses non-GitHub-Actions execution."
       ],
       "demotionRule": "Keep experimental on unexplained failures; retain exact bytes and participation checks without retries, skips, or longer deadlines."
+    },
+    {
+      "id": "terminal-session.settled-worker-main-owned-attach",
+      "title": "Main owns settled worker attachment and preserves fenced pane history",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "terminal-runtime",
+      "layer": "provider-contract-and-electron-restart",
+      "surfaces": ["stable pane spawn", "settled worker restart", "paired terminal create"],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "daemon", "ssh", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local", "daemon", "ssh", "remote-runtime"],
+      "coverageNotes": "macOS hidden Electron restart exercises live and absent daemon sessions. Unit contracts cover direct SSH evidence and paired host/client refusal; other operating systems and real remote topologies remain unverified.",
+      "motivatingLinks": ["https://github.com/stablyai/orca/pull/19358"],
+      "invariant": "Main reads the persisted pane resume fence and permits attachment only. Observed exit preserves the historical tab and binding; unverifiable evidence preserves ownership and permits recovery without replacement.",
+      "oracle": "A fenced stable owner gets one attach attempt and no retirement or second provider call. A restarted worker with a live or exited daemon session retains its exact tab and PTY binding without another agent launch. A fence committed during attachment or claim reconciliation prevents retirement and fresh provider spawn. Unsupported paired resolution never certifies exit; owner absence cannot create until host fenced-create semantics are negotiated.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 npx vitest run --config config/vitest.config.ts src/main/ipc/pty-attach-only-fenced-pane-spawn.test.ts",
+        "ORCA_BACKGROUND_LAUNCH=1 npx vitest run --config config/vitest.config.ts src/main/ipc/pty-attach-only-fenced-pane-spawn.test.ts src/main/ipc/pty/pane/stable-pane-resume-fence-host.test.ts src/renderer/src/components/terminal-pane/remote-runtime-pty-transport-fenced-outcome.test.ts",
+        "ORCA_BACKGROUND_LAUNCH=1 SKIP_BUILD=1 npx playwright test tests/e2e/settled-worker-tab-survives-restart.spec.ts --config tests/playwright.config.ts --project=electron-headless --workers=1 --retries=0"
+      ],
+      "testFiles": [
+        "src/main/ipc/pty-attach-only-fenced-pane-spawn.test.ts",
+        "src/main/ipc/pty/pane/stable-pane-resume-fence-host.test.ts",
+        "src/renderer/src/components/terminal-pane/remote-runtime-pty-transport-fenced-outcome.test.ts",
+        "tests/e2e/settled-worker-tab-survives-restart.spec.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "tests/e2e/settled-worker-tab-survives-restart.spec.ts",
+          "assertions": [
+            "reveal must not tear the settled worker tab down",
+            "main must report observed exit without retiring the pane"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 npx vitest run --config config/vitest.config.ts src/main/ipc/pty-attach-only-fenced-pane-spawn.test.ts",
+          "result": "passed",
+          "durationSeconds": 20.18,
+          "summary": "Main boundary and adjacent contracts passed 19 tests across three suites."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 120,
+        "scope": "Two hidden Electron restart cases; unit contracts use injected provider failures."
+      },
+      "flakeHistory": {
+        "status": "not-started",
+        "evidence": "Round-2 local validation; CI soak has not begun."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "Round-1 reviewers reproduced destructive retirement and false exit classification. Round-2 mutation and restart results are recorded in PR #19358."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "Fence lookup reads one host-scoped workspace session. Fenced absence stops after one provider attach with zero persistence retirement or replacement calls; recovery reuses the existing bounded scheduler."
+      },
+      "knownGaps": [
+        "No real Windows, Linux, WSL, SSH server, or paired two-process UI journey in this gate.",
+        "No CI soak history; archived probes requiring renderer attachOnly or contradictory identical-message outcomes cannot serve as the new contract."
+      ],
+      "promotionCriteria": [
+        "Complete CI soak and add real paired/SSH topology evidence before promotion."
+      ],
+      "demotionRule": "Keep experimental while any restart ordering failure is unexplained; never weaken binding retention to silence failures."
     }
   ]
 }

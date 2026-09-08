@@ -12,6 +12,7 @@ import {
   paneSpawnReservationsByOwnerKey,
   pendingRuntimePaneCreatesByOwnerKey
 } from '../pane/spawn-reservation'
+import { isStablePaneResumeBlocked } from '../pane/stable-pane-resume-fence'
 import { resolveStablePaneOwner } from '../pane/stable-owner'
 import type { PtyIpcSpawnState } from './spawn-state'
 
@@ -96,6 +97,12 @@ export async function beginPtyIpcSpawn(
           args.connectionId
         )
       : null
+  if (
+    !ctx.earlyStablePaneOwner &&
+    isStablePaneResumeBlocked(ctx.deps.store, earlyPaneKey, args.worktreeId, args.connectionId)
+  ) {
+    return { id: args.sessionId ?? '', reattachUnverifiable: true }
+  }
   ctx.earlyWorktreeId = args.worktreeId
   // Reserve early so renderer/runtime materialization cannot start duplicate provider spawns.
   ctx.paneSpawnReservationKey = earlyReservationKey

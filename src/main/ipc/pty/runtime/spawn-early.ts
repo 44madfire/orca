@@ -32,6 +32,12 @@ export function adoptMaterializedRuntimePtySpawn(
   if (startupPromise && !startupAlreadyAwaited) {
     return startupPromise.then(() => adoptMaterializedRuntimePtySpawn(ctx, true))
   }
+  if (
+    ctx.preAdoptedStablePane?.result.exitedBeforeAttach ||
+    ctx.preAdoptedStablePane?.result.reattachUnverifiable
+  ) {
+    return ctx.preAdoptedStablePane.result
+  }
   if (!ctx.preAdoptedStablePane?.materialized) {
     return null
   }

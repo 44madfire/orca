@@ -1,3 +1,4 @@
+import { negotiateTerminalCreateRefusal } from '../terminal-create-refusal-negotiation'
 import { z } from 'zod'
 import {
   getAgentResumeArgv,
@@ -237,20 +238,32 @@ export const AGENT_SESSION_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'terminal.ensureAgentSession',
     params: EnsureAgentSessionParams,
-    handler: (params, { runtime, pairedDeviceId, clientId, clientKind, signal }) =>
-      (runtime as AgentSessionRuntime).ensureAgentSession(
-        withExecutionHostAgentPresentation(params, clientKind),
-        callerContext(pairedDeviceId ?? clientId, clientKind, signal)
+    handler: async (
+      params,
+      { runtime, pairedDeviceId, clientId, clientKind, signal, clientCapabilities }
+    ) =>
+      negotiateTerminalCreateRefusal(
+        await (runtime as AgentSessionRuntime).ensureAgentSession(
+          withExecutionHostAgentPresentation(params, clientKind),
+          callerContext(pairedDeviceId ?? clientId, clientKind, signal)
+        ),
+        clientCapabilities
       )
   }),
   defineMethod({
     name: 'terminal.createAgentSession',
     params: CreateAgentSessionParams,
-    handler: (params, { runtime, pairedDeviceId, clientId, clientKind, signal }) => {
+    handler: async (
+      params,
+      { runtime, pairedDeviceId, clientId, clientKind, signal, clientCapabilities }
+    ) => {
       assertOperationTimestampWithinFutureSkew(params.clientOperationId)
-      return (runtime as AgentSessionRuntime).createAgentSession(
-        withExecutionHostAgentPresentation(params, clientKind),
-        callerContext(pairedDeviceId ?? clientId, clientKind, signal)
+      return negotiateTerminalCreateRefusal(
+        await (runtime as AgentSessionRuntime).createAgentSession(
+          withExecutionHostAgentPresentation(params, clientKind),
+          callerContext(pairedDeviceId ?? clientId, clientKind, signal)
+        ),
+        clientCapabilities
       )
     }
   })

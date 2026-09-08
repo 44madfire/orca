@@ -542,4 +542,29 @@ describe('registerPtyHandlers', () => {
       vi.useRealTimers()
     }
   })
+  it.each(['renderer', 'runtime'] as const)(
+    '%s kill treats daemon session-not-found as completed shutdown',
+    async (entry) => {
+      const id = 'daemon-missing-session'
+      const shutdown = vi.fn(async () => {
+        throw new Error(`Session not found: ${id}`)
+      })
+      installDaemonTestProvider({ shutdown })
+      setPtyOwnership(id, null)
+      const runtime = { setPtyController: vi.fn(), onPtyExit: vi.fn() }
+      registerPtyHandlers(mainWindow as never, runtime as never)
+      if (entry === 'renderer') {
+        await expect(handlers.get('pty:kill')!(null, { id })).resolves.toBeUndefined()
+      } else {
+        const controller = runtime.setPtyController.mock.calls[0]![0] as {
+          kill: (id: string) => boolean
+        }
+        expect(controller.kill(id)).toBe(true)
+      }
+      await vi.waitFor(() => expect(runtime.onPtyExit).toHaveBeenCalled())
+      expect(shutdown).toHaveBeenCalledTimes(1)
+      const { ptyOwnership } = await import('./pty/provider/ownership-state')
+      expect(ptyOwnership.has(id)).toBe(false)
+    }
+  )
 })

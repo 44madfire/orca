@@ -103,9 +103,14 @@ export function clearCompletedWorkerLedger(): void {
   rmSync(lifecycleLedgerPath, { force: true })
 }
 
-export function cleanupCompletedWorkerFixture(): void {
+// Why the module owns this and no spec may: `fakeCliDir` holds the fake `codex` executable every
+// spec that imports this fixture launches. Playwright loads this module once per worker, so with
+// one worker a per-file `afterAll` teardown deletes the binary out from under every later file in
+// the run — the second spec then launches a deleted path, writes no lifecycle events, and times out
+// waiting for them. The temp dir's lifetime is the worker process's, so only the process may end it.
+process.once('exit', () => {
   rmSync(fakeCliDir, { recursive: true, force: true })
-}
+})
 
 export function readCompletedWorkerLedger(): LifecycleEvent[] {
   if (!existsSync(lifecycleLedgerPath)) {

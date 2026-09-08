@@ -1,8 +1,9 @@
+import { isStablePaneResumeBlocked } from './stable-pane-resume-fence'
 import { toSshExecutionHostId } from '../../../../shared/execution-host'
 import { makePaneKey, parsePaneKey } from '../../../../shared/stable-pane-id'
 import { UNVERIFIED_PROCESS_EXIT_CODE } from '../../../../shared/terminal-exit-cause'
 import type { Store } from '../../../persistence'
-import { retireTerminalSurfaceFromPersistence } from '../../../runtime/mobile-session-terminal-persistence-retirement'
+import { retirePersistedStablePaneOwner } from './stable-owner-retirement'
 import type { OrcaRuntimeService } from '../../../runtime/orca-runtime'
 import type { IPtyProvider, PtySpawnOptions, PtySpawnResult } from '../../../providers/types'
 import { parseAppSshPtyId } from '../../../providers/ssh-pty-id'
@@ -120,43 +121,6 @@ export function resolveStablePaneOwner(
   }
 }
 
-export function retirePersistedStablePaneOwner(
-  store: Store | undefined,
-  owner: StablePaneOwner,
-  worktreeId: string,
-  connectionId: string | null | undefined
-): boolean {
-  if (!store) {
-    return false
-  }
-  const paneKey = makePaneKey(owner.tabId, owner.leafId)
-  const hostId = connectionId ? toSshExecutionHostId(connectionId) : undefined
-  const current = resolvePersistedStablePaneOwner(store, paneKey, worktreeId, connectionId)
-  if (!current) {
-    // Why: persistence already dropped this pane binding (an earlier stop retired it while the
-    // runtime kept history), so there is nothing left to clear — that is a completed retirement,
-    // not a competing owner. Reporting failure here strands the pane after its PTY is proven dead.
-    return true
-  }
-  if (current.ptyId !== owner.ptyId || current.incarnationId !== owner.persistedIncarnationId) {
-    return false
-  }
-  const session = store.getWorkspaceSession(hostId)
-  const retired = retireTerminalSurfaceFromPersistence(session, {
-    worktreeId,
-    parentTabId: owner.tabId,
-    leafId: owner.leafId,
-    ptyId: owner.ptyId,
-    ...(current.incarnationId ? { incarnationId: current.incarnationId } : {})
-  })
-  if (retired === session) {
-    return false
-  }
-  store.setWorkspaceSession(retired, hostId)
-  store.flushOrThrow()
-  return true
-}
-
 export type StablePaneSpawnContext = {
   runtime: OrcaRuntimeService | undefined
   store?: Store
@@ -214,6 +178,13 @@ export async function attachStablePaneOwner(
   args: StablePaneSpawnContext & { owner: StablePaneOwner }
 ): Promise<{ result: PtySpawnResult; owner: StablePaneOwner } | null> {
   const { owner, provider, runtime, spawnOptions } = args
+  const paneKey = makePaneKey(owner.tabId, owner.leafId)
+  const blockedAtAttach = isStablePaneResumeBlocked(
+    args.store,
+    paneKey,
+    args.worktreeId,
+    args.connectionId
+  )
   let result: PtySpawnResult
   try {
     result = await provider.spawn({
@@ -233,6 +204,17 @@ export async function attachStablePaneOwner(
       onPtySpawnCommitted: undefined
     })
   } catch (error) {
+    if (isStablePaneResumeBlocked(args.store, paneKey, args.worktreeId, args.connectionId)) {
+      return {
+        owner,
+        result: {
+          id: owner.ptyId,
+          ...(blockedAtAttach && isObservedPtyExitEvidence(error)
+            ? { exitedBeforeAttach: true as const }
+            : { reattachUnverifiable: true as const })
+        }
+      }
+    }
     if (error instanceof TerminalSessionOwnerUnverifiedError) {
       throw new Error('terminal_pane_owner_unverified')
     }
@@ -296,6 +278,19 @@ export async function spawnForStablePane(
     const attached = await attachStablePaneOwner({ ...args, owner: args.owner })
     if (attached) {
       return attached
+    }
+  }
+  if (
+    isStablePaneResumeBlocked(
+      args.store,
+      args.spawnOptions.paneKey,
+      args.worktreeId,
+      args.connectionId
+    )
+  ) {
+    return {
+      result: { id: args.spawnOptions.sessionId ?? '', reattachUnverifiable: true },
+      owner: null
     }
   }
   const result = await args.provider.spawn(args.spawnOptions)

@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { requestTerminalPaneRecovery } from '../terminal-pane-recovery'
-import { recoverUnverifiableDirectSshReattach } from './direct-ssh-reattach-recovery'
+import {
+  mayRetireBindingAfterFailedReattach,
+  recoverUnverifiableReattach
+} from './unverifiable-reattach-recovery'
+
+const state = vi.hoisted(() => ({
+  deleteStateByWorktreeId: {} as Record<string, { isDeleting: boolean }>
+}))
+vi.mock('@/store', () => ({ useAppStore: { getState: () => state } }))
 
 vi.mock('../terminal-pane-recovery', () => ({
   requestTerminalPaneRecovery: vi.fn()
 }))
 
-describe('recoverUnverifiableDirectSshReattach', () => {
+describe('recoverUnverifiableReattach', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -15,7 +23,7 @@ describe('recoverUnverifiableDirectSshReattach', () => {
     const attempt = { attemptId: 'attempt-1' }
     const settleDirectSshPaneRetryAttempt = vi.fn()
 
-    recoverUnverifiableDirectSshReattach(
+    recoverUnverifiableReattach(
       { directSshRetryAttempt: attempt, settleDirectSshPaneRetryAttempt } as never,
       'ssh:target@@pty-1'
     )
@@ -25,7 +33,7 @@ describe('recoverUnverifiableDirectSshReattach', () => {
   })
 
   it('remounts over the preserved PTY when no retry lease exists', () => {
-    recoverUnverifiableDirectSshReattach(
+    recoverUnverifiableReattach(
       {
         directSshRetryAttempt: undefined,
         deps: { tabId: 'tab-1' },
@@ -42,5 +50,25 @@ describe('recoverUnverifiableDirectSshReattach', () => {
       terminalRecoveryGeneration: 2,
       terminalRecoveryInstanceId: 3
     })
+  })
+})
+
+describe('replacement eligibility after failed reattach', () => {
+  it.each([
+    ['ordinary local', false, false, undefined, undefined, true],
+    ['fenced local', true, false, undefined, undefined, false],
+    ['deleting workspace', false, true, undefined, undefined, false],
+    ['direct SSH', false, false, 'ssh-1', undefined, false],
+    ['paired host', false, false, undefined, 'env-1', false]
+  ] as const)('%s', (_name, blocked, deleting, connectionId, runtimeEnvironmentId, expected) => {
+    state.deleteStateByWorktreeId = { 'wt-1': { isDeleting: deleting } }
+    expect(
+      mayRetireBindingAfterFailedReattach({
+        deps: { worktreeId: 'wt-1' },
+        connectionId,
+        runtimeEnvironmentId,
+        isLegacyWorkerAutomaticResumeBlocked: () => blocked
+      } as never)
+    ).toBe(expected)
   })
 })

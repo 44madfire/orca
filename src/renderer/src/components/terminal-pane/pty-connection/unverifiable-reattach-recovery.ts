@@ -1,7 +1,13 @@
+import { mayStartFreshPaneSession } from './fresh-spawn-eligibility'
 import { requestTerminalPaneRecovery } from '../terminal-pane-recovery'
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
-export function recoverUnverifiableDirectSshReattach(
+// Retire only when this transition is allowed to replace the local session.
+export function mayRetireBindingAfterFailedReattach(session: ConnectPanePtySession): boolean {
+  return !session.connectionId && !session.runtimeEnvironmentId && mayStartFreshPaneSession(session)
+}
+
+export function recoverUnverifiableReattach(
   session: ConnectPanePtySession,
   ptyId: string | null | undefined
 ): void {

@@ -65,6 +65,8 @@ export type PtyApi = {
     isReattach?: boolean
     isAlternateScreen?: boolean
     replay?: string
+    exitedBeforeAttach?: boolean
+    reattachUnverifiable?: boolean
     sessionExpired?: boolean
     coldRestore?: { scrollback: string; cwd: string; cols?: number; rows?: number }
     startupCwdFallback?: { kind: 'worktree'; cwd: string }

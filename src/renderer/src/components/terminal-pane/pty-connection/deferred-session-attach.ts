@@ -1,4 +1,3 @@
-import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { useAppStore } from '@/store'
 import { isRuntimeOwnedSshTargetId } from '../../../../../shared/execution-host'
 import { resolveSshPaneConnectGate } from '../ssh-pane-connect-gate'
@@ -11,7 +10,7 @@ import { toProcessExitStartup } from './process-exit-startup'
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 import { runDeferredSessionReattachChoice } from './deferred-session-reattach-choice'
-import { recoverUnverifiableDirectSshReattach } from './direct-ssh-reattach-recovery'
+import { recoverUnverifiableReattach } from './unverifiable-reattach-recovery'
 
 export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
   const isCurrentPaneTransport = (): boolean =>
@@ -61,8 +60,7 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
     console.warn(
       `[pty-connection] SSH tab=${session.deps.tabId} connectionId=${session.connectionId} pendingSessionId=${pendingSessionId} sshConnected=${gate.sshConnected}`
     )
-    const legacyWorkerOwnsPane = session.isLegacyWorkerAutomaticResumeBlocked()
-    if (gate.enterDeferredFlow && (!legacyWorkerOwnsPane || !gate.sshConnected)) {
+    if (gate.enterDeferredFlow) {
       // Paint main's parked model while SSH recovery continues off the render path.
       session.prepaintParkedSshSnapshot(pendingSessionId)
       void (async () => {
@@ -115,13 +113,6 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
         }
         useAppStore.getState().removeDeferredSshReconnectTarget(session.connectionId)
         if (pendingSessionId) {
-          if (session.isLegacyWorkerAutomaticResumeBlocked()) {
-            if (session.attachRetainedLegacyPty(pendingSessionId)) {
-              useAppStore.getState().removeDeferredSshSessionId(session.deps.tabId)
-              scheduleRuntimeGraphSync()
-            }
-            return
-          }
           console.warn(
             `[pty-connection] Attempting reattach for tab=${session.deps.tabId} sessionId=${pendingSessionId}`
           )
@@ -294,7 +285,7 @@ export function runDeferredSessionAttach(session: ConnectPanePtySession): void {
                 return
               }
               session.reportError(err instanceof Error ? err.message : String(err))
-              recoverUnverifiableDirectSshReattach(session, pendingSessionId)
+              recoverUnverifiableReattach(session, pendingSessionId)
             })
           session.armDirectSshPaneRetryTimeout(
             trackedReattachPromise,

@@ -88,6 +88,9 @@ export async function connectIpcPty(
     // recorded before we asked for a PTY, so it belongs to that earlier owner, not to us.
     const priorIncarnationFence = currentPreHandlerPtySequence()
     const spawnResult = await spawnIpcPty(transportOptions, options, admittedSessionId)
+    if (spawnResult.exitedBeforeAttach || spawnResult.reattachUnverifiable) {
+      return context.isDestroyed() ? undefined : spawnResult
+    }
     const retireFreshSpawn = async (): Promise<void> => {
       // A newer generation may already own a recycled id; an id-only kill would retire its PTY.
       if (

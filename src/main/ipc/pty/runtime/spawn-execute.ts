@@ -1,3 +1,7 @@
+import {
+  isStablePaneResumeBlocked,
+  StablePaneResumeBlockedError
+} from '../pane/stable-pane-resume-fence'
 import type { PtySpawnResult } from '../../../providers/types'
 import { ptyIncarnationById, deletePtyOwnership } from '../provider/ownership-state'
 import { ptySizes } from '../delivery/visibility-state'
@@ -31,15 +35,13 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
     }
     const stablePaneOwnerCandidate = ctx.preAdoptedStablePane
       ? ctx.preAdoptedStablePane.owner
-      : args.agentSessionEnsure
-        ? null
-        : resolveStablePaneOwner(
-            ctx.deps.runtime,
-            ctx.deps.store,
-            ctx.spawnIdentityPaneKey,
-            args.worktreeId,
-            args.connectionId
-          )
+      : resolveStablePaneOwner(
+          ctx.deps.runtime,
+          ctx.deps.store,
+          ctx.spawnIdentityPaneKey,
+          args.worktreeId,
+          args.connectionId
+        )
     const expectedPtyId =
       stablePaneOwnerCandidate?.ptyId ?? ctx.effectiveSessionAppId ?? ctx.sessionId
     if (expectedPtyId) {
@@ -61,7 +63,16 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
         throw new Error('client_disconnected')
       }
     }
-    if (args.agentSessionEnsure && !ctx.preAdoptedStablePane) {
+    if (
+      args.agentSessionEnsure &&
+      !ctx.preAdoptedStablePane &&
+      !isStablePaneResumeBlocked(
+        ctx.deps.store,
+        ctx.spawnIdentityPaneKey,
+        args.worktreeId,
+        args.connectionId
+      )
+    ) {
       // Why: daemon-backed claims can outlive this controller; import all
       // proven owners before deciding that an identity is absent.
       await reconcileAgentSessionOwnerListings()
@@ -82,6 +93,16 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
         surface: args.agentSessionEnsure.surface,
         spawn: async () => {
           assertClientStillConnected()
+          if (
+            isStablePaneResumeBlocked(
+              ctx.deps.store,
+              ctx.spawnIdentityPaneKey,
+              args.worktreeId,
+              args.connectionId
+            )
+          ) {
+            throw new StablePaneResumeBlockedError()
+          }
           providerResult = await ctx.provider.spawn(ctx.spawnOptions)
           ctx.rejectedRegistrationCandidate = providerResult
           // Why: a successful lower-owner return proves physical work committed even if admission sees an early exit.
@@ -149,6 +170,9 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
           })
       ctx.result = stablePaneSpawn.result
       ctx.stablePaneOwner = stablePaneSpawn.owner
+      if (ctx.result.exitedBeforeAttach || ctx.result.reattachUnverifiable) {
+        return
+      }
       if (
         ctx.stablePaneOwner &&
         ctx.isNewDaemonSession &&
@@ -196,6 +220,10 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
           : ctx.result.wslDistro
     )
   } catch (err) {
+    if (err instanceof StablePaneResumeBlockedError) {
+      ctx.result = { id: ctx.sessionId ?? '', reattachUnverifiable: true }
+      return
+    }
     if (
       (ctx.isNewDaemonSession || ctx.preparedProvisionalExecutionContext) &&
       ctx.effectiveSessionAppId

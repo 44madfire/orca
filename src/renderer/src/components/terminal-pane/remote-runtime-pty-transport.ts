@@ -19,7 +19,10 @@ import type {
   RuntimeTerminalResolvePane,
   RuntimeTerminalSend
 } from '../../../../shared/runtime-types'
-import { TERMINAL_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
+import {
+  TERMINAL_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY,
+  TERMINAL_FENCED_CREATE_RUNTIME_CAPABILITY
+} from '../../../../shared/protocol-version'
 import { agentResumeHostAuthorityCapability } from '../../runtime/agent-resume-host-authority-capability'
 import {
   isTerminalInputTooLargeWithDeferredMeasurement,
@@ -1197,13 +1200,17 @@ export function createRemoteRuntimePtyTransport(
     return null
   }
 
-  async function resolvePersistedHostPane(): Promise<RuntimeTerminalResolvePane | null> {
+  async function resolvePersistedHostPane(): Promise<
+    | { kind: 'resolved'; terminal: RuntimeTerminalResolvePane }
+    | { kind: 'owner-absent' }
+    | { kind: 'unavailable'; error?: unknown }
+  > {
     if (!tabId || !leafId || !worktreeId) {
-      return null
+      return { kind: 'unavailable' }
     }
     const paneKey = `${tabId}:${leafId}`
     if (resolvePaneUnavailable) {
-      return null
+      return { kind: 'unavailable' }
     }
     let terminal: RuntimeTerminalResolvePane
     try {
@@ -1216,12 +1223,12 @@ export function createRemoteRuntimePtyTransport(
       const message = runtimeTerminalErrorMessage(error)
       if (error instanceof RuntimeRpcCallError && error.code === 'method_not_found') {
         resolvePaneUnavailable = true
-        return null
+        return { kind: 'unavailable' }
       }
-      if (message.includes('terminal_not_found') || message.includes('method_not_found')) {
-        return null
+      if (message === 'terminal_not_found') {
+        return { kind: 'owner-absent' }
       }
-      throw error
+      return { kind: 'unavailable', error }
     }
     if (
       terminal.tabId !== tabId ||
@@ -1248,7 +1255,7 @@ export function createRemoteRuntimePtyTransport(
         throw new Error('terminal_owner_mismatch')
       }
     }
-    return terminal
+    return { kind: 'resolved', terminal }
   }
 
   async function adoptResolvedHostPane(
@@ -1798,7 +1805,11 @@ export function createRemoteRuntimePtyTransport(
       )
       return
     } else if (tabId && leafId && worktreeId) {
-      const resolved = await resolvePersistedHostPane()
+      const resolution = await resolvePersistedHostPane()
+      if (resolution.kind === 'unavailable' && resolution.error) {
+        throw resolution.error
+      }
+      const resolved = resolution.kind === 'resolved' ? resolution.terminal : null
       if (destroyed || !connected || handle !== previousHandle) {
         return
       }
@@ -2190,14 +2201,52 @@ export function createRemoteRuntimePtyTransport(
           )
         }
 
-        if (options.sessionId && !getRemoteRuntimeTerminalHandle(options.sessionId)) {
-          // Why: a HUB session persists host-native PTY ids; resolve its pane handle without exposing that SSH identity as a client transport id.
-          const terminal = await resolvePersistedHostPane()
-          if (terminal) {
-            return await adoptResolvedHostPane(terminal, options)
+        if (options.sessionId) {
+          const resolution = await resolvePersistedHostPane()
+          if (resolution.kind === 'resolved') {
+            return await adoptResolvedHostPane(resolution.terminal, options)
+          }
+          if (resolution.kind === 'unavailable') {
+            const persistedHandle = getRemoteRuntimeTerminalHandle(options.sessionId)
+            if (
+              persistedHandle &&
+              resolvePaneUnavailable &&
+              getRemoteRuntimePtyEnvironmentId(options.sessionId) === currentRuntimeEnvironmentId
+            ) {
+              return await adoptResolvedHostPane(
+                {
+                  handle: persistedHandle,
+                  tabId: tabId ?? '',
+                  leafId: leafId ?? '',
+                  ptyId: null,
+                  worktreeId
+                },
+                options
+              )
+            }
+            connecting = false
+            if (
+              resolution.error &&
+              isRecoverableRemoteRuntimeConnectionError(
+                toRemoteRuntimeClientErrorLike(resolution.error)
+              )
+            ) {
+              scheduleConnectRetryAfterRecoverableFailure()
+            } else {
+              emitRecoveryState()
+            }
+            return { id: options.sessionId, reattachUnverifiable: true }
+          }
+          const status = await callRuntime<RuntimeStatus>('status.get')
+          if (destroyed || lifecycleEpoch !== connectLifecycleEpoch) {
+            return
+          }
+          if (!status.capabilities?.includes(TERMINAL_FENCED_CREATE_RUNTIME_CAPABILITY)) {
+            connecting = false
+            emitRecoveryState()
+            return { id: options.sessionId, reattachUnverifiable: true }
           }
         }
-
         const commandToSend = options.command ?? command
         const startupCommandDeliveryToSend =
           options.startupCommandDelivery ?? startupCommandDelivery
@@ -2319,6 +2368,18 @@ export function createRemoteRuntimePtyTransport(
           return
         }
         const createdTerminal = created.terminal
+        if (createdTerminal.exitedBeforeAttach || createdTerminal.reattachUnverifiable) {
+          connecting = false
+          emitRecoveryState()
+          return {
+            id:
+              options.sessionId ??
+              toRemoteRuntimePtyId(createdTerminal.handle, currentRuntimeEnvironmentId),
+            ...(createdTerminal.exitedBeforeAttach
+              ? { exitedBeforeAttach: true }
+              : { reattachUnverifiable: true })
+          }
+        }
         adoptExecutionMetadata(createdTerminal)
         if (created.disposition !== undefined && tabId && createdTerminal.tabId) {
           recordWebAgentSessionHandoff({
@@ -2463,7 +2524,11 @@ export function createRemoteRuntimePtyTransport(
           )
           return
         }
-        const resolved = await resolvePersistedHostPane()
+        const resolution = await resolvePersistedHostPane()
+        if (resolution.kind === 'unavailable' && resolution.error) {
+          throw resolution.error
+        }
+        const resolved = resolution.kind === 'resolved' ? resolution.terminal : null
         if (generation !== attachGeneration || destroyed) {
           return
         }
@@ -2487,7 +2552,11 @@ export function createRemoteRuntimePtyTransport(
           return
         }
         if (!resolved) {
-          surfaceErrorMessage('Remote terminal was closed.')
+          surfaceErrorMessage(
+            resolution.kind === 'owner-absent'
+              ? 'Remote terminal was closed.'
+              : 'Remote terminal is temporarily unavailable.'
+          )
           return
         }
         await adoptResolvedHostPane(resolved, options, false, generation)

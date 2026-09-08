@@ -1,3 +1,4 @@
+import { mayStartFreshPaneSession } from './fresh-spawn-eligibility'
 import { useAppStore } from '@/store'
 import { hasPtySerializer } from '../pty-buffer-serializer'
 import { writeTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-scheduler'
@@ -34,15 +35,7 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
         }
       }
     }
-    if (session.isLegacyWorkerAutomaticResumeBlocked()) {
-      releaseDeferredCwdFence()
-      return Promise.resolve(null)
-    }
-    if (useAppStore.getState().deleteStateByWorktreeId?.[session.deps.worktreeId]?.isDeleting) {
-      // Why: the worktree is being deleted; its PTYs were just killed for the
-      // filesystem teardown. A fresh shell must not spawn into a directory the
-      // removal is about to delete (main fences it anyway), and the pane is
-      // about to unmount — so skip the doomed respawn instead of racing it.
+    if (!mayStartFreshPaneSession(session)) {
       releaseDeferredCwdFence()
       return Promise.resolve(null)
     }

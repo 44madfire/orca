@@ -1,4 +1,4 @@
-import { rejectPaneSpawnReservation } from '../pane/spawn-reservation'
+import { rejectPaneSpawnReservation, resolvePaneSpawnReservation } from '../pane/spawn-reservation'
 import { ptySizes } from '../delivery/visibility-state'
 import { beginPtyIpcSpawn } from './spawn-begin'
 import { preparePtyIpcSpawnPreflight } from './spawn-preflight'
@@ -39,6 +39,17 @@ export async function runPtyIpcSpawn(deps: PtySpawnIpcDeps, args: PtySpawnIpcArg
   }
   try {
     await preparePtyIpcSpawnPreflight(ctx)
+    const attachOutcome = ctx.preAdoptedStablePane?.result
+    if (attachOutcome?.exitedBeforeAttach || attachOutcome?.reattachUnverifiable) {
+      if (ctx.preSpawnHiddenMarkId !== null) {
+        ctx.deps.transitionSpawnHiddenRendererPtyDeliveryState(ctx.preSpawnHiddenMarkId, false)
+      }
+      return resolvePaneSpawnReservation(
+        ctx.paneSpawnReservationKey,
+        ctx.paneSpawnReservation,
+        attachOutcome
+      )
+    }
     await assemblePtyIpcSpawnEnv(ctx)
     const earlyReserved = await buildPtyIpcSpawnOptions(ctx).catch((error: unknown) => {
       restoreProvisionalPtySize(ctx)
@@ -53,6 +64,20 @@ export async function runPtyIpcSpawn(deps: PtySpawnIpcDeps, args: PtySpawnIpcArg
       return earlyReserved
     }
     await executePtyIpcSpawn(ctx)
+    if (ctx.result.exitedBeforeAttach || ctx.result.reattachUnverifiable) {
+      releaseAbandonedAgentTeamsLeader(ctx)
+      restoreProvisionalPtySize(ctx)
+      if (ctx.preSpawnHiddenMarkId !== null) {
+        ctx.deps.transitionSpawnHiddenRendererPtyDeliveryState(ctx.preSpawnHiddenMarkId, false)
+      }
+      deps.runtime?.cancelPendingPtyRegistration?.(ctx.pendingRegistrationPtyId ?? ctx.result.id)
+      ctx.pendingRegistrationPtyId = null
+      return resolvePaneSpawnReservation(
+        ctx.paneSpawnReservationKey,
+        ctx.paneSpawnReservation,
+        ctx.result
+      )
+    }
     return await commitPtyIpcSpawn(ctx)
   } catch (err) {
     releaseAbandonedAgentTeamsLeader(ctx)
