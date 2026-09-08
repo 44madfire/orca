@@ -59,6 +59,15 @@ export function resolveOrchestrationRuntimeFence(): string | undefined {
   return value && value.length > 0 ? value : undefined
 }
 
+export function orchestrationSessionPayload(): {
+  agentSessionId?: string
+  runtimeFence?: number
+} {
+  const agentSessionId = resolveOrchestrationAgentSessionId()
+  const fence = resolveOrchestrationRuntimeFence()
+  return agentSessionId && fence ? { agentSessionId, runtimeFence: Number(fence) } : {}
+}
+
 /**
  * Whether the handle this process was born with still names a live identity.
  *
