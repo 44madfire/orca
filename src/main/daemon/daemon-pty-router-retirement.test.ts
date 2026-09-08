@@ -479,4 +479,46 @@ describe('shipping router legacy retirement', () => {
       expect(ownerWrite).toHaveBeenCalledWith(id, 'wake-input')
     }
   )
+  it('independent: unrelated probe cannot overwrite a committed wake route', async () => {
+    const id = 'stale-inventory-wake'
+    await legacy.spawn({ sessionId: id, cols: 80, rows: 24 })
+    child.output('INVENTORY-RECOVERY-MARKER')
+    await router.discoverLegacySessions()
+    peer = new DaemonClient({
+      socketPath: getDaemonSocketPath(dir, 29),
+      tokenPath: join(dir, 'legacy.token'),
+      protocolVersion: 29
+    })
+    await peer.ensureConnected()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let captured = false
+    const realList = legacy.listProcesses.bind(legacy)
+    vi.spyOn(legacy, 'listProcesses').mockImplementationOnce(async (...args) => {
+      const result = await realList(...args)
+      expect(result.some((row) => row.id === id)).toBe(true)
+      captured = true
+      await gate
+      return result
+    })
+    const probe = router.probePtyLiveness('different-missing-id')
+    await vi.waitFor(() => expect(captured).toBe(true))
+    try {
+      await router.shutdown(id, { immediate: true, keepHistory: true })
+      const awakened = await router.spawn({ sessionId: id, cols: 80, rows: 24 })
+      expect(awakened.coldRestore?.scrollback).toContain('INVENTORY-RECOVERY-MARKER')
+      expect(current.hasPty(id)).toBe(true)
+      expect(legacy.hasPty(id)).toBe(false)
+    } finally {
+      release()
+      await probe
+    }
+    const oldWrite = vi.spyOn(legacy, 'write')
+    const newWrite = vi.spyOn(current, 'write')
+    router.write(id, 'wake-input')
+    expect(oldWrite).not.toHaveBeenCalled()
+    expect(newWrite).toHaveBeenCalledWith(id, 'wake-input')
+  })
 })

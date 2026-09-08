@@ -1,11 +1,10 @@
 import { CLEAN_DISCONNECT_PROTOCOL_VERSION } from './types'
 import { shouldHandoffDaemonHistory } from './daemon-history-handoff'
-import { serializeSessionOperation } from './session-operation-serialization'
+import type { RouteObservation } from './daemon-session-route-authority'
 import type { DaemonPtyAdapter } from './daemon-pty-adapter'
 import type { DaemonSessionOwnerResolver } from './daemon-session-owner-resolution'
 
 export class DaemonRouterSessionCustody {
-  private readonly operations = new Map<string, Promise<void>>()
   readonly releasing = new Map<DaemonPtyAdapter, number>()
   readonly releasingIds = new Set<string>()
 
@@ -16,20 +15,21 @@ export class DaemonRouterSessionCustody {
   ) {}
 
   // Select the owner inside the queue; a preceding sleep may transfer it to current.
-  run<T>(id: string, operation: () => Promise<T>): Promise<T> {
-    return serializeSessionOperation(this.operations, id, operation)
+  run<T>(id: string, operation: (observation: RouteObservation) => Promise<T>): Promise<T> {
+    return this.ownerResolver.runWithCustody(id, operation)
   }
 
   shutdown(
     id: string,
     opts: { immediate?: boolean; keepHistory?: boolean; deadlineMs?: number }
   ): Promise<DaemonPtyAdapter> {
-    return this.run(id, () => this.releaseWithCustody(id, opts))
+    return this.run(id, (observation) => this.releaseWithCustody(id, opts, observation))
   }
 
   private async releaseWithCustody(
     id: string,
-    opts: { immediate?: boolean; keepHistory?: boolean; deadlineMs?: number }
+    opts: { immediate?: boolean; keepHistory?: boolean; deadlineMs?: number },
+    observation: RouteObservation
   ): Promise<DaemonPtyAdapter> {
     const adapter = this.adapterFor(id)
     this.releasing.set(adapter, (this.releasing.get(adapter) ?? 0) + 1)
@@ -40,13 +40,16 @@ export class DaemonRouterSessionCustody {
         shouldHandoffDaemonHistory(opts.keepHistory, adapter, this.current) &&
         (adapter.protocolVersion < CLEAN_DISCONNECT_PROTOCOL_VERSION ||
           (await adapter.canHandoffHistoryTo(this.current, id)))
+      if (!this.ownerResolver.authority.isCurrent(id, observation)) {
+        return adapter
+      }
       if (!opts.keepHistory || migrateHistory) {
         if (migrateHistory) {
           adapter.ackColdRestore(id)
         }
-        this.ownerResolver.forgetRoute(id, adapter)
+        this.ownerResolver.forgetRoute(id, adapter, observation)
       } else {
-        this.ownerResolver.recordRoute(id, adapter)
+        this.ownerResolver.recordRoute(id, adapter, undefined, observation)
       }
     } finally {
       this.releasingIds.delete(id)

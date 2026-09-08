@@ -6,6 +6,7 @@ export async function reconcileDaemonRouterSessions(
   ownerResolver: DaemonSessionOwnerResolver<DaemonPtyAdapter>,
   validWorktreeIds: Set<string>
 ): Promise<{ alive: string[]; killed: string[] }> {
+  const observation = ownerResolver.authority.capture()
   const alive: string[] = []
   const killed: string[] = []
   const aliveProviders = new Map<string, Set<DaemonPtyAdapter>>()
@@ -28,9 +29,9 @@ export async function reconcileDaemonRouterSessions(
   for (const id of new Set([...alive, ...killed])) {
     const providers = aliveProviders.get(id)
     if (providers?.size === 1) {
-      ownerResolver.recordRoute(id, providers.values().next().value!)
+      ownerResolver.recordRoute(id, providers.values().next().value!, undefined, observation)
     } else {
-      ownerResolver.forgetRoute(id)
+      ownerResolver.forgetRoute(id, undefined, observation)
     }
   }
   return { alive, killed }

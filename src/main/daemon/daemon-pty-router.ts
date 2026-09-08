@@ -35,10 +35,11 @@ export class DaemonPtyRouter implements IPtyProvider {
     )
     this.subscriptions = new DaemonPtyAdapterSubscriptionFanout(
       this.allAdapters(),
-      (id, adapter) => {
+      (id, adapter, incarnationId) => {
         if (!this.custody.releasingIds.has(id)) {
-          this.ownerResolver.forgetRoute(id, adapter)
-          void this.retireLegacyAdapter(adapter)
+          void this.ownerResolver.authority
+            .exited(id, adapter, incarnationId)
+            .then(() => this.retireLegacyAdapter(adapter))
         }
       },
       (adapter) => this.ownerResolver.invalidateProvider(adapter)
@@ -52,20 +53,26 @@ export class DaemonPtyRouter implements IPtyProvider {
 
   async spawn(opts: PtySpawnOptions): Promise<PtySpawnResult> {
     return opts.sessionId
-      ? this.custody.run(opts.sessionId, () => this.spawnWithCustody(opts))
+      ? this.custody.run(opts.sessionId, (observation) => this.spawnWithCustody(opts, observation))
       : this.spawnWithCustody(opts)
   }
 
-  private async spawnWithCustody(opts: PtySpawnOptions): Promise<PtySpawnResult> {
+  private async spawnWithCustody(
+    opts: PtySpawnOptions,
+    observation = this.ownerResolver.authority.capture()
+  ): Promise<PtySpawnResult> {
     if (opts.attachOnly && opts.sessionId) {
-      return await this.ownerResolver.spawnAttachOnly({ ...opts, sessionId: opts.sessionId })
+      return await this.ownerResolver.spawnAttachOnly(
+        { ...opts, sessionId: opts.sessionId },
+        observation
+      )
     }
     const adapter = opts.sessionId ? this.sessionAdapters.get(opts.sessionId) : undefined
     const target = adapter ?? this.current
     const result = await target.spawn(opts)
     // Why: the adapter filters intentional recovery exits and canonical-ID races before publishing proof.
     if (!result.exitedBeforeSpawnReply) {
-      this.ownerResolver.recordRoute(result.id, target, result.incarnationId)
+      await this.ownerResolver.publishSpawnResult(result, target, observation)
     }
     return result
   }
@@ -264,6 +271,7 @@ export class DaemonPtyRouter implements IPtyProvider {
 
   dispose(): void {
     this.disposed = true
+    this.ownerResolver.authority.dispose()
     this.subscriptions.dispose()
     for (const adapter of this.allAdapters()) {
       adapter.dispose()
@@ -279,11 +287,13 @@ export class DaemonPtyRouter implements IPtyProvider {
   // adapters' listener arrays (one pair per adapter per restart).
   disposeRouterOnly(): void {
     this.disposed = true
+    this.ownerResolver.authority.dispose()
     this.subscriptions.dispose()
   }
 
   async disconnectOnly(): Promise<void> {
     this.disposed = true
+    this.ownerResolver.authority.dispose()
     this.subscriptions.dispose()
     await Promise.all([...this.allAdapters()].map((adapter) => adapter.disconnectOnly()))
   }
@@ -311,7 +321,6 @@ export class DaemonPtyRouter implements IPtyProvider {
     if (!adapter) {
       throw new Error('terminal_gone')
     }
-    this.sessionAdapters.set(sessionId, adapter)
     return adapter
   }
 
