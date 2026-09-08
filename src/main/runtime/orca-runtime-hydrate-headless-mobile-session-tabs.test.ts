@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getDefaultWorkspaceSession } from '../../shared/constants'
-import type { RuntimeMobileSessionTabsSnapshot } from '../../shared/runtime-types'
+import type {
+  RuntimeMobileSessionSnapshotTab,
+  RuntimeMobileSessionTabsSnapshot
+} from '../../shared/runtime-types'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
 import * as terminalProjection from './mobile-session-terminal-projection'
 import { OrcaRuntimeService } from './orca-runtime'
@@ -12,10 +15,15 @@ type RuntimeInternals = {
   getAvailableAuthoritativeWindow(): unknown
   getWorkspaceSessionForWorktree(worktreeId: string): WorkspaceSessionState
   mobileSessionTabsByWorktree: Map<string, RuntimeMobileSessionTabsSnapshot>
-  buildHeadlessMobileSessionBrowserTabs: () => never[]
+  buildHeadlessMobileSessionBrowserTabs: () => RuntimeMobileSessionSnapshotTab[]
   reconcileHeadlessMobileSessionBrowserTabs: () => void
   hasServeOrSshOwnedBinding(tab: { ptyId?: string }): boolean
   hasRecentExpiredSshLeasePane(): boolean
+  isHeadlessBuiltMobileSessionPublicationBase(publicationEpoch: string): boolean
+  shouldPreserveHeadlessMobileSessionTab(
+    snapshot: RuntimeMobileSessionTabsSnapshot,
+    tab: RuntimeMobileSessionSnapshotTab
+  ): boolean
   hydrateHeadlessMobileSessionTabsFromWorkspaceSession(
     worktreeId: string,
     options: {
@@ -25,6 +33,21 @@ type RuntimeInternals = {
       force?: boolean
     }
   ): Set<string>
+}
+
+function browserTab(): RuntimeMobileSessionSnapshotTab {
+  return {
+    type: 'browser',
+    id: 'browser',
+    browserWorkspaceId: 'page',
+    browserPageId: 'browser',
+    loading: false,
+    canGoBack: false,
+    canGoForward: false,
+    title: 'Page',
+    url: 'about:blank',
+    isActive: false
+  }
 }
 
 function setup() {
@@ -81,18 +104,10 @@ describe('persisted terminal hydration behind non-terminal snapshots', () => {
   it.each([false, true])('preserves the active chat and its group (browser split: %s)', (split) => {
     const { runtime, session, snapshot } = setup()
     if (split) {
-      snapshot.tabs.push({
-        type: 'browser',
-        id: 'browser',
-        browserWorkspaceId: 'page',
-        browserPageId: 'browser',
-        loading: false,
-        canGoBack: false,
-        canGoForward: false,
-        title: 'Page',
-        url: 'about:blank',
-        isActive: false
-      })
+      const browser = browserTab()
+      snapshot.tabs.push(browser)
+      // The page is still live, so the rebuild republishes it.
+      runtime.buildHeadlessMobileSessionBrowserTabs = vi.fn(() => [browser])
       snapshot.tabGroups!.unshift({
         id: 'browser-group',
         activeTabId: 'browser',
@@ -213,9 +228,99 @@ describe('persisted terminal hydration behind non-terminal snapshots', () => {
       allowAttachedWindow: true,
       force: true
     })
-    expect(runtime.mobileSessionTabsByWorktree.get(WORKTREE)!.tabs.map((tab) => tab.type)).toEqual([
-      'terminal',
-      'terminal'
-    ])
+    const result = runtime.mobileSessionTabsByWorktree.get(WORKTREE)!
+    expect(result.tabs.map((tab) => tab.type)).toEqual(['terminal', 'terminal'])
+    // Guards the epoch fix below from over-correcting: a plain rebuild that
+    // merges into nothing is headless-built and must say so.
+    expect(result.publicationEpoch.startsWith('headless-hydrated:')).toBe(true)
+  })
+})
+
+describe('chat-only fall-through hygiene', () => {
+  const RENDERER_EPOCH = 'renderer:6b1f0f5c-0b6a-4d31-9d1f-6a0f1d2c3b4e'
+
+  it('carries a renderer base epoch forward instead of reclassing as headless-built', () => {
+    const { runtime, snapshot } = setup()
+    snapshot.publicationEpoch = RENDERER_EPOCH
+
+    runtime.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(WORKTREE, {
+      allowAttachedWindow: true
+    })
+
+    const result = runtime.mobileSessionTabsByWorktree.get(WORKTREE)!
+    expect(result.publicationEpoch).toBe(RENDERER_EPOCH)
+    expect(runtime.isHeadlessBuiltMobileSessionPublicationBase(result.publicationEpoch)).toBe(false)
+    const hydrated = result.tabs.find((tab) => tab.type === 'terminal')!
+    expect(runtime.shouldPreserveHeadlessMobileSessionTab(result, hydrated)).toBe(false)
+  })
+
+  it('keeps a headless base epoch headless-built', () => {
+    const { runtime, snapshot } = setup()
+    snapshot.publicationEpoch = 'headless:seed'
+
+    runtime.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(WORKTREE, {
+      allowAttachedWindow: true
+    })
+
+    const result = runtime.mobileSessionTabsByWorktree.get(WORKTREE)!
+    expect(result.publicationEpoch.startsWith('headless-hydrated:')).toBe(true)
+    expect(runtime.isHeadlessBuiltMobileSessionPublicationBase(result.publicationEpoch)).toBe(true)
+  })
+
+  it('publishes persisted groups in the wire shape, without worktreeId', () => {
+    const { runtime, session, snapshot } = setup()
+    delete snapshot.tabGroups
+    session.tabGroups = {
+      [WORKTREE]: ['left', 'right'].map((id) => ({
+        id,
+        worktreeId: WORKTREE,
+        activeTabId: null,
+        tabOrder: [],
+        recentTabIds: []
+      }))
+    }
+
+    runtime.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(WORKTREE, {
+      allowAttachedWindow: true
+    })
+
+    const result = runtime.mobileSessionTabsByWorktree.get(WORKTREE)!
+    expect(result.tabGroups!.length).toBeGreaterThan(0)
+    for (const group of result.tabGroups!) {
+      expect(Object.keys(group)).not.toContain('worktreeId')
+    }
+  })
+
+  it('drops a browser tab whose page is gone', () => {
+    const { runtime, snapshot } = setup()
+    snapshot.tabs.push(browserTab())
+    snapshot.tabGroups![0]!.tabOrder.push('browser')
+
+    runtime.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(WORKTREE, {
+      allowAttachedWindow: true
+    })
+
+    const result = runtime.mobileSessionTabsByWorktree.get(WORKTREE)!
+    expect(result.tabs.map((tab) => tab.id)).not.toContain('browser')
+    expect(result.tabs.some((tab) => tab.id === CHAT)).toBe(true)
+    expect(result.tabGroups!.flatMap((group) => group.tabOrder)).not.toContain('browser')
+  })
+
+  it('reseats the active group when the stale browser emptied it', () => {
+    const { runtime, snapshot } = setup()
+    snapshot.tabs.push(browserTab())
+    snapshot.tabGroups!.push({ id: 'browser-group', activeTabId: 'browser', tabOrder: ['browser'] })
+    snapshot.activeGroupId = 'browser-group'
+    snapshot.activeTabId = 'browser'
+    snapshot.activeTabType = 'browser'
+
+    runtime.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(WORKTREE, {
+      allowAttachedWindow: true
+    })
+
+    const result = runtime.mobileSessionTabsByWorktree.get(WORKTREE)!
+    expect(result.tabGroups!.map((group) => group.id)).not.toContain('browser-group')
+    expect(result.tabGroups!.some((group) => group.id === result.activeGroupId)).toBe(true)
+    expect(result.tabs.some((tab) => tab.id === result.activeTabId)).toBe(true)
   })
 })
