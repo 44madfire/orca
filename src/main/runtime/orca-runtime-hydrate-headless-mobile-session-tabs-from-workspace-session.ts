@@ -12,6 +12,7 @@ import type {
   RuntimeMobileSessionTerminalTab
 } from '../../shared/runtime-types'
 import {
+  buildHeadlessMobileSessionTabGroups,
   collectHeadlessParentTabOrder,
   distributeHeadlessTabsAcrossGroups,
   getHeadlessMobileSessionGroupId,
@@ -97,9 +98,10 @@ export class OrcaRuntimeWithHydrateHeadlessMobileSessionTabsFromWorkspaceSession
         }
       }
       const existing = this.mobileSessionTabsByWorktree.get(entryWorktreeId)
+      const hasExistingTerminals = existing?.tabs.some((tab) => tab.type === 'terminal')
       if (
         existing &&
-        existing.tabs.length > 0 &&
+        hasExistingTerminals &&
         options.force !== true &&
         options.onlyRuntimeOwnedTerminals !== true
       ) {
@@ -111,6 +113,11 @@ export class OrcaRuntimeWithHydrateHeadlessMobileSessionTabsFromWorkspaceSession
         reconciledWorktreeIds.add(entryWorktreeId)
         continue
       }
+      const preserveNonTerminalSnapshot =
+        existing?.tabs.length > 0 &&
+        !hasExistingTerminals &&
+        options.force !== true &&
+        options.onlyRuntimeOwnedTerminals !== true
       const terminalTabs = buildHeadlessMobileSessionTerminalTabs(
         entryWorktreeId,
         persistedTabs,
@@ -136,7 +143,7 @@ export class OrcaRuntimeWithHydrateHeadlessMobileSessionTabsFromWorkspaceSession
       ]
       const groupId = getHeadlessMobileSessionGroupId(entryWorktreeId)
       const mergedTabs =
-        options.onlyRuntimeOwnedTerminals === true && existing
+        (options.onlyRuntimeOwnedTerminals === true || preserveNonTerminalSnapshot) && existing
           ? mergeMobileSessionSnapshotTabs(existing.tabs, tabs)
           : tabs
       const mergedActiveTab =
@@ -156,6 +163,7 @@ export class OrcaRuntimeWithHydrateHeadlessMobileSessionTabsFromWorkspaceSession
       const persistedGroups = session.tabGroups?.[entryWorktreeId]
       const persistedLayout = session.tabGroupLayouts?.[entryWorktreeId]
       const hasPersistedSplit =
+        (!preserveNonTerminalSnapshot || !existing?.tabGroups) &&
         options.onlyRuntimeOwnedTerminals !== true &&
         persistedGroups !== undefined &&
         persistedGroups.length > 1
@@ -164,43 +172,50 @@ export class OrcaRuntimeWithHydrateHeadlessMobileSessionTabsFromWorkspaceSession
           ? mergedActiveTab.parentTabId
           : mergedActiveTab.id
         : null
-      const nextTabGroups: RuntimeMobileSessionTabGroup[] = hasPersistedSplit
-        ? appendBrowserTabOrder(
-            distributeHeadlessTabsAcrossGroups(
-              persistedGroups.map((group) => ({
-                id: group.id,
-                activeTabId: group.activeTabId,
-                tabOrder: [...group.tabOrder],
-                ...(group.recentTabIds ? { recentTabIds: [...group.recentTabIds] } : {})
-              })),
-              collectHeadlessParentTabOrder(mergedTerminalTabs),
-              activeTopLevelId
-            ),
-            mergedBrowserOrder,
-            undefined,
-            // Why: distribute drops browser ids (terminal-only), so carry each
-            // browser's persisted group forward instead of coalescing left.
-            collectBrowserGroupAssignment(persistedGroups, mergedBrowserOrder)
+      const nextTabGroups: RuntimeMobileSessionTabGroup[] = preserveNonTerminalSnapshot
+        ? buildHeadlessMobileSessionTabGroups(
+            entryWorktreeId,
+            mergedTabs,
+            mergedActiveTab,
+            existing.tabGroups ?? persistedGroups
           )
-        : options.onlyRuntimeOwnedTerminals === true && existing?.tabGroups
+        : hasPersistedSplit
           ? appendBrowserTabOrder(
-              mergeMobileSessionTabGroups(
-                entryWorktreeId,
-                existing.tabGroups,
-                mergedTerminalTabs,
-                mergedActiveTab?.type === 'terminal' ? mergedActiveTab : null
+              distributeHeadlessTabsAcrossGroups(
+                persistedGroups.map((group) => ({
+                  id: group.id,
+                  activeTabId: group.activeTabId,
+                  tabOrder: [...group.tabOrder],
+                  ...(group.recentTabIds ? { recentTabIds: [...group.recentTabIds] } : {})
+                })),
+                collectHeadlessParentTabOrder(mergedTerminalTabs),
+                activeTopLevelId
               ),
-              mergedBrowserOrder
+              mergedBrowserOrder,
+              undefined,
+              // Why: distribute drops browser ids (terminal-only), so carry each
+              // browser's persisted group forward instead of coalescing left.
+              collectBrowserGroupAssignment(persistedGroups, mergedBrowserOrder)
             )
-          : [
-              {
-                id: groupId,
-                activeTabId: mergedActiveTab?.id
-                  ? (activeTab?.parentTabId ?? mergedActiveTab.id)
-                  : (tabOrder[0] ?? null),
-                tabOrder
-              }
-            ]
+          : options.onlyRuntimeOwnedTerminals === true && existing?.tabGroups
+            ? appendBrowserTabOrder(
+                mergeMobileSessionTabGroups(
+                  entryWorktreeId,
+                  existing.tabGroups,
+                  mergedTerminalTabs,
+                  mergedActiveTab?.type === 'terminal' ? mergedActiveTab : null
+                ),
+                mergedBrowserOrder
+              )
+            : [
+                {
+                  id: groupId,
+                  activeTabId: mergedActiveTab?.id
+                    ? (activeTab?.parentTabId ?? mergedActiveTab.id)
+                    : (tabOrder[0] ?? null),
+                  tabOrder
+                }
+              ]
       // Why: merging runtime tabs INTO a renderer publication must not reclass
       // the snapshot as headless-built — the preservation predicate would then
       // treat the renderer's own tabs as runtime-owned and resurrect tabs the
@@ -222,11 +237,13 @@ export class OrcaRuntimeWithHydrateHeadlessMobileSessionTabsFromWorkspaceSession
         tabGroups: nextTabGroups,
         // Why: the runtime-owned rebuild runs on every graph sync — carry the
         // existing split layout forward or each sync drops it and fans out.
-        ...(hasPersistedSplit && persistedLayout
-          ? { tabGroupLayout: persistedLayout }
-          : options.onlyRuntimeOwnedTerminals === true && existing?.tabGroupLayout
-            ? { tabGroupLayout: existing.tabGroupLayout }
-            : {}),
+        ...(preserveNonTerminalSnapshot && existing?.tabGroupLayout
+          ? { tabGroupLayout: existing.tabGroupLayout }
+          : hasPersistedSplit && persistedLayout
+            ? { tabGroupLayout: persistedLayout }
+            : options.onlyRuntimeOwnedTerminals === true && existing?.tabGroupLayout
+              ? { tabGroupLayout: existing.tabGroupLayout }
+              : {}),
         tabs: mergedTabs
       }
       // Why: the runtime-owned hydrate runs on EVERY graph sync; when the rebuilt
