@@ -31,16 +31,20 @@ its absence after a crash does not remove the repair marker or the evidence.
 
 Existing v1/v2 databases migrate transactionally with the schema version bump.
 Older hosts see v3 as a future database and latch read-only. Database and row
-versions are independent: future row versions, including behind malformed rows,
-are checked before persistent pragmas or migration. No future-version database is
-repaired. A schema-scoped provider reconstruction, where already supported, is a
+versions are independent: future row versions in TEXT or valid UTF-8 BLOBs,
+including behind malformed rows, are checked before persistent pragmas or migration.
+Admission and replay share raw SQLite value decoding. Invalid UTF-8 and unsupported
+value types conservatively latch read-only; supported malformed JSON can be sealed
+and repaired. Decoding never rewrites the original storage type or bytes. No
+future-version database is repaired. A schema-scoped provider reconstruction, where already supported, is a
 separate journal and never authorizes modifying the original.
 
 ## Recovery and capacity boundary
 
 Sealed rows are available on the execution host through the existing SQL row
 storage. For byte-exact extraction, use `CAST(row_json AS BLOB)` and select by the
-source session and epoch from `journal_recovery_epochs`; retain `seq` and `ts`.
+source session and epoch from `journal_recovery_epochs`; retain `seq`, `ts`, and
+`typeof(row_json)` so extraction also preserves the SQLite storage class.
 A valid-looking receipt behind a rejected row is recoverable evidence, not proof
 that it can safely be applied to the live generation. No recovery UI or automatic
 suffix merge is added here.
