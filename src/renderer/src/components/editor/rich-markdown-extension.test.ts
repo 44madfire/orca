@@ -24,32 +24,38 @@ describe('Markdown source compatibility without a DOM', () => {
     }
   )
 
-  it.each(['**literal**', '[literal](./example.md)'])(
-    'keeps typed formatting syntax %j literal after saving and reopening',
-    (text) => {
-      const editor = new Editor({
+  it.each([
+    '**literal**',
+    '[literal](./example.md)',
+    '![image](./image.png)',
+    '[literal][ref]',
+    '`[literal]`',
+    '[literal] _emphasis_',
+    String.raw`\[literal\]`,
+    '<script>alert(1)</script> [literal]'
+  ])('keeps typed formatting syntax %j literal after saving and reopening', (text) => {
+    const editor = new Editor({
+      element: null,
+      extensions: [StarterKit, createIsolatedMarkdownExtensionForTests()],
+      content: '',
+      contentType: 'markdown'
+    })
+    try {
+      editor.commands.insertContentAt(1, { type: 'text', text })
+      const reopened = new Editor({
         element: null,
         extensions: [StarterKit, createIsolatedMarkdownExtensionForTests()],
-        content: '',
+        content: editor.getMarkdown(),
         contentType: 'markdown'
       })
       try {
-        editor.commands.insertContentAt(1, { type: 'text', text })
-        const reopened = new Editor({
-          element: null,
-          extensions: [StarterKit, createIsolatedMarkdownExtensionForTests()],
-          content: editor.getMarkdown(),
-          contentType: 'markdown'
-        })
-        try {
-          expect(reopened.getText()).toBe(text)
-          expect(reopened.getJSON()).toEqual(editor.getJSON())
-        } finally {
-          reopened.destroy()
-        }
+        expect(reopened.getText()).toBe(text)
+        expect(reopened.getJSON()).toEqual(editor.getJSON())
       } finally {
-        editor.destroy()
+        reopened.destroy()
       }
+    } finally {
+      editor.destroy()
     }
-  )
+  })
 })

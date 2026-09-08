@@ -10,7 +10,7 @@ import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
 import { TableRow } from '@tiptap/extension-table-row'
 import { BlockMath, InlineMath } from '@tiptap/extension-mathematics'
-import { RichMarkdownExtension } from './rich-markdown-extension'
+import { createRichMarkdownExtension } from './rich-markdown-extension'
 import { createLowlight, common } from 'lowlight'
 import {
   acquireLocalImageSrcLease,
@@ -232,7 +232,7 @@ export function createRichMarkdownExtensions({
     createRawMarkdownHtmlBlock(codec.transport),
     createMarkdownDocLink(codec.transport),
     DragSelectionGuard,
-    RichMarkdownExtension.configure({
+    createRichMarkdownExtension(codec, htmlSuperscriptLinks).configure({
       marked: codec.marked,
       markedOptions: {
         gfm: true
