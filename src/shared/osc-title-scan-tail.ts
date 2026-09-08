@@ -1,4 +1,4 @@
-import { copyUtf16SuffixToOwnedString } from './owned-utf16-suffix'
+import { ownRetainedString } from './own-retained-string'
 
 const OSC_TITLE_SCAN_TAIL_LIMIT = 4096
 const OSC_TITLE_PREFIX_LENGTH = 4
@@ -9,11 +9,8 @@ export function extractOscTitleScanTail(input: string): string {
   if (lastOsc !== -1) {
     const suffix = input.slice(lastOsc)
     if (!suffix.includes('\x07') && !suffix.includes('\x1b\\')) {
-      const tail = extractIncompleteTitleOscTail(suffix)
-      // Own bounded tails without recopying ordinary growing titles.
-      return tail.length > 0 && input.length > tail.length * 2
-        ? copyUtf16SuffixToOwnedString(tail, tail.length)
-        : tail
+      // Own the tail so it stops pinning the consumed chunk it was sliced from.
+      return ownRetainedString(extractIncompleteTitleOscTail(suffix))
     }
     return input.endsWith('\x1b') ? '\x1b' : ''
   }

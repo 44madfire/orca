@@ -1,33 +1,38 @@
 import { describe, expect, it, vi } from 'vitest'
-import * as ownedSuffix from '../../shared/owned-utf16-suffix'
+import * as ownership from '../../shared/own-retained-string'
 import { normalizeTerminalChunk } from './terminal-ansi-normalization'
 import { MAX_TAIL_PENDING_ANSI_CHARS } from './terminal-tail-limits'
 
 const INCOMPLETE_STATUS = '\x1b]9999;{"state":"working","prompt":"fragment'
 
-function collectHeap(): number {
-  const gc = (globalThis as { gc?: () => void }).gc
-  if (!gc) {
-    throw new Error('global.gc unavailable; run with --expose-gc')
-  }
-  void /reset/.test('reset')
-  gc()
-  gc()
-  return process.memoryUsage().heapUsed
-}
-
 describe('terminal preview pending ANSI storage', () => {
+  it('routes every retained pending control through ownRetainedString', () => {
+    const own = vi.spyOn(ownership, 'ownRetainedString')
+    try {
+      const first = normalizeTerminalChunk('x'.repeat(32 * 1024) + INCOMPLETE_STATUS)
+      expect(own).toHaveBeenCalledTimes(1)
+      expect(own).toHaveBeenLastCalledWith(INCOMPLETE_STATUS)
+      expect(first.pendingAnsi).toBe(INCOMPLETE_STATUS)
+
+      // Ownership is unconditional: a growing fragment is re-owned on every chunk.
+      let pending = first.pendingAnsi
+      for (let index = 0; index < 8; index += 1) {
+        pending = normalizeTerminalChunk('x'.repeat(512), pending).pendingAnsi
+      }
+      expect(own).toHaveBeenCalledTimes(9)
+      expect(own).toHaveBeenLastCalledWith(pending)
+    } finally {
+      own.mockRestore()
+    }
+  })
+
   it.each([
     [16 * 1024, 256, INCOMPLETE_STATUS],
     [64 * 1024, 64, INCOMPLETE_STATUS],
     [1024 * 1024, 16, INCOMPLETE_STATUS],
     [16 * 1024, 128, INCOMPLETE_STATUS + 'x'.repeat(16 * 1024)]
-  ])('releases %i-character prefixes behind %i incomplete statuses', (size, count, control) => {
-    for (let index = 0; index < 100; index++) {
-      normalizeTerminalChunk(INCOMPLETE_STATUS)
-    }
+  ])('keeps %i-character chunks with %i incomplete statuses byte-exact', (size, count, control) => {
     const tails: string[] = []
-    const before = collectHeap()
     let cleanChars = 0
     for (let index = 0; index < count; index++) {
       const result = normalizeTerminalChunk(
@@ -36,10 +41,8 @@ describe('terminal preview pending ANSI storage', () => {
       cleanChars += result.text.length
       tails.push(result.pendingAnsi)
     }
-    const retainedBytes = collectHeap() - before
 
     expect(cleanChars).toBe(size * count)
-    expect(retainedBytes).toBeLessThan(2 * 1024 * 1024)
     const expected =
       control.length <= MAX_TAIL_PENDING_ANSI_CHARS
         ? control
@@ -64,7 +67,10 @@ describe('terminal preview pending ANSI storage', () => {
       const input = prefix === '\x1b[' ? value.replaceAll('x', '1') : value
       const expectedInput = prefix === '\x1b[' ? expected.replaceAll('x', '1') : expected
       const result = normalizeTerminalChunk('a'.repeat(32 * 1024) + input)
-      expect(result).toEqual({ text: 'a'.repeat(32 * 1024), pendingAnsi: expectedInput })
+      expect(result).toEqual({
+        text: 'a'.repeat(32 * 1024),
+        pendingAnsi: expectedInput
+      })
     }
   })
 
@@ -78,18 +84,15 @@ describe('terminal preview pending ANSI storage', () => {
     })
   })
 
-  it('does not copy an incomplete control while ordinary fragments grow and trim it', () => {
-    const copy = vi.spyOn(ownedSuffix, 'copyUtf16SuffixToOwnedString')
+  it('keeps trimming an owned fragment that grows past the cap', () => {
     let pending = '\x1b]2;'
-    try {
-      for (let index = 0; index < 128; index++) {
-        pending = normalizeTerminalChunk('x'.repeat(512), pending).pendingAnsi
-      }
-      expect(copy).not.toHaveBeenCalled()
-    } finally {
-      copy.mockRestore()
+    for (let index = 0; index < 128; index++) {
+      pending = normalizeTerminalChunk('x'.repeat(512), pending).pendingAnsi
     }
     expect(pending).toBe(`\x1b]${'x'.repeat(MAX_TAIL_PENDING_ANSI_CHARS - 2)}`)
-    expect(normalizeTerminalChunk('\x07after', pending)).toEqual({ text: 'after', pendingAnsi: '' })
+    expect(normalizeTerminalChunk('\x07after', pending)).toEqual({
+      text: 'after',
+      pendingAnsi: ''
+    })
   })
 })

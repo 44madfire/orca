@@ -1,5 +1,5 @@
 import { MAX_TAIL_PENDING_ANSI_CHARS } from './terminal-tail-limits'
-import { copyUtf16SuffixToOwnedString } from '../../shared/owned-utf16-suffix'
+import { ownRetainedString } from '../../shared/own-retained-string'
 
 export function parseAnsiControlSequence(
   value: string,
@@ -104,14 +104,10 @@ export function normalizeTerminalChunk(
       }
       const parsed = parseAnsiControlSequence(combined, index)
       if (!parsed) {
-        const pendingAnsi = trimPendingAnsiControl(combined.slice(index))
         return {
           text: parts.join(''),
-          // Own bounded tails when discarded output dominates their backing string.
-          pendingAnsi:
-            combined.length > pendingAnsi.length * 2
-              ? copyUtf16SuffixToOwnedString(pendingAnsi, pendingAnsi.length)
-              : pendingAnsi
+          // Own the tail so it stops pinning the consumed chunk it was sliced from.
+          pendingAnsi: ownRetainedString(trimPendingAnsiControl(combined.slice(index)))
         }
       }
       if (parsed.kind === 'csi' && isTerminalPreviewLineControl(parsed)) {
