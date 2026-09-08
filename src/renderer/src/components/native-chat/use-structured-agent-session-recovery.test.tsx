@@ -13,6 +13,7 @@ import { useStructuredAgentSessionOutbox } from './use-structured-agent-session-
 
 const target = { kind: 'environment', environmentId: 'synthetic-remote' } as const
 const sessionId = 'recovery-test'
+let restoreStorage: (() => void) | undefined
 function mount(fence: number | null = 1) {
   return renderHook(
     ({ fence, submissions }: { fence: number | null; submissions: AgentJournalSubmission[] }) =>
@@ -48,6 +49,8 @@ describe('durable structured session recovery', () => {
     mocks.call.mockReset().mockRejectedValue(new Error('connection closed'))
   })
   afterEach(() => {
+    restoreStorage?.()
+    restoreStorage = undefined
     vi.useRealTimers()
     vi.restoreAllMocks()
   })
@@ -139,6 +142,7 @@ describe('durable structured session recovery', () => {
     const storage = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('quota')
     })
+    restoreStorage = () => storage.mockRestore()
     const hook = mount()
     for (let i = 0; i < 10; i++) {
       await advance()
@@ -186,6 +190,7 @@ describe('durable structured session recovery', () => {
     const storage = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('quota')
     })
+    restoreStorage = () => storage.mockRestore()
     await advance()
     expect(mocks.call).not.toHaveBeenCalled()
     expect(hook.result.current.outbox).toEqual(reserved)
