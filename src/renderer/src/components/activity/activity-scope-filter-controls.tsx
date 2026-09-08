@@ -1,6 +1,6 @@
 import React from 'react'
 import { useAppStore } from '@/store'
-import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { translate } from '@/i18n/i18n'
 import SidebarRepositoryFilterSection from '@/components/sidebar/SidebarRepositoryFilterSection'
 import { SidebarHostScopeMenuSection } from '@/components/sidebar/SidebarHostScopeMenuSection'
@@ -11,11 +11,12 @@ import {
 import { useSidebarHostScopeOptions } from '@/components/sidebar/use-sidebar-host-scope-options'
 
 /**
- * Host/project scope controls for the Agents activity surfaces. State is the
+ * Host/project scope items for the Agents activity surfaces. State is the
  * persisted agents-view scope (agentsVisibleHostIds / agentsFilterRepoIds),
- * deliberately separate from the workspace-nav filters.
+ * deliberately separate from the workspace-nav filters. The parent owns the
+ * Filters label and separator.
  */
-export function ActivityScopeFilterMenuSections(): React.JSX.Element | null {
+export function ActivityScopeFilterMenuItems(): React.JSX.Element | null {
   const repos = useAppStore((s) => s.repos)
   const agentsVisibleHostIds = useAppStore((s) => s.agentsVisibleHostIds)
   const setAgentsVisibleHostIds = useAppStore((s) => s.setAgentsVisibleHostIds)
@@ -28,21 +29,9 @@ export function ActivityScopeFilterMenuSections(): React.JSX.Element | null {
   if (!hasScopeFilter && !showHostScopeControls && repos.length <= 1) {
     return null
   }
+
   return (
     <>
-      {hasScopeFilter ? (
-        <DropdownMenuItem
-          onSelect={() => {
-            setAgentsVisibleHostIds(null)
-            setAgentsFilterRepoIds([])
-          }}
-        >
-          {translate(
-            'auto.components.activity.ActivityScopeFilterControls.resetScope',
-            'Show all hosts and projects'
-          )}
-        </DropdownMenuItem>
-      ) : null}
       {showHostScopeControls ? (
         <SidebarHostScopeMenuSection
           hostVisibilityLabel={getSidebarHostVisibilityLabel(agentsVisibleHostIds, hostOptions)}
@@ -58,7 +47,19 @@ export function ActivityScopeFilterMenuSections(): React.JSX.Element | null {
         filterRepoIds={agentsFilterRepoIds}
         setFilterRepoIds={setAgentsFilterRepoIds}
       />
-      <DropdownMenuSeparator />
+      {hasScopeFilter ? (
+        <DropdownMenuItem
+          onSelect={() => {
+            setAgentsVisibleHostIds(null)
+            setAgentsFilterRepoIds([])
+          }}
+        >
+          {translate(
+            'auto.components.activity.ActivityScopeFilterControls.resetScope',
+            'Show all hosts and projects'
+          )}
+        </DropdownMenuItem>
+      ) : null}
     </>
   )
 }
