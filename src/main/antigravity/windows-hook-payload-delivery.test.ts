@@ -1,7 +1,7 @@
 // Why (#15117): shape assertions cannot catch a curl line that posts nothing, so this suite
 // pipes a real payload through the installed wrappers and follows it to a live listener.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { spawn } from 'node:child_process'
+import { spawnProcess } from '../../shared/child-process/run-process'
 import { createServer, type Server } from 'node:http'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -28,7 +28,8 @@ vi.mock('os', async (importOriginal) => {
 
 import { AntigravityHookService } from './hook-service'
 import { ANTIGRAVITY_EVENTS, ANTIGRAVITY_PRE_TOOL_USE_DECISION } from './hook-events'
-import { getManagedScript } from './hook-script'
+import { getManagedScript, getWindowsWrapperScript } from './hook-script'
+import { WINDOWS_HOOK_STDIN_DRAIN_COMMAND } from '../agent-hooks/hook-stdin-contract'
 
 // Why (#9358/#9941): `!` is legal in a Windows path and in a pane key. Under inherited
 // delayed expansion cmd eats it out of a percent-expanded curl argument, so bake one into
@@ -99,11 +100,10 @@ function runWrapper(
   stdinPayload: string | null = PAYLOAD
 ): Promise<HookRun> {
   return new Promise((resolve, reject) => {
-    // Why: mirror how Antigravity spawns the hook — `cmd /c <bare .cmd path>`, the exact
-    // chain in the bug report's process trace.
-    const child = spawn('cmd.exe', ['/d', '/c', wrapperPath], {
+    // Use the shared cmd encoder so spaces survive cmd's non-MSVCRT quoting.
+    const child = spawnProcess({
+      program: wrapperPath,
       stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
       env
     })
     let stdout = ''
@@ -111,6 +111,7 @@ function runWrapper(
     let timedOut = false
     const timer = setTimeout(() => {
       timedOut = true
+      child.stdin.destroy()
       child.kill('SIGKILL')
     }, 15_000)
     child.on('error', (error) => {
@@ -139,7 +140,9 @@ function runWrapper(
 
 function hookEnvironment(extra: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const base = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith('ORCA_'))
+    Object.entries(process.env).filter(
+      ([key]) => !key.startsWith('ORCA_') || key === 'ORCA_BACKGROUND_LAUNCH'
+    )
   )
   return { ...base, ...extra }
 }
@@ -154,6 +157,18 @@ function expectedStdout(eventName: string): string {
 // Why: runs on every platform — the live delivery suite below is Windows-only, so this
 // keeps a POSIX-only CI leg from letting the interpreter back into the hot path.
 describe('Antigravity Windows hook post command', () => {
+  it.each(ANTIGRAVITY_EVENTS)('guards missing-core stdin for $eventName', ({ eventName }) => {
+    const script = getWindowsWrapperScript(eventName)
+    const drain = script.indexOf(WINDOWS_HOOK_STDIN_DRAIN_COMMAND)
+    const answer = script.lastIndexOf('echo {}')
+    expect(drain).toBeGreaterThan(answer)
+    for (const key of ['ORCA_AGENT_HOOK_PORT', 'ORCA_AGENT_HOOK_TOKEN', 'ORCA_PANE_KEY']) {
+      const guard = script.indexOf(`if "%${key}%"=="" exit /b 0`)
+      expect(guard, key).toBeGreaterThan(answer)
+      expect(guard, key).toBeLessThan(drain)
+    }
+  })
+
   it('posts through curl.exe rather than a PowerShell interpreter', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     const script = getManagedScript('local')
@@ -263,6 +278,36 @@ describe.skipIf(process.platform !== 'win32')('Antigravity Windows hook payload 
     expect(listener.posts[0].payload).toBeNull()
     expect(listener.posts[0].hookEventName).toBe('PreInvocation')
   }, 30_000)
+
+  it.each(['ORCA_AGENT_HOOK_PORT', 'ORCA_AGENT_HOOK_TOKEN', 'ORCA_PANE_KEY'])(
+    'answers every missing-core event with abandoned stdin and no %s',
+    async (missingKey) => {
+      home = mkdtempSync(join(tmpdir(), 'orca antigravity fallback-'))
+      homedirMock.mockReturnValue(home)
+      expect(new AntigravityHookService().install().state).toBe('installed')
+      const hooksDir = join(home, '.orca', 'agent-hooks')
+      rmSync(join(hooksDir, 'antigravity-hook.cmd'))
+      const listener = await startHookListener()
+      server = listener.server
+      const env = hookEnvironment({
+        USERPROFILE: home,
+        HOME: home,
+        ORCA_AGENT_HOOK_PORT: String(listener.port),
+        ORCA_AGENT_HOOK_TOKEN: HOOK_TOKEN,
+        ORCA_PANE_KEY: PANE_KEY,
+        [missingKey]: ''
+      })
+      for (const event of ANTIGRAVITY_EVENTS) {
+        const result = await runWrapper(join(hooksDir, event.windowsWrapperFileName), env, null)
+        expect(result.timedOut, event.eventName).toBe(false)
+        expect(result.exitCode, event.eventName).toBe(0)
+        expect(result.stdout.trim(), event.eventName).toBe(expectedStdout(event.eventName))
+        expect(result.stderr, event.eventName).toBe('')
+      }
+      expect(listener.posts).toHaveLength(0)
+    },
+    90_000
+  )
 
   it('exits without reading stdin when the pane env is missing', async () => {
     home = mkdtempSync(join(tmpdir(), 'orca-antigravity-hook-'))

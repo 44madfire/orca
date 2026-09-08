@@ -102,8 +102,8 @@ export function getWindowsWrapperScript(eventName: string): string {
     ') else (',
     '  echo {}',
     ')',
-    // Why: when the shared core script is missing, this wrapper becomes the
-    // stdin owner and must finish the agent's payload write before returning.
+    // Missing-core fallbacks obey the same outside-Orca stdin guard as the core.
+    ...buildWindowsHookEnvironmentGuardLines(),
     WINDOWS_HOOK_STDIN_DRAIN_COMMAND,
     'exit /b 0',
     ''
