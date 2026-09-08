@@ -151,6 +151,28 @@ describe('web session terminal retirement proof ledger', () => {
     expect(merged.retiredTerminalSurfaces?.at(-1)?.leafId).toBe('leaf-new')
   })
 
+  // Why: an old host never negotiates the delta — it sends the full list whenever it holds any
+  // proofs and omits the field whenever it holds none. Forgetting on absence loses nothing there,
+  // because every proof-bearing frame from such a host already carries the whole list.
+  it('matches legacy visibility against a full-list host that omits the field when empty', () => {
+    const proofs = Array.from({ length: 3 }, (_, index) => ({
+      ...retired,
+      leafId: `leaf-${index}`,
+      terminal: `term-${index}`
+    }))
+    const legacyHostFrames = [
+      frame(1, { retiredTerminalSurfaces: proofs }),
+      frame(2),
+      frame(3, { retiredTerminalSurfaces: proofs })
+    ]
+    const visible = legacyHostFrames.map(
+      (hostFrame) =>
+        mergeRetainedTerminalRetirementProofs(ENVIRONMENT_ID, hostFrame).retiredTerminalSurfaces
+    )
+    // A legacy client sees exactly what the host sent, frame by frame.
+    expect(visible).toEqual(legacyHostFrames.map((hostFrame) => hostFrame.retiredTerminalSurfaces))
+  })
+
   it('returns the same frame object when the ledger adds nothing', () => {
     const untouched = frame(1)
     expect(mergeRetainedTerminalRetirementProofs(ENVIRONMENT_ID, untouched)).toBe(untouched)
