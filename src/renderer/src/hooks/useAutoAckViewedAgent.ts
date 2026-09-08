@@ -6,6 +6,7 @@ import {
   subscribeAutoAckPresenceSignals
 } from './agent-auto-ack-presence'
 import { useAppStore } from '@/store'
+import { isWebClientLocation } from '@/lib/web-client-location'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import type { RetainedAgentEntry } from '@/store/slices/agent-status'
@@ -238,6 +239,16 @@ export function useAutoAckViewedAgent(floatingPanelVisible: boolean): void {
         return
       }
 
+      // Presence signals force a rescan; unrelated writes must not retry an away result.
+      lastActiveView = s.activeView
+      lastActiveTabId = s.activeTabId
+      lastFloatingWorkspaceActiveTabId = floatingWorkspaceActiveTabId
+      lastAgentStatus = s.agentStatusByPaneKey
+      lastRetained = s.retainedAgentsByPaneKey
+      lastAcknowledged = s.acknowledgedAgentsByPaneKey
+      lastLayouts = s.terminalLayoutsByTabId
+      lastUnreadAgentCompletionPanes = s.unreadAgentCompletionPanes
+
       // Why: tab-active only proxies "seen"; gate on window visible+focused so away-time transitions don't silently clear the bold signal.
       if (typeof document !== 'undefined') {
         if (document.visibilityState !== 'visible') {
@@ -256,19 +267,20 @@ export function useAutoAckViewedAgent(floatingPanelVisible: boolean): void {
       if (targets.length === 0) {
         return
       }
-      if (!options?.presenceConfirmed) {
-        presence.request()
-        return
+      // Browsers have no native idle capability; their visible/focused gates still apply.
+      if (!options?.presenceConfirmed && !isWebClientLocation()) {
+        const hasAttention = targets.some(({ tabId }) => {
+          const leafId = resolveActiveLeafId(s, tabId)
+          return (
+            computeAutoAckTargets(s, tabId, leafId).length > 0 ||
+            computeViewedAgentCompletionPaneKey(s, tabId, leafId) !== null
+          )
+        })
+        if (hasAttention) {
+          presence.request()
+          return
+        }
       }
-      // Why: advance refs only after gates pass, else the diff is consumed and a gated-out transition never re-acks when focus returns.
-      lastActiveView = s.activeView
-      lastActiveTabId = s.activeTabId
-      lastFloatingWorkspaceActiveTabId = floatingWorkspaceActiveTabId
-      lastAgentStatus = s.agentStatusByPaneKey
-      lastRetained = s.retainedAgentsByPaneKey
-      lastAcknowledged = s.acknowledgedAgentsByPaneKey
-      lastLayouts = s.terminalLayoutsByTabId
-      lastUnreadAgentCompletionPanes = s.unreadAgentCompletionPanes
 
       const activePaneKeys = new Set<string>()
       for (const target of targets) {
@@ -323,8 +335,8 @@ export function useAutoAckViewedAgent(floatingPanelVisible: boolean): void {
     // Subscribe to all store changes; the ref-equality guard above skips unrelated updates.
     const unsubscribe = useAppStore.subscribe(() => maybeAck())
     const stopPresenceSignals = subscribeAutoAckPresenceSignals(
-      () => maybeAck(),
-      () => maybeAck({ presenceConfirmed: true })
+      () => maybeAck({ force: true }),
+      () => maybeAck({ force: true, presenceConfirmed: true })
     )
     return () => {
       presence.dispose()

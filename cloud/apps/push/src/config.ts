@@ -9,6 +9,7 @@ const OptionalTextSchema = z.preprocess(
 )
 
 const EnvSchema = z.object({
+  ORCA_PUSH_MODE: z.enum(['active', 'validation']).default('active'),
   PORT: z.coerce.number().int().positive().default(8080),
   ORCA_PUSH_PUBLIC_URL: z.string().url(),
   ORCA_PUSH_DATABASE_URL: OptionalTextSchema,
@@ -48,6 +49,7 @@ const EnvSchema = z.object({
 export type ApnsCredentials = { keyPem: string; keyId: string; teamId: string }
 
 export type PushConfig = {
+  mode?: 'active' | 'validation'
   port: number
   publicUrl: string
   databaseUrl?: string
@@ -95,10 +97,14 @@ function readApnsCredentials(parsed: z.infer<typeof EnvSchema>): ApnsCredentials
 export function loadPushConfig(env: NodeJS.ProcessEnv = process.env): PushConfig {
   const parsed = EnvSchema.parse(
     Object.fromEntries(
-      Object.entries(env).map(([key, value]) => [key, value?.trim() === '' ? undefined : value])
+      Object.entries(env).map(([key, value]) => [
+        key,
+        key !== 'ORCA_PUSH_MODE' && value?.trim() === '' ? undefined : value
+      ])
     )
   )
   return {
+    mode: parsed.ORCA_PUSH_MODE,
     port: parsed.PORT,
     publicUrl: canonicalOrigin(parsed.ORCA_PUSH_PUBLIC_URL, 'ORCA_PUSH_PUBLIC_URL'),
     databaseUrl: parsed.ORCA_PUSH_DATABASE_URL,

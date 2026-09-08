@@ -1,8 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 const storage = vi.hoisted(() => new Map<string, string>())
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: {
-    getItem: async (key: string) => storage.get(key) ?? null,
+    getItem: vi.fn(async (key: string) => storage.get(key) ?? null),
     setItem: async (key: string, value: string) => {
       storage.set(key, value)
     }
@@ -17,6 +18,9 @@ const payload = {
 }
 beforeEach(() => {
   storage.clear()
+  vi.mocked(AsyncStorage.getItem)
+    .mockReset()
+    .mockImplementation(async (key) => storage.get(key) ?? null)
   vi.useRealTimers()
 })
 
@@ -52,4 +56,22 @@ it('expires retained metadata and ignores unversioned dismissals', async () => {
 it('does not discard a summary representing other undismissed alerts', async () => {
   await rememberPushDismissal(payload)
   expect(await wasPushDismissed({ ...payload, coalescedCount: 3 })).toBe(false)
+})
+
+it('joins an overtaking fallback write before retrying a delayed negative snapshot', async () => {
+  let finish!: () => void
+  vi.mocked(AsyncStorage.getItem).mockImplementationOnce(async (key) => {
+    const snapshot = storage.get(key) ?? null
+    await new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    return snapshot
+  })
+  const pending = wasPushDismissed(payload)
+  await vi.waitFor(() => expect(finish).toBeDefined())
+  await rememberPushDismissal(payload)
+  finish()
+  expect(await pending).toBe(true)
+  expect(AsyncStorage.getItem).toHaveBeenCalledTimes(3)
+  expect(await wasPushDismissed({ ...payload, notificationSeq: 3 })).toBe(false)
 })

@@ -41,6 +41,36 @@ describe('PostgreSQL push gateway startup', () => {
     vi.restoreAllMocks()
   })
 
+  const socketUrl = 'postgresql://push:p%40ss%2Fword@/orca_push?host=/cloudsql/test:region:instance'
+
+  it('passes the Terraform socket URL unchanged to both active pools', async () => {
+    const database = await openPushDatabase({ databaseUrl: socketUrl, dataDir: '/unused' })
+    expect(fakes.configs.map((config) => config.connectionString)).toEqual([socketUrl, socketUrl])
+    await database.close()
+  })
+
+  it('parses socket credentials and query options before enforcing validation read-only', async () => {
+    const options = '-c search_path=validation -c default_transaction_read_only=off'
+    const database = await openPushDatabase({
+      databaseUrl: `${socketUrl}&port=5433&sslmode=disable&options=${encodeURIComponent(options)}`,
+      dataDir: '/unused',
+      readOnly: true
+    })
+    expect(fakes.configs).toHaveLength(1)
+    expect(fakes.configs[0]).toMatchObject({
+      host: '/cloudsql/test:region:instance',
+      user: 'push',
+      password: 'p@ss/word',
+      database: 'orca_push',
+      port: 5433,
+      ssl: false,
+      options: `${options} -c default_transaction_read_only=on`
+    })
+    expect(fakes.configs[0]).not.toHaveProperty('connectionString')
+    expect(fakes.query).not.toHaveBeenCalled()
+    await database.close()
+  })
+
   // Why: a CREATE INDEX on a grown table can outlive the 5s request deadline,
   // and a schema that inherits it fails every startup at the same statement.
   it('applies the schema on an untimed pool that is gone before the serving pool opens', async () => {

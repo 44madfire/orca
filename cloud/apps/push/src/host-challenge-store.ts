@@ -161,14 +161,11 @@ export class PushHostChallengeStore {
     hostPublicKeyB64: string,
     now: number
   ): Promise<void> {
-    const [updated] = await transaction.query(
-      'UPDATE push_hosts SET last_seen_at = ?, host_public_key = ? WHERE host_fingerprint = ?',
-      [now, hostPublicKeyB64, hostFingerprint]
-    )
-    if (Number(updated?.changes ?? 0) > 0) return
     await transaction.query(
       `INSERT INTO push_hosts (host_fingerprint, host_public_key, created_at, last_seen_at)
-       VALUES (?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(host_fingerprint) DO UPDATE SET
+         host_public_key = excluded.host_public_key, last_seen_at = excluded.last_seen_at`,
       [hostFingerprint, hostPublicKeyB64, now, now]
     )
   }

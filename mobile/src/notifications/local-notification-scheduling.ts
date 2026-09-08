@@ -7,7 +7,7 @@ import { loadPushNotificationsEnabled } from '../storage/preferences'
 import { DESKTOP_NOTIFICATION_CHANNEL_ID } from './desktop-notification-channel'
 import { buildLocalNotificationData, type DesktopNotificationSource } from './notification-routing'
 import { ensureNotificationPermissions } from './notification-permissions'
-import { dismissHostPushNotification } from './push-socket-dismissal'
+import { dismissHostPushNotification, wasHostPushDismissed } from './push-socket-dismissal'
 
 export type NotificationEvent = {
   type: 'notification'
@@ -34,6 +34,7 @@ export type DismissNotificationEvent = {
 }
 
 type ScheduledNotificationState = {
+  event?: NotificationEvent
   identifier?: string
   pending?: Promise<string | null>
   dismissAfterSchedule?: boolean
@@ -50,6 +51,13 @@ function reserveLocalNotification(event: NotificationEvent, hostId: string): boo
       event.emittedAt
     )
   )
+}
+
+function releaseLocalNotification(event: NotificationEvent, hostId: string): void {
+  const key = JSON.stringify([hostId, event.worktreeId ?? 'global'])
+  if (event.emittedAt !== undefined && recentNotifications.get(key) === event.emittedAt) {
+    recentNotifications.delete(key)
+  }
 }
 
 const scheduledNotificationsByHostAndNotificationId = new Map<string, ScheduledNotificationState>()
@@ -118,10 +126,9 @@ export async function showLocalNotification(
         title: event.title,
         body: event.body,
         sound: preferences.sound ? 'default' : false,
-        data: buildLocalNotificationData(event, hostId),
-        ...(Platform.OS === 'android' ? { channelId } : {})
+        data: buildLocalNotificationData(event, hostId)
       },
-      trigger: null
+      trigger: Platform.OS === 'android' ? { channelId } : null
     })
     return
   }
@@ -135,6 +142,9 @@ export async function showLocalNotification(
     scheduledNotificationsByHostAndNotificationId.set(storedKey, state)
   }
   const notificationState = state
+  notificationState.event = event
+  let reserved = false
+  let scheduled = false
 
   const pending = (async () => {
     const enabled = await loadPushNotificationsEnabled()
@@ -147,23 +157,28 @@ export async function showLocalNotification(
       return null
     }
 
-    if (!reserveLocalNotification(event, hostId)) {
+    if ((await wasHostPushDismissed(event, hostId)) || notificationState.dismissAfterSchedule) {
+      return null
+    }
+    reserved = reserveLocalNotification(event, hostId)
+    if (!reserved) {
       return null
     }
     if (notificationState.identifier) {
       await Notifications.dismissNotificationAsync(notificationState.identifier).catch(() => {})
       notificationState.identifier = undefined
+      if ((await wasHostPushDismissed(event, hostId)) || notificationState.dismissAfterSchedule) {
+        return null
+      }
     }
-
     return Notifications.scheduleNotificationAsync({
       content: {
         title: event.title,
         body: event.body,
         sound: preferences.sound ? 'default' : false,
-        data: buildLocalNotificationData(event, hostId),
-        ...(Platform.OS === 'android' ? { channelId } : {})
+        data: buildLocalNotificationData(event, hostId)
       },
-      trigger: null
+      trigger: Platform.OS === 'android' ? { channelId } : null
     })
   })()
   notificationState.pending = pending
@@ -176,7 +191,9 @@ export async function showLocalNotification(
       }
       return
     }
-    if (notificationState.dismissAfterSchedule) {
+    scheduled = true
+    const dismissed = await wasHostPushDismissed(event, hostId)
+    if (dismissed || notificationState.dismissAfterSchedule) {
       notificationState.dismissAfterSchedule = false
       scheduledNotificationsByHostAndNotificationId.delete(storedKey)
       await Notifications.dismissNotificationAsync(scheduledIdentifier).catch(() => {})
@@ -185,6 +202,10 @@ export async function showLocalNotification(
     notificationState.identifier = scheduledIdentifier
     boundScheduledNotifications()
   } finally {
+    // Only roll back this attempt; another notification may own a newer reservation.
+    if (reserved && !scheduled) {
+      releaseLocalNotification(event, hostId)
+    }
     if (notificationState.pending === pending) {
       notificationState.pending = undefined
       notificationState.dismissAfterSchedule = false
@@ -205,6 +226,16 @@ export async function dismissLocalNotification(
   const storedKey = getStoredNotificationKey(hostId, event.notificationId)
   const state = scheduledNotificationsByHostAndNotificationId.get(storedKey)
   if (!state) {
+    return
+  }
+  if (
+    event.notificationEpoch &&
+    event.notificationSeq !== undefined &&
+    state.event?.notificationEpoch &&
+    state.event.notificationSeq !== undefined &&
+    (state.event.notificationEpoch !== event.notificationEpoch ||
+      state.event.notificationSeq > event.notificationSeq)
+  ) {
     return
   }
   if (state.pending) {

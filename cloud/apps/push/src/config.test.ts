@@ -16,6 +16,7 @@ const MINIMAL = { ORCA_PUSH_PUBLIC_URL: 'https://push.onorca.dev' }
 describe('push gateway config', () => {
   it('applies the documented defaults', () => {
     expect(loadPushConfig(MINIMAL)).toEqual({
+      mode: 'active',
       port: 8080,
       publicUrl: 'https://push.onorca.dev',
       databaseUrl: undefined,

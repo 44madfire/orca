@@ -44,14 +44,20 @@ tier, backup policy, and regional availability. No Cloud Run service changes in 
    Terraform ignores traffic and image; verify traffic remains pinned to the old revision.
    Do not apply a plan that would shift traffic or revert runtime configuration.
 4. Dispatch `cloud-push-deploy.yml` from main with the exact reviewed source SHA. It creates
-   a no-traffic candidate inheriting the dedicated attachment, probes readiness and provider
-   access, and promotes it under the same rollout lease. Verify the candidate's SQL
+   an inert, read-only candidate inheriting the dedicated attachment, probes readiness and provider
+   access, then deletes it and deliberately activates the same digest under the same lease.
+   Activation starts schema writes and workers before HTTP promotion. Verify the candidate's SQL
    attachment and pinned secret reference as well as its image and health.
 5. Register a test phone against the deployed origin and prove real APNs delivery. Check
    database errors and confirm the old revisions have no traffic or tags and source SQL
    connections have drained. Leave the old database intact; do not delete shared resources.
 
-If activation fails before promotion, the existing serving revision is unchanged.
+If activation fails before promotion, the existing HTTP serving revision is unchanged, but
+activated workers may already have sent notifications or mutated the queue. Delete the rejected
+revision to stop those workers; traffic rollback alone does not stop consumers. After cleanup,
+the workflow restores the known-good image and normal mode in the service template, verifies
+runtime settings and secret references, and retires the untagged recovery revision. Recovery
+can run known-good schema/workers; it does not undo earlier queue or schema changes.
 The deploy workflow can roll traffic back on failure; in this internal reset rollout,
 that may discard registrations created during the probe window. After successful activation,
 application rollback should retain the dedicated attachment and deploy an older compatible

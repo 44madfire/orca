@@ -10,6 +10,15 @@ const MAX_ENTRIES = 512
 type Entry = { key: string; seq: number; expiresAt: number }
 let writes: Promise<void> = Promise.resolve()
 
+function queueDismissalOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const pending = writes.then(operation)
+  writes = pending.then(
+    () => {},
+    () => {}
+  )
+  return pending
+}
+
 function eventKey(payload: OrcaPushPayload): string | null {
   if (
     !payload.notificationId ||
@@ -52,15 +61,15 @@ export async function rememberPushDismissal(payload: OrcaPushPayload): Promise<v
   if (!key) {
     return
   }
-  if (nativePushDismissal) {
-    try {
-      await nativePushDismissal.remember(payload)
-      return
-    } catch {
-      // Keep recovery available if the native bridge is unavailable during reload.
+  return queueDismissalOperation(async () => {
+    if (nativePushDismissal) {
+      try {
+        await nativePushDismissal.remember(payload)
+        return
+      } catch {
+        // Keep recovery available if the native bridge is unavailable during reload.
+      }
     }
-  }
-  const pending = writes.then(async () => {
     const entries = await readEntries()
     const previous = entries.find((entry) => entry.key === key)
     const entry = {
@@ -72,9 +81,19 @@ export async function rememberPushDismissal(payload: OrcaPushPayload): Promise<v
       STORAGE_KEY,
       JSON.stringify([...entries.filter((item) => item.key !== key), entry].slice(-MAX_ENTRIES))
     )
-  })
-  writes = pending.catch(() => {})
-  return writes
+  }).catch(() => {})
+}
+
+async function readDismissal(payload: OrcaPushPayload, key: string): Promise<boolean> {
+  if (
+    (await readEntries()).some(
+      (entry) => entry.key === key && entry.seq >= payload.notificationSeq!
+    )
+  ) {
+    return true
+  }
+  // Native remembers do not update fallback storage, so query native last.
+  return nativePushDismissal?.wasDismissed(payload).catch(() => false) ?? false
 }
 
 export async function wasPushDismissed(payload: OrcaPushPayload): Promise<boolean> {
@@ -86,11 +105,12 @@ export async function wasPushDismissed(payload: OrcaPushPayload): Promise<boolea
   if (!key) {
     return false
   }
-  await writes
-  if (nativePushDismissal && (await nativePushDismissal.wasDismissed(payload).catch(() => false))) {
-    return true
+  const precedingWrites = writes
+  await precedingWrites
+  const dismissed = await readDismissal(payload, key)
+  if (dismissed || writes === precedingWrites) {
+    return dismissed
   }
-  return (await readEntries()).some(
-    (entry) => entry.key === key && entry.seq >= payload.notificationSeq!
-  )
+  // An overtaking write invalidates a negative snapshot; one queued read cannot be overtaken again.
+  return queueDismissalOperation(() => readDismissal(payload, key))
 }

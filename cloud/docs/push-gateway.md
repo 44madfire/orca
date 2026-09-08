@@ -165,50 +165,82 @@ Before the next deployment, apply the reviewed identity changes in the relay roo
 GitHub production-environment variables above. Keep the shared identity's existing lease grant
 for Relay. Do not fall back to that identity if push setup is incomplete.
 
-The run, in order:
+The run builds the reviewed `source_sha` while the workflow stays on `main`. Buildx returns
+its own pushed digest (no mutable-tag lookup); every subsequent check and deployment uses that
+same digest. Before any production boot, a network-isolated container checks that the image
+recognizes `ORCA_PUSH_MODE=validation` and rejects invalid modes. Older images that lack this
+capability are refused before they can connect to production.
 
-1. Fetches the reviewed full `source_sha` input while the workflow and rollout lease remain on `main`.
-   Builds `apps/push/Dockerfile` with that commit’s `cloud/` build context and pushes to the existing
-   `orca-cloud` Artifact Registry repository as `push:sha-<commit>`, then resolves the digest.
-   This happens **before** the lease is taken. Artifact Registry is not the Cloud SQL instance,
-   and a multi-minute build inside the lease would block every relay deploy and rehome for its
-   duration.
-2. Takes the production Cloud SQL rollout lease and holds it from here to the end. The gateway
-   applies its schema while the new revision starts, so the revision **is** the schema step
-   (on a one-connection pool with no statement timeout, closed before the serving pool opens,
-   exactly as the relay does since #18722);
-   there is no separate migration command to wrap. The lease therefore covers exactly the
-   connection-budget window: deploy, probe, shift.
-3. Records the currently serving revision as the rollback target, and requires it to still hold
-   the Terraform-owned floor and ceiling. The candidate inherits that scaling, so a drifted
-   serving revision would be latched rather than corrected.
-4. `gcloud run deploy --no-traffic` with a per-run traffic tag, so the candidate boots and
-   applies schema while every phone still reaches the previous revision. The deploy passes no
-   scaling flag: the shape is Terraform's, and the candidate's inherited ceiling is asserted
-   instead.
-5. Probes the tagged candidate's own `/ready`, up to 30 times at five-second intervals.
-6. Sends a validate-only FCM message as the runtime identity, by impersonation. See below.
-7. Shifts 100% of traffic to the candidate and verifies it is the only revision serving.
-8. Writes the run summary, including the rollback command, before checking the public origin, so
-   the summary exists even when the check that follows does not pass.
-9. Checks `https://push.onorca.dev/ready`, up to 30 times at five-second intervals, since the
-   origin can lag the traffic move by a few seconds.
-10. Always removes the traffic tag, so tags do not accumulate across runs.
+Under the production Cloud SQL rollout lease, it records the serving rollback revision and
+asserts Terraform-owned scaling. It deploys a tagged, zero-traffic validation revision:
 
-**Failure after the shift rolls itself back.** Everything from step 8 on runs with production
-already on the candidate, so a failure there is not a failed deploy, it is a live gateway that
-has to go back. The run returns traffic to the recorded rollback revision, verifies the move, and
-reports it in the summary. A failure *before* the shift leaves production untouched and deletes
-the candidate revision, which otherwise sits holding a warm instance and a Cloud SQL pool for
-nothing.
+- Validation opens PostgreSQL with `default_transaction_read_only=on` and skips schema setup.
+- No delivery worker or challenge, session, delivery, or stale-host pruner starts.
+- Only `/health` and `/ready` are available; all application routes return 503.
+- `/health` attests `mode: validation`; `/ready` checks database connectivity only. It does not
+  prove schema compatibility, provider delivery, or active-worker readiness. Container probes
+  can still use `/health` without treating an inert process as unhealthy.
 
-To move traffic by hand, from the revision named in the run summary:
+The workflow verifies the exact image and scaling, probes readiness and mode, and checks the
+runtime identity with a validate-only FCM request. It then removes the tag and deletes validation,
+allowing ten seconds for shutdown before starting another revision. This orders the rollout
+within the two-revision connection budget; the delay is not proof of SQL connection drain.
+Verify revision termination and SQL sessions during controlled rollout acceptance.
+
+**The next step deliberately activates production effects.** It deploys a distinct revision of
+the exact validated digest, removing the validation override so the default `active` mode applies.
+Schema setup runs on its existing one-connection untimed pool, followed by workers and pruners.
+These can mutate production and send notifications **before HTTP traffic moves**. The workflow
+checks the active revision's digest, runtime identity, scaling, readiness and mode, then moves all
+HTTP traffic and checks the public origin. The summary records activation intent and rollback.
+Terraform continues to own configuration and scaling; the temporary validation environment entry
+is removed on activation, so no new ignored Terraform field is needed.
+
+Failure before activation deletes the inert candidate. Failure during activation also deletes the
+partially created active revision when traffic has not moved. After any attempted traffic shift,
+the workflow first restores and verifies previous traffic, then removes the candidate tag and
+deletes the rejected revision. It then restores the service template with the previous serving
+revision’s resolved image digest and no validation override, leaving traffic on the old revision.
+This creates an untagged recovery revision: known-good schema and workers can execute before
+it is retired, even with no HTTP traffic. The workflow verifies the template’s runtime settings,
+secret references, scaling and normal mode, then deletes the recovery revision under the same
+lease. Deletion leaves the safe service template in place for later Terraform reconciliation.
+If candidate deletion fails, no recovery revision is created; failed recovery attempts still
+record their revision name for retirement and operator diagnosis.
+
+Traffic restoration alone does **not** stop queue consumers. If rollback, template restoration
+or deletion fails, operator recovery must complete under the rollout lease; do not call
+the rollout recovered merely because the old origin answers. A canceled runner can also require
+manual cleanup. Successful rollout removes the active candidate tag.
+
+Manual rollback must restore traffic, retire the rejected revision, and restore the service
+template under the rollout lease. Use the exact names and known-good image digest from the summary:
 
 ```sh
 gcloud run services update-traffic orca-cloud-push \
-  --project onorca-cloud --region us-central1 \
-  --to-revisions <previous-revision>=100
+  --project onorca-cloud --region us-central1 --to-revisions <previous-revision>=100
+gcloud run services update-traffic orca-cloud-push \
+  --project onorca-cloud --region us-central1 --remove-tags <candidate-tag>
+gcloud run revisions delete <rejected-active-revision> \
+  --project onorca-cloud --region us-central1
+# Verify termination/drain before creating another revision.
+gcloud run deploy orca-cloud-push \
+  --project onorca-cloud --region us-central1 --image <known-good-image-at-digest> \
+  --remove-env-vars ORCA_PUSH_MODE --no-traffic --revision-suffix <unique-recovery-suffix>
+# Verify template image/mode/runtime/secret references/scaling and unchanged traffic, then retire it.
+gcloud run revisions delete <recovery-revision> \
+  --project onorca-cloud --region us-central1
 ```
+
+Never merely remove validation mode while the template still holds a rejected image. Terraform
+owns environment configuration but ignores the image, so that would activate rejected code.
+Remove a tag only if it remains present. Verify the old revision is serving, the template is safe,
+and both rejected/recovery revision deletion and connection drain completed;
+already accepted provider sends cannot be undone. Activation-time schema changes must be additive
+and compatible with the rollback image: rollback does not reverse migrations or queue mutations.
+The inert phase intentionally cannot validate a new schema by applying it to production. Review
+migrations and validate them against isolated PostgreSQL before dispatch. No actual Cloud Run
+rollout, provider delivery or physical-device acceptance is implied by local contract tests.
 
 ### Why the FCM probe impersonates the runtime account
 
@@ -320,7 +352,8 @@ issuance and breaks Cloud Run host routing.
 Candidate tags and deterministic revision names are recorded before deployment. Promotion intent is
 recorded before changing traffic, so a failed verification or ambiguous mutation result still triggers
 rollback. Failed candidates are deleted only before attempted promotion or after verified rollback.
-The summary runs even if candidate discovery or traffic verification fails.
+A known-good template is restored after successful cleanup, and its untagged recovery revision
+is retired so it cannot remain an extra consumer. The summary runs even if candidate discovery or traffic verification fails.
 
 Push uses the relay's schema-startup retry implementation through `@orca-cloud/postgres-schema`.
 Session replacement is serialized per host and a unique host index upgrades older databases by

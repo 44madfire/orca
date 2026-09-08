@@ -283,7 +283,7 @@ test('a failure before the shift deletes the candidate it created', () => {
     /env\.TRAFFIC_SHIFT_ATTEMPTED != 'true' \|\| env\.TRAFFIC_ROLLED_BACK == 'true'/,
     'the cleanup must be conditioned on both failure and the absence of the shift marker'
   )
-  assert.match(body, /test -n "\$\{CANDIDATE_REVISION:-\}" \|\| exit 0/)
+  assert.match(body, /if test -z "\$\{CANDIDATE_REVISION:-\}"; then/)
   assert.ok(
     body.indexOf('--remove-tags') < body.indexOf('gcloud run revisions delete'),
     'the tag must come off before the revision is deleted'

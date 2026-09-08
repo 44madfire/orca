@@ -1,6 +1,5 @@
 import { registerPushDismissalTask } from '../src/notifications/push-background-dismissal'
 import { readNativeNotificationData } from '../src/notifications/native-notification-data'
-import { loadNotificationDeliveryPreferences } from '../src/notifications/notification-delivery-preferences'
 import { setNotificationViewingWorkspace } from '../src/notifications/notification-viewing-policy'
 import { useCallback, useEffect, useRef } from 'react'
 import { View, StyleSheet } from 'react-native'
@@ -17,7 +16,7 @@ import { useOpenNotificationRoute } from '../src/notifications/use-open-notifica
 import {
   isRemotePushTrigger,
   pushNotificationRouteData,
-  shouldSuppressForegroundPush
+  foregroundNotificationBehavior
 } from '../src/notifications/push-receive'
 import { startPushTokenSync } from '../src/notifications/push-registration'
 import { ensureDesktopNotificationChannel } from '../src/notifications/desktop-notification-channel'
@@ -36,25 +35,9 @@ SplashScreen.preventAutoHideAsync()
 void ensureDesktopNotificationChannel().catch(() => {})
 void registerPushDismissalTask().catch(() => {})
 
-// Why: without this, expo-notifications silently drops notifications when
-// the app is in the foreground. Setting all three to true makes iOS/Android
-// display the banner, play the sound, and show the badge even while the
-// app is active. This runs once at module load time before any notification
-// is scheduled.
+// Register before scheduling so foreground delivery uses the same suppression policy.
 Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    // Why the check: a gateway push can arrive for an event the socket already
-    // delivered, and only the handler can stop the OS drawing a second banner.
-    const suppressed = await shouldSuppressForegroundPush(
-      readNativeNotificationData(notification.request)
-    ).catch(() => false)
-    return {
-      shouldShowBanner: !suppressed,
-      shouldShowList: !suppressed,
-      shouldPlaySound: !suppressed && (await loadNotificationDeliveryPreferences()).sound,
-      shouldSetBadge: false
-    }
-  }
+  handleNotification: foregroundNotificationBehavior
 })
 
 export default function RootLayout() {

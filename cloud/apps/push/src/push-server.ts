@@ -117,12 +117,18 @@ export function createPushServer(
     return context.json({ error: 'internal' }, 500)
   })
 
-  app.get('/health', (context) => context.json({ ok: true, pushProtocol: 1, deliveryProtocol: 2 }))
+  app.get('/health', (context) =>
+    context.json({ ok: true, pushProtocol: 1, deliveryProtocol: 2, mode: config.mode ?? 'active' })
+  )
   app.get('/ready', limitUnauthenticatedIp, async (context) =>
     (await ready())
       ? context.json({ ok: true })
       : context.json({ error: 'dependency_unavailable' }, 503)
   )
+
+  if (config.mode === 'validation') {
+    app.use('*', async (context) => context.json({ error: 'validation_only' }, 503))
+  }
 
   const bearerSession: MiddlewareHandler<{ Variables: PushVariables }> = async (context, next) => {
     const ip = readClientIp(context, config.trustedProxyHops)

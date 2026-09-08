@@ -418,15 +418,12 @@ Foundation grants the dedicated account access to the rollout-lock prefix and bu
 Apply that companion grant and publish the identity outputs before running the workflow. See
 [push gateway deployment setup](./push-gateway.md#deploying) for the activation steps.
 
-The run builds `apps/push/Dockerfile` **before** taking the lease, so an image build never blocks
-a relay deploy or rehome, then holds the production rollout lease across the deploy itself,
-because the gateway applies its schema while the new revision starts. Under the lease it checks
-the serving revision's Terraform-owned scaling, deploys with `--no-traffic` behind a per-run
-traffic tag and no scaling flag of its own, probes the candidate's own `/ready`, proves the
-runtime identity can reach FCM with a validate-only send, and only then shifts 100% of traffic. A
-failure after the shift returns traffic to the recorded rollback revision; a failure before it
-deletes the candidate. There is no staging gateway, so there is no staging counterpart to run
-first.
-
-Full runbook, including the APNs key rotation and the DNS record the `stablyai/orca-cloud` apps
-root still owes, is in `docs/push-gateway.md`.
+The run builds the exact reviewed image digest before taking the lease and rejects images
+without validation-mode support using a network-isolated container. Under the lease it boots
+an inert, read-only validation revision, checks readiness, mode, scaling and FCM credentials,
+then deletes it before deliberately activating the same digest in a new revision. Activation
+starts schema writes, pruners and queue consumers before HTTP promotion. Rollback requires
+restoring traffic, deleting the rejected active revision, and restoring the service template to
+the known-good image in normal mode. The untagged template-recovery revision can run known-good
+workers and is retired before lease release; see the
+[deployment and rollback contract](./push-gateway.md#deploying).

@@ -12,6 +12,25 @@ import {
 } from './notification-reconnect-catchup'
 import { resolveHostIdForFingerprint } from './push-host-fingerprint'
 import { readOrcaPushPayload, type OrcaPushPayload } from './push-payload'
+import type { Notification, NotificationBehavior } from 'expo-notifications'
+import { readNativeNotificationData } from './native-notification-data'
+import { loadNotificationDeliveryPreferences } from './notification-delivery-preferences'
+
+export async function foregroundNotificationBehavior(
+  notification: Pick<Notification, 'request'>
+): Promise<NotificationBehavior> {
+  const preferences = await loadNotificationDeliveryPreferences()
+  // No storage awaits after suppression: a dismissal may arrive during any read.
+  const suppressed = await shouldSuppressForegroundPush(
+    readNativeNotificationData(notification.request)
+  ).catch(() => false)
+  return {
+    shouldShowBanner: !suppressed,
+    shouldShowList: !suppressed,
+    shouldPlaySound: !suppressed && preferences.sound,
+    shouldSetBadge: false
+  }
+}
 
 async function resolvePushHostId(payload: OrcaPushPayload): Promise<string | null> {
   const hosts = await loadHostCatalog().catch(() => [])
@@ -77,6 +96,9 @@ export async function shouldSuppressForegroundPush(data: unknown): Promise<boole
   }
   // Push and socket delivery share one claim, including an in-flight native schedule.
   return enqueueHostDelivery(session, async () => {
+    if (await wasPushDismissed(payload)) {
+      return true
+    }
     // The seen keys are seq-derived, so a push from a new desktop lifetime must void
     // them before its own key is tested against a counter that no longer exists.
     adoptNotificationEpoch(session, hostId, payload.notificationEpoch)

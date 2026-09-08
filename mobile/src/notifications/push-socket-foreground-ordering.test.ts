@@ -1,3 +1,4 @@
+const memory = vi.hoisted(() => new Map<string, string>())
 import { beforeEach, expect, it, vi } from 'vitest'
 import * as Notifications from 'expo-notifications'
 import { subscribeToDesktopNotifications } from './mobile-notifications'
@@ -26,7 +27,12 @@ vi.mock('../storage/preferences', () => ({
   loadRemotePushHostRegistrations: async () => ({ registeredHostIds: ['host'] })
 }))
 vi.mock('@react-native-async-storage/async-storage', () => ({
-  default: { getItem: async () => null, setItem: async () => {} }
+  default: {
+    getItem: async (key: string) => memory.get(key) ?? null,
+    setItem: async (key: string, value: string) => {
+      memory.set(key, value)
+    }
+  }
 }))
 const event = {
   type: 'notification',
@@ -43,6 +49,7 @@ beforeEach(() => {
   for (const dispose of disposals.splice(0)) {
     dispose()
   }
+  memory.clear()
   vi.clearAllMocks()
   resetHostNotificationSessionsForTests()
 })
@@ -132,4 +139,52 @@ it('dismisses the tray while an earlier socket show is still waiting for foregro
   )
   AppState.currentState = 'active'
   activate('active')
+})
+it('rechecks dismissal while push waits behind another socket show', async () => {
+  const { AppState } = await import('react-native')
+  AppState.currentState = 'active'
+  let finish!: (id: string) => void
+  vi.mocked(Notifications.scheduleNotificationAsync).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      })
+  )
+  const receive = await socket()
+  receive({ ...event, notificationId: 'other', notificationSeq: 10 })
+  await vi.waitFor(() => expect(finish).toBeDefined())
+  const tail = getHostNotificationSession('host').deliveryTail
+  const pending = shouldSuppressForegroundPush({
+    orca: { ...event, notificationSeq: 11, hostFingerprint: 'abcdefghijklmnop' }
+  })
+  await vi.waitFor(() => expect(getHostNotificationSession('host').deliveryTail).not.toBe(tail))
+  await shouldSuppressForegroundPush({
+    orca: { ...event, kind: 'dismiss', notificationSeq: 12, hostFingerprint: 'abcdefghijklmnop' }
+  })
+  finish('other-local')
+  expect(await pending).toBe(true)
+})
+
+it('dismiss arriving during socket handoff cannot resurrect local banner', async () => {
+  const { AppState } = await import('react-native')
+  AppState.currentState = 'active'
+  const receive = await socket()
+  await getHostNotificationSession('host').deliveryTail
+  let finishTray!: (v: never[]) => void
+  vi.mocked(Notifications.getPresentedNotificationsAsync).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishTray = resolve
+      })
+  )
+  receive({ ...event, notificationId: 'handoff', notificationSeq: 20 })
+  await vi.waitFor(() => expect(finishTray).toBeDefined())
+  const trayReads = vi.mocked(Notifications.getPresentedNotificationsAsync).mock.calls.length
+  receive({ ...event, type: 'dismiss', notificationId: 'handoff', notificationSeq: 21 })
+  await vi.waitFor(() =>
+    expect(Notifications.getPresentedNotificationsAsync).toHaveBeenCalledTimes(trayReads + 1)
+  )
+  finishTray([])
+  await vi.waitFor(() => expect(getHostNotificationSession('host').lastDeliveredSeq).toBe(21))
+  expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled()
 })

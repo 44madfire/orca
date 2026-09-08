@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import pg from 'pg'
+import { parseIntoClientConfig } from 'pg-connection-string'
 import { applyPostgresSchema } from '@orca-cloud/postgres-schema'
 import { ensurePushSessionIndex } from './push-session-schema.js'
 import { pushSchemaStatements } from './push-schema.js'
@@ -235,12 +236,20 @@ export async function openPushDatabase(input: {
   dataDir: string
   poolMax?: number
   applicationName?: string
+  readOnly?: boolean
 }): Promise<PushDatabase> {
   let database: PushDatabase
   if (input.databaseUrl) {
-    await applySchemaOnUntimedPool(input.databaseUrl, input.applicationName)
+    if (!input.readOnly) await applySchemaOnUntimedPool(input.databaseUrl, input.applicationName)
+    let connection: pg.ClientConfig = { connectionString: input.databaseUrl }
+    if (input.readOnly) {
+      connection = parseIntoClientConfig(input.databaseUrl)
+      // A URL parameter must not trigger a second parse that overrides read-only options.
+      delete connection.connectionString
+      connection.options = `${connection.options ?? ''} -c default_transaction_read_only=on`.trim()
+    }
     const pool = new pg.Pool({
-      connectionString: input.databaseUrl,
+      ...connection,
       max: input.poolMax ?? 10,
       application_name: input.applicationName,
       connectionTimeoutMillis: POSTGRES_CONNECTION_TIMEOUT_MS,
@@ -252,11 +261,13 @@ export async function openPushDatabase(input: {
     database = new PostgresDatabase(pool)
   } else {
     mkdirSync(input.dataDir, { recursive: true })
-    const sqlite = new DatabaseSync(join(input.dataDir, 'orca-push.sqlite'))
-    sqlite.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;')
+    const sqlite = new DatabaseSync(join(input.dataDir, 'orca-push.sqlite'), {
+      readOnly: input.readOnly ?? false
+    })
+    if (!input.readOnly) sqlite.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;')
     database = new SqliteDatabase(sqlite)
   }
-  if (database.dialect === 'postgres') return database
+  if (database.dialect === 'postgres' || input.readOnly) return database
   try {
     await applySchema(database)
     return database
