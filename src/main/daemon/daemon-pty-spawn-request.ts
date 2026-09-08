@@ -1,4 +1,3 @@
-import { AGENT_RESUME_COMMAND_PROTOCOL_VERSION } from './daemon-protocol-version'
 import type { ColdRestorePayload } from './cold-restore-payload-cache'
 import type { DaemonAuditObservation } from './daemon-audit-classifier'
 import {
@@ -8,7 +7,10 @@ import {
   type SnapshotCheckpointResult
 } from './daemon-pty-runtime-state'
 import { isDaemonGoneError } from './daemon-endpoint-errors'
-import { HISTORY_SEED_TRANSFER_PROTOCOL_VERSION } from './daemon-protocol-version'
+import {
+  AGENT_RESUME_COMMAND_PROTOCOL_VERSION,
+  HISTORY_SEED_TRANSFER_PROTOCOL_VERSION
+} from './daemon-protocol-version'
 import type { ColdRestoreInfo } from './history-reader'
 import { NdjsonLineTooLongError } from './ndjson'
 import {
