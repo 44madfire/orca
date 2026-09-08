@@ -174,6 +174,31 @@ describe('generated titlebar registration lifetime', () => {
     }
   )
 
+  it('rejects delayed legacy agent_end after shutdown while a fresh registration can poll', async () => {
+    const h = fixture(),
+      old = h.registration()
+    await old.call('session_shutdown')
+    const calls = old.calls()
+    await old.call('agent_end')
+    for (let i = 0; i < 3 && h.timeouts.size; i++) first(h.timeouts)()
+    expect(old.calls()).toBe(calls)
+    expect(h.timeouts.size).toBe(0)
+    expect(h.intervals.size).toBe(0)
+
+    const fresh = h.registration()
+    await fresh.call('agent_end')
+    expect(h.timeouts.size).toBe(1)
+    for (let i = 0; i < 3; i++) first(h.timeouts)()
+    expect(fresh.calls()).toBe(3)
+    expect(h.timeouts.size).toBe(1)
+    fresh.setIdle()
+    first(h.timeouts)()
+    expect(h.titles.at(-1)).toBe('π - same-session - folder')
+    expect(h.timeouts.size).toBe(0)
+    expect(h.intervals.size).toBe(0)
+    expect(old.calls()).toBe(calls)
+  })
+
   it('fences a queued frame and idle check when a new activity starts', async () => {
     const h = fixture(),
       live = h.registration()
