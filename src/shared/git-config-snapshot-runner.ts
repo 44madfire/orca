@@ -5,6 +5,7 @@ type GitConfigSnapshot = Map<string, string[]>
 // Why: mirror `git config --get`'s exit-1-on-absent-key so an intercepted miss
 // rejects (matching real git) instead of resolving an empty success value.
 export class GitConfigSnapshotKeyNotFoundError extends Error {
+  readonly code = 1
   constructor(key: string) {
     super(`git config --get found no value for '${key}'`)
     this.name = 'GitConfigSnapshotKeyNotFoundError'

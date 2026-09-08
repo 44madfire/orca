@@ -144,10 +144,14 @@ describe('getConfiguredBranchRemoteUpstream', () => {
     })
     await expect(
       getConfiguredBranchRemoteUpstream(runGit, BRANCH, remoteTrackingRefExists)
-    ).resolves.toBeNull()
+    ).resolves.toMatchObject({
+      operationSelector: { kind: 'literal-url', value: FORK_URL },
+      upstreamName: null,
+      branchName: BRANCH
+    })
   })
 
-  it('returns null with no remotes at all', async () => {
+  it('retains pull intent with no remotes at all', async () => {
     const { runGit } = makeRunner({
       remotes: [],
       config: {
@@ -157,7 +161,11 @@ describe('getConfiguredBranchRemoteUpstream', () => {
     })
     await expect(
       getConfiguredBranchRemoteUpstream(runGit, BRANCH, remoteTrackingRefExists)
-    ).resolves.toBeNull()
+    ).resolves.toMatchObject({
+      operationSelector: { kind: 'literal-url', value: FORK_URL },
+      upstreamName: null,
+      branchName: BRANCH
+    })
   })
 
   it('keeps a plain named remote untouched', async () => {
@@ -171,6 +179,37 @@ describe('getConfiguredBranchRemoteUpstream', () => {
     await expect(
       getConfiguredBranchRemoteUpstream(runGit, BRANCH, remoteTrackingRefExists)
     ).resolves.toMatchObject({ remoteName: 'origin' })
-    expect(spawns.filter((args) => args[0] === 'remote')).toEqual([])
+    expect(spawns.filter((args) => args[0] === 'remote')).toEqual([['remote', '-v']])
   })
 })
+
+it.each(['config', 'remote', 'tracking'])(
+  'propagates %s execution errors instead of losing pull intent',
+  async (failure) => {
+    const { runGit } = makeRunner({
+      remotes: [{ name: 'origin', fetchUrl: FORK_URL }],
+      config: {
+        [`branch.${BRANCH}.remote`]: FORK_URL,
+        [`branch.${BRANCH}.merge`]: `refs/heads/${BRANCH}`
+      }
+    })
+    const error = Object.assign(new Error('execution host unavailable'), { code: 128 })
+    await expect(
+      getConfiguredBranchRemoteUpstream(
+        async (args) => {
+          if (args[0] === failure) {
+            throw error
+          }
+          return runGit(args)
+        },
+        BRANCH,
+        async () => {
+          if (failure === 'tracking') {
+            throw error
+          }
+          return true
+        }
+      )
+    ).rejects.toBe(error)
+  }
+)

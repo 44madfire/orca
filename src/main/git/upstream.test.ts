@@ -13,12 +13,6 @@ vi.mock('./runner', () => ({
 import { getUpstreamStatus, invalidateGitUpstreamStatusReads } from './upstream'
 import { runWithGitReadCacheInvalidation } from './status'
 
-const missingTrackingRefError = new Error(
-  "fatal: ambiguous argument 'HEAD@{u}': unknown revision or path not in the working tree.\n" +
-    "Use '--' to separate paths from revisions, like this:\n" +
-    "'git <command> [<revision>...] -- [<file>...]'"
-)
-
 describe('getUpstreamStatus', () => {
   beforeEach(() => {
     gitExecFileAsyncMock.mockReset()
@@ -34,7 +28,7 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'main\n' })
       }
-      if (args[0] === 'rev-parse') {
+      if (args[0] === 'for-each-ref') {
         return Promise.resolve({ stdout: 'origin/main\n' })
       }
       if (args[0] === 'rev-list') {
@@ -42,6 +36,12 @@ describe('getUpstreamStatus', () => {
       }
       if (args[0] === 'log') {
         return Promise.resolve({ stdout: '+ abc123 remote work\n' })
+      }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -83,11 +83,17 @@ describe('getUpstreamStatus', () => {
         await symbolicRefGate
         return { stdout: 'main\n' }
       }
-      if (args[0] === 'rev-parse') {
+      if (args[0] === 'for-each-ref') {
         return { stdout: 'origin/main\n' }
       }
       if (args[0] === 'rev-list') {
         return { stdout: '0\t0\n' }
+      }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -115,7 +121,7 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'check-ref-format') {
         return Promise.resolve({ stdout: '' })
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
+      if (args[0] === 'for-each-ref') {
         return Promise.resolve({ stdout: 'origin/main\n' })
       }
       if (args[0] === 'rev-parse' && args.includes('--verify')) {
@@ -123,6 +129,12 @@ describe('getUpstreamStatus', () => {
       }
       if (args[0] === 'rev-list') {
         return Promise.resolve({ stdout: '0\t0\n' })
+      }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -183,11 +195,17 @@ describe('getUpstreamStatus', () => {
         pendingReads.push({ promise, resolve })
         return promise
       }
-      if (args[0] === 'rev-parse') {
+      if (args[0] === 'for-each-ref') {
         return Promise.resolve({ stdout: 'origin/main\n' })
       }
       if (args[0] === 'rev-list') {
         return Promise.resolve({ stdout: '0\t0\n' })
+      }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -271,10 +289,10 @@ describe('getUpstreamStatus', () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'feature\n' })
       .mockResolvedValueOnce({ stdout: '\n' })
-      .mockRejectedValueOnce(new Error('missing branch remote'))
-      .mockRejectedValueOnce(new Error('missing branch merge'))
-      .mockRejectedValueOnce(new Error('missing branch base'))
-      .mockRejectedValueOnce(new Error('missing remote branch'))
+      .mockRejectedValueOnce(Object.assign(new Error('missing branch remote'), { code: 1 }))
+      .mockRejectedValueOnce(Object.assign(new Error('missing branch merge'), { code: 1 }))
+      .mockRejectedValueOnce(Object.assign(new Error('missing branch base'), { code: 1 }))
+      .mockRejectedValueOnce(Object.assign(new Error('missing remote branch'), { code: 1 }))
 
     const result = await getUpstreamStatus('/repo')
 
@@ -288,11 +306,11 @@ describe('getUpstreamStatus', () => {
   it('returns hasUpstream=false when upstream is missing', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'feature\n' })
-      .mockRejectedValueOnce(new Error('fatal: no upstream configured'))
-      .mockRejectedValueOnce(new Error('missing branch remote'))
-      .mockRejectedValueOnce(new Error('missing branch merge'))
-      .mockRejectedValueOnce(new Error('missing branch base'))
-      .mockRejectedValueOnce(new Error('missing remote branch'))
+      .mockResolvedValueOnce({ stdout: '\0\n' })
+      .mockRejectedValueOnce(Object.assign(new Error('missing branch remote'), { code: 1 }))
+      .mockRejectedValueOnce(Object.assign(new Error('missing branch merge'), { code: 1 }))
+      .mockRejectedValueOnce(Object.assign(new Error('missing branch base'), { code: 1 }))
+      .mockRejectedValueOnce(Object.assign(new Error('missing remote branch'), { code: 1 }))
 
     const result = await getUpstreamStatus('/repo')
 
@@ -306,11 +324,11 @@ describe('getUpstreamStatus', () => {
   it('returns hasUpstream=false when the configured tracking ref is missing', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'feature\n' })
-      .mockRejectedValueOnce(missingTrackingRefError)
-      .mockRejectedValueOnce(new Error('missing branch remote'))
-      .mockRejectedValueOnce(new Error('missing branch merge'))
-      .mockRejectedValueOnce(new Error('missing branch base'))
-      .mockRejectedValueOnce(new Error('missing remote branch'))
+      .mockResolvedValueOnce({ stdout: 'origin/feature\0\n' })
+      .mockRejectedValueOnce(Object.assign(new Error('missing branch remote'), { code: 1 }))
+      .mockRejectedValueOnce(Object.assign(new Error('missing branch merge'), { code: 1 }))
+      .mockRejectedValueOnce(Object.assign(new Error('missing branch base'), { code: 1 }))
+      .mockRejectedValueOnce(Object.assign(new Error('missing remote branch'), { code: 1 }))
 
     const result = await getUpstreamStatus('/repo')
 
@@ -345,8 +363,8 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'imp/chinese-translation\n' })
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        return Promise.reject(new Error('fatal: no upstream configured'))
+      if (args[0] === 'for-each-ref') {
+        return Promise.resolve({ stdout: '\0\n' })
       }
       if (args[0] === 'config' && args.includes('branch.imp/chinese-translation.remote')) {
         return Promise.resolve({ stdout: 'https://github.com/pynickle/orca.git\n' })
@@ -355,7 +373,7 @@ describe('getUpstreamStatus', () => {
         return Promise.resolve({ stdout: 'refs/heads/imp/chinese-translation\n' })
       }
       if (args[0] === 'config' && args.includes('branch.imp/chinese-translation.base')) {
-        return Promise.reject(new Error('missing branch base'))
+        return Promise.reject(Object.assign(new Error('missing branch base'), { code: 1 }))
       }
       if (args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
         return Promise.resolve({ stdout: 'https://github.com/stablyai/orca.git\n' })
@@ -385,6 +403,12 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'rev-list') {
         return Promise.resolve({ stdout: '2\t0\n' })
       }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
+      }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
 
@@ -403,8 +427,8 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'review/pr-1\n' })
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        return Promise.reject(new Error('fatal: no upstream configured'))
+      if (args[0] === 'for-each-ref') {
+        return Promise.resolve({ stdout: '\0\n' })
       }
       if (args[0] === 'config' && args.includes('branch.review/pr-1.remote')) {
         return Promise.resolve({ stdout: 'fork\n' })
@@ -420,6 +444,12 @@ describe('getUpstreamStatus', () => {
       }
       if (args[0] === 'rev-list') {
         return Promise.resolve({ stdout: '3\t0\n' })
+      }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -439,8 +469,8 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'imp/chinese-translation\n' })
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        return Promise.reject(new Error('fatal: no upstream configured'))
+      if (args[0] === 'for-each-ref') {
+        return Promise.resolve({ stdout: '\0\n' })
       }
       if (args[0] === 'config' && args.includes('branch.imp/chinese-translation.pushRemote')) {
         return Promise.resolve({ stdout: 'https://github.com/pynickle/orca.git\n' })
@@ -455,7 +485,7 @@ describe('getUpstreamStatus', () => {
         return Promise.resolve({ stdout: 'refs/heads/imp/chinese-translation\n' })
       }
       if (args[0] === 'config' && args.includes('branch.imp/chinese-translation.base')) {
-        return Promise.reject(new Error('missing branch base'))
+        return Promise.reject(Object.assign(new Error('missing branch base'), { code: 1 }))
       }
       if (args[0] === 'remote' && args[1] === 'get-url') {
         return Promise.resolve({ stdout: 'https://github.com/stablyai/orca.git\n' })
@@ -464,7 +494,13 @@ describe('getUpstreamStatus', () => {
         return Promise.resolve({ stdout: 'origin\n' })
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/imp/chinese-translation')) {
-        return Promise.reject(new Error('missing origin tracking ref'))
+        return Promise.reject(Object.assign(new Error('missing origin tracking ref'), { code: 1 }))
+      }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -484,8 +520,8 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'review/pr-1\n' })
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        return Promise.reject(new Error('fatal: no upstream configured'))
+      if (args[0] === 'for-each-ref') {
+        return Promise.resolve({ stdout: '\0\n' })
       }
       if (args[0] === 'config' && args.includes('branch.review/pr-1.pushRemote')) {
         return Promise.resolve({ stdout: 'fork\n' })
@@ -503,10 +539,16 @@ describe('getUpstreamStatus', () => {
         return Promise.resolve({ stdout: 'refs/remotes/origin/main\n' })
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/fork/main')) {
-        return Promise.reject(new Error('missing fork tracking ref'))
+        return Promise.reject(Object.assign(new Error('missing fork tracking ref'), { code: 1 }))
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/review/pr-1')) {
-        return Promise.reject(new Error('missing origin review branch'))
+        return Promise.reject(Object.assign(new Error('missing origin review branch'), { code: 1 }))
+      }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -526,8 +568,8 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'feature\n' })
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        return Promise.reject(new Error('fatal: no upstream configured'))
+      if (args[0] === 'for-each-ref') {
+        return Promise.resolve({ stdout: '\0\n' })
       }
       if (args[0] === 'config' && args.includes('branch.feature.pushRemote')) {
         return Promise.reject(new Error('missing pushRemote'))
@@ -545,10 +587,20 @@ describe('getUpstreamStatus', () => {
         return Promise.resolve({ stdout: 'refs/remotes/origin/main\n' })
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/main')) {
-        return Promise.reject(new Error('missing origin/main tracking ref'))
+        return Promise.reject(
+          Object.assign(new Error('missing origin/main tracking ref'), { code: 1 })
+        )
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature')) {
-        return Promise.reject(new Error('missing origin/feature tracking ref'))
+        return Promise.reject(
+          Object.assign(new Error('missing origin/feature tracking ref'), { code: 1 })
+        )
+      }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -567,8 +619,8 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'feature/fix\n' })
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        return Promise.reject(new Error('fatal: no upstream configured'))
+      if (args[0] === 'for-each-ref') {
+        return Promise.resolve({ stdout: '\0\n' })
       }
       if (args[0] === 'config' && args.includes('branch.feature/fix.pushRemote')) {
         return Promise.reject(new Error('missing pushRemote'))
@@ -586,7 +638,15 @@ describe('getUpstreamStatus', () => {
         return Promise.resolve({ stdout: 'refs/remotes/origin/main\n' })
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature/fix')) {
-        return Promise.reject(new Error('missing origin feature branch'))
+        return Promise.reject(
+          Object.assign(new Error('missing origin feature branch'), { code: 1 })
+        )
+      }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -605,7 +665,7 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'feature\n' })
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
+      if (args[0] === 'for-each-ref') {
         return Promise.resolve({ stdout: 'origin/team/feature\n' })
       }
       if (args[0] === 'remote') {
@@ -619,6 +679,12 @@ describe('getUpstreamStatus', () => {
       }
       if (args[0] === 'rev-list' && args.includes('HEAD...origin/feature')) {
         return Promise.resolve({ stdout: '9\t9\n' })
+      }
+      if (args[0] === 'remote' && args[1] === '-v') {
+        return {
+          stdout:
+            'origin\thttps://example.invalid/base (fetch)\nfork\thttps://example.invalid/fork (fetch)'
+        }
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })

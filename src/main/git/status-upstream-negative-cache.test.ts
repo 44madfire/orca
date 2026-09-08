@@ -67,8 +67,8 @@ describe('local upstream negative cache', () => {
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
         return { stdout: 'feature\n' }
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        throw new Error('fatal: no upstream configured for branch feature')
+      if (args[0] === 'for-each-ref') {
+        return { stdout: '\0\n' }
       }
       if (isConfigListSnapshotCommand(args)) {
         return emptyGitConfigSnapshot()
@@ -77,7 +77,7 @@ describe('local upstream negative cache', () => {
         if (originBranchExists) {
           return { stdout: 'abc123\n' }
         }
-        throw new Error('missing remote branch')
+        throw Object.assign(new Error('missing remote branch'), { code: 1 })
       }
       if (args[0] === 'rev-list' && args.includes('HEAD...origin/feature')) {
         return { stdout: '0\t1\n' }
@@ -114,8 +114,8 @@ describe('local upstream negative cache', () => {
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
         return { stdout: 'feature\n' }
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        throw new Error('fatal: no upstream configured for branch feature')
+      if (args[0] === 'for-each-ref') {
+        return { stdout: '\0\n' }
       }
       if (isConfigListSnapshotCommand(args)) {
         return emptyGitConfigSnapshot()
@@ -143,7 +143,9 @@ describe('local upstream negative cache', () => {
     if (!deferredOriginReject) {
       throw new Error('expected deferred origin reject')
     }
-    ;(deferredOriginReject as (error: Error) => void)(new Error('missing remote branch'))
+    ;(deferredOriginReject as (error: Error) => void)(
+      Object.assign(new Error('missing remote branch'), { code: 1 })
+    )
     const staleAutomatic = await automatic
     const nextAutomatic = await getStatus('/repo')
 
@@ -177,8 +179,8 @@ describe('local upstream negative cache', () => {
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
         return { stdout: `${currentBranch}\n` }
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        throw new Error(`fatal: no upstream configured for branch ${currentBranch}`)
+      if (args[0] === 'for-each-ref') {
+        return { stdout: '\0\n' }
       }
       if (isConfigListSnapshotCommand(args)) {
         return emptyGitConfigSnapshot()
@@ -208,7 +210,9 @@ describe('local upstream negative cache', () => {
     if (!deferredOriginReject) {
       throw new Error('expected deferred origin reject')
     }
-    ;(deferredOriginReject as (error: Error) => void)(new Error('missing remote branch'))
+    ;(deferredOriginReject as (error: Error) => void)(
+      Object.assign(new Error('missing remote branch'), { code: 1 })
+    )
     await automatic
     const nextAutomatic = await getStatus('/repo')
 
@@ -241,8 +245,8 @@ describe('local upstream negative cache', () => {
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
         return { stdout: `${currentBranch}\n` }
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        throw new Error(`fatal: no upstream configured for branch ${currentBranch}`)
+      if (args[0] === 'for-each-ref') {
+        return { stdout: '\0\n' }
       }
       if (isConfigListSnapshotCommand(args)) {
         return emptyGitConfigSnapshot()
@@ -272,7 +276,9 @@ describe('local upstream negative cache', () => {
     if (!deferredOriginReject) {
       throw new Error('expected deferred origin reject')
     }
-    ;(deferredOriginReject as (error: Error) => void)(new Error('missing remote branch'))
+    ;(deferredOriginReject as (error: Error) => void)(
+      Object.assign(new Error('missing remote branch'), { code: 1 })
+    )
     await automatic
     const nextAutomatic = await getStatus('/repo')
 
@@ -299,14 +305,14 @@ describe('local upstream negative cache', () => {
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
         return { stdout: `${currentBranch}\n` }
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        throw new Error(`fatal: no upstream configured for branch ${currentBranch}`)
+      if (args[0] === 'for-each-ref') {
+        return { stdout: '\0\n' }
       }
       if (isConfigListSnapshotCommand(args)) {
         return emptyGitConfigSnapshot()
       }
       if (args[0] === 'rev-parse' && args.some((arg) => arg.startsWith('refs/remotes/origin/'))) {
-        throw new Error('missing remote branch')
+        throw Object.assign(new Error('missing remote branch'), { code: 1 })
       }
       throw new Error(`unexpected git command: ${args.join(' ')}`)
     })
@@ -333,8 +339,8 @@ describe('local upstream negative cache', () => {
       if (args[0] === 'symbolic-ref' && args.includes('HEAD')) {
         return { stdout: `${currentBranch}\n` }
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        throw new Error(`fatal: no upstream configured for branch ${currentBranch}`)
+      if (args[0] === 'for-each-ref') {
+        return { stdout: '\0\n' }
       }
       if (isConfigListSnapshotCommand(args)) {
         return emptyGitConfigSnapshot()

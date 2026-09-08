@@ -6,20 +6,17 @@ import {
   type GitExec
 } from './branch-rename'
 
-const noUpstreamError = new Error(
-  "fatal: no upstream configured for branch 'feature'\n" +
-    'To push the current branch and set the remote as upstream, use\n' +
-    '    git push --set-upstream origin feature'
-)
-
 describe('probeBranchUpstream', () => {
   it('reports has-upstream when @{u} resolves to a tracking ref', async () => {
     const exec: GitExec = vi.fn(async (args: string[]) => {
       if (args[0] === 'symbolic-ref') {
         return { stdout: 'feature\n', stderr: '' }
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
+      if (args[0] === 'for-each-ref') {
         return { stdout: 'origin/feature\n', stderr: '' }
+      }
+      if (args[0] === 'config') {
+        throw Object.assign(new Error('missing config'), { code: 1 })
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -31,11 +28,14 @@ describe('probeBranchUpstream', () => {
       if (args[0] === 'symbolic-ref') {
         return { stdout: 'feature\n', stderr: '' }
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        throw noUpstreamError
+      if (args[0] === 'for-each-ref') {
+        return { stdout: '\0\n' }
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature')) {
-        throw new Error('not found')
+        throw Object.assign(new Error('not found'), { code: 1 })
+      }
+      if (args[0] === 'config') {
+        throw Object.assign(new Error('missing config'), { code: 1 })
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -47,11 +47,14 @@ describe('probeBranchUpstream', () => {
       if (args[0] === 'symbolic-ref') {
         return { stdout: 'feature\n', stderr: '' }
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        throw noUpstreamError
+      if (args[0] === 'for-each-ref') {
+        return { stdout: '\0\n' }
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature')) {
         return { stdout: '', stderr: '' }
+      }
+      if (args[0] === 'config') {
+        throw Object.assign(new Error('missing config'), { code: 1 })
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
@@ -111,7 +114,7 @@ describe('resolveUniqueBranchName', () => {
       if (ref === 'refs/heads/you/fix-auth') {
         return { stdout: '', stderr: '' } // exists
       }
-      throw new Error('not found')
+      throw Object.assign(new Error('not found'), { code: 1 })
     })
     const result = await resolveUniqueBranchName(exec, 'fix-auth', compute, 'you/Nautilus')
     expect(result).toBe('you/fix-auth-2')

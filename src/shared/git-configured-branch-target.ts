@@ -1,43 +1,32 @@
-import type { GitOperationSelector } from './git-operation-selector'
+import { gitOperationSelector, type GitOperationSelector } from './git-operation-selector'
 import { gitRefTargetsBranchOnRemote } from './git-remote-branch-name'
-import { findGitRemoteNameByFetchUrl } from './git-remote-url-index'
+import { findGitRemoteNameByFetchUrl, parseGitRemoteVerboseLine } from './git-remote-url-index'
 
 type GitCommandRunner = (args: string[]) => Promise<{ stdout: string }>
 
 type RemoteTrackingRefExists = (remoteName: string, branchName: string) => Promise<boolean>
 
 export type ConfiguredBranchRemoteUpstream = {
-  operationSelector?: GitOperationSelector
-  upstreamName: string
+  operationSelector: GitOperationSelector
+  upstreamName: string | null
   remoteName: string
   branchName: string
   isConfiguredUpstream: false
 }
 
-async function getGitConfigValue(runGit: GitCommandRunner, key: string): Promise<string | null> {
+async function getGitConfigValue(
+  runGit: GitCommandRunner,
+  key: string,
+  strict = false
+): Promise<string | null> {
   try {
     const { stdout } = await runGit(['config', '--get', key])
     const value = stdout.trim()
     return value || null
-  } catch {
-    return null
-  }
-}
-
-function isUrlValuedRemote(remote: string): boolean {
-  return /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(remote) || /^[^@/:]+@[^:]+:.+/.test(remote)
-}
-
-// `hasConfiguredBranchPushTarget` resolves up to two URL-valued remotes, so the old
-// per-remote `get-url` scan cost up to 2 x (1 + remotes) subprocesses per call.
-async function findRemoteNameForUrl(
-  runGit: GitCommandRunner,
-  remoteUrl: string
-): Promise<string | null> {
-  try {
-    const { stdout } = await runGit(['remote', '-v'])
-    return findGitRemoteNameByFetchUrl(stdout, (candidateUrl) => candidateUrl === remoteUrl)
-  } catch {
+  } catch (error) {
+    if (strict && (error as { code?: unknown } | null)?.code !== 1) {
+      throw error
+    }
     return null
   }
 }
@@ -48,29 +37,35 @@ export async function getConfiguredBranchRemoteUpstream(
   remoteTrackingRefExists: RemoteTrackingRefExists
 ): Promise<ConfiguredBranchRemoteUpstream | null> {
   const [remote, mergeRef, baseRef] = await Promise.all([
-    getGitConfigValue(runGit, `branch.${currentBranchName}.remote`),
-    getGitConfigValue(runGit, `branch.${currentBranchName}.merge`),
-    getGitConfigValue(runGit, `branch.${currentBranchName}.base`)
+    getGitConfigValue(runGit, `branch.${currentBranchName}.remote`, true),
+    getGitConfigValue(runGit, `branch.${currentBranchName}.merge`, true),
+    getGitConfigValue(runGit, `branch.${currentBranchName}.base`, true)
   ])
   const branchName = mergeRef?.replace(/^refs\/heads\//, '') ?? ''
   if (!remote || !branchName || branchName === mergeRef || remote === '.') {
     return null
   }
 
-  const remoteName = isUrlValuedRemote(remote) ? await findRemoteNameForUrl(runGit, remote) : remote
-  if (
-    !remoteName ||
-    gitRefTargetsBranchOnRemote(baseRef, remoteName, branchName) ||
-    !(await remoteTrackingRefExists(remoteName, branchName))
-  ) {
+  const { stdout } = await runGit(['remote', '-v'])
+  const remoteNames = stdout.split('\n').flatMap((line) => {
+    const entry = parseGitRemoteVerboseLine(line)
+    return entry ? [entry.name] : []
+  })
+  const operationSelector = gitOperationSelector(remote, remoteNames)
+  const remoteName =
+    operationSelector.kind === 'named-remote'
+      ? remote
+      : findGitRemoteNameByFetchUrl(stdout, (candidate) => candidate === remote)
+  // Preserve the explicit legacy base marker policy, not URL-to-name operation authority.
+  if (remoteName && gitRefTargetsBranchOnRemote(baseRef, remoteName, branchName)) {
     return null
   }
+  const hasTrackingRef =
+    remoteName !== null && (await remoteTrackingRefExists(remoteName, branchName))
   return {
-    ...(remote !== remoteName
-      ? { operationSelector: { kind: 'literal-url' as const, value: remote } }
-      : {}),
-    upstreamName: `${remoteName}/${branchName}`,
-    remoteName,
+    operationSelector,
+    upstreamName: hasTrackingRef ? `${remoteName}/${branchName}` : null,
+    remoteName: remoteName ?? remote,
     branchName,
     isConfiguredUpstream: false
   }

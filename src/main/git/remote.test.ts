@@ -12,6 +12,12 @@ import { REBASE_SOURCE_FETCH_TIMEOUT_MS } from '../../shared/git-rebase-source'
 import { clearGitCapabilityStateForTests } from './git-capability-state'
 import { gitFastForward, gitFetch, gitPull, gitPullRebaseFromBase, gitPush } from './remote'
 
+const upstreamMetadataArgs = [
+  'for-each-ref',
+  '--format=%(upstream:short)%00%(upstream:trackshort)%00%(refname)',
+  'refs/heads/feature'
+]
+
 const REBASE_OPERATION_OPTIONS = {
   cwd: '/repo',
   terminationBarrier: true,
@@ -51,7 +57,7 @@ describe('git remote operations', () => {
         return { stdout: 'refs/heads/prateek/fix-sidebar-agents-toggle\n', stderr: '' }
       }
       if (args[0] === 'config' && args.includes('branch.review/pr-1738.base')) {
-        throw new Error('missing branch base')
+        throw Object.assign(new Error('missing branch base'), { code: 1 })
       }
       return { stdout: '', stderr: '' }
     })
@@ -436,7 +442,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: '/repo' }],
-      [['rev-parse', '--abbrev-ref', 'HEAD@{u}'], { cwd: '/repo' }],
+      [upstreamMetadataArgs, { cwd: '/repo' }],
       [['pull'], { cwd: '/repo' }]
     ])
   })
@@ -459,10 +465,10 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: '/repo' }],
-      [['rev-parse', '--abbrev-ref', 'HEAD@{u}'], { cwd: '/repo' }],
+      [upstreamMetadataArgs, { cwd: '/repo' }],
       [['pull'], { cwd: '/repo' }],
       [['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: '/repo' }],
-      [['rev-parse', '--abbrev-ref', 'HEAD@{u}'], { cwd: '/repo' }],
+      [upstreamMetadataArgs, { cwd: '/repo' }],
       [['pull', '--no-rebase'], { cwd: '/repo' }]
     ])
   })
@@ -536,7 +542,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: '/repo' }],
-      [['rev-parse', '--abbrev-ref', 'HEAD@{u}'], { cwd: '/repo' }],
+      [upstreamMetadataArgs, { cwd: '/repo' }],
       [['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/feature'], { cwd: '/repo' }],
       [['pull', 'origin', 'feature'], { cwd: '/repo' }]
     ])
@@ -568,7 +574,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: '/repo' }],
-      [['rev-parse', '--abbrev-ref', 'HEAD@{u}'], { cwd: '/repo' }],
+      [upstreamMetadataArgs, { cwd: '/repo' }],
       [['pull', '--ff-only'], { cwd: '/repo' }]
     ])
   })
@@ -656,7 +662,7 @@ describe('git remote operations', () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'upstream\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockRejectedValueOnce(new Error('missing remote-tracking ref'))
+      .mockRejectedValueOnce(Object.assign(new Error('missing remote-tracking ref'), { code: 1 }))
       .mockResolvedValueOnce({ stdout: 'head\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })

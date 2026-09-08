@@ -1,5 +1,4 @@
 import type { GitOperationSelector } from './git-operation-selector'
-import { isNoUpstreamError } from './git-remote-error'
 import type { GitUpstreamStatus } from './git-status-types'
 import {
   getConfiguredBranchRemoteUpstream,
@@ -21,7 +20,7 @@ export type EffectiveGitUpstream =
       isConfiguredUpstream: true
     }
   | {
-      upstreamName: string
+      upstreamName: string | null
       remoteName: string
       branchName: string
       isConfiguredUpstream: false
@@ -67,40 +66,51 @@ async function getCurrentBranchName(runGit: GitCommandRunner): Promise<string | 
     const { stdout } = await runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'])
     const branchName = stdout.trim()
     return branchName || null
-  } catch {
-    return null
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === 1) {
+      return null
+    }
+    throw error
   }
 }
 
 async function getConfiguredUpstream(
-  runGit: GitCommandRunner
+  runGit: GitCommandRunner,
+  currentBranchName: string | null
 ): Promise<EffectiveGitUpstream | null> {
-  try {
-    const { stdout } = await runGit(['rev-parse', '--abbrev-ref', 'HEAD@{u}'])
-    const upstreamName = stdout.trim()
-    if (!upstreamName) {
-      return null
-    }
-    const parsed = splitRemoteBranchName(upstreamName)
-    if (!parsed) {
-      return {
-        upstreamName,
-        remoteName: null,
-        branchName: upstreamName,
-        isConfiguredUpstream: true
-      }
-    }
+  if (!currentBranchName) {
+    return null
+  }
+  // Tracking metadata is optional: literal repositories have valid pull intent without it.
+  const { stdout } = await runGit([
+    'for-each-ref',
+    '--format=%(upstream:short)%00%(upstream:trackshort)%00%(refname)',
+    `refs/heads/${currentBranchName}`
+  ])
+  const [upstreamName, tracking, refName] = stdout.trim().split('\0')
+  if (refName && refName !== `refs/heads/${currentBranchName}`) {
+    return null
+  }
+  if (tracking === '') {
+    return null
+  }
+  if (!upstreamName) {
+    return null
+  }
+  const parsed = splitRemoteBranchName(upstreamName)
+  if (!parsed) {
     return {
       upstreamName,
-      remoteName: parsed.remoteName,
-      branchName: parsed.branchName,
+      remoteName: null,
+      branchName: upstreamName,
       isConfiguredUpstream: true
     }
-  } catch (error) {
-    if (isNoUpstreamError(error)) {
-      return null
-    }
-    throw error
+  }
+  return {
+    upstreamName,
+    remoteName: parsed.remoteName,
+    branchName: parsed.branchName,
+    isConfiguredUpstream: true
   }
 }
 
@@ -112,8 +122,11 @@ async function remoteTrackingRefExists(
   try {
     await runGit(['rev-parse', '--verify', '--quiet', `refs/remotes/${remoteName}/${branchName}`])
     return true
-  } catch {
-    return false
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === 1) {
+      return false
+    }
+    throw error
   }
 }
 
@@ -121,7 +134,7 @@ async function resolveEffectiveGitUpstreamForBranch(
   runGit: GitCommandRunner,
   currentBranchName: string | null
 ): Promise<EffectiveGitUpstream | null> {
-  let configured = await getConfiguredUpstream(runGit)
+  let configured = await getConfiguredUpstream(runGit, currentBranchName)
 
   if (configured) {
     if (
@@ -196,7 +209,7 @@ export async function getEffectiveGitUpstreamStatus(
 ): Promise<GitUpstreamStatus> {
   const currentBranchName = await getCurrentBranchName(runGit)
   const upstream = await resolveEffectiveGitUpstreamForBranch(runGit, currentBranchName)
-  if (!upstream) {
+  if (!upstream?.upstreamName) {
     const hasConfiguredPushTarget = currentBranchName
       ? await hasConfiguredBranchPushTarget(runGit, currentBranchName)
       : false

@@ -313,14 +313,16 @@ describe('getStatus', () => {
       if (args[0] === 'symbolic-ref') {
         return Promise.resolve({ stdout: 'feature/prompts\n' })
       }
-      if (args[0] === 'rev-parse' && args.includes('HEAD@{u}')) {
-        return Promise.reject(new Error('fatal: no upstream configured'))
+      if (args[0] === 'for-each-ref') {
+        return Promise.resolve({ stdout: '\0\n' })
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature/prompts')) {
-        return Promise.reject(new Error('missing remote branch'))
+        return Promise.reject(Object.assign(new Error('missing remote branch'), { code: 1 }))
       }
       if (args[0] === 'config') {
-        return Promise.reject(new Error(`missing ${args[2] ?? 'config'}`))
+        return Promise.reject(
+          Object.assign(new Error(`missing ${args[2] ?? 'config'}`), { code: 1 })
+        )
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`)
     })
