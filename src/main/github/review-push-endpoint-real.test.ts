@@ -294,7 +294,7 @@ it('carries provider-produced authority through omitted-target SSH IPC aliases t
   await git('config', '--replace-all', 'remote.origin.url', state.endpoint)
   const target = (await getPullRequestPushTarget(root, 42))?.pushTarget
   expect(target?.reviewHead).toBeDefined()
-  const metadata: Record<string, WorktreeMeta> = {
+  const metadata: Record<string, Partial<WorktreeMeta>> = {
     [`repo::${canonical}`]: { pushTarget: target! }
   }
   const store = {
@@ -326,11 +326,12 @@ it('carries provider-produced authority through omitted-target SSH IPC aliases t
         ])
       ).stdout
     )
+    return undefined
   })
   registerSshGitProvider('identity-fixture', new SshGitProvider('identity-fixture', mux as never))
   registerSshFilesystemProvider('identity-fixture', {
     realpath
-  } as IFilesystemProvider)
+  } as unknown as IFilesystemProvider)
   try {
     registerGitRemoteBranchMutationHandlers({
       store

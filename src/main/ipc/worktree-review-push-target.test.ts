@@ -26,8 +26,8 @@ beforeEach(() => {
   catalog.mockReset().mockResolvedValue([{ path: '/repo/wt' }])
 })
 
-function fixture(meta: WorktreeMeta | undefined, connectionId?: string) {
-  const entries: Record<string, WorktreeMeta> = meta ? { 'repo::/repo/wt': meta } : {}
+function fixture(meta: Partial<WorktreeMeta> | undefined, connectionId?: string) {
+  const entries: Record<string, Partial<WorktreeMeta>> = meta ? { 'repo::/repo/wt': meta } : {}
   const store = {
     getRepos: () => [{ id: 'repo', path: '/repo', connectionId }],
     getAllWorktreeMetaForHost: vi.fn(() => entries)

@@ -60,7 +60,7 @@ export async function resolveReviewPushWorkspace(
       try {
         canonical = await canonicalize(path)
       } catch (error) {
-        if (isENOENT(error) && !linkedReviewOperationTarget(meta)) {
+        if (isENOENT(error) && !linkedReviewOperationTarget(meta, undefined)) {
           continue
         }
         throw error
