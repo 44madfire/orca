@@ -62,7 +62,9 @@ test('consent, Unicode search, scope exclusion, and clear stay inside an isolate
   await expect(indexing.getByText('Up to date', { exact: true })).toBeVisible()
   await indexing.getByRole('button', { name: 'Pause', exact: true }).click()
   await expect(indexing.getByText('Indexing paused', { exact: true })).toBeVisible()
-  await expect(orcaPage.getByRole('button', { name: 'Indexing paused', exact: true })).toBeVisible()
+  // The status-bar segment is read-only; it names the resting phase and opens the settings pane.
+  const segment = orcaPage.getByRole('button', { name: /^Indexing paused/ })
+  await expect(segment).toBeVisible()
   appendFileSync(
     path.join(transcripts, `${id}.jsonl`),
     `${JSON.stringify({
@@ -80,18 +82,12 @@ test('consent, Unicode search, scope exclusion, and clear stay inside an isolate
   }))
   expect(pausedSearch).toEqual({ saved: 1, appended: 0 })
   await orcaPage.screenshot({ path: testInfo.outputPath('session-search-indexing-paused.png') })
-  await orcaPage.getByRole('button', { name: 'Indexing paused', exact: true }).click()
-  const popover = orcaPage.locator('[data-slot="popover-content"]')
-  await expect(popover.getByText('Indexing paused', { exact: true })).toBeVisible()
-  await orcaPage.screenshot({
-    path: testInfo.outputPath('session-search-indexing-popover.png'),
-    animations: 'disabled'
-  })
-  await popover.getByRole('button', { name: 'Resume', exact: true }).click()
+  await segment.click()
+  await expect(orcaPage.getByPlaceholder('Search settings')).toHaveValue('Agent Session History')
+  await expect(indexing.getByText('Indexing paused', { exact: true })).toBeVisible()
+  await indexing.getByRole('button', { name: 'Resume', exact: true }).click()
   await expect(indexing.getByText('Up to date', { exact: true })).toBeVisible()
-  await expect(orcaPage.getByRole('button', { name: 'Indexing paused', exact: true })).toHaveCount(
-    0
-  )
+  await expect(orcaPage.getByRole('button', { name: /^Indexing paused/ })).toHaveCount(0)
   await expect
     .poll(
       async () =>

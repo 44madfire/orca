@@ -3,12 +3,14 @@
 import { createElement, StrictMode, type ReactNode } from 'react'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createSearchCoverageStore } from './ai-vault-search-coverage-store'
+import {
+  AI_VAULT_SEARCH_COVERAGE_RETRY_MAX_MS,
+  createSearchCoverageStore
+} from './ai-vault-search-coverage-store'
 import type {
   AiVaultSearchCoverage,
   AiVaultSearchIndexingProgress
 } from '../../../../shared/ai-vault-search-types'
-import { AI_VAULT_SEARCH_COVERAGE_RETRY_MAX_MS } from './ai-vault-search-coverage-store'
 import {
   AI_VAULT_SEARCH_COVERAGE_POLL_MS,
   useAiVaultSearchCoveragePoll
