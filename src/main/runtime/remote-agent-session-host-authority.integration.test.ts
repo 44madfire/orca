@@ -138,6 +138,7 @@ describe('remote agent-session host authority integration', () => {
           })
           return {
             id: result.agentSessionEnsure?.owner.ptyId ?? resolvedSessionId,
+            incarnationId: result.incarnationId,
             ...(result.agentSessionEnsure ? { agentSessionEnsure: result.agentSessionEnsure } : {})
           }
         },
