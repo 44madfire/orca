@@ -31,8 +31,6 @@ export type WorkerStartModeReason =
   | 'user_default'
   | 'remote_execution_host'
   | 'reused_terminal'
-  | 'worktree_creation'
-  | 'launch_preferences'
   | 'agent_without_structured_session'
   | 'tui_launch_customization'
   | 'structured_sessions_unavailable'
@@ -55,6 +53,9 @@ type WorkerStartModeSettings = Partial<
     Pick<GlobalSettings, 'agentCmdOverrides' | 'agentDefaultArgs' | 'agentDefaultEnv'>
 >
 
+/** The placement options that exist only on `worker-start`. `worktree`, `model` and `effort` are
+ *  listed but no longer read: a structured worker honours all three, and naming them here keeps
+ *  the set of options this decision has considered visible. */
 type WorkerStartModePlacement = {
   agent?: string
   on?: string
@@ -67,8 +68,6 @@ type WorkerStartModePlacement = {
 const DOWNGRADE_DETAIL: Record<Exclude<WorkerStartModeReason, 'user_default'>, string> = {
   remote_execution_host: '--on runs the worker on a remote execution host',
   reused_terminal: '--terminal reuses a running terminal agent',
-  worktree_creation: 'a new worktree is created with its agent terminal',
-  launch_preferences: '--model and --effort apply only to a terminal agent',
   agent_without_structured_session: 'this agent has no structured session',
   tui_launch_customization:
     'this agent has a custom launch command, arguments or environment that only a terminal applies',
@@ -205,12 +204,10 @@ function resolvePlacementReason(
   if (params.terminal) {
     return 'reused_terminal'
   }
-  if (params.worktree === 'new-child' || params.worktree === 'new-top-level') {
-    return 'worktree_creation'
-  }
-  if (params.model || params.effort) {
-    return 'launch_preferences'
-  }
+  // Creating a worktree and choosing a model are the two most common things a dispatch does, and
+  // both used to downgrade here — which is why orchestration never produced a structured chat in
+  // practice. Neither is a placement fact any more: a structured worker's worktree is created
+  // without a startup agent terminal, and `--model`/`--effort` seed the session's own options.
   return null
 }
 
