@@ -43,12 +43,8 @@ export function handleCodexSessionExit(input: {
     event.settlementRetryRequired = true
   }
   session.ended = true
-  // A naming turn in flight otherwise holds its collector until the 60s deadline
-  // and then runs its cleanup against a dead connection. Settling it as a host
-  // failure — not a decline — leaves the conversation askable on reacquisition.
-  // Attributed: the session owning the turn is what died, not a foreign thread.
-  session.naming?.handle('error', {}, true)
-  session.naming = null
+  // The session retains an unproven child so explicit close can retry its teardown.
+  void session.naming?.close().catch(() => false)
   session.unbindReadingControl?.()
   input.onEvent?.(event)
   session.prompts.clear()
@@ -84,8 +80,10 @@ export async function closeCodexPublishedSession(
   session.requestedClose = options?.requestedClose ?? true
   // Keep the session indexed until the child exit is observed. A timeout or
   // failed kill must leave the live connection available for a safe retry.
+  const closingNaming = session.naming?.close()
   const exited = await session.connection.close()
-  if (exited !== true) {
+  const namingExited = closingNaming ? await closingNaming : true
+  if (exited !== true || namingExited !== true) {
     return false
   }
   if (!session.ended) {

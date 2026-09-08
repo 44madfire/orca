@@ -123,516 +123,183 @@ describe('Codex structured conversation name', () => {
   })
 })
 
-/** A fake app-server that also serves the naming flow's requests. */
-function namingCodex(
-  options: {
-    answer?: string
-    existingName?: string
-    hangNamingTurn?: boolean
-    /** Never answers the ephemeral `thread/start`, so naming is in flight with
-     *  NO naming thread id known: the window the broad frame rule covers. */
-    hangNamingThreadStart?: boolean
-    /** Holds the ephemeral `thread/start` open until the test releases it, so a
-     *  frame can arrive inside that window and the flow still runs to the end. */
-    holdNamingThreadStart?: boolean
-    /** Completes the naming turn having said nothing: a genuine model decline,
-     *  which is a different fact from prose that ignored the schema. */
-    declineNamingTurn?: boolean
-  } = {}
-) {
+function namingProvider(options: { hang?: boolean; decline?: boolean; failClose?: boolean } = {}) {
   const connections: FakeConnection[] = []
-  const calls: { method: string; params: Record<string, unknown> }[] = []
-  const replies: { id: number | string; result?: unknown; code?: number; message?: string }[] = []
-  let releaseNamingThreadStart = (): void => {}
-  const namingThreadStartGate = new Promise<void>((resolve) => {
-    releaseNamingThreadStart = resolve
-  })
-  const openConnection = (async (
-    _launch: CodexAppServerLaunch,
-    handlers: CodexAppServerConnectionHandlers = {}
-  ) => {
+  const launchCalls: CodexAppServerLaunch[] = []
+  const openConnection = (async (launch, handlers = {}) => {
+    const index = connections.length
+    const naming = index > 0
     const connection: FakeConnection = {
       handlers,
-      pid: 4321,
+      pid: 4321 + index,
       closed: false,
-      request: async (method: string, params?: Record<string, unknown>) => {
-        calls.push({ method, params: params ?? {} })
-        if (method === 'thread/start' && params?.ephemeral === true) {
-          if (options.hangNamingThreadStart) {
-            return await new Promise<never>(() => {})
-          }
-          if (options.holdNamingThreadStart) {
-            await namingThreadStartGate
-          }
-          // Leaves the naming turn in flight: the thread id is known, but nothing
-          // ever settles the collector, which is the window sub-agents run in.
-          if (options.hangNamingTurn) {
-            return { thread: { id: NAMING_THREAD, ephemeral: true } }
-          }
-          return { thread: { id: NAMING_THREAD } }
+      notify: vi.fn(),
+      respond: vi.fn(),
+      respondWithError: vi.fn(),
+      request: vi.fn(async (method, params) => {
+        if (method === 'config/read') {
+          return { config: {} }
         }
         if (method === 'thread/start') {
-          return { thread: { id: THREAD_ID } }
+          return { thread: { id: naming ? 'naming' : THREAD_ID, ephemeral: naming } }
         }
         if (method === 'thread/read') {
-          return {
-            thread: {
-              id: THREAD_ID,
-              ...(options.existingName ? { name: options.existingName } : {})
-            }
-          }
+          return { thread: { id: THREAD_ID } }
         }
-        if (method === 'turn/start') {
-          // The naming turn's frames arrive on this same connection, and only
-          // once the turn exists — the app-server cannot emit for a turn that
-          // was never started, which is what makes them attributable.
-          if (params?.threadId === NAMING_THREAD) {
-            queueMicrotask(() => {
-              if (!options.declineNamingTurn) {
-                handlers.onNotification?.('item/completed', {
-                  threadId: NAMING_THREAD,
-                  item: {
-                    type: 'agentMessage',
-                    text: options.answer ?? '{"title":"Fix lease probe"}'
-                  }
-                })
-              }
-              handlers.onNotification?.('turn/completed', { threadId: NAMING_THREAD })
+        if (method === 'turn/start' && naming && !options.hang) {
+          if (!options.decline) {
+            handlers.onNotification?.('item/completed', {
+              item: { type: 'agentMessage', text: '{"title":"Fix probe"}' }
             })
           }
-          return { turn: { id: 'turn-1' } }
+          handlers.onNotification?.('turn/completed', {})
         }
-        return {}
-      },
-      notify: () => {},
-      respond: (id: number | string, result: unknown) => replies.push({ id, result }),
-      respondWithError: (id: number | string, code: number, message: string) =>
-        replies.push({ id, code, message }),
-      close: async () => {
+        return { turn: { id: params?.threadId === THREAD_ID ? 'user-turn' : 'naming-turn' } }
+      }),
+      close: vi.fn(async () => {
+        if (naming && options.failClose) {
+          return false
+        }
         connection.closed = true
         return true
-      }
-    } as FakeConnection
+      })
+    }
+    launchCalls.push(launch)
     connections.push(connection)
+    handlers.onConnection?.(connection)
     return connection
   }) as typeof openCodexAppServerConnection
-  return { connections, openConnection, calls, replies, releaseNamingThreadStart }
+  return { connections, openConnection, launchCalls }
 }
 
-const NAMING_THREAD = 'thread-naming'
-
-const USER_TURN = {
+const userMessage = {
   kind: 'message',
   role: 'user',
-  blocks: [{ type: 'text', text: 'fix the flaky lease probe' }]
+  blocks: [{ type: 'text', text: 'fix probe' }]
 } as const
-
-const IMAGE_ONLY_TURN = {
-  kind: 'message',
-  role: 'user',
-  blocks: [{ type: 'image', path: '/tmp/shot.png' }]
-} as const
-
-async function dispatchedAdapter(
-  codex: ReturnType<typeof namingCodex>,
-  naming: {
-    readNamingAttempted?: () => boolean
-    markNamingAttempted?: () => void
-    body?: unknown
-  } = {}
-) {
-  const { body = USER_TURN, ...namingDeps } = naming
+async function namingAdapter(provider: ReturnType<typeof namingProvider>, attempted = false) {
   const onConversationName = vi.fn()
-  const events: unknown[] = []
+  const markNamingAttempted = vi.fn()
+  const onEvent = vi.fn()
   const adapter = new CodexStructuredSessionAdapter({
     resolveLaunch: async () => ({
       command: 'codex',
       args: ['app-server'],
-      cwd: '/work/repo',
-      codexHome: null,
+      cwd: '/folder',
+      codexHome: '/account',
+      env: { CUSTOM: 'value' },
       resumeThreadId: null
     }),
-    openConnection: codex.openConnection,
-    readProcessStartTime: async () => 1_700_000_000_000,
-    onEvent: (event) => events.push(event),
+    openConnection: provider.openConnection,
+    readProcessStartTime: async () => 1000,
     onConversationName,
-    ...namingDeps
+    markNamingAttempted,
+    readNamingAttempted: () => attempted,
+    onEvent
   })
-  await adapter.acquire({ identity, fence: 7, spawnToken: 'spawn-9' })
-  await adapter.dispatch({
-    sessionId: SESSION,
-    clientMessageId: 'client-1',
-    body: body as never,
-    fence: 7
-  })
-  return { adapter, onConversationName, events }
-}
-
-/** Lets the naming flow's microtask chain and awaited requests settle. */
-async function settle(): Promise<void> {
-  for (let index = 0; index < 20; index += 1) {
-    await Promise.resolve()
-  }
-}
-
-describe('Codex conversation-name generation', () => {
-  it('names the thread after the first accepted turn', async () => {
-    const codex = namingCodex()
-    const { onConversationName } = await dispatchedAdapter(codex)
-    await settle()
-
-    expect(codex.calls.find((call) => call.method === 'thread/name/set')?.params).toEqual({
-      threadId: THREAD_ID,
-      name: 'Fix lease probe'
+  await adapter.acquire({ identity, fence: 7, spawnToken: 'user-spawn' })
+  const dispatch = async (body: unknown = userMessage) => {
+    await adapter.dispatch({
+      sessionId: SESSION,
+      fence: 7,
+      clientMessageId: 'message',
+      body: body as never
     })
-    expect(onConversationName).toHaveBeenCalledWith(SESSION, 'Fix lease probe')
-  })
+    for (let i = 0; i < 40; i += 1) {
+      await Promise.resolve()
+    }
+  }
+  return { adapter, dispatch, onConversationName, markNamingAttempted, onEvent }
+}
 
-  it('keeps the naming turn out of the user transcript', async () => {
-    const codex = namingCodex()
-    const { events } = await dispatchedAdapter(codex)
-    await settle()
-
-    // The item translator journals items from ANY thread, so the only thing
-    // keeping the naming prompt and its JSON answer out of the chat is the
-    // adapter's thread gate. Nothing carrying the naming thread may be emitted.
-    const leaked = events.filter(
-      (event) => (event as { threadId?: string }).threadId === NAMING_THREAD
+describe('Codex naming process isolation through the adapter', () => {
+  it('starts a separate process once and delivers only the final name to the session', async () => {
+    const provider = namingProvider()
+    const f = await namingAdapter(provider)
+    await f.dispatch()
+    expect(provider.connections).toHaveLength(2)
+    expect(f.onConversationName).toHaveBeenCalledExactlyOnceWith(SESSION, 'Fix probe')
+    expect(f.markNamingAttempted).toHaveBeenCalledOnce()
+    expect(provider.connections[1]!.closed).toBe(true)
+    expect(provider.connections[0]!.request).not.toHaveBeenCalledWith(
+      'config/read',
+      expect.anything(),
+      expect.anything()
     )
-    expect(leaked).toEqual([])
-    expect(JSON.stringify(events)).not.toContain('Fix lease probe')
-  })
-
-  it('asks only once across a re-acquisition, which builds a NEW session', async () => {
-    // A second acquisition rebuilds the session object, so the in-memory flag
-    // resets. Only the durable marker stops the user's next message paying for
-    // a second naming turn — and re-imposing a name they may have cleared.
-    let attempted = false
-    const naming = {
-      readNamingAttempted: () => attempted,
-      markNamingAttempted: () => {
-        attempted = true
-      }
-    }
-    const first = namingCodex({ declineNamingTurn: true })
-    await dispatchedAdapter(first, naming)
-    await settle()
-    const second = namingCodex({ declineNamingTurn: true })
-    await dispatchedAdapter(second, naming)
-    await settle()
-
-    const ephemeralStarts = (codex: ReturnType<typeof namingCodex>) =>
-      codex.calls.filter((call) => call.method === 'thread/start' && call.params.ephemeral === true)
-    expect(ephemeralStarts(first)).toHaveLength(1)
-    expect(ephemeralStarts(second)).toHaveLength(0)
-  })
-
-  it('asks only once per session, even when the first attempt produced no name', async () => {
-    // A model that declines to answer leaves `conversationName` null, so the
-    // one-shot flag is the ONLY thing stopping a second attempt. With a name set
-    // this test would pass on the name check and prove nothing.
-    const codex = namingCodex({ declineNamingTurn: true })
-    const { adapter } = await dispatchedAdapter(codex)
-    await settle()
-    const namingThreads = () =>
-      codex.calls.filter((call) => call.method === 'thread/start' && call.params.ephemeral === true)
-    expect(namingThreads()).toHaveLength(1)
-
-    await adapter.dispatch({
-      sessionId: SESSION,
-      clientMessageId: 'client-2',
-      body: USER_TURN as never,
-      fence: 7
+    expect(JSON.stringify(f.onEvent.mock.calls)).not.toContain('Fix probe')
+    expect(provider.launchCalls[1]).toMatchObject({
+      cwd: '/folder',
+      env: { CODEX_HOME: '/account', CUSTOM: 'value' }
     })
-    await settle()
-
-    expect(namingThreads()).toHaveLength(1)
-    expect(codex.calls.some((call) => call.method === 'thread/name/set')).toBe(false)
+    await f.dispatch()
+    expect(provider.connections).toHaveLength(2)
+    await f.adapter.closeAll()
   })
 
-  // NOTE: this holds under the old fail-open predicate too — the thread has a
-  // name either way. The it.each in codex-conversation-name-generation.test.ts
-  // is what binds the fail-closed change; this covers the end-to-end wiring.
-  it('reports no name when the thread was named while it was generating', async () => {
-    const codex = namingCodex({ existingName: 'A person named this' })
-    const { onConversationName } = await dispatchedAdapter(codex)
-    await settle()
-
-    expect(codex.calls.some((call) => call.method === 'thread/name/set')).toBe(false)
-    expect(onConversationName).not.toHaveBeenCalled()
-  })
-})
-
-describe('Codex naming attempt accounting', () => {
-  it('leaves the attempt unspent when the first message carries no text', async () => {
-    const codex = namingCodex()
-    const markNamingAttempted = vi.fn()
-    const { adapter, onConversationName } = await dispatchedAdapter(codex, {
-      body: IMAGE_ONLY_TURN,
-      markNamingAttempted
+  it('preserves user subagent and unattributed frames throughout naming', async () => {
+    const provider = namingProvider({ hang: true })
+    const f = await namingAdapter(provider)
+    await f.dispatch()
+    f.onEvent.mockClear()
+    provider.connections[0]!.handlers.onNotification?.('item/completed', {
+      threadId: 'subagent',
+      item: { type: 'agentMessage', text: 'Visible subagent' }
     })
-    await settle()
-
-    const ephemeralStarts = () =>
-      codex.calls.filter((call) => call.method === 'thread/start' && call.params.ephemeral === true)
-    expect(ephemeralStarts()).toHaveLength(0)
-    expect(markNamingAttempted).not.toHaveBeenCalled()
-
-    // The conversation must stay nameable: a caption-free screenshot is not an
-    // answer, so the next message with text still gets to ask.
-    await adapter.dispatch({
-      sessionId: SESSION,
-      clientMessageId: 'client-2',
-      body: USER_TURN as never,
-      fence: 7
+    provider.connections[0]!.handlers.onUnhandledFrame?.('unknown', {
+      message: 'Visible diagnostic'
     })
-    await settle()
-
-    expect(ephemeralStarts()).toHaveLength(1)
-    expect(onConversationName).toHaveBeenCalledExactlyOnceWith(SESSION, 'Fix lease probe')
-  })
-})
-
-describe('Codex naming-turn isolation', () => {
-  /** Every event the adapter emitted for the user's session, by thread. */
-  function emittedThreads(events: unknown[]): string[] {
-    return events.map((event) => String((event as { threadId?: string }).threadId))
-  }
-
-  it('refuses an approval request from the naming turn instead of prompting the user', async () => {
-    const codex = namingCodex()
-    const { events } = await dispatchedAdapter(codex)
-    await settle()
-
-    codex.connections[0]!.handlers.onServerRequest?.({
-      id: 77,
-      method: 'item/commandExecution/requestApproval',
-      params: { threadId: NAMING_THREAD, command: 'rm -rf /' }
+    provider.connections[1]!.handlers.onUnhandledFrame?.('unknown', {
+      message: 'Private naming diagnostic'
     })
-    await settle()
-
-    // A prompt here would be durable, would name a command the user never asked
-    // for, and would stay pending forever once the naming turn is abandoned.
-    expect(codex.replies).toContainEqual(expect.objectContaining({ id: 77, code: -32001 }))
-    expect(emittedThreads(events)).not.toContain(NAMING_THREAD)
-    expect(JSON.stringify(events)).not.toContain('rm -rf /')
+    provider.connections[1]!.handlers.onNotification?.('item/completed', {
+      item: { type: 'agentMessage', text: 'Private naming answer' }
+    })
+    const events = JSON.stringify(f.onEvent.mock.calls)
+    expect(events).toContain('Visible subagent')
+    expect(events).toContain('Visible diagnostic')
+    expect(events).not.toContain('Private naming')
+    await f.adapter.closeAll()
   })
 
-  it('drops an unhandled frame from the naming turn', async () => {
-    const codex = namingCodex()
-    const { events } = await dispatchedAdapter(codex)
-    await settle()
-    const before = events.length
-
-    codex.connections[0]!.handlers.onUnhandledFrame?.('notification:mysteryOpcode', {
-      threadId: NAMING_THREAD,
-      message: 'naming turn noise'
-    })
-    await settle()
-
-    expect(events).toHaveLength(before)
-    expect(JSON.stringify(events)).not.toContain('naming turn noise')
+  it('keeps a naming child indexed when its exit cannot be proven and retries close', async () => {
+    const provider = namingProvider({ hang: true, failClose: true })
+    const f = await namingAdapter(provider)
+    await f.dispatch()
+    await expect(f.adapter.closeSession(SESSION)).resolves.toBe(false)
+    const close = vi.mocked(provider.connections[1]!.close)
+    close.mockResolvedValue(true)
+    await expect(f.adapter.closeSession(SESSION)).resolves.toBe(true)
+    expect(close.mock.calls.length).toBeGreaterThan(1)
   })
 
-  it('still journals the user own thread frames while a naming turn runs', async () => {
-    const codex = namingCodex()
-    const { events } = await dispatchedAdapter(codex)
-    await settle()
-
-    codex.connections[0]!.handlers.onNotification?.('item/completed', {
-      threadId: THREAD_ID,
-      item: { type: 'agentMessage', text: 'the real answer' }
+  it('waits for text after an image-only first message', async () => {
+    const provider = namingProvider()
+    const f = await namingAdapter(provider)
+    await f.dispatch({
+      kind: 'message',
+      role: 'user',
+      blocks: [{ type: 'image', path: '/image.png' }]
     })
-    await settle()
-
-    // The gate must not be a blanket drop: the user's own frames still arrive.
-    expect(emittedThreads(events)).toContain(THREAD_ID)
-    expect(JSON.stringify(events)).toContain('the real answer')
+    expect(provider.connections).toHaveLength(1)
+    await f.dispatch()
+    expect(f.onConversationName).toHaveBeenCalledOnce()
+    await f.adapter.closeAll()
   })
 
-  it('keeps dropping naming-thread frames after the turn is abandoned', async () => {
-    const codex = namingCodex()
-    const { events } = await dispatchedAdapter(codex)
-    await settle()
-    const settled = events.length
-
-    // A turn that timed out is never cancelled, so it can still emit long after
-    // the flow gave up. The thread is retained for the session's life.
-    codex.connections[0]!.handlers.onNotification?.('item/completed', {
-      threadId: NAMING_THREAD,
-      item: { type: 'agentMessage', text: '{"title":"Late leak"}' }
-    })
-    await settle()
-
-    expect(events).toHaveLength(settled)
-    expect(JSON.stringify(events)).not.toContain('Late leak')
-  })
-})
-
-const SUBAGENT_THREAD = 'thread-subagent'
-
-describe('Codex marks attempted only on a settled answer', () => {
-  it('does NOT mark when the host could not open a throwaway thread', async () => {
-    const markNamingAttempted = vi.fn()
-    // `thread/start {ephemeral}` never yields a usable thread: a host that could
-    // not be asked must stay askable, or upgrading it rescues nothing.
-    const codex = namingCodex()
-    const openConnection = codex.openConnection
-    const stalled = {
-      ...codex,
-      openConnection: (async (...args: Parameters<typeof openCodexAppServerConnection>) => {
-        const connection = (await openConnection(...args)) as FakeConnection
-        const inner = connection.request
-        connection.request = (async (method: string, params?: Record<string, unknown>) =>
-          method === 'thread/start' && params?.ephemeral === true
-            ? {}
-            : inner(method, params)) as FakeConnection['request']
-        return connection
-      }) as typeof openCodexAppServerConnection
-    }
-
-    await dispatchedAdapter(stalled, { markNamingAttempted })
-    await settle()
-
-    expect(markNamingAttempted).not.toHaveBeenCalled()
+  it('honors the durable attempt marker before launching a naming child', async () => {
+    const provider = namingProvider()
+    const f = await namingAdapter(provider, true)
+    await f.dispatch()
+    expect(provider.connections).toHaveLength(1)
+    await f.adapter.closeAll()
   })
 
-  it('DOES mark when the model completed and said nothing', async () => {
-    const markNamingAttempted = vi.fn()
-
-    // A genuine decline settles. Prose that ignored the schema does NOT — that
-    // is a model that could not be asked properly, and it stays askable.
-    await dispatchedAdapter(namingCodex({ declineNamingTurn: true }), {
-      markNamingAttempted
-    })
-    await settle()
-
-    expect(markNamingAttempted).toHaveBeenCalledWith(SESSION)
-  })
-})
-
-describe('Codex sub-agent threads survive the naming window', () => {
-  /** Every thread id the adapter emitted for the user's session. */
-  function emittedThreads(events: unknown[]): string[] {
-    return events.map((event) => String((event as { threadId?: string }).threadId))
-  }
-
-  it('journals a sub-agent turn that runs while naming is in flight', async () => {
-    const codex = namingCodex({ hangNamingTurn: true })
-    const { events } = await dispatchedAdapter(codex)
-    await settle()
-
-    codex.connections[0]!.handlers.onNotification?.('item/completed', {
-      threadId: SUBAGENT_THREAD,
-      item: { type: 'agentMessage', text: 'subagent finished its work' }
-    })
-    await settle()
-
-    // A sub-agent runs its own thread over this same connection. Treating it as
-    // a naming frame would drop its rows from the transcript entirely.
-    expect(emittedThreads(events)).toContain(SUBAGENT_THREAD)
-    expect(JSON.stringify(events)).toContain('subagent finished its work')
-  })
-
-  it('prompts the user for a sub-agent approval sent during the thread/start window', async () => {
-    // No naming thread id exists yet, so only the broad rule could match — and
-    // on the request path it can only ever match a genuine sub-agent, because
-    // the naming thread has no turn running to ask with.
-    const codex = namingCodex({ hangNamingThreadStart: true })
-    const { events } = await dispatchedAdapter(codex)
-    await settle()
-
-    codex.connections[0]!.handlers.onServerRequest?.({
-      id: 92,
-      method: 'item/commandExecution/requestApproval',
-      params: { threadId: SUBAGENT_THREAD, itemId: 'item-subagent-2', command: 'pnpm test' }
-    })
-    await settle()
-
-    expect(codex.replies).toEqual([])
-    const prompts = events.filter((event) => (event as { type?: string }).type === 'prompt')
-    expect(prompts).toEqual([
-      expect.objectContaining({ threadId: SUBAGENT_THREAD, codexItemId: 'item-subagent-2' })
-    ])
-  })
-
-  it('prompts the user for a sub-agent approval instead of auto-refusing it', async () => {
-    const codex = namingCodex({ hangNamingTurn: true })
-    const { events } = await dispatchedAdapter(codex)
-    await settle()
-
-    codex.connections[0]!.handlers.onServerRequest?.({
-      id: 91,
-      method: 'item/commandExecution/requestApproval',
-      // `itemId` is what makes this a durable PROMPT rather than a request the
-      // registry declines; without it the assertion below would pass on a
-      // different refusal and prove nothing about reaching the user.
-      params: { threadId: SUBAGENT_THREAD, itemId: 'item-subagent-1', command: 'pnpm test' }
-    })
-    await settle()
-
-    expect(codex.replies).toEqual([])
-    // It reaches the user as a prompt, which is the behaviour the narrowed gate
-    // restored — not merely "some event was emitted".
-    const prompts = events.filter((event) => (event as { type?: string }).type === 'prompt')
-    expect(prompts).toEqual([
-      expect.objectContaining({ threadId: SUBAGENT_THREAD, codexItemId: 'item-subagent-1' })
-    ])
-  })
-
-  it('does not let a foreign turn/completed inside the window forfeit naming', async () => {
-    const codex = namingCodex({ holdNamingThreadStart: true })
-    const markNamingAttempted = vi.fn()
-    const { onConversationName } = await dispatchedAdapter(codex, { markNamingAttempted })
-    await settle()
-
-    // A sub-agent's BARE completion, arriving before the throwaway thread has an
-    // id. Settling on it reports a decline, which is durable: the conversation
-    // would carry `conversationNamingAttempted` with no name and could never be
-    // named again.
-    codex.connections[0]!.handlers.onNotification?.('turn/completed', {
-      threadId: SUBAGENT_THREAD
-    })
-    await settle()
-
-    codex.releaseNamingThreadStart()
-    await settle()
-
-    expect(codex.calls.find((call) => call.method === 'thread/name/set')?.params).toEqual({
-      threadId: THREAD_ID,
-      name: 'Fix lease probe'
-    })
-    expect(onConversationName).toHaveBeenCalledWith(SESSION, 'Fix lease probe')
-  })
-
-  it('still keeps the naming thread out once its id is known', async () => {
-    const codex = namingCodex({ hangNamingTurn: true })
-    const { events } = await dispatchedAdapter(codex)
-    await settle()
-    const before = events.length
-
-    codex.connections[0]!.handlers.onNotification?.('item/completed', {
-      threadId: NAMING_THREAD,
-      item: { type: 'agentMessage', text: '{"title":"Still hidden"}' }
-    })
-    await settle()
-
-    expect(events).toHaveLength(before)
-    expect(JSON.stringify(events)).not.toContain('Still hidden')
-  })
-})
-
-describe('Codex leaves a schema-ignoring model askable', () => {
-  it('does NOT mark when the naming turn answered in prose', async () => {
-    const markNamingAttempted = vi.fn()
-
-    // Marking here makes the conversation permanently unnameable, even after the
-    // user switches to a model that honours the output schema.
-    await dispatchedAdapter(namingCodex({ answer: 'Sure! How about "Fix probe"?' }), {
-      markNamingAttempted
-    })
-    await settle()
-
-    expect(markNamingAttempted).not.toHaveBeenCalled()
+  it('durably records a genuine decline without relabeling the session', async () => {
+    const provider = namingProvider({ decline: true })
+    const f = await namingAdapter(provider)
+    await f.dispatch()
+    expect(f.markNamingAttempted).toHaveBeenCalledOnce()
+    expect(f.onConversationName).not.toHaveBeenCalled()
+    await f.adapter.closeAll()
   })
 })

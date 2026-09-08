@@ -38,7 +38,6 @@ import {
   deliverCodexServerRequest,
   deliverCodexUnhandledFrame
 } from './codex-structured-provider-events'
-import { refuseCodexNamingServerRequest, routeCodexNamingFrame } from './codex-naming-frame-routing'
 import {
   captureCodexConversationName,
   startCodexConversationNamingForTurn
@@ -137,9 +136,6 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     if (this.turnCancellation.handleNotification(sessionId, session, method, params)) {
       return { accepted: true }
     }
-    if (routeCodexNamingFrame(session, method, params)) {
-      return { accepted: true }
-    }
     captureCodexConversationName(sessionId, session, method, params, this.deps)
     return deliverCodexNotification(sessionId, session, method, params, (current, event) =>
       this.emit(current, event)
@@ -170,9 +166,6 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     request: Parameters<typeof deliverCodexServerRequest>[2]
   ): void {
     const session = this.sessions.get(sessionId)
-    if (refuseCodexNamingServerRequest(session, request)) {
-      return
-    }
     deliverCodexServerRequest(sessionId, session, request, (current, event) =>
       this.emit(current, event)
     )
@@ -180,9 +173,6 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
 
   private handleUnhandledFrame(sessionId: string, kind: string, params: unknown): void {
     const session = this.sessions.get(sessionId)
-    if (session && routeCodexNamingFrame(session, kind, params)) {
-      return
-    }
     deliverCodexUnhandledFrame(sessionId, session, kind, params, (current, event) =>
       this.emit(current, event)
     )

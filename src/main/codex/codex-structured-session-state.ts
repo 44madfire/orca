@@ -9,7 +9,7 @@ import { CodexAcquisitionWindow } from './codex-structured-acquisition-window'
 import type { CodexJournalTranslator } from './codex-structured-journal-translation'
 import type { CodexTurnProcessSnapshot } from './codex-structured-turn-processes'
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import type { CodexNamingTurnCollector } from './codex-conversation-name-generation'
+import type { CodexConversationNamingTask } from './codex-conversation-naming-task'
 
 export type CodexStructuredLaunch = {
   command: string
@@ -72,20 +72,11 @@ export type CodexSession = {
   fence: number
   acquisitionGeneration: string
   threadId: string
-  /** Workspace the provider was launched in; a naming turn opens its throwaway
-   *  thread in the same place so it inherits the same trust and config. */
   cwd: string
+  launch: CodexStructuredLaunch
   historyPath: string | null
-  /** Codex's own name for the thread; null until Codex reports one. */
   conversationName: string | null
-  /** Where a naming turn's frames go while one is in flight. */
-  naming: CodexNamingTurnCollector | null
-  /** Every throwaway thread this session opened for naming. Retained for the
-   *  session's life: an abandoned turn is never cancelled and can still emit. */
-  namingThreadIds: Set<string>
-  /** Guards a SECOND attempt within this live session only. The durable answer
-   *  to "have we asked" lives on the record; this just fences concurrent sends
-   *  before that write lands. */
+  naming: CodexConversationNamingTask | null
   namingAttempted: boolean
   historyMode?: 'legacy' | 'paginated'
   activeTurnIds?: Set<string>

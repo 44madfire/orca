@@ -9,7 +9,7 @@ import {
   CodexStructuredSessionAdapter,
   type CodexStructuredSessionEvent
 } from './codex-structured-session-adapter'
-import { createCodexNamingTurnCollector } from './codex-conversation-name-generation'
+import type { CodexConversationNamingTask } from './codex-conversation-naming-task'
 import { handleCodexSessionExit } from './codex-structured-session-close'
 import type { CodexSession } from './codex-structured-session-state'
 import type { StructuredAgentSessionAdapter } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
@@ -84,7 +84,7 @@ describe('Codex structured session close lifecycle', () => {
       respondWithError: () => {},
       close: async () => true
     }
-    const naming = createCodexNamingTurnCollector(60_000)
+    const naming = { close: vi.fn(async () => false) } as unknown as CodexConversationNamingTask
     const session = {
       connection,
       ended: false,
@@ -94,9 +94,15 @@ describe('Codex structured session close lifecycle', () => {
       threadId: THREAD,
       historyPath: null,
       cwd: '/work/repo',
+      launch: {
+        command: 'codex',
+        args: ['app-server'],
+        cwd: '/work/repo',
+        codexHome: null,
+        resumeThreadId: null
+      },
       conversationName: null,
       naming,
-      namingThreadIds: new Set<string>(),
       namingAttempted: false,
       prompts: { clear: vi.fn() } as unknown as CodexSession['prompts'],
       options: new Map(),
@@ -115,10 +121,8 @@ describe('Codex structured session close lifecycle', () => {
       error: new Error('provider exited')
     })
 
-    // A host failure, never a decline: the conversation must stay askable on the
-    // next acquisition rather than be marked permanently attempted.
-    await expect(naming.answer).resolves.toEqual({ outcome: 'failed' })
-    expect(session.naming).toBeNull()
+    expect(naming.close).toHaveBeenCalledOnce()
+    expect(session.naming).toBe(naming)
   })
 
   it('forwards a one-shot exit when lifecycle admission is rejected', () => {
@@ -145,9 +149,15 @@ describe('Codex structured session close lifecycle', () => {
       threadId: THREAD,
       historyPath: null,
       cwd: '/work/repo',
+      launch: {
+        command: 'codex',
+        args: ['app-server'],
+        cwd: '/work/repo',
+        codexHome: null,
+        resumeThreadId: null
+      },
       conversationName: null,
       naming: null,
-      namingThreadIds: new Set<string>(),
       namingAttempted: false,
       prompts,
       options: new Map(),

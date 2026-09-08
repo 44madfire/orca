@@ -27,9 +27,15 @@ function optionSession(request: CodexAppServerConnection['request']): CodexSessi
     threadId: 'thread-1',
     historyPath: null,
     cwd: '/work/repo',
+    launch: {
+      command: 'codex',
+      args: ['app-server'],
+      cwd: '/work/repo',
+      codexHome: null,
+      resumeThreadId: null
+    },
     conversationName: null,
     naming: null,
-    namingThreadIds: new Set<string>(),
     namingAttempted: false,
     prompts: new CodexAcquisitionWindow().prompts,
     options: new Map(),
