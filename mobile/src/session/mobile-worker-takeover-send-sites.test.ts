@@ -34,7 +34,9 @@ function clientFixture() {
       result:
         method === 'session.tabs.createTerminal'
           ? { tab: { type: 'terminal', id: 'tab', terminal: 'term-1', title: 'test' } }
-          : { send: { accepted: true } }
+          : method === REPORT
+            ? { changed: 1 }
+            : { send: { accepted: true } }
     }))
   }
 }

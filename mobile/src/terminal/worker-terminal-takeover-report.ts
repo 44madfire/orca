@@ -24,24 +24,19 @@ export function reportWorkerTerminalUserInput(client: ReportClient, terminal: st
       }
     }
   }
+  // Why the gate ignores the answer: like desktop, one report per terminal per window is the
+  // whole cost of typing into any terminal, worker or not. A result-aware gate that reopened on
+  // "changed nothing" turned every key on an ordinary terminal into an RPC plus a host write.
   reports.set(terminal, now)
-  void sendTakeoverReport(client, terminal)
-    .then((changed) => {
-      // Why: zero rows means no worker owned this terminal yet, which is not evidence about the
-      // worker that may attach to it during the next 30 s; only a real transition earns the gate.
-      if (changed === 0 && reports.get(terminal) === now) {
-        reports.delete(terminal)
-      }
-    })
-    .catch(() => {
-      if (reports.get(terminal) === now) {
-        reports.delete(terminal)
-      }
-    })
+  void sendTakeoverReport(client, terminal).catch(() => {
+    if (reports.get(terminal) === now) {
+      reports.delete(terminal)
+    }
+  })
 }
 
-async function sendTakeoverReport(client: ReportClient, terminal: string): Promise<number> {
-  const report = async (): Promise<number> => {
+async function sendTakeoverReport(client: ReportClient, terminal: string): Promise<void> {
+  const report = async (): Promise<void> => {
     const response = await client.sendRequest(
       'orchestration.workerTerminalUserInput',
       { terminal },
@@ -50,7 +45,6 @@ async function sendTakeoverReport(client: ReportClient, terminal: string): Promi
     if (!response.ok) {
       throw new Error('Worker takeover report rejected')
     }
-    return (response.result as { changed?: number } | undefined)?.changed ?? 0
   }
   try {
     return await report()

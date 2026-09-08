@@ -341,7 +341,12 @@ describe('typeMobileNativeChatCommandWithOutcome', () => {
     await vi.runAllTimersAsync()
     await result
 
-    const params = vi.mocked(client.sendRequest).mock.calls.map((call) => call[1]) as Array<{
+    // Why the filter: an accepted send also fires the unawaited takeover report, which is not a
+    // terminal.send and carries no draft.
+    const params = vi
+      .mocked(client.sendRequest)
+      .mock.calls.filter((call) => call[0] === 'terminal.send')
+      .map((call) => call[1]) as Array<{
       text: string
       resolvedLaunchDraft?: { text: string; createdAt: number }
     }>

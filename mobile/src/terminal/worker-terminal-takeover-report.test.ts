@@ -65,20 +65,18 @@ it.each(['throw', 'rpc refusal'])(
   }
 )
 
-it('a report that changed nothing does not arm the gate, so the next key reports again', async () => {
-  // Why: a key during worker startup lands before the resource is owned; caching that "nothing
-  // to fence" would suppress the report that protects the worker once it attaches.
+it('a report that changed nothing still arms the gate, so plain terminals pay once per window', async () => {
+  // Why: the host answers `changed: 0` for every ordinary terminal; reopening on that turned
+  // every accepted key into an RPC and a host write transaction (round 6 measurement: 100 for 100).
   const client = {
-    sendRequest: vi
-      .fn()
-      .mockResolvedValueOnce({ id: 'report', ok: true, result: { changed: 0 } })
-      .mockResolvedValue(success)
+    sendRequest: vi.fn().mockResolvedValue({ id: 'report', ok: true, result: { changed: 0 } })
   }
-  reportWorkerTerminalUserInput(client, 'term-1')
-  await vi.advanceTimersByTimeAsync(0)
-  reportWorkerTerminalUserInput(client, 'term-1')
-  await vi.advanceTimersByTimeAsync(0)
-  expect(client.sendRequest).toHaveBeenCalledTimes(2)
-  reportWorkerTerminalUserInput(client, 'term-1')
+  for (let i = 0; i < 100; i++) {
+    reportWorkerTerminalUserInput(client, 'term-plain')
+    await vi.advanceTimersByTimeAsync(100)
+  }
+  expect(client.sendRequest).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(30_000)
+  reportWorkerTerminalUserInput(client, 'term-plain')
   expect(client.sendRequest).toHaveBeenCalledTimes(2)
 })
