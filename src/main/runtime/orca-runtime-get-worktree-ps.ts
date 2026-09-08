@@ -1,10 +1,7 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import { OrcaRuntimeWithStructuredAgentSessionRecoverTuiOwner } from './orca-runtime-structured-agent-session-recover-tui-owner'
 import { DEFAULT_WORKTREE_PS_LIMIT } from './orca-runtime-postlude'
-import type {
-  RuntimeMobileSessionTabsSnapshot,
-  RuntimeWorktreePsResult
-} from '../../shared/runtime-types'
+import type { RuntimeWorktreePsResult } from '../../shared/runtime-types'
 import { buildRuntimeWorktreePsSummaries } from './runtime-worktree-ps-summaries'
 import { buildRuntimeWorktreeSummaryPathIndex } from './runtime-worktree-summary-paths'
 import {
@@ -30,7 +27,7 @@ import { resolveLocalWindowsAgentStartupShell } from '../../shared/windows-termi
 import { resolveStartupShell, tokenizeStartupCommand } from '../../shared/tui-agent-startup-shell'
 import { resolveCodexStructuredAppServerArgs } from '../codex/codex-structured-app-server-args'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
-import { defaultAgentChatLabel } from '../../shared/agent-session-chat-label'
+import { renameStructuredConversationTab } from './structured-conversation-tab-name'
 import { hostname } from 'node:os'
 import { claudeStructuredAuthPolicyForSettings } from '../claude-accounts/claude-structured-auth-policy'
 import { probeAgentSessionProcessIdentity } from './agent-session-process-identity-probe'
@@ -222,13 +219,6 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
     )
   }
 
-  /** Relabels a published chat tab once its provider names the conversation, and
-   *  restores the placeholder when the provider says the name is gone. The user's
-   *  own rename lives on the client tab, which never reads this field.
-   *
-   *  `title` is a REQUIRED string on the published tab: a null here reaches every
-   *  client's snapshot builder and throws on `tab.title.trim()`. This file is
-   *  `@ts-nocheck`, so nothing but this line stops that. */
   applyStructuredAgentSessionConversationName(input: {
     workspaceId: string
     sessionId: string
@@ -237,24 +227,14 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
      *  pushing a full tab list at every live subscriber. */
     notify?: boolean
   }): void {
-    const existing = this.mobileSessionTabsByWorktree.get(input.workspaceId)
-    const id = `agent-session:${input.sessionId}`
-    const target = existing?.tabs.find((tab) => tab.id === id)
-    if (!target) {
+    const snapshot = renameStructuredConversationTab(
+      this.mobileSessionTabsByWorktree.get(input.workspaceId),
+      input
+    )
+    if (!snapshot) {
       return
     }
-    const title = input.conversationName ?? defaultAgentChatLabel(target.agent)
-    if (target.title === title) {
-      return
-    }
-    const snapshot: RuntimeMobileSessionTabsSnapshot = {
-      ...existing,
-      snapshotVersion: existing.snapshotVersion + 1,
-      tabs: existing.tabs.map((tab) => (tab.id === id ? { ...tab, title } : tab))
-    }
-    // Emit what was STORED, not the local candidate: the store may hand back a
-    // different object, and a client mirror would then hold a replaced tab under
-    // an identical snapshotVersion. Matches replaceStructuredAgentSessionTab.
+    // Publish the stored version, which may differ from the candidate.
     const stored = this.storeMobileSessionSnapshot(input.workspaceId, snapshot)
     if (input.notify !== false) {
       this.emitMobileSessionTabsSnapshot(stored)
