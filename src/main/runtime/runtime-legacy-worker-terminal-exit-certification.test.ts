@@ -6,12 +6,15 @@ import type {
   LegacyWorkerRecoveryPorts,
   LegacyWorkerRecoveryResolution
 } from './runtime-legacy-worker-terminal-recovery-types'
-import { toAppSshPtyId } from '../../shared/ssh-pty-id'
+import { probeSshPtyLiveness } from '../providers/ssh-pty-liveness-probe'
+import { toAppSshPtyId, toRelaySshPtyId } from '../../shared/ssh-pty-id'
+import { toRelayPtyIdWithMintEpoch } from '../../shared/relay-pty-mint-epoch'
 
 const CONNECTION_ID = 'conn-1'
-// A parseable SSH id, so the population this suite reasons about is the one it drives.
-const PTY_ID = toAppSshPtyId(CONNECTION_ID, 'pty-42')
-const OTHER_PTY_ID = toAppSshPtyId(CONNECTION_ID, 'pty-43')
+const RELAY_EPOCH = '0f8f3a1e-1111-4111-8111-111111111111'
+// A real SSH id, so the population this suite claims to cover is the one it drives.
+const PTY_ID = toAppSshPtyId(CONNECTION_ID, toRelayPtyIdWithMintEpoch(RELAY_EPOCH, 42))
+const OTHER_PTY_ID = toAppSshPtyId(CONNECTION_ID, toRelayPtyIdWithMintEpoch(RELAY_EPOCH, 43))
 
 const candidate = {
   dispatchId: 'dispatch_1',
@@ -48,7 +51,7 @@ const listingWithThePty = inventory({
 
 function reconcile(options: {
   inventory: LegacyWorkerRecoveryInventory
-  isPtyProvenAbsent: () => Promise<boolean>
+  isPtyProvenAbsent: (ptyId: string) => Promise<boolean>
   refreshInventory?: LegacyWorkerRecoveryPorts['refreshInventory']
 }) {
   const pendingResolutions: LegacyWorkerRecoveryResolution[] = []
@@ -149,14 +152,30 @@ describe('legacy worker recovery: certifying that a worker PTY exited', () => {
     expect(ports.isPtyProvenAbsent).not.toHaveBeenCalled()
   })
 
-  // No SSH provider implements the owner readback, so `isPtyProvenAbsent` is false for every SSH
-  // candidate and the worker defers forever rather than being retired on a listing omission. That
-  // is the honest verdict under the execution boundary and the deliberate cost of this change: the
-  // operator clears such a worker with worker-stop, stop_unknown, then worker-abandon.
-  it('defers an SSH candidate no owner can certify', async () => {
+  // The rule `isLeafPtyProvenAbsent` applies: the owning provider's readback is proven absence
+  // only when it answers false, and the SSH provider's readback is the relay itself.
+  function provenAbsentViaRelay(request: Parameters<typeof probeSshPtyLiveness>[0]['request']) {
+    return async (appPtyId: string): Promise<boolean> =>
+      (await probeSshPtyLiveness({
+        request,
+        relayPtyId: toRelaySshPtyId(CONNECTION_ID, appPtyId)
+      })) === false
+  }
+
+  it('certifies an SSH exit the owning relay observed', async () => {
     const { pendingResolutions, deferredDispatchIds } = await reconcile({
       inventory: listingWithoutThePty,
-      isPtyProvenAbsent: async () => false
+      isPtyProvenAbsent: provenAbsentViaRelay(async () => ({ status: 'exited' }))
+    })
+
+    expect(pendingResolutions).toEqual([{ candidate, resolution: 'exited' }])
+    expect(deferredDispatchIds.size).toBe(0)
+  })
+
+  it('defers an SSH candidate the owning relay will not certify', async () => {
+    const { pendingResolutions, deferredDispatchIds } = await reconcile({
+      inventory: listingWithoutThePty,
+      isPtyProvenAbsent: provenAbsentViaRelay(async () => ({ status: 'unknown' }))
     })
 
     expect(pendingResolutions).toEqual([])

@@ -36,6 +36,7 @@ import {
 } from './pty-spawn-cwd'
 import { PhysicalExitTracker } from '../shared/physical-exit-tracker'
 import { PTY_ATTACH_PROVEN_EXITED_MARKER } from '../shared/pty-attach-absence-evidence'
+import { toRelayPtyIdWithMintEpoch } from '../shared/relay-pty-mint-epoch'
 import { SHELL_READY_MARKER_PREFIX } from '../main/shell-ready-marker-scanner'
 import {
   createShellStartupOutputScanState,
@@ -353,6 +354,9 @@ const STARTUP_COMMAND_SHELL_READY_FALLBACK_MS = 1500
 const RENDERER_SHELL_READY_RETENTION_MS = 15_000
 const PTY_FORCE_KILL_RETRY_DELAY_MS = 250
 const PTY_FORCE_KILL_MAX_ATTEMPTS = 2
+
+/** Cap on remembered observed exits. Eviction answers unverifiable, never a false exit. */
+const OBSERVED_PTY_EXIT_HISTORY = 4_096
 const ALLOWED_SIGNALS = new Set([
   'SIGINT',
   'SIGTERM',
@@ -533,6 +537,15 @@ export class PtyHandler {
   private interactiveOutputCharsByPty = new Map<string, number>()
   private pendingSpawnCount = 0
   private pendingReviveIds = new Set<string>()
+  /**
+   * Ids this relay retired having OBSERVED the process end: node-pty's `onExit`, or a pid probe
+   * that answered ESRCH. Every other removal is bookkeeping — a shutdown that gave up waiting for
+   * an uninterruptible child still deletes the record — so absence from `this.ptys` cannot be read
+   * as an exit. This is the positive half, recorded where the observation happens, and a liveness
+   * probe certifies an exit from nothing else. Bounded: an evicted id answers unverifiable, which
+   * is the safe direction (docs/reference/ssh-execution-boundary.md).
+   */
+  private readonly observedPtyExitIds = new Set<string>()
   private creationFenced = false
   private pendingCreationDrainResolvers = new Set<() => void>()
   private worktreeRemovalCoordinator: RelayPtyWorktreeRemovalCoordinator | null = null
@@ -763,6 +776,17 @@ export class PtyHandler {
         `[pty-handler] ${label} listener threw: ${err instanceof Error ? err.message : String(err)}\n`
       )
     }
+  }
+
+  /** Called only where the process end was observed; see {@link observedPtyExitIds}. */
+  private recordObservedPtyExit(id: string): void {
+    if (this.observedPtyExitIds.size >= OBSERVED_PTY_EXIT_HISTORY) {
+      const oldest = this.observedPtyExitIds.values().next()
+      if (!oldest.done) {
+        this.observedPtyExitIds.delete(oldest.value)
+      }
+    }
+    this.observedPtyExitIds.add(id)
   }
 
   // Why: the sole removal path, so the three exit routes can't drift on who announces an empty pool.
@@ -1039,6 +1063,7 @@ export class PtyHandler {
       this.publishPendingExit(managed.id)
       this.notifyExitListener(managed)
       this.agentSessionOwners.release(managed.id)
+      this.recordObservedPtyExit(managed.id)
       this.removePty(managed.id)
       this.clearPtyInputState(managed.id)
       // Why: release the ptmx fd on natural exit, else the master fd leaks until GC (docs/fix-pty-fd-leak.md).
@@ -1092,8 +1117,13 @@ export class PtyHandler {
       agentSessionCreateOperationVersion: AGENT_SESSION_CREATE_OPERATION_PROTOCOL_VERSION,
       // Additive capability: clients may request the no-process-table inventory
       // projection and consume fenced inspect evidence on this host.
-      foregroundProcessEvidenceVersion: 1
+      foregroundProcessEvidenceVersion: 1,
+      // Additive: names the generation that minted this relay's ids, so a client can read an id's
+      // absence from `pty.listProcesses` as an exit this host observed rather than as a restart.
+      // A relay that omits it leaves every absence unverifiable, which is the shipped behaviour.
+      ptyIdMintEpoch: this.ptyIdMintEpoch
     }))
+    this.dispatcher.onRequest('pty.probeLiveness', async (params) => this.probeLiveness(params))
     this.dispatcher.onRequest('pty.listProcesses', (params) => this.listProcesses(params))
     this.dispatcher.onRequest('pty.getDefaultShell', async () => resolveDefaultShell())
     this.dispatcher.onRequest('pty.serialize', (p) => this.serialize(p))
@@ -1863,7 +1893,7 @@ export class PtyHandler {
     const shell = resolvedShellOverride || requestedEnvShell || resolveDefaultShell()
     let id: string
     do {
-      id = `pty2:${encodeURIComponent(this.ptyIdMintEpoch)}:${this.nextId++}`
+      id = toRelayPtyIdWithMintEpoch(this.ptyIdMintEpoch, this.nextId++)
     } while (this.ptys.has(id) || this.pendingReviveIds.has(id))
 
     // Why: augmenter values override renderer env so remote paths and hook coords win over local userData.
@@ -2464,6 +2494,9 @@ export class PtyHandler {
     if (!managed.pty.pid || isProcessAlive(managed.pty.pid)) {
       return false
     }
+    // Recorded here rather than inside the shared reap: this is the line that observed the pid was
+    // gone. The reap's other caller is tidying a torn-down record and watched nothing.
+    this.recordObservedPtyExit(managed.id)
     this.reapExitedPty(managed, 'exited')
     return true
   }
@@ -2598,6 +2631,38 @@ export class PtyHandler {
       managed.startupIngress?.snapshotBarrier()
       managed.pty.clear()
     }
+  }
+
+  /**
+   * Exact-id liveness, answered from this relay's own lifecycle state. The client cannot compute
+   * this: absence from an inventory means "no record", and only the owner knows whether a record
+   * left because the process ended or because teardown stopped waiting for it
+   * (docs/reference/ssh-execution-boundary.md).
+   *
+   * `exited` requires an observation — a live record whose pid probes absent, or an id in
+   * {@link observedPtyExitIds}. Everything else is `unknown`: an id this generation never minted
+   * or never saw end, a revive in flight, a record mid-teardown, and any id at all once a shutdown
+   * has been fenced, because that is when records start leaving without proof.
+   */
+  private async probeLiveness(
+    params: Record<string, unknown>
+  ): Promise<{ status: 'live' | 'exited' | 'unknown' }> {
+    const id = typeof params.id === 'string' ? params.id : ''
+    const managed = this.ptys.get(id)
+    if (managed) {
+      if (managed.disposed) {
+        return { status: 'unknown' }
+      }
+      return { status: this.reapPtyProvenExited(managed) ? 'exited' : 'live' }
+    }
+    if (this.pendingReviveIds.has(id)) {
+      return { status: 'unknown' }
+    }
+    // The ledger is the only gate, deliberately. A blanket "shutdown has started" refusal would
+    // also mask a wrong entry in it, since teardown only ever runs behind that fence — and it
+    // would withhold exits this relay really did observe. Keyed by the whole id, which embeds this
+    // generation, so an id another generation minted can never be in it.
+    return { status: this.observedPtyExitIds.has(id) ? 'exited' : 'unknown' }
   }
 
   private async hasChildProcesses(params: Record<string, unknown>): Promise<boolean> {
