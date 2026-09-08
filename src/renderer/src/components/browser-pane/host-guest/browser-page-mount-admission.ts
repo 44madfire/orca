@@ -6,6 +6,10 @@ const admittedPageIds = new Set<string>()
 const listeners = new Set<() => void>()
 let version = 0
 
+export function isBrowserPageMountAdmitted(pageId: string): boolean {
+  return admittedPageIds.has(pageId)
+}
+
 function emit(): void {
   version += 1
   for (const listener of listeners) {
@@ -36,11 +40,11 @@ export function useBrowserPageMountAdmission(pageId: string): boolean {
     },
     () => {
       void version
-      return admittedPageIds.has(pageId)
+      return isBrowserPageMountAdmitted(pageId)
     },
     () => false
   )
-  return admittedPageIds.has(pageId)
+  return isBrowserPageMountAdmitted(pageId)
 }
 
 export function useAnyBrowserPageMountAdmission(pageIds: readonly string[]): boolean {
@@ -51,9 +55,9 @@ export function useAnyBrowserPageMountAdmission(pageIds: readonly string[]): boo
     },
     () => {
       void version
-      return pageIds.some((pageId) => admittedPageIds.has(pageId))
+      return pageIds.some(isBrowserPageMountAdmitted)
     },
     () => false
   )
-  return pageIds.some((pageId) => admittedPageIds.has(pageId))
+  return pageIds.some(isBrowserPageMountAdmitted)
 }

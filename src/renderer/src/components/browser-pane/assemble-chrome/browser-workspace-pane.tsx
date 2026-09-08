@@ -22,7 +22,10 @@ import { WorkspaceDocPagePane } from '../workspace-doc/workspace-doc-page-pane'
 import { DeferredBrowserContent } from './DeferredBrowserContent'
 import { isBrowserPagePanePaintable } from '../host-guest/browser-page-paintability'
 import { SshRoutedBrowserPageGate } from './ssh-routed-browser-page-gate'
-import { useAnyBrowserPageMountAdmission } from '../host-guest/browser-page-mount-admission'
+import {
+  isBrowserPageMountAdmitted,
+  useAnyBrowserPageMountAdmission
+} from '../host-guest/browser-page-mount-admission'
 
 export default function BrowserPane({
   browserTab,
@@ -168,7 +171,9 @@ export default function BrowserPane({
                   key={page.id}
                   retainMounted={isWorktreeActive}
                   mountEligible={isBrowserPagePanePaintable({
-                    isActive: (isActive && page.id === activeBrowserPageId) || hasAdmittedPage,
+                    isActive:
+                      (isActive && page.id === activeBrowserPageId) ||
+                      (hasAdmittedPage && isBrowserPageMountAdmitted(page.id)),
                     isAutomationVisible: automationVisiblePageIds.has(page.id),
                     isMobileDriven: mobileDrivenPageIds.has(page.id),
                     hasRemoteViewer: remotelyViewedPageIds.has(page.id)
