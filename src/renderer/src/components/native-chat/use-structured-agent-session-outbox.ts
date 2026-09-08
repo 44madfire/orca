@@ -15,18 +15,12 @@ import {
 } from '../../../../shared/structured-agent-session-outbox'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
+import { useStructuredAgentSessionRecovery } from './use-structured-agent-session-recovery'
 import { readOutbox, writeOutbox } from './structured-agent-session-outbox-storage'
 
 export function structuredSessionOperationId(): string {
   return createStructuredAgentSessionOperationId(() => crypto.randomUUID())
 }
-
-const UNCONFIRMED_PROBE_BASE_DELAY_MS = 1_000
-/** No attempt ceiling: a transport outage outlives any fixed budget, and giving up
- *  restores the wedge this fixes. Growth caps the rate at one status query per 16s.
- *  A refusal that blocks the head still ends probing until a fence change or a manual
- *  Retry, because the entry leaves `unconfirmed` -- pre-existing, not closed here. */
-const UNCONFIRMED_PROBE_MAX_DELAY_MS = 16_000
 
 function isDesktopDeliveryUnknown(error: unknown): boolean {
   const text = error instanceof Error ? `${error.name}:${error.message}` : String(error)
@@ -49,7 +43,6 @@ export function useStructuredAgentSessionOutbox(args: {
   const dispatchingRef = useRef(false)
   const dispatchGenerationRef = useRef(0)
   const blockedIdRef = useRef<string | null>(null)
-  const probeAttemptsRef = useRef({ id: null as string | null, attempts: 0 })
   const [error, setError] = useState<string | null>(null)
   const [errorSession, setErrorSession] = useState(sessionId)
   // Render-time reset (react.dev: adjusting state when a prop changes), so the
@@ -67,7 +60,6 @@ export function useStructuredAgentSessionOutbox(args: {
     dispatchGenerationRef.current += 1
     dispatchingRef.current = false
     blockedIdRef.current = null
-    probeAttemptsRef.current = { id: null, attempts: 0 }
   }, [fence, sessionId, targetKey])
 
   useEffect(() => {
@@ -75,7 +67,9 @@ export function useStructuredAgentSessionOutbox(args: {
     outboxSessionRef.current = sessionId
     const current = sessionChanged ? readOutbox(sessionId) : outboxRef.current
     const next = current.map((entry) =>
-      entry.state === 'dispatching' ? { ...entry, state: 'queued' as const } : entry
+      entry.state === 'dispatching'
+        ? { ...entry, state: entry.recovery ? ('unconfirmed' as const) : ('queued' as const) }
+        : entry
     )
     if (
       sessionChanged ||
@@ -89,6 +83,15 @@ export function useStructuredAgentSessionOutbox(args: {
   }, [fence, sessionId, target])
 
   useEffect(() => {
+    const headId = outboxRef.current[0]?.clientMessageId
+    if (
+      submissions.some(
+        (entry) => entry.clientMessageId === headId && entry.dispatchState === 'accepted'
+      )
+    ) {
+      setError(null)
+      blockedIdRef.current = null
+    }
     const next = reconcileStructuredAgentSessionOutbox(outboxRef.current, submissions)
     if (
       next.some((entry, index) => entry !== outboxRef.current[index]) ||
@@ -209,46 +212,19 @@ export function useStructuredAgentSessionOutbox(args: {
       })
   }, [fence, outbox, sessionId, target])
 
-  // A transport-side unknown may never have reached the host, and nothing else
-  // moves it out of `unconfirmed`, so one wedges the whole FIFO queue. Re-issuing
-  // the same envelope without `retryUnknown` is idempotent: the operation ledger
-  // replays a recorded outcome, or the host performs a genuine first delivery.
-  // A host-confirmed unknown stays parked — forcing past that redispatches, which
-  // is the user's call via Retry.
   const head = outbox[0]
-  // Depend on primitives: `submissions` is rebuilt on every streaming batch, so an
-  // array-identity dep would reset the backoff forever while the agent is working.
-  // A non-null `retryAfterUnknownSubmittedAt` means the user already force-retried,
-  // so the request would carry `retryUnknown` and redispatch host-side. Only entries
-  // that have never been force-retried are safe to re-issue automatically.
-  const probeId =
-    head &&
-    head.sessionId === sessionId &&
-    head.state === 'unconfirmed' &&
-    head.retryAfterUnknownSubmittedAt === null
-      ? head.clientMessageId
-      : null
-  const probeSettled =
-    probeId !== null && submissions.some((submission) => submission.clientMessageId === probeId)
-  useEffect(() => {
-    if (probeId === null || probeSettled || fence === null) {
-      return
-    }
-    const attempts = probeAttemptsRef.current.id === probeId ? probeAttemptsRef.current.attempts : 0
-    const timer = setTimeout(
-      () => {
-        probeAttemptsRef.current = { id: probeId, attempts: attempts + 1 }
-        const next = outboxRef.current.map((entry) =>
-          entry.clientMessageId === probeId ? { ...entry, state: 'queued' as const } : entry
-        )
-        outboxRef.current = next
-        setOutbox(next)
-        writeOutbox(sessionId, next)
-      },
-      Math.min(UNCONFIRMED_PROBE_BASE_DELAY_MS * 2 ** attempts, UNCONFIRMED_PROBE_MAX_DELAY_MS)
-    )
-    return () => clearTimeout(timer)
-  }, [fence, probeId, probeSettled, sessionId, targetKey])
+  const recovery = useStructuredAgentSessionRecovery({
+    sessionId,
+    fence,
+    targetKey,
+    head,
+    hostObserved:
+      !!head &&
+      submissions.some((submission) => submission.clientMessageId === head.clientMessageId),
+    outboxRef,
+    setOutbox,
+    setError
+  })
 
   const send = useCallback(
     (text: string, attachments: readonly { path: string; previewUri: string }[] = []): boolean => {
@@ -291,6 +267,7 @@ export function useStructuredAgentSessionOutbox(args: {
           ? {
               ...entry,
               clientMessageId: structuredSessionOperationId(),
+              recovery: undefined,
               state: 'queued' as const,
               retryAfterUnknownSubmittedAt: null
             }
@@ -326,5 +303,5 @@ export function useStructuredAgentSessionOutbox(args: {
     outboxRef.current = next
     setOutbox(next)
   }
-  return { outbox, error, blockedClientMessageId: blockedIdRef.current, send, retry }
+  return { outbox, error, blockedClientMessageId: blockedIdRef.current, send, retry, ...recovery }
 }

@@ -1,3 +1,7 @@
+import {
+  parseStructuredAgentSessionRecovery,
+  type StructuredAgentSessionRecovery
+} from './structured-agent-session-recovery'
 import type { AgentJournalMessageItem, AgentJournalSubmission } from './agent-session-journal-types'
 import { agentSessionRefusalOperationState } from './agent-session-refusal-retry'
 import type { AgentSessionWireRefusalCode } from './agent-session-wire'
@@ -12,6 +16,7 @@ export type StructuredAgentSessionOutboxEntry = {
   previewUris: string[]
   state: StructuredAgentSessionOutboxState
   queuedAt: number
+  recovery?: StructuredAgentSessionRecovery
   lastAttemptAt: number | null
   retryAfterUnknownSubmittedAt: number | null
 }
@@ -79,6 +84,7 @@ export function requeueStructuredAgentSessionSendRefusal(
   return {
     ...entry,
     clientMessageId: createOperationId(),
+    recovery: undefined,
     state: 'queued',
     retryAfterUnknownSubmittedAt: null
   }
@@ -134,6 +140,9 @@ export function parseStructuredAgentSessionOutboxEntry(
     body,
     previewUris: entry.previewUris,
     state: entry.state as StructuredAgentSessionOutboxState,
+    ...(entry.recovery === undefined
+      ? {}
+      : { recovery: parseStructuredAgentSessionRecovery(entry.recovery) }),
     queuedAt: entry.queuedAt,
     lastAttemptAt: typeof entry.lastAttemptAt === 'number' ? entry.lastAttemptAt : null,
     retryAfterUnknownSubmittedAt:
