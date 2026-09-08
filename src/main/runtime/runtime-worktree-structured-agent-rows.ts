@@ -4,7 +4,7 @@ import {
   structuredAgentSessionStatusState,
   structuredAgentSessionTabId
 } from '../../shared/structured-agent-session-projection'
-import type { RuntimeWorktreeAgentSource } from './runtime-worktree-agent-rows'
+import type { RuntimeWorktreeAgentSource } from './runtime-worktree-agent-source'
 
 /**
  * Row sources for the structured (non-PTY) sessions a host still holds.
@@ -40,8 +40,7 @@ export function structuredRuntimeWorktreeAgentSources(
       toolInput: summary.toolInput ?? null,
       interrupted: false,
       stateStartedAt: summary.updatedAt,
-      updatedAt: summary.updatedAt,
-      structured: true
+      updatedAt: summary.updatedAt
     })
   }
   return sources

@@ -27,7 +27,6 @@ import { attachStructuredAgentSession } from './structured-agent-session-attach-
 import {
   createStructuredAgentSessionHolds,
   evictHeldStructuredAgentSession,
-  resumeStructuredAgentSessionForHold,
   type StructuredAgentSessionLifetimeContext
 } from './structured-agent-session-host-lifetime'
 import type {
@@ -121,13 +120,9 @@ export class StructuredAgentSessionHost {
       now: this.now
     })
     this.holds = createStructuredAgentSessionHolds(this.lifetimeContext(), {
-      resume: (sessionId) =>
-        resumeStructuredAgentSessionForHold(
-          { ...this.lifetimeContext(), reconcileLeases: this.reconcileLeases },
-          sessionId,
-          (params) => this.attach({ callerKey: 'trusted-local:surface-hold' }, params)
-        ),
-      evict: (sessionId) => this.close(sessionId)
+      reconcileLeases: this.reconcileLeases,
+      attach: (params) => this.attach({ callerKey: 'trusted-local:surface-hold' }, params),
+      close: (sessionId) => this.close(sessionId)
     })
     this.restore = createStructuredAgentSessionHostRestore(deps, this.sessions, () => this.now(), {
       reconcile: this.reconcileLeases,

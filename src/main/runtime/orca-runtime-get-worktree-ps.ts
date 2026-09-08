@@ -1,4 +1,5 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
+import { collectRuntimeWorktreeAgentSources } from './runtime-worktree-agent-sources'
 import { OrcaRuntimeWithStructuredAgentSessionRecoverTuiOwner } from './orca-runtime-structured-agent-session-recover-tui-owner'
 import { DEFAULT_WORKTREE_PS_LIMIT } from './orca-runtime-postlude'
 import type { RuntimeWorktreePsResult } from '../../shared/runtime-types'
@@ -103,16 +104,15 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
       summaries,
       pathIndex: runtimeWorktreeSummaryPathIndex,
       missingWorktreeIds: missingRuntimeWorktreeIds,
-      mirroredWorktreeIdByTabId,
-      connectedPtyEvidence,
       workingTerminalEvidenceByWorktreeId,
-      retainedSnapshots: this.agentRows.values(),
-      hookSnapshots: this.getAgentStatusSnapshotFn?.() ?? [],
-      // Structured sessions have no PTY, so they never reach the hook or retained snapshots. The
-      // host already projects their status for the sidebar; without this the CLI reads a worktree
-      // running a structured chat as idle while the GUI shows it working. Live sessions only: the
-      // status feed retains a forgotten session's last projection for reloading renderers.
-      structuredSummaries: getStructuredAgentSessionHost()?.liveSessionStatusSummaries() ?? [],
+      rowSources: collectRuntimeWorktreeAgentSources({
+        mirroredWorktreeIdByTabId,
+        connectedPtyEvidence,
+        retainedSnapshots: this.agentRows.values(),
+        hookSnapshots: this.getAgentStatusSnapshotFn?.() ?? [],
+        // Broadcast history outlives closed sessions; only the host roster is eligible.
+        structuredSummaries: getStructuredAgentSessionHost()?.liveSessionStatusSummaries() ?? []
+      }),
       orchestrationByPaneKey: this.agentOrchestrationProjection.buildByPaneKey(),
       getSummary: (summaryMap, pathIndex, missingIds, worktreeId) =>
         this.getSummaryForRuntimeWorktreeId(summaryMap, pathIndex, missingIds, worktreeId)

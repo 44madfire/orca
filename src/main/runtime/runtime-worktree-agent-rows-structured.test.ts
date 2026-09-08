@@ -1,3 +1,4 @@
+import { collectRuntimeWorktreeAgentSources } from './runtime-worktree-agent-sources'
 import { describe, expect, it } from 'vitest'
 import { attachRuntimeWorktreeAgentRows } from './runtime-worktree-agent-rows'
 import {
@@ -33,12 +34,14 @@ function attach(summaries: AgentSessionStatusSummary[]): RuntimeWorktreePsSummar
     summaries: summariesById,
     pathIndex: { byPath: new Map(), byRealPath: new Map() } as never,
     missingWorktreeIds: new Set(),
-    mirroredWorktreeIdByTabId: new Map(),
-    connectedPtyEvidence: { tabIds: new Set(), paneKeys: new Set(), ptyIds: new Set() },
     workingTerminalEvidenceByWorktreeId: new Map(),
-    retainedSnapshots: [],
-    hookSnapshots: [],
-    structuredSummaries: summaries,
+    rowSources: collectRuntimeWorktreeAgentSources({
+      mirroredWorktreeIdByTabId: new Map(),
+      connectedPtyEvidence: { tabIds: new Set(), paneKeys: new Set(), ptyIds: new Set() },
+      retainedSnapshots: [],
+      hookSnapshots: [],
+      structuredSummaries: summaries
+    }),
     orchestrationByPaneKey: null,
     getSummary: (map, _p, _m, id) => map.get(id) ?? null
   })

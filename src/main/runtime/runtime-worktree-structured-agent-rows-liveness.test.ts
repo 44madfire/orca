@@ -1,3 +1,4 @@
+import { collectRuntimeWorktreeAgentSources } from './runtime-worktree-agent-sources'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -89,12 +90,14 @@ function worktreeFor(feed: StructuredAgentSessionStatusFeed): RuntimeWorktreePsS
     summaries: new Map([[WORKTREE_ID, row]]),
     pathIndex: { byPath: new Map(), byRealPath: new Map() } as never,
     missingWorktreeIds: new Set(),
-    mirroredWorktreeIdByTabId: new Map(),
-    connectedPtyEvidence: { tabIds: new Set(), paneKeys: new Set(), ptyIds: new Set() },
     workingTerminalEvidenceByWorktreeId: new Map(),
-    retainedSnapshots: [],
-    hookSnapshots: [],
-    structuredSummaries: feed.liveSessionSummaries(),
+    rowSources: collectRuntimeWorktreeAgentSources({
+      mirroredWorktreeIdByTabId: new Map(),
+      connectedPtyEvidence: { tabIds: new Set(), paneKeys: new Set(), ptyIds: new Set() },
+      retainedSnapshots: [],
+      hookSnapshots: [],
+      structuredSummaries: feed.liveSessionSummaries()
+    }),
     orchestrationByPaneKey: null,
     getSummary: (map, _paths, _missing, id) => map.get(id) ?? null
   })

@@ -1,36 +1,10 @@
-import {
-  AGENT_STATUS_STALE_AFTER_MS,
-  isFreshNonDoneAgentStatus,
-  pickParsedAgentStatusPayload,
-  type AgentStatusIpcPayload,
-  type ParsedAgentStatusPayload
-} from '../../shared/agent-status-types'
-import { terminalStatusPayloadMatchesHook } from '../../shared/agent-terminal-status-equivalence'
+import { isFreshNonDoneAgentStatus } from '../../shared/agent-status-types'
 import type { RuntimeWorktreeAgentRow, RuntimeWorktreePsSummary } from '../../shared/runtime-types'
-import { parseLegacyNumericPaneKey, parsePaneKey } from '../../shared/stable-pane-id'
-import type { AgentSessionStatusSummary } from '../../shared/agent-session-wire'
-import { isWslHookRelayConnectionId } from '../../shared/wsl-hook-relay-contract'
 import { mergeWorktreeSummaryStatus } from './runtime-worktree-status-projection'
 import type { RuntimeWorktreeSummaryPathIndex } from './runtime-worktree-summary-paths'
 import type { RuntimeWorkingTerminalEvidence } from './runtime-worktree-ps-activity'
-import { structuredRuntimeWorktreeAgentSources } from './runtime-worktree-structured-agent-rows'
-
-export type RuntimeAgentRowSnapshot = {
-  paneKey: string
-  ptyId: string
-  worktreeId?: string
-  tabId?: string
-  connectionId: string | null
-  payload: ParsedAgentStatusPayload
-  stateStartedAt: number
-  updatedAt: number
-}
-
-type ConnectedPtyEvidence = {
-  tabIds: ReadonlySet<string>
-  paneKeys: ReadonlySet<string>
-  ptyIds: ReadonlySet<string>
-}
+import type { RuntimeWorktreeAgentSource } from './runtime-worktree-agent-source'
+export type { RuntimeAgentRowSnapshot } from './runtime-worktree-pty-agent-sources'
 
 type OrchestrationDisplay = {
   taskTitle?: string | null
@@ -38,45 +12,15 @@ type OrchestrationDisplay = {
   parentPaneKey?: string | null
 }
 
-export type RuntimeWorktreeAgentSource = {
-  paneKey: string
-  ptyId?: string
-  tabId?: string
-  worktreeId?: string
-  connectionId: string | null
-  /** The hook/retained row this source came from. Absent on a structured session: nothing
-   *  downstream reads it, and there is no hook report behind one to carry. */
-  payload?: ParsedAgentStatusPayload
-  state: ParsedAgentStatusPayload['state']
-  workingMode?: ParsedAgentStatusPayload['workingMode']
-  agentType: string | null
-  prompt: string
-  lastAssistantMessage: string | null
-  toolName: string | null
-  toolInput: string | null
-  interrupted: boolean
-  stateStartedAt: number
-  updatedAt: number
-  restoredUnconfirmed?: boolean
-  /** A structured session: no PTY ever backed it, so PTY evidence cannot gate it. */
-  structured?: boolean
-}
-
 export function attachRuntimeWorktreeAgentRows(args: {
   summaries: Map<string, RuntimeWorktreePsSummary>
   pathIndex: RuntimeWorktreeSummaryPathIndex
   missingWorktreeIds: Set<string>
-  mirroredWorktreeIdByTabId: ReadonlyMap<string, string>
-  connectedPtyEvidence: ConnectedPtyEvidence
+  rowSources: ReadonlyMap<string, RuntimeWorktreeAgentSource>
   workingTerminalEvidenceByWorktreeId: ReadonlyMap<
     string,
     readonly RuntimeWorkingTerminalEvidence[]
   >
-  retainedSnapshots: Iterable<RuntimeAgentRowSnapshot>
-  hookSnapshots: readonly AgentStatusIpcPayload[]
-  /** The structured (non-PTY) sessions the host still holds, projected from its status feed.
-   *  Never the feed's whole retained cache: that keeps a summary after eviction forgets it. */
-  structuredSummaries: readonly AgentSessionStatusSummary[]
   orchestrationByPaneKey: Record<string, OrchestrationDisplay> | null | undefined
   getSummary: (
     summaries: Map<string, RuntimeWorktreePsSummary>,
@@ -85,98 +29,11 @@ export function attachRuntimeWorktreeAgentRows(args: {
     worktreeId: string
   ) => RuntimeWorktreePsSummary | null
 }): void {
-  const rowSources = new Map<string, RuntimeWorktreeAgentSource>()
+  const { rowSources } = args
   const now = Date.now()
-  for (const snapshot of args.retainedSnapshots) {
-    const { payload } = snapshot
-    rowSources.set(snapshot.paneKey, {
-      paneKey: snapshot.paneKey,
-      ptyId: snapshot.ptyId,
-      tabId: snapshot.tabId,
-      worktreeId: snapshot.worktreeId,
-      connectionId: snapshot.connectionId,
-      payload,
-      state: payload.state,
-      ...(payload.workingMode ? { workingMode: payload.workingMode } : {}),
-      agentType: payload.agentType ?? null,
-      prompt: payload.prompt,
-      lastAssistantMessage: payload.lastAssistantMessage ?? null,
-      toolName: payload.toolName ?? null,
-      toolInput: payload.toolInput ?? null,
-      interrupted: payload.interrupted ?? false,
-      stateStartedAt: snapshot.stateStartedAt,
-      updatedAt: snapshot.updatedAt
-    })
-  }
-  for (const entry of args.hookSnapshots) {
-    if (entry.restoredUnconfirmed === true) {
-      continue
-    }
-    const existing = rowSources.get(entry.paneKey)
-    const hookPayload = pickParsedAgentStatusPayload(entry)
-    if (existing && existing.updatedAt > entry.receivedAt) {
-      if (
-        entry.workingMode === 'monitoring' &&
-        now - entry.receivedAt <= AGENT_STATUS_STALE_AFTER_MS &&
-        existing.payload !== undefined &&
-        terminalStatusPayloadMatchesHook(hookPayload, existing.payload)
-      ) {
-        existing.workingMode = 'monitoring'
-        if (existing.payload.workingMode === undefined) {
-          existing.payload = { ...existing.payload, workingMode: 'monitoring' }
-        }
-      }
-      continue
-    }
-    rowSources.set(entry.paneKey, {
-      paneKey: entry.paneKey,
-      ptyId: existing?.ptyId,
-      tabId: entry.tabId,
-      worktreeId: entry.worktreeId,
-      connectionId: entry.connectionId,
-      payload: hookPayload,
-      state: entry.state,
-      ...(entry.workingMode ? { workingMode: entry.workingMode } : {}),
-      agentType: entry.agentType ?? null,
-      prompt: entry.prompt,
-      lastAssistantMessage: entry.lastAssistantMessage ?? null,
-      toolName: entry.toolName ?? null,
-      toolInput: entry.toolInput ?? null,
-      interrupted: entry.interrupted ?? false,
-      stateStartedAt: entry.stateStartedAt,
-      updatedAt: entry.receivedAt
-    })
-  }
-  for (const source of structuredRuntimeWorktreeAgentSources(args.structuredSummaries)) {
-    // A PTY-backed row already on this pane key wins: it has real process evidence behind it.
-    if (!rowSources.has(source.paneKey)) {
-      rowSources.set(source.paneKey, source)
-    }
-  }
-  if (rowSources.size === 0) {
-    return
-  }
   const rowsByWorktree = new Map<string, RuntimeWorktreeAgentRow[]>()
   for (const source of rowSources.values()) {
-    const tabId =
-      source.tabId ??
-      parsePaneKey(source.paneKey)?.tabId ??
-      parseLegacyNumericPaneKey(source.paneKey)?.tabId
-    const mirroredWorktreeId = tabId ? args.mirroredWorktreeIdByTabId.get(tabId) : undefined
-    // The gate below drops a row whose PTY is gone. A structured session never had one, and its
-    // liveness evidence is the status feed that produced it, so the question does not apply.
-    if (
-      source.structured !== true &&
-      tabId !== undefined &&
-      mirroredWorktreeId === undefined &&
-      (source.connectionId === null || isWslHookRelayConnectionId(source.connectionId)) &&
-      !args.connectedPtyEvidence.tabIds.has(tabId) &&
-      !args.connectedPtyEvidence.paneKeys.has(source.paneKey) &&
-      (source.ptyId === undefined || !args.connectedPtyEvidence.ptyIds.has(source.ptyId))
-    ) {
-      continue
-    }
-    const worktreeId = mirroredWorktreeId ?? source.worktreeId
+    const { worktreeId } = source
     if (!worktreeId) {
       continue
     }
