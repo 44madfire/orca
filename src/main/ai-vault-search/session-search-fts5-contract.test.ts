@@ -270,6 +270,7 @@ describe('a cwd scope seeks the cwd_key index instead of scanning it', () => {
         )
         .all(...filter.values) as { detail: string }[]
     ).map((row) => row.detail)
+    db.close()
 
     expect(plan.join(' | ')).toContain('sessions_cwd_key')
     expect(plan.some((detail) => detail.startsWith('SEARCH'))).toBe(true)
