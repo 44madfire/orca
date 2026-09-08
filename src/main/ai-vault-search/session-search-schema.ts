@@ -1,9 +1,8 @@
-import { rmSync } from 'node:fs'
 import SyncDatabase from '../sqlite/sync-database'
-import { transientLockRemovalOptions } from '../../shared/windows-transient-lock-removal'
+import { removeTreeSync } from '../../shared/windows-transient-lock-removal'
 
 // Bump to drop and rebuild: the index is a cache over the transcripts, never a source.
-export const SESSION_SEARCH_SCHEMA_VERSION = 10
+export const SESSION_SEARCH_SCHEMA_VERSION = 11
 
 // unicode61 keeps `_ . - /` inside tokens so paths and identifiers match exactly;
 // the `identifiers` column carries the split form (see session-search-identifier-split).
@@ -69,7 +68,8 @@ CREATE TABLE IF NOT EXISTS messages(
   ts TEXT
 );
 CREATE INDEX IF NOT EXISTS messages_session ON messages(session_row_id);
-CREATE INDEX IF NOT EXISTS messages_batch ON messages(batch_id);
+-- Partial: publish nulls batch_id, so all but the in-flight rows would be dead entries.
+CREATE INDEX IF NOT EXISTS messages_batch ON messages(batch_id) WHERE batch_id IS NOT NULL;
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
   user_text, assistant_text, tool_text, identifiers, ${TOKENIZER}, detail=full
 );
@@ -134,7 +134,7 @@ export function removeSessionSearchDatabase(path: string): void {
     return
   }
   for (const suffix of ['', '-wal', '-shm', '-journal']) {
-    rmSync(`${path}${suffix}`, transientLockRemovalOptions())
+    removeTreeSync(`${path}${suffix}`)
   }
 }
 

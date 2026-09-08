@@ -41,7 +41,7 @@ type ScoredSession = {
   duplicateCount: number
 }
 
-export function sessionFields(session: SessionRow): Omit<AiVaultSearchHit, 'score' | 'evidence'> {
+function sessionFields(session: SessionRow): Omit<AiVaultSearchHit, 'score' | 'evidence'> {
   return {
     agent: session.agent,
     sessionId: session.session_id,

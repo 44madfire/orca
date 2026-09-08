@@ -84,7 +84,7 @@ function pathTermCondition(filter: SessionRowFilter, term: string): string | nul
   }
   // A bare fragment cannot prove Windows semantics, so fold separators anyway:
   // `path:Work\App` is a Windows user typing, never a POSIX file named `Work\App`.
-  const fragment = normalizeRuntimePathSeparators(term.normalize('NFC')).replace(/\/+$/, '')
+  const fragment = normalizeRuntimePathSeparators(term).replace(/\/+$/, '')
   return fragment ? containsCondition(filter, CWD, fragment) : null
 }
 

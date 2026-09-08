@@ -172,6 +172,7 @@ describe('useAiVaultSessionSearchRequest', () => {
       flush: expect.any(Function),
       result: null,
       loading: false,
+      current: false,
       error: null
     })
   })
@@ -201,6 +202,9 @@ describe('useAiVaultSessionSearchRequest', () => {
 
     expect(result.current.result?.repairedTerms).toEqual(['alpha'])
     expect(result.current.loading).toBe(false)
+    // Why: the retained answer describes the previous query, so its coverage must not be
+    // republished as a fresh reading of the index.
+    expect(result.current.current).toBe(false)
   })
 
   it('flushes the full tier immediately and cancels both pending timers', () => {

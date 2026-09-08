@@ -8,6 +8,7 @@ import type {
   AiVaultSearchCoverage,
   AiVaultSearchIndexingProgress
 } from '../../../../shared/ai-vault-search-types'
+import { AI_VAULT_SEARCH_COVERAGE_RETRY_MAX_MS } from './ai-vault-search-coverage-store'
 import {
   AI_VAULT_SEARCH_COVERAGE_POLL_MS,
   useAiVaultSearchCoveragePoll
@@ -42,11 +43,10 @@ function coverage(
 
 let searchCoverage: ReturnType<typeof vi.fn>
 let focusListeners: (() => void)[]
+let changedListeners: (() => void)[]
 
-beforeEach(() => {
-  vi.useFakeTimers()
-  focusListeners = []
-  searchCoverage = vi.fn().mockResolvedValue(coverage('running', { phase: 'indexing' }))
+/** The desktop transport: the host pushes every coverage-affecting change it makes. */
+function installApi({ changePush = true }: { changePush?: boolean } = {}): void {
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
@@ -57,10 +57,28 @@ beforeEach(() => {
           return () => {
             focusListeners = focusListeners.filter((listener) => listener !== callback)
           }
-        }
+        },
+        ...(changePush
+          ? {
+              onSearchIndexingChanged: (callback: () => void) => {
+                changedListeners.push(callback)
+                return () => {
+                  changedListeners = changedListeners.filter((listener) => listener !== callback)
+                }
+              }
+            }
+          : {})
       }
     }
   })
+}
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  focusListeners = []
+  changedListeners = []
+  searchCoverage = vi.fn().mockResolvedValue(coverage('running', { phase: 'indexing' }))
+  installApi()
 })
 
 afterEach(() => {
@@ -314,5 +332,177 @@ it('ages one indexing run from the renderer clock, not the host clock', async ()
   expect(later.observedAt - later.phaseSince).toBeGreaterThanOrEqual(
     AI_VAULT_SEARCH_COVERAGE_POLL_MS
   )
+  unsubscribe()
+})
+
+it('re-reads after a control whose backfill had not started when the read landed', async () => {
+  searchCoverage.mockResolvedValue(coverage('complete', { phase: 'complete' }))
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  await vi.advanceTimersByTimeAsync(0)
+  await store.control(() => Promise.resolve())
+  // The apply has not flipped the phase yet, so the post-control read still reads as settled.
+  expect(store.getSnapshot().coverage?.indexing?.phase).toBe('complete')
+
+  searchCoverage.mockResolvedValue(coverage('running', { phase: 'indexing' }))
+  changedListeners.forEach((listener) => listener())
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.getSnapshot().coverage?.indexing?.phase).toBe('indexing')
+  unsubscribe()
+})
+
+it('re-reads when the change lands while the post-control read is still in flight', async () => {
+  let releasePostControl!: (value: AiVaultSearchCoverage) => void
+  searchCoverage
+    .mockResolvedValueOnce(coverage('complete', { phase: 'complete' }))
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releasePostControl = resolve
+        })
+    )
+    .mockResolvedValue(coverage('running', { phase: 'indexing' }))
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  await vi.advanceTimersByTimeAsync(0)
+
+  const controlled = store.control(() => Promise.resolve())
+  await vi.advanceTimersByTimeAsync(0)
+  expect(searchCoverage).toHaveBeenCalledTimes(2)
+  // The apply lands while the post-control read is outstanding, so that read predates it.
+  changedListeners.forEach((listener) => listener())
+  releasePostControl(coverage('complete', { phase: 'complete' }))
+  await controlled
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(searchCoverage).toHaveBeenCalledTimes(3)
+  expect(store.getSnapshot().coverage?.indexing?.phase).toBe('indexing')
+  unsubscribe()
+})
+
+it('keeps reading after a failed read instead of latching the failure', async () => {
+  searchCoverage.mockRejectedValueOnce(new Error('index unreachable'))
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.getSnapshot().failed).toBe(true)
+  expect(searchCoverage).toHaveBeenCalledTimes(1)
+
+  searchCoverage.mockResolvedValue(coverage('complete', { phase: 'complete' }))
+  await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+  expect(searchCoverage).toHaveBeenCalledTimes(2)
+  expect(store.getSnapshot().failed).toBe(false)
+  unsubscribe()
+})
+
+it('ignores a search answer from an indexing run older than the one it holds', async () => {
+  searchCoverage.mockResolvedValue(coverage('running', { phase: 'updating', startedAt: 5 }))
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  await vi.advanceTimersByTimeAsync(0)
+
+  store.observe(coverage('complete', { phase: 'complete', startedAt: 1 }))
+  expect(store.getSnapshot().coverage?.indexing?.phase).toBe('updating')
+  const callsBefore = searchCoverage.mock.calls.length
+  await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+  expect(searchCoverage.mock.calls.length).toBeGreaterThan(callsBefore)
+  unsubscribe()
+})
+
+it('leaves an index nobody has searched alone until the host says otherwise', async () => {
+  searchCoverage.mockResolvedValue(coverage('running', { phase: 'idle' }))
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  await vi.advanceTimersByTimeAsync(0)
+  const callsAfterFirstRead = searchCoverage.mock.calls.length
+
+  await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS * 5)
+  expect(searchCoverage).toHaveBeenCalledTimes(callsAfterFirstRead)
+  unsubscribe()
+})
+
+it('keeps a standing poll on a transport with no coverage-change push', async () => {
+  changedListeners = []
+  searchCoverage.mockResolvedValue(coverage('complete', { phase: 'complete' }))
+  installApi({ changePush: false })
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  await vi.advanceTimersByTimeAsync(0)
+  const callsAfterFirstRead = searchCoverage.mock.calls.length
+
+  await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS * 2)
+  expect(searchCoverage.mock.calls.length).toBeGreaterThan(callsAfterFirstRead)
+  unsubscribe()
+})
+
+it('reports a refused control apart from a coverage read that did not land', async () => {
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  await vi.advanceTimersByTimeAsync(0)
+
+  searchCoverage.mockRejectedValue(new Error('index unreachable'))
+  await store.control(() => Promise.resolve())
+  expect(store.getSnapshot().failed).toBe(true)
+  expect(store.getSnapshot().controlFailed).toBe(false)
+
+  searchCoverage.mockResolvedValue(coverage('running', { phase: 'indexing' }))
+  await store.control(() => Promise.reject(new Error('save refused')))
+  expect(store.getSnapshot().controlFailed).toBe(true)
+  unsubscribe()
+})
+
+it('doubles the gap between reads a host keeps refusing, up to a ceiling', async () => {
+  searchCoverage.mockRejectedValue(new Error('index unreachable'))
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  await vi.advanceTimersByTimeAsync(0)
+
+  // 4s, then 8s, then 16s, then 32s, and never longer than 32s.
+  const gaps = [4_000, 8_000, 16_000, AI_VAULT_SEARCH_COVERAGE_RETRY_MAX_MS, 32_000]
+  let expected = 1
+  expect(searchCoverage).toHaveBeenCalledTimes(expected)
+  for (const gap of gaps) {
+    await vi.advanceTimersByTimeAsync(gap - AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+    expect(searchCoverage).toHaveBeenCalledTimes(expected)
+    await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+    expected += 1
+    expect(searchCoverage).toHaveBeenCalledTimes(expected)
+  }
+  unsubscribe()
+})
+
+it('returns to the base retry gap once a read has landed', async () => {
+  searchCoverage
+    .mockRejectedValueOnce(new Error('index unreachable'))
+    .mockResolvedValueOnce(coverage('running', { phase: 'indexing' }))
+    .mockRejectedValue(new Error('index unreachable'))
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  await vi.advanceTimersByTimeAsync(0)
+
+  await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+  expect(searchCoverage).toHaveBeenCalledTimes(2)
+  // The success cleared the backoff, so the failure after it waits one base interval, not eight.
+  await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+  expect(searchCoverage).toHaveBeenCalledTimes(3)
+  await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+  expect(searchCoverage).toHaveBeenCalledTimes(4)
+  unsubscribe()
+})
+
+it('reads at once and clears the backoff when the host reports a change', async () => {
+  searchCoverage.mockRejectedValue(new Error('index unreachable'))
+  const store = createSearchCoverageStore()
+  const unsubscribe = store.subscribe(() => undefined)
+  await vi.advanceTimersByTimeAsync(0)
+  await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+  expect(searchCoverage).toHaveBeenCalledTimes(2)
+
+  changedListeners.forEach((listener) => listener())
+  await vi.advanceTimersByTimeAsync(0)
+  // An explicit host signal outranks a backoff built from failures that predate it.
+  expect(searchCoverage).toHaveBeenCalledTimes(3)
+  await vi.advanceTimersByTimeAsync(AI_VAULT_SEARCH_COVERAGE_POLL_MS)
+  expect(searchCoverage).toHaveBeenCalledTimes(4)
   unsubscribe()
 })

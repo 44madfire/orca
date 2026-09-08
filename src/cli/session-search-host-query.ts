@@ -1,14 +1,12 @@
 import type { RuntimeClient } from './runtime-client'
 import type { RuntimeRpcSuccess } from './runtime/types'
 import {
-  SessionSearchResultSchema,
-  SessionSearchStatusSchema
+  ReceivedSessionSearchResultSchema,
+  SESSION_SEARCH_METHODS,
+  SessionSearchStatusSchema,
+  type SessionSearchOperation
 } from '../shared/ai-vault-search-contract'
 import type { AiVaultSearchResult } from '../shared/ai-vault-search-types'
-import {
-  SESSION_SEARCH_METHODS,
-  type SessionSearchOperation
-} from '../shared/ai-vault-search-rpc-methods'
 import type { SearchCommand } from './search-command-arguments'
 import { waitForPromiseWithSignal } from '../shared/abort-signal-reason'
 
@@ -134,7 +132,7 @@ export async function querySearchHost(
         return { host: identity, outcome: 'disabled' }
       }
     }
-    const result = SessionSearchResultSchema.parse(await call('query', command.query))
+    const result = ReceivedSessionSearchResultSchema.parse(await call('query', command.query))
     return {
       host: identity,
       outcome: result.coverage.enabled === false ? 'disabled' : 'searched',

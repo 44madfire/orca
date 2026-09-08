@@ -167,6 +167,27 @@ describe('path and retrieval contracts', () => {
     }
   )
 
+  // One conversation forked four ways is one answer, whichever page builds it:
+  // an operator-only query and a text query see the same sessions.
+  it('collapses forks for an operator-only page exactly as for a text page', async () => {
+    await withIndex((db, store) => {
+      for (const id of [1, 2, 3, 4]) {
+        add(db, id, '/repo/app', 'needle')
+        db.prepare(
+          'UPDATE sessions SET content_hash = ?, content_hash_count = 8, updated_at = ? WHERE id = ?'
+        ).run('shared-fork-prefix', `2026-09-0${id}`, id)
+      }
+      const operatorOnly = store.search({ query: 'repo:app' })
+      const withText = store.search({ query: 'needle repo:app' })
+      expect(operatorOnly.hits.map((hit) => hit.sessionId)).toEqual(['4'])
+      expect(operatorOnly.hits[0]?.duplicateCount).toBe(4)
+      expect(withText.hits.map((hit) => hit.sessionId)).toEqual(
+        operatorOnly.hits.map((hit) => hit.sessionId)
+      )
+      expect(withText.hits[0]?.duplicateCount).toBe(4)
+    })
+  })
+
   // The index writer can prove a WSL session's distro from its transcript path;
   // a query-time term never can. Orca stores a WSL workspace as the UNC path,
   // which is the spelling that keys the same way the writer did.

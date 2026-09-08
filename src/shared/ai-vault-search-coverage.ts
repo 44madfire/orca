@@ -5,7 +5,7 @@ import type {
 } from './ai-vault-search-types'
 
 /** What a host reports while transcript search is switched off. */
-export const DISABLED_AI_VAULT_SEARCH_COVERAGE: AiVaultSearchCoverage = {
+const DISABLED_AI_VAULT_SEARCH_COVERAGE: AiVaultSearchCoverage = {
   enabled: false,
   sessionsIndexed: 0,
   messagesIndexed: 0,
@@ -15,12 +15,18 @@ export const DISABLED_AI_VAULT_SEARCH_COVERAGE: AiVaultSearchCoverage = {
   lastIndexedAt: null
 }
 
-/** What a query answers with when there is no index to read: off, closing, or closed. */
-export const NO_AI_VAULT_SEARCH_INDEX_RESULT: AiVaultSearchResult = {
-  hits: [],
-  route: 'and',
-  durationMs: 0,
-  coverage: DISABLED_AI_VAULT_SEARCH_COVERAGE
+/**
+ * What a query answers with when there is no index to read: off, closing, or closed.
+ * Why a factory: the caller owns `enabled`, and a shared result object would let one
+ * consumer's mutation reach every later query.
+ */
+export function noAiVaultSearchIndexResult(coverage: AiVaultSearchCoverage): AiVaultSearchResult {
+  return { hits: [], route: 'and', durationMs: 0, coverage }
+}
+
+/** No open index, but consent still decides `enabled`: a closing store is not an opt-out. */
+export function noAiVaultSearchIndexCoverage(enabled: boolean): AiVaultSearchCoverage {
+  return { ...DISABLED_AI_VAULT_SEARCH_COVERAGE, enabled }
 }
 
 /** Old hosts omit the flag; only an explicit `false` means the user opted out. */

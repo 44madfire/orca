@@ -9,8 +9,8 @@ import type {
   AiVaultSearchResult
 } from '../../shared/ai-vault-search-types'
 import {
-  DISABLED_AI_VAULT_SEARCH_COVERAGE as DISABLED_COVERAGE,
-  NO_AI_VAULT_SEARCH_INDEX_RESULT as NO_INDEX_RESULT
+  noAiVaultSearchIndexCoverage,
+  noAiVaultSearchIndexResult
 } from '../../shared/ai-vault-search-coverage'
 import {
   aiVaultSearchHistoryCutoffMs,
@@ -70,7 +70,7 @@ export class SessionSearchService {
     signal?: AbortSignal
   ): Promise<AiVaultSearchResult> {
     if (!this.store) {
-      return NO_INDEX_RESULT
+      return noAiVaultSearchIndexResult(this.coverage())
     }
     const backfill = this.ensureBackfill(roots)
     // Why: the backfill parses in this same process and an 80 MB transcript
@@ -98,7 +98,9 @@ export class SessionSearchService {
       // store yields no hits instead of throwing on a freed statement.
       return await searchPresentSessionSources(
         args,
-        (query) => this.store?.search(query) ?? NO_INDEX_RESULT,
+        // Why: configure() nulls the store for a microtask; answering the round
+        // with DISABLED coverage would tell the panel consent was withdrawn.
+        (query) => this.store?.search(query) ?? noAiVaultSearchIndexResult(this.coverage()),
         (paths) => this.invalidate(paths),
         signal
       )
@@ -131,7 +133,7 @@ export class SessionSearchService {
     // Why: the panel reads coverage when it opens, well before the first
     // keystroke; that is the moment to pull the join's pages off disk.
     void this.store?.warm()
-    return this.store?.coverage() ?? DISABLED_COVERAGE
+    return this.store?.coverage() ?? noAiVaultSearchIndexCoverage(this.policy.enabled === true)
   }
 
   /**
@@ -156,7 +158,7 @@ export class SessionSearchService {
       removeSessionSearchDatabase(this.databasePath)
     }
     if (!next.enabled) {
-      return DISABLED_COVERAGE
+      return noAiVaultSearchIndexCoverage(false)
     }
     const store = this.store ?? this.openStore()
     this.applyPolicyToStore(store)
@@ -226,7 +228,7 @@ export class SessionSearchService {
     return store
   }
 
-  /** The only writer of policy-derived store state, so the bits cannot drift. */
+  /** The only writer of policy-derived store state; `stop()` additionally gates writes off. */
   private applyPolicyToStore(store: SessionSearchStore): void {
     store.setHistoryDays(this.policy.historyDays)
     store.setAcceptingWrites(!this.policy.paused)
@@ -257,7 +259,6 @@ export class SessionSearchService {
   }
 
   private closeStore(): void {
-    this.refreshLane.cancel()
     const store = this.store
     this.store = null
     if (!store) {

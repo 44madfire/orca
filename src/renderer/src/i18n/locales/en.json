@@ -17824,6 +17824,9 @@
       "settingsError": "Could not save search settings. Please try again.",
       "idle": "Waiting to index",
       "start": "Index now"
+    },
+    "results": {
+      "sourcesUnverified": "{{count}} sources could not be verified"
     }
   }
 }

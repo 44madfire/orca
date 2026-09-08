@@ -13,17 +13,23 @@ const search = (action: 'query' | 'status' | 'configure'): RelayAiVaultServiceRe
   params: {}
 })
 
-it('keeps a history scan and a search query off the lane that backs interactive reads', () => {
+it('keeps a history scan and a search off the lane that backs interactive reads', () => {
   expect(relayAiVaultServiceLane({ type: 'request', id: 1, operation: 'list', params: {} })).toBe(
     'cache'
   )
-  expect(relayAiVaultServiceLane(search('query'))).toBe('search')
   expect(
     relayAiVaultServiceLane({ type: 'request', id: 1, operation: 'titles', requests: [] })
   ).toBe('interactive')
-  expect(relayAiVaultServiceLane(search('status'))).toBe('interactive')
-  expect(relayAiVaultServiceLane(search('configure'))).toBe('interactive')
   expect(new Set([relayAiVaultServiceLane(search('query')), 'interactive']).size).toBe(2)
+})
+
+it('gives every search operation the one lane the owner serializes them on', () => {
+  const lanes = new Set(
+    (['query', 'status', 'configure'] as const).map((action) =>
+      relayAiVaultServiceLane(search(action))
+    )
+  )
+  expect(lanes).toEqual(new Set(['search']))
 })
 
 it('refuses a search request whose action is not one this build owns', () => {

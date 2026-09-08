@@ -123,7 +123,8 @@ export function AgentSessionHistoryPane({
         onChange={() => apply({ ...policy, enabled: !policy.enabled })}
       />
 
-      {!policy.enabled && indexing.failed ? (
+      {/* Only a refused save belongs here; a failed coverage read says nothing about the write. */}
+      {!policy.enabled && indexing.controlFailed ? (
         <p role="alert" className="text-xs text-destructive">
           {translate(
             'sessionSearch.indexing.settingsError',

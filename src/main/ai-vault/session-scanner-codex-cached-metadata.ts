@@ -19,10 +19,13 @@ export async function refreshCachedCodexMetadata<
   if (!state) {
     return refreshed
   }
-  return {
-    ...refreshed,
-    cwd: refreshed.cwd ?? state.cwd,
-    branch: refreshed.branch ?? state.branch,
-    updatedAt: refreshed.updatedAt ?? state.updatedAt
+  const cwd = refreshed.cwd ?? state.cwd
+  const branch = refreshed.branch ?? state.branch
+  const updatedAt = refreshed.updatedAt ?? state.updatedAt
+  // Callers key an index write off reference identity, and a session the state DB
+  // cannot complete either (no branch on a detached HEAD) fills in nothing.
+  if (cwd === refreshed.cwd && branch === refreshed.branch && updatedAt === refreshed.updatedAt) {
+    return refreshed
   }
+  return { ...refreshed, cwd, branch, updatedAt }
 }

@@ -28,14 +28,26 @@ type DeadlinedCall = {
   timeoutMs: number
 }
 
+// Why: the consumer hands its rows to SessionSearchIndexWriter.apply, which
+// serializes every file's write on one chain, and a list scan parses up to
+// SESSION_PARSE_CONCURRENCY candidates at once. So this wait is mostly other
+// files' queue time, not evidence about this worker, and charging it to the
+// worker's own budget killed healthy parses. Still bounded, and still under the
+// 130 s scan backstop, so a genuinely wedged writer ends as one scan issue.
+export const CAPTURE_CONSUMER_TIMEOUT_MS = 60_000
+
 // Reset rather than cleared: total production time stays unbounded (that is the
 // point of the credit loop), but each individual stall is still capped, so a
 // backlogged index writer costs one scan issue instead of wedging the client.
-function restartDeadline(call: DeadlinedCall, onTimeout: () => void): void {
+function restartDeadline(
+  call: DeadlinedCall,
+  timeoutMs: number,
+  onTimeout: (timeoutMs: number) => void
+): void {
   if (call.timer) {
     clearTimeout(call.timer)
   }
-  call.timer = setTimeout(onTimeout, call.timeoutMs)
+  call.timer = setTimeout(() => onTimeout(timeoutMs), timeoutMs)
   call.timer.unref?.()
 }
 
@@ -44,7 +56,7 @@ export function receiveOpenCodeCaptureBatch(args: {
   batch: OpenCodeSqliteCaptureBatch
   worker: Worker | null
   isActive: () => boolean
-  onTimeout: () => void
+  onTimeout: (timeoutMs: number) => void
   onProtocolViolation: (error: Error) => void
   onConsumerError: (error: Error) => void
 }): void {
@@ -53,14 +65,15 @@ export function receiveOpenCodeCaptureBatch(args: {
     args.onProtocolViolation(new Error('Unexpected OpenCode capture batch.'))
     return
   }
-  restartDeadline(call, args.onTimeout)
+  restartDeadline(call, CAPTURE_CONSUMER_TIMEOUT_MS, args.onTimeout)
   void call
     .capture(args.batch.messages)
     .then(() => {
       if (!args.isActive()) {
         return
       }
-      restartDeadline(call, args.onTimeout)
+      // Back to the worker's own budget: the next event has to come from it.
+      restartDeadline(call, call.timeoutMs, args.onTimeout)
       args.worker?.postMessage({
         id: args.batch.id,
         kind: 'captureAck',

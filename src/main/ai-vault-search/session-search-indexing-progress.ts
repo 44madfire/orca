@@ -56,7 +56,9 @@ export class SessionSearchIndexingProgress {
   beginWrite(): () => void {
     this.activeWrites++
     if (!this.backfilling && !this.paused && (this.value.phase !== 'error' || this.failedWrite)) {
-      if (Date.now() - this.lastWriteAt > 1000 && this.activeWrites === 1) {
+      // Why rebuild on failedWrite: the superseded batch's counts describe the pass
+      // that failed, and the panel keeps rendering its failure count after recovery.
+      if (this.activeWrites === 1 && (this.failedWrite || Date.now() - this.lastWriteAt > 1000)) {
         this.value = {
           phase: 'updating',
           filesProcessed: 0,
@@ -76,6 +78,7 @@ export class SessionSearchIndexingProgress {
         this.value.filesProcessed++
         if (this.activeWrites === 0) {
           this.value.phase = 'complete'
+          this.value.failures = 0
           this.failedWrite = false
         }
       }

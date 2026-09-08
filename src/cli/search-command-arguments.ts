@@ -9,6 +9,7 @@ import {
 import type { AiVaultSearchArgs } from '../shared/ai-vault-search-types'
 import { isRuntimePathAbsolute } from '../shared/cross-platform-path'
 import { parseHostFlag } from './execution-host-flag'
+import { SEARCH_BOOLEAN_FLAGS } from './specs/search'
 import {
   getOptionalPositiveIntegerFlag,
   getOptionalStringFlag,
@@ -33,15 +34,7 @@ export function parseSearchCommand(
 ): SearchCommand {
   const host = flags.get('host') === 'all' ? 'all' : parseHostFlag(flags)
   const configure: SessionSearchConfigure = {}
-  for (const flag of [
-    'enable',
-    'disable',
-    'clear-index',
-    'index-status',
-    'pause',
-    'resume-indexing',
-    'newest'
-  ]) {
+  for (const flag of SEARCH_BOOLEAN_FLAGS) {
     if (flags.has(flag) && flags.get(flag) !== true) {
       invalid(`--${flag} does not take a value.`)
     }

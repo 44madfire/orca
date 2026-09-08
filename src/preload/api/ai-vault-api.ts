@@ -47,4 +47,10 @@ export type AiVaultApi = {
   deleteSession: (args: AiVaultDeleteSessionArgs) => Promise<AiVaultDeleteSessionResult>
   /** Fires when any app window regains OS focus; returns an unsubscribe. */
   onWindowFocused: (callback: () => void) => () => void
+  /**
+   * Fires when the host changes something the coverage reading depends on: a settings apply, a
+   * pause, a resume or a clear. Absent on transports with no push channel, which is how the
+   * renderer knows it must keep a standing poll instead.
+   */
+  onSearchIndexingChanged?: (callback: () => void) => () => void
 }

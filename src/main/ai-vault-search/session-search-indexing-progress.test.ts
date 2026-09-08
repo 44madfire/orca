@@ -72,3 +72,28 @@ it('a write from an older pass does not advance a new backfill', () => {
   finish()
   expect(progress.snapshot()).toMatchObject({ phase: 'indexing', filesTotal: 4, filesProcessed: 0 })
 })
+
+it('rebuilds the batch when a write supersedes an error, so no failure count survives', () => {
+  const progress = new SessionSearchIndexingProgress()
+  const failing = progress.beginWrite()
+  progress.writeFailed()
+  failing()
+  expect(progress.snapshot()).toMatchObject({ phase: 'error', failures: 1, filesTotal: 1 })
+  progress.beginWrite()()
+  expect(progress.snapshot()).toMatchObject({
+    phase: 'complete',
+    failures: 0,
+    filesTotal: 1,
+    filesProcessed: 1
+  })
+})
+
+it('clears a superseded failure when a write that overlapped the error completes', () => {
+  const progress = new SessionSearchIndexingProgress()
+  const failing = progress.beginWrite()
+  progress.writeFailed()
+  const overlapping = progress.beginWrite()
+  failing()
+  overlapping()
+  expect(progress.snapshot()).toMatchObject({ phase: 'complete', failures: 0 })
+})

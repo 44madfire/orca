@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  SESSION_SEARCH_METHODS,
   SessionSearchConfigureSchema,
   SessionSearchQuerySchema
 } from '../../../../shared/ai-vault-search-contract'
@@ -11,7 +12,6 @@ import { AI_VAULT_SESSION_TITLE_REQUEST_MAX_COUNT } from '../../../../shared/ai-
 import type { AiVaultPrepareSessionResumeArgs } from '../../../../shared/ai-vault-resume-preparation'
 import { LOCAL_EXECUTION_HOST_ID, parseExecutionHostId } from '../../../../shared/execution-host'
 import { describeAiVaultScanError } from '../../../../shared/ai-vault-scan-error-message'
-import { SESSION_SEARCH_METHODS } from '../../../../shared/ai-vault-search-rpc-methods'
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import {
   assertLegacyAiVaultResumeAllowed,
@@ -136,7 +136,7 @@ export const AI_VAULT_METHODS: RpcMethod[] = [
       runtime.searchAiVaultSessions(params, signal)
   }),
   defineMethod({
-    name: 'aiVault.searchCoverage',
+    name: SESSION_SEARCH_METHODS.coverage.runtime,
     params: z.object({ executionHostId: executionHostIdSchema.optional() }),
     handler: (_params, { runtime, signal }) => runtime.readAiVaultSearchCoverage(signal)
   }),

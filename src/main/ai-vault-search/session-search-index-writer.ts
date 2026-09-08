@@ -8,6 +8,7 @@ import type {
   SessionSearchIndexedFile,
   SessionSearchIndexWrite
 } from '../ai-vault/session-search-capture'
+import { SessionSearchCaptureIncompleteError } from '../ai-vault/session-search-capture'
 import { EMPTY_CONTENT_HASH, foldContentHash } from './session-search-content-hash'
 import { SessionSearchFileRecords } from './session-search-file-records'
 import { insertSearchMessage, searchMessageRows } from './session-search-message-rows'
@@ -18,8 +19,9 @@ export { chunkMessageText } from './session-search-message-rows'
 
 export const SEARCH_WRITE_ROWS_PER_STEP = 128
 export const SEARCH_WRITE_CHARS_PER_STEP = 256 * 1024
-// Why sampled: the checkpoint costs more than the step it guards, and the backlog it
-// watches only grows while a second connection pins a snapshot, which takes seconds.
+// Why sampled: the checkpoint costs more than the step it guards, and the backlog only grows
+// while a second connection pins a snapshot — a killed scanner child whose handle outlives the
+// replacement fork, not two processes the app runs on purpose.
 const WAL_BUDGET_EVERY_STEPS = 16
 
 export type SessionSearchApplyOptions = {
@@ -262,6 +264,14 @@ export class SessionSearchIndexWriter {
         throw error
       }
       return true
+    } catch (error) {
+      // Not a write failure: the producer read degraded, so these rows are not
+      // the whole file. Refusing the write leaves it non-current and the next
+      // scan re-parses it, which is what markStale already means downstream.
+      if (error instanceof SessionSearchCaptureIncompleteError) {
+        return false
+      }
+      throw error
     } finally {
       // A surviving batch row means publish never ran, whatever ended the stage.
       if (

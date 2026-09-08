@@ -18,6 +18,7 @@ import {
   normalizeExecutionHostScope,
   toRuntimeExecutionHostId
 } from '../../../../shared/execution-host'
+import { SESSION_SEARCH_METHODS } from '../../../../shared/ai-vault-search-contract'
 import type { AiVaultSearchIndexStatus } from '../../../../shared/ai-vault-search-settings'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
 import { callRuntimeResult } from './web-runtime-calls'
@@ -53,7 +54,7 @@ export function createWebAiVaultApi(): NonNullable<Partial<PreloadApi>['aiVault'
     },
     searchCoverage: () => {
       const environment = requireActiveEnvironment()
-      return callRuntimeResult<AiVaultSearchCoverage>('aiVault.searchCoverage', {
+      return callRuntimeResult<AiVaultSearchCoverage>(SESSION_SEARCH_METHODS.coverage.runtime, {
         executionHostId: toRuntimeExecutionHostId(environment.id)
       })
     },
@@ -105,6 +106,8 @@ export function createWebAiVaultApi(): NonNullable<Partial<PreloadApi>['aiVault'
         agent: args.agent,
         reason: 'non-local-host' as const
       }),
+    // Why: the runtime RPC transport carries no coverage-change push, so `onSearchIndexingChanged`
+    // is deliberately absent — its absence is what tells the renderer to keep a standing poll.
     onWindowFocused: () => noopUnsubscribe
   }
 }

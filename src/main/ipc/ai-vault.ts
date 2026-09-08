@@ -1,7 +1,8 @@
-import { app, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import {
   clearAiVaultSearchIndex,
-  readAiVaultSearchIndexSizeBytes
+  readAiVaultSearchIndexSizeBytes,
+  setSessionSearchIndexingChangeNotifier
 } from '../ai-vault-search/session-search-enablement'
 import {
   configureAiVaultSessionSources,
@@ -303,6 +304,14 @@ export function registerAiVaultHandlers(options: AiVaultHandlerOptions = {}): vo
   app.on('browser-window-focus', (_event, window) => {
     if (!window.isDestroyed()) {
       window.webContents.send('aiVault:windowFocused')
+    }
+  })
+  // Every window shows coverage somewhere (status bar, settings, sidebar), so all of them hear it.
+  setSessionSearchIndexingChangeNotifier(() => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send('aiVault:searchIndexingChanged')
+      }
     }
   })
 }

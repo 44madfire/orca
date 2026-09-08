@@ -4,7 +4,7 @@ import type {
   AiVaultSessionTitleRequest,
   AiVaultSessionTitlesResult
 } from '../shared/ai-vault-session-title'
-import type { SessionSearchOperation } from '../shared/ai-vault-search-rpc-methods'
+import type { SessionSearchOperation } from '../shared/ai-vault-search-contract'
 import type { SshAiVaultRelayListParams } from '../shared/ssh-ai-vault-relay'
 import type { RemoteHostPlatform } from '../main/ssh/ssh-remote-platform'
 import {

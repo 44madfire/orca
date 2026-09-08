@@ -101,3 +101,11 @@ it('opens the settings pane that owns the controls', () => {
   expect(mocks.openSettingsPage).toHaveBeenCalled()
   expect(mocks.setSettingsSearchQuery).toHaveBeenCalledWith('Agent Session History')
 })
+
+it('does not spin at an index that is waiting for someone to start it', () => {
+  segment({ phase: 'idle' })
+  const icon = screen.getByRole('button', { name: 'Waiting to index · 30%' }).querySelector('svg')
+  // Why: nothing advances an idle index, so an animated spinner would promise progress
+  // that will never arrive on its own.
+  expect(icon?.getAttribute('class')).not.toContain('animate-spin')
+})

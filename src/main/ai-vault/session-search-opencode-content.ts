@@ -3,7 +3,8 @@ import { captureIndexableText, toolCallText } from './session-search-content'
 import { canReadOpenCodeMessageParts } from './session-scanner-opencode-sqlite-schema'
 import {
   checkpointSessionSearchCapture,
-  isSessionSearchCaptureActive
+  isSessionSearchCaptureActive,
+  markSessionSearchCaptureIncomplete
 } from './session-search-capture'
 
 const SESSION_PARTS_SQL = `SELECT json_extract(m.data, '$.role') AS role,
@@ -37,7 +38,9 @@ function decodePart(data: unknown): OpenCodePartRow['part'] | null {
  *
  * A read failure ends the stream instead of throwing: search coverage degrades
  * to no rows for this session, which must never cost the session its place in
- * the list. Consumer-thrown cancellation resumes the generator with a `return`
+ * the list. It does mark the capture incomplete, because rows this short must
+ * never publish a file cursor that would retire the session from every later
+ * scan. Consumer-thrown cancellation resumes the generator with a `return`
  * completion, so it never reaches the catch and still propagates to the caller.
  */
 function* readOpenCodeSessionParts(
@@ -52,6 +55,7 @@ function* readOpenCodeSessionParts(
       }
     }
   } catch (error) {
+    markSessionSearchCaptureIncomplete()
     console.warn(
       '[ai-vault] opencode search capture skipped',
       error instanceof Error ? error.name : 'ReadError'

@@ -7,7 +7,8 @@ import {
   applyAiVaultSearchSettingsChange,
   clearAiVaultSearchIndex,
   installAiVaultSearchSettingsSource,
-  readAiVaultSearchIndexStatus
+  readAiVaultSearchIndexStatus,
+  setSessionSearchIndexingChangeNotifier
 } from './session-search-enablement'
 import {
   getSessionSearchInitOptions,
@@ -169,6 +170,45 @@ it('retains failed durability in status until a complete transition succeeds', a
   expect(readAiVaultSearchIndexStatus()).toMatchObject({ applied: true })
 })
 
+it('flushes consent before the scanner is allowed to index under it', async () => {
+  initSessionSearchPaths(await makeUserDataDir())
+  const order: string[] = []
+  configureAiVaultSearch.mockImplementation(async () => {
+    order.push('configure')
+    return null
+  })
+
+  await applyAiVaultSearchSettings(
+    { aiVaultSearch: { enabled: true, historyDays: null } },
+    {
+      persist: async () => {
+        order.push('persist')
+      }
+    }
+  )
+
+  expect(order).toEqual(['persist', 'configure'])
+})
+
+it('indexes nothing when the consent flush fails', async () => {
+  initSessionSearchPaths(await makeUserDataDir())
+  await expect(
+    applyAiVaultSearchSettings(
+      { aiVaultSearch: { enabled: true, historyDays: null } },
+      {
+        persist: async () => {
+          throw new Error('disk full')
+        }
+      }
+    )
+  ).rejects.toThrow('disk full')
+
+  // The next start reads the old policy, so anything written here would be indexed
+  // content under a consent record that says search is off.
+  expect(configureAiVaultSearch).not.toHaveBeenCalled()
+  await applyAiVaultSearchSettings({ aiVaultSearch: { enabled: false, historyDays: null } })
+})
+
 it('does not mark a newer queued policy applied when an older flush completes', async () => {
   initSessionSearchPaths(await makeUserDataDir())
   let releaseFirst!: () => void
@@ -277,5 +317,34 @@ describe('applyAiVaultSearchSettingsChange', () => {
       warn.mockRestore()
     }
     await applyAiVaultSearchSettings({ aiVaultSearch: { enabled: true, historyDays: null } })
+  })
+})
+
+describe('coverage change push', () => {
+  afterEach(() => {
+    setSessionSearchIndexingChangeNotifier(null)
+  })
+
+  it('tells the renderer to re-read once an apply has landed', async () => {
+    initSessionSearchPaths(await makeUserDataDir())
+    const notify = vi.fn()
+    setSessionSearchIndexingChangeNotifier(notify)
+
+    await applyAiVaultSearchSettings({ aiVaultSearch: { enabled: true, historyDays: null } })
+    // Why: the settings IPC does not await the apply, so a renderer reading coverage right after
+    // its own control action can read the run that is being replaced.
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(1))
+  })
+
+  it('tells the renderer to re-read even when the apply failed', async () => {
+    initSessionSearchPaths(await makeUserDataDir())
+    const notify = vi.fn()
+    setSessionSearchIndexingChangeNotifier(notify)
+    configureAiVaultSearch.mockRejectedValueOnce(new Error('scanner unavailable'))
+
+    await expect(
+      applyAiVaultSearchSettings({ aiVaultSearch: { enabled: true, historyDays: null } })
+    ).rejects.toThrow('scanner unavailable')
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(1))
   })
 })

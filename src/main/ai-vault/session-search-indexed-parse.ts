@@ -3,6 +3,7 @@ import type { AiVaultSession } from '../../shared/ai-vault-types'
 import type { SessionSearchIndexSink, SessionSearchIndexUpdate } from './session-search-capture'
 import {
   getSessionSearchCaptureSignal,
+  SessionSearchCaptureIncompleteError,
   withStreamingSessionSearchCapture
 } from './session-search-capture'
 import { SessionSearchMessageChannel } from './session-search-message-channel'
@@ -28,13 +29,24 @@ export async function captureIndexedSessionParse<T>(
   if (signal?.aborted) {
     stop()
   }
-  const parsed = withStreamingSessionSearchCapture(channel, read)
+  // A degraded producer read still yields a session, so the parse resolves; the
+  // write is refused instead, or the published cursor would mark this file fully
+  // indexed at its current mtime and no later scan would ever revisit it.
+  const degraded = { incomplete: false }
+  const parsed = withStreamingSessionSearchCapture(channel, read, degraded)
   const indexing = Promise.resolve(
     sink.apply({ ...base, signal, messages: channel, result: parsed })
   ).finally(() => channel.stop())
   void indexing.catch(() => undefined)
   try {
     const completed = await parsed
+    if (degraded.incomplete) {
+      channel.close(
+        new SessionSearchCaptureIncompleteError(`Incomplete capture: ${base.candidate.file.path}`)
+      )
+      await indexing.catch(() => undefined)
+      return completed.value
+    }
     channel.close()
     await indexing
     return completed.value

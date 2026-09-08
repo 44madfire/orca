@@ -43,5 +43,10 @@ export const aiVaultApi = {
     const listener = (_event: Electron.IpcRendererEvent) => callback()
     ipcRenderer.on('aiVault:windowFocused', listener)
     return () => ipcRenderer.removeListener('aiVault:windowFocused', listener)
+  },
+  onSearchIndexingChanged: (callback: () => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent) => callback()
+    ipcRenderer.on('aiVault:searchIndexingChanged', listener)
+    return () => ipcRenderer.removeListener('aiVault:searchIndexingChanged', listener)
   }
 } satisfies PreloadApi['aiVault']

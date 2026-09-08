@@ -8,13 +8,7 @@ import {
   AI_VAULT_SEARCH_SNIPPET_MARK_CLOSE,
   AI_VAULT_SEARCH_SNIPPET_MARK_OPEN
 } from '../../shared/ai-vault-search-types'
-import {
-  rankSessionHits,
-  resolveLimit,
-  sessionFields,
-  type MessageRow,
-  type SessionRow
-} from './session-search-hit-ranking'
+import { rankSessionHits, type MessageRow, type SessionRow } from './session-search-hit-ranking'
 import {
   andExpression,
   orExpression,
@@ -33,8 +27,9 @@ import {
 // Measured: user 3 / assistant 2 / tool 1 / identifiers 1 (MRR 0.503 vs 0.475 flat).
 const FULL_WEIGHTS = '3.0, 2.0, 1.0, 1.0'
 const CONVERSATION_WEIGHTS = '3.0, 2.0'
-// Candidate messages fetched before rolling up to sessions; more does not help.
-const MESSAGE_CANDIDATE_LIMIT = 600
+// Sessions retrieved before ranking cuts the page; every page builder uses it,
+// so a fork group is always weighed against the same candidate set.
+const SESSION_CANDIDATE_LIMIT = 600
 const SNIPPET_TOKENS = 12
 // Why: single brackets are everywhere in code transcripts (`arr[0]`, regex
 // classes, markdown links) and would read as matches; doubled ones are rare.
@@ -102,17 +97,21 @@ export class SessionSearchQuery {
   private recent(retrieval: Retrieval): AiVaultSearchHit[] {
     const { conditions, values } = retrieval.filter
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-    return (
-      this.db
-        .prepare(
-          `SELECT * FROM ${VISIBLE_SESSIONS} ${where} ORDER BY updated_at DESC LIMIT ${resolveLimit(retrieval.args)}`
-        )
-        .all(...values) as SessionRow[]
-    ).map((session) => ({
-      ...sessionFields(session),
-      score: 0,
-      evidence: { role: 'unknown' as const, timestamp: null, snippet: '' }
-    }))
+    const sessions = this.db
+      .prepare(
+        `SELECT * FROM ${VISIBLE_SESSIONS} ${where} ORDER BY updated_at DESC LIMIT ${SESSION_CANDIDATE_LIMIT}`
+      )
+      .all(...values) as SessionRow[]
+    // Why through the ranker: forks must fold here exactly as they do for a text
+    // query, or the same sessions answer `repo:x` and `word repo:x` differently.
+    // There is no relevance signal without text, so the order is always newest.
+    const matches = new Map(
+      sessions.map((session) => [
+        session.id,
+        { rowid: 0, score: 0, session_row_id: session.id, role: 'unknown', ts: null }
+      ])
+    )
+    return rankSessionHits(sessions, matches, { ...retrieval.args, sort: 'newest' }, () => '')
   }
 
   private repair(plan: SessionSearchQueryPlan): SessionSearchQueryPlan | null {
@@ -164,10 +163,14 @@ export class SessionSearchQuery {
     // Why: collapse to one row per session BEFORE the candidate limit, on both
     // sort orders, so a single long session cannot occupy the whole page.
     // `max(score)` makes SQLite pick that session's best row for the bare columns.
+    // Cost of grouping instead of a bounded top-N sorter, measured: ~1.75x
+    // (49.6 vs 28.6 ms at 80k matching rows, 183.6 vs 104.1 ms at 240k) and a
+    // temp b-tree over every match. No inner LIMIT can bound it: the CTE has no
+    // order, so any cut drops whole sessions rather than their surplus rows.
     const order = args.sort === 'newest' ? 'updated_at DESC, score DESC' : 'score DESC'
     const sql = `WITH matched AS MATERIALIZED (${matched})
       SELECT rowid, max(score) AS score, session_row_id, role, ts FROM matched
-      GROUP BY session_row_id ORDER BY ${order} LIMIT ${MESSAGE_CANDIDATE_LIMIT}`
+      GROUP BY session_row_id ORDER BY ${order} LIMIT ${SESSION_CANDIDATE_LIMIT}`
     return this.db.prepare(sql).all(expression, ...filter.values) as MessageRow[]
   }
 

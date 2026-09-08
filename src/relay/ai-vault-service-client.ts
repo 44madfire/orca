@@ -150,10 +150,14 @@ export class RelayAiVaultServiceClient implements RelayAiVaultServiceApi {
     if (this.active.get(call.lane) !== call || call.settled) {
       return
     }
-    const timeout =
-      call.request.operation === 'list'
-        ? RELAY_AI_VAULT_SCAN_TIMEOUT_MS
-        : RELAY_AI_VAULT_TITLE_TIMEOUT_MS
+    // A query drives the same discovery-and-parse pass a history scan does, so it
+    // gets the scan budget; on the title budget a large history faults the sidecar
+    // and drops the exclusion lock and the backfill with it. Controls stay tight:
+    // `status` and `configure` do no scanning.
+    const scanning =
+      call.request.operation === 'list' ||
+      (call.request.operation === 'search' && call.request.action === 'query')
+    const timeout = scanning ? RELAY_AI_VAULT_SCAN_TIMEOUT_MS : RELAY_AI_VAULT_TITLE_TIMEOUT_MS
     call.timer = setTimeout(
       () => this.onFault(new Error(`Relay AI Vault service timed out after ${timeout}ms.`)),
       timeout

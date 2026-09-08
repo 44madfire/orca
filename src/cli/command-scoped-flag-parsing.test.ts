@@ -42,3 +42,23 @@ it('does not leak one command vocabulary into another', () => {
 
   expect(parsed.flags.get('agent')).toBe('claude')
 })
+
+it('does not let a spec-declared boolean swallow the token after it', () => {
+  const parsed = parseArgs(['demo', 'run', '--enable', 'oops'], [DEMO.path], [DEMO])
+
+  expect(parsed.flags.get('enable')).toBe(true)
+  expect(parsed.commandPath).toEqual(['demo', 'run', 'oops'])
+})
+
+// The boundary scan runs before the command is known, so it takes the union of
+// every spec's value-less flags. That is only safe while no two specs disagree.
+it('has no flag that one command treats as value-less and another as valued', () => {
+  const valueless = new Set(COMMAND_SPECS.flatMap((spec) => spec.booleanFlags ?? []))
+  const disagreements = COMMAND_SPECS.flatMap((spec) =>
+    spec.allowedFlags
+      .filter((flag) => valueless.has(flag) && !(spec.booleanFlags ?? []).includes(flag))
+      .map((flag) => `${spec.path.join(' ')} --${flag}`)
+  )
+
+  expect(disagreements).toEqual([])
+})

@@ -5,7 +5,11 @@ import {
   readyAiVaultServiceChild
 } from '../main/ai-vault/session-scanner-service-test-child'
 import { RelayAiVaultServiceClient } from './ai-vault-service-client'
-import { RELAY_AI_VAULT_READY_TIMEOUT_MS } from './ai-vault-service-client-state'
+import {
+  RELAY_AI_VAULT_READY_TIMEOUT_MS,
+  RELAY_AI_VAULT_SCAN_TIMEOUT_MS,
+  RELAY_AI_VAULT_TITLE_TIMEOUT_MS
+} from './ai-vault-service-client-state'
 import { relayAiVaultServiceEntryPath } from './ai-vault-service-spawn'
 
 function createClient(
@@ -201,6 +205,77 @@ describe('RelayAiVaultServiceClient', () => {
     expect(child.killed).toBe(false)
     const disposing = client.dispose()
     child.emit('exit', 0)
+    await disposing
+  })
+
+  it('holds a search control unsent behind a slow query and serves it after the fault', async () => {
+    vi.useFakeTimers()
+    const children: AiVaultServiceTestChild[] = []
+    const client = createClient(children)
+    const query = client.search('query', { query: 'needle' })
+    void query.catch(() => undefined)
+    const status = client.search('status', {})
+    const child = children[0]!
+    readyAiVaultServiceChild(child)
+    await Promise.resolve()
+
+    // Unsent means no deadline of its own: the control cannot expire on the query's slowness.
+    expect(relayRequestCount(child, 'search')).toBe(1)
+    let statusSettled = false
+    const settle = (): void => {
+      statusSettled = true
+    }
+    void status.then(settle, settle)
+
+    await vi.advanceTimersByTimeAsync(RELAY_AI_VAULT_TITLE_TIMEOUT_MS + 1_000)
+    expect(statusSettled).toBe(false)
+
+    child.emit('exit', 1)
+    await expect(query).rejects.toThrow('exited')
+    expect(statusSettled).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(250)
+    const replacement = children[1]!
+    readyAiVaultServiceChild(replacement)
+    await Promise.resolve()
+    replacement.emit('message', {
+      type: 'result',
+      id: relayRequestId(replacement, 'search'),
+      operation: 'search',
+      value: { enabled: true }
+    })
+    await expect(status).resolves.toEqual({ enabled: true })
+    const disposing = client.dispose()
+    replacement.emit('exit', 0)
+    await disposing
+  })
+
+  it('gives a query the scan budget and a control the interactive one', async () => {
+    vi.useFakeTimers()
+    const children: AiVaultServiceTestChild[] = []
+    const client = createClient(children)
+    const query = client.search('query', { query: 'needle' })
+    void query.catch(() => undefined)
+    const child = children[0]!
+    readyAiVaultServiceChild(child)
+    await Promise.resolve()
+
+    await vi.advanceTimersByTimeAsync(RELAY_AI_VAULT_TITLE_TIMEOUT_MS + 1_000)
+    expect(child.killed, 'a query still scanning must not fault on the title budget').toBe(false)
+    await vi.advanceTimersByTimeAsync(RELAY_AI_VAULT_SCAN_TIMEOUT_MS)
+    await expect(query).rejects.toThrow(`timed out after ${RELAY_AI_VAULT_SCAN_TIMEOUT_MS}ms`)
+
+    const status = client.search('status', {})
+    void status.catch(() => undefined)
+    await Promise.resolve()
+    const replacement = children[1]!
+    readyAiVaultServiceChild(replacement)
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(RELAY_AI_VAULT_TITLE_TIMEOUT_MS)
+    await expect(status).rejects.toThrow(`timed out after ${RELAY_AI_VAULT_TITLE_TIMEOUT_MS}ms`)
+
+    const disposing = client.dispose()
+    replacement.emit('exit', 0)
     await disposing
   })
 

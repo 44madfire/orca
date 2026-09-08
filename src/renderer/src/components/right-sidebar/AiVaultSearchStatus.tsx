@@ -14,6 +14,7 @@ export function AiVaultSearchStatus({
   hitCount,
   hasQuery,
   repairedTerms = NO_REPAIRED_TERMS,
+  sourceUnavailableFiles = 0,
   newestFirst,
   onNewestFirstChange
 }: {
@@ -22,13 +23,16 @@ export function AiVaultSearchStatus({
   hitCount: number
   hasQuery: boolean
   repairedTerms?: readonly string[]
+  /** Hits the host returned without being able to stat their transcript file. */
+  sourceUnavailableFiles?: number
   newestFirst: boolean
   onNewestFirstChange: (newestFirst: boolean) => void
 }): React.JSX.Element | null {
   const unindexed = coverage ? aiVaultSearchUnindexedProviders(coverage) : []
   const status = coverage ? aiVaultSearchCoverageStatus(coverage, { hitCount, hasQuery }) : null
   const repaired = hasQuery ? aiVaultSearchRepairedStatus(repairedTerms) : null
-  if (!status && !repaired && unindexed.length === 0) {
+  const unverified = hasQuery ? sourceUnavailableFiles : 0
+  if (!status && !repaired && unindexed.length === 0 && unverified === 0) {
     return null
   }
   return (
@@ -47,6 +51,17 @@ export function AiVaultSearchStatus({
                 )
               )
               .join(' · ')}
+          </span>
+        ) : null}
+        {unverified > 0 ? (
+          <span
+            className={cn(status || unindexed.length > 0 ? 'ml-1' : '', 'text-muted-foreground')}
+          >
+            {translate(
+              'sessionSearch.results.sourcesUnverified',
+              '{{count}} sources could not be verified',
+              { count: unverified }
+            )}
           </span>
         ) : null}
       </div>

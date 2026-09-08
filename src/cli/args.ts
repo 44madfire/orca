@@ -67,8 +67,10 @@ export function parseArgs(
   const commandPath: string[] = []
   const flags = new Map<string, string | boolean>()
   const paths = commandPaths ?? []
-  // Why: the boundary scan and the flag reader must agree on which flags take no
-  // value, so both read the global set widened by every spec's own vocabulary.
+  // Why the union rather than the resolved spec: the scan is what finds the
+  // command, so it runs before there is a spec to scope it to. Safe only while no
+  // two specs disagree on a flag's valuedness, which command-scoped-flag-parsing
+  // pins. The reader below narrows to the resolved spec once the scan has run.
   const allBooleanFlags = new Set([
     ...BOOLEAN_FLAGS,
     ...specs.flatMap((spec) => spec.booleanFlags ?? [])

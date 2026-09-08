@@ -1,5 +1,16 @@
 import { GLOBAL_FLAGS, type CommandSpec } from '../args'
 
+/** The one vocabulary the parser and `parseSearchCommand` both read from. */
+export const SEARCH_BOOLEAN_FLAGS = [
+  'enable',
+  'disable',
+  'clear-index',
+  'index-status',
+  'pause',
+  'resume-indexing',
+  'newest'
+] as const
+
 export const SEARCH_COMMAND_SPECS: CommandSpec[] = [
   {
     path: ['search'],
@@ -23,15 +34,7 @@ export const SEARCH_COMMAND_SPECS: CommandSpec[] = [
       'pause',
       'resume-indexing'
     ],
-    booleanFlags: [
-      'enable',
-      'disable',
-      'clear-index',
-      'index-status',
-      'pause',
-      'resume-indexing',
-      'newest'
-    ],
+    booleanFlags: [...SEARCH_BOOLEAN_FLAGS],
     repeatableFlags: ['agent', 'path'],
     notes: [
       'Searches what you typed, what the agent said, the commands it ran, and the first 3 KB of each tool output across Claude Code, Codex, Cursor, Gemini, OpenCode, and the other agents Orca scans.',

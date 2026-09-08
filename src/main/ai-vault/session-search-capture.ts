@@ -69,7 +69,15 @@ export type SessionSearchIndexMode = 'opportunistic' | 'required'
 type CaptureScope = {
   messages: { push(message: SessionSearchCapturedMessage): unknown }
   checkpoint?: () => Promise<void>
+  /** Producer-written; owned by whoever opened the scope. */
+  degraded?: { incomplete: boolean }
 } | null
+
+/**
+ * Ends the row stream of a parse whose read degraded. The writer refuses that
+ * write rather than failing it: the rows are simply not the whole file.
+ */
+export class SessionSearchCaptureIncompleteError extends Error {}
 
 const captureStorage = new AsyncLocalStorage<CaptureScope>()
 const indexModeStorage = new AsyncLocalStorage<{
@@ -109,6 +117,18 @@ export function isSessionSearchCaptureActive(): boolean {
   return captureStorage.getStore() != null
 }
 
+/**
+ * Report that this parse's rows are not the whole file: a read degraded rather
+ * than failed, so the session still lists, but publishing a cursor for it would
+ * retire it from every later scan and leave its content unsearchable forever.
+ */
+export function markSessionSearchCaptureIncomplete(): void {
+  const scope = captureStorage.getStore()
+  if (scope?.degraded) {
+    scope.degraded.incomplete = true
+  }
+}
+
 /** Runs `fn` with capture suppressed: display-only re-reads must not emit rows. */
 export function withoutSessionSearchCapture<T>(fn: () => T): T {
   return captureStorage.run(null, fn)
@@ -123,9 +143,10 @@ export async function checkpointSessionSearchCapture(): Promise<void> {
 
 export function withStreamingSessionSearchCapture<T>(
   messages: { push(message: SessionSearchCapturedMessage): unknown; checkpoint(): Promise<void> },
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
+  degraded?: { incomplete: boolean }
 ): Promise<T> {
-  return captureStorage.run({ messages, checkpoint: () => messages.checkpoint() }, fn)
+  return captureStorage.run({ messages, checkpoint: () => messages.checkpoint(), degraded }, fn)
 }
 
 export function isSessionSearchFileCurrent(

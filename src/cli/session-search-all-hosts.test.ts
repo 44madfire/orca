@@ -134,6 +134,26 @@ it('returns five plus five in separate owner groups despite identical session ID
   )
 })
 
+// The hits from an unverifiable source are in the answer, so nothing is missing
+// from the aggregate; the host's own count still reports the caveat.
+it('does not call the aggregate partial for a host that only has unverifiable sources', async () => {
+  const local = client('local')
+  vi.mocked(local.call).mockImplementation((async (method: string) => ({
+    result: method.endsWith('Status') ? status : { ...result('local'), sourceUnavailableFiles: 1 }
+  })) as unknown as RuntimeClient['call'])
+  const value = await searchAllHosts(
+    local,
+    query,
+    new AbortController().signal,
+    Date.now() + 30_000,
+    { listEnvironments: () => [], createClient: () => local, listSshTargets: async () => [] }
+  )
+
+  expect(value.hosts[0]?.outcome).toBe('searched')
+  expect(value.hosts[0]?.result?.sourceUnavailableFiles).toBe(1)
+  expect(value.partial).toBe(false)
+})
+
 it('does not query a legacy host with unknown consent and does not enumerate pairings from a remote context', async () => {
   const remote = client('B', true)
   vi.mocked(remote.call).mockResolvedValue({ result: {} } as never)

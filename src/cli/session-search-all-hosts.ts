@@ -182,7 +182,9 @@ export async function searchAllHosts(
         (host) =>
           host.outcome !== 'searched' ||
           host.result?.omittedHits ||
-          host.result?.sourceUnavailableFiles ||
+          // Not `sourceUnavailableFiles`: an unverifiable source keeps its hit in
+          // this answer, so nothing is missing from the aggregate. The per-host
+          // count rides the result and is reported next to that host's hits.
           host.result?.coverage.providers.some(
             (provider) =>
               (provider.parseFailures ?? 0) > 0 ||

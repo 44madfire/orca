@@ -55,3 +55,29 @@ it('retains the old searchable generation and retries a backpressured write afte
     await index.close()
   }
 })
+
+it('re-checks the budget mid-file when a reader pins after the write has started', async () => {
+  const index = await openSessionSearchIndexFile('ss-wal-midfile')
+  const errors: unknown[] = []
+  const store = new SessionSearchStore(index.path, (error) => errors.push(error), {
+    walBudgetBytes: 4096
+  })
+  const reader = new SyncDatabase(index.path, { readonly: true })
+  try {
+    // 2400 rows is 19 batches, so the sampled re-check at step 16 is the only
+    // guard left once step 0 has already passed with nothing pinning the WAL.
+    const write = store.apply(stagedWriteUpdate('midfileneedle', 2400))
+    await new Promise((resolve) => setImmediate(resolve))
+    reader.exec('BEGIN')
+    reader.prepare('SELECT count(*) FROM messages').get()
+    await write
+
+    expect(errors.some((error) => error instanceof SearchWalBackpressureError)).toBe(true)
+    expect(store.search({ query: 'midfileneedle' }).hits).toHaveLength(0)
+  } finally {
+    reader.exec('COMMIT')
+    reader.close()
+    store.close()
+    await index.close()
+  }
+})

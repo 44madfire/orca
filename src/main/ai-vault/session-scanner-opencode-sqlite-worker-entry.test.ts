@@ -110,6 +110,35 @@ describe('OpenCode SQLite worker entry', () => {
     ])
   })
 
+  it('reports a degraded capture read so the parent refuses the file cursor', async () => {
+    const dbPath = createDbWithOneTurn()
+    const prepare = Database.prototype.prepare
+    const spy = vi.spyOn(Database.prototype, 'prepare').mockImplementation(function (
+      this: Database,
+      sql: string
+    ) {
+      const statement = prepare.call(this, sql)
+      if (!sql.includes('p.data AS data')) {
+        return statement
+      }
+      return {
+        iterate: () => {
+          throw new Error('disk I/O error')
+        }
+      } as unknown as ReturnType<typeof prepare>
+    })
+    try {
+      const value = await parseOnWorker(dbPath, true)
+
+      // The scope the producer marked ends with the parse, so the flag has to
+      // ride the result across the thread hop.
+      expect(value).toMatchObject({ captureIncomplete: true })
+      expect(value.session?.sessionId).toBe(SESSION_ID)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('skips capture when the caller did not ask for it', async () => {
     const value = await parseOnWorker(createDbWithOneTurn(), false)
 

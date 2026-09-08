@@ -8,8 +8,9 @@ import {
   terminalSafe
 } from '../agent-session-search-format'
 import {
-  SessionSearchResultSchema,
-  SessionSearchStatusSchema
+  ReceivedSessionSearchResultSchema,
+  SessionSearchStatusSchema,
+  type SessionSearchOperation
 } from '../../shared/ai-vault-search-contract'
 import { listSshTargets, findSshTargetByName } from '../host-selector-alternatives'
 import { searchAllHosts } from '../session-search-all-hosts'
@@ -18,7 +19,6 @@ import {
   SEARCH_ALL_TIMEOUT_MS,
   type SearchHost
 } from '../session-search-host-query'
-import type { SessionSearchOperation } from '../../shared/ai-vault-search-rpc-methods'
 
 export const SEARCH_DISABLED_MESSAGE =
   'Session search is off. Enable it in Settings > Agent Session History, or run `orca search --agent-session --enable`.'
@@ -108,10 +108,13 @@ export const SEARCH_HANDLERS: Record<string, CommandHandler> = {
           command.configure ?? {}
         )
         const status = SessionSearchStatusSchema.parse(response.result)
-        if (command.configure && (status.available === false || status.applied === false)) {
+        // Why `available` only: a host that could not apply the change throws, so
+        // `applied: false` on a returned status is a concurrent apply still in
+        // flight, not this configure failing.
+        if (command.configure && status.available === false) {
           throw new RuntimeClientError(
             'failed_precondition',
-            status.reason ?? 'Search policy is unavailable or not applied.'
+            status.reason ?? 'Search policy is unavailable.'
           )
         }
         if (!command.query) {
@@ -120,7 +123,7 @@ export const SEARCH_HANDLERS: Record<string, CommandHandler> = {
         }
       }
       const response = await call('query', command.query!)
-      const result = SessionSearchResultSchema.parse(response.result)
+      const result = ReceivedSessionSearchResultSchema.parse(response.result)
       if (result.coverage.enabled === false) {
         throw new RuntimeClientError('failed_precondition', SEARCH_DISABLED_MESSAGE, {
           disabled: true

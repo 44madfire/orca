@@ -70,7 +70,7 @@ export function formatAgentSessionSearch(
   const lines: string[] = []
   if (result.sourceUnavailableFiles) {
     lines.push(
-      `${result.sourceUnavailableFiles} source files could not be verified; their hits are omitted.`
+      `${result.sourceUnavailableFiles} source files could not be verified; their hits are included but may not resume.`
     )
   }
   if (result.omittedHits) {
@@ -119,11 +119,22 @@ export function formatAgentSessionSearchEnabled(status: AiVaultSearchIndexStatus
   ].join('\n')
 }
 
+/** Hosts send reasons with and without their own full stop; never print two. */
+function sentence(reason: string): string {
+  const text = terminalSafe(reason).trimEnd()
+  return /[.!?]$/.test(text) ? text : `${text}.`
+}
+
 export function formatAgentSessionSearchStatus(status: AiVaultSearchIndexStatus): string {
-  if (status.available === false || status.applied === false) {
-    return `Session search is unavailable: ${terminalSafe(status.reason ?? 'index policy is not applied')}. Saved policy: ${status.enabled ? 'on' : 'off'}.`
+  if (status.available === false) {
+    return `Session search is unavailable: ${sentence(status.reason ?? 'the service is not installed or initialized')} Saved policy: ${status.enabled ? 'on' : 'off'}.`
   }
-  return status.enabled
+  const policy = status.enabled
     ? formatAgentSessionSearchEnabled(status)
     : `Session search is off. Retention: ${status.historyDays === null ? 'all history' : `${status.historyDays} days`}. Index size: ${status.indexSizeBytes ?? 0} bytes.`
+  // Why a caveat and not a verdict: the policy above is the saved one and it is
+  // real; `applied` only says the host has not finished pushing it to the index.
+  return status.applied === false
+    ? `${policy}\nSaved policy is not applied yet: ${sentence(status.reason ?? 'the apply is still pending')}`
+    : policy
 }

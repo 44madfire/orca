@@ -35,6 +35,8 @@ export type AiVaultSessionSearchView = {
   repairedTerms: readonly string[]
   /** The host answered that the user has not turned transcript search on. */
   disabled: boolean
+  /** Hits whose transcript file the host could not stat; they are shown but unverified. */
+  sourceUnavailableFiles: number
   /** Runs the settled tier immediately; bound to Enter in the search box. */
   flush: () => void
   groups: readonly AiVaultSessionGroup[]
@@ -84,12 +86,17 @@ export function useAiVaultSessionSearchResults(input: {
     }
   }, [agents, enabled, newestFirst, query, scopePaths, supportedHost])
 
-  const { error, flush, loading, result } = useAiVaultSessionSearchRequest(args, executionHostScope)
+  const { current, error, flush, loading, result } = useAiVaultSessionSearchRequest(
+    args,
+    executionHostScope
+  )
   // With an empty box no search runs, so the panel reads coverage directly to
-  // report what is already searchable while the backfill is still going.
+  // report what is already searchable while the backfill is still going. Only a
+  // current answer may publish its coverage: a retained older one carries a
+  // reading from minutes ago that would rewind whatever the poll has since read.
   const polledCoverage = useAiVaultSearchCoveragePoll(
     enabled && supportedHost,
-    result?.coverage ?? null,
+    current ? (result?.coverage ?? null) : null,
     isDesktopApp ? '' : executionHostScope
   )
   // Desktop search always reads this machine's index; a paired web client's
@@ -130,6 +137,7 @@ export function useAiVaultSessionSearchResults(input: {
       coverage: polledCoverage,
       repairedTerms: result?.repairedTerms ?? [],
       disabled: isAiVaultSearchDisabled(result?.coverage),
+      sourceUnavailableFiles: result?.sourceUnavailableFiles ?? 0,
       flush,
       groups,
       listCounts: searchListCounts(sessions.length, hitSessions.sessions.length, loading),

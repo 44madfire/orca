@@ -21,7 +21,7 @@ import { AiVaultScanCoordinator } from '../main/ai-vault/ai-vault-scan-coordinat
 import {
   SESSION_SEARCH_METHODS,
   SESSION_SEARCH_OPERATIONS
-} from '../shared/ai-vault-search-rpc-methods'
+} from '../shared/ai-vault-search-contract'
 import type { RelayAiVaultServiceApi } from './ai-vault-service-client-state'
 
 type AiVaultHandlerOptions = {

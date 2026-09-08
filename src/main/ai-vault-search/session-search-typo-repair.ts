@@ -11,6 +11,9 @@ const LENGTH_SLACK = 2
 const MIN_DOC_FREQUENCY = 2
 const MIN_SIMILARITY = 0.82
 const MAX_CANDIDATES = 4000
+// Visibility probes walked per prefix before giving up on it. Each one is an
+// FTS MATCH and only runs mid-write, so this is the whole cost of the fall-through.
+const MAX_VISIBILITY_PROBES = 8
 
 type VocabRow = { term: string; doc: number }
 
@@ -94,29 +97,31 @@ export class SessionSearchTypoRepair {
     // pair, then the bare first letter as the wide fallback.
     const prefixes = [lowered.slice(0, 2), lowered[1] + lowered[0], lowered[0]]
     for (const prefix of prefixes) {
-      const best = this.closest(lowered, prefix)
-      // Why the visibility probe is on the winner alone: ranking is pure CPU,
-      // but each probe is an FTS MATCH, and during a backfill — exactly when
-      // people search — one per candidate is thousands of queries per prefix.
-      if (best && this.isVisible(best.term)) {
-        return best.term
+      const best = this.bestVisible(lowered, prefix)
+      if (best) {
+        return best
       }
     }
     return null
   }
 
-  private closest(lowered: string, prefix: string): { term: string; score: number } | null {
-    let best: { term: string; score: number; doc: number } | null = null
-    for (const row of this.candidates(prefix, lowered.length)) {
-      const score = similarity(lowered, row.term)
-      if (score < MIN_SIMILARITY) {
-        continue
-      }
-      if (!best || score > best.score || (score === best.score && row.doc > best.doc)) {
-        best = { term: row.term, score, doc: row.doc }
-      }
-    }
-    return best
+  /**
+   * The best-scoring candidate at `prefix` that a reader can actually see.
+   * Ranking is pure CPU, so the walk is bounded rather than the probe: mid-write
+   * the top term can be staged, and abandoning the prefix there would lose a
+   * repair the published index can serve.
+   */
+  private bestVisible(lowered: string, prefix: string): string | null {
+    const ranked = this.ranked(lowered, prefix).slice(0, MAX_VISIBILITY_PROBES)
+    return ranked.find((candidate) => this.isVisible(candidate.term))?.term ?? null
+  }
+
+  /** Candidates similar enough to be a repair, best first. */
+  private ranked(lowered: string, prefix: string): { term: string; score: number; doc: number }[] {
+    return this.candidates(prefix, lowered.length)
+      .map((row) => ({ term: row.term, score: similarity(lowered, row.term), doc: row.doc }))
+      .filter((candidate) => candidate.score >= MIN_SIMILARITY)
+      .sort((left, right) => right.score - left.score || right.doc - left.doc)
   }
 
   private isVisible(term: string): boolean {

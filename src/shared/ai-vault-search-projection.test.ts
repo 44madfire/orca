@@ -1,7 +1,8 @@
 import type { z } from 'zod'
 import { expect, expectTypeOf, it } from 'vitest'
 import { projectSessionSearchResult } from './ai-vault-search-projection'
-import { SessionSearchResultSchema } from './ai-vault-search-contract'
+import { ReceivedSessionSearchResultSchema } from './ai-vault-search-contract'
+import type { OutboundSessionSearchResultSchema } from './ai-vault-search-contract'
 import type { AiVaultSearchResult, AiVaultSearchHit } from './ai-vault-search-types'
 
 const hit: AiVaultSearchHit = {
@@ -87,16 +88,28 @@ it('keeps a response a newer host filled with values this build does not know', 
       }
     }
   }
-  const parsed = SessionSearchResultSchema.parse(fromNewerHost)
+  const parsed = ReceivedSessionSearchResultSchema.parse(fromNewerHost)
   expect(parsed.hits.map((entry) => entry.evidence.role)).toEqual(['unknown'])
   expect(parsed.route).toBe('or')
   expect(parsed.coverage.backfill).toBe('running')
   expect(parsed.coverage.indexing?.phase).toBe('indexing')
 })
 
-// Why both directions: a field only on the type is stripped before transport,
-// and a field only in the schema rejects a successful local search on arrival.
+// Why equality and not assignability in both directions: an *optional* field on
+// only one side satisfies both directions, and every field at risk here
+// (`omittedHits`, `truncatedSnippets`, `duplicateCount`) is optional. A field
+// only on the type is stripped before transport; a field only in the schema
+// rejects a successful local search on arrival.
 it('keeps the wire schema and the result type in step', () => {
-  expectTypeOf<AiVaultSearchResult>().toExtend<z.infer<typeof SessionSearchResultSchema>>()
-  expectTypeOf<z.infer<typeof SessionSearchResultSchema>>().toExtend<AiVaultSearchResult>()
+  expectTypeOf<AiVaultSearchResult>().toEqualTypeOf<
+    z.infer<typeof OutboundSessionSearchResultSchema>
+  >()
+})
+
+// Strict on send, tolerant on receive: the same payload must fail one and pass
+// the other, or a local producer bug ships as a stuck progress bar.
+it('rejects a locally produced enum it would accept from another host', () => {
+  const local = { ...result([hit]), route: 'vector' } as unknown as AiVaultSearchResult
+  expect(() => projectSessionSearchResult(local)).toThrow()
+  expect(ReceivedSessionSearchResultSchema.parse(local).route).toBe('or')
 })

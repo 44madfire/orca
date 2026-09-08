@@ -234,6 +234,7 @@ export function AiVaultPanelHeader({
           hitCount={search.listCounts.filteredSessionsCount}
           hasQuery={search.active}
           repairedTerms={search.repairedTerms}
+          sourceUnavailableFiles={search.sourceUnavailableFiles}
           newestFirst={search.newestFirst}
           onNewestFirstChange={search.setNewestFirst}
         />

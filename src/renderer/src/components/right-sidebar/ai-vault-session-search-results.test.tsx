@@ -2,19 +2,34 @@
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAiVaultSessionSearchResults } from './ai-vault-session-search-results'
-const mocks = vi.hoisted(() => ({ web: false, request: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  web: false,
+  request: vi.fn(),
+  poll: vi.fn(),
+  requestState: { current: false, result: null } as {
+    current: boolean
+    result: { coverage: unknown; sourceUnavailableFiles?: number } | null
+  }
+}))
 vi.mock('@/lib/web-client-location', () => ({ isWebClientLocation: () => mocks.web }))
 vi.mock('./ai-vault-session-search-request', () => ({
   useAiVaultSessionSearchRequest: (...args: unknown[]) => {
     mocks.request(...args)
-    return { error: null, loading: false, updating: false, result: null }
+    return { error: null, loading: false, ...mocks.requestState }
   }
 }))
-vi.mock('./ai-vault-search-coverage-poll', () => ({ useAiVaultSearchCoveragePoll: () => null }))
+vi.mock('./ai-vault-search-coverage-poll', () => ({
+  useAiVaultSearchCoveragePoll: (...args: unknown[]) => {
+    mocks.poll(...args)
+    return null
+  }
+}))
 afterEach(cleanup)
 beforeEach(() => {
   mocks.web = false
   mocks.request.mockClear()
+  mocks.poll.mockClear()
+  mocks.requestState = { current: false, result: null }
 })
 const input = {
   enabled: true,
@@ -73,6 +88,27 @@ describe('session search request boundary', () => {
     renderHook(() => useAiVaultSessionSearchResults({ ...input, query: 'path:/folder' }))
     expect(mocks.request.mock.lastCall?.[0]).toMatchObject({ query: 'path:/folder' })
   })
+  it('publishes coverage from the answer to the query on screen', () => {
+    const coverage = { enabled: true }
+    mocks.requestState = { current: true, result: { coverage } }
+    renderHook(() => useAiVaultSessionSearchResults(input))
+    expect(mocks.poll.mock.lastCall?.[1]).toBe(coverage)
+  })
+
+  it('withholds coverage carried by a retained older answer', () => {
+    // Why: the retained answer was read minutes ago; republishing it would rewind whatever
+    // the coverage poll has since read and stop it at a phase the index has already left.
+    mocks.requestState = { current: false, result: { coverage: { enabled: true } } }
+    renderHook(() => useAiVaultSessionSearchResults(input))
+    expect(mocks.poll.mock.lastCall?.[1]).toBeNull()
+  })
+
+  it('reports how many hits the host could not verify the source of', () => {
+    mocks.requestState = { current: true, result: { coverage: null, sourceUnavailableFiles: 4 } }
+    const { result } = renderHook(() => useAiVaultSessionSearchResults(input))
+    expect(result.current.sourceUnavailableFiles).toBe(4)
+  })
+
   it('allows a web client to search its addressed runtime', () => {
     mocks.web = true
     renderHook(() =>

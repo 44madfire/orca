@@ -19,12 +19,13 @@ import {
 } from '../ai-vault/session-scanner-parse-cache'
 import { discoverAiVaultSessionSources } from '../ai-vault/session-scanner-source-discovery'
 import { isolatedScanRoots } from '../ai-vault/session-scanner-test-fixtures'
-import type { AiVaultScanOptions } from '../ai-vault/session-scanner-types'
+import type { AiVaultScanOptions, SessionFileCandidate } from '../ai-vault/session-scanner-types'
 import {
   registerSessionSearchIndexSink,
   withSessionSearchIndexRequired
 } from '../ai-vault/session-search-capture'
 import Database from '../sqlite/sync-database'
+import { parseSearchCandidates } from './session-search-parse-candidates'
 import { SessionSearchStore } from './session-search-store'
 
 // Why: a source-level suite has no built worker bundle, so the SQLite reads run
@@ -117,15 +118,46 @@ async function appendAssistantTurn(dbPath: string): Promise<void> {
   db.close()
 }
 
-/** Mirrors SessionSearchService.refreshRecent: discover, then parse in required mode. */
-async function refreshRecent(dbPath: string): Promise<SessionParseStats> {
+async function candidatesFor(dbPath: string): Promise<SessionFileCandidate[]> {
   const options: AiVaultScanOptions = {
     ...isolatedScanRoots(await makeTempDir()),
     opencodeDbPaths: [dbPath]
   }
   const issues: AiVaultScanIssue[] = []
   const discoveries = await discoverAiVaultSessionSources({ options, limitPerAgent: 12, issues })
-  const candidates = await sessionCandidatesFromDiscoveries(discoveries, options)
+  return sessionCandidatesFromDiscoveries(discoveries, options)
+}
+
+/**
+ * Fail the capture parts read after one row, standing in for the I/O-family
+ * SQLite error that is what actually reaches that catch: a corrupt part blob is
+ * handled per row, and a corrupt message blob fails earlier in the session query.
+ */
+function failCapturePartsRead(): void {
+  const prepare = Database.prototype.prepare
+  vi.spyOn(Database.prototype, 'prepare').mockImplementation(function (
+    this: Database,
+    sql: string
+  ) {
+    const statement = prepare.call(this, sql)
+    if (!sql.includes('p.data AS data')) {
+      return statement
+    }
+    return {
+      iterate: (...args: Parameters<typeof statement.iterate>) =>
+        (function* () {
+          for (const row of statement.iterate(...args)) {
+            yield row
+            throw new Error('disk I/O error')
+          }
+        })()
+    } as unknown as ReturnType<typeof prepare>
+  })
+}
+
+/** Mirrors SessionSearchService.refreshRecent: discover, then parse in required mode. */
+async function refreshRecent(dbPath: string): Promise<SessionParseStats> {
+  const candidates = await candidatesFor(dbPath)
   const stats = createSessionParseStats()
   await withSessionSearchIndexRequired(async () => {
     for (const candidate of candidates) {
@@ -199,6 +231,33 @@ describe('OpenCode SQLite session freshness', () => {
     // The parse must not reject: an index failure may never cost the session its
     // place in the list, and the readable turns must still reach the index.
     await expect(refreshRecent(dbPath)).resolves.toMatchObject({ fullParses: 1 })
+    expect(store.search({ query: 'vacuum quota' }).hits).toMatchObject([
+      { agent: 'opencode', sessionId: SESSION_ID }
+    ])
+    expect(store.coverage().messagesIndexed).toBe(1)
+  })
+
+  it('refuses the file cursor when the capture read degrades, and re-parses next scan', async () => {
+    const dbPath = await createOpenCodeDb()
+    const [candidate] = await candidatesFor(dbPath)
+    failCapturePartsRead()
+
+    // The session still lists: a degraded search read may not cost it its place.
+    await expect(refreshRecent(dbPath)).resolves.toMatchObject({ fullParses: 1 })
+    expect(store.coverage().messagesIndexed).toBe(0)
+    // The half-read rows are discarded and no cursor is published, so nothing
+    // marks this file indexed at its current mtime.
+    expect(store.indexedFile(candidate!.file.path, null)).toBeNull()
+    // A retryable read is not a write failure: the badge must not go red for it.
+    expect(store.indexing.snapshot().phase).not.toBe('error')
+    expect(store.failures).toBe(0)
+
+    vi.mocked(Database.prototype.prepare).mockRestore()
+    // A cold parse cache is the case the published cursor used to poison: the
+    // backfill lane consults the index alone and used to skip the session.
+    resetSessionParseCacheForTests()
+    await parseSearchCandidates(store, await candidatesFor(dbPath))
+
     expect(store.search({ query: 'vacuum quota' }).hits).toMatchObject([
       { agent: 'opencode', sessionId: SESSION_ID }
     ])

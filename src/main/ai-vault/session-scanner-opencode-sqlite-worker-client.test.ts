@@ -1,12 +1,13 @@
 import type { Worker } from 'node:worker_threads'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  IDLE_TEARDOWN_MS,
   LIST_TIMEOUT_MS,
   MAX_CONSECUTIVE_DEATHS,
   OpenCodeSqliteWorkerClient,
   PARSE_TIMEOUT_MS
 } from './session-scanner-opencode-sqlite-worker-client'
-import { IDLE_TEARDOWN_MS } from './session-scanner-opencode-worker-host'
+import { CAPTURE_CONSUMER_TIMEOUT_MS } from './session-search-opencode-capture-channel'
 import type {
   OpenCodeSqliteParseValue,
   OpenCodeSqliteParentMessage,
@@ -564,7 +565,7 @@ it('caps a single backpressure stall at the parse deadline instead of waiting fo
     worker.emit('message', { id: worker.lastId(), kind: 'batch', batch: 1, messages: [] })
 
     // The batch restarts the deadline rather than removing it.
-    await vi.advanceTimersByTimeAsync(PARSE_TIMEOUT_MS - 1)
+    await vi.advanceTimersByTimeAsync(CAPTURE_CONSUMER_TIMEOUT_MS - 1)
     expect(worker.terminated).toBe(false)
     await vi.advanceTimersByTimeAsync(2)
     await failure
@@ -572,6 +573,54 @@ it('caps a single backpressure stall at the parse deadline instead of waiting fo
   } finally {
     vi.useRealTimers()
   }
+})
+
+it('does not spend the worker deadline on a consumer queued behind other writes', async () => {
+  vi.useFakeTimers()
+  try {
+    const workers: FakeWorker[] = []
+    const client = new OpenCodeSqliteWorkerClient({ workerFactory: makeFactory(workers), log() {} })
+    let release = (): void => {}
+    const parsed = withStreamingSessionSearchCapture(
+      { push() {}, checkpoint: () => new Promise<void>((resolve) => (release = resolve)) },
+      () => client.parse({ dbPath: '/db', sessionId: 'a', platform: process.platform })
+    )
+    const worker = workers[0]!
+    worker.emit('message', { id: worker.lastId(), kind: 'batch', batch: 1, messages: [] })
+
+    // SessionSearchIndexWriter.apply serializes every file's write, so this wait
+    // is other files' queue time. Charging it to the worker killed live parses.
+    await vi.advanceTimersByTimeAsync(PARSE_TIMEOUT_MS + 1)
+    expect(worker.terminated).toBe(false)
+
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(worker.postedRequests.at(-1)).toMatchObject({ kind: 'captureAck', batch: 1 })
+    worker.emit('message', { id: worker.lastId(), kind: 'result', value: parseValue('A') })
+    await expect(parsed).resolves.toBe('A')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('marks this thread capture incomplete when the worker degraded its read', async () => {
+  const workers: FakeWorker[] = []
+  const client = new OpenCodeSqliteWorkerClient({ workerFactory: makeFactory(workers), log() {} })
+  const degraded = { incomplete: false }
+  const parsed = withStreamingSessionSearchCapture(
+    { push() {}, checkpoint: async () => {} },
+    () => client.parse({ dbPath: '/db', sessionId: 'a', platform: process.platform }),
+    degraded
+  )
+  const worker = workers[0]!
+  worker.emit('message', {
+    id: worker.lastId(),
+    kind: 'result',
+    value: { ...parseValue('A'), captureIncomplete: true }
+  })
+
+  await expect(parsed).resolves.toBe('A')
+  expect(degraded.incomplete).toBe(true)
 })
 
 it('lets total production run past the deadline as long as batches keep arriving', async () => {

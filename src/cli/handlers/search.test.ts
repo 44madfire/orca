@@ -262,6 +262,46 @@ describe('orca search --agent-session with the index turned off', () => {
     ])
   })
 
+  it('reports a landed configure whose host has another apply in flight', async () => {
+    callMock.mockResolvedValue({
+      id: 'r1',
+      ok: true,
+      result: {
+        enabled: true,
+        historyDays: 90,
+        indexSizeBytes: null,
+        available: true,
+        applied: false,
+        reason: 'Index policy application or persistence failed or is pending.'
+      },
+      _meta: { runtimeId: 'rt' }
+    })
+
+    await expect(runSearch({ enable: true })).resolves.toBeUndefined()
+    const printed = logSpy.mock.calls[0]?.[0] as string
+    expect(printed).toContain('Session search is on for the last 90 days.')
+    expect(printed).toContain('Saved policy is not applied yet:')
+  })
+
+  it('fails the configure when the host reports the feature unavailable', async () => {
+    callMock.mockResolvedValue({
+      id: 'r1',
+      ok: true,
+      result: {
+        enabled: true,
+        historyDays: null,
+        indexSizeBytes: null,
+        available: false,
+        reason: 'Session search service is not installed or initialized.'
+      },
+      _meta: { runtimeId: 'rt' }
+    })
+
+    const error = await runSearch({ enable: true }).catch((caught: unknown) => caught)
+    expect((error as RuntimeClientError).code).toBe('failed_precondition')
+    expect((error as Error).message).toMatch(/not installed/)
+  })
+
   it('forwards the runtime host to the enable call', async () => {
     callMock.mockResolvedValue({
       id: 'r1',

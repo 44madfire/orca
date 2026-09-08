@@ -93,6 +93,21 @@ describe('openSessionSearchDatabase', () => {
     expect((await stat(path)).mtimeMs).toBeGreaterThanOrEqual(before.mtimeMs)
   })
 
+  it('indexes only in-flight batch pointers, not every published message', async () => {
+    const db = openSessionSearchDatabase(await tempDatabasePath())
+    try {
+      const sql = (
+        db
+          .prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='messages_batch'")
+          .get() as { sql: string }
+      ).sql
+      // Publish nulls batch_id, so a full index would carry one dead entry per message.
+      expect(sql).toContain('WHERE batch_id IS NOT NULL')
+    } finally {
+      db.close()
+    }
+  })
+
   it('removes the database with every sidecar', async () => {
     const path = await tempDatabasePath()
     openSessionSearchDatabase(path).close()
@@ -144,6 +159,25 @@ describe('visibility views', () => {
       db.close()
     }
   })
+})
+
+it("retries a Windows lock that outlives rmSync's own retries", async () => {
+  const path = await tempDatabasePath()
+  openSessionSearchDatabase(path).close()
+  vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+  recordedRmSync.mockReset()
+  const locked = Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' })
+  recordedRmSync.mockImplementationOnce(() => {
+    throw locked
+  })
+  try {
+    expect(() => removeSessionSearchDatabase(path)).not.toThrow()
+    expect(recordedRmSync.mock.calls.length).toBe(5)
+    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    recordedRmSync.mockReset()
+    vi.restoreAllMocks()
+  }
 })
 
 it('gives Windows the shared retry options for a late handle release', async () => {

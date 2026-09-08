@@ -14,6 +14,17 @@ import { configureSessionSearchPolicySource, getSessionSearchPolicy } from './se
 
 type SettingsSource = () => Pick<GlobalSettings, 'aiVaultSearch'>
 
+let notifyIndexingChanged: () => void = () => {}
+
+/**
+ * Installs the push the renderer listens on. Every apply — enable, disable, history change,
+ * pause, resume, clear — settles through `applyAiVaultSearchSettings`, so one notify there
+ * replaces a standing coverage poll on every surface.
+ */
+export function setSessionSearchIndexingChangeNotifier(notify: (() => void) | null): void {
+  notifyIndexingChanged = notify ?? (() => {})
+}
+
 /**
  * Single seam between the settings store and the index. Both the desktop IPC
  * layer and `orca serve` install it, so the scanner's consent state comes from
@@ -44,17 +55,26 @@ export function applyAiVaultSearchSettings(
   const applied = applyChain
     .catch(() => undefined)
     .then(async () => {
+      // Why persist first: a crash between the two leaves transcripts indexed under a
+      // consent record that still reads `disabled`, and nothing but an explicit clear
+      // ever deletes them. "Persisted but not applied" is already a modelled state.
+      await options.persist?.()
       const result = await configureAiVaultSearch(
         { databasePath, ...policy },
         { clearIndex: options.clearIndex }
       )
-      await options.persist?.()
       if (generation === applyGeneration) {
         policyApplied = true
       }
       return result
     })
   applyChain = applied
+  // Why: the reading every surface holds was taken before this apply and is now stale whether the
+  // apply succeeded or not, so both outcomes have to invite a re-read.
+  void applied.then(
+    () => notifyIndexingChanged(),
+    () => notifyIndexingChanged()
+  )
   return applied
 }
 

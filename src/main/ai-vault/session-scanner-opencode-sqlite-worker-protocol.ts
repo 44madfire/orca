@@ -37,6 +37,9 @@ export type OpenCodeSqliteListValue = {
 // Final metadata follows acknowledgement of every capture batch.
 export type OpenCodeSqliteParseValue = {
   session: AiVaultSession | null
+  // Set when a read degraded mid-session: the batches sent are not the whole
+  // transcript, so the parent must refuse to publish this file's cursor.
+  captureIncomplete?: boolean
 }
 
 // One acknowledged slice of a parse's index rows, sent before that parse's

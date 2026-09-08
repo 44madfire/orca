@@ -17,7 +17,8 @@ import {
 import {
   SessionSearchConfigureSchema,
   SessionSearchQuerySchema,
-  type SessionSearchConfigure
+  type SessionSearchConfigure,
+  type SessionSearchOperation
 } from '../shared/ai-vault-search-contract'
 import {
   assertOwnedSearchPath,
@@ -25,7 +26,6 @@ import {
   writeSessionSearchOwnerPolicy,
   SESSION_SEARCH_POLICY_RECOVERY_HINT
 } from './session-search-owner-policy-file'
-import type { SessionSearchOperation } from '../shared/ai-vault-search-rpc-methods'
 import { throwIfSignalAborted } from '../shared/abort-signal-reason'
 import { projectSessionSearchResult } from '../shared/ai-vault-search-projection'
 
@@ -185,8 +185,8 @@ export class RelaySessionSearchOwner {
     this.policy = this.readRecordedPolicy()
     // Do not extend on traffic: a newer relay generation must get a chance to
     // acquire. The one exception is an active backfill pass — yieldBackfill
-    // waits for it rather than restarting discovery on the replacement — so the
-    // lease is bounded by quiet traffic, not by wall-clock time.
+    // waits for it rather than restarting discovery on the replacement, and
+    // hands the lease over as soon as that pass ends, however it ends.
     this.timer = setTimeout(() => {
       void this.serialize(() => this.yieldBackfill()).catch(() => undefined)
     }, 5_000)
@@ -277,12 +277,20 @@ export class RelaySessionSearchOwner {
       // Finish discovery and parsing before handoff; restarting either can starve large histories.
       void service
         .ensureBackfill(this.roots)
-        .then(() =>
-          this.serialize(async () => {
-            if (this.service === service) {
-              await this.yieldBackfill()
-            }
-          })
+        .then(
+          () =>
+            this.serialize(async () => {
+              if (this.service === service) {
+                await this.yieldBackfill()
+              }
+            }),
+          // A pass that cannot finish is no reason to keep the replacement out.
+          () =>
+            this.serialize(async () => {
+              if (this.service === service) {
+                await this.release()
+              }
+            })
         )
         .catch(() => undefined)
       return

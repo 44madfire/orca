@@ -1,4 +1,4 @@
-import { AlertCircle, Loader2, Pause } from 'lucide-react'
+import { AlertCircle, Clock, Loader2, Pause } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -42,8 +42,17 @@ export function SessionSearchStatusSegment({
           phase,
           percent: percentage
         })
+  // Why: `idle` waits for the user to start it, so it reads as a resting phase like paused and
+  // failed; only a run that is actually moving may spin.
   const Icon =
-    progress.phase === 'paused' ? Pause : progress.phase === 'error' ? AlertCircle : Loader2
+    progress.phase === 'paused'
+      ? Pause
+      : progress.phase === 'error'
+        ? AlertCircle
+        : progress.phase === 'idle'
+          ? Clock
+          : Loader2
+  const resting = Icon !== Loader2
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -57,13 +66,7 @@ export function SessionSearchStatusSegment({
           }}
           className="flex items-center gap-1.5 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
-          <Icon
-            className={
-              progress.phase === 'paused' || progress.phase === 'error'
-                ? 'size-3'
-                : 'size-3 animate-spin motion-reduce:animate-none'
-            }
-          />
+          <Icon className={resting ? 'size-3' : 'size-3 animate-spin motion-reduce:animate-none'} />
           {!iconOnly ? <span>{label}</span> : null}
         </button>
       </TooltipTrigger>

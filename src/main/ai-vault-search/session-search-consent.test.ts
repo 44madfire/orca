@@ -54,6 +54,8 @@ import type * as ParseCachePersistence from '../ai-vault/session-parse-cache-per
 import type * as SourceDiscovery from '../ai-vault/session-scanner-source-discovery'
 import { resetSessionParseCacheForTests } from '../ai-vault/session-scanner-parse-cache'
 import { isolatedScanRoots, jsonLines } from '../ai-vault/session-scanner-test-fixtures'
+import type { AiVaultSearchArgs, AiVaultSearchResult } from '../../shared/ai-vault-search-types'
+import * as schema from './session-search-schema'
 import * as sourcePresence from './session-search-source-presence'
 import { SessionSearchService, type SessionSearchScanRoots } from './session-search-service'
 
@@ -366,6 +368,39 @@ describe('SessionSearchService consent gate', () => {
 
     expect(indexedHits).toBeGreaterThan(0)
     expect(result.hits).toEqual([])
+  })
+
+  it('still reports the index enabled when a clear closes the store between query rounds', async () => {
+    const { roots, databasePath } = await scanRoots()
+    await writeClaudeTranscript(roots, 'cleared-session', 'the vacuum quota never settles')
+    const service = makeService(databasePath, { enabled: true, historyDays: null })
+    await service.ensureBackfill(roots)
+
+    // clearIndex closes the store, unlinks the file and reopens it without ever
+    // awaiting, so the unlink is the one place a query round can observe the gap.
+    let round: ((args: AiVaultSearchArgs) => AiVaultSearchResult) | null = null
+    const duringClear: AiVaultSearchResult[] = []
+    const removeDatabase = schema.removeSessionSearchDatabase
+    vi.spyOn(schema, 'removeSessionSearchDatabase').mockImplementation((path: string) => {
+      const answered = round?.({ query: 'vacuum' })
+      if (answered) {
+        duringClear.push(answered)
+      }
+      removeDatabase(path)
+    })
+    vi.spyOn(sourcePresence, 'searchPresentSessionSources').mockImplementation(
+      async (args, search) => {
+        round = search
+        await service.configure({ enabled: true, historyDays: null }, roots, { clearIndex: true })
+        return search(args)
+      }
+    )
+
+    await service.search({ query: 'vacuum', refresh: false }, roots)
+
+    expect(duringClear).toHaveLength(1)
+    expect(duringClear[0]?.hits).toEqual([])
+    expect(duringClear[0]?.coverage.enabled).toBe(true)
   })
 
   it('waits for a parked backfill before the shutdown drops the sink', async () => {

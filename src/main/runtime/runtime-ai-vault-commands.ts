@@ -31,14 +31,12 @@ import { resolveLocalAiVaultSessionTitles } from '../ai-vault/session-title-reso
 import type { IPtyProvider } from '../providers/types'
 import { projectSessionSearchResult } from '../../shared/ai-vault-search-projection'
 import {
+  SESSION_SEARCH_METHODS,
   SessionSearchConfigureSchema,
   SessionSearchQuerySchema,
-  type SessionSearchConfigure
-} from '../../shared/ai-vault-search-contract'
-import {
-  SESSION_SEARCH_METHODS,
+  type SessionSearchConfigure,
   type SessionSearchOperation
-} from '../../shared/ai-vault-search-rpc-methods'
+} from '../../shared/ai-vault-search-contract'
 
 export type AiVaultSessionSearchConfigureArgs = SessionSearchConfigure
 

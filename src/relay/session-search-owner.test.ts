@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { RelaySessionSearchOwner } from './session-search-owner'
+import { SessionSearchService } from '../main/ai-vault-search/session-search-service'
+import { noAiVaultSearchIndexCoverage } from '../shared/ai-vault-search-coverage'
 import { isolatedScanRoots } from '../main/ai-vault/session-scanner-test-fixtures'
 import {
   userRecord,
@@ -13,6 +15,7 @@ import {
 const owners: RelaySessionSearchOwner[] = []
 const directories: string[] = []
 afterEach(async () => {
+  vi.restoreAllMocks()
   vi.useRealTimers()
   await Promise.all(owners.splice(0).map((owner) => owner.close()))
   await Promise.all(
@@ -189,4 +192,64 @@ it('records consent durably even when applying it to the index fails', async () 
   await replacement.close()
 
   expect(await make().request('status', {})).toMatchObject({ enabled: true })
+})
+
+/**
+ * A caller that cancels the instant the owner admits the request: the admission
+ * check reads a live signal, everything after it reads the abort.
+ */
+function cancelledOnAdmission(): AbortSignal {
+  const controller = new AbortController()
+  let admitted = false
+  Object.defineProperty(controller.signal, 'aborted', {
+    configurable: true,
+    get() {
+      if (admitted) {
+        return true
+      }
+      admitted = true
+      controller.abort()
+      return false
+    }
+  })
+  return controller.signal
+}
+
+it('keeps its lease when the caller cancels and drops it when the service itself fails', async () => {
+  const { directory, make } = await fixture()
+  const first = make()
+  await first.request('configure', { enabled: true, paused: true })
+  await first.close()
+  await writeFile(join(directory, 'index.sqlite'), 'not a SQLite database')
+  const owner = make()
+  const other = make()
+
+  await expect(owner.request('query', { query: 'needle' }, cancelledOnAdmission())).rejects.toThrow(
+    'not a database'
+  )
+  await expect(other.request('configure', { enabled: false })).rejects.toThrow('in use')
+
+  await expect(owner.request('query', { query: 'needle' })).rejects.toThrow('not a database')
+  await expect(other.request('configure', { enabled: false })).resolves.toMatchObject({
+    enabled: false
+  })
+})
+
+it('hands the lease over when the backfill it waited for cannot finish', async () => {
+  const { make } = await fixture()
+  vi.useFakeTimers()
+  const first = make()
+  const second = make()
+  await first.request('configure', { enabled: true })
+  vi.spyOn(SessionSearchService.prototype, 'coverage').mockReturnValue({
+    ...noAiVaultSearchIndexCoverage(true),
+    backfill: 'running'
+  })
+  vi.spyOn(SessionSearchService.prototype, 'ensureBackfill').mockRejectedValue(
+    new Error('discovery failed')
+  )
+
+  await vi.advanceTimersByTimeAsync(5_000)
+
+  await expect(second.request('status', {})).resolves.toMatchObject({ enabled: true })
 })

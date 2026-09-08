@@ -60,10 +60,13 @@ async function parseSession(
   }
   const capture = new OpenCodeWorkerSearchCapture(request.id, (batch) => port.postMessage(batch))
   captures.set(request.id, capture)
+  // The producer marks this box from inside the capture scope; it does not
+  // survive the thread hop, so it rides back on the parse value instead.
+  const degraded = { incomplete: false }
   try {
-    const session = await withStreamingSessionSearchCapture(capture, parse)
+    const session = await withStreamingSessionSearchCapture(capture, parse, degraded)
     await capture.flush()
-    return { session }
+    return degraded.incomplete ? { session, captureIncomplete: true } : { session }
   } finally {
     captures.delete(request.id)
   }

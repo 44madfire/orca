@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { formatAgentSessionSearch } from './agent-session-search-format'
+import {
+  formatAgentSessionSearch,
+  formatAgentSessionSearchStatus
+} from './agent-session-search-format'
 import type {
   AiVaultSearchCoverage,
   AiVaultSearchHit,
@@ -219,5 +222,61 @@ describe('formatAgentSessionSearch', () => {
       .split('\n')
       .at(-1)
     expect(footer).toBe('128 sessions indexed, 4 changed files pending · 13 ms')
+  })
+
+  // The index keeps an unverifiable source rather than invalidating it, so the
+  // caller has to be told the hit is present and unproven, not dropped.
+  it('says unverifiable sources are still listed rather than omitted', () => {
+    const notice = format(makeResult({ sourceUnavailableFiles: 2 })).split('\n')[0]
+    expect(notice).toBe(
+      '2 source files could not be verified; their hits are included but may not resume.'
+    )
+  })
+})
+
+describe('formatAgentSessionSearchStatus', () => {
+  const ON = {
+    enabled: true,
+    historyDays: 90,
+    indexSizeBytes: 4096,
+    available: true
+  } as const
+
+  it('reports a saved policy the host has not applied yet as a caveat, not as unavailable', () => {
+    const lines = formatAgentSessionSearchStatus({
+      ...ON,
+      applied: false,
+      reason: 'Index policy application or persistence failed or is pending.'
+    }).split('\n')
+
+    expect(lines[0]).toBe('Session search is on for the last 90 days.')
+    expect(lines.at(-1)).toBe(
+      'Saved policy is not applied yet: Index policy application or persistence failed or is pending.'
+    )
+    expect(lines.join('\n')).not.toContain('unavailable')
+  })
+
+  it('still calls an unavailable host unavailable', () => {
+    expect(
+      formatAgentSessionSearchStatus({
+        ...ON,
+        available: false,
+        reason: 'Session search service is not installed or initialized.'
+      })
+    ).toBe(
+      'Session search is unavailable: Session search service is not installed or initialized. Saved policy: on.'
+    )
+  })
+
+  it('adds one full stop to a reason that lacks one and never two to a reason that has one', () => {
+    expect(
+      formatAgentSessionSearchStatus({ ...ON, available: false, reason: 'no index directory' })
+    ).toContain('unavailable: no index directory. Saved policy')
+    expect(
+      formatAgentSessionSearchStatus({ ...ON, available: false, reason: 'no index directory.' })
+    ).not.toContain('..')
+    expect(
+      formatAgentSessionSearchStatus({ ...ON, applied: false, reason: 'still pending.' })
+    ).not.toContain('..')
   })
 })

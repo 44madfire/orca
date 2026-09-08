@@ -8,7 +8,7 @@ import type { RemoteHostPlatform } from '../main/ssh/ssh-remote-platform'
 import {
   SESSION_SEARCH_OPERATIONS,
   type SessionSearchOperation
-} from '../shared/ai-vault-search-rpc-methods'
+} from '../shared/ai-vault-search-contract'
 
 export const RELAY_AI_VAULT_SERVICE_PROTOCOL = 1
 
@@ -43,10 +43,12 @@ export type RelayAiVaultServiceRequest =
 export type RelayAiVaultServiceLane = 'cache' | 'interactive' | 'search'
 
 /**
- * `list` is a full history scan and a search `query` can drive a backfill pass,
- * so neither may queue ahead of the interactive lane that title reads and the
- * search controls run on. Search stays correct across the split because
- * `RelaySessionSearchOwner` serializes every operation it owns.
+ * A lane is the unit of serialization, so it has to match where the work is
+ * actually serialized: `list` is a full history scan, and every search operation
+ * contends for the one chain `RelaySessionSearchOwner` runs them on. Splitting
+ * `status`/`configure` onto their own lane would only move the wait from a queue
+ * that holds them unsent into the owner's lock, where their deadline is already
+ * running and a sidecar fault can no longer requeue them.
  */
 export function relayAiVaultServiceLane(
   request: RelayAiVaultServiceRequest
@@ -54,7 +56,7 @@ export function relayAiVaultServiceLane(
   if (request.operation === 'list') {
     return 'cache'
   }
-  return request.operation === 'search' && request.action === 'query' ? 'search' : 'interactive'
+  return request.operation === 'search' ? 'search' : 'interactive'
 }
 
 export type RelayAiVaultServiceParentMessage =

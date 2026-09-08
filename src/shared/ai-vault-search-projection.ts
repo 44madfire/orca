@@ -1,4 +1,7 @@
-import { SessionSearchHitSchema, SessionSearchResultSchema } from './ai-vault-search-contract'
+import {
+  OutboundSessionSearchHitSchema,
+  OutboundSessionSearchResultSchema
+} from './ai-vault-search-contract'
 import type { AiVaultSearchResult } from './ai-vault-search-types'
 import {
   AI_VAULT_SEARCH_LIMIT_MAX,
@@ -40,9 +43,13 @@ function balanceMarks(text: string): string {
     : text
 }
 
-/** Bound before every host transport; never shorten session identities or resume paths. */
+/**
+ * Bound before every host transport; never shorten session identities or resume
+ * paths. Validated against the strict outbound schema, so a producer bug throws
+ * here instead of travelling as a plausible-looking fallback.
+ */
 export function projectSessionSearchResult(result: AiVaultSearchResult): AiVaultSearchResult {
-  const metadata = SessionSearchResultSchema.parse({ ...result, hits: [] })
+  const metadata = OutboundSessionSearchResultSchema.parse({ ...result, hits: [] })
   const hits: AiVaultSearchResult['hits'] = []
   let truncatedSnippets = result.truncatedSnippets ?? 0
   let omittedHits = result.omittedHits ?? 0
@@ -57,7 +64,7 @@ export function projectSessionSearchResult(result: AiVaultSearchResult): AiVault
     if (
       hits.length >= AI_VAULT_SEARCH_LIMIT_MAX ||
       bytes + size > MAX_RESPONSE_BYTES ||
-      !SessionSearchHitSchema.safeParse(projected).success
+      !OutboundSessionSearchHitSchema.safeParse(projected).success
     ) {
       omittedHits++
       continue
@@ -68,7 +75,7 @@ export function projectSessionSearchResult(result: AiVaultSearchResult): AiVault
     bytes += size
     hits.push(projected)
   }
-  return SessionSearchResultSchema.parse({
+  return OutboundSessionSearchResultSchema.parse({
     ...result,
     hits,
     ...(omittedHits ? { omittedHits } : {}),

@@ -47,6 +47,24 @@ describe('splitAiVaultSearchQuery', () => {
     expect(split.text).toBe("it's a thing's")
   })
 
+  // One rule everywhere: a quote groups only when it closes at a word boundary.
+  // Inside an operator value, as in free text, one that does not is ordinary text.
+  it('treats a quote that does not end a word as text inside an operator value', () => {
+    const split = splitAiVaultSearchQuery('path:"a b"x')
+    expect(split.pathTerms).toEqual(['"a'])
+    expect(split.text).toBe('b"x')
+  })
+
+  // The operator ends at its first colon, so anything after it is the value.
+  it('reads a second colon as part of the operator value', () => {
+    expect(splitAiVaultSearchQuery('x repo::y')).toEqual({
+      text: 'x',
+      terms: ['x'],
+      repoTerms: [':y'],
+      pathTerms: []
+    })
+  })
+
   it('preserves operator value case so the path key decides folding', () => {
     expect(splitAiVaultSearchQuery('path:C:\\Work\\App needle').pathTerms).toEqual([
       'C:\\Work\\App'
