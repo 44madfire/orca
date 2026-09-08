@@ -19,7 +19,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { translate } from '@/i18n/i18n'
 import {
   ActivityScopeFilterMenuItems,
-  useActivityScopeFilterActive
+  useActivityScopeFilterActive,
+  useActivityScopeFilterMenuItemsVisible
 } from './activity-scope-filter-controls'
 import type { ActivityGroupBy } from './activity-thread-types'
 
@@ -79,6 +80,10 @@ export function ActivityThreadOptionsMenu({
 }): React.JSX.Element {
   const skipCloseAutoFocusRef = React.useRef(false)
   const scopeFilterActive = useActivityScopeFilterActive()
+  const scopeFilterItemsVisible = useActivityScopeFilterMenuItemsVisible()
+  const hasFilters = Boolean(
+    onUnreadOnlyChange || onShowChildAgentsChange || scopeFilterItemsVisible
+  )
   const optionsLabel = scopeFilterActive
     ? translate(
         'auto.components.activity.ActivityPrototypePage.threadListOptionsFiltered',
@@ -131,35 +136,42 @@ export function ActivityThreadOptionsMenu({
           }
         }}
       >
-        <DropdownMenuLabel>
-          {translate('auto.components.activity.ActivityPrototypePage.filtersSection', 'Filters')}
-        </DropdownMenuLabel>
-        {onUnreadOnlyChange ? (
-          <DropdownMenuCheckboxItem
-            checked={unreadOnly}
-            onCheckedChange={(checked) => onUnreadOnlyChange(checked === true)}
-            onSelect={(event) => event.preventDefault()}
-          >
-            {translate(
-              'auto.components.activity.ActivityPrototypePage.showUnreadOnly',
-              'Show unread only'
-            )}
-          </DropdownMenuCheckboxItem>
+        {hasFilters ? (
+          <>
+            <DropdownMenuLabel>
+              {translate(
+                'auto.components.activity.ActivityPrototypePage.filtersSection',
+                'Filters'
+              )}
+            </DropdownMenuLabel>
+            {onUnreadOnlyChange ? (
+              <DropdownMenuCheckboxItem
+                checked={unreadOnly}
+                onCheckedChange={(checked) => onUnreadOnlyChange(checked === true)}
+                onSelect={(event) => event.preventDefault()}
+              >
+                {translate(
+                  'auto.components.activity.ActivityPrototypePage.showUnreadOnly',
+                  'Show unread only'
+                )}
+              </DropdownMenuCheckboxItem>
+            ) : null}
+            {onShowChildAgentsChange ? (
+              <DropdownMenuCheckboxItem
+                checked={showChildAgents}
+                onCheckedChange={(checked) => onShowChildAgentsChange(checked === true)}
+                onSelect={(event) => event.preventDefault()}
+              >
+                {translate(
+                  'auto.components.activity.ActivityPrototypePage.showChildAgents',
+                  'Show child agents'
+                )}
+              </DropdownMenuCheckboxItem>
+            ) : null}
+            <ActivityScopeFilterMenuItems />
+            <DropdownMenuSeparator />
+          </>
         ) : null}
-        {onShowChildAgentsChange ? (
-          <DropdownMenuCheckboxItem
-            checked={showChildAgents}
-            onCheckedChange={(checked) => onShowChildAgentsChange(checked === true)}
-            onSelect={(event) => event.preventDefault()}
-          >
-            {translate(
-              'auto.components.activity.ActivityPrototypePage.showChildAgents',
-              'Show child agents'
-            )}
-          </DropdownMenuCheckboxItem>
-        ) : null}
-        <ActivityScopeFilterMenuItems />
-        <DropdownMenuSeparator />
         <DropdownMenuLabel>
           {translate('auto.components.activity.ActivityPrototypePage.viewSection', 'View')}
         </DropdownMenuLabel>

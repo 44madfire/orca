@@ -11,13 +11,30 @@ import {
 import { useSidebarHostScopeOptions } from '@/components/sidebar/use-sidebar-host-scope-options'
 
 /**
+ * Whether {@link ActivityScopeFilterMenuItems} renders anything.
+ * Why exported: the parent owns the Filters label and separator, so it has to
+ * know whether the section would be empty.
+ */
+export function useActivityScopeFilterMenuItemsVisible(): boolean {
+  const repos = useAppStore((s) => s.repos)
+  const agentsVisibleHostIds = useAppStore((s) => s.agentsVisibleHostIds)
+  const agentsFilterRepoIds = useAppStore((s) => s.agentsFilterRepoIds)
+  const { hostOptions } = useSidebarHostScopeOptions()
+  return (
+    agentsVisibleHostIds !== null ||
+    agentsFilterRepoIds.length > 0 ||
+    shouldShowHostScopeControls(hostOptions) ||
+    repos.length > 1
+  )
+}
+
+/**
  * Host/project scope items for the Agents activity surfaces. State is the
  * persisted agents-view scope (agentsVisibleHostIds / agentsFilterRepoIds),
  * deliberately separate from the workspace-nav filters. The parent owns the
  * Filters label and separator.
  */
 export function ActivityScopeFilterMenuItems(): React.JSX.Element | null {
-  const repos = useAppStore((s) => s.repos)
   const agentsVisibleHostIds = useAppStore((s) => s.agentsVisibleHostIds)
   const setAgentsVisibleHostIds = useAppStore((s) => s.setAgentsVisibleHostIds)
   const agentsFilterRepoIds = useAppStore((s) => s.agentsFilterRepoIds)
@@ -25,8 +42,9 @@ export function ActivityScopeFilterMenuItems(): React.JSX.Element | null {
   const { hostOptions } = useSidebarHostScopeOptions()
   const showHostScopeControls = shouldShowHostScopeControls(hostOptions)
   const hasScopeFilter = agentsVisibleHostIds !== null || agentsFilterRepoIds.length > 0
+  const visible = useActivityScopeFilterMenuItemsVisible()
 
-  if (!hasScopeFilter && !showHostScopeControls && repos.length <= 1) {
+  if (!visible) {
     return null
   }
 
