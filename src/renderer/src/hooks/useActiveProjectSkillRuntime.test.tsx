@@ -2,6 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { getDefaultSettings } from '../../../shared/constants'
+import {
+  loadWindowsTerminalCapabilities,
+  resetWindowsTerminalCapabilitiesForTests
+} from '@/lib/windows-terminal-capabilities'
 import { useAppStore } from '@/store'
 import {
   hasLocalSkillRuntimeAuthority,
@@ -11,7 +15,11 @@ import {
 
 function setPlatform(platform: NodeJS.Platform): void {
   ;(window as unknown as { api: unknown }).api = {
-    platform: { get: () => ({ platform }) }
+    platform: { get: () => ({ platform }) },
+    wsl: { isAvailable: async () => true, listDistros: async () => ['Ubuntu'] },
+    pwsh: { isAvailable: async () => true },
+    gitBash: { isAvailable: async () => false },
+    runtime: { getStatus: async () => ({ hostPlatform: platform }) }
   }
 }
 
@@ -21,7 +29,7 @@ function setWindowsShell(terminalWindowsShell: string): void {
   })
 }
 
-function setGlobalWslDefault(distro: string): void {
+function setGlobalWslDefault(distro: string | null): void {
   useAppStore.setState({
     settings: {
       ...getDefaultSettings('/tmp'),
@@ -31,13 +39,17 @@ function setGlobalWslDefault(distro: string): void {
 }
 
 describe('useActiveProjectSkillRuntime', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     setPlatform('win32')
     setWindowsShell('git-bash')
     useAppStore.setState({ runtimeEnvironmentCatalogSettled: true, runtimeEnvironments: [] })
+    // Why: a settled capability probe is what separates a resolved WSL runtime
+    // from a repair-required one; both map to the same agentRuntime shape.
+    await loadWindowsTerminalCapabilities()
   })
 
   afterEach(() => {
+    resetWindowsTerminalCapabilitiesForTests()
     delete (window as unknown as { api?: unknown }).api
   })
 
@@ -59,6 +71,8 @@ describe('useActiveProjectSkillRuntime', () => {
       wslDistro: 'Ubuntu',
       label: 'WSL Ubuntu'
     })
+    expect(result.current.projectRuntime?.status).toBe('resolved')
+    expect(result.current.installDisabledReason).toBeNull()
   })
 
   it('ignores a windows-host global default so skill discovery keeps no target', () => {
@@ -99,7 +113,38 @@ describe('useActiveProjectSkillRuntime', () => {
     })
     const { result } = renderHook(() => useActiveProjectSkillRuntime())
 
-    expect(result.current.agentRuntime).toMatchObject({ runtime: 'wsl' })
+    expect(result.current.agentRuntime).toEqual({
+      runtime: 'wsl',
+      wslDistro: 'Ubuntu',
+      label: 'WSL Ubuntu'
+    })
+    expect(result.current.projectRuntime?.status).toBe('resolved')
+    expect(result.current.installDisabledReason).toBeNull()
+    useAppStore.setState({ activeRepoId: null, repos: [] })
+  })
+
+  it('does not block skill install when the global WSL default needs a distro inside an SSH project', () => {
+    setGlobalWslDefault(null)
+    useAppStore.setState({
+      activeRepoId: 'repo-ssh',
+      repos: [
+        {
+          id: 'repo-ssh',
+          path: '/home/alice/repo',
+          displayName: 'r',
+          badgeColor: 'b',
+          addedAt: 1,
+          connectionId: 'builder',
+          executionHostId: 'ssh:builder'
+        }
+      ]
+    })
+    const { result } = renderHook(() => useActiveProjectSkillRuntime())
+
+    // Why: the repair prompt names "this project", but an SSH project cannot own
+    // the local runtime; keep the host fallback instead of a dead-end message.
+    expect(result.current.projectRuntime).toBeUndefined()
+    expect(result.current.installDisabledReason).toBeNull()
     useAppStore.setState({ activeRepoId: null, repos: [] })
   })
 

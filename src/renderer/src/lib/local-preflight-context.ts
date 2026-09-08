@@ -4,6 +4,7 @@ import { parseWslUncPath } from '../../../shared/wsl-paths'
 import {
   deriveGlobalWindowsRuntimeDefaultFromLegacySettings,
   resolveProjectExecutionRuntime,
+  type LocalWindowsRuntimePreference,
   type ProjectExecutionRuntimeResolution
 } from '../../../shared/project-execution-runtime'
 import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
@@ -101,9 +102,11 @@ export function getGlobalWindowsExecutionRuntimeContext(
   appPlatform: NodeJS.Platform = getRendererAppPlatform(),
   wslContext: LocalProjectRuntimeWslContext = {}
 ): ProjectExecutionRuntimeResolution | undefined {
+  // Why: Floating keeps native host authority even when it is the active
+  // worktree and the caller did not name it (useActiveProjectSkillRuntime).
   if (
     appPlatform !== 'win32' ||
-    worktreeId === FLOATING_TERMINAL_WORKTREE_ID ||
+    (worktreeId ?? state.activeWorktreeId) === FLOATING_TERMINAL_WORKTREE_ID ||
     !state.settings?.localWindowsRuntimeDefault
   ) {
     return undefined
@@ -116,13 +119,21 @@ export function getGlobalWindowsExecutionRuntimeContext(
   if (isLocalRuntimeRepo(repo) && isLocalRuntimeWorktree(worktree)) {
     return undefined
   }
-  return resolveProjectExecutionRuntime({
+  const resolution = resolveProjectExecutionRuntime({
     appPlatform: 'win32',
     projectId: GLOBAL_LOCAL_PROJECT_ID,
     projectRuntimePreference: { kind: 'inherit-global' },
     globalWindowsRuntimeDefault: state.settings.localWindowsRuntimeDefault,
     ...wslContext
   })
+  // Why: main rejects detection for a repair-required runtime. A workspace that
+  // cannot own the local runtime has no per-project repair surface, so it keeps
+  // the host fallback; without a workspace, Settings still surfaces the repair.
+  const hasWorkspaceTarget = Boolean(worktreeId || state.activeWorktreeId || state.activeRepoId)
+  if (resolution.status === 'repair-required' && hasWorkspaceTarget) {
+    return undefined
+  }
+  return resolution
 }
 
 export function getLocalRepoProjectExecutionRuntimeContext(
@@ -213,40 +224,14 @@ export function getLocalAgentPreflightContext(
 
   const explicitAgentRuntime = appPlatform === 'win32' ? state.settings?.localAgentRuntime : null
   if (explicitAgentRuntime === 'host') {
-    return getProjectRuntimePreflightContext(
-      resolveProjectExecutionRuntime({
-        appPlatform: 'win32',
-        projectId: getLocalPreflightProjectId(state, worktreeId),
-        projectRuntimePreference: { kind: 'windows-host' },
-        globalWindowsRuntimeDefault: deriveGlobalWindowsRuntimeDefaultFromLegacySettings(
-          state.settings
-        ).defaultRuntime
-      })
-    )
+    return getLegacyAgentRuntimeContext(state, worktreeId, { kind: 'windows-host' })
   }
   if (explicitAgentRuntime === 'wsl') {
     const explicitDistro = state.settings?.localAgentWslDistro?.trim()
-    if (explicitDistro) {
-      return getProjectRuntimePreflightContext(
-        resolveProjectExecutionRuntime({
-          appPlatform: 'win32',
-          projectId: getLocalPreflightProjectId(state, worktreeId),
-          projectRuntimePreference: { kind: 'wsl', distro: explicitDistro },
-          globalWindowsRuntimeDefault: deriveGlobalWindowsRuntimeDefaultFromLegacySettings(
-            state.settings
-          ).defaultRuntime
-        })
-      )
-    }
-    return getProjectRuntimePreflightContext(
-      resolveProjectExecutionRuntime({
-        appPlatform: 'win32',
-        projectId: getLocalPreflightProjectId(state, worktreeId),
-        projectRuntimePreference: { kind: 'inherit-global' },
-        globalWindowsRuntimeDefault: deriveGlobalWindowsRuntimeDefaultFromLegacySettings(
-          state.settings
-        ).defaultRuntime
-      })
+    return getLegacyAgentRuntimeContext(
+      state,
+      worktreeId,
+      explicitDistro ? { kind: 'wsl', distro: explicitDistro } : { kind: 'inherit-global' }
     )
   }
 
@@ -255,6 +240,24 @@ export function getLocalAgentPreflightContext(
     return getWslPreflightContext(wslDistro)
   }
   return undefined
+}
+
+/** Resolves the legacy `localAgentRuntime` setting against the migrated global default. */
+function getLegacyAgentRuntimeContext(
+  state: LocalProjectRuntimeState,
+  worktreeId: string | null | undefined,
+  projectRuntimePreference: LocalWindowsRuntimePreference
+): LocalPreflightContext {
+  return getProjectRuntimePreflightContext(
+    resolveProjectExecutionRuntime({
+      appPlatform: 'win32',
+      projectId: getLocalPreflightProjectId(state, worktreeId),
+      projectRuntimePreference,
+      globalWindowsRuntimeDefault: deriveGlobalWindowsRuntimeDefaultFromLegacySettings(
+        state.settings
+      ).defaultRuntime
+    })
+  )
 }
 
 function getCachedLocalProjectRuntimeWslContext(): LocalProjectRuntimeWslContext {

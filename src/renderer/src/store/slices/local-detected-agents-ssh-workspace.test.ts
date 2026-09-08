@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import type { AppState } from '../types'
 import type { Repo } from '../../../../shared/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
+import type { GlobalWindowsRuntimeDefault } from '../../../../shared/project-execution-runtime'
 import { createDetectedAgentsSlice } from './detected-agents'
 
 const detectAgents = vi.fn()
@@ -32,12 +33,14 @@ const sshWorktree = {
   hostId: 'ssh:builder'
 } as unknown as Worktree
 
-function createTestStore() {
+function createTestStore(
+  localWindowsRuntimeDefault: GlobalWindowsRuntimeDefault = { kind: 'wsl', distro: 'Ubuntu' }
+) {
   const store = create<AppState>()(
     (...args) => createDetectedAgentsSlice(...args) as unknown as AppState
   )
   store.setState({
-    settings: { localWindowsRuntimeDefault: { kind: 'wsl', distro: 'Ubuntu' } },
+    settings: { localWindowsRuntimeDefault },
     repos: [sshRepo],
     projects: [],
     worktreesByRepo: { 'repo-ssh': [sshWorktree] },
@@ -75,5 +78,32 @@ describe('local detected agents inside an SSH workspace', () => {
     // Why: Refresh must re-detect in the runtime the visible list came from (#18837).
     expect(refreshAgents).toHaveBeenCalledWith(detectContext)
     expect(store.getState().detectedAgentIds).toEqual(['claude', 'codex'])
+  })
+
+  it('keeps host detection when the global WSL default still needs a distro', async () => {
+    // Why: mirrors main's getPreflightWslTarget, which rejects repair-required contexts.
+    const hostAgentsFor = (context?: { projectRuntime?: { status?: string } }) => {
+      if (context?.projectRuntime?.status === 'repair-required') {
+        throw new Error('Project runtime requires repair before preflight: wsl-distro-required')
+      }
+      return context?.projectRuntime ? [] : ['claude']
+    }
+    detectAgents.mockImplementation(async (context) => hostAgentsFor(context))
+    refreshAgents.mockImplementation(async (context) => ({
+      agents: hostAgentsFor(context),
+      addedPathSegments: [],
+      shellHydrationOk: true,
+      pathSource: 'shell_hydrate',
+      pathFailureReason: 'none'
+    }))
+    const store = createTestStore({ kind: 'wsl', distro: null })
+
+    await expect(store.getState().ensureDetectedAgents()).resolves.toEqual(['claude'])
+    await expect(store.getState().refreshDetectedAgents()).resolves.toEqual(['claude'])
+
+    const detectContext = detectAgents.mock.calls[0]?.[0]
+    expect(detectContext).toBeUndefined()
+    expect(refreshAgents).toHaveBeenCalledWith(detectContext)
+    expect(store.getState().detectedAgentIds).toEqual(['claude'])
   })
 })
