@@ -23,7 +23,7 @@ import {
   structuredAgentSessionOptionPicks,
   structuredAgentSessionOptionSnapshot
 } from '../../../../shared/structured-agent-session-options'
-import { activeStructuredAgentSessionTurnId, structuredAgentSessionTurnTiming } from '../../../../shared/structured-agent-session-projection'
+import { activeStructuredAgentSessionTurnId } from '../../../../shared/structured-agent-session-projection'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import {
@@ -253,7 +253,6 @@ export function useStructuredAgentSession(args: {
   const { outbox } = outboxController
   const messages = useStructuredAgentSessionMessages(state.items, outbox, state.submissions)
   return {
-    ...structuredAgentSessionTurnTiming(state.items),
     conversationCommands:
       conversationSupport?.sessionId === sessionId ? conversationSupport.commands : [],
     runConversationCommand: (command: AgentSessionConversationCommand) =>

@@ -164,7 +164,7 @@ export const AgentJournalItemBodySchema = z.discriminatedUnion('kind', [
     text: z.string(),
     presentation: z.string().optional(),
     tone: z.string().optional(),
-    turnLifecycle: z.object({ turnId: z.string(), state: z.string().min(1), startedAt: z.number().finite().optional(), completedAt: z.number().finite().optional() }).optional(),
+    turnLifecycle: z.object({ turnId: z.string(), state: z.string().min(1) }).optional(),
     providerFrame: ProviderFrame.optional()
   })
 ])

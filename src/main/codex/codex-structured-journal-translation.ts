@@ -47,7 +47,6 @@ export function createCodexJournalTranslator(
   deps: CodexJournalTranslatorDeps
 ): CodexJournalTranslator {
   const activeTurns = new CodexJournalActiveTurns()
-  const turnStartedAt = new Map<string, number>()
   const compactions = new CodexJournalCompactions(deps.sink, (threadId) =>
     activeTurns.current(threadId)
   )
@@ -270,11 +269,9 @@ export function createCodexJournalTranslator(
       sessionId: event.sessionId,
       threadId: event.threadId,
       turnId,
-      state: 'running',
-      startedAt: Date.now()
+      state: 'running'
     })
     if (admission.accepted) {
-      turnStartedAt.set(turnId, Date.now())
       activeTurns.remember(event.threadId, turnId)
       if (event.threadId === (deps.primaryThreadId?.() ?? null)) {
         readActivity = createCodexProviderActivityReader()
@@ -312,18 +309,6 @@ export function createCodexJournalTranslator(
       activeItems: items.activeItems
     })
     if (admission.accepted) {
-      const startedAt = turnStartedAt.get(turnId)
-      turnStartedAt.delete(turnId)
-      publishCodexTurnLifecycle({
-        sink: deps.sink,
-        primaryThreadId: deps.primaryThreadId?.() ?? null,
-        sessionId: event.sessionId,
-        threadId: event.threadId,
-        turnId,
-        state: 'completed',
-        ...(startedAt !== undefined ? { startedAt } : {}),
-        completedAt: Date.now()
-      })
       items.ordinals.forgetTurn(event.threadId, turnId)
       activeTurns.forget(event.threadId, turnId)
       if (event.threadId === (deps.primaryThreadId?.() ?? null)) {

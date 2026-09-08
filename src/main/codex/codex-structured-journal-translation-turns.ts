@@ -12,8 +12,6 @@ export function publishCodexTurnLifecycle(input: {
   threadId: string
   turnId: string
   state: 'running' | 'completed'
-  startedAt?: number
-  completedAt?: number
 }): StructuredAgentSessionSinkAdmission {
   if (input.primaryThreadId !== input.threadId) {
     return ADMITTED
@@ -24,7 +22,7 @@ export function publishCodexTurnLifecycle(input: {
     sessionId: input.sessionId,
     recordId: `turn-lifecycle:${input.turnId}`
   }
-  if (false) {
+  if (input.state === 'completed') {
     if (input.sink.tryAppendTombstone) {
       const admission = input.sink.tryAppendTombstone(identity, { lifecycle: true })
       if (!admission.accepted) {
@@ -40,7 +38,7 @@ export function publishCodexTurnLifecycle(input: {
           {
             kind: 'status',
             text: 'Codex is working…',
-            turnLifecycle: { turnId: input.turnId, state: input.state, ...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}), ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}) }
+            turnLifecycle: { turnId: input.turnId, state: input.state }
           },
           { lifecycle: true }
         )
@@ -49,7 +47,7 @@ export function publishCodexTurnLifecycle(input: {
           {
             kind: 'status',
             text: 'Codex is working…',
-            turnLifecycle: { turnId: input.turnId, state: input.state, ...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}), ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}) }
+            turnLifecycle: { turnId: input.turnId, state: input.state }
           },
           { lifecycle: true }
         ),
