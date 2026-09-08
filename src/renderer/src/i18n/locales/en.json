@@ -17192,7 +17192,10 @@
       "conversationCommand": {
         "pendingWork": "Wait for pending work and messages to finish before using this command.",
         "unconfirmed": "Conversation operation was not confirmed."
-      }
+      },
+      "thinking": "Thinking...",
+      "thoughtForFewSeconds": "Thought for a few seconds",
+      "thoughtForDuration": "Thought for {{duration}}"
     },
     "tab": {
       "bar": {

@@ -10,16 +10,19 @@ vi.mock('@/components/sidebar/CommentMarkdown', () => ({
   default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div>
 }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe('reasoning disclosure', () => {
-  it('starts collapsed with the first meaningful line and does not mount markdown', () => {
+  it('shows the unobserved-history fallback collapsed without mounting markdown', () => {
     render(<NativeChatReasoningRow markdown={'\n\nInspecting the request\nFull reasoning'} />)
     expect(
-      screen.getByRole('button', { name: 'Reasoning: Inspecting the request' })
+      screen.getByRole('button', { name: 'Reasoning: Thought for a few seconds' })
     ).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByTestId('markdown')).not.toBeInTheDocument()
-    expect(screen.queryByText(/Thought for/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button')).not.toHaveTextContent(/\d/)
   })
 
   it('expands through a native button and preserves disclosure state through revisions', () => {
@@ -44,10 +47,46 @@ describe('reasoning disclosure', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('bounds a growing summary without changing the collapsed layout', () => {
-    render(<NativeChatReasoningRow markdown={'a'.repeat(200)} />)
-    expect(screen.getByRole('button')).toHaveTextContent(`${'a'.repeat(120)}…`)
+  it('shows Thinking while streaming and freezes the locally observed duration on settlement', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(100_000)
+    const { rerender } = render(
+      <NativeChatReasoningRow blockId="a" markdown="Inspecting" isStreaming />
+    )
+    expect(screen.getByRole('button')).toHaveTextContent('Thinking...')
+    expect(screen.getByText('Thinking...')).toHaveClass('animate-pulse')
+    now.mockReturnValue(105_000)
+    rerender(<NativeChatReasoningRow blockId="a" markdown="Inspecting more" isStreaming />)
+    now.mockReturnValue(112_000)
+    rerender(<NativeChatReasoningRow blockId="a" markdown="Done" isStreaming={false} />)
+    expect(screen.getByRole('button')).toHaveTextContent('Thought for 12s')
+    now.mockReturnValue(180_000)
+    rerender(<NativeChatReasoningRow blockId="a" markdown="Done again" />)
+    expect(screen.getByRole('button')).toHaveTextContent('Thought for 12s')
     expect(screen.queryByTestId('markdown')).not.toBeInTheDocument()
+    rerender(<NativeChatReasoningRow blockId="history" markdown="Replayed" />)
+    expect(screen.getByRole('button')).toHaveTextContent('Thought for a few seconds')
+    expect(screen.getByRole('button')).not.toHaveTextContent(/\d/)
+    rerender(<NativeChatReasoningRow blockId="b" markdown="New block" isStreaming />)
+    now.mockReturnValue(245_000)
+    rerender(<NativeChatReasoningRow blockId="b" markdown="New block done" />)
+    expect(screen.getByRole('button')).toHaveTextContent('Thought for 1m 5s')
+  })
+
+  it('resets the clock when block identity changes without a streaming-state transition', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000)
+    const { rerender } = render(<NativeChatReasoningRow blockId="a" markdown="First" isStreaming />)
+    now.mockReturnValue(30_000)
+    rerender(<NativeChatReasoningRow blockId="b" markdown="Second" isStreaming />)
+    now.mockReturnValue(33_000)
+    rerender(<NativeChatReasoningRow blockId="b" markdown="Second done" />)
+    expect(screen.getByRole('button')).toHaveTextContent('Thought for 3s')
+  })
+
+  it('never displays zero seconds for a briefly observed stream', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(100_000)
+    const { rerender } = render(<NativeChatReasoningRow markdown="Brief" isStreaming />)
+    rerender(<NativeChatReasoningRow markdown="Brief" />)
+    expect(screen.getByRole('button')).toHaveTextContent('Thought for 1s')
   })
 
   it('uses the existing message prose pipeline for reasoning-role messages', () => {
@@ -58,7 +97,24 @@ describe('reasoning disclosure', () => {
       timestamp: 1,
       blocks: [{ type: 'text', text: 'Inspecting the request\nFull reasoning' }]
     }
-    render(<MessageRow message={message} expandSignal={false} onScrollMessageToTop={vi.fn()} />)
+    const { rerender } = render(
+      <MessageRow
+        message={message}
+        activeTurnIsWorking
+        expandSignal={false}
+        onScrollMessageToTop={vi.fn()}
+      />
+    )
+    expect(screen.getByRole('button')).toHaveTextContent('Thinking...')
+    rerender(
+      <MessageRow
+        message={{ ...message, id: 'history', timestamp: 1 }}
+        activeTurnIsWorking={false}
+        expandSignal={false}
+        onScrollMessageToTop={vi.fn()}
+      />
+    )
+    expect(screen.getByRole('button')).toHaveTextContent('Thought for a few seconds')
     fireEvent.click(screen.getByRole('button'))
     expect(screen.getByTestId('markdown')).toHaveTextContent('Full reasoning')
   })
