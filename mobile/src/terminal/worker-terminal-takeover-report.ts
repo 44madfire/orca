@@ -25,15 +25,23 @@ export function reportWorkerTerminalUserInput(client: ReportClient, terminal: st
     }
   }
   reports.set(terminal, now)
-  void sendTakeoverReport(client, terminal).catch(() => {
-    if (reports.get(terminal) === now) {
-      reports.delete(terminal)
-    }
-  })
+  void sendTakeoverReport(client, terminal)
+    .then((changed) => {
+      // Why: zero rows means no worker owned this terminal yet, which is not evidence about the
+      // worker that may attach to it during the next 30 s; only a real transition earns the gate.
+      if (changed === 0 && reports.get(terminal) === now) {
+        reports.delete(terminal)
+      }
+    })
+    .catch(() => {
+      if (reports.get(terminal) === now) {
+        reports.delete(terminal)
+      }
+    })
 }
 
-async function sendTakeoverReport(client: ReportClient, terminal: string): Promise<void> {
-  const report = async () => {
+async function sendTakeoverReport(client: ReportClient, terminal: string): Promise<number> {
+  const report = async (): Promise<number> => {
     const response = await client.sendRequest(
       'orchestration.workerTerminalUserInput',
       { terminal },
@@ -42,12 +50,13 @@ async function sendTakeoverReport(client: ReportClient, terminal: string): Promi
     if (!response.ok) {
       throw new Error('Worker takeover report rejected')
     }
+    return (response.result as { changed?: number } | undefined)?.changed ?? 0
   }
   try {
-    await report()
+    return await report()
   } catch {
     await new Promise<void>((resolve) => setTimeout(resolve, REPORT_RETRY_DELAY_MS))
-    await report()
+    return await report()
   }
 }
 

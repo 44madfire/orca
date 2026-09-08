@@ -64,3 +64,21 @@ it.each(['throw', 'rpc refusal'])(
     expect(client.sendRequest).toHaveBeenCalledTimes(3)
   }
 )
+
+it('a report that changed nothing does not arm the gate, so the next key reports again', async () => {
+  // Why: a key during worker startup lands before the resource is owned; caching that "nothing
+  // to fence" would suppress the report that protects the worker once it attaches.
+  const client = {
+    sendRequest: vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'report', ok: true, result: { changed: 0 } })
+      .mockResolvedValue(success)
+  }
+  reportWorkerTerminalUserInput(client, 'term-1')
+  await vi.advanceTimersByTimeAsync(0)
+  reportWorkerTerminalUserInput(client, 'term-1')
+  await vi.advanceTimersByTimeAsync(0)
+  expect(client.sendRequest).toHaveBeenCalledTimes(2)
+  reportWorkerTerminalUserInput(client, 'term-1')
+  expect(client.sendRequest).toHaveBeenCalledTimes(2)
+})
