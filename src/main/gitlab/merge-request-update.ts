@@ -11,7 +11,6 @@ import {
   type ProjectRef
 } from './gl-utils'
 import { encodedProject } from './project-path-encoding'
-import { stripGitLabDraftTitlePrefix } from './merge-request-draft-title'
 import { withProjectRef } from './merge-request-project-resolution'
 
 export async function updateMR(
@@ -40,7 +39,13 @@ export async function updateMR(
       }
       await acquire()
       try {
-        if (updates.readyForReview && (updates.title !== undefined || updates.body !== undefined || updates.addLabels !== undefined || updates.removeLabels !== undefined)) {
+        if (
+          updates.readyForReview &&
+          (updates.title !== undefined ||
+            updates.body !== undefined ||
+            updates.addLabels !== undefined ||
+            updates.removeLabels !== undefined)
+        ) {
           return { ok: false, error: 'Cannot update the title while marking a merge request ready' }
         }
 
@@ -50,17 +55,43 @@ export async function updateMR(
         // races with concurrent title edits on the same MR.
         if (updates.readyForReview) {
           const query = `mutation UpdateMergeRequest($input: MergeRequestSetDraftInput!) { mergeRequestSetDraft(input: $input) { mergeRequest { iid } errors } }`
-          const variables = JSON.stringify({ input: { projectPath: projectRef.path, iid: String(iid), draft: false } })
+          const variables = JSON.stringify({
+            input: { projectPath: projectRef.path, iid: String(iid), draft: false }
+          })
           const response = await glabExecFileAsync(
-            ['api', ...glabHostnameArgs(projectRef, connectionId), 'graphql', '-f', `query=${query}`, '-f', `variables=${variables}`],
+            [
+              'api',
+              ...glabHostnameArgs(projectRef, connectionId),
+              'graphql',
+              '-f',
+              `query=${query}`,
+              '-f',
+              `variables=${variables}`
+            ],
             glabRepoExecOptions(repoPath, connectionId, localGitOptions)
           )
           let payload: unknown
-          try { payload = JSON.parse(response.stdout) } catch { return { ok: false, error: 'Malformed GitLab GraphQL response' } }
-          const root = payload as { errors?: unknown; data?: { mergeRequestSetDraft?: { errors?: unknown; mergeRequest?: unknown } } }
-          if (Array.isArray(root.errors) && root.errors.length > 0) return { ok: false, error: 'GitLab GraphQL mutation failed' }
+          try {
+            payload = JSON.parse(response.stdout)
+          } catch {
+            return { ok: false, error: 'Malformed GitLab GraphQL response' }
+          }
+          const root = payload as {
+            errors?: unknown
+            data?: { mergeRequestSetDraft?: { errors?: unknown; mergeRequest?: unknown } }
+          }
+          if (Array.isArray(root.errors) && root.errors.length > 0) {
+            return { ok: false, error: 'GitLab GraphQL mutation failed' }
+          }
           const mutation = root.data?.mergeRequestSetDraft
-          if (!mutation || !Array.isArray(mutation.errors) || mutation.errors.length > 0 || !mutation.mergeRequest) return { ok: false, error: 'GitLab rejected the merge request readiness mutation' }
+          if (
+            !mutation ||
+            !Array.isArray(mutation.errors) ||
+            mutation.errors.length > 0 ||
+            !mutation.mergeRequest
+          ) {
+            return { ok: false, error: 'GitLab rejected the merge request readiness mutation' }
+          }
           return { ok: true }
         }
 
