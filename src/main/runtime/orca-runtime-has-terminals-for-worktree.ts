@@ -143,7 +143,7 @@ export class OrcaRuntimeWithHasTerminalsForWorktree extends OrcaRuntimeWithStopE
       this.beginGraphReload(windowId, reason === 'renderer-process-gone')
     }
     this.graphReloadLifecycle.settleActive('failure')
-    if (reason === 'renderer-frame-unavailable') {
+    if (reason === 'renderer-frame-unavailable' && !this.shouldRestoreHeadlessGraph(windowId)) {
       // A failed send does not retire the document or its live PTY bindings.
       this.graphStatus = 'unavailable'
       this.setTerminalSideEffectConsumerAvailable(false)

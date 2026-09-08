@@ -111,6 +111,18 @@ describe('runtime graph publisher authority', () => {
     expect(runtime.syncWindowGraph(1, graph()).graphStatus).toBe('ready')
   })
 
+  it('keeps headless fallback available after a promotion notification send fails', () => {
+    const runtime = new OrcaRuntimeService()
+    runtime.syncWindowGraph(0, { tabs: [], leaves: [] })
+    runtime.attachWindow(1)
+    runtime.markGraphReloadFailed(1, 'renderer-frame-unavailable')
+    expect(runtime.getStatus()).toMatchObject({
+      authoritativeWindowId: 0,
+      graphStatus: 'ready'
+    })
+    expect(runtime.syncWindowGraph(1, graph()).graphStatus).toBe('ready')
+  })
+
   it('preserves generation-absent runtime callers through reload', () => {
     const runtime = new OrcaRuntimeService()
     runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
