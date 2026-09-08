@@ -151,7 +151,7 @@ describe('reduceNativeChatTurnTiming', () => {
     expect(next.u1?.startedAt).toBe(500)
   })
 
-  it('settles the turn to whole elapsed seconds when work stops', () => {
+  it('does not settle a completed duration without completion evidence', () => {
     const working = reduceNativeChatTurnTiming(
       {},
       { activeTurnKey: 'u1', validTurnKeys, isWorking: true, now: 1_000 }
@@ -162,7 +162,7 @@ describe('reduceNativeChatTurnTiming', () => {
       isWorking: false,
       now: 13_400
     })
-    expect(settled.u1).toEqual({ startedAt: 1_000, workedSeconds: 12 })
+    expect(settled).toBe(working)
   })
 
   it('uses completion evidence instead of the render-time clock', () => {
@@ -236,6 +236,7 @@ describe('reduceNativeChatTurnTiming', () => {
       previousActiveTurnKey: 'pending-1',
       validTurnKeys: new Set(['u9']),
       isWorking: false,
+      completedAt: 13_400,
       now: 20_000
     })
     expect(swapped.u9).toEqual({ startedAt: 1_000, workedSeconds: 12 })
@@ -252,7 +253,8 @@ describe('reduceNativeChatTurnTiming', () => {
       previousActiveTurnKey: 'pending-1',
       validTurnKeys: new Set(['u9']),
       isWorking: false,
-      now: 13_400
+      completedAt: 13_400,
+      now: 20_000
     })
     expect(settled.u9).toEqual({ startedAt: 1_000, workedSeconds: 12 })
   })

@@ -156,14 +156,16 @@ export function reduceNativeChatTurnTiming(
     return retained
   }
   const startedAt = timing?.startedAt ?? workingStartedAt
-  if (startedAt == null) {
+  // A completed duration requires an observed terminal timestamp. Never turn
+  // renderer observation time into a claimed execution duration.
+  if (startedAt == null || completedAt == null || !Number.isFinite(completedAt)) {
     return retained
   }
   return {
     ...retained,
     [activeTurnKey]: {
       startedAt,
-      workedSeconds: Math.max(0, Math.floor(((completedAt ?? now) - startedAt) / 1000))
+      workedSeconds: Math.max(0, Math.floor((completedAt - startedAt) / 1000))
     }
   }
 }
