@@ -227,22 +227,26 @@ describe('orchestration worker-start prompt contract', () => {
     })
   })
 
-  it('keeps a swallowed Enter queued without revoking the worker or retrying input', async () => {
+  it('reports a swallowed Enter as start_unknown while keeping the worker and its capability', async () => {
     vi.useFakeTimers()
     const harness = await createPromptContractHarness('swallowed')
     const pending = harness.dispatcher.dispatch(harness.request)
 
     await vi.runAllTimersAsync()
     const response = await pending
+    // Codex supports turn-start observation and no turn started, so ready would be a lie: the
+    // paste can sit unsent in the composer while the receipt looks like a healthy dispatch.
     expect(response).toMatchObject({
       ok: true,
       result: {
-        state: 'ready',
-        stage: 'input_accepted',
+        state: 'outcome_unknown',
+        stage: 'turn_start_unobserved',
+        turnStart: 'unobserved',
         prompt: {
           requestId: harness.requestId,
           stages: ['input_accepted']
         },
+        nextCommands: expect.arrayContaining([expect.stringContaining('worker-show')]),
         mutation: { requestId: harness.requestId, replayed: false }
       }
     })
@@ -251,29 +255,42 @@ describe('orchestration worker-start prompt contract', () => {
     }
     const dispatchId = (response.result as { dispatchId: string }).dispatchId
     await vi.advanceTimersByTimeAsync(20_000)
+    // Unverifiable is not failure: exactly one submit, no blind retry, nothing torn down.
     expect(harness.submittedTurns()).toBe(1)
     expect(harness.startedTurns()).toBe(0)
     expect(harness.prematureSubmits()).toBe(0)
     expect(harness.writes.filter((data) => data === '\r')).toHaveLength(1)
     const persisted = reopenPromptContractDb(harness)
-    expect(persisted.getTask(harness.taskId)?.status).toBe('dispatched')
+    expect(persisted.getTask(harness.taskId)?.status).toBe('blocked')
     expect(persisted.getDispatchContextById(dispatchId)).toMatchObject({
-      status: 'dispatched',
+      status: 'pending',
       last_failure: null,
+      // The capability survives so a worker that recovers can still report; worker-report
+      // settlement reconnects a start_unknown worker through 'ready'.
+      capability_hash: expect.any(String),
       capability_revoked_at: null
     })
     expect(persisted.getWorkerDispatch(dispatchId)).toMatchObject({
-      state: 'ready',
-      stage: 'input_accepted',
-      last_error: null
+      state: 'start_unknown',
+      stage: 'turn_start_unobserved',
+      last_error: expect.stringContaining('never started a turn')
     })
+    const persistedEffects = JSON.parse(
+      persisted.getWorkerDispatch(dispatchId)?.effects ?? '[]'
+    ) as { kind?: string; state?: string }[]
+    expect(persistedEffects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'dispatch_input', state: 'accepted' }),
+        expect.objectContaining({ kind: 'dispatch_input', state: 'turn_unobserved' })
+      ])
+    )
     const callerFingerprint = persisted.getOrCreateLocalMutationCallerFingerprint()
     const receipt = persisted.getMutationReceipt(callerFingerprint, harness.requestId)
     expect(receipt).toMatchObject({ state: 'completed' })
     expect(JSON.parse(receipt?.receipt ?? 'null')).toMatchObject({
       dispatchId,
-      state: 'ready',
-      stage: 'input_accepted',
+      state: 'outcome_unknown',
+      stage: 'turn_start_unobserved',
       prompt: {
         requestId: harness.requestId,
         stages: ['input_accepted']

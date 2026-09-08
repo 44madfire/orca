@@ -121,7 +121,8 @@ export function markWorkerStartUnknown(
   this: OrchestrationDb,
   dispatchId: string,
   stage: string,
-  reason: string
+  reason: string,
+  effects?: unknown[]
 ): WorkerDispatchRow {
   this.db.exec('BEGIN IMMEDIATE')
   try {
@@ -135,7 +136,12 @@ export function markWorkerStartUnknown(
       id: dispatchId,
       from: 'starting',
       to: 'start_unknown',
-      projection: { stage, last_error: reason, updated_at: new Date().toISOString() }
+      projection: {
+        stage,
+        last_error: reason,
+        updated_at: new Date().toISOString(),
+        ...(effects ? { effects: JSON.stringify(effects) } : {})
+      }
     })
     transitionLifecycleWithDb(this.db, {
       entity: 'dispatch',

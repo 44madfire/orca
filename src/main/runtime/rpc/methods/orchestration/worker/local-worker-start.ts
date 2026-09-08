@@ -18,18 +18,17 @@ import {
 import { failWorkerStartWithReceipt } from './worker-start-receipt'
 import { parseTaskDeps } from './task-deps-argument'
 import { assertExplicitWorkerTerminalUsable } from './explicit-worker-terminal-validation'
-import { deliverWorkerDispatchPreamble } from './deliver-worker-dispatch-preamble'
 import { tearDownFailedWorkerStart } from './failed-worker-start-teardown'
 import {
   createExistingWorktreeWorkerTerminal,
   createStructuredWorkerSessionForWorktree,
   createWorkerWorktree,
-  monitorWorkerSetup,
   requireWorkerAuthority,
   type WorkerEffect,
   type WorkerSetupReceipt
 } from './worker-topology'
 import { prepareLocalWorkerStart } from './worker-start-validation'
+import { deliverAndSettleWorkerStartReadiness } from './worker-start-readiness-settlement'
 
 type WorkerStartMutation = {
   callerFingerprint: string
@@ -240,50 +239,30 @@ export async function startLocalWorker(args: {
       terminalOwnership: params.terminal ? 'external' : 'created'
     })
 
-    failedStage = 'dispatch_input'
-    const promptDelivery = await deliverWorkerDispatchPreamble({
+    return await deliverAndSettleWorkerStartReadiness({
       runtime,
-      structuredSession,
-      terminalHandle,
+      db,
+      run,
+      task,
       dispatchId: started.dispatch.id,
       dispatchDepth: started.dispatch.depth,
-      taskId: task.id,
-      taskSpec: task.spec,
+      structuredSession,
+      terminalHandle,
       coordinatorHandle: params.from,
       dispatchCapability: capability,
       devMode: params.devMode,
-      requestId: orchestrationMutation?.requestId ?? started.dispatch.id
-    })
-    effects.push({
-      kind: 'dispatch_input',
-      role: 'agent',
-      id: terminalHandle,
-      state: 'accepted'
-    })
-    const worker = db.markWorkerDispatchReady(started.dispatch.id, effects)
-    monitorWorkerSetup({
-      runtime,
-      db,
-      runId: run.id,
-      dispatchId: started.dispatch.id,
+      requestId: orchestrationMutation?.requestId ?? started.dispatch.id,
+      agent: agent ?? null,
       setupReceipt,
-      effects
-    })
-    return {
-      runId: run.id,
-      taskId: task.id,
-      dispatchId: started.dispatch.id,
-      state: worker.state,
-      stage: worker.stage,
-      setup: setupReceipt,
-      launch: launch.receipt,
+      launchReceipt: launch.receipt,
       mode,
       timeoutMs: params.timeoutMs ?? 60_000,
       effects,
-      ...(promptDelivery ? { prompt: promptDelivery } : {}),
-      residualResources: [],
-      ...(terminalRevealWarning ? { warning: terminalRevealWarning } : {})
-    }
+      terminalRevealWarning,
+      onStage: (stage) => {
+        failedStage = stage
+      }
+    })
   } catch (error) {
     const residualAgentTerminal = await tearDownFailedWorkerStart({
       runtime,
