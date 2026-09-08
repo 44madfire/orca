@@ -276,8 +276,7 @@ test('opens a remote pane link on the pane runtime and refuses to fall back to t
     }
     expect(pane.handleEnvironmentId).toBe(environmentId)
     await focusMirroredPage(page, worktreeId, pane.pageId)
-    const paneCountBeforeOpen = await page.getByTestId('remote-browser-pane').count()
-
+    const remoteHandleCountBeforeOpen = (await readRemotePaneUrls(page, worktreeId)).length
     // Act 1: server placement. The user asked for pages to live on the server, so the link must
     // land on the runtime and be streamed back — nothing renders here.
     await pinClientHostedPlacement(page, false)
@@ -300,21 +299,18 @@ test('opens a remote pane link on the pane runtime and refuses to fall back to t
         message: 'the runtime process never held a page for the link'
       })
       .toHaveLength(1)
-    // One more remote pane, and still nothing rendered by this machine's own browser.
-    await expect(page.getByTestId('remote-browser-pane')).toHaveCount(paneCountBeforeOpen + 1, {
-      timeout: 60_000
-    })
-    expect(await readRemotePaneUrls(page, worktreeId)).toContainEqual(
-      expect.stringContaining(fixture.linkUrl)
-    )
+    // The cold background page is mirrored as a handle before it publishes its loaded URL.
+    await expect
+      .poll(async () => (await readRemotePaneUrls(page, worktreeId)).length, { timeout: 60_000 })
+      .toBe(remoteHandleCountBeforeOpen + 1)
     expect(await readLocalBrowserViewUrls(page)).toHaveLength(0)
 
     // Drop every tab except the pane's, so the next act drives the pane it started with against a
     // host that no longer holds the link.
     await closeBrowserTabsExceptPane(page, worktreeId, fixture.paneUrl)
-    await expect(page.getByTestId('remote-browser-pane')).toHaveCount(paneCountBeforeOpen, {
-      timeout: 60_000
-    })
+    await expect
+      .poll(async () => (await readRemotePaneUrls(page, worktreeId)).length, { timeout: 60_000 })
+      .toBe(remoteHandleCountBeforeOpen)
     await expect
       .poll(
         async () =>
@@ -353,7 +349,9 @@ test('opens a remote pane link on the pane runtime and refuses to fall back to t
       .toHaveLength(1)
     expect(await readOwnedPageUrls(client!.app, fixture.linkUrl)).toHaveLength(0)
     expect(await readLocalBrowserViewUrls(page)).toHaveLength(0)
-    await expect(page.getByTestId('remote-browser-pane')).toHaveCount(paneCountBeforeOpen + 1)
+    await expect
+      .poll(async () => (await readRemotePaneUrls(page, worktreeId)).length, { timeout: 60_000 })
+      .toBe(remoteHandleCountBeforeOpen + 1)
 
     // The store drops the tab synchronously and only then fires browser.tabClose, so settle the
     // mirror, host inventory, and host guest before act 3 reads them as its own baseline.

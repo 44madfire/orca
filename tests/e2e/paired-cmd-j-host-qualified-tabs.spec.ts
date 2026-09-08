@@ -27,7 +27,7 @@ test('routes same-id browser and simulator Cmd-J rows to their owning paired hos
     const workspace = state.createBrowserTab(
       worktreeId,
       'data:text/html,<title>Remote browser proof</title>',
-      { activate: false, title: 'Remote browser proof' }
+      { activate: true, title: 'Remote browser proof' }
     )
     return { worktreeId, workspaceId: workspace.id }
   })
