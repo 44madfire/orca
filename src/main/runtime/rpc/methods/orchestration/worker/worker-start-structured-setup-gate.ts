@@ -10,6 +10,11 @@
  * Bounded by the start's own timeout, and deliberately forgiving: a wait that cannot be taken —
  * an in-process hook with no setup terminal, or a setup pty already gone — yields no verdict
  * rather than a failure, because a worker start must not fail on missing evidence.
+ *
+ * "No verdict" is never silent, though. A wait that could not be TAKEN is an absent precondition
+ * and needs no receipt; a wait that was taken and then threw is a LOST observation, and that one
+ * is recorded as a `wait_unevaluated` effect so the start's receipt still says the gate went
+ * unevaluated and why.
  */
 
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
@@ -41,7 +46,15 @@ export async function awaitStructuredWorkerSetupGate(args: {
         timer = setTimeout(() => resolve({ satisfied: false, status: 'timeout' }), args.timeoutMs)
       })
     ])
-  } catch {
+  } catch (error) {
+    // A wait that was TAKEN and then threw is not the same as one that could not be taken. Both
+    // yield no verdict — a start must not fail on missing evidence — but only this one is a lost
+    // observation, so it is recorded rather than silently flattened into "not applicable".
+    args.effects.push({
+      kind: 'setup',
+      action: 'wait_unevaluated',
+      state: error instanceof Error ? error.message : String(error)
+    })
     return null
   } finally {
     clearTimeout(timer)

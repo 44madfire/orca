@@ -20,6 +20,7 @@ import { failWorkerStartWithReceipt } from './worker-start-receipt'
 import { parseTaskDeps } from './task-deps-argument'
 import { assertExplicitWorkerTerminalUsable } from './explicit-worker-terminal-validation'
 import { deliverWorkerDispatchPreamble } from './deliver-worker-dispatch-preamble'
+import { recordCreatedWorkerTerminalCustody } from './created-worker-terminal-custody'
 import { tearDownFailedWorkerStart } from './failed-worker-start-teardown'
 import { monitorWorkerSetup, requireWorkerAuthority, type WorkerEffect } from './worker-topology'
 import { prepareLocalWorkerStart } from './worker-start-validation'
@@ -155,6 +156,7 @@ export async function startLocalWorker(args: {
       setup: setupReceipt,
       effects
     }
+    recordCreatedWorkerTerminalCustody(runtime, setupStage, !params.terminal && !structuredSession)
     if (persistGatedSetupSpawnFailure(setupStage)) {
       failedStage = 'setup_start'
       throw new Error('Setup terminal failed to start before the gated agent launch.')
@@ -247,13 +249,10 @@ export async function startLocalWorker(args: {
       ...(placed.warning ? { warning: placed.warning } : {})
     }
   } catch (error) {
-    const residualAgentTerminal = await tearDownFailedWorkerStart({
+    await tearDownFailedWorkerStart({
       runtime,
       structuredSession: placed?.structuredSession ?? null,
-      dispatchId: started.dispatch.id,
-      effects,
-      terminalHandle,
-      worktreeId: resolvedWorktree?.id ?? null
+      dispatchId: started.dispatch.id
     })
     return failWorkerStartWithReceipt({
       db,
@@ -264,8 +263,7 @@ export async function startLocalWorker(args: {
       error,
       setup: placed?.setupReceipt ?? EXISTING_WORKTREE_SETUP,
       launch: launch.receipt,
-      mode,
-      ...(residualAgentTerminal ? { residualAgentTerminal } : {})
+      mode
     })
   }
 }
