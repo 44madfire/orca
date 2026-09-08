@@ -65,6 +65,18 @@ export function getRunMailboxOwnerIdsForHandle(
   return [...new Set(runIds)].sort()
 }
 
+/** Resolves mailbox ownership by durable agent session identity. */
+export function getRunMailboxOwnerIdsForAgentSession(
+  this: OrchestrationDb,
+  agentSessionId: string
+): string[] {
+  return (
+    this.db
+      .prepare('SELECT id FROM runs WHERE legacy = 0 AND coordinator_agent_session_id = ?')
+      .all(agentSessionId) as { id: string }[]
+  ).map((row) => row.id)
+}
+
 export function listRuns(
   this: OrchestrationDb,
   params: { limit?: number; cursor?: string } = {}
@@ -160,6 +172,7 @@ export type RunLookupMethods = {
   getRun: typeof getRun
   getLegacyAdoptedRunMailboxOwner: typeof getLegacyAdoptedRunMailboxOwner
   getRunMailboxOwnerIdsForHandle: typeof getRunMailboxOwnerIdsForHandle
+  getRunMailboxOwnerIdsForAgentSession: typeof getRunMailboxOwnerIdsForAgentSession
   listRuns: typeof listRuns
   getCurrentRunForPane: typeof getCurrentRunForPane
   runsBoundToPane: typeof runsBoundToPane
@@ -174,6 +187,7 @@ export function attachRunLookup(ctor: { prototype: object }): void {
     getRun,
     getLegacyAdoptedRunMailboxOwner,
     getRunMailboxOwnerIdsForHandle,
+    getRunMailboxOwnerIdsForAgentSession,
     listRuns,
     getCurrentRunForPane,
     runsBoundToPane,
