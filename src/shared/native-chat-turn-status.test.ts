@@ -350,3 +350,22 @@ describe('nativeChatElapsedSeconds', () => {
     expect(nativeChatElapsedSeconds(9_000, 1_000, 5_000)).toBe(0)
   })
 })
+
+it.each([Number.NaN, -1, 0, 2000])(
+  'does not settle an invalid or reversed start %s',
+  (startedAt) => {
+    expect(
+      reduceNativeChatTurnTiming(
+        {},
+        {
+          activeTurnKey: 'u',
+          validTurnKeys: new Set(['u']),
+          isWorking: false,
+          workingStartedAt: startedAt,
+          completedAt: 1000,
+          now: 86400000
+        }
+      )
+    ).toEqual({})
+  }
+)

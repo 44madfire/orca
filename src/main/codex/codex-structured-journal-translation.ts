@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { createCodexProviderActivityReader } from '../native-chat/agent-session-wire/provider-frame-activity'
 import {
   CODEX_TOKEN_USAGE_METHOD,
@@ -22,7 +23,8 @@ import {
 import { settleCodexOversizedNotificationFrame } from './codex-structured-journal-translation-frames'
 import { restoreCodexJournalThread } from './codex-structured-journal-translation-restore'
 import { CodexJournalActiveTurns } from './codex-structured-journal-translation-turn-state'
-import { publishCodexTurnLifecycle } from './codex-structured-journal-translation-turns'
+import { admitCodexJournalTurnStart } from './codex-structured-journal-translation-turns'
+import { codexStructuredTurnTiming } from './codex-structured-turn-timing'
 import { readCodexTurnId } from './codex-structured-thread-facts'
 import type { CodexStructuredSessionEvent } from './codex-structured-session-adapter'
 
@@ -46,6 +48,7 @@ export {
 export function createCodexJournalTranslator(
   deps: CodexJournalTranslatorDeps
 ): CodexJournalTranslator {
+  const timingClock = randomUUID()
   const activeTurns = new CodexJournalActiveTurns()
   const compactions = new CodexJournalCompactions(deps.sink, (threadId) =>
     activeTurns.current(threadId)
@@ -256,23 +259,11 @@ export function createCodexJournalTranslator(
   function startTurn(
     event: Extract<CodexStructuredSessionEvent, { type: 'notification' }>
   ): CodexJournalTranslationAdmission {
-    const turnId = readCodexTurnId(event.params)
-    if (!turnId) {
+    if (!readCodexTurnId(event.params)) {
       return CODEX_JOURNAL_ADMITTED
     }
-    if (!activeTurns.canRemember(event.threadId, turnId)) {
-      return { accepted: false, reason: 'backpressure' }
-    }
-    const admission = publishCodexTurnLifecycle({
-      sink: deps.sink,
-      primaryThreadId: deps.primaryThreadId?.() ?? null,
-      sessionId: event.sessionId,
-      threadId: event.threadId,
-      turnId,
-      state: 'running'
-    })
+    const admission = admitCodexJournalTurnStart(deps, activeTurns, event, timingClock)
     if (admission.accepted) {
-      activeTurns.remember(event.threadId, turnId)
       if (event.threadId === (deps.primaryThreadId?.() ?? null)) {
         readActivity = createCodexProviderActivityReader()
         deps.sink.setActivity?.(null)
@@ -285,6 +276,7 @@ export function createCodexJournalTranslator(
     sessionId: string
     threadId: string
     params: unknown
+    observedAt?: number
   }): CodexJournalTranslationAdmission {
     const suppressionAdmission = genericFrames.flush()
     if (!suppressionAdmission.accepted) {
@@ -305,6 +297,14 @@ export function createCodexJournalTranslator(
       sessionId: event.sessionId,
       threadId: event.threadId,
       turnId,
+      turnTiming: codexStructuredTurnTiming(
+        event.threadId,
+        turnId,
+        event.params,
+        'end',
+        event.observedAt,
+        activeTurns.byThread.get(event.threadId)?.has(turnId) ? timingClock : undefined
+      ),
       streams: items.streams,
       activeItems: items.activeItems
     })

@@ -171,10 +171,20 @@ export type AgentJournalItemBody =
   | AgentJournalQuestionItem
   | AgentJournalStatusItem
 
+export type AgentJournalTurnTiming = {
+  /** Provider user-item key, scoped by provider session/thread and turn. */
+  userItemId: string
+  start?: { at: number; source: 'provider' | 'host'; clock?: string }
+  end?: { at: number; source: 'provider' | 'host'; clock?: string }
+}
+
 /** One reduced timeline entry. `sequence` orders the list; `observedAt` is the
  *  provider's own clock and may sort earlier than a later sequence when the row
  *  was recovered after a crash. */
 export type AgentJournalRenderItem = {
+  turnTiming?: AgentJournalTurnTiming
+  /** Journal sequence of the timing update; independent of content revisions. */
+  turnTimingSequence?: number
   itemId: string
   revision: number
   body: AgentJournalItemBody

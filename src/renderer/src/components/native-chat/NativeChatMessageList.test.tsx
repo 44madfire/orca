@@ -476,6 +476,7 @@ describe('NativeChatMessageList assistant messages', () => {
         session={{ ...turnSession, status: 'ready' }}
         isWorking={false}
         workingStartedAt={null}
+        completedAt={startedAt + 3000}
         expandSignal={false}
         fontScale={1}
       />
@@ -547,6 +548,7 @@ describe('NativeChatMessageList assistant messages', () => {
           ]
         }}
         isWorking={false}
+        completedAt={startedAt + 3000}
         workingStartedAt={startedAt}
         expandSignal={false}
         fontScale={1}
@@ -636,6 +638,7 @@ describe('NativeChatMessageList spawn-group roster', () => {
       <NativeChatMessageList
         session={rosterSession(ROSTER, startedAt)}
         isWorking={false}
+        completedAt={startedAt + 3000}
         workingStartedAt={startedAt}
         expandSignal={false}
         fontScale={1}
@@ -678,6 +681,7 @@ describe('NativeChatMessageList spawn-group roster', () => {
           ]
         }}
         isWorking={false}
+        completedAt={startedAt + 3000}
         workingStartedAt={startedAt}
         expandSignal={false}
         fontScale={1}
@@ -698,6 +702,7 @@ describe('NativeChatMessageList spawn-group roster', () => {
       <NativeChatMessageList
         session={rosterSession(ROSTER, startedAt)}
         isWorking={false}
+        completedAt={startedAt + 3000}
         workingStartedAt={startedAt}
         expandSignal={false}
         fontScale={1}
@@ -822,6 +827,7 @@ describe('NativeChatMessageList childless spawn group', () => {
           startedAt
         )}
         isWorking={false}
+        completedAt={startedAt + 3000}
         workingStartedAt={startedAt}
         expandSignal={false}
         fontScale={1}
@@ -844,6 +850,7 @@ describe('NativeChatMessageList childless spawn group', () => {
           startedAt
         )}
         isWorking={false}
+        completedAt={startedAt + 3000}
         workingStartedAt={startedAt}
         expandSignal={false}
         fontScale={1}

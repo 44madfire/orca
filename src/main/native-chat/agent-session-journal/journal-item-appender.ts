@@ -1,6 +1,7 @@
 import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
 import type {
   AgentJournalItemBody,
+  AgentJournalTurnTiming,
   AgentJournalItemIdentity
 } from '../../../shared/agent-session-journal-types'
 import { journalItemRowBuilder } from './journal-row-builders'
@@ -8,7 +9,12 @@ import type { JournalReducerState } from './journal-reducer'
 import type { JournalAppendResult } from './journal-store-contracts'
 import type { JournalRow } from './journal-row-schema'
 
-type ItemAppendOptions = { fence: number; observedAt?: number; recovered?: true }
+type ItemAppendOptions = {
+  fence: number
+  observedAt?: number
+  recovered?: true
+  turnTiming?: AgentJournalTurnTiming
+}
 
 export class JournalItemAppender {
   constructor(

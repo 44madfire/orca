@@ -8,6 +8,7 @@
 import {
   AGENT_SESSION_JOURNAL_SCHEMA_VERSION,
   type AgentJournalDispatchState,
+  type AgentJournalTurnTiming,
   type AgentJournalItemBody,
   type AgentJournalMessageItem,
   type AgentSessionProviderHandle
@@ -18,6 +19,7 @@ import {
 } from '../../../shared/agent-session-journal-schemas'
 
 type JournalRowBase = {
+  turnTiming?: AgentJournalTurnTiming
   /** Schema version of THIS row. */
   v: number
   epoch: string
@@ -80,7 +82,7 @@ export type JournalDispatchRow = JournalRowBase & {
   reason: string | null
 }
 
-export type JournalLifecycleMutation =
+export type JournalLifecycleMutation = { turnTiming?: AgentJournalTurnTiming } & (
   | {
       kind: 'item'
       itemId: string
@@ -88,6 +90,7 @@ export type JournalLifecycleMutation =
       body: AgentJournalItemBody
     }
   | { kind: 'tombstone'; itemId: string; revision: number }
+)
 
 /** One durable append whose nested mutations share the outer ordering facts. */
 export type JournalLifecycleBatchRow = JournalRowBase & {

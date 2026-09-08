@@ -31,6 +31,7 @@ export type ClaudeStructuredSessionEvent =
       message: Record<string, unknown>
       /** Present only when this replay acknowledged Orca's in-flight dispatch. */
       startsTurn?: true
+      observedAt?: number
     }
   | { type: 'provider-frame'; sessionId: string; kind: string; payload: unknown }
   | { type: 'prompt'; sessionId: string; prompt: ClaudePendingPrompt }

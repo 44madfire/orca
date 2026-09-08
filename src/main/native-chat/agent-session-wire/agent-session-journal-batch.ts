@@ -5,6 +5,7 @@
 // provider echo that was adopted into a submission slot arrives under the slot
 // key instead of appearing as a second copy of the user's own message.
 
+import { readAgentJournalTurnTiming } from '../../../shared/agent-session-turn-timing'
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
 import type {
   AgentJournalRenderItem,
@@ -38,9 +39,17 @@ export function projectJournalBatch(input: {
   const aliases = submissionAliases(input.snapshot.submissions)
   const touchedItemIds = new Set<string>()
   const touchedClientMessageIds = new Set<string>()
+  const touchTiming = (value: unknown): void => {
+    const key = readAgentJournalTurnTiming(value)?.userItemId
+    if (key) {
+      touchedItemIds.add(input.canonicalItemId?.(key) ?? aliases.get(key) ?? key)
+    }
+  }
   for (const row of input.rows) {
+    touchTiming(row.turnTiming)
     if (row.kind === 'lifecycle-batch') {
       for (const mutation of row.mutations) {
+        touchTiming(mutation.turnTiming)
         touchedItemIds.add(
           input.canonicalItemId?.(mutation.itemId) ??
             aliases.get(mutation.itemId) ??

@@ -1,3 +1,5 @@
+import { observeCodexRewindActivity } from './codex-structured-rewind'
+import type { CodexStructuredTurnCancellation } from './codex-structured-turn-cancellation'
 import type { CodexAppServerServerRequest } from './codex-app-server-connection'
 import { disposeCodexServerRequest } from './codex-server-request-disposition'
 import type { CodexJournalTranslationAdmission } from './codex-structured-journal-translation'
@@ -14,16 +16,29 @@ export function deliverCodexNotification(
   session: CodexSession | undefined,
   method: string,
   params: unknown,
-  emit: EmitCodexEvent
+  emit: EmitCodexEvent,
+  observedAt?: number,
+  cancellation?: Pick<CodexStructuredTurnCancellation, 'handleNotification'>
 ): CodexJournalTranslationAdmission {
   if (!session) {
+    return { accepted: true }
+  }
+  observeCodexRewindActivity(session, method, params)
+  if (cancellation?.handleNotification(sessionId, session, method, params, observedAt)) {
     return { accepted: true }
   }
   const threadId = readCodexThreadId(params) ?? session.threadId
   const turnId =
     method === 'turn/started' && threadId === session.threadId ? readCodexTurnId(params) : null
   const turnWaiter = turnId ? session.turnIdWaiters[0] : undefined
-  const admission = emit(session, { type: 'notification', sessionId, threadId, method, params })
+  const admission = emit(session, {
+    type: 'notification',
+    sessionId,
+    threadId,
+    method,
+    params,
+    ...(observedAt !== undefined ? { observedAt } : {})
+  })
   if (method === 'turn/started' && threadId === session.threadId) {
     if (admission.accepted && turnId && session.turnIdWaiters[0] === turnWaiter) {
       session.turnIdWaiters.shift()

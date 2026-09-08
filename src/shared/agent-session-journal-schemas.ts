@@ -169,7 +169,27 @@ export const AgentJournalItemBodySchema = z.discriminatedUnion('kind', [
   })
 ])
 
+export const AgentJournalTurnTimingSchema = z.object({
+  userItemId: z.string().min(1),
+  start: z
+    .object({
+      at: z.number().finite().positive(),
+      source: z.enum(['provider', 'host']),
+      clock: z.string().min(1).optional()
+    })
+    .optional(),
+  end: z
+    .object({
+      at: z.number().finite().positive(),
+      source: z.enum(['provider', 'host']),
+      clock: z.string().min(1).optional()
+    })
+    .optional()
+})
+
 export const AgentJournalRenderItemSchema = z.object({
+  turnTiming: AgentJournalTurnTimingSchema.optional(),
+  turnTimingSequence: z.number().int().optional(),
   itemId: z.string().min(1),
   revision: z.number().int(),
   body: AgentJournalItemBodySchema,

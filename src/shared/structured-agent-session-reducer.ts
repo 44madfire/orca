@@ -114,7 +114,14 @@ function mergeItems(
   for (const item of incoming) {
     const prior = byId.get(item.itemId)
     if (!prior || item.revision >= prior.revision) {
-      byId.set(item.itemId, item)
+      const priorTimingIsNewer =
+        prior?.turnTiming && (prior.turnTimingSequence ?? 0) > (item.turnTimingSequence ?? 0)
+      byId.set(
+        item.itemId,
+        priorTimingIsNewer
+          ? { ...item, turnTiming: prior.turnTiming, turnTimingSequence: prior.turnTimingSequence }
+          : item
+      )
     }
   }
   return [...byId.values()].sort((left, right) => left.sequence - right.sequence)

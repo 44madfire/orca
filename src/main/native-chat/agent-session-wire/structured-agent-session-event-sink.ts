@@ -1,6 +1,7 @@
 import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
 import type {
   AgentJournalItemBody,
+  AgentJournalTurnTiming,
   AgentJournalItemIdentity
 } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionTurnActivity } from '../../../shared/agent-session-wire'
@@ -23,6 +24,7 @@ export type StructuredAgentSessionSinkState = {
 export type StructuredAgentSessionSinkBarrier = { ok: true } | { ok: false; error: unknown }
 
 export type StructuredAgentSessionAppendOptions = {
+  turnTiming?: AgentJournalTurnTiming
   /** Pending checkpoints with this key replace one another before they run. */
   coalescingKey?: string
   /** Marks a critical lifecycle operation for lifecycle barriers and diagnostics. */
@@ -160,9 +162,13 @@ export function createDeferredStructuredAgentSessionEventSink(
       appendItem: (identity, body, options = {}) => {
         queue.submit(
           {
-            bytes: estimateStructuredAgentSessionItemBytes(identity, body),
+            bytes: estimateStructuredAgentSessionItemBytes(identity, body, options.turnTiming),
             coalescingKey: options.coalescingKey,
-            run: (bound) => bound.journal.appendItem(identity, body, { fence: bound.fence })
+            run: (bound) =>
+              bound.journal.appendItem(identity, body, {
+                fence: bound.fence,
+                turnTiming: options.turnTiming
+              })
           },
           options
         )
@@ -170,9 +176,13 @@ export function createDeferredStructuredAgentSessionEventSink(
       tryAppendItem: (identity, body, options = {}) =>
         queue.submit(
           {
-            bytes: estimateStructuredAgentSessionItemBytes(identity, body),
+            bytes: estimateStructuredAgentSessionItemBytes(identity, body, options.turnTiming),
             coalescingKey: options.coalescingKey,
-            run: (bound) => bound.journal.appendItem(identity, body, { fence: bound.fence })
+            run: (bound) =>
+              bound.journal.appendItem(identity, body, {
+                fence: bound.fence,
+                turnTiming: options.turnTiming
+              })
           },
           options
         ),
@@ -194,8 +204,17 @@ export function createDeferredStructuredAgentSessionEventSink(
       appendTombstone: (identity, options = {}) => {
         queue.submit(
           {
-            bytes: Buffer.byteLength(agentJournalItemKey(identity), 'utf8') + 256,
-            run: (bound) => bound.journal.appendTombstone(identity, { fence: bound.fence })
+            bytes:
+              Buffer.byteLength(agentJournalItemKey(identity), 'utf8') +
+              256 +
+              (options.turnTiming
+                ? Buffer.byteLength(JSON.stringify(options.turnTiming), 'utf8')
+                : 0),
+            run: (bound) =>
+              bound.journal.appendTombstone(identity, {
+                fence: bound.fence,
+                turnTiming: options.turnTiming
+              })
           },
           options
         )
@@ -203,8 +222,17 @@ export function createDeferredStructuredAgentSessionEventSink(
       tryAppendTombstone: (identity, options = {}) =>
         queue.submit(
           {
-            bytes: Buffer.byteLength(agentJournalItemKey(identity), 'utf8') + 256,
-            run: (bound) => bound.journal.appendTombstone(identity, { fence: bound.fence })
+            bytes:
+              Buffer.byteLength(agentJournalItemKey(identity), 'utf8') +
+              256 +
+              (options.turnTiming
+                ? Buffer.byteLength(JSON.stringify(options.turnTiming), 'utf8')
+                : 0),
+            run: (bound) =>
+              bound.journal.appendTombstone(identity, {
+                fence: bound.fence,
+                turnTiming: options.turnTiming
+              })
           },
           options
         ),

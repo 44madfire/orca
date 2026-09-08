@@ -21,7 +21,14 @@ export type CodexStructuredLaunch = {
 }
 
 export type CodexStructuredSessionEvent =
-  | { type: 'notification'; sessionId: string; threadId: string; method: string; params: unknown }
+  | {
+      type: 'notification'
+      sessionId: string
+      threadId: string
+      method: string
+      params: unknown
+      observedAt?: number
+    }
   | { type: 'server-request'; sessionId: string; threadId: string; method: string; params: unknown }
   | { type: 'provider-frame'; sessionId: string; threadId: string; kind: string; payload: unknown }
   | {

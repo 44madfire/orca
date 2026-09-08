@@ -288,12 +288,26 @@ describe('MobileNativeChatView', () => {
       const folded = [userTurn('u1', 'go'), assistantTurn('a1', 'done')]
       await render({ messages: folded, folded, structuredActivityUi: true, agentWorking: true })
       expect(rowProps('u1').turnStatus).toMatchObject({ thinking: false, workedSeconds: null })
-      await update({ messages: folded, folded, structuredActivityUi: true, agentWorking: false })
+      const completed = [
+        {
+          ...folded[0],
+          turnTiming: {
+            userItemId: 'u1',
+            start: { at: 1000, source: 'host' as const },
+            end: { at: 188000, source: 'host' as const }
+          }
+        },
+        folded[1]
+      ]
+      await update({
+        messages: completed,
+        folded: completed,
+        structuredActivityUi: true,
+        agentWorking: false
+      })
       const settled = rowProps('u1')
       expect(settled.turnStatus).toMatchObject({ thinking: false })
-      expect((settled.turnStatus as { workedSeconds: number | null }).workedSeconds).toBeTypeOf(
-        'number'
-      )
+      expect((settled.turnStatus as { workedSeconds: number | null }).workedSeconds).toBe(187)
       expect(settled.onToggleTurn).toBeTypeOf('function')
       expect(settled.activeTurnIsWorking).toBe(false)
     })

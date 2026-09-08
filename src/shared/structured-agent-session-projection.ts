@@ -133,7 +133,8 @@ export function projectStructuredItemsToNativeChat(
             role: projected.role,
             blocks: projected.blocks,
             timestamp: item.observedAt,
-            source: 'transcript'
+            source: 'transcript',
+            ...(item.turnTiming ? { turnTiming: item.turnTiming } : {})
           }
         ]
       : []

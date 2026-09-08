@@ -3,6 +3,7 @@
 // and the mobile app (used directly — mobile ships English only) so the two
 // surfaces never drift. Everything here is pure; each platform owns its own clock.
 
+import { completedAgentJournalTurnSeconds } from './agent-session-turn-timing'
 import type { NativeChatMessage } from './native-chat-types'
 
 export const NATIVE_CHAT_TURN_STATUS_COPY = {
@@ -158,14 +159,21 @@ export function reduceNativeChatTurnTiming(
   const startedAt = timing?.startedAt ?? workingStartedAt
   // A completed duration requires an observed terminal timestamp. Never turn
   // renderer observation time into a claimed execution duration.
-  if (startedAt == null || completedAt == null || !Number.isFinite(completedAt)) {
+  if (
+    startedAt == null ||
+    !Number.isFinite(startedAt) ||
+    startedAt <= 0 ||
+    completedAt == null ||
+    !Number.isFinite(completedAt) ||
+    completedAt < startedAt
+  ) {
     return retained
   }
   return {
     ...retained,
     [activeTurnKey]: {
       startedAt,
-      workedSeconds: Math.max(0, Math.floor((completedAt - startedAt) / 1000))
+      workedSeconds: Math.floor((completedAt - startedAt) / 1000)
     }
   }
 }
@@ -212,4 +220,33 @@ export function nativeChatElapsedSeconds(
   now: number
 ): number {
   return Math.max(0, Math.floor((now - (startedAt ?? fallbackStartedAt)) / 1000))
+}
+
+/** Durable user-message intervals are independent of the renderer's live clock. */
+export function selectPersistedNativeChatTurnStatuses(
+  messages: readonly NativeChatMessage[],
+  activeTurnKey: string,
+  isWorking: boolean,
+  local: ReturnType<typeof selectNativeChatTurnStatuses>
+): ReturnType<typeof selectNativeChatTurnStatuses> {
+  const completedByTurn = { ...local.completedByTurn }
+  for (const message of messages) {
+    if (message.role !== 'user' || !message.turnTiming) {
+      continue
+    }
+    const workedSeconds = completedAgentJournalTurnSeconds(message.turnTiming)
+    if (workedSeconds === null) {
+      delete completedByTurn[message.id]
+    } else {
+      completedByTurn[message.id] = {
+        startedAt: message.turnTiming.start!.at,
+        workedSeconds,
+        thinking: false
+      }
+    }
+  }
+  return {
+    active: isWorking ? local.active : (completedByTurn[activeTurnKey] ?? null),
+    completedByTurn
+  }
 }

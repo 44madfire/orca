@@ -1,5 +1,6 @@
 import type {
   AgentJournalDispatchState,
+  AgentJournalTurnTiming,
   AgentJournalItemBody,
   AgentJournalItemIdentity,
   AgentJournalMessageItem,
@@ -28,7 +29,12 @@ export function journalItemRowBuilder(
   state: () => JournalReducerState,
   identity: AgentJournalItemIdentity,
   body: AgentJournalItemBody,
-  options: { fence: number; observedAt?: number; recovered?: true }
+  options: {
+    fence: number
+    observedAt?: number
+    recovered?: true
+    turnTiming?: AgentJournalTurnTiming
+  }
 ): RowBuilder<JournalItemRow> {
   return (seq, ts) =>
     buildJournalItemRow({
@@ -38,16 +44,21 @@ export function journalItemRowBuilder(
       seq,
       fence: options.fence,
       ts: options.observedAt ?? ts,
-      recovered: options.recovered
+      recovered: options.recovered,
+      turnTiming: options.turnTiming
     })
 }
 
 export function journalTombstoneRowBuilder(
   state: () => JournalReducerState,
   itemId: string,
-  fence: number
+  fence: number,
+  turnTiming?: AgentJournalTurnTiming
 ): RowBuilder<JournalTombstoneRow> {
-  return (seq, ts) => buildJournalTombstoneRow({ state: state(), itemId, seq, fence, ts })
+  return (seq, ts) => ({
+    ...buildJournalTombstoneRow({ state: state(), itemId, seq, fence, ts }),
+    ...(turnTiming ? { turnTiming } : {})
+  })
 }
 
 export function journalSubmissionRowBuilder(
@@ -84,9 +95,10 @@ export function journalDispatchRowBuilder(
     })
 }
 
-export type JournalLifecycleMutationInput =
+export type JournalLifecycleMutationInput = { turnTiming?: AgentJournalTurnTiming } & (
   | { kind: 'item'; identity: AgentJournalItemIdentity; body: AgentJournalItemBody }
   | { kind: 'tombstone'; identity: AgentJournalItemIdentity }
+)
 
 export function journalLifecycleBatchRowBuilder(
   state: () => JournalReducerState,
@@ -111,8 +123,19 @@ export function journalLifecycleBatchRowBuilder(
           )) + 1
       revisions.set(resolved, revision)
       return mutation.kind === 'item'
-        ? { kind: 'item', itemId, revision, body: mutation.body }
-        : { kind: 'tombstone', itemId, revision }
+        ? {
+            kind: 'item',
+            itemId,
+            revision,
+            body: mutation.body,
+            ...(mutation.turnTiming ? { turnTiming: mutation.turnTiming } : {})
+          }
+        : {
+            kind: 'tombstone',
+            itemId,
+            revision,
+            ...(mutation.turnTiming ? { turnTiming: mutation.turnTiming } : {})
+          }
     })
     const row: JournalLifecycleBatchRow = {
       kind: 'lifecycle-batch',
@@ -145,6 +168,7 @@ export function buildJournalItemRow(input: {
   fence: number
   ts: number
   recovered?: true
+  turnTiming?: AgentJournalTurnTiming
 }): JournalItemRow {
   const itemId = agentJournalItemKey(input.identity)
   const resolved = input.state.aliases.get(itemId) ?? itemId
@@ -154,6 +178,7 @@ export function buildJournalItemRow(input: {
     itemId,
     revision,
     body: input.body,
+    ...(input.turnTiming ? { turnTiming: input.turnTiming } : {}),
     ...journalRowBase(input.state.epoch, input.seq, input.fence, input.ts),
     ...(input.recovered ? { recovered: input.recovered } : {})
   }

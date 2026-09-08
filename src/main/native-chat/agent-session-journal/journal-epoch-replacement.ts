@@ -6,6 +6,7 @@
 
 import type {
   AgentJournalItemBody,
+  AgentJournalTurnTiming,
   AgentJournalItemIdentity,
   AgentSessionJournalIdentity
 } from '../../../shared/agent-session-journal-types'
@@ -26,6 +27,7 @@ export type JournalReplacementItem = {
   identity: AgentJournalItemIdentity
   body: AgentJournalItemBody
   observedAt?: number
+  turnTiming?: AgentJournalTurnTiming
 }
 
 export function replaceJournalEpoch(input: {
@@ -56,7 +58,8 @@ export function replaceJournalEpoch(input: {
       body: item.body,
       seq: state.lastSequence + 1,
       fence: input.fence,
-      ts: item.observedAt ?? input.now()
+      ts: item.observedAt ?? input.now(),
+      turnTiming: item.turnTiming
     })
     assertJournalFence(row.fence, state.highestFence)
     applyJournalRow(state, row)

@@ -263,8 +263,10 @@ describe('CodexStructuredSessionAdapter.cancelTurn', () => {
   it('does not strand a deferred completion when the interrupt receipt fails', async () => {
     const events: CodexStructuredSessionEvent[] = []
     const codex = fakeCodex()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(188000)
     codex.routes['turn/interrupt'] = () => {
       completeTurn(codex)
+      clock.mockReturnValue(86400000)
       throw new Error('interrupt receipt lost')
     }
     const adapter = await acquired(codex, events, {
@@ -274,6 +276,9 @@ describe('CodexStructuredSessionAdapter.cancelTurn', () => {
     await expect(
       adapter.cancelTurn({ sessionId: 'session-1', turnId: 'turn-1', fence: 7 })
     ).rejects.toThrow('interrupt receipt lost')
-    expect(events).toContainEqual(expect.objectContaining({ method: 'turn/completed' }))
+    expect(events).toContainEqual(
+      expect.objectContaining({ method: 'turn/completed', observedAt: 188000 })
+    )
+    clock.mockRestore()
   })
 })

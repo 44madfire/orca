@@ -75,7 +75,13 @@ function lifecycleMutationRowShape(
         kind: 'item',
         itemId,
         revision: Number.MAX_SAFE_INTEGER,
-        body: mutation.body
+        body: mutation.body,
+        ...(mutation.turnTiming ? { turnTiming: mutation.turnTiming } : {})
       }
-    : { kind: 'tombstone', itemId, revision: Number.MAX_SAFE_INTEGER }
+    : {
+        kind: 'tombstone',
+        itemId,
+        revision: Number.MAX_SAFE_INTEGER,
+        ...(mutation.turnTiming ? { turnTiming: mutation.turnTiming } : {})
+      }
 }

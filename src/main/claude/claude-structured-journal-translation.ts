@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import { claudeTurnEndpoint, publishClaudeTurnLifecycle } from './claude-structured-turn-timing'
 import type { AgentJournalItemIdentity } from '../../shared/agent-session-journal-types'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import type { AgentSessionDeltaCoalescerDeps } from '../native-chat/agent-session-wire/agent-session-delta-coalescer'
@@ -73,18 +75,10 @@ export function createClaudeSessionJournalTranslator(
     : null
 }
 
-function lifecycleIdentity(sessionId: string, turnId: string): AgentJournalItemIdentity {
-  return {
-    provider: 'legacy',
-    agent: 'claude',
-    sessionId,
-    recordId: `turn-lifecycle:${turnId}`
-  }
-}
-
 export function createClaudeJournalTranslator(
   deps: ClaudeJournalTranslatorDeps
 ): ClaudeJournalTranslator {
+  const timingClock = randomUUID()
   const tools = new Map<string, ClaudeToolUse>()
   const promptItems = new Map<string, AgentJournalItemIdentity[]>()
   const streamedBlocks = createClaudeStreamedBlockRegistry()
@@ -101,23 +95,6 @@ export function createClaudeJournalTranslator(
       deps.sink.publish()
     }
   })
-
-  const publishLifecycle = (sessionId: string, turnId: string, running: boolean): void => {
-    const identity = lifecycleIdentity(sessionId, turnId)
-    if (running) {
-      deps.sink.appendItem(identity, {
-        kind: 'status',
-        text: 'Claude is working…',
-        turnLifecycle: { turnId, state: 'running' }
-      })
-    } else {
-      deps.sink.appendTombstone(identity)
-    }
-    // Preserve first-work evidence when completion arrives before the journal drains.
-    deps.sink.publish({
-      coalescingKey: running ? `turn-start:${sessionId}:${turnId}` : 'publish'
-    })
-  }
 
   const publishActivity = (kind: string, payload: unknown): void => {
     if (!currentTurn) {
@@ -138,7 +115,11 @@ export function createClaudeJournalTranslator(
     return true
   }
 
-  const handleMessage = (message: Record<string, unknown>, startsTurn: boolean): boolean => {
+  const handleMessage = (
+    message: Record<string, unknown>,
+    startsTurn: boolean,
+    observedAt?: number
+  ): boolean => {
     const envelope = readClaudeMessageEnvelope(message)
     if (!envelope) {
       return false
@@ -214,10 +195,13 @@ export function createClaudeJournalTranslator(
       message.parent_tool_use_id === null
     ) {
       if (currentTurn) {
-        publishLifecycle(currentTurn.sessionId, currentTurn.turnId, false)
+        publishClaudeTurnLifecycle(deps.sink, currentTurn.sessionId, currentTurn.turnId, false)
       }
       currentTurn = { sessionId: envelope.sessionId, turnId: envelope.uuid }
-      publishLifecycle(envelope.sessionId, envelope.uuid, true)
+      publishClaudeTurnLifecycle(deps.sink, envelope.sessionId, envelope.uuid, true, {
+        userItemId: agentJournalItemKey(claudeMessageIdentity(envelope)),
+        start: claudeTurnEndpoint(message, observedAt, timingClock)
+      })
       deps.sink.setActivity?.(null)
     }
     if (changed) {
@@ -255,7 +239,7 @@ export function createClaudeJournalTranslator(
       if (event.type === 'ended') {
         streamedText.flush()
         if (currentTurn) {
-          publishLifecycle(currentTurn.sessionId, currentTurn.turnId, false)
+          publishClaudeTurnLifecycle(deps.sink, currentTurn.sessionId, currentTurn.turnId, false)
           currentTurn = null
         }
         deps.sink.setActivity?.(null)
@@ -275,7 +259,14 @@ export function createClaudeJournalTranslator(
         deps.sink.publish()
       } else if (event.type === 'message' && event.message.type === 'result') {
         if (currentTurn) {
-          publishLifecycle(currentTurn.sessionId, currentTurn.turnId, false)
+          publishClaudeTurnLifecycle(deps.sink, currentTurn.sessionId, currentTurn.turnId, false, {
+            userItemId: agentJournalItemKey({
+              provider: 'claude',
+              sessionId: currentTurn.sessionId,
+              uuid: currentTurn.turnId
+            }),
+            end: claudeTurnEndpoint(event.message, event.observedAt, timingClock)
+          })
           currentTurn = null
         }
         deps.sink.setActivity?.(null)
@@ -292,7 +283,7 @@ export function createClaudeJournalTranslator(
         }
       } else if (event.type === 'message') {
         const kind = claudeProviderFrameKind(event.message)
-        if (!handleMessage(event.message, event.startsTurn === true)) {
+        if (!handleMessage(event.message, event.startsTurn === true, event.observedAt)) {
           providerFallback.append(kind, event.message)
         }
         publishActivity(kind, event.message)

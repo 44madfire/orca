@@ -1,5 +1,6 @@
 import type {
   AgentJournalCursor,
+  AgentJournalTurnTiming,
   AgentJournalItemBody,
   AgentJournalItemIdentity,
   AgentJournalMessageItem,
@@ -38,8 +39,13 @@ export type JournalAppendResult = {
   revision: number
 }
 
-export type JournalItemAppendOptions = { fence: number; observedAt?: number; recovered?: true }
-export type JournalTombstoneInput = { fence: number }
+export type JournalItemAppendOptions = {
+  fence: number
+  observedAt?: number
+  recovered?: true
+  turnTiming?: AgentJournalTurnTiming
+}
+export type JournalTombstoneInput = { fence: number; turnTiming?: AgentJournalTurnTiming }
 
 export type JournalLifecycleBatchInput = {
   settlementId: string

@@ -503,3 +503,33 @@ it('applies catalog-only checkpoints without replacing transcript or submission 
   const { commands: _commands, ...oldEvent } = event
   expect(reduceStructuredAgentSession(updated, { type: 'event', event: oldEvent })).toBe(updated)
 })
+
+it('does not let a delayed equal-content-revision page erase newer turn timing', () => {
+  const item = {
+    itemId: 'u',
+    revision: 1,
+    sequence: 1,
+    observedAt: 1,
+    body: { kind: 'message' as const, role: 'user' as const, blocks: [] },
+    turnTimingSequence: 8,
+    turnTiming: {
+      userItemId: 'u',
+      start: { at: 1000, source: 'host' as const },
+      end: { at: 188000, source: 'host' as const }
+    }
+  }
+  const state = { ...EMPTY_STRUCTURED_AGENT_SESSION, epoch: 'e', items: [item] }
+  const { turnTiming: _timing, turnTimingSequence: _sequence, ...old } = item
+  const updated = reduceStructuredAgentSession(state, {
+    type: 'older-page',
+    requestedEpoch: 'e',
+    page: {
+      epoch: 'e',
+      items: [old],
+      removedItemIds: [],
+      submissions: [],
+      hasOlder: false
+    } as never
+  })
+  expect(updated.items[0]?.turnTiming).toEqual(item.turnTiming)
+})

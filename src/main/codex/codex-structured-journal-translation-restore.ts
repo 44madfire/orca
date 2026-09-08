@@ -45,7 +45,7 @@ export function restoreCodexJournalThread(input: {
       const admission = input.handleItem({
         threadId: input.threadId,
         method: 'item/completed',
-        params: { turnId, item }
+        params: { turnId, item, turn }
       })
       if (!admission.accepted) {
         return admission

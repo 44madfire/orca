@@ -121,9 +121,14 @@ export async function acquireClaudeSession({
           deps.onDispatchSettledLate?.({ sessionId, ...settlement })
         )
       : false
+    const observedAt =
+      (startsTurn || message.type === 'result') && message.timestamp == null
+        ? Date.now()
+        : undefined
     callbacks.deliver(attempt, sessionId, () =>
       callbacks.emit(liveSession, input.events, {
         type: 'message',
+        observedAt,
         sessionId,
         message,
         ...(startsTurn ? { startsTurn: true } : {})

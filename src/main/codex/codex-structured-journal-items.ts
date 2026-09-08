@@ -1,5 +1,6 @@
 import type {
   AgentJournalItemBody,
+  AgentJournalTurnTiming,
   AgentJournalItemIdentity
 } from '../../shared/agent-session-journal-types'
 import { requiresTerminalSettlement } from '../native-chat/agent-session-journal/journal-terminal-settlement'
@@ -27,6 +28,7 @@ import {
 import { appendCodexLifecycleItem, publishCodexLifecycle } from './codex-structured-journal-sink'
 import type { CodexActiveJournalItem } from './codex-structured-journal-settlement'
 import { readCodexJournalString } from './codex-structured-journal-translation-values'
+import { codexStructuredTurnTiming } from './codex-structured-turn-timing'
 import { readCodexTurnId } from './codex-structured-thread-facts'
 
 export class CodexJournalItems {
@@ -103,7 +105,11 @@ export class CodexJournalItems {
       }
       return { handled: true, admission: CODEX_JOURNAL_ADMITTED }
     }
-    const admission = this.appendTranslated(event.method, identity, translated)
+    const historyTiming =
+      source === 'history' && item.type === 'userMessage' && turnId
+        ? codexStructuredTurnTiming(event.threadId, turnId, event.params)
+        : undefined
+    const admission = this.appendTranslated(event.method, identity, translated, historyTiming)
     if (!admission.accepted) {
       return { handled: true, admission }
     }
@@ -130,13 +136,21 @@ export class CodexJournalItems {
   private appendTranslated(
     method: string,
     identity: AgentJournalItemIdentity,
-    translated: ReturnType<typeof codexJournalItem>
+    translated: ReturnType<typeof codexJournalItem>,
+    turnTiming?: AgentJournalTurnTiming
   ): CodexJournalTranslationAdmission {
     if (!translated.body) {
       return CODEX_JOURNAL_ADMITTED
     }
     if (method === 'item/completed') {
-      const admission = appendCodexLifecycleItem(this.deps.sink, identity, translated.body)
+      const admission = turnTiming
+        ? (this.deps.sink.tryAppendItem?.(identity, translated.body, {
+            lifecycle: true,
+            turnTiming
+          }) ??
+          (this.deps.sink.appendItem(identity, translated.body, { lifecycle: true, turnTiming }),
+          CODEX_JOURNAL_ADMITTED))
+        : appendCodexLifecycleItem(this.deps.sink, identity, translated.body)
       return admission.accepted ? publishCodexLifecycle(this.deps.sink) : admission
     }
     const options = requiresTerminalSettlement(translated.body) ? { lifecycle: true } : {}

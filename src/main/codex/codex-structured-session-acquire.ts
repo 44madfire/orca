@@ -1,3 +1,4 @@
+import { codexTurnTimingNeedsObservation } from './codex-structured-turn-timing'
 import {
   AgentSessionAcquisitionRefusal,
   AgentSessionPreSpawnError,
@@ -109,13 +110,17 @@ export async function acquireCodexStructuredSession(input: {
         env: buildCodexStructuredChildEnvironment(launch, acquireInput.spawnToken, sessionId)
       },
       {
-        onNotification: (method, params) =>
+        onNotification: (method, params) => {
+          const observedAt = codexTurnTimingNeedsObservation(method, params)
+            ? Date.now()
+            : undefined
           input.deliver(
             acquisition,
             sessionId,
-            () => notificationRetries.handle(sessionId, method, params),
+            () => notificationRetries.handle(sessionId, method, params, observedAt),
             Buffer.byteLength(JSON.stringify(params ?? null), 'utf8')
-          ),
+          )
+        },
         onServerRequest: (request) =>
           input.deliver(
             acquisition,

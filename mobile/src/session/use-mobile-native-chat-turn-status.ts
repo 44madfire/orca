@@ -4,6 +4,7 @@ import {
   nativeChatTurnHasResponse,
   reduceNativeChatTurnTiming,
   selectNativeChatTurnStatuses,
+  selectPersistedNativeChatTurnStatuses,
   type NativeChatTurnStatus,
   type NativeChatTurnTimingByTurn
 } from '../../../src/shared/native-chat-turn-status'
@@ -93,13 +94,26 @@ export function useMobileNativeChatTurnStatus({
   const turnIsWorking = enabled && isWorking
   const statuses = useMemo(
     () =>
-      selectNativeChatTurnStatuses(timingByTurn, {
+      selectPersistedNativeChatTurnStatuses(
+        enabled ? messages : [],
         activeTurnKey,
-        isWorking: turnIsWorking,
-        workingStartedAt,
-        hasCurrentTurnResponse
-      }),
-    [timingByTurn, activeTurnKey, turnIsWorking, workingStartedAt, hasCurrentTurnResponse]
+        turnIsWorking,
+        selectNativeChatTurnStatuses(timingByTurn, {
+          activeTurnKey,
+          isWorking: turnIsWorking,
+          workingStartedAt,
+          hasCurrentTurnResponse
+        })
+      ),
+    [
+      timingByTurn,
+      activeTurnKey,
+      turnIsWorking,
+      workingStartedAt,
+      hasCurrentTurnResponse,
+      enabled,
+      messages
+    ]
   )
   return { ...statuses, activeTurnKey }
 }

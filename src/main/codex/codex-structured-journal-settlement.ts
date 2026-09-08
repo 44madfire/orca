@@ -1,5 +1,7 @@
+import { codexTurnTimingSettlementKey } from './codex-structured-turn-timing'
 import type {
   AgentJournalItemBody,
+  AgentJournalTurnTiming,
   AgentJournalItemIdentity
 } from '../../shared/agent-session-journal-types'
 import { partitionJournalLifecycleMutations } from '../native-chat/agent-session-journal/journal-lifecycle-batch-partition'
@@ -108,6 +110,7 @@ export function settleCodexJournalTurn(input: {
   sessionId: string
   threadId: string
   turnId: string
+  turnTiming?: AgentJournalTurnTiming
   sink: StructuredAgentSessionEventSink
   streams: CodexStructuredItemStreams
   activeItems: Map<string, CodexActiveJournalItem>
@@ -130,6 +133,7 @@ export function settleCodexJournalTurn(input: {
   }
   mutations.push({
     kind: 'tombstone',
+    ...(input.turnTiming ? { turnTiming: input.turnTiming } : {}),
     identity: {
       provider: 'legacy',
       agent: 'codex',
@@ -139,7 +143,7 @@ export function settleCodexJournalTurn(input: {
   })
   const admission = appendLifecycleMutations(
     input.sink,
-    `turn-completed:${input.sessionId}:${input.threadId}:${input.turnId}`,
+    `turn-completed:${input.sessionId}:${input.threadId}:${input.turnId}${codexTurnTimingSettlementKey(input.turnTiming)}`,
     mutations
   )
   if (!admission.accepted) {
@@ -243,22 +247,32 @@ function appendLifecycleMutations(
       for (const mutation of chunk) {
         if (mutation.kind === 'item') {
           if (sink.tryAppendItem) {
-            admission = sink.tryAppendItem(mutation.identity, mutation.body, { lifecycle: true })
+            admission = sink.tryAppendItem(mutation.identity, mutation.body, {
+              lifecycle: true,
+              turnTiming: mutation.turnTiming
+            })
             if (!admission.accepted) {
               return admission
             }
           } else {
-            sink.appendItem(mutation.identity, mutation.body, { lifecycle: true })
+            sink.appendItem(mutation.identity, mutation.body, {
+              lifecycle: true,
+              turnTiming: mutation.turnTiming
+            })
+          }
+        } else if (sink.tryAppendTombstone) {
+          admission = sink.tryAppendTombstone(mutation.identity, {
+            lifecycle: true,
+            turnTiming: mutation.turnTiming
+          })
+          if (!admission.accepted) {
+            return admission
           }
         } else {
-          if (sink.tryAppendTombstone) {
-            admission = sink.tryAppendTombstone(mutation.identity, { lifecycle: true })
-            if (!admission.accepted) {
-              return admission
-            }
-          } else {
-            sink.appendTombstone(mutation.identity, { lifecycle: true })
-          }
+          sink.appendTombstone(mutation.identity, {
+            lifecycle: true,
+            turnTiming: mutation.turnTiming
+          })
         }
       }
     }

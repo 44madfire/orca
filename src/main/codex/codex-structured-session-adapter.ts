@@ -58,8 +58,16 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
   constructor(private readonly deps: CodexStructuredSessionAdapterDeps) {
     this.notificationRetries = createCodexStructuredNotificationRetry({
       sessionFor: (sessionId) => this.sessions.get(sessionId),
-      translate: (sessionId, session, method, params) =>
-        this.translateNotification(sessionId, session, method, params)
+      translate: (sessionId, session, method, params, observedAt) =>
+        deliverCodexNotification(
+          sessionId,
+          session,
+          method,
+          params,
+          (current, event) => this.emit(current, event),
+          observedAt,
+          this.turnCancellation
+        )
     })
     this.turnCancellation = new CodexStructuredTurnCancellation({
       captureTurnProcesses: deps.captureTurnProcesses,
@@ -68,7 +76,12 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
       emit: (session, event) => {
         const admission = this.emit(session, event)
         if (!admission.accepted && event.type === 'notification') {
-          this.notificationRetries.handle(event.sessionId, event.method, event.params)
+          this.notificationRetries.handle(
+            event.sessionId,
+            event.method,
+            event.params,
+            event.observedAt
+          )
         }
         return admission
       }
@@ -112,21 +125,6 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
       // notification; tear down the child so callers retry explicitly.
       void acquisition.connection?.close()
     }
-  }
-
-  private translateNotification(
-    sessionId: string,
-    session: CodexSession,
-    method: string,
-    params: unknown
-  ): CodexJournalTranslationAdmission {
-    codexRewind.observeCodexRewindActivity(session, method, params)
-    if (this.turnCancellation.handleNotification(sessionId, session, method, params)) {
-      return { accepted: true }
-    }
-    return deliverCodexNotification(sessionId, session, method, params, (current, event) =>
-      this.emit(current, event)
-    )
   }
 
   /** Journal first so observers never see an event ahead of its durable row. */
@@ -320,7 +318,6 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     )
   releaseAcquisition = (input: { sessionId: string }): Promise<boolean> =>
     this.closeSession(input.sessionId)
-
   private session(sessionId: string): CodexSession {
     return requireLiveCodexSession(this.sessions, sessionId)
   }

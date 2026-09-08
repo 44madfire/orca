@@ -1,3 +1,4 @@
+import { readAgentJournalTurnTiming } from '../../../shared/agent-session-turn-timing'
 // THE reducer. One implementation folds rows into the render model, and both
 // the live append path and replay call it — a live-only shortcut is how a
 // reconnect starts disagreeing with the screen it replaced.
@@ -9,6 +10,7 @@
 
 import type {
   AgentJournalAcceptanceReceipt,
+  AgentJournalTurnTiming,
   AgentJournalRenderItem,
   AgentJournalSnapshot,
   AgentJournalSubmission
@@ -19,6 +21,7 @@ import {
 } from '../../../shared/agent-session-journal-item-key'
 import { structuredAgentSessionPayloadFingerprint } from '../../../shared/structured-agent-session-mutation'
 import type { JournalRow } from './journal-row-schema'
+import { applyJournalTurnTiming, associateJournalTurnTiming } from './journal-turn-timing'
 
 export const MAX_JOURNAL_APPLIED_SETTLEMENT_IDS = 4_096
 
@@ -39,6 +42,7 @@ export type JournalReducerState = {
    *  echo from appending a second copy of the user's own message. */
   aliases: Map<string, string>
   appliedSettlementIds: Set<string>
+  pendingTurnTimings: Map<string, AgentJournalTurnTiming>
 }
 
 export function createJournalReducerState(sessionId: string, epoch: string): JournalReducerState {
@@ -54,7 +58,8 @@ export function createJournalReducerState(sessionId: string, epoch: string): Jou
     submissions: new Map(),
     receipts: new Map(),
     aliases: new Map(),
-    appliedSettlementIds: new Set()
+    appliedSettlementIds: new Set(),
+    pendingTurnTimings: new Map()
   }
 }
 
@@ -71,14 +76,21 @@ export function applyJournalRow(state: JournalReducerState, row: JournalRow): vo
       itemId,
       revision: row.revision,
       body: row.body,
+      ...(readAgentJournalTurnTiming(row.turnTiming)
+        ? { turnTiming: row.turnTiming, turnTimingSequence: row.seq }
+        : {}),
       sequence: row.seq,
       observedAt: row.ts,
       ...(row.recovered ? { recovered: row.recovered } : {})
     })
+    associateJournalTurnTiming(state, row.itemId)
+    applyJournalTurnTiming(state, row.turnTiming)
     return
   }
   if (row.kind === 'tombstone') {
+    discardPendingTurnTiming(state, row.itemId, row.turnTiming)
     removeItem(state, resolveItemId(state, row.itemId), row.revision)
+    applyJournalTurnTiming(state, row.turnTiming)
     return
   }
   if (row.kind === 'lifecycle-batch') {
@@ -92,13 +104,19 @@ export function applyJournalRow(state: JournalReducerState, row: JournalRow): vo
           itemId,
           revision: mutation.revision,
           body: mutation.body,
+          ...(readAgentJournalTurnTiming(mutation.turnTiming)
+            ? { turnTiming: mutation.turnTiming, turnTimingSequence: row.seq }
+            : {}),
           sequence: row.seq,
           observedAt: row.ts,
           ...(row.recovered ? { recovered: row.recovered } : {})
         })
       } else {
+        discardPendingTurnTiming(state, mutation.itemId, mutation.turnTiming)
         removeItem(state, resolveItemId(state, mutation.itemId), mutation.revision)
       }
+      associateJournalTurnTiming(state, mutation.itemId)
+      applyJournalTurnTiming(state, mutation.turnTiming)
     }
     rememberAppliedSettlementId(state, row.settlementId)
     return
@@ -201,6 +219,9 @@ function upsertItem(
     ...next,
     // Provider history may normalize text or omit local attachments from the original send.
     body: submitted ? existing.body : next.body,
+    ...(existing.turnTiming
+      ? { turnTiming: existing.turnTiming, turnTimingSequence: existing.turnTimingSequence }
+      : {}),
     sequence: existing.sequence,
     observedAt: existing.observedAt
   })
@@ -264,6 +285,7 @@ function applyDispatch(
     return
   }
   state.aliases.set(row.providerItemId, agentJournalSubmissionKey(row.clientMessageId))
+  associateJournalTurnTiming(state, row.providerItemId)
   state.receipts.set(row.clientMessageId, {
     clientMessageId: row.clientMessageId,
     providerItemId: row.providerItemId,
@@ -282,5 +304,19 @@ export function renderJournalState(state: JournalReducerState): AgentJournalSnap
     cursor: { epoch: state.epoch, sequence: state.lastSequence },
     items,
     submissions: [...state.submissions.values()].sort((a, b) => a.submittedAt - b.submittedAt)
+  }
+}
+
+function discardPendingTurnTiming(
+  state: JournalReducerState,
+  lifecycleItemId: string,
+  timing: unknown
+): void {
+  if (readAgentJournalTurnTiming(timing)) {
+    return
+  }
+  const item = state.items.get(lifecycleItemId)
+  if (item?.body.kind === 'status' && item.body.turnLifecycle && item.turnTiming) {
+    state.pendingTurnTimings.delete(item.turnTiming.userItemId)
   }
 }

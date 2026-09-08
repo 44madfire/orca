@@ -4,6 +4,7 @@ import {
   nativeChatTurnHasResponse,
   reduceNativeChatTurnTiming,
   selectNativeChatTurnStatuses,
+  selectPersistedNativeChatTurnStatuses,
   type NativeChatTurnStatus,
   type NativeChatTurnTimingByTurn
 } from '../../../../shared/native-chat-turn-status'
@@ -47,10 +48,15 @@ export function useNativeChatTurnStatus({
     )
   }, [activeTurnKey, completedAt, isWorking, messages, workingStartedAt])
 
-  return selectNativeChatTurnStatuses(timingByTurn, {
+  return selectPersistedNativeChatTurnStatuses(
+    messages,
     activeTurnKey,
     isWorking,
-    workingStartedAt,
-    hasCurrentTurnResponse
-  })
+    selectNativeChatTurnStatuses(timingByTurn, {
+      activeTurnKey,
+      isWorking,
+      workingStartedAt,
+      hasCurrentTurnResponse
+    })
+  )
 }

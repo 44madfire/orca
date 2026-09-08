@@ -211,9 +211,9 @@ export class AgentSessionJournal {
     options: JournalTombstoneInput
   ): Promise<AgentJournalCursor> {
     const itemId = agentJournalItemKey(identity)
-    return this.enqueue(journalTombstoneRowBuilder(() => this.state, itemId, options.fence)).then(
-      (row) => ({ epoch: row.epoch, sequence: row.seq })
-    )
+    return this.enqueue(
+      journalTombstoneRowBuilder(() => this.state, itemId, options.fence, options.turnTiming)
+    ).then((row) => ({ epoch: row.epoch, sequence: row.seq }))
   }
 
   appendLifecycleBatch(input: JournalLifecycleBatchInput): Promise<AgentJournalCursor> {
@@ -262,7 +262,17 @@ export class AgentSessionJournal {
     fence: number,
     items: readonly JournalReplacementItem[]
   ): Promise<AgentJournalCursor> {
-    return this.epochController.replace(reason, fence, items)
+    return this.epochController.replace(
+      reason,
+      fence,
+      items.map((item) => {
+        const key = this.canonicalItemId(agentJournalItemKey(item.identity))
+        const timing = item.turnTiming ?? this.state.items.get(key)?.turnTiming
+        return timing
+          ? { ...item, turnTiming: { ...timing, userItemId: agentJournalItemKey(item.identity) } }
+          : item
+      })
+    )
   }
 
   private adoptLoadedJournal(loaded: JournalLoad): void {
