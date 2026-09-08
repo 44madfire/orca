@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import type { CommentMarkdownLinkClickHandler } from '@/components/sidebar/CommentMarkdown'
+import {
+  NativeChatToolName,
+  NativeChatCommandMetadata,
+  NativeChatSearchResults
+} from './NativeChatToolAnnotations'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Check, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
@@ -20,8 +26,9 @@ import type { NativeChatEditFile } from '../../../../shared/native-chat-edit-mod
 import {
   countToolCalls,
   createToolInputDisplay,
-  summarizeToolRun,
-  truncateToolDetail
+  toolRunSummaryMembers,
+  truncateToolDetail,
+  type ToolRunMember
 } from './native-chat-tool-summary'
 import {
   NATIVE_CHAT_TOOL_ACTIVITY_COPY,
@@ -42,10 +49,12 @@ const NO_SUBAGENT_GROUPS: NativeChatSubagentGroupBlock[] = []
  *  mount while the parent run is open and are individually collapsible. */
 function ToolLine({
   block,
-  initiallyExpanded = true
+  initiallyExpanded = true,
+  onLinkClick
 }: {
   block: NativeChatBlock
   initiallyExpanded?: boolean
+  onLinkClick?: CommentMarkdownLinkClickHandler
 }): React.JSX.Element | null {
   const [expanded, setExpanded] = useState(initiallyExpanded)
 
@@ -73,7 +82,8 @@ function ToolLine({
     return null
   }
 
-  const hasDetail = diff !== null || body !== null || inputHasDetail
+  const hasResults = isCall && (block.webSearchResults?.length ?? 0) > 0
+  const hasDetail = diff !== null || body !== null || inputHasDetail || hasResults
 
   return (
     <div>
@@ -88,14 +98,18 @@ function ToolLine({
       >
         {isCall ? (
           /* Decorative category glyph; the word beside it is the row's name. */
-          <NativeChatToolIcon rowWord={name} className="text-muted-foreground" />
+          <NativeChatToolIcon
+            mcpIdentity={block.mcpIdentity}
+            rowWord={name}
+            className="text-muted-foreground"
+          />
         ) : (
           /* A result's word is translated copy, not a tool name, so there is no
              category to read from it. The empty slot keeps rows aligned. */
           <span aria-hidden className="size-4 shrink-0" />
         )}
-        <code className="shrink-0 font-mono text-xs font-semibold text-foreground/90 transition-colors group-hover:text-foreground">
-          {name}
+        <code className="min-w-0 truncate font-mono text-xs font-semibold text-foreground/90 transition-colors group-hover:text-foreground">
+          {isCall ? <NativeChatToolName name={name} mcpIdentity={block.mcpIdentity} /> : name}
         </code>
         {preview ? (
           <span
@@ -105,6 +119,7 @@ function ToolLine({
             {preview}
           </span>
         ) : null}
+        {isCall ? <NativeChatCommandMetadata block={block} /> : null}
         {hasDetail ? (
           // Chevron stays hidden until this row is expanded.
           <ChevronRight
@@ -117,6 +132,9 @@ function ToolLine({
       </button>
       {hasDetail && expanded ? (
         <div className="space-y-1.5 py-1">
+          {isCall && hasResults ? (
+            <NativeChatSearchResults results={block.webSearchResults} onLinkClick={onLinkClick} />
+          ) : null}
           {diff ? <NativeChatDiffView lines={diff} /> : null}
           {!diff && body ? (
             <pre
@@ -192,7 +210,8 @@ export function NativeChatToolRun({
   expandSignal,
   activeTurnIsWorking,
   expandOverride,
-  structuredActivityUi = true
+  structuredActivityUi = true,
+  onLinkClick
 }: {
   blocks: NativeChatBlock[]
   /** Spawn-group rosters that belong with this run's activity, one row each. */
@@ -204,6 +223,7 @@ export function NativeChatToolRun({
   /** Structured lifecycle state, when available, keeps orphaned running calls from spinning. */
   activeTurnIsWorking?: boolean
   structuredActivityUi?: boolean
+  onLinkClick?: CommentMarkdownLinkClickHandler
 }): React.JSX.Element | null {
   const [open, setOpen] = useState(expandOverride ?? expandSignal)
   // Re-sync when the global toolbar toggle flips.
@@ -218,7 +238,22 @@ export function NativeChatToolRun({
     .filter(isRenderableSubagentGroup)
     .map((group) => <NativeChatSubagentRun key={group.groupId} block={group} />)
   const callCount = countToolCalls(blocks) || blocks.length
-  const summary = summarizeToolRun(blocks)
+  // Members stay separate all the way to the markup: joining them into one
+  // string is what made a run read as a single call, because the separator also
+  // occurs inside tool names like `browser.open` and `tools/read`.
+  const summaryMembers = toolRunSummaryMembers(blocks)
+  const hiddenCallCount = Math.max(0, callCount - summaryMembers.length)
+  // Same content-signature keying the member rows below use: two identical calls
+  // in one run are distinguished by occurrence, never by list position.
+  const keyedSummaryMembers = ((): (ToolRunMember & { key: string })[] => {
+    const seen = new Map<string, number>()
+    return summaryMembers.map((member) => {
+      const signature = `${member.name}:${member.arg}`
+      const occurrence = seen.get(signature) ?? 0
+      seen.set(signature, occurrence + 1)
+      return { ...member, key: `${signature}:${occurrence}` }
+    })
+  })()
   const latestActiveCall = structuredActivityUi
     ? selectActiveToolCall(blocks, { activeTurnIsWorking })
     : null
@@ -232,7 +267,7 @@ export function NativeChatToolRun({
     () => (open ? buildEditCards(blocks) : NO_EDIT_CARDS),
     [open, blocks]
   )
-  // Only the settled header reads this. It stands over `summary`, which speaks
+  // Only the settled header reads this. It stands over `summaryMembers`, which speaks
   // for the run's first calls rather than its last, so a glyph taken from one
   // call would assert a category the text beside it doesn't describe. A run that
   // spans categories therefore heads with the generic tool glyph. The glyph is
@@ -287,7 +322,11 @@ export function NativeChatToolRun({
           aria-expanded={open}
           aria-live="polite"
         >
-          <NativeChatToolIcon rowWord={latestActiveCall.name} className="text-muted-foreground" />
+          <NativeChatToolIcon
+            mcpIdentity={latestActiveCall.mcpIdentity}
+            rowWord={latestActiveCall.name}
+            className="text-muted-foreground"
+          />
           <span className="min-w-0 flex-1 animate-pulse truncate text-foreground/85 motion-reduce:animate-none">
             {nativeChatToolActivityLabel(latestActiveCall)}
           </span>
@@ -306,9 +345,52 @@ export function NativeChatToolRun({
           <span className="shrink-0 font-mono text-[11px] font-bold text-muted-foreground transition-colors group-hover:text-foreground/80">
             {callCount}×
           </span>
-          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
-            {summary || fallbackLabel}
-          </span>
+          {summaryMembers.length > 0 ? (
+            <>
+              {/* Each member is led by its own category glyph, which is what marks
+                  the boundary. A separator character cannot: `·` occurs inside
+                  `browser.open` and `tools/read`. The list stays one line and
+                  truncates as a whole rather than wrapping into a block — a
+                  header that grows to three rows stops reading as a header. */}
+              <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
+                {keyedSummaryMembers.map((member, index) => (
+                  <Fragment key={member.key}>
+                    {/* A real space, not just the margin: a CSS gap is invisible to
+                        a copied selection and to the button's accessible name, which
+                        would otherwise run one member's argument into the next
+                        member's name. The margin is trimmed to pay for its width. */}
+                    {index > 0 ? ' ' : null}
+                    <span data-tool-run-member className={cn(index > 0 && 'ml-2')}>
+                      <NativeChatToolIcon
+                        rowWord={member.name}
+                        mcpIdentity={member.mcpIdentity}
+                        className="mr-1 inline-flex size-3.5 align-middle"
+                      />
+                      {member.name}
+                      {member.arg ? (
+                        <span className="text-muted-foreground/70">{` ${member.arg}`}</span>
+                      ) : null}
+                    </span>
+                  </Fragment>
+                ))}
+              </span>
+              {hiddenCallCount > 0 ? (
+                /* Outside the truncating span, so the count of what is not shown
+                   survives a list the pane is too narrow to print. */
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
+                  {translate(
+                    'components.native-chat.tool.moreCalls',
+                    NATIVE_CHAT_TOOL_ACTIVITY_COPY.moreCalls,
+                    { value0: hiddenCallCount }
+                  )}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-foreground/80">
+              {fallbackLabel}
+            </span>
+          )}
           {/* Completion reads as a trailing mark so the leading glyph can stay fixed. */}
           {structuredActivityUi ? (
             <Check aria-hidden className="size-3 shrink-0 text-muted-foreground" />
@@ -323,7 +405,10 @@ export function NativeChatToolRun({
         </button>
       )}
       {open ? (
-        <div className="mt-1">
+        // Members are indented under the header because nothing else marks the
+        // run's extent — flush rows are indistinguishable from the blocks after
+        // them, so the batch has no visible end.
+        <div className="mt-1 pl-4">
           {(() => {
             const seen = new Map<string, number>()
             return blocks.map((block) => {
@@ -356,6 +441,7 @@ export function NativeChatToolRun({
                 <ToolLine
                   key={`${signature}:${occurrence}`}
                   block={block}
+                  onLinkClick={onLinkClick}
                   initiallyExpanded={expandToolLines}
                 />
               )
