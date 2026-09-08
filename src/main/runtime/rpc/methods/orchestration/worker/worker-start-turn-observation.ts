@@ -56,11 +56,17 @@ export async function observeWorkerTurnStart(args: {
   if (verdict !== 'unobserved') {
     return { verdict, prompt: args.prompt }
   }
-  const observed = await args.runtime.observeTerminalAgentPrompt(
-    args.terminalHandle,
-    args.prompt,
-    args.timeoutMs ?? AGENT_PROMPT_EFFECT_TIMEOUT_MS
-  )
+  let observed: RuntimeTerminalPromptDelivery
+  try {
+    observed = await args.runtime.observeTerminalAgentPrompt(
+      args.terminalHandle,
+      args.prompt,
+      args.timeoutMs ?? AGENT_PROMPT_EFFECT_TIMEOUT_MS
+    )
+  } catch {
+    // Observation failure cannot revoke authority for input that was already accepted.
+    return { verdict: 'unobserved', prompt: args.prompt }
+  }
   if (observed.observation === 'incarnation_replaced') {
     // The PTY under this handle changed mid-observation; the accepted write is unproven.
     return { verdict: 'unobserved', prompt: observed }
@@ -71,8 +77,8 @@ export async function observeWorkerTurnStart(args: {
 export function describeUnobservedWorkerTurnStart(agent: string | null): string {
   const name = agent ?? 'the agent'
   return (
-    `Dispatch input was written and submitted, but ${name} never started a turn within ` +
-    `${Math.round(AGENT_PROMPT_EFFECT_TIMEOUT_MS / 1000)}s. This is unverifiable, not proof the ` +
+    `Dispatch input was written and submitted, but ${name}'s turn start could not be verified ` +
+    `during observation (up to ${Math.round(AGENT_PROMPT_EFFECT_TIMEOUT_MS / 1000)}s). This is unverifiable, not proof the ` +
     'worker is dead: the agent may still be starting, may be wedged (for example waiting on ' +
     'network), or may be holding the task unsent in its composer. If the worker recovers and ' +
     'reports, this Dispatch settles normally.'

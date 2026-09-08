@@ -155,7 +155,7 @@ export function markWorkerStartUnknown(
       from: 'dispatched',
       to: 'blocked'
     })
-    this.closeQuestionsForDispatch(dispatchId)
+    // Authority survives uncertainty, so its outstanding questions must remain answerable.
     this.db.exec('COMMIT')
     return this.getWorkerDispatch(dispatchId) as WorkerDispatchRow
   } catch (error) {

@@ -107,4 +107,14 @@ describe('observeWorkerTurnStart', () => {
     ).resolves.toEqual({ verdict: 'unsupported', prompt })
     expect(observe).not.toHaveBeenCalled()
   })
+
+  it('preserves uncertainty when observation loses the terminal binding', async () => {
+    const prompt = delivery()
+    const { runtime, observe } = runtimeObserving(prompt)
+    observe.mockRejectedValue(new Error('terminal_handle_stale'))
+    await expect(
+      observeWorkerTurnStart({ runtime, terminalHandle: 'term_w', prompt })
+    ).resolves.toEqual({ verdict: 'unobserved', prompt })
+    expect(observe).toHaveBeenCalledTimes(1)
+  })
 })

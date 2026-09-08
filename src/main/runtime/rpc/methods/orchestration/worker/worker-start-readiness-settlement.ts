@@ -85,7 +85,10 @@ export async function deliverAndSettleWorkerStartReadiness(args: {
     setupReceipt: args.setupReceipt,
     effects
   })
-  if (turnStart.verdict === 'unobserved') {
+  // A worker report can settle the dispatch while turn observation is outstanding.
+  const currentWorker = db.getWorkerDispatch(args.dispatchId)
+  const alreadySettled = currentWorker && currentWorker.state !== 'starting'
+  if (turnStart.verdict === 'unobserved' && !alreadySettled) {
     // Honest `unverifiable`: keep the dispatch capability and the terminal — the worker may
     // still recover and report (worker-report settlement reconnects a start_unknown worker) —
     // but never claim ready for a turn nobody observed.
@@ -125,13 +128,21 @@ export async function deliverAndSettleWorkerStartReadiness(args: {
       ...(args.terminalRevealWarning ? { warning: args.terminalRevealWarning } : {})
     }
   }
-  const worker = db.markWorkerDispatchReady(args.dispatchId, effects)
+  const worker = alreadySettled
+    ? currentWorker
+    : db.markWorkerDispatchReady(args.dispatchId, effects)
+  // A completed task proves start succeeded; older callers use only 'ready' as start success.
+  const reportedOutcome =
+    worker.stage === 'settled' && (worker.state === 'succeeded' || worker.state === 'failed')
+      ? worker.state
+      : undefined
   return {
     runId: run.id,
     taskId: task.id,
     dispatchId: args.dispatchId,
-    state: worker.state,
+    state: reportedOutcome ? 'ready' : worker.state,
     stage: worker.stage,
+    ...(reportedOutcome ? { workerOutcome: reportedOutcome } : {}),
     turnStart: turnStart.verdict,
     setup: args.setupReceipt,
     launch: args.launchReceipt,

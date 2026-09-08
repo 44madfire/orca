@@ -41,6 +41,8 @@ const openDatabases: OrchestrationDb[] = []
 const temporaryRoots: string[] = []
 
 type PromptContractHarness = {
+  runtime: Awaited<ReturnType<typeof createAgentPromptSubmissionRuntime>>['runtime']
+  handle: string
   db: OrchestrationDb
   dbPath: string
   dispatcher: RpcDispatcher
@@ -131,6 +133,8 @@ async function createPromptContractHarness(
   vi.spyOn(runtime, 'getTerminalOrchestrationCliCommand').mockReturnValue('orca')
 
   return {
+    runtime,
+    handle,
     db,
     dbPath,
     dispatcher: new RpcDispatcher({ runtime, methods: ORCHESTRATION_METHODS }),
@@ -227,6 +231,80 @@ describe('orchestration worker-start prompt contract', () => {
     })
   })
 
+  it.each([
+    ['succeeded', false],
+    ['succeeded', true],
+    ['failed', false],
+    ['failed', true]
+  ] as const)('preserves an early %s report with turn evidence=%s', async (outcome, observed) => {
+    vi.useFakeTimers()
+    const harness = await createPromptContractHarness('swallowed')
+    vi.spyOn(harness.runtime, 'observeTerminalAgentPrompt').mockImplementation(
+      async (_handle, prompt) => {
+        const dispatch = harness.db.findActiveDispatchForAssignee(harness.handle)
+        expect(dispatch).toBeDefined()
+        expect(
+          harness.db.settleWorkerReport({
+            taskId: harness.taskId,
+            dispatchId: dispatch!.id,
+            outcome,
+            result: 'Finished before the hook arrived'
+          })
+        ).toMatchObject({ action: 'settled', outcome })
+        return observed ? { ...prompt, stages: ['input_accepted', 'turn_started'] } : prompt
+      }
+    )
+    const pending = harness.dispatcher.dispatch(harness.request)
+    await vi.runAllTimersAsync()
+    expect(await pending).toMatchObject({
+      ok: true,
+      result: { state: 'ready', stage: 'settled', workerOutcome: outcome }
+    })
+    expect(harness.db.getTask(harness.taskId)?.status).toBe(
+      outcome === 'succeeded' ? 'completed' : 'failed'
+    )
+  })
+
+  it('retains accepted authority when the observation binding becomes stale', async () => {
+    vi.useFakeTimers()
+    const harness = await createPromptContractHarness('swallowed')
+    vi.spyOn(harness.runtime, 'observeTerminalAgentPrompt').mockRejectedValue(
+      new Error('terminal_handle_stale')
+    )
+    const pending = harness.dispatcher.dispatch(harness.request)
+    await vi.runAllTimersAsync()
+    expect(await pending).toMatchObject({ ok: true, result: { state: 'outcome_unknown' } })
+    expect(harness.db.findActiveDispatchForAssignee(harness.handle)).toMatchObject({
+      status: 'pending',
+      capability_hash: expect.any(String),
+      capability_revoked_at: null
+    })
+    expect(harness.submittedTurns()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps a worker question answerable after turn observation times out', async () => {
+    vi.useFakeTimers()
+    const harness = await createPromptContractHarness('swallowed')
+    let questionId = ''
+    vi.spyOn(harness.runtime, 'observeTerminalAgentPrompt').mockImplementation(
+      async (_handle, prompt) => {
+        const dispatch = harness.db.findActiveDispatchForAssignee(harness.handle)!
+        questionId = harness.db.createQuestion({
+          runId: dispatch.run_id!,
+          dispatchId: dispatch.id,
+          askerHandle: harness.handle,
+          question: 'Which target should I use?'
+        }).question.message_id
+        return prompt
+      }
+    )
+    const pending = harness.dispatcher.dispatch(harness.request)
+    await vi.runAllTimersAsync()
+    expect(await pending).toMatchObject({ ok: true, result: { state: 'outcome_unknown' } })
+    expect(harness.db.getQuestion(questionId)?.status).toBe('pending')
+  })
+
   it('reports a swallowed Enter as start_unknown while keeping the worker and its capability', async () => {
     vi.useFakeTimers()
     const harness = await createPromptContractHarness('swallowed')
@@ -273,7 +351,7 @@ describe('orchestration worker-start prompt contract', () => {
     expect(persisted.getWorkerDispatch(dispatchId)).toMatchObject({
       state: 'start_unknown',
       stage: 'turn_start_unobserved',
-      last_error: expect.stringContaining('never started a turn')
+      last_error: expect.stringContaining('turn start could not be verified')
     })
     const persistedEffects = JSON.parse(
       persisted.getWorkerDispatch(dispatchId)?.effects ?? '[]'
