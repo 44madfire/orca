@@ -12,6 +12,9 @@ export function structuredWorkerChildIdentityEnv(
 ): Record<string, string> {
   const identity = structuredWorkerIdentities.getBySessionId(sessionId)
   const envBase = { ...childEnv }
+  delete envBase.ORCA_TERMINAL_HANDLE
+  delete envBase.ORCA_PANE_KEY
+  delete envBase[ORCA_STRUCTURED_SESSION_ENV]
   delete envBase.ORCA_AGENT_SESSION_ID
   delete envBase.ORCA_AGENT_SESSION_RUNTIME_FENCE
   if (!identity && runtimeFence === undefined) {
