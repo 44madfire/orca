@@ -50,3 +50,28 @@ describe('agent skill selection', () => {
     ).toThrow(expect.objectContaining({ code: AGENT_SKILL_SELECTOR_AMBIGUOUS_CODE }))
   })
 })
+
+it('indexes a batch of selectors without rescanning discovery', () => {
+  let reads = 0
+  const skills = Array.from({ length: 1000 }, (_, index) => ({
+    ...skill(`id-${index}`, `name-${index}`),
+    get id() {
+      reads++
+      return `id-${index}`
+    }
+  }))
+  const selected = selectDiscoveredSkills(
+    skills,
+    skills.map((_, index) => `id-${index}`)
+  )
+  expect(selected).toHaveLength(1000)
+  expect(selected[999]).toBe(skills[999])
+  expect(reads).toBeLessThan(10000)
+})
+
+it('retains first duplicate ID authority and exact ID precedence over names', () => {
+  const first = skill('id', 'first')
+  expect(
+    selectDiscoveredSkills([first, skill('id', 'second'), skill('other', 'id')], ['id'])
+  ).toEqual([first])
+})
