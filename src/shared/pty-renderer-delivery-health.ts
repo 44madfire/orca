@@ -49,7 +49,7 @@ export type PtyRendererDeliveryHealthReply = {
   msSinceLastAck: number | null
   /** Present only on a heal report that actually wrote off lost bytes. */
   writtenOff?: PtyDeliveryWriteOff[]
-  /** Per-PTY debt, debt-descending and capped. Session-global `msSinceLastAck` is
+  /** Per-PTY debt, recoverable losses first, then debt-descending and capped. Session-global `msSinceLastAck` is
    *  healthy essentially always on a many-terminal machine, so a single wedged pane
    *  is invisible without this. Absent from an older main leaves the renderer on the
    *  global predicate alone — today's behaviour. */

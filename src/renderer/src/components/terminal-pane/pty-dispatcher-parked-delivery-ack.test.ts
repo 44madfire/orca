@@ -164,4 +164,21 @@ describe('parked pty:data delivery credit', () => {
     clearPreHandlerPtyState(PTY_ID)
     expect(ackData.mock.calls).toEqual([[PTY_ID, 9, 9]])
   })
+
+  it('clears delivery totals even when an exit consumer credits output and throws', async () => {
+    installWindow({ deliveryWatchdog: true })
+    const { ensurePtyDispatcher, ptyExitHandlers } = await import('./pty-dispatcher')
+    const { ackPtyData, getProcessedPtyCharTotals } = await import('./terminal-pty-ack-gate')
+    const { getTerminalDeliveryWatchdogDiagnostics } = await import('./terminal-delivery-watchdog')
+    ensurePtyDispatcher()
+    emitPtyData({ id: PTY_ID, data: BOOT_OUTPUT })
+    ptyExitHandlers.set(PTY_ID, () => {
+      ackPtyData(PTY_ID, 1)
+      throw new Error('exit cleanup failed')
+    })
+
+    expect(() => emitPtyExit({ id: PTY_ID, code: 0 })).toThrow('exit cleanup failed')
+    expect(getProcessedPtyCharTotals()).toEqual({})
+    expect(getTerminalDeliveryWatchdogDiagnostics().receivedCharsByPty).toEqual({})
+  })
 })

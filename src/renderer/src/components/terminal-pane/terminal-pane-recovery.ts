@@ -95,6 +95,10 @@ type RecoveryBudget =
   | { allowed: false; declinedBy: 'cooldown'; retryInMs: number }
 
 function shouldScheduleRecoveryRetry(request: RecoveryRequest, budget: RecoveryBudget): boolean {
+  // The watchdog rechecks parked occupancy; queued retries can outlive a successful bind.
+  if (request.reason === 'delivery-parked') {
+    return false
+  }
   return (
     !budget.allowed &&
     (budget.declinedBy === 'cooldown'

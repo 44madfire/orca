@@ -14,18 +14,25 @@ import {
 export async function recoverParkedPanes(ptyIds: string[]): Promise<void> {
   // Bounded: this scan runs only for ids stalled across two ticks, never per render.
   const ptyIdsByTabId = useAppStore.getState().ptyIdsByTabId ?? {}
+  const requestsByTabId = new Map<string, { ptyId: string; terminalRecoveryGeneration: number }>()
   for (const ptyId of ptyIds) {
     const tabId = Object.keys(ptyIdsByTabId).find((candidate) =>
       ptyIdsByTabId[candidate]?.includes(ptyId)
     )
-    if (tabId === undefined) {
+    if (tabId === undefined || requestsByTabId.has(tabId)) {
       continue
     }
+    requestsByTabId.set(tabId, {
+      ptyId,
+      terminalRecoveryGeneration: captureTerminalPaneRecoveryGeneration(tabId)
+    })
+  }
+  // A tab remount replaces every split; capture ownership before any request changes it.
+  for (const [tabId, request] of requestsByTabId) {
     await requestTerminalPaneRecovery({
       tabId,
-      ptyId,
       reason: 'delivery-parked',
-      terminalRecoveryGeneration: captureTerminalPaneRecoveryGeneration(tabId)
+      ...request
     })
   }
 }

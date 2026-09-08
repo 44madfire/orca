@@ -211,6 +211,16 @@ function sanitizeReportedChars(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0
 }
 
+export function hasUnreceivedRendererDelivery(
+  accounting: RendererPtyDeliveryAccounting,
+  receivedChars: unknown
+): boolean {
+  return (
+    accounting.sentChars > accounting.ackedChars &&
+    sanitizeReportedChars(receivedChars) <= accounting.ackedChars
+  )
+}
+
 export function writeOffLostRendererDelivery(
   session: PtyIpcSession,
   report: PtyRendererDeliveryStateReport,
@@ -218,15 +228,11 @@ export function writeOffLostRendererDelivery(
 ): PtyDeliveryWriteOff[] {
   const writtenOff: PtyDeliveryWriteOff[] = []
   for (const [id, accounting] of session.rendererDeliveryAccountingByPty) {
-    if (accounting.sentChars - accounting.ackedChars <= 0) {
-      continue
-    }
     if (!ackSilentPtyIds.has(id)) {
       continue
     }
-    const receivedChars = sanitizeReportedChars(report.receivedCharsByPty?.[id])
     // Why skip: received-but-unparsed bytes are alive in the renderer write queue; their deferred ACK still repays this debt.
-    if (receivedChars > accounting.ackedChars) {
+    if (!hasUnreceivedRendererDelivery(accounting, report.receivedCharsByPty?.[id])) {
       continue
     }
     const acknowledged = applyCumulativeAck(session, id, accounting.sentChars)

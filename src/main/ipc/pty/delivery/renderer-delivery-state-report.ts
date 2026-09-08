@@ -12,7 +12,9 @@ import { tryGetProviderForPty } from '../provider/registry'
 import {
   applyCumulativeAck,
   collectAckSilentPtyIdsForHeal,
-  hasAckSilentRendererDeliveryDebt
+  hasAckSilentRendererDeliveryDebt,
+  hasUnreceivedRendererDelivery,
+  isPtyAckSilentForHeal
 } from './accounting'
 import { DELIVERY_DIAGNOSTICS_MAX_PTYS } from './constants'
 import type { PtyIpcSession } from '../session'
@@ -39,18 +41,26 @@ export function applyRendererProcessedCharTotals(
   return creditedAny
 }
 
-/** Per-PTY debt, debt-descending and capped, on every report — not only heals. The renderer's
- *  streak logic needs it on probe ticks, and session-global `msSinceLastAck` cannot answer
- *  "which pane" on a machine running a hundred of them. */
-function collectStalledPtys(session: PtyIpcSession): {
+/** Prioritize recoverable debt before capping so streaming or parsing siblings cannot hide it. */
+function collectStalledPtys(
+  session: PtyIpcSession,
+  receivedCharsByPty: Record<string, number> | undefined
+): {
   stalledPtys: PtyDeliveryStalledPty[]
   inFlightPtyCount: number
 } {
   const now = Date.now()
   const stalled: PtyDeliveryStalledPty[] = []
+  const recoverablePtyIds = new Set<string>()
   for (const [id, accounting] of session.rendererDeliveryAccountingByPty) {
     const inFlightChars = accounting.sentChars - accounting.ackedChars
     if (inFlightChars > 0) {
+      if (
+        isPtyAckSilentForHeal(accounting, now) &&
+        hasUnreceivedRendererDelivery(accounting, receivedCharsByPty?.[id])
+      ) {
+        recoverablePtyIds.add(id)
+      }
       stalled.push({
         id,
         inFlightChars,
@@ -58,9 +68,11 @@ function collectStalledPtys(session: PtyIpcSession): {
       })
     }
   }
-  stalled.sort((a, b) => b.inFlightChars - a.inFlightChars)
-  // The count stays uncapped: it is the session's real indebted-PTY total, while the list is
-  // a bounded diagnostic. Heals then proceed in debt-descending batches past the cap.
+  stalled.sort(
+    (a, b) =>
+      Number(recoverablePtyIds.has(b.id)) - Number(recoverablePtyIds.has(a.id)) ||
+      b.inFlightChars - a.inFlightChars
+  )
   return {
     stalledPtys: stalled.slice(0, DELIVERY_DIAGNOSTICS_MAX_PTYS),
     inFlightPtyCount: stalled.length
@@ -84,7 +96,7 @@ export function handleRendererDeliveryStateReport(
     creditedAny ||= writtenOff.length > 0
   }
   session.schedulePendingDataAfterCreditReport(creditedAny)
-  const { stalledPtys, inFlightPtyCount } = collectStalledPtys(session)
+  const { stalledPtys, inFlightPtyCount } = collectStalledPtys(session, args?.receivedCharsByPty)
   return {
     inFlightTotalChars: session.rendererInFlightTotalChars,
     inFlightPtyCount,

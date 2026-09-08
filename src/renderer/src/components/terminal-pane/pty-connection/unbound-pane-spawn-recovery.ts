@@ -11,11 +11,9 @@ import type { ConnectPanePtySession } from './connect-pane-pty-session'
  *  reconciler skips unbound panes, so nothing else rebinds one. A remount
  *  reattaches over the still-live PTY and drains the buffer.
  *
- *  Parked bytes now hold their delivery credit, so main's flow control does see
- *  the dead pane and pauses the shell instead of flooding it. That makes the
- *  remount reachable from a second detector — the watchdog's parked-stall lane —
- *  but it is not a replacement: it takes two 15s ticks and only fires once bytes
- *  arrive, while this seam settles a data-silent pane immediately.
+ *  The watchdog also detects persistent parked output independently of delivery
+ *  credit, but needs two 15s ticks and incoming bytes. This seam handles a
+ *  data-silent pane immediately.
  *
  *  A direct-SSH lease runs its own retry ledger, so it keeps ownership here and
  *  a second remount never races it. */

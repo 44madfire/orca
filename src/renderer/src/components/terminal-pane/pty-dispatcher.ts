@@ -173,21 +173,21 @@ function attachPtySecondaryPushListeners(unsubscribes: (() => void)[]): void {
         // Why: one-shot owner — remove before invoking so a throwing callback can't stay registered for a duplicate exit.
         ptyExitHandlers.delete(payload.id)
       }
-      deliverPtyExitToHandlers({
-        ptyId: payload.id,
-        code: payload.code,
-        // Why forwarded: pty ids are reused, so a buffered exit needs the lifetime it describes to
-        // tell "this pane's shell died" from "the id's previous owner died" (#16970).
-        ...(payload.incarnationId ? { incarnationId: payload.incarnationId } : {}),
-        ...(primary ? { primary } : {}),
-        sidecars: sidecars ? Array.from(sidecars) : []
-      })
-      // Why after delivery: main drops its accounting on exit, so drop totals too and a reused
-      // id restarts at zero on both sides. Delivery can itself credit an ACK — a drain, or a
-      // handler flushing pending writes — and clearing first left that re-seeded, opening the
-      // next incarnation with main crediting bytes nobody had parsed.
-      clearProcessedPtyCharTotal(payload.id)
-      clearReceivedPtyCharTotal(payload.id)
+      try {
+        deliverPtyExitToHandlers({
+          ptyId: payload.id,
+          code: payload.code,
+          // Why forwarded: pty ids are reused, so a buffered exit needs the lifetime it describes to
+          // tell "this pane's shell died" from "the id's previous owner died" (#16970).
+          ...(payload.incarnationId ? { incarnationId: payload.incarnationId } : {}),
+          ...(primary ? { primary } : {}),
+          sidecars: sidecars ? Array.from(sidecars) : []
+        })
+      } finally {
+        // Exit callbacks can credit pending writes or throw; neither may retain old-lifetime totals.
+        clearProcessedPtyCharTotal(payload.id)
+        clearReceivedPtyCharTotal(payload.id)
+      }
     })
   )
   // Why: main probes on suspected lost ACKs; replying with processed totals lets it reconcile instead of resetting blindly.
