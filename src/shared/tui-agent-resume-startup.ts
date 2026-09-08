@@ -18,8 +18,6 @@ export function buildAgentResumeStartupPlan(args: {
   cmdOverrides: Partial<Record<TuiAgent, string>>
   platform: NodeJS.Platform
   shell?: AgentStartupShell
-  /** Shell used to interpret the persisted command before appending resume arguments. */
-  resumeCommandShell?: AgentStartupShell
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
   agentCommand?: string | null
@@ -58,17 +56,25 @@ export function buildAgentResumeStartupPlan(args: {
     ...args,
     agentCommand: baseCommand.commandWithoutSessionOptions
   })
-  const launchCommand = buildAgentResumeLaunchCommand(
-    args.agent,
-    baseCommand.command,
-    argv,
-    shell,
-    args.resumeCommandShell
-  )
+  const launchCommand = buildAgentResumeLaunchCommand(args.agent, baseCommand.command, argv, shell)
   const applied = baseCommand.appliedSessionOptions
   return {
     agent: args.agent,
     launchCommand,
+    ...(args.platform === 'win32' && !args.isRemote
+      ? {
+          agentResume: {
+            agent: args.agent,
+            providerSession: args.providerSession,
+            cmdOverrides: args.cmdOverrides,
+            agentArgs: args.agentArgs,
+            agentCommand: args.agentCommand,
+            ompResumeFilePath: args.ompResumeFilePath,
+            sessionOptions: args.sessionOptions,
+            sessionOptionsOverrideAgentArgs: args.sessionOptionsOverrideAgentArgs
+          }
+        }
+      : {}),
     expectedProcess: TUI_AGENT_CONFIG[args.agent].expectedProcess,
     followupPrompt: null,
     launchConfig,

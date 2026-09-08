@@ -108,7 +108,10 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
         : {}),
       ...(coldRestoreOverride ? { launchConfig: coldRestoreOverride.launchConfig } : {}),
       ...(coldRestoreOverride
-        ? { resumeProviderSession: coldRestoreOverride.resumeProviderSession }
+        ? {
+            resumeProviderSession: coldRestoreOverride.resumeProviderSession,
+            agentResume: coldRestoreOverride.agentResume
+          }
         : {}),
       ...(coldRestoreOverride ? { launchToken: coldRestoreOverride.launchToken } : {}),
       ...(coldRestoreOverride ? { launchAgent: coldRestoreOverride.agent } : {}),

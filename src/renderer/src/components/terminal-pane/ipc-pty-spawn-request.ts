@@ -48,6 +48,9 @@ export async function spawnIpcPty(
       ? { envToDelete: connectOptions.envToDelete ?? envToDelete }
       : {}),
     command: connectOptions.command ?? command,
+    ...(!connectionId && (connectOptions.agentResume ?? transportOptions.agentResume)
+      ? { agentResume: connectOptions.agentResume ?? transportOptions.agentResume }
+      : {}),
     ...((connectOptions.commandDelivery ?? commandDelivery)
       ? { commandDelivery: connectOptions.commandDelivery ?? commandDelivery }
       : {}),

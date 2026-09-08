@@ -435,7 +435,16 @@ describe('connectPanePty', () => {
       }
       await flushAsyncTicks(10)
 
-      return (transport.connect.mock.calls.at(-1)?.[0] as { command?: string } | undefined)?.command
+      const finalOptions = transport.connect.mock.calls.at(-1)?.[0] as
+        | { command?: string; agentResume?: unknown }
+        | undefined
+      expect(finalOptions?.agentResume).toEqual(
+        expect.objectContaining({
+          providerSession: { key: 'session_id', id: 'codex-session-1' },
+          ...(args.agentCommand ? { agentCommand: args.agentCommand } : {})
+        })
+      )
+      return finalOptions?.command
     } finally {
       globalThis.setTimeout = originalSetTimeout
       restoreNavigator()
@@ -463,16 +472,18 @@ describe('connectPanePty', () => {
     ).resolves.toBe("codex '--dangerously-bypass-approvals-and-sandbox' 'resume' 'codex-session-1'")
   })
 
-  it('quotes for cmd.exe on cold restore when the shell setting has not hydrated', async () => {
-    await expect(runWindowsColdRestoreResume({})).resolves.toBe(
-      'codex "--dangerously-bypass-approvals-and-sandbox" "resume" "codex-session-1"'
-    )
+  it('preserves the persisted Claude command in structured cold restore', async () => {
+    await expect(
+      runWindowsColdRestoreResume({
+        agentCommand: "& claude '--model' 'sonnet' --resume 'old-session'"
+      })
+    ).resolves.toContain("'codex-session-1'")
   })
 
-  it('removes a stale Claude selector before cmd-compatible cold-restore quoting', async () => {
-    await expect(
-      runWindowsColdRestoreResume({ agentCommand: "claude --resume 'old-session'" })
-    ).resolves.toBe('claude "--resume" "codex-session-1"')
+  it('passes structured resume inputs when settings have not hydrated', async () => {
+    await expect(runWindowsColdRestoreResume({})).resolves.toBe(
+      "codex '--dangerously-bypass-approvals-and-sandbox' 'resume' 'codex-session-1'"
+    )
   })
 
   it('keeps a contentless reattach when the sleeping record represents a live session', async () => {

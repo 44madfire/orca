@@ -1,3 +1,4 @@
+import { AGENT_RESUME_COMMAND_PROTOCOL_VERSION } from './daemon-protocol-version'
 import type { ColdRestorePayload } from './cold-restore-payload-cache'
 import type { DaemonAuditObservation } from './daemon-audit-classifier'
 import {
@@ -106,6 +107,15 @@ export abstract class DaemonPtySpawnRequest extends DaemonPtyRuntimeState {
       if (opts.signal?.aborted) {
         throw new Error('client_disconnected')
       }
+      if (
+        !context.attachOnly &&
+        opts.agentResume &&
+        this.protocolVersion < AGENT_RESUME_COMMAND_PROTOCOL_VERSION
+      ) {
+        throw new Error(
+          'This terminal host must be updated before it can resume agents with shell-correct quoting. Existing terminals can remain attached.'
+        )
+      }
       const payload = {
         sessionId: context.sessionId,
         cols: context.effectiveCols,
@@ -114,6 +124,7 @@ export abstract class DaemonPtySpawnRequest extends DaemonPtyRuntimeState {
         env: context.attachOnly ? undefined : opts.env,
         envToDelete: context.attachOnly ? undefined : opts.envToDelete,
         command: context.attachOnly ? undefined : opts.command,
+        ...(!context.attachOnly && opts.agentResume ? { agentResume: opts.agentResume } : {}),
         startupCommandDelivery: context.attachOnly ? undefined : opts.startupCommandDelivery,
         launchAgent: context.attachOnly ? undefined : opts.launchAgent,
         ...(context.attachOnly && !context.emulateLegacyAttachOnly ? { attachOnly: true } : {}),

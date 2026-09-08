@@ -13,10 +13,7 @@ import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
 } from '../../../shared/tui-agent-launch-defaults'
-import {
-  getAgentResumeArgv,
-  type SleepingAgentSessionRecord
-} from '../../../shared/agent-session-resume'
+import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
 import { translate } from '@/i18n/i18n'
 
 export type ResumeSleepingAgentSessionsOptions = {
@@ -31,11 +28,7 @@ export type ResumeSleepingAgentSessionsOptions = {
   onSessionLaunched?: (tabId: string) => void
 }
 
-function getResumeLaunchTarget(
-  record: SleepingAgentSessionRecord,
-  effectiveAgentArgs: string | null | undefined
-): AgentResumeLaunchTarget {
-  const worktreeId = record.worktreeId
+function getResumeLaunchTarget(worktreeId: string): AgentResumeLaunchTarget {
   const state = useAppStore.getState()
   const worktree = state.getKnownWorktreeById(worktreeId)
   const repo = worktree ? state.repos.find((entry) => entry.id === worktree.repoId) : null
@@ -45,14 +38,7 @@ function getResumeLaunchTarget(
     connectionId: repo?.connectionId,
     executionHostId: getExecutionHostIdForWorktree(state, worktreeId),
     worktreePath: worktree?.path,
-    terminalWindowsShell: state.settings?.terminalWindowsShell,
-    resumeArgv:
-      getAgentResumeArgv(
-        record.agent,
-        record.providerSession,
-        record.launchConfig?.ompResumeFilePath
-      ) ?? undefined,
-    resumeAgentArgs: record.launchConfig?.agentCommand?.trim() ? null : effectiveAgentArgs
+    terminalWindowsShell: state.settings?.terminalWindowsShell
   })
 }
 
@@ -86,7 +72,7 @@ export function launchSleepingAgentSession(
     launchConfig !== undefined
       ? launchConfig.agentArgs
       : resolveTuiAgentLaunchArgs(record.agent, state.settings?.agentDefaultArgs)
-  const resumeTarget = getResumeLaunchTarget(record, effectiveAgentArgs)
+  const resumeTarget = getResumeLaunchTarget(record.worktreeId)
   const startupPlan = buildAgentResumeStartupPlan({
     agent: record.agent,
     providerSession: record.providerSession,
@@ -101,8 +87,7 @@ export function launchSleepingAgentSession(
       ? { ompResumeFilePath: launchConfig.ompResumeFilePath }
       : {}),
     platform: resumeTarget.platform,
-    shell: resumeTarget.shell,
-    resumeCommandShell: resumeTarget.resumeCommandShell
+    shell: resumeTarget.shell
   })
   if (!startupPlan) {
     toast.error(
@@ -121,6 +106,7 @@ export function launchSleepingAgentSession(
       ...(startupPlan.env ? { env: startupPlan.env } : {}),
       launchConfig: startupPlan.launchConfig,
       resumeProviderSession: record.providerSession,
+      agentResume: startupPlan.agentResume,
       launchAgent: record.agent,
       ...(launchConfig ? { agentArgsOverride: launchConfig.agentArgs } : {}),
       ...(startupPlan.startupCommandDelivery

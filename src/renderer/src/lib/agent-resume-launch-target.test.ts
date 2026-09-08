@@ -72,86 +72,11 @@ describe('resolveAgentResumeLaunchTarget on a Windows client', () => {
     })
   })
 
-  it('keeps the PowerShell default when no Windows shell is configured and no resume argv is given', async () => {
-    // Without the resume argv the race guess cannot prove cmd-quoting is safe, so
-    // it must not fire — an unset shell falls back to the win32 PowerShell default.
+  it('keeps PowerShell quoting when no Windows shell is configured', async () => {
     await expect(resolveWith({})).resolves.toEqual({
       platform: 'win32',
       shell: 'powershell'
     })
-  })
-
-  it('guesses cmd for an unset shell when every resume token is cmd-quote-safe', async () => {
-    await expect(
-      resolveWith({ resumeArgv: ['codex', 'resume', 'a1b2c3d4-0000-4000-8000-000000000000'] })
-    ).resolves.toEqual({ platform: 'win32', shell: 'cmd', resumeCommandShell: 'powershell' })
-  })
-
-  it('keeps the PowerShell default for an unset shell when a resume token needs cmd escaping', async () => {
-    // An omp/pi/prime-agent transcript path can carry cmd-special chars (parens,
-    // e.g. `(x86)`). cmd `^`-escaping would corrupt that path in a PowerShell
-    // race pane, so the guess must stay off and leave the win32 default.
-    await expect(
-      resolveWith({
-        resumeArgv: ['omp', '--resume', 'C:\\Users\\neil\\AppData (x86)\\omp\\session.jsonl']
-      })
-    ).resolves.toEqual({ platform: 'win32', shell: 'powershell' })
-  })
-
-  it('keeps the PowerShell default for an unset shell when agentArgs need cmd escaping', async () => {
-    // The resume argv is clean, but agentArgs the command will ^-escape carry a
-    // path with parens; a cmd guess would corrupt them in a PowerShell race pane.
-    await expect(
-      resolveWith({
-        resumeArgv: ['codex', 'resume', 'a1b2c3d4-0000-4000-8000-000000000000'],
-        resumeAgentArgs: '--add-dir C:\\Program Files (x86)\\proj'
-      })
-    ).resolves.toEqual({ platform: 'win32', shell: 'powershell' })
-  })
-
-  it('keeps the PowerShell default when an INTERIOR agentArgs token ends in a backslash', async () => {
-    // The raw string does not end in `\`, but the command tokenizes agentArgs
-    // and cmd-quotes each token, so the interior `C:\projects\` becomes
-    // `"C:\projects\"` — an arg-merge under CommandLineToArgvW. The gate must
-    // tokenize the same way and reject it, not scan the raw string.
-    await expect(
-      resolveWith({
-        resumeArgv: ['codex', 'resume', 'a1b2c3d4-0000-4000-8000-000000000000'],
-        resumeAgentArgs: '--add-dir C:\\projects\\ --model gpt'
-      })
-    ).resolves.toEqual({ platform: 'win32', shell: 'powershell' })
-  })
-
-  it('still guesses cmd for an unset shell when clean agentArgs accompany a clean resume argv', async () => {
-    await expect(
-      resolveWith({
-        resumeArgv: ['codex', 'resume', 'a1b2c3d4-0000-4000-8000-000000000000'],
-        resumeAgentArgs: '--dangerously-bypass-approvals-and-sandbox --model gpt'
-      })
-    ).resolves.toEqual({ platform: 'win32', shell: 'cmd', resumeCommandShell: 'powershell' })
-  })
-
-  it.each([
-    '--add-dir C:\\work\\a^b',
-    '--append-system-prompt "Match ^foo"',
-    "--append-system-prompt 'it''s a test'"
-  ])('preserves PowerShell argument parsing for %s', async (resumeAgentArgs) => {
-    await expect(
-      resolveWith({
-        resumeArgv: ['codex', 'resume', 'session-1'],
-        resumeAgentArgs
-      })
-    ).resolves.toEqual({ platform: 'win32', shell: 'powershell' })
-  })
-
-  it('never overrides a configured shell with the race guess', async () => {
-    // A hydrated powershell.exe must win even when the argv is cmd-quote-safe.
-    await expect(
-      resolveWith({
-        terminalWindowsShell: 'powershell.exe',
-        resumeArgv: ['codex', 'resume', 'a1b2c3d4-0000-4000-8000-000000000000']
-      })
-    ).resolves.toEqual({ platform: 'win32', shell: 'powershell' })
   })
 
   it('leaves an SSH workspace on its own default quoting', async () => {

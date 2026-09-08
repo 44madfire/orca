@@ -1,3 +1,4 @@
+import { quoteWindowsCmdArgument } from './child-process/windows-command-line'
 import { tokenizeCustomCommandTemplate, type CommandTokenSpan } from './commit-message-prompt'
 
 /**
@@ -215,20 +216,12 @@ function quotePortableUnixArg(value: string): string {
   return parts.join('')
 }
 
-// Reject cmd escapes, PowerShell expansions/quotes, and terminal control characters.
-const CMD_QUOTING_POWERSHELL_UNSAFE = /[\p{Cc}^&|<>()%!"$`\u201c-\u201e]/u
-
-/** A conservative subset whose cmd quoting preserves literal argv in both Windows shells. */
-export function isCmdQuotingPowerShellSafe(value: string): boolean {
-  return value.length > 0 && !CMD_QUOTING_POWERSHELL_UNSAFE.test(value) && !value.endsWith('\\')
-}
-
 export function quoteStartupArg(value: string, shell: AgentStartupShell): string {
   if (shell === 'powershell') {
     return `'${value.replace(/'/g, "''")}'`
   }
   if (shell === 'cmd') {
-    return `"${value.replace(/([\^&|<>()%!"])/g, '^$1')}"`
+    return quoteWindowsCmdArgument(value)
   }
   return quotePortableUnixArg(value)
 }

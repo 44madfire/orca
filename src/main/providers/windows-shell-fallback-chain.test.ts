@@ -55,6 +55,28 @@ describe('buildWindowsPowerShellSpawnAttempts', () => {
     expect(attempts[2].shellArgs[0]).toBe('/K')
   })
 
+  it('keeps custom PowerShell scripts on compatible shell attempts', () => {
+    restorePlatform = setPlatform('win32')
+    const attempts = buildWindowsPowerShellSpawnAttempts({
+      shellPath: 'pwsh.exe',
+      cwd: 'C:\\repo',
+      defaultCwd: 'C:\\Users\\dev',
+      agentResume: {
+        agent: 'claude',
+        providerSession: { key: 'session_id', id: 'session-1' },
+        cmdOverrides: {},
+        sourceShell: 'powershell',
+        agentCommand: 'claude --model $env:MODEL'
+      },
+      resolveOptions: {
+        platform: 'win32',
+        env: WIN_ENV,
+        isRealExecutable: (p) => p === PWSH7 || p === WINDOWS_POWERSHELL
+      }
+    })
+    expect(attempts.map((attempt) => attempt.shellPath)).toEqual([PWSH7, WINDOWS_POWERSHELL])
+  })
+
   it('repro: when pwsh is only a Store alias, the primary attempt is the real Windows PowerShell', () => {
     restorePlatform = setPlatform('win32')
     const aliasStub = 'C:\\Users\\dev\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe'

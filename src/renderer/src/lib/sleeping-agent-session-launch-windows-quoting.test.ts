@@ -137,7 +137,14 @@ describe('launchSleepingAgentSession Windows shell quoting', () => {
     expect(command).not.toContain('old-session')
     expect(command).not.toContain('--continue')
     expect(command?.match(/--resume/g)).toHaveLength(1)
-    expect(command).toContain(`"--resume" "${SESSION_ID}"`)
+    expect(command).toContain(`'--resume' '${SESSION_ID}'`)
+    expect(mockCreateTab.mock.calls.at(-1)?.[3]?.pendingStartup.agentResume).toEqual(
+      expect.objectContaining({
+        agent: 'claude',
+        agentCommand,
+        providerSession: record.providerSession
+      })
+    )
   })
 
   it('keeps PowerShell quoting for a powershell tab', async () => {

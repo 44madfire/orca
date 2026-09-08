@@ -1,3 +1,5 @@
+import { AgentResumeShellMismatchError } from '../../shared/agent-resume-command'
+import type { AgentResumeCommand } from '../../shared/agent-resume-command'
 import { win32 as pathWin32 } from 'node:path'
 import { resolveWindowsShellLaunchArgs } from './windows-shell-args'
 import type { WindowsShellWslContext } from './windows-shell-args'
@@ -21,14 +23,17 @@ function toAttempt(
   cwd: string,
   defaultCwd: string,
   wslContext: WindowsShellWslContext | undefined,
-  startupCommand: string | undefined
+  startupCommand: string | undefined,
+  agentResume?: AgentResumeCommand
 ): WindowsShellSpawnAttempt {
   const resolved = resolveWindowsShellLaunchArgs(
     shellPath,
     cwd,
     defaultCwd,
     wslContext,
-    startupCommand
+    startupCommand,
+    undefined,
+    agentResume
   )
   return {
     shellPath,
@@ -58,6 +63,7 @@ export function buildWindowsPowerShellSpawnAttempts(args: {
   defaultCwd: string
   wslContext?: WindowsShellWslContext
   startupCommand?: string
+  agentResume?: AgentResumeCommand
   resolveOptions?: WindowsPowerShellResolveOptions
 }): WindowsShellSpawnAttempt[] {
   const basename = pathWin32.basename(args.shellPath).toLowerCase()
@@ -65,7 +71,23 @@ export function buildWindowsPowerShellSpawnAttempts(args: {
     return []
   }
   const chain = resolveWindowsPowerShellSpawnChain(basename, args.resolveOptions)
-  return chain.map((candidate) =>
-    toAttempt(candidate, args.cwd, args.defaultCwd, args.wslContext, args.startupCommand)
-  )
+  return chain.flatMap((candidate, index) => {
+    try {
+      return [
+        toAttempt(
+          candidate,
+          args.cwd,
+          args.defaultCwd,
+          args.wslContext,
+          args.startupCommand,
+          args.agentResume
+        )
+      ]
+    } catch (error) {
+      if (index > 0 && error instanceof AgentResumeShellMismatchError) {
+        return []
+      }
+      throw error
+    }
+  })
 }

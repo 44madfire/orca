@@ -8,7 +8,6 @@ import {
 } from '../../../../../shared/tui-agent-launch-defaults'
 import {
   agentProviderSessionsEqual,
-  getAgentResumeArgv,
   isResumableTuiAgent,
   normalizeAgentProviderSession
 } from '../../../../../shared/agent-session-resume'
@@ -62,13 +61,7 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
       executionHostId: session.executionHostId,
       worktreePath: session.worktree?.path,
       terminalWindowsShell: state.settings?.terminalWindowsShell,
-      tabShellOverride: session.shellOverride,
-      // The cold-restore path can run before the store hydrates the shell setting;
-      // pass the resume argv (and agentArgs, unless a custom command supersedes
-      // them) so the target resolver's race guess can prove cmd-quoting is safe.
-      resumeArgv:
-        getAgentResumeArgv(agent, providerSession, launchConfig?.ompResumeFilePath) ?? undefined,
-      resumeAgentArgs: launchConfig?.agentCommand?.trim() ? null : effectiveAgentArgs
+      tabShellOverride: session.shellOverride
     })
     const startupPlan = buildAgentResumeStartupPlan({
       agent,
@@ -84,8 +77,7 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
         ? { ompResumeFilePath: launchConfig.ompResumeFilePath }
         : {}),
       platform: resumeTarget.platform,
-      shell: resumeTarget.shell,
-      resumeCommandShell: resumeTarget.resumeCommandShell
+      shell: resumeTarget.shell
     })
     if (!startupPlan) {
       return null
@@ -102,6 +94,7 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
       },
       launchConfig: startupPlan.launchConfig,
       resumeProviderSession: providerSession,
+      agentResume: startupPlan.agentResume,
       launchToken: coldRestoreLaunchToken,
       useLiveEntry: Boolean(useLiveEntry),
       hasSleepingRecord: Boolean(sleepingRecord),

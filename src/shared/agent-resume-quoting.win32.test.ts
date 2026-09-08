@@ -5,7 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runProcess } from './child-process/run-process'
 import { windowsPowerShellPath, windowsSystem32Binary } from './child-process/windows-system-binary'
 import { removeTreeSync } from './windows-transient-lock-removal'
-import { isCmdQuotingPowerShellSafe, quoteStartupArg } from './tui-agent-startup-shell'
+import { resolveAgentResumeCommand } from './agent-resume-command'
+import { quoteStartupArg } from './tui-agent-startup-shell'
 
 describe.skipIf(process.platform !== 'win32')('resume quoting in real Windows shells', () => {
   let directory: string
@@ -29,7 +30,7 @@ describe.skipIf(process.platform !== 'win32')('resume quoting in real Windows sh
       program: shell === 'cmd' ? windowsSystem32Binary('cmd.exe') : windowsPowerShellPath(),
       args:
         shell === 'cmd'
-          ? ['/d', '/q']
+          ? ['/d', '/q', '/k', 'chcp 65001 > nul']
           : ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', lines],
       ...(shell === 'cmd' ? { input: `${lines}\r\nexit\r\n` } : {}),
       env: { ...process.env, ORCA_ARGV_NODE: process.execPath, ORCA_ARGV_RECORDER: recorder }
@@ -55,12 +56,46 @@ describe.skipIf(process.platform !== 'win32')('resume quoting in real Windows sh
         '#tag',
         '{text}'
       ]
-      expect(values.every(isCmdQuotingPowerShellSafe)).toBe(true)
       expect(
         await runLines(shell, [values.map((value) => quoteStartupArg(value, 'cmd')).join(' ')])
       ).toEqual([values])
     }
   )
+
+  it.each(['cmd', 'powershell'] as const)(
+    'executes structured resume arguments in %s',
+    async (shell) => {
+      const values = [
+        'C:\\work (x86)\\repo',
+        'C:\\a^b\\',
+        'a&b',
+        ...(shell === 'powershell' ? ['a\u201cb\u201dc'] : [])
+      ]
+      const suffixes = values.map((value) => {
+        const command = resolveAgentResumeCommand(
+          {
+            agent: 'codex',
+            providerSession: { key: 'session_id', id: 'session-1' },
+            cmdOverrides: {},
+            sourceShell: 'powershell',
+            agentArgs: `--add-dir '${value}'`
+          },
+          `${shell}.exe`
+        )!
+        return command.replace(/^(?:codex|"codex"|& 'codex') /, '')
+      })
+      expect(await runLines(shell, suffixes)).toEqual(
+        values.map((value) => ['--add-dir', value, 'resume', 'session-1'])
+      )
+    }
+  )
+
+  it('preserves cmd metacharacters as literal arguments', async () => {
+    const values = ['fix "quoted" & %PATH%', 'C:\\a^b\\', 'a!b', 'x|y', '(x)', 'a>b']
+    expect(
+      await runLines('cmd', [values.map((value) => quoteStartupArg(value, 'cmd')).join(' ')])
+    ).toEqual([values])
+  })
 
   it('reproduces literal single quotes in cmd and verifies the double-quote fix', async () => {
     expect(await runLines('cmd', ["'resume' 'session-1'", '"resume" "session-1"'])).toEqual([
@@ -69,9 +104,8 @@ describe.skipIf(process.platform !== 'win32')('resume quoting in real Windows sh
     ])
   })
 
-  it('keeps smart double quotes literal only with the PowerShell fallback', async () => {
+  it('uses PowerShell quoting for smart quotes in a PowerShell pane', async () => {
     const value = 'a\u201cb\u201dc'
-    expect(isCmdQuotingPowerShellSafe(value)).toBe(false)
     const results = await runLines('powershell', [
       quoteStartupArg(value, 'powershell'),
       quoteStartupArg(value, 'cmd')
