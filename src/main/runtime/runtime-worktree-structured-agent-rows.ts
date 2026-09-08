@@ -41,7 +41,7 @@ export function structuredRuntimeWorktreeAgentSources(
       interrupted: false,
       stateStartedAt: summary.updatedAt,
       updatedAt: summary.updatedAt,
-      authority: 'structured-host'
+      ...(summary.hostExecutionOwned ? { authority: 'structured-host' as const } : {})
     })
   }
   return sources

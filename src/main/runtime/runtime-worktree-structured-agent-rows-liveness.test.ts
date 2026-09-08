@@ -130,6 +130,7 @@ describe('worktree ps and a closed structured chat', () => {
     const { feed } = await awaitingApproval()
     const aged = feed.liveSessionSummaries().map((summary) => ({
       ...summary,
+      hostExecutionOwned: true as const,
       updatedAt: Date.now() - 30 * 60 * 1000 - 1,
       status: 'working' as const
     }))
@@ -144,6 +145,7 @@ describe('worktree ps and a closed structured chat', () => {
     const { feed } = await awaitingApproval()
     const aged = feed.liveSessionSummaries().map((summary) => ({
       ...summary,
+      hostExecutionOwned: true as const,
       updatedAt: Date.now() - 30 * 60 * 1000 - 1
     }))
     const row = worktreeFor(feed, aged)

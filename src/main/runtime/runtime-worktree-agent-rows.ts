@@ -81,7 +81,9 @@ export function attachRuntimeWorktreeAgentRows(args: {
     const monitoringSources: RuntimeWorktreeAgentSource[] = []
     for (const row of rows) {
       const source = rowSources.get(row.paneKey)
-      if (source?.authority !== 'structured-host' && !isFreshNonDoneAgentStatus(row, now)) {
+      const hostHeldStructuredSession =
+        source?.authority === 'structured-host' && row.state !== 'done'
+      if (!hostHeldStructuredSession && !isFreshNonDoneAgentStatus(row, now)) {
         continue
       }
       summary.hasHostSidebarActivity = true

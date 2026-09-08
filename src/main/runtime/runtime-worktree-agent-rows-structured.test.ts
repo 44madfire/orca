@@ -23,12 +23,18 @@ function summary(over: Partial<AgentSessionStatusSummary> = {}): AgentSessionSta
     status: 'working',
     latestPrompt: 'ship the thing',
     updatedAt: 1_757_030_400_000,
+    hostExecutionOwned: true,
     ...over
   } as AgentSessionStatusSummary
 }
 
 function attach(summaries: AgentSessionStatusSummary[]): RuntimeWorktreePsSummary {
-  const row = { worktreeId: WORKTREE_ID, agents: [] } as unknown as RuntimeWorktreePsSummary
+  const row = {
+    worktreeId: WORKTREE_ID,
+    status: 'inactive',
+    hasHostSidebarActivity: false,
+    agents: []
+  } as unknown as RuntimeWorktreePsSummary
   const summariesById = new Map<string, RuntimeWorktreePsSummary>([[WORKTREE_ID, row]])
   attachRuntimeWorktreeAgentRows({
     summaries: summariesById,
@@ -61,6 +67,12 @@ describe('worktree ps reports structured sessions', () => {
   it('maps attention to blocked and idle to done', () => {
     expect(attach([summary({ status: 'attention' })]).agents[0]?.state).toBe('blocked')
     expect(attach([summary({ status: 'idle' })]).agents[0]?.state).toBe('done')
+  })
+
+  it('does not turn a completed host-held session into permission', () => {
+    const row = attach([summary({ status: 'idle' })])
+    expect(row.status).toBe('inactive')
+    expect(row.hasHostSidebarActivity).toBe(false)
   })
 
   it('reports the DERIVED pane key, never an orchestration credential', () => {

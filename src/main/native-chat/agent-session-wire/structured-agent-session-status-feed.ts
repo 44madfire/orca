@@ -30,6 +30,7 @@ export type StructuredAgentSessionStatusSubscriber = {
 type StatusFeedSession = {
   journal: AgentSessionJournal
   params: { location: { workspaceId: string }; provider: AgentSessionRecord['provider'] }
+  hasProviderChild?: boolean
 }
 
 export type StructuredAgentSessionStatusFeedDeps = {
@@ -46,6 +47,7 @@ function summariesEqual(a: AgentSessionStatusSummary, b: AgentSessionStatusSumma
     a.workspaceId === b.workspaceId &&
     a.agent === b.agent &&
     a.status === b.status &&
+    a.hostExecutionOwned === b.hostExecutionOwned &&
     a.rewindBlockedReason === b.rewindBlockedReason &&
     // Settled activity changes ranking; streaming active turns must stay quiet.
     (a.status !== 'idle' || a.updatedAt === b.updatedAt) &&
@@ -110,6 +112,20 @@ export class StructuredAgentSessionStatusFeed {
     }
   }
 
+  /** Revoke live execution authority while retaining the last projection for reload history. */
+  revokeLive(sessionId: string): void {
+    const previous = this.published.get(sessionId)
+    if (!previous) {
+      return
+    }
+    const { hostExecutionOwned: _hostExecutionOwned, ...retained } = previous
+    this.published.set(sessionId, retained)
+    this.broadcast({
+      type: 'status',
+      session: retained
+    })
+  }
+
   /** Re-projects one session after its journal changed; equal projections are not re-sent. */
   publish(sessionId: string, journal?: AgentSessionJournal, options?: { replay?: boolean }): void {
     const session = this.deps.sessions.get(sessionId)
@@ -147,6 +163,7 @@ export class StructuredAgentSessionStatusFeed {
       sessionId,
       workspaceId: session.params.location.workspaceId,
       agent: session.params.provider,
+      ...(session.hasProviderChild ? { hostExecutionOwned: true as const } : {}),
       ...projectStructuredAgentSessionStatusSummary(items),
       ...(record?.rewind?.phase === 'prepared' || record?.rewind?.phase === 'provider-succeeded'
         ? { rewindBlockedReason: 'outcome-unknown' as const }

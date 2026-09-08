@@ -98,6 +98,7 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
     current.tabId === tab.id &&
     current.worktreeId === tab.worktreeId &&
     current.terminalResumeEligible === false &&
+    current.structuredHostOwned === summary.hostExecutionOwned &&
     agentProviderSessionsEqual(
       tab.agentSessionAgent,
       current.providerSession,
@@ -118,12 +119,13 @@ function projectStatus(tab: StructuredTab, summary: AgentSessionStatusSummary | 
         desired.state !== 'done' && current?.state === desired.state
           ? current.stateStartedAt
           : summary.updatedAt,
-      evidenceObservedAt: Date.now()
+      evidenceObservedAt: summary.updatedAt
     },
     { tabId: tab.id, worktreeId: tab.worktreeId },
     {
       ...(summary.providerSession ? { providerSession: summary.providerSession } : {}),
-      terminalResumeEligible: false
+      terminalResumeEligible: false,
+      ...(summary.hostExecutionOwned ? { structuredHostOwned: true as const } : {})
     }
   )
 }

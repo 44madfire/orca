@@ -117,6 +117,7 @@ export class StructuredAgentSessionHost {
       flush: (sessionId) => this.flushStreamedEvents(sessionId),
       serialize: (sessionId, task) => this.serialize(sessionId, task),
       subscribers: this.subscribers,
+      publishStatus: (sessionId) => this.statusFeed.publish(sessionId),
       now: this.now
     })
     this.holds = createStructuredAgentSessionHolds(this.lifetimeContext(), {
@@ -144,6 +145,7 @@ export class StructuredAgentSessionHost {
       flushLifecycle: (sessionId) => this.runtimeState.lifecycleBarrier(sessionId),
       publishFence: (sessionId, session) =>
         this.subscribers.snapshot(sessionId, session.journal, session.fence),
+      publishStatus: (sessionId) => this.statusFeed.publish(sessionId),
       hasResumeCapableHolder: (sessionId) => this.holds.hasResumeCapableHolder(sessionId),
       serialize: (sessionId, task) => this.serialize(sessionId, task),
       now: () => this.now(),
@@ -188,7 +190,8 @@ export class StructuredAgentSessionHost {
       subscribers: this.subscribers,
       tasks: this.tasks,
       reconcileLeases: (sessionId) => this.reconcileLeases(sessionId),
-      serialize: (sessionId, task) => this.serialize(sessionId, task)
+      serialize: (sessionId, task) => this.serialize(sessionId, task),
+      publishStatus: (sessionId) => this.statusFeed.publish(sessionId)
     }
   }
   /** Releases a session's resources without ending the conversation: the record and journal stay
@@ -197,6 +200,7 @@ export class StructuredAgentSessionHost {
     return this.serialize(sessionId, async () => {
       await this.handoffs.closeRetainedTuiOwner(sessionId)
       await evictHeldStructuredAgentSession(this.lifetimeContext(), sessionId)
+      this.statusFeed.revokeLive(sessionId)
       // Whoever asked for the close, the surfaces that were holding this session are looking at a
       // session that no longer exists. A failed eviction throws above and keeps them.
       this.holds.forget(sessionId)
