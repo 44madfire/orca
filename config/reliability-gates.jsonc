@@ -11,6 +11,81 @@
   },
   "gates": [
     {
+      "id": "workspace-performance.unicode-snippet-fold-cache",
+      "title": "Workspace terminal search reuses Unicode offset maps within live metadata",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "workspace-ui",
+      "layer": "renderer-unit",
+      "surfaces": ["workspace jump palette", "local terminal tab search"],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "daemon", "ssh", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local"],
+      "coverageNotes": "Actual production metadata builder/search and pure matcher tests run on macOS. Local and host-filtered workspace searches use the same string matcher. Folder/git identity, execution authority, remote wire content and mobile UI are unchanged; no live remote session was launched.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/blob/main/.agents/skills/perf/SKILL.md"
+      ],
+      "invariant": "Workspace terminal snippet results, source/pane/text priority and exact UTF-16 highlight offsets remain unchanged while each distinct length-expanding Unicode string is folded at most once per live metadata snapshot. Discarded metadata must remain collectable.",
+      "oracle": "Duplicate Unicode history strings normalize once on the first unmatched query and zero times on subsequent queries. Later strings fold only when earlier candidates fail. Replacement snapshots, token coverage, punctuation, provider-only text, Unicode offsets and metadata collection preserve behavior; ASCII performs no folding.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/renderer/src/lib/workspace-tab-agent-snippet-match.test.ts src/renderer/src/lib/workspace-tab-agent-metadata.test.ts src/renderer/src/lib/workspace-tab-palette-search.test.ts src/renderer/src/lib/workspace-tab-palette-results.test.ts"
+      ],
+      "testFiles": [
+        "src/renderer/src/lib/workspace-tab-agent-snippet-match.test.ts",
+        "src/renderer/src/lib/workspace-tab-agent-metadata.test.ts",
+        "src/renderer/src/lib/workspace-tab-palette-search.test.ts",
+        "src/renderer/src/lib/workspace-tab-palette-results.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/renderer/src/lib/workspace-tab-agent-snippet-match.test.ts",
+          "assertions": [
+            "folds each distinct Unicode prompt once across searches of accumulated history",
+            "normalizes later candidates only when earlier candidates fail",
+            "keeps case expansion offsets and merged highlights stable across query edits",
+            "uses rebuilt metadata independently of the previous snapshot with the same pane id",
+            "does not retain metadata after its palette entries are released"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/renderer/src/lib/workspace-tab-agent-snippet-match.test.ts src/renderer/src/lib/workspace-tab-agent-metadata.test.ts src/renderer/src/lib/workspace-tab-palette-search.test.ts src/renderer/src/lib/workspace-tab-palette-results.test.ts",
+          "result": "passed",
+          "durationSeconds": 0.462,
+          "summary": "55 tests across four matcher/metadata/search/result files passed. Independent repeat passed the same 55 tests in 720 ms."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 15,
+        "scope": "Focused matcher and production search-contract suites; local runtime budget, not an established p95."
+      },
+      "flakeHistory": {
+        "status": "not-started",
+        "evidence": "Initial local validation; forced-GC oracle remains experimental pending CI soak."
+      },
+      "redGreenEvidence": {
+        "status": "complete",
+        "evidence": "Baseline fails two normalization budgets: 40 calls instead of 10, and two instead of one when changing the query. Candidate passes both. Implementation differential matched 34,112 exact results; independent comparison matched 14,250, including 5,250 same-array mutation checks and four literal Unicode-offset oracles. Independent GC proves a retained returned match does not pin the metadata key."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "Full production search with capped 200-character prompts and 20 history rows: 400 all-Unicode tabs unmatched 189.17 to 6.95 ms warm, 188.38 to 56.64 ms with fresh metadata; 2,000 tabs/10% Unicode 106.75 to 18.04 ms warm, 118.00 to 42.75 ms fresh. Fresh first-prompt match at 400 Unicode tabs 5.43 to 5.53 ms. ASCII full unmatched search 5.567 to 5.505 ms; no ASCII gain claimed and no cache accesses. 400 all-Unicode tabs retain 4,245,152 heap plus 7,075,200 offset-buffer bytes; 2,000 tabs/10% Unicode retain 2,207,456 plus 3,537,600 bytes. All offset buffers release with metadata. Cache is bounded by distinct Unicode text in live immutable metadata, not by query count; no fixed byte cap. Eager preparation was rejected due to cold-query regressions."
+      },
+      "knownGaps": [
+        "No rendered Electron input/frame-latency measurement or live SSH/WSL/Linux/Windows journey. Unicode fixture intentionally includes Turkish uppercase dotted I; prevalence is not production telemetry.",
+        "Caching trades temporary open-palette memory for CPU; future in-place growth of metadata strings would retain old folds until that array is discarded, although current producers publish fresh snapshots."
+      ],
+      "promotionCriteria": [
+        "Complete CI soak with zero unexplained flakes and preserve the observable oracle."
+      ],
+      "demotionRule": "Keep experimental until CI soak; investigate failures without relaxing matching, offset, collection or work-count assertions."
+    },
+    {
       "id": "terminal-performance.padded-fullscreen-redraw",
       "title": "Fullscreen redraw padding does not stall terminal delivery",
       "maturity": "experimental",
