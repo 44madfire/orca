@@ -8,6 +8,20 @@ import type {
   LegacyWorkerRecoveryWorkspace
 } from './runtime-legacy-worker-terminal-recovery-types'
 
+/**
+ * A listing that does not name the PTY is not an observation of its exit, and an id now held by a
+ * different terminal identity is a RECYCLED id, not a death. Both are this client's bookkeeping;
+ * only the execution host that watched the process end may certify it, and only for the incarnation
+ * this dispatch stored. Everything else defers to the next sweep
+ * (docs/reference/ssh-execution-boundary.md).
+ */
+async function settleAbsentCandidate(
+  ports: LegacyWorkerRecoveryPorts,
+  candidate: LegacyWorkerRecoveryCandidate
+): Promise<'exited' | 'unverifiable'> {
+  return (await ports.proveTerminalExited(candidate)) ? 'exited' : 'unverifiable'
+}
+
 export async function reconcileLegacyWorkerCandidate(args: {
   controller: RuntimeLegacyWorkerTerminalRecoveryController
   ports: LegacyWorkerRecoveryPorts
@@ -21,19 +35,20 @@ export async function reconcileLegacyWorkerCandidate(args: {
 }): Promise<void> {
   const { controller, ports, options, candidate, workspace, resolvedWorktrees } = args
   if (!args.inventory.livePtyIds.has(candidate.ptyId)) {
-    args.pendingResolutions.push({ candidate, resolution: 'exited' })
+    if ((await settleAbsentCandidate(ports, candidate)) === 'exited') {
+      args.pendingResolutions.push({ candidate, resolution: 'exited' })
+    } else {
+      args.deferredDispatchIds.add(candidate.dispatchId)
+    }
     return
   }
   const controllerIdentity = args.inventory.terminalIdentityByPtyId.get(candidate.ptyId)
-  if (!controllerIdentity) {
-    args.deferredDispatchIds.add(candidate.dispatchId)
-    return
-  }
   if (
+    !controllerIdentity ||
     controllerIdentity.handle !== candidate.terminalHandle ||
     controllerIdentity.incarnationId !== candidate.incarnationId
   ) {
-    args.pendingResolutions.push({ candidate, resolution: 'exited' })
+    args.deferredDispatchIds.add(candidate.dispatchId)
     return
   }
   let adoptionStatus: 'ready' | 'unverifiable' | 'exited'
@@ -47,17 +62,15 @@ export async function reconcileLegacyWorkerCandidate(args: {
         return 'unverifiable'
       }
       if (!preAdoptionInventory.livePtyIds.has(candidate.ptyId)) {
-        return 'exited'
+        return await settleAbsentCandidate(ports, candidate)
       }
       const preAdoptionIdentity = preAdoptionInventory.terminalIdentityByPtyId.get(candidate.ptyId)
-      if (!preAdoptionIdentity) {
-        return 'unverifiable'
-      }
       if (
+        !preAdoptionIdentity ||
         preAdoptionIdentity.handle !== candidate.terminalHandle ||
         preAdoptionIdentity.incarnationId !== candidate.incarnationId
       ) {
-        return 'exited'
+        return 'unverifiable'
       }
       const exactSurfaceAlreadyPublished =
         ports.hasExactPersistedSurface(candidate) && ports.hasExactSurface(candidate)
@@ -133,22 +146,22 @@ export async function reconcileLegacyWorkerCandidate(args: {
   }
   if (!finalInventory.livePtyIds.has(candidate.ptyId)) {
     controller.deleteReceipt(candidate.paneKey)
-    ports.onPtyExit(candidate)
-    args.pendingResolutions.push({ candidate, resolution: 'exited' })
+    if ((await settleAbsentCandidate(ports, candidate)) === 'exited') {
+      ports.onPtyExit(candidate)
+      args.pendingResolutions.push({ candidate, resolution: 'exited' })
+    } else {
+      args.deferredDispatchIds.add(candidate.dispatchId)
+    }
     return
   }
   const finalIdentity = finalInventory.terminalIdentityByPtyId.get(candidate.ptyId)
-  if (!finalIdentity) {
-    controller.deleteReceipt(candidate.paneKey)
-    args.deferredDispatchIds.add(candidate.dispatchId)
-    return
-  }
   if (
+    !finalIdentity ||
     finalIdentity.handle !== candidate.terminalHandle ||
     finalIdentity.incarnationId !== candidate.incarnationId
   ) {
     controller.deleteReceipt(candidate.paneKey)
-    args.pendingResolutions.push({ candidate, resolution: 'exited' })
+    args.deferredDispatchIds.add(candidate.dispatchId)
     return
   }
   args.pendingResolutions.push({ candidate, resolution: 'adopted' })

@@ -22,7 +22,7 @@ import { createOrAttachTerminalSession } from './terminal-host-session-create'
 import { TerminalAttachCanceledError } from './daemon-errors'
 import { rejectOnAbort } from './terminal-attach-cancellation'
 import { randomUUID } from 'node:crypto'
-import { pruneRetiredPtyIncarnations } from '../../shared/retired-pty-incarnations'
+import { pruneRetiredPtyIncarnations } from './retired-pty-incarnations'
 import {
   inspectTerminalHostProcess,
   type TerminalHostProcessInspection

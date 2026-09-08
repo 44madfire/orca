@@ -113,6 +113,9 @@ export type RuntimePtyController = {
     ptyId: string,
     options?: { expectedIncarnationId?: PtyIncarnationId; scanChildProcesses?: boolean }
   ): Promise<PtyProcessInspection>
+  /** True only when the execution host observed THIS incarnation exit. Unlike `inspectProcess` it
+   *  is not gated on `hasPty`, so it can answer for an id this process no longer has cached. */
+  inspectExitedIncarnation?(ptyId: string, incarnationId: PtyIncarnationId): Promise<boolean>
   confirmForegroundProcess?(ptyId: string): Promise<string | null>
   confirmShellForeground?(ptyId: string): Promise<boolean>
   hasChildProcesses?(ptyId: string): Promise<boolean>
