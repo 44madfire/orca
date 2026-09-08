@@ -1496,8 +1496,7 @@ export class SshRelaySession {
         await acknowledgeRemoteOrcaCliPostOutput(this.runtime, {
           postOutput: parseRemoteOrcaCliPostOutput(params.postOutput),
           env,
-          runtimeAuthority,
-          delivery
+          runtimeAuthority
         })
         return { acknowledged: true }
       } finally {
