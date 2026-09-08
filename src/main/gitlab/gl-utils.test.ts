@@ -91,7 +91,7 @@ describe('gitlab project ref resolution', () => {
     })
   })
 
-  it('prefers upstream for issue project ref resolution', async () => {
+  it('resolves the sole project from the captured URL', async () => {
     mockGitLabRemoteTopology({
       upstream: 'git@gitlab.com:stablyai/orca.git'
     })
@@ -100,22 +100,16 @@ describe('gitlab project ref resolution', () => {
       host: 'gitlab.com',
       path: 'stablyai/orca'
     })
-    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['remote', 'get-url', 'upstream'], {
-      cwd: '/repo',
-      timeout: REMOTE_URL_PROBE_TIMEOUT_MS
-    })
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['remote', '-v'], { cwd: '/repo' })
   })
 
-  it('falls back to origin when upstream is missing or non-GitLab', async () => {
+  it('does not exclude an unknown host when selecting the issue source', async () => {
     mockGitLabRemoteTopology({
       upstream: 'git@example.com:stablyai/orca.git',
       origin: 'git@gitlab.com:fork/orca.git'
     })
 
-    await expect(getIssueProjectRef('/repo')).resolves.toEqual({
-      host: 'gitlab.com',
-      path: 'fork/orca'
-    })
+    await expect(getIssueProjectRef('/repo')).resolves.toBeNull()
   })
 
   it('does not mix origin and upstream cache entries for the same repo path', async () => {
@@ -128,10 +122,7 @@ describe('gitlab project ref resolution', () => {
       host: 'gitlab.com',
       path: 'fork/orca'
     })
-    await expect(getIssueProjectRef('/repo')).resolves.toEqual({
-      host: 'gitlab.com',
-      path: 'stablyai/orca'
-    })
+    await expect(getIssueProjectRef('/repo')).resolves.toBeNull()
   })
 
   it('keeps local host and local WSL project-ref cache entries separate for the same path', async () => {
@@ -396,15 +387,16 @@ describe('resolveIssueSource', () => {
     })
   })
 
-  it("'auto' + no upstream → origin, fellBack=false", async () => {
+  it('auto preserves a plausible unauthenticated upstream', async () => {
     mockGitLabRemoteTopology({
       upstream: 'git@example.com:stablyai/orca.git',
       origin: 'git@gitlab.com:solo/orca.git'
     })
 
     await expect(resolveIssueSource('/repo', 'auto')).resolves.toEqual({
-      source: { host: 'gitlab.com', path: 'solo/orca' },
-      fellBack: false
+      source: null,
+      fellBack: false,
+      ambiguousRemoteNames: ['origin', 'upstream']
     })
   })
 

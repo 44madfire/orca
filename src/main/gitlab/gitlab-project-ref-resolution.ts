@@ -207,14 +207,20 @@ async function resolveAutomaticIssueSource(
     knownHosts: authenticatedHosts,
     connectionId,
     localGitOptions,
-    resolveRemote: (remoteName) =>
-      getProjectRefForRemote(
-        repoPath,
-        remoteName,
-        authenticatedHosts,
-        connectionId,
-        localGitOptions
-      )
+    resolveUrl: async (url) => {
+      const known = parseGitLabProjectRef(url, authenticatedHosts)
+      if (known) {
+        return { kind: 'verified', repository: known }
+      }
+      const candidate = parseRemoteProjectRefCandidate(url)
+      if (!candidate) {
+        return { kind: 'non-provider' }
+      }
+      if (await isGlabConfiguredForRemoteHost(repoPath, candidate, connectionId, localGitOptions)) {
+        return { kind: 'verified', repository: candidate }
+      }
+      return { kind: 'unverifiable' }
+    }
   })
 }
 

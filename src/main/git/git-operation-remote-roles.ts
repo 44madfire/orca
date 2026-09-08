@@ -1,8 +1,7 @@
 import { gitRefTargetsBranchOnRemote } from '../../shared/git-remote-branch-name'
-import type { GitAdmissionTier } from './command-runner/git-exec-options'
+import { normalizeConfiguredGitRemote } from '../../shared/git-remote-url-index'
 import {
-  _resetGitRemoteTopologySnapshotCache,
-  getGitRemoteTopologySnapshot,
+  normalizeGitConfigKey,
   type GitRemoteTopologySnapshot
 } from './git-remote-topology-snapshot'
 
@@ -17,21 +16,18 @@ export type GitRemoteRoleProvenance =
   | 'configured-upstream'
   | 'matching-remote-branch'
   | 'persisted-exact-remote'
-  | 'conventional-upstream'
-  | 'conventional-origin'
   | 'sole-provider-remote'
 
-export type GitOperationRemoteRoles = {
-  head: GitRemoteRoleResolution
-  issueSource: GitRemoteRoleResolution
-  reviewBase:
-    | { kind: 'candidates'; remoteNames: string[]; provenance: 'provider-authenticated' }
-    | { kind: 'unresolved' }
-}
-
 function configuredRemote(snapshot: GitRemoteTopologySnapshot, key: string): string | null {
-  const value = snapshot.config.get(key.toLowerCase())?.trim()
-  return value && snapshot.remoteNames.includes(value) ? value : null
+  const value = snapshot.config.get(normalizeGitConfigKey(key))?.trim()
+  if (!value) {
+    return null
+  }
+  if (snapshot.remoteNames.includes(value)) {
+    return value
+  }
+  const remote = normalizeConfiguredGitRemote(value, snapshot.fetchUrls)
+  return snapshot.remoteNames.includes(remote) ? remote : null
 }
 
 function configuredUpstreamRemote(
@@ -39,16 +35,16 @@ function configuredUpstreamRemote(
   branchName: string
 ): string | null {
   const remoteName = configuredRemote(snapshot, `branch.${branchName}.remote`)
-  const mergeRef = snapshot.config.get(`branch.${branchName}.merge`.toLowerCase())?.trim()
+  const mergeRef = snapshot.config.get(normalizeGitConfigKey(`branch.${branchName}.merge`))?.trim()
   const mergeBranchName = mergeRef?.replace(/^refs\/heads\//, '')
   if (!remoteName || !mergeBranchName || mergeBranchName === mergeRef) {
     return null
   }
-  const baseRef = snapshot.config.get(`branch.${branchName}.base`.toLowerCase())
+  const baseRef = snapshot.config.get(normalizeGitConfigKey(`branch.${branchName}.base`))
   return gitRefTargetsBranchOnRemote(baseRef, remoteName, mergeBranchName) ? null : remoteName
 }
 
-function resolveHeadRole(
+export function resolveHeadRole(
   snapshot: GitRemoteTopologySnapshot,
   branchName: string,
   eligibleRemotes: readonly string[],
@@ -97,16 +93,10 @@ function resolveHeadRole(
     : { kind: 'unresolved' }
 }
 
-function resolveIssueSourceRole(
+export function resolveIssueSourceRole(
   eligibleRemotes: readonly string[],
   persistedExactRemoteName?: string
 ): GitRemoteRoleResolution {
-  if (eligibleRemotes.includes('upstream')) {
-    return { kind: 'resolved', remoteName: 'upstream', provenance: 'conventional-upstream' }
-  }
-  if (eligibleRemotes.includes('origin')) {
-    return { kind: 'resolved', remoteName: 'origin', provenance: 'conventional-origin' }
-  }
   if (persistedExactRemoteName && eligibleRemotes.includes(persistedExactRemoteName)) {
     return {
       kind: 'resolved',
@@ -126,46 +116,5 @@ function resolveIssueSourceRole(
     : { kind: 'unresolved' }
 }
 
-function reviewBaseRole(eligibleRemotes: readonly string[]): GitOperationRemoteRoles['reviewBase'] {
-  const rank = (remoteName: string): number => {
-    if (remoteName === 'upstream') {
-      return 0
-    }
-    if (remoteName === 'origin') {
-      return 1
-    }
-    return 2
-  }
-  const remoteNames = [...eligibleRemotes].sort((left, right) => rank(left) - rank(right))
-  return remoteNames.length > 0
-    ? { kind: 'candidates', remoteNames, provenance: 'provider-authenticated' }
-    : { kind: 'unresolved' }
-}
-
-export async function resolveGitOperationRemoteRoles(args: {
-  repoPath: string
-  branchName: string
-  eligibleRemotes: (remoteNames: readonly string[]) => Promise<readonly string[]>
-  connectionId?: string | null
-  localGitOptions?: { wslDistro?: string; admissionTier?: GitAdmissionTier }
-  providerAuthInventory?: string
-  persistedExactRemoteName?: string
-}): Promise<GitOperationRemoteRoles> {
-  const snapshot = await getGitRemoteTopologySnapshot(args)
-  const eligibleRemotes = await args.eligibleRemotes(snapshot.remoteNames)
-  return {
-    head: resolveHeadRole(
-      snapshot,
-      args.branchName,
-      eligibleRemotes,
-      args.persistedExactRemoteName
-    ),
-    issueSource: resolveIssueSourceRole(eligibleRemotes, args.persistedExactRemoteName),
-    reviewBase: reviewBaseRole(eligibleRemotes)
-  }
-}
-
 /** @internal */
-export function _resetGitOperationRemoteRoleCache(): void {
-  _resetGitRemoteTopologySnapshotCache()
-}
+export { _resetGitRemoteTopologySnapshotCache as _resetGitOperationRemoteRoleCache } from './git-remote-topology-snapshot'

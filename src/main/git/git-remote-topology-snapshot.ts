@@ -1,4 +1,7 @@
-import { parseGitRemoteFetchUrls } from '../../shared/git-remote-url-index'
+import {
+  parseGitRemoteFetchUrls,
+  parseGitRemoteVerboseLine
+} from '../../shared/git-remote-url-index'
 import { readLocalGitConfigSignature } from '../github/local-git-config-signature'
 import {
   getSshGitProvider,
@@ -13,6 +16,9 @@ export type GitRemoteTopologySnapshot = {
   localBranchOids: Map<string, string>
   remoteBranchOids: Map<string, string>
   remoteNames: string[]
+  fetchUrls: Map<string, string>
+  pushUrls: Map<string, string[]>
+  upstreamRefs: Map<string, string>
 }
 
 type LocalGitOptions = { wslDistro?: string; admissionTier?: GitAdmissionTier }
@@ -26,6 +32,7 @@ const SNAPSHOT_TTL_MS = 30_000
 const SNAPSHOT_CACHE_MAX_ENTRIES = 512
 const SNAPSHOT_MAX_REMOTES = 128
 const SNAPSHOT_MAX_REFS = 4_096
+const SNAPSHOT_MAX_URLS = 512
 const snapshotCache = new Map<string, CachedSnapshot>()
 const snapshotInFlight = new Map<string, Promise<GitRemoteTopologySnapshot>>()
 
@@ -50,12 +57,20 @@ function pruneSnapshotCache(now: number): void {
   }
 }
 
+export function normalizeGitConfigKey(key: string): string {
+  const first = key.indexOf('.')
+  const last = key.lastIndexOf('.')
+  return first === last
+    ? key.toLowerCase()
+    : key.slice(0, first).toLowerCase() + key.slice(first, last) + key.slice(last).toLowerCase()
+}
+
 function parseConfigSnapshot(stdout: string): Map<string, string> {
   const config = new Map<string, string>()
   for (const record of stdout.split('\0')) {
     const separator = record.indexOf('\n')
     if (separator !== -1) {
-      config.set(record.slice(0, separator).toLowerCase(), record.slice(separator + 1))
+      config.set(normalizeGitConfigKey(record.slice(0, separator)), record.slice(separator + 1))
     }
   }
   return config
@@ -63,21 +78,25 @@ function parseConfigSnapshot(stdout: string): Map<string, string> {
 
 function parseRefSnapshot(
   stdout: string
-): Pick<GitRemoteTopologySnapshot, 'localBranchOids' | 'remoteBranchOids'> {
+): Pick<GitRemoteTopologySnapshot, 'localBranchOids' | 'remoteBranchOids' | 'upstreamRefs'> {
+  const upstreamRefs = new Map<string, string>()
   const localBranchOids = new Map<string, string>()
   const remoteBranchOids = new Map<string, string>()
   for (const line of stdout.split(/\r?\n/)) {
-    const [refName, oid] = line.split('\0')
+    const [refName, oid, upstream] = line.split('\0')
     if (!refName || !oid) {
       continue
     }
     if (refName.startsWith('refs/heads/')) {
       localBranchOids.set(refName.slice('refs/heads/'.length), oid)
+      if (upstream) {
+        upstreamRefs.set(refName.slice('refs/heads/'.length), upstream)
+      }
     } else if (refName.startsWith('refs/remotes/')) {
       remoteBranchOids.set(refName.slice('refs/remotes/'.length), oid)
     }
   }
-  return { localBranchOids, remoteBranchOids }
+  return { localBranchOids, remoteBranchOids, upstreamRefs }
 }
 
 async function probeSnapshot(
@@ -105,7 +124,7 @@ async function probeSnapshot(
     runGit([
       'for-each-ref',
       `--count=${SNAPSHOT_MAX_REFS + 1}`,
-      '--format=%(refname)%00%(objectname)',
+      '--format=%(refname)%00%(objectname)%00%(upstream)',
       'refs/heads',
       'refs/remotes'
     ])
@@ -114,23 +133,49 @@ async function probeSnapshot(
   if (refs.localBranchOids.size + refs.remoteBranchOids.size > SNAPSHOT_MAX_REFS) {
     throw new Error('Git remote topology has too many refs to resolve safely.')
   }
-  const remoteNames = [...parseGitRemoteFetchUrls(remoteResult.stdout).keys()]
+  const fetchUrls = parseGitRemoteFetchUrls(remoteResult.stdout)
+  const pushUrls = new Map<string, string[]>()
+  for (const line of remoteResult.stdout.split(/\r?\n/)) {
+    const entry = parseGitRemoteVerboseLine(line)
+    if (entry?.direction === 'push') {
+      pushUrls.set(entry.name, [...(pushUrls.get(entry.name) ?? []), entry.url])
+    }
+  }
+  if (
+    fetchUrls.size + [...pushUrls.values()].reduce((sum, urls) => sum + urls.length, 0) >
+    SNAPSHOT_MAX_URLS
+  ) {
+    throw new Error('Git remote topology has too many URLs to resolve safely.')
+  }
+  const remoteNames = [...new Set([...fetchUrls.keys(), ...pushUrls.keys()])]
   if (remoteNames.length > SNAPSHOT_MAX_REMOTES) {
     throw new Error('Git remote topology has too many remotes to resolve safely.')
   }
-  return { config: parseConfigSnapshot(configResult.stdout), ...refs, remoteNames }
+  return {
+    config: parseConfigSnapshot(configResult.stdout),
+    ...refs,
+    remoteNames,
+    fetchUrls,
+    pushUrls
+  }
 }
 
 async function loadSnapshot(
   key: string,
   repoPath: string,
   connectionId?: string | null,
-  options: LocalGitOptions = {}
+  options: LocalGitOptions = {},
+  ownsProbe: () => boolean = () => true,
+  branchName?: string
 ): Promise<GitRemoteTopologySnapshot> {
   const now = Date.now()
   pruneSnapshotCache(now)
   const cached = snapshotCache.get(key)
-  if (cached && cached.expiresAt > now) {
+  if (
+    cached &&
+    cached.expiresAt > now &&
+    (!branchName || cached.snapshot.localBranchOids.has(branchName))
+  ) {
     if (!cached.configSignature) {
       return cached.snapshot
     }
@@ -155,7 +200,7 @@ async function loadSnapshot(
     connectionId: connectionId ?? null,
     ...options
   })
-  if (startingSignature === endingSignature) {
+  if (startingSignature === endingSignature && ownsProbe()) {
     snapshotCache.set(key, {
       snapshot,
       expiresAt: Date.now() + SNAPSHOT_TTL_MS,
@@ -170,18 +215,21 @@ export async function getGitRemoteTopologySnapshot(args: {
   repoPath: string
   connectionId?: string | null
   localGitOptions?: LocalGitOptions
-  providerAuthInventory?: string
+  branchName?: string
 }): Promise<GitRemoteTopologySnapshot> {
-  const key = [
-    runtimeKey(args.connectionId, args.localGitOptions),
-    args.repoPath,
-    args.providerAuthInventory ?? ''
-  ].join('\0')
+  const key = [runtimeKey(args.connectionId, args.localGitOptions), args.repoPath].join('\0')
   const inFlight = snapshotInFlight.get(key)
   if (inFlight) {
     return inFlight
   }
-  const probe = loadSnapshot(key, args.repoPath, args.connectionId, args.localGitOptions)
+  const probe = loadSnapshot(
+    key,
+    args.repoPath,
+    args.connectionId,
+    args.localGitOptions,
+    () => snapshotInFlight.get(key) === probe,
+    args.branchName
+  )
   snapshotInFlight.set(key, probe)
   try {
     return await probe

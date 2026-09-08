@@ -24,8 +24,27 @@ vi.mock('../github/local-git-config-signature', () => ({
 
 import {
   _resetGitOperationRemoteRoleCache,
-  resolveGitOperationRemoteRoles
+  resolveHeadRole,
+  resolveIssueSourceRole
 } from './git-operation-remote-roles'
+
+import { getGitRemoteTopologySnapshot } from './git-remote-topology-snapshot'
+
+async function resolveGitOperationRemoteRoles(
+  args: Parameters<typeof getGitRemoteTopologySnapshot>[0] & {
+    branchName: string
+    eligibleRemotes: (names: readonly string[]) => Promise<readonly string[]>
+    persistedExactRemoteName?: string
+    providerAuthInventory?: string
+  }
+) {
+  const snapshot = await getGitRemoteTopologySnapshot(args)
+  const remotes = await args.eligibleRemotes(snapshot.remoteNames)
+  return {
+    head: resolveHeadRole(snapshot, args.branchName, remotes, args.persistedExactRemoteName),
+    issueSource: resolveIssueSourceRole(remotes, args.persistedExactRemoteName)
+  }
+}
 
 function localProbe(args: {
   remotes: string[]
@@ -179,7 +198,7 @@ describe('git operation remote roles', () => {
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(6)
   })
 
-  it('isolates snapshots by provider authentication inventory', async () => {
+  it('reuses Git evidence independently of provider authentication inventory', async () => {
     localProbe({ remotes: ['fork'], matchingRemotes: ['fork'] })
 
     await resolveGitOperationRemoteRoles({
@@ -195,7 +214,7 @@ describe('git operation remote roles', () => {
       eligibleRemotes: async (names) => names
     })
 
-    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(6)
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(3)
   })
 
   it('does not cache a transient failed snapshot', async () => {

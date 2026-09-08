@@ -1,6 +1,10 @@
 import type { GitCommandRunner } from './git-effective-upstream'
 import { gitRefTargetsBranchOnRemote } from './git-remote-branch-name'
-import { findGitRemoteNameByFetchUrl } from './git-remote-url-index'
+import {
+  isUrlValuedGitRemote,
+  normalizeConfiguredGitRemote,
+  parseGitRemoteFetchUrls
+} from './git-remote-url-index'
 
 export type ResolvedGitPushTarget = {
   remote: string
@@ -17,10 +21,6 @@ async function getConfigValue(runGit: GitCommandRunner, key: string): Promise<st
   }
 }
 
-function isUrlValuedRemote(remote: string): boolean {
-  return /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(remote) || /^[^@/:]+@[^:]+:.+/.test(remote)
-}
-
 type ConfiguredPushRemote = {
   remote: string
   branchRemote: string | null
@@ -34,14 +34,14 @@ async function findRemoteNameForUrl(
 ): Promise<string | null> {
   try {
     const { stdout } = await runGit(['remote', '-v'])
-    return findGitRemoteNameByFetchUrl(stdout, (candidateUrl) => candidateUrl === remoteUrl)
+    return normalizeConfiguredGitRemote(remoteUrl, parseGitRemoteFetchUrls(stdout))
   } catch {
     return null
   }
 }
 
 async function normalizePushRemote(runGit: GitCommandRunner, remote: string): Promise<string> {
-  if (!isUrlValuedRemote(remote)) {
+  if (!isUrlValuedGitRemote(remote)) {
     return remote
   }
   return (await findRemoteNameForUrl(runGit, remote)) ?? remote

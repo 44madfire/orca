@@ -5,10 +5,7 @@ import {
   type MergedPRCommitMembership
 } from '../../merged-pr-commit-membership'
 import { shouldHideNonOpenReviewOnDefaultBranch } from '../../../source-control/repo-default-branch'
-import {
-  getGitHubApiRepositoryForRemote,
-  resolveGitHubApiRepositoryCandidates
-} from '../../github-api-repository'
+import { resolveGitHubApiRepositoryCandidates } from '../../github-api-repository'
 import { mapPRState } from '../../mappers'
 import { noteRepositoryRateLimitSpend } from '../../rate-limit'
 import { ownerRepoFromPullRequestUrl } from './../github-exec-scope'
@@ -24,8 +21,7 @@ import { lookupPRByBranchName } from './pr-branch-lookup'
 import { lookupPRByNumber } from './pr-number-lookup'
 import { derivePRRefreshData } from './branch-lookup-derived-data'
 import { assemblePRRefreshFoundOutcome } from './pr-refresh-outcome-assembly'
-import { shouldRetryTrackedUpstreamBranch } from './tracked-upstream-cache'
-import { getTrackedUpstreamBranch } from './tracked-upstream-branch'
+import { githubRepoIdentityKey } from '../../../../shared/github/repository-identity-key'
 import { PR_BRANCH_LOOKUP_BUCKETS } from './pr-lookup-rate-limit'
 import type { HostedReviewLocalGitOptions } from './../github-exec-scope'
 export async function resolvePRForBranchOutcome(input: {
@@ -50,21 +46,23 @@ export async function resolvePRForBranchOutcome(input: {
     ghOptions,
     executionScope
   } = input
-  const { candidates, headRepo, headAmbiguous } = await resolveGitHubApiRepositoryCandidates(
-    repoPath,
-    connectionId,
-    localGitOptions,
-    typeof linkedPRNumber === 'number' ? undefined : branchName
-  )
+  const { candidates, headRepo, head, trackedHead, unverifiableRemotes } =
+    await resolveGitHubApiRepositoryCandidates(
+      repoPath,
+      connectionId,
+      localGitOptions,
+      typeof linkedPRNumber === 'number' ? undefined : branchName
+    )
   // Why: connection-backed gh runs without a repository cwd. A bare lookup
   // here can honor process GH_REPO/GH_HOST and return an unrelated PR.
-  if (connectionId && candidates.length === 0) {
-    return { kind: 'no-pr', fetchedAt: Date.now() }
+  if ((connectionId || head) && candidates.length === 0) {
+    return prRefreshUpstreamError(
+      new Error('Could not resolve to a Repository: repository evidence is unavailable.')
+    )
   }
   // Why (#11532): account every lookup, not just the coordinator's queue —
   // `hostedReview:forBranch` reaches this directly from renderer polling and
-  // was spending the shared quota invisibly. headRepo is `origin`, the same
-  // identity the coordinator guards on.
+  // was spending the shared quota invisibly. Charge the resolved head or first review candidate.
   for (const bucket of PR_BRANCH_LOOKUP_BUCKETS) {
     noteRepositoryRateLimitSpend(headRepo ?? candidates[0], bucket, 1, ghOptions)
   }
@@ -171,52 +169,43 @@ export async function resolvePRForBranchOutcome(input: {
       pendingBranchLookupError = branchLookup.pendingError
       hasPendingBranchLookupError = true
     }
-    if (!data && headAmbiguous && !hasPendingBranchLookupError) {
+    if (
+      !data &&
+      trackedHead &&
+      (trackedHead.branchName !== branchName ||
+        !headRepo ||
+        githubRepoIdentityKey(trackedHead.repository) !== githubRepoIdentityKey(headRepo))
+    ) {
+      const upstreamLookup = await lookupPRByBranchName({
+        candidates,
+        headRepo: trackedHead.repository,
+        branchName: trackedHead.branchName,
+        ghOptions,
+        executionScope
+      })
+      data = upstreamLookup.data
+      dataRepo = upstreamLookup.dataRepo
+      if (!hasPendingBranchLookupError && 'pendingError' in upstreamLookup) {
+        pendingBranchLookupError = upstreamLookup.pendingError
+        hasPendingBranchLookupError = true
+      }
+      if (data) {
+        dataHeadRepo = trackedHead.repository
+      }
+    }
+    if (
+      !data &&
+      !hasPendingBranchLookupError &&
+      (unverifiableRemotes?.length ||
+        (head && (head.kind !== 'resolved' || head.confidence === 'inferred')))
+    ) {
       pendingBranchLookupError = new Error(
-        'Could not resolve to a Repository: multiple remotes could own this review branch.'
+        'Could not resolve to a Repository: repository evidence does not establish the review branch owner.'
       )
       hasPendingBranchLookupError = true
     }
-    if (!data) {
-      // Why: the tracked upstream identifies the real PR head by branch name or fork owner even when local branch names match.
-      const upstreamBranch = await getTrackedUpstreamBranch(
-        repoPath,
-        branchName,
-        connectionId,
-        localGitOptions
-      )
-      if (upstreamBranch) {
-        const upstreamHeadRepo =
-          (await getGitHubApiRepositoryForRemote(
-            repoPath,
-            upstreamBranch.remoteName,
-            connectionId,
-            localGitOptions
-          )) ?? headRepo
-        if (
-          upstreamHeadRepo &&
-          shouldRetryTrackedUpstreamBranch(upstreamBranch, branchName, upstreamHeadRepo, headRepo)
-        ) {
-          const upstreamLookup = await lookupPRByBranchName({
-            candidates,
-            headRepo: upstreamHeadRepo,
-            branchName: upstreamBranch.branchName,
-            ghOptions,
-            executionScope
-          })
-          data = upstreamLookup.data
-          dataRepo = upstreamLookup.dataRepo
-          if (!hasPendingBranchLookupError && 'pendingError' in upstreamLookup) {
-            pendingBranchLookupError = upstreamLookup.pendingError
-            hasPendingBranchLookupError = true
-          }
-          if (data) {
-            dataHeadRepo = upstreamHeadRepo
-          }
-        }
-      }
-    }
   }
+
   let mergedBranchLookupNumber: number | null = null
   if (await hideMergedImplicitPR(data, dataRepo)) {
     mergedBranchLookupNumber = data?.number ?? null

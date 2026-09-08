@@ -1,5 +1,14 @@
 import { githubRepoIdentityKey } from '../../shared/github/repository-identity-key'
-import { resolveGitOperationRemoteRoles } from '../git/git-operation-remote-roles'
+import { splitRemoteBranchName } from '../../shared/git-effective-upstream'
+import { resolveHeadRole } from '../git/git-operation-remote-roles'
+import { getGitRemoteTopologySnapshot } from '../git/git-remote-topology-snapshot'
+import {
+  bindRepositoryRole,
+  resolveSnapshotRepositories,
+  type GitRepositoryRole
+} from '../git/git-repository-evidence'
+import { resolveGitHubRepositoryUrl } from './github-enterprise-repository'
+import { parseGitHubRemoteIdentity } from './github-remote-identity-parsing'
 import type { GitHubApiRepository } from './github-api-repository'
 import type { LocalGitExecOptions } from './gh-utils'
 
@@ -7,7 +16,9 @@ type ResolveRemote = (remoteName: string) => Promise<GitHubApiRepository | null>
 export type GitHubApiRepositoryCandidates = {
   candidates: GitHubApiRepository[]
   headRepo: GitHubApiRepository | null
-  headAmbiguous?: boolean
+  head?: GitRepositoryRole<GitHubApiRepository>
+  trackedHead?: { branchName: string; repository: GitHubApiRepository } | null
+  unverifiableRemotes?: string[]
 }
 
 async function resolveConventionalCandidates(
@@ -39,46 +50,61 @@ export async function resolveGitHubReviewRepositoryRoles(args: {
   if (!args.branchName) {
     return resolveConventionalCandidates(args.resolveRemote)
   }
-  const repositoriesByRemote = new Map<string, GitHubApiRepository>()
-  const roles = await resolveGitOperationRemoteRoles({
-    repoPath: args.repoPath,
-    branchName: args.branchName,
-    connectionId: args.connectionId,
-    localGitOptions: args.localGitOptions,
-    eligibleRemotes: async (remoteNames) => {
-      const repositories = await Promise.all(remoteNames.map(args.resolveRemote))
-      return remoteNames.filter((remoteName, index) => {
-        const repository = repositories[index]
-        if (!repository) {
-          return false
-        }
-        repositoriesByRemote.set(remoteName, repository)
-        return true
-      })
+  const snapshot = await getGitRemoteTopologySnapshot(args)
+  const repositories = await resolveSnapshotRepositories(snapshot, async (url) => {
+    const repository = await resolveGitHubRepositoryUrl(
+      url,
+      args.repoPath,
+      args.connectionId,
+      args.localGitOptions
+    )
+    if (repository) {
+      return { kind: 'verified', repository }
     }
+    // Authentication failure cannot exclude an otherwise plausible forge URL.
+    return { kind: parseGitHubRemoteIdentity(url) ? 'unverifiable' : 'non-provider' }
   })
+  const plausible = snapshot.remoteNames.filter(
+    (name) =>
+      repositories.fetch.get(name)?.kind !== 'non-provider' ||
+      repositories.push.get(name)?.some((evidence) => evidence.kind !== 'non-provider')
+  )
+  const headRole = resolveHeadRole(snapshot, args.branchName, plausible)
+  const direction =
+    headRole.kind === 'resolved' &&
+    ['branch-push-remote', 'remote-push-default', 'sole-provider-remote'].includes(
+      headRole.provenance
+    )
+      ? 'push'
+      : 'fetch'
+  const head = bindRepositoryRole(headRole, repositories, direction)
   const seen = new Set<string>()
-  const reviewBaseRemoteNames =
-    roles.reviewBase.kind === 'candidates' ? roles.reviewBase.remoteNames : []
-  const candidates = reviewBaseRemoteNames.flatMap((remoteName) => {
-    const repository = repositoriesByRemote.get(remoteName)
-    if (!repository) {
+  const candidates = [...repositories.fetch.values()].flatMap((evidence) => {
+    if (evidence.kind !== 'verified') {
       return []
     }
-    const key = githubRepoIdentityKey(repository)
+    const key = githubRepoIdentityKey(evidence.repository)
     if (seen.has(key)) {
       return []
     }
     seen.add(key)
-    return [repository]
+    return [evidence.repository]
   })
-  const headRepo =
-    roles.head.kind === 'resolved'
-      ? (repositoriesByRemote.get(roles.head.remoteName) ?? null)
-      : null
+  const trackedRef = snapshot.upstreamRefs.get(args.branchName)
+  const tracked = trackedRef?.startsWith('refs/remotes/')
+    ? splitRemoteBranchName(trackedRef.slice('refs/remotes/'.length))
+    : null
+  const trackedIdentity = tracked ? repositories.fetch.get(tracked.remoteName) : null
   return {
     candidates,
-    headRepo,
-    ...(roles.head.kind === 'ambiguous' ? { headAmbiguous: true } : {})
+    headRepo: head.kind === 'resolved' ? head.repository : null,
+    head,
+    trackedHead:
+      tracked && trackedIdentity?.kind === 'verified'
+        ? { branchName: tracked.branchName, repository: trackedIdentity.repository }
+        : null,
+    unverifiableRemotes: [...repositories.fetch]
+      .filter(([, e]) => e.kind === 'unverifiable')
+      .map(([name]) => name)
   }
 }

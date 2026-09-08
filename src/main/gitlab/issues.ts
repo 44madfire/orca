@@ -104,7 +104,7 @@ export async function listIssues(
       error: {
         type: resolution.ambiguousRemoteNames ? 'validation_error' : 'not_found',
         message: resolution.ambiguousRemoteNames
-          ? `Multiple GitLab remotes could be the issue source (${resolution.ambiguousRemoteNames.join(', ')}). Choose origin or upstream in repository settings.`
+          ? `Could not determine the GitLab issue source from remote evidence (${resolution.ambiguousRemoteNames.join(', ')}). Choose an explicit source in repository settings.`
           : 'Could not resolve a GitLab project for this repository.'
       }
     }

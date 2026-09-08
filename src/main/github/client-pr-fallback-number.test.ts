@@ -29,13 +29,7 @@ vi.mock('./github-api-repository', async (importOriginal) =>
 import { getPRForBranchOutcome, getPRForBranch } from './client'
 import { resetPRForBranchMocks } from './client-test-harness'
 
-const {
-  ghExecFileAsyncMock,
-  getOwnerRepoMock,
-  getOwnerRepoForRemoteMock,
-  resolvePRRepositoryCandidatesMock,
-  gitExecFileAsyncMock
-} = clientMocks
+const { ghExecFileAsyncMock, getOwnerRepoMock, resolvePRRepositoryCandidatesMock } = clientMocks
 
 describe('getPRForBranch', () => {
   beforeEach(() => {
@@ -516,12 +510,11 @@ describe('getPRForBranch', () => {
   it('does not carry a merged upstream branch head repo into a fallback PR number', async () => {
     resolvePRRepositoryCandidatesMock.mockResolvedValueOnce({
       candidates: [{ owner: 'stablyai', repo: 'orca' }],
-      headRepo: { owner: 'origin-owner', repo: 'orca' }
-    })
-    getOwnerRepoForRemoteMock.mockResolvedValueOnce({ owner: 'fork-owner', repo: 'orca' })
-    gitExecFileAsyncMock.mockResolvedValueOnce({
-      stdout: 'local-created-from-pr\0fork/contributor/original\n',
-      stderr: ''
+      headRepo: { owner: 'origin-owner', repo: 'orca' },
+      trackedHead: {
+        branchName: 'contributor/original',
+        repository: { owner: 'fork-owner', repo: 'orca' }
+      }
     })
     ghExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: JSON.stringify([]) })

@@ -212,7 +212,7 @@ describe('getPRForBranch', () => {
         { owner: 'fork', repo: 'orca' }
       ],
       headRepo: null,
-      headAmbiguous: true
+      head: { kind: 'ambiguous', remoteNames: ['origin', 'fork'] }
     })
     ghExecFileAsyncMock.mockResolvedValue({ stdout: JSON.stringify([]) })
     clientMocks.gitExecFileAsyncMock.mockResolvedValue({

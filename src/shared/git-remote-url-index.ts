@@ -62,3 +62,17 @@ export function findGitRemoteNameByFetchUrl(
   }
   return null
 }
+
+export function isUrlValuedGitRemote(remote: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(remote) || /^[^@/:]+@[^:]+:.+/.test(remote)
+}
+
+export function normalizeConfiguredGitRemote(
+  remote: string,
+  fetchUrls: Map<string, string>
+): string {
+  if (!isUrlValuedGitRemote(remote)) {
+    return remote
+  }
+  return [...fetchUrls].find(([, url]) => url === remote)?.[0] ?? remote
+}
