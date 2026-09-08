@@ -1,5 +1,6 @@
 import { rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { diffTextSelectionPoints } from './diff-text-selection'
 import { test, expect } from './helpers/orca-app'
 import { waitForSessionReady } from './helpers/store'
 import { addAndActivateRepo } from './helpers/isolated-repo-activation'
@@ -49,31 +50,10 @@ for (const mode of ['original-file', 'readonly-combined']) {
     const side = mode === 'original-file' ? 'deletions' : 'additions'
     const code = host.locator(`[data-code][data-${side}]`)
     await expect(code).toBeVisible({ timeout: 20_000 })
-    await code.evaluate((node) => {
-      node.scrollLeft = 1000
-    })
-    const word = await code
-      .locator('[data-line]')
-      .first()
-      .evaluate((row) => {
-        const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
-        let node: Node | null
-        while ((node = walker.nextNode())) {
-          const start = node.textContent?.indexOf('SELECT_ME') ?? -1
-          if (start < 0) {
-            continue
-          }
-          const range = document.createRange()
-          range.setStart(node, start)
-          range.setEnd(node, start + 9)
-          const rect = range.getBoundingClientRect()
-          return { x: rect.x, right: rect.right, y: rect.y + rect.height / 2 }
-        }
-        throw new Error('Missing target text')
-      })
-    await orcaPage.mouse.move(word.right, word.y)
+    const points = await diffTextSelectionPoints(code, 'SELECT_ME')
+    await orcaPage.mouse.move(points.end.x, points.end.y)
     await orcaPage.mouse.down()
-    await orcaPage.mouse.move(word.x, word.y, { steps: 6 })
+    await orcaPage.mouse.move(points.start.x, points.start.y, { steps: 6 })
     await orcaPage.mouse.up()
     const selectedText = () =>
       host.evaluate((host) =>
@@ -94,9 +74,9 @@ for (const mode of ['original-file', 'readonly-combined']) {
         .filter({ hasText: path.basename(fixture.relativePath) })
         .locator('.sticky')
         .first()
-      await header.click()
+      await header.click({ position: { x: 4, y: 8 } })
       await expect(host).toHaveCount(0)
-      await header.click()
+      await header.click({ position: { x: 4, y: 8 } })
     }
     await expect.poll(() => code.evaluate((node) => node.scrollLeft)).toBeCloseTo(scrollLeft, 0)
     await expect.poll(selectedText).toBe('SELECT_ME')

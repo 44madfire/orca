@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
+import { useCombinedDiffSectionsState } from '../use-combined-diff-sections-state'
 import type { OpenFile } from '@/store/slices/editor'
 import type { DiffSection } from '../../diff-section-types'
 import { useCombinedDiffSectionSave } from './use-combined-diff-section-save'
@@ -45,10 +46,8 @@ function section(key = 'file.ts'): DiffSection {
 }
 function setup(initial = [section()]) {
   return renderHook(() => {
-    const [sections, setSections] = useState(initial)
+    const { sections, setSections, sectionsRef } = useCombinedDiffSectionsState(initial)
     const [heights, setSectionHeights] = useState<Record<number, number>>({ 0: 100, 1: 200 })
-    const sectionsRef = useRef(sections)
-    sectionsRef.current = sections
     const save = useCombinedDiffSectionSave({ file, sectionsRef, setSections, setSectionHeights })
     return { sections, setSections, heights, save }
   })
@@ -68,6 +67,19 @@ beforeEach(() => {
 })
 
 describe('combined diff section saves', () => {
+  it('saves native editor edits before React commits a render', async () => {
+    writeFile.mockResolvedValue(undefined)
+    const view = setup([{ ...section(), dirty: false, modifiedContent: 'disk' }])
+    await act(async () => {
+      view.result.current.setSections((prev) => [
+        { ...prev[0], modifiedContent: 'typed immediately before save', dirty: true }
+      ])
+      await view.result.current.save.current(0)
+    })
+    expect(writeFile.mock.calls[0]?.[2]).toBe('typed immediately before save')
+    expect(view.result.current.sections[0].dirty).toBe(false)
+  })
+
   it('keeps edits made during a delayed remote write and advances only the saved baseline', async () => {
     const pending = deferred()
     writeFile.mockReturnValueOnce(pending.promise)

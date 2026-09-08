@@ -1,4 +1,5 @@
 import { rmSync, writeFileSync } from 'node:fs'
+import { diffTextSelectionPoints } from './diff-text-selection'
 import { test, expect } from './helpers/orca-app'
 import { waitForSessionReady } from './helpers/store'
 import { addAndActivateRepo } from './helpers/isolated-repo-activation'
@@ -31,24 +32,27 @@ test('copies backwards selections with file and line context from each diff side
   let copied = ''
   try {
     for (const side of ['deletions', 'additions']) {
-      const coordinates = await orcaPage.locator('diffs-container').evaluate((host, side) => {
-        const rows = [
-          ...host.shadowRoot!.querySelectorAll(`[data-${side}] [data-content] [data-line]`)
-        ]
-        const rect = (row: Element) => {
-          const range = document.createRange()
-          range.selectNodeContents(row)
-          const bounds = range.getBoundingClientRect()
-          return { left: bounds.left, right: bounds.right, y: bounds.top + bounds.height / 2 }
-        }
-        return { start: rect(rows[0]), end: rect(rows.at(-1)) }
-      }, side)
-      await orcaPage.mouse.move(coordinates.end.right, coordinates.end.y)
-      await orcaPage.mouse.down()
-      await orcaPage.mouse.move(coordinates.start.left, coordinates.start.y, { steps: 8 })
-      await orcaPage.mouse.up()
-      await orcaPage.keyboard.press('ControlOrMeta+Alt+c')
       const contents = side === 'deletions' ? original : modified
+      const coordinates = await diffTextSelectionPoints(
+        orcaPage.locator(`diffs-container [data-code][data-${side}]`),
+        contents.trimEnd()
+      )
+      await orcaPage.mouse.move(coordinates.end.x, coordinates.end.y)
+      await orcaPage.mouse.down()
+      await orcaPage.mouse.move(coordinates.start.x, coordinates.start.y, { steps: 8 })
+      await orcaPage.mouse.up()
+      await expect
+        .poll(() =>
+          orcaPage
+            .locator('diffs-container')
+            .evaluate((host) =>
+              (host.shadowRoot as ShadowRoot & { getSelection(): Selection })
+                .getSelection()
+                .toString()
+            )
+        )
+        .toBe(contents.trimEnd())
+      await orcaPage.keyboard.press('ControlOrMeta+Alt+c')
       copied = `File: ${fixture.relativePath}\nLines: 1-3\n\n\`\`\`ts\n${contents}\`\`\``
       await expect
         .poll(() => electronApp.evaluate(({ clipboard }) => clipboard.readText()))

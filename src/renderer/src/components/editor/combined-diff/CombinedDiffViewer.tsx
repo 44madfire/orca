@@ -1,11 +1,11 @@
 import React, { useCallback, useRef, useState } from 'react'
+import { useCombinedDiffSectionsState } from './use-combined-diff-sections-state'
 import { useAppStore } from '@/store'
 import { createProgrammaticScrollMarks } from '@/hooks/programmatic-scroll-marks'
 import { useWorkspaceFileBrowserActionPredicate } from '@/lib/file-preview'
 import { selectWorktreeDiffCommentsOrEmpty } from '@/store/worktree-diff-comments-selector'
 import type { OpenFile } from '@/store/slices/editor'
 import '@/lib/monaco-setup'
-import type { DiffSection } from '../diff-section-types'
 import {
   EMPTY_GIT_BRANCH_ENTRIES,
   EMPTY_GIT_STATUS_ENTRIES,
@@ -66,7 +66,7 @@ export default function CombinedDiffViewer({
   const activeGroupId = useAppStore((s) => s.activeGroupIdByWorktree[file.worktreeId])
   const canOpenWorkspaceFileBrowserForPath = useWorkspaceFileBrowserActionPredicate(file.worktreeId)
 
-  const [sections, setSections] = useState<DiffSection[]>([])
+  const { sections, sectionsRef, setSections } = useCombinedDiffSectionsState()
   const [sectionHeights, setSectionHeights] = useState<Record<number, number>>({})
   const [generation, setGeneration] = useState(0)
   // Why: a browser scroll clamp must re-pin the restore without being recorded as user intent.
@@ -74,7 +74,7 @@ export default function CombinedDiffViewer({
   const [programmaticScrollMarks] = useState(createProgrammaticScrollMarks)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
-  const registry = useCombinedDiffSectionLoadRegistry(sections)
+  const registry = useCombinedDiffSectionLoadRegistry(sectionsRef)
   const entrySet = useCombinedDiffEntrySet({
     file,
     gitStatusEntries,
@@ -170,7 +170,7 @@ export default function CombinedDiffViewer({
         registry.loadSchedulerRef.current.request(index)
       }
     },
-    [registry.loadSchedulerRef, registry.sectionsRef]
+    [registry.loadSchedulerRef, registry.sectionsRef, setSections]
   )
 
   const treeNavigation = useCombinedDiffTreeNavigation({

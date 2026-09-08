@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { useRef } from 'react'
 import { cleanup, renderHook } from '@testing-library/react'
 import type { GitBranchChangeEntry } from '../../../../../../shared/git-diff-compare-types'
 import type { GitStatusEntry } from '../../../../../../shared/git-status-types'
@@ -39,7 +40,7 @@ function buildAllModeEntrySet(
 function restoreSections(entrySet: CombinedDiffEntrySet, viewStateKey: string): DiffSection[] {
   let sections: DiffSection[] = []
   renderHook(() => {
-    const registry = useCombinedDiffSectionLoadRegistry([])
+    const registry = useCombinedDiffSectionLoadRegistry(useRef([]))
     return useCombinedDiffViewRestore({
       entrySet,
       gitStatusEntries: [],

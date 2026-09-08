@@ -33,12 +33,11 @@ export type CombinedDiffSectionLoadRegistry = {
 }
 
 export function useCombinedDiffSectionLoadRegistry(
-  sections: DiffSection[]
+  sectionsRef: React.RefObject<DiffSection[]>
 ): CombinedDiffSectionLoadRegistry {
   const loadedIndicesRef = useRef<Set<number>>(new Set())
   const loadingIndicesRef = useRef<Set<number>>(new Set())
   const deferredLoadRequestsRef = useRef<Set<number>>(new Set())
-  const sectionsRef = useRef<DiffSection[]>([])
   const generationRef = useRef(0)
   // Why: per-section reload token, so a sibling's reload can't discard this section's in-flight load.
   const sectionLoadTokensRef = useRef<Map<number, number>>(new Map())
@@ -51,7 +50,6 @@ export function useCombinedDiffSectionLoadRegistry(
   loadSchedulerRef.current ??= createCombinedDiffLoadScheduler({
     loadSection: (index) => loadSectionRef.current(index)
   })
-  sectionsRef.current = sections
 
   useEffect(() => {
     // Why: React StrictMode replays effect cleanup in dev; reset revives the scheduler for the replayed mount.

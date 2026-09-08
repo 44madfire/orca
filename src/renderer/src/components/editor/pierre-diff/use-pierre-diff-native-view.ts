@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { FileDiffMetadata, PostRenderPhase } from '@pierre/diffs'
 import type { Editor } from '@pierre/diffs/edit'
 import type { PierreDiffInstance } from './PierreDiffSurface'
@@ -24,7 +24,8 @@ export function usePierreDiffNativeView(
   useLayoutEffect(() => {
     latest.current = { fileDiff, editable, activeGroupId }
   }, [fileDiff, editable, activeGroupId])
-  const pending = useRef(key ? getPierreNativeView(key) : undefined)
+  const [restoreSeed] = useState(() => (key ? getPierreNativeView(key) : undefined))
+  const pending = useRef(restoreSeed)
   const frame = useRef<number | null>(null)
   const attempts = useRef(0)
   const lastSnapshot = useRef<PierreNativeViewState | undefined>(undefined)

@@ -75,9 +75,9 @@ for (const surface of ['file', 'combined']) {
       await entry.click()
     } else {
       const header = orcaPage.locator('[data-combined-diff-section-row] .sticky').first()
-      await header.click()
+      await header.click({ position: { x: 4, y: 8 } })
       await expect(orcaPage.locator('diffs-container')).toHaveCount(0)
-      await header.click()
+      await header.click({ position: { x: 4, y: 8 } })
     }
     await expect(line).toHaveText(`${modified.trimEnd()}X`, { timeout: 20_000 })
     await expect
@@ -103,10 +103,10 @@ for (const surface of ['file', 'combined']) {
       await entry.click()
     } else {
       const header = orcaPage.locator('[data-combined-diff-section-row] .sticky').first()
-      await header.click()
+      await header.click({ position: { x: 4, y: 8 } })
       await expect(orcaPage.locator('diffs-container')).toHaveCount(0)
       writeFileSync(fixture.absolutePath, 'external replacement\n')
-      await header.click()
+      await header.click({ position: { x: 4, y: 8 } })
     }
     await expect(host.locator('[data-content]').last()).toContainText('external replacement', {
       timeout: 20_000
