@@ -7,7 +7,8 @@ import {
   projectRemoteAppStatus,
   resolveDesktopWindowStatus
 } from '../../shared/cli-app-status-projection'
-import { RuntimeRpcFailureError, type RuntimeRpcSuccess } from './types'
+import { RuntimeClientError, RuntimeRpcFailureError, type RuntimeRpcSuccess } from './types'
+import { observeLocalProcess, statusObservationError } from './status-observation'
 
 export { projectRemoteAppStatus, resolveDesktopWindowStatus }
 
@@ -17,15 +18,20 @@ export async function getCliStatus(
   const metadata = tryReadMetadata(userDataPath)
   const transport = metadata ? findTransport(metadata, 'unix', 'named-pipe') : null
   if (!transport || !metadata?.authToken) {
+    const processObservation = metadata ? observeLocalProcess(metadata.pid) : null
+    if (processObservation && processObservation !== 'exited') {
+      throw statusObservationError(
+        processObservation,
+        new RuntimeClientError('runtime_unavailable', 'Runtime metadata is incomplete.')
+      )
+    }
     return buildCliStatusResponse({
       app: {
         running: false,
         pid: null
       },
       runtime: {
-        // Why: distinguishing "never started" from "was running but died"
-        // gives the user a better signal about what happened. If the metadata
-        // file exists, Orca was running at some point.
+        // Stale bootstrap requires positive local PID absence, not failed observation.
         state: metadata ? 'stale_bootstrap' : 'not_running',
         reachable: false,
         runtimeId: null
@@ -68,21 +74,24 @@ export async function getCliStatus(
         state: graphState
       }
     })
-  } catch {
-    const running = isProcessRunning(metadata.pid)
+  } catch (error) {
+    const processObservation = observeLocalProcess(metadata.pid)
+    if (processObservation !== 'exited') {
+      throw statusObservationError(processObservation, error)
+    }
     return buildCliStatusResponse({
       app: {
-        running,
-        pid: running ? metadata.pid : null
+        running: false,
+        pid: null
       },
       runtime: {
-        state: running ? 'starting' : 'stale_bootstrap',
+        state: 'stale_bootstrap',
         reachable: false,
         connectionState: 'disconnected',
         runtimeId: null
       },
       graph: {
-        state: running ? 'starting' : 'not_running'
+        state: 'not_running'
       }
     })
   }
@@ -96,17 +105,5 @@ function buildCliStatusResponse(result: CliStatusResult): RuntimeRpcSuccess<CliS
     _meta: {
       runtimeId: result.runtime.runtimeId ?? 'none'
     }
-  }
-}
-
-function isProcessRunning(pid: number | null | undefined): boolean {
-  if (!pid || pid <= 0) {
-    return false
-  }
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
   }
 }
