@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
-import { hostedSourceControlResponse } from '../../../mobile/src/source-control/web-host-source-control-response'
-import { mapDispatcherError } from '../../main/runtime/rpc/dispatcher-error-response'
-import { MOBILE_WEB_SOURCE_CONTROL_REVIEW_METADATA_METHODS } from '../../main/runtime/rpc/methods/mobile-web-source-control-review-metadata'
+import { hostedSourceControlResponse } from '../source-control/web-host-source-control-response'
+import { mapDispatcherError } from '../../../src/main/runtime/rpc/dispatcher-error-response'
+import { MOBILE_WEB_SOURCE_CONTROL_REVIEW_METADATA_METHODS } from '../../../src/main/runtime/rpc/methods/mobile-web-source-control-review-metadata'
 import {
   REVIEW_IDENTITY,
   reviewRuntime,
   reviewStatus,
   runReviewMethod
-} from '../../main/runtime/rpc/methods/mobile-web-review-test-fixture'
-import { createMobileWebBridgeRoundtripFixture } from '../../../mobile/src/mobile-web/mobile-web-bridge-roundtrip-fixture'
-import { MOBILE_WEB_PRODUCTION_GRANTS } from '../../../mobile/src/mobile-web/mobile-web-production-grants'
-import type { RpcClient } from '../../../mobile/src/transport/rpc-client'
+} from '../../../src/main/runtime/rpc/methods/mobile-web-review-test-fixture'
+import { createMobileWebBridgeRoundtripFixture } from './mobile-web-bridge-roundtrip-fixture'
+import { MOBILE_WEB_PRODUCTION_GRANTS } from './mobile-web-production-grants'
+import type { RpcClient } from '../transport/rpc-client'
 
 const CONFLICT_COPY = 'This review changed on the host. Refresh the review before saving again.'
 

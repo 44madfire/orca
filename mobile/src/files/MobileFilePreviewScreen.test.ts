@@ -78,15 +78,13 @@ describe('MobileFilePreviewScreen', () => {
 
   it('passes hosted artifact route metadata to the adapter and keeps the preview read-only', async () => {
     const operations: HostFilePreviewOperations = {
-      load: vi
-        .fn()
-        .mockResolvedValue({
-          status: 'ready',
-          kind: 'text',
-          content: 'result',
-          truncated: false,
-          byteLength: 6
-        }),
+      load: vi.fn().mockResolvedValue({
+        status: 'ready',
+        kind: 'text',
+        content: 'result',
+        truncated: false,
+        byteLength: 6
+      }),
       saveTerminalArtifact: vi.fn(),
       reconnect: vi.fn(),
       openExternalUrl: vi.fn()
