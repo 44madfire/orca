@@ -2,8 +2,6 @@ import type { GitUpstreamStatus } from '../../../../../../shared/git-status-type
 import type { GitPushTarget } from '../../../../../../shared/worktree/types'
 import type { HostedReviewState } from '../../../../../../shared/hosted-review'
 import { isPositiveHostedReviewNumber } from '../../../../../../shared/hosted-review'
-import { getPublishTargetDisplayName } from '../../../../../../shared/git-publish-target-status'
-import { gitRefTargetsBranchName } from '../../../../../../shared/git-remote-branch-name'
 
 export function hasUsableHostedReviewPushTarget(args: {
   pushTarget?: GitPushTarget
@@ -11,22 +9,21 @@ export function hasUsableHostedReviewPushTarget(args: {
   hasResolvableHostedReviewPushTargetLink?: boolean
   branchName?: string
 }): boolean {
+  const identity = args.upstreamStatus?.upstreamIdentity
   if (args.pushTarget) {
     return (
       args.upstreamStatus === undefined ||
-      args.upstreamStatus.upstreamName === getPublishTargetDisplayName(args.pushTarget)
+      (identity?.selector.kind === 'named-remote' &&
+        identity.selector.value === args.pushTarget.remoteName &&
+        identity.mergeRef === `refs/heads/${args.pushTarget.branchName}`)
     )
   }
   if (args.hasResolvableHostedReviewPushTargetLink) {
-    // Why: a same-repo review's head is the checked-out branch, so a real
-    // upstream tracking it is safe before the resolver hydrates. Fork/cross-repo
-    // heads differ, so a mismatched or missing upstream stays blocked. The
-    // review's remote is unknown pre-hydration, so this can only match the
-    // branch leaf; the strict remote+branch check above takes over once known.
+    // Older peers supply only a label; wait for authoritative target metadata.
     return (
       args.upstreamStatus?.hasUpstream === true &&
       args.branchName !== undefined &&
-      gitRefTargetsBranchName(args.upstreamStatus.upstreamName, args.branchName)
+      identity?.mergeRef === `refs/heads/${args.branchName}`
     )
   }
   return args.upstreamStatus?.hasConfiguredPushTarget === true

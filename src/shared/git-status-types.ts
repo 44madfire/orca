@@ -1,3 +1,4 @@
+import type { GitUpstreamStatusIdentity } from './git-upstream-identity'
 export type GitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'copied'
 export type GitStagingArea = 'staged' | 'unstaged' | 'untracked'
 export type GitConflictKind =
@@ -94,6 +95,8 @@ export type GitStatusResult = {
 export type GitUpstreamStatus = {
   hasUpstream: boolean
   upstreamName?: string
+  /** Optional on older execution hosts; absence does not establish operation identity. */
+  upstreamIdentity?: GitUpstreamStatusIdentity
   ahead: number
   behind: number
   /** True when push can target configured branch push metadata even though

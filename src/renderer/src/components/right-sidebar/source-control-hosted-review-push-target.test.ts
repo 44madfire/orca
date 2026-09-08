@@ -10,6 +10,11 @@ import {
 const unrelatedUpstream = {
   hasUpstream: true,
   upstreamName: 'origin/helper-branch',
+  upstreamIdentity: {
+    selector: { kind: 'named-remote' as const, value: 'origin' },
+    mergeRef: 'refs/heads/helper-branch',
+    trackingRef: 'refs/remotes/origin/helper-branch'
+  },
   ahead: 1,
   behind: 0
 }
@@ -78,6 +83,11 @@ describe('resolveHostedReviewActionUpstreamStatus', () => {
         upstreamStatus: {
           hasUpstream: true,
           upstreamName: 'pr-user-repo/user/feature',
+          upstreamIdentity: {
+            selector: { kind: 'named-remote' as const, value: 'pr-user-repo' },
+            mergeRef: 'refs/heads/user/feature',
+            trackingRef: 'refs/remotes/pr-user-repo/user/feature'
+          },
           ahead: 2,
           behind: 0
         }
@@ -85,6 +95,11 @@ describe('resolveHostedReviewActionUpstreamStatus', () => {
     ).toEqual({
       hasUpstream: true,
       upstreamName: 'pr-user-repo/user/feature',
+      upstreamIdentity: {
+        selector: { kind: 'named-remote' as const, value: 'pr-user-repo' },
+        mergeRef: 'refs/heads/user/feature',
+        trackingRef: 'refs/remotes/pr-user-repo/user/feature'
+      },
       ahead: 2,
       behind: 0
     })
@@ -200,6 +215,94 @@ describe('resolveHostedReviewStateForActions', () => {
 })
 
 describe('hasUsableHostedReviewPushTarget', () => {
+  it('keeps old-peer labels unresolved before and after target hydration', () => {
+    const upstreamStatus = {
+      hasUpstream: true,
+      upstreamName: 'origin/feature',
+      ahead: 1,
+      behind: 0
+    }
+    expect(
+      hasUsableHostedReviewPushTarget({
+        upstreamStatus,
+        branchName: 'feature',
+        hasResolvableHostedReviewPushTargetLink: true
+      })
+    ).toBe(false)
+    expect(
+      hasUsableHostedReviewPushTarget({
+        upstreamStatus,
+        pushTarget: { remoteName: 'origin', branchName: 'feature' }
+      })
+    ).toBe(false)
+  })
+
+  it('distinguishes equal labels with different named remote and merge identities', () => {
+    const upstreamStatus = {
+      hasUpstream: true,
+      upstreamName: 'origin/team/feature',
+      ahead: 1,
+      behind: 0,
+      upstreamIdentity: {
+        selector: { kind: 'named-remote' as const, value: 'origin/team' },
+        mergeRef: 'refs/heads/feature',
+        trackingRef: 'refs/custom/published'
+      }
+    }
+    expect(
+      hasUsableHostedReviewPushTarget({
+        upstreamStatus,
+        pushTarget: { remoteName: 'origin/team', branchName: 'feature' }
+      })
+    ).toBe(true)
+    expect(
+      hasUsableHostedReviewPushTarget({
+        upstreamStatus,
+        pushTarget: { remoteName: 'origin', branchName: 'team/feature' }
+      })
+    ).toBe(false)
+    expect(
+      hasUsableHostedReviewPushTarget({
+        upstreamStatus: {
+          ...upstreamStatus,
+          upstreamIdentity: {
+            ...upstreamStatus.upstreamIdentity,
+            selector: { kind: 'literal-url' }
+          }
+        },
+        pushTarget: { remoteName: 'origin/team', branchName: 'feature' }
+      })
+    ).toBe(false)
+  })
+
+  it('uses the full merge branch before hydration regardless of tag-shaped labels', () => {
+    const upstreamStatus = {
+      hasUpstream: true,
+      upstreamName: 'remotes/origin/heads/feature',
+      ahead: 1,
+      behind: 0,
+      upstreamIdentity: {
+        selector: { kind: 'named-remote' as const, value: 'origin' },
+        mergeRef: 'refs/heads/heads/feature',
+        trackingRef: 'refs/custom/head'
+      }
+    }
+    expect(
+      hasUsableHostedReviewPushTarget({
+        upstreamStatus,
+        branchName: 'heads/feature',
+        hasResolvableHostedReviewPushTargetLink: true
+      })
+    ).toBe(true)
+    expect(
+      hasUsableHostedReviewPushTarget({
+        upstreamStatus,
+        branchName: 'feature',
+        hasResolvableHostedReviewPushTargetLink: true
+      })
+    ).toBe(false)
+  })
+
   it('accepts either persisted target metadata or branch-configured push metadata', () => {
     expect(
       hasUsableHostedReviewPushTarget({
@@ -212,6 +315,11 @@ describe('hasUsableHostedReviewPushTarget', () => {
         upstreamStatus: {
           hasUpstream: true,
           upstreamName: 'fork/feature',
+          upstreamIdentity: {
+            selector: { kind: 'named-remote' as const, value: 'fork' },
+            mergeRef: 'refs/heads/feature',
+            trackingRef: 'refs/remotes/fork/feature'
+          },
           ahead: 1,
           behind: 0
         }
@@ -257,6 +365,11 @@ describe('hasUsableHostedReviewPushTarget', () => {
         upstreamStatus: {
           hasUpstream: true,
           upstreamName: 'origin/feature/foo',
+          upstreamIdentity: {
+            selector: { kind: 'named-remote' as const, value: 'origin' },
+            mergeRef: 'refs/heads/feature/foo',
+            trackingRef: 'refs/remotes/origin/feature/foo'
+          },
           ahead: 7,
           behind: 2
         }
@@ -290,6 +403,11 @@ describe('resolveHostedReviewActionUpstreamStatus with a same-repo upstream', ()
     const realUpstream = {
       hasUpstream: true,
       upstreamName: 'origin/mobile-resume-suspected-fixes',
+      upstreamIdentity: {
+        selector: { kind: 'named-remote' as const, value: 'origin' },
+        mergeRef: 'refs/heads/mobile-resume-suspected-fixes',
+        trackingRef: 'refs/remotes/origin/mobile-resume-suspected-fixes'
+      },
       ahead: 7,
       behind: 2
     }
@@ -319,6 +437,11 @@ describe('resolveHostedReviewActionUpstreamStatus with a same-repo upstream', ()
     const realUpstream = {
       hasUpstream: true,
       upstreamName: 'origin/fix-f1-codex-wsl-path-trust',
+      upstreamIdentity: {
+        selector: { kind: 'named-remote' as const, value: 'origin' },
+        mergeRef: 'refs/heads/fix-f1-codex-wsl-path-trust',
+        trackingRef: 'refs/remotes/origin/fix-f1-codex-wsl-path-trust'
+      },
       ahead: 1,
       behind: 0
     }

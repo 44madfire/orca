@@ -1,3 +1,4 @@
+import { gitBranchNameFromFullRef } from './git-upstream-identity'
 import { readCurrentGitBranchName } from './git-current-branch'
 import type { GitCommandRunner } from './git-effective-upstream'
 import { gitRefTargetsBranchOnRemote } from './git-remote-branch-name'
@@ -88,8 +89,8 @@ export async function resolveConfiguredGitPushTarget(
     ])
     const remote = pushRemote?.remote
     const mergeRef = mergeStdout.trim()
-    const branchRef = mergeRef.replace(/^refs\/heads\//, '')
-    if (!remote || !branchRef || remote === '.' || branchRef === mergeRef) {
+    const branchRef = gitBranchNameFromFullRef(mergeRef)
+    if (!remote || !branchRef || remote === '.') {
       return null
     }
     if (await branchMergeTargetsConfiguredBase(runGit, branch, remote, branchRef)) {

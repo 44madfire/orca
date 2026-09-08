@@ -284,17 +284,25 @@ describe('getStatus', () => {
     })
   })
 
-  it('folds upstream ahead/behind from porcelain v2 into the status result', async () => {
+  it('resolves canonical upstream counts even when porcelain supplies a matching label', async () => {
     readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
     gitExecFileAsyncMock.mockResolvedValueOnce({
       stdout:
         '# branch.oid abcdef1234567890\n# branch.head feature/prompts\n# branch.upstream origin/feature/prompts\n# branch.ab +2 -3\n'
     })
 
+    gitExecFileAsyncMock
+      .mockResolvedValueOnce({ stdout: 'refs/heads/feature/prompts\n' })
+      .mockResolvedValueOnce({
+        stdout:
+          'refs/remotes/origin/feature/prompts\0=\0refs/heads/feature/prompts\0origin\0refs/heads/feature/prompts\n'
+      })
+      .mockResolvedValueOnce({ stdout: '2\t3\n' })
+
     const result = await getStatus('/repo')
 
-    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
-    expect(result.upstreamStatus).toEqual({
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(4)
+    expect(result.upstreamStatus).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature/prompts',
       ahead: 2,
@@ -333,7 +341,7 @@ describe('getStatus', () => {
       ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/feature/prompts'],
       { cwd: '/repo', preferWslDirectGit: true }
     )
-    expect(result.upstreamStatus).toEqual({ hasUpstream: false, ahead: 0, behind: 0 })
+    expect(result.upstreamStatus).toMatchObject({ hasUpstream: false, ahead: 0, behind: 0 })
   })
 
   it('uses same-name origin branch status for legacy base-tracking worktrees', async () => {
@@ -344,13 +352,15 @@ describe('getStatus', () => {
           '# branch.oid abcdef1234567890\n# branch.head feature/prompts\n# branch.upstream origin/main\n# branch.ab +1 -0\n'
       })
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature/prompts\n' })
-      .mockResolvedValueOnce({ stdout: 'origin/main\n' })
+      .mockResolvedValueOnce({
+        stdout: 'refs/remotes/origin/main\0=\0refs/heads/feature/prompts\0origin\0refs/heads/main\n'
+      })
       .mockResolvedValueOnce({ stdout: 'abc123\n' })
       .mockResolvedValueOnce({ stdout: '3\t1\n' })
 
     const result = await getStatus('/repo')
 
-    expect(result.upstreamStatus).toEqual({
+    expect(result.upstreamStatus).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature/prompts',
       ahead: 3,

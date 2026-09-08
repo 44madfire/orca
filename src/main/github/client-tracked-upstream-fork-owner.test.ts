@@ -120,6 +120,30 @@ describe('shipping branch lookup with real Git ownership evidence', () => {
     }
   )
 
+  it.each([
+    ['origin/team', 'refs/remotes/origin/team/published'],
+    ['remotes', 'refs/custom/published'],
+    ['fork', 'refs/heads/tracking/published']
+  ])('retains configured tracked owner %s through custom ref %s', async (remote, tracking) => {
+    if (remote !== 'fork') {
+      git(repo, 'remote', 'rename', 'fork', remote)
+    }
+    git(repo, 'config', `remote.${remote}.fetch`, `+refs/heads/published:${tracking}`)
+    git(repo, 'update-ref', tracking, 'HEAD')
+    git(repo, 'config', 'branch.feature.remote', remote)
+    git(repo, 'config', 'branch.feature.merge', 'refs/heads/published')
+    git(repo, 'tag', `${remote}/published`)
+    gh.mockImplementation(async (args: string[]) =>
+      args.join(' ').includes('head=contributor%3Apublished')
+        ? response('contributor', 'published')
+        : { stdout: '[]' }
+    )
+    await expect(getPRForBranchOutcome(repo, 'feature')).resolves.toMatchObject({
+      kind: 'found',
+      pr: { number: 42 }
+    })
+  })
+
   it('accepts an empty tracked-owner lookup as no PR', async () => {
     git(repo, 'update-ref', 'refs/remotes/fork/feature', 'HEAD')
     git(repo, 'config', 'branch.feature.remote', 'fork')

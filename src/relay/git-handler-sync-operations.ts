@@ -80,7 +80,7 @@ export class GitHandlerSyncOperations extends GitHandlerOperationContext {
             'pull',
             ...effectiveArgs,
             upstream.operationSelector?.value ?? upstream.remoteName,
-            upstream.branchName
+            upstream.mergeRef
           ],
           worktreePath
         )

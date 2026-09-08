@@ -42,7 +42,7 @@ describe('relay upstream negative cache', () => {
         }
         throw Object.assign(new Error('missing remote branch'), { code: 1 })
       }
-      if (args[0] === 'rev-list' && args.includes('HEAD...origin/feature')) {
+      if (args[0] === 'rev-list' && args.includes('HEAD...refs/remotes/origin/feature')) {
         return { stdout: '0\t1\n' }
       }
       throw new Error(`No upstream fixture for git ${args.join(' ')}`)
@@ -56,9 +56,9 @@ describe('relay upstream negative cache', () => {
       bypassCache: true
     })
 
-    expect(first).toEqual({ hasUpstream: false, ahead: 0, behind: 0 })
+    expect(first).toMatchObject({ hasUpstream: false, ahead: 0, behind: 0 })
     expect(automatic).toEqual(first)
-    expect(strict).toEqual({
+    expect(strict).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature',
       ahead: 0,
@@ -87,7 +87,7 @@ describe('relay upstream negative cache', () => {
           deferredOriginReject = reject
         })
       }
-      if (args[0] === 'rev-list' && args.includes('HEAD...origin/feature')) {
+      if (args[0] === 'rev-list' && args.includes('HEAD...refs/remotes/origin/feature')) {
         return { stdout: '0\t1\n' }
       }
       throw new Error(`No upstream fixture for git ${args.join(' ')}`)
@@ -110,13 +110,13 @@ describe('relay upstream negative cache', () => {
     const staleAutomatic = await automatic
     const nextAutomatic = await readOrProbeNoEffectiveUpstreamStatus(identity, runGit)
 
-    expect(strict).toEqual({
+    expect(strict).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature',
       ahead: 0,
       behind: 1
     })
-    expect(staleAutomatic).toEqual({ hasUpstream: false, ahead: 0, behind: 0 })
+    expect(staleAutomatic).toMatchObject({ hasUpstream: false, ahead: 0, behind: 0 })
     expect(nextAutomatic).toEqual(strict)
   })
 
@@ -141,7 +141,7 @@ describe('relay upstream negative cache', () => {
           deferredOriginReject = reject
         })
       }
-      if (args[0] === 'rev-list' && args.includes('HEAD...origin/feature')) {
+      if (args[0] === 'rev-list' && args.includes('HEAD...refs/remotes/origin/feature')) {
         return { stdout: '0\t1\n' }
       }
       throw new Error(`No upstream fixture for git ${args.join(' ')}`)
@@ -172,7 +172,7 @@ describe('relay upstream negative cache', () => {
           if (args[0] === 'rev-parse' && args.includes(`refs/remotes/origin/${branchName}`)) {
             return { stdout: 'abc123\n' }
           }
-          if (args[0] === 'rev-list' && args.includes(`HEAD...origin/${branchName}`)) {
+          if (args[0] === 'rev-list' && args.includes(`HEAD...refs/remotes/origin/${branchName}`)) {
             return { stdout: '0\t1\n' }
           }
           throw new Error(`No upstream fixture for git ${args.join(' ')}`)
@@ -189,7 +189,7 @@ describe('relay upstream negative cache', () => {
     await automatic
     const nextAutomatic = await readOrProbeNoEffectiveUpstreamStatus(identity, runGit)
 
-    expect(strict).toEqual({
+    expect(strict).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature',
       ahead: 0,
@@ -220,7 +220,7 @@ describe('relay upstream negative cache', () => {
           deferredOriginReject = reject
         })
       }
-      if (args[0] === 'rev-list' && args.includes('HEAD...origin/feature')) {
+      if (args[0] === 'rev-list' && args.includes('HEAD...refs/remotes/origin/feature')) {
         return { stdout: '0\t1\n' }
       }
       throw new Error(`No upstream fixture for git ${args.join(' ')}`)
@@ -249,7 +249,7 @@ describe('relay upstream negative cache', () => {
           if (args[0] === 'rev-parse' && args.includes(`refs/remotes/origin/${branchName}`)) {
             return { stdout: 'abc123\n' }
           }
-          if (args[0] === 'rev-list' && args.includes(`HEAD...origin/${branchName}`)) {
+          if (args[0] === 'rev-list' && args.includes(`HEAD...refs/remotes/origin/${branchName}`)) {
             return { stdout: '0\t1\n' }
           }
           throw new Error(`No upstream fixture for git ${args.join(' ')}`)
@@ -266,7 +266,7 @@ describe('relay upstream negative cache', () => {
     await automatic
     const nextAutomatic = await readOrProbeNoEffectiveUpstreamStatus(identity, runGit)
 
-    expect(nextAutomatic).toEqual({
+    expect(nextAutomatic).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature',
       ahead: 0,
@@ -320,7 +320,7 @@ describe('relay upstream negative cache', () => {
           if (args[0] === 'rev-parse' && args.includes(`refs/remotes/origin/${branchName}`)) {
             return { stdout: 'abc123\n' }
           }
-          if (args[0] === 'rev-list' && args.includes(`HEAD...origin/${branchName}`)) {
+          if (args[0] === 'rev-list' && args.includes(`HEAD...refs/remotes/origin/${branchName}`)) {
             return { stdout: '0\t1\n' }
           }
           throw new Error(`No upstream fixture for git ${args.join(' ')}`)

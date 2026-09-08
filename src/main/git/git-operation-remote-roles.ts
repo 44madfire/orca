@@ -1,3 +1,4 @@
+import { gitUpstreamIdentity } from '../../shared/git-upstream-identity'
 import { gitRefTargetsBranchOnRemote } from '../../shared/git-remote-branch-name'
 import {
   gitOperationSelector,
@@ -40,18 +41,29 @@ function configuredRemote(
   return gitOperationSelector(value, snapshot.remoteNames)
 }
 
+export function configuredGitUpstreamIdentity(
+  snapshot: GitRemoteTopologySnapshot,
+  branchName: string
+) {
+  const selector = configuredRemote(snapshot, `branch.${branchName}.remote`)
+  const mergeRef = snapshot.config.get(normalizeGitConfigKey(`branch.${branchName}.merge`))?.trim()
+  return selector
+    ? gitUpstreamIdentity(selector, mergeRef, snapshot.upstreamRefs.get(branchName) ?? null)
+    : null
+}
+
 function configuredUpstreamRemote(
   snapshot: GitRemoteTopologySnapshot,
   branchName: string
 ): GitOperationSelector | null {
-  const remoteName = configuredRemote(snapshot, `branch.${branchName}.remote`)
-  const mergeRef = snapshot.config.get(normalizeGitConfigKey(`branch.${branchName}.merge`))?.trim()
-  const mergeBranchName = mergeRef?.replace(/^refs\/heads\//, '')
-  if (!remoteName || !mergeBranchName || mergeBranchName === mergeRef) {
+  const identity = configuredGitUpstreamIdentity(snapshot, branchName)
+  if (!identity || identity.selector.kind === 'local') {
     return null
   }
   const baseRef = snapshot.config.get(normalizeGitConfigKey(`branch.${branchName}.base`))
-  return gitRefTargetsBranchOnRemote(baseRef, remoteName.value, mergeBranchName) ? null : remoteName
+  return gitRefTargetsBranchOnRemote(baseRef, identity.selector.value, identity.branchName)
+    ? null
+    : identity.selector
 }
 
 export function resolveHeadRole(

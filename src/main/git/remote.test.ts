@@ -12,11 +12,7 @@ import { REBASE_SOURCE_FETCH_TIMEOUT_MS } from '../../shared/git-rebase-source'
 import { clearGitCapabilityStateForTests } from './git-capability-state'
 import { gitFastForward, gitFetch, gitPull, gitPullRebaseFromBase, gitPush } from './remote'
 
-const upstreamMetadataArgs = [
-  'for-each-ref',
-  '--format=%(upstream:short)%00%(upstream:trackshort)%00%(refname)',
-  'refs/heads/feature'
-]
+import { configuredFeatureUpstream, upstreamMetadataArgs } from './upstream-operation-test-fixture'
 
 const REBASE_OPERATION_OPTIONS = {
   cwd: '/repo',
@@ -443,7 +439,7 @@ describe('git remote operations', () => {
   it("runs pull with the user's configured strategy", async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n', stderr: '' })
+      .mockResolvedValueOnce(configuredFeatureUpstream)
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
 
     await gitPull('/repo')
@@ -462,11 +458,11 @@ describe('git remote operations', () => {
     gitExecFileAsyncMock
       // First attempt: plain pull rejects with git's reconciliation error.
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n', stderr: '' })
+      .mockResolvedValueOnce(configuredFeatureUpstream)
       .mockRejectedValueOnce(divergentError)
       // Fallback attempt: pull --no-rebase (merge) succeeds.
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n', stderr: '' })
+      .mockResolvedValueOnce(configuredFeatureUpstream)
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
 
     await gitPull('/repo')
@@ -484,7 +480,7 @@ describe('git remote operations', () => {
   it('does not retry a fast-forward-only pull that fails on divergence', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n', stderr: '' })
+      .mockResolvedValueOnce(configuredFeatureUpstream)
       .mockRejectedValueOnce(
         new Error('Command failed: git pull\nfatal: Not possible to fast-forward, aborting.')
       )
@@ -527,11 +523,11 @@ describe('git remote operations', () => {
     gitExecFileAsyncMock
       // First attempt fails with the reconciliation error.
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n', stderr: '' })
+      .mockResolvedValueOnce(configuredFeatureUpstream)
       .mockRejectedValueOnce(divergentError)
       // The single merge fallback then fails on a real conflict.
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n', stderr: '' })
+      .mockResolvedValueOnce(configuredFeatureUpstream)
       .mockRejectedValueOnce(mergeConflictError)
 
     await expect(gitPull('/repo')).rejects.toThrow()
@@ -542,7 +538,10 @@ describe('git remote operations', () => {
   it('pulls the same-name origin branch for legacy base-tracking worktrees', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/main\n', stderr: '' })
+      .mockResolvedValueOnce({
+        stdout: 'refs/remotes/origin/main\0=\0refs/heads/feature\0origin\0refs/heads/main\n',
+        stderr: ''
+      })
       .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
 
@@ -552,7 +551,7 @@ describe('git remote operations', () => {
       [['symbolic-ref', '--quiet', 'HEAD'], { cwd: '/repo' }],
       [upstreamMetadataArgs, { cwd: '/repo' }],
       [['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/feature'], { cwd: '/repo' }],
-      [['pull', 'origin', 'feature'], { cwd: '/repo' }]
+      [['pull', 'origin', 'refs/heads/feature'], { cwd: '/repo' }]
     ])
   })
 
@@ -575,7 +574,7 @@ describe('git remote operations', () => {
   it('fast-forwards with --ff-only using the configured upstream', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n', stderr: '' })
+      .mockResolvedValueOnce(configuredFeatureUpstream)
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
 
     await gitFastForward('/repo')
@@ -757,7 +756,7 @@ describe('git remote operations', () => {
   it('normalizes pull authentication errors to a friendly message', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n', stderr: '' })
+      .mockResolvedValueOnce(configuredFeatureUpstream)
       .mockRejectedValueOnce(new Error('Authentication failed'))
 
     await expect(gitPull('/repo')).rejects.toThrow(
@@ -768,7 +767,7 @@ describe('git remote operations', () => {
   it('normalizes pull dirty-worktree aborts to a friendly message', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n', stderr: '' })
+      .mockResolvedValueOnce(configuredFeatureUpstream)
       .mockRejectedValueOnce(
         new Error(
           'Command failed: git pull\n' +
@@ -787,7 +786,7 @@ describe('git remote operations', () => {
   it('normalizes pull untracked-file aborts to a friendly message', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n', stderr: '' })
+      .mockResolvedValueOnce(configuredFeatureUpstream)
       .mockRejectedValueOnce(
         new Error(
           'Command failed: git pull\n' +

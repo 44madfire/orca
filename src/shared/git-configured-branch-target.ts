@@ -1,3 +1,4 @@
+import { gitBranchNameFromFullRef, gitUpstreamIdentity } from './git-upstream-identity'
 import { gitOperationSelector, type GitOperationSelector } from './git-operation-selector'
 import { gitRefTargetsBranchOnRemote } from './git-remote-branch-name'
 import { findGitRemoteNameByFetchUrl, parseGitRemoteVerboseLine } from './git-remote-url-index'
@@ -8,9 +9,11 @@ type RemoteTrackingRefExists = (remoteName: string, branchName: string) => Promi
 
 export type ConfiguredBranchRemoteUpstream = {
   operationSelector: GitOperationSelector
+  upstreamRef: string | null
   upstreamName: string | null
   remoteName: string
   branchName: string
+  mergeRef: string
   isConfiguredUpstream: false
 }
 
@@ -41,8 +44,7 @@ export async function getConfiguredBranchRemoteUpstream(
     getGitConfigValue(runGit, `branch.${currentBranchName}.merge`, true),
     getGitConfigValue(runGit, `branch.${currentBranchName}.base`, true)
   ])
-  const branchName = mergeRef?.replace(/^refs\/heads\//, '') ?? ''
-  if (!remote || !branchName || branchName === mergeRef || remote === '.') {
+  if (!remote || remote === '.') {
     return null
   }
 
@@ -52,6 +54,11 @@ export async function getConfiguredBranchRemoteUpstream(
     return entry ? [entry.name] : []
   })
   const operationSelector = gitOperationSelector(remote, remoteNames)
+  const identity = gitUpstreamIdentity(operationSelector, mergeRef)
+  if (!identity) {
+    return null
+  }
+  const { branchName } = identity
   const remoteName =
     operationSelector.kind === 'named-remote'
       ? remote
@@ -64,9 +71,11 @@ export async function getConfiguredBranchRemoteUpstream(
     remoteName !== null && (await remoteTrackingRefExists(remoteName, branchName))
   return {
     operationSelector,
+    upstreamRef: hasTrackingRef ? `refs/remotes/${remoteName}/${branchName}` : null,
     upstreamName: hasTrackingRef ? `${remoteName}/${branchName}` : null,
     remoteName: remoteName ?? remote,
     branchName,
+    mergeRef: identity.mergeRef,
     isConfiguredUpstream: false
   }
 }
@@ -83,7 +92,7 @@ export async function hasConfiguredBranchPushTarget(
     getGitConfigValue(runGit, `branch.${currentBranchName}.base`)
   ])
   const remote = pushRemote ?? pushDefault ?? branchRemote
-  const branchName = mergeRef?.replace(/^refs\/heads\//, '') ?? ''
+  const branchName = gitBranchNameFromFullRef(mergeRef)
   if (!remote || remote === '.' || !branchName || branchName === mergeRef) {
     return false
   }

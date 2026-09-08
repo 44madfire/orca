@@ -118,7 +118,7 @@ describeBinaryCompatibility('real Git binary compatibility', () => {
     await runGit(['symbolic-ref', 'HEAD', 'refs/heads/compat-identity'])
     const metadata = [
       'for-each-ref',
-      '--format=%(upstream:short)%00%(upstream:trackshort)%00%(refname)',
+      '--format=%(upstream)%00%(upstream:trackshort)%00%(refname)%00%(upstream:remotename)%00%(upstream:remoteref)',
       'refs/heads/compat-identity'
     ]
     try {
@@ -128,11 +128,11 @@ describeBinaryCompatibility('real Git binary compatibility', () => {
       expect((await runGit(['symbolic-ref', '--quiet', 'HEAD'])).stdout.trim()).toBe(
         'refs/heads/compat-identity'
       )
-      expect((await runGit(metadata)).stdout.trim()).toBe('\0\0refs/heads/compat-identity')
+      expect((await runGit(metadata)).stdout.trim()).toBe('\0\0refs/heads/compat-identity\0\0')
       await runGit(['config', 'branch.compat-identity.remote', '.'])
       await runGit(['config', 'branch.compat-identity.merge', original])
       expect((await runGit(metadata)).stdout.trim()).toBe(
-        `${original.slice('refs/heads/'.length)}\0=\0refs/heads/compat-identity`
+        `${original}\0=\0refs/heads/compat-identity\0.\0${original}`
       )
     } finally {
       await runGit(['symbolic-ref', 'HEAD', original])

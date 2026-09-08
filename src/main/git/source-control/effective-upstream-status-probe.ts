@@ -1,8 +1,7 @@
 import type { GitUpstreamStatus } from '../../../shared/git-status-types'
 import {
   getEffectiveGitUpstreamStatus,
-  getGitUpstreamStatusForUpstreamName,
-  splitRemoteBranchName
+  getGitUpstreamStatusForIdentity
 } from '../../../shared/git-effective-upstream'
 import { createGitConfigSnapshotRunner } from '../../../shared/git-config-snapshot-runner'
 import type { GitRuntimeOptions } from '../git-runtime-options'
@@ -89,9 +88,9 @@ async function probeOrRevalidateEffectiveUpstreamStatus(
     resolvedUpstreamNameCache.delete(cacheKey)
   } else if (cached) {
     try {
-      const status = await getGitUpstreamStatusForUpstreamName(
+      const status = await getGitUpstreamStatusForIdentity(
         (args) => gitExecFileAsync(args, gitReadOptionsForWorktree(worktreePath, options)),
-        cached.upstreamName
+        cached.upstreamIdentity
       )
       return { status, probedSameNameOriginRef: false }
     } catch (error) {
@@ -104,9 +103,16 @@ async function probeOrRevalidateEffectiveUpstreamStatus(
     }
   }
   const result = await probeEffectiveUpstreamStatus(worktreePath, branchName, options)
-  if (result.status.hasUpstream && result.status.upstreamName) {
+  if (
+    result.status.hasUpstream &&
+    result.status.upstreamName &&
+    result.status.upstreamIdentity?.trackingRef
+  ) {
     resolvedUpstreamNameCache.set(cacheKey, {
-      upstreamName: result.status.upstreamName,
+      upstreamIdentity: {
+        ...result.status.upstreamIdentity,
+        trackingRef: result.status.upstreamIdentity.trackingRef
+      },
       expiresAt: Date.now() + RESOLVED_UPSTREAM_NAME_CACHE_TTL_MS
     })
     while (resolvedUpstreamNameCache.size > MAX_EFFECTIVE_UPSTREAM_NEGATIVE_CACHE_ENTRIES) {
@@ -140,15 +146,8 @@ async function probeEffectiveUpstreamStatus(
 
 export function shouldProbeEffectiveUpstreamStatus(
   branch: string | undefined,
-  upstreamName: string | undefined
+  _upstreamName?: string
 ): boolean {
-  const branchName = getShortBranchName(branch)
-  if (!branchName) {
-    return false
-  }
-  if (!upstreamName) {
-    return true
-  }
-  const parsed = splitRemoteBranchName(upstreamName)
-  return parsed?.remoteName === 'origin' && parsed.branchName !== branchName
+  // Porcelain upstream labels cannot authorize skipping canonical operation policy.
+  return getShortBranchName(branch) !== null
 }

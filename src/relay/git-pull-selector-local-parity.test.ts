@@ -60,20 +60,30 @@ it.each([
     }
     run.mockImplementation(script)
     await gitPull('/repo')
-    expect(calls.find((args) => args[0] === 'pull')).toEqual(['pull', url, 'feature'])
+    expect(calls.find((args) => args[0] === 'pull')).toEqual(['pull', url, 'refs/heads/feature'])
     expect(calls.some((args) => args.includes('refs/remotes/origin/feature'))).toBe(matched)
     expect(calls.some((args) => args.includes('HEAD@{u}'))).toBe(false)
     calls.length = 0
     await gitFastForward('/repo')
-    expect(calls.find((args) => args[0] === 'pull')).toEqual(['pull', '--ff-only', url, 'feature'])
+    expect(calls.find((args) => args[0] === 'pull')).toEqual([
+      'pull',
+      '--ff-only',
+      url,
+      'refs/heads/feature'
+    ])
     calls.length = 0
     const dispatcher = createMockDispatcher()
     const handler = new GitHandler(dispatcher as unknown as RelayDispatcher, new RelayContext())
     vi.spyOn(handler as unknown as { git: typeof script }, 'git').mockImplementation(script)
     await dispatcher.callRequest('git.pull', { worktreePath: '/repo' })
-    expect(calls.find((args) => args[0] === 'pull')).toEqual(['pull', url, 'feature'])
+    expect(calls.find((args) => args[0] === 'pull')).toEqual(['pull', url, 'refs/heads/feature'])
     calls.length = 0
     await dispatcher.callRequest('git.fastForward', { worktreePath: '/repo' })
-    expect(calls.find((args) => args[0] === 'pull')).toEqual(['pull', '--ff-only', url, 'feature'])
+    expect(calls.find((args) => args[0] === 'pull')).toEqual([
+      'pull',
+      '--ff-only',
+      url,
+      'refs/heads/feature'
+    ])
   }
 )

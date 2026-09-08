@@ -1,6 +1,5 @@
 import { githubRepoIdentityKey } from '../../shared/github/repository-identity-key'
-import { splitRemoteBranchName } from '../../shared/git-effective-upstream'
-import { resolveHeadRole } from '../git/git-operation-remote-roles'
+import { configuredGitUpstreamIdentity, resolveHeadRole } from '../git/git-operation-remote-roles'
 import { getGitRemoteTopologySnapshot } from '../git/git-remote-topology-snapshot'
 import {
   bindRepositoryRole,
@@ -93,10 +92,11 @@ export async function resolveGitHubReviewRepositoryRoles(args: {
     seen.add(key)
     return [evidence.repository]
   })
-  const trackedRef = snapshot.upstreamRefs.get(args.branchName)
-  const tracked = trackedRef?.startsWith('refs/remotes/')
-    ? splitRemoteBranchName(trackedRef.slice('refs/remotes/'.length))
-    : null
+  const upstream = configuredGitUpstreamIdentity(snapshot, args.branchName)
+  const tracked =
+    upstream?.trackingRef && upstream.selector.kind === 'named-remote'
+      ? { remoteName: upstream.selector.value, branchName: upstream.branchName }
+      : null
   const trackedIdentity = tracked ? repositories.fetch.get(tracked.remoteName) : null
   return {
     candidates,

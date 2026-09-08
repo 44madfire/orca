@@ -92,7 +92,7 @@ async function gitPullWithArgs(
           'pull',
           ...effectiveArgs,
           upstream.operationSelector?.value ?? upstream.remoteName,
-          upstream.branchName
+          upstream.mergeRef
         ],
         gitOptionsForWorktree(worktreePath, options)
       )

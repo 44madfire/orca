@@ -13,7 +13,11 @@ describe('probeBranchUpstream', () => {
         return { stdout: 'refs/heads/feature\n', stderr: '' }
       }
       if (args[0] === 'for-each-ref') {
-        return { stdout: 'origin/feature\n', stderr: '' }
+        return {
+          stdout:
+            'refs/remotes/origin/feature\0=\0refs/heads/feature\0origin\0refs/heads/feature\n',
+          stderr: ''
+        }
       }
       if (args[0] === 'config') {
         throw Object.assign(new Error('missing config'), { code: 1 })

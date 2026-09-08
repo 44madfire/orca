@@ -79,7 +79,7 @@ describe('local upstream negative cache', () => {
         }
         throw Object.assign(new Error('missing remote branch'), { code: 1 })
       }
-      if (args[0] === 'rev-list' && args.includes('HEAD...origin/feature')) {
+      if (args[0] === 'rev-list' && args.includes('HEAD...refs/remotes/origin/feature')) {
         return { stdout: '0\t1\n' }
       }
       throw new Error(`unexpected git command: ${args.join(' ')}`)
@@ -90,9 +90,9 @@ describe('local upstream negative cache', () => {
     const automatic = await getStatus('/repo')
     const strict = await getStatus('/repo', { bypassEffectiveUpstreamNegativeCache: true })
 
-    expect(first.upstreamStatus).toEqual({ hasUpstream: false, ahead: 0, behind: 0 })
+    expect(first.upstreamStatus).toMatchObject({ hasUpstream: false, ahead: 0, behind: 0 })
     expect(automatic.upstreamStatus).toEqual(first.upstreamStatus)
-    expect(strict.upstreamStatus).toEqual({
+    expect(strict.upstreamStatus).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature',
       ahead: 0,
@@ -128,7 +128,7 @@ describe('local upstream negative cache', () => {
           deferredOriginReject = reject
         })
       }
-      if (args[0] === 'rev-list' && args.includes('HEAD...origin/feature')) {
+      if (args[0] === 'rev-list' && args.includes('HEAD...refs/remotes/origin/feature')) {
         return { stdout: '0\t1\n' }
       }
       throw new Error(`unexpected git command: ${args.join(' ')}`)
@@ -149,13 +149,13 @@ describe('local upstream negative cache', () => {
     const staleAutomatic = await automatic
     const nextAutomatic = await getStatus('/repo')
 
-    expect(strict.upstreamStatus).toEqual({
+    expect(strict.upstreamStatus).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature',
       ahead: 0,
       behind: 1
     })
-    expect(staleAutomatic.upstreamStatus).toEqual({ hasUpstream: false, ahead: 0, behind: 0 })
+    expect(staleAutomatic.upstreamStatus).toMatchObject({ hasUpstream: false, ahead: 0, behind: 0 })
     expect(nextAutomatic.upstreamStatus).toEqual(strict.upstreamStatus)
   })
 
@@ -193,7 +193,10 @@ describe('local upstream negative cache', () => {
           deferredOriginReject = reject
         })
       }
-      if (args[0] === 'rev-list' && args.some((arg) => arg.startsWith('HEAD...origin/'))) {
+      if (
+        args[0] === 'rev-list' &&
+        args.some((arg) => arg.startsWith('HEAD...refs/remotes/origin/'))
+      ) {
         return { stdout: '0\t1\n' }
       }
       throw new Error(`unexpected git command: ${args.join(' ')}`)
@@ -216,7 +219,7 @@ describe('local upstream negative cache', () => {
     await automatic
     const nextAutomatic = await getStatus('/repo')
 
-    expect(strict.upstreamStatus).toEqual({
+    expect(strict.upstreamStatus).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature',
       ahead: 0,
@@ -259,7 +262,10 @@ describe('local upstream negative cache', () => {
           deferredOriginReject = reject
         })
       }
-      if (args[0] === 'rev-list' && args.some((arg) => arg.startsWith('HEAD...origin/'))) {
+      if (
+        args[0] === 'rev-list' &&
+        args.some((arg) => arg.startsWith('HEAD...refs/remotes/origin/'))
+      ) {
         return { stdout: '0\t1\n' }
       }
       throw new Error(`unexpected git command: ${args.join(' ')}`)
@@ -282,7 +288,7 @@ describe('local upstream negative cache', () => {
     await automatic
     const nextAutomatic = await getStatus('/repo')
 
-    expect(nextAutomatic.upstreamStatus).toEqual({
+    expect(nextAutomatic.upstreamStatus).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature',
       ahead: 0,
@@ -348,7 +354,7 @@ describe('local upstream negative cache', () => {
       if (args[0] === 'rev-parse' && args.includes(`refs/remotes/origin/${currentBranch}`)) {
         return { stdout: 'abc123\n' }
       }
-      if (args[0] === 'rev-list' && args.includes(`HEAD...origin/${currentBranch}`)) {
+      if (args[0] === 'rev-list' && args.includes(`HEAD...refs/remotes/origin/${currentBranch}`)) {
         return { stdout: '0\t1\n' }
       }
       throw new Error(`unexpected git command: ${args.join(' ')}`)

@@ -29,7 +29,9 @@ describe('getUpstreamStatus', () => {
         return Promise.resolve({ stdout: 'refs/heads/main\n' })
       }
       if (args[0] === 'for-each-ref') {
-        return Promise.resolve({ stdout: 'origin/main\n' })
+        return Promise.resolve({
+          stdout: 'refs/remotes/origin/main\0=\0refs/heads/main\0origin\0refs/heads/main\n'
+        })
       }
       if (args[0] === 'rev-list') {
         return Promise.resolve({ stdout: '2\t3\n' })
@@ -84,7 +86,7 @@ describe('getUpstreamStatus', () => {
         return { stdout: 'refs/heads/main\n' }
       }
       if (args[0] === 'for-each-ref') {
-        return { stdout: 'origin/main\n' }
+        return { stdout: 'refs/remotes/origin/main\0=\0refs/heads/main\0origin\0refs/heads/main\n' }
       }
       if (args[0] === 'rev-list') {
         return { stdout: '0\t0\n' }
@@ -122,7 +124,9 @@ describe('getUpstreamStatus', () => {
         return Promise.resolve({ stdout: '' })
       }
       if (args[0] === 'for-each-ref') {
-        return Promise.resolve({ stdout: 'origin/main\n' })
+        return Promise.resolve({
+          stdout: 'refs/remotes/origin/main\0=\0refs/heads/main\0origin\0refs/heads/main\n'
+        })
       }
       if (args[0] === 'rev-parse' && args.includes('--verify')) {
         return Promise.resolve({ stdout: 'abc123\n' })
@@ -167,10 +171,14 @@ describe('getUpstreamStatus', () => {
   it('runs fresh physical work after a normalized rejection', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/main\n' })
-      .mockResolvedValueOnce({ stdout: 'origin/main\n' })
+      .mockResolvedValueOnce({
+        stdout: 'refs/remotes/origin/main\0=\0refs/heads/main\0origin\0refs/heads/main\n'
+      })
       .mockRejectedValueOnce(new Error('fatal: authentication failed'))
       .mockResolvedValueOnce({ stdout: 'refs/heads/main\n' })
-      .mockResolvedValueOnce({ stdout: 'origin/main\n' })
+      .mockResolvedValueOnce({
+        stdout: 'refs/remotes/origin/main\0=\0refs/heads/main\0origin\0refs/heads/main\n'
+      })
       .mockResolvedValueOnce({ stdout: '0\t0\n' })
 
     await expect(getUpstreamStatus('/repo')).rejects.toThrow('fatal: authentication failed')
@@ -196,7 +204,9 @@ describe('getUpstreamStatus', () => {
         return promise
       }
       if (args[0] === 'for-each-ref') {
-        return Promise.resolve({ stdout: 'origin/main\n' })
+        return Promise.resolve({
+          stdout: 'refs/remotes/origin/main\0=\0refs/heads/main\0origin\0refs/heads/main\n'
+        })
       }
       if (args[0] === 'rev-list') {
         return Promise.resolve({ stdout: '0\t0\n' })
@@ -232,13 +242,15 @@ describe('getUpstreamStatus', () => {
   it('returns upstream and ahead/behind counts when tracking is configured', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/main\n' })
-      .mockResolvedValueOnce({ stdout: 'origin/main\n' })
+      .mockResolvedValueOnce({
+        stdout: 'refs/remotes/origin/main\0=\0refs/heads/main\0origin\0refs/heads/main\n'
+      })
       .mockResolvedValueOnce({ stdout: '2\t3\n' })
       .mockResolvedValueOnce({ stdout: '+ abc123 remote work\n' })
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/main',
       ahead: 2,
@@ -250,7 +262,9 @@ describe('getUpstreamStatus', () => {
   it('marks diverged upstream commits as patch-equivalent after a rebase', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\n' })
+      .mockResolvedValueOnce({
+        stdout: 'refs/remotes/origin/feature\0=\0refs/heads/feature\0origin\0refs/heads/feature\n'
+      })
       .mockResolvedValueOnce({ stdout: '14\t3\n' })
       .mockResolvedValueOnce({
         stdout:
@@ -260,7 +274,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature',
       ahead: 14,
@@ -272,12 +286,14 @@ describe('getUpstreamStatus', () => {
   it('keeps configured local-branch upstreams', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n' })
-      .mockResolvedValueOnce({ stdout: 'main\n' })
+      .mockResolvedValueOnce({
+        stdout: 'refs/heads/main\0=\0refs/heads/feature\0.\0refs/heads/main\n'
+      })
       .mockResolvedValueOnce({ stdout: '1\t0\n' })
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: true,
       upstreamName: 'main',
       ahead: 1,
@@ -296,7 +312,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: false,
       ahead: 0,
       behind: 0
@@ -314,7 +330,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: false,
       ahead: 0,
       behind: 0
@@ -324,7 +340,10 @@ describe('getUpstreamStatus', () => {
   it('returns hasUpstream=false when the configured tracking ref is missing', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n' })
-      .mockResolvedValueOnce({ stdout: 'origin/feature\0\n' })
+      .mockResolvedValueOnce({
+        stdout:
+          'refs/remotes/origin/feature\0\0=\0refs/heads/feature\0origin\0refs/heads/feature\0\n'
+      })
       .mockRejectedValueOnce(Object.assign(new Error('missing branch remote'), { code: 1 }))
       .mockRejectedValueOnce(Object.assign(new Error('missing branch merge'), { code: 1 }))
       .mockRejectedValueOnce(Object.assign(new Error('missing branch base'), { code: 1 }))
@@ -332,7 +351,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: false,
       ahead: 0,
       behind: 0
@@ -342,14 +361,16 @@ describe('getUpstreamStatus', () => {
   it('uses the same-name origin branch when a legacy worktree tracks origin/main', async () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n' })
-      .mockResolvedValueOnce({ stdout: 'origin/main\n' })
+      .mockResolvedValueOnce({
+        stdout: 'refs/remotes/origin/main\0=\0refs/heads/feature\0origin\0refs/heads/main\n'
+      })
       .mockResolvedValueOnce({ stdout: 'abc123\n' })
       .mockResolvedValueOnce({ stdout: '3\t1\n' })
       .mockResolvedValueOnce({ stdout: '+ def456 remote work\n' })
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/feature',
       ahead: 3,
@@ -416,7 +437,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: true,
       upstreamName: 'pr-pynickle-orca/imp/chinese-translation',
       ahead: 2,
@@ -458,7 +479,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: true,
       upstreamName: 'fork/main',
       ahead: 3,
@@ -511,7 +532,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: false,
       ahead: 0,
       behind: 0,
@@ -559,7 +580,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: false,
       ahead: 0,
       behind: 0,
@@ -611,7 +632,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: false,
       ahead: 0,
       behind: 0
@@ -657,7 +678,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: false,
       ahead: 0,
       behind: 0
@@ -670,7 +691,10 @@ describe('getUpstreamStatus', () => {
         return Promise.resolve({ stdout: 'refs/heads/feature\n' })
       }
       if (args[0] === 'for-each-ref') {
-        return Promise.resolve({ stdout: 'origin/team/feature\n' })
+        return Promise.resolve({
+          stdout:
+            'refs/remotes/origin/team/feature\0=\0refs/heads/feature\0origin/team\0refs/heads/feature\n'
+        })
       }
       if (args[0] === 'remote') {
         return Promise.resolve({ stdout: 'origin\norigin/team\n' })
@@ -678,10 +702,10 @@ describe('getUpstreamStatus', () => {
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/feature')) {
         return Promise.resolve({ stdout: 'origin-feature-oid\n' })
       }
-      if (args[0] === 'rev-list' && args.includes('HEAD...origin/team/feature')) {
+      if (args[0] === 'rev-list' && args.includes('HEAD...refs/remotes/origin/team/feature')) {
         return Promise.resolve({ stdout: '2\t0\n' })
       }
-      if (args[0] === 'rev-list' && args.includes('HEAD...origin/feature')) {
+      if (args[0] === 'rev-list' && args.includes('HEAD...refs/remotes/origin/feature')) {
         return Promise.resolve({ stdout: '9\t9\n' })
       }
       if (args[0] === 'remote' && args[1] === '-v') {
@@ -695,7 +719,7 @@ describe('getUpstreamStatus', () => {
 
     const result = await getUpstreamStatus('/repo')
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: true,
       upstreamName: 'origin/team/feature',
       ahead: 2,
@@ -715,7 +739,7 @@ describe('getUpstreamStatus', () => {
       branchName: 'feature/fix'
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       hasUpstream: true,
       upstreamName: 'fork/feature/fix',
       ahead: 1,
@@ -758,7 +782,7 @@ describe('getUpstreamStatus', () => {
         },
         { wslDistro: 'Ubuntu' }
       )
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       hasUpstream: true,
       upstreamName: 'fork/feature/fix',
       ahead: 0,
@@ -787,7 +811,7 @@ describe('getUpstreamStatus', () => {
         remoteName: 'fork',
         branchName: 'feature/fix'
       })
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       hasUpstream: false,
       upstreamName: 'fork/feature/fix',
       ahead: 0,

@@ -1,3 +1,4 @@
+import type { GitUpstreamStatusIdentity } from './git-upstream-identity'
 import type { GitUpstreamStatus } from './git-status-types'
 import type { GitPushTarget } from './worktree/types'
 import { parseGitRevListAheadBehindCounts } from './git-rev-list-output'
@@ -31,6 +32,11 @@ export async function getPublishTargetStatus(
 ): Promise<GitUpstreamStatus> {
   const upstreamName = getPublishTargetDisplayName(target)
   const remoteRef = getPublishTargetRemoteRef(target)
+  const upstreamIdentity: GitUpstreamStatusIdentity = {
+    selector: { kind: 'named-remote', value: target.remoteName },
+    mergeRef: `refs/heads/${target.branchName}`,
+    trackingRef: remoteRef
+  }
 
   try {
     await runGit(['rev-parse', '--verify', '--quiet', remoteRef])
@@ -41,6 +47,7 @@ export async function getPublishTargetStatus(
     return {
       hasUpstream: false,
       upstreamName,
+      upstreamIdentity: { ...upstreamIdentity, trackingRef: null },
       ahead: 0,
       behind: 0,
       hasConfiguredPushTarget: true
@@ -64,6 +71,7 @@ export async function getPublishTargetStatus(
   return {
     hasUpstream: true,
     upstreamName,
+    upstreamIdentity,
     ahead: counts.ahead,
     behind: counts.behind,
     ...(behindCommitsArePatchEquivalent !== undefined ? { behindCommitsArePatchEquivalent } : {})

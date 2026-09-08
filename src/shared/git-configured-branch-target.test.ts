@@ -127,8 +127,10 @@ describe('getConfiguredBranchRemoteUpstream', () => {
     ).resolves.toEqual({
       operationSelector: { kind: 'literal-url', value: FORK_URL },
       upstreamName: `fork-a/${BRANCH}`,
+      upstreamRef: `refs/remotes/fork-a/${BRANCH}`,
       remoteName: 'fork-a',
       branchName: BRANCH,
+      mergeRef: `refs/heads/${BRANCH}`,
       isConfiguredUpstream: false
     })
     expect(spawns.filter((args) => args[0] === 'remote')).toEqual([['remote', '-v']])

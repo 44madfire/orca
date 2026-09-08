@@ -85,6 +85,8 @@ it.each(['path', 'unmatched-file', 'matched-file', 'rewritten-scp', 'no-remotes'
     }
     expect(upstream.upstreamName).toBe(kind === 'matched-file' ? 'origin/feature' : null)
     const status = await getEffectiveGitUpstreamStatus(run)
+    expect(status.upstreamIdentity?.selector).toEqual({ kind: 'literal-url' })
+    expect(status.upstreamIdentity?.mergeRef).toBe('refs/heads/feature')
     expect(status.hasUpstream).toBe(kind === 'matched-file')
     const refs = async () =>
       Promise.all(
