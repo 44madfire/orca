@@ -1,3 +1,5 @@
+import { retireTerminalSurfaceFromPersistence } from '../../runtime/mobile-session-terminal-persistence-retirement'
+import { isSleepingAgentResumeBlocked } from '../../ipc/pty/pane/stable-pane-resume-fence'
 /**
  * Drives the real `Store`, not the helper and not a fake.
  *
@@ -33,7 +35,7 @@ vi.mock('electron', () => ({
 
 const { Store } = await import('./store')
 
-const HOST_ID = 'ssh:user@host'
+const HOST_ID = 'ssh:host'
 const WT = 'repo-1::/tmp/worktree-a'
 
 const stores: InstanceType<typeof Store>[] = []
@@ -244,6 +246,106 @@ it.each([undefined, HOST_ID])(
     expect(
       store.getWorkspaceSession(host).sleepingAgentSessionsByPaneKey?.[paneKey]
         ?.automaticResumeBlockedBy
+    ).toBeUndefined()
+  }
+)
+
+it.each([undefined, HOST_ID])(
+  'retains duplicate cleanup identity until runtime retires the fence on %s',
+  (hostId) => {
+    const store = createStore()
+    const wt = 'folder-worker',
+      key = 'fenced:11111111-1111-4111-8111-111111111111',
+      other = 'newer:22222222-2222-4222-8222-222222222222'
+    const record = {
+      paneKey: key,
+      tabId: 'fenced',
+      worktreeId: wt,
+      agent: 'codex' as const,
+      providerSession: { key: 'session_id' as const, id: 'session-worker' },
+      state: 'working' as const,
+      prompt: 'continue',
+      capturedAt: 1,
+      updatedAt: 1,
+      origin: 'live' as const
+    }
+    const records = {
+      [key]: record,
+      [other]: { ...record, paneKey: other, tabId: 'newer', capturedAt: 2, updatedAt: 2 }
+    }
+    store.setWorkspaceSession(
+      {
+        ...rendererSession('seed'),
+        sleepingAgentSessionsByPaneKey: records,
+        legacyWorkerResumeFencesByPaneKey: { [key]: true }
+      },
+      hostId
+    )
+    const payload = {
+      ...rendererSession('after-cleanup'),
+      sleepingAgentSessionsByPaneKey: { [other]: records[other] }
+    }
+    expect(payload.sleepingAgentSessionsByPaneKey?.[key]).toBeUndefined()
+    store.setWorkspaceSession(payload, hostId)
+    expect(store.getWorkspaceSession(hostId).sleepingAgentSessionsByPaneKey?.[key]).toEqual({
+      ...record,
+      automaticResumeBlockedBy: 'legacy-orchestration-worker'
+    })
+    expect(
+      isSleepingAgentResumeBlocked(store, {
+        worktreeId: wt,
+        connectionId: hostId?.slice(4),
+        launchAgent: 'codex',
+        resumeProviderSession: record.providerSession
+      })
+    ).toBe(true)
+    store.setWorkspaceSession(
+      { ...store.getWorkspaceSession(hostId), legacyWorkerResumeFencesByPaneKey: {} },
+      hostId
+    )
+    store.setWorkspaceSession(payload, hostId)
+    expect(store.getWorkspaceSession(hostId).sleepingAgentSessionsByPaneKey?.[key]).toBeUndefined()
+  }
+)
+
+it.each([undefined, HOST_ID])(
+  'runtime retirement ends fenced identity retention on %s',
+  (hostId) => {
+    const store = createStore(),
+      paneKey = 'worker:11111111-1111-4111-8111-111111111111'
+    const record = {
+      paneKey,
+      tabId: 'worker',
+      worktreeId: WT,
+      agent: 'codex' as const,
+      providerSession: { key: 'session_id' as const, id: 'worker-session' },
+      state: 'done' as const,
+      prompt: '',
+      capturedAt: 1,
+      updatedAt: 1
+    }
+    store.setWorkspaceSession(
+      {
+        ...rendererSession('worker'),
+        sleepingAgentSessionsByPaneKey: { [paneKey]: record },
+        legacyWorkerResumeFencesByPaneKey: { [paneKey]: true }
+      },
+      hostId
+    )
+    const retired = retireTerminalSurfaceFromPersistence(store.getWorkspaceSession(hostId), {
+      worktreeId: WT,
+      parentTabId: 'worker',
+      leafId: '11111111-1111-4111-8111-111111111111',
+      ptyId: 'worker-pty'
+    })
+    store.setWorkspaceSession(retired, hostId)
+    expect(
+      store.getWorkspaceSession(hostId).sleepingAgentSessionsByPaneKey?.[paneKey]
+    ).toMatchObject(record)
+    expect(store.getWorkspaceSession(hostId).legacyWorkerResumeFencesByPaneKey).toEqual({})
+    store.stageWorkspaceSessionBeforeUnload(rendererSession('after-close'), hostId)
+    expect(
+      store.getWorkspaceSession(hostId).sleepingAgentSessionsByPaneKey?.[paneKey]
     ).toBeUndefined()
   }
 )

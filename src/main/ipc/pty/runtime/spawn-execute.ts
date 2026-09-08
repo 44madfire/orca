@@ -1,6 +1,6 @@
 import {
   isStablePaneResumeBlocked,
-  isSleepingAgentResumeBlocked,
+  isFreshPaneResumeBlocked,
   StablePaneResumeBlockedError
 } from '../pane/stable-pane-resume-fence'
 import type { PtySpawnResult } from '../../../providers/types'
@@ -31,9 +31,6 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
     ? await acquireWorktreeSpawn.call(runtime, args.worktreeId)
     : undefined
   try {
-    if (isSleepingAgentResumeBlocked(ctx.deps.store, args)) {
-      throw new StablePaneResumeBlockedError()
-    }
     if (args.preAllocatedHandle) {
       ctx.deps.trustedTerminalHandleEnv.add(args.preAllocatedHandle)
     }
@@ -96,15 +93,7 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
         surface: args.agentSessionEnsure.surface,
         spawn: async () => {
           assertClientStillConnected()
-          if (
-            isSleepingAgentResumeBlocked(ctx.deps.store, args) ||
-            isStablePaneResumeBlocked(
-              ctx.deps.store,
-              ctx.spawnIdentityPaneKey,
-              args.worktreeId,
-              args.connectionId
-            )
-          ) {
+          if (isFreshPaneResumeBlocked(ctx.deps.store, ctx.spawnIdentityPaneKey, args)) {
             throw new StablePaneResumeBlockedError()
           }
           providerResult = await ctx.provider.spawn(ctx.spawnOptions)
@@ -158,6 +147,8 @@ export async function executeRuntimePtySpawn(ctx: RuntimePtySpawnState): Promise
             store: ctx.deps.store,
             provider: ctx.provider,
             spawnOptions: ctx.spawnOptions,
+            launchAgent: args.launchAgent,
+            resumeProviderSession: args.resumeProviderSession,
             owner: stablePaneOwnerCandidate,
             worktreeId: args.worktreeId,
             connectionId: args.connectionId,

@@ -12,10 +12,7 @@ import {
   paneSpawnReservationsByOwnerKey,
   pendingRuntimePaneCreatesByOwnerKey
 } from '../pane/spawn-reservation'
-import {
-  isSleepingAgentResumeBlocked,
-  isStablePaneResumeBlocked
-} from '../pane/stable-pane-resume-fence'
+import { isStablePaneResumeBlocked } from '../pane/stable-pane-resume-fence'
 import { resolveStablePaneOwner } from '../pane/stable-owner'
 import type { PtyIpcSpawnState } from './spawn-state'
 
@@ -23,9 +20,6 @@ export async function beginPtyIpcSpawn(
   ctx: PtyIpcSpawnState
 ): Promise<PtySpawnResult | { isReattach: true } | null> {
   const args = ctx.args
-  if (isSleepingAgentResumeBlocked(ctx.deps.store, args)) {
-    return { id: args.sessionId ?? '', reattachUnverifiable: true as const }
-  }
   ctx.codexHomeLaunchStartedAt = !args.connectionId ? new Date() : undefined
   ctx.codexHomeLaunchStartedSequence = !args.connectionId
     ? allocatePtyLifecycleSequence()
@@ -66,16 +60,7 @@ export async function beginPtyIpcSpawn(
   ctx.spawnTiming = createPtySpawnTiming()
   ctx.cwd = ctx.deps.resolvePtySpawnStartupCwd(args.worktreeId, args.cwd)
 
-  const earlyLeafId =
-    typeof args.leafId === 'string' && isTerminalLeafId(args.leafId) ? args.leafId : null
-  const earlyPaneKey =
-    typeof args.worktreeId === 'string' &&
-    typeof args.tabId === 'string' &&
-    isValidTerminalTabId(args.tabId) &&
-    args.tabId.length <= 512 &&
-    earlyLeafId
-      ? makePaneKey(args.tabId, earlyLeafId)
-      : null
+  const earlyPaneKey = initialPaneKey
   const earlyReservationKey = makePaneSpawnReservationKey(
     args.worktreeId,
     args.connectionId,

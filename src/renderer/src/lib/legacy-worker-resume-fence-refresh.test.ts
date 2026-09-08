@@ -1,3 +1,5 @@
+import { getDefaultWorkspaceSession } from '../../../shared/constants'
+import { resumeSleepingAgentSessionsForWorktree } from './resume-sleeping-agent-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
 import { refreshLegacyWorkerResumeFences } from './legacy-worker-resume-fence-refresh'
@@ -57,4 +59,80 @@ describe('re-reading the fenced-pane set after main invalidates it', () => {
 
     expect(useAppStore.getState().legacyWorkerResumeFencesByPaneKey).toEqual({ [PANE_KEY]: true })
   })
+})
+
+it.each(
+  ['full', 'scoped', 'two-scopes'].flatMap((scope) =>
+    [true, false].map((stale) => ({ scope, stale }))
+  )
+)(
+  'review: stale acquired hint after %s hydration cannot block retirement',
+  async ({ scope, stale }) => {
+    const key = 'historical:11111111-1111-4111-8111-111111111111',
+      wt = 'folder:worker'
+    const record = {
+      paneKey: key,
+      tabId: 'historical',
+      worktreeId: wt,
+      agent: 'codex' as const,
+      providerSession: { key: 'session_id' as const, id: 'session-worker' },
+      state: 'working' as const,
+      prompt: 'continue',
+      capturedAt: 1,
+      updatedAt: 1,
+      origin: 'live' as const
+    }
+    let reply!: (v: Record<string, true>) => void
+    vi.stubGlobal('window', {
+      api: {
+        app: {
+          getLegacyWorkerResumeFences: () => new Promise<Record<string, true>>((r) => (reply = r))
+        }
+      }
+    })
+    const pending = refreshLegacyWorkerResumeFences()
+    useAppStore.getState().hydrateWorkspaceSession(
+      {
+        ...getDefaultWorkspaceSession(),
+        sleepingAgentSessionsByPaneKey: { [key]: record },
+        legacyWorkerResumeFencesByPaneKey: {}
+      },
+      {
+        additionalValidWorkspaceKeys: [wt],
+        ...(scope === 'full' ? {} : { replaceWorkspaceKeys: [wt] })
+      }
+    )
+    if (scope === 'two-scopes') {
+      useAppStore.getState().hydrateWorkspaceSession(
+        { ...getDefaultWorkspaceSession(), legacyWorkerResumeFencesByPaneKey: {} },
+        {
+          additionalValidWorkspaceKeys: ['folder:sibling'],
+          replaceWorkspaceKeys: ['folder:sibling']
+        }
+      )
+    }
+    reply(stale ? { [key]: true } : {})
+    await pending
+    const count = resumeSleepingAgentSessionsForWorktree(wt)
+    expect(count).toBe(1)
+  }
+)
+
+it('drops an older refresh reply after a newer refresh retires the hint', async () => {
+  let reply!: (value: Record<string, true>) => void
+  const get = stubFences({})
+  get
+    .mockReset()
+    .mockResolvedValue({})
+    .mockImplementationOnce(
+      () =>
+        new Promise<Record<string, true>>((resolve) => {
+          reply = resolve
+        })
+    )
+  const pending = refreshLegacyWorkerResumeFences()
+  await refreshLegacyWorkerResumeFences()
+  reply({ [PANE_KEY]: true })
+  await pending
+  expect(useAppStore.getState().legacyWorkerResumeFencesByPaneKey).toEqual({})
 })

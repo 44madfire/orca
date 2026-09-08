@@ -452,4 +452,46 @@ describe('undelivered SSH stops', () => {
       deletePtyOwnership('ssh:ssh-1@@pty-8')
     }
   })
+  it.each(['ipc', 'runtime'])(
+    '%s cannot hibernate a live fenced SSH pane with a stale persisted binding',
+    async (entry) => {
+      const leaf = '11111111-1111-4111-8111-111111111111',
+        wt = 'folder-worker',
+        paneKey = makePaneKey('worker', leaf)
+      const session = {
+        tabsByWorktree: { [wt]: [{ id: 'worker', worktreeId: wt }] },
+        terminalLayoutsByTabId: { worker: { ptyIdsByLeafId: { [leaf]: 'ssh:ssh-1@@stale' } } },
+        sleepingAgentSessionsByPaneKey: {},
+        legacyWorkerResumeFencesByPaneKey: { [paneKey]: true }
+      }
+      const store = {
+        ...createKillStore(),
+        getWorkspaceSession: vi.fn((host) => (host === 'ssh:ssh-1' ? session : {}))
+      }
+      const shutdown = vi.fn(async () => {})
+      registerSshPtyProvider('ssh-1', sshProviderStub(shutdown))
+      setPtyOwnership(SCOPED_PTY_ID, 'ssh-1')
+      const { runtime, stopAndWait } = install(store)
+      Object.assign(runtime, {
+        resolveTerminalPane: () => ({
+          ptyId: SCOPED_PTY_ID,
+          tabId: 'worker',
+          leafId: leaf,
+          worktreeId: wt,
+          connected: true
+        })
+      })
+      try {
+        await expect(
+          entry === 'ipc'
+            ? handlers.get('pty:kill')!(null, { id: SCOPED_PTY_ID, keepHistory: true })
+            : stopAndWait(SCOPED_PTY_ID, { keepHistory: true })
+        ).rejects.toThrow('agent_hibernation_automatic_resume_blocked')
+        expect(shutdown).not.toHaveBeenCalled()
+      } finally {
+        unregisterSshPtyProvider('ssh-1')
+        deletePtyOwnership(SCOPED_PTY_ID)
+      }
+    }
+  )
 })

@@ -1,4 +1,3 @@
-import { isSleepingAgentResumeBlocked } from '../pane/stable-pane-resume-fence'
 import { ensureWslHookRelayForReattach } from '../../../agent-hooks/wsl-hook-relay-reattach'
 import {
   SSH_SESSION_EXPIRED_ERROR,
@@ -20,10 +19,6 @@ import type { PtyIpcSpawnState } from './spawn-state'
 export async function executePtyIpcSpawn(ctx: PtyIpcSpawnState): Promise<void> {
   const args = ctx.args
   try {
-    if (isSleepingAgentResumeBlocked(ctx.deps.store, args)) {
-      ctx.result = { id: args.sessionId ?? '', reattachUnverifiable: true }
-      return
-    }
     if (ctx.preAllocatedHandle) {
       ctx.deps.trustedTerminalHandleEnv.add(ctx.preAllocatedHandle)
     }
@@ -58,6 +53,8 @@ export async function executePtyIpcSpawn(ctx: PtyIpcSpawnState): Promise<void> {
           store: ctx.deps.store,
           provider: ctx.provider,
           spawnOptions: ctx.spawnOptions,
+          launchAgent: args.launchAgent,
+          resumeProviderSession: args.resumeProviderSession,
           owner: stablePaneOwnerCandidate,
           worktreeId: args.worktreeId,
           connectionId: args.connectionId,

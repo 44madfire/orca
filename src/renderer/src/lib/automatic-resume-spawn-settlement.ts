@@ -1,5 +1,14 @@
+import { omitRecordKeys } from '@/store/slices/worktrees/teardown/record-key-omission'
 import { useAppStore } from '@/store'
 import { agentProviderSessionsEqual } from '../../../shared/agent-session-resume'
+
+export function clearAutomaticAgentResumeClaim(tabId: string): void {
+  useAppStore.setState((state) => ({
+    automaticAgentResumeClaimsByTabId: omitRecordKeys(state.automaticAgentResumeClaimsByTabId, [
+      tabId
+    ])
+  }))
+}
 
 export function settleAutomaticResumeSpawn(tabId: string, admitted: boolean): boolean {
   const state = useAppStore.getState()
@@ -17,6 +26,7 @@ export function settleAutomaticResumeSpawn(tabId: string, admitted: boolean): bo
     })
     return true
   }
+  clearAutomaticAgentResumeClaim(tabId)
   for (const record of Object.values(state.sleepingAgentSessionsByPaneKey)) {
     if (
       record.worktreeId === claim.worktreeId &&

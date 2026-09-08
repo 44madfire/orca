@@ -1,3 +1,4 @@
+import { markLegacyWorkerResumeFencesHydrated } from '@/lib/legacy-worker-resume-fence-refresh'
 import { readWorkspaceSessionResumeFences } from '../../../../shared/workspace-session-resume-fences'
 import type { WorkspaceKey } from '../../../../shared/folder-workspace-types'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
@@ -41,6 +42,7 @@ export function createWorkspaceTerminalHydrationActions(
         : null
       const ownershipTransfersByTabId = new Map<string, TerminalLayoutPtyOwnershipTransfer[]>()
       set((s) => {
+        markLegacyWorkerResumeFencesHydrated()
         const runtimeSessionPlaceholders = buildRuntimeSessionPlaceholders({
           repos: s.repos,
           runtimeHostIdByWorkspaceSessionKey: options?.runtimeHostIdByWorkspaceSessionKey ?? {},

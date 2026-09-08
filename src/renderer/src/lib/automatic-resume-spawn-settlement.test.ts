@@ -1,3 +1,6 @@
+vi.mock('@/components/terminal-pane/terminal-pane-recovery', () => ({
+  requestTerminalPaneRecovery: vi.fn()
+}))
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
 import { resumeSleepingAgentSessionsForWorktree } from './resume-sleeping-agent-session'
@@ -69,5 +72,93 @@ describe('automatic resume host admission settlement with empty renderer fence h
     expect(settleAutomaticResumeSpawn(tab.id, true)).toBe(true)
     expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
     expect(useAppStore.getState().tabsByWorktree[record.worktreeId]).toHaveLength(1)
+    expect(useAppStore.getState().automaticAgentResumeClaimsByTabId[tab.id]).toBeUndefined()
+    useAppStore.setState({ sleepingAgentSessionsByPaneKey: { [record.paneKey]: record } })
+    expect(resumeSleepingAgentSessionsForWorktree(record.worktreeId)).toBe(0)
+    expect(resumeSleepingAgentSessionsForWorktree(record.worktreeId)).toBe(0)
+  })
+  it.each(['accepted', 'preconnect'])(
+    'a refusal after %s input preserves the new tab',
+    async (input) => {
+      const { tab, record } = queueResume()
+      const transport = { getPtyId: () => null }
+      const session = {
+        rejectObsoleteDirectSshReattach: () => false,
+        terminalRecoveryInstance: { id: 1 },
+        transport,
+        pane: { id: 1 },
+        lastTerminalInputAt: input === 'accepted' ? performance.now() : Number.NEGATIVE_INFINITY,
+        transportStreamGeneration: 1,
+        authoritativeReattachGeneration: 0,
+        deps: {
+          tabId: tab.id,
+          worktreeId: record.worktreeId,
+          preconnectInput: input === 'preconnect' ? 'user typed a new request' : undefined,
+          paneTransportsRef: { current: new Map([[1, transport]]) }
+        },
+        handleReattachResult: vi.fn()
+      }
+      bindHandleReattachResult(session as never)
+      await session.handleReattachResult({ id: '', reattachUnverifiable: true })
+      expect(useAppStore.getState().automaticAgentResumeClaimsByTabId[tab.id]).toBeUndefined()
+      expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toEqual(record)
+      expect(
+        useAppStore.getState().tabsByWorktree[record.worktreeId].some((t) => t.id === tab.id)
+      ).toBe(true)
+    }
+  )
+  it('review: later refusal cannot close an already admitted live tab', async () => {
+    const { tab, record } = queueResume()
+    settleAutomaticResumeSpawn(tab.id, true)
+    useAppStore.getState().updateTabPtyId(tab.id, 'admitted-live-pty')
+    const transport = { getPtyId: () => 'admitted-live-pty' }
+    const session = {
+      rejectObsoleteDirectSshReattach: () => false,
+      terminalRecoveryInstance: { id: 1 },
+      transport,
+      pane: { id: 1 },
+      lastTerminalInputAt: Number.NEGATIVE_INFINITY,
+      transportStreamGeneration: 2,
+      authoritativeReattachGeneration: 0,
+      deps: {
+        tabId: tab.id,
+        worktreeId: record.worktreeId,
+        paneTransportsRef: { current: new Map([[1, transport]]) }
+      },
+      handleReattachResult: vi.fn()
+    }
+    bindHandleReattachResult(session as never)
+    await session.handleReattachResult({ id: 'admitted-live-pty', reattachUnverifiable: true })
+    expect(
+      useAppStore.getState().tabsByWorktree[record.worktreeId].some((t) => t.id === tab.id)
+    ).toBe(true)
+  })
+
+  it('review: successful settlement preserves other identities and workspaces', () => {
+    const { tab, record } = queueResume()
+    const unrelated = {
+      ...record,
+      paneKey: 'other:22222222-2222-4222-8222-222222222222',
+      tabId: 'other',
+      providerSession: { key: 'session_id' as const, id: 'different' }
+    }
+    const sibling = {
+      ...record,
+      paneKey: 'sibling:33333333-3333-4333-8333-333333333333',
+      tabId: 'sibling',
+      worktreeId: 'other-folder'
+    }
+    useAppStore.setState({
+      sleepingAgentSessionsByPaneKey: {
+        [record.paneKey]: record,
+        [unrelated.paneKey]: unrelated,
+        [sibling.paneKey]: sibling
+      }
+    })
+    settleAutomaticResumeSpawn(tab.id, true)
+    expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[unrelated.paneKey]).toEqual(
+      unrelated
+    )
+    expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[sibling.paneKey]).toEqual(sibling)
   })
 })

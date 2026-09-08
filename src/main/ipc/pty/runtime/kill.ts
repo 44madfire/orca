@@ -244,7 +244,7 @@ export async function stopAndWaitPtyFromRuntimeController(
     }
   }
   if (opts?.keepHistory) {
-    assertPtyHibernationAllowed(store, ptyId, connectionId)
+    assertPtyHibernationAllowed(runtime, store, ptyId, connectionId)
   }
   runtime?.markPtyStopRequested?.(ptyId)
   let provider: IPtyProvider

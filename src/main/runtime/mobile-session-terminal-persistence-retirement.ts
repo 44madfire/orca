@@ -43,22 +43,22 @@ function recordTerminalSurfaceRetirement(
   surface: RetiredTerminalSurface,
   paneKey: string
 ): WorkspaceSessionState {
-  const terminalPtyIncarnationsByPaneKey = {
-    ...session.terminalPtyIncarnationsByPaneKey
+  const next = {
+    ...session,
+    terminalPtyIncarnationsByPaneKey: session.terminalPtyIncarnationsByPaneKey ?? {},
+    terminalSurfaceTombstonesByPaneKey: session.terminalSurfaceTombstonesByPaneKey ?? {}
   }
-  delete terminalPtyIncarnationsByPaneKey[paneKey]
-  const terminalSurfaceTombstonesByPaneKey = {
-    ...session.terminalSurfaceTombstonesByPaneKey
+  for (const field of [
+    'terminalPtyIncarnationsByPaneKey',
+    'terminalSurfaceTombstonesByPaneKey',
+    'legacyWorkerResumeFencesByPaneKey'
+  ] as const) {
+    if (next[field]) {
+      next[field] = { ...next[field] } as never
+      delete next[field]?.[paneKey]
+    }
   }
-  delete terminalSurfaceTombstonesByPaneKey[paneKey]
-  return advanceTerminalTopologyRevision(
-    {
-      ...session,
-      terminalPtyIncarnationsByPaneKey,
-      terminalSurfaceTombstonesByPaneKey
-    },
-    surface.worktreeId
-  )
+  return advanceTerminalTopologyRevision(next, surface.worktreeId)
 }
 
 export function retireTerminalSurfaceFromPersistence(

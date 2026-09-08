@@ -1,4 +1,5 @@
-import { isStablePaneResumeBlocked } from './stable-pane-resume-fence'
+import type { isSleepingAgentResumeBlocked } from './stable-pane-resume-fence'
+import { isFreshPaneResumeBlocked, isStablePaneResumeBlocked } from './stable-pane-resume-fence'
 import { toSshExecutionHostId } from '../../../../shared/execution-host'
 import { makePaneKey, parsePaneKey } from '../../../../shared/stable-pane-id'
 import { UNVERIFIED_PROCESS_EXIT_CODE } from '../../../../shared/terminal-exit-cause'
@@ -121,14 +122,12 @@ export function resolveStablePaneOwner(
   }
 }
 
-export type StablePaneSpawnContext = {
+export type StablePaneSpawnContext = Parameters<typeof isSleepingAgentResumeBlocked>[1] & {
   runtime: OrcaRuntimeService | undefined
   store?: Store
   provider: IPtyProvider
   spawnOptions: PtySpawnOptions
   owner: StablePaneOwner | null
-  worktreeId?: string
-  connectionId?: string | null
   resolveOwner?: () => StablePaneOwner | null
   onFreshSpawn?: (result: PtySpawnResult) => void
 }
@@ -280,14 +279,7 @@ export async function spawnForStablePane(
       return attached
     }
   }
-  if (
-    isStablePaneResumeBlocked(
-      args.store,
-      args.spawnOptions.paneKey,
-      args.worktreeId,
-      args.connectionId
-    )
-  ) {
+  if (isFreshPaneResumeBlocked(args.store, args.spawnOptions.paneKey, args)) {
     return {
       result: { id: args.spawnOptions.sessionId ?? '', reattachUnverifiable: true },
       owner: null

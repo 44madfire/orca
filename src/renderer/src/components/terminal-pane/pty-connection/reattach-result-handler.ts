@@ -1,4 +1,7 @@
-import { settleAutomaticResumeSpawn } from '@/lib/automatic-resume-spawn-settlement'
+import {
+  clearAutomaticAgentResumeClaim,
+  settleAutomaticResumeSpawn
+} from '@/lib/automatic-resume-spawn-settlement'
 import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import type { PtyBufferSnapshot, PtyConnectResult } from '../pty-transport'
 import { warnTerminalLifecycleAnomaly } from '../terminal-lifecycle-diagnostics'
@@ -40,6 +43,7 @@ type ReattachResultSession = ReattachPayloadSession &
     | 'getSshMainModelSnapshotProbe'
     | 'handleReattachResult'
     | 'followsDirectSshReconnect'
+    | 'lastTerminalInputAt'
     | 'mountFollowsTerminalPark'
     | 'registerEffectiveLaunchConfig'
     | 'registerPaneSerializerFor'
@@ -94,11 +98,12 @@ export function bindHandleReattachResult(sessionBag: ConnectPanePtySession): voi
       session.remotePtyIncarnationId = null
     }
 
-    if (
-      (connectResult?.reattachUnverifiable || connectResult?.exitedBeforeAttach) &&
-      settleAutomaticResumeSpawn(session.deps.tabId, false)
-    ) {
-      return false
+    if (connectResult?.reattachUnverifiable || connectResult?.exitedBeforeAttach) {
+      if (Number.isFinite(session.lastTerminalInputAt) || session.deps.preconnectInput) {
+        clearAutomaticAgentResumeClaim(session.deps.tabId)
+      } else if (settleAutomaticResumeSpawn(session.deps.tabId, false)) {
+        return false
+      }
     }
 
     if (connectResult?.exitedBeforeAttach) {

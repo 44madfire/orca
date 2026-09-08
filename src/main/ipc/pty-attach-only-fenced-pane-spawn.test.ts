@@ -1,3 +1,8 @@
+import { localProvider, sshProviders } from './pty/provider/registry'
+vi.mock('../project-groups/folder-workspace-path-status', () => ({
+  getFolderWorkspacePathStatus: vi.fn(async () => ({ status: 'available' })),
+  assertFolderWorkspacePathUsable: vi.fn()
+}))
 import { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { TERMINAL_LIFECYCLE_METHODS } from '../runtime/rpc/methods/terminal/terminal-lifecycle-methods'
 import { TERMINAL_FENCED_CREATE_RUNTIME_CAPABILITY } from '../../shared/protocol-version'
@@ -72,6 +77,7 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
     const ptyId = `pty-${name}`
     const paneKey = makePaneKey(tabId, leafId)
     let session = {
+      legacyWorkerResumeFencesByPaneKey: undefined as Record<string, true> | undefined,
       tabsByWorktree: { [worktreeId]: [{ id: tabId, worktreeId, ptyId }] },
       terminalLayoutsByTabId: {
         [tabId]: {
@@ -539,6 +545,7 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
             : { ...session, sleepingAgentSessionsByPaneKey: {} }
         )
         const spawn = installDaemonTestProvider()
+        sshProviders.set('ssh-host', localProvider)
         registerPtyHandlers(
           mainWindow as never,
           runtime as never,
@@ -567,7 +574,7 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
           entry === 'ipc'
             ? await handlers.get('pty:spawn')!(null, request)
             : await controller.spawn(request)
-        expect(result).toEqual({ id: '', reattachUnverifiable: true })
+        expect(result).toEqual({ id: expect.any(String), reattachUnverifiable: true })
         expect(spawn).not.toHaveBeenCalled()
         expect(runtime.registerPty).not.toHaveBeenCalled()
         expect(store.setWorkspaceSession).not.toHaveBeenCalled()
@@ -600,6 +607,7 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
           : { ...session, sleepingAgentSessionsByPaneKey: {} }
       )
       const spawn = installDaemonTestProvider()
+      sshProviders.set('ssh-host', localProvider)
       registerPtyHandlers(
         mainWindow as never,
         runtime as never,
@@ -699,4 +707,51 @@ describe('pty:spawn under a persisted main-owned resume fence', () => {
     expect(store.persistPtyBinding).not.toHaveBeenCalled()
     expect(session.sleepingAgentSessionsByPaneKey[sourcePaneKey]).toBe(record)
   })
+  it.each(['ipc', 'runtime'] as const)(
+    'review: %s rechecks source fence after target attach',
+    async (entry) => {
+      const { store, runtime, spawnArgs } = buildFencedPaneContext('source-race')
+      const session = store.getWorkspaceSession()
+      const sourceKey = makePaneKey('source-tab', spawnArgs.leafId)
+      const targetKey = makePaneKey(spawnArgs.tabId, spawnArgs.leafId)
+      session.legacyWorkerResumeFencesByPaneKey = {}
+      session.sleepingAgentSessionsByPaneKey[targetKey].automaticResumeBlockedBy = ''
+      session.sleepingAgentSessionsByPaneKey[sourceKey] = {
+        worktreeId: spawnArgs.worktreeId,
+        agent: 'claude',
+        providerSession: { key: 'session_id', id: 'resume-source' },
+        automaticResumeBlockedBy: ''
+      } as never
+      const spawn = vi.fn(async (options) => {
+        if (options.attachOnly) {
+          session.legacyWorkerResumeFencesByPaneKey = { [sourceKey]: true }
+          throw new SessionNotFoundError(spawnArgs.sessionId)
+        }
+        return { id: 'replacement-resuming-fenced-source' }
+      })
+      installDaemonTestProvider({ spawn })
+      registerPtyHandlers(
+        mainWindow as never,
+        runtime as never,
+        undefined,
+        undefined,
+        undefined,
+        store as never
+      )
+      const controller = runtime.setPtyController.mock.calls[0]![0] as {
+        spawn: (a: unknown) => Promise<unknown>
+      }
+      const args = {
+        ...spawnArgs,
+        command: 'claude --resume resume-source',
+        launchAgent: 'claude',
+        resumeProviderSession: { key: 'session_id', id: 'resume-source' }
+      }
+      const result = await (entry === 'ipc'
+        ? handlers.get('pty:spawn')!(null, args)
+        : controller.spawn(args))
+      expect(result).toMatchObject({ reattachUnverifiable: true })
+      expect(spawn.mock.calls.filter(([o]) => !o.attachOnly)).toHaveLength(0)
+    }
+  )
 })

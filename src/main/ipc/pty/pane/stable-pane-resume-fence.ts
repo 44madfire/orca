@@ -32,7 +32,8 @@ export function isSleepingAgentResumeBlocked(
     resumeProviderSession?: AgentProviderSessionMetadata
   }
 ): boolean {
-  if (!store?.getWorkspaceSession || !args.worktreeId || !args.resumeProviderSession) {
+  const worktreeId = args.worktreeId
+  if (!store?.getWorkspaceSession || !worktreeId || !args.resumeProviderSession) {
     return false
   }
   const session = store.getWorkspaceSession(
@@ -40,14 +41,24 @@ export function isSleepingAgentResumeBlocked(
   )
   return Object.entries(session?.sleepingAgentSessionsByPaneKey ?? {}).some(
     ([paneKey, record]) =>
-      record.worktreeId === args.worktreeId &&
       (!args.launchAgent || record.agent === args.launchAgent) &&
       agentProviderSessionsEqual(
         record.agent,
         record.providerSession,
         args.resumeProviderSession
       ) &&
-      isPaneAutomaticResumeBlocked(session, paneKey, args.worktreeId)
+      isPaneAutomaticResumeBlocked(session, paneKey, worktreeId)
+  )
+}
+
+export function isFreshPaneResumeBlocked(
+  store: Store | undefined,
+  paneKey: string | null | undefined,
+  args: Parameters<typeof isSleepingAgentResumeBlocked>[1]
+): boolean {
+  return (
+    isSleepingAgentResumeBlocked(store, args) ||
+    isStablePaneResumeBlocked(store, paneKey, args.worktreeId, args.connectionId)
   )
 }
 

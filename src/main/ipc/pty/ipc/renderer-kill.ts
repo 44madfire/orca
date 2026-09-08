@@ -55,7 +55,7 @@ export function installPtyKillIpcHandler(deps: PtyKillIpcDeps): void {
     // hibernating pane would destroy it on the next handshake.
     const reversible = args.keepHistory === true
     if (reversible) {
-      assertPtyHibernationAllowed(store, args.id, connectionId)
+      assertPtyHibernationAllowed(runtime, store, args.id, connectionId)
     }
     runtime?.markPtyStopRequested?.(args.id)
     const provider = connectionId ? sshProviders.get(connectionId) : tryGetProviderForPty(args.id)
