@@ -4,11 +4,11 @@ import {
   TOOL_PATH_KEYS,
   TOOL_PRIMARY_KEYS
 } from '../../../../shared/native-chat-tool-input-metadata'
-import type { ToolInputProjection } from './native-chat-tool-input-projection'
 import {
   OMIT_INPUT,
   TOOL_INPUT_LIMITS,
-  type InputBudget
+  type InputBudget,
+  type ToolInputProjection
 } from './native-chat-tool-input-projection'
 
 type Argument = { search: boolean | 'unknown'; label: boolean | 'unknown'; value: unknown }
