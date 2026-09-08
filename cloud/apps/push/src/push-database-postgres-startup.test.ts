@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { randomUUID } from 'node:crypto'
 
 const fakes = vi.hoisted(() => ({
   configs: [] as Array<Record<string, unknown>>,
@@ -41,7 +42,8 @@ describe('PostgreSQL push gateway startup', () => {
     vi.restoreAllMocks()
   })
 
-  const socketUrl = 'postgresql://push:p%40ss%2Fword@/orca_push?host=/cloudsql/test:region:instance'
+  const socketPassword = `${randomUUID()}@/`
+  const socketUrl = `postgresql://push:${encodeURIComponent(socketPassword)}@/orca_push?host=/cloudsql/test:region:instance`
 
   it('passes the Terraform socket URL unchanged to both active pools', async () => {
     const database = await openPushDatabase({ databaseUrl: socketUrl, dataDir: '/unused' })
@@ -60,7 +62,7 @@ describe('PostgreSQL push gateway startup', () => {
     expect(fakes.configs[0]).toMatchObject({
       host: '/cloudsql/test:region:instance',
       user: 'push',
-      password: 'p@ss/word',
+      password: socketPassword,
       database: 'orca_push',
       port: 5433,
       ssl: false,

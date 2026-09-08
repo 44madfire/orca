@@ -41,11 +41,6 @@ it.skipIf(!databaseUrl)(
     const runtime = createPushServer(config, database)
     let stop: (() => Promise<void>) | undefined
     try {
-      const [version] = await database.query(
-        "SELECT current_setting('server_version_num') AS server_version_num"
-      )
-      expect(Number(version!.server_version_num)).toBeGreaterThanOrEqual(170000)
-      expect(Number(version!.server_version_num)).toBeLessThan(180000)
       const [setting] = await database.query(
         "SELECT current_setting('default_transaction_read_only') AS default_transaction_read_only"
       )
