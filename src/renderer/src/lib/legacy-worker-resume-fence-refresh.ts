@@ -1,14 +1,15 @@
-let generation = 0
-export function markLegacyWorkerResumeFencesHydrated(): void {
-  generation++
-}
+import { useAppStore } from '@/store'
+import {
+  advanceLegacyWorkerResumeFenceGeneration,
+  currentLegacyWorkerResumeFenceGeneration
+} from './legacy-worker-resume-fence-generation'
 
 export async function refreshLegacyWorkerResumeFences(): Promise<void> {
-  const requestGeneration = ++generation
+  const requestGeneration = advanceLegacyWorkerResumeFenceGeneration()
   try {
     const fences = await window.api.app.getLegacyWorkerResumeFences()
-    const { useAppStore } = await import('@/store')
-    if (requestGeneration !== generation) {
+    // A reply older than a later request or hydration describes state that has since been replaced.
+    if (requestGeneration !== currentLegacyWorkerResumeFenceGeneration()) {
       return
     }
     useAppStore.setState({ legacyWorkerResumeFencesByPaneKey: fences })
