@@ -10488,7 +10488,20 @@
             "agent": "agent",
             "process": "process",
             "prompt": "prompt",
-            "stop": "stop"
+            "stop": "stop",
+            "minimumContrast": {
+              "title": "Color Contrast",
+              "description": "Improve text readability or preserve the colors chosen by terminal programs.",
+              "contrast": "contrast",
+              "minimum": "minimum",
+              "ratio": "ratio",
+              "readability": "readability",
+              "wcag": "wcag",
+              "powerline": "powerline",
+              "statusline": "statusline",
+              "dim": "dim",
+              "colors": "colors"
+            }
           },
           "windows": {
             "search": {
@@ -11813,6 +11826,20 @@
         },
         "NativeChatSupportedAgents": {
           "label": "Supported agents:"
+        },
+        "contrast": {
+          "title": "Color Contrast",
+          "description": "Improve text readability or preserve the colors chosen by terminal programs.",
+          "ratio": "Contrast target",
+          "autoDescription": "Balances readability with your terminal theme. Recommended.",
+          "offDescription": "Keeps program colors unchanged, including dim text and Powerline separators.",
+          "customDescription": "Choose how much to increase contrast between text and its background.",
+          "auto": "Automatic",
+          "off": "Off",
+          "custom": "Custom",
+          "targetDescription": "Higher values increase contrast where possible. Background colors stay unchanged.",
+          "subtle": "Subtle",
+          "strong": "Strong"
         }
       },
       "right": {

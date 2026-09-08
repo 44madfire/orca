@@ -11,6 +11,79 @@
   },
   "gates": [
     {
+      "id": "agent-session.history-forward-read-budget",
+      "title": "Journal catch-up reads only the next page and one lookahead row",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "agent-session-runtime",
+      "layer": "runtime-unit",
+      "surfaces": ["structured agent history", "structured agent subscriptions"],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "ssh", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local", "ssh", "remote-runtime"],
+      "coverageNotes": "The real SQLite journal and production subscriber delivery are exercised with a folder workspace and remote host identity. The SQL and pagination code is shared across execution hosts; live SSH transport and Linux/Windows runtime execution are not exercised. PTY, daemon, WSL execution, and mobile rendering are unaffected.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/blob/main/src/main/native-chat/agent-session-wire/structured-agent-session-subscribers.ts"
+      ],
+      "invariant": "Forward catch-up preserves every item, revision, tombstone, sequence cursor, page byte bound, and reset behavior while reading at most the requested row count plus one from SQLite for each page.",
+      "oracle": "Reconnect a real subscriber to a 2,000-row journal and receive all 2,000 item identities in order through the live cursor; count the actual SQL rows returned and parsed as 2,009 instead of 11,000. Assert exact final-page hasNewer, unlimited reader compatibility, gap detection at the next page, and parse-stop behavior at the lookahead row. Existing history tests cover revisions, tombstones, byte-bound shrinking, epochs, and schema resets.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/main/native-chat/agent-session-wire/agent-session-history-forward-read-budget.test.ts src/main/native-chat/agent-session-wire/agent-session-history-page.test.ts src/main/native-chat/agent-session-wire/structured-agent-session-subscribers.test.ts src/main/native-chat/agent-session-journal"
+      ],
+      "testFiles": [
+        "src/main/native-chat/agent-session-wire/agent-session-history-forward-read-budget.test.ts",
+        "src/main/native-chat/agent-session-wire/agent-session-history-page.test.ts",
+        "src/main/native-chat/agent-session-wire/structured-agent-session-subscribers.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/main/native-chat/agent-session-wire/agent-session-history-forward-read-budget.test.ts",
+          "assertions": [
+            "reconnects through every page with one lookahead row per page",
+            "keeps an exact final page final and preserves unlimited journal readers",
+            "reports a sequence gap when the next page reaches it",
+            "preserves parse-stop behavior at lookahead: %s"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/main/native-chat/agent-session-wire/agent-session-history-forward-read-budget.test.ts src/main/native-chat/agent-session-wire/agent-session-history-page.test.ts src/main/native-chat/agent-session-wire/structured-agent-session-subscribers.test.ts src/main/native-chat/agent-session-journal",
+          "result": "passed",
+          "durationSeconds": 9.94,
+          "summary": "214 tests passed across 19 files, including actual SQLite row and JSON parse counts through production subscriber catch-up."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 30,
+        "scope": "Real SQLite journal unit and production subscriber tests; no launched app."
+      },
+      "flakeHistory": {
+        "status": "not-started",
+        "evidence": "Initial deterministic local validation; CI soak has not started."
+      },
+      "redGreenEvidence": {
+        "status": "complete",
+        "evidence": "Before the change, SQL returned 2,000, 1,800, 1,600 through 200 rows across ten pages, failing the count assertion. The bounded query returns nine pages of 201 rows and a final 200, with exactly 2,009 row parses and identical item delivery."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "Catch-up materialization and JSON parsing are linear in unseen journal rows plus page lookaheads. A cached parameterized LIMIT adds no polling, cache invalidation, output loss, protocol change, or provider calls."
+      },
+      "knownGaps": [
+        "Linux and Windows execution and live SSH transport have not been exercised.",
+        "The existing full reduced-state snapshot and batch projection cost are outside this SQL read budget."
+      ],
+      "promotionCriteria": [
+        "Complete CI soak requirements while preserving the deterministic row budget and pagination oracles."
+      ],
+      "demotionRule": "Keep experimental until CI soak; investigate fidelity or count failures without relaxing the row budget."
+    },
+    {
       "id": "terminal-performance.padded-fullscreen-redraw",
       "title": "Fullscreen redraw padding does not stall terminal delivery",
       "maturity": "experimental",
@@ -5925,7 +5998,7 @@
       "invariant": "After a TUI exits or is killed, reveal, reattach, snapshot replay, or renderer remount must not deliver terminal-owned mouse or alternate-screen protocol bytes to the surviving shell. Recovery is an ordered output barrier in the daemon session data path: an OSC 133;D completing while the alternate screen is still active pauses the stream at that exact byte boundary, a fresh execution-host process inspection proves shell ownership, and on proof a mode reset is injected as in-stream output so every consumer converges by parsing the same bytes and the queued post-boundary shell output (the prompt) lands on the normal buffer. Snapshots are pure reads. Any failure — refuted proof, timeout, queue overflow, session death, disposal — flushes the queue unmodified, preserving incumbent behavior; later command or mode bytes revoke proof. Clean alternate-screen exits prove ownership asynchronously without pausing.",
       "oracle": "Run one fixed child-TUI journey for normal exit and cleanup-free SIGKILL. Assert renderer and host normal-buffer/non-mouse state, host snapshot terminalOwner metadata, exact PTY writes with no post-exit mouse report, unrelated-pane survival, post-boundary prompt output preserved (normal exit), ordered proof invalidation, bounded settlement and bail-out flush, one inspection per unclean episode with zero scans for ordinary output, split-escape safety at every chunk boundary, and old/new client-host fallback parity.",
       "commands": [
-        "pnpm exec vitest run --config config/vitest.config.ts src/main/daemon/terminal-shell-lifecycle-scanner.test.ts src/main/daemon/terminal-shell-recovery-barrier.test.ts src/main/daemon/session-shell-recovery.test.ts src/main/daemon/session.test.ts src/main/daemon/terminal-host-concurrent-create.test.ts src/main/daemon/daemon-pty-adapter.test.ts src/main/daemon/daemon-restore-scrollback-depth.test.ts src/main/daemon/terminal-checkpoint-serializer.test.ts src/main/providers/agent-foreground-process.test.ts src/main/runtime/orca-runtime.test.ts src/main/runtime/mobile-subscribe-integration.test.ts src/main/runtime/rpc/terminal-multiplex-escape-tail.test.ts src/renderer/src/components/terminal-pane/pty-connection-hidden-codex-queries.test.ts src/renderer/src/components/terminal-pane/pty-connection-reattach-mode-reset.test.ts src/renderer/src/components/terminal-pane/pty-connection-daemon-snapshot-replay.test.ts src/renderer/src/components/terminal-pane/remote-runtime-pty-snapshot-escape-tail.test.ts --reporter=dot",
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/daemon/terminal-shell-lifecycle-scanner.test.ts src/main/daemon/terminal-shell-recovery-barrier.test.ts src/main/daemon/session-shell-recovery.test.ts src/main/daemon/session.test.ts src/main/daemon/terminal-host-concurrent-create.test.ts src/main/daemon/daemon-pty-adapter.test.ts src/main/daemon/daemon-restore-scrollback-depth.test.ts src/main/daemon/terminal-checkpoint-serializer.test.ts src/main/providers/agent-foreground-process.test.ts src/main/runtime/orca-runtime.test.ts src/main/runtime/mobile-subscribe-integration.test.ts src/main/runtime/rpc/terminal-multiplex-escape-tail.test.ts src/renderer/src/components/terminal-pane/pty-connection-hidden-codex-queries.test.ts src/renderer/src/components/terminal-pane/pty-connection-reattach-mode-reset.test.ts src/renderer/src/components/terminal-pane/pty-connection-daemon-snapshot-replay.test.ts src/renderer/src/components/terminal-pane/remote-runtime-pty-snapshot-escape-tail.test.ts src/shared/terminal-partial-escape-tail.test.ts src/shared/terminal-partial-escape-tail.fuzz.test.ts --reporter=dot",
         "pnpm exec vitest run --config config/vitest.config.ts tests/e2e/cross-version-wire/cross-version-terminal-wire.unit.test.ts --reporter=dot",
         "pnpm exec electron-vite build --mode e2e",
         "SKIP_BUILD=1 pnpm exec playwright test tests/e2e/terminal-hidden-child-tui-kill-mode-reset.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1"
@@ -5947,6 +6020,8 @@
         "src/renderer/src/components/terminal-pane/pty-connection-reattach-mode-reset.test.ts",
         "src/renderer/src/components/terminal-pane/pty-connection-daemon-snapshot-replay.test.ts",
         "src/renderer/src/components/terminal-pane/remote-runtime-pty-snapshot-escape-tail.test.ts",
+        "src/shared/terminal-partial-escape-tail.test.ts",
+        "src/shared/terminal-partial-escape-tail.fuzz.test.ts",
         "tests/e2e/cross-version-wire/cross-version-terminal-wire.unit.test.ts",
         "tests/e2e/terminal-hidden-child-tui-kill-mode-reset.spec.ts"
       ],
@@ -5966,6 +6041,13 @@
           "assertions": [
             "post-kill shell output survives into the normalized snapshot instead of the discarded alt buffer",
             "a snapshot taken during a split escape keeps the pending tail intact and stale proof is revoked by the completing bytes"
+          ]
+        },
+        {
+          "file": "src/shared/terminal-partial-escape-tail.fuzz.test.ts",
+          "assertions": [
+            "the pending tail this gate threads over the wire folds identically at every code-unit split of the combined stream, including boundaries landing inside oscEsc/stringEsc",
+            "the split sweep runs over an alphabet carrying CAN, SUB, doubled ESC inside OSC/DCS/SOS/PM/APC, BEL, C1 ST, NUL, DEL, intermediates, CJK, astral, and lone surrogates"
           ]
         },
         {
@@ -13576,6 +13658,7 @@
       "invariant": "Starting a worker in the coordinator's current workspace must materialize one inactive terminal tab before worker-start returns, preserve coordinator focus, and remain exactly once after workspace re-entry. After an app update or restart, an exact live legacy worker must fence automatic provider resume, adopt its original PTY into its original background pane, retain readable output, and clear the resume record without spawning, writing, signalling, interrupting, replacing, or focusing the worker. A current-contract worker whose renderer graph identity is temporarily absent must retain its Dispatch capability and settle exactly once from exact hook-attested handle, pane, and process evidence; otherwise only an exact attested coordinator may take over. A worker_done caller may report success only after the owning runtime returns an explicit lifecycle verdict or authoritative reads prove that the exact Task, Dispatch, and worker report receipt settled the expected outcome. Federated terminal settlement must remain replay-eligible until the worker durably acknowledges it, and identical same-outcome retries must converge idempotently. Independently updated clients and worker servers must preserve the negotiated protocol: current peers use Run-home lifecycle settlement, while protocol v1/v2 peers retain their legacy completion path without receiving newer-only fields. A federated worker may accept only the authority defined by its negotiated protocol. An exact existing target workspace must receive a discoverable tab without stealing coordinator focus; if renderer reveal fails, worker-start must expose that the live worker remains background-only. Run and Dispatch checks must resolve through the caller's stable pane identity when a terminal handle is reminted, while a live handle outranks mismatched pane metadata. A nested worker's creator edge requires the current creator pane, process incarnation, and owning Run generation; reminting and rebinding that pane to another Run must remove the stale edge. Explicit legacy terminal inspection remains handle-scoped, and remote or headless worker presentation remains background-only.",
       "oracle": "Drive Run create, Task create, and worker-start through production Electron runtimes with a deterministic Codex fixture. Require append-only ledgers with one still-live PID and no interruption, a visible inactive worker tab while the coordinator stays active, Run delivery through stable pane identity, and stable PTY/incarnation, tab, leaf, worktree, Task, and Dispatch across workspace re-entry. In a restart journey, retain the original daemon PTY and PID, remove renderer ownership, retain sleeping-session evidence, mark the Dispatch legacy, relaunch, and require exact inactive tab adoption, readable ACK output, cleared resume state, one spawn, and no resume argv or Conversation interrupted text after another workspace round trip. The service oracle removes renderer lookup identity from current-contract callers while retaining real restored-PTY and hook commitments, replays authenticated completion and takeover across fresh runtimes, and requires one Task, Dispatch, terminal authority, message, mutation, ordinary-mail delivery, remote process fencing, and unchanged fixture marker bytes while foreign pane evidence remains rejected. Unit tests separately remint a creator pane and process from Run A into Run B, require the nested Run A worker to fall back to its current coordinator, require indexed query plans, and bound 300 Task reads with 50,000 retained Runs. They also assert authority-specific legacy affordances, exact identity and owner matching, retained-output fallback, pane-stable routing, federated non-activation, and SSH fallback parity.",
       "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 npx vitest run --config config/vitest.config.ts src/main/runtime/rpc/methods/orchestration/messaging/check-worker-federated-attachment.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/rpc/orchestration-runtime-update-settlement.test.ts --reporter=dot",
         "pnpm exec vitest run --config config/vitest.config.ts src/cli/handlers/orchestration.test.ts src/cli/handlers/orchestration-check-identity.test.ts src/cli/handlers/orchestration-worker-cli.test.ts src/main/runtime/rpc/methods/orchestration/worker/composed-workers.test.ts src/main/runtime/rpc/methods/orchestration/messaging/check.test.ts src/main/runtime/rpc/methods/orchestration/messaging/send.test.ts src/main/ssh/ssh-remote-orca-cli.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/cli/handlers/orchestration-lifecycle-rejection.test.ts src/cli/handlers/orchestration-lifecycle-json-rejection.test.ts src/cli/handlers/orchestration-migration.test.ts",
@@ -13590,6 +13673,7 @@
         "pnpm run build:cli && SKIP_BUILD=1 pnpm exec playwright test tests/e2e/orchestration-worker-settlement-release-cli.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1"
       ],
       "testFiles": [
+        "src/main/runtime/rpc/methods/orchestration/messaging/check-worker-federated-attachment.test.ts",
         "src/main/runtime/rpc/orchestration-runtime-update-settlement.test.ts",
         "src/main/runtime/orchestration/formatter.test.ts",
         "src/main/runtime/orchestration/orchestration-legacy-worker-terminal-recovery.test.ts",
@@ -13613,6 +13697,13 @@
         "tests/e2e/orchestration-worker-settlement-release-cli.spec.ts"
       ],
       "assertionRefs": [
+        {
+          "file": "src/main/runtime/rpc/methods/orchestration/messaging/check-worker-federated-attachment.test.ts",
+          "assertions": [
+            "replays the coordinator instruction and takes its ack after the app restarts",
+            "files loopback mail once under the local Dispatch Run without replacing its owner"
+          ]
+        },
         {
           "file": "src/main/runtime/rpc/orchestration-runtime-update-settlement.test.ts",
           "assertions": [
