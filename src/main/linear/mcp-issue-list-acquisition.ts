@@ -4,6 +4,7 @@ import { ISSUE_FIELDS } from './issue-context-raw'
 import { linearError } from './issue-context-errors'
 import { readFetchResponseBytesWithinLimit } from '../../shared/fetch-response-body'
 import { assertJsonTextStructureWithinLimits } from '../../shared/json-text-structure-limit'
+import { getMainHttpClient } from '../network/http-client'
 
 const nullableText = z.string().nullish()
 const named = z.object({
@@ -78,7 +79,7 @@ export async function acquireIssueListPage(
       : (apiKey ?? '')
   })
   new Headers(suppliedHeaders).forEach((value, name) => headers.set(name, value))
-  const response = await fetch(apiUrl ?? 'https://api.linear.app/graphql', {
+  const response = await getMainHttpClient().fetch(apiUrl ?? 'https://api.linear.app/graphql', {
     ...init,
     method: 'POST',
     headers,

@@ -73,7 +73,7 @@ export const LINEAR_MCP_COMMAND_SPECS: CommandSpec[] = [
       'orca linear list-issues --cursor <cursor> --json'
     ],
     notes: [
-      'Omitting --limit returns every match (result.meta.limit is null); --limit <n> caps the read.',
+      'Omitting --limit reads until exhaustion or a capacity/time stop (result.meta.limit is null); --limit <n> caps the read.',
       'JSON sets result.truncated when a cap held results back; text prints truncated: showing N.',
       'Reuse --cursor from the previous page. Issued cursors bind the workspace; raw Linear cursors still need --workspace.',
       '--priority is 0=none, 1=urgent, 2=high, 3=medium, 4=low. JSON includes priorityLabel on each issue.'
