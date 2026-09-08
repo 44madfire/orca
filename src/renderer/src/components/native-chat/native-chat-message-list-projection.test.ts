@@ -59,3 +59,26 @@ it('retains settled folded runs while exposing changed tools, metadata, and attr
   }
   expect(project([prose, call, result])[0]).not.toBe(initial[0])
 })
+
+// A reused row aliases producer-owned block objects (a journal item's `body.blocks`),
+// so an in-place rewrite here would freeze what the transcript renders.
+it('leaves producer-owned messages and blocks untouched', () => {
+  const project = createNativeChatMessageListProjection()
+  const prose = message('prose', 1, [{ type: 'text', text: 'Working' }])
+  const call = message('call', 2, [{ type: 'tool-call', name: 'shell', input: { command: 'pwd' } }])
+  const result = message('result', 3, [{ type: 'tool-result', output: '/workspace' }], 'tool')
+  const later = message(
+    'later',
+    4,
+    [{ type: 'tool-call', name: 'read', input: { path: 'a.ts' } }],
+    'tool'
+  )
+  const input = [prose, call, result, later]
+  const snapshot = structuredClone(input)
+  const folded = project(input)
+  expect(folded[0]?.blocks).toHaveLength(4)
+  expect(folded[0]?.blocks[0]).toBe(prose.blocks[0])
+  project([...input, message('tail', 5, [{ type: 'text', text: 'Answer' }])])
+  expect(input).toEqual(snapshot)
+  expect(prose.blocks).toHaveLength(1)
+})

@@ -4,6 +4,11 @@ import { stripNoiseMessages } from './native-chat-noise'
 import { foldToolMessages } from './native-chat-tool-fold'
 
 function sameMessage(left: NativeChatMessage, right: NativeChatMessage): boolean {
+  // Folding only clones the assistant rows that absorb a tool run; every other row
+  // comes back as the input object, so most rows settle without a field scan.
+  if (left === right) {
+    return true
+  }
   const keys = Object.keys(left) as (keyof NativeChatMessage)[]
   return (
     keys.length === Object.keys(right).length &&
