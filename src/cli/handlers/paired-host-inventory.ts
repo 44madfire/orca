@@ -47,7 +47,12 @@ export async function listPairedEnvironmentHosts(userDataPath: string): Promise<
           undefined,
           abort.signal
         )
-        if (!response.ok) {
+        if (
+          !response.ok ||
+          !response.result ||
+          typeof response.result !== 'object' ||
+          Array.isArray(response.result)
+        ) {
           return unknown('status_unavailable')
         }
         const host: HostListEntry = { ...base, connected: true, connectionStatus: 'connected' }

@@ -25,6 +25,17 @@ function environment(id = 'env-one') {
 const success = (result: unknown) => ({ ok: true, result, _meta: { runtimeId: 'remote' } })
 
 describe('paired host inventory', () => {
+  it.each([null, undefined, 42, 'not a status', []].map((result) => ({ result })))(
+    'does not treat malformed status $result as a verified probe',
+    async ({ result }) => {
+      list.mockReturnValue([environment()])
+      send.mockResolvedValue(success(result))
+      const [host] = await listPairedEnvironmentHosts('unused')
+      expect(host).not.toHaveProperty('connected')
+      expect(host).toMatchObject({ connectionStatus: 'unknown', probeError: 'status_unavailable' })
+      expect(send).toHaveBeenCalledTimes(1)
+    }
+  )
   beforeEach(() => {
     list.mockReset().mockReturnValue([environment()])
     send.mockReset().mockResolvedValue(success({ hostPlatform: 'win32' }))

@@ -87,4 +87,23 @@ describe('paired host inventory over authenticated WebSockets', () => {
     expect(host).toMatchObject({ probeError: 'runtime_timeout', connectionStatus: 'unknown' })
     await vi.waitFor(() => expect(server.activeConnectionCount()).toBe(0))
   }, 10_000)
+
+  it('enforces the whole-scan deadline even while the peer sends keepalives', async () => {
+    const server = await createSharedControlTestServer({
+      silentMethods: ['status.get'],
+      sendKeepaliveBeforeResponse: true,
+      keepaliveDelayMs: 100
+    })
+    addEnvironmentFromPairingCode(userDataPath, {
+      name: 'keepalive-only',
+      pairingCode: encodePairingOffer(server.pairing)
+    })
+    const start = Date.now()
+    const [host] = await listPairedEnvironmentHosts(userDataPath)
+    expect(Date.now() - start).toBeLessThan(6_500)
+    expect(host).toMatchObject({ probeError: 'runtime_timeout', connectionStatus: 'unknown' })
+    expect(host).not.toHaveProperty('connected')
+    expect(server.requests.map((request) => request.method)).toEqual(['status.get'])
+    await vi.waitFor(() => expect(server.activeConnectionCount()).toBe(0))
+  }, 10_000)
 })
