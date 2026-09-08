@@ -47,8 +47,12 @@ export const ORCHESTRATION_RUN_METHODS: RpcMethod[] = [
         })
         return { run: exposeRun(run) }
       }
+      const coordinatorHandle = params.from
+      if (!coordinatorHandle) {
+        throw new OrchestrationError('stable_pane_required', 'Missing coordinator identity.')
+      }
       const paneKey = resolveOrchestrationCaller(runtime, {
-        callerTerminalHandle: params.from,
+        callerTerminalHandle: coordinatorHandle,
         callerEvidence: orchestrationCompatibilityEvidence,
         requireStablePane: true
       })
@@ -56,10 +60,10 @@ export const ORCHESTRATION_RUN_METHODS: RpcMethod[] = [
       const priorRun = db.getCurrentRunForPane(paneKey)
       const run = db.createRun({
         objective: params.objective,
-        coordinatorHandle: params.from,
+        coordinatorHandle,
         coordinatorPaneKey: paneKey
       })
-      runtime.cancelMessageWaiters(params.from)
+      runtime.cancelMessageWaiters(coordinatorHandle)
       if (priorRun) {
         runtime.cancelMessageWaiters(`run:${priorRun.id}`)
       }
