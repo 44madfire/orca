@@ -153,7 +153,7 @@ export const MessageRow = memo(function MessageRow({
         <NativeChatMessageTimestamp
           timestamp={message.timestamp}
           focusable
-          className="pointer-events-none select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-[&:has(:focus-visible)]:pointer-events-auto group-[&:has(:focus-visible)]:opacity-100"
+          className="pointer-events-none select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100"
         />
         {deliveryFailed ? (
           <div className="max-w-[85%] text-[11px] text-destructive/80">
@@ -212,7 +212,7 @@ export const MessageRow = memo(function MessageRow({
           markdown={markdown}
           timestamp={message.timestamp}
           onScrollToTop={scrollToTop}
-          className="pointer-events-none mt-1 -mb-5 w-fit select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-[&:has(:focus-visible)]:pointer-events-auto group-[&:has(:focus-visible)]:opacity-100"
+          className="pointer-events-none mt-1 -mb-5 w-fit select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100"
         />
       ) : null}
     </div>

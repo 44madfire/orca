@@ -33,7 +33,9 @@ describe('MessageRow hover timestamps', () => {
     expect(copy.parentElement).toHaveClass(
       'opacity-0',
       'group-hover:opacity-100',
-      'group-[&:has(:focus-visible)]:opacity-100'
+      'group-has-[:focus-visible]:opacity-100',
+      'group-hover:pointer-events-auto',
+      'group-has-[:focus-visible]:pointer-events-auto'
     )
     expect(time).not.toHaveAttribute('tabindex')
     copy.focus()
@@ -47,7 +49,9 @@ describe('MessageRow hover timestamps', () => {
     expect(time).toHaveClass(
       'opacity-0',
       'group-hover:opacity-100',
-      'group-[&:has(:focus-visible)]:opacity-100'
+      'group-has-[:focus-visible]:opacity-100',
+      'group-hover:pointer-events-auto',
+      'group-has-[:focus-visible]:pointer-events-auto'
     )
     expect(time.parentElement).toHaveClass('group')
     time.focus()
