@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentSessionJournalIdentity } from '../../../shared/agent-session-journal-types'
 import Database from '../../sqlite/sync-database'
 import { journalDatabaseFile } from './journal-paths'
+import { replayJournal } from './journal-open'
 import { openAgentSessionJournal } from './journal-store-factory'
 import { createTrackedJournalOpener } from './journal-store-test-open'
 
@@ -34,7 +35,7 @@ function inspect<T>(run: (db: Database.Database) => T): T {
 }
 function raw(db: Database.Database, epoch = source) {
   return db
-    .prepare(`SELECT epoch, seq, ts, hex(CAST(row_json AS BLOB)) AS bytes
+    .prepare(`SELECT epoch, seq, ts, typeof(row_json) AS storage_type, hex(CAST(row_json AS BLOB)) AS bytes
     FROM journal_rows WHERE epoch = ? ORDER BY seq`)
     .all(epoch)
 }
@@ -227,4 +228,68 @@ it('migrates an actual v2 schema and seals its rows without rewriting them', asy
       n: 1
     })
   })
+})
+
+it.each([1, 6])('fences future BLOB at seq %s before replay or migration', async (seq) => {
+  for (const version of [3, 2]) {
+    inspect((db) => {
+      if (version === 2) {
+        db.exec(`DROP TRIGGER journal_sealed_row_insert;
+          DROP TRIGGER journal_sealed_row_update;
+          DROP TRIGGER journal_sealed_row_delete;
+          DROP TRIGGER journal_recovery_epoch_update;
+          DROP TRIGGER journal_recovery_epoch_delete;
+          DROP TABLE journal_recovery_epochs;`)
+      }
+      db.pragma(`user_version = ${version}`)
+      db.prepare('UPDATE journal_rows SET row_json = ? WHERE seq = ?').run(
+        Buffer.from('{"v":999}'),
+        seq
+      )
+      original = raw(db)
+    })
+    const before = await readFile(journalDatabaseFile(root))
+    const journal = await open()
+    expect(journal.isReadOnly).toBe(true)
+    await expect(journal.appendItem(item('refused'), body)).rejects.toMatchObject({
+      code: 'journal_read_only'
+    })
+    await journal.close()
+    expect(await readFile(journalDatabaseFile(root))).toEqual(before)
+    inspect((db) => {
+      expect(raw(db)).toEqual(original)
+      expect(replayJournal(db, false, identity.sessionId)?.readOnly).toBe(true)
+    })
+  }
+})
+
+it('preserves unsupported binary encoding read-only with exact type and file bytes', async () => {
+  inspect((db) => {
+    db.prepare('UPDATE journal_rows SET row_json = ? WHERE seq = 6').run(
+      Buffer.from([0, 255, 123, 195, 40])
+    )
+    expect(replayJournal(db, false, identity.sessionId)?.readOnly).toBe(true)
+    original = raw(db)
+  })
+  const before = await readFile(journalDatabaseFile(root))
+  const journal = await open()
+  expect(journal.isReadOnly).toBe(true)
+  await journal.close()
+  expect(await readFile(journalDatabaseFile(root))).toEqual(before)
+  inspect((db) => expect(raw(db)).toEqual(original))
+})
+
+it('replays supported UTF-8 BLOB prefixes and seals their original storage bytes', async () => {
+  inspect((db) => {
+    db.exec('UPDATE journal_rows SET row_json = CAST(row_json AS BLOB) WHERE seq <= 2')
+    original = raw(db)
+  })
+  const journal = await open()
+  expect(journal.isReadOnly).toBe(false)
+  expect(journal.snapshot().items.some((entry) => entry.itemId.includes('prefix'))).toBe(true)
+  await journal.replaceEpochItems('legacy_import', 2, [{ identity: item('small'), body }])
+  await journal.rollEpoch('handle_forked', 3)
+  await journal.close()
+  await open().then((reopened) => reopened.close())
+  inspect((db) => expect(raw(db)).toEqual(original))
 })

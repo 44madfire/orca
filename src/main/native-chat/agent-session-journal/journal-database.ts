@@ -97,7 +97,7 @@ function hasFutureJournalRows(db: Database.Database): boolean {
     return false
   }
   for (const entry of db.prepare('SELECT row_json FROM journal_rows').iterate()) {
-    const parsed = parseJournalRow(entry.row_json as string)
+    const parsed = parseJournalRow(entry.row_json)
     if (!parsed.ok && parsed.unreadable) {
       return true
     }

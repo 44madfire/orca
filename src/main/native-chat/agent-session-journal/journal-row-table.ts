@@ -8,7 +8,7 @@
 import type Database from '../../sqlite/sync-database'
 import { serializeJournalRow, type JournalRow } from './journal-row-schema'
 
-export type JournalStoredRow = { epoch: string; seq: number; ts: number; rowJson: string }
+export type JournalStoredRow = { epoch: string; seq: number; ts: number; rowJson: unknown }
 
 const SELECT_SESSION = 'SELECT epoch FROM journal_sessions WHERE session_id = ?'
 const UPSERT_SESSION = `INSERT INTO journal_sessions (session_id, epoch, updated_at)
@@ -72,7 +72,7 @@ export function deleteAllJournalRows(db: Database.Database): void {
 
 function toStoredRows(rows: readonly unknown[]): JournalStoredRow[] {
   return rows.map((entry) => {
-    const record = entry as { epoch: string; seq: number; ts: number; row_json: string }
+    const record = entry as { epoch: string; seq: number; ts: number; row_json: unknown }
     return { epoch: record.epoch, seq: record.seq, ts: record.ts, rowJson: record.row_json }
   })
 }
