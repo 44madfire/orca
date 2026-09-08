@@ -16,7 +16,17 @@ import {
 } from './structured-agent-session-outbox-transitions'
 import { observeOutboxSettlement } from './structured-agent-session-outbox-settlement'
 
+const storageSpies: { mockRestore: () => void }[] = []
+function spyStorage<K extends 'getItem' | 'setItem' | 'removeItem'>(method: K) {
+  const spy = vi.spyOn(localStorage, method)
+  storageSpies.push(spy)
+  return spy
+}
+
 afterEach(() => {
+  for (const spy of storageSpies.splice(0).toReversed()) {
+    spy.mockRestore()
+  }
   vi.restoreAllMocks()
   localStorage.clear()
 })
@@ -26,11 +36,11 @@ it.each(['enqueue', 'discard', 'claim', 'completion', 'journal'] as const)(
   async (action) => {
     const entry = enqueueStructuredAgentSessionLaunchPrompt(action, 'retained')!
     const raw = localStorage.getItem(storageKey(action))
-    const read = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+    const read = spyStorage('getItem').mockImplementation(() => {
       throw new Error('synthetic read failure')
     })
-    const set = vi.spyOn(localStorage, 'setItem')
-    const remove = vi.spyOn(localStorage, 'removeItem')
+    const set = spyStorage('setItem')
+    const remove = spyStorage('removeItem')
     const update = vi.fn(() => [])
     expect(readOutboxEvidence(action)).toEqual({ status: 'unavailable' })
     if (action === 'enqueue') {
@@ -63,8 +73,8 @@ it.each(['{', '{}', 'null', '[null]', '[{"sessionId":"wrong"}]'])(
   'preserves invalid envelope %s without claiming absence',
   (raw) => {
     localStorage.setItem(storageKey('invalid'), raw)
-    const remove = vi.spyOn(localStorage, 'removeItem')
-    const set = vi.spyOn(localStorage, 'setItem')
+    const remove = spyStorage('removeItem')
+    const set = spyStorage('setItem')
     expect(readOutboxEvidence('invalid')).toEqual({ status: 'invalid' })
     expect(readOutbox('invalid')).toEqual([])
     expect(discardStructuredAgentSessionLaunchOutbox('invalid')).toBe(false)
@@ -113,7 +123,7 @@ it('does not settle a replacement observation from an unreadable stale completio
   retainOutboxSettlement(replacement)
   const settled = vi.fn()
   void observeOutboxSettlement(replacement).then(settled)
-  const read = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+  const read = spyStorage('getItem').mockImplementation(() => {
     throw new Error('synthetic read failure')
   })
   expect(transitionOutboxEntry(old, () => null, true).ok).toBe(false)
@@ -141,7 +151,7 @@ it('confines unreadable bulk settlement to its session', async () => {
   const other = enqueueStructuredAgentSessionLaunchPrompt('healthy-session', 'other')!
   const settled = vi.fn()
   void observeOutboxSettlement(other).then(settled)
-  const read = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+  const read = spyStorage('getItem').mockImplementation(() => {
     throw new Error('synthetic read failure')
   })
   expect(discardStructuredAgentSessionLaunchOutbox(target.sessionId)).toBe(false)
