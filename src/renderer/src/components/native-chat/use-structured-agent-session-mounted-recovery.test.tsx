@@ -21,6 +21,14 @@ function mount() {
     useStructuredAgentSessionOutbox({ sessionId, target, fence: 1, submissions })
   )
 }
+const storageFaults: { mockRestore: () => void }[] = []
+function failStorage(method: 'getItem' | 'setItem') {
+  const fault = vi.spyOn(localStorage, method).mockImplementation(() => {
+    throw new Error('synthetic persistence failure')
+  })
+  storageFaults.push(fault)
+  return fault
+}
 let finish!: (value: unknown) => void
 beforeEach(() => {
   vi.useFakeTimers()
@@ -45,6 +53,9 @@ beforeEach(() => {
   ])
 })
 afterEach(() => {
+  for (const fault of storageFaults.splice(0)) {
+    fault.mockRestore()
+  }
   vi.restoreAllMocks()
   cleanup()
   vi.useRealTimers()
@@ -56,11 +67,7 @@ it.each(['read', 'write'] as const)(
     const second = mount()
     expect(first.result.current.recoveryPaused).toBe(false)
     const saved = readOutbox(sessionId, false)[0]
-    const failure = vi
-      .spyOn(localStorage, fault === 'read' ? 'getItem' : 'setItem')
-      .mockImplementation(() => {
-        throw new Error('synthetic persistence')
-      })
+    const failure = failStorage(fault === 'read' ? 'getItem' : 'setItem')
     await act(async () => {
       finish({ ok: true, value: { submission: { dispatchState: 'unknown' } } })
     })
@@ -124,9 +131,7 @@ it('does not recover a live claim or let stale completion erase its replacement'
 it('a previously blocked Resume handler cannot reclaim a successor live dispatch', async () => {
   const first = mount()
   const second = mount()
-  const failure = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-    throw new Error('synthetic storage failure')
-  })
+  const failure = failStorage('setItem')
   await act(async () => {
     finish({ ok: true, value: { submission: { dispatchState: 'unknown' } } })
   })
@@ -162,9 +167,7 @@ it('notifies a mounted pane when a launch-owned completion loses persistence and
   expect(mocks.call).toHaveBeenCalledTimes(1)
   const pane = mount()
   expect(pane.result.current.recoveryPaused).toBe(false)
-  const failure = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-    throw new Error('synthetic write failure')
-  })
+  const failure = failStorage('setItem')
   await act(async () => {
     finish({ ok: true, value: { submission: { dispatchState: 'unknown' } } })
   })
