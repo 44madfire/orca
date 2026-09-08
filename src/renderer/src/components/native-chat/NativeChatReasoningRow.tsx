@@ -23,6 +23,8 @@ export function NativeChatReasoningRow({
   const [timing, setTiming] = useState(() => ({
     blockId,
     streaming: isStreaming,
+    markdown,
+    lastUpdatedAt: Date.now(),
     startedAt: isStreaming ? Date.now() : null,
     elapsedMs: null as number | null
   }))
@@ -33,22 +35,31 @@ export function NativeChatReasoningRow({
         return {
           blockId,
           streaming: isStreaming,
+          markdown,
+          lastUpdatedAt: now,
           startedAt: isStreaming ? now : null,
           elapsedMs: null
         }
       }
-      if (previous.streaming === isStreaming) {
+      if (previous.streaming === isStreaming && (!isStreaming || previous.markdown === markdown)) {
         return previous
       }
       // Only an observed stream supplies a duration; journal history has no local start.
+      const lastUpdatedAt =
+        (isStreaming && !previous.streaming) || previous.markdown !== markdown
+          ? now
+          : previous.lastUpdatedAt
       return {
         ...previous,
+        markdown,
+        lastUpdatedAt,
         streaming: isStreaming,
-        startedAt: isStreaming ? now : previous.startedAt,
-        elapsedMs: isStreaming || previous.startedAt === null ? null : now - previous.startedAt
+        startedAt: isStreaming && !previous.streaming ? now : previous.startedAt,
+        elapsedMs:
+          isStreaming || previous.startedAt === null ? null : lastUpdatedAt - previous.startedAt
       }
     })
-  }, [blockId, isStreaming])
+  }, [blockId, isStreaming, markdown])
   if (!markdown.trim()) {
     return null
   }

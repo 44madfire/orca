@@ -72,6 +72,19 @@ describe('reasoning disclosure', () => {
     expect(screen.getByRole('button')).toHaveTextContent('Thought for 1m 5s')
   })
 
+  it('excludes later turn work after the block stops changing', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000)
+    const { rerender } = render(<NativeChatReasoningRow markdown="Starting" isStreaming />)
+    now.mockReturnValue(22_000)
+    rerender(<NativeChatReasoningRow markdown="Reasoning complete" isStreaming />)
+    now.mockReturnValue(70_000)
+    rerender(<NativeChatReasoningRow markdown="Reasoning complete" isStreaming />)
+    expect(screen.getByRole('button')).toHaveTextContent('Thinking...')
+    now.mockReturnValue(100_000)
+    rerender(<NativeChatReasoningRow markdown="Reasoning complete" />)
+    expect(screen.getByRole('button')).toHaveTextContent('Thought for 12s')
+  })
+
   it('resets the clock when block identity changes without a streaming-state transition', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(10_000)
     const { rerender } = render(<NativeChatReasoningRow blockId="a" markdown="First" isStreaming />)
