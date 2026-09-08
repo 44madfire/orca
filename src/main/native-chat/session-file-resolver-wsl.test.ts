@@ -109,6 +109,7 @@ describe('resolveSessionFilePath on a Windows host with WSL', () => {
     async (agent) => {
       READABLE_WSL_UNC_PATHS.delete(ROLLOUT_UNC)
       READABLE_WSL_UNC_PATHS.add(DEBIAN_ROLLOUT_UNC)
+      scanned.hostRootHasRollout = true
 
       await expect(
         resolveSessionFilePath(agent, 'wsl-sess', {
@@ -117,6 +118,7 @@ describe('resolveSessionFilePath on a Windows host with WSL', () => {
           codexSessionsDirs: []
         })
       ).resolves.toBeNull()
+      expect(scanned.dirs).toEqual([])
     }
   )
 
