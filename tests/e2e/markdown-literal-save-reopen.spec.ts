@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test, expect } from './helpers/orca-app'
-import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
+import { switchToWorktree, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import {
   cleanupMarkdownFixture,
   closeActiveEditorTab,
@@ -96,6 +96,10 @@ for (const workspace of ['git', 'folder', 'paired remote'] as const) {
       expect(saved).toContain('[**Bold**](https://example.com)')
       await testInfo.attach('saved-markdown', { body: saved, contentType: 'text/markdown' })
       await closeActiveEditorTab(page, filePath)
+      // Closing a folder's only tab intentionally returns to the landing screen.
+      if (workspace === 'folder') {
+        await switchToWorktree(page, context.worktreeId)
+      }
       await openMarkdownFixture(page, context, filePath)
       const reopened = await waitForRichMarkdownEditor(page)
       await expect(reopened).toContainText(TYPED)
