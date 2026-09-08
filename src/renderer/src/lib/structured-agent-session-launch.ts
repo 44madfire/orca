@@ -1,8 +1,9 @@
+import {
+  structuredAgentLabel,
+  trackLaunchFailureToast
+} from './structured-agent-session-launch-notification'
 import { useSyncExternalStore } from 'react'
-import { toast } from 'sonner'
 import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
-import { getAgentCatalog } from '@/lib/agent-catalog'
-import { translate } from '@/i18n/i18n'
 import {
   abandonStructuredAgentSessionLaunchIntent,
   createStructuredAgentSessionLaunchIntent,
@@ -15,7 +16,6 @@ import {
 import {
   launchAndReconcile,
   reconcileUnknownLaunch,
-  StructuredAgentSessionLaunchCancelledError,
   type StructuredAgentLaunchReceipt,
   type StructuredLaunchRecoveryState
 } from '@/lib/structured-agent-session-launch-recovery'
@@ -34,6 +34,12 @@ import {
   type StructuredRefusalFallback
 } from '@/lib/structured-agent-session-launch-callers'
 import type { StructuredAgentSessionResumeSource } from '../../../shared/structured-agent-session-create'
+import {
+  hasStructuredLaunchCancellation,
+  persistStructuredLaunchCancellation,
+  retryStructuredLaunchCancellation,
+  subscribeStructuredLaunchCancellation
+} from './structured-agent-session-launch-cancellation'
 
 export type { StructuredAgentLaunchOptions, StructuredAgentLaunchReceipt }
 
@@ -58,10 +64,6 @@ export type StructuredAgentLaunchResult = {
 
 export type StructuredAgentLaunchStatus = 'idle' | 'pending' | 'unknown'
 
-function structuredAgentLabel(agent: AgentSessionHandleProvider): string {
-  return getAgentCatalog().find((entry) => entry.id === agent)?.label ?? agent
-}
-
 const pendingStructuredLaunchesByIdentity = new Map<string, StructuredLaunchState>()
 const structuredLaunchListeners = new Set<() => void>()
 
@@ -73,7 +75,11 @@ function notifyStructuredLaunchListeners(): void {
 
 export function subscribeStructuredAgentLaunchStatus(listener: () => void): () => void {
   structuredLaunchListeners.add(listener)
-  return () => structuredLaunchListeners.delete(listener)
+  const detachCancellation = subscribeStructuredLaunchCancellation(listener)
+  return () => {
+    structuredLaunchListeners.delete(listener)
+    detachCancellation()
+  }
 }
 
 export function getStructuredAgentLaunchStatus(
@@ -88,6 +94,9 @@ export function getStructuredAgentLaunchStatus(
       .filter(([identity]) => identity.startsWith(`${agent}:${worktreeId}:resume:`))
       .map(([, state]) => state)
   ].filter((state): state is StructuredLaunchState => Boolean(state))
+  if (hasStructuredLaunchCancellation(worktreeId, agent)) {
+    return 'pending'
+  }
   if (states.length === 0) {
     return 'idle'
   }
@@ -151,7 +160,7 @@ function trackLaunchSettlement(
 ): void {
   void promise.then(
     () => {
-      if (state.promise !== promise) {
+      if (state.promise !== promise || state.cancelled) {
         return
       }
       settleStructuredLaunchCallersWithoutFallback(state.callers, 'published')
@@ -172,53 +181,6 @@ function trackLaunchSettlement(
       }
     }
   )
-}
-
-function trackLaunchFailureToast(state: StructuredLaunchState): void {
-  void state.promise.catch(async (error) => {
-    if (error instanceof StructuredAgentSessionLaunchCancelledError) {
-      return
-    }
-    const agentLabel = structuredAgentLabel(state.intent.agent)
-    if (
-      error instanceof StructuredAgentSessionCreateRefusalError &&
-      (await state.callers.refusalSettlement.promise.catch(() => false))
-    ) {
-      // Why: the callback proves the fallback was attempted, not that its terminal became visible.
-      toast.message(
-        translate(
-          'components.native-chat.structuredSessionFellBackToTerminal',
-          "Structured chat isn't available"
-        ),
-        {
-          description: translate(
-            'components.native-chat.structuredSessionFellBackToTerminalDescription',
-            'Orca tried to open a {{value0}} terminal instead.',
-            { value0: agentLabel }
-          )
-        }
-      )
-      return
-    }
-    // Why: the raw error carries errnos and absolute paths; it belongs in the log, not the toast.
-    console.warn('[native-chat] structured launch failed', error)
-    toast.error(
-      translate(
-        'components.native-chat.structuredSessionLaunchFailed',
-        'Could not open {{value0}} chat',
-        {
-          value0: agentLabel
-        }
-      ),
-      {
-        description: translate(
-          'components.native-chat.structuredSessionLaunchFailedDescription',
-          'Orca could not open a structured {{value0}} chat. See the logs for details.',
-          { value0: agentLabel }
-        )
-      }
-    )
-  })
 }
 
 function structuredAgentLaunchState(
@@ -298,6 +260,10 @@ function structuredAgentLaunchState(
 }
 
 export function cancelStructuredAgentLaunch(worktreeId: string, sessionId: string): boolean {
+  const retry = retryStructuredLaunchCancellation(worktreeId, sessionId)
+  if (retry !== undefined) {
+    return retry
+  }
   const state = [...pendingStructuredLaunchesByIdentity.values()].find(
     (candidate) =>
       candidate.intent.worktreeId === worktreeId && candidate.intent.sessionId === sessionId
@@ -305,15 +271,14 @@ export function cancelStructuredAgentLaunch(worktreeId: string, sessionId: strin
   if (!state) {
     return false
   }
-  if (!discardStructuredAgentSessionLaunchOutbox(state.intent.sessionId)) {
-    return false
-  }
+  // Stop create reconciliation now; durable discard has its own retry owner.
   state.cancelled = true
+  cleanupLaunchState(state)
+  const persisted = persistStructuredLaunchCancellation(state.intent)
   settleStructuredLaunchCallersWithoutFallback(state.callers, 'cancelled')
   cleanupLaunchState(state)
-  abandonStructuredAgentSessionLaunchIntent(state.intent)
   notifyStructuredLaunchListeners()
-  return true
+  return persisted
 }
 
 export function startStructuredAgentLaunch(

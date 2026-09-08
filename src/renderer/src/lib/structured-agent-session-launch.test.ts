@@ -72,6 +72,7 @@ import {
   getStructuredAgentLaunchStatus,
   startStructuredAgentLaunch
 } from './structured-agent-session-launch'
+import * as launchCallers from './structured-agent-session-launch-callers'
 import { readOutbox } from '@/components/native-chat/structured-agent-session-outbox-storage'
 
 function launchIntent(
@@ -717,5 +718,80 @@ describe('startStructuredAgentLaunch', () => {
     expect(mocks.launch).toHaveBeenCalledTimes(2)
     expect(mocks.abandonIntent).toHaveBeenCalledWith(intent)
     expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('failed cancellation remains retryable after published unknown delivery settles unavailable', async () => {
+    const groups = vi.spyOn(launchCallers, 'createStructuredLaunchCallerGroup')
+    const worktreeId = 'wt-independent-published-cancel'
+    const intent = launchIntent(worktreeId)
+    mocks.createIntent.mockReturnValueOnce(intent)
+    mocks.launch.mockResolvedValueOnce({ sessionId: intent.sessionId, fence: 1 })
+    vi.mocked(refreshLocalStructuredSessionTabs).mockResolvedValue([
+      publishedSnapshot(worktreeId, intent.sessionId)
+    ])
+    mocks.callStructuredAgentSession.mockResolvedValue({
+      ok: true,
+      value: { submission: { dispatchState: 'unknown' } }
+    })
+    const launch = startStructuredAgentLaunch(worktreeId, 'codex', {
+      prompt: 'retain failed cancel'
+    })
+    await launch.launchResult
+    await flushLaunchSettlement()
+    expect(getStructuredAgentLaunchStatus(worktreeId, 'codex')).toBe('pending')
+    const before = readOutbox(intent.sessionId, false)
+    const spy = vi.spyOn(localStorage, 'removeItem').mockImplementation(() => {
+      throw new Error('synthetic storage failure')
+    })
+    expect(cancelStructuredAgentLaunch(worktreeId, intent.sessionId)).toBe(false)
+    spy.mockRestore()
+    await expect(launch.promptDeliveryResult).resolves.toMatchObject({ delivered: false })
+    await flushLaunchSettlement()
+    const group = groups.mock.results.at(-1)!.value
+    expect(group.entries.size).toBe(0)
+    expect(group.promptDeliveryResults.size).toBe(0)
+    groups.mockRestore()
+    const status = getStructuredAgentLaunchStatus(worktreeId, 'codex')
+    expect(readOutbox(intent.sessionId, false)).toEqual(before)
+    const retry = cancelStructuredAgentLaunch(worktreeId, intent.sessionId)
+    expect(status).toBe('pending')
+    expect(retry).toBe(true)
+    expect(readOutbox(intent.sessionId, false)).toEqual([])
+  })
+  it('keeps a later launch independent while failed cancellation and stale create settle', async () => {
+    const worktreeId = 'wt-cancel-generation'
+    const old = launchIntent(worktreeId, 'cancel-old-session')
+    const next = launchIntent(worktreeId, 'cancel-new-session')
+    const pending = Promise.withResolvers<{ sessionId: string; fence: number }>()
+    mocks.createIntent.mockReturnValueOnce(old).mockReturnValueOnce(next)
+    mocks.launch
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce({ sessionId: next.sessionId, fence: 2 })
+    vi.mocked(refreshLocalStructuredSessionTabs).mockResolvedValue([
+      publishedSnapshot(worktreeId, next.sessionId)
+    ])
+    mocks.callStructuredAgentSession.mockResolvedValue({
+      ok: true,
+      value: { submission: { dispatchState: 'unknown' } }
+    })
+    const first = startStructuredAgentLaunch(worktreeId, 'codex', { prompt: 'old' })
+    const rejected = expect(first.launchResult).rejects.toThrow('cancelled')
+    const failure = vi.spyOn(localStorage, 'removeItem').mockImplementation(() => {
+      throw new Error('synthetic failure')
+    })
+    expect(cancelStructuredAgentLaunch(worktreeId, old.sessionId)).toBe(false)
+    const second = startStructuredAgentLaunch(worktreeId, 'codex', { prompt: 'new' })
+    await second.launchResult
+    failure.mockRestore()
+    expect(cancelStructuredAgentLaunch(worktreeId, old.sessionId)).toBe(true)
+    pending.resolve({ sessionId: old.sessionId, fence: 1 })
+    await rejected
+    await flushLaunchSettlement()
+    expect(mocks.launch).toHaveBeenCalledTimes(2)
+    expect(readOutbox(next.sessionId)).toHaveLength(1)
+    expect(getStructuredAgentLaunchStatus(worktreeId, 'codex')).toBe('pending')
+    expect(cancelStructuredAgentLaunch(worktreeId, next.sessionId)).toBe(true)
+    await expect(second.promptDeliveryResult).resolves.toMatchObject({ delivered: false })
+    expect(getStructuredAgentLaunchStatus(worktreeId, 'codex')).toBe('idle')
   })
 })
