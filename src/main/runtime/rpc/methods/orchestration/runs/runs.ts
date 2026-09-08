@@ -3,12 +3,18 @@ import { defineMethod, type RpcMethod } from '../../../core'
 import { OptionalBoolean, OptionalString, requiredString } from '../../../schemas'
 import { ORCHESTRATION_RUN_PAGE_LIMIT } from '../../../../../../shared/orchestration-run-pagination'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
-import { assertCallerHandleMatchesEvidence, resolveOrchestrationCaller } from './run-scope'
+import {
+  assertCallerHandleMatchesEvidence,
+  resolveNativeCoordinatorSession,
+  resolveOrchestrationCaller
+} from './run-scope'
 import { exposeRun } from './run-receipt'
 
 const RunCreateParams = z.object({
   objective: requiredString('Missing --objective'),
-  from: requiredString('Missing coordinator terminal')
+  from: OptionalString,
+  agentSessionId: OptionalString,
+  runtimeFence: z.number().int().positive().optional()
 })
 
 const RunUseParams = z.object({
@@ -29,6 +35,18 @@ export const ORCHESTRATION_RUN_METHODS: RpcMethod[] = [
     name: 'orchestration.runCreate',
     params: RunCreateParams,
     handler: (params, { orchestrationCompatibilityEvidence, runtime }) => {
+      if (params.agentSessionId) {
+        if (params.runtimeFence === undefined) {
+          throw new OrchestrationError('consumer_fenced', 'Missing native session lease fence.')
+        }
+        resolveNativeCoordinatorSession(runtime, params.agentSessionId, params.runtimeFence)
+        const db = runtime.getOrchestrationDb()
+        const run = db.createRun({
+          objective: params.objective,
+          coordinatorAgentSessionId: params.agentSessionId
+        })
+        return { run: exposeRun(run) }
+      }
       const paneKey = resolveOrchestrationCaller(runtime, {
         callerTerminalHandle: params.from,
         callerEvidence: orchestrationCompatibilityEvidence,

@@ -6,6 +6,23 @@ import type {
   OrcaRuntimeService,
   OrchestrationCompatibilityCallerAuthority
 } from '../../../../orca-runtime'
+import { structuredWorkerIdentities } from '../../../../structured-worker-identity'
+import { resolveStructuredWorkerAuthority } from '../../../../structured-worker-authority'
+
+export function resolveNativeCoordinatorSession(
+  runtime: OrcaRuntimeService,
+  sessionId: string,
+  runtimeFence: number
+): { sessionId: string; worktreeId: string } {
+  const identity = structuredWorkerIdentities.getBySessionId(sessionId)
+  const authority = identity
+    ? resolveStructuredWorkerAuthority(identity.handle, runtime.getOrchestrationDb())
+    : null
+  if (!authority || authority.record.lease.runtimeFence !== runtimeFence) {
+    throw new OrchestrationError('consumer_fenced', 'The native session lease is not current.')
+  }
+  return { sessionId, worktreeId: authority.identity.worktreeId }
+}
 
 export type RunScopeParams = {
   runId?: string

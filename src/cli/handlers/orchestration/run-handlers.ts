@@ -7,16 +7,23 @@ import {
 } from '../../flags'
 import { ORCHESTRATION_RUN_PAGE_LIMIT } from '../../../shared/orchestration-run-pagination'
 import { callOrchestrationMutation } from './mutation-request'
-import { resolveCoordinatorTerminalHandle } from './terminal-identity'
+import {
+  resolveCoordinatorTerminalHandle,
+  resolveOrchestrationAgentSessionId,
+  resolveOrchestrationRuntimeFence
+} from './terminal-identity'
 
 export const ORCHESTRATION_RUN_HANDLERS: Record<string, CommandHandler> = {
   'orchestration run-create': async ({ flags, client, cwd, json }) => {
-    const from = await resolveCoordinatorTerminalHandle(flags, cwd, client)
+    const sessionId = resolveOrchestrationAgentSessionId()
+    const fence = resolveOrchestrationRuntimeFence()
+    const from = sessionId ? undefined : await resolveCoordinatorTerminalHandle(flags, cwd, client)
     const result = await callOrchestrationMutation<{
       run: { id: string; objective: string; consumer_generation: number }
     }>(client, flags, 'orchestration.runCreate', {
       objective: getRequiredStringFlag(flags, 'objective'),
-      from
+      ...(from ? { from } : {}),
+      ...(sessionId ? { agentSessionId: sessionId, runtimeFence: Number(fence) } : {})
     })
     printResult(result, json, (r) => `Run ${r.run.id} created and bound: ${r.run.objective}`)
   },
