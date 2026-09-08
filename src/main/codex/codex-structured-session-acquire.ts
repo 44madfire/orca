@@ -195,6 +195,7 @@ export async function acquireCodexStructuredSession(input: {
       launch,
       historyPath: opened.historyPath,
       conversationName: opened.name ?? null,
+      conversationNameRevision: 0,
       naming: null,
       namingAttempted: false,
       historyMode: opened.historyMode,

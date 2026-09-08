@@ -123,7 +123,14 @@ describe('Codex structured conversation name', () => {
   })
 })
 
-function namingProvider(options: { hang?: boolean; decline?: boolean; failClose?: boolean } = {}) {
+function namingProvider(
+  options: {
+    hang?: boolean
+    decline?: boolean
+    failClose?: boolean
+    holdClose?: Promise<void>
+  } = {}
+) {
   const connections: FakeConnection[] = []
   const launchCalls: CodexAppServerLaunch[] = []
   const openConnection = (async (launch, handlers = {}) => {
@@ -157,6 +164,9 @@ function namingProvider(options: { hang?: boolean; decline?: boolean; failClose?
         return { turn: { id: params?.threadId === THREAD_ID ? 'user-turn' : 'naming-turn' } }
       }),
       close: vi.fn(async () => {
+        if (naming) {
+          await options.holdClose
+        }
         if (naming && options.failClose) {
           return false
         }
@@ -180,6 +190,7 @@ const userMessage = {
 async function namingAdapter(provider: ReturnType<typeof namingProvider>, attempted = false) {
   const onConversationName = vi.fn()
   const markNamingAttempted = vi.fn()
+  const onConversationNameCleared = vi.fn()
   const onEvent = vi.fn()
   const adapter = new CodexStructuredSessionAdapter({
     resolveLaunch: async () => ({
@@ -194,6 +205,7 @@ async function namingAdapter(provider: ReturnType<typeof namingProvider>, attemp
     readProcessStartTime: async () => 1000,
     onConversationName,
     markNamingAttempted,
+    onConversationNameCleared,
     readNamingAttempted: () => attempted,
     onEvent
   })
@@ -209,10 +221,47 @@ async function namingAdapter(provider: ReturnType<typeof namingProvider>, attemp
       await Promise.resolve()
     }
   }
-  return { adapter, dispatch, onConversationName, markNamingAttempted, onEvent }
+  return {
+    adapter,
+    dispatch,
+    onConversationName,
+    onConversationNameCleared,
+    markNamingAttempted,
+    onEvent
+  }
 }
 
 describe('Codex naming process isolation through the adapter', () => {
+  it.each(['A newer manual name', null])(
+    'preserves a newer provider publication during naming cleanup: %s',
+    async (newerName) => {
+      let release = (): void => {}
+      const holdClose = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const provider = namingProvider({ holdClose })
+      const f = await namingAdapter(provider)
+      await f.dispatch()
+      expect(provider.connections[1]!.close).toHaveBeenCalled()
+      provider.connections[0]!.handlers.onNotification?.('thread/name/updated', {
+        threadId: THREAD_ID,
+        threadName: 'Fix probe'
+      })
+      provider.connections[0]!.handlers.onNotification?.('thread/name/updated', {
+        threadId: THREAD_ID,
+        threadName: newerName
+      })
+      f.onConversationName.mockClear()
+      release()
+      for (let i = 0; i < 40; i += 1) {
+        await Promise.resolve()
+      }
+      expect(f.onConversationName).not.toHaveBeenCalled()
+      expect(f.onConversationNameCleared).toHaveBeenCalledTimes(newerName === null ? 1 : 0)
+      await f.adapter.closeAll()
+    }
+  )
+
   it('starts a separate process once and delivers only the final name to the session', async () => {
     const provider = namingProvider()
     const f = await namingAdapter(provider)

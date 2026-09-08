@@ -102,6 +102,7 @@ describe('Codex structured session close lifecycle', () => {
         resumeThreadId: null
       },
       conversationName: null,
+      conversationNameRevision: 0,
       naming,
       namingAttempted: false,
       prompts: { clear: vi.fn() } as unknown as CodexSession['prompts'],
@@ -157,6 +158,7 @@ describe('Codex structured session close lifecycle', () => {
         resumeThreadId: null
       },
       conversationName: null,
+      conversationNameRevision: 0,
       naming: null,
       namingAttempted: false,
       prompts,

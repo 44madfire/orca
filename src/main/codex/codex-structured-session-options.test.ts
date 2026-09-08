@@ -35,6 +35,7 @@ function optionSession(request: CodexAppServerConnection['request']): CodexSessi
       resumeThreadId: null
     },
     conversationName: null,
+    conversationNameRevision: 0,
     naming: null,
     namingAttempted: false,
     prompts: new CodexAcquisitionWindow().prompts,

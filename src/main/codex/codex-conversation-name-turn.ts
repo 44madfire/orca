@@ -64,6 +64,7 @@ export function startCodexConversationNaming(input: CodexConversationNamingInput
         return
       }
       const launch = session.launch
+      const nameRevision = session.conversationNameRevision
       const model = session.options.get('model') ?? session.reportedOptions.model
       const task = new CodexConversationNamingTask({
         launch: {
@@ -95,7 +96,12 @@ export function startCodexConversationNaming(input: CodexConversationNamingInput
       if (outcome.settled) {
         input.markNamingAttempted?.(sessionId)
       }
-      if (outcome.name && session.conversationName !== outcome.name) {
+      // Provider notifications can supersede the RPC result while its child is closing.
+      if (
+        session.conversationNameRevision === nameRevision &&
+        outcome.name &&
+        session.conversationName !== outcome.name
+      ) {
         session.conversationName = outcome.name
         input.onConversationName?.(sessionId, outcome.name)
       }
@@ -118,6 +124,7 @@ export function captureCodexConversationName(
   if ((readCodexThreadId(params) ?? session.threadId) !== session.threadId) {
     return
   }
+  session.conversationNameRevision += 1
   const conversationName = readCodexThreadName(params)
   if (!conversationName) {
     if (session.conversationName !== null) {

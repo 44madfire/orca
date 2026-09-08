@@ -76,6 +76,7 @@ export type CodexSession = {
   launch: CodexStructuredLaunch
   historyPath: string | null
   conversationName: string | null
+  conversationNameRevision: number
   naming: CodexConversationNamingTask | null
   namingAttempted: boolean
   historyMode?: 'legacy' | 'paginated'
