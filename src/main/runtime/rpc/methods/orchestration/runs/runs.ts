@@ -8,8 +8,7 @@ import { exposeRun } from './run-receipt'
 
 const RunCreateParams = z.object({
   objective: requiredString('Missing --objective'),
-  from: OptionalString,
-  agentSessionId: OptionalString
+  from: requiredString('Missing coordinator terminal')
 })
 
 const RunUseParams = z.object({
@@ -30,27 +29,19 @@ export const ORCHESTRATION_RUN_METHODS: RpcMethod[] = [
     name: 'orchestration.runCreate',
     params: RunCreateParams,
     handler: (params, { orchestrationCompatibilityEvidence, runtime }) => {
-      const paneKey = params.from
-        ? resolveOrchestrationCaller(runtime, {
-            callerTerminalHandle: params.from,
-            callerEvidence: orchestrationCompatibilityEvidence,
-            requireStablePane: true
-          })
-        : null
-      if (!params.from && !params.agentSessionId) {
-        throw new OrchestrationError('stable_pane_required', 'Missing coordinator identity.')
-      }
+      const paneKey = resolveOrchestrationCaller(runtime, {
+        callerTerminalHandle: params.from,
+        callerEvidence: orchestrationCompatibilityEvidence,
+        requireStablePane: true
+      })
       const db = runtime.getOrchestrationDb()
-      const priorRun = paneKey ? db.getCurrentRunForPane(paneKey) : undefined
+      const priorRun = db.getCurrentRunForPane(paneKey)
       const run = db.createRun({
         objective: params.objective,
         coordinatorHandle: params.from,
-        coordinatorPaneKey: paneKey,
-        coordinatorAgentSessionId: params.agentSessionId
+        coordinatorPaneKey: paneKey
       })
-      if (params.from) {
-        runtime.cancelMessageWaiters(params.from)
-      }
+      runtime.cancelMessageWaiters(params.from)
       if (priorRun) {
         runtime.cancelMessageWaiters(`run:${priorRun.id}`)
       }
