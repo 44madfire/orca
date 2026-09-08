@@ -1,10 +1,4 @@
-import {
-  mapNormalizedRange,
-  mergeMatchRanges,
-  normalizePaletteText,
-  type MatchRange,
-  type NormalizedText
-} from './palette-match/normalized-text'
+import { mergeMatchRanges, type MatchRange } from './palette-match/normalized-text'
 import {
   createPaletteFallbackRank,
   type PaletteDocumentRank
@@ -12,11 +6,13 @@ import {
 import type { PaletteQueryToken } from './palette-match/palette-query'
 import type { AgentMetadata } from './workspace-tab-agent-metadata'
 
-// Agent text stays a last-place fallback outside structured token coverage.
+/**
+ * Agent prompts and assistant messages are deliberately outside the structured tab
+ * matcher — they have no evidence contract and no performance gate yet. This
+ * fallback preserves the pre-existing ability to find a terminal by what its agent
+ * said, as a strictly last-place tier that never contributes to token coverage.
+ */
 const AGENT_SNIPPET_RANK: PaletteDocumentRank = createPaletteFallbackRank()
-
-// Closing or rebuilding palette entries releases their Unicode offset maps.
-const foldedByMetadata = new WeakMap<readonly AgentMetadata[], Map<string, NormalizedText>>()
 
 export type WorkspaceTabAgentSnippetMatch = {
   text: string
@@ -24,31 +20,10 @@ export type WorkspaceTabAgentSnippetMatch = {
   rank: PaletteDocumentRank
 }
 
-function getFoldedSnippet(text: string, agentMetadata: readonly AgentMetadata[]): NormalizedText {
-  let cache = foldedByMetadata.get(agentMetadata)
-  if (!cache) {
-    cache = new Map()
-    foldedByMetadata.set(agentMetadata, cache)
-  }
-  let folded = cache.get(text)
-  if (!folded) {
-    folded = normalizePaletteText(text)
-    cache.set(text, folded)
-  }
-  return folded
-}
-
-function coverAllTokens(
-  text: string,
-  tokens: readonly PaletteQueryToken[],
-  agentMetadata: readonly AgentMetadata[]
-): MatchRange[] | null {
-  // Why the cheap path first: this tier scans long agent text for every row the structured
-  // matcher rejected, and U+0130 is the only code point `toLowerCase` lengthens — so folding
-  // (and the cache behind it) stays unreachable for ASCII and every other script.
-  const lowered = text.toLowerCase()
-  const folded = lowered.length === text.length ? null : getFoldedSnippet(text, agentMetadata)
-  const haystack = folded ? folded.normalized : lowered
+function coverAllTokens(text: string, tokens: readonly PaletteQueryToken[]): MatchRange[] | null {
+  // U+0130 is the only code point whose `toLowerCase` lengthens text, and none shrink, so
+  // folding it to 'i' first keeps the haystack offset-identical to the original text.
+  const haystack = text.includes('İ') ? text.replaceAll('İ', 'i').toLowerCase() : text.toLowerCase()
   const ranges: MatchRange[] = []
   for (const token of tokens) {
     if (token.isPunctuationOnly) {
@@ -58,8 +33,7 @@ function coverAllTokens(
     if (index === -1) {
       return null
     }
-    const end = index + token.text.length
-    ranges.push(folded ? mapNormalizedRange(folded, index, end) : { start: index, end })
+    ranges.push({ start: index, end: index + token.text.length })
   }
   return mergeMatchRanges(ranges)
 }
@@ -71,7 +45,7 @@ export function matchWorkspaceTabAgentSnippet(
   for (const source of ['snippetCandidates', 'textParts'] as const) {
     for (const metadata of agentMetadata) {
       for (const text of metadata[source]) {
-        const ranges = coverAllTokens(text, query.tokens, agentMetadata)
+        const ranges = coverAllTokens(text, query.tokens)
         if (ranges) {
           return { text, ranges, rank: AGENT_SNIPPET_RANK }
         }

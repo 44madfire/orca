@@ -130,6 +130,15 @@ describe('normalization and ranges', () => {
     )
   })
 
+  it('folds Turkish dotted I to a plain i without shifting offsets', () => {
+    const text = normalizePaletteText('İstanbul İŞLEM')
+    expect(text.normalized).toBe('istanbul işlem')
+    expect(text.starts).toBeNull()
+    expect(mapNormalizedRange(text, 9, 14)).toEqual({ start: 9, end: 14 })
+    expect(ready('İstanbul').tokens[0].text).toBe('istanbul')
+    expect(ready('istanbul').tokens[0].text).toBe('istanbul')
+  })
+
   it('folds ASCII control whitespace without shifting offsets', () => {
     const text = normalizePaletteText('line one\nline two')
     expect(text.normalized).toBe('line one line two')

@@ -23,9 +23,16 @@ function isCombiningMark(codePoint: number): boolean {
   return COMBINING_MARK.test(String.fromCodePoint(codePoint))
 }
 
-function foldChunk(chunk: string): string {
+// U+0130 is the only code point in Unicode whose `toLowerCase` lengthens the string, and
+// none shrink. Folding it to the Turkish-locale 'i' keeps every case fold offset-preserving.
+const DOTTED_CAPITAL_I = 0x130
+
+function foldChunk(chunk: string, codePoint: number): string {
   if (UNICODE_SPACE.test(chunk) && chunk.trim() === '') {
     return ' '
+  }
+  if (codePoint === DOTTED_CAPITAL_I) {
+    return `i${chunk.slice(1).normalize('NFC').toLowerCase()}`
   }
   return chunk.normalize('NFC').toLowerCase()
 }
@@ -61,7 +68,7 @@ export function normalizePaletteText(original: string): NormalizedText {
       end += next > 0xffff ? 2 : 1
     }
 
-    const folded = foldChunk(original.slice(index, end))
+    const folded = foldChunk(original.slice(index, end), codePoint)
     if (folded.length !== end - index) {
       identity = false
     }
