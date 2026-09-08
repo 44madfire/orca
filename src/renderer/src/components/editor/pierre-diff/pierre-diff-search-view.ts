@@ -90,7 +90,10 @@ export function getPierreSearchRanges(
       }
     })
   }
-  const result: { matches: Range[]; active: Range[] } = { matches: [], active: [] }
+  const result: { matches: Range[]; active: Range[]; activeStart?: Range; activeEnd?: Range } = {
+    matches: [],
+    active: []
+  }
   for (const row of rows) {
     if (split && !row.closest(`[data-code][data-${side}]`)) {
       continue
@@ -122,6 +125,12 @@ export function getPierreSearchRanges(
         result.matches.push(range)
         if (match === active) {
           result.active.push(range)
+          if (match.range.start.line === line - 1) {
+            result.activeStart = range
+          }
+          if (match.range.end.line === line - 1) {
+            result.activeEnd = range
+          }
         }
       }
     }

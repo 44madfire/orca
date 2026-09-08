@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { FileDiff } from '@pierre/diffs/react'
 import type {
   FileDiff as PierreFileDiff,
@@ -27,6 +27,7 @@ import {
 import { usePierreDiffFind } from './use-pierre-diff-find'
 import { PierreDiffSearchBar } from './PierreDiffSearchBar'
 import { usePierreDiffShiftWheel } from './use-pierre-diff-shift-wheel'
+import { usePierreDiffNativeView } from './use-pierre-diff-native-view'
 import { installPierreContextualCopy } from './pierre-diff-context-copy'
 import { editorShortcutMatches } from '../editor-shortcuts'
 import { usePierreDiffNoteNavigation } from './use-pierre-diff-note-navigation'
@@ -112,11 +113,21 @@ export function PierreDiffSurface({
     onPostRender: searchPostRender,
     onEditChange: searchEditChange
   } = usePierreDiffFind({ isEditable, containerRef, editorRef, fileDiff })
-  onEditChangeRef.current = (file) => {
-    onEditChange?.(file)
-    searchEditChange()
-  }
+  useLayoutEffect(() => {
+    onEditChangeRef.current = (file) => {
+      onEditChange?.(file)
+      searchEditChange()
+    }
+  }, [onEditChange, searchEditChange])
   const shiftWheelPostRender = usePierreDiffShiftWheel()
+  const nativeViewPostRender = usePierreDiffNativeView(
+    editStateKey,
+    fileDiff,
+    isEditable,
+    containerRef,
+    activeGroupId,
+    editorRef
+  )
   const navigateToNote = usePierreDiffNoteNavigation({ worktreeId, filePath, comments })
   const commentableLines = useMemo(
     () => (commentableLineNumbers ? new Set(commentableLineNumbers) : null),
@@ -125,7 +136,9 @@ export function PierreDiffSurface({
 
   // Why: Monaco's diff panes owned `editor.copyContext`; restore it for Pierre rows.
   const fileInfoRef = useRef({ relativePath: filePath, language: language ?? '' })
-  fileInfoRef.current = { relativePath: filePath, language: language ?? '' }
+  useLayoutEffect(() => {
+    fileInfoRef.current = { relativePath: filePath, language: language ?? '' }
+  }, [filePath, language])
   useEffect(() => {
     const node = containerRef.current
     if (!node) {
@@ -161,6 +174,7 @@ export function PierreDiffSurface({
         navigateToNote(node, phase, instance)
         searchPostRender(node, phase, instance)
         shiftWheelPostRender(node, phase, instance)
+        nativeViewPostRender(node, phase, instance)
       }
     }),
     [
@@ -172,6 +186,7 @@ export function PierreDiffSurface({
       navigateToNote,
       searchPostRender,
       shiftWheelPostRender,
+      nativeViewPostRender,
       commentableLines,
       addCommentLabel
     ]

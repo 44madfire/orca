@@ -28,3 +28,7 @@ the patch when an upstream release provides the same behavior.
 The package entrypoint also exposes its existing `iterateOverDiff` iterator.
 Search uses it to map original/context line numbers onto virtualized split and
 unified rows, reusing Pierre's hunk logic without copying its implementation.
+
+`Editor.setDeletedTextSelectionActive` exposes the existing original-side selection
+mode. Native selection restoration and search closing use it to clear modified-side
+carets and keep the original selection visible without simulating pointer input.

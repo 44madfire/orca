@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef } from 'react'
 import type React from 'react'
 import { useAppStore } from '@/store'
 import { joinPath } from '@/lib/path'
@@ -110,6 +110,8 @@ export function useCombinedDiffSectionSave({
     [file, sectionsRef, setSectionHeights, setSections]
   )
   const saveRef = useRef(saveSection)
-  saveRef.current = saveSection
+  useLayoutEffect(() => {
+    saveRef.current = saveSection
+  }, [saveSection])
   return saveRef
 }

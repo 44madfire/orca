@@ -92,6 +92,7 @@ export function buildPierreDiffStyle(
     // drop all the way to the default serif face. Reuse the terminal's
     // cross-platform monospace chain, which always ends in `monospace`.
     '--diffs-font-family': buildFontFamily(resolveEditorFontFamily(settings)),
+    '--diffs-editor-selection-bg': 'var(--editor-selection-background)',
     '--diffs-font-size': `${fontSize}px`,
     '--diffs-line-height': `${buildPierreDiffMetrics(settings, editorFontZoomLevel).lineHeight}px`
   } as CSSProperties

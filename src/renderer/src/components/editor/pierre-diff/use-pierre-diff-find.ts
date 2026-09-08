@@ -56,7 +56,12 @@ export function usePierreDiffFind({
   const matches = result?.matches
   const index = selection?.request === request ? selection.index : 0
   const active = matches?.[index]
-  const onPostRender = usePierreDiffSearchView({ fileDiff, side, matches, active })
+  const { onPostRender, selectActive } = usePierreDiffSearchView({
+    fileDiff,
+    side,
+    matches,
+    active
+  })
   const canReplace = isEditable && side === 'additions'
   useEffect(() => {
     if (canReplace && active) {
@@ -68,9 +73,11 @@ export function usePierreDiffFind({
     if (isEditable && side === 'additions') {
       editorRef.current?.focus({ preventScroll: true })
     } else {
+      editorRef.current?.setDeletedTextSelectionActive(side === 'deletions')
+      selectActive()
       containerRef.current?.focus({ preventScroll: true })
     }
-  }, [isEditable, side, editorRef, containerRef])
+  }, [isEditable, side, editorRef, containerRef, selectActive])
   const navigate = useCallback(
     (direction: 1 | -1) => {
       if (!request || !matches?.length) {

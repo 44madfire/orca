@@ -25,6 +25,7 @@ export function usePierreDiffSearchView({
   const owner = useRef({})
   const frame = useRef<number | null>(null)
   const pending = useRef(false)
+  const nativeRange = useRef<{ start: Range; end: Range } | null>(null)
   const schedule = useCallback(() => {
     if (frame.current !== null) {
       return
@@ -54,6 +55,10 @@ export function usePierreDiffSearchView({
         })
       }
       const ranges = getPierreSearchRanges(host, fileDiff, side, matches, active)
+      nativeRange.current =
+        ranges.activeStart && ranges.activeEnd
+          ? { start: ranges.activeStart, end: ranges.activeEnd }
+          : null
       paintPierreSearchHighlights(owner.current, ranges)
       if (pending.current && ranges.active.length) {
         const range = ranges.active[0]
@@ -78,10 +83,11 @@ export function usePierreDiffSearchView({
         cancelAnimationFrame(frame.current)
       }
       frame.current = null
+      nativeRange.current = null
       paintPierreSearchHighlights(token)
     }
   }, [schedule, active])
-  return useCallback(
+  const onPostRender = useCallback(
     (host: HTMLElement, phase: PostRenderPhase, instance: PierreDiffInstance) => {
       if (phase === 'unmount') {
         viewRef.current = null
@@ -93,4 +99,22 @@ export function usePierreDiffSearchView({
     },
     [schedule]
   )
+  const selectActive = useCallback(() => {
+    const range = nativeRange.current
+    if (!range?.start.startContainer.isConnected || !range.end.endContainer.isConnected) {
+      return
+    }
+    const root = range.start.startContainer.getRootNode() as ShadowRoot & {
+      getSelection?: () => Selection | null
+    }
+    root
+      .getSelection?.()
+      ?.setBaseAndExtent(
+        range.start.startContainer,
+        range.start.startOffset,
+        range.end.endContainer,
+        range.end.endOffset
+      )
+  }, [])
+  return { onPostRender, selectActive }
 }

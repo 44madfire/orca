@@ -1,6 +1,6 @@
 import type { IRange } from 'monaco-editor'
 
-function selectionSide(node: Node): 'additions' | 'deletions' | null {
+export function selectionSide(node: Node): 'additions' | 'deletions' | null {
   const element = node instanceof Element ? node : node.parentElement
   const code = element?.closest('[data-code]')
   const type = element?.closest('[data-line]')?.getAttribute('data-line-type')

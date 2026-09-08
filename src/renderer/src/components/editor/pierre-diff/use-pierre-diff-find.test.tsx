@@ -6,7 +6,9 @@ import { usePierreDiffFind } from './use-pierre-diff-find'
 
 const { results } = vi.hoisted(() => ({ results: vi.fn() }))
 vi.mock('./use-pierre-diff-search-results', () => ({ usePierreDiffSearchResults: results }))
-vi.mock('./use-pierre-diff-search-view', () => ({ usePierreDiffSearchView: () => vi.fn() }))
+vi.mock('./use-pierre-diff-search-view', () => ({
+  usePierreDiffSearchView: () => ({ onPostRender: vi.fn(), selectActive: vi.fn() })
+}))
 vi.mock('../editor-shortcuts', () => ({
   editorShortcutMatches: (action: string, event: KeyboardEvent) =>
     event.key === (action === 'editor.find' ? 'f' : 'h') && event.ctrlKey
@@ -25,6 +27,7 @@ function setup(isEditable: boolean) {
     getText: vi.fn(() => 'modified'),
     applyEdits: vi.fn(),
     setSelections: vi.fn(),
+    setDeletedTextSelectionActive: vi.fn(),
     focus: vi.fn()
   }
   const fileDiff = { additionLines: ['modified'], deletionLines: ['original'] } as FileDiffMetadata
@@ -62,13 +65,15 @@ it('opens find on the first press without creating a writable read-only session'
   expect(result.current.searchBar).toBeNull()
 })
 
-it('searches original content and never replaces on that side', () => {
+it('searches original content and restores its native selection on close', () => {
   results.mockReturnValue(null)
-  const { result, find } = setup(true)
+  const { result, find, editor } = setup(true)
   find()
   act(() => result.current.searchBar?.onSide('deletions'))
   expect(results.mock.lastCall?.[0].text).toBe('original')
   expect(result.current.searchBar?.canReplace).toBe(false)
+  act(() => result.current.searchBar?.onClose())
+  expect(editor.setDeletedTextSelectionActive).toHaveBeenCalledWith(true)
 })
 
 it('fences replacement against edits made after async search started', () => {

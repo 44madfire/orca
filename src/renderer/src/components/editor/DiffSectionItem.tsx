@@ -240,6 +240,7 @@ export function DiffSectionItem({
     () =>
       fileDiff ? (
         <PierreDiffSurface
+          key={editStateKey}
           fileDiff={fileDiff}
           sideBySide={sideBySide}
           settings={settings}

@@ -155,6 +155,8 @@
   --orca-security-ring: #a1a1a1;
   --background: #fff;
   --editor-surface: #ffffff;
+  /* Match Monaco's default text-selection colors across editor surfaces. */
+  --editor-selection-background: #add6ff;
   --foreground: #0a0a0a;
   --card: #fff;
   --card-foreground: #0a0a0a;
@@ -273,6 +275,7 @@
   --orca-security-ring: #737373;
   --background: #0a0a0a;
   --editor-surface: #1e1e1e;
+  --editor-selection-background: #264f78;
   --foreground: #fafafa;
   --card: #171717;
   --card-foreground: #fafafa;

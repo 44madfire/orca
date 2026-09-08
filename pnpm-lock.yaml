@@ -109,7 +109,7 @@ overrides:
   monaco-editor>dompurify: 3.4.13
 
 patchedDependencies:
-  '@pierre/diffs@1.4.1': cf3934292c1f82103136fce3b19bfe68097c39175218fa78c2ac3bbc3f332b0d
+  '@pierre/diffs@1.4.1': d04bc1a060d8e2334c8f78c17878a1ae9fa32a8849a4defc0535b750bc488284
   '@vscode/windows-process-tree@0.8.0': e66202cc623996d02040c93449eb9ae353fddadf426cb53202a59ee710ee6fe7
   '@xterm/addon-ligatures@0.11.0-beta.300': 47405b9994b5acf1b4e90b49250358c1ca03649854d59560e7732b72fe336920
   '@xterm/addon-search@0.17.0-beta.300': eee5338dd2621ece46e79c61ec06766cd7fadaf79ffdb24e2a8ab68e97ef31f0
@@ -143,7 +143,7 @@ importers:
         version: 2.5.6
       '@pierre/diffs':
         specifier: 1.4.1
-        version: 1.4.1(patch_hash=cf3934292c1f82103136fce3b19bfe68097c39175218fa78c2ac3bbc3f332b0d)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 1.4.1(patch_hash=d04bc1a060d8e2334c8f78c17878a1ae9fa32a8849a4defc0535b750bc488284)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@xterm/addon-serialize':
         specifier: 0.15.0-beta.300
         version: 0.15.0-beta.300(patch_hash=851eac3d75e6d8c013b9f4c053e61d824b23965cb19ecc28e335e05059f3a294)(@xterm/xterm@6.1.0-beta.303(patch_hash=98756bcedc402bcdb7c6ab7b015d2e59cd18e97b03a2c06a27e95bb3ba429d9d))
@@ -8280,7 +8280,7 @@ snapshots:
       tslib: 2.8.1
       webcrypto-core: 1.9.2
 
-  '@pierre/diffs@1.4.1(patch_hash=cf3934292c1f82103136fce3b19bfe68097c39175218fa78c2ac3bbc3f332b0d)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@pierre/diffs@1.4.1(patch_hash=d04bc1a060d8e2334c8f78c17878a1ae9fa32a8849a4defc0535b750bc488284)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@pierre/theme': 2.0.0
       '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(shiki@4.4.3)

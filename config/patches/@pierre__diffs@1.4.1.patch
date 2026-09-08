@@ -174,3 +174,29 @@ index 4e6aeb4cd0a5dc1f9dd094b874f338cafceff29b..fc3bcf89f79ea56dba0a8a84b507fc97
  		}
  		return this.renderCache.result != null ? this.processDiffResult(this.renderCache.diff, renderRange, this.renderCache.result) : void 0;
  	}
+diff --git a/dist/editor/editor.js b/dist/editor/editor.js
+--- a/dist/editor/editor.js
++++ b/dist/editor/editor.js
+@@ -408,6 +408,10 @@
+ 		} else if (this.#ownsVerticalViewport) this.#scrollToPrimaryCaret();
+ 		this.#checkpointEditSessionState();
+ 	}
++	setDeletedTextSelectionActive(active) {
++		this.#setDeletedTextSelectionActive(active);
++		if (active && this.#selections !== void 0) this.#updateSelections([]);
++	}
+ 	setSelections(selections) {
+ 		const textDocument = this.#editSession?.document;
+ 		if (textDocument === void 0) throw new Error("Editor.setSelections: Text document is not initialized");
+diff --git a/dist/editor/editor.d.ts b/dist/editor/editor.d.ts
+--- a/dist/editor/editor.d.ts
++++ b/dist/editor/editor.d.ts
+@@ -184,6 +184,8 @@
+     selections,
+     view
+   }: EditorViewState): void;
++  /** Select original-side native text without simulating a pointer gesture. */
++  setDeletedTextSelectionActive(active: boolean): void;
+   setSelections(selections: (Range & {
+     direction: 'none' | 'backward' | 'forward';
+   })[]): void;

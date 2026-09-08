@@ -67,11 +67,13 @@ export function DiffCommentPopover({
 
   // Why: mirror `top` into a ref so the measure callback stays stable and the ResizeObserver isn't re-mounted each scroll frame.
   const topRef = useRef(top ?? 0)
-  topRef.current = top ?? 0
   const lineHeightRef = useRef(lineHeight)
-  lineHeightRef.current = lineHeight
   const layoutRef = useRef(layout)
-  layoutRef.current = layout
+  useLayoutEffect(() => {
+    topRef.current = top ?? 0
+    lineHeightRef.current = lineHeight
+    layoutRef.current = layout
+  }, [top, lineHeight, layout])
 
   const measureResolvedTop = useCallback((): void => {
     if (layoutRef.current === 'inline') {

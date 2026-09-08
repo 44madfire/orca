@@ -266,6 +266,7 @@ export default function DiffViewer({
         ) : fileDiff ? (
           <PierreDiffProviders scrollContainerRef={scrollContainerRef}>
             <PierreDiffSurface
+              key={modelKey}
               fileDiff={fileDiff}
               sideBySide={sideBySide}
               settings={settings}
