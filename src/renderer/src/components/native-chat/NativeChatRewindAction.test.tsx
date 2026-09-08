@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MessageRow } from './NativeChatMessageRow'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
@@ -13,18 +14,20 @@ function row(
 ) {
   const request = vi.fn()
   render(
-    <MessageRow
-      message={{
-        id: 'user-1',
-        role,
-        timestamp: 1,
-        source: 'transcript',
-        blocks: [{ type: 'text', text: 'Prompt' }]
-      }}
-      expandSignal={false}
-      onScrollMessageToTop={vi.fn()}
-      rewind={enabled ? { request, disabledReason } : undefined}
-    />
+    <TooltipProvider>
+      <MessageRow
+        message={{
+          id: 'user-1',
+          role,
+          timestamp: 1,
+          source: 'transcript',
+          blocks: [{ type: 'text', text: 'Prompt' }]
+        }}
+        expandSignal={false}
+        onScrollMessageToTop={vi.fn()}
+        rewind={enabled ? { request, disabledReason } : undefined}
+      />
+    </TooltipProvider>
   )
   return request
 }
@@ -41,7 +44,7 @@ describe('user-row rewind affordance', () => {
     fireEvent.click(button)
     expect(request).toHaveBeenCalledWith('user-1')
   })
-  it('exposes the disabled reason to keyboard users and cannot invoke rewind', () => {
+  it('exposes the disabled reason to keyboard users and cannot invoke rewind', async () => {
     const request = row('user', 'This older Codex conversation does not support rewinding.')
     const button = screen.getByRole('button', { name: 'Revert to here' })
     expect(button).toHaveAttribute('aria-disabled', 'true')
@@ -49,8 +52,11 @@ describe('user-row rewind affordance', () => {
       'aria-description',
       'This older Codex conversation does not support rewinding.'
     )
-    button.focus()
+    act(() => button.focus())
     expect(button).toHaveFocus()
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'This older Codex conversation does not support rewinding.'
+    )
     fireEvent.click(button)
     expect(request).not.toHaveBeenCalled()
   })

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import '@testing-library/jest-dom/vitest'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
@@ -14,18 +15,20 @@ function renderMessage(
   rewind?: NativeChatRewindSurface
 ) {
   return render(
-    <MessageRow
-      message={{
-        id: 'message',
-        role,
-        timestamp,
-        source: 'transcript',
-        blocks: [{ type: 'text', text: 'Message text' }]
-      }}
-      expandSignal={false}
-      onScrollMessageToTop={vi.fn()}
-      rewind={rewind}
-    />
+    <TooltipProvider>
+      <MessageRow
+        message={{
+          id: 'message',
+          role,
+          timestamp,
+          source: 'transcript',
+          blocks: [{ type: 'text', text: 'Message text' }]
+        }}
+        expandSignal={false}
+        onScrollMessageToTop={vi.fn()}
+        rewind={rewind}
+      />
+    </TooltipProvider>
   )
 }
 

@@ -18,6 +18,7 @@ import {
   agentJournalItemKey,
   agentJournalSubmissionKey
 } from '../../../../shared/agent-session-journal-item-key'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { MessageRow } from './NativeChatMessageRow'
 
 const mocks = vi.hoisted(() => ({ call: vi.fn() }))
@@ -81,15 +82,17 @@ describe('rewind target after send acceptance', () => {
     const optimisticId = agentJournalSubmissionKey(entry.clientMessageId)
     const confirm = vi.fn().mockResolvedValue(true)
     const row = () => (
-      <MessageRow
-        message={hook.result.current.messages[0]!}
-        expandSignal={false}
-        onScrollMessageToTop={vi.fn()}
-        rewind={{
-          disabledReason: hook.result.current.rewind.disabledReason,
-          request: (itemId) => void hook.result.current.rewind.request(itemId, confirm)
-        }}
-      />
+      <TooltipProvider>
+        <MessageRow
+          message={hook.result.current.messages[0]!}
+          expandSignal={false}
+          onScrollMessageToTop={vi.fn()}
+          rewind={{
+            disabledReason: hook.result.current.rewind.disabledReason,
+            request: (itemId) => void hook.result.current.rewind.request(itemId, confirm)
+          }}
+        />
+      </TooltipProvider>
     )
     const view = render(row())
     fireEvent.click(screen.getByRole('button', { name: 'Revert to here' }))
