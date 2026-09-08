@@ -47,8 +47,18 @@ export async function listPairedEnvironmentHosts(userDataPath: string): Promise<
           undefined,
           abort.signal
         )
+        // An RPC-level rejection still proves contact: the handshake completed and the server
+        // answered. Say so, and name the rejection so a revoked pairing is not read as a
+        // network fault. A malformed payload proves nothing and stays unknown.
+        if (!response.ok) {
+          return {
+            ...base,
+            connected: true,
+            connectionStatus: 'connected',
+            probeError: 'status_rejected'
+          }
+        }
         if (
-          !response.ok ||
           !response.result ||
           typeof response.result !== 'object' ||
           Array.isArray(response.result)

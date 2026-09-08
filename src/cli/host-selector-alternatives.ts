@@ -6,6 +6,8 @@ import type { SshTargetSummary } from '../shared/ssh-types'
 export type { SshTargetSummary } from '../shared/ssh-types'
 export type EnvironmentSummary = { id: string; name: string }
 
+const STATE_FANOUT_BUDGET_MS = 5_000
+
 export type HostAlternatives = {
   sshTargets: readonly SshTargetSummary[]
   environments: readonly EnvironmentSummary[]
@@ -102,13 +104,10 @@ export async function listSshTargets(
   client: RuntimeClient,
   options?: { inventory: true }
 ): Promise<SshTargetSummary[]> {
-  const deadline = performance.now() + 5_000
-  const call = (method: string) =>
-    options?.inventory
-      ? client.call<{ targets: SshTargetSummary[] }>(method, undefined, {
-          timeoutMs: Math.max(1, Math.ceil(deadline - performance.now()))
-        })
-      : client.call<{ targets: SshTargetSummary[] }>(method)
+  // Why the enumeration call keeps the client default timeout: it is the listing itself, and one
+  // busy main process must not turn every SSH row into a warning. Only the per-target state
+  // fan-out below — the unbounded part — is charged against a scan budget.
+  const call = (method: string) => client.call<{ targets: SshTargetSummary[] }>(method)
   let targets: SshTargetSummary[]
   try {
     targets = (await call('ssh.listTargetSummaries')).result.targets
@@ -132,7 +131,9 @@ export async function listSshTargets(
       return []
     }
   }
-  return options?.inventory ? enrichLegacySshTargetStates(client, targets, deadline) : targets
+  return options?.inventory
+    ? enrichLegacySshTargetStates(client, targets, performance.now() + STATE_FANOUT_BUDGET_MS)
+    : targets
 }
 
 async function enrichLegacySshTargetStates(

@@ -198,6 +198,30 @@ describe('listSshTargets', () => {
     expect(call).toHaveBeenCalledTimes(1)
   })
 
+  // Why: a registered target the app has never connected to reports connected:false, which is
+  // authoritative. Treating that as unknown would re-query state for every idle target and get
+  // {state: null} back every time.
+  it('does not re-query state for targets the host reported as not connected', async () => {
+    const call = vi.fn().mockResolvedValueOnce({
+      result: { targets: [{ id: 'ssh-1', label: 'Dev box', connected: false }] }
+    })
+    await expect(
+      listSshTargets({ call } as unknown as RuntimeClient, { inventory: true })
+    ).resolves.toEqual([{ id: 'ssh-1', label: 'Dev box', connected: false }])
+    expect(call).toHaveBeenCalledTimes(1)
+  })
+
+  // Why: the enumeration call is the listing itself. Charging it against the fan-out budget let
+  // one busy main process replace every SSH row with an incomplete-list warning.
+  it('does not shrink the enumeration timeout to the state-fanout budget', async () => {
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce({ result: { targets: SSH_TARGETS } })
+      .mockResolvedValue({ result: { state: null } })
+    await listSshTargets({ call } as unknown as RuntimeClient, { inventory: true })
+    expect(call.mock.calls[0]).toEqual(['ssh.listTargetSummaries'])
+  })
+
   // Why: this only ever runs to enrich an error we are already reporting; a failure here must
   // not replace that error with a confusing one about SSH enumeration.
   it('returns nothing rather than masking the error it was enriching', async () => {

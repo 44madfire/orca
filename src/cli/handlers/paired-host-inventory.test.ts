@@ -118,8 +118,17 @@ describe('paired host inventory', () => {
   it('retains rows for RPC refusals and invalid saved endpoints', async () => {
     list.mockReturnValue([environment('refused'), { ...environment('broken'), endpoints: [] }])
     send.mockResolvedValue({ ok: false, error: { code: 'unauthorized', message: 'secret' } })
-    const hosts = await listPairedEnvironmentHosts('unused')
-    expect(hosts.map((host) => host.probeError)).toEqual(['status_unavailable', 'probe_failed'])
+    const [refused, broken] = await listPairedEnvironmentHosts('unused')
+    // A refusal is an answer, so contact is proven and must not read as a network failure.
+    expect(refused).toMatchObject({
+      connected: true,
+      connectionStatus: 'connected',
+      probeError: 'status_rejected'
+    })
+    expect(refused).not.toHaveProperty('platform')
+    expect(JSON.stringify(refused)).not.toContain('secret')
+    expect(broken.probeError).toBe('probe_failed')
+    expect(broken).not.toHaveProperty('connected')
     expect(send).toHaveBeenCalledTimes(1)
   })
 

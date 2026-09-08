@@ -151,10 +151,12 @@ describe('ssh RPC methods', () => {
 
     expect(response).toMatchObject({
       ok: true,
-      result: { targets: [{ id: 'ssh-1', label: 'Dev box' }] }
+      // A target with no live connection object is authoritatively not connected; only the
+      // lifecycle status and platform are genuinely unknown until it has connected once.
+      result: { targets: [{ id: 'ssh-1', label: 'Dev box', connected: false }] }
     })
     expect(JSON.stringify(response)).not.toContain('remotePlatform')
-    expect(JSON.stringify(response)).not.toContain('connected')
+    expect(JSON.stringify(response)).not.toContain('connectionStatus')
   })
 
   it('reports disconnected lifecycle states without calling them connected', async () => {

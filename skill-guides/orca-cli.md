@@ -30,11 +30,14 @@ and all saved paired Orca servers. Use the printed selector: `--host local`,
 `--host ssh:<target-id>`, or `--environment <environment-id>`.
 
 Platform comes from the owning host, not its name. SSH connectivity is the local
-app's known SSH state. Paired connectivity is a fresh read-only CLI probe, marked
+app's known SSH state, and its `connected` is authoritative — the app knows whether
+it holds a connection. Paired connectivity is a fresh read-only CLI probe, marked
 `connectionSource: "probe"` / `[probe]`, not the desktop's persistent connection.
-Unknown connectivity omits `connected`; never interpret that as `false` or as
+A paired row that omits `connected` was not reached; never read that as `false` or as
 evidence that remote processes exited. Failed probes retain the host row and a safe
-`probeError`. An unavailable SSH inventory produces an explicit incomplete-list warning.
+`probeError`. A probe the server answered but rejected reports `connected: true` with
+`probeError: "status_rejected"` — contact is proven, so re-pair rather than debug the
+network. An unavailable SSH inventory produces an explicit incomplete-list warning.
 
 Paired probes have a five-second scan budget and at most four concurrent sockets;
 they do not change pairing metadata or last-used ordering. Older servers fall back
