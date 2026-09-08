@@ -2,7 +2,7 @@ import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import type { OrchestrationDb } from '../../../../orchestration/db'
 import type { RunRow, TaskRow } from '../../../../orchestration/types'
-import { resolveDispatchCreator } from '../runs/dispatch-creator'
+import { resolveDispatchCreator, resolveWorkerStartCallerHandle } from '../runs/dispatch-creator'
 import { resolveDispatchCallerWorktreeId } from '../../orchestration-caller-workspace'
 import {
   resolveWorkerStartModeOnHost,
@@ -31,14 +31,12 @@ import {
   type WorkerSetupReceipt
 } from './worker-topology'
 import { prepareLocalWorkerStart } from './worker-start-validation'
-
 type WorkerStartMutation = {
   callerFingerprint: string
   requestId: string
   method: string
   payloadHash: string
 }
-
 export async function startLocalWorker(args: {
   params: WorkerStartInput
   runtime: OrcaRuntimeService
@@ -51,7 +49,7 @@ export async function startLocalWorker(args: {
   mode: WorkerStartModeReceipt
 }): Promise<unknown> {
   const { params, runtime, db, run, coordinatorPane, existingTask, orchestrationMutation } = args
-  const paramsWithFrom = { ...params, from: params.from ?? '' }
+  const paramsWithFrom = { ...params, from: resolveWorkerStartCallerHandle(params) }
   const requestedWorktree = paramsWithFrom.worktree ?? 'current'
   const createsWorktree = requestedWorktree === 'new-child' || requestedWorktree === 'new-top-level'
   const { agent, launch } = prepareLocalWorkerStart({
@@ -59,7 +57,6 @@ export async function startLocalWorker(args: {
     createsWorktree,
     runtime
   })
-
   const coordinatorWorktreeId = await resolveDispatchCallerWorktreeId(runtime, paramsWithFrom.from)
   const creationWorktree = createsWorktree
     ? await runtime.showManagedWorktree(`id:${coordinatorWorktreeId}`)
@@ -86,7 +83,6 @@ export async function startLocalWorker(args: {
     })
   }
   const mode = await resolveWorkerStartModeOnHost(runtime, args.mode, resolvedWorktree?.id, agent)
-
   const startOptions = {
     worktree: requestedWorktree,
     mode,
@@ -215,7 +211,6 @@ export async function startLocalWorker(args: {
       throw new Error('Setup terminal failed to start before the gated agent launch.')
     }
     persistWorkerReadinessStage(setupStage)
-
     failedStage = 'agent_readiness'
     // A structured session is ready the moment its attach returns ok: there is no boot-to-idle
     // gap and no terminal title to read an idle edge from.
@@ -246,7 +241,6 @@ export async function startLocalWorker(args: {
       setupState: setupReceipt.state,
       terminalOwnership: params.terminal ? 'external' : 'created'
     })
-
     failedStage = 'dispatch_input'
     const promptDelivery = await deliverWorkerDispatchPreamble({
       runtime,

@@ -36,6 +36,9 @@ export const WorkerStartParams = z
     devMode: z.boolean().optional()
   })
   .superRefine((params, ctx) => {
+    if (!params.from && !params.agentSessionId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['from'], message: 'Missing --from or agent session identity' })
+    }
     if (!params.task && !params.spec) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
