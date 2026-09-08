@@ -1,4 +1,4 @@
-import { hasUsableHostedReviewPushTarget } from '../../renderer/src/components/right-sidebar/source-control/review/hosted-review-push-target'
+import { hasUsableHostedReviewPushTarget } from '../../shared/hosted-review-push-target-admission'
 import { readOrProbeEffectiveUpstreamStatus } from './source-control/effective-upstream-status-probe'
 import { resolvedUpstreamNameCache } from './source-control/resolved-upstream-name-cache'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
