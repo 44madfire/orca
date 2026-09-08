@@ -1,4 +1,4 @@
-import { vi } from 'vitest'
+import { vi, type Mock } from 'vitest'
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../shared/terminal-tab-types'
 import { useAppStore } from '@/store'
@@ -12,13 +12,18 @@ import {
   observeHibernationPtyBindings,
   resetHibernationPaneAgeForTests
 } from './agent-hibernation-pane-age'
-import { createCompatibleRuntimeStatusResponseIfNeeded } from '../runtime/runtime-compatibility-test-fixture'
+import {
+  createCompatibleRuntimeStatusResponseIfNeeded,
+  type RuntimeEnvironmentCallRequest
+} from '../runtime/runtime-compatibility-test-fixture'
 import { clearRuntimeCompatibilityCacheForTests } from '../runtime/runtime-rpc-client'
 
 export const NOW = 10_000_000
 export const LEAF = '11111111-1111-4111-8111-111111111111'
 
-export const mockRuntimeEnvironmentCall = vi.fn()
+export type RuntimeEnvironmentCallStub = Mock<(args: RuntimeEnvironmentCallRequest) => unknown>
+
+export const mockRuntimeEnvironmentCall: RuntimeEnvironmentCallStub = vi.fn()
 
 vi.stubGlobal('window', {
   api: {
@@ -65,10 +70,12 @@ export function entry(): AgentStatusEntry {
   }
 }
 
+export type HibernationShutdownStub = Mock<AppState['shutdownCompletedAgentPaneForHibernation']>
+
 export function installEligibleState(
-  shutdownCompletedAgentPaneForHibernation = vi.fn(),
+  shutdownCompletedAgentPaneForHibernation: HibernationShutdownStub = vi.fn(),
   overrides: Partial<AppState> = {}
-): typeof shutdownCompletedAgentPaneForHibernation {
+): HibernationShutdownStub {
   const e = entry()
   const runtimeOwnerEnvironmentId = overrides.settings?.activeRuntimeEnvironmentId ?? undefined
   useAppStore.setState({
@@ -138,7 +145,7 @@ export function installRuntimeListResponses(
   ...responses: (ReturnType<typeof runtimeListResult> | Error)[]
 ): void {
   const queue = [...responses]
-  mockRuntimeEnvironmentCall.mockImplementation((args: { method: string }) => {
+  mockRuntimeEnvironmentCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
     const compatible = createCompatibleRuntimeStatusResponseIfNeeded(args)
     if (compatible) {
       return Promise.resolve(compatible)
