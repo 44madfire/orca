@@ -395,6 +395,11 @@ export function NativeChatResolvedView({
             expandSignal={false}
             fontScale={fontScale.scale}
             workingStartedAt={hookWorkingEpoch}
+            completedAt={
+              sessionWithPending.transcriptLifecycle?.state === 'completed'
+                ? sessionWithPending.transcriptLifecycle.timestamp
+                : null
+            }
             showTurnStatus={false}
             onLinkClick={onLinkClick}
             allowFileUriLinks={fileLinkContext !== null}

@@ -14,12 +14,14 @@ export function useNativeChatTurnStatus({
   messages,
   latestUserIndex,
   isWorking,
-  workingStartedAt
+  workingStartedAt,
+  completedAt
 }: {
   messages: readonly NativeChatMessage[]
   latestUserIndex: number
   isWorking: boolean
   workingStartedAt?: number | null
+  completedAt?: number | null
 }): {
   active: NativeChatTurnStatus | null
   completedByTurn: Readonly<Record<string, NativeChatTurnStatus>>
@@ -39,10 +41,11 @@ export function useNativeChatTurnStatus({
         validTurnKeys,
         isWorking,
         workingStartedAt,
+        completedAt,
         now: Date.now()
       })
     )
-  }, [activeTurnKey, isWorking, messages, workingStartedAt])
+  }, [activeTurnKey, completedAt, isWorking, messages, workingStartedAt])
 
   return selectNativeChatTurnStatuses(timingByTurn, {
     activeTurnKey,

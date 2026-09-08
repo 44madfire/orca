@@ -103,6 +103,7 @@ export function reduceNativeChatTurnTiming(
     validTurnKeys,
     isWorking,
     workingStartedAt,
+    completedAt,
     now
   }: {
     activeTurnKey: string
@@ -114,6 +115,8 @@ export function reduceNativeChatTurnTiming(
     validTurnKeys: ReadonlySet<string>
     isWorking: boolean
     workingStartedAt?: number | null
+    /** Authoritative completion timestamp. Required to settle without using observation time. */
+    completedAt?: number | null
     now: number
   }
 ): NativeChatTurnTimingByTurn {
@@ -160,7 +163,7 @@ export function reduceNativeChatTurnTiming(
     ...retained,
     [activeTurnKey]: {
       startedAt,
-      workedSeconds: Math.max(0, Math.floor((now - startedAt) / 1000))
+      workedSeconds: Math.max(0, Math.floor(((completedAt ?? now) - startedAt) / 1000))
     }
   }
 }

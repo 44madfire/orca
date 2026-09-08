@@ -30,6 +30,7 @@ export function NativeChatMessageList({
   onLinkClick,
   allowFileUriLinks = false,
   workingStartedAt,
+  completedAt,
   failedDeliveryMessageIds,
   showTurnStatus = true,
   turnActivity,
@@ -42,6 +43,7 @@ export function NativeChatMessageList({
   /** Chat-only text multiplier (1 = default), driven by the zoom shortcuts. */
   fontScale: number
   workingStartedAt?: number | null
+  completedAt?: number | null
   onLinkClick?: CommentMarkdownLinkClickHandler
   allowFileUriLinks?: boolean
   failedDeliveryMessageIds?: ReadonlySet<string>
@@ -108,7 +110,8 @@ export function NativeChatMessageList({
     messages,
     latestUserIndex,
     isWorking: showTurnStatus && isWorking,
-    workingStartedAt: showTurnStatus ? workingStartedAt : null
+    workingStartedAt: showTurnStatus ? workingStartedAt : null,
+    completedAt: showTurnStatus ? completedAt : null
   })
 
   const prependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
