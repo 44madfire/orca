@@ -3,14 +3,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
-import type { AgentSessionStatusEvent } from '../../../shared/agent-session-wire'
+import type {
+  AgentSessionStatusEvent,
+  AgentSessionStatusSummary
+} from '../../../shared/agent-session-wire'
 import { createClaudeJournalTranslator } from '../../claude/claude-structured-journal-translation'
 import { publishCodexTurnLifecycle } from '../../codex/codex-structured-journal-translation-turns'
 import { createDeferredStructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
 import { createTrackedJournalOpener } from '../agent-session-journal/journal-store-test-open'
 import {
   StructuredAgentSessionStatusFeed,
-  type StructuredAgentSessionStatusFeedDeps
+  type StructuredAgentSessionStatusFeedDeps,
+  type StructuredAgentSessionStatusSink
 } from './structured-agent-session-status-feed'
 
 const SESSION = 'status-session'
@@ -72,11 +76,13 @@ function feedFor(
     { journal: Awaited<ReturnType<typeof openJournal>>; hasProviderChild?: boolean }
   >,
   record: Partial<AgentSessionRecord> | null = null,
-  onStatusChanged?: StructuredAgentSessionStatusFeedDeps['onStatusChanged']
+  onStatusChanged?: StructuredAgentSessionStatusFeedDeps['onStatusChanged'],
+  statusSink?: StructuredAgentSessionStatusSink
 ) {
   let now = 1_000
   const feed = new StructuredAgentSessionStatusFeed({
     ...(onStatusChanged ? { onStatusChanged } : {}),
+    ...(statusSink ? { statusSink: () => statusSink } : {}),
     sessions: {
       get: (sessionId: string) => {
         const session = sessions.get(sessionId)
@@ -574,23 +580,46 @@ describe('StructuredAgentSessionStatusFeed', () => {
  * it lists every session this host has ever opened. Eviction's `forget-session` step deletes the
  * session from the live map and touches nothing else, so a poller has to intersect with that map.
  */
-describe('the polling reader answers from the live sessions, not the retained cache', () => {
-  it('drops an evicted session from the poll while a late subscriber still sees it', async () => {
+describe('the status sink sees the roster the broadcast cache deliberately lacks', () => {
+  function sinkFor() {
+    const published: AgentSessionStatusSummary[] = []
+    const forgotten: string[] = []
+    const sink: StructuredAgentSessionStatusSink = {
+      publish: (summary) => published.push(summary),
+      forget: (sessionId) => forgotten.push(sessionId)
+    }
+    return { sink, published, forgotten }
+  }
+
+  it('receives every change once, ownership revocation, and the forget edge', async () => {
     const journal = await openJournal()
-    const sessions = new Map([[SESSION, { journal }]])
-    const { feed } = feedFor(sessions)
+    const sessions = new Map([[SESSION, { journal, hasProviderChild: true }]])
+    const { sink, published, forgotten } = sinkFor()
+    const { feed } = feedFor(sessions, null, undefined, sink)
     await journal.appendItem(
       USER_IDENTITY,
       { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'hello' }] },
       { fence: 1 }
     )
     feed.publish(SESSION, journal)
-    expect(feed.liveSessionSummaries().map((summary) => summary.sessionId)).toEqual([SESSION])
+    // A second identical publication is deduped for the sink exactly as for subscribers, so the
+    // sink saw two writes: the opening projection the harness's subscriber triggered, then this.
+    feed.publish(SESSION, journal)
+    expect(published.map((summary) => summary.status)).toEqual([null, 'idle'])
+    expect(published.at(-1)).toMatchObject({
+      sessionId: SESSION,
+      status: 'idle',
+      hostExecutionOwned: true
+    })
 
-    // Exactly what eviction's `forget-session` step does; nothing else touches the feed.
+    feed.revokeLive(SESSION)
+    expect(published.at(-1)).toMatchObject({ sessionId: SESSION, status: 'idle' })
+    expect(published.at(-1)?.hostExecutionOwned).toBeUndefined()
+
+    // Exactly what `close` does after eviction: the cache keeps the projection, the sink does not.
     sessions.delete(SESSION)
-
-    expect(feed.liveSessionSummaries()).toEqual([])
+    feed.forget(SESSION)
+    expect(forgotten).toEqual([SESSION])
     const late: AgentSessionStatusEvent[] = []
     feed.subscribe({ id: 'list-2', emit: (event) => late.push(event) })
     expect(late).toEqual([
@@ -599,5 +628,29 @@ describe('the polling reader answers from the live sessions, not the retained ca
         sessions: [expect.objectContaining({ sessionId: SESSION, status: 'idle' })]
       }
     ])
+  })
+
+  it('keeps publishing to subscribers when the sink throws', async () => {
+    const journal = await openJournal()
+    const sink: StructuredAgentSessionStatusSink = {
+      publish: () => {
+        throw new Error('store down')
+      },
+      forget: () => {
+        throw new Error('store down')
+      }
+    }
+    const { feed, events } = feedFor(new Map([[SESSION, { journal }]]), null, undefined, sink)
+    await journal.appendItem(
+      USER_IDENTITY,
+      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'hello' }] },
+      { fence: 1 }
+    )
+    feed.publish(SESSION, journal)
+    expect(() => feed.forget(SESSION)).not.toThrow()
+    expect(events.at(-1)).toMatchObject({
+      type: 'status',
+      session: expect.objectContaining({ sessionId: SESSION, status: 'idle' })
+    })
   })
 })

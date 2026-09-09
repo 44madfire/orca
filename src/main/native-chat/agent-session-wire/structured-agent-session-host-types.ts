@@ -8,6 +8,7 @@ import type { AgentSessionJournal } from '../agent-session-journal/journal-store
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import type { AgentSessionAttachParams } from './structured-agent-session-attach'
 import type { StructuredAgentSessionHandoffTransport } from './structured-agent-session-handoff-types'
+import type { StructuredAgentSessionStatusSink } from './structured-agent-session-status-feed'
 
 export type StructuredAgentSessionCaller = { callerKey: string }
 
@@ -69,5 +70,8 @@ export type StructuredAgentSessionHostDeps = {
     summary: AgentSessionStatusSummary,
     options: { replay: boolean }
   ) => void
+  /** The agent-status store every held session's projection is written to and, on close,
+   *  removed from. Absent only in tests that read the feed directly. */
+  statusSink?: StructuredAgentSessionStatusSink
   handoffTransport?: StructuredAgentSessionHandoffTransport
 }
