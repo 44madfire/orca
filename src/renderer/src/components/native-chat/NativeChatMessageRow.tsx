@@ -19,6 +19,7 @@ import {
   NativeChatImageAttachments,
   ProviderFrameRow
 } from './NativeChatTranscriptChrome'
+import type { NativeChatDiffReveal } from './native-chat-turn-diffs'
 import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
 
 /** One message: its prose first, then a collapsible run folding all of the
@@ -28,6 +29,7 @@ import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
  *  keep their block identity, so only the changed row re-renders. */
 export const MessageRow = memo(function MessageRow({
   message,
+  revealedDiff,
   expandSignal,
   activeTurnIsWorking,
   onScrollMessageToTop,
@@ -39,6 +41,7 @@ export const MessageRow = memo(function MessageRow({
   runtimeContext
 }: {
   message: NativeChatMessage
+  revealedDiff?: NativeChatDiffReveal
   expandSignal: boolean
   activeTurnIsWorking?: boolean
   /** Align this message's top to the top of the scroll viewport. */
@@ -153,7 +156,7 @@ export const MessageRow = memo(function MessageRow({
         <NativeChatMessageTimestamp
           timestamp={message.timestamp}
           focusable
-          className="pointer-events-none select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+          className="select-none transition-opacity can-hover:pointer-events-none can-hover:opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100"
         />
         {deliveryFailed ? (
           <div className="max-w-[85%] text-[11px] text-destructive/80">
@@ -168,7 +171,7 @@ export const MessageRow = memo(function MessageRow({
   }
 
   // Plain assistant prose is the copyable unit; reasoning/system asides stay
-  // chrome-free. The controls reveal on hover (and on keyboard focus-within).
+  // chrome-free. Controls reveal on hover/keyboard focus and stay visible on touch.
   const showControls = !isReasoning && !isSystem && markdown.length > 0
 
   return (
@@ -199,6 +202,8 @@ export const MessageRow = memo(function MessageRow({
       {tools.length > 0 || subagentGroups.length > 0 ? (
         <NativeChatToolRun
           blocks={tools}
+          revealedDiff={revealedDiff}
+          onRevealDiff={onScrollMessageToTop}
           onLinkClick={onLinkClick}
           subagentGroups={subagentGroups}
           expandSignal={expandSignal}
@@ -212,7 +217,7 @@ export const MessageRow = memo(function MessageRow({
           markdown={markdown}
           timestamp={message.timestamp}
           onScrollToTop={scrollToTop}
-          className="pointer-events-none mt-1 -mb-5 w-fit select-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+          className="mt-1 -mb-5 w-fit select-none transition-opacity can-hover:pointer-events-none can-hover:opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100"
         />
       ) : null}
     </div>
