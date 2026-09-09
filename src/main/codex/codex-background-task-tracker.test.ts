@@ -22,7 +22,8 @@ function turn(
 function activity(
   kind = 'started',
   parentTurn = PARENT_TURN,
-  child = CHILD
+  child = CHILD,
+  name = 'count_a'
 ): CodexBackgroundTaskEvent {
   return {
     method: 'item/started',
@@ -35,7 +36,7 @@ function activity(
         id: `activity-${kind}`,
         kind,
         agentThreadId: child,
-        agentPath: '/root/count_a'
+        agentPath: `/root/${name}`
       }
     }
   }
@@ -259,6 +260,32 @@ describe('CodexBackgroundTaskTracker command integration', () => {
       kind: 'command',
       description: 'sleep 90'
     })
+  })
+
+  it('keeps the command visible under a label that would otherwise fill the row', () => {
+    const tracker = new CodexBackgroundTaskTracker(PRIMARY)
+    tracker.observe(turn('turn/started', PRIMARY, PARENT_TURN))
+    tracker.observe(turn('turn/started', CHILD, CHILD_TURN))
+    tracker.observe(activity('started', PARENT_TURN, CHILD, 'L'.repeat(600)))
+    tracker.observe(command(CHILD))
+    tracker.observe(turn('turn/completed', PRIMARY, PARENT_TURN))
+    tracker.observe(turn('turn/completed', CHILD, CHILD_TURN))
+    const description = tracker.state?.tasks?.[0]?.description
+    expect(description).toContain('sleep 90')
+    expect(description).toBe(`${'L'.repeat(95)}… — sleep 90`)
+  })
+
+  it('never cuts a label mid surrogate pair', () => {
+    const tracker = new CodexBackgroundTaskTracker(PRIMARY)
+    tracker.observe(turn('turn/started', PRIMARY, PARENT_TURN))
+    tracker.observe(turn('turn/started', CHILD, CHILD_TURN))
+    tracker.observe(activity('started', PARENT_TURN, CHILD, `${'L'.repeat(94)}\u{1F600}bad`))
+    tracker.observe(command(CHILD))
+    tracker.observe(turn('turn/completed', PRIMARY, PARENT_TURN))
+    tracker.observe(turn('turn/completed', CHILD, CHILD_TURN))
+    const description = tracker.state?.tasks?.[0]?.description ?? ''
+    expect(description.isWellFormed()).toBe(true)
+    expect(description).toBe(`${'L'.repeat(94)}… — sleep 90`)
   })
 
   it('names a child shell whose label only arrives after the command', () => {

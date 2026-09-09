@@ -10,9 +10,31 @@ const MAX_DESCRIPTION_CHARS = 512
 
 type Command = { threadId: string; task: AgentSessionBackgroundTask; bytes: number }
 
-/** Stays within the retained bound, so read-time qualification cannot outgrow admission. */
+/** The label's reserved share of the description. Reserved, not merely capped:
+ *  a label free to spend the whole budget clips away the command it qualifies,
+ *  leaving a command row naming an agent and no command — the failure this
+ *  qualification exists to remove, in the other direction. `bytes` is counted
+ *  before qualification, so this share is also what a published row may exceed
+ *  the admitted count by. */
+const MAX_LABEL_CHARS = 96
+
+/** Clipped the way `boundSubagentField` clips the same provider string on the
+ *  agent row: never mid surrogate pair, since a lone surrogate is lossy through
+ *  any non-JSON UTF-8 hop. No ordinal, because the row's identity is its `id`. */
+function boundLabel(label: string): string {
+  if (label.length <= MAX_LABEL_CHARS) {
+    return label
+  }
+  const keep = MAX_LABEL_CHARS - 1
+  const last = label.charCodeAt(keep - 1)
+  const end = last >= 0xd800 && last <= 0xdbff ? keep - 1 : keep
+  return `${label.slice(0, end)}…`
+}
+
+/** Resolved on read, and capped at the bound the admitted description already respects. */
 function qualifiedDescription(label: string, description: string | undefined): string {
-  return (description ? `${label} — ${description}` : label).slice(0, MAX_DESCRIPTION_CHARS)
+  const name = boundLabel(label)
+  return (description ? `${name} — ${description}` : name).slice(0, MAX_DESCRIPTION_CHARS)
 }
 
 export class CodexBackgroundCommandTracker {
