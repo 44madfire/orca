@@ -134,7 +134,6 @@ function sendNative(
   enter: boolean,
   client: RpcClient,
   deadline?: number,
-  clearInputFirst?: boolean,
   resolvedLaunchDraft?: { text: string; createdAt: number }
 ): Promise<MobileNativeChatSendOutcome> {
   if (!target.terminalId) {
@@ -145,7 +144,6 @@ function sendNative(
     terminal: target.terminalId,
     text,
     enter,
-    clearInputFirst,
     resolvedLaunchDraft,
     deadline,
     ...(target.clientId ? { mobileClient: { id: target.clientId, type: 'mobile' as const } } : {})
