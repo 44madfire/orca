@@ -109,7 +109,7 @@ describe('buildNativeChatSessionOptionSnapshot', () => {
     expect(model).toMatchObject({ valueSource: 'unknown' })
   })
 
-  it('is empty when the model list is empty', () => {
+  it('is empty when the model list is empty and nothing is tracked', () => {
     expect(
       buildNativeChatSessionOptionSnapshot({
         catalog: CLAUDE_SESSION_OPTION_CATALOG,
@@ -120,6 +120,30 @@ describe('buildNativeChatSessionOptionSnapshot', () => {
         liveTransport: 'catalog'
       })
     ).toEqual([])
+  })
+
+  it('keeps the tracked model’s options when the provider listed no models at all', () => {
+    // A restored Codex thread whose `model/list` comes back empty still runs a model, so an
+    // empty list must not take the effort picker with the (unlistable) model name.
+    const record = createNativeChatSessionOptionRecord('codex')
+    record.model = { value: 'gpt-5.9-secret', source: 'reported' }
+    const snapshot = buildNativeChatSessionOptionSnapshot({
+      catalog: { ...CODEX_SESSION_OPTION_CATALOG, models: [], defaultModelIsCliDefault: true },
+      models: [],
+      record,
+      mode: 'live',
+      modelLabel: 'Model',
+      liveTransport: 'agent-session'
+    })
+
+    expect(snapshot.map((descriptor) => descriptor.id)).toEqual(['model', 'effort'])
+    const model = snapshot[0]!
+    // No id is offerable, and the raw one never reaches the trigger.
+    expect(model.kind.type === 'select' ? model.kind.choices : null).toEqual([])
+    expect(model).toMatchObject({ valueSource: 'unknown' })
+    const effort = snapshot[1]!
+    expect(effort).toMatchObject({ settable: true })
+    expect(CODEX_SESSION_OPTION_CATALOG.unknownModelOptions?.[0]?.id).toBe('effort')
   })
 
   describe('sortNativeChatSessionOptions', () => {

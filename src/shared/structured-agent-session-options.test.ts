@@ -93,6 +93,25 @@ describe('structured agent session options', () => {
     })
   })
 
+  it('keeps the options row when the provider lists no models at all', () => {
+    // `readCodexStructuredSessionOptions` throws only when there is no current model, so an
+    // empty `model/list` on a restored thread reaches here with one — and used to blank both
+    // pills because the whole snapshot short-circuits on an empty list.
+    const state = applyStructuredAgentSessionOptions(
+      createStructuredAgentSessionOptionState('codex'),
+      CODEX_SESSION_OPTION_CATALOG,
+      { models: [], current: { model: 'gpt-5.9-secret' } }
+    )
+
+    const snapshot = structuredAgentSessionOptionSnapshot(state)
+    expect(snapshot.map((descriptor) => descriptor.id)).toEqual(['model', 'effort'])
+    expect(snapshot[0]).toMatchObject({ valueSource: 'unknown' })
+    expect(snapshot.find((descriptor) => descriptor.id === 'effort')).toMatchObject({
+      settable: true,
+      kind: { type: 'select' }
+    })
+  })
+
   it('projects live options as directly settable descriptors', () => {
     const state = applyStructuredAgentSessionOptions(
       createStructuredAgentSessionOptionState('codex'),
