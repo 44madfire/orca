@@ -256,7 +256,8 @@ export async function submitFolderWorkspaceCreate({
       }
       if (settlement.kind === 'refused-then-legacy') {
         structuredLaunchAccepted = false
-        activation = settlement.activation
+        // Why: this flow's own fallback always activates; `??` only satisfies the shared type.
+        activation = settlement.activation ?? false
       }
     }
     if (

@@ -96,6 +96,24 @@ describe('settleStructuredAgentLaunch', () => {
     expect(onStructuredReady).not.toHaveBeenCalled()
   })
 
+  it('carries a fallback that opened a tab without activating a workspace', async () => {
+    fakeLaunch({
+      launchResult: Promise.reject(new StructuredAgentSessionCreateRefusalError('unsupported'))
+    })
+    const promptDeliveryResult = Promise.resolve({ delivered: true, failureNotified: false })
+    const legacyFallback = vi
+      .fn()
+      .mockResolvedValue({ primaryTabId: 'new-tab', promptDeliveryResult })
+
+    await expect(
+      settleStructuredAgentLaunch('worktree-1', 'codex', {}, { legacyFallback })
+    ).resolves.toEqual({
+      kind: 'refused-then-legacy',
+      primaryTabId: 'new-tab',
+      promptDeliveryResult
+    })
+  })
+
   it('fails a refusal that has no legacy equivalent', async () => {
     const error = new StructuredAgentSessionCreateRefusalError('unsupported')
     fakeLaunch({ launchResult: Promise.reject(error) })

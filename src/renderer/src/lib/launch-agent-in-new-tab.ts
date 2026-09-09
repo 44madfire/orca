@@ -28,7 +28,8 @@ import type { LaunchSource } from '../../../shared/telemetry-events'
 import { getConnectionIdFromState } from '@/lib/connection-context'
 import { resolveInitialNativeChatSessionOptions } from '@/components/native-chat/native-chat-launch-session-options'
 import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/native-chat-session-option-cache'
-import { startStructuredAgentLaunch } from '@/lib/structured-agent-session-launch'
+import { launchAgentInStructuredNewTab } from '@/lib/launch-agent-in-new-tab-structured'
+import type { StructuredAgentLaunchSettlement } from '@/lib/structured-agent-launch-settlement'
 import { isAgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
 import {
   resolveAgentLaunchRouteForWorkspace,
@@ -64,6 +65,9 @@ export type LaunchAgentInNewTabResult = {
   /** The host will publish and focus a structured tab asynchronously. */
   focusAfterMenuClose?: 'structured-session'
   promptDeliveryResult?: Promise<{ delivered: boolean; failureNotified: boolean }>
+  /** Structured route only: what the launch did once it settled, including whether the terminal
+   *  fallback ran. The call itself stays synchronous. */
+  structuredSettlement?: Promise<StructuredAgentLaunchSettlement>
 } | null
 
 export function shouldQueueTerminalFocusAfterMenuClose(
@@ -206,29 +210,22 @@ function launchAgentInNewTabInternal(
         initialSessionOptions: startupPlan.sessionOptions
       })
   if (launchRoute === 'structured-native-chat' && isAgentSessionHandleProvider(agent)) {
-    const structuredLaunch = startStructuredAgentLaunch(worktreeId, agent, {
+    const structured = launchAgentInStructuredNewTab({
+      worktreeId,
+      agent,
       prompt: trimmedPrompt,
       promptDelivery: viewModePromptDelivery,
-      onPromptDelivered
+      onPromptDelivered,
+      legacyLaunch: () => launchAgentInNewTabInternal(args, true)
     })
-    void structuredLaunch
-      .claimDefinitiveRefusalFallback(() => {
-        const fallback = launchAgentInNewTabInternal(args, true)
-        return (
-          fallback?.promptDeliveryResult ??
-          (hasPrompt
-            ? { delivered: Boolean(fallback), failureNotified: fallback === null }
-            : undefined)
-        )
-      })
-      .catch((error) => console.error('Structured Codex fallback failed', error))
     return {
       tabId: null,
       startupPlan,
       pasteDraftAfterLaunch: false,
       focusAfterMenuClose: 'structured-session',
-      ...(structuredLaunch.promptDeliveryResult
-        ? { promptDeliveryResult: structuredLaunch.promptDeliveryResult }
+      structuredSettlement: structured.structuredSettlement,
+      ...(structured.promptDeliveryResult
+        ? { promptDeliveryResult: structured.promptDeliveryResult }
         : {})
     }
   }

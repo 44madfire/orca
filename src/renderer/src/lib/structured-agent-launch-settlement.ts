@@ -8,7 +8,8 @@ import type { StructuredPromptDeliveryResult } from '@/lib/structured-agent-sess
 import type { ActivateAndRevealResult } from '@/lib/worktree-activation'
 
 export type StructuredAgentLegacyFallbackResult = {
-  activation: ActivateAndRevealResult | false
+  /** Absent when the fallback opened a tab in an already-active workspace instead of activating one. */
+  activation?: ActivateAndRevealResult | false
   primaryTabId: string | null
   promptDeliveryResult?: Promise<StructuredPromptDeliveryResult>
 }

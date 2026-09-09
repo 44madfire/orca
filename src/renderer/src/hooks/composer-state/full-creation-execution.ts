@@ -246,8 +246,12 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
         return
       }
       const structuredLaunchAccepted = settlement?.kind === 'structured'
+      // Why: the workspace was already activated before launch; the fallback's activation, when
+      // present, supersedes it.
       const activation =
-        settlement?.kind === 'refused-then-legacy' ? settlement.activation : initialActivation
+        settlement?.kind === 'refused-then-legacy'
+          ? (settlement.activation ?? initialActivation)
+          : initialActivation
 
       if (!structuredLaunchAccepted && startupPlan) {
         const optionScopeKey =
