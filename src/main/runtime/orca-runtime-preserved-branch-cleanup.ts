@@ -162,7 +162,7 @@ export class OrcaRuntimeWithPreservedBranchCleanup extends OrcaRuntimeWithTermin
         candidate.incarnationId
       )) === true,
     releaseProvenExit: async (candidate) => {
-      await this.ptyController?.releaseExitedIncarnation?.(candidate.ptyId)
+      await this.ptyController?.releaseExitedIncarnation?.(candidate.ptyId, candidate.incarnationId)
     },
     getActivation: (worktreeId) => this.getLegacyWorkerRecoveryActivation(worktreeId),
     hasExactPersistedSurface: (candidate) =>

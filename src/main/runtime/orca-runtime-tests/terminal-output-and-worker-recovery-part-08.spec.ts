@@ -19,14 +19,20 @@ import {
   releaseExitedIncarnationFromRuntimeController
 } from '../../ipc/pty/runtime/operations'
 
-function daemonRouterOver(host: TerminalHost): DaemonPtyRouter {
+function daemonRouterOver(
+  host: TerminalHost,
+  beforeShutdown: () => Promise<void> = async () => {}
+): DaemonPtyRouter {
   const adapter = {
     // Nothing in this process routes the id any more: the app restarted after the shell ended.
     hasPty: () => false,
     inspectProcess: (id: string, options?: { expectedIncarnationId?: string }) =>
       host.inspectProcess(id, options),
     // The owner acting on a proven exit reaches the host as the same kill a closed pane sends.
-    shutdown: (id: string) => host.kill(id),
+    shutdown: async (id: string, opts: { expectedIncarnationId?: string }) => {
+      await beforeShutdown()
+      await host.kill(id, opts)
+    },
     listProcesses: async () => [],
     onData: () => () => {},
     onExit: () => () => {},
@@ -45,7 +51,7 @@ function daemonSubprocess(): SubprocessHandle & { exit(code: number): void } {
     resize: vi.fn(),
     kill: vi.fn(),
     terminateOwnedTree: () => 'unavailable',
-    forceKill: vi.fn(),
+    forceKill: vi.fn(() => onExit?.(137)),
     signal: vi.fn(),
     onData: vi.fn(),
     onExit: (callback: (code: number) => void) => {
@@ -326,6 +332,104 @@ describe('OrcaRuntimeService', () => {
       await expect(
         host.inspectProcess(ptyId, { expectedIncarnationId: created.incarnationId })
       ).resolves.toMatchObject({ foregroundProcessEvidence: { verdict: 'exited' } })
+    } finally {
+      setLocalPtyProvider(previousProvider)
+      await host.dispose()
+      db.close()
+    }
+  })
+
+  it('never ends a shell that took the pane id between the proof and the release', async () => {
+    const workerPaneKey = `legacy-daemon-respawn:${HEADLESS_LEAF_ID}`
+    const ptyId = 'pty-daemon-respawn'
+    let subprocess = daemonSubprocess()
+    const host = new TerminalHost({ spawnSubprocess: () => subprocess })
+    const created = await host.createOrAttach({
+      sessionId: ptyId,
+      cols: 80,
+      rows: 24,
+      streamClient: { onData: vi.fn(), onExit: vi.fn() }
+    })
+    host.detach(ptyId, created.attachToken as symbol)
+    subprocess.exit(0)
+
+    const { runtimeStore } = makeRuntimeStoreWithWorkspaceSession({
+      ...getDefaultWorkspaceSession(),
+      tabsByWorktree: { [TEST_WORKTREE_ID]: [] },
+      sleepingAgentSessionsByPaneKey: {
+        [workerPaneKey]: {
+          paneKey: workerPaneKey,
+          tabId: 'legacy-daemon-respawn',
+          worktreeId: TEST_WORKTREE_ID,
+          agent: 'codex',
+          providerSession: { key: 'session_id', id: 'legacy-daemon-respawn-session' },
+          prompt: 'continue',
+          state: 'working',
+          capturedAt: 1,
+          updatedAt: 1,
+          origin: 'live'
+        }
+      }
+    })
+    const runtime = new OrcaRuntimeService(
+      { ...runtimeStore, flushOrThrow: vi.fn() } as never,
+      undefined,
+      { canRecoverPersistentLocalPtys: () => true }
+    )
+    const db = new OrchestrationDb(':memory:')
+    const previousProvider = getLocalPtyProvider()
+    // Pane restore raced the sweep: its respawn onto the same stable id reached the host first.
+    let replacement: typeof subprocess | undefined
+    setLocalPtyProvider(
+      daemonRouterOver(host, async () => {
+        subprocess = daemonSubprocess()
+        replacement = subprocess
+        await host.createOrAttach({
+          sessionId: ptyId,
+          cols: 80,
+          rows: 24,
+          streamClient: { onData: vi.fn(), onExit: vi.fn() }
+        })
+      })
+    )
+    try {
+      const task = db.createTask({ runId: 'run_legacy_local', spec: 'daemon worker' })
+      const started = db.createStartingWorkerDispatch({
+        creator: { kind: 'system' },
+        maxDepth: Number.MAX_SAFE_INTEGER,
+        taskId: task.id,
+        startOptions: { topology: 'current', agent: 'codex' }
+      })
+      db.prepareStartingWorkerAuthority({
+        dispatchId: started.dispatch.id,
+        handle: 'term_daemon_respawn',
+        paneKey: workerPaneKey,
+        processIncarnation: `${ptyId}:${created.incarnationId}`,
+        worktreeId: TEST_WORKTREE_ID,
+        setupState: 'not_applicable',
+        effects: []
+      })
+      db.markWorkerDispatchReady(started.dispatch.id)
+      runtime.setOrchestrationDb(db)
+      runtime.setPtyController({
+        write: vi.fn(() => true),
+        kill: vi.fn(() => true),
+        getForegroundProcess: async () => null,
+        hasPty: () => false,
+        inspectExitedIncarnation: (candidatePtyId, incarnationId) =>
+          inspectExitedIncarnationFromRuntimeController(candidatePtyId, incarnationId),
+        releaseExitedIncarnation: releaseExitedIncarnationFromRuntimeController,
+        listProcesses: async () => []
+      })
+      runtime.setNotifier({ resolveLegacyWorkerTerminalRecovery: vi.fn() } as never)
+
+      await expect(runtime.reconcileLegacyWorkerTerminals()).resolves.toMatchObject({
+        exitedDispatchIds: [started.dispatch.id]
+      })
+      // The old exit settled; the shell the user just got back is untouched.
+      expect(replacement?.kill).not.toHaveBeenCalled()
+      expect(replacement?.forceKill).not.toHaveBeenCalled()
+      expect(host.listSessions()).toMatchObject([{ sessionId: ptyId, isAlive: true }])
     } finally {
       setLocalPtyProvider(previousProvider)
       await host.dispose()

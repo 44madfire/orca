@@ -134,10 +134,7 @@ export class DegradedDaemonPtyProvider implements IPtyProvider {
     this.providerFor(id).setPtyBackgrounded?.(id, background)
   }
 
-  async shutdown(
-    id: string,
-    opts: { immediate?: boolean; keepHistory?: boolean; deadlineMs?: number }
-  ): Promise<void> {
+  async shutdown(id: string, opts: Parameters<IPtyProvider['shutdown']>[1]): Promise<void> {
     await this.providerFor(id).shutdown(id, opts)
     if (!opts.keepHistory) {
       this.sessionProviders.delete(id)

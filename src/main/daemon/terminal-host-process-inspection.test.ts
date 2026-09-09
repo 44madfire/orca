@@ -199,7 +199,6 @@ describe('TerminalHost undelivered exits', () => {
       lastSubprocess().exit(0)
 
       // The owner asked for this exit; there is nothing left to tell it, so nothing is retained.
-      expect(host.isKilled('session-killed')).toBe(true)
       expect(() =>
         host.inspectProcess('session-killed', { expectedIncarnationId: created.incarnationId })
       ).toThrow(SessionNotFoundError)
@@ -217,13 +216,60 @@ describe('TerminalHost undelivered exits', () => {
       ).resolves.toMatchObject({ foregroundProcessEvidence: { verdict: 'exited' } })
 
       // Nothing killed the process; the owner is telling the host it has acted on the exit.
-      expect(host.isKilled('session-away')).toBe(false)
-      await expect(host.kill('session-away')).resolves.toBeUndefined()
-      expect(host.isKilled('session-away')).toBe(false)
+      await expect(
+        host.kill('session-away', { expectedIncarnationId: incarnationId })
+      ).resolves.toBeUndefined()
       expect(() =>
         host.inspectProcess('session-away', { expectedIncarnationId: incarnationId })
       ).toThrow(SessionNotFoundError)
       expect(() => host.kill('session-never')).toThrow(SessionNotFoundError)
+    } finally {
+      await host.dispose()
+    }
+  })
+
+  it('refuses to end a newer shell when the owner releases an older incarnation', async () => {
+    const { host, lastSubprocess } = createHost()
+    try {
+      const older = await exitWhileClientIsAway(host, lastSubprocess, 'session-reused')
+      // The pane respawned onto its stable id before the owner settled the old exit.
+      const replacement = await host.createOrAttach({
+        sessionId: 'session-reused',
+        cols: 80,
+        rows: 24,
+        streamClient: { onData: vi.fn(), onExit: vi.fn() }
+      })
+      const live = lastSubprocess()
+
+      expect(() => host.kill('session-reused', { expectedIncarnationId: older })).toThrow(
+        'PTY incarnation mismatch'
+      )
+      expect(live.kill).not.toHaveBeenCalled()
+      expect(live.forceKill).not.toHaveBeenCalled()
+      expect(host.listSessions()).toMatchObject([
+        { sessionId: 'session-reused', incarnationId: replacement.incarnationId, isAlive: true }
+      ])
+    } finally {
+      await host.dispose()
+    }
+  })
+
+  it('keeps a session the owner kills mid-exit out of the retained set', async () => {
+    const { host } = createHost()
+    try {
+      const created = await host.createOrAttach({
+        sessionId: 'session-immediate',
+        cols: 80,
+        rows: 24,
+        streamClient: { onData: vi.fn(), onExit: vi.fn() }
+      })
+      host.detach('session-immediate', created.attachToken as symbol)
+      await host.kill('session-immediate', { immediate: true })
+
+      expect(() =>
+        host.inspectProcess('session-immediate', { expectedIncarnationId: created.incarnationId })
+      ).toThrow(SessionNotFoundError)
+      expect(host.listSessions()).toHaveLength(0)
     } finally {
       await host.dispose()
     }

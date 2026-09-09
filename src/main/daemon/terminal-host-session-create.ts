@@ -8,7 +8,6 @@ import { shellPathSupportsPtyStartupBarrier } from './shell-ready'
 import type { InternalCreateOrAttachOptions } from './terminal-host-agent-session-claim'
 import type { CreateOrAttachResult } from './terminal-host-create-contract'
 import type { TerminalHostOptions } from './terminal-host-options'
-import type { TerminalHostTombstones } from './terminal-host-tombstones'
 import type { TerminalSessionTeardown } from './terminal-session-teardown'
 import { resolveDaemonSessionScrollbackRows } from './daemon-session-scrollback-window'
 import { TerminalAttachCanceledError } from './daemon-errors'
@@ -21,7 +20,6 @@ type TerminalHostSessionCreateDependencies = {
   /** Re-checks the host's shutdown fence and this request's cancellation after any await. */
   assertCreateAllowed: () => void
   sessionTeardown: TerminalSessionTeardown
-  killedTombstones: TerminalHostTombstones
   spawnSubprocess: TerminalHostOptions['spawnSubprocess']
   onDeadSessionRemoved: (sessionId: string) => void
   onSessionCreated: (sessionId: string, generation: string | undefined, isAlive: boolean) => void
@@ -97,7 +95,6 @@ export async function createOrAttachTerminalSession(
     deps.onDeadSessionRemoved(opts.sessionId)
   }
 
-  deps.killedTombstones.clearForCreate(opts.sessionId)
   const size = normalizePtySize(opts.cols, opts.rows)
   const wslDistro = resolveWslSessionContext(opts)?.distro
   return await spawnAndPublishSession(opts, deps, { size, wslDistro })

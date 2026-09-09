@@ -147,7 +147,6 @@ describe('TerminalHost dead-session reaping (leak regression)', () => {
     // Emulator freed and the session gone from every live surface.
     expect(emulatorDispose).toHaveBeenCalledTimes(1)
     expect(host.listSessions()).toHaveLength(0)
-    expect(host.isKilled('session-1')).toBe(true)
   })
 
   it('retains a graceful-timeout session until the forced child physically exits', async () => {

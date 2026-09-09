@@ -16,7 +16,6 @@ import {
 } from './terminal-host-agent-session-claim'
 import { TerminalHostAgentSessionGenerations } from './terminal-host-agent-session-generations'
 import { resolveTerminalHostSessionCwd } from './terminal-host-session-cwd'
-import { TerminalHostTombstones } from './terminal-host-tombstones'
 import { listLiveTerminalHostSessions } from './terminal-host-session-listing'
 import { createOrAttachTerminalSession } from './terminal-host-session-create'
 import { TerminalAttachCanceledError } from './daemon-errors'
@@ -40,19 +39,15 @@ export type { CreateOrAttachOptions, CreateOrAttachResult } from './terminal-hos
 
 export type { TerminalHostOptions } from './terminal-host-options'
 
-const DEFAULT_MAX_TOMBSTONES = 1000
-
 export class TerminalHost {
   private sessions = new Map<string, Session>()
   // Serializes creates for one id across async spawn validation.
   private pendingCreations = new Map<string, Promise<void>>()
   private sessionTeardown = new TerminalSessionTeardown(this.sessions)
-  private killedTombstones: TerminalHostTombstones
   private spawnSubprocess: TerminalHostOptions['spawnSubprocess']
   private onSessionReaped: TerminalHostOptions['onSessionReaped']
   private reportReadinessEvent: TerminalHostOptions['reportReadinessEvent']
   private onFinalCheckpoint: TerminalHostOptions['onFinalCheckpoint']
-  private maxTombstones: number
   private creationFenced = false
   private disposePromise: Promise<void> | null = null
   private readonly agentSessionOwners = new ClaimedAgentPtyOwnerRegistry()
@@ -65,8 +60,6 @@ export class TerminalHost {
     this.onSessionReaped = opts.onSessionReaped
     this.reportReadinessEvent = opts.reportReadinessEvent
     this.onFinalCheckpoint = opts.onFinalCheckpoint
-    this.maxTombstones = opts.maxTombstones ?? DEFAULT_MAX_TOMBSTONES
-    this.killedTombstones = new TerminalHostTombstones(this.maxTombstones)
   }
 
   async createOrAttach(opts: InternalCreateOrAttachOptions): Promise<CreateOrAttachResult> {
@@ -109,7 +102,6 @@ export class TerminalHost {
             sessions: this.sessions,
             assertCreateAllowed: () => this.assertCreateOrAttachAllowed(options),
             sessionTeardown: this.sessionTeardown,
-            killedTombstones: this.killedTombstones,
             spawnSubprocess: this.spawnSubprocess,
             onDeadSessionRemoved: (sessionId) => this.agentSessionGenerations.forget(sessionId),
             onSessionCreated: (sessionId, generation, isAlive) =>
@@ -165,32 +157,36 @@ export class TerminalHost {
     this.sessions.get(sessionId)?.resumeProducer()
   }
 
-  kill(sessionId: string, opts: { immediate?: boolean } = {}): Promise<void> {
+  kill(
+    sessionId: string,
+    opts: { immediate?: boolean; expectedIncarnationId?: string } = {}
+  ): Promise<void> {
+    const session = this.sessions.get(sessionId)
+    // A caller naming an incarnation is acting on evidence about that process. The id may have
+    // gone to a newer shell since, and that one is not theirs to end.
+    if (
+      session &&
+      opts.expectedIncarnationId !== undefined &&
+      session.incarnationId !== opts.expectedIncarnationId
+    ) {
+      throw new Error(`PTY incarnation mismatch for ${sessionId}`)
+    }
     const pending = this.sessionTeardown.get(sessionId)
     if (pending) {
       return Promise.resolve(
         opts.immediate ? this.sessionTeardown.requestImmediate(sessionId) : pending
       )
     }
-    const exited = this.sessions.get(sessionId)
-    if (exited && !exited.isAlive) {
+    if (session && !session.isAlive) {
       // The owner is done with a session that already ended on its own: its exit record has been
       // acted on, so it leaves now. This is the consume half of the held-exit read.
       this.sessions.delete(sessionId)
       return Promise.resolve()
     }
-    const session = this.getAliveSession(sessionId)
-    // Why record inside: the exit can land synchronously within the signal, and the reaper reads
-    // the tombstone; a refused signal must leave none (the admission test pins that).
-    let killed: void | Promise<void>
-    try {
-      this.killedTombstones.record(sessionId)
-      killed = this.sessionTeardown.killSession(sessionId, session, opts.immediate === true)
-    } catch (error) {
-      this.killedTombstones.clearForCreate(sessionId)
-      throw error
-    }
-    return Promise.resolve(killed)
+    const alive = this.getAliveSession(sessionId)
+    return Promise.resolve(
+      this.sessionTeardown.killSession(sessionId, alive, opts.immediate === true)
+    )
   }
 
   // Why: dispose a dead session's emulator so exited terminals don't pin their scrollback window for
@@ -203,7 +199,7 @@ export class TerminalHost {
       return
     }
     session.dispose()
-    if (this.killedTombstones.has(sessionId)) {
+    if (session.killRequested) {
       this.sessions.delete(sessionId)
     }
     this.onSessionReaped?.(sessionId)
@@ -313,10 +309,6 @@ export class TerminalHost {
     return takeTerminalHostPendingOutput(this.sessions.get(sessionId), includeSnapshot, opts)
   }
 
-  isKilled(sessionId: string): boolean {
-    return this.killedTombstones.has(sessionId)
-  }
-
   listSessions(): SessionInfo[] {
     return listLiveTerminalHostSessions(this.sessions, this.agentSessionOwners)
   }
@@ -343,7 +335,6 @@ export class TerminalHost {
       await Promise.all(this.pendingCreations.values())
     }
     await shutdownTerminalHostSessions(this.sessions, this.onFinalCheckpoint)
-    this.killedTombstones.clear()
   }
 
   private getAliveSession(sessionId: string): Session {

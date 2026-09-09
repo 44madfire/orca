@@ -114,10 +114,7 @@ export class DaemonPtyRouter implements IPtyProvider {
     this.adapterFor(id).setPtyBackgrounded(id, background)
   }
 
-  async shutdown(
-    id: string,
-    opts: { immediate?: boolean; keepHistory?: boolean; deadlineMs?: number }
-  ): Promise<void> {
+  async shutdown(id: string, opts: Parameters<IPtyProvider['shutdown']>[1]): Promise<void> {
     const adapter = this.adapterFor(id)
     const migrateHistory = shouldHandoffDaemonHistory(opts.keepHistory, adapter, this.current)
     await adapter.shutdown(id, opts)

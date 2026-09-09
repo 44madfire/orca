@@ -167,6 +167,8 @@ export type KillRequest = {
   payload: {
     sessionId: string
     immediate?: boolean
+    /** Refuse unless the session on this id is still this incarnation. */
+    expectedIncarnationId?: string
   }
 }
 
