@@ -1,6 +1,17 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
-import { claudeDispatchMessageContent } from './claude-structured-dispatch-content'
+import {
+  claudeDispatchInvokesSlashCommand,
+  claudeDispatchMessageContent
+} from './claude-structured-dispatch-content'
+
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64'
+)
 
 function userMessage(blocks: AgentJournalMessageItem['blocks']): AgentJournalMessageItem {
   return { kind: 'message', role: 'user', blocks }
@@ -71,5 +82,71 @@ describe('claudeDispatchMessageContent', () => {
         role: 'assistant'
       })
     ).rejects.toThrow('Claude dispatch accepts only user messages')
+  })
+
+  it('joins several text blocks so a command is not stranded ahead of trailing prose', async () => {
+    // Appending each block would leave `thanks` trailing, and Claude reads only that block.
+    const content = await claudeDispatchMessageContent(
+      userMessage([
+        { type: 'text', text: '/goal ship' },
+        REMOTE_IMAGE,
+        { type: 'text', text: 'thanks' }
+      ])
+    )
+
+    expect(content).toEqual([
+      { type: 'image', source: { type: 'url', url: 'https://example.test/a.png' } },
+      { type: 'text', text: '/goal ship\nthanks' }
+    ])
+    expect(claudeDispatchInvokesSlashCommand(content)).toBe(true)
+  })
+
+  it('puts a locally attached image ahead of the text, the shape the composer sends', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'claude-dispatch-content-'))
+    const path = join(dir, 'shot.png')
+    await writeFile(path, PNG)
+
+    try {
+      const content = await claudeDispatchMessageContent(
+        userMessage([
+          { type: 'text', text: '/goal ship' },
+          { type: 'image-ref', path }
+        ])
+      )
+
+      expect(content).toEqual([
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/png', data: PNG.toString('base64') }
+        },
+        { type: 'text', text: '/goal ship' }
+      ])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('claudeDispatchInvokesSlashCommand', () => {
+  it('reads the trailing prompt Claude recovers, not any text block', () => {
+    expect(
+      claudeDispatchInvokesSlashCommand([
+        { type: 'image', source: { type: 'url', url: 'https://example.test/a.png' } },
+        { type: 'text', text: '/goal ship' }
+      ])
+    ).toBe(true)
+    // The pre-fix order: Claude recovers no prompt at all, so no command runs.
+    expect(
+      claudeDispatchInvokesSlashCommand([
+        { type: 'text', text: '/goal ship' },
+        { type: 'image', source: { type: 'url', url: 'https://example.test/a.png' } }
+      ])
+    ).toBe(false)
+  })
+
+  it('matches untrimmed, as Claude does, and ignores a promptless turn', () => {
+    expect(claudeDispatchInvokesSlashCommand([{ type: 'text', text: '  /goal ship' }])).toBe(false)
+    expect(claudeDispatchInvokesSlashCommand([{ type: 'text', text: 'ship it' }])).toBe(false)
+    expect(claudeDispatchInvokesSlashCommand([])).toBe(false)
   })
 })
