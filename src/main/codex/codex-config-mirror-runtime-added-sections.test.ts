@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import type * as NodeOs from 'node:os'
 import { join } from 'node:path'
@@ -218,12 +225,7 @@ describe('ownership between the source config and the managed home', () => {
   })
 
   it('keeps an added server through the same pass that honours a deletion', () => {
-    writeSystemConfig(
-      'model = "system-model"',
-      '',
-      '[mcp_servers.retired]',
-      'command = "retired"'
-    )
+    writeSystemConfig('model = "system-model"', '', '[mcp_servers.retired]', 'command = "retired"')
     syncSystemConfigIntoManagedCodexHome()
     addServerInsideManagedHome('[mcp_servers.added-in-orca]', 'command = "added"')
 
