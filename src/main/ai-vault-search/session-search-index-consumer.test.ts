@@ -10,7 +10,7 @@ import {
   userMessages,
   type SessionSearchIndexFile
 } from './session-search-staged-write-test-fixture'
-import { SessionSearchStore } from './session-search-store'
+import { SessionSearchStore, STALE_PATH_LIMIT } from './session-search-store'
 
 let index: SessionSearchIndexFile
 let store: SessionSearchStore
@@ -182,13 +182,45 @@ it('ignores a candidate older than the retention cutoff', async () => {
   expect(store.takeStale()).toEqual([])
 })
 
-it('stops writing while the store refuses writes', async () => {
+it('stops writing while the store refuses writes, but remembers what it skipped', async () => {
   store.setAcceptingWrites(false)
   replayTranscriptRead({ messages: userMessages('paused', 3) })
   await store.settled()
 
   expect(index.db.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: 0 })
   expect(errors).toEqual([])
+  // A pause is exactly the window in which every read is declined. Forgetting
+  // them would leave the whole paused span unindexed with nothing to replay it.
+  expect(store.takeStale().map((candidate) => candidate.file.path)).toEqual([SYNTHETIC_TRANSCRIPT])
+})
+
+it('keeps the paused re-read set when the retention window is reconfigured', async () => {
+  store.setAcceptingWrites(false)
+  replayTranscriptRead({ messages: userMessages('paused', 2) })
+  await store.settled()
+  expect(store.pendingFileCount).toBe(1)
+
+  // Retention is the only thing allowed to prune this set, and this candidate
+  // is inside the new window.
+  store.setRetentionCutoffMs(syntheticCandidate().file.mtimeMs - 1000)
+  expect(store.pendingFileCount).toBe(1)
+
+  // A cutoff that really does exclude it still prunes.
+  store.setRetentionCutoffMs(Date.now())
+  expect(store.pendingFileCount).toBe(0)
+})
+
+it('drops the oldest record rather than growing without a bound, and says so', () => {
+  store.setAcceptingWrites(false)
+  for (let index = 0; index < STALE_PATH_LIMIT + 5; index++) {
+    store.markStale(syntheticCandidate({ path: `/transcript-${index}.jsonl` }))
+  }
+
+  expect(store.pendingFileCount).toBe(STALE_PATH_LIMIT)
+  expect(store.droppedPendingFileCount).toBe(5)
+  const kept = store.takeStale().map((candidate) => candidate.file.path)
+  expect(kept).not.toContain('/transcript-0.jsonl')
+  expect(kept).toContain(`/transcript-${STALE_PATH_LIMIT + 4}.jsonl`)
 })
 
 it('keeps the session list running when the index write fails', async () => {
@@ -293,4 +325,24 @@ it('keeps a proven file identity when a later read cannot stat it', async () => 
   expect(visibleMessages()).toBe(4)
   expect(cursor()).toBe(200)
   expect(store.takeStale()).toHaveLength(1)
+})
+
+it('leaves no batch on disk when a rejected read is the last one before shutdown', async () => {
+  replayTranscriptRead({ messages: userMessages('indexed', 3), outcome: { byteOffset: 100 } })
+  await store.settled()
+
+  // The parser rejects the file, so this read publishes a cursor and tombstones
+  // its own staged rows. Nothing writes after it.
+  replayTranscriptRead({
+    messages: userMessages('rejected', 4),
+    outcome: { session: null, byteOffset: 300 }
+  })
+  await store.settled()
+
+  expect(index.db.prepare('SELECT count(*) AS n FROM search_write_batches').get()).toEqual({ n: 0 })
+  expect(index.db.prepare('SELECT count(*) AS n FROM search_pending_deletes').get()).toEqual({
+    n: 0
+  })
+  expect(index.db.prepare('SELECT count(*) AS n FROM messages').get()).toEqual({ n: 0 })
+  expect(index.db.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: 0 })
 })

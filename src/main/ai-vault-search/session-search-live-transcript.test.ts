@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { resetSessionParseCacheForTests } from '../ai-vault/session-scanner-parse-cache'
 import { resetTranscriptConsumersForTests } from '../ai-vault/session-transcript-consumers'
+import { requestWholeTranscriptRead } from '../ai-vault/session-transcript-reader'
 import SyncDatabase from '../sqlite/sync-database'
 import { registerSessionSearchIndexConsumer } from './session-search-index-consumer'
 import { SessionSearchStore } from './session-search-store'
@@ -136,4 +137,35 @@ it('never indexes a credential that appeared in tool output', async () => {
   expect(sessionsMatching('rollout')).toEqual([SESSION_ID])
   expect(sessionsMatching(`"${GITHUB_TOKEN}"`)).toEqual([])
   expect(sessionsMatching('redacted')).toEqual([SESSION_ID])
+})
+
+it('indexes a file the session list already read past, once a whole read is asked for', async () => {
+  const root = await makeTempDir()
+  const path = join(root, `${SESSION_ID}.jsonl`)
+  await writeFile(path, `${userRecord(0, 'the opening prompt')}\n`)
+
+  // The state on first enablement inside a running app: the session list has
+  // read this file, so the parse cache is warm, while the index is empty.
+  resetTranscriptConsumersForTests()
+  await parseTranscript(path)
+  registerSessionSearchIndexConsumer(store)
+
+  await appendFile(path, `${assistantRecord(1, 'a zygomorphic reply')}\n`)
+  const appended = await parseTranscript(path)
+  expect(appended.stats).toMatchObject({ incremental: 1, fullParses: 0 })
+  // The append continued from a byte offset the index never saw, so it declined.
+  expect(sessionsMatching('zygomorphic')).toEqual([])
+
+  const behind = store.takeStale()
+  expect(behind.map((candidate) => candidate.file.path)).toEqual([path])
+  for (const candidate of behind) {
+    requestWholeTranscriptRead(candidate.file.path)
+  }
+
+  const reread = await parseTranscript(path)
+  expect(reread.stats).toMatchObject({ incremental: 0, fullParses: 1 })
+  expect(errors).toEqual([])
+  expect(sessionsMatching('zygomorphic')).toEqual([SESSION_ID])
+  expect(sessionsMatching('opening')).toEqual([SESSION_ID])
+  expect(store.takeStale()).toEqual([])
 })

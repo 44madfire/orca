@@ -13,6 +13,11 @@ import { warmSessionSearchPages } from './session-search-page-warmup'
 import { deleteExpiredSearchFiles } from './session-search-retention-delete'
 import { openSessionSearchDatabase } from './session-search-schema'
 
+// A paused store keeps recording what it declined, so the set needs a ceiling.
+// Above it the oldest record goes and the drop is counted, because a re-read set
+// that silently forgets is worse than one that says it is incomplete.
+export const STALE_PATH_LIMIT = 20_000
+
 export type SessionSearchStoreOptions = {
   /** The WAL backlog a staging write refuses to grow past. Only tests narrow it. */
   walBudgetBytes?: number
@@ -37,6 +42,7 @@ export class SessionSearchStore {
   // Files this index knows it is behind on. Filled by a declined or abandoned
   // read; PR 3's indexer drains it. Nothing here schedules the re-read.
   private readonly stale = new Map<string, SessionFileCandidate>()
+  private droppedStalePaths = 0
 
   constructor(
     path: string,
@@ -59,18 +65,22 @@ export class SessionSearchStore {
   setRetentionCutoffMs(cutoffMs: number | null): void {
     this.retentionCutoffMs = cutoffMs
     for (const [path, candidate] of this.stale) {
-      if (!this.acceptsCandidate(candidate)) {
+      // Only retention prunes the re-read set. Pausing is a reason not to write
+      // now, never a reason to forget what still has to be read.
+      if (!this.withinRetention(candidate)) {
         this.stale.delete(path)
       }
     }
   }
 
+  /** Whether this candidate is new enough to be worth holding rows for at all. */
+  private withinRetention(candidate: SessionFileCandidate): boolean {
+    return this.retentionCutoffMs === null || candidate.file.mtimeMs >= this.retentionCutoffMs
+  }
+
+  /** Whether a write for this candidate may start right now. */
   acceptsCandidate(candidate: SessionFileCandidate): boolean {
-    return (
-      !this.closed &&
-      this.acceptingWrites &&
-      (this.retentionCutoffMs === null || candidate.file.mtimeMs >= this.retentionCutoffMs)
-    )
+    return !this.closed && this.acceptingWrites && this.withinRetention(candidate)
   }
 
   indexedFile(path: string, identity: SessionSearchFileIdentity): SessionSearchIndexedFile | null {
@@ -112,14 +122,48 @@ export class SessionSearchStore {
     this.onError(error)
   }
 
-  /** Records a file whose content the index is behind on, for a later whole re-read. */
+  /**
+   * Records a file whose content the index is behind on, for a later whole
+   * re-read. Recorded while paused too: a pause is exactly the window in which
+   * reads are declined, so refusing to remember them would lose every file the
+   * pause covered.
+   */
   markStale(candidate: SessionFileCandidate): void {
-    if (this.acceptsCandidate(candidate)) {
-      this.stale.set(candidate.file.path, candidate)
+    if (this.closed || !this.withinRetention(candidate)) {
+      return
+    }
+    // Re-inserting moves the path to the end, so the oldest record is the one
+    // dropped when a long pause overruns the bound.
+    this.stale.delete(candidate.file.path)
+    this.stale.set(candidate.file.path, candidate)
+    while (this.stale.size > STALE_PATH_LIMIT) {
+      const oldest = this.stale.keys().next()
+      if (oldest.done) {
+        break
+      }
+      this.stale.delete(oldest.value)
+      this.droppedStalePaths += 1
     }
   }
 
-  /** Hands the re-read set to its scheduler and clears it. */
+  /**
+   * Files the index knew it was behind on and could not keep a record of. A
+   * non-zero count means the re-read set is incomplete, so coverage cannot be
+   * reported as whole until a full pass runs.
+   */
+  get droppedPendingFileCount(): number {
+    return this.droppedStalePaths
+  }
+
+  /**
+   * Hands the re-read set to its scheduler and clears it.
+   *
+   * These paths are behind, not merely dirty: the index declined their last read
+   * because it covered a span the index never saw. Re-dispatching a scan is not
+   * enough on its own, because the reader picks `append` from the session list's
+   * resume point and the consumer will decline again. The caller must pass each
+   * path to `requestWholeTranscriptRead` first.
+   */
   takeStale(): SessionFileCandidate[] {
     const candidates = [...this.stale.values()]
     this.stale.clear()

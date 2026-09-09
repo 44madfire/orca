@@ -30,6 +30,10 @@ export class SessionSearchIndexConsumer implements TranscriptConsumer {
   beginRead(start: TranscriptReadStart): TranscriptReadConsumer | null {
     const { candidate } = start
     if (!this.store.acceptsCandidate(candidate)) {
+      // A pause is a reason not to write now, not a reason to forget the read.
+      // `markStale` applies the retention rule itself, so a candidate that is
+      // out of scope rather than merely paused is still dropped here.
+      this.store.markStale(candidate)
       return null
     }
     // A parser that decodes where the channel cannot reach it reports every read
@@ -82,20 +86,27 @@ class SessionSearchReadConsumer implements TranscriptReadConsumer {
 
   finish(outcome: TranscriptReadOutcome): void {
     const { candidate } = this.start
+    let published = false
     try {
       // An incomplete read's rows are not the whole span, so the cursor must not
       // move past them; the file is re-read whole instead.
-      if (this.failed || outcome.incomplete || !this.staged.publish(outcome)) {
-        this.store.markStale(candidate)
-        return
-      }
-      this.store.writePublished(candidate)
+      published = !this.failed && !outcome.incomplete && this.staged.publish(outcome)
     } catch (error) {
-      this.store.markStale(candidate)
       this.store.reportWriteFailure(error)
     } finally {
+      // Before the store is told anything. `discard` is what tombstones the
+      // staged rows of a read that decoded no session, and the store's cleanup
+      // lane reads the tombstone table the moment it is scheduled — telling the
+      // store first left that batch on disk until some later write happened to
+      // schedule another pass, which for the last read before a shutdown is
+      // never.
       this.staged.discard()
     }
+    if (published) {
+      this.store.writePublished(candidate)
+      return
+    }
+    this.store.markStale(candidate)
   }
 }
 
