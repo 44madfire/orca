@@ -128,6 +128,64 @@ describe('AgentHookServer ingestStructuredStatus', () => {
     expect(server.getStatusSnapshot()).toEqual([])
   })
 
+  // The resume-identity remnant a dismissed PTY pane keeps exists so the agent can be resumed in
+  // that pane. A structured session has no pane, and the record store owns its resume identity —
+  // so a remnant here would be an unclearable row that every null-status publish re-minted.
+  it('leaves no resume-identity remnant behind, even carrying a provider session', () => {
+    const server = new AgentHookServer()
+    const withProviderSession = summary({
+      providerSession: { key: 'session_id', id: 'codex-thread-1' }
+    })
+    server.ingestStructuredStatus(withProviderSession)
+    expect(server.getStatusSnapshot()[0]?.providerSession).toEqual({
+      key: 'session_id',
+      id: 'codex-thread-1'
+    })
+
+    server.dropStructuredStatus(SESSION)
+    expect(server.getStatusSnapshot()).toEqual([])
+  })
+
+  // Structured rows are never serialized, so persisting one could only rewrite the file already
+  // on disk — once per debounce window for the whole of every streaming chat.
+  // "Exactly one writer per pane key" has to hold for deletes too: the renderer's feed bridge owns
+  // this pane, so a pane-status-clear would be main reaching into a row it does not write.
+  it('drops the row without sending the renderer a clear for a pane it does not write', () => {
+    const server = new AgentHookServer()
+    const cleared: unknown[] = []
+    const dropped: string[] = []
+    server.setPaneStatusClearListener((clear) => cleared.push(clear))
+    server.subscribeStatusDrop((paneKey) => dropped.push(paneKey))
+
+    server.ingestStructuredStatus(summary())
+    server.dropStructuredStatus(SESSION)
+
+    expect(server.getStatusSnapshot()).toEqual([])
+    expect(cleared).toEqual([])
+    expect(dropped).toEqual([STRUCTURED_PANE])
+  })
+
+  it('schedules no persist for a structured row, while a hook row still does', () => {
+    const server = new AgentHookServer()
+    const persists: number[] = []
+    const scheduled = server as unknown as { scheduleStatusPersist: () => void }
+    const original = scheduled.scheduleStatusPersist.bind(server)
+    scheduled.scheduleStatusPersist = () => {
+      persists.push(1)
+      original()
+    }
+
+    server.ingestStructuredStatus(summary())
+    expect(persists).toHaveLength(0)
+
+    server.ingestTerminalStatus({
+      paneKey: PANE,
+      connectionId: null,
+      payload: { state: 'working', prompt: 'watch the build', agentType: 'claude' }
+    })
+    expect(persists).toHaveLength(1)
+  })
+
   it('leaves a hook-reported pane alone', () => {
     const server = new AgentHookServer()
     server.ingestTerminalStatus({

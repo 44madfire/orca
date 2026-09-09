@@ -199,7 +199,11 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
       this.runtimeObservedStatusPaneKeys.add(enriched.paneKey)
     }
     this.state.lastStatusByPaneKey.set(enriched.paneKey, enriched)
-    this.scheduleStatusPersist()
+    // Why skipped for structured rows: the serializer drops them, so the whole walk and stringify
+    // can only ever reproduce the last file — once per debounce window for a streaming chat.
+    if (!enriched.structuredHost) {
+      this.scheduleStatusPersist()
+    }
     this.notifyStatusChangeListeners()
     this.emitEnrichedStatus(enriched)
     return enriched
