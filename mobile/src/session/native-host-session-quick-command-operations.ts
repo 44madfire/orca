@@ -15,11 +15,13 @@ export function nativeHostSessionQuickCommandOperations(
 ): HostSessionQuickCommandOperations {
   return {
     async snapshot(workspaceId, signal) {
-      return quickCommandSnapshot(
-        await loadWithCutoverRetry(client, signal),
-        workspaceId,
-        'Failed to load quick commands'
-      )
+      // The ok check sits outside the retry, as it did before this seam existed: a refusal
+      // envelope is an answer, and replaying it would depend on the host's error text.
+      const response = await loadWithCutoverRetry(client, signal)
+      if (!response.ok) {
+        throw new Error(response.error.message || 'Failed to load quick commands')
+      }
+      return quickCommandSnapshot(response.result, workspaceId, 'Failed to load quick commands')
     },
     async mutate(workspaceId, mutation) {
       // Why no cutover retry here: a quick-command mutation is not idempotent, so a replay
@@ -38,11 +40,7 @@ export function nativeHostSessionQuickCommandOperations(
 async function loadWithCutoverRetry(client: RpcClient, signal?: AbortSignal) {
   for (let retry = 0; ; retry += 1) {
     try {
-      const response = await client.sendRequest('settings.getTerminalQuickCommands')
-      if (!response.ok) {
-        throw new Error(response.error.message || 'Failed to load quick commands')
-      }
-      return response.result
+      return await client.sendRequest('settings.getTerminalQuickCommands')
     } catch (error) {
       if (
         signal?.aborted ||
