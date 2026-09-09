@@ -108,14 +108,14 @@ describe('mobile GitHub Project host routing boundary', () => {
     )
     // Per method, not once per file: dropping prRepo from a single mutation must fail here.
     for (const method of [
-      'fetchResolveReviewThread',
-      'fetchAddPRReviewCommentReply',
-      'fetchAddIssueComment',
-      'fetchRequestPRReviewers',
-      'fetchRerunPRChecks',
-      'fetchMergePR'
+      'github.resolveReviewThread',
+      'github.addPRReviewCommentReply',
+      'github.addIssueComment',
+      'github.requestPRReviewers',
+      'github.rerunPRChecks',
+      'github.mergePR'
     ]) {
-      const offset = projectMutationAdapter.indexOf(`${method}(`)
+      const offset = projectMutationAdapter.indexOf(`'${method}'`)
       expect(offset, `${method} must remain wired`).toBeGreaterThan(-1)
       // Bounded to this adapter method, so a neighbour's prRepo cannot satisfy it.
       expect(

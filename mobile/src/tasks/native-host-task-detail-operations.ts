@@ -81,21 +81,19 @@ export function nativeHostTaskDetailOperations(client: RpcRequestSender): HostTa
           { timeoutMs: 30_000 }
         )
       ])
-      const issue = await successfulResult<LinearIssue | null>(issueResponse)
-      const comments = await optionalComments(commentsResponse)
+      if (!issueResponse.ok) {
+        throw new Error(issueResponse.error.message)
+      }
+      const issue = issueResponse.result as LinearIssue | null
+      const comments = commentsResponse.ok
+        ? ((commentsResponse.result as DetailComment[]) ?? [])
+        : []
       if (!issue) {
         throw new Error('Details not found')
       }
       return { issue, comments }
     }
   }
-}
-
-/** Tolerates a refusal envelope only. A transport rejection still fails the detail load, so a
- *  timed-out comment read cannot render as an issue that simply has no comments. */
-async function optionalComments(request: Promise<unknown>): Promise<DetailComment[]> {
-  const response = (await request) as { ok: boolean; result?: unknown }
-  return response.ok ? ((response.result as DetailComment[]) ?? []) : []
 }
 
 async function successfulResult<T>(request: Promise<unknown>): Promise<T> {

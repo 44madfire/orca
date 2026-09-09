@@ -4,15 +4,6 @@ import type {
   HostTaskProjectMutationOperations
 } from './host-task-project-mutation-operations'
 import type { RpcRequestSender } from '../transport/rpc-client'
-import {
-  fetchAddIssueComment,
-  fetchAddPRReviewCommentReply,
-  fetchMergePR,
-  fetchRequestPRReviewers,
-  fetchRerunPRChecks,
-  fetchResolveReviewThread,
-  type GitHubPrMutationOutcome
-} from '../session/github-pr-mutations'
 
 const PROJECT_PR_MUTATION_TIMEOUT_MS = 60_000
 /** Every project mutation carried a connect deadline before this seam existed. Without one the
@@ -87,89 +78,84 @@ export function nativeHostTaskProjectMutationOperations(
       })
     },
     async resolveReviewThread(target, repoId, threadId, resolve) {
-      requirePrMutation(
-        await fetchResolveReviewThread(
-          client,
-          repoId,
-          {
-            threadId,
-            resolve,
-            // Why: a draft row
-            // has no slug — send it only when one resolved rather than an empty pair.
-            prRepo: prRepoPayload(target)
-          },
-          { timeoutMs: PROJECT_MUTATION_TIMEOUT_MS }
-        ),
-        resolve ? 'Failed to resolve thread' : 'Failed to reopen thread'
+      const response = await client.sendRequest(
+        'github.resolveReviewThread',
+        {
+          repo: `id:${repoId}`,
+          prRepo: prRepoPayload(target),
+          threadId,
+          resolve
+        },
+        { timeoutMs: PROJECT_MUTATION_TIMEOUT_MS }
       )
+      if (!response.ok) {
+        throw new Error(response.error.message)
+      }
+      if (response.result !== true) {
+        throw new Error(resolve ? 'Failed to resolve thread' : 'Failed to reopen thread')
+      }
     },
     async replyReviewComment(target, repoId, payload) {
-      return prMutationComment(
-        await fetchAddPRReviewCommentReply(
-          client,
-          repoId,
-          {
-            prNumber: target.number,
-            ...payload,
-            prRepo: prRepoPayload(target)
-          },
-          { timeoutMs: PROJECT_MUTATION_TIMEOUT_MS }
-        ),
-        'Failed to reply'
+      const result = await projectMutation<{ comment?: DetailComment }>(
+        client,
+        'github.addPRReviewCommentReply',
+        {
+          repo: `id:${repoId}`,
+          prNumber: target.number,
+          prRepo: prRepoPayload(target),
+          ...payload
+        }
       )
+      return result.comment
     },
     async addConversationComment(target, repoId, body) {
-      return prMutationComment(
-        await fetchAddIssueComment(
-          client,
-          repoId,
-          {
-            prNumber: target.number,
-            body,
-            prRepo: prRepoPayload(target),
-            type: target.type
-          },
-          { timeoutMs: PROJECT_MUTATION_TIMEOUT_MS }
-        ),
-        'Failed to reply'
+      const result = await projectMutation<{ comment?: DetailComment }>(
+        client,
+        'github.addIssueComment',
+        {
+          repo: `id:${repoId}`,
+          number: target.number,
+          prRepo: prRepoPayload(target),
+          body,
+          type: target.type
+        }
       )
+      return result.comment
     },
     async requestReviewers(target, repoId, reviewers) {
-      requirePrMutation(
-        await fetchRequestPRReviewers(
-          client,
-          repoId,
-          {
-            prNumber: target.number,
-            reviewers,
-            prRepo: prRepoPayload(target)
-          },
-          { timeoutMs: PROJECT_MUTATION_TIMEOUT_MS }
-        ),
-        'Failed to request reviewers'
-      )
+      await projectMutation(client, 'github.requestPRReviewers', {
+        repo: `id:${repoId}`,
+        prNumber: target.number,
+        prRepo: prRepoPayload(target),
+        reviewers
+      })
     },
     async rerunChecks(target, repoId, payload) {
-      requirePrMutation(
-        await fetchRerunPRChecks(
-          client,
-          repoId,
-          { prNumber: target.number, ...payload, prRepo: prRepoPayload(target) },
-          // A CI rerun and a merge both routinely outrun the 30s default.
-          { timeoutMs: PROJECT_PR_MUTATION_TIMEOUT_MS }
-        ),
-        'Failed to rerun checks'
+      await projectMutation(
+        client,
+        'github.rerunPRChecks',
+        {
+          repo: `id:${repoId}`,
+          prNumber: target.number,
+          prRepo: prRepoPayload(target),
+          ...payload
+        },
+        false,
+        PROJECT_PR_MUTATION_TIMEOUT_MS
       )
     },
     async merge(target, repoId, method) {
-      requirePrMutation(
-        await fetchMergePR(
-          client,
-          repoId,
-          { prNumber: target.number, method, prRepo: prRepoPayload(target) },
-          { timeoutMs: PROJECT_PR_MUTATION_TIMEOUT_MS }
-        ),
-        'Failed to merge pull request'
+      await projectMutation(
+        client,
+        'github.mergePR',
+        {
+          repo: `id:${repoId}`,
+          prNumber: target.number,
+          prRepo: prRepoPayload(target),
+          method
+        },
+        false,
+        PROJECT_PR_MUTATION_TIMEOUT_MS
       )
     }
   }
@@ -202,49 +188,40 @@ const PROJECT_MUTATION_FALLBACKS: Record<string, string> = {
   'github.project.deleteIssueCommentBySlug': 'Failed to delete comment',
   'github.project.updateItemField': 'Failed to update project field',
   'github.project.clearItemField': 'Failed to update project field',
-  'github.project.updateIssueTypeBySlug': 'Failed to update issue type'
+  'github.project.updateIssueTypeBySlug': 'Failed to update issue type',
+  'github.addPRReviewCommentReply': 'Failed to reply',
+  'github.addIssueComment': 'Failed to reply',
+  'github.requestPRReviewers': 'Failed to request reviewers',
+  'github.rerunPRChecks': 'Failed to rerun checks',
+  'github.mergePR': 'Failed to merge pull request'
 }
 
 async function projectMutation<T extends object = object>(
   client: RpcRequestSender,
   method: string,
   payload: object,
-  requireOk = false
+  requireOk = false,
+  timeoutMs = PROJECT_MUTATION_TIMEOUT_MS
 ): Promise<T> {
   const fallback = PROJECT_MUTATION_FALLBACKS[method] ?? 'GitHub Project request failed'
-  const response = (await client.sendRequest(method, payload, { timeoutMs: 30_000 })) as {
-    ok: boolean
-    result?: { ok?: boolean; error?: string | { message?: string } }
-    error?: { message?: string }
-  }
+  const response = await client.sendRequest(method, payload, { timeoutMs })
   if (!response.ok) {
-    throw new Error(response.error?.message ?? fallback)
+    throw new Error(response.error.message)
   }
-  if (requireOk && !response.result?.ok) {
-    throw new Error(fallback)
+  const result = response.result as { ok?: boolean; error?: string | { message?: string } }
+  if (requireOk ? !result.ok : result.ok === false) {
+    const error = result.error
+    if (!method.startsWith('github.project.')) {
+      throw new Error((error as string | undefined) ?? fallback)
+    }
+    const acceptsString =
+      method === 'github.project.updateIssueCommentBySlug' ||
+      method === 'github.project.deleteIssueCommentBySlug'
+    throw new Error(
+      acceptsString && typeof error === 'string'
+        ? error
+        : ((typeof error === 'object' ? error?.message : undefined) ?? fallback)
+    )
   }
-  if (response.result?.ok === false) {
-    const error = response.result.error
-    throw new Error(typeof error === 'string' ? error : (error?.message ?? fallback))
-  }
-  return (response.result ?? {}) as T
-}
-
-/** The wrapper substitutes its own copy for two cases the caller used to word itself: a host
- *  that says nothing (`Request failed: <method>`) and a review thread it could not update. */
-const WRAPPER_SUBSTITUTED_COPY = ['Request failed: ', 'Failed to update review thread.']
-
-function requirePrMutation(result: GitHubPrMutationOutcome, fallback: string): void {
-  if (!result.ok) {
-    const substituted = WRAPPER_SUBSTITUTED_COPY.some((copy) => result.error.startsWith(copy))
-    throw new Error(substituted ? fallback : result.error)
-  }
-}
-
-function prMutationComment(
-  result: GitHubPrMutationOutcome,
-  fallback: string
-): DetailComment | undefined {
-  requirePrMutation(result, fallback)
-  return (result as { comment?: DetailComment }).comment
+  return result as T
 }
