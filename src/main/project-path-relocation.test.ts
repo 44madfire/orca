@@ -321,6 +321,22 @@ describe('projectHostSetup.update entry points', () => {
     expect(notices).toEqual([])
   })
 
+  it('does not hand persistence a path it did not apply', () => {
+    const store = storeWithFolderProject()
+    store.setWorktreeMeta(rootWorkspaceId(), { displayName: 'example-project' })
+    const { controller } = rpcController(store)
+
+    // The stored spelling is the trimmed one, so forwarding the raw request would trip the
+    // persistence backstop that refuses any path it did not apply itself.
+    controller.updateSetup({
+      setupId: 'r1',
+      updates: { path: `  ${newPath}  `, displayName: 'Renamed' }
+    })
+
+    expect(store.getRepo('r1')?.path).toBe(newPath)
+    expect(store.getRepo('r1')?.displayName).toBe('Renamed')
+  })
+
   it('passes an update with no path change straight through', () => {
     const store = storeWithFolderProject()
     const { notify, notices } = recordingNotifier()
