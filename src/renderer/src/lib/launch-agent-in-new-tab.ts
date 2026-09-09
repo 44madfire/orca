@@ -229,7 +229,7 @@ function launchAgentInNewTabInternal(
   if (launchRoute === 'structured-native-chat' && isAgentSessionHandleProvider(agent)) {
     const structuredLaunch = startStructuredAgentLaunch(worktreeId, agent, {
       prompt: trimmedPrompt,
-      ...(promptDelivery === 'submit-after-ready' ? { promptDelivery } : {}),
+      promptDelivery: viewModePromptDelivery,
       onPromptDelivered
     })
     void structuredLaunch

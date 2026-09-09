@@ -12,6 +12,7 @@ export async function settleFullCreationStructuredLaunch(args: {
   agent: TuiAgent
   worktreeId: string
   prompt: string
+  promptDelivery?: 'draft' | 'auto-submit'
   initialActivation: Activation
   onDefinitiveRefusal: () => Activation | Promise<Activation>
 }): Promise<{
@@ -25,7 +26,10 @@ export async function settleFullCreationStructuredLaunch(args: {
     return { structuredLaunchAccepted, visibilityUnknown: false, activation }
   }
 
-  const launch = startStructuredAgentLaunch(args.worktreeId, args.agent, { prompt: args.prompt })
+  const launch = startStructuredAgentLaunch(args.worktreeId, args.agent, {
+    prompt: args.prompt,
+    ...(args.promptDelivery ? { promptDelivery: args.promptDelivery } : {})
+  })
   const refusalFallback = launch.claimDefinitiveRefusalFallback(async () => {
     structuredLaunchAccepted = false
     activation = await args.onDefinitiveRefusal()

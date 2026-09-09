@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   callStructuredAgentSession: vi.fn(),
   createIntent: vi.fn(),
   launch: vi.fn(),
+  seedDraft: vi.fn(),
+  clearDraft: vi.fn(),
   rendererTabs: {} as Record<string, unknown[]>,
   listeners: new Set<(state: { unifiedTabsByWorktree: Record<string, unknown[]> }) => void>()
 }))
@@ -40,7 +42,11 @@ vi.mock('@/runtime/structured-agent-session-client', () => ({
 
 vi.mock('@/store', () => ({
   useAppStore: {
-    getState: () => ({ unifiedTabsByWorktree: mocks.rendererTabs }),
+    getState: () => ({
+      unifiedTabsByWorktree: mocks.rendererTabs,
+      seedNativeChatLaunchDraft: mocks.seedDraft,
+      clearNativeChatLaunchDraft: mocks.clearDraft
+    }),
     subscribe: (
       listener: (state: { unifiedTabsByWorktree: Record<string, unknown[]> }) => void
     ) => {
@@ -56,6 +62,7 @@ vi.mock('@/i18n/i18n', () => ({
 }))
 
 vi.mock('@/lib/agent-catalog', () => ({
+  getAgentLabel: (agent: string) => (agent === 'codex' ? 'Codex' : 'Claude'),
   getAgentCatalog: () => [
     { id: 'claude', label: 'Claude' },
     { id: 'codex', label: 'Codex' }
@@ -135,6 +142,34 @@ describe('startStructuredAgentLaunch', () => {
       ok: true,
       page: { fence: 1 }
     })
+  })
+
+  it('keeps launch drafts in the composer without staging or sending a turn', async () => {
+    const worktreeId = 'wt-draft'
+    const intent = launchIntent(worktreeId, 'draft-session')
+    mocks.createIntent.mockReturnValueOnce(intent)
+    mocks.launch.mockResolvedValue({ sessionId: intent.sessionId, fence: 1 })
+    vi.mocked(refreshLocalStructuredSessionTabs).mockResolvedValue([
+      publishedSnapshot(worktreeId, intent.sessionId)
+    ])
+
+    const launch = startStructuredAgentLaunch(worktreeId, 'codex', {
+      prompt: 'PR #19423 — review this change',
+      promptDelivery: 'draft'
+    })
+    await launch.launchResult
+
+    expect(mocks.seedDraft).toHaveBeenCalledWith({
+      tabId: 'structured-agent-session-draft-session',
+      agent: 'codex',
+      text: 'PR #19423 — review this change',
+      createdAt: expect.any(Number)
+    })
+    expect(readOutbox(intent.sessionId)).toEqual([])
+    expect(launch.promptDeliveryResult).toBeUndefined()
+    expect(
+      mocks.callStructuredAgentSession.mock.calls.some((call) => call[1] === 'agentSession.send')
+    ).toBe(false)
   })
 
   it('opens the chat without an informational progress toast', async () => {

@@ -228,7 +228,8 @@ export async function submitFolderWorkspaceCreate({
     let structuredLaunchAccepted = structuredLaunch
     if (structuredLaunch && isAgentSessionHandleProvider(quickAgent)) {
       const launch = startStructuredAgentLaunch(folderWorkspaceKey(workspace.id), quickAgent, {
-        prompt: launchDraftPrompt ?? note
+        prompt: launchDraftPrompt ?? note,
+        promptDelivery: launchDraftPrompt ? 'draft' : 'auto-submit'
       })
       const refusalFallback = launch.claimDefinitiveRefusalFallback(async () => {
         structuredLaunchAccepted = false

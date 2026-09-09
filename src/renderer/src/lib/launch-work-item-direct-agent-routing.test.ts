@@ -45,6 +45,18 @@ const baseArgs = {
 describe('settleDirectWorkItemStructuredLaunch', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('preserves the editable delivery mode for the default-agent PR launch', async () => {
+    mocks.startStructuredAgentLaunch.mockReturnValue({
+      launchResult: Promise.resolve({ sessionId: 'draft-session' }),
+      claimDefinitiveRefusalFallback: vi.fn(() => Promise.resolve(false))
+    })
+    await settleDirectWorkItemStructuredLaunch(baseArgs)
+    expect(mocks.startStructuredAgentLaunch).toHaveBeenCalledWith('worktree-1', 'codex', {
+      prompt: 'Fix the route',
+      promptDelivery: 'draft'
+    })
+  })
+
   it('runs the legacy terminal fallback after a definitive refusal', async () => {
     mocks.activateAndRevealWorktree.mockReturnValue({ primaryTabId: 'fallback-tab' })
     mocks.startStructuredAgentLaunch.mockReturnValue({

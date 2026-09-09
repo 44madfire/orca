@@ -21,6 +21,7 @@ export type StructuredPromptDeliveryResult = {
 
 export type StructuredLaunchPromptOptions = {
   prompt?: string
+  promptDelivery?: 'auto-submit' | 'submit-after-ready' | 'draft'
   onPromptDelivered?: () => void
 }
 
@@ -83,7 +84,7 @@ export function settleStructuredAgentLaunchPrompt(args: {
   options: StructuredLaunchPromptOptions
   stagedEntry: StructuredAgentSessionOutboxEntry | null
 }): Promise<StructuredPromptDeliveryResult> | undefined {
-  if (!args.options.prompt?.trim()) {
+  if (args.options.promptDelivery === 'draft' || !args.options.prompt?.trim()) {
     return undefined
   }
   return args.launchResult.then(async (receipt) => {

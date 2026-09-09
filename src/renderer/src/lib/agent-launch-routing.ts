@@ -71,7 +71,6 @@ export function structuredAgentLaunchSupported(
       hostCapabilities: input.hostCapabilities,
       workspaceKind: input.workspaceKind,
       projectRuntime: input.projectRuntime,
-      isDraftPrompt: input.promptDelivery === 'draft',
       requiresTuiLaunchCustomization: input.requiresTuiLaunchCustomization
     }).supported
   )

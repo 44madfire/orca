@@ -58,9 +58,9 @@ describe('resolveAgentLaunchRoute', () => {
     )
   })
 
-  it('keeps editable drafts on the terminal-backed native chat path', () => {
+  it('routes editable drafts to the structured chat composer', () => {
     expect(route({ launchText: 'reviewable context', promptDelivery: 'draft' })).toBe(
-      'legacy-native-chat'
+      'structured-native-chat'
     )
   })
 

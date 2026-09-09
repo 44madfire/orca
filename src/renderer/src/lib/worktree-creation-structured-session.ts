@@ -62,7 +62,10 @@ export async function launchStructuredWorktreeSession(args: {
     agent,
     args.recoverUnknownLaunch
       ? {}
-      : { prompt: args.request.launchDraftPrompt ?? args.request.quickPrompt }
+      : {
+          prompt: args.request.launchDraftPrompt ?? args.request.quickPrompt,
+          ...(args.request.launchDraftPrompt ? { promptDelivery: 'draft' as const } : {})
+        }
   )
   let cancelled = false
   const cancelLaunch = (): void => {

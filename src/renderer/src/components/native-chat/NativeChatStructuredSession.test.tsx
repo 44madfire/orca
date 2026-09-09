@@ -7,6 +7,8 @@ import type { AgentJournalRenderItem } from '../../../../shared/agent-session-jo
 import type { AgentSessionBackgroundTask } from '../../../../shared/agent-session-wire'
 import { decodeAgentSessionQuestionAnswers } from '../../../../shared/agent-session-question-answer'
 import type { NativeChatQuestionCardProps } from './NativeChatQuestionCard'
+import type { NativeChatLaunchSeed } from './native-chat-composer-types'
+import { useAppStore } from '@/store'
 
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
@@ -19,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     runtimeContext?: unknown
   },
   composerProps: null as null | {
+    launchSeed?: NativeChatLaunchSeed
     structuredTransport?: Record<string, unknown>
     isWorking?: boolean
   },
@@ -173,17 +176,29 @@ describe('NativeChatStructuredSession', () => {
     mocks.backgroundTasks = []
   })
 
-  it('routes app-menu paste into the structured composer', () => {
+  it('routes the launch draft and app-menu paste to the structured composer', () => {
+    const draft = {
+      tabId: 'structured-draft-tab',
+      agent: 'codex' as const,
+      text: 'PR #19423 — review this change',
+      createdAt: Date.now()
+    }
+    useAppStore.getState().seedNativeChatLaunchDraft(draft)
     render(
       <NativeChatStructuredSession
         isVisible
-        tabId="structured-tab-paste"
-        sessionId="session-paste"
+        tabId={draft.tabId}
+        sessionId="draft-session"
         target={{ kind: 'local' }}
         agent="codex"
       />
     )
-
+    expect(mocks.composerProps?.launchSeed).toEqual({
+      launchDraft: draft,
+      launchDraftResolved: false,
+      ownsTabWideLaunchDraft: true
+    })
+    act(() => useAppStore.getState().clearNativeChatLaunchDraft(draft.tabId))
     const composer = screen.getByTestId('structured-composer')
     composer.focus()
     window.dispatchEvent(new Event('orca-app-menu-paste', { cancelable: true }))

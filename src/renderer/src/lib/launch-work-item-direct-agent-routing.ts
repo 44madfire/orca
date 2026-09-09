@@ -134,7 +134,7 @@ export async function settleDirectWorkItemStructuredLaunch(args: {
 
   const launch = startStructuredAgentLaunch(args.worktreeId, args.agent, {
     prompt: args.draftContent,
-    ...(args.promptDelivery === 'submit-after-ready' ? { promptDelivery: args.promptDelivery } : {})
+    promptDelivery: args.promptDelivery
   })
   const refusalFallback = launch.claimDefinitiveRefusalFallback(async () => {
     structuredLaunch = false

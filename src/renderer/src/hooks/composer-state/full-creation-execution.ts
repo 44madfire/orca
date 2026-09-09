@@ -241,6 +241,7 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
           agent: tuiAgent,
           worktreeId: worktree.id,
           prompt: startupPlan?.draftPrompt ?? submitStartupPrompt,
+          promptDelivery: startupPlan?.draftPrompt ? 'draft' : 'auto-submit',
           initialActivation,
           onDefinitiveRefusal: async () => {
             if (pendingFirstAgentMessageRename) {

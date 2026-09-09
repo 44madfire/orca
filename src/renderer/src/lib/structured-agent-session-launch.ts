@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
-import { getAgentCatalog } from '@/lib/agent-catalog'
+import { getAgentLabel } from '@/lib/agent-catalog'
 import { translate } from '@/i18n/i18n'
 import {
   abandonStructuredAgentSessionLaunchIntent,
@@ -34,6 +34,7 @@ import {
   type StructuredRefusalFallback
 } from '@/lib/structured-agent-session-launch-callers'
 import type { StructuredAgentSessionResumeSource } from '../../../shared/structured-agent-session-create'
+import * as launchDraft from './structured-agent-session-launch-draft'
 
 export type { StructuredAgentLaunchOptions, StructuredAgentLaunchReceipt }
 
@@ -57,10 +58,6 @@ export type StructuredAgentLaunchResult = {
 }
 
 export type StructuredAgentLaunchStatus = 'idle' | 'pending' | 'unknown'
-
-function structuredAgentLabel(agent: AgentSessionHandleProvider): string {
-  return getAgentCatalog().find((entry) => entry.id === agent)?.label ?? agent
-}
 
 const pendingStructuredLaunchesByIdentity = new Map<string, StructuredLaunchState>()
 const structuredLaunchListeners = new Set<() => void>()
@@ -142,6 +139,7 @@ function settleDefinitiveRefusalFallback(state: StructuredLaunchState): void {
   }
   abandonStructuredAgentSessionLaunchIntent(state.intent)
   discardStructuredAgentSessionLaunchOutbox(state.intent.sessionId)
+  launchDraft.clearStructuredAgentLaunchDraft(state.intent.sessionId)
   settleStructuredLaunchCallersWithFallback(state.callers)
 }
 
@@ -179,7 +177,7 @@ function trackLaunchFailureToast(state: StructuredLaunchState): void {
     if (error instanceof StructuredAgentSessionLaunchCancelledError) {
       return
     }
-    const agentLabel = structuredAgentLabel(state.intent.agent)
+    const agentLabel = getAgentLabel(state.intent.agent)
     if (
       error instanceof StructuredAgentSessionCreateRefusalError &&
       (await state.callers.refusalSettlement.promise.catch(() => false))
@@ -236,7 +234,7 @@ function structuredAgentLaunchState(
       trackLaunchFailureToast(existing)
       notifyStructuredLaunchListeners()
     }
-    const text = options.prompt?.trim() ?? ''
+    const text = options.promptDelivery === 'draft' ? '' : (options.prompt?.trim() ?? '')
     const stagedPrompt =
       text && existing.callers.outcome !== 'refused'
         ? enqueueStructuredAgentSessionLaunchPrompt(existing.intent.sessionId, text)
@@ -258,7 +256,7 @@ function structuredAgentLaunchState(
   const intent = options.resumeFrom
     ? createStructuredAgentSessionLaunchIntent(worktreeId, agent, options.resumeFrom)
     : createStructuredAgentSessionLaunchIntent(worktreeId, agent)
-  const text = options.prompt?.trim() ?? ''
+  const text = options.promptDelivery === 'draft' ? '' : (options.prompt?.trim() ?? '')
   const stagedPrompt = text
     ? enqueueStructuredAgentSessionLaunchPrompt(intent.sessionId, text)
     : null
@@ -277,7 +275,7 @@ function structuredAgentLaunchState(
     text && !stagedPrompt
       ? Promise.reject(
           new StructuredAgentSessionCreateRefusalError(
-            `Could not durably stage the ${structuredAgentLabel(agent)} launch prompt.`
+            `Could not durably stage the ${getAgentLabel(agent)} launch prompt.`
           )
         )
       : launchAndReconcile(state)
@@ -309,6 +307,7 @@ export function cancelStructuredAgentLaunch(worktreeId: string, sessionId: strin
   settleStructuredLaunchCallersWithoutFallback(state.callers, 'cancelled')
   cleanupLaunchState(state)
   discardStructuredAgentSessionLaunchOutbox(state.intent.sessionId)
+  launchDraft.clearStructuredAgentLaunchDraft(state.intent.sessionId)
   abandonStructuredAgentSessionLaunchIntent(state.intent)
   notifyStructuredLaunchListeners()
   return true
@@ -320,6 +319,7 @@ export function startStructuredAgentLaunch(
   options: StructuredAgentLaunchOptions = {}
 ): StructuredAgentLaunchResult {
   const { state, caller } = structuredAgentLaunchState(worktreeId, agent, options)
+  launchDraft.seedStructuredAgentLaunchDraft(state.intent.sessionId, agent, options)
   return {
     sessionId: state.intent.sessionId,
     launchResult: state.promise,
