@@ -1,5 +1,5 @@
 import { useStructuredAgentSessionStatusSummary } from './use-structured-agent-session-status-summary'
-import { useStructuredAgentSessionMutation } from './use-structured-agent-session-mutation'
+import { useStructuredAgentSessionMutate } from './use-structured-agent-session-mutate'
 import { useNativeChatRewind } from './use-native-chat-rewind'
 import type {
   AgentSessionRewindResult,
@@ -31,6 +31,7 @@ import { activeStructuredAgentSessionTurnId } from '../../../../shared/structure
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import { useStructuredAgentSessionOutbox } from './use-structured-agent-session-outbox'
+import { structuredSessionBackgroundTasksView } from './structured-session-background-tasks-view'
 import { useStructuredAgentSessionHold } from './use-structured-agent-session-hold'
 import { useStructuredAgentSessionRead } from './use-structured-agent-session-read'
 import {
@@ -55,7 +56,8 @@ export function useStructuredAgentSession(args: {
   // read below is useless for sending until it lands.
   useStructuredAgentSessionHold({ sessionId, target, surface: 'desktop-chat', enabled: isVisible })
   const { state, loadingOlder, loadOlder } = useStructuredAgentSessionRead(args)
-  const { mutate, writeError } = useStructuredAgentSessionMutation(sessionId, target, state.fence)
+  const stateRef = useRef(state)
+  const { mutate, writeError } = useStructuredAgentSessionMutate({ sessionId, target, stateRef })
   const [conversationSupport, setConversationSupport] = useState<{
     sessionId: string
     commands: readonly AgentSessionConversationCommand[]
@@ -76,6 +78,10 @@ export function useStructuredAgentSession(args: {
   })
 
   useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  useEffect(() => {
     const next = createStructuredAgentSessionOptionState(agent)
     activeOptionRecordRef.current = next.record
     setOptionState(next)
@@ -87,6 +93,7 @@ export function useStructuredAgentSession(args: {
     () => selectStructuredAgentTurnActivity(state.items, turnId, state.activity),
     [state.activity, state.items, turnId]
   )
+  const backgroundTasksView = structuredSessionBackgroundTasksView(state.backgroundTasks, turnId)
   const isMonitoringBackgroundTasks =
     turnId === null && state.backgroundTasks?.state === 'monitoring'
 
@@ -201,13 +208,12 @@ export function useStructuredAgentSession(args: {
       outboxController.outbox.length ||
       commandPending.current
     ),
-    send: (fields, onFailure) =>
+    send: (fields) =>
       mutate<AgentSessionRewindResult>(
         'agentSession.rewind',
         'agentSession.rewind',
         fields,
-        undefined,
-        onFailure
+        undefined
       )
   })
   const { outbox } = outboxController
@@ -257,6 +263,7 @@ export function useStructuredAgentSession(args: {
     isMonitoringBackgroundTasks,
     backgroundTasks: state.backgroundTasks?.tasks ?? [],
     supportsBackgroundTaskStop: state.backgroundTasks?.supportsTaskStop === true,
+    backgroundTasksView,
     turnId,
     cancel: (turnId: string) => mutate('agentSession.cancel', 'agentSession.cancel', { turnId }),
     stopBackgroundTask: (taskId?: string) =>

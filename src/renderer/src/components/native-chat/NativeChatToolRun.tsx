@@ -12,7 +12,8 @@ import {
   isToolCallBlock,
   isToolResultBlock,
   type NativeChatBlock,
-  type NativeChatSubagentGroupBlock
+  type NativeChatSubagentGroupBlock,
+  type NativeChatToolCallBlock
 } from '../../../../shared/native-chat-types'
 import { isRenderableSubagentGroup } from '../../../../shared/native-chat-subagent-summary'
 import { diffFromText, diffFromToolCall, type DiffLine } from './native-chat-diff'
@@ -31,7 +32,6 @@ import {
   selectActiveToolCall
 } from '../../../../shared/native-chat-tool-activity'
 import { nativeChatToolRunIconName } from '../../../../shared/native-chat-tool-icon'
-import type { NativeChatToolCallBlock } from '../../../../shared/native-chat-types'
 import { NativeChatTaskList } from './NativeChatTaskList'
 import { buildNativeChatTaskListRows } from './native-chat-task-list-history'
 import { NativeChatDiffView } from './NativeChatDiffView'
@@ -235,6 +235,7 @@ export function NativeChatToolRun({
     ? selectActiveToolCall(blocks, { activeTurnIsWorking })
     : null
   const isSettled = latestActiveCall == null
+  const hasRunningCall = blocks.some((block) => isToolCallBlock(block) && block.state === 'running')
   // The turn caret opens the activity group, while each child tool remains
   // collapsed. The global expand toolbar still opens child details together.
   const expandToolLines = expandOverride === undefined ? open : false
@@ -380,8 +381,8 @@ export function NativeChatToolRun({
               {fallbackLabel}
             </span>
           )}
-          {/* Completion reads as a trailing mark so the leading glyph can stay fixed. */}
-          {structuredActivityUi ? (
+          {/* A running item cannot inherit completion from its turn. */}
+          {structuredActivityUi && !hasRunningCall ? (
             <Check aria-hidden className="size-3 shrink-0 text-muted-foreground" />
           ) : null}
           {/* Chevron is revealed on hover when collapsed and points down when open. */}
