@@ -51,9 +51,12 @@ describe('mobile GitHub Project host routing boundary', () => {
       if (TYPED_PAYLOAD_CALLS.has(call[1])) {
         continue
       }
-      const request = adapterSource.slice(call.index, call.index + 700)
+      // Bounded to the enclosing adapter method, so a neighbour's host cannot satisfy it.
+      const end = adapterSource.indexOf('\n    },', call.index)
+      const request = adapterSource.slice(call.index, end === -1 ? undefined : end)
+      // `host` may be a shorthand property, so accept it followed by a colon, comma or brace.
       expect(request, `${call[1]} must carry a host`).toMatch(
-        /\bhost:|slugPayload\(target\)|repoPayload\(/
+        /\bhost\s*[:,}]|slugPayload\(target\)|repoPayload\(/
       )
     }
     // The typed-payload calls get their host from the type, so pin the type instead.
