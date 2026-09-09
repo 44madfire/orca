@@ -54,6 +54,8 @@ function installHost(options: {
   settledThenThrows?: Set<string>
   /** Blocks every close, to exercise the shared sweep budget without fake timers. */
   closeGate?: Promise<void>
+  /** Blocks ONE session's close, so the serial loop can be caught part-way through. */
+  closeGates?: Record<string, Promise<void>>
 }): { closed: string[] } {
   const held = new Set(options.records.map((entry) => entry.sessionId))
   const closed: string[] = []
@@ -64,6 +66,7 @@ function installHost(options: {
     close: async (sessionId: string) => {
       closed.push(sessionId)
       await options.closeGate
+      await options.closeGates?.[sessionId]
       if (options.stuck?.has(sessionId)) {
         return
       }
@@ -263,6 +266,22 @@ describe('worktree teardown and structured agent sessions', () => {
     expect(host.closed).toEqual([])
   })
 
+  it('reads an explicit local fence the way the PTY sweeps do', () => {
+    // This helper reuses the PTY fence's own type, so the two cannot answer `null` differently:
+    // there it means this machine, and it has to mean this machine here. ABSENT is the one
+    // deliberate difference — no fence at all for the PTY sweeps, narrowed to local here, because
+    // a single-host-id comparison cannot express match-all and closing every host's chats is
+    // destructive. Latent today only because `WorktreeTeardownDeps` cannot yet carry the `null`.
+    installHost({
+      records: [record('s1', WORKTREE, { executionHostId: 'ssh:host-a' }), record('s2', WORKTREE)]
+    })
+    const local = [{ sessionId: 's2', agent: 'claude' }]
+    expect(listLiveStructuredSessionsForWorktree(WORKTREE, { resolvedConnectionId: null })).toEqual(
+      local
+    )
+    expect(listLiveStructuredSessionsForWorktree(WORKTREE, {})).toEqual(local)
+  })
+
   it('closes only the session on the host the removal resolved to', async () => {
     const host = installHost({
       records: [record('s1', WORKTREE, { executionHostId: 'ssh:host-a' }), record('s2', WORKTREE)]
@@ -378,6 +397,92 @@ describe('worktree teardown and structured agent sessions', () => {
     // confirm" is never reported as "we saw it running" — including here.
     expect(message).not.toContain('still attached')
     warn.mockRestore()
+  })
+
+  it('names only the sessions still open when the budget expires mid-close', async () => {
+    // The close loop is serial, so a deadline can land part-way through it. A fallback assembled
+    // at the deadline could only name the whole list — so a removal that had already closed the
+    // first chat still told the user both were still there, which is the exact thing this sweep
+    // exists to stop doing: never report state nobody observed.
+    installHost({
+      records: [record('s1', WORKTREE), record('s2', WORKTREE, { provider: 'codex' })],
+      closeGates: { s2: new Promise<void>(() => {}) }
+    })
+    const error = await killAllProcessesForWorktree(
+      WORKTREE,
+      destructiveDeps({ timeoutMs: 40 })
+    ).catch((thrown: Error) => thrown.message)
+    expect(error).toContain('could not confirm these closed: 1 agent session (codex)')
+    expect(error).not.toContain('claude')
+  })
+
+  it('counts the closes that landed before the budget expired', async () => {
+    // The other half of the same fallback: it reported zero closes, so the removal log said
+    // `structured=0` for a chat it had just ended.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const slowClose = new Promise<void>((resolve) => {
+      setTimeout(resolve, 300)
+    })
+    installHost({
+      records: [record('s1', WORKTREE), record('s2', WORKTREE, { provider: 'codex' })],
+      closeGates: { s2: slowClose }
+    })
+    const result = await killAllProcessesForWorktree(
+      WORKTREE,
+      destructiveDeps({ allowUnverifiedStop: true, timeoutMs: 40 })
+    )
+    expect(result.structuredStopped).toBe(1)
+    expect(structuredSessionWarning(warn)).toContain(
+      'could not confirm these closed: 1 agent session (codex)'
+    )
+    warn.mockRestore()
+  })
+
+  it('stops issuing new closes once the budget is spent', async () => {
+    // One slow provider round trip used to starve every session behind it: the outer race had
+    // already given up on the loop, and it went on issuing closes whose outcome nobody would read.
+    // The in-flight one is NOT cancelled — nothing here can cancel a provider round trip — so it
+    // still has to be reported, which is why both sessions are named below.
+    let releaseFirstClose: () => void = () => {}
+    const firstClose = new Promise<void>((resolve) => {
+      releaseFirstClose = resolve
+    })
+    const host = installHost({
+      records: [record('s1', WORKTREE), record('s2', WORKTREE)],
+      closeGates: { s1: firstClose }
+    })
+    const error = await killAllProcessesForWorktree(
+      WORKTREE,
+      destructiveDeps({ timeoutMs: 5 })
+    ).catch((thrown: Error) => thrown.message)
+    expect(error).toContain('could not confirm these closed: 2 agent sessions (claude)')
+    releaseFirstClose()
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25)
+    })
+    expect(host.closed).toEqual(['s1'])
+  })
+
+  it('leaves the terminals already stopped when it refuses over a stuck session', async () => {
+    // Pins a tradeoff that was accepted, not an outcome that is wanted. The PTY sweeps now run
+    // concurrently with the structured close, so a removal that refuses over a session that will
+    // not close has ALREADY killed that workspace's terminals — the head-first serial order spared
+    // them. Serialising it back is worse: it spends the whole shared budget before a single PTY is
+    // asked, and the alternative — refusing before the PTY sweeps — leaves force-delete removing
+    // files while PTY handles are open. The PTY gate itself already kills first and refuses only
+    // on what it could not verify stopped. A later change must not flip this back silently.
+    let terminalSweeps = 0
+    const runtime = {
+      stopTerminalsForWorktree: async () => {
+        terminalSweeps += 1
+        return { stopped: 2 }
+      }
+    } as never
+    installHost({ records: [record('s1', WORKTREE)], stuck: new Set(['s1']) })
+    await expect(
+      killAllProcessesForWorktree(WORKTREE, { ...destructiveDeps(), runtime })
+    ).rejects.toThrow(/still live: 1 agent session \(claude\)/)
+    expect(terminalSweeps).toBe(1)
   })
 
   it('starts the terminal sweeps while the structured close is still in flight', async () => {

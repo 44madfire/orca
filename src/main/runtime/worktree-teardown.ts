@@ -15,8 +15,10 @@ import {
 } from './worktree-pty-surface-sweeps'
 import {
   closeStructuredSessionsForWorktree,
+  createStructuredSweepProgress,
   describeUnclosedStructuredSessions,
-  listLiveStructuredSessionsForWorktree
+  listLiveStructuredSessionsForWorktree,
+  unclosedStructuredSessions
 } from './structured-session-worktree-teardown'
 import {
   createWorktreeSweepTracker,
@@ -331,14 +333,18 @@ async function sweepStructuredSessions(
   // that is meant to clear it (#11960). A close that ran out of time is a session this removal
   // could not confirm closed, which is exactly what the branch below already words. Tracked so a
   // forced removal still waits out the abandoned-sweep grace before it deletes files.
-  const { closed, unstopped } = await settleBeforeDeadline(
-    sweeps.track(() => closeStructuredSessionsForWorktree(live, deps.runtime)),
-    {
-      closed: 0,
-      unstopped: live.map((session) => ({ ...session, status: 'unverifiable' as const }))
-    },
+  //
+  // The verdict is read off `progress`, which the serial loop fills as it goes, rather than off
+  // this call's result: the deadline can land mid-loop, and a fallback assembled here could only
+  // guess — it named every session, including the ones already closed, and reported zero closes.
+  const progress = createStructuredSweepProgress(live)
+  await settleBeforeDeadline(
+    sweeps.track(() => closeStructuredSessionsForWorktree(progress, deadline, deps.runtime)),
+    undefined,
     deadline
   )
+  const closed = progress.closed
+  const unstopped = unclosedStructuredSessions(progress)
   if (unstopped.length === 0) {
     return closed
   }

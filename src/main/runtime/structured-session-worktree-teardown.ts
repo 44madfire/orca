@@ -30,6 +30,7 @@ import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire
 import { observeStructuredWorker } from './structured-worker-authority'
 import { closeStructuredAgentSessionChild } from './structured-agent-session-close'
 import { retireSettledStructuredWorkerTab } from './structured-agent-session-tab-retirement'
+import type { WorktreePtyHostFence } from './worktree-pty-host-fence'
 import type { OrcaRuntimeService } from './orca-runtime'
 
 export type LiveStructuredSessionInWorkspace = {
@@ -47,11 +48,19 @@ export type StructuredWorktreeSweepRuntime = Pick<
   'forgetStructuredSessionMail' | 'retireStructuredAgentSessionTabFromSnapshot'
 >
 
-/** The two fields every teardown caller already resolves to fence its PTY sweeps to one host. */
-export type StructuredSessionHostFence = {
-  resolvedConnectionId?: string
-  resolvedRuntimeEnvironmentId?: string
-}
+/**
+ * The two fields every teardown caller already resolves to fence its PTY sweeps to one host.
+ *
+ * Deliberately the PTY fence's own type rather than a look-alike: these two helpers are written
+ * against each other, so a widening on one side must not become a silent disagreement on the
+ * other. `resolvedConnectionId: null` means this machine on both.
+ *
+ * They differ in exactly one reading, and only that one: ABSENT. The PTY fence takes it as no
+ * fence at all and matches every host, which a single-host-id comparison cannot express — and
+ * closing every host's chats is destructive, not merely noisy. So this side reads absent as local
+ * too, the narrower half of that pair. Pinned by test, not left to the next reader to rediscover.
+ */
+export type StructuredSessionHostFence = WorktreePtyHostFence
 
 /**
  * The one execution host this teardown may touch.
@@ -59,9 +68,7 @@ export type StructuredSessionHostFence = {
  * A workspace id is `repoId::path` with no host component, so the local machine, an SSH host and a
  * paired runtime can all publish the SAME id and each names a DIFFERENT workspace (STA-4343). The
  * PTY sweeps fence on exactly these two fields; a structured session records its host directly, so
- * the comparison is on `location.executionHostId` instead of on a pty-id shape — but the
- * precedence is the same. Neither field set means the removal targets this machine, which is also
- * the safe default: a caller that resolved no host closes nothing on anyone else's.
+ * the comparison is on `location.executionHostId` instead of on a pty-id shape.
  */
 export function structuredSessionTeardownHostId(
   fence: StructuredSessionHostFence
@@ -69,9 +76,10 @@ export function structuredSessionTeardownHostId(
   if (fence.resolvedRuntimeEnvironmentId !== undefined) {
     return toRuntimeExecutionHostId(fence.resolvedRuntimeEnvironmentId)
   }
-  return fence.resolvedConnectionId === undefined
-    ? LOCAL_EXECUTION_HOST_ID
-    : toSshExecutionHostId(fence.resolvedConnectionId)
+  // Both no-connection readings collapse here on purpose — see the fence type. A caller that
+  // resolved no host, and one that resolved this machine, each close nothing on anyone else's.
+  const connectionId = fence.resolvedConnectionId ?? null
+  return connectionId === null ? LOCAL_EXECUTION_HOST_ID : toSshExecutionHostId(connectionId)
 }
 
 /**
@@ -148,7 +156,54 @@ export function describeUnclosedStructuredSessions(
 }
 
 /**
- * Closes the given structured sessions, and reports what stayed.
+ * What the close loop has done so far, readable while it is still running.
+ *
+ * The loop is serial and every close waits on a provider round trip, so the shared sweep budget can
+ * expire part-way through it. This is written as it goes rather than returned at the end, because
+ * the caller's timeout path reads THIS: a fabricated whole-list fallback reported sessions the
+ * sweep had already closed as unclosed, named them in the refusal the user reads, and logged
+ * `structured=0` for closes that landed. Saying only what was observed is the point of the sweep.
+ */
+export type StructuredSweepProgress = {
+  /** The sessions this sweep closes, in the order the loop reaches them. */
+  readonly sessions: readonly LiveStructuredSessionInWorkspace[]
+  /** Sessions no longer attached after their close — the count this sweep reports. */
+  closed: number
+  /** Attempted closes that did not settle, each carrying the verdict re-read after the attempt. */
+  unstopped: UnclosedStructuredSession[]
+  /** How many of `sessions`, from the front, have an outcome recorded. */
+  settled: number
+}
+
+export function createStructuredSweepProgress(
+  sessions: readonly LiveStructuredSessionInWorkspace[]
+): StructuredSweepProgress {
+  return { sessions, closed: 0, unstopped: [], settled: 0 }
+}
+
+/**
+ * Everything this sweep did not prove closed.
+ *
+ * A session with no recorded outcome — never started, or still in flight — reports `unverifiable`,
+ * the same verdict as an attempted close that stayed unproven. Chosen, not conflated: the vocabulary is `live` / `unverifiable` / `exited` with no
+ * synonyms, and "we never asked" and "we asked and could not confirm" are both exactly "not
+ * observed exited". A fourth bucket would need its own refusal wording and its own toast
+ * classification for a distinction the user cannot act on any differently — and `live` is the only
+ * verdict either could be mistaken for, which is the one thing neither is allowed to claim.
+ */
+export function unclosedStructuredSessions(
+  progress: StructuredSweepProgress
+): UnclosedStructuredSession[] {
+  return [
+    ...progress.unstopped,
+    ...progress.sessions
+      .slice(progress.settled)
+      .map((session) => ({ ...session, status: 'unverifiable' as const }))
+  ]
+}
+
+/**
+ * Closes the structured sessions in `progress`, recording what stayed as it goes.
  *
  * Runs on the ordinary removal too, not just force: a child left running against a deleted `cwd` is
  * the outcome this whole sweep exists to prevent, and closing is how you prevent it. What stayed is
@@ -159,38 +214,46 @@ export function describeUnclosedStructuredSessions(
  * let the refusal name a session this call never touched.
  */
 export async function closeStructuredSessionsForWorktree(
-  sessions: readonly LiveStructuredSessionInWorkspace[],
+  progress: StructuredSweepProgress,
+  deadline: number,
   runtime?: StructuredWorktreeSweepRuntime
-): Promise<{ closed: number; unstopped: UnclosedStructuredSession[] }> {
+): Promise<void> {
   // No `afterClose` for a dispatched worker: `host.close` drops the holds, so nothing keeps a
   // provider child un-evictable, but the dispatch's redrive subscription and registry entry do
   // survive until it settles by another verb. That is a bounded leak, not a hazard — and passing
   // one here would mean resolving a dispatch id per session on a teardown path that must stay
   // inside the sweep deadline.
-  const unstopped: UnclosedStructuredSession[] = []
-  let closed = 0
-  for (const session of sessions) {
+  for (const session of progress.sessions) {
+    // Stops ISSUING new closes once the budget is spent; an in-flight one is left to finish, since
+    // nothing here can cancel a provider round trip. Without this, one slow round trip starved
+    // every session behind it: the caller's race had already given up, and the loop went on
+    // closing sessions whose outcome nobody would read.
+    if (Date.now() >= deadline) {
+      return
+    }
     const outcome = await closeStructuredAgentSessionChild(
       session.sessionId,
       runtime ? { runtime } : {}
     )
     if (outcome.stopped) {
-      closed += 1
-      continue
+      progress.closed += 1
+    } else {
+      // Re-observed rather than reusing the close's own reason string: what the user is asked to
+      // waive is the state AFTER the attempt, and a close that threw never reached an observation.
+      const status = observeStructuredWorker({ sessionId: session.sessionId }).status
+      if (status === 'exited') {
+        // The re-read can PROVE the exit a failed close could not — it threw past its own
+        // observation, or the record's death evidence landed after it read. Refusing on a child
+        // that is demonstrably gone is the defect this sweep exists to remove, so take the proof
+        // and run the retirement `closeStructuredAgentSessionChild` skipped when it gave up.
+        retireSettledStructuredWorkerTab(session.sessionId, runtime)
+        progress.closed += 1
+      } else {
+        progress.unstopped.push({ ...session, status })
+      }
     }
-    // Re-observed rather than reusing the close's own reason string: what the user is asked to
-    // waive is the state AFTER the attempt, and a close that threw never reached an observation.
-    const status = observeStructuredWorker({ sessionId: session.sessionId }).status
-    if (status === 'exited') {
-      // The re-read can PROVE the exit a failed close could not — it threw past its own
-      // observation, or the record's death evidence landed after it read. Refusing on a child
-      // that is demonstrably gone is the defect this sweep exists to remove, so take the proof
-      // and run the retirement `closeStructuredAgentSessionChild` skipped when it gave up.
-      retireSettledStructuredWorkerTab(session.sessionId, runtime)
-      closed += 1
-      continue
-    }
-    unstopped.push({ ...session, status })
+    // Advanced only once an outcome is recorded, so a close still in flight when the deadline
+    // lands stays reported as unclosed instead of falling out of both counts.
+    progress.settled += 1
   }
-  return { closed, unstopped }
 }
