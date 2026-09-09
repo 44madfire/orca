@@ -200,6 +200,7 @@ export function NativeChatStructuredSession(
           <NativeChatMessageList
             forkAction={forkAction}
             session={session}
+            journalItems={controller.journalItems}
             isWorking={controller.isWorking}
             expandSignal={false}
             fontScale={fontScale.scale}
