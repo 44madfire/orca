@@ -16,6 +16,7 @@ import { getProjectIdForProviderIdentity } from '../../../shared/project-host-se
 import { getProjectHostSetupForRepo } from '../../../shared/project-host-setup-lookup'
 import { parseExecutionHostId } from '../../../shared/execution-host'
 import { prepareLocalWorktreeRootForRepo } from '../../worktree-root-preparation'
+import { applyProjectHostSetupPathRelocation } from '../../project-path-relocation'
 import { invalidateAuthorizedRootsCache } from '../registered-worktree-roots-cache'
 import { emitRepoAdded } from './repo-added-telemetry'
 import { notifyReposChanged } from './repos-changed-notification'
@@ -103,11 +104,15 @@ export function registerProjectHostSetupHandlers(mainWindow: BrowserWindow, stor
         rawArgs,
         'project_host_setup_update_invalid_args'
       )
-      const result = store.updateProjectHostSetup(args)
+      const { updates, relocatedRepo } = applyProjectHostSetupPathRelocation(store, args)
+      if (relocatedRepo) {
+        invalidateAuthorizedRootsCache()
+      }
+      const result = store.updateProjectHostSetup({ ...args, updates })
       if (!result) {
         throw new Error(`Project host setup not found: ${args.setupId}`)
       }
-      if ('worktreeBasePath' in args.updates && result.repo) {
+      if ('worktreeBasePath' in updates && result.repo) {
         void prepareLocalWorktreeRootForRepo(store, result.repo)
         invalidateAuthorizedRootsCache()
       }

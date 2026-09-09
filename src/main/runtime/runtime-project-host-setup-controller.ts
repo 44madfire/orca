@@ -22,6 +22,7 @@ import { getProjectIdForProviderIdentity } from '../../shared/project-host-setup
 import { getProjectHostSetupForRepo } from '../../shared/project-host-setup-lookup'
 import { invalidateAuthorizedRootsCache } from '../ipc/filesystem-auth'
 import { prepareLocalWorktreeRootForRepo } from '../worktree-root-preparation'
+import { applyProjectHostSetupPathRelocation } from '../project-path-relocation'
 import type { RuntimeStore } from './runtime-store-contract'
 
 type RuntimeProjectHostSetupDependencies = {
@@ -130,11 +131,32 @@ export class RuntimeProjectHostSetupController {
     if (!store?.updateProjectHostSetup) {
       throw new Error('runtime_unavailable')
     }
-    const result = store.updateProjectHostSetup(args)
+    // A repo-backed setup's path is the project's own location, so settle a move before the field
+    // write; persistence only ever sees updates whose `path` it can apply verbatim.
+    const { updates, relocatedRepo } = store.relocateRepoPath
+      ? applyProjectHostSetupPathRelocation(
+          {
+            getRepo: store.getRepo,
+            getRepos: store.getRepos,
+            relocateRepoPath: store.relocateRepoPath,
+            ...(store.getProjectHostSetups
+              ? { getProjectHostSetups: store.getProjectHostSetups }
+              : {})
+          },
+          args
+        )
+      : { updates: args.updates, relocatedRepo: null }
+    if (relocatedRepo) {
+      this.deps.invalidateResolvedWorktrees()
+      this.deps.invalidateWorktreeScan(relocatedRepo.id)
+      invalidateAuthorizedRootsCache()
+      this.deps.notifyReposChanged()
+    }
+    const result = store.updateProjectHostSetup({ ...args, updates })
     if (!result) {
       throw new Error(`Project host setup not found: ${args.setupId}`)
     }
-    if ('worktreeBasePath' in args.updates && result.repo) {
+    if ('worktreeBasePath' in updates && result.repo) {
       void prepareLocalWorktreeRootForRepo(store, result.repo)
       invalidateAuthorizedRootsCache()
     }
