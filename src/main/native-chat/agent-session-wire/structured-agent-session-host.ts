@@ -180,7 +180,8 @@ export class StructuredAgentSessionHost {
       deps: this.deps,
       runtimeState: this.runtimeState,
       sessions: this.sessions,
-      now: () => this.now()
+      now: () => this.now(),
+      forgetStatus: (sessionId) => this.statusFeed.forget(sessionId)
     }
   }
 
