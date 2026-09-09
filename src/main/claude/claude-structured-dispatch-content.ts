@@ -94,15 +94,19 @@ export async function claudeDispatchMessageContent(
   if (body.role !== 'user') {
     throw new Error('Claude dispatch accepts only user messages')
   }
-  const content: unknown[] = []
+  // Claude reads a streamed user message as a slash-command invocation only when the LAST
+  // content block is text, so images must precede the prompt or `/command` arrives as prose.
+  const images: unknown[] = []
+  const texts: unknown[] = []
   const imageBudget: ImageBudget = { count: 0, localBytes: 0 }
   for (const block of body.blocks as NativeChatBlock[]) {
     if (block.type === 'text' && block.text.length > 0) {
-      content.push({ type: 'text', text: block.text })
+      texts.push({ type: 'text', text: block.text })
     } else if (block.type === 'image-ref') {
-      content.push(await imageContent(block, imageBudget))
+      images.push(await imageContent(block, imageBudget))
     }
   }
+  const content = [...images, ...texts]
   if (content.length === 0) {
     throw new Error('Claude dispatch requires text or an image')
   }
