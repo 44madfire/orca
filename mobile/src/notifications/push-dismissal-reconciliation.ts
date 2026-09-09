@@ -42,35 +42,24 @@ async function readDelivered(hostId: string): Promise<Map<string, OrcaPushPayloa
 export async function requestNotificationCatchup(
   client: Pick<RpcClient, 'sendRequest'>,
   hostId: string,
-  params: { lastSeenSeq: number; epoch?: string; includeDesktopSuppressed?: boolean } | undefined,
   isDisposed: () => boolean
-) {
-  const delivered = await readDelivered(hostId)
-  if (!params && (delivered.size === 0 || isDisposed())) {
-    return { ok: true, result: { notifications: [] } }
-  }
-  const entries = [...delivered.entries()]
-  const response = await client.sendRequest('notifications.getMissedSince', {
-    // First pairing reconciles tray identities without requesting historical events.
-    ...(params ?? { lastSeenSeq: Number.MAX_SAFE_INTEGER }),
-    ...(delivered.size
-      ? {
-          deliveredPushes: entries
-            .slice(0, 256)
-            .map(([, payload]) => readPushNotificationIdentity(payload)!)
-        }
-      : {})
-  })
-  if (!response.ok || isDisposed()) {
-    return response
-  }
-  async function applyDismissals(reply: typeof response, requested: Map<string, OrcaPushPayload>) {
-    if (!reply.ok) {
+): Promise<void> {
+  const entries = [...(await readDelivered(hostId)).entries()]
+  for (let offset = 0; offset < entries.length && !isDisposed(); offset += 256) {
+    const requested = new Map(entries.slice(offset, offset + 256))
+    const reply = await client.sendRequest('notifications.getMissedSince', {
+      // Reconcile the tray without requesting historical alerts.
+      lastSeenSeq: Number.MAX_SAFE_INTEGER,
+      deliveredPushes: [...requested.values()].map((payload) =>
+        readPushNotificationIdentity(payload)!
+      )
+    })
+    if (!reply.ok || isDisposed()) {
       return
     }
     const result = reply.result as { dismissedPushes?: unknown } | undefined
     if (!Array.isArray(result?.dismissedPushes)) {
-      return
+      continue
     }
     const confirmed: OrcaPushPayload[] = []
     for (const raw of result.dismissedPushes.slice(0, 256)) {
@@ -89,21 +78,4 @@ export async function requestNotificationCatchup(
       await dismissRememberedPushNotifications(confirmed[0]!.hostFingerprint, confirmed)
     }
   }
-  await applyDismissals(response, new Map(entries.slice(0, 256)))
-  // Page remaining tray identities without requesting historical events again.
-  for (let offset = 256; offset < entries.length && !isDisposed(); offset += 256) {
-    const requested = new Map(entries.slice(offset, offset + 256))
-    try {
-      const reply = await client.sendRequest('notifications.getMissedSince', {
-        lastSeenSeq: Number.MAX_SAFE_INTEGER,
-        deliveredPushes: [...requested.values()].map((payload) =>
-          readPushNotificationIdentity(payload)!
-        )
-      })
-      await applyDismissals(reply, requested)
-    } catch {
-      break
-    }
-  }
-  return response
 }

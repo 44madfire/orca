@@ -227,17 +227,14 @@ describe('PushGatewayClient', () => {
     const gateway = createFakeGateway()
     await gateway.client.registerDevice(REGISTER_INPUT)
 
-    expect(await gateway.client.deleteDevice('reg-1')).toEqual({ deleted: true, retryable: false })
+    expect(await gateway.client.deleteDevice('reg-1')).toEqual(true)
     expect(gateway.calls.at(-1)).toMatchObject({ method: 'DELETE' })
   })
 
   it('treats a delete of an unknown registration as done', async () => {
     const gateway = createFakeGateway()
 
-    expect(await gateway.client.deleteDevice('reg-gone')).toEqual({
-      deleted: true,
-      retryable: false
-    })
+    expect(await gateway.client.deleteDevice('reg-gone')).toEqual(true)
   })
 
   it('reports a 401 that survives the forced re-auth as unreachable', async () => {
@@ -254,6 +251,6 @@ describe('PushGatewayClient', () => {
   it('keeps an unreachable-classified 401 retryable for a queued delete', async () => {
     const gateway = createFakeGateway({ rejectBearer: true })
 
-    expect(await gateway.client.deleteDevice('reg-1')).toEqual({ deleted: false, retryable: true })
+    expect(await gateway.client.deleteDevice('reg-1')).toEqual(false)
   })
 })

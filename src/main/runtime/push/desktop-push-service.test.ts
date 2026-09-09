@@ -65,9 +65,7 @@ function createService(
     deleteDevice: vi.fn(async (registrationId: string) => {
       deletes.push(registrationId)
       options.onDelete?.(registrationId)
-      return options.deleteFails
-        ? { deleted: false, retryable: true }
-        : { deleted: true, retryable: false }
+      return !options.deleteFails
     }),
     send: vi.fn(async () => ({ ok: true, results: [] }) as const)
   }

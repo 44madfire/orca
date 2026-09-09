@@ -43,7 +43,6 @@ beforeEach(() => {
   vi.clearAllMocks()
   storage.clear()
   storage.set('orca:pushNotificationsEnabled', 'true')
-  storage.set('orca:remotePushEnabled', 'true')
   resetForegroundPushClaimsForTests()
   vi.mocked(loadHostCatalog).mockResolvedValue([
     ...hosts,

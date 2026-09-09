@@ -32,7 +32,7 @@ async function pipeline() {
   const controller = new RuntimeMobileNotificationController()
   const client = {
     registerDevice: vi.fn(async () => ({ ok: true, registrationId: 'policy-registration' })),
-    deleteDevice: vi.fn(async () => ({ deleted: true, retryable: false })),
+    deleteDevice: vi.fn(async () => true),
     send: vi.fn(async () => ({ ok: true, results: [] }))
   }
   const service = DesktopPushService.create({

@@ -36,6 +36,6 @@ it('retains a delete when its session proof expires before the DELETE is attempt
       return new Response(null, { status: 204 })
     }) as typeof fetch
   })
-  expect(await client.deleteDevice('registration-1')).toEqual({ deleted: false, retryable: true })
+  expect(await client.deleteDevice('registration-1')).toEqual(false)
   expect(deletes).toBe(0)
 })

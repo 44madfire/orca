@@ -36,7 +36,7 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
       }
       // A max watermark asks only which delivered pushes are stale; socket history
       // never becomes a second OS-notification delivery route.
-      void requestNotificationCatchup(client, hostId, undefined, () => disposed).catch(() => {})
+      void requestNotificationCatchup(client, hostId, () => disposed).catch(() => {})
       return
     }
     if (!disposed && event.type === 'dismiss') {

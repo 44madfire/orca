@@ -97,18 +97,16 @@ export class PushGatewayClient {
     return parsed.ok ? { ok: true, registrationId: parsed.value.registrationId } : parsed
   }
 
-  /** `retryable` tells the outbox whether to keep the delete queued. */
-  async deleteDevice(registrationId: string): Promise<{ deleted: boolean; retryable: boolean }> {
+  async deleteDevice(registrationId: string): Promise<boolean> {
     const response = await this.authorized(`/v1/devices/${encodeURIComponent(registrationId)}`, {
       method: 'DELETE'
     })
     if (!response.ok) {
-      return { deleted: false, retryable: true }
+      return false
     }
     await cancelUnreadResponseBody(response.response)
     // A gateway that no longer knows the registration is as deleted as it gets.
-    const gone = response.response.ok || response.response.status === 404
-    return { deleted: gone, retryable: !gone }
+    return response.response.ok || response.response.status === 404
   }
 
   async send(input: {

@@ -36,14 +36,9 @@ it('clears a confirmed prior-epoch alert even with empty replay and preserves ne
     ok: true,
     result: { notifications: [], epoch: 'new-process', dismissedPushes: [id] }
   }))
-  await requestNotificationCatchup(
-    { sendRequest } as never,
-    'host-a',
-    { lastSeenSeq: 20 },
-    () => false
-  )
+  await requestNotificationCatchup({ sendRequest } as never, 'host-a', () => false)
   expect(sendRequest).toHaveBeenCalledWith('notifications.getMissedSince', {
-    lastSeenSeq: 20,
+    lastSeenSeq: Number.MAX_SAFE_INTEGER,
     deliveredPushes: [id, { ...id, notificationSeq: 14 }]
   })
   expect(Notifications.dismissNotificationAsync).toHaveBeenCalledExactlyOnceWith('old')
@@ -53,34 +48,43 @@ it('keeps alerts when an old host omits reconciliation or the request fails', as
     await requestNotificationCatchup(
       { sendRequest: async () => response } as never,
       'host-a',
-      { lastSeenSeq: 0 },
       () => false
     )
   }
   expect(Notifications.dismissNotificationAsync).not.toHaveBeenCalled()
 })
 it('ignores unrequested identities and a response arriving after disconnect', async () => {
+  let disposed = false
   const sendRequest = vi.fn(async () => ({
     ok: true,
-    result: { dismissedPushes: [{ ...id, notificationSeq: 99 }] }
+    result: {
+      dismissedPushes: [
+        { ...id, notificationSeq: 99 },
+        { ...id, notificationEpoch: 'different-epoch' },
+        { ...id, notificationId: 'different-alert' }
+      ]
+    }
   }))
-  await requestNotificationCatchup(
-    { sendRequest } as never,
-    'host-a',
-    { lastSeenSeq: 0 },
-    () => false
-  )
-  sendRequest.mockResolvedValue({ ok: true, result: { dismissedPushes: [id] } })
-  await requestNotificationCatchup(
-    { sendRequest } as never,
-    'host-a',
-    { lastSeenSeq: 0 },
-    () => true
-  )
+  await requestNotificationCatchup({ sendRequest } as never, 'host-a', () => disposed)
+  sendRequest.mockImplementationOnce(async () => {
+    disposed = true
+    return { ok: true, result: { dismissedPushes: [id] } }
+  })
+  await requestNotificationCatchup({ sendRequest } as never, 'host-a', () => disposed)
+  expect(sendRequest).toHaveBeenCalledTimes(2)
   expect(Notifications.dismissNotificationAsync).not.toHaveBeenCalled()
 })
 
-it('pages individual tray identities without replaying history twice', async () => {
+it('skips the replay RPC when the tray has no alerts for this host', async () => {
+  vi.mocked(Notifications.getPresentedNotificationsAsync).mockResolvedValue([
+    presented('other', { hostFingerprint: 'other-host' })
+  ] as never)
+  const sendRequest = vi.fn()
+  await requestNotificationCatchup({ sendRequest } as never, 'host-a', () => false)
+  expect(sendRequest).not.toHaveBeenCalled()
+})
+
+it('pages individual tray identities without requesting historical alerts', async () => {
   const all = Array.from({ length: 288 }, (_, index) => ({
     hostFingerprint,
     notificationId: `paged-${index}`,
@@ -94,13 +98,11 @@ it('pages individual tray identities without replaying history twice', async () 
     ok: true,
     result: { notifications: [], dismissedPushes: params.deliveredPushes ?? [] }
   }))
-  await requestNotificationCatchup(
-    { sendRequest } as never,
-    'host-a',
-    { lastSeenSeq: 4 },
-    () => false
-  )
+  await requestNotificationCatchup({ sendRequest } as never, 'host-a', () => false)
   expect(sendRequest).toHaveBeenCalledTimes(2)
+  expect(sendRequest.mock.calls[0]?.[1]).toMatchObject({
+    lastSeenSeq: Number.MAX_SAFE_INTEGER
+  })
   expect(sendRequest.mock.calls[0]?.[1].deliveredPushes).toHaveLength(256)
   expect(sendRequest.mock.calls[1]?.[1]).toMatchObject({
     lastSeenSeq: Number.MAX_SAFE_INTEGER,
@@ -114,3 +116,30 @@ it('pages individual tray identities without replaying history twice', async () 
   })
   expect(vi.mocked(Notifications.dismissNotificationAsync)).toHaveBeenCalledTimes(288)
 })
+
+it.each(['failure', 'disconnect'])(
+  'stops after a second-page %s without removing unconfirmed alerts',
+  async (outcome) => {
+    vi.mocked(Notifications.getPresentedNotificationsAsync).mockResolvedValue(
+      Array.from({ length: 513 }, (_, index) =>
+        presented(`paged-${index}`, { notificationId: `paged-${index}`, notificationSeq: index })
+      ) as never
+    )
+    let disposed = false
+    let pages = 0
+    const sendRequest = vi.fn(
+      async (_method: string, params: { deliveredPushes: (typeof id)[] }) => {
+        pages++
+        disposed = pages === 2 && outcome === 'disconnect'
+        return {
+          ok: !(pages === 2 && outcome === 'failure'),
+          result: { dismissedPushes: params.deliveredPushes }
+        }
+      }
+    )
+    await requestNotificationCatchup({ sendRequest } as never, 'host-a', () => disposed)
+    expect(sendRequest).toHaveBeenCalledTimes(2)
+    expect(Notifications.dismissNotificationAsync).toHaveBeenCalledTimes(256)
+    expect(Notifications.dismissNotificationAsync).not.toHaveBeenCalledWith('paged-256')
+  }
+)

@@ -1,4 +1,3 @@
-import { NOTIFICATION_DELIVERY_POLICY_CAPABILITY } from '../../../src/shared/protocol-version'
 import { useEffect, useRef, useState } from 'react'
 import { loadHostCatalog } from '../transport/host-store'
 import type { RpcClient } from '../transport/rpc-client'
@@ -8,7 +7,6 @@ import { NOTIFICATIONS_REMOTE_PUSH_CAPABILITY } from './push-registration'
 
 export type RemotePushHostSupport = {
   /** At least one paired host advertises `notifications.remote-push.v1`. */
-  policySupported: boolean
   supported: boolean
   /** Whether the answer above is final rather than "nobody has replied yet". */
   resolved: boolean
@@ -23,9 +21,7 @@ export type RemotePushHostSupport = {
 export function useRemotePushCapableHosts(): RemotePushHostSupport {
   const [hostIds, setHostIds] = useState<string[]>([])
   const [hostsLoaded, setHostsLoaded] = useState(false)
-  const [supportedByHostId, setSupportedByHostId] = useState<
-    Record<string, { push: boolean; policy: boolean }>
-  >({})
+  const [supportedByHostId, setSupportedByHostId] = useState<Record<string, boolean>>({})
   const probesRef = useRef(new Map<string, { client: RpcClient; stop: () => void }>())
 
   useEffect(() => {
@@ -77,10 +73,7 @@ export function useRemotePushCapableHosts(): RemotePushHostSupport {
         const stop = startRuntimeCapabilityProbe(client, (capabilities) => {
           setSupportedByHostId((previous) => ({
             ...previous,
-            [hostId]: {
-              push: capabilities.includes(NOTIFICATIONS_REMOTE_PUSH_CAPABILITY),
-              policy: capabilities.includes(NOTIFICATION_DELIVERY_POLICY_CAPABILITY)
-            }
+            [hostId]: capabilities.includes(NOTIFICATIONS_REMOTE_PUSH_CAPABILITY)
           }))
         })
         probes.set(hostId, { client, stop })
@@ -100,9 +93,7 @@ export function useRemotePushCapableHosts(): RemotePushHostSupport {
 
   const answeredHostIds = hostIds.filter((hostId) => hostId in supportedByHostId)
   return {
-    policySupported:
-      hostIds.length > 0 && hostIds.every((hostId) => supportedByHostId[hostId]?.policy),
-    supported: answeredHostIds.some((hostId) => supportedByHostId[hostId]?.push),
+    supported: answeredHostIds.some((hostId) => supportedByHostId[hostId]),
     // A connected host that has not answered yet is exactly the case the silence is
     // for, so one outstanding probe holds the whole section back. Disconnected hosts
     // do not: their earlier answer stands, and one that never answered never will.

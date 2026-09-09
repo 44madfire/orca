@@ -24,7 +24,6 @@ vi.mock('./push-registration', () => ({
 }))
 
 const CAPABILITY = 'notifications.remote-push.v1'
-const POLICY_CAPABILITY = 'notifications.delivery-policy.v1'
 
 type ClientEntry = { hostId: string; client: RpcClient; state: string }
 
@@ -34,7 +33,7 @@ function clientFor(hostId: string): RpcClient {
 }
 
 let renderer: ReactTestRenderer | null = null
-let latest: RemotePushHostSupport = { policySupported: false, supported: false, resolved: false }
+let latest: RemotePushHostSupport = { supported: false, resolved: false }
 const answerByHostId = new Map<string, (capabilities: readonly string[]) => void>()
 const stopProbe = vi.fn()
 
@@ -68,7 +67,7 @@ async function answer(hostId: string, capabilities: readonly string[]): Promise<
 beforeEach(() => {
   vi.clearAllMocks()
   answerByHostId.clear()
-  latest = { policySupported: false, supported: false, resolved: false }
+  latest = { supported: false, resolved: false }
   vi.mocked(useAllHostClients).mockReturnValue([] as never)
   vi.mocked(startRuntimeCapabilityProbe).mockImplementation((client, onCapabilities) => {
     answerByHostId.set((client as unknown as { hostId: string }).hostId, onCapabilities)
@@ -86,32 +85,6 @@ afterEach(() => {
 })
 
 describe('useRemotePushCapableHosts', () => {
-  it('requires policy support from every paired host, including a legacy host after reconnect', async () => {
-    await mount()
-    const first = clientFor('host-1')
-    await setClients([
-      { hostId: 'host-1', client: first, state: 'connected' },
-      { hostId: 'host-2', client: clientFor('host-2'), state: 'connected' }
-    ])
-    await answer('host-1', [CAPABILITY, POLICY_CAPABILITY])
-    await answer('host-2', [CAPABILITY])
-    expect(latest).toEqual({ policySupported: false, supported: true, resolved: true })
-
-    await setClients([
-      { hostId: 'host-1', client: first, state: 'connected' },
-      { hostId: 'host-2', client: clientFor('host-2'), state: 'connected' }
-    ])
-    await answer('host-2', [CAPABILITY, POLICY_CAPABILITY])
-    expect(latest).toEqual({ policySupported: true, supported: true, resolved: true })
-
-    await setClients([
-      { hostId: 'host-1', client: first, state: 'connected' },
-      { hostId: 'host-2', client: clientFor('host-2'), state: 'connected' }
-    ])
-    await answer('host-2', [CAPABILITY])
-    expect(latest).toEqual({ policySupported: false, supported: true, resolved: true })
-  })
-
   it('stays unresolved when the host catalog cannot be read', async () => {
     vi.mocked(loadHostCatalog).mockRejectedValue(new Error('keychain locked'))
 
@@ -119,7 +92,7 @@ describe('useRemotePushCapableHosts', () => {
 
     // Resolving here would render "Update your desktop app" at someone whose desktop
     // is already current, on the strength of a catalog read that simply failed.
-    expect(latest).toEqual({ policySupported: false, supported: false, resolved: false })
+    expect(latest).toEqual({ supported: false, resolved: false })
   })
 
   it('waits for every connected host before answering', async () => {
@@ -133,7 +106,7 @@ describe('useRemotePushCapableHosts', () => {
     expect(latest.resolved).toBe(false)
 
     await answer('host-2', ['some-other.v1'])
-    expect(latest).toEqual({ policySupported: false, supported: true, resolved: true })
+    expect(latest).toEqual({ supported: true, resolved: true })
   })
 
   it('keeps the answer of a host that has since disconnected', async () => {
@@ -144,7 +117,7 @@ describe('useRemotePushCapableHosts', () => {
 
     await setClients([{ hostId: 'host-1', client, state: 'connecting' }])
 
-    expect(latest).toEqual({ policySupported: false, supported: true, resolved: true })
+    expect(latest).toEqual({ supported: true, resolved: true })
   })
 
   it('resolves immediately when nothing is paired', async () => {
@@ -152,7 +125,7 @@ describe('useRemotePushCapableHosts', () => {
 
     await mount()
 
-    expect(latest).toEqual({ policySupported: false, supported: false, resolved: true })
+    expect(latest).toEqual({ supported: false, resolved: true })
   })
 
   it('leaves a running probe alone when another host changes state', async () => {
@@ -186,6 +159,10 @@ describe('useRemotePushCapableHosts', () => {
 
     expect(stopProbe).toHaveBeenCalledTimes(1)
     expect(startRuntimeCapabilityProbe).toHaveBeenCalledTimes(2)
+    await answer('host-1', [])
+    expect(latest).toEqual({ supported: false, resolved: true })
+    await answer('host-1', [CAPABILITY])
+    expect(latest).toEqual({ supported: true, resolved: true })
   })
 
   it('ignores an answer from a host the catalog no longer lists', async () => {
@@ -198,6 +175,6 @@ describe('useRemotePushCapableHosts', () => {
 
     // An unpaired desktop cannot push to this phone, so its vote must not offer
     // the switch — nor count as the answer that resolves the section.
-    expect(latest).toEqual({ policySupported: false, supported: false, resolved: false })
+    expect(latest).toEqual({ supported: false, resolved: false })
   })
 })

@@ -13,10 +13,10 @@ import type {
 import { NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
 import type { RpcClient } from '../transport/rpc-client'
 import {
-  loadRemotePushEnabled,
+  loadPushNotificationsEnabled,
   loadRemotePushFilter,
   loadRemotePushHostRegistrations,
-  saveRemotePushEnabled,
+  savePushNotificationsEnabled,
   saveRemotePushHostRegistrations,
   type RemotePushFilter
 } from '../storage/preferences'
@@ -162,7 +162,7 @@ async function reconcileHost(hostId: string): Promise<void> {
       current.registered.delete(hostId)
     })
     // A preference change can invalidate a register without disabling push.
-    if (!(await loadRemotePushEnabled())) {
+    if (!(await loadPushNotificationsEnabled())) {
       return
     }
   }
@@ -179,7 +179,7 @@ async function reconcileHost(hostId: string): Promise<void> {
   if (!state.supported || !isCurrent()) {
     return
   }
-  if (!(await loadRemotePushEnabled()) || AppState.currentState !== 'active') {
+  if (!(await loadPushNotificationsEnabled()) || AppState.currentState !== 'active') {
     return
   }
   const token = await currentToken()
@@ -235,7 +235,7 @@ export function attachPushRegistration(hostId: string, client: PushClient): () =
 
 export async function setRemotePushEnabled(enabled: boolean): Promise<void> {
   consentGeneration++
-  await saveRemotePushEnabled(enabled)
+  await savePushNotificationsEnabled(enabled)
   await mutateRecords((current) => {
     if (!enabled) {
       for (const hostId of current.registered) {

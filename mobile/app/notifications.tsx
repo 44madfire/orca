@@ -156,13 +156,6 @@ export default function NotificationsScreen() {
         )}
       </View>
 
-      {remotePushSupport.resolved &&
-        remotePushSupport.supported &&
-        !remotePushSupport.policySupported && (
-          <Text style={styles.hint}>
-            Update your paired desktops to use the away and 7-day pause rules.
-          </Text>
-        )}
       <NotificationDeliverySection
         value={delivery}
         disabled={saving || !switchEnabled}

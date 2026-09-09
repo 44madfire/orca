@@ -324,12 +324,13 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
   controls native push registration. Hint: “Get agent alerts even when the app is closed.
   Delivered through Orca’s push service and Apple or Google.” Desktop category controls are
   authoritative and are not duplicated as phone overrides. Phone sound and viewing controls remain
-  independent. **Only when away from desktop** defaults on (180 seconds of OS input idle,
-  or locked). Unknown/headless presence does not suppress; it is never inferred from remote CPU
+  independent. Consent is stored only in `orca:pushNotificationsEnabled`; a missing preference
+  remains off, and obsolete test-build push keys do not grant consent. **Only when away from desktop**
+  defaults on (180 seconds of OS input idle, or locked). Unknown/headless presence does not suppress; it is never inferred from remote CPU
   activity. The detailed payload disclosure remains in the notification documentation.
-- `notifications.delivery-policy.v1` advertises the away and mobile-inactivity lease policy.
-  Filter flags are optional and ignored by older hosts; the UI identifies paired hosts requiring
-  an update. Category mirroring and seven-day expiry are fixed product rules.
+- `notifications.remote-push.v1` is the single push capability, including category mirroring,
+  away filtering and seven-day expiry. Settings retain pair/update guidance for hosts without
+  push support and leave unanswered probes unresolved.
 - All registrations receive a persisted seven-day `expiresAt` on the
   paired desktop. Delivery and transport retries exclude expired registrations. Only foreground
   mobile registration renews it: on connection, foreground return, and every 15 minutes while
@@ -348,8 +349,9 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
   stored host's `publicKeyB64`; then existing `getNotificationNavigationTarget` + `useOpenNotificationRoute`.
 - Reopen: subscribe to socket notifications for live dismissals, but ignore ordinary
   notification frames for banner presentation. Reconnect reconciliation sends identities currently in
-  the native tray and applies returned dismissal decisions; it does not replay notifications or create
-  banners. Live dismiss events also remove matching presented notifications.
+  the native tray in pages of 256 and applies only confirmed host/epoch/sequence identities;
+  it requests no historical events and creates no banners. The server replay RPC remains compatible
+  with independently updated clients. Live dismiss events also remove matching presented notifications.
 - Old host without the capability: nothing changes.
 
 ## Infra (`cloud/infra/terraform`, `.github/workflows`)
@@ -381,9 +383,8 @@ alert messages, Live Activities, account-based quota tiers.
 
 ### Device delivery preferences
 
-The desktop advertises `notifications.delivery-preferences.v1`. Completion detection remains active
-when desktop notifications are off; semantic validity checks still precede delivery. IPC publishes
-`desktopAllowed: false` when the desktop master or source/category switch rejects an event. That
+Completion detection remains active when desktop notifications are off; semantic validity checks still
+precede delivery. IPC publishes `desktopAllowed: false` when the desktop master or source/category switch rejects an event. That
 desktop category decision is authoritative for both desktop and phone alerts. Desktop focus and
 native authorization remain desktop-only presentation gates and do not change mobile eligibility.
 

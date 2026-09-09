@@ -34,31 +34,12 @@ export async function loadPushNotificationsEnabled(): Promise<boolean> {
 
 export async function savePushNotificationsEnabled(enabled: boolean): Promise<void> {
   await AsyncStorage.setItem(NOTIF_KEY, String(enabled))
-  await AsyncStorage.setItem(REMOTE_PUSH_KEY, String(enabled))
   notifyNotificationConsentChanged()
 }
 
-// Retained for older mobile builds; the master preference owns both delivery paths.
-const REMOTE_PUSH_KEY = 'orca:remotePushEnabled'
 const REMOTE_PUSH_HOST_REGISTRATIONS_KEY = 'orca:remotePushHostRegistrations'
 
 export type RemotePushFilter = MobilePushFilter
-
-export async function loadRemotePushEnabled(): Promise<boolean> {
-  try {
-    const preference = await readPushNotificationsPreference()
-    if (!preference.loaded) {
-      return false
-    }
-    return preference.value ?? (await AsyncStorage.getItem(REMOTE_PUSH_KEY)) === 'true'
-  } catch {
-    return false
-  }
-}
-
-export async function saveRemotePushEnabled(enabled: boolean): Promise<void> {
-  await savePushNotificationsEnabled(enabled)
-}
 
 export async function loadRemotePushFilter(): Promise<RemotePushFilter> {
   return notificationPreferencesFilter(await loadNotificationDeliveryPreferences())

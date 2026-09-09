@@ -56,7 +56,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   resetPushRegistrationForTests()
   storage.clear()
-  storage.set('orca:remotePushEnabled', 'true')
+  storage.set('orca:pushNotificationsEnabled', 'true')
   vi.mocked(getDevicePushToken).mockResolvedValue(token)
 })
 

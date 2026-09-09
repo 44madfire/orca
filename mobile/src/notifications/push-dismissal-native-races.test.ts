@@ -41,8 +41,7 @@ vi.mock('expo-notifications', () => ({ getPresentedNotificationsAsync: async () 
 vi.mock('../transport/host-store', () => ({ loadHostCatalog: async () => [{ id: 'host' }] }))
 vi.mock('./push-host-fingerprint', () => ({ resolveHostIdForFingerprint: () => 'host' }))
 vi.mock('../storage/preferences', () => ({
-  loadPushNotificationsEnabled: async () => true,
-  loadRemotePushEnabled: async () => true
+  loadPushNotificationsEnabled: async () => true
 }))
 vi.mock('./notification-viewing-policy', () => ({
   shouldSuppressNotificationWhileViewing: async () => false

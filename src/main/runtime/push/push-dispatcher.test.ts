@@ -103,49 +103,6 @@ describe('PushDispatcher', () => {
     expect(harness.sends).toHaveLength(0)
   })
 
-  it('ignores obsolete category filters on existing registrations', async () => {
-    const harness = createHarness({
-      devices: [
-        {
-          deviceId: 'first-phone',
-          pushRegistration: registration({
-            registrationId: 'reg-needs'
-          })
-        },
-        {
-          deviceId: 'second-phone',
-          pushRegistration: registration({
-            registrationId: 'reg-bell'
-          })
-        },
-        { deviceId: 'everything', pushRegistration: registration({ registrationId: 'reg-all' }) }
-      ]
-    })
-
-    harness.dispatcher.enqueue(notification({ agentState: 'blocked' }))
-    await flush()
-
-    expect(harness.sends[0]?.registrationIds).toEqual(['reg-needs', 'reg-bell', 'reg-all'])
-  })
-
-  it('pushes a desktop-eligible bell despite an obsolete empty agent-state filter', async () => {
-    const harness = createHarness({
-      devices: [
-        {
-          deviceId: 'a',
-          pushRegistration: registration()
-        }
-      ]
-    })
-
-    harness.dispatcher.enqueue(
-      notification({ source: 'terminal-bell', agentState: undefined, title: 'Bell in x' })
-    )
-    await flush()
-
-    expect(harness.sends[0]?.notification.agentState).toBeNull()
-  })
-
   it('drops a registration the gateway reports dead', async () => {
     const harness = createHarness({
       devices: [

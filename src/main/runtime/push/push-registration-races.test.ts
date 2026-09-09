@@ -36,10 +36,10 @@ function harness() {
     }),
     deleteDevice: vi.fn(async () => {
       if (!reachable) {
-        return { deleted: false, retryable: true }
+        return false
       }
       live = false
-      return { deleted: true, retryable: false }
+      return true
     }),
     send: vi.fn()
   }

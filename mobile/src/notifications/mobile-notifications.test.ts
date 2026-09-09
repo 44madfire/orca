@@ -7,7 +7,7 @@ vi.mock('./push-socket-dismissal', () => ({
   dismissHostPushNotification: vi.fn(async () => {})
 }))
 vi.mock('./push-dismissal-reconciliation', () => ({
-  requestNotificationCatchup: vi.fn(async () => ({ ok: true }))
+  requestNotificationCatchup: vi.fn(async () => {})
 }))
 vi.mock('./notification-permissions', () => ({}))
 
@@ -43,12 +43,7 @@ describe('subscribeToDesktopNotifications', () => {
       source: 'agent-task-complete'
     })
     await Promise.resolve()
-    expect(requestNotificationCatchup).toHaveBeenCalledWith(
-      rpc,
-      'host-1',
-      undefined,
-      expect.any(Function)
-    )
+    expect(requestNotificationCatchup).toHaveBeenCalledWith(rpc, 'host-1', expect.any(Function))
     expect(dismissHostPushNotification).not.toHaveBeenCalled()
   })
 

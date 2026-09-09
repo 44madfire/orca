@@ -1,7 +1,7 @@
 import { wasPushDismissed } from './push-dismissal-watermarks'
 import { dismissPresentedPushNotification } from './push-tray-dismissal'
 import { shouldSuppressNotificationWhileViewing } from './notification-viewing-policy'
-import { loadPushNotificationsEnabled, loadRemotePushEnabled } from '../storage/preferences'
+import { loadPushNotificationsEnabled } from '../storage/preferences'
 import { loadHostCatalog } from '../transport/host-store'
 import { resolveHostIdForFingerprint } from './push-host-fingerprint'
 import { readOrcaPushPayload, type OrcaPushPayload } from './push-payload'
@@ -90,7 +90,7 @@ export async function shouldSuppressForegroundPush(data: unknown): Promise<boole
   if (!hostId) {
     return true
   }
-  if (!(await loadPushNotificationsEnabled()) || !(await loadRemotePushEnabled())) {
+  if (!(await loadPushNotificationsEnabled())) {
     return true
   }
   if (await shouldSuppressNotificationWhileViewing(payload, hostId)) {

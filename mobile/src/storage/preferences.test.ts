@@ -1,3 +1,4 @@
+import { subscribeNotificationConsent } from '../notifications/notification-consent-events'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -279,7 +280,9 @@ describe('push notification preference', () => {
   })
 
   it('distinguishes an unset preference from an explicit disabled choice', async () => {
-    vi.mocked(AsyncStorage.getItem).mockResolvedValue(null)
+    vi.mocked(AsyncStorage.getItem).mockImplementation(async (key) =>
+      key === 'orca:remotePushEnabled' ? 'true' : null
+    )
     await expect(readPushNotificationsPreference()).resolves.toEqual({
       value: null,
       loaded: true
@@ -303,12 +306,24 @@ describe('push notification preference', () => {
     await expect(loadPushNotificationsEnabled()).resolves.toBe(false)
   })
 
-  it('persists the onboarding decision in the existing mobile toggle', async () => {
-    await savePushNotificationsEnabled(true)
-    expect(AsyncStorage.setItem).toHaveBeenCalledWith('orca:pushNotificationsEnabled', 'true')
-
-    await savePushNotificationsEnabled(false)
-    expect(AsyncStorage.setItem).toHaveBeenCalledWith('orca:pushNotificationsEnabled', 'false')
+  it('persists and reloads master consent and notifies listeners after each choice', async () => {
+    const storage = new Map<string, string>()
+    vi.mocked(AsyncStorage.getItem).mockImplementation(async (key) => storage.get(key) ?? null)
+    vi.mocked(AsyncStorage.setItem).mockImplementation(async (key, value) => {
+      storage.set(key, value)
+    })
+    const changed = vi.fn()
+    const unsubscribe = subscribeNotificationConsent(changed)
+    try {
+      for (const enabled of [true, false]) {
+        await savePushNotificationsEnabled(enabled)
+        await expect(loadPushNotificationsEnabled()).resolves.toBe(enabled)
+      }
+      expect([...storage]).toEqual([['orca:pushNotificationsEnabled', 'false']])
+      expect(changed).toHaveBeenCalledTimes(2)
+    } finally {
+      unsubscribe()
+    }
   })
 })
 

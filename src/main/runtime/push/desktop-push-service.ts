@@ -254,8 +254,8 @@ export class DesktopPushService {
     if (!this.outbox.pending().some((item) => item.reqId === reqId)) {
       return true
     }
-    const result = await this.client.deleteDevice(registrationId)
-    if (!result.deleted) {
+    const deleted = await this.client.deleteDevice(registrationId)
+    if (!deleted) {
       return false
     }
     this.outbox.remove(reqId)

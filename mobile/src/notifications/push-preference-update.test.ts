@@ -37,7 +37,7 @@ beforeEach(() => {
   AppState.currentState = 'active'
   resetPushRegistrationForTests()
   storage.clear()
-  storage.set('orca:remotePushEnabled', 'true')
+  storage.set('orca:pushNotificationsEnabled', 'true')
 })
 
 it('replaces an in-flight registration with the latest away and sound preferences', async () => {
