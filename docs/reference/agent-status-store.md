@@ -107,16 +107,41 @@ without the flag; when the host closes or evicts the session the row is
 dropped. Both already exist as feed events (`revokeLive` and the roster
 filter in `liveSessionSummaries`); PR 1 turns them into store writes.
 
+Dropping the session from the host's map and dropping its row are one
+operation, `forgetStructuredAgentSession`. The store keeps a row until told,
+and a host-owned row bypasses the staleness check, so a deletion path that
+forgot the row would strand a permanently working-looking agent.
+
 Two rules the ingest must keep:
 
 - **Never persist a structured row.** The journal is the durable truth for a
   structured session and the host republishes on restore. A structured row in
   `last-status.json` would hydrate as `restoredUnconfirmed` and then fight the
   live republish. The serializer skips rows carrying `structuredHost`, and
-  hydrate drops any such row found on disk.
+  hydrate drops any such row found on disk. Applying one therefore also skips
+  the persist schedule: the walk and stringify could only reproduce the file
+  that is already on disk, once per debounce window for every streaming chat.
 - **Never let it fight a hook row.** A structured session has no PTY, so no
   hook or OSC event carries its pane key. The ingest still goes through the
   disposition gate so a retired pane key is refused like any other.
+
+Applying one does still run both status fan-outs, and that is intended rather
+than incidental. `notifyStatusChangeListeners` is what feeds
+`agentAwakeService`'s power-save blocker, and `subscribeEnrichedStatus` is what
+feeds `AgentSessionTransitionRecorder`'s stats, so joining the store enrolls
+native chats in both. A working native chat is real work and should hold the
+machine awake exactly like a PTY agent does.
+
+The drop side routes through `dropStatusEntry`, not `clearPaneState`: a
+pane-status-clear reaches the renderer, and until PR 2 the renderer's own feed
+bridge is that pane key's writer. It also passes `preserveResumeIdentity:
+false` — the `providerSessionOnly` remnant a dismissed pane keeps exists so the
+agent can be resumed in that pane, and a structured session has no pane and
+keeps its resume identity in the record store. Like every other
+`dropStatusEntry` caller, it emits no pane clear, so a session dropped
+mid-`working` leaves `AgentSessionTransitionRecorder` holding an open stats
+session until its LRU evicts it; that gap is shared with the user-dismissal
+path and is not specific to structured rows.
 
 The ingest lives in the feed, not in `structured-agent-session-host.ts`, which
 sits at the file-length cap.
@@ -132,8 +157,15 @@ the admission gate that decides which rows a worktree listing may show:
 - a hook or OSC row needs its tab mirrored or a connected pty, as today, and
   SSH rows stay exempt because their tabs may exist only remotely;
 - a row carrying `structuredHost` is admitted while the host holds the session, and
-  the host's drop on close is what removes it; no tab-mirror requirement,
-  because headless serve has no renderer to mirror tabs from.
+  the host's drop on close is what removes it. No tab-mirror requirement: a
+  structured session's tab lives in the renderer's own tab state, and a
+  headless host has no renderer to mirror it from. That argument only holds if
+  the headless host is itself wired to the store, which is a separate
+  obligation per entry point: the Electron hosts (desktop and `orca serve`)
+  share `main-process-runtime-service.ts`, and `orcad` constructs its own
+  runtime in `src/main/orcad/orcad-entry.ts`. A host missing that wiring lists
+  no agents at all, not just no structured ones, because `worktree ps` reads
+  the same snapshot for every row.
 
 The freshness bypass for host-owned structured rows already exists in
 `isFreshNonDoneAgentStatus`; with the flag now on the row it becomes the only
