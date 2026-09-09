@@ -568,7 +568,7 @@ describe('codex journal translation', () => {
             },
             body: {
               kind: 'status',
-              text: 'Codex is working…',
+              text: 'Codex turn completed',
               turnLifecycle: {
                 turnId: TURN_ID,
                 state: 'completed',

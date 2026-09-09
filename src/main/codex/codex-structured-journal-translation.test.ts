@@ -242,7 +242,7 @@ describe('codex journal translation', () => {
         key: 'legacy:codex:session-1:turn-lifecycle%3Aturn-1',
         body: {
           kind: 'status',
-          text: 'Codex is working…',
+          text: 'Codex turn completed',
           turnLifecycle: {
             turnId: TURN_ID,
             state: 'completed',
