@@ -21,9 +21,12 @@ export function nativeHostTaskLinearOperations(client: RpcRequestSender): HostTa
         workspaceId: target.workspaceId
       }),
     async selectWorkspace(workspaceId) {
-      // Why no result check: the picker already switched, and it reloads the Linear context next.
-      // A rejected switch surfaces through that reload, not as a second error on the same tap.
-      await client.sendRequest('linear.selectWorkspace', { workspaceId })
+      // Deliberate improvement over the call this replaced: that one dropped a refusal on the
+      // floor, leaving the picker showing a workspace the host never switched to.
+      assertMutation(
+        await request(client, 'linear.selectWorkspace', { workspaceId }),
+        'Failed to select workspace'
+      )
     },
     async updateState(target, stateId) {
       await request(client, 'linear.updateIssue', {

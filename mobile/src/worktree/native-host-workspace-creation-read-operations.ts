@@ -38,12 +38,13 @@ export function nativeHostWorkspaceCreationReadOperations(
       return result.repos
     },
     async readRetiredWorktreeNames(repoId) {
-      // Why no ok check: a refused read must read as an empty registry, not as a failure. The
-      // caller holds its previous answer on a failure, which would keep offering a spent name.
-      const response = await client.sendRequest('worktree.listRetiredNames', {
-        repo: `id:${repoId}`
-      })
-      return readRetiredNameRegistryForRepo((response as { result?: unknown }).result, repoId)
+      // Deliberate improvement over the call this replaced: that one read a refusal as an empty
+      // registry, so a failed poll offered a spent name back. Failing lets the caller keep its
+      // previous answer, which is the policy `retired-name-cache` documents.
+      const result = await successfulResult<unknown>(
+        client.sendRequest('worktree.listRetiredNames', { repo: `id:${repoId}` })
+      )
+      return readRetiredNameRegistryForRepo(result, repoId)
     },
     async readRuntimeSettings() {
       const result = await successfulResult<{ settings: NewWorkspaceRuntimeSettings }>(
