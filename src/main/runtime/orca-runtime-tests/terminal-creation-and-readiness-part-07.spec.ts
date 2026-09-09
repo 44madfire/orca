@@ -85,6 +85,37 @@ describe('OrcaRuntimeService', () => {
     })
   })
 
+  // Why: the user-reported wedge -- a non-Gemini Antigravity session never cleared its startup trust dialog.
+  it('resolves tui-idle when a stale trust prompt is followed by non-Gemini Antigravity readiness', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData(
+      'pty-bg',
+      [
+        'Do you trust this workspace directory?\n',
+        'Press t to trust\n',
+        antigravityReadyScreen('Claude Sonnet 4.5 (High)'),
+        '\n'
+      ].join(''),
+      Date.now()
+    )
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: true,
+      status: 'running'
+    })
+  })
+
   it('resolves tui-idle when a stale Codex prompt is followed by the ready header', async () => {
     const runtime = new OrcaRuntimeService(store)
     runtime.setPtyController({
@@ -150,7 +181,7 @@ describe('OrcaRuntimeService', () => {
     })
   })
 
-  it('returns a blocked wait result for Codex update prompts', async () => {
+  it('returns an agent-neutral blocked wait result for update prompts', async () => {
     const runtime = new OrcaRuntimeService(store)
     runtime.setPtyController({
       spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
@@ -177,11 +208,11 @@ describe('OrcaRuntimeService', () => {
       condition: 'tui-idle',
       satisfied: false,
       status: 'running',
-      blockedReason: 'codex-update-prompt'
+      blockedReason: 'agent-update-prompt'
     })
   })
 
-  it('returns a blocked wait result for Codex workspace trust prompts', async () => {
+  it('returns an agent-neutral blocked wait result for workspace trust prompts', async () => {
     const runtime = new OrcaRuntimeService(store)
     runtime.setPtyController({
       spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
@@ -203,7 +234,7 @@ describe('OrcaRuntimeService', () => {
       condition: 'tui-idle',
       satisfied: false,
       status: 'running',
-      blockedReason: 'codex-trust-workspace'
+      blockedReason: 'agent-trust-workspace'
     })
   })
 
@@ -270,7 +301,7 @@ describe('OrcaRuntimeService', () => {
     ).rejects.toThrow('timeout')
   })
 
-  it('returns a blocked wait result for Codex cwd selection prompts', async () => {
+  it('returns an agent-neutral blocked wait result for cwd selection prompts', async () => {
     const runtime = new OrcaRuntimeService(store)
     runtime.setPtyController({
       spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
@@ -297,7 +328,7 @@ describe('OrcaRuntimeService', () => {
       condition: 'tui-idle',
       satisfied: false,
       status: 'running',
-      blockedReason: 'codex-cwd-prompt'
+      blockedReason: 'agent-cwd-prompt'
     })
   })
 
@@ -363,7 +394,7 @@ describe('OrcaRuntimeService', () => {
     })
   })
 
-  it('returns a blocked wait result for generic Codex interactive prompts', async () => {
+  it('returns an agent-neutral blocked wait result for generic interactive prompts', async () => {
     const runtime = new OrcaRuntimeService(store)
     runtime.setPtyController({
       spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
@@ -390,7 +421,7 @@ describe('OrcaRuntimeService', () => {
       condition: 'tui-idle',
       satisfied: false,
       status: 'running',
-      blockedReason: 'codex-interactive-prompt'
+      blockedReason: 'agent-interactive-prompt'
     })
   })
 

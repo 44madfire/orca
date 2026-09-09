@@ -3,12 +3,9 @@ import {
   isOpenCodeNativeTitle,
   type AgentStatus
 } from '../../shared/agent-detection'
+import { findAntigravityReadyPromptIndex } from './antigravity-ready-prompt-index'
 import type { RuntimeTerminalWaitBlockedReason } from '../../shared/runtime-types'
-import {
-  isTerminalWaitWhitespace,
-  startOfLastLines,
-  startOfLastNonBlankLines
-} from './terminal-wait-tail-window'
+import { startOfLastLines, startOfLastNonBlankLines } from './terminal-wait-tail-window'
 
 const EXPLICIT_IDLE_TITLE_RE = /(^|\s)(ready|idle|done)(\s|$|[.!?])/i
 const CLAUDE_IDLE_PREFIX = '\u2733'
@@ -118,46 +115,7 @@ function findCodexReadyPromptIndex(normalized: string): number | null {
   return readySegment.includes('model:') && readySegment.includes('directory:') ? headerIndex : null
 }
 
-function findAntigravityReadyPromptIndex(normalized: string): number | null {
-  const headerIndex = normalized.lastIndexOf('antigravity cli')
-  if (headerIndex === -1) {
-    return null
-  }
-  let lineStart = headerIndex
-  let modelIndex: number | null = null
-  let promptIndex: number | null = null
-
-  // Why: ready previews can include echoed paste after the header; scan line bounds directly instead of splitting the whole tail.
-  for (let cursor = headerIndex; cursor <= normalized.length; cursor += 1) {
-    if (cursor < normalized.length && normalized.charCodeAt(cursor) !== 10) {
-      continue
-    }
-    let trimmedStart = lineStart
-    let trimmedEnd = cursor
-    while (trimmedStart < trimmedEnd && isTerminalWaitWhitespace(normalized, trimmedStart)) {
-      trimmedStart += 1
-    }
-    while (trimmedEnd > trimmedStart && isTerminalWaitWhitespace(normalized, trimmedEnd - 1)) {
-      trimmedEnd -= 1
-    }
-    if (lineStart > headerIndex && trimmedStart < trimmedEnd) {
-      if (modelIndex === null && normalized.startsWith('gemini', trimmedStart)) {
-        modelIndex = trimmedStart
-      }
-      if (
-        promptIndex === null &&
-        trimmedEnd - trimmedStart === 1 &&
-        normalized.charCodeAt(trimmedStart) === 62
-      ) {
-        promptIndex = trimmedStart
-      }
-    }
-    lineStart = cursor + 1
-  }
-
-  return modelIndex !== null && promptIndex !== null ? Math.max(modelIndex, promptIndex) : null
-}
-
+// One combined scan for any wording that could belong to a live blocked prompt.
 export const TERMINAL_WAIT_BLOCKED_SENTINEL_RE =
   /update available|choose working directory to|codex just got an upgrade|hooks need review|do you trust|trust this|trusted workspace|press enter to (?:confirm|continue|view|insert)|press t to trust|permission required|requires permission|allow once|allow always|run this command\?/i
 
@@ -231,11 +189,11 @@ function findBlockedSignalInLiveWindow(
   const candidates: { reason: RuntimeTerminalWaitBlockedReason; index: number }[] = []
   const updateIndex = normalized.lastIndexOf('update available')
   if (updateIndex !== -1 && normalized.includes('press enter to continue', updateIndex)) {
-    candidates.push({ reason: 'codex-update-prompt', index: updateIndex })
+    candidates.push({ reason: 'agent-update-prompt', index: updateIndex })
   }
   const cwdIndex = normalized.lastIndexOf('choose working directory to')
   if (cwdIndex !== -1 && normalized.includes('press enter to continue', cwdIndex)) {
-    candidates.push({ reason: 'codex-cwd-prompt', index: cwdIndex })
+    candidates.push({ reason: 'agent-cwd-prompt', index: cwdIndex })
   }
   const modelMigrationIndex = normalized.lastIndexOf('codex just got an upgrade')
   if (
@@ -261,7 +219,8 @@ function findBlockedSignalInLiveWindow(
       trustSegment.includes('directory') ||
       trustSegment.includes('repo'))
   ) {
-    candidates.push({ reason: 'codex-trust-workspace', index: trustIndex })
+    // Why neutral: this matcher never inspects the agent -- every TUI agent ships a workspace-trust dialog.
+    candidates.push({ reason: 'agent-trust-workspace', index: trustIndex })
   }
   const interactivePromptIndex = Math.max(
     normalized.lastIndexOf('press enter to confirm'),
@@ -274,19 +233,22 @@ function findBlockedSignalInLiveWindow(
     interactivePromptIndex === -1
       ? ''
       : normalized.slice(Math.max(0, interactivePromptIndex - 600), interactivePromptIndex + 200)
-  const hasCodexInteractiveContext =
+  // Why 'codex' only widens detection and never names the reason: the sole Codex evidence here is
+  // that word somewhere in 600 chars of scrollback, which an agent narrating about Codex satisfies
+  // on any pane -- enough to suspect a dialog, not enough to label a non-Codex user's pane.
+  const hasInteractiveDialogContext =
     interactivePromptContext.includes('codex') ||
     interactivePromptContext.includes('permission') ||
     interactivePromptContext.includes('sandbox') ||
     interactivePromptContext.includes('trust') ||
     interactivePromptContext.includes('hook')
-  if (interactivePromptIndex !== -1 && hasCodexInteractiveContext) {
+  if (interactivePromptIndex !== -1 && hasInteractiveDialogContext) {
     const contextStart = Math.max(0, interactivePromptIndex - 600)
     const hasSpecificPromptInContext = candidates.some(
       (candidate) => candidate.index >= contextStart && candidate.index <= interactivePromptIndex
     )
     if (!hasSpecificPromptInContext) {
-      candidates.push({ reason: 'codex-interactive-prompt', index: interactivePromptIndex })
+      candidates.push({ reason: 'agent-interactive-prompt', index: interactivePromptIndex })
     }
   }
   const cursorApprovalIndex = findCursorApprovalPromptIndex(normalized)
@@ -303,8 +265,9 @@ function findBlockedSignalInLiveWindow(
       permissionSegment.includes(choice)
     ).length
     if (decisionCount >= 2) {
-      // Why: preserve the existing remote receipt value for mixed-version clients.
-      candidates.push({ reason: 'codex-interactive-prompt', index: permissionPromptIndex })
+      // Why neutral: an approval dialog with named choices identifies no agent; older hosts publish
+      // 'codex-interactive-prompt' here and clients alias the two (Rule 1 additive member).
+      candidates.push({ reason: 'agent-interactive-prompt', index: permissionPromptIndex })
     }
   }
   return candidates.length > 0

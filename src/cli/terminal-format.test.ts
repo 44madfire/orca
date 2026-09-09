@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { formatTerminalClose, formatTerminalFocus, formatTerminalSend } from './terminal-format'
+import type {
+  RuntimeTerminalShow,
+  RuntimeTerminalWait,
+  RuntimeTerminalWaitBlockedReason
+} from '../shared/runtime-terminal-contracts'
+import {
+  formatTerminalClose,
+  formatTerminalFocus,
+  formatTerminalSend,
+  formatTerminalShow,
+  formatTerminalWait
+} from './terminal-format'
 
 describe('formatTerminalFocus', () => {
   it('distinguishes superseded navigation from a winning focus', () => {
@@ -169,5 +180,75 @@ describe('formatTerminalSend', () => {
 
     expect(output).toContain('no turn start was observed')
     expect(output).toContain('--retry-request prompt-swallowed --wait-submit <seconds>')
+  })
+})
+
+// Why: an older host still publishes the codex-* tokens for dialogs its matcher never proved were
+// Codex's, so a Gemini/Cursor/Antigravity user reads a Codex label unless the CLI names the neutral one.
+describe('blocked-reason rendering against a mixed-version host', () => {
+  function showResult(reason?: RuntimeTerminalWaitBlockedReason): {
+    terminal: RuntimeTerminalShow
+  } {
+    return {
+      terminal: {
+        handle: 'term_agy',
+        ptyId: 'pty-1',
+        paneRuntimeId: 1,
+        rendererGraphEpoch: 1,
+        worktreeId: 'worktree-1',
+        worktreePath: '/tmp/w',
+        branch: 'main',
+        tabId: 'tab-1',
+        leafId: 'leaf-1',
+        title: 'Antigravity',
+        connected: true,
+        writable: true,
+        lastOutputAt: null,
+        preview: 'Do you trust the files in this folder?',
+        agentWait: { source: 'prompt-text', reason }
+      }
+    }
+  }
+
+  function waitResult(blockedReason: RuntimeTerminalWaitBlockedReason): {
+    wait: RuntimeTerminalWait
+  } {
+    return {
+      wait: {
+        handle: 'term_agy',
+        condition: 'tui-idle',
+        satisfied: false,
+        status: 'running',
+        exitCode: null,
+        blockedReason
+      }
+    }
+  }
+
+  it('names the neutral reason beside a legacy token on both wait and show', () => {
+    expect(formatTerminalWait(waitResult('codex-trust-workspace'))).toContain(
+      'blockedReason: codex-trust-workspace (agent-trust-workspace)'
+    )
+    expect(formatTerminalShow(showResult('codex-trust-workspace'))).toContain(
+      'agentWait: codex-trust-workspace (agent-trust-workspace) (via prompt-text)'
+    )
+  })
+
+  it('adds nothing when this build published the reason itself', () => {
+    expect(formatTerminalWait(waitResult('agent-trust-workspace'))).toMatch(
+      /blockedReason: agent-trust-workspace$/
+    )
+    expect(formatTerminalShow(showResult('agent-trust-workspace'))).toContain(
+      'agentWait: agent-trust-workspace (via prompt-text)'
+    )
+  })
+
+  it('leaves an agent-specific legacy token and a reasonless wait alone', () => {
+    expect(formatTerminalWait(waitResult('codex-hooks-review-prompt'))).toMatch(
+      /blockedReason: codex-hooks-review-prompt$/
+    )
+    expect(formatTerminalShow(showResult(undefined))).toContain(
+      'agentWait: interactive prompt (via prompt-text)'
+    )
   })
 })
