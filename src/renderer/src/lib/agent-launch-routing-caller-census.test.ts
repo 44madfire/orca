@@ -25,6 +25,12 @@ const LAUNCH_AGENT_IN_NEW_TAB_CALLERS = [
 const ROUTE_RESOLVER_DEFINITION = 'src/renderer/src/lib/agent-launch-routing.ts'
 const ROUTE_PLANNER = 'src/renderer/src/lib/agent-session-launch-plan.ts'
 const DIRECT_ROUTE_RESOLVER_CALL = /\b(?:resolveAgentLaunchRoute|structuredAgentLaunchSupported)\(/
+// Why: adopting a verdict bypasses the resolver by design (a persisted quick-create request, a
+// resume whose gate already planned), so each adopter is pinned rather than trusted by convention.
+const VERDICT_ADOPTERS = [
+  'src/renderer/src/components/right-sidebar/ai-vault-session-resume-in-chat-launch.ts',
+  'src/renderer/src/lib/worktree-creation-structured-session.ts'
+]
 
 async function productionFiles(): Promise<string[]> {
   return glob(['src/**/*.ts', 'src/**/*.tsx'], {
@@ -52,6 +58,16 @@ describe('agent launch routing caller census', () => {
       )
       .sort()
     expect(directCallers).toEqual([ROUTE_PLANNER])
+  })
+
+  it('pins every production adopter of a planned verdict', async () => {
+    const adopters = (await productionFiles())
+      .filter((file) => file !== ROUTE_PLANNER)
+      .filter((file) =>
+        readFileSync(join(REPO_ROOT, file), 'utf8').includes('adoptAgentSessionLaunchVerdict(')
+      )
+      .sort()
+    expect(adopters).toEqual([...VERDICT_ADOPTERS].sort())
   })
 
   it('keeps non-visible, resume, and floating launchers intentionally outside the route', () => {
