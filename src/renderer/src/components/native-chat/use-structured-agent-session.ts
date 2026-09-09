@@ -34,10 +34,10 @@ import { useStructuredAgentSessionOutbox } from './use-structured-agent-session-
 import { useStructuredAgentSessionHold } from './use-structured-agent-session-hold'
 import { useStructuredAgentSessionRead } from './use-structured-agent-session-read'
 import {
-  projectStructuredAgentSessionMessages,
   pendingStructuredSessionPrompts,
   type StructuredPromptItem
 } from './structured-agent-session-message-projection'
+import { useStructuredAgentSessionMessages } from './use-structured-agent-session-messages'
 import { selectStructuredAgentTurnActivity } from './native-chat-turn-activity'
 import { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-settings-write'
 
@@ -53,17 +53,8 @@ export function useStructuredAgentSession(args: {
   const summary = useStructuredAgentSessionStatusSummary(sessionId, target)
   // Declared first: the hold is what gives a restored session its provider child back, and the
   // read below is useless for sending until it lands.
-  useStructuredAgentSessionHold({
-    sessionId,
-    target,
-    surface: 'desktop-chat',
-    enabled: isVisible
-  })
-  const { state, loadingOlder, loadOlder } = useStructuredAgentSessionRead({
-    sessionId,
-    target,
-    isVisible
-  })
+  useStructuredAgentSessionHold({ sessionId, target, surface: 'desktop-chat', enabled: isVisible })
+  const { state, loadingOlder, loadOlder } = useStructuredAgentSessionRead(args)
   const { mutate, writeError } = useStructuredAgentSessionMutation(sessionId, target, state.fence)
   const [conversationSupport, setConversationSupport] = useState<{
     sessionId: string
@@ -219,6 +210,8 @@ export function useStructuredAgentSession(args: {
         onFailure
       )
   })
+  const { outbox } = outboxController
+  const messages = useStructuredAgentSessionMessages(state.items, outbox, state.submissions)
   return {
     epoch: state.epoch,
     rewind,
@@ -232,7 +225,7 @@ export function useStructuredAgentSession(args: {
           turnId ||
           prompts.length ||
           isMonitoringBackgroundTasks ||
-          outboxController.outbox.length ||
+          outbox.length ||
           rewind.blockedRef.current
         ),
         send: (command) =>
@@ -242,18 +235,15 @@ export function useStructuredAgentSession(args: {
             { command }
           )
       }),
-    messages: projectStructuredAgentSessionMessages(
-      state.items,
-      outboxController.outbox,
-      state.submissions
-    ),
+    journalItems: state.items,
+    messages,
     status: state.status,
     error: rewind.error ?? state.error ?? writeError ?? outboxController.error,
     hasOlder: state.hasOlder,
     loadingOlder,
     loadOlder,
     prompts,
-    outbox: outboxController.outbox,
+    outbox,
     blockedClientMessageId: outboxController.blockedClientMessageId,
     send: (...input: Parameters<typeof outboxController.send>) =>
       !commandPending.current && !rewind.blockedRef.current && outboxController.send(...input),

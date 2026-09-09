@@ -39,7 +39,7 @@ describe('user-row rewind affordance', () => {
     expect(button).toHaveFocus()
     expect(button.parentElement).toHaveClass(
       'group-hover:opacity-100',
-      'group-focus-within:opacity-100'
+      'group-has-[:focus-visible]:opacity-100'
     )
     fireEvent.click(button)
     expect(request).toHaveBeenCalledWith('user-1')

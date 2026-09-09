@@ -225,6 +225,7 @@ function NativeChatStructuredSessionContent({
             key={paneKey}
             rewind={rewind}
             session={session}
+            journalItems={controller.journalItems}
             isWorking={controller.isWorking}
             expandSignal={false}
             fontScale={fontScale.scale}
