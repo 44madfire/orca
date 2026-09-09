@@ -104,6 +104,15 @@ function destructiveDeps(extra: { allowUnverifiedStop?: boolean; timeoutMs?: num
   }
 }
 
+/** The structured sweep's own warn — a forced removal can emit a PTY-sweep one onto the same spy. */
+function structuredSessionWarning(warn: { mock: { calls: unknown[][] } }): string {
+  return (
+    warn.mock.calls
+      .map((call) => String(call[0]))
+      .find((message) => message.includes('agent session')) ?? ''
+  )
+}
+
 describe('worktree teardown and structured agent sessions', () => {
   beforeEach(() => {
     hostRef.current = null
@@ -202,7 +211,8 @@ describe('worktree teardown and structured agent sessions', () => {
       destructiveDeps({ allowUnverifiedStop: true })
     )
     expect(result.structuredStopped).toBeUndefined()
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('still attached'))
+    // The live arm of that record, carrying the verdict the refusal would have shown.
+    expect(structuredSessionWarning(warn)).toContain('still live: 1 agent session (claude)')
     warn.mockRestore()
   })
 
@@ -361,7 +371,12 @@ describe('worktree teardown and structured agent sessions', () => {
         destructiveDeps({ allowUnverifiedStop: true, timeoutMs: 5 })
       )
     ).resolves.toMatchObject({ runtimeStopped: 0 })
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('still attached'))
+    const message = structuredSessionWarning(warn)
+    expect(message).toContain('could not confirm these closed: 1 agent session (claude)')
+    // The pin: a close that ran out of time was never watched stay attached. This warn is the only
+    // record a forced removal leaves, and the removal.ts split exists precisely so "we could not
+    // confirm" is never reported as "we saw it running" — including here.
+    expect(message).not.toContain('still attached')
     warn.mockRestore()
   })
 

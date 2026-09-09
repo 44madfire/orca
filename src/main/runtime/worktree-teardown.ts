@@ -353,9 +353,12 @@ async function sweepStructuredSessions(
     )
   }
   // Force is the documented escape hatch, so removal continues — but say so, because the child
-  // outliving its `cwd` is the failure this sweep exists to make visible.
+  // outliving its `cwd` is the failure this sweep exists to make visible. Carries the verdict
+  // verbatim, like the unstopped-PTY warn above: this line is the only record a forced removal
+  // leaves, and appending "still attached" asserted the live verdict over sessions the sweep had
+  // just said it could not confirm either way.
   console.warn(
-    `[worktree-teardown] forcing removal of ${worktreeId} with ${describeUnclosedStructuredSessions(unstopped)} still attached`
+    `[worktree-teardown] forcing removal of ${worktreeId}${UNSTOPPED_PTY_DETAIL_SEPARATOR}${describeUnclosedStructuredSessions(unstopped)}`
   )
   return closed
 }
