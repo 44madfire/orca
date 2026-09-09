@@ -169,6 +169,88 @@
       "demotionRule": "Keep experimental until CI soak; investigate failures without relaxing fidelity, liveness or resource-count assertions."
     },
     {
+      "id": "terminal-performance.osc-status-scan-budget",
+      "title": "OSC 9999 status bursts reuse forward terminator searches",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "terminal-runtime",
+      "layer": "shared-unit-and-runtime-unit",
+      "surfaces": ["terminal output ingestion", "terminal agent-status side effects"],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "daemon", "ssh", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local", "daemon", "ssh", "remote-runtime"],
+      "coverageNotes": "Shared parser tests cover provider-independent bytes; main and renderer contract tests cover status and terminal-output delivery. Live Linux, Windows, WSL, SSH and remote-runtime processes are not launched. Execution, liveness, paths, wire formats and mobile UI are unchanged.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/blob/main/src/shared/agent-status-osc.ts"
+      ],
+      "invariant": "Terminal status parsing preserves ordinary UTF-16 output, every valid payload in order, the last valid payload's clean-output offset, earliest BEL/ST termination, and incomplete-frame caps while searching each complete burst only forward.",
+      "oracle": "Two 5,000-frame bursts using exclusively BEL or ST produce every expected payload and ordinary output byte with at most twice the input length in native search ranges. Mixed terminators, every split through prefixes/JSON/ST, independent parser interleaving, malformed payloads, exact pending-cap boundaries and oversized complete frames retain their previous behavior. A one-character echo performs no terminator search. Parsed output chunks are not retained in legacy regular-expression state.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/shared/agent-status-osc.test.ts src/shared/agent-status-osc-scan-budget.test.ts src/shared/agent-status-types.test.ts src/main/runtime/orca-runtime-hook-agent-status-projection.test.ts src/renderer/src/components/terminal-pane/terminal-title-tracker-parity.test.ts src/renderer/src/components/terminal-pane/pty-connection-main-side-effect-authority.test.ts src/renderer/src/components/terminal-pane/pty-connection-hook-completion-side-effects.test.ts src/renderer/src/components/terminal-pane/pty-transport-eager-buffer-replay.test.ts"
+      ],
+      "testFiles": [
+        "src/shared/agent-status-osc.test.ts",
+        "src/shared/agent-status-osc-scan-budget.test.ts",
+        "src/main/runtime/orca-runtime-hook-agent-status-projection.test.ts",
+        "src/renderer/src/components/terminal-pane/terminal-title-tracker-parity.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/shared/agent-status-osc-scan-budget.test.ts",
+          "assertions": [
+            "reads each burst only forward with terminator %j",
+            "keeps a one-character input echo on the ordinary-output path",
+            "does not retain the output chunk in legacy regular-expression state"
+          ]
+        },
+        {
+          "file": "src/shared/agent-status-osc.test.ts",
+          "assertions": [
+            "uses the earliest mixed terminator and counts only parsed payload offsets",
+            "keeps a distant ST usable after many intervening BEL frames",
+            "preserves every split of prefixes, JSON, and both terminators across independent streams",
+            "applies the pending cap only to incomplete frames"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-09-07",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/shared/agent-status-osc.test.ts src/shared/agent-status-osc-scan-budget.test.ts src/shared/agent-status-types.test.ts src/main/runtime/orca-runtime-hook-agent-status-projection.test.ts src/renderer/src/components/terminal-pane/terminal-title-tracker-parity.test.ts src/renderer/src/components/terminal-pane/pty-connection-main-side-effect-authority.test.ts src/renderer/src/components/terminal-pane/pty-connection-hook-completion-side-effects.test.ts src/renderer/src/components/terminal-pane/pty-transport-eager-buffer-replay.test.ts",
+          "result": "passed",
+          "durationSeconds": 23.96,
+          "summary": "153 tests passed across eight files. Independent baseline differential review also matched 3,704 streams and 45,141 chunk results."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 30,
+        "scope": "Shared parser and main/renderer terminal contract tests; no launched app."
+      },
+      "flakeHistory": {
+        "status": "not-started",
+        "evidence": "Initial deterministic local validation; CI soak has not started."
+      },
+      "redGreenEvidence": {
+        "status": "complete",
+        "evidence": "The unchanged parser failed both search budgets: 618,560,785 searched characters for the 246,390-character BEL burst and 631,068,285 for the 251,390-character ST burst. Reusing forward match positions reduces those totals to 492,770 and 502,770 characters respectively, within twice the input length, with identical complete results."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "Warmed Node 24 macOS CPU medians: a 250 KB / 5,000-status burst fell from 100.240 ms to 1.903 ms; a 1 MB / 20,000-status burst fell from 1,588.492 ms to 7.369 ms. Wall-clock medians were 134.878 to 2.484 ms and 2,536.927 to 12.902 ms under concurrent machine load. These are adverse bursts, not typical callback sizes. The ordinary-output path is unchanged; one-character echo CPU was 2.173 versus 2.342 ms per 100,000 calls, and single-status BEL CPU was 10.835 versus 10.897 ms per 30,000 calls. Both native terminator searches advance monotonically within the current chunk; no regex state retains the input. No scheduling, polling, provider calls, pending limits, output filtering or payload parsing changed."
+      },
+      "knownGaps": [
+        "Live Electron input latency and Linux/Windows/WSL/SSH execution have not been measured for this parser-only change.",
+        "Fragmented unterminated payload accumulation and downstream processing of large status arrays remain outside this complete-burst search budget."
+      ],
+      "promotionCriteria": [
+        "Complete CI soak while preserving byte fidelity and deterministic search budgets."
+      ],
+      "demotionRule": "Keep experimental until CI soak; investigate output, offset, carry or search-budget failures without relaxing the oracle."
+    },
+    {
       "id": "terminal-performance.padded-fullscreen-redraw",
       "title": "Fullscreen redraw padding does not stall terminal delivery",
       "maturity": "experimental",
@@ -13743,6 +13825,7 @@
       "invariant": "Starting a worker in the coordinator's current workspace must materialize one inactive terminal tab before worker-start returns, preserve coordinator focus, and remain exactly once after workspace re-entry. After an app update or restart, an exact live legacy worker must fence automatic provider resume, adopt its original PTY into its original background pane, retain readable output, and clear the resume record without spawning, writing, signalling, interrupting, replacing, or focusing the worker. A current-contract worker whose renderer graph identity is temporarily absent must retain its Dispatch capability and settle exactly once from exact hook-attested handle, pane, and process evidence; otherwise only an exact attested coordinator may take over. A worker_done caller may report success only after the owning runtime returns an explicit lifecycle verdict or authoritative reads prove that the exact Task, Dispatch, and worker report receipt settled the expected outcome. Federated terminal settlement must remain replay-eligible until the worker durably acknowledges it, and identical same-outcome retries must converge idempotently. Independently updated clients and worker servers must preserve the negotiated protocol: current peers use Run-home lifecycle settlement, while protocol v1/v2 peers retain their legacy completion path without receiving newer-only fields. A federated worker may accept only the authority defined by its negotiated protocol. An exact existing target workspace must receive a discoverable tab without stealing coordinator focus; if renderer reveal fails, worker-start must expose that the live worker remains background-only. Run and Dispatch checks must resolve through the caller's stable pane identity when a terminal handle is reminted, while a live handle outranks mismatched pane metadata. A nested worker's creator edge requires the current creator pane, process incarnation, and owning Run generation; reminting and rebinding that pane to another Run must remove the stale edge. Explicit legacy terminal inspection remains handle-scoped, and remote or headless worker presentation remains background-only.",
       "oracle": "Drive Run create, Task create, and worker-start through production Electron runtimes with a deterministic Codex fixture. Require append-only ledgers with one still-live PID and no interruption, a visible inactive worker tab while the coordinator stays active, Run delivery through stable pane identity, and stable PTY/incarnation, tab, leaf, worktree, Task, and Dispatch across workspace re-entry. In a restart journey, retain the original daemon PTY and PID, remove renderer ownership, retain sleeping-session evidence, mark the Dispatch legacy, relaunch, and require exact inactive tab adoption, readable ACK output, cleared resume state, one spawn, and no resume argv or Conversation interrupted text after another workspace round trip. The service oracle removes renderer lookup identity from current-contract callers while retaining real restored-PTY and hook commitments, replays authenticated completion and takeover across fresh runtimes, and requires one Task, Dispatch, terminal authority, message, mutation, ordinary-mail delivery, remote process fencing, and unchanged fixture marker bytes while foreign pane evidence remains rejected. Unit tests separately remint a creator pane and process from Run A into Run B, require the nested Run A worker to fall back to its current coordinator, require indexed query plans, and bound 300 Task reads with 50,000 retained Runs. They also assert authority-specific legacy affordances, exact identity and owner matching, retained-output fallback, pane-stable routing, federated non-activation, and SSH fallback parity.",
       "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 npx vitest run --config config/vitest.config.ts src/main/runtime/rpc/methods/orchestration/messaging/check-worker-federated-attachment.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/rpc/orchestration-runtime-update-settlement.test.ts --reporter=dot",
         "pnpm exec vitest run --config config/vitest.config.ts src/cli/handlers/orchestration.test.ts src/cli/handlers/orchestration-check-identity.test.ts src/cli/handlers/orchestration-worker-cli.test.ts src/main/runtime/rpc/methods/orchestration/worker/composed-workers.test.ts src/main/runtime/rpc/methods/orchestration/messaging/check.test.ts src/main/runtime/rpc/methods/orchestration/messaging/send.test.ts src/main/ssh/ssh-remote-orca-cli.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/cli/handlers/orchestration-lifecycle-rejection.test.ts src/cli/handlers/orchestration-lifecycle-json-rejection.test.ts src/cli/handlers/orchestration-migration.test.ts",
@@ -13757,6 +13840,7 @@
         "pnpm run build:cli && SKIP_BUILD=1 pnpm exec playwright test tests/e2e/orchestration-worker-settlement-release-cli.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1"
       ],
       "testFiles": [
+        "src/main/runtime/rpc/methods/orchestration/messaging/check-worker-federated-attachment.test.ts",
         "src/main/runtime/rpc/orchestration-runtime-update-settlement.test.ts",
         "src/main/runtime/orchestration/formatter.test.ts",
         "src/main/runtime/orchestration/orchestration-legacy-worker-terminal-recovery.test.ts",
@@ -13780,6 +13864,13 @@
         "tests/e2e/orchestration-worker-settlement-release-cli.spec.ts"
       ],
       "assertionRefs": [
+        {
+          "file": "src/main/runtime/rpc/methods/orchestration/messaging/check-worker-federated-attachment.test.ts",
+          "assertions": [
+            "replays the coordinator instruction and takes its ack after the app restarts",
+            "files loopback mail once under the local Dispatch Run without replacing its owner"
+          ]
+        },
         {
           "file": "src/main/runtime/rpc/orchestration-runtime-update-settlement.test.ts",
           "assertions": [
@@ -14278,7 +14369,7 @@
       "providers": ["local", "daemon", "ssh", "wsl", "remote-runtime"],
       "coveredPlatforms": ["macos"],
       "coveredProviders": ["local", "ssh"],
-      "coverageNotes": "Deterministic service tests cover release-versus-reuse ordering, transactional retain and takeover cancellation, exact host/pane/process identity, dead external/user-owned/transferred/stopped/abandoned reconciliation, host-partition persistence and legacy retirement replay with an absent web-terminal layout map, conservative unknown provider and legacy metadata handling, immutable transcript and bounded terminal archives, mutation restart, reset cleanup, replay idempotency, and 50-resource accounting. A macOS Electron journey invokes the freshly compiled worker-release CLI after the worker process disappears, then independently checks released SQLite state and coordinator liveness. Injected inventories cover local and SSH provider routing; live SSH, WSL, Windows, paired-runtime, and provider-close lost-ack journeys remain explicit gaps.",
+      "coverageNotes": "New phones explicitly report terminal takeover on real user sends, throttled per owning client and handle. Host byte lanes perform zero orchestration SQL work; local and injected SSH report tests fence release. Phones predating this build do not fence release. Deterministic service tests cover release-versus-reuse ordering, transactional retain and takeover cancellation, exact host/pane/process identity, dead external/user-owned/transferred/stopped/abandoned reconciliation, host-partition persistence and legacy retirement replay with an absent web-terminal layout map, conservative unknown provider and legacy metadata handling, immutable transcript and bounded terminal archives, mutation restart, reset cleanup, replay idempotency, and 50-resource accounting. A macOS Electron journey invokes the freshly compiled worker-release CLI after the worker process disappears, then independently checks released SQLite state and coordinator liveness. Injected inventories cover local and SSH provider routing; live SSH, WSL, Windows, paired-runtime, and provider-close lost-ack journeys remain explicit gaps.",
       "motivatingLinks": [
         "https://github.com/stablyai/orca/pull/12355",
         "https://github.com/stablyai/orca/issues/13860",
@@ -14289,6 +14380,8 @@
       "invariant": "A settled Dispatch may close only its one coordinator-created terminal lease. Explicit reuse, real user input, retain, identity or host change, ambiguity, and another resource for the same exact host/pane/process must fence closure. Once the authoritative owning provider positively excludes the resource's exact immutable process incarnation, even an external, user-owned, or transferred dead resource must converge to released without any process close. Unknown host scope, missing incarnation metadata, or unavailable inventory must remain retained. Exact terminal-close persistence must settle when a host partition omits renderer-owned layout state. Output preservation and the requested-to-releasing transition are atomic, archives remain readable without the provider file, retries resume idempotently, and orchestration reset removes archive and authority state.",
       "oracle": "Record release intent for a settled owner, attempt exact reuse before close, and require worker-start to fail with terminal_release_in_progress while the terminal stays open; then release the original owner exactly once. Race retain and real user input against a controlled archive promise and require no committed archive or close. Rebase a closed web-terminal host partition without terminalLayoutsByTabId and require the persistence write to complete while preserving host-authoritative membership; replay a valid legacy retirement under the same omission and require exact membership removal plus revision advancement. For retained external, user-owned, transferred, stopped, and abandoned resources, run one fresh inventory against the exact local/WSL or SSH provider: an exact live incarnation and every unknown inventory shape stay retained, while positive absence atomically sets ownership_state and release_state to released with processAction none and zero closeTerminal calls. Change host or process identity and inject duplicate resource evidence to require retention. Freeze a structured transcript, delete its source file, and require archived worker-read to return the same bounded redacted messages. Restart a pending mutation, reset orchestration state, and create 50 resources while asserting replay convergence, zero orphan rows, two-query worker listing, and no unrelated close.",
       "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/rpc/methods/orchestration/worker/worker-release-mobile-report.test.ts src/main/runtime/orca-runtime-terminal-handle-incarnation.test.ts src/renderer/src/lib/worker-terminal-takeover-report.test.ts",
+        "ORCA_BACKGROUND_LAUNCH=1 mobile/node_modules/.bin/vitest run --config mobile/vitest.config.ts mobile/src/session/mobile-worker-takeover-send-sites.test.ts mobile/src/terminal/worker-terminal-takeover-report.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/pty-inventory-liveness-verdict.test.ts src/main/runtime/orca-runtime-process-incarnation-liveness.test.ts src/main/runtime/mobile-session-terminal-persistence-retirement.test.ts src/main/runtime/rpc/methods/orchestration/worker/worker-release.test.ts src/main/runtime/rpc/methods/orchestration/worker/worker-release-recovery.test.ts src/main/runtime/rpc/orchestration-mutation-ledger.test.ts src/main/runtime/orchestration/worker-transcript-read.test.ts src/renderer/src/lib/worker-terminal-takeover-report.test.ts --reporter=dot",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime-process-incarnation-liveness.test.ts src/main/runtime/mobile-session-terminal-persistence-retirement.test.ts src/main/runtime/rpc/methods/orchestration/worker/worker-release.test.ts src/main/runtime/rpc/methods/orchestration/worker/worker-release-recovery.test.ts src/main/runtime/rpc/orchestration-mutation-ledger.test.ts src/main/runtime/orchestration/worker-transcript-read.test.ts src/renderer/src/lib/worker-terminal-takeover-report.test.ts --reporter=dot",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime-process-incarnation-liveness.test.ts src/main/runtime/rpc/methods/orchestration/worker/worker-release.test.ts src/main/runtime/rpc/methods/orchestration/worker/worker-release-recovery.test.ts src/main/runtime/rpc/orchestration-mutation-ledger.test.ts src/main/runtime/orchestration/worker-transcript-read.test.ts src/renderer/src/lib/worker-terminal-takeover-report.test.ts --reporter=dot",
@@ -14297,6 +14390,9 @@
         "pnpm run build:cli && SKIP_BUILD=1 pnpm exec playwright test tests/e2e/orchestration-worker-settlement-release-cli.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1"
       ],
       "testFiles": [
+        "src/main/runtime/rpc/methods/orchestration/worker/worker-release-mobile-report.test.ts",
+        "mobile/src/session/mobile-worker-takeover-send-sites.test.ts",
+        "mobile/src/terminal/worker-terminal-takeover-report.test.ts",
         "src/main/runtime/pty-inventory-liveness-verdict.test.ts",
         "src/main/runtime/orca-runtime-process-incarnation-liveness.test.ts",
         "src/main/runtime/mobile-session-terminal-persistence-retirement.test.ts",
@@ -14309,6 +14405,20 @@
         "tests/e2e/orchestration-worker-settlement-release-cli.spec.ts"
       ],
       "assertionRefs": [
+        {
+          "file": "src/main/runtime/rpc/methods/orchestration/worker/worker-release-mobile-report.test.ts",
+          "assertions": [
+            "a handle-addressed phone report fences %s worker release",
+            "mobile %s bytes do no orchestration database work"
+          ]
+        },
+        {
+          "file": "mobile/src/session/mobile-worker-takeover-send-sites.test.ts",
+          "assertions": [
+            "%s reports on its send target once per handle per 30 seconds",
+            "%s never reports takeover"
+          ]
+        },
         {
           "file": "src/main/runtime/pty-inventory-liveness-verdict.test.ts",
           "assertions": [
