@@ -142,6 +142,23 @@ describe('background-tasks strip header', () => {
     )
   })
 
+  it('draws the segment separator in a visible text tone, not the divider token', () => {
+    const header = renderHeader([
+      { id: 'a1', kind: 'agent' },
+      { id: 'c1', kind: 'command' }
+    ])
+    const separators = [...header.querySelectorAll('span')].filter(
+      (element) => element.textContent === ' · '
+    )
+    expect(separators).toHaveLength(1)
+    // `--border` is a divider line (7% white in dark), an order of magnitude
+    // fainter than the counts it sits between.
+    expect(separators[0].classList).not.toContain('text-border')
+    expect(separators[0].classList).toContain('text-muted-foreground')
+    // One space either side; the icon's own margin is the icon-to-label gap.
+    expect(header.textContent).toBe('1 agent · 1 shell')
+  })
+
   it('carries no icon on a collapsed total, which spans kinds', () => {
     const header = renderHeader([
       { id: 'a1', kind: 'agent' },

@@ -173,7 +173,9 @@ export function NativeChatBackgroundTasksStatus(props: {
                 const Icon = kind ? KIND_ICONS[kind] : null
                 return (
                   <span key={segment.text}>
-                    {index > 0 ? <span className="text-border"> · </span> : null}
+                    {/* A text token, not `--border`: that one is a divider line
+                        (7% white in dark) and reads as invisible at this size. */}
+                    {index > 0 ? <span className="text-muted-foreground"> · </span> : null}
                     {Icon && kind ? (
                       <Icon
                         aria-hidden="true"
