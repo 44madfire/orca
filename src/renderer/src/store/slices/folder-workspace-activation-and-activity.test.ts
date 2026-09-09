@@ -208,6 +208,36 @@ describe('folder workspace generic activation and activity', () => {
     expect(store.getState().activeBrowserTabId).toBe('remembered')
   })
 
+  it('falls back to an open file when nothing else owns the folder surface', () => {
+    const folder = makeFolderWorkspace()
+    const workspaceKey = folderWorkspaceKey(folder.id)
+    const store = seedLocalFolderStore(folder)
+    store.setState({
+      groupsByWorktree: {},
+      layoutByWorktree: {},
+      // Why: the remembered browser tab is gone, so only the open file is left to show.
+      activeBrowserTabIdByWorktree: { [workspaceKey]: 'closed' },
+      browserTabsByWorktree: { [workspaceKey]: [] },
+      activeTabTypeByWorktree: { [workspaceKey]: 'browser' },
+      openFiles: [
+        {
+          id: 'fallback-file',
+          worktreeId: workspaceKey,
+          filePath: '/workspace/folder/file',
+          relativePath: 'file',
+          language: 'plaintext',
+          isDirty: false,
+          mode: 'edit'
+        }
+      ]
+    } as Partial<AppState>)
+
+    store.getState().setActiveFolderWorkspace(folder.id)
+
+    expect(store.getState().activeTabType).toBe('editor')
+    expect(store.getState().activeFileId).toBe('fallback-file')
+  })
+
   it('coalesces repeated activity persistence while keeping local activity current', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
