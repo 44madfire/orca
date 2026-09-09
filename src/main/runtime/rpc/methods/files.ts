@@ -277,7 +277,17 @@ export const FILE_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'files.unwatch',
     params: FileUnwatch,
-    handler: async (params, { runtime }) => {
+    handler: async (params, { runtime, connectionId }) => {
+      // Why: only the connection that owns the watch may retire it, and the reply must
+      // wait for the watcher release so a rewatch cannot hold two watchers on one path.
+      if (connectionId) {
+        return {
+          unsubscribed: await runtime.cleanupSubscriptionIfOwnedByConnectionAndWait(
+            params.subscriptionId,
+            connectionId
+          )
+        }
+      }
       await runtime.cleanupSubscriptionAndWait(params.subscriptionId)
       return { unsubscribed: true }
     }
