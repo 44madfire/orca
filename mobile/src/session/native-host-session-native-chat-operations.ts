@@ -28,6 +28,7 @@ export function nativeHostSessionNativeChatOperations(
   const legacyPathsByWorkspace = new Map<string, string[]>()
   const legacyLoadByWorkspace = new Map<string, Promise<string[] | null>>()
   const legacyGenerationByWorkspace = new Map<string, number>()
+  const legacyGenerationByWorkspace = new Map<string, number>()
   return {
     async readability(workspaceId) {
       if (isFloatingWorkspaceWorktreeId(workspaceId)) {
