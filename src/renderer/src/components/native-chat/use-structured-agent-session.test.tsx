@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 }))
 let fence = 3
 let sessionCommands: { name: string; kind: 'command' | 'skill' }[] | undefined
+let items: AgentJournalRenderItem[] = []
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call
@@ -24,7 +25,7 @@ vi.mock('./use-structured-agent-session-read', () => ({
     state: {
       fence,
       commands: sessionCommands,
-      items: [],
+      items,
       submissions: [],
       status: 'ready',
       error: null,
@@ -52,6 +53,7 @@ import {
   resolveStructuredLaunchSeedOptions
 } from '../../../../shared/native-chat-session-option-defaults'
 import type { PersistedNativeChatSessionOptions } from '../../../../shared/native-chat-session-options'
+import type { AgentJournalRenderItem } from '../../../../shared/agent-session-journal-types'
 import { useStructuredAgentSession } from './use-structured-agent-session'
 
 /** Replay every host mutation in order, exactly as the runtime does. */
@@ -477,6 +479,84 @@ describe('useStructuredAgentSession options', () => {
     })
 
     expect(mocks.enqueueSettingsWrite).not.toHaveBeenCalled()
+  })
+})
+
+describe('turn timing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    items = []
+    mocks.call.mockImplementation((_target, method) =>
+      method === 'agentSession.options' ? Promise.resolve(OPTIONS) : Promise.resolve(null)
+    )
+  })
+
+  it('exposes host-settled durations and a skew-free live anchor', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(50_000)
+      items = [
+        {
+          itemId: 'u1',
+          revision: 0,
+          sequence: 1,
+          observedAt: 9_000_000,
+          body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'one' }] }
+        },
+        {
+          itemId: 'l1',
+          revision: 1,
+          sequence: 2,
+          observedAt: 9_000_100,
+          body: {
+            kind: 'status',
+            text: 'Done',
+            turnLifecycle: {
+              turnId: 't1',
+              state: 'completed',
+              startedAt: 9_000_000,
+              completedAt: 9_004_000
+            }
+          }
+        },
+        {
+          itemId: 'u2',
+          revision: 0,
+          sequence: 3,
+          observedAt: 9_010_000,
+          body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'two' }] }
+        },
+        {
+          itemId: 'l2',
+          revision: 1,
+          sequence: 4,
+          observedAt: 9_010_300,
+          body: {
+            kind: 'status',
+            text: 'Working',
+            turnLifecycle: { turnId: 't2', state: 'running', startedAt: 9_010_000 }
+          }
+        }
+      ]
+      const { result, rerender } = renderHook(() =>
+        useStructuredAgentSession({
+          sessionId: 'session-1',
+          target: LOCAL_TARGET,
+          agent: 'codex',
+          isVisible: true
+        })
+      )
+      expect(result.current.isWorking).toBe(true)
+      expect(result.current.workingStartedAt).toBe(50_000 - 300)
+      expect([...result.current.settledTurns]).toEqual([
+        ['u1', { startedAt: 9_000_000, workedSeconds: 4 }]
+      ])
+      vi.setSystemTime(80_000)
+      rerender()
+      expect(result.current.workingStartedAt).toBe(50_000 - 300)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

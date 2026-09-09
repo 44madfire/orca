@@ -31,25 +31,27 @@ import type { MobileNativeChatSession } from './use-mobile-native-chat-session'
 import { useMobileStructuredAgentState } from './use-mobile-structured-agent-state'
 import { useMobileStructuredPromptResponses } from './use-mobile-structured-prompt-responses'
 import { useMobileStructuredAgentOptions } from './use-mobile-structured-agent-options'
+import { useMobileStructuredAgentTurnTiming } from './use-mobile-structured-agent-turn-timing'
 
 type StructuredMobileAttachment = StructuredAgentSessionAttachment & { id?: string }
 
-type StructuredMobileSession = ReturnType<typeof useMobileStructuredAgentOptions> & {
-  session: MobileNativeChatSession
-  isWorking: boolean
-  turnId: string | null
-  sendWithOutcome: (
-    text: string,
-    images?: string[],
-    deadline?: number,
-    attachments?: readonly StructuredMobileAttachment[]
-  ) => Promise<MobileNativeChatSendOutcome>
-  cancel: () => void
-  permission: MobileChatPermission | null
-  question: MobileChatQuestion | null
-  respondPermission: (optionId: string) => Promise<boolean>
-  respondQuestion: (answer: string) => Promise<boolean>
-}
+type StructuredMobileSession = ReturnType<typeof useMobileStructuredAgentOptions> &
+  ReturnType<typeof useMobileStructuredAgentTurnTiming> & {
+    session: MobileNativeChatSession
+    isWorking: boolean
+    turnId: string | null
+    sendWithOutcome: (
+      text: string,
+      images?: string[],
+      deadline?: number,
+      attachments?: readonly StructuredMobileAttachment[]
+    ) => Promise<MobileNativeChatSendOutcome>
+    cancel: () => void
+    permission: MobileChatPermission | null
+    question: MobileChatQuestion | null
+    respondPermission: (optionId: string) => Promise<boolean>
+    respondQuestion: (answer: string) => Promise<boolean>
+  }
 
 export function useMobileStructuredAgentSession(args: {
   client: RpcClient | null
@@ -269,6 +271,8 @@ export function useMobileStructuredAgentSession(args: {
     () => projectStructuredAgentSessionMessages(state.items, [], state.submissions),
     [state.items, state.submissions]
   )
+  const turnId = activeStructuredAgentSessionTurnId(state.items)
+  const turnTiming = useMobileStructuredAgentTurnTiming(state.items, turnId)
   const status = state.status === 'idle' ? 'idle' : state.status
   const approvalPrompt = useMemo(
     () => state.items.find(pendingStructuredApproval) ?? null,
@@ -291,8 +295,9 @@ export function useMobileStructuredAgentSession(args: {
       loadingEarlier: loadingOlder,
       loadEarlier
     },
-    isWorking: activeStructuredAgentSessionTurnId(state.items) !== null,
-    turnId: activeStructuredAgentSessionTurnId(state.items),
+    isWorking: turnId !== null,
+    turnId,
+    ...turnTiming,
     sendWithOutcome,
     cancel,
     permission: projectStructuredPermission(approvalPrompt),

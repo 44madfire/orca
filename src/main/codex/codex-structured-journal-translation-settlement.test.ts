@@ -220,10 +220,14 @@ describe('codex journal translation', () => {
     expect(bodies).toEqual([
       expect.objectContaining({
         kind: 'status',
-        turnLifecycle: { turnId: TURN_ID, state: 'running' }
+        turnLifecycle: expect.objectContaining({ turnId: TURN_ID, state: 'running' })
       }),
       expect.objectContaining({ kind: 'tool-call', state: 'running' }),
-      expect.objectContaining({ kind: 'tool-call', state: 'failed' })
+      expect.objectContaining({ kind: 'tool-call', state: 'failed' }),
+      expect.objectContaining({
+        kind: 'status',
+        turnLifecycle: expect.objectContaining({ turnId: TURN_ID, state: 'completed' })
+      })
     ])
     expect(publishes).toHaveLength(2)
   })
@@ -265,7 +269,7 @@ describe('codex journal translation', () => {
     expect(bodies).toEqual([
       expect.objectContaining({
         kind: 'status',
-        turnLifecycle: { turnId: TURN_ID, state: 'running' }
+        turnLifecycle: expect.objectContaining({ turnId: TURN_ID, state: 'running' })
       }),
       expect.objectContaining({
         kind: 'approval',
@@ -275,7 +279,11 @@ describe('codex journal translation', () => {
         kind: 'approval',
         resolution: expect.objectContaining({ state: 'cancelled' })
       }),
-      { kind: 'status', text: 'Provider exited: lost child' }
+      { kind: 'status', text: 'Provider exited: lost child' },
+      expect.objectContaining({
+        kind: 'status',
+        turnLifecycle: expect.objectContaining({ turnId: TURN_ID, state: 'interrupted' })
+      })
     ])
     expect(publishes).toHaveLength(2)
   })
@@ -349,7 +357,12 @@ describe('codex journal translation', () => {
         expect.objectContaining({
           body: { kind: 'status', text: 'Provider exited: lost child' }
         }),
-        expect.objectContaining({ kind: 'tombstone' })
+        expect.objectContaining({
+          kind: 'item',
+          body: expect.objectContaining({
+            turnLifecycle: expect.objectContaining({ turnId: TURN_ID, state: 'interrupted' })
+          })
+        })
       ])
     )
   })
@@ -422,7 +435,10 @@ describe('codex journal translation', () => {
       kind: 'item',
       body: { kind: 'status', text: 'Provider exited: lost child' }
     })
-    expect(flattened.at(-1)).toMatchObject({ kind: 'tombstone' })
+    expect(flattened.at(-1)).toMatchObject({
+      kind: 'item',
+      body: { kind: 'status', turnLifecycle: { state: 'interrupted' } }
+    })
     expectLifecycleBatchBounds(batches)
   })
 
@@ -542,15 +558,25 @@ describe('codex journal translation', () => {
               output: expect.objectContaining({ head: 'partial' })
             })
           }),
-          expect.objectContaining({
-            kind: 'tombstone',
+          {
+            kind: 'item',
             identity: {
               provider: 'legacy',
               agent: 'codex',
               sessionId: SESSION_ID,
               recordId: `turn-lifecycle:${TURN_ID}`
+            },
+            body: {
+              kind: 'status',
+              text: 'Codex is working…',
+              turnLifecycle: {
+                turnId: TURN_ID,
+                state: 'completed',
+                startedAt: expect.any(Number),
+                completedAt: expect.any(Number)
+              }
             }
-          })
+          }
         ]
       }
     ])

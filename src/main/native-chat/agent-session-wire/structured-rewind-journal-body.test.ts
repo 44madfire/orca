@@ -34,6 +34,22 @@ describe('rewind recovery of newer durable records', () => {
       text: JSON.stringify(status)
     })
   })
+  it.each(['interrupted', 'unverifiable'] as const)(
+    'keeps a %s turn and its recorded endpoints',
+    (state) => {
+      const status = {
+        kind: 'status' as const,
+        text: 'Working',
+        turnLifecycle: {
+          turnId: 'turn',
+          state,
+          startedAt: 10,
+          ...(state === 'interrupted' ? { completedAt: 20 } : {})
+        }
+      }
+      expect(restoreRewindJournalBody(status)).toEqual(status)
+    }
+  )
   it('does not reject a saved recovery prefix over a newer refusal reason', () => {
     expect(
       AgentSessionRewindRecordSchema.safeParse({

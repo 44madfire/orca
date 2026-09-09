@@ -262,6 +262,10 @@ describe('provider turn activity routing', () => {
       claudeMessage({ type: 'result', subtype: 'success', is_error: false, result: 'Done' })
     )
     expect(state.activities.at(-1)).toBeNull()
-    expect(state.tombstones).toHaveLength(1)
+    expect(state.tombstones).toHaveLength(0)
+    expect(state.rows.at(-1)).toMatchObject({
+      kind: 'status',
+      turnLifecycle: { turnId: TURN_ID, state: 'completed' }
+    })
   })
 })

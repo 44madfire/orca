@@ -1,5 +1,8 @@
 import { isAdmissibleAgentJournalItemBody } from '../../../shared/agent-session-journal-schemas'
-import type { AgentJournalItemBody } from '../../../shared/agent-session-journal-types'
+import {
+  AGENT_JOURNAL_TURN_LIFECYCLE_STATES,
+  type AgentJournalItemBody
+} from '../../../shared/agent-session-journal-types'
 import type { AgentSessionRewindRecord } from '../../../shared/agent-session-rewind'
 import { NATIVE_CHAT_ROLES } from '../../../shared/native-chat-types'
 
@@ -49,8 +52,7 @@ export function restoreRewindJournalBody(body: StoredBody): AgentJournalItemBody
   } else if (
     body.kind === 'status' &&
     body.turnLifecycle &&
-    body.turnLifecycle.state !== 'running' &&
-    body.turnLifecycle.state !== 'completed'
+    !(AGENT_JOURNAL_TURN_LIFECYCLE_STATES as readonly string[]).includes(body.turnLifecycle.state)
   ) {
     normalized = fallback()
   }

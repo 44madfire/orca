@@ -4,6 +4,9 @@ import type { CodexStructuredSessionEvent } from './codex-structured-session-ada
 
 export type CodexJournalTranslatorDeps = {
   sink: StructuredAgentSessionEventSink
+  /** Keys restored lifecycle rows to the live identity; without it history restore skips them. */
+  sessionId?: string
+  now?: () => number
   bindPromptItemId?: (journalItemId: string, threadId: string, promptKey: string) => void
   primaryThreadId?: () => string | null
   coalesceMs?: number

@@ -200,11 +200,23 @@ async function seedRunningTurn(provider: 'codex' | 'claude' = 'codex'): Promise<
     {
       kind: 'status',
       text: 'Agent is working...',
-      turnLifecycle: { turnId: 'turn-1', state: 'running' }
+      turnLifecycle: { turnId: 'turn-1', state: 'running', startedAt: NOW - 5_000 }
     },
     { fence: 13 }
   )
   await journal.close()
+}
+
+function turnLifecycle(turnId: string) {
+  const item = restoredJournal()
+    .snapshot()
+    .items.find(
+      (candidate) =>
+        candidate.body.kind === 'status' && candidate.body.turnLifecycle?.turnId === turnId
+    )
+  return item?.body.kind === 'status'
+    ? { ...item.body.turnLifecycle, recovered: item.recovered }
+    : null
 }
 
 function restoredJournal(): AgentSessionJournal {
@@ -289,6 +301,13 @@ describe('already-wedged profiles become usable on load', () => {
 
     expect(acquire).toHaveBeenCalledOnce()
     expect(activeStructuredAgentSessionTurnId(restoredJournal().snapshot().items)).toBe(null)
+    // A pid probe proved the owner gone; nobody saw it exit, so the turn has no end.
+    expect(turnLifecycle('turn-1')).toEqual({
+      turnId: 'turn-1',
+      state: 'unverifiable',
+      startedAt: NOW - 5_000,
+      recovered: true
+    })
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
       claimStatus: 'live',
       handoffStage: null,
@@ -314,12 +333,71 @@ describe('already-wedged profiles become usable on load', () => {
 
     expect(acquire).toHaveBeenCalledOnce()
     expect(activeStructuredAgentSessionTurnId(restoredJournal().snapshot().items)).toBe(null)
+    // The exit was observed, so its receipt is the turn's end.
+    expect(turnLifecycle('turn-1')).toEqual({
+      turnId: 'turn-1',
+      state: 'interrupted',
+      startedAt: NOW - 5_000,
+      completedAt: NOW - 1_000,
+      recovered: true
+    })
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
       claimStatus: 'live',
       handoffStage: null,
       settlementRetryRequired: undefined,
       settlementRetryId: undefined
     })
+  })
+
+  it('marks a running turn left behind by a released lease unverifiable on a cold acquire', async () => {
+    // No settlement latch: the record was released cleanly, but the journal still says a turn is
+    // running. The child that wrote it is gone and nothing observed its exit.
+    await seedStore(wedgedRecord({ claimStatus: 'released', handoffStage: null }))
+    await seedRunningTurn()
+    openHost()
+
+    expect(await host.attach(CALLER, hostTestAttachParams(13))).toMatchObject({ ok: true })
+
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(turnLifecycle('turn-1')).toEqual({
+      turnId: 'turn-1',
+      state: 'unverifiable',
+      startedAt: NOW - 5_000,
+      recovered: true
+    })
+    expect(
+      restoredJournal()
+        .snapshot()
+        .items.some(
+          (item) => item.body.kind === 'status' && item.body.text.startsWith('Provider exited')
+        )
+    ).toBe(false)
+  })
+
+  it("leaves the live generation's running turn alone on a re-attach", async () => {
+    await seedStore(wedgedRecord({ claimStatus: 'released', handoffStage: null }))
+    // The child this host spawns stays provably alive across the second attach.
+    openHost({
+      probeOwner: async () => ({ outcome: 'identity-matched', matchedOn: ['spawn-token'] })
+    })
+    const params = hostTestAttachParams(13)
+    expect(await host.attach(CALLER, params)).toMatchObject({ ok: true })
+    const fence = store.getRecord(SESSION)!.lease.runtimeFence
+    await restoredJournal().appendItem(
+      { provider: 'codex', threadId: THREAD, turnId: 'turn-2', ordinal: 0 },
+      {
+        kind: 'status',
+        text: 'Agent is working...',
+        turnLifecycle: { turnId: 'turn-2', state: 'running', startedAt: NOW }
+      },
+      { fence }
+    )
+
+    // A reconnecting client replays its attach; the same operation admits the live owner.
+    expect(await host.attach(CALLER, params)).toMatchObject({ ok: true, replayed: true })
+
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(turnLifecycle('turn-2')).toEqual({ turnId: 'turn-2', state: 'running', startedAt: NOW })
   })
 
   it('re-adjudicates a conflicted manual-recovery record whose owner is provably gone', async () => {

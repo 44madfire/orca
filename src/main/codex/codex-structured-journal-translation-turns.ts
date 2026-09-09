@@ -1,9 +1,40 @@
 import type {
+  AgentJournalItemIdentity,
+  AgentJournalStatusItem,
+  AgentJournalTurnLifecycle,
+  AgentJournalTurnLifecycleState
+} from '../../shared/agent-session-journal-types'
+import type {
   StructuredAgentSessionEventSink,
   StructuredAgentSessionSinkAdmission
 } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 
 const ADMITTED: StructuredAgentSessionSinkAdmission = { accepted: true }
+
+export function codexTurnLifecycleIdentity(
+  sessionId: string,
+  turnId: string
+): AgentJournalItemIdentity {
+  return {
+    provider: 'legacy',
+    agent: 'codex',
+    sessionId,
+    recordId: `turn-lifecycle:${turnId}`
+  }
+}
+
+export function codexTurnLifecycleBody(
+  turnLifecycle: AgentJournalTurnLifecycle
+): AgentJournalStatusItem {
+  return { kind: 'status', text: 'Codex is working…', turnLifecycle }
+}
+
+/** `turn/completed` is Codex's only turn-end notification; a missing status is a clean finish. */
+export function codexTurnLifecycleState(
+  status: string | null
+): Extract<AgentJournalTurnLifecycleState, 'completed' | 'interrupted'> {
+  return status === null || status === 'completed' ? 'completed' : 'interrupted'
+}
 
 export function publishCodexTurnLifecycle(input: {
   sink: StructuredAgentSessionEventSink
@@ -11,50 +42,34 @@ export function publishCodexTurnLifecycle(input: {
   sessionId: string
   threadId: string
   turnId: string
-  state: 'running' | 'completed'
+  state: AgentJournalTurnLifecycleState
+  startedAt?: number
+  completedAt?: number
 }): StructuredAgentSessionSinkAdmission {
   if (input.primaryThreadId !== input.threadId) {
     return ADMITTED
   }
-  const identity = {
-    provider: 'legacy' as const,
-    agent: 'codex' as const,
-    sessionId: input.sessionId,
-    recordId: `turn-lifecycle:${input.turnId}`
+  const identity = codexTurnLifecycleIdentity(input.sessionId, input.turnId)
+  const body = codexTurnLifecycleBody({
+    turnId: input.turnId,
+    state: input.state,
+    ...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}),
+    ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {})
+  })
+  // The running row's `ts` is the host's turn-start receipt so clients can anchor a live counter.
+  const appendOptions = {
+    lifecycle: true,
+    ...(input.state === 'running' && input.startedAt !== undefined
+      ? { observedAt: input.startedAt }
+      : {})
   }
-  if (input.state === 'completed') {
-    if (input.sink.tryAppendTombstone) {
-      const admission = input.sink.tryAppendTombstone(identity, { lifecycle: true })
-      if (!admission.accepted) {
-        return admission
-      }
-    } else {
-      input.sink.appendTombstone(identity, { lifecycle: true })
-    }
-  } else {
-    const admission = input.sink.tryAppendItem
-      ? input.sink.tryAppendItem(
-          identity,
-          {
-            kind: 'status',
-            text: 'Codex is working…',
-            turnLifecycle: { turnId: input.turnId, state: input.state }
-          },
-          { lifecycle: true }
-        )
-      : (input.sink.appendItem(
-          identity,
-          {
-            kind: 'status',
-            text: 'Codex is working…',
-            turnLifecycle: { turnId: input.turnId, state: input.state }
-          },
-          { lifecycle: true }
-        ),
-        ADMITTED)
+  if (input.sink.tryAppendItem) {
+    const admission = input.sink.tryAppendItem(identity, body, appendOptions)
     if (!admission.accepted) {
       return admission
     }
+  } else {
+    input.sink.appendItem(identity, body, appendOptions)
   }
   // Preserve first-work evidence when completion arrives before the journal drains.
   const publishOptions = {

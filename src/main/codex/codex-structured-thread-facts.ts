@@ -37,3 +37,12 @@ export function readCodexTurnId(payload: unknown): string | null {
   }
   return nonEmptyString(record(root.turn)?.id) ?? nonEmptyString(root.turnId)
 }
+
+/** `turn/completed` carries `turn.status`; thread history puts `status` on the turn record itself. */
+export function readCodexTurnStatus(payload: unknown): string | null {
+  const root = record(payload)
+  if (!root) {
+    return null
+  }
+  return nonEmptyString(record(root.turn)?.status) ?? nonEmptyString(root.status)
+}

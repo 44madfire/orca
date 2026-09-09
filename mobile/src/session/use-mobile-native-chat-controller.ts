@@ -299,6 +299,8 @@ export function useMobileNativeChatController(args: {
     /** Structured lane: drives the per-turn status row and live tool progress. */
     nativeChatStructured: activeChatStructured,
     nativeChatAgentWorking,
+    nativeChatWorkingStartedAt: activeChatStructured ? structuredNativeChat.workingStartedAt : null,
+    nativeChatSettledTurns: activeChatStructured ? structuredNativeChat.settledTurns : null,
     nativeChatStreamingText,
     nativeChatStreamLive,
     nativeChatStreamScopeKey: streamScopeKey,

@@ -145,15 +145,33 @@ export type AgentJournalQuestionItem = {
   resolution: AgentJournalResolution
 }
 
+export const AGENT_JOURNAL_TURN_LIFECYCLE_STATES = [
+  'running',
+  'completed',
+  'interrupted',
+  'unverifiable'
+] as const
+export type AgentJournalTurnLifecycleState = (typeof AGENT_JOURNAL_TURN_LIFECYCLE_STATES)[number]
+
+export type AgentJournalTurnLifecycle = {
+  turnId: string
+  state: AgentJournalTurnLifecycleState
+  startedAt?: number
+  completedAt?: number
+}
+
 export type AgentJournalStatusItem = {
   kind: 'status'
   text: string
   /** Optional display hints; unknown values retain the ordinary text fallback. */
   presentation?: string
   tone?: string
-  /** Durable root-turn lifecycle used by clients to expose cancellation only
-   *  while the provider can still accept it. */
-  turnLifecycle?: { turnId: string; state: 'running' | 'completed' }
+  /** Durable root-turn lifecycle. `running` exposes cancellation while the
+   *  provider can still accept it; the item is revised to a terminal state, never
+   *  tombstoned, so the turn's endpoints survive. Timestamps are the execution
+   *  host's clock at provider-event receipt. `unverifiable` carries no end: the
+   *  host lost the child without observing its exit. */
+  turnLifecycle?: AgentJournalTurnLifecycle
   /** Additive fallback for provider traffic this host cannot model yet. Older
    *  clients still render `text`; newer clients expose the bounded frame. */
   providerFrame?: {

@@ -21,7 +21,15 @@ export type CodexStructuredLaunch = {
 }
 
 export type CodexStructuredSessionEvent =
-  | { type: 'notification'; sessionId: string; threadId: string; method: string; params: unknown }
+  | {
+      type: 'notification'
+      sessionId: string
+      threadId: string
+      method: string
+      params: unknown
+      /** Host receipt time of a turn boundary; survives retry and deferral so a replay is not re-stamped. */
+      observedAt?: number
+    }
   | { type: 'server-request'; sessionId: string; threadId: string; method: string; params: unknown }
   | { type: 'provider-frame'; sessionId: string; threadId: string; kind: string; payload: unknown }
   | {

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
+import type { AgentJournalRenderItem } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 import {
@@ -90,6 +92,110 @@ describe('provider-exit recovery tickets', () => {
     expect(result).toMatchObject({ settlementRetryRequired: false, releasedFence: 8 })
     expect(appendLifecycleBatch).toHaveBeenCalledOnce()
     expect(session.hasProviderChild).toBe(false)
+  })
+
+  it('revises a running lifecycle row to interrupted at exit receipt instead of tombstoning it', async () => {
+    const running = {
+      provider: 'codex' as const,
+      threadId: 'thread-1',
+      turnId: 'turn-2',
+      ordinal: 0
+    }
+    const items: AgentJournalRenderItem[] = [
+      {
+        itemId: agentJournalItemKey({ ...running, turnId: 'turn-1' }),
+        revision: 1,
+        sequence: 1,
+        observedAt: 1,
+        body: {
+          kind: 'status',
+          text: 'Done',
+          turnLifecycle: { turnId: 'turn-1', state: 'completed', startedAt: 10, completedAt: 20 }
+        }
+      },
+      {
+        itemId: agentJournalItemKey(running),
+        revision: 1,
+        sequence: 2,
+        observedAt: 2,
+        body: {
+          kind: 'status',
+          text: 'Working',
+          turnLifecycle: { turnId: 'turn-2', state: 'running', startedAt: 30 }
+        }
+      }
+    ]
+    const appendLifecycleBatch = vi.fn(async () => ({ epoch: 'epoch-1', sequence: 3 }))
+    const session = {
+      hasProviderChild: true,
+      fence: 7,
+      acquisitionGeneration: GENERATION,
+      journal: { snapshot: () => ({ items }), appendLifecycleBatch }
+    } as unknown as StructuredAgentSessionHostSession
+
+    await settleUnexpectedStructuredAgentSessionExit(
+      {
+        store: {
+          getRecord: () => ({
+            lease: {
+              handoffStage: null,
+              runtimeFence: 7,
+              runtimeKind: 'native',
+              claimStatus: 'live',
+              ownerProcess: 'provider',
+              reservedSpawnToken: null,
+              processlessAt: null
+            }
+          }),
+          transitionHandoff: async () => ({ lease: { runtimeFence: 8 } })
+        },
+        sessions: new Map([[SESSION, session]]),
+        flushLifecycle: async () => ({ ok: true }),
+        publishFence: vi.fn(),
+        hasResumeCapableHolder: () => true,
+        serialize: async (_sessionId, task) => task(),
+        now: () => 1_234
+      } as never,
+      {
+        type: 'ended',
+        sessionId: SESSION,
+        reason: 'provider exited',
+        cause: 'unexpected-exit',
+        fence: 7,
+        acquisitionGeneration: GENERATION,
+        settlementRetryRequired: true
+      }
+    )
+
+    expect(appendLifecycleBatch).toHaveBeenCalledExactlyOnceWith({
+      settlementId: `provider-exit:${SESSION}:7:${GENERATION}`,
+      fence: 7,
+      recovered: true,
+      mutations: [
+        {
+          kind: 'item',
+          identity: {
+            provider: 'orca',
+            clientMessageId: `provider-exit:${SESSION}:7:${GENERATION}`
+          },
+          body: { kind: 'status', text: 'Provider exited: provider exited' }
+        },
+        {
+          kind: 'item',
+          identity: running,
+          body: {
+            kind: 'status',
+            text: 'Working',
+            turnLifecycle: {
+              turnId: 'turn-2',
+              state: 'interrupted',
+              startedAt: 30,
+              completedAt: 1_234
+            }
+          }
+        }
+      ]
+    })
   })
 
   it('does not release or reacquire while terminal settlement retry is still failing', async () => {

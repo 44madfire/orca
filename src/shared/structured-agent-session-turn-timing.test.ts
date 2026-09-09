@@ -1,0 +1,184 @@
+import { describe, expect, it } from 'vitest'
+import type { AgentJournalRenderItem } from './agent-session-journal-types'
+import { selectNativeChatTurnStatuses } from './native-chat-turn-status'
+import {
+  completedStructuredAgentTurnSeconds,
+  selectStructuredAgentRunningTurnTiming,
+  selectStructuredAgentSettledTurns,
+  selectStructuredAgentTurnTimings,
+  structuredAgentTurnLocalStartedAt
+} from './structured-agent-session-turn-timing'
+
+let sequence = 0
+function user(itemId: string): AgentJournalRenderItem {
+  sequence += 1
+  return {
+    itemId,
+    revision: 0,
+    sequence,
+    observedAt: 1_000 + sequence,
+    body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: itemId }] }
+  }
+}
+function lifecycle(
+  turnId: string,
+  lifecycle: Partial<
+    NonNullable<AgentJournalRenderItem['body'] & { kind: 'status' }>['turnLifecycle']
+  >,
+  observedAt = 1_000 + sequence + 1
+): AgentJournalRenderItem {
+  sequence += 1
+  return {
+    itemId: `legacy:codex:s:turn-lifecycle%3A${turnId}`,
+    revision: 1,
+    sequence,
+    observedAt,
+    body: {
+      kind: 'status',
+      text: 'Codex is working…',
+      turnLifecycle: { turnId, state: 'running', ...lifecycle }
+    }
+  }
+}
+function assistant(): AgentJournalRenderItem {
+  sequence += 1
+  return {
+    itemId: `a${sequence}`,
+    revision: 0,
+    sequence,
+    observedAt: 1_000 + sequence,
+    body: { kind: 'message', role: 'assistant', blocks: [{ type: 'text', text: 'ok' }] }
+  }
+}
+
+describe('selectStructuredAgentTurnTimings', () => {
+  it('keys each timed lifecycle row by the user message that opened the turn', () => {
+    const items = [
+      user('u1'),
+      lifecycle('t1', { state: 'completed', startedAt: 10_000, completedAt: 197_500 }),
+      assistant(),
+      user('u2'),
+      lifecycle('t2', { state: 'running', startedAt: 300_000 })
+    ]
+    const timings = selectStructuredAgentTurnTimings(items)
+    expect(timings.get('u1')).toMatchObject({
+      state: 'completed',
+      startedAt: 10_000,
+      completedAt: 197_500
+    })
+    expect(timings.get('u2')).toMatchObject({ state: 'running', startedAt: 300_000 })
+    expect(timings.get('u2')?.completedAt).toBeUndefined()
+  })
+
+  it('skips lifecycle rows that carry no start (older hosts, conversation commands)', () => {
+    const items = [user('u1'), lifecycle('compact:1', {})]
+    expect(selectStructuredAgentTurnTimings(items).size).toBe(0)
+  })
+
+  it('gives a prompt folded into a running turn no timing of its own', () => {
+    const items = [
+      user('u1'),
+      lifecycle('t1', { state: 'completed', startedAt: 5_000, completedAt: 9_000 }),
+      user('u2-steer'),
+      assistant()
+    ]
+    const timings = selectStructuredAgentTurnTimings(items)
+    expect([...timings.keys()]).toEqual(['u1'])
+  })
+
+  it('drops an end that precedes its start', () => {
+    const items = [
+      user('u1'),
+      lifecycle('t1', { state: 'completed', startedAt: 9_000, completedAt: 5_000 })
+    ]
+    expect(selectStructuredAgentTurnTimings(items).get('u1')?.completedAt).toBeUndefined()
+  })
+})
+
+describe('completedStructuredAgentTurnSeconds', () => {
+  it('floors whole seconds for completed and interrupted turns', () => {
+    expect(
+      completedStructuredAgentTurnSeconds({
+        state: 'completed',
+        startedAt: 1_000,
+        completedAt: 188_900,
+        observedAt: 1_000
+      })
+    ).toBe(187)
+    expect(
+      completedStructuredAgentTurnSeconds({
+        state: 'interrupted',
+        startedAt: 1_000,
+        completedAt: 4_999,
+        observedAt: 1_000
+      })
+    ).toBe(3)
+  })
+
+  it('claims nothing for running or unverifiable turns', () => {
+    expect(
+      completedStructuredAgentTurnSeconds({ state: 'running', startedAt: 1_000, observedAt: 1_000 })
+    ).toBeNull()
+    expect(
+      completedStructuredAgentTurnSeconds({
+        state: 'unverifiable',
+        startedAt: 1_000,
+        observedAt: 1_000
+      })
+    ).toBeNull()
+    expect(completedStructuredAgentTurnSeconds(undefined)).toBeNull()
+  })
+})
+
+describe('structuredAgentTurnLocalStartedAt', () => {
+  it('moves the local first sighting back by the host-side append lag only', () => {
+    const timing = { state: 'running' as const, startedAt: 50_000, observedAt: 52_500 }
+    // Client clock is 1h ahead of the host: the anchor must not inherit that skew.
+    expect(structuredAgentTurnLocalStartedAt(timing, 3_600_000 + 60_000)).toBe(3_600_000 + 57_500)
+  })
+
+  it('never moves the anchor forward when the row predates its own start', () => {
+    expect(
+      structuredAgentTurnLocalStartedAt(
+        { state: 'running', startedAt: 50_000, observedAt: 40_000 },
+        100
+      )
+    ).toBe(100)
+  })
+})
+
+describe('host-settled turns override local observation', () => {
+  it('wins per turn and leaves locally observed turns from an older host intact', () => {
+    const settled = selectStructuredAgentSettledTurns([
+      user('u1'),
+      lifecycle('t1', { state: 'completed', startedAt: 10_000, completedAt: 197_000 })
+    ])
+    const statuses = selectNativeChatTurnStatuses(
+      { u0: { startedAt: 500, workedSeconds: 4 }, u1: { startedAt: 900, workedSeconds: 2 } },
+      {
+        activeTurnKey: 'u1',
+        isWorking: false,
+        hasCurrentTurnResponse: true,
+        settledByTurn: settled
+      }
+    )
+    expect(statuses.completedByTurn.u1?.workedSeconds).toBe(187)
+    expect(statuses.completedByTurn.u0?.workedSeconds).toBe(4)
+    expect(statuses.active?.workedSeconds).toBe(187)
+  })
+})
+
+describe('selectStructuredAgentRunningTurnTiming', () => {
+  it('finds the live turn by id and returns null for an older host row without a start', () => {
+    const items = [user('u1'), lifecycle('t1', { state: 'running', startedAt: 7_000 }, 7_250)]
+    expect(selectStructuredAgentRunningTurnTiming(items, 't1')).toEqual({
+      state: 'running',
+      startedAt: 7_000,
+      observedAt: 7_250
+    })
+    expect(selectStructuredAgentRunningTurnTiming(items, 'other')).toBeNull()
+    expect(
+      selectStructuredAgentRunningTurnTiming([user('u2'), lifecycle('t2', {})], 't2')
+    ).toBeNull()
+  })
+})

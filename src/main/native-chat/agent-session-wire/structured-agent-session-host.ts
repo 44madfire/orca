@@ -329,8 +329,8 @@ export class StructuredAgentSessionHost {
   history: StructuredAgentSessionBackgroundTaskChannel['history'] = (request) =>
     this.backgroundTasks.history(request)
 
-  /** The fully reduced timeline, for readers that cannot tolerate a page's ambiguity — a settled
-   *  turn is tombstoned, so an item's ABSENCE from a bounded page proves nothing. */
+  /** The fully reduced timeline, for readers that cannot tolerate a page's ambiguity — rows are
+   *  revised or tombstoned in place, so an item's ABSENCE from a bounded page proves nothing. */
   journalSnapshot = (sessionId: string): AgentJournalSnapshot =>
     this.requireSession(sessionId).journal.snapshot()
 

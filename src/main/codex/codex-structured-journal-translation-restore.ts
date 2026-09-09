@@ -1,9 +1,12 @@
+import type { AgentJournalTurnLifecycle } from '../../shared/agent-session-journal-types'
 import type { CodexTurnOrdinals } from './codex-structured-item-translation'
 import {
   readCodexJournalRecord,
   readCodexJournalString
 } from './codex-structured-journal-translation-values'
 import type { CodexJournalTranslationAdmission } from './codex-structured-journal-translation'
+import { codexTurnLifecycleState } from './codex-structured-journal-translation-turns'
+import { readCodexTurnStatus } from './codex-structured-thread-facts'
 
 /** Old providers may return the complete thread from resume. Keep that fallback
  * bounded before admitting any rows to the asynchronous sink. */
@@ -20,6 +23,10 @@ export function restoreCodexJournalThread(input: {
     method: string
     params: unknown
   }) => CodexJournalTranslationAdmission
+  /** Absent when the caller has no session identity to key lifecycle rows by. */
+  restoreTurnLifecycle?: (
+    turnLifecycle: AgentJournalTurnLifecycle
+  ) => CodexJournalTranslationAdmission
   flush: () => void
 }): CodexJournalTranslationAdmission {
   const turns = Array.isArray(input.thread.turns) ? input.thread.turns : []
@@ -30,8 +37,14 @@ export function restoreCodexJournalThread(input: {
       ? (Array.isArray(turn.items) ? turn.items : []).map((item) => ({ turnId, item }))
       : []
   })
+  const lifecycles = input.restoreTurnLifecycle
+    ? turns.flatMap((rawTurn) => historicalTurnLifecycle(readCodexJournalRecord(rawTurn)) ?? [])
+    : []
   const encodedBytes = Buffer.byteLength(JSON.stringify(items), 'utf8')
-  if (items.length > CODEX_RESTORE_MAX_OPERATIONS || encodedBytes > CODEX_RESTORE_MAX_BYTES) {
+  if (
+    items.length + lifecycles.length > CODEX_RESTORE_MAX_OPERATIONS ||
+    encodedBytes > CODEX_RESTORE_MAX_BYTES
+  ) {
     return { accepted: false, reason: 'backpressure' }
   }
   for (const rawTurn of turns) {
@@ -53,7 +66,36 @@ export function restoreCodexJournalThread(input: {
     }
     input.currentTurnIds.delete(input.threadId)
     input.ordinals.forgetTurn(input.threadId, turnId)
+    const lifecycle = input.restoreTurnLifecycle ? historicalTurnLifecycle(turn) : null
+    if (lifecycle) {
+      const admission = input.restoreTurnLifecycle?.(lifecycle) ?? { accepted: true }
+      if (!admission.accepted) {
+        return admission
+      }
+    }
   }
   input.flush()
   return { accepted: true }
+}
+
+/** Codex reports both endpoints in unix seconds; a turn missing either has no durable duration. */
+function historicalTurnLifecycle(turn: Record<string, unknown>): AgentJournalTurnLifecycle | null {
+  const turnId = readCodexJournalString(turn, 'id')
+  const startedAt = turn.startedAt
+  const completedAt = turn.completedAt
+  if (
+    !turnId ||
+    typeof startedAt !== 'number' ||
+    typeof completedAt !== 'number' ||
+    !Number.isFinite(startedAt) ||
+    !Number.isFinite(completedAt)
+  ) {
+    return null
+  }
+  return {
+    turnId,
+    state: codexTurnLifecycleState(readCodexTurnStatus(turn)),
+    startedAt: startedAt * 1000,
+    completedAt: completedAt * 1000
+  }
 }

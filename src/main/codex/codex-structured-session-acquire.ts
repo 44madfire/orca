@@ -77,6 +77,8 @@ export async function acquireCodexStructuredSession(input: {
   const translator = acquireInput.events
     ? createCodexJournalTranslator({
         sink: acquireInput.events,
+        sessionId,
+        ...(deps.now ? { now: deps.now } : {}),
         primaryThreadId: () => primaryThreadId,
         bindPromptItemId: (journalItemId, threadId, promptKey) =>
           acquisition.prompts.bindJournalItemId(journalItemId, threadId, promptKey)
@@ -109,13 +111,16 @@ export async function acquireCodexStructuredSession(input: {
         env: buildCodexStructuredChildEnvironment(launch, acquireInput.spawnToken, sessionId)
       },
       {
-        onNotification: (method, params) =>
+        onNotification: (method, params) => {
+          // Stamped at receipt, ahead of any pre-publication buffering or retry.
+          const observedAt = isCodexTurnBoundary(method) ? (deps.now?.() ?? Date.now()) : undefined
           input.deliver(
             acquisition,
             sessionId,
-            () => notificationRetries.handle(sessionId, method, params),
+            () => notificationRetries.handle(sessionId, method, params, observedAt),
             Buffer.byteLength(JSON.stringify(params ?? null), 'utf8')
-          ),
+          )
+        },
         onServerRequest: (request) =>
           input.deliver(
             acquisition,
@@ -232,4 +237,8 @@ export async function acquireCodexStructuredSession(input: {
   } finally {
     attempt.finish()
   }
+}
+
+function isCodexTurnBoundary(method: string): boolean {
+  return method === 'turn/started' || method === 'turn/completed'
 }
