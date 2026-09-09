@@ -589,7 +589,7 @@ describe('codex item bodies', () => {
       '  # Implementation plan\r\n\r\n- [ ] Preserve prose\r\n- [x] Keep café → 日本語\r\n\r\n```ts\r\nconst task = "pending"\r\n```\r\n  '
 
     expect(codexJournalItem({ type: 'plan', id: 'plan-document', text })).toEqual({
-      body: { kind: 'status', text },
+      body: { kind: 'status', text, presentation: 'plan-document' },
       handled: true
     })
   })

@@ -33,10 +33,10 @@ import {
 import { useStructuredAgentSessionHold } from './use-structured-agent-session-hold'
 import { useStructuredAgentSessionRead } from './use-structured-agent-session-read'
 import {
-  projectStructuredAgentSessionMessages,
   pendingStructuredSessionPrompts,
   type StructuredPromptItem
 } from './structured-agent-session-message-projection'
+import { useStructuredAgentSessionMessages } from './use-structured-agent-session-messages'
 import { selectStructuredAgentTurnActivity } from './native-chat-turn-activity'
 import { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-settings-write'
 
@@ -51,17 +51,8 @@ export function useStructuredAgentSession(args: {
   const { agent, isVisible, sessionId, target } = args
   // Declared first: the hold is what gives a restored session its provider child back, and the
   // read below is useless for sending until it lands.
-  useStructuredAgentSessionHold({
-    sessionId,
-    target,
-    surface: 'desktop-chat',
-    enabled: isVisible
-  })
-  const { state, loadingOlder, loadOlder } = useStructuredAgentSessionRead({
-    sessionId,
-    target,
-    isVisible
-  })
+  useStructuredAgentSessionHold({ sessionId, target, surface: 'desktop-chat', enabled: isVisible })
+  const { state, loadingOlder, loadOlder } = useStructuredAgentSessionRead(args)
   const stateRef = useRef(state)
   const [writeError, setWriteError] = useState<string | null>(null)
   const operationIds = useRef(new Map<string, string>())
@@ -250,6 +241,8 @@ export function useStructuredAgentSession(args: {
   )
 
   const prompts = pendingStructuredSessionPrompts(state.items)
+  const { outbox } = outboxController
+  const messages = useStructuredAgentSessionMessages(state.items, outbox, state.submissions)
   return {
     conversationCommands:
       conversationSupport?.sessionId === sessionId ? conversationSupport.commands : [],
@@ -257,9 +250,7 @@ export function useStructuredAgentSession(args: {
       conversationCommands.sendStructuredConversationCommand({
         command,
         pending: commandPending,
-        blocked: Boolean(
-          turnId || prompts.length || isMonitoringBackgroundTasks || outboxController.outbox.length
-        ),
+        blocked: Boolean(turnId || prompts.length || isMonitoringBackgroundTasks || outbox.length),
         send: (command) =>
           mutate<AgentSessionConversationCommandResult>(
             'agentSession.conversationCommand',
@@ -267,18 +258,15 @@ export function useStructuredAgentSession(args: {
             { command }
           )
       }),
-    messages: projectStructuredAgentSessionMessages(
-      state.items,
-      outboxController.outbox,
-      state.submissions
-    ),
+    journalItems: state.items,
+    messages,
     status: state.status,
     error: state.error ?? writeError ?? outboxController.error,
     hasOlder: state.hasOlder,
     loadingOlder,
     loadOlder,
     prompts,
-    outbox: outboxController.outbox,
+    outbox,
     blockedClientMessageId: outboxController.blockedClientMessageId,
     send: (...input: Parameters<typeof outboxController.send>) =>
       !commandPending.current && outboxController.send(...input),

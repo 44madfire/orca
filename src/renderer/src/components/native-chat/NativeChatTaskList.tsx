@@ -83,12 +83,47 @@ function Checklist({ list }: { list: TaskList }): React.JSX.Element {
 
 export function NativeChatTaskList({
   list,
-  previous
+  previous,
+  presentation = 'inline'
 }: {
   list: TaskList
   previous?: TaskList
+  presentation?: 'inline' | 'composer'
 }): React.JSX.Element {
   const completed = list.tasks.filter((task) => task.status === 'completed').length
+  if (presentation === 'composer') {
+    return (
+      <Collapsible className="rounded-md border border-border bg-muted/30">
+        <CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md px-3 py-2 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <ListChecks aria-hidden className="size-4 shrink-0" />
+          <span className="flex-1 font-medium">
+            {translate('components.native-chat.taskList.title', 'Tasks')}
+          </span>
+          <span
+            className="tabular-nums"
+            aria-label={translate(
+              'components.native-chat.taskList.progress',
+              '{{completed}} of {{total}} tasks completed',
+              { completed, total: list.tasks.length }
+            )}
+          >
+            {completed}/{list.tasks.length}
+          </span>
+          <ChevronRight aria-hidden className="size-3.5 group-data-[state=open]:rotate-90" />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="max-h-40 overflow-y-auto px-3 pb-2 scrollbar-sleek">
+            <Checklist list={list} />
+            {list.explanation ? (
+              <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                {list.explanation}
+              </p>
+            ) : null}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    )
+  }
   const changes = previous ? diffNativeChatTaskLists(previous, list) : null
   return (
     <div className="space-y-1 py-1">

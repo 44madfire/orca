@@ -19,8 +19,8 @@ describe('nativeChatTaskListState', () => {
     ])
     const result = nativeChatTaskListState([first, last])
     expect(result.list?.tasks).toEqual([{ content: 'Read', status: 'completed' }])
-    expect(result.messages[0].blocks).toEqual([])
-    expect(result.messages[1].blocks).toEqual([{ type: 'text', text: 'Here is the result' }])
+    expect(result.messages[0]).toBe(first)
+    expect(result.messages[1]).toBe(last)
     expect(first.blocks).toHaveLength(1)
     expect(last.blocks).toHaveLength(3)
     expect(nativeChatTaskListState([first, last]).messages[1]).toBe(result.messages[1])
@@ -53,7 +53,7 @@ describe('nativeChatTaskListState', () => {
     expect(result.messages.slice(1)).toEqual([malformed, failed, failedCall])
   })
 
-  it('consumes only the paired task result, retaining an unrelated error', () => {
+  it('retains task history and unrelated errors while selecting the paired snapshot', () => {
     const tasks: NativeChatBlock = call('Read')
     const shell: NativeChatBlock = {
       type: 'tool-call',
@@ -68,6 +68,6 @@ describe('nativeChatTaskListState', () => {
     const success: NativeChatBlock = { type: 'tool-result', output: 'Updated' }
     const result = nativeChatTaskListState([message('mixed', [tasks, success, shell, error])])
     expect(result.list?.tasks[0].content).toBe('Read')
-    expect(result.messages[0].blocks).toEqual([shell, error])
+    expect(result.messages[0].blocks).toEqual([tasks, success, shell, error])
   })
 })

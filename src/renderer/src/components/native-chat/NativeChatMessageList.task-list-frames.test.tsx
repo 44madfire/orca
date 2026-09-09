@@ -2,7 +2,7 @@
 
 import '@testing-library/jest-dom/vitest'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentJournalStatusItem } from '../../../../shared/agent-session-journal-types'
 import { projectStructuredItemToNativeChat } from '../../../../shared/structured-agent-session-projection'
@@ -79,14 +79,21 @@ describe('live Codex checklist frames', () => {
     expect(viewport.contains(toggle)).toBe(false)
     fireEvent.click(toggle)
     rerender(transcript([first, active]))
-    expect(screen.getByText('Verify').closest('li')).toHaveClass('text-foreground')
+    expect(within(toggle.parentElement!).getByText('Verify').closest('li')).toHaveClass(
+      'text-foreground'
+    )
+    expect(within(viewport as HTMLElement).getByText('Started Verify')).toBeInTheDocument()
     rerender(transcript([last]))
-    expect(screen.getByText('Verify')).toHaveClass('line-through')
-    expect(screen.getByText('Keep verification visible')).toBeInTheDocument()
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Tasks 1 of 1 tasks completed' }).parentElement!
+      ).getByText('Verify')
+    ).toHaveClass('line-through')
+    expect(screen.getAllByText('Keep verification visible')).toHaveLength(2)
     rerender(transcript([first, active, last]))
-    expect(screen.getAllByText('Verify')).toHaveLength(1)
+    expect(screen.getAllByText('Verify')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Tasks 1 of 1 tasks completed' })).toBe(toggle)
-    expect(screen.queryByText('Started Verify')).toBeNull()
+    expect(screen.getByText('Started Verify')).toBeInTheDocument()
     expect(screen.queryByText('notification:turn/plan/updated')).toBeNull()
     expect(projectNativeChatTaskListFrames([last])[0]).toBe(
       projectNativeChatTaskListFrames([last])[0]
@@ -109,8 +116,12 @@ describe('live Codex checklist frames', () => {
     }
     render(transcript([tool, frame(3, 'completed')]))
     fireEvent.click(screen.getByRole('button', { name: 'Tasks 1 of 1 tasks completed' }))
-    expect(screen.getAllByText('Verify')).toHaveLength(1)
-    expect(screen.getByText('Verify')).toHaveClass('line-through')
+    expect(screen.getAllByText('Verify')).toHaveLength(2)
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Tasks 1 of 1 tasks completed' }).parentElement!
+      ).getByText('Verify')
+    ).toHaveClass('line-through')
   })
 
   it('keeps malformed, truncated, other-provider, and plan-document frames unchanged', () => {
@@ -194,15 +205,20 @@ describe('NativeChatMessageList task list history', () => {
     const { rerender } = render(transcript([last]))
     fireEvent.click(screen.getByRole('button', { name: 'Tasks 1 of 2 tasks completed' }))
     rerender(transcript([first, last]))
-    expect(screen.getAllByText('Read')).toHaveLength(1)
-    expect(screen.getByText('Read')).toHaveClass('line-through')
+    expect(screen.getAllByText('Read')).toHaveLength(2)
+    expect(screen.getByText('Completed Read')).toBeInTheDocument()
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Tasks 1 of 2 tasks completed' }).parentElement!
+      ).getByText('Read')
+    ).toHaveClass('line-through')
     expect(screen.getByText('Ready for verification')).toBeInTheDocument()
     rerender(transcript([first], 'two'))
     expect(screen.getByRole('button', { name: 'Tasks 0 of 2 tasks completed' })).toHaveAttribute(
       'aria-expanded',
       'false'
     )
-    expect(screen.queryByText('Read')).toBeNull()
+    expect(screen.getAllByText('Read')).toHaveLength(1)
     rerender(transcript([], 'three'))
     expect(screen.queryByText('Tasks')).toBeNull()
   })
