@@ -101,7 +101,9 @@ export function MobileNativeChatQuestion({ question, onAnswer }: Props): React.J
     <View style={styles.card}>
       <View style={styles.header}>
         <CircleHelp size={15} color={colors.accentBlue} strokeWidth={2.2} />
-        <Text style={styles.question}>{question.question}</Text>
+        <Text selectable style={styles.question}>
+          {question.question}
+        </Text>
       </View>
 
       {hasOptions ? (

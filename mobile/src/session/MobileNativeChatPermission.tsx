@@ -32,9 +32,15 @@ function MobileNativeChatPermissionImpl({
     <View style={styles.card}>
       <View style={styles.header}>
         <ShieldQuestion size={16} color={colors.accentBlue} strokeWidth={2} />
-        <Text style={styles.title}>{permission.title}</Text>
+        <Text selectable style={styles.title}>
+          {permission.title}
+        </Text>
       </View>
-      {permission.detail ? <Text style={styles.detail}>{permission.detail}</Text> : null}
+      {permission.detail ? (
+        <Text selectable style={styles.detail}>
+          {permission.detail}
+        </Text>
+      ) : null}
       <View style={styles.options}>
         {permission.options.map((option, index) => {
           const isPrimary = index === 0

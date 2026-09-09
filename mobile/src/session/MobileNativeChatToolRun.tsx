@@ -30,6 +30,7 @@ function DiffView({ lines }: { lines: DiffLine[] }): React.JSX.Element {
       {lines.map((line, i) => (
         <Text
           key={i}
+          selectable
           style={[
             styles.diffLine,
             line.kind === 'add' && styles.diffAdd,
@@ -62,7 +63,9 @@ function ResultBody({
   }
   return (
     <View style={[styles.toolResult, isError && styles.toolResultError]}>
-      <Text style={styles.mono}>{truncateToolDetail(output)}</Text>
+      <Text selectable style={styles.mono}>
+        {truncateToolDetail(output)}
+      </Text>
     </View>
   )
 }
@@ -126,7 +129,11 @@ function ToolLine({
       {showDetail ? (
         <View style={styles.toolDetail}>
           {callDiff ? <DiffView lines={callDiff} /> : null}
-          {callDetail ? <Text style={styles.mono}>{callDetail}</Text> : null}
+          {callDetail ? (
+            <Text selectable style={styles.mono}>
+              {callDetail}
+            </Text>
+          ) : null}
           {result ? (
             <ResultBody output={result.output} isError={result.isError} diff={resultDiff} />
           ) : null}

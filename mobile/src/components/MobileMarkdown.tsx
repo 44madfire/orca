@@ -181,9 +181,14 @@ function MobileMarkdownInner({ content, fallback = '', textScale = 1, onOpenFile
   const proseScale = scaled(13)
   const listScale = scaled(14)
   if (!text) {
-    return fallback ? <Text style={styles.paragraph}>{fallback}</Text> : null
+    return fallback ? (
+      <Text selectable style={styles.paragraph}>
+        {fallback}
+      </Text>
+    ) : null
   }
   const mermaidSourceOccurrences = new Map<string, number>()
+  // Selection is set on each block Text; nested inline spans inherit it.
 
   return (
     <View style={styles.root}>
@@ -225,7 +230,11 @@ function MobileMarkdownInner({ content, fallback = '', textScale = 1, onOpenFile
           }
           return (
             <View key={index} style={styles.codeBlock}>
-              {block.language ? <Text style={styles.codeLanguage}>{block.language}</Text> : null}
+              {block.language ? (
+                <Text selectable style={styles.codeLanguage}>
+                  {block.language}
+                </Text>
+              ) : null}
               <Text selectable style={styles.codeText}>
                 {block.text}
               </Text>
@@ -307,7 +316,7 @@ function MobileMarkdownInner({ content, fallback = '', textScale = 1, onOpenFile
           return <View key={index} style={styles.rule} />
         }
         return (
-          <Text key={index} style={[styles.paragraph, proseScale]}>
+          <Text key={index} selectable style={[styles.paragraph, proseScale]}>
             {block.text.split('\n').map((line, lineIndex) => (
               <Fragment key={lineIndex}>
                 {lineIndex > 0 ? '\n' : null}

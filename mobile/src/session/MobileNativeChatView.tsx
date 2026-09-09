@@ -15,6 +15,7 @@ import type { AskAnswerSelection, AskPrompt } from '../../../src/shared/native-c
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import { colors } from '../theme/mobile-theme'
 import { styles } from './mobile-native-chat-view-styles'
+import { MobileNativeChatEmptyState } from './MobileNativeChatEmptyState'
 import {
   buildMobileNativeChatTransientData,
   mobileNativeChatEmptyState,
@@ -363,12 +364,7 @@ export function MobileNativeChatView({
                 ) : null
               }
               ListEmptyComponent={
-                emptyState ? (
-                  <View style={styles.center}>
-                    <Text style={styles.emptyTitle}>{emptyState.title}</Text>
-                    <Text style={styles.emptySubtitle}>{emptyState.subtitle}</Text>
-                  </View>
-                ) : null
+                emptyState ? <MobileNativeChatEmptyState copy={emptyState} /> : null
               }
             />
           </GestureDetector>
@@ -433,7 +429,9 @@ export function MobileNativeChatView({
           accessibilityRole="alert"
           accessibilityLiveRegion="assertive"
         >
-          <Text style={styles.sendErrorText}>{sendErrorMessage}</Text>
+          <Text selectable style={styles.sendErrorText}>
+            {sendErrorMessage}
+          </Text>
         </View>
       ) : null}
       <MobileNativeChatComposer
