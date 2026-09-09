@@ -3,7 +3,7 @@
  * so a paired client that creates an in-workspace tab could then navigate it to any host file and
  * read it out of the screencast. The create fence alone does not cover that second hop.
  */
-import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, symlink, writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -14,6 +14,13 @@ import { setRuntimeBrowserCommandsFactory } from './runtime-browser-commands-fac
 import { RpcDispatcher } from './rpc/dispatcher'
 import { BROWSER_CORE_METHODS } from './rpc/methods/browser-core'
 
+vi.mock('../browser/browser-session-registry', () => ({
+  browserSessionRegistry: {
+    getDefaultProfile: () => ({ id: 'default', partition: 'persist:orca-browser' }),
+    getProfile: () => ({ id: 'default', partition: 'persist:orca-browser' }),
+    resolveKnownPartition: () => 'persist:orca-browser'
+  }
+}))
 vi.mock('electron', () => ({
   ipcMain: { on: vi.fn(), removeListener: vi.fn(), handle: vi.fn(), removeHandler: vi.fn() },
   webContents: { fromId: vi.fn() }
@@ -23,6 +30,7 @@ let WORKTREE_PATH = ''
 let WT = ''
 let ARTIFACT_URL = ''
 let OUTSIDE_SECRET_URL = ''
+let ESCAPE_LINK_URL = ''
 
 const storeBase = {
   getRepo: () => ({
@@ -54,7 +62,9 @@ const storeBase = {
 
 const STARTING_URL = 'https://example.com/start'
 
-function createRuntime(worktree: { id: string; path?: string; hostId?: string }) {
+function createRuntime(input: { id: string; path?: string; hostId?: string }) {
+  // Production stamps hostId on every resolveWorktreeSelector exit; the guard refuses without it.
+  const worktree = { hostId: 'local', ...input }
   let session: WorkspaceSessionState = {
     activeRepoId: 'repo-1',
     activeWorktreeId: WT,
@@ -76,9 +86,16 @@ function createRuntime(worktree: { id: string; path?: string; hostId?: string })
   })
   const internals = runtime as unknown as {
     agentBrowserBridge: unknown
+    offscreenBrowserBackend: unknown
     resolveWorktreeSelector: (selector: string) => Promise<typeof worktree>
   }
   internals.resolveWorktreeSelector = async () => worktree
+  internals.offscreenBrowserBackend = {
+    closeTab: vi.fn(),
+    createTab: vi.fn(async (options: { browserPageId?: string }) => ({
+      browserPageId: options.browserPageId ?? 'page-1'
+    }))
+  }
   internals.agentBrowserBridge = {
     goto,
     getActivePageId: vi.fn(() => 'page-1'),
@@ -107,6 +124,8 @@ beforeAll(async () => {
   await writeFile(path.join(base, 'secrets', 'id_rsa'), 'secret')
   ARTIFACT_URL = pathToFileURL(path.join(WORKTREE_PATH, 'build', 'report.html')).toString()
   OUTSIDE_SECRET_URL = pathToFileURL(path.join(base, 'secrets', 'id_rsa')).toString()
+  await symlink(path.join(base, 'secrets', 'id_rsa'), path.join(WORKTREE_PATH, 'escape-link'))
+  ESCAPE_LINK_URL = pathToFileURL(path.join(WORKTREE_PATH, 'escape-link')).toString()
   const { RuntimeBrowserCommands } = await import('./orca-runtime-browser')
   setRuntimeBrowserCommandsFactory((host) => new RuntimeBrowserCommands(host))
   return () => setRuntimeBrowserCommandsFactory(null)
@@ -184,6 +203,55 @@ describe('browser.goto file: URLs from a paired client', () => {
     )
     expect(bridgeGoto).not.toHaveBeenCalled()
     await expect(goto(runtime, ARTIFACT_URL, caller)).resolves.toMatchObject({ url: ARTIFACT_URL })
+  })
+
+  // The review's live P0, as a test: tabCreate about:blank returns early from the fence, then
+  // goto carries the file: URL. Both hops must be fenced or the create fence proves nothing.
+  it('refuses the create-blank-then-navigate sequence that read /etc/hosts on the old build', async () => {
+    const { runtime, goto: bridgeGoto, currentUrl } = createRuntime({ id: WT, path: WORKTREE_PATH })
+    const caller = { pairedDeviceId: 'device-1', clientKind: 'mobile' as const }
+    const dispatcher = new RpcDispatcher({ runtime, methods: BROWSER_CORE_METHODS })
+
+    const created = await runtime.browserTabCreate(
+      { worktree: `id:${WT}`, page: 'page-1', url: 'about:blank', activate: true },
+      caller
+    )
+    expect(created).toMatchObject({ browserPageId: 'page-1' })
+
+    const replies: string[] = []
+    await dispatcher.dispatchStreaming(
+      {
+        id: 'req-p0',
+        authToken: 'tok',
+        method: 'browser.goto',
+        params: { worktree: `id:${WT}`, page: 'page-1', url: 'file:///etc/hosts' }
+      },
+      (reply) => replies.push(reply),
+      caller
+    )
+    expect(JSON.parse(replies[0]!)).toMatchObject({
+      ok: false,
+      error: { code: 'forbidden' }
+    })
+    expect(bridgeGoto).not.toHaveBeenCalled()
+    expect(currentUrl()).toBe(STARTING_URL)
+  })
+
+  it('refuses a percent-encoded separator traversal on the navigation hop', async () => {
+    const { runtime, goto: bridgeGoto } = createRuntime({ id: WT, path: WORKTREE_PATH })
+    const url = `${pathToFileURL(WORKTREE_PATH).toString()}%2f..%2fsecrets%2fid_rsa`
+    await expect(
+      goto(runtime, url, { pairedDeviceId: 'device-1', clientKind: 'mobile' })
+    ).rejects.toThrow(/outside the requested workspace/)
+    expect(bridgeGoto).not.toHaveBeenCalled()
+  })
+
+  it('refuses a symlink inside the workspace that points outside it', async () => {
+    const { runtime, goto: bridgeGoto } = createRuntime({ id: WT, path: WORKTREE_PATH })
+    await expect(
+      goto(runtime, ESCAPE_LINK_URL, { pairedDeviceId: 'device-1', clientKind: 'mobile' })
+    ).rejects.toThrow(/outside the requested workspace/)
+    expect(bridgeGoto).not.toHaveBeenCalled()
   })
 
   it('leaves http(s) and unpaired local gotos alone', async () => {

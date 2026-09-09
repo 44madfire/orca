@@ -1,13 +1,18 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, realpath, symlink, writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { beforeAll, describe, expect, it } from 'vitest'
-import { assertPairedBrowserFileUrlAllowed } from './browser-file-url-confinement'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+import {
+  assertPairedBrowserFileUrlAllowed,
+  guardPairedBrowserNavigation,
+  type BrowserFileUrlWorktreeTarget
+} from './browser-file-url-confinement'
 
 let root: string
 let outside: string
-let worktree: { id: string; path: string }
+let worktree: BrowserFileUrlWorktreeTarget & { path: string }
 
 // Real directories, because the check resolves both sides with realpath.
 beforeAll(async () => {
@@ -22,7 +27,7 @@ beforeAll(async () => {
   await writeFile(path.join(base, 'workspace-secrets', 'env'), 'secret')
   await symlink(path.join(outside, 'id_rsa'), path.join(root, 'escape-link'))
   await symlink(path.join(outside, 'missing'), path.join(root, 'dangling-link'))
-  worktree = { id: 'wt-1', path: root }
+  worktree = { id: 'wt-1', path: root, hostId: 'local' }
 })
 
 function assertAllowed(url: string, target = worktree): Promise<void> {
@@ -48,10 +53,32 @@ describe('paired browser file: confinement', () => {
     )
   })
 
-  it('refuses a traversal escape that percent-encodes its separators', async () => {
+  // `%2e` is an encoded dot: new URL() collapses it into a real `..` segment before the guard
+  // ever runs, so this pins the parser's behaviour, not the containment check.
+  it('refuses a dot-segment traversal the URL parser collapses for us', async () => {
     await expect(
       assertAllowed(`${pathToFileURL(root).toString()}/%2e%2e/outside/id_rsa`)
     ).rejects.toThrow(/outside the requested workspace/)
+  })
+
+  // Why this one is the real test: `%2f` is an encoded separator, which survives the parser and
+  // reaches the guard as a literal in the pathname. A string prefix check reads it as inside.
+  //
+  // It escapes to a file that EXISTS on purpose. An over-traversal to a missing path would be
+  // refused by the existence requirement instead, which would prove nothing about containment.
+  it('refuses a percent-encoded separator traversal onto a real file outside the root', async () => {
+    const url = `${pathToFileURL(root).toString()}%2f..%2foutside%2fid_rsa`
+    expect(new URL(url).pathname).toContain('%2f')
+    expect(existsSync(path.join(outside, 'id_rsa'))).toBe(true)
+    await expect(assertAllowed(url)).rejects.toThrow(/outside the requested workspace/)
+  })
+
+  // The shape the reviewer drove live, escaping the workspace entirely onto a system file.
+  it('refuses the %2f traversal shape reproduced against the previous head', async () => {
+    const depth = root.split(path.sep).filter(Boolean).length
+    const url = `${pathToFileURL(root).toString()}${'%2f..'.repeat(depth)}%2fetc/hosts`
+    expect(new URL(url).pathname).toContain('%2f')
+    await expect(assertAllowed(url)).rejects.toThrow(/outside the requested workspace/)
   })
 
   // Why: the containment check is lexical, so a link inside the root reads as inside it.
@@ -81,6 +108,15 @@ describe('paired browser file: confinement', () => {
         worktree: undefined
       })
     ).rejects.toThrow(/requires an explicit workspace/)
+  })
+
+  it('refuses a workspace whose host was never stamped, rather than assuming local', async () => {
+    await expect(
+      assertAllowed(pathToFileURL(path.join(root, 'build', 'report.html')).toString(), {
+        id: 'wt-1',
+        path: root
+      })
+    ).rejects.toThrow(/remote workspace/)
   })
 
   it('refuses a remote workspace, whose path names another machine', async () => {
@@ -117,5 +153,39 @@ describe('paired browser file: confinement', () => {
         worktree: undefined
       })
     ).resolves.toBeUndefined()
+  })
+})
+
+describe('guardPairedBrowserNavigation', () => {
+  const guard = (over: Partial<Parameters<typeof guardPairedBrowserNavigation>[0]> = {}) =>
+    guardPairedBrowserNavigation({
+      url: pathToFileURL(path.join(outside, 'id_rsa')).toString(),
+      pairedCaller: true,
+      resolveWorktree: async () => worktree,
+      ...over
+    })
+
+  it('refuses an outside file: URL for a paired caller', async () => {
+    await expect(guard()).rejects.toThrow(/outside the requested workspace/)
+  })
+
+  it('refuses a paired file: URL that names no workspace', async () => {
+    await expect(guard({ resolveWorktree: async () => undefined })).rejects.toThrow(
+      /requires an explicit workspace/
+    )
+  })
+
+  // Why exempt: that page renders on the caller's own device against its own disk, and
+  // browser-host-client-page-creation refuses a lease belonging to another device, so this is
+  // never a read of someone else's files. The host's root is the wrong root to judge it by.
+  it('exempts client placement, which renders on the caller device', async () => {
+    await expect(guard({ placementKind: 'client' })).resolves.toBeUndefined()
+  })
+
+  it('never resolves a workspace for an http(s) or unpaired navigation', async () => {
+    const resolveWorktree = vi.fn(async () => worktree)
+    await expect(guard({ url: 'https://example.com', resolveWorktree })).resolves.toBeUndefined()
+    await expect(guard({ pairedCaller: false, resolveWorktree })).resolves.toBeUndefined()
+    expect(resolveWorktree).not.toHaveBeenCalled()
   })
 })

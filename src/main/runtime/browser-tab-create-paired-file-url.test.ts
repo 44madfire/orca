@@ -84,7 +84,9 @@ function makeSession(): WorkspaceSessionState {
   }
 }
 
-function createRuntime(worktree: { id: string; path?: string; hostId?: string }) {
+function createRuntime(input: { id: string; path?: string; hostId?: string }) {
+  // Production stamps hostId on every resolveWorktreeSelector exit; the guard refuses without it.
+  const worktree = { hostId: 'local', ...input }
   let session = makeSession()
   const runtime = new OrcaRuntimeService({
     ...storeBase,
