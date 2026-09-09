@@ -1,6 +1,7 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import type SyncDatabase from '../sqlite/sync-database'
 import { inSessionParseFileLane } from '../ai-vault/session-parse-file-lane'
+import { bumpIndexGeneration } from './session-search-index-generation'
 
 export const RETENTION_DELETE_ROWS_PER_STEP = 256
 
@@ -38,6 +39,12 @@ export async function deleteExpiredSearchFiles(
             db.prepare(
               'INSERT OR IGNORE INTO search_pending_deletes(path, session_row_id) VALUES (?, ?)'
             ).run(path, file.session_row_id)
+            // Tombstoning is the moment the session leaves `visible_sessions`.
+            // The row deletes below only take away rows already invisible, so
+            // they must not move the generation: a backfill draining tombstones
+            // would refuse a cursor every 256 rows and pagination would be
+            // unusable for as long as indexing ran.
+            bumpIndexGeneration(db)
           }
           db.prepare('DELETE FROM files WHERE path = ?').run(path)
         }

@@ -9,7 +9,7 @@ import {
   SessionSearchIndexWriter,
   type SessionSearchStagedWrite
 } from './session-search-index-writer'
-import { bumpIndexGeneration } from './session-search-index-generation'
+import { readIndexGeneration } from './session-search-index-generation'
 import { warmSessionSearchPages } from './session-search-page-warmup'
 import { deleteExpiredSearchFiles } from './session-search-retention-delete'
 import { openSessionSearchDatabase } from './session-search-schema'
@@ -40,7 +40,6 @@ export class SessionSearchStore {
   private warmed: Promise<void> | null = null
   private lastIndexedAt: string | null = null
   private writeFailures = 0
-  private indexGeneration: number
   // Files this index knows it is behind on. Filled by a declined or abandoned
   // read; PR 3's indexer drains it. Nothing here schedules the re-read.
   private readonly stale = new Map<string, SessionFileCandidate>()
@@ -57,11 +56,6 @@ export class SessionSearchStore {
   ) {
     this.db = openSessionSearchDatabase(path)
     this.writer = new SessionSearchIndexWriter(this.db, options.walBudgetBytes)
-    // Why bump on open and not just read: a crash can land a write whose
-    // generation bump never did, so the value on disk can describe content that
-    // is already gone. Starting a new generation refuses every cursor minted
-    // before this process, which is the only safe answer to that.
-    this.indexGeneration = bumpIndexGeneration(this.db)
   }
 
   /**
@@ -74,9 +68,17 @@ export class SessionSearchStore {
     return this.db
   }
 
-  /** What the index publishes right now; see session-search-index-generation. */
+  /**
+   * What the index publishes right now.
+   *
+   * Read from the database on every call, never cached. This store is not the
+   * only writer its readers care about: PR 3's indexer writes from the scanner
+   * child while an engine reads elsewhere, and a cached value would stand still
+   * through another handle's deletions, honour a stale cursor, and skip a
+   * session. One indexed row read per search is not worth a wrong page.
+   */
   get generation(): number {
-    return this.indexGeneration
+    return readIndexGeneration(this.db)
   }
 
   setAcceptingWrites(accept: boolean): void {
@@ -136,7 +138,6 @@ export class SessionSearchStore {
     // one lands, a later pass must not re-read the whole queue.
     this.stale.delete(candidate.file.path)
     this.lastIndexedAt = new Date().toISOString()
-    this.bumpGeneration()
     this.scheduleCleanup()
   }
 
@@ -214,7 +215,6 @@ export class SessionSearchStore {
     this.stale.delete(path)
     try {
       this.writer.removeFile(path)
-      this.bumpGeneration()
       this.scheduleCleanup()
     } catch (error) {
       this.onError(error)
@@ -228,7 +228,7 @@ export class SessionSearchStore {
         this.db,
         cutoffMs,
         () => this.closed || signal?.aborted === true,
-        () => this.bumpGeneration()
+        () => undefined
       )
       if (!this.closed && !signal?.aborted) {
         await compactSessionSearchIndex(this.db, () => this.closed || signal?.aborted === true)
@@ -272,7 +272,7 @@ export class SessionSearchStore {
       this.db,
       null,
       () => this.closed,
-      () => this.bumpGeneration()
+      () => undefined
     )
       .catch((error) => {
         if (!this.closed) {
@@ -285,18 +285,6 @@ export class SessionSearchStore {
           this.scheduleCleanup()
         }
       })
-  }
-
-  /** Never throws into a caller: a retention step reports its own failures. */
-  private bumpGeneration(): void {
-    if (this.closed) {
-      return
-    }
-    try {
-      this.indexGeneration = bumpIndexGeneration(this.db)
-    } catch (error) {
-      this.onError(error)
-    }
   }
 
   /** Tests only: the cleanup lane is fire-and-forget everywhere else. */

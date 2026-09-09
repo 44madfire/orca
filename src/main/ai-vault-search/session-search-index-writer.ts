@@ -11,6 +11,7 @@ import type {
 } from './session-search-file-cursor'
 import { SessionSearchFileRecords } from './session-search-file-records'
 import { insertSearchMessage, searchMessageRows } from './session-search-message-rows'
+import { bumpIndexGeneration } from './session-search-index-generation'
 import { discardSearchBatch, retireSearchSession } from './session-search-pending-deletes'
 import { assertSearchWalBudget, SEARCH_WAL_PENDING_BYTES } from './session-search-wal-budget'
 
@@ -131,6 +132,9 @@ export class SessionSearchIndexWriter {
     try {
       if (existing?.session_row_id != null) {
         retireSearchSession(this.db, existing.session_row_id)
+        // Only a retire changes what a read returns. Removing a path this index
+        // never held, or one whose read decoded no session, hides nothing.
+        bumpIndexGeneration(this.db)
       }
       this.db.prepare('DELETE FROM files WHERE path = ?').run(path)
       this.db.exec('COMMIT')
@@ -250,12 +254,14 @@ export class SessionSearchIndexWriter {
             db.prepare('UPDATE messages SET batch_id=NULL WHERE batch_id=?').run(batchId)
             db.prepare('DELETE FROM search_write_batches WHERE id=?').run(batchId)
             this.records.upsertFile(candidate, outcome.byteOffset, sessionId)
+            bumpIndexGeneration(db)
           } else {
             // No session: the file is read through but holds nothing to search,
             // so the cursor advances and the old generation's rows are retired.
             // `discard` then tombstones this write's own staging rows.
             if (existing?.session_row_id != null) {
               retireSearchSession(db, existing.session_row_id)
+              bumpIndexGeneration(db)
             }
             this.records.upsertFile(candidate, outcome.byteOffset, null)
           }
