@@ -194,6 +194,11 @@ export class SessionSearchStore {
     return this.stale.size
   }
 
+  /** Whether this path is already recorded here, so a second queue can avoid counting it twice. */
+  hasStale(path: string): boolean {
+    return this.stale.has(path)
+  }
+
   get lastWriteAt(): string | null {
     return this.lastIndexedAt
   }
