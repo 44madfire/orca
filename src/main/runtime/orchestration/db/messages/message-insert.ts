@@ -30,7 +30,7 @@ export function insertMessage(this: OrchestrationDb, msg: MessageInsert): Messag
   // filed under the unbound Run, never the legacy one, which the schema-skew probe reads as pre-Runs.
   // Created on first use so `run list` shows it only to a user who has such mail.
   const runId = msg.runId ?? UNBOUND_RUN_ID
-  if (!msg.runId) {
+  if (msg.runId == null) {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO runs (id, objective, home_database, consumer_generation, legacy)
