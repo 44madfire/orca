@@ -16,6 +16,7 @@ import { parseCursorSessionFile } from './session-scanner-cursor-parser'
 import { parseHermesSessionFile } from './session-scanner-hermes-parser'
 import { parseOpenCodeSessionFile } from './session-scanner-opencode-parser'
 import type { SessionFileCandidate } from './session-scanner-types'
+import type { TranscriptMessageSink } from './session-transcript-consumers'
 
 /**
  * Parse a single agent session file into an `AiVaultSession`. Routes to the
@@ -24,25 +25,33 @@ import type { SessionFileCandidate } from './session-scanner-types'
  * `parseOpenCodeSqliteSession` instead of the legacy JSON parser.
  * @param candidate - The session file candidate to parse.
  * @param platform - The platform to use for resume command generation.
+ * @param messages - Where the parser publishes every decoded message.
  * @returns The parsed `AiVaultSession`, or `null` if parsing fails.
  */
 export async function parseAgentSessionFile(
   candidate: SessionFileCandidate,
-  platform: NodeJS.Platform
+  platform: NodeJS.Platform,
+  messages?: TranscriptMessageSink
 ): Promise<AiVaultSession | null> {
   switch (candidate.agent) {
     case 'claude':
-      return parseClaudeSessionFile(candidate.file, platform)
+      return parseClaudeSessionFile(candidate.file, platform, messages)
     case 'codex':
-      return parseCodexSessionFile(candidate.file, platform, candidate.codexHome)
+      return parseCodexSessionFile(
+        candidate.file,
+        platform,
+        candidate.codexHome,
+        undefined,
+        messages
+      )
     case 'gemini':
-      return parseGeminiSessionFile(candidate.file, platform)
+      return parseGeminiSessionFile(candidate.file, platform, messages)
     case 'antigravity':
-      return parseAntigravitySessionFile(candidate.file, platform)
+      return parseAntigravitySessionFile(candidate.file, platform, messages)
     case 'copilot':
-      return parseCopilotSessionFile(candidate.file, platform)
+      return parseCopilotSessionFile(candidate.file, platform, messages)
     case 'cursor':
-      return parseCursorSessionFile(candidate.file, platform)
+      return parseCursorSessionFile(candidate.file, platform, messages)
     case 'opencode': {
       // Why: OpenCode 1.17.x sessions are read from SQLite via a synthetic
       // <dbPath>#<sessionId> candidate path. Legacy file-based sessions use
@@ -55,29 +64,29 @@ export async function parseAgentSessionFile(
           platform
         })
       }
-      return parseOpenCodeSessionFile(candidate.file, platform)
+      return parseOpenCodeSessionFile(candidate.file, platform, messages)
     }
     case 'grok':
-      return parseGrokSessionFile(candidate.file, platform)
+      return parseGrokSessionFile(candidate.file, platform, messages)
     case 'hermes':
-      return parseHermesSessionFile(candidate.file, platform)
+      return parseHermesSessionFile(candidate.file, platform, messages)
     case 'rovo':
-      return parseRovoSessionFile(candidate.file, platform)
+      return parseRovoSessionFile(candidate.file, platform, messages)
     case 'openclaw':
-      return parseMessageGraphSessionFile('openclaw', candidate.file, platform)
+      return parseMessageGraphSessionFile('openclaw', candidate.file, platform, messages)
     case 'pi':
-      return parseMessageGraphSessionFile('pi', candidate.file, platform)
+      return parseMessageGraphSessionFile('pi', candidate.file, platform, messages)
     case 'omp':
-      return parseMessageGraphSessionFile('omp', candidate.file, platform)
+      return parseMessageGraphSessionFile('omp', candidate.file, platform, messages)
     case 'prime-agent':
-      return parseMessageGraphSessionFile('prime-agent', candidate.file, platform)
+      return parseMessageGraphSessionFile('prime-agent', candidate.file, platform, messages)
     case 'droid':
-      return parseDroidSessionFile(candidate.file, platform)
+      return parseDroidSessionFile(candidate.file, platform, messages)
     case 'cline':
-      return parseClineSessionFile(candidate.file, platform)
+      return parseClineSessionFile(candidate.file, platform, messages)
     case 'devin':
-      return parseDevinSessionFile(candidate.file, platform)
+      return parseDevinSessionFile(candidate.file, platform, messages)
     case 'kimi':
-      return parseKimiSessionFile(candidate.file, platform)
+      return parseKimiSessionFile(candidate.file, platform, messages)
   }
 }

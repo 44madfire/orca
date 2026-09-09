@@ -8,6 +8,7 @@ import type {
   ResumableSessionParseState,
   SessionAccumulator
 } from './session-scanner-types'
+import type { TranscriptMessageSink } from './session-transcript-consumers'
 import {
   accumulatorFoldResumeState,
   addPreviewContent,
@@ -22,6 +23,7 @@ import {
   extractString,
   parseJsonObject
 } from './session-scanner-values'
+import { readCursorChatMeta } from './session-scanner-cursor-chat-meta'
 
 type ParserSessionOptions = {
   executionHostId?: ExecutionHostId
@@ -30,13 +32,14 @@ type ParserSessionOptions = {
 
 export async function parseCursorSessionFile(
   file: FileWithMtime,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  messages?: TranscriptMessageSink
 ): Promise<AiVaultSession | null> {
   const lines = createInterface({
     input: openTranscriptReadStream(file.path, { encoding: 'utf-8' }, 'scan'),
     crlfDelay: Infinity
   })
-  return parseCursorSessionLines({ file, lines, platform })
+  return parseCursorSessionLines({ file, lines, platform, messages })
 }
 
 export async function parseCursorSessionContent(
@@ -50,7 +53,8 @@ export async function parseCursorSessionContent(
     file,
     lines: remoteSessionContentLines(content, signal),
     platform,
-    options
+    options,
+    enrichFromChatMeta: false
   })
 }
 
@@ -75,11 +79,40 @@ function consumeCursorRecordLine(accumulator: SessionAccumulator, line: string):
   }
 }
 
-export function createCursorSessionResumeState(file: FileWithMtime): ResumableSessionParseState {
+export function createCursorSessionResumeState(
+  file: FileWithMtime,
+  // Remote hosts stream transcript content only, with no sibling meta.json to read.
+  enrichFromChatMeta = true,
+  messages?: TranscriptMessageSink
+): ResumableSessionParseState {
   return accumulatorFoldResumeState(
-    createAccumulator({ agent: 'cursor', file, sessionId: sessionIdFromFileName(file.path) }),
-    consumeCursorRecordLine
+    createAccumulator({
+      agent: 'cursor',
+      file,
+      sessionId: sessionIdFromFileName(file.path),
+      messages
+    }),
+    consumeCursorRecordLine,
+    enrichFromChatMeta ? (accumulator) => applyCursorChatMeta(accumulator, file.path) : undefined
   )
+}
+
+/** Fills only what the transcript never recorded; its own records always win. */
+async function applyCursorChatMeta(
+  accumulator: SessionAccumulator,
+  transcriptPath: string
+): Promise<void> {
+  if (accumulator.cwd && accumulator.createdAt && accumulator.updatedAt && accumulator.title) {
+    return
+  }
+  const meta = await readCursorChatMeta(transcriptPath)
+  if (!meta) {
+    return
+  }
+  accumulator.title ??= meta.title
+  accumulator.cwd ??= meta.cwd
+  accumulator.createdAt ??= meta.createdAt
+  accumulator.updatedAt ??= meta.updatedAt
 }
 
 async function parseCursorSessionLines(args: {
@@ -87,8 +120,14 @@ async function parseCursorSessionLines(args: {
   lines: AsyncIterable<string> | Iterable<string>
   platform: NodeJS.Platform
   options?: ParserSessionOptions
+  enrichFromChatMeta?: boolean
+  messages?: TranscriptMessageSink
 }): Promise<AiVaultSession | null> {
-  const state = createCursorSessionResumeState(args.file)
+  const state = createCursorSessionResumeState(
+    args.file,
+    args.enrichFromChatMeta ?? true,
+    args.messages
+  )
   for await (const line of args.lines) {
     state.consumeLine(line)
   }

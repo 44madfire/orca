@@ -23,6 +23,12 @@ import {
   normalizePreviewText,
   timestampMs
 } from './session-scanner-values'
+import { NO_TRANSCRIPT_MESSAGES, type TranscriptMessageSink } from './session-transcript-consumers'
+import {
+  boundedText,
+  transcriptMessageRole,
+  transcriptMessagesFromContent
+} from './session-transcript-message-content'
 
 const SESSION_PREVIEW_MESSAGE_LIMIT = 5
 
@@ -30,9 +36,12 @@ export function createAccumulator(args: {
   agent: AiVaultAgent
   file: FileWithMtime
   sessionId: string
+  // Where every decoded message goes; absent for one-shot parses with no reader.
+  messages?: TranscriptMessageSink
 }): SessionAccumulator {
   return {
     agent: args.agent,
+    messages: args.messages ?? NO_TRANSCRIPT_MESSAGES,
     sessionId: args.sessionId,
     title: null,
     fallbackTitle: null,
@@ -64,19 +73,29 @@ export function cloneSessionAccumulator(accumulator: SessionAccumulator): Sessio
 // closure state (claude, codex) build their own ResumableSessionParseState.
 export function accumulatorFoldResumeState(
   accumulator: SessionAccumulator,
-  consumeRecordLine: (accumulator: SessionAccumulator, line: string) => void
+  consumeRecordLine: (accumulator: SessionAccumulator, line: string) => void,
+  // Runs per finalize, for agents whose metadata lives in a sibling file the
+  // fold never sees; it may only fill fields the transcript left empty.
+  enrichBeforeFinalize?: (accumulator: SessionAccumulator) => Promise<void>
 ): ResumableSessionParseState {
   return {
     consumeLine: (line) => consumeRecordLine(accumulator, line),
     clone: () =>
-      accumulatorFoldResumeState(cloneSessionAccumulator(accumulator), consumeRecordLine),
+      accumulatorFoldResumeState(
+        cloneSessionAccumulator(accumulator),
+        consumeRecordLine,
+        enrichBeforeFinalize
+      ),
     touchFile: (file) => {
       accumulator.modifiedAt = file.modifiedAt
     },
     // Finalize a snapshot: the live accumulator (and its preview array) keeps
     // accumulating appended lines after this session object is handed out.
-    finalize: (platform, options) =>
-      finalizeSession(cloneSessionAccumulator(accumulator), platform, options)
+    finalize: async (platform, options) => {
+      const snapshot = cloneSessionAccumulator(accumulator)
+      await enrichBeforeFinalize?.(snapshot)
+      return finalizeSession(snapshot, platform, options)
+    }
   }
 }
 
@@ -161,8 +180,13 @@ export function addPreviewMessage(
     // Why: Claude meta/injected turns still preview, but must not seed the
     // copyable first-prompt row.
     seedFirstUserPrompt?: boolean
+    // Set false by callers that already published this record's messages.
+    publishMessage?: boolean
   }
 ): void {
+  if (args.publishMessage !== false && accumulator.messages.active) {
+    publishTranscriptMessage(accumulator, args.role, args.text, args.timestamp)
+  }
   // Seeded before the preview-empty return so the copy body never depends on
   // preview-only normalization rules.
   seedFullFirstUserPrompt(
@@ -199,13 +223,39 @@ export function addPreviewContent(
     () => extractFullFirstUserPromptText(content),
     options?.seedFirstUserPrompt
   )
+  // Published from the content value, not the preview string: a consumer needs
+  // the whole turn, including the tool blocks the 220-char preview drops.
+  if (accumulator.messages.active) {
+    for (const message of transcriptMessagesFromContent(role, content, timestampIso(timestamp))) {
+      accumulator.messages.push(message)
+    }
+  }
   addPreviewMessage(accumulator, {
     role,
     text: extractPreviewContentText(content),
     timestamp,
     // Content path already seeded above when capture is enabled.
-    seedFirstUserPrompt: false
+    seedFirstUserPrompt: false,
+    publishMessage: false
   })
+}
+
+/** One already-flattened turn; the content path publishes per block instead. */
+function publishTranscriptMessage(
+  accumulator: SessionAccumulator,
+  role: AiVaultSessionPreviewMessage['role'],
+  text: string | null,
+  timestamp: unknown
+): void {
+  const messageRole = transcriptMessageRole(role)
+  const messageText = text === null ? null : boundedText(text)
+  if (messageRole && messageText) {
+    accumulator.messages.push({
+      role: messageRole,
+      text: messageText,
+      timestamp: timestampIso(timestamp)
+    })
+  }
 }
 
 /**

@@ -5,6 +5,7 @@ import type {
   AiVaultSessionPreviewMessage
 } from '../../shared/ai-vault-types'
 import type { ExecutionHostId } from '../../shared/execution-host'
+import type { TranscriptMessageSink } from './session-transcript-consumers'
 
 export type AiVaultScanOptions = {
   claudeProjectsDir?: string
@@ -108,6 +109,9 @@ export type ResumableSessionParseState = {
 
 export type SessionAccumulator = {
   agent: AiVaultAgent
+  // Every decoded message this fold sees also goes here, for the reader's
+  // consumers. Shared by clones on purpose: one read, one message stream.
+  messages: TranscriptMessageSink
   sessionId: string
   title: string | null
   fallbackTitle: string | null
