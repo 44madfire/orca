@@ -77,7 +77,6 @@ describe('useQuickCommands', () => {
     function Harness(): null {
       state = useQuickCommands({
         operations: quickCommandOperations(client),
-        workspaceId: WORKSPACE_ID,
         enabled
       })
       return null
@@ -152,7 +151,6 @@ describe('useQuickCommands', () => {
     function Harness({ enabled }: { enabled: boolean }): null {
       state = useQuickCommands({
         operations: quickCommandOperations(client),
-        workspaceId: WORKSPACE_ID,
         enabled
       })
       return null
@@ -335,7 +333,6 @@ describe('useQuickCommands', () => {
     function Harness({ client }: { client: RpcClient }): null {
       state = useQuickCommands({
         operations: quickCommandOperations(client),
-        workspaceId: WORKSPACE_ID,
         enabled: true
       })
       return null
@@ -414,7 +411,6 @@ describe('useQuickCommands', () => {
     function Harness({ enabled }: { enabled: boolean }): null {
       state = useQuickCommands({
         operations: quickCommandOperations(client),
-        workspaceId: WORKSPACE_ID,
         enabled
       })
       return null

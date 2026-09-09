@@ -18,7 +18,7 @@ describe('native host session quick command operations', () => {
     })
 
     await expect(
-      nativeHostSessionQuickCommandOperations(client(sendRequest)).snapshot('wt-1')
+      nativeHostSessionQuickCommandOperations(client(sendRequest)).snapshot()
     ).resolves.toMatchObject({ commands: [] })
     expect(sendRequest).toHaveBeenCalledTimes(2)
   })
@@ -32,7 +32,7 @@ describe('native host session quick command operations', () => {
     })
 
     await expect(
-      nativeHostSessionQuickCommandOperations(client(sendRequest)).snapshot('wt-1')
+      nativeHostSessionQuickCommandOperations(client(sendRequest)).snapshot()
     ).rejects.toThrow('RPC interrupted by connection migration')
     expect(sendRequest).toHaveBeenCalledTimes(1)
   })

@@ -10,7 +10,7 @@ function client(sendRequest: RpcClient['sendRequest']): RpcClient {
   return { sendRequest } as unknown as RpcClient
 }
 
-const itemTarget = { repoId: 'repo-1', number: 7 }
+const itemTarget = { repoId: 'repo-1', number: 7, provider: 'github' as const, type: 'pr' as const }
 const projectTarget = {
   owner: 'orca',
   repo: 'orca',
