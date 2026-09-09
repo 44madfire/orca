@@ -1,8 +1,6 @@
-export type HostSessionTabCloseResult =
-  | { outcome: 'closed' }
-  | { outcome: 'refused'; reason: string | null }
-
 export type HostSessionTabOperations = {
   createBrowser(workspaceId: string, url: string): Promise<{ browserPageId?: string }>
-  close(workspaceId: string, tabId: string): Promise<HostSessionTabCloseResult>
+  /** True when the host accepted the request. The caller prunes on that alone, as it did
+   *  before this seam existed; a refusal is undone by the host's republished snapshot. */
+  close(workspaceId: string, tabId: string): Promise<boolean>
 }

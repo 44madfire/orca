@@ -96,8 +96,7 @@ export function useMobileSessionCloseActions(scope: MobileSessionContentCreateAc
     try {
       // Why: a tapped tab close is explicit user intent; older hosts strip
       // the unknown reason and keep their legacy behavior.
-      const result = await sessionOperations.tab.close(worktreeId, tab.id)
-      if (result.outcome === 'closed') {
+      if (await sessionOperations.tab.close(worktreeId, tab.id)) {
         const remainingTabs = sessionTabsRef.current.filter((candidate) => candidate.id !== tab.id)
         reconcileBufferedDraftsRef.current(sessionTabsRef.current, remainingTabs)
         if (tab.type === 'browser' && tab.browserPageId === pendingBrowserFocusPageIdRef.current) {

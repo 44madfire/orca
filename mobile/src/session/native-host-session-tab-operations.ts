@@ -24,20 +24,7 @@ export function nativeHostSessionTabOperations(client: RpcClient): HostSessionTa
         tabId,
         reason: 'user'
       })
-      if (!response.ok) {
-        throw new Error('session_close_failed')
-      }
-      const result = (response as RpcSuccess).result as {
-        closed?: boolean
-        refused?: boolean
-        refusalReason?: string
-      }
-      if (result.closed !== true) {
-        throw new Error('session_close_failed')
-      }
-      return result.refused
-        ? { outcome: 'refused', reason: result.refusalReason ?? null }
-        : { outcome: 'closed' }
+      return response.ok
     }
   }
 }
