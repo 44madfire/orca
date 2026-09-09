@@ -21,6 +21,7 @@ import {
 } from './codex-structured-item-translation'
 import type { CodexStructuredItemStreams } from './codex-structured-item-streams'
 import type { CodexStructuredSessionEvent } from './codex-structured-session-adapter'
+import { codexCommandOutlivesTurn } from './codex-command-lifecycle'
 import {
   codexTurnLifecycleBody,
   codexTurnLifecycleIdentity
@@ -121,6 +122,9 @@ export function settleCodexJournalTurn(input: {
   const activeItemsToForget: { key: string; threadId: string; itemId: string }[] = []
   for (const [key, active] of input.activeItems) {
     if (active.threadId !== input.threadId || active.turnId !== input.turnId) {
+      continue
+    }
+    if (codexCommandOutlivesTurn(active.item)) {
       continue
     }
     const streamed = input.streams.snapshot(active.threadId, active.item.id)
