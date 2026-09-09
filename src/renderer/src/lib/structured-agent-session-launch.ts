@@ -57,10 +57,6 @@ export type StructuredAgentLaunchResult = {
 
 export type StructuredAgentLaunchStatus = 'idle' | 'pending' | 'unknown'
 
-function structuredAgentLabel(agent: AgentSessionHandleProvider): string {
-  return getAgentCatalog().find((entry) => entry.id === agent)?.label ?? agent
-}
-
 const pendingStructuredLaunchesByIdentity = new Map<string, StructuredLaunchState>()
 const structuredLaunchListeners = new Set<() => void>()
 
@@ -189,7 +185,7 @@ function structuredAgentLaunchState(
       existing.promise = reconcileUnknownLaunch(existing)
       trackLaunchSettlement(existing, existing.promise)
       trackStructuredLaunchFailureToast(
-        structuredAgentLabel(existing.intent.agent),
+        existing.intent.agent,
         existing.promise,
         existing.callers.refusalSettlement.promise
       )
@@ -250,7 +246,7 @@ function structuredAgentLaunchState(
   notifyStructuredLaunchListeners()
   trackLaunchSettlement(state, state.promise)
   trackStructuredLaunchFailureToast(
-    structuredAgentLabel(state.intent.agent),
+    state.intent.agent,
     state.promise,
     state.callers.refusalSettlement.promise
   )
