@@ -136,6 +136,22 @@ export async function inspectExitedIncarnationFromRuntimeController(
   }
 }
 
+/**
+ * The owner has acted on a proven exit. The daemon drops its exited record on `kill`; the relay
+ * already dropped its pending exit when delivery settled and answers a missing id silently. A
+ * failure here leaves the record for the next sweep, so it never surfaces.
+ */
+export async function releaseExitedIncarnationFromRuntimeController(ptyId: string): Promise<void> {
+  if (ptyId.startsWith('remote:')) {
+    return
+  }
+  try {
+    await getProviderForPty(ptyId).shutdown(ptyId, { immediate: true })
+  } catch {
+    // The host keeps the record; the next sweep retries.
+  }
+}
+
 export async function attachPtyFromRuntimeController(
   deps: PtyRuntimeControllerDeps,
   ptyId: string

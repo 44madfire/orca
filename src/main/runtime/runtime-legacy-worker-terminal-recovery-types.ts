@@ -51,6 +51,8 @@ export type LegacyWorkerRecoveryPorts = {
   /** True only when the execution host observed THIS candidate's stored incarnation exit. Every
    *  other answer — absence, mismatch, transport failure — is doubt and must defer. */
   proveTerminalExited: (candidate: LegacyWorkerRecoveryCandidate) => Promise<boolean>
+  /** Tells the execution host the proven exit has been settled durably, so it can drop the record. */
+  releaseProvenExit: (candidate: LegacyWorkerRecoveryCandidate) => Promise<void>
   getActivation: (worktreeId: string) => { activeTabId?: string; activeGroupId?: string }
   hasExactPersistedSurface: (candidate: LegacyWorkerRecoveryCandidate) => boolean
   hasExactSurface: (candidate: LegacyWorkerRecoveryCandidate) => boolean

@@ -208,14 +208,22 @@ describe('TerminalHost undelivered exits', () => {
     }
   })
 
-  it('keeps kill tombstones independent of a held exit', async () => {
+  it('drops a held exit once its owner kills the session it belonged to', async () => {
     const { host, lastSubprocess } = createHost()
     try {
-      await exitWhileClientIsAway(host, lastSubprocess, 'session-away')
+      const incarnationId = await exitWhileClientIsAway(host, lastSubprocess, 'session-away')
+      await expect(
+        host.inspectProcess('session-away', { expectedIncarnationId: incarnationId })
+      ).resolves.toMatchObject({ foregroundProcessEvidence: { verdict: 'exited' } })
 
-      // Nothing killed it, and a held record is not a live session to kill.
+      // Nothing killed the process; the owner is telling the host it has acted on the exit.
       expect(host.isKilled('session-away')).toBe(false)
-      expect(() => host.kill('session-away')).toThrow(SessionNotFoundError)
+      await expect(host.kill('session-away')).resolves.toBeUndefined()
+      expect(host.isKilled('session-away')).toBe(false)
+      expect(() =>
+        host.inspectProcess('session-away', { expectedIncarnationId: incarnationId })
+      ).toThrow(SessionNotFoundError)
+      expect(() => host.kill('session-never')).toThrow(SessionNotFoundError)
     } finally {
       await host.dispose()
     }

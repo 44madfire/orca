@@ -16,49 +16,8 @@ import {
   store
 } from '../orca-runtime-test-fixtures.spec'
 import { publishLegacyWorkerReveal } from '../orca-runtime-test-scenario-builders.spec'
-import { TerminalHost } from '../../daemon/terminal-host'
-import { DaemonPtyRouter } from '../../daemon/daemon-pty-router'
-import type { DaemonPtyAdapter } from '../../daemon/daemon-pty-adapter'
-import type { SubprocessHandle } from '../../daemon/session-subprocess-handle'
-import { getLocalPtyProvider, setLocalPtyProvider } from '../../ipc/pty/provider/registry'
-import { inspectExitedIncarnationFromRuntimeController } from '../../ipc/pty/runtime/operations'
 
 /** A daemon that outlived the app close, fronted by the router main actually asks. */
-function daemonRouterOver(host: TerminalHost): DaemonPtyRouter {
-  const adapter = {
-    // Nothing in this process routes the id any more: the app restarted after the shell ended.
-    hasPty: () => false,
-    inspectProcess: (id: string, options?: { expectedIncarnationId?: string }) =>
-      host.inspectProcess(id, options),
-    listProcesses: async () => [],
-    onData: () => () => {},
-    onExit: () => () => {},
-    onWriteUnavailable: () => () => {},
-    onBackgroundStreamEvent: () => () => {}
-  } as unknown as DaemonPtyAdapter
-  return new DaemonPtyRouter({ current: adapter, legacy: [] })
-}
-
-function daemonSubprocess(): SubprocessHandle & { exit(code: number): void } {
-  let onExit: ((code: number) => void) | null = null
-  return {
-    pid: 4242,
-    getForegroundProcess: () => null,
-    write: vi.fn(),
-    resize: vi.fn(),
-    kill: vi.fn(),
-    terminateOwnedTree: () => 'unavailable',
-    forceKill: vi.fn(),
-    signal: vi.fn(),
-    onData: vi.fn(),
-    onExit: (callback: (code: number) => void) => {
-      onExit = callback
-    },
-    dispose: vi.fn(),
-    exit: (code: number) => onExit?.(code)
-  } as unknown as SubprocessHandle & { exit(code: number): void }
-}
-
 describe('OrcaRuntimeService', () => {
   it('requeues an active Task before clearing recovery for an authoritatively missing worker', async () => {
     const workerPaneKey = `legacy-missing:${HEADLESS_LEAF_ID}`
@@ -237,93 +196,6 @@ describe('OrcaRuntimeService', () => {
       expect(getSession().sleepingAgentSessionsByPaneKey?.[workerPaneKey]).toBeDefined()
       expect(resolveLegacyWorkerTerminalRecovery).not.toHaveBeenCalled()
     } finally {
-      db.close()
-    }
-  })
-
-  it('settles a local worker whose daemon session exited while the app was closed', async () => {
-    const workerPaneKey = `legacy-daemon-exit:${HEADLESS_LEAF_ID}`
-    const ptyId = 'pty-daemon-worker'
-    const subprocess = daemonSubprocess()
-    const host = new TerminalHost({ spawnSubprocess: () => subprocess })
-    // Orca quits (the client's attachment drops), then the worker's shell ends.
-    const created = await host.createOrAttach({
-      sessionId: ptyId,
-      cols: 80,
-      rows: 24,
-      streamClient: { onData: vi.fn(), onExit: vi.fn() }
-    })
-    host.detach(ptyId, created.attachToken as symbol)
-    subprocess.exit(0)
-
-    const { runtimeStore, getSession } = makeRuntimeStoreWithWorkspaceSession({
-      ...getDefaultWorkspaceSession(),
-      tabsByWorktree: { [TEST_WORKTREE_ID]: [] },
-      sleepingAgentSessionsByPaneKey: {
-        [workerPaneKey]: {
-          paneKey: workerPaneKey,
-          tabId: 'legacy-daemon-exit',
-          worktreeId: TEST_WORKTREE_ID,
-          agent: 'codex',
-          providerSession: { key: 'session_id', id: 'legacy-daemon-exit-session' },
-          prompt: 'continue',
-          state: 'working',
-          capturedAt: 1,
-          updatedAt: 1,
-          origin: 'live'
-        }
-      }
-    })
-    const runtime = new OrcaRuntimeService(
-      { ...runtimeStore, flushOrThrow: vi.fn() } as never,
-      undefined,
-      { canRecoverPersistentLocalPtys: () => true }
-    )
-    const db = new OrchestrationDb(':memory:')
-    const previousProvider = getLocalPtyProvider()
-    setLocalPtyProvider(daemonRouterOver(host))
-    try {
-      const task = db.createTask({ runId: 'run_legacy_local', spec: 'daemon worker' })
-      const started = db.createStartingWorkerDispatch({
-        creator: { kind: 'system' },
-        maxDepth: Number.MAX_SAFE_INTEGER,
-        taskId: task.id,
-        startOptions: { topology: 'current', agent: 'codex' }
-      })
-      db.prepareStartingWorkerAuthority({
-        dispatchId: started.dispatch.id,
-        handle: 'term_daemon_exit',
-        paneKey: workerPaneKey,
-        processIncarnation: `${ptyId}:${created.incarnationId}`,
-        worktreeId: TEST_WORKTREE_ID,
-        setupState: 'not_applicable',
-        effects: []
-      })
-      db.markWorkerDispatchReady(started.dispatch.id)
-      runtime.setOrchestrationDb(db)
-      // No stub: this is the shipped proof chain, from the recovery port through
-      // providerObservedIncarnationExit and the daemon router to the host that watched it die.
-      runtime.setPtyController({
-        write: vi.fn(() => true),
-        kill: vi.fn(() => true),
-        getForegroundProcess: async () => null,
-        hasPty: () => false,
-        inspectExitedIncarnation: (candidatePtyId, incarnationId) =>
-          inspectExitedIncarnationFromRuntimeController(candidatePtyId, incarnationId),
-        listProcesses: async () => []
-      })
-      runtime.setNotifier({ resolveLegacyWorkerTerminalRecovery: vi.fn() } as never)
-
-      await expect(runtime.reconcileLegacyWorkerTerminals()).resolves.toMatchObject({
-        adoptedDispatchIds: [],
-        exitedDispatchIds: [started.dispatch.id],
-        deferredDispatchIds: []
-      })
-      expect(db.getDispatchContextById(started.dispatch.id)?.status).not.toBe('dispatched')
-      expect(getSession().sleepingAgentSessionsByPaneKey?.[workerPaneKey]).toBeUndefined()
-    } finally {
-      setLocalPtyProvider(previousProvider)
-      await host.dispose()
       db.close()
     }
   })

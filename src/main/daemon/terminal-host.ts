@@ -172,6 +172,13 @@ export class TerminalHost {
         opts.immediate ? this.sessionTeardown.requestImmediate(sessionId) : pending
       )
     }
+    const exited = this.sessions.get(sessionId)
+    if (exited && !exited.isAlive) {
+      // The owner is done with a session that already ended on its own: its exit record has been
+      // acted on, so it leaves now. This is the consume half of the held-exit read.
+      this.sessions.delete(sessionId)
+      return Promise.resolve()
+    }
     const session = this.getAliveSession(sessionId)
     // Why record inside: the exit can land synchronously within the signal, and the reaper reads
     // the tombstone; a refused signal must leave none (the admission test pins that).
