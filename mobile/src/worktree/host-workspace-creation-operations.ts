@@ -21,20 +21,7 @@ import type { GitRemoteIdentity } from '../../../src/shared/git-remote-identity'
 import type { RepoIcon } from '../../../src/shared/repo-icon'
 import type { RetiredNameRegistry } from '../../../src/shared/worktree/retired-name-registry'
 
-export type NewWorkspaceRepository = {
-  id: string
-  displayName: string
-  path: string
-  badgeColor?: string
-  connectionId?: string | null
-  executionHostId?: ExecutionHostId | null
-  executionHostLabel?: string
-  projectId?: string
-  kind?: 'git' | 'folder'
-  upstream?: { owner: string; repo: string; host?: string } | null
-  repoIcon?: RepoIcon | null
-  gitRemoteIdentity?: GitRemoteIdentity | null
-}
+export type { MobileWorkspaceRepo as NewWorkspaceRepository } from '../components/new-worktree-modal-types'
 
 export type NewWorkspaceRuntimeSettings = {
   defaultTuiAgent?: TuiAgent | 'blank' | null

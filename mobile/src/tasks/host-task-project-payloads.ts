@@ -27,7 +27,6 @@ export type HostTaskProjectResolveResult = {
 export type HostTaskProjectTablePayload = GitHubProjectRef & {
   viewId: string
   queryOverride?: string
-  cursor?: string
 }
 
 export type HostTaskProjectSlugPayload = {

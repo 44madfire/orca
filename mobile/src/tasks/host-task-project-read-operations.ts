@@ -17,7 +17,7 @@ export type HostTaskProjectReadOperations = {
   listAccessible(host: string): Promise<HostTaskProjectListResult>
   listViews(project: GitHubProjectRef): Promise<GitHubProjectViewSummary[]>
   resolveRef(payload: HostTaskProjectResolvePayload): Promise<HostTaskProjectResolveResult>
-  loadTable(payload: Omit<HostTaskProjectTablePayload, 'cursor'>): Promise<GitHubProjectTable>
+  loadTable(payload: HostTaskProjectTablePayload): Promise<GitHubProjectTable>
   loadItemDetail(payload: HostTaskProjectItemDetailPayload): Promise<HostTaskGitHubDetail>
   listItemLabels(payload: HostTaskProjectSlugPayload): Promise<string[]>
   listItemAssignableUsers(

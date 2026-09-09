@@ -54,19 +54,6 @@ vi.mock('expo-router', async () => {
 
 vi.mock('expo-crypto', () => ({ randomUUID: dependencies.randomUUID }))
 
-// The account adapter reaches device operations for its idempotency nonce, which pulls the
-// native expo modules into this module graph.
-vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn() }))
-vi.mock('expo-haptics', () => ({
-  AndroidHaptics: {},
-  ImpactFeedbackStyle: {},
-  NotificationFeedbackType: {},
-  impactAsync: vi.fn(),
-  notificationAsync: vi.fn(),
-  performAndroidHapticsAsync: vi.fn(),
-  selectionAsync: vi.fn()
-}))
-
 vi.mock('lucide-react-native', () => ({
   Check: 'Check',
   ChevronLeft: 'ChevronLeft',
