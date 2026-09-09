@@ -4,7 +4,6 @@ import type {
 } from '../../../src/shared/native-chat-types'
 import type { MobileNativeChatSendOutcome } from './mobile-native-chat-send'
 import type { MobileNativeChatStreamFrame } from './mobile-native-chat-stream-frame'
-import type { MobileImageSource } from './mobile-image-source-picker'
 
 export type HostSessionNativeChatTarget = {
   workspaceId: string
@@ -29,10 +28,6 @@ export type HostSessionNativeChatImageAttachment = {
   previewUri: string
 }
 
-export type HostSessionNativeChatImageAttachResult =
-  | { status: 'accepted'; attachment: HostSessionNativeChatImageAttachment }
-  | { status: 'cancelled' | 'permission-denied' | 'too-large' }
-
 export type HostSessionNativeChatOperations = {
   /** Whether the serving host can read this workspace's agent transcripts. */
   readability(workspaceId: string): Promise<boolean>
@@ -48,25 +43,7 @@ export type HostSessionNativeChatOperations = {
     limit: number,
     beforeOffset?: number
   ): Promise<HostSessionNativeChatReadResult>
-  sendMessage(
-    target: HostSessionNativeChatTarget,
-    text: string,
-    deadline?: number,
-    clearInputFirst?: boolean,
-    resolvedLaunchDraft?: { text: string; createdAt: number },
-    typeCommand?: boolean
-  ): Promise<MobileNativeChatSendOutcome>
-  respond(
-    target: HostSessionNativeChatTarget,
-    text: string,
-    enter: boolean,
-    deadline?: number
-  ): Promise<MobileNativeChatSendOutcome>
   stop(target: HostSessionNativeChatTarget, deadline?: number): Promise<MobileNativeChatSendOutcome>
-  attachImage?(
-    target: HostSessionNativeChatTarget,
-    source: MobileImageSource
-  ): Promise<HostSessionNativeChatImageAttachResult>
   pasteImages?(
     target: HostSessionNativeChatTarget,
     references: readonly string[],

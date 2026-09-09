@@ -4,17 +4,11 @@ import type { HostWorkspaceCreationOperations } from './host-workspace-creation-
 import { nativeHostWorkspaceCreationReadOperations } from './native-host-workspace-creation-read-operations'
 import { nativeHostWorkspaceCreationSourceOperations } from './native-host-workspace-creation-source-operations'
 
-export type RpcWorkspaceCreationOperations = Omit<
-  HostWorkspaceCreationOperations,
-  'createBlankWorkspace' | 'createWorkspaceFromSource'
->
-
-/** Every workspace-creation call that is a plain desktop request, written against a bare request
- * sender so any non-socket provider can supply one without a second copy. Creation itself is
- * excluded: it needs connection state for its retry, which a sender cannot report. */
+/** Every workspace-creation call the screens make, written against a bare request sender so any
+ * non-socket provider can supply one without a second copy. */
 export function rpcWorkspaceCreationOperations(
   client: RpcRequestSender
-): RpcWorkspaceCreationOperations {
+): HostWorkspaceCreationOperations {
   return {
     ...nativeHostWorkspaceCreationReadOperations(client),
     ...nativeHostWorkspaceCreationSourceOperations(client),

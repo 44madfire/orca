@@ -8,20 +8,13 @@ import type { SparsePreset } from '../../../src/shared/worktree/create-types'
 import type { GitHubPrStartPoint } from '../../../src/shared/worktree/types'
 import type { RepoSlug } from '../../../src/shared/new-workspace/github-links'
 import type { SshConnectionState } from '../../../src/shared/ssh-types'
-import type { WorktreeCreateResult } from '../tasks/worktree-create-retry'
-import type { WorktreeCreateIdempotencyProbe } from '../tasks/worktree-create-idempotency-policy'
 import type { NewWorktreeRuntimeCapabilities } from '../tasks/worktree-create-capability'
-import type {
-  MrStateFilter,
-  MobileComposerCreateSelection
-} from '../tasks/mobile-composer-source-types'
+import type { MrStateFilter } from '../tasks/mobile-composer-source-types'
 import type {
   ComposerHostedBase,
   ResolveComposerMrBaseArgs,
   ResolveComposerPrBaseArgs
 } from '../tasks/composer-source-base-resolve'
-import type { WorkspaceAgentChoice } from '../tasks/workspace-agent-selection'
-import type { WorkspaceCreateSetupDecision } from '../tasks/workspace-create-params'
 import type { SetupHookTrust } from '../tasks/setup-hook-trust'
 import type { ExecutionHostId } from '../../../src/shared/execution-host'
 import type { GitRemoteIdentity } from '../../../src/shared/git-remote-identity'
@@ -54,28 +47,6 @@ export type NewWorkspaceRepoHooks = {
   source: string | null
   setupRunPolicy?: 'ask' | 'run-by-default' | 'skip-by-default'
   setupTrust?: SetupHookTrust
-}
-
-export type CreateBlankWorkspaceOperationArgs = {
-  repoId: string
-  baseName: string
-  agentChoice: WorkspaceAgentChoice
-  nameWasGenerated: boolean
-  comment: string | undefined
-  setupDecision: WorkspaceCreateSetupDecision
-  worktreeCreateIdempotency: WorktreeCreateIdempotencyProbe
-}
-
-export type CreateWorkspaceFromSourceOperationArgs = {
-  selection: MobileComposerCreateSelection
-  targetRepoId: string
-  setupDecision: WorkspaceCreateSetupDecision
-  agentChoice: WorkspaceAgentChoice
-  workspaceName: string | undefined
-  note: string | undefined
-  sparseCheckout?: { directories: string[]; presetId?: string }
-  nameIsAutoManaged?: boolean
-  worktreeCreateIdempotency: WorktreeCreateIdempotencyProbe
 }
 
 export type HostWorkspaceCreationOperations = {
@@ -129,8 +100,4 @@ export type HostWorkspaceCreationOperations = {
   }): Promise<GitLabWorkItem | null>
   resolvePrBase(args: Omit<ResolveComposerPrBaseArgs, 'client'>): Promise<GitHubPrStartPoint>
   resolveMrBase(args: Omit<ResolveComposerMrBaseArgs, 'client'>): Promise<ComposerHostedBase>
-  createBlankWorkspace(args: CreateBlankWorkspaceOperationArgs): Promise<WorktreeCreateResult>
-  createWorkspaceFromSource(
-    args: CreateWorkspaceFromSourceOperationArgs
-  ): Promise<WorktreeCreateResult>
 }

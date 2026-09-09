@@ -4,7 +4,6 @@ import { isFloatingWorkspaceWorktreeId } from './floating-workspace'
 import { isMobileNativeChatTranscriptReadable } from './mobile-native-chat-eligibility'
 import {
   sendMobileNativeChatMessageWithOutcome,
-  typeMobileNativeChatCommandWithOutcome,
   type MobileNativeChatSendOutcome
 } from './mobile-native-chat-send'
 import { rankSuggestions } from './mobile-native-chat-autocomplete'
@@ -62,24 +61,6 @@ export function nativeHostSessionNativeChatOperations(
       } catch {
         return { error: 'Transcript read failed' }
       }
-    },
-    sendMessage(target, text, deadline, clearInputFirst, resolvedLaunchDraft, typeCommand) {
-      if (typeCommand && target.terminalId) {
-        return typeMobileNativeChatCommandWithOutcome({
-          client,
-          terminal: target.terminalId,
-          command: text,
-          resolvedLaunchDraft,
-          deadline,
-          ...(target.clientId
-            ? { mobileClient: { id: target.clientId, type: 'mobile' as const } }
-            : {})
-        })
-      }
-      return sendNative(target, text, true, client, deadline, clearInputFirst, resolvedLaunchDraft)
-    },
-    respond(target, text, enter, deadline) {
-      return sendNative(target, text, enter, client, deadline)
     },
     stop(target, deadline) {
       // Escape must not carry Return: the extra newline submits whatever the agent
