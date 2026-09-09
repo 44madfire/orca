@@ -385,7 +385,7 @@ export class Session {
 
     this.output.broadcastExit(code, this.incarnationId, cause)
 
-    // Why: hand off to the owner's reaper (disposes emulator, drops session from host map); else dead sessions accumulate.
+    // Why: hand off to the owner's reaper (disposes the emulator and the subprocess handle); else dead sessions pin their scrollback.
     this.onSessionExit?.(code)
   }
 

@@ -131,7 +131,7 @@ describe('TerminalHost undelivered exits', () => {
     }
   })
 
-  it('holds nothing when the exit reached an attached client', async () => {
+  it('still answers an exit that was broadcast to an attached client', async () => {
     const { host, lastSubprocess } = createHost()
     try {
       const onExit = vi.fn()
@@ -143,10 +143,21 @@ describe('TerminalHost undelivered exits', () => {
       })
       lastSubprocess().exit(0)
 
+      // Broadcast is not the record's lifecycle: whether anyone was listening, the exited session
+      // stays answerable to a caller naming its exact incarnation.
       expect(onExit).toHaveBeenCalledWith(0, created.incarnationId, expect.anything())
-      expect(() =>
+      expect(host.listSessions()).toHaveLength(0)
+      await expect(
         host.inspectProcess('session-attached', { expectedIncarnationId: created.incarnationId })
-      ).toThrow(SessionNotFoundError)
+      ).resolves.toMatchObject({
+        foregroundProcessEvidence: {
+          ptyId: 'session-attached',
+          ptyIncarnationId: created.incarnationId,
+          verdict: 'exited',
+          reason: 'pty_exit_0'
+        }
+      })
+      expect(() => host.inspectProcess('session-attached')).toThrow(SessionNotFoundError)
     } finally {
       await host.dispose()
     }

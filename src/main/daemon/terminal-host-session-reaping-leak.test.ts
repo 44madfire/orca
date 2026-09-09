@@ -2,13 +2,15 @@
  * Memory-leak regression: TerminalHost must reap dead sessions.
  *
  * SessionIds are minted fresh per pane and never reused, so a `TerminalHost`
- * that never removes exited sessions from its `sessions` map leaks one dead
- * `Session` and its `@xterm/headless` scrollback grid per terminal for the
- * lifetime of the long-lived daemon process.
+ * that never reaps exited sessions leaks one `@xterm/headless` scrollback grid
+ * and one native subprocess handle per terminal for the lifetime of the
+ * long-lived daemon process. The grid is the retained bytes; the emulator-free
+ * record left behind is a handful of fields.
  *
  * The fix wires a Session `onExit` hook to `TerminalHost.reapSession`, which
- * disposes the emulator and drops the entry from the map. These tests assert the
- * emulator is disposed when a subprocess exits (before the fix it never was).
+ * disposes the session -- freeing the emulator and the subprocess handle. These
+ * tests assert that disposal happens when a subprocess exits (before the fix it
+ * never did), and that the exited session leaves every live surface.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalHost } from './terminal-host'
@@ -98,8 +100,8 @@ describe('TerminalHost dead-session reaping (leak regression)', () => {
     // Natural exit.
     lastSubprocess._onExitCb?.(0)
 
-    // The dead session's emulator (its scrollback buffer) is freed and the
-    // session is gone from the map — not merely skipped by listSessions.
+    // The dead session's emulator (its scrollback buffer) is freed, and the session is gone
+    // from every live surface.
     expect(emulatorDispose).toHaveBeenCalledTimes(1)
     expect(host.listSessions()).toHaveLength(0)
   })
@@ -116,7 +118,7 @@ describe('TerminalHost dead-session reaping (leak regression)', () => {
       lastSubprocess._onExitCb?.(0)
     }
 
-    // Every dead session was reaped: one emulator disposed per cycle, none retained.
+    // Every dead session was reaped: one emulator disposed per cycle, no scrollback retained.
     expect(emulatorDispose).toHaveBeenCalledTimes(CYCLES)
     expect(host.listSessions()).toHaveLength(0)
   })
@@ -142,7 +144,7 @@ describe('TerminalHost dead-session reaping (leak regression)', () => {
     lastSubprocess._onExitCb?.(137)
     await killed
 
-    // Emulator freed and session dropped from the map (no lingering dead entry).
+    // Emulator freed and the session gone from every live surface.
     expect(emulatorDispose).toHaveBeenCalledTimes(1)
     expect(host.listSessions()).toHaveLength(0)
     expect(host.isKilled('session-1')).toBe(true)

@@ -178,20 +178,15 @@ export class TerminalHost {
     return Promise.resolve(killed)
   }
 
-  // Why: dispose a dead session's emulator so exited terminals don't pin their scrollback window for the daemon's life.
+  // Why: dispose a dead session's emulator so exited terminals don't pin their scrollback window for
+  // the daemon's life. An exited session is a state of its record, so the record itself leaves only
+  // when its owner recreates the id or the host is disposed.
   private reapSession(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session || session.isAlive) {
       return
     }
-    // `broadcastExit` just fanned this exit out to the clients attached at that instant. With none
-    // attached nobody received it, so the (now emulator-free) record stays until a caller naming
-    // this exact incarnation reads it -- see undeliveredExitFor.
-    const delivered = session.hasAttachedClients
     session.dispose()
-    if (delivered) {
-      this.sessions.delete(sessionId)
-    }
     this.onSessionReaped?.(sessionId)
   }
 
@@ -227,10 +222,17 @@ export class TerminalHost {
     options?: { expectedIncarnationId?: string; steadyState?: boolean }
   ): Promise<TerminalHostProcessInspection> {
     const session = this.sessions.get(sessionId)
-    const undeliveredExit = session?.isAlive
-      ? undefined
-      : this.undeliveredExitFor(sessionId, options?.expectedIncarnationId)
-    if (!session?.isAlive && !undeliveredExit) {
+    // An exited record is evidence only for the incarnation the caller named; a caller naming a
+    // different one, or none, proves nothing about this process and gets the ordinary
+    // missing-session failure (docs/reference/ssh-execution-boundary.md).
+    const exitedSession =
+      session &&
+      !session.isAlive &&
+      session.exitCode !== null &&
+      session.incarnationId === options?.expectedIncarnationId
+        ? { incarnationId: session.incarnationId, code: session.exitCode }
+        : undefined
+    if (!session?.isAlive && !exitedSession) {
       // Preserve the historical synchronous missing-session failure.
       throw new SessionNotFoundError(sessionId)
     }
@@ -241,34 +243,10 @@ export class TerminalHost {
         ? { expectedIncarnationId: options.expectedIncarnationId }
         : {}),
       ...(options?.steadyState === true ? { steadyState: true } : {}),
-      ...(undeliveredExit ? { undeliveredExit } : {}),
+      ...(exitedSession ? { exitedSession } : {}),
       authorityGeneration: this.authorityGeneration,
       nextObservationEpoch: () => ++this.observationEpoch
     })
-  }
-
-  /**
-   * The exit this session's owner never received, for the incarnation the caller named. Reading it
-   * is not delivery: a sweep can read the proof and then fail to persist the settlement, and the
-   * next sweep must find it again. The record leaves only when the id is recreated by its owner or
-   * the host is disposed -- the same rule the relay's `pendingExitByPty` follows. A caller that
-   * names no incarnation, or a different one, proves nothing about this process and gets the
-   * ordinary missing-session failure (docs/reference/ssh-execution-boundary.md).
-   */
-  private undeliveredExitFor(
-    sessionId: string,
-    expectedIncarnationId: string | undefined
-  ): { incarnationId: string; code: number } | undefined {
-    const session = this.sessions.get(sessionId)
-    if (
-      !session ||
-      session.isAlive ||
-      session.exitCode === null ||
-      session.incarnationId !== expectedIncarnationId
-    ) {
-      return undefined
-    }
-    return { incarnationId: session.incarnationId, code: session.exitCode }
   }
 
   async confirmForegroundProcess(sessionId: string): Promise<string | null> {
