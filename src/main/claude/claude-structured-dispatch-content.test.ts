@@ -144,6 +144,19 @@ describe('claudeDispatchInvokesSlashCommand', () => {
     ).toBe(false)
   })
 
+  it('reads the joined prompt, so a command behind leading prose is not one', async () => {
+    // Keeping the blocks separate would leave `/goal ship` trailing and falsely claim a command.
+    const content = await claudeDispatchMessageContent(
+      userMessage([
+        { type: 'text', text: 'take a look' },
+        { type: 'text', text: '/goal ship' }
+      ])
+    )
+
+    expect(content).toEqual([{ type: 'text', text: 'take a look\n/goal ship' }])
+    expect(claudeDispatchInvokesSlashCommand(content)).toBe(false)
+  })
+
   it('matches untrimmed, as Claude does, and ignores a promptless turn', () => {
     expect(claudeDispatchInvokesSlashCommand([{ type: 'text', text: '  /goal ship' }])).toBe(false)
     expect(claudeDispatchInvokesSlashCommand([{ type: 'text', text: 'ship it' }])).toBe(false)

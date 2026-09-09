@@ -140,10 +140,7 @@ export function claudeDispatchContentKey(content: readonly unknown[]): string {
   const digest = createHash('sha256')
   const summary = content
     .map((part) => {
-      const record =
-        typeof part === 'object' && part !== null && !Array.isArray(part)
-          ? (part as Record<string, unknown>)
-          : null
+      const record = claudeRecord(part)
       const type = typeof record?.type === 'string' ? record.type : 'unknown'
       if (type === 'text') {
         return `text:${typeof record?.text === 'string' ? record.text.length : 0}`
@@ -159,10 +156,7 @@ export function claudeDispatchContentKey(content: readonly unknown[]): string {
     })
     .join(',')
   for (const [index, part] of content.entries()) {
-    const record =
-      typeof part === 'object' && part !== null && !Array.isArray(part)
-        ? (part as Record<string, unknown>)
-        : null
+    const record = claudeRecord(part)
     const type = typeof record?.type === 'string' ? record.type : 'unknown'
     digest.update(`${index}:${type}:`)
     if (type === 'text' && typeof record?.text === 'string') {

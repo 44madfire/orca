@@ -452,6 +452,18 @@ describe('Claude structured dispatch image limits', () => {
       state: 'accepted',
       providerIdentity: { uuid: 'command-result-uuid' }
     })
+    // The sent order is the fix: the waiter's verdict alone was already what it is today.
+    expect(session.connection.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'url', url: 'https://example.test/a.png' } },
+            { type: 'text', text: '/permissions' }
+          ]
+        }
+      })
+    )
   })
 
   it('does not take a result receipt for leading whitespace Claude never reads as a command', async () => {
