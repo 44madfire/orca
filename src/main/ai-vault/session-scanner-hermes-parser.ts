@@ -28,24 +28,30 @@ export async function parseHermesSessionFile(
   platform: NodeJS.Platform = process.platform,
   messages?: TranscriptMessageSink
 ): Promise<AiVaultSession | null> {
-  return parseHermesSessionContent(
+  return parseHermesSessionRecord(
     file,
     await wslGatedReadFile(file.path, 'utf-8', 'scan'),
     platform,
     {},
-    undefined,
     messages
   )
 }
 
-/** Remote content parses have no reader attached; the sink stays undefined. */
-
+/** Remote transcript content, streamed from a host that has no reader attached. */
 export async function parseHermesSessionContent(
   file: FileWithMtime,
   content: string,
   platform: NodeJS.Platform = process.platform,
-  options: ParserSessionOptions = {},
-  _signal?: AbortSignal,
+  options: ParserSessionOptions = {}
+): Promise<AiVaultSession | null> {
+  return parseHermesSessionRecord(file, content, platform, options)
+}
+
+async function parseHermesSessionRecord(
+  file: FileWithMtime,
+  content: string,
+  platform: NodeJS.Platform,
+  options: ParserSessionOptions,
   messages?: TranscriptMessageSink
 ): Promise<AiVaultSession | null> {
   const record = asRecord(JSON.parse(content) as unknown)

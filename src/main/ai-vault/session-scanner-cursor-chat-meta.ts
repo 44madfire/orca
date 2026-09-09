@@ -31,17 +31,32 @@ type CursorChatMetaIndexEntry = {
 }
 
 const cursorChatMetaIndexCache = new Map<string, Promise<CursorChatMetaIndexEntry>>()
-// Why: validating the cache costs a readdir plus a stat per workspace, and
-// discovery asks once per transcript; one scan sees the tree once instead.
-const scanScopedIndex = new AsyncLocalStorage<Map<string, Promise<Map<string, string>>>>()
+
+type CursorChatMetaScan = {
+  index: Map<string, Promise<Map<string, string>>>
+  // Chats roots this scan could not read, reported once by the scan owner.
+  refusals: Map<string, string>
+}
+
+// Why: validating the module cache costs a readdir of the chats root plus a stat
+// per workspace, and it cannot be skipped because the signature is built from
+// those stats. Discovery asks once per transcript and finalize asks again, so
+// the scope has to span both phases for one scan to see the tree once.
+const scanScopedIndex = new AsyncLocalStorage<CursorChatMetaScan>()
 
 export function resetCursorChatMetaIndexCacheForTests(): void {
   cursorChatMetaIndexCache.clear()
 }
 
-/** Runs one discovery scan; every Cursor transcript inside it shares a single validated index read. */
+/** Runs one whole scan, discovery and parse; every Cursor transcript in it shares one index read. */
 export function withCursorChatMetaScan<T>(fn: () => Promise<T>): Promise<T> {
-  return scanScopedIndex.run(new Map(), fn)
+  return scanScopedIndex.run({ index: new Map(), refusals: new Map() }, fn)
+}
+
+/** Chats roots the current scan was refused, for the caller to report as scan issues. */
+export function cursorChatMetaRefusals(): { chatsRoot: string; message: string }[] {
+  const scan = scanScopedIndex.getStore()
+  return scan ? [...scan.refusals].map(([chatsRoot, message]) => ({ chatsRoot, message })) : []
 }
 
 /** Path a discovery stat can watch so a rewritten meta.json invalidates the parse cache. */
@@ -58,14 +73,41 @@ export async function cursorChatMetaPath(transcriptPath: string): Promise<string
 function readCursorChatMetaIndexOncePerScan(chatsRoot: string): Promise<Map<string, string>> {
   const scan = scanScopedIndex.getStore()
   if (!scan) {
-    return readCursorChatMetaIndex(chatsRoot)
+    return readCursorChatMetaIndexOrNone(chatsRoot)
   }
-  let pending = scan.get(chatsRoot)
+  let pending = scan.index.get(chatsRoot)
   if (!pending) {
-    pending = readCursorChatMetaIndex(chatsRoot)
-    scan.set(chatsRoot, pending)
+    pending = readCursorChatMetaIndexOrNone(chatsRoot)
+    scan.index.set(chatsRoot, pending)
   }
   return pending
+}
+
+/**
+ * A refused WSL read is not "no chats", but it must not take the transcript
+ * down with it: before this join a stalled distro could not hide a Cursor
+ * session at all. Degrade to no metadata for the scan and report the root once.
+ * The cache stays honest without the throw, because discovery then stats no
+ * meta.json, so the entry's recorded size omits it and the next healthy scan
+ * sees a changed file and re-reads it.
+ */
+async function readCursorChatMetaIndexOrNone(chatsRoot: string): Promise<Map<string, string>> {
+  try {
+    return await readCursorChatMetaIndex(chatsRoot)
+  } catch (error) {
+    if (!(error instanceof WslTranscriptFsError)) {
+      throw error
+    }
+    recordCursorChatMetaRefusal(chatsRoot, error.message)
+    return new Map()
+  }
+}
+
+function recordCursorChatMetaRefusal(chatsRoot: string, message: string): void {
+  const scan = scanScopedIndex.getStore()
+  if (scan && !scan.refusals.has(chatsRoot)) {
+    scan.refusals.set(chatsRoot, message)
+  }
 }
 
 export async function readCursorChatMeta(transcriptPath: string): Promise<CursorChatMeta | null> {
@@ -73,7 +115,20 @@ export async function readCursorChatMeta(transcriptPath: string): Promise<Cursor
   if (!metaPath) {
     return null
   }
-  const record = await readJsonObjectIfExists(metaPath)
+  let record: Record<string, unknown> | null
+  try {
+    record = await readJsonObjectIfExists(metaPath)
+  } catch (error) {
+    if (!(error instanceof WslTranscriptFsError)) {
+      throw error
+    }
+    // Same trade as the index read: enrichment never costs the session itself.
+    recordCursorChatMetaRefusal(
+      cursorChatsRootFromTranscriptPath(transcriptPath) ?? metaPath,
+      error.message
+    )
+    return null
+  }
   if (!record) {
     return null
   }

@@ -29,24 +29,30 @@ export async function parseDevinSessionFile(
   platform: NodeJS.Platform = process.platform,
   messages?: TranscriptMessageSink
 ): Promise<AiVaultSession | null> {
-  return parseDevinSessionContent(
+  return parseDevinSessionRecord(
     file,
     await wslGatedReadFile(file.path, 'utf-8', 'scan'),
     platform,
     {},
-    undefined,
     messages
   )
 }
 
-/** Remote content parses have no reader attached; the sink stays undefined. */
-
+/** Remote transcript content, streamed from a host that has no reader attached. */
 export function parseDevinSessionContent(
   file: FileWithMtime,
   content: string,
   platform: NodeJS.Platform = process.platform,
-  options: ParserSessionOptions = {},
-  _signal?: AbortSignal,
+  options: ParserSessionOptions = {}
+): AiVaultSession | null {
+  return parseDevinSessionRecord(file, content, platform, options)
+}
+
+function parseDevinSessionRecord(
+  file: FileWithMtime,
+  content: string,
+  platform: NodeJS.Platform,
+  options: ParserSessionOptions,
   messages?: TranscriptMessageSink
 ): AiVaultSession | null {
   const record = asRecord(JSON.parse(content) as unknown)

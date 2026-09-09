@@ -6,6 +6,7 @@ import { WslTranscriptFsError } from '../native-chat/wsl-transcript-fs-error'
 
 // Why: a refused WSL read is the one build failure that must not be cached.
 let failNextChatsReaddir = false
+let failNextChatsRootReaddir = false
 let chatsRootReads = 0
 vi.mock('../native-chat/wsl-transcript-fs-access', async (importOriginal) => {
   const actual = await importOriginal<typeof WslTranscriptFsAccess>()
@@ -16,6 +17,10 @@ vi.mock('../native-chat/wsl-transcript-fs-access', async (importOriginal) => {
     ): ReturnType<typeof actual.wslGatedReaddir> => {
       if (args[0].endsWith('chats')) {
         chatsRootReads += 1
+        if (failNextChatsRootReaddir) {
+          failNextChatsRootReaddir = false
+          return Promise.reject(new WslTranscriptFsError('timeout', 'wsl fs timed out'))
+        }
       }
       if (failNextChatsReaddir && args[0].includes('workspace-hash')) {
         failNextChatsReaddir = false
@@ -40,6 +45,9 @@ import {
 import type { AiVaultScanIssue } from '../../shared/ai-vault-types'
 import { AI_VAULT_AGENT_SOURCES } from './session-scanner-agent-sources'
 import { discoverFiles } from './session-scanner-discovery'
+import { scanAiVaultSessions } from './session-scanner'
+import { resetSessionParseCacheForTests } from './session-scanner-parse-cache'
+import { isolatedScanRoots } from './session-scanner-test-fixtures'
 import type { FileWithMtime, SessionFileDiscovery } from './session-scanner-types'
 
 // Cursor's real meta.json keys (~/.cursor/chats/<md5 of cwd>/<uuid>/meta.json, 2026-09).
@@ -59,6 +67,8 @@ let tempRoots: string[] = []
 
 afterEach(async () => {
   resetCursorChatMetaIndexCacheForTests()
+  resetSessionParseCacheForTests()
+  failNextChatsRootReaddir = false
   await Promise.all(tempRoots.map((root) => rm(root, { recursive: true, force: true })))
   tempRoots = []
 })
@@ -147,7 +157,8 @@ describe('cursor chat meta', () => {
     const transcriptPath = await writeTranscript(cursorHome, 'slug', 'chat-refused', [])
 
     failNextChatsReaddir = true
-    await expect(cursorChatMetaPath(transcriptPath)).rejects.toBeInstanceOf(WslTranscriptFsError)
+    // A refusal degrades to "no metadata" rather than taking the session down.
+    await expect(cursorChatMetaPath(transcriptPath)).resolves.toBeUndefined()
     // The next scan rebuilds instead of replaying the rejected promise.
     await expect(cursorChatMetaPath(transcriptPath)).resolves.toBe(metaPath)
   })
@@ -296,5 +307,64 @@ describe('cursor parser chat meta fallback', () => {
     expect(first?.cwd).toBe('/private/tmp/workspace')
     expect(second?.title).toBe('Resumed Meta')
     expect(second?.messageCount).toBe(2)
+  })
+})
+
+describe('cursor chat meta scan failures', () => {
+  async function writeCursorScanFixture(chatIds: string[]): Promise<{
+    cursorHome: string
+    scanOptions: ReturnType<typeof isolatedScanRoots> & { cursorProjectsDir: string }
+  }> {
+    const cursorHome = await createCursorHome()
+    for (const chatId of chatIds) {
+      await writeChatMeta(cursorHome, 'workspace-hash', chatId, { cwd: `/tmp/ws-${chatId}` })
+      await writeTranscript(cursorHome, 'slug', chatId, [
+        JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: chatId }] } })
+      ])
+    }
+    const root = join(cursorHome, '..')
+    return {
+      cursorHome,
+      scanOptions: {
+        ...isolatedScanRoots(root),
+        cursorProjectsDir: join(cursorHome, 'projects')
+      }
+    }
+  }
+
+  it('lists cursor sessions without metadata when the chats tree is refused, then heals', async () => {
+    const { cursorHome, scanOptions } = await writeCursorScanFixture(['chat-a', 'chat-b'])
+    resetSessionParseCacheForTests()
+
+    failNextChatsRootReaddir = true
+    const refused = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
+    const refusedCursor = refused.sessions.filter((session) => session.agent === 'cursor')
+    expect(refusedCursor).toHaveLength(2)
+    expect(refusedCursor.map((session) => session.cwd)).toEqual([null, null])
+    // One issue for the chats root, not one per transcript.
+    expect(refused.issues).toHaveLength(1)
+    expect(refused.issues[0].path).toBe(join(cursorHome, 'chats'))
+    expect(refused.issues[0].agent).toBe('cursor')
+
+    // The refused scan must not leave a metadata-less entry that looks unchanged.
+    const healed = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
+    expect(healed.issues).toEqual([])
+    expect(
+      healed.sessions
+        .filter((session) => session.agent === 'cursor')
+        .map((session) => session.cwd)
+        .sort()
+    ).toEqual(['/tmp/ws-chat-a', '/tmp/ws-chat-b'])
+  })
+
+  it('reads the chats root once per scan across discovery and parse', async () => {
+    const { scanOptions } = await writeCursorScanFixture(['chat-a', 'chat-b', 'chat-c'])
+    resetSessionParseCacheForTests()
+    chatsRootReads = 0
+
+    const result = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
+
+    expect(result.sessions.filter((session) => session.agent === 'cursor')).toHaveLength(3)
+    expect(chatsRootReads).toBe(1)
   })
 })
