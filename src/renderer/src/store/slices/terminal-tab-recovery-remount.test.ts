@@ -61,3 +61,45 @@ describe('remountTerminalTabForRecovery', () => {
     expect(store.getState().remountTerminalTabForRecovery('missing-tab')).toBe(false)
   })
 })
+
+// Crash b5cfc6ca: recovery released its per-tab remount budget from getTab, which
+// reads unifiedTabsByWorktree. That index can drop a tab this one still holds, and
+// the release then erased the budget each remount had just consumed.
+describe('hasTerminalTabForRecovery', () => {
+  it('answers true for a tab remountTerminalTabForRecovery can still remount', () => {
+    const store = createTestStore()
+    const tabId = seedWorktreeWithTab(store)
+
+    expect(store.getState().hasTerminalTabForRecovery(tabId)).toBe(true)
+    expect(store.getState().remountTerminalTabForRecovery(tabId)).toBe(true)
+  })
+
+  it('stays true when the tab is missing from the unified tab index', () => {
+    const store = createTestStore()
+    const tabId = seedWorktreeWithTab(store)
+    store.setState({ unifiedTabsByWorktree: {} })
+
+    expect(store.getState().getTab(tabId)).toBeNull()
+    expect(store.getState().hasTerminalTabForRecovery(tabId)).toBe(true)
+  })
+
+  it('answers false once the tab leaves the remount index', () => {
+    const store = createTestStore()
+    const tabId = seedWorktreeWithTab(store)
+    store.setState({ tabsByWorktree: { [WORKTREE_ID]: [] } })
+
+    expect(store.getState().hasTerminalTabForRecovery(tabId)).toBe(false)
+    expect(store.getState().remountTerminalTabForRecovery(tabId)).toBe(false)
+  })
+
+  // The budget release still has to fire for a real close, or a closed tab's
+  // timestamps and pending retry outlive it.
+  it('answers false after a genuine closeTab', () => {
+    const store = createTestStore()
+    const tabId = seedWorktreeWithTab(store)
+
+    store.getState().closeTab(tabId)
+
+    expect(store.getState().hasTerminalTabForRecovery(tabId)).toBe(false)
+  })
+})

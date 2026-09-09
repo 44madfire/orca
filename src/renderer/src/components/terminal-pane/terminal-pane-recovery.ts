@@ -140,8 +140,12 @@ export function registerTerminalPaneRecoveryInstance(tabId: string): {
       if (pendingRetry?.requestsByInstanceId.size === 0) {
         cancelPendingRecoveryRetry(tabId)
       }
-      const getTab = useAppStore.getState().getTab
-      if (getTab && !getTab(tabId)) {
+      // Read the SAME index remountTerminalTabForRecovery mutates. getTab answers
+      // from unifiedTabsByWorktree, which several slices let drift out of sync with
+      // tabsByWorktree; on the direct-SSH path that drift made every remount erase
+      // the budget it had just consumed, so the cap never held (crash b5cfc6ca).
+      const hasTerminalTab = useAppStore.getState().hasTerminalTabForRecovery
+      if (hasTerminalTab && !hasTerminalTab(tabId)) {
         recoveryTimestampsByTabId.delete(tabId)
         recoveryGenerationByTabId.delete(tabId)
         cancelPendingRecoveryRetry(tabId)

@@ -10,6 +10,7 @@ import { isTerminalInputQuarantined } from './terminal-input-quarantine'
 const mocks = vi.hoisted(() => ({
   remountTerminalTabForRecovery: vi.fn<(tabId: string) => boolean>(() => true),
   getTab: vi.fn<() => { viewMode?: 'terminal' | 'chat' } | null>(() => ({})),
+  hasTerminalTabForRecovery: vi.fn<(tabId: string) => boolean>(() => true),
   recordRendererCrashBreadcrumb: vi.fn(),
   hasPty: vi.fn<(id: string) => Promise<boolean | null>>(async () => true)
 }))
@@ -18,7 +19,8 @@ vi.mock('@/store', () => ({
   useAppStore: {
     getState: () => ({
       remountTerminalTabForRecovery: mocks.remountTerminalTabForRecovery,
-      getTab: mocks.getTab
+      getTab: mocks.getTab,
+      hasTerminalTabForRecovery: mocks.hasTerminalTabForRecovery
     })
   }
 }))
@@ -33,6 +35,8 @@ beforeEach(() => {
   mocks.remountTerminalTabForRecovery.mockReturnValue(true)
   mocks.getTab.mockClear()
   mocks.getTab.mockReturnValue({})
+  mocks.hasTerminalTabForRecovery.mockClear()
+  mocks.hasTerminalTabForRecovery.mockReturnValue(true)
   mocks.recordRendererCrashBreadcrumb.mockClear()
   mocks.hasPty.mockClear()
   mocks.hasPty.mockResolvedValue(true)
@@ -164,11 +168,13 @@ describe('requestTerminalPaneRecovery', () => {
     expect(mocks.remountTerminalTabForRecovery).toHaveBeenCalledTimes(3)
     expect(vi.getTimerCount()).toBe(1)
 
+    mocks.hasTerminalTabForRecovery.mockReturnValue(false)
     mocks.getTab.mockReturnValue(null)
     instance.unregister()
 
     expect(captureTerminalPaneRecoveryGeneration('tab-1')).toBe(0)
     expect(vi.getTimerCount()).toBe(0)
+    mocks.hasTerminalTabForRecovery.mockReturnValue(true)
     mocks.getTab.mockReturnValue({})
     expect(
       await requestTerminalPaneRecovery({
@@ -655,6 +661,70 @@ describe('requestTerminalPaneRecovery', () => {
 
       expect(result).toBe(false)
       expect(isTerminalInputQuarantined('tab-gone')).toBe(false)
+    })
+  })
+
+  // Crash b5cfc6ca (1.4.198, Windows): 8878 'terminal_pane_recovery_remount'
+  // breadcrumbs, every one reason='reattach-unverifiable', across 8 tabs in
+  // 122.4s (median gap 10ms) — ~1110 per tab against a cap of 3 per 5min. The
+  // renderer then died allocating a 512x512 SkBitmap. Only one line outside the
+  // test reset clears recoveryTimestampsByTabId: the unregister() branch that
+  // fires when getTab() cannot see the tab. getTab reads unifiedTabsByWorktree
+  // while remountTerminalTabForRecovery reads and bumps tabsByWorktree, so a tab
+  // present in one index and absent from the other remounts and then erases the
+  // budget that remount just consumed.
+  describe('unverifiable reattach remount storm (crash b5cfc6ca)', () => {
+    const RECOVERIES_PER_WINDOW_CAP = 3
+    const STORM_CYCLES = 200
+    const OBSERVED_MEDIAN_GAP_MS = 10
+
+    // One production reattach cycle: connect-pane-pty captures the epoch and
+    // registers the xterm, the reattach answers unverifiable
+    // (recoverUnverifiableDirectSshReattach), and the remount disposes that
+    // xterm — session-reconcile-dispose unregisters the instance.
+    async function driveUnverifiableReattachCycle(tabId: string): Promise<void> {
+      const terminalRecoveryGeneration = captureTerminalPaneRecoveryGeneration(tabId)
+      const instance = registerTerminalPaneRecoveryInstance(tabId)
+      await requestTerminalPaneRecovery({
+        tabId,
+        ptyId: 'ssh:target@@pty-1',
+        reason: 'reattach-unverifiable',
+        terminalRecoveryGeneration,
+        terminalRecoveryInstanceId: instance.id
+      })
+      instance.unregister()
+    }
+
+    async function driveStorm(tabId: string): Promise<void> {
+      for (let cycle = 0; cycle < STORM_CYCLES; cycle += 1) {
+        vi.setSystemTime(cycle * OBSERVED_MEDIAN_GAP_MS)
+        await driveUnverifiableReattachCycle(tabId)
+      }
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(0)
+    })
+
+    it('caps remounts while the tab stays visible to getTab', async () => {
+      await driveStorm('tab-ssh')
+
+      expect(mocks.remountTerminalTabForRecovery.mock.calls.length).toBeLessThanOrEqual(
+        RECOVERIES_PER_WINDOW_CAP
+      )
+    })
+
+    it('caps remounts when the remounted tab is invisible to getTab', async () => {
+      // remountTerminalTabForRecovery still succeeds — the tab is in
+      // tabsByWorktree, which is what the 8878 remount breadcrumbs prove.
+      mocks.getTab.mockReturnValue(null)
+
+      await driveStorm('tab-ssh')
+
+      expect(mocks.remountTerminalTabForRecovery.mock.calls.length).toBeLessThanOrEqual(
+        RECOVERIES_PER_WINDOW_CAP
+      )
     })
   })
 })
