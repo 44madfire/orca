@@ -10,18 +10,43 @@
 // inside the session's journal directory, so removing a session removes its
 // payloads with it and nothing has to reference-count them.
 //
+// The staging-then-rename write and the sha256-named sidecar mirror
+// `terminal-scrollback-snapshots.ts`, which stores oversized terminal buffers the
+// same way. It bounds each snapshot individually rather than holding a directory
+// to a quota, so the eviction below has no counterpart there.
+//
 // Retention is best effort BY DESIGN. A failed write leaves the row exactly as
 // it is bounded today and never worse, because refusing the append instead would
 // turn a full disk into a lost turn.
+//
+// Every call is synchronous because it runs on the main process's append path,
+// between translating a provider frame and queueing the row. That is affordable
+// only because the directory is never rescanned per write: `directoryBytes`
+// caches the running total, so the steady state is one write plus one fsync.
+// In-flight stream checkpoints deliberately do not retain (see
+// `codex-structured-item-streams.ts`) — retaining a growing payload at every
+// checkpoint would write the sum of its prefixes.
 
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
-import { closeSync, fsyncSync, openSync, readFileSync, writeSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeSync
+} from 'node:fs'
 import { join } from 'node:path'
 
 const OVERFLOW_DIR_NAME = 'overflow'
 
-/** Per-session budget for retained remainders. Oldest are evicted first; the
- *  rows keep their head, byte length and digest either way. */
+/** Per-session budget for retained remainders. Least recently used are evicted
+ *  first; the rows keep their head, byte length and digest either way. */
 export const JOURNAL_OVERFLOW_QUOTA_BYTES = 64 * 1024 * 1024
 
 /** Where the remainder of a bounded payload goes. `retain` answers whether the
@@ -30,10 +55,15 @@ export type JournalOverflowSink = {
   retain: (digest: string, payload: string) => boolean
 }
 
-/** For bounds applied to derived identifiers — a prompt option id, a turn
- *  ordinal map, an image reference — where the clipped tail is a key fragment
- *  and not user data. Named so the choice is visible at the call site. */
+/** For bounds whose clipped tail is not the last copy of anything: a derived key
+ *  (a prompt option id, a turn ordinal), or an in-flight checkpoint whose text a
+ *  later terminal row retains in full. Named so the choice is visible. */
 export const JOURNAL_OVERFLOW_NOT_RETAINED: JournalOverflowSink = { retain: () => false }
+
+/** Retained bytes per overflow directory, so a write never rescans it. Rebuilt
+ *  by one sweep when the total says the budget may be exceeded, then tracked
+ *  through writes and evictions. */
+const directoryBytes = new Map<string, number>()
 
 export function journalOverflowDirectory(journalDir: string): string {
   return join(journalDir, OVERFLOW_DIR_NAME)
@@ -51,6 +81,12 @@ export function readJournalOverflow(journalDir: string, digest: string): string 
   } catch {
     return null
   }
+}
+
+/** Drops the cached total for a directory. Tests reusing a path need this;
+ *  production directories are per session and are never reused. */
+export function forgetJournalOverflowDirectory(journalDir: string): void {
+  directoryBytes.delete(journalOverflowDirectory(journalDir))
 }
 
 export function journalOverflowSink(
@@ -74,18 +110,33 @@ function retainJournalOverflow(
   if (bytes.byteLength > quotaBytes) {
     return false
   }
+  const directory = journalOverflowDirectory(journalDir)
   const file = journalOverflowFile(journalDir, digest)
   try {
     if (existsSync(file)) {
+      // Touch it so eviction order is last use, not first write: a payload
+      // republished across revisions is the one most worth keeping.
+      touchQuietly(file)
       return true
     }
-    const directory = journalOverflowDirectory(journalDir)
     mkdirSync(directory, { recursive: true })
     evictJournalOverflow(directory, quotaBytes - bytes.byteLength)
     writeOverflowFile(directory, file, digest, bytes)
+    directoryBytes.set(directory, (directoryBytes.get(directory) ?? 0) + bytes.byteLength)
     return true
   } catch {
+    // The cached total may now describe a directory this write did not change.
+    directoryBytes.delete(directory)
     return false
+  }
+}
+
+function touchQuietly(file: string): void {
+  try {
+    const now = new Date()
+    utimesSync(file, now, now)
+  } catch {
+    // Eviction order is a preference, not a correctness property.
   }
 }
 
@@ -108,31 +159,23 @@ function writeOverflowFile(directory: string, file: string, digest: string, byte
   }
 }
 
-/** Oldest-first, down to `budget`. Retained payloads are recoverable evidence,
- *  not the timeline: shedding the oldest is how the sidecar stays bounded. */
+/** Least-recently-used first, down to `budget`. Retained payloads are recoverable
+ *  evidence, not the timeline: shedding the coldest is how the sidecar stays
+ *  bounded. Reads the directory only when the cached total says it must. */
 function evictJournalOverflow(directory: string, budget: number): void {
-  const entries: { path: string; bytes: number; modifiedAt: number }[] = []
-  let total = 0
-  for (const name of readdirSync(directory)) {
-    const path = join(directory, name)
-    try {
-      const stats = statSync(path)
-      if (!stats.isFile()) {
-        continue
-      }
-      entries.push({ path, bytes: stats.size, modifiedAt: stats.mtimeMs })
-      total += stats.size
-    } catch {
-      // Raced with another eviction; it is already gone.
-    }
+  if ((directoryBytes.get(directory) ?? Number.POSITIVE_INFINITY) <= budget) {
+    return
   }
+  const entries = sweepJournalOverflow(directory)
+  let total = entries.reduce((sum, entry) => sum + entry.bytes, 0)
   if (total <= budget) {
+    directoryBytes.set(directory, total)
     return
   }
   entries.sort((a, b) => a.modifiedAt - b.modifiedAt)
   for (const entry of entries) {
     if (total <= budget) {
-      return
+      break
     }
     try {
       rmSync(entry.path, { force: true })
@@ -141,4 +184,23 @@ function evictJournalOverflow(directory: string, budget: number): void {
       // Left in place; the next retention pass tries again.
     }
   }
+  directoryBytes.set(directory, total)
+}
+
+function sweepJournalOverflow(
+  directory: string
+): { path: string; bytes: number; modifiedAt: number }[] {
+  const entries: { path: string; bytes: number; modifiedAt: number }[] = []
+  for (const name of readdirSync(directory)) {
+    const path = join(directory, name)
+    try {
+      const stats = statSync(path)
+      if (stats.isFile()) {
+        entries.push({ path, bytes: stats.size, modifiedAt: stats.mtimeMs })
+      }
+    } catch {
+      // Raced with another eviction; it is already gone.
+    }
+  }
+  return entries
 }

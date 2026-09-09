@@ -32,7 +32,9 @@ export type StructuredAgentSessionDrainWaiter = {
 export class StructuredAgentSessionSinkQueue {
   private readingControl: StructuredAgentSessionReadingControl | undefined
   private target: StructuredAgentSessionEventTarget | null = null
-  private limits: JournalPayloadLimits | null = null
+  /** Survives `unbind`: see `payloadLimits`. */
+  private journalDir: string | null = null
+  private limits: { journalDir: string; value: JournalPayloadLimits } | null = null
   private closed = false
   private failure: { error: unknown } | null = null
   private running = false
@@ -55,6 +57,10 @@ export class StructuredAgentSessionSinkQueue {
         backpressured: boolean,
         state: StructuredAgentSessionSinkState
       ) => void
+      /** The session's journal directory, resolvable before the first bind.
+       *  Only a fallback: a bound target names the journal that is actually
+       *  open, which a recovery attach can move. */
+      journalDirectory?: () => string | null
     }
   ) {
     this.readingControl = deps.readingControl
@@ -82,26 +88,40 @@ export class StructuredAgentSessionSinkQueue {
   bind(target: StructuredAgentSessionEventTarget): void {
     if (!this.closed) {
       this.target = target
-      this.limits = null
+      this.journalDir = target.journal.directory
       this.pump()
     }
   }
 
+  /**
+   * Detaches the publish target. `journalDir` deliberately stays: an operation
+   * queued while unbound is still destined for this session's journal, and a
+   * handoff unbinds around `acquire` while the provider child is already
+   * emitting.
+   */
   unbind(): void {
     this.target = null
-    this.limits = null
   }
 
-  /** The row budget for the bound journal, so a clipped payload's remainder is
-   *  retained beside that journal rather than dropped. Unretained while nothing
-   *  is bound: there is no session directory to retain into yet. */
+  /**
+   * The row budget, which retains what it clips beside the session's journal.
+   *
+   * Never keyed on the publish binding. A payload is bounded when its frame is
+   * handled but journaled when the queue drains, so reading `target` here would
+   * decide "retain or discard" from whether a rebind happened to have completed
+   * — and a native handoff unbinds across the whole acquire. The directory is a
+   * property of the session, so it outlives every unbind.
+   */
   payloadLimits = (): JournalPayloadLimits => {
-    const journalDir = this.target?.journal.directory
+    const journalDir =
+      this.target?.journal.directory ?? this.journalDir ?? this.deps.journalDirectory?.() ?? null
     if (!journalDir) {
       return UNRETAINED_JOURNAL_PAYLOAD_LIMITS
     }
-    this.limits ??= journalPayloadLimits(journalOverflowSink(journalDir))
-    return this.limits
+    if (this.limits?.journalDir !== journalDir) {
+      this.limits = { journalDir, value: journalPayloadLimits(journalOverflowSink(journalDir)) }
+    }
+    return this.limits.value
   }
 
   close(): void {

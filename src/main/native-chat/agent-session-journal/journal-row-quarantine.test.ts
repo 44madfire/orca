@@ -5,7 +5,7 @@
 // provider transcript can rebuild. These assert the copy exists, byte for byte,
 // and that a repair which cannot write one does not delete anything.
 
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
@@ -112,7 +112,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await journals.closeAll()
-  await chmod(journalQuarantineDirectory(root), 0o755).catch(() => undefined)
   await rm(root, { recursive: true, force: true })
 })
 
@@ -139,9 +138,9 @@ it('quarantines the rejected row and every valid row behind it, byte for byte', 
 it('drops nothing and latches read-only when the copy cannot be written', async () => {
   await seedCorruptedJournal()
   const before = await withJournalDatabase(storedRows)
-  // A directory the store cannot create its file in.
-  await mkdir(journalQuarantineDirectory(root), { recursive: true })
-  await chmod(journalQuarantineDirectory(root), 0o500)
+  // A plain file where the quarantine directory has to go, so `mkdir` fails.
+  // Chosen over a permission bit because that would be a no-op on Windows.
+  await writeFile(journalQuarantineDirectory(root), 'not a directory')
 
   const reopened = await open()
 

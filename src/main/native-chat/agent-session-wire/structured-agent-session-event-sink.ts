@@ -130,6 +130,9 @@ export function createDeferredStructuredAgentSessionEventSink(
     watermarks?: Partial<StructuredAgentSessionSinkWatermarks>
     readingControl?: StructuredAgentSessionReadingControl
     onBackpressureChange?: (backpressured: boolean, state: StructuredAgentSessionSinkState) => void
+    /** This session's journal directory, so a payload bounded before the first
+     *  bind still retains what it clips. */
+    journalDirectory?: () => string | null
   } = {}
 ): DeferredStructuredAgentSessionEventSink {
   const watermarks = { ...DEFAULT_WATERMARKS, ...deps.watermarks }
@@ -137,7 +140,8 @@ export function createDeferredStructuredAgentSessionEventSink(
     watermarks,
     ...(deps.onError ? { onError: deps.onError } : {}),
     ...(deps.readingControl ? { readingControl: deps.readingControl } : {}),
-    ...(deps.onBackpressureChange ? { onBackpressureChange: deps.onBackpressureChange } : {})
+    ...(deps.onBackpressureChange ? { onBackpressureChange: deps.onBackpressureChange } : {}),
+    ...(deps.journalDirectory ? { journalDirectory: deps.journalDirectory } : {})
   })
 
   const appendLifecycleBatch = (

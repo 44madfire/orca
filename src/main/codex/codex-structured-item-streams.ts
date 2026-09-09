@@ -1,5 +1,5 @@
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
-import { structuredAgentSessionPayloadLimits } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
+import { UNRETAINED_JOURNAL_PAYLOAD_LIMITS } from '../native-chat/agent-session-journal/journal-payload-bounds'
 import { createAgentSessionDeltaCoalescer } from '../native-chat/agent-session-wire/agent-session-delta-coalescer'
 import { CodexItemStreamRetention } from './codex-item-stream-retention'
 import {
@@ -100,8 +100,16 @@ export function createCodexStructuredItemStreams(
   }
 
   const append = (state: CodexItemStreamState, text: string): boolean => {
-    const limits = structuredAgentSessionPayloadLimits(deps.sink)
-    const translated = codexStreamingJournalItem(state.item, text, limits)
+    // An in-flight checkpoint retains nothing. Its text is a PREFIX of the text
+    // the completed item — or, on an interrupt, the settlement row — carries,
+    // and that one does retain. Retaining here instead would rewrite the whole
+    // prefix under a fresh digest at every checkpoint, so one long answer costs
+    // the sum of its prefixes, and the row may then be coalesced away or refused.
+    const translated = codexStreamingJournalItem(
+      state.item,
+      text,
+      UNRETAINED_JOURNAL_PAYLOAD_LIMITS
+    )
     if (!translated.body) {
       return true
     }
@@ -239,8 +247,9 @@ export function createCodexStructuredItemStreams(
           return { handled: true, admission: { accepted: false, reason: 'failed' } }
         }
         state.item = { ...state.item, changes: paramsRecord.changes }
-        const limits = structuredAgentSessionPayloadLimits(deps.sink)
-        const translated = codexJournalItem(state.item, limits)
+        // Pending patches replace one another before they flush, so this body is
+        // provisional in the same way a checkpoint is; the completed item retains.
+        const translated = codexJournalItem(state.item, UNRETAINED_JOURNAL_PAYLOAD_LIMITS)
         if (translated.body) {
           const nextPending: CodexPendingItemPatch = {
             identity: state.identity,
