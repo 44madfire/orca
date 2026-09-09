@@ -8,7 +8,7 @@ import {
   isSubagentGroupFallbackText,
   subagentGroupBlocks
 } from '../../../../shared/native-chat-subagent-summary'
-import { isSubagentGroupBlock, type NativeChatMessage } from '../../../../shared/native-chat-types'
+import { isSubagentGroupBlock, type NativeChatMessage, type NativeChatToolCallBlock } from '../../../../shared/native-chat-types'
 import { splitNativeChatBlocks } from './native-chat-tool-fold'
 import { NativeChatToolRun } from './NativeChatToolRun'
 import { NativeChatMessageTimestamp } from './NativeChatMessageTimestamp'
@@ -27,6 +27,8 @@ import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
  *  keep their block identity, so only the changed row re-renders. */
 export const MessageRow = memo(function MessageRow({
   message,
+  previousTodoWrite,
+  previousUpdatePlan,
   expandSignal,
   activeTurnIsWorking,
   onScrollMessageToTop,
@@ -38,6 +40,8 @@ export const MessageRow = memo(function MessageRow({
   runtimeContext
 }: {
   message: NativeChatMessage
+  previousTodoWrite?: NativeChatToolCallBlock
+  previousUpdatePlan?: NativeChatToolCallBlock
   expandSignal: boolean
   activeTurnIsWorking?: boolean
   /** Align this message's top to the top of the scroll viewport. */
@@ -180,6 +184,8 @@ export const MessageRow = memo(function MessageRow({
       {tools.length > 0 || subagentGroups.length > 0 ? (
         <NativeChatToolRun
           blocks={tools}
+          previousTodoWrite={previousTodoWrite}
+          previousUpdatePlan={previousUpdatePlan}
           onLinkClick={onLinkClick}
           subagentGroups={subagentGroups}
           expandSignal={expandSignal}

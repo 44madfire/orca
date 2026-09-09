@@ -22,14 +22,11 @@ const current: TaskList = {
 }
 
 describe('NativeChatTaskList', () => {
-  it('starts as quiet chrome and reveals tri-state tasks on demand', () => {
+  it('shows tri-state glyphs, progress, and activeForm in the first checklist', () => {
     const { container } = render(<NativeChatTaskList list={current} />)
-    const toggle = screen.getByRole('button', { name: 'Tasks 1 of 3 tasks completed' })
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByText('Test')).toBeNull()
-    fireEvent.click(toggle)
     expect(screen.getByText('Read')).toHaveClass('line-through')
     expect(screen.getByText('Writing').closest('li')).toHaveClass('text-foreground')
+    expect(screen.getByText('Test')).toBeInTheDocument()
     expect(screen.getByLabelText('1 of 3 tasks completed')).toHaveTextContent('1/3')
     for (const glyph of ['circle', 'circle-dot', 'circle-check']) {
       expect(container.querySelector(`.lucide-${glyph}`)).not.toBeNull()
@@ -37,18 +34,42 @@ describe('NativeChatTaskList', () => {
     expect(screen.getByText('In progress:')).toHaveClass('sr-only')
   })
 
-  it('updates the same expanded list without appending a change feed', () => {
-    const { rerender } = render(<NativeChatTaskList list={previous} />)
-    const toggle = screen.getByRole('button', { name: 'Tasks 0 of 3 tasks completed' })
-    fireEvent.click(toggle)
-    rerender(<NativeChatTaskList list={{ ...current, explanation: 'Continuing verification' }} />)
-    expect(screen.getByRole('button', { name: 'Tasks 1 of 3 tasks completed' })).toBe(toggle)
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getAllByRole('list')).toHaveLength(1)
-    expect(screen.getByText('Read')).toHaveClass('line-through')
+  it('leads with the diff and expands the complete checklist on demand', () => {
+    render(<NativeChatTaskList list={current} previous={previous} />)
+    expect(screen.getByText('Completed Read')).toBeInTheDocument()
+    expect(screen.getByText('Started Write')).toBeInTheDocument()
+    expect(screen.queryByText('Test')).toBeNull()
+    const disclosure = screen.getByRole('button', { name: 'Full task list' })
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(disclosure)
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Writing')).toBeInTheDocument()
-    expect(screen.queryByText('Completed Read')).toBeNull()
-    expect(screen.queryByText('Started Write')).toBeNull()
+    expect(screen.getByText('Test')).toBeInTheDocument()
+  })
+
+  it('shows unchanged feedback and the current explanation', () => {
+    render(
+      <NativeChatTaskList
+        list={{ ...current, explanation: 'Continuing verification' }}
+        previous={current}
+      />
+    )
+    expect(screen.getByText('Tasks unchanged')).toBeInTheDocument()
     expect(screen.getByText('Continuing verification')).toBeInTheDocument()
+    expect(screen.queryByText('Test')).toBeNull()
+  })
+
+  it('renders empty lists without claiming any task completed', () => {
+    render(<NativeChatTaskList list={{ tasks: [] }} />)
+    expect(screen.getByText('No tasks')).toBeInTheDocument()
+    expect(screen.getByLabelText('0 of 0 tasks completed')).toHaveTextContent('0/0')
+  })
+
+  it('switches from full list to diff when earlier history supplies a predecessor', () => {
+    const { rerender } = render(<NativeChatTaskList list={current} />)
+    expect(screen.getByText('Test')).toBeInTheDocument()
+    rerender(<NativeChatTaskList list={current} previous={previous} />)
+    expect(screen.queryByText('Test')).toBeNull()
+    expect(screen.getByText('Started Write')).toBeInTheDocument()
   })
 })

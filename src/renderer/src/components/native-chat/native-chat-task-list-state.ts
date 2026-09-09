@@ -52,13 +52,9 @@ export function nativeChatTaskListState(messages: readonly NativeChatMessage[]):
   list: NativeChatTaskList | null
 } {
   let list: NativeChatTaskList | null = null
-  const transcript: NativeChatMessage[] = []
   for (const message of messages) {
     const projection = projectMessage(message)
-    if (projection.list) {
-      list = projection.list
-    }
-    transcript.push(projection.message)
+    if (projection.list) list = projection.list
   }
-  return { messages: transcript, list }
+  return { messages: [...messages], list }
 }
