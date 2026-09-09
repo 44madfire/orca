@@ -5,6 +5,10 @@
  * has to be a workspace-root containment check rather than a scheme ban. "Paired" is every
  * authenticated paired socket — phone, web client, remote desktop, remote CLI — not just mobile.
  */
+import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises'
+import { pathToFileURL } from 'node:url'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
 import { OrcaRuntimeService } from './orca-runtime'
@@ -36,8 +40,11 @@ vi.mock('../browser/browser-session-registry', () => ({
   browserSessionRegistry: browserSessionRegistryMock
 }))
 
-const WORKTREE_PATH = '/tmp/worktree-a'
-const WT = `repo-1::${WORKTREE_PATH}`
+// Real directories: the confinement resolves both sides with realpath, so a fake path is refused.
+let WORKTREE_PATH = ''
+let WT = ''
+let ARTIFACT_URL = ''
+let OUTSIDE_SECRET_URL = ''
 
 const storeBase = {
   getRepo: () => ({
@@ -123,6 +130,15 @@ function create(
 
 describe('browser.tabCreate file: URLs from a paired client', () => {
   beforeAll(async () => {
+    const base = await realpath(await mkdtemp(path.join(tmpdir(), 'orca-tab-create-')))
+    WORKTREE_PATH = path.join(base, 'worktree-a')
+    WT = `repo-1::${WORKTREE_PATH}`
+    await mkdir(path.join(WORKTREE_PATH, 'build'), { recursive: true })
+    await mkdir(path.join(base, 'secrets'), { recursive: true })
+    await writeFile(path.join(WORKTREE_PATH, 'build', 'report.html'), '<h1>artifact</h1>')
+    await writeFile(path.join(base, 'secrets', 'id_rsa'), 'secret')
+    ARTIFACT_URL = pathToFileURL(path.join(WORKTREE_PATH, 'build', 'report.html')).toString()
+    OUTSIDE_SECRET_URL = pathToFileURL(path.join(base, 'secrets', 'id_rsa')).toString()
     const { RuntimeBrowserCommands } = await import('./orca-runtime-browser')
     setRuntimeBrowserCommandsFactory((host) => new RuntimeBrowserCommands(host))
     return () => setRuntimeBrowserCommandsFactory(null)
@@ -139,7 +155,7 @@ describe('browser.tabCreate file: URLs from a paired client', () => {
       path: WORKTREE_PATH
     })
     await expect(
-      create(runtime, 'file:///tmp/secrets/id_rsa', {
+      create(runtime, OUTSIDE_SECRET_URL, {
         pairedDeviceId: 'device-1',
         clientKind: 'mobile'
       })
@@ -184,7 +200,7 @@ describe('browser.tabCreate file: URLs from a paired client', () => {
       path: WORKTREE_PATH
     })
     await expect(
-      create(runtime, `file://${WORKTREE_PATH}/build/report.html`, {
+      create(runtime, ARTIFACT_URL, {
         pairedDeviceId: 'device-1',
         clientKind: 'mobile'
       })
@@ -199,7 +215,7 @@ describe('browser.tabCreate file: URLs from a paired client', () => {
       hostId: 'ssh:box'
     })
     await expect(
-      create(runtime, `file://${WORKTREE_PATH}/build/report.html`, {
+      create(runtime, ARTIFACT_URL, {
         pairedDeviceId: 'device-1',
         clientKind: 'mobile'
       })
@@ -214,14 +230,14 @@ describe('browser.tabCreate file: URLs from a paired client', () => {
     const { runtime, createTab } = createRuntime({ id: WT, path: WORKTREE_PATH })
     const caller = { pairedDeviceId: 'device-2', clientKind: 'runtime' as const }
 
-    await expect(create(runtime, 'file:///tmp/secrets/id_rsa', caller)).rejects.toThrow(
+    await expect(create(runtime, OUTSIDE_SECRET_URL, caller)).rejects.toThrow(
       /outside the requested workspace/
     )
     expect(createTab).not.toHaveBeenCalled()
 
-    await expect(
-      create(runtime, `file://${WORKTREE_PATH}/build/report.html`, caller)
-    ).resolves.toEqual({ browserPageId: 'page-new' })
+    await expect(create(runtime, ARTIFACT_URL, caller)).resolves.toEqual({
+      browserPageId: 'page-new'
+    })
     expect(createTab).toHaveBeenCalledTimes(1)
   })
 
@@ -230,7 +246,7 @@ describe('browser.tabCreate file: URLs from a paired client', () => {
       id: WT,
       path: WORKTREE_PATH
     })
-    await expect(create(runtime, 'file:///tmp/secrets/id_rsa')).resolves.toEqual({
+    await expect(create(runtime, OUTSIDE_SECRET_URL)).resolves.toEqual({
       browserPageId: 'page-new'
     })
     expect(createTab).toHaveBeenCalledTimes(1)

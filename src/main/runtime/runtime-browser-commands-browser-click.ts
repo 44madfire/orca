@@ -20,6 +20,7 @@ import type {
   BrowserTypeResult
 } from '../../shared/runtime-types'
 import type { BrowserScreencastSession } from '../browser/browser-screencast-stream-types'
+import { assertPairedBrowserFileUrlAllowed, isBrowserFileUrl } from './browser-file-url-confinement'
 
 export class RuntimeBrowserCommandsWithBrowserClick extends RuntimeBrowserCommandsWithActiveScreencastsByPageId {
   async browserClick(
@@ -37,8 +38,19 @@ export class RuntimeBrowserCommandsWithBrowserClick extends RuntimeBrowserComman
   }
 
   async browserGoto(
-    params: { url: string } & BrowserCommandTargetParams
+    params: { url: string } & BrowserCommandTargetParams,
+    caller?: { pairedDeviceId?: string; clientKind?: 'mobile' | 'runtime' }
   ): Promise<BrowserGotoResult> {
+    // Why: fenced before the target resolves, so a refused navigation cannot wake a page first.
+    if (caller?.pairedDeviceId && isBrowserFileUrl(params.url)) {
+      await assertPairedBrowserFileUrlAllowed({
+        url: params.url,
+        pairedCaller: true,
+        worktree: params.worktree
+          ? await this.host.resolveWorktreeSelector(params.worktree)
+          : undefined
+      })
+    }
     const target = await this.resolveBrowserCommandTarget(params)
     const bridge = this.requireAgentBrowserBridge()
     const result = await bridge.goto(params.url, target.worktreeId, target.browserPageId)
