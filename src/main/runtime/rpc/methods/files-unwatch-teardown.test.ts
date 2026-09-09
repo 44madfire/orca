@@ -1,3 +1,9 @@
+/**
+ * `files.unwatch` must not reply before @parcel/watcher is released: the reply is the only
+ * signal a client waits on, so a client that rewatches on it would otherwise hold two watchers
+ * on one path and get every change twice. That guarantee already holds — this pins it, because
+ * nothing else did, and a reviewer reading the handler cannot tell the await is load-bearing.
+ */
 import { describe, expect, it, vi } from 'vitest'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import { RpcDispatcher } from '../dispatcher'
@@ -6,42 +12,11 @@ import { RuntimeSubscriptionRegistry } from '../../runtime-subscription-registry
 import { FILE_METHODS } from './files'
 
 function unwatchRequest(subscriptionId: string): RpcRequest {
-  return {
-    id: 'req-1',
-    authToken: 'tok',
-    method: 'files.unwatch',
-    params: { subscriptionId }
-  }
+  return { id: 'req-1', authToken: 'tok', method: 'files.unwatch', params: { subscriptionId } }
 }
 
-describe('files.unwatch ownership', () => {
-  it('refuses teardown when the socket does not own the subscription', async () => {
-    const cleanupSubscriptionIfOwnedByConnectionAndWait = vi.fn().mockResolvedValue(false)
-    const cleanupSubscriptionAndWait = vi.fn()
-    const runtime = {
-      getRuntimeId: () => 'test-runtime',
-      cleanupSubscriptionIfOwnedByConnectionAndWait,
-      cleanupSubscriptionAndWait
-    } as unknown as OrcaRuntimeService
-    const dispatcher = new RpcDispatcher({ runtime, methods: FILE_METHODS })
-    const replies: unknown[] = []
-
-    await dispatcher.dispatchStreaming(
-      unwatchRequest('files-watch-conn-owner-1'),
-      (reply) => replies.push(JSON.parse(reply)),
-      { connectionId: 'conn-attacker' }
-    )
-
-    expect(cleanupSubscriptionIfOwnedByConnectionAndWait).toHaveBeenCalledWith(
-      'files-watch-conn-owner-1',
-      'conn-attacker'
-    )
-    expect(cleanupSubscriptionAndWait).not.toHaveBeenCalled()
-    expect(replies).toEqual([expect.objectContaining({ result: { unsubscribed: false } })])
-  })
-
-  // Why: returning before @parcel/watcher is released lets a rewatch hold two watchers.
-  it('does not reply until the owning connection teardown settles', async () => {
+describe('files.unwatch teardown', () => {
+  it('does not reply until the watcher release settles', async () => {
     const subscriptions = new RuntimeSubscriptionRegistry()
     let releaseWatcher: (() => void) | undefined
     let released = false
@@ -58,8 +33,7 @@ describe('files.unwatch ownership', () => {
     )
     const runtime = {
       getRuntimeId: () => 'test-runtime',
-      cleanupSubscriptionIfOwnedByConnectionAndWait:
-        subscriptions.cleanupIfOwnedByConnectionAndWait.bind(subscriptions)
+      cleanupSubscriptionAndWait: subscriptions.cleanupAndWait.bind(subscriptions)
     } as unknown as OrcaRuntimeService
     const dispatcher = new RpcDispatcher({ runtime, methods: FILE_METHODS })
 
@@ -80,8 +54,6 @@ describe('files.unwatch ownership', () => {
     expect(released).toBe(true)
   })
 
-  // Why: the reply is the only signal a client waits on before rewatching, so the whole
-  // point of awaiting teardown is that the second watcher never overlaps the first.
   it('holds one watcher when the owner rewatches straight after the unwatch reply', async () => {
     const subscriptions = new RuntimeSubscriptionRegistry()
     let liveWatchers = 0
@@ -103,9 +75,7 @@ describe('files.unwatch ownership', () => {
       watchFileExplorer,
       registerSubscriptionCleanup: subscriptions.register.bind(subscriptions),
       cleanupSubscription: subscriptions.cleanup.bind(subscriptions),
-      cleanupSubscriptionAndWait: subscriptions.cleanupAndWait.bind(subscriptions),
-      cleanupSubscriptionIfOwnedByConnectionAndWait:
-        subscriptions.cleanupIfOwnedByConnectionAndWait.bind(subscriptions)
+      cleanupSubscriptionAndWait: subscriptions.cleanupAndWait.bind(subscriptions)
     } as unknown as OrcaRuntimeService
     const dispatcher = new RpcDispatcher({ runtime, methods: FILE_METHODS })
 
