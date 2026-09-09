@@ -21,6 +21,7 @@ const ADAPTER_FILES = new Set<string>([
   'src/accounts/native-host-account-operations.ts',
   'src/device/default-device-operations.ts',
   'src/device/native-device-operations.ts',
+  'src/settings/native-voice-settings-operations.ts',
   'src/files/default-host-file-explorer-operations.ts',
   'src/files/native-host-file-explorer-operations.ts',
   'src/session/default-host-session-browser-operations.ts',
