@@ -113,6 +113,9 @@ export function NativeChatBackgroundTasksStatus(props: {
   tasks: readonly AgentSessionBackgroundTask[]
   settledTasks: readonly AgentSessionBackgroundTask[]
   supportsTaskStop: boolean
+  /** False when the provider exposes no honest stop at all; the fallback
+   *  control is hidden rather than offering a button that cannot act. */
+  supportsStopAll: boolean
   stoppingTaskIds: ReadonlySet<string>
   stoppingAll: boolean
   /** True while the session is idle: only then may the strip speak as the
@@ -222,7 +225,7 @@ export function NativeChatBackgroundTasksStatus(props: {
                 )}
               </p>
             )}
-            {!props.supportsTaskStop ? (
+            {!props.supportsTaskStop && props.supportsStopAll ? (
               <div className={groups.length > 0 ? 'mt-2 border-t border-border pt-2' : 'mt-2'}>
                 <Button
                   type="button"

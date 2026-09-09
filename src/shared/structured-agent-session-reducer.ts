@@ -60,7 +60,8 @@ function backgroundTaskStatesEqual(
     !left ||
     !right ||
     left.state !== right.state ||
-    left.supportsTaskStop !== right.supportsTaskStop
+    left.supportsTaskStop !== right.supportsTaskStop ||
+    left.supportsStopAll !== right.supportsStopAll
   ) {
     return false
   }

@@ -12,7 +12,8 @@ import {
   isToolCallBlock,
   isToolResultBlock,
   type NativeChatBlock,
-  type NativeChatSubagentGroupBlock
+  type NativeChatSubagentGroupBlock,
+  type NativeChatToolCallBlock
 } from '../../../../shared/native-chat-types'
 import { isRenderableSubagentGroup } from '../../../../shared/native-chat-subagent-summary'
 import { diffFromText, diffFromToolCall, type DiffLine } from './native-chat-diff'
@@ -31,6 +32,8 @@ import {
   selectActiveToolCall
 } from '../../../../shared/native-chat-tool-activity'
 import { nativeChatToolRunIconName } from '../../../../shared/native-chat-tool-icon'
+import { NativeChatTaskList } from './NativeChatTaskList'
+import { buildNativeChatTaskListRows } from './native-chat-task-list-history'
 import { NativeChatDiffView } from './NativeChatDiffView'
 import { NativeChatSubagentRun } from './NativeChatSubagentRun'
 import { NativeChatToolIcon, NativeChatToolRunIcon } from './NativeChatToolIcon'
@@ -158,6 +161,8 @@ function ToolLine({
  *  toolbar toggle drive every run at once while still allowing per-run override. */
 export function NativeChatToolRun({
   blocks,
+  previousTodoWrite,
+  previousUpdatePlan,
   revealedDiff,
   onRevealDiff,
   subagentGroups = NO_SUBAGENT_GROUPS,
@@ -168,6 +173,8 @@ export function NativeChatToolRun({
   onLinkClick
 }: {
   blocks: NativeChatBlock[]
+  previousTodoWrite?: NativeChatToolCallBlock
+  previousUpdatePlan?: NativeChatToolCallBlock
   revealedDiff?: NativeChatDiffReveal
   onRevealDiff?: (element: HTMLElement) => void
   /** Spawn-group rosters that belong with this run's activity, one row each. */
@@ -228,9 +235,22 @@ export function NativeChatToolRun({
     ? selectActiveToolCall(blocks, { activeTurnIsWorking })
     : null
   const isSettled = latestActiveCall == null
+  const hasRunningCall = blocks.some((block) => isToolCallBlock(block) && block.state === 'running')
   // The turn caret opens the activity group, while each child tool remains
   // collapsed. The global expand toolbar still opens child details together.
   const expandToolLines = expandOverride === undefined ? open : false
+  // Diffing every edit is the run's most expensive work, so a collapsed run —
+  // which renders none of it — never pays for it.
+  const taskLists = useMemo(
+    () =>
+      open
+        ? buildNativeChatTaskListRows(blocks, {
+            todowrite: previousTodoWrite,
+            update_plan: previousUpdatePlan
+          })
+        : null,
+    [open, blocks, previousTodoWrite, previousUpdatePlan]
+  )
   // Rollups cache counts only; detailed diff rows are built when the run opens.
   const { editCards, consumedResults } = useMemo(
     () => (open ? buildEditCards(blocks) : NO_EDIT_CARDS),
@@ -361,8 +381,8 @@ export function NativeChatToolRun({
               {fallbackLabel}
             </span>
           )}
-          {/* Completion reads as a trailing mark so the leading glyph can stay fixed. */}
-          {structuredActivityUi ? (
+          {/* A running item cannot inherit completion from its turn. */}
+          {structuredActivityUi && !hasRunningCall ? (
             <Check aria-hidden className="size-3 shrink-0 text-muted-foreground" />
           ) : null}
           {/* Chevron is revealed on hover when collapsed and points down when open. */}
@@ -381,7 +401,14 @@ export function NativeChatToolRun({
         <div className="mt-1 pl-4">
           {(() => {
             const seen = new Map<string, number>()
-            return blocks.map((block) => {
+            return blocks.map((block, blockIndex) => {
+              const taskList = taskLists?.rows.get(block)
+              if (taskList) {
+                return <NativeChatTaskList key={`tasks:${blockIndex}`} {...taskList} />
+              }
+              if (taskLists?.consumedResults.has(block)) {
+                return null
+              }
               const edit = editCards.get(block)
               if (edit) {
                 return (
