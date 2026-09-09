@@ -1,5 +1,6 @@
 import { ensureAgentStartupInTerminal, type LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { seedNativeChatLaunchDraftForAgentTab } from '@/lib/agent-launch-prompt-delivery'
+import { preflightAgentTrust } from '@/lib/agent-trust-preflight'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
@@ -25,7 +26,6 @@ import { useAppStore } from '@/store'
 import {
   buildFolderWorkspaceLinkedStartupPlan,
   getFolderWorkspaceAgentLaunchPlatform,
-  preflightFolderWorkspaceAgentTrust,
   resolveFolderWorkspaceLaunchDraft
 } from './folder-workspace-agent-startup'
 
@@ -171,7 +171,7 @@ export async function submitFolderWorkspaceCreate({
     return false
   }
   if (!structuredLaunch) {
-    await preflightFolderWorkspaceAgentTrust({
+    await preflightAgentTrust({
       agent: quickAgent,
       workspacePath: workspace.folderPath,
       connectionId: workspace.connectionId ?? projectGroup.connectionId
@@ -230,7 +230,7 @@ export async function submitFolderWorkspaceCreate({
                 .updateFolderWorkspace(workspace.id, { pendingFirstAgentMessageRename: true })
                 .catch(() => undefined)
             }
-            await preflightFolderWorkspaceAgentTrust({
+            await preflightAgentTrust({
               agent: quickAgent,
               workspacePath: workspace.folderPath,
               connectionId: workspace.connectionId ?? projectGroup.connectionId

@@ -85,28 +85,22 @@ export async function resolveDirectWorkItemAgent(args: {
   }
 }
 
+/** Why: kept apart from the refusal fallback's preflight because it runs before
+ *  launch on the legacy route only; structured chat has no TUI trust menu. */
 export async function markDirectWorkItemAgentTrusted(args: {
   structuredLaunch: boolean
   agent: TuiAgent | null
   workspacePath: string
   connectionId: string | null
 }): Promise<void> {
-  if (args.structuredLaunch || !args.agent || !window.api.agentTrust?.markTrusted) {
+  if (args.structuredLaunch) {
     return
   }
-  const preflight = TUI_AGENT_CONFIG[args.agent].preflightTrust
-  if (!preflight) {
-    return
-  }
-  try {
-    await window.api.agentTrust.markTrusted({
-      preset: preflight,
-      workspacePath: args.workspacePath,
-      ...(args.connectionId ? { connectionId: args.connectionId } : {})
-    })
-  } catch {
-    // Best-effort: the user can still dismiss the agent trust prompt manually.
-  }
+  await preflightAgentTrust({
+    agent: args.agent,
+    workspacePath: args.workspacePath,
+    connectionId: args.connectionId
+  })
 }
 
 export async function settleDirectWorkItemStructuredLaunch(args: {

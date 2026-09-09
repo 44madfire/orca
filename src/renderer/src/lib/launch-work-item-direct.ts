@@ -1,5 +1,9 @@
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
+import {
+  deliverLaunchPromptToAgentTab,
+  seedNativeChatLaunchDraftForAgentTab
+} from '@/lib/agent-launch-prompt-delivery'
 import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { CLIENT_PLATFORM, getWorkspaceIntentName, getWorkspaceSeedName } from '@/lib/new-workspace'
@@ -17,7 +21,10 @@ import type { GitPushTarget } from '../../../shared/worktree/types'
 import { getLinearIssueWorkspaceName } from '../../../shared/workspace-name'
 import { resolveGitHubWorkItemIdentity } from '@/lib/github-work-item-identity'
 import type { buildDirectWorkItemAgentStartupPlan } from '@/lib/launch-work-item-direct-agent'
-import { buildDirectWorkItemStartupOpts } from '@/lib/launch-work-item-direct-agent'
+import {
+  buildDirectWorkItemStartupOpts,
+  notifyDirectWorkItemAgentStartTimeout
+} from '@/lib/launch-work-item-direct-agent'
 import { getDirectWorkItemDraftContent } from '@/lib/launch-work-item-direct-draft'
 import {
   resolveDirectPrStartPoint,
@@ -28,7 +35,6 @@ import { resolveSourceControlLaunchPlatform } from '@/lib/source-control-launch-
 import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { getLocalRepoProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { settleDirectWorkItemStructuredLaunch } from '@/lib/launch-work-item-direct-agent-routing'
-import { deliverDirectWorkItemPrompt } from '@/lib/launch-work-item-direct-prompt-delivery'
 import { prepareDirectWorkItemAgentLaunch } from '@/lib/launch-work-item-direct-route-preparation'
 import { resolveAgentLaunchRouteForWorkspace } from '@/lib/agent-launch-route-input'
 
@@ -272,13 +278,31 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     return false
   }
 
-  deliverDirectWorkItemPrompt({
-    primaryTabId,
-    effectiveAgent,
-    draftContent,
-    promptDelivery,
-    startupPlan,
-    draftLaunchedNatively
-  })
+  if (primaryTabId && effectiveAgent && promptDelivery === 'draft') {
+    // Why: the draft rides in on argv or the startup payload, so no paste runs
+    // below; mirror it into chat the way the new-tab launcher does.
+    seedNativeChatLaunchDraftForAgentTab({
+      tabId: primaryTabId,
+      agent: effectiveAgent,
+      text: draftContent
+    })
+  }
+  if (
+    primaryTabId &&
+    startupPlan &&
+    !draftLaunchedNatively &&
+    !(promptDelivery === 'draft' && startupPlan.draftPrompt)
+  ) {
+    const submit = promptDelivery === 'submit-after-ready'
+    const agent = startupPlan.agent
+    void deliverLaunchPromptToAgentTab({
+      tabId: primaryTabId,
+      agent,
+      content: draftContent,
+      submit,
+      forcePaste: submit,
+      onTimeout: () => notifyDirectWorkItemAgentStartTimeout(agent, submit)
+    })
+  }
   return true
 }

@@ -22,7 +22,10 @@ vi.mock('@/lib/native-chat-transcript-readability', () => ({
   isNativeChatTranscriptLocalReadable: vi.fn(() => true)
 }))
 
-import { settleDirectWorkItemStructuredLaunch } from './launch-work-item-direct-agent-routing'
+import {
+  markDirectWorkItemAgentTrusted,
+  settleDirectWorkItemStructuredLaunch
+} from './launch-work-item-direct-agent-routing'
 
 const baseArgs = {
   structuredLaunch: true,
@@ -121,5 +124,35 @@ describe('settleDirectWorkItemStructuredLaunch', () => {
       primaryTabId: null
     })
     expect(mocks.settleStructuredAgentLaunch).not.toHaveBeenCalled()
+  })
+})
+
+describe('markDirectWorkItemAgentTrusted', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('marks trust before a legacy terminal launch', async () => {
+    await markDirectWorkItemAgentTrusted({
+      structuredLaunch: false,
+      agent: 'codex',
+      workspacePath: '/repo/worktree',
+      connectionId: 'ssh-1'
+    })
+
+    expect(mocks.preflightAgentTrust).toHaveBeenCalledWith({
+      agent: 'codex',
+      workspacePath: '/repo/worktree',
+      connectionId: 'ssh-1'
+    })
+  })
+
+  it('leaves trust to the refusal fallback on the structured route', async () => {
+    await markDirectWorkItemAgentTrusted({
+      structuredLaunch: true,
+      agent: 'codex',
+      workspacePath: '/repo/worktree',
+      connectionId: null
+    })
+
+    expect(mocks.preflightAgentTrust).not.toHaveBeenCalled()
   })
 })
