@@ -1,5 +1,6 @@
+import { MobileSelectableText as Text } from '../components/MobileSelectableText'
 import { useEffect, useRef, useState } from 'react'
-import { Animated, Pressable, Text, View } from 'react-native'
+import { Animated, Pressable, View } from 'react-native'
 import { ChevronDown, SquareChevronRight, SquareTerminal, Wrench } from 'lucide-react-native'
 import { diffFromText, diffFromToolCall } from '../../../src/shared/native-chat-diff'
 import type { NativeChatDiffLine as DiffLine } from '../../../src/shared/native-chat-diff'

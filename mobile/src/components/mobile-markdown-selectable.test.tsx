@@ -71,7 +71,7 @@ describe('MobileMarkdown selection', () => {
     ['heading', 'Heading prose'],
     ['quote', 'Quote prose'],
     ['code', 'const code = 1'],
-    ['code language', 'ts'],
+    ['code language', 'TS'],
     ['list item', 'List item prose'],
     ['table header', 'Head A'],
     ['table cell', 'Cell A']

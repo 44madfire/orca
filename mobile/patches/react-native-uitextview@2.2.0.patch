@@ -1,0 +1,136 @@
+diff --git a/ios/RNUITextView.mm b/ios/RNUITextView.mm
+index d0c31ed20b4865679ec1397543fc74056e47b978..0d4780a37e55eedfbbf9f0a729b6ec0e59e0c416 100644
+--- a/ios/RNUITextView.mm
++++ b/ios/RNUITextView.mm
+@@ -22,6 +22,7 @@ @implementation RNUITextView{
+   RNUITextViewShadowNode::ConcreteState::Shared _state;
+   UITapGestureRecognizer * _outsideTapRecognizer;
+   BOOL _suppressSelectionChange;
++  NSUInteger _selectionGeneration;
+ }
+ 
+ + (ComponentDescriptorProvider)componentDescriptorProvider
+@@ -73,10 +74,34 @@ - (instancetype)initWithFrame:(CGRect)frame
+ - (void)didMoveToWindow
+ {
+   [super didMoveToWindow];
+-  if (self.window) {
+-    [self.window addGestureRecognizer:_outsideTapRecognizer];
+-  } else {
+-    [_outsideTapRecognizer.view removeGestureRecognizer:_outsideTapRecognizer];
++  [self updateOutsideTapRecognizer];
++}
++
++- (void)updateOutsideTapRecognizer
++{
++  static NSMapTable<UIWindow *, RNUITextView *> *owners;
++  static dispatch_once_t onceToken;
++  dispatch_once(&onceToken, ^{ owners = [NSMapTable weakToWeakObjectsMapTable]; });
++
++  // Only the selected text owner observes outside taps, even in dense tables.
++  UIWindow *previous = (UIWindow *)_outsideTapRecognizer.view;
++  UIWindow *target = _textView.selectable && _textView.selectedRange.length > 0 ? self.window : nil;
++  if (previous != target) {
++    [previous removeGestureRecognizer:_outsideTapRecognizer];
++    if (previous && [owners objectForKey:previous] == self) {
++      [owners removeObjectForKey:previous];
++    }
++  }
++  if (target) {
++    RNUITextView *owner = [owners objectForKey:target];
++    if (owner && owner != self) {
++      owner->_textView.selectedTextRange = nil;
++      [owner updateOutsideTapRecognizer];
++    }
++    [owners setObject:self forKey:target];
++    if (_outsideTapRecognizer.view != target) {
++      [target addGestureRecognizer:_outsideTapRecognizer];
++    }
+   }
+ }
+ 
+@@ -90,6 +115,9 @@ - (void)prepareForRecycle
+ {
+   [super prepareForRecycle];
+   _state.reset();
++  _selectionGeneration++;
++  [_outsideTapRecognizer.view removeGestureRecognizer:_outsideTapRecognizer];
++  _textView.selectedTextRange = nil;
+ 
+   // Reset the frame to zero so that when it properly lays out on the next use
+   _textView.frame = CGRectZero;
+@@ -128,22 +156,21 @@ - (void)drawRect:(CGRect)rect
+   if (!textChanged && !frameChanged) {
+     return;
+   }
++  const NSRange savedRange = _textView.selectedRange;
++  _selectionGeneration++;
++  _suppressSelectionChange = YES;
+   if (textChanged) {
+-    // Reassigning attributedText clears any active selection. Save it and
+-    // restore after, while suppressing the synthetic textViewDidChangeSelection
+-    // events the clear-then-restore would otherwise produce — those would
+-    // round-trip to JS and re-trigger this same path, causing a loop.
+-    const NSRange savedRange = _textView.selectedRange;
+-    _suppressSelectionChange = YES;
+     _textView.attributedText = convertedAttrString;
+-    if (savedRange.length > 0 && NSMaxRange(savedRange) <= _textView.attributedText.length) {
+-      _textView.selectedRange = savedRange;
+-    }
+-    _suppressSelectionChange = NO;
+   }
+   if (frameChanged) {
+     _textView.frame = _view.frame;
+   }
++  // Both text and frame assignment can reset UIKit's selected range.
++  if (savedRange.length > 0 && NSMaxRange(savedRange) <= _textView.attributedText.length) {
++    _textView.selectedRange = savedRange;
++  }
++  _suppressSelectionChange = NO;
++  [self updateOutsideTapRecognizer];
+ 
+   __block std::vector<std::string> lines;
+   const int maxLines = props.numberOfLines;
+@@ -179,6 +206,10 @@ - (void)updateProps:(Props::Shared const &)props oldProps:(Props::Shared const &
+ 
+   if (oldViewProps.selectable != newViewProps.selectable) {
+     _textView.selectable = newViewProps.selectable;
++    if (!newViewProps.selectable) {
++      _textView.selectedTextRange = nil;
++    }
++    [self updateOutsideTapRecognizer];
+   }
+ 
+   if (oldViewProps.allowFontScaling != newViewProps.allowFontScaling) {
+@@ -242,12 +273,16 @@ - (void)handleOutsideTap:(UITapGestureRecognizer *)sender
+ {
+   // Defer past the current event loop turn so any in-flight edit-menu action
+   // (Copy / Define / Look Up / …) reads the live selection before we clear it.
+-  UITextView *textView = _textView;
++  const NSUInteger generation = _selectionGeneration;
++  __weak RNUITextView *weakSelf = self;
++  __weak UIWindow *window = self.window;
+   dispatch_async(dispatch_get_main_queue(), ^{
+-    UITextRange *range = textView.selectedTextRange;
+-    if (range != nil && !range.isEmpty) {
+-      textView.selectedTextRange = nil;
++    RNUITextView *owner = weakSelf;
++    if (!owner || !window || owner.window != window || owner->_selectionGeneration != generation) {
++      return;
+     }
++    owner->_textView.selectedTextRange = nil;
++    [owner updateOutsideTapRecognizer];
+   });
+ }
+ 
+@@ -308,6 +343,10 @@ - (void)handleLongPressIfNecessary:(UILongPressGestureRecognizer*)sender
+ 
+ - (void)textViewDidChangeSelection:(UITextView *)textView
+ {
++  _selectionGeneration++;
++  if (!_suppressSelectionChange) {
++    [self updateOutsideTapRecognizer];
++  }
+   if (_suppressSelectionChange) {
+     return;
+   }

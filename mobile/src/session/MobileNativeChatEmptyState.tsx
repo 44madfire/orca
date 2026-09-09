@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native'
+import { MobileSelectableText as Text } from '../components/MobileSelectableText'
+import { View } from 'react-native'
 import type { NativeChatEmptyStateCopy } from '../../../src/shared/native-chat-empty-state'
 import { styles } from './mobile-native-chat-view-styles'
 

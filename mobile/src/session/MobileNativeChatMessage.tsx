@@ -1,5 +1,6 @@
+import { MobileSelectableText as Text } from '../components/MobileSelectableText'
 import { memo, useEffect, useRef, useState } from 'react'
-import { Image, Pressable, Text, View } from 'react-native'
+import { Image, Pressable, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { ArrowUp, Copy } from 'lucide-react-native'
 import { splitNativeChatBlocks } from '../../../src/shared/native-chat-tool-fold'
