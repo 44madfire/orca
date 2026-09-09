@@ -2,15 +2,37 @@ import { statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import type { Repo } from '../shared/repo-types'
 import type { ProjectHostSetupUpdateArgs } from '../shared/project-types'
-import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../shared/execution-host'
+import {
+  getRepoExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID,
+  type ExecutionHostId
+} from '../shared/execution-host'
 import { normalizeRuntimePathForComparison } from '../shared/cross-platform-path'
+import type { RepoWorkspaceIdentityMove } from './persistence/tracking-repos/repo-path-relocation'
 
 /** The store surface a relocation needs; keeps this callable from the IPC and RPC entry points alike. */
 export type ProjectPathRelocationStore = {
-  getRepo: (id: string) => Repo | undefined
   getRepos: () => Repo[]
-  relocateRepoPath: (repoId: string, newPath: string) => Repo | null
+  relocateRepoPath: (
+    repoId: string,
+    newPath: string,
+    hostId?: ExecutionHostId
+  ) => { repo: Repo; moves: RepoWorkspaceIdentityMove[] } | null
 }
+
+/**
+ * Tells the rest of the app an id changed rather than disappeared.
+ *
+ * Required, not optional: every existing re-key site pairs the persistence write with this signal,
+ * because the renderer's worktree diff treats an id that stops appearing as a deletion and tears
+ * down the workspace's tabs and terminals. A relocation that only re-keys storage would lose live
+ * state that the old outright refusal never touched.
+ */
+export type WorktreeRenameNotifier = (
+  repoId: string,
+  oldWorktreeId: string,
+  newWorktreeId: string
+) => void
 
 export type ProjectPathRelocationResult =
   | { readonly outcome: 'relocated'; readonly repo: Repo }
@@ -32,18 +54,18 @@ function isExistingDirectory(pathValue: string): boolean {
  *
  * Refuses rather than guesses. A project on an SSH host is checked by the host that runs it, never
  * from here, so a remote relocation is declined outright instead of validated against local disk.
+ *
+ * Takes the resolved `repo`, not an id: the same id can exist on several execution hosts, and an
+ * id-only lookup would relocate a sibling host's row.
  */
 export function relocateProjectPath(
   store: ProjectPathRelocationStore,
-  repoId: string,
+  repo: Repo,
   rawNewPath: string,
+  notifyWorktreeRenamed: WorktreeRenameNotifier,
   options: { directoryExists?: (path: string) => boolean } = {}
 ): ProjectPathRelocationResult {
   const directoryExists = options.directoryExists ?? isExistingDirectory
-  const repo = store.getRepo(repoId)
-  if (!repo) {
-    return { outcome: 'refused', error: `Project not found: ${repoId}` }
-  }
   const newPath = rawNewPath.trim()
   if (!newPath || !isAbsolute(newPath)) {
     return { outcome: 'refused', error: 'The new project location must be an absolute path.' }
@@ -51,7 +73,8 @@ export function relocateProjectPath(
   if (normalizeRuntimePathForComparison(newPath) === normalizeRuntimePathForComparison(repo.path)) {
     return { outcome: 'unchanged', repo }
   }
-  if (repo.connectionId || getRepoExecutionHostId(repo) !== LOCAL_EXECUTION_HOST_ID) {
+  const hostId = getRepoExecutionHostId(repo)
+  if (repo.connectionId || hostId !== LOCAL_EXECUTION_HOST_ID) {
     return {
       outcome: 'refused',
       error:
@@ -63,7 +86,9 @@ export function relocateProjectPath(
     .getRepos()
     .find(
       (candidate) =>
-        candidate.id !== repo.id && normalizeRuntimePathForComparison(candidate.path) === newPathKey
+        candidate.id !== repo.id &&
+        getRepoExecutionHostId(candidate) === hostId &&
+        normalizeRuntimePathForComparison(candidate.path) === newPathKey
     )
   if (occupant) {
     return {
@@ -74,11 +99,14 @@ export function relocateProjectPath(
   if (!directoryExists(newPath)) {
     return { outcome: 'refused', error: `No directory exists at ${newPath}.` }
   }
-  const relocated = store.relocateRepoPath(repo.id, newPath)
+  const relocated = store.relocateRepoPath(repo.id, newPath, hostId)
   if (!relocated) {
-    return { outcome: 'refused', error: `Project could not be moved: ${repoId}` }
+    return { outcome: 'refused', error: `Project could not be moved: ${repo.id}` }
   }
-  return { outcome: 'relocated', repo: relocated }
+  for (const move of relocated.moves) {
+    notifyWorktreeRenamed(repo.id, move.from, move.to)
+  }
+  return { outcome: 'relocated', repo: relocated.repo }
 }
 
 /**
@@ -91,9 +119,10 @@ export function relocateProjectPath(
  */
 export function applyProjectHostSetupPathRelocation(
   store: ProjectPathRelocationStore & {
-    getProjectHostSetups?: () => readonly { id: string; repoId: string }[]
+    getProjectHostSetups?: () => readonly { id: string; repoId: string; hostId: ExecutionHostId }[]
   },
   args: ProjectHostSetupUpdateArgs,
+  notifyWorktreeRenamed: WorktreeRenameNotifier,
   options: { directoryExists?: (path: string) => boolean } = {}
 ): { updates: ProjectHostSetupUpdateArgs['updates']; relocatedRepo: Repo | null } {
   const requestedPath = args.updates.path
@@ -101,12 +130,21 @@ export function applyProjectHostSetupPathRelocation(
     return { updates: args.updates, relocatedRepo: null }
   }
   const setup = store.getProjectHostSetups?.().find((entry) => entry.id === args.setupId)
-  const repoId = setup?.repoId
+  // Resolve the row this setup actually owns. Matching on repo id alone would answer an SSH setup's
+  // request with the local checkout, which then passes the local-only guard and moves the wrong one.
+  const repo = setup
+    ? store
+        .getRepos()
+        .find(
+          (candidate) =>
+            candidate.id === setup.repoId && getRepoExecutionHostId(candidate) === setup.hostId
+        )
+    : undefined
   // An independent setup owns its own `path` field; only a repo-backed one is a project location.
-  if (!repoId || !store.getRepo(repoId)) {
+  if (!repo) {
     return { updates: args.updates, relocatedRepo: null }
   }
-  const result = relocateProjectPath(store, repoId, requestedPath, options)
+  const result = relocateProjectPath(store, repo, requestedPath, notifyWorktreeRenamed, options)
   if (result.outcome === 'refused') {
     throw new Error(result.error)
   }

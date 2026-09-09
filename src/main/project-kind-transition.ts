@@ -1,7 +1,11 @@
 import type { Repo } from '../shared/repo-types'
 import type { WorktreeMeta } from '../shared/worktree/meta-types'
 import { isFolderRepo } from '../shared/repo-kind'
-import { FOLDER_WORKSPACE_INSTANCE_SEPARATOR } from '../shared/worktree/id'
+import {
+  FOLDER_WORKSPACE_INSTANCE_SEPARATOR,
+  splitWorktreeIdForFilesystem
+} from '../shared/worktree/id'
+import { normalizeRuntimePathForComparison } from '../shared/cross-platform-path'
 
 /**
  * A folder project's extra workspaces are `worktreeMeta` rows keyed
@@ -13,8 +17,20 @@ export function folderProjectHasExtraWorkspaces(
   allWorktreeMeta: Readonly<Record<string, WorktreeMeta>>,
   repo: Pick<Repo, 'id' | 'path'>
 ): boolean {
-  const prefix = `${repo.id}::${repo.path}${FOLDER_WORKSPACE_INSTANCE_SEPARATOR}`
-  return Object.keys(allWorktreeMeta).some((key) => key.startsWith(prefix))
+  // Compare the parsed path, not a raw prefix: a stored id can spell the root with a different case
+  // or separator than the repo row does, and a raw `startsWith` would miss those workspaces and
+  // report a project as safe to upgrade when it is not.
+  const repoPathKey = normalizeRuntimePathForComparison(repo.path)
+  return Object.keys(allWorktreeMeta).some((key) => {
+    if (!key.includes(FOLDER_WORKSPACE_INSTANCE_SEPARATOR)) {
+      return false
+    }
+    const parsed = splitWorktreeIdForFilesystem(key)
+    return (
+      parsed?.repoId === repo.id &&
+      normalizeRuntimePathForComparison(parsed.worktreePath) === repoPathKey
+    )
+  })
 }
 
 /**

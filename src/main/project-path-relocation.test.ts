@@ -4,18 +4,46 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { Store } from './persistence'
 import { testState, createStore, makeRepo } from './persistence-test-harness'
-import { applyProjectHostSetupPathRelocation, relocateProjectPath } from './project-path-relocation'
+import {
+  applyProjectHostSetupPathRelocation,
+  relocateProjectPath,
+  type WorktreeRenameNotifier
+} from './project-path-relocation'
+import { RuntimeProjectHostSetupController } from './runtime/runtime-project-host-setup-controller'
+import { registerProjectHostSetupHandlers } from './ipc/repos/project-host-setup-handlers'
+
+const ipcHandlers = new Map<string, (event: unknown, args: unknown) => unknown>()
 
 vi.mock('electron', () => ({
   app: { getPath: () => testState.dir },
-  safeStorage: { isEncryptionAvailable: () => false }
+  safeStorage: { isEncryptionAvailable: () => false },
+  ipcMain: {
+    handle: (channel: string, handler: (event: unknown, args: unknown) => unknown) => {
+      ipcHandlers.set(channel, handler)
+    },
+    removeHandler: (channel: string) => {
+      ipcHandlers.delete(channel)
+    }
+  }
 }))
 
 let root = ''
 let oldPath = ''
 let newPath = ''
 
-/** The real Store, so the relocation is driven through the same state the app persists. */
+/** Every old->new pair the change announced, in order. This is the payload the renderer re-keys on. */
+type RenameNotice = { repoId: string; oldWorktreeId: string; newWorktreeId: string }
+
+function recordingNotifier(): { notify: WorktreeRenameNotifier; notices: RenameNotice[] } {
+  const notices: RenameNotice[] = []
+  return {
+    notices,
+    notify: (repoId, oldWorktreeId, newWorktreeId) =>
+      notices.push({ repoId, oldWorktreeId, newWorktreeId })
+  }
+}
+
+/** The real Store, so relocation is driven through the same state the app persists. */
 function storeWithFolderProject(): Store {
   const store = createStore()
   store.addRepo(makeRepo({ id: 'r1', path: oldPath, kind: 'folder' }))
@@ -23,42 +51,78 @@ function storeWithFolderProject(): Store {
 }
 
 const rootWorkspaceId = (): string => `r1::${oldPath}`
-const instanceWorkspaceId = (): string =>
-  `r1::${oldPath}::workspace:11111111-1111-1111-1111-111111111111`
+const INSTANCE_UUID = '11111111-1111-1111-1111-111111111111'
+const instanceWorkspaceId = (): string => `r1::${oldPath}::workspace:${INSTANCE_UUID}`
+
+function makeDirs(prefix: string): void {
+  testState.dir = mkdtempSync(join(tmpdir(), `orca-${prefix}-`))
+  root = mkdtempSync(join(tmpdir(), `orca-projects-${prefix}-`))
+  oldPath = join(root, 'example-project')
+  newPath = join(root, 'renamed-project')
+  mkdirSync(oldPath)
+  mkdirSync(newPath)
+}
+
+function cleanupDirs(): void {
+  ipcHandlers.clear()
+  rmSync(testState.dir, { recursive: true, force: true })
+  rmSync(root, { recursive: true, force: true })
+}
 
 describe('relocateProjectPath', () => {
-  beforeEach(() => {
-    testState.dir = mkdtempSync(join(tmpdir(), 'orca-relocate-'))
-    root = mkdtempSync(join(tmpdir(), 'orca-projects-'))
-    oldPath = join(root, 'example-project')
-    newPath = join(root, 'renamed-project')
-    mkdirSync(oldPath)
-    mkdirSync(newPath)
-  })
-
-  afterEach(() => {
-    rmSync(testState.dir, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
-  })
+  beforeEach(() => makeDirs('relocate'))
+  afterEach(cleanupDirs)
 
   it('carries a folder project and every workspace identity to the new path', () => {
     const store = storeWithFolderProject()
     store.setWorktreeMeta(rootWorkspaceId(), { displayName: 'example-project' })
     store.setWorktreeMeta(instanceWorkspaceId(), { displayName: 'draft', isPinned: true })
+    const { notify, notices } = recordingNotifier()
 
-    const result = relocateProjectPath(store, 'r1', newPath)
+    const result = relocateProjectPath(store, store.getRepo('r1') as never, newPath, notify)
 
     expect(result.outcome).toBe('relocated')
     expect(store.getRepo('r1')?.path).toBe(newPath)
-    // The instance suffix is identity, so siblings must stay distinct rather than collapse.
-    expect(store.getWorktreeMeta(`r1::${newPath}`)?.displayName).toBe('example-project')
-    const movedInstance = store.getWorktreeMeta(
-      `r1::${newPath}::workspace:11111111-1111-1111-1111-111111111111`
-    )
+    const movedInstance = store.getWorktreeMeta(`r1::${newPath}::workspace:${INSTANCE_UUID}`)
     expect(movedInstance?.displayName).toBe('draft')
     expect(movedInstance?.isPinned).toBe(true)
-    expect(store.getWorktreeMeta(rootWorkspaceId())).toBeUndefined()
     expect(store.getWorktreeMeta(instanceWorkspaceId())).toBeUndefined()
+    // Every re-keyed id must be announced, or the renderer reads it as a deletion.
+    expect(new Set(notices.map((notice) => notice.oldWorktreeId))).toEqual(
+      new Set([rootWorkspaceId(), instanceWorkspaceId()])
+    )
+    expect(notices.every((notice) => notice.repoId === 'r1')).toBe(true)
+  })
+
+  it('moves worktrees inside the project directory, as a relative worktree base puts them', () => {
+    const store = createStore()
+    store.addRepo(
+      makeRepo({ id: 'r1', path: oldPath, kind: 'git', worktreeBasePath: '.worktrees' })
+    )
+    const childId = `r1::${join(oldPath, '.worktrees', 'feature')}`
+    store.setWorktreeMeta(`r1::${oldPath}`, { displayName: 'main' })
+    store.setWorktreeMeta(childId, { displayName: 'feature' })
+    const { notify, notices } = recordingNotifier()
+
+    relocateProjectPath(store, store.getRepo('r1') as never, newPath, notify)
+
+    const movedChildId = `r1::${join(newPath, '.worktrees', 'feature')}`
+    expect(store.getWorktreeMeta(movedChildId)?.displayName).toBe('feature')
+    expect(store.getWorktreeMeta(childId)).toBeUndefined()
+    expect(notices.map((notice) => notice.newWorktreeId)).toContain(movedChildId)
+  })
+
+  it('leaves a worktree outside the project directory where it is', () => {
+    const store = createStore()
+    store.addRepo(makeRepo({ id: 'r1', path: oldPath, kind: 'git' }))
+    const outsideId = `r1::${join(root, 'elsewhere', 'feature')}`
+    store.setWorktreeMeta(outsideId, { displayName: 'feature' })
+    const { notify, notices } = recordingNotifier()
+
+    relocateProjectPath(store, store.getRepo('r1') as never, newPath, notify)
+
+    expect(store.getWorktreeMeta(outsideId)?.displayName).toBe('feature')
+    expect(notices.map((notice) => notice.oldWorktreeId)).not.toContain(outsideId)
   })
 
   it('keeps the session bound to the relocated workspace', () => {
@@ -73,13 +137,13 @@ describe('relocateProjectPath', () => {
       activeWorktreeId: instanceWorkspaceId()
     } as never)
 
-    relocateProjectPath(store, 'r1', newPath)
+    relocateProjectPath(store, store.getRepo('r1') as never, newPath, recordingNotifier().notify)
 
     const session = store.getWorkspaceSession() as unknown as {
       tabsByWorktree?: Record<string, { worktreeId: string }[]>
       activeWorktreeId?: string
     }
-    const movedId = `r1::${newPath}::workspace:11111111-1111-1111-1111-111111111111`
+    const movedId = `r1::${newPath}::workspace:${INSTANCE_UUID}`
     expect(session.tabsByWorktree?.[movedId]?.[0]?.worktreeId).toBe(movedId)
     expect(session.tabsByWorktree?.[instanceWorkspaceId()]).toBeUndefined()
     expect(session.activeWorktreeId).toBe(movedId)
@@ -89,32 +153,42 @@ describe('relocateProjectPath', () => {
     const store = storeWithFolderProject()
     store.setWorktreeMeta(instanceWorkspaceId(), { displayName: 'draft' })
 
-    relocateProjectPath(store, 'r1', newPath)
+    relocateProjectPath(store, store.getRepo('r1') as never, newPath, recordingNotifier().notify)
 
-    const moved = store.getWorktreeMeta(
-      `r1::${newPath}::workspace:11111111-1111-1111-1111-111111111111`
-    )
-    expect(moved?.priorWorktreeIds).toContain(instanceWorkspaceId())
+    expect(
+      store.getWorktreeMeta(`r1::${newPath}::workspace:${INSTANCE_UUID}`)?.priorWorktreeIds
+    ).toContain(instanceWorkspaceId())
   })
 
-  it('leaves a project untouched when the target directory does not exist', () => {
+  it('leaves a project untouched and announces nothing when the target does not exist', () => {
     const store = storeWithFolderProject()
     store.setWorktreeMeta(instanceWorkspaceId(), { displayName: 'draft' })
-    const missing = join(root, 'not-there')
+    const { notify, notices } = recordingNotifier()
 
-    const result = relocateProjectPath(store, 'r1', missing)
+    const result = relocateProjectPath(
+      store,
+      store.getRepo('r1') as never,
+      join(root, 'not-there'),
+      notify
+    )
 
     expect(result).toMatchObject({ outcome: 'refused' })
-    // A refusal must not half-migrate: the old identity is still the live one.
+    // A refusal must not half-migrate, and must not announce a rename that did not happen.
     expect(store.getRepo('r1')?.path).toBe(oldPath)
     expect(store.getWorktreeMeta(instanceWorkspaceId())?.displayName).toBe('draft')
+    expect(notices).toEqual([])
   })
 
   it('refuses a path another project already occupies', () => {
     const store = storeWithFolderProject()
     store.addRepo(makeRepo({ id: 'r2', path: newPath, displayName: 'Other', kind: 'folder' }))
 
-    const result = relocateProjectPath(store, 'r1', newPath)
+    const result = relocateProjectPath(
+      store,
+      store.getRepo('r1') as never,
+      newPath,
+      recordingNotifier().notify
+    )
 
     expect(result).toMatchObject({ outcome: 'refused' })
     expect(store.getRepo('r1')?.path).toBe(oldPath)
@@ -126,88 +200,151 @@ describe('relocateProjectPath', () => {
       makeRepo({ id: 'r1', path: oldPath, kind: 'folder', connectionId: 'ssh-target-1' })
     )
 
-    const result = relocateProjectPath(store, 'r1', newPath)
+    const result = relocateProjectPath(
+      store,
+      store.getRepo('r1') as never,
+      newPath,
+      recordingNotifier().notify
+    )
 
     expect(result).toMatchObject({ outcome: 'refused' })
     expect(store.getRepo('r1')?.path).toBe(oldPath)
   })
 
-  it('leaves worktrees outside the project directory where they are', () => {
-    const store = createStore()
-    store.addRepo(makeRepo({ id: 'r1', path: oldPath, kind: 'git' }))
-    const siblingWorktreeId = `r1::${join(root, 'worktrees', 'feature')}`
-    store.setWorktreeMeta(`r1::${oldPath}`, { displayName: 'main' })
-    store.setWorktreeMeta(siblingWorktreeId, { displayName: 'feature' })
-
-    relocateProjectPath(store, 'r1', newPath)
-
-    // Only the checkout itself is addressed by the project path; a worktree under the base path is not.
-    expect(store.getWorktreeMeta(siblingWorktreeId)?.displayName).toBe('feature')
-    expect(store.getWorktreeMeta(`r1::${newPath}`)?.displayName).toBe('main')
-  })
-
-  it('reports an unchanged path without rewriting identity', () => {
+  it('reports an unchanged path without rewriting identity or announcing a rename', () => {
     const store = storeWithFolderProject()
     store.setWorktreeMeta(instanceWorkspaceId(), { displayName: 'draft' })
+    const { notify, notices } = recordingNotifier()
 
-    const result = relocateProjectPath(store, 'r1', oldPath)
+    const result = relocateProjectPath(store, store.getRepo('r1') as never, oldPath, notify)
 
     expect(result.outcome).toBe('unchanged')
     expect(store.getWorktreeMeta(instanceWorkspaceId())?.displayName).toBe('draft')
+    expect(notices).toEqual([])
   })
 })
 
-describe('applyProjectHostSetupPathRelocation', () => {
-  beforeEach(() => {
-    testState.dir = mkdtempSync(join(tmpdir(), 'orca-relocate-setup-'))
-    root = mkdtempSync(join(tmpdir(), 'orca-projects-setup-'))
-    oldPath = join(root, 'example-project')
-    newPath = join(root, 'renamed-project')
-    mkdirSync(oldPath)
-    mkdirSync(newPath)
-  })
+describe('projectHostSetup.update entry points', () => {
+  beforeEach(() => makeDirs('entry'))
+  afterEach(cleanupDirs)
 
-  afterEach(() => {
-    rmSync(testState.dir, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
-  })
-
-  it('relocates the project and hands persistence updates without a path', () => {
-    const store = storeWithFolderProject()
-    store.setWorktreeMeta(instanceWorkspaceId(), { displayName: 'draft' })
-
-    const { updates, relocatedRepo } = applyProjectHostSetupPathRelocation(store, {
-      setupId: 'r1',
-      updates: { path: newPath, displayName: 'Renamed' }
+  /** The RPC entry point, built the way the runtime builds it. */
+  function rpcController(store: Store): {
+    controller: RuntimeProjectHostSetupController
+    notices: RenameNotice[]
+  } {
+    const { notify, notices } = recordingNotifier()
+    const controller = new RuntimeProjectHostSetupController({
+      getStore: () => store as never,
+      listRepos: () => store.getRepos(),
+      addRepo: vi.fn() as never,
+      addRemoteRepo: vi.fn() as never,
+      cloneRepo: vi.fn() as never,
+      invalidateResolvedWorktrees: vi.fn(),
+      invalidateWorktreeScan: vi.fn(),
+      notifyReposChanged: vi.fn(),
+      notifyWorktreeRenamed: notify
     })
+    return { controller, notices }
+  }
 
-    expect(relocatedRepo?.path).toBe(newPath)
-    expect(updates).toEqual({ displayName: 'Renamed' })
-    // Persistence still refuses a raw path write, so the stripped update must survive it.
-    expect(() => store.updateProjectHostSetup({ setupId: 'r1', updates })).not.toThrow()
+  it('announces every re-keyed workspace through the RPC entry point', () => {
+    const store = storeWithFolderProject()
+    store.setWorktreeMeta(rootWorkspaceId(), { displayName: 'example-project' })
+    store.setWorktreeMeta(instanceWorkspaceId(), { displayName: 'draft' })
+    const { controller, notices } = rpcController(store)
+
+    controller.updateSetup({ setupId: 'r1', updates: { path: newPath, displayName: 'Renamed' } })
+
+    expect(store.getRepo('r1')?.path).toBe(newPath)
     expect(store.getRepo('r1')?.displayName).toBe('Renamed')
+    expect(new Set(notices.map((notice) => notice.oldWorktreeId))).toEqual(
+      new Set([rootWorkspaceId(), instanceWorkspaceId()])
+    )
+    expect(new Set(notices.map((notice) => notice.newWorktreeId))).toEqual(
+      new Set([`r1::${newPath}`, `r1::${newPath}::workspace:${INSTANCE_UUID}`])
+    )
+  })
+
+  it('announces every re-keyed workspace through the IPC entry point', async () => {
+    const store = storeWithFolderProject()
+    store.setWorktreeMeta(rootWorkspaceId(), { displayName: 'example-project' })
+    store.setWorktreeMeta(instanceWorkspaceId(), { displayName: 'draft' })
+    const notifyWorktreeFolderRenamed = vi.fn()
+    const mainWindow = {
+      isDestroyed: () => false,
+      webContents: { send: vi.fn() }
+    }
+    registerProjectHostSetupHandlers(mainWindow as never, store, {
+      notifyWorktreeFolderRenamed
+    } as never)
+
+    const handler = ipcHandlers.get('projectHostSetups:update')
+    expect(handler).toBeDefined()
+    await handler?.({}, { setupId: 'r1', updates: { path: newPath } })
+
+    expect(store.getRepo('r1')?.path).toBe(newPath)
+    // The desktop surface must deliver the same signal the RPC surface does.
+    expect(new Set(notifyWorktreeFolderRenamed.mock.calls.map((call) => call[1]))).toEqual(
+      new Set([rootWorkspaceId(), instanceWorkspaceId()])
+    )
+  })
+
+  it("resolves the repo on the setup's own host, not a sibling row with the same id", () => {
+    const store = createStore()
+    // The same repo id on two hosts. Persistence documents that an id-only lookup writes one host's
+    // row from another's request; a relocation doing that would move the wrong project's files.
+    store.addRepo(makeRepo({ id: 'r1', path: oldPath, kind: 'folder' }))
+    store.addRepo(
+      makeRepo({ id: 'r1', path: '/srv/example', kind: 'folder', connectionId: 'ssh-target-1' })
+    )
+    const sshSetup = store
+      .getProjectHostSetups()
+      .find((setup) => setup.repoId === 'r1' && setup.hostId !== 'local')
+    expect(sshSetup).toBeDefined()
+    const { notify, notices } = recordingNotifier()
+
+    // Ask on behalf of the SSH setup. Its host owns that filesystem, so this must refuse rather
+    // than fall through to the local checkout and relocate it.
+    expect(() =>
+      applyProjectHostSetupPathRelocation(
+        {
+          getRepos: () => store.getRepos(),
+          relocateRepoPath: (repoId, path, hostId) => store.relocateRepoPath(repoId, path, hostId),
+          getProjectHostSetups: () => [sshSetup as never]
+        },
+        { setupId: sshSetup?.id as string, updates: { path: newPath } },
+        notify
+      )
+    ).toThrow(/another host/)
+    expect(store.getRepos().find((repo) => !repo.connectionId)?.path).toBe(oldPath)
+    expect(notices).toEqual([])
   })
 
   it('passes an update with no path change straight through', () => {
     const store = storeWithFolderProject()
+    const { notify, notices } = recordingNotifier()
 
-    const { updates, relocatedRepo } = applyProjectHostSetupPathRelocation(store, {
-      setupId: 'r1',
-      updates: { displayName: 'Renamed' }
-    })
+    const { updates, relocatedRepo } = applyProjectHostSetupPathRelocation(
+      store,
+      { setupId: 'r1', updates: { displayName: 'Renamed' } },
+      notify
+    )
 
     expect(relocatedRepo).toBeNull()
     expect(updates).toEqual({ displayName: 'Renamed' })
+    expect(notices).toEqual([])
   })
 
   it('surfaces the refusal instead of silently dropping the path', () => {
     const store = storeWithFolderProject()
 
     expect(() =>
-      applyProjectHostSetupPathRelocation(store, {
-        setupId: 'r1',
-        updates: { path: join(root, 'not-there') }
-      })
+      applyProjectHostSetupPathRelocation(
+        store,
+        { setupId: 'r1', updates: { path: join(root, 'not-there') } },
+        recordingNotifier().notify
+      )
     ).toThrow(/No directory exists/)
   })
 })

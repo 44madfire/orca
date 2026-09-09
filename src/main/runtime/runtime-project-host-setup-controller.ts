@@ -40,6 +40,8 @@ type RuntimeProjectHostSetupDependencies = {
   invalidateResolvedWorktrees: () => void
   invalidateWorktreeScan: (repoId: string) => void
   notifyReposChanged: () => void
+  /** Carry old->new worktree id so the renderer re-keys instead of treating a relocation as a deletion. */
+  notifyWorktreeRenamed: (repoId: string, oldWorktreeId: string, newWorktreeId: string) => void
 }
 
 // Why clone alone still refuses: nothing in this process clones onto an SSH host. `cloneRepo` runs
@@ -133,22 +135,24 @@ export class RuntimeProjectHostSetupController {
     }
     // A repo-backed setup's path is the project's own location, so settle a move before the field
     // write; persistence only ever sees updates whose `path` it can apply verbatim.
-    const { updates, relocatedRepo } = store.relocateRepoPath
+    const relocateRepoPath = store.relocateRepoPath
+    const getProjectHostSetups = store.getProjectHostSetups
+    const { updates, relocatedRepo } = relocateRepoPath
       ? applyProjectHostSetupPathRelocation(
           {
-            getRepo: store.getRepo,
-            getRepos: store.getRepos,
-            relocateRepoPath: store.relocateRepoPath,
-            ...(store.getProjectHostSetups
-              ? { getProjectHostSetups: store.getProjectHostSetups }
+            // Bound: these are Store prototype methods and lose `this` when passed bare.
+            getRepos: () => store.getRepos(),
+            relocateRepoPath: (repoId, path, hostId) =>
+              relocateRepoPath.call(store, repoId, path, hostId),
+            ...(getProjectHostSetups
+              ? { getProjectHostSetups: () => getProjectHostSetups.call(store) }
               : {})
           },
-          args
+          args,
+          this.deps.notifyWorktreeRenamed
         )
       : { updates: args.updates, relocatedRepo: null }
     if (relocatedRepo) {
-      this.deps.invalidateResolvedWorktrees()
-      this.deps.invalidateWorktreeScan(relocatedRepo.id)
       invalidateAuthorizedRootsCache()
       this.deps.notifyReposChanged()
     }

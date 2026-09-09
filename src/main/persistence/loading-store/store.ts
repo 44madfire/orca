@@ -16,8 +16,11 @@ import {
 } from './store-domain-composition'
 import type { PersistedState } from '../../../shared/persisted-state-types'
 import type { Repo } from '../../../shared/repo-types'
-import { getRepoExecutionHostId } from '../../../shared/execution-host'
-import { planRepoPathRelocation } from '../tracking-repos/repo-path-relocation'
+import { getRepoExecutionHostId, type ExecutionHostId } from '../../../shared/execution-host'
+import {
+  planRepoPathRelocation,
+  type RepoWorkspaceIdentityMove
+} from '../tracking-repos/repo-path-relocation'
 import { scheduleSave } from './write-scheduling'
 import type { WriteSchedulingOperations } from './write-scheduling'
 import type { PrimaryStateWriteOperations } from './primary-state-writes'
@@ -114,23 +117,28 @@ export class Store {
    * would strand every `<repoId>::<path>` row. Callers own validating that `newPath` exists on the
    * host that runs the project; this only rewrites persisted identity.
    */
-  relocateRepoPath(repoId: string, newPath: string): Repo | null {
-    const repo = this.getRepo(repoId)
-    if (!repo) {
-      return null
-    }
-    const moves = planRepoPathRelocation(this.state, repo, newPath)
-    // Re-key first: a migration reads the old id, so the repo must still spell the old path.
-    for (const move of moves) {
-      this.migrateWorktreeIdentity(move.from, move.to, getRepoExecutionHostId(repo))
-    }
-    const stored = this.state.repos.find((candidate) => candidate.id === repoId)
+  relocateRepoPath(
+    repoId: string,
+    newPath: string,
+    hostId?: ExecutionHostId
+  ): { repo: Repo; moves: RepoWorkspaceIdentityMove[] } | null {
+    // Host-qualified like `updateRepo`: the same repo id can exist on several execution hosts, and an
+    // id-only lookup would move one host's row using another host's request.
+    const stored = this.state.repos.find(
+      (candidate) =>
+        candidate.id === repoId && (!hostId || getRepoExecutionHostId(candidate) === hostId)
+    )
     if (!stored) {
       return null
     }
+    const moves = planRepoPathRelocation(this.state, stored, newPath)
+    // Re-key first: a migration reads the old id, so the repo must still spell the old path.
+    for (const move of moves) {
+      this.migrateWorktreeIdentity(move.from, move.to, getRepoExecutionHostId(stored))
+    }
     stored.path = newPath
     scheduleSave(this.domains.scheduling)
-    return this.getRepo(repoId) ?? stored
+    return { repo: this.getRepo(repoId) ?? stored, moves }
   }
 }
 

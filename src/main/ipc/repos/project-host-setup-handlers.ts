@@ -16,6 +16,7 @@ import { getProjectIdForProviderIdentity } from '../../../shared/project-host-se
 import { getProjectHostSetupForRepo } from '../../../shared/project-host-setup-lookup'
 import { parseExecutionHostId } from '../../../shared/execution-host'
 import { prepareLocalWorktreeRootForRepo } from '../../worktree-root-preparation'
+import type { OrcaRuntimeService } from '../../runtime/orca-runtime'
 import { applyProjectHostSetupPathRelocation } from '../../project-path-relocation'
 import { invalidateAuthorizedRootsCache } from '../registered-worktree-roots-cache'
 import { emitRepoAdded } from './repo-added-telemetry'
@@ -78,7 +79,11 @@ function alignRepoWithRequestedProject(
   return buildProjectHostSetupResult(store, repo)
 }
 
-export function registerProjectHostSetupHandlers(mainWindow: BrowserWindow, store: Store): void {
+export function registerProjectHostSetupHandlers(
+  mainWindow: BrowserWindow,
+  store: Store,
+  runtime: OrcaRuntimeService
+): void {
   ipcMain.handle(
     'projectHostSetups:create',
     (_event, rawArgs: ProjectHostSetupCreateArgs): ProjectHostSetupCreateResult => {
@@ -104,7 +109,14 @@ export function registerProjectHostSetupHandlers(mainWindow: BrowserWindow, stor
         rawArgs,
         'project_host_setup_update_invalid_args'
       )
-      const { updates, relocatedRepo } = applyProjectHostSetupPathRelocation(store, args)
+      // Same delivery as the RPC entry point: a relocation must announce old->new per workspace, or
+      // the renderer's diff reads the vanished id as a deletion and tears the workspace down.
+      const { updates, relocatedRepo } = applyProjectHostSetupPathRelocation(
+        store,
+        args,
+        (repoId, oldWorktreeId, newWorktreeId) =>
+          runtime.notifyWorktreeFolderRenamed(repoId, oldWorktreeId, newWorktreeId)
+      )
       if (relocatedRepo) {
         invalidateAuthorizedRootsCache()
       }

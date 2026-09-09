@@ -14,13 +14,38 @@ export type RepoWorkspaceIdentityMove = {
 }
 
 /**
- * Worktree ids are `<repoId>::<path>` with an optional `::workspace:<uuid>` suffix, so a project's
- * registered path is baked into every workspace that sits at its checkout. Moving the project has to
- * re-key them together; this plans the moves so the caller can apply them through the same
- * identity migration a worktree folder rename uses.
+ * The part of `filesystemPath` below the project root, or null when it is not at or inside it.
  *
- * Only ids at the checkout itself move. A git project's extra worktrees live under their own base
- * path, which the project path does not own, so relocating the checkout must not rewrite them.
+ * Splits on the raw spelling but decides on the normalized one: a stored id can spell the root with
+ * a different case or separator than the repo row does, so slicing by the repo path's length would
+ * cut in the wrong place. Walking separator boundaries keeps the tail byte-exact as stored.
+ */
+function relocationTail(filesystemPath: string, rootKey: string): string | null {
+  if (normalizeRuntimePathForComparison(filesystemPath) === rootKey) {
+    return ''
+  }
+  for (let index = 0; index < filesystemPath.length; index += 1) {
+    const character = filesystemPath[index]
+    if (character !== '/' && character !== '\\') {
+      continue
+    }
+    if (normalizeRuntimePathForComparison(filesystemPath.slice(0, index)) === rootKey) {
+      return filesystemPath.slice(index)
+    }
+  }
+  return null
+}
+
+/**
+ * Worktree ids are `<repoId>::<path>` with an optional `::workspace:<uuid>` suffix, so a project's
+ * registered path is baked into every workspace that lives at or inside its checkout. Moving the
+ * project has to re-key them together; this plans the moves so the caller can apply them through the
+ * same identity migration a worktree folder rename uses.
+ *
+ * Descendants move too, not just the checkout itself: `worktreeBasePath` is resolved relative to
+ * `repo.path`, so a project configured with a relative base keeps its worktrees inside the directory
+ * that is moving. A worktree under an absolute base lies outside the moved directory and is left
+ * alone, which is correct — the move did not touch it.
  */
 export function planRepoPathRelocation(
   state: PersistedState,
@@ -45,15 +70,17 @@ export function planRepoPathRelocation(
     if (filesystemPath === undefined) {
       continue
     }
-    if (normalizeRuntimePathForComparison(filesystemPath) !== oldKey) {
+    const tail = relocationTail(filesystemPath, oldKey)
+    if (tail === null) {
       continue
     }
-    // The instance suffix is whatever the filesystem view stripped; carry it across unchanged so
-    // sibling workspaces stay distinct instead of collapsing onto one id.
+    // The instance suffix is identity, not path; carry it across unchanged so sibling workspaces
+    // stay distinct instead of collapsing onto one id.
     const instanceSuffix = parsed.worktreePath.slice(filesystemPath.length)
+    const relocatedPath = `${newPath}${tail}`
     moves.push({
       from: worktreeId,
-      to: `${repo.id}${WORKTREE_ID_SEPARATOR}${newPath}${instanceSuffix}`
+      to: `${repo.id}${WORKTREE_ID_SEPARATOR}${relocatedPath}${instanceSuffix}`
     })
   }
   return moves
