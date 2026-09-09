@@ -36,6 +36,17 @@ const TYPED_PAYLOAD_CALLS = new Set([
   'github.project.listIssueTypesBySlug'
 ])
 
+/** The adapter method that contains `offset`, ending at its closing brace at 4-space indent
+ *  (`},` or the last method's `}`); a method that never closes fails rather than leaking into
+ *  the next method or file. */
+function enclosingAdapterMethod(source: string, offset: number): string {
+  const end = source.slice(offset).search(/\n {4}\},?\n/)
+  if (end === -1) {
+    throw new Error(`no method boundary after offset ${offset}`)
+  }
+  return source.slice(offset, offset + end)
+}
+
 describe('mobile GitHub Project host routing boundary', () => {
   it('keeps every Project RPC behind the adapter layer', () => {
     expect(compositionSource).not.toContain('sendRequest(')
@@ -52,8 +63,7 @@ describe('mobile GitHub Project host routing boundary', () => {
         continue
       }
       // Bounded to the enclosing adapter method, so a neighbour's host cannot satisfy it.
-      const end = adapterSource.indexOf('\n    },', call.index)
-      const request = adapterSource.slice(call.index, end === -1 ? undefined : end)
+      const request = enclosingAdapterMethod(adapterSource, call.index)
       // `host` may be a shorthand property, so accept it followed by a colon, comma or brace.
       expect(request, `${call[1]} must carry a host`).toMatch(
         /\bhost\s*[:,}]|slugPayload\(target\)|repoPayload\(/
@@ -106,9 +116,8 @@ describe('mobile GitHub Project host routing boundary', () => {
       const offset = projectMutationAdapter.indexOf(`${method}(`)
       expect(offset, `${method} must remain wired`).toBeGreaterThan(-1)
       // Bounded to this adapter method, so a neighbour's prRepo cannot satisfy it.
-      const end = projectMutationAdapter.indexOf('\n    },', offset)
       expect(
-        projectMutationAdapter.slice(offset, end === -1 ? undefined : end),
+        enclosingAdapterMethod(projectMutationAdapter, offset),
         `${method} must carry prRepo`
       ).toContain('prRepo: prRepoPayload(target)')
     }
@@ -120,9 +129,8 @@ describe('mobile GitHub Project host routing boundary', () => {
     ]) {
       const offset = projectFileAdapter.indexOf(`'${method}'`)
       expect(offset, `${method} must remain wired`).toBeGreaterThan(-1)
-      const end = projectFileAdapter.indexOf('\n    },', offset)
       expect(
-        projectFileAdapter.slice(offset, end === -1 ? undefined : end),
+        enclosingAdapterMethod(projectFileAdapter, offset),
         `${method} must carry the row repository`
       ).toContain('repoPayload(target, repoId)')
     }
