@@ -3,6 +3,21 @@ import type { RpcClient } from '../transport/rpc-client'
 import { nativeHostWorkspaceCreationOperations } from './native-host-workspace-creation-operations'
 
 describe('native host workspace creation operations', () => {
+  it('addresses the retired-name read by method and id-prefixed repo', async () => {
+    const sendRequest = vi
+      .fn<RpcClient['sendRequest']>()
+      .mockResolvedValue({ ok: true, result: { retiredNamesByRepo: { 'repo-1': ['spent'] } } })
+    const operations = nativeHostWorkspaceCreationOperations({
+      sendRequest
+    } as unknown as RpcClient)
+
+    // The hook takes a callback now, so this is the only place the wire shape is pinned.
+    await expect(operations.readRetiredWorktreeNames('repo-1')).resolves.toMatchObject({
+      names: ['spent']
+    })
+    expect(sendRequest.mock.calls).toEqual([['worktree.listRetiredNames', { repo: 'id:repo-1' }]])
+  })
+
   it('maps named repository and environment reads to existing RPC authority', async () => {
     const sendRequest = vi
       .fn<RpcClient['sendRequest']>()

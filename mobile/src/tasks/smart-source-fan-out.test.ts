@@ -1,45 +1,38 @@
 import { describe, expect, it } from 'vitest'
 import type { HostWorkspaceCreationOperations } from '../worktree/host-workspace-creation-operations'
 import { fanOutSmartSearch } from './smart-source-fan-out'
+import type { RpcRequestSender } from '../transport/rpc-client'
+import {
+  searchBranches,
+  searchGitHubItems,
+  searchGitLabItems,
+  searchLinearIssues
+} from './smart-source-search-requests'
 
 type Call = { method: string; params: Record<string, unknown> }
 
+/** Delegates to the shipped search functions over a scripted transport, so the `repoId`
+ *  stamping and the envelope handling under test are the real ones rather than the fake's. */
 function fakeOperations(
   byMethod: Record<string, unknown>,
   calls: Call[]
 ): HostWorkspaceCreationOperations {
-  const invoke = async <T>(method: string, params: Record<string, unknown>): Promise<T> => {
-    calls.push({ method, params })
-    const result = byMethod[method]
-    if (result instanceof Error) {
-      throw result
+  const client = {
+    async sendRequest(method: string, params: unknown) {
+      calls.push({ method, params: params as Record<string, unknown> })
+      const scripted = byMethod[method]
+      if (scripted instanceof Error) {
+        return { ok: false as const, error: { code: 'failed', message: scripted.message } }
+      }
+      return { ok: true as const, result: scripted ?? {} }
     }
-    return result as T
-  }
+  } as unknown as RpcRequestSender
   return {
-    searchGitHubItems: async (repoId, query) => {
-      const result = await invoke<{ items?: never[] }>('github.listWorkItems', { repoId, query })
-      return (result?.items ?? []).map((item) => ({ ...item, repoId }))
-    },
-    searchGitLabItems: async (repoId, query, state) => {
-      const result = await invoke<{ items?: never[] }>('gitlab.listWorkItems', {
-        repoId,
-        query,
-        state
-      })
-      return (result?.items ?? []).map((item) => ({ ...item, repoId }))
-    },
-    searchLinearIssues: async (query, linearWorkspaceId) => {
-      const result = await invoke<{ items?: never[] }>('linear.searchIssues', {
-        query,
-        linearWorkspaceId
-      })
-      return result?.items ?? []
-    },
-    searchBranches: async (repoId, query) => {
-      const result = await invoke<{ refDetails?: never[] }>('repo.searchRefs', { repoId, query })
-      return result?.refDetails ?? []
-    }
+    searchGitHubItems: (repoId, query) => searchGitHubItems(client, repoId, query),
+    searchGitLabItems: (repoId, query, state) => searchGitLabItems(client, repoId, query, state),
+    searchLinearIssues: (query, linearWorkspaceId) =>
+      searchLinearIssues(client, query, linearWorkspaceId),
+    searchBranches: (repoId, query) => searchBranches(client, repoId, query)
   } as unknown as HostWorkspaceCreationOperations
 }
 

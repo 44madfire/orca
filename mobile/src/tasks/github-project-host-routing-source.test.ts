@@ -19,7 +19,22 @@ const compositionSource = [
 const projectReadAdapter = readSource('./native-host-task-project-read-operations.ts')
 const projectMutationAdapter = readSource('./native-host-task-project-mutation-operations.ts')
 const projectFileAdapter = readSource('./native-host-task-project-file-operations.ts')
-const adapterSource = [projectReadAdapter, projectMutationAdapter, projectFileAdapter].join('\n')
+const projectPayloadTypes = readSource('./host-task-project-payloads.ts')
+/** The fallback map lists every method name as a key; those are not call sites. */
+const mutationCallSites = projectMutationAdapter.replace(
+  /const PROJECT_MUTATION_FALLBACKS[\s\S]*?\n\}\n/,
+  ''
+)
+const adapterSource = [projectReadAdapter, mutationCallSites, projectFileAdapter].join('\n')
+
+/** These four pass a typed payload rather than an inline object, so their host is guaranteed by
+ *  the payload type asserted below. Pinned by name so a new call cannot silently join them. */
+const TYPED_PAYLOAD_CALLS = new Set([
+  'github.project.workItemDetailsBySlug',
+  'github.project.listLabelsBySlug',
+  'github.project.listAssignableUsersBySlug',
+  'github.project.listIssueTypesBySlug'
+])
 
 describe('mobile GitHub Project host routing boundary', () => {
   it('keeps every Project RPC behind the adapter layer', () => {
@@ -31,12 +46,31 @@ describe('mobile GitHub Project host routing boundary', () => {
 
   it('host-qualifies every Project RPC request', () => {
     const calls = [...adapterSource.matchAll(/['"](github\.project\.[^'"]+)['"]/g)]
+    expect(calls.length).toBeGreaterThan(10)
     for (const call of calls) {
+      if (TYPED_PAYLOAD_CALLS.has(call[1])) {
+        continue
+      }
       const request = adapterSource.slice(call.index, call.index + 700)
       expect(request, `${call[1]} must carry a host`).toMatch(
-        /\bhost:|slugPayload\(target\)|\bpayload\b/
+        /\bhost:|slugPayload\(target\)|repoPayload\(/
       )
     }
+    // The typed-payload calls get their host from the type, so pin the type instead.
+    expect(projectPayloadTypes).toMatch(
+      /export type HostTaskProjectSlugPayload = \{\s*owner: string\s*repo: string\s*host: string/
+    )
+    for (const derived of [
+      'HostTaskProjectItemDetailPayload',
+      'HostTaskProjectAssignableUsersPayload'
+    ]) {
+      expect(projectPayloadTypes, `${derived} must inherit the host`).toMatch(
+        new RegExp(`export type ${derived} = HostTaskProjectSlugPayload &`)
+      )
+    }
+    expect(projectPayloadTypes).toMatch(
+      /export type HostTaskProjectTablePayload = GitHubProjectRef &/
+    )
     // slugPayload is the single place a row identity becomes a wire payload.
     expect(projectMutationAdapter).toMatch(
       /function slugPayload\(target: HostTaskProjectItemTarget\) \{\s*return \{\s*owner: target\.owner,\s*repo: target\.repo,\s*host: target\.host,/
@@ -54,10 +88,10 @@ describe('mobile GitHub Project host routing boundary', () => {
     }
     // The target type carries the host that the PR mutations forward as prRepo, and a row with
     // no slug forwards null rather than being refused.
-    expect(projectMutationAdapter).toContain('prRepo: prRepoPayload(target)')
     expect(projectMutationAdapter).toMatch(
       /function prRepoPayload\(target: HostTaskProjectItemTarget\) \{\s*return target\.owner && target\.repo/
     )
+    // Per method, not once per file: dropping prRepo from a single mutation must fail here.
     for (const method of [
       'fetchResolveReviewThread',
       'fetchAddPRReviewCommentReply',
@@ -66,10 +100,28 @@ describe('mobile GitHub Project host routing boundary', () => {
       'fetchRerunPRChecks',
       'fetchMergePR'
     ]) {
-      expect(projectMutationAdapter, `${method} must remain wired`).toContain(method)
+      const offset = projectMutationAdapter.indexOf(`${method}(`)
+      expect(offset, `${method} must remain wired`).toBeGreaterThan(-1)
+      // Bounded to this adapter method, so a neighbour's prRepo cannot satisfy it.
+      const end = projectMutationAdapter.indexOf('\n    },', offset)
+      expect(
+        projectMutationAdapter.slice(offset, end === -1 ? undefined : end),
+        `${method} must carry prRepo`
+      ).toContain('prRepo: prRepoPayload(target)')
     }
-    for (const method of ['github.prChecks', 'github.setPRFileViewed', 'github.prFileContents']) {
-      expect(projectFileAdapter, `${method} must remain wired`).toContain(method)
+    for (const method of [
+      'github.prChecks',
+      'github.setPRFileViewed',
+      'github.prFileContents',
+      'github.addPRReviewComment'
+    ]) {
+      const offset = projectFileAdapter.indexOf(`'${method}'`)
+      expect(offset, `${method} must remain wired`).toBeGreaterThan(-1)
+      const end = projectFileAdapter.indexOf('\n    },', offset)
+      expect(
+        projectFileAdapter.slice(offset, end === -1 ? undefined : end),
+        `${method} must carry the row repository`
+      ).toContain('repoPayload(target, repoId)')
     }
   })
 
