@@ -136,6 +136,9 @@ export class OrcaRuntimeWithNotifySshStateChanged extends OrcaRuntimeWithGetStat
   // clients need an explicit catalog invalidation; the local renderer already
   // got its own repos:changed and must not be re-notified (#11994).
   notifyReposChangedForRemoteClients(): void {
+    // Why here: the resolved-worktree snapshot is derived from the repo list, so a repo
+    // registered while a snapshot is warm stays invisible for the whole TTL.
+    this.invalidateResolvedWorktreeCache()
     this.emitClientEvent({ type: 'reposChanged' })
   }
 
