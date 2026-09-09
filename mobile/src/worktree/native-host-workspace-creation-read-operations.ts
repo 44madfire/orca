@@ -50,7 +50,7 @@ export function nativeHostWorkspaceCreationReadOperations(
       const result = await successfulResult<{ settings?: NewWorkspaceRuntimeSettings }>(
         client.sendRequest('settings.get')
       )
-      return result.settings ?? {}
+      return result.settings ?? null
     },
     async readTrustedHooks() {
       const result = await successfulResult<{

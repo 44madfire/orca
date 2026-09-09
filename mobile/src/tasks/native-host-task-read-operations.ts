@@ -60,8 +60,7 @@ async function bootstrap(client: RpcRequestSender): Promise<HostTaskBootstrap> {
 async function listRepositories(client: RpcRequestSender): Promise<HostTaskRepository[]> {
   const response = await client.sendRequest('repo.list')
   requireSuccess(response)
-  const result = response.result as { repos?: HostTaskRepository[] }
-  return result.repos ?? []
+  return (response.result as { repos: HostTaskRepository[] }).repos
 }
 
 async function linearStatus(client: RpcRequestSender): Promise<HostTaskLinearStatus> {

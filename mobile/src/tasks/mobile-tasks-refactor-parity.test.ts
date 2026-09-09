@@ -25,9 +25,9 @@ const hash = (parts: string[] | string): string =>
  * plus the row-target locals the adapters take in place of inline slug/number checks. Diff hooks,
  * declarations and styles are untouched.
  */
-const SCREEN_HOOKS = '5f298d284b82e70b267c499d192c827c39c0e802e7e3cf2b17715480991376a8'
+const SCREEN_HOOKS = 'ef31f40ab364d2c1958f0b130382e9f244aa824d491d329b639c3f2cba2b044a'
 const DIFF_HOOKS = '93c7189b32bed8456cc51814fffa8ce80cf62011ef968a9d53ddec2b9686f58f'
-const STATEMENTS = 'd5a642c641b1e830b71a437d53b809ba40e4e8a5fd36adbbbeb8173048569295'
+const STATEMENTS = '9df42716307eb166b1a862e2cea3d4bf2a9f3fa9bc8acd74ccc1e4302bbee9e4'
 const DECLARATIONS = 'cff54172af17a877789be1479c2eb6ca97d83c3e31dd831cd59395962f2b4c4a'
 const SEMANTICS = 'f767906884b93537f2c6369d6d0bd2d4cb39b4314c31cca9d8f9e5e9b78a75ee'
 const STYLES = '1db6af69c791d9963928541ad5310942fcbda6d984b422c90b6eb92b6816579a'

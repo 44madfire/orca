@@ -73,8 +73,11 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
         await ensureWorkspaceSshReady(targetRepo)
         let latestRuntimeTaskSettings = runtimeTaskSettings
         try {
+          // This caller committed `{}` for a settings-less answer; the create sheet keeps its
+          // previous value instead, so the empty default stays local to this path.
           latestRuntimeTaskSettings =
-            (await taskWorkspaceCreationOperations.readRuntimeSettings()) as RuntimeTaskSettings
+            ((await taskWorkspaceCreationOperations.readRuntimeSettings()) ??
+              {}) as RuntimeTaskSettings
           setRuntimeTaskSettings(latestRuntimeTaskSettings)
         } catch {
           // Best-effort refresh; the runtime still validates agent availability before spawning.

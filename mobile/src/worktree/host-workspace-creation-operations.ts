@@ -52,7 +52,8 @@ export type NewWorkspaceRepoHooks = {
 export type HostWorkspaceCreationOperations = {
   listRepositories(): Promise<NewWorkspaceRepository[]>
   readRetiredWorktreeNames(repoId: string): Promise<RetiredNameRegistry>
-  readRuntimeSettings(): Promise<NewWorkspaceRuntimeSettings>
+  /** Null when the host answers without a settings key: the caller keeps what it has. */
+  readRuntimeSettings(): Promise<NewWorkspaceRuntimeSettings | null>
   readTrustedHooks(): Promise<PersistedTrustedOrcaHooks>
   isGitLabCliInstalled(): Promise<boolean>
   isLinearConnected(): Promise<boolean>

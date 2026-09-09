@@ -114,8 +114,9 @@ export async function projectResult<T>(
   if (!response.ok) {
     throw new Error(response.error?.message ?? fallback)
   }
-  if (response.result?.ok === false) {
-    throw new Error(response.result.error?.message ?? fallback)
+  // main required an explicit ok:true; a result that omits the flag is not a confirmed success.
+  if (!response.result?.ok) {
+    throw new Error(response.result?.error?.message ?? fallback)
   }
   return response.result as T
 }
