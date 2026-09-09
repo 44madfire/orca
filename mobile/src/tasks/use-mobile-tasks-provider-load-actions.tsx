@@ -13,7 +13,6 @@ import {
 import {
   GITHUB_REPO_CONCURRENCY,
   type GitHubRepoSources,
-  type GitHubWorkItem,
   type LinearTeam,
   type RepoSummary,
   type TaskItem,

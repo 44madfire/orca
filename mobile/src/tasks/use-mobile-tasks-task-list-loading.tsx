@@ -4,7 +4,6 @@ import {
   GITHUB_REPO_CONCURRENCY,
   GITLAB_PER_PAGE,
   type GitLabTodo,
-  type GitLabWorkItem,
   LINEAR_LIMIT,
   type TaskItem,
   buildPartialRepositoryNotice,
