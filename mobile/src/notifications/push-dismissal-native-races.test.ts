@@ -66,56 +66,37 @@ beforeEach(() => {
   nativeLedger.clear()
 })
 
-it('suppresses a foreground push dismissed natively during its queued fallback read', async () => {
-  let finish!: () => void
-  let reads = 0
-  vi.mocked(AsyncStorage.getItem).mockImplementation(async (key) => {
-    if (key === 'orca:pushDismissalWatermarks:v1' && ++reads === 1) {
-      await new Promise<void>((resolve) => {
-        finish = resolve
-      })
-    }
-    return memory.get(key) ?? null
-  })
-  const pending = shouldSuppressForegroundPush({ orca: payload })
-  await vi.waitFor(() => expect(finish).toBeDefined())
-  await shouldSuppressForegroundPush({ orca: { ...fence, kind: 'dismiss' } })
-  expect(memory.has('orca:pushDismissalWatermarks:v1')).toBe(false)
-  finish()
-  expect(await pending).toBe(true)
-})
-
-it.each(['native', 'fallback'])(
-  'rechecks a negative native snapshot overtaken by a %s dismissal',
-  async (backend) => {
-    let finish!: () => void
-    vi.mocked(nativePushDismissal!.wasDismissed).mockImplementationOnce(async () => {
-      await new Promise<void>((resolve) => {
-        finish = resolve
-      })
-      return false
-    })
-    const pending = wasPushDismissed(payload)
-    await vi.waitFor(() => expect(finish).toBeDefined())
-    if (backend === 'fallback') {
-      vi.mocked(nativePushDismissal!.remember).mockRejectedValueOnce(
-        new Error('bridge unavailable')
-      )
-    }
-    await rememberPushDismissal(fence)
-    finish()
-    expect(await pending).toBe(true)
-    expect(nativePushDismissal!.wasDismissed).toHaveBeenCalledTimes(backend === 'native' ? 2 : 1)
-  }
-)
-
-it('retains fallback dismissals when the native bridge recovers', async () => {
-  vi.mocked(nativePushDismissal!.remember).mockRejectedValueOnce(new Error('bridge unavailable'))
+it('uses only native storage for iOS dismissal reads and writes', async () => {
   await rememberPushDismissal(fence)
-  expect(nativeLedger.size).toBe(0)
   expect(await wasPushDismissed(payload)).toBe(true)
   expect(await wasPushDismissed({ ...payload, notificationSeq: 22 })).toBe(false)
   expect(await wasPushDismissed({ ...payload, notificationEpoch: 'new-epoch' })).toBe(false)
+  expect(AsyncStorage.getItem).not.toHaveBeenCalled()
+  expect(AsyncStorage.setItem).not.toHaveBeenCalled()
+})
+
+it('rechecks a negative native snapshot overtaken by a dismissal', async () => {
+  let finish!: () => void
+  vi.mocked(nativePushDismissal!.wasDismissed).mockImplementationOnce(async () => {
+    await new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    return false
+  })
+  const pending = wasPushDismissed(payload)
+  await vi.waitFor(() => expect(finish).toBeDefined())
+  await rememberPushDismissal(fence)
+  finish()
+  expect(await pending).toBe(true)
+  expect(nativePushDismissal!.wasDismissed).toHaveBeenCalledTimes(2)
+})
+
+it('surfaces native write failures without switching storage or poisoning later operations', async () => {
+  vi.mocked(nativePushDismissal!.remember).mockRejectedValueOnce(new Error('native failure'))
+  await expect(rememberPushDismissal(fence)).rejects.toThrow('native failure')
+  expect(AsyncStorage.setItem).not.toHaveBeenCalled()
+  await rememberPushDismissal(fence)
+  expect(await wasPushDismissed(payload)).toBe(true)
 })
 
 it('suppresses presentation when dismissal completes during the handler sound read', async () => {

@@ -20,7 +20,7 @@ const REGISTER_PARAMS = {
   platform: 'ios',
   token: 'a'.repeat(64),
   apnsEnvironment: 'sandbox',
-  filter: { sources: ['agent-task-complete'], agentStates: ['finished'] }
+  filter: {}
 }
 
 function contextFor(overrides: Partial<RpcContext>): RpcContext {
@@ -89,12 +89,12 @@ describe('notifications.registerPush', () => {
     ).toBe(false)
   })
 
-  it('rejects a source the contract does not define', () => {
+  it('rejects a malformed phone preference', () => {
     const registerPush = method('notifications.registerPush')
     expect(
       registerPush.params!.safeParse({
         ...REGISTER_PARAMS,
-        filter: { sources: ['smoke-signal'], agentStates: [] }
+        filter: { sound: 'yes' }
       }).success
     ).toBe(false)
   })
@@ -131,8 +131,9 @@ describe('revokeMobileDevice', () => {
     server['deviceRegistry']!.setPushRegistration(device.deviceId, {
       registrationId: 'reg-1',
       platform: 'android',
-      filter: { sources: ['agent-task-complete'], agentStates: ['finished'] },
-      registeredAt: 1
+      filter: {},
+      registeredAt: 1,
+      expiresAt: Date.now() + 7 * 86400_000
     })
 
     expect(await server.revokeMobileDevice(device.deviceId)).toBe(true)

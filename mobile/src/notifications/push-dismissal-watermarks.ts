@@ -62,12 +62,8 @@ export async function rememberPushDismissal(payload: OrcaPushPayload): Promise<v
   }
   return queueDismissalOperation(async () => {
     if (nativePushDismissal) {
-      try {
-        await nativePushDismissal.remember(payload)
-        return
-      } catch {
-        // Keep recovery available if the native bridge is unavailable during reload.
-      }
+      await nativePushDismissal.remember(payload)
+      return
     }
     const entries = await readEntries()
     const previous = entries.find((entry) => entry.key === key)
@@ -80,19 +76,16 @@ export async function rememberPushDismissal(payload: OrcaPushPayload): Promise<v
       STORAGE_KEY,
       JSON.stringify([...entries.filter((item) => item.key !== key), entry].slice(-MAX_ENTRIES))
     )
-  }).catch(() => {})
+  })
 }
 
 async function readDismissal(payload: OrcaPushPayload, key: string): Promise<boolean> {
-  if (
-    (await readEntries()).some(
-      (entry) => entry.key === key && entry.seq >= payload.notificationSeq!
-    )
-  ) {
-    return true
+  if (nativePushDismissal) {
+    return nativePushDismissal.wasDismissed(payload)
   }
-  // Native remembers do not update fallback storage, so query native last.
-  return nativePushDismissal?.wasDismissed(payload).catch(() => false) ?? false
+  return (await readEntries()).some(
+    (entry) => entry.key === key && entry.seq >= payload.notificationSeq!
+  )
 }
 
 export async function wasPushDismissed(payload: OrcaPushPayload): Promise<boolean> {

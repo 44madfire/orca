@@ -4,7 +4,6 @@ import { DatabaseSync } from 'node:sqlite'
 import pg from 'pg'
 import { parseIntoClientConfig } from 'pg-connection-string'
 import { applyPostgresSchema } from '@orca-cloud/postgres-schema'
-import { ensurePushSessionIndex } from './push-session-schema.js'
 import { pushSchemaStatements } from './push-schema.js'
 
 const POSTGRES_LOCK_TIMEOUT_MS = 1_000
@@ -190,7 +189,6 @@ class PostgresDatabase implements PushDatabase {
 
 async function applySchema(database: PushDatabase): Promise<void> {
   for (const statement of pushSchemaStatements()) await database.query(statement)
-  await ensurePushSessionIndex(database)
 }
 
 // Why: DDL is not a request. A CREATE INDEX on a grown table can legitimately
@@ -217,7 +215,6 @@ async function applySchemaOnUntimedPool(
     await applyPostgresSchema(pushSchemaStatements(), (statement) => database.query(statement), {
       eventPrefix: 'orca_push_postgres_schema'
     })
-    await ensurePushSessionIndex(database)
   } finally {
     await database.close().catch(() => undefined)
   }

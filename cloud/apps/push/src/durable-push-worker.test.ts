@@ -34,8 +34,7 @@ async function fixture() {
     hostFingerprint: 'host',
     deviceId: 'phone',
     platform: 'android',
-    token: 'test-token',
-    filter: { sources: [], agentStates: [] }
+    token: 'test-token'
   })
   if (!device.ok) throw new Error('registration failed')
   const send = vi.fn(async (_delivery: PushDelivery): Promise<PushProviderOutcome> => ({
@@ -102,8 +101,7 @@ it('keeps untrackable bells and per-phone deliveries individually replaceable', 
     hostFingerprint: 'host',
     deviceId: 'phone2',
     platform: 'android',
-    token: 'other-token',
-    filter: { sources: [], agentStates: [] }
+    token: 'other-token'
   })
   if (!other.ok) throw new Error('registration failed')
   await h.accept(note(1, { notificationId: undefined, source: 'terminal-bell', agentState: null }))

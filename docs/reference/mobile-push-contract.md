@@ -89,9 +89,7 @@ The host keypair is X25519 (box), so it cannot sign. Reuse the relay's challenge
 
 ```json
 { "v": 1, "deviceId": "<uuid>", "platform": "ios" | "android", "token": "<native token>",
-  "apnsEnvironment": "sandbox" | "production",   // ios only, required for ios
-  "filter": { "sources": ["agent-task-complete", "terminal-bell", "plugin"],
-              "agentStates": ["needs-input", "finished"] } }
+  "apnsEnvironment": "sandbox" | "production" }  // ios only, required for ios
 ```
 
 → 200 `{ "registrationId": "<opaque>" }`. Upsert keyed by (hostFingerprint, deviceId); a new token
@@ -99,9 +97,8 @@ replaces the old. `deviceId` is caller-chosen, so a host is capped at 64 registr
 distinct `deviceId` → 409 `{ "error": "too_many_devices" }`. Re-registering a `deviceId` the host
 already owns is always accepted, and deleting a registration frees its slot. `GET /v1/devices` is
 bounded at 1024 rows to match its response schema, which the per-host cap keeps well out of reach.
-The gateway `filter` contains only the legacy `sources` and `agentStates` arrays. It remains stored and
-accepted for mixed-version schema compatibility but is not an updated delivery-policy input. The host
-persists and enforces desktop eligibility plus the phone-specific away-only, sound, and expiry settings.
+The gateway stores no category filters. The host enforces desktop category eligibility, phone-specific
+away-only and sound preferences, and a mandatory seven-day registration lease renewed by mobile use.
 iOS tokens are variable-length, hex-encoded byte strings; Android tokens are FCM registration strings.
 
 `DELETE /v1/devices/:registrationId` (Bearer) → 204. Only the owning host may delete.
@@ -190,6 +187,13 @@ old combined notifications from test-device trays as well. Do not run old and ne
 against this queue format. No legacy data migration or summary compatibility is provided. Pairing
 registrations and unrelated application data do not need to be reset.
 
+Before deploying the registration-filter removal, stop old gateway revisions and run
+`ALTER TABLE push_devices DROP COLUMN IF EXISTS filter_json;` on the dedicated PostgreSQL push
+database. This removes only unused filter metadata and preserves registrations. Fresh databases
+already use the new schema. Update the test desktop/mobile builds together and reopen mobile to
+register; persisted host registrations without a finite expiry are discarded. Old unpublished builds
+are not supported by the new registration API.
+
 Shutdown stops admission and work acquisition, waits for active work within the platform grace, and
 leaves unfinished deliveries recoverable after their leases expire. A provider acceptance followed by a
 crash before SQL completion can still cause a repeated send; collapse identity mitigates this without
@@ -237,7 +241,7 @@ metadata server or `GOOGLE_APPLICATION_CREDENTIALS` locally):
 expires_at, consumed_at)`
 - `push_sessions(token_hash pk, host_fingerprint, expires_at, created_at)`
 - `push_devices(registration_id pk, host_fingerprint, device_id, platform, token, apns_environment,
-filter_json, dead_at, created_at, updated_at, unique(host_fingerprint, device_id))`
+dead_at, created_at, updated_at, unique(host_fingerprint, device_id))`
 - `push_events` holds logical event identity, content fingerprint, quota timestamp, and expiry.
 - `push_event_recipients` records accepted event/phone pairs for idempotent fanout.
 - `push_delivery_batches` holds individual payload envelopes, retry deadlines, and renewable worker
@@ -264,9 +268,8 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 - Capability `NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY = 'notifications.remote-push.v1'` in
   `src/shared/protocol-version.ts`, advertised statically.
 - RPC `notifications.registerPush` params `{ platform, token, apnsEnvironment?, filter }`. The mobile
-  filter includes away-only, expiry, and sound settings plus the legacy category fields; the host
-  persists that full policy, while its gateway `POST /v1/devices` forwards only `sources` and
-  `agentStates` for compatibility. `deviceId` comes from `ctx.pairedDeviceId`. The RPC returns
+  filter includes only away-only and sound preferences; the host persists these locally.
+  Its gateway `POST /v1/devices` sends no filter. `deviceId` comes from `ctx.pairedDeviceId`. The RPC returns
   `{ registered: true, registrationId } | { registered: false, reason: 'gateway_unreachable' |
 'gateway_rejected' | 'not_mobile' | 'registration_storage_failed' | 'throttled' }`. A device may
   register at most 10 times per minute (`throttled` beyond that, its earlier registration untouched):
@@ -274,7 +277,7 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
   phone could otherwise loop it. The unregister RPC is not throttled, since with nothing registered it
   is a lookup and with something registered it can only run once per successful register. The params
   schema is strict, so a caller-supplied `deviceId` is an error, not a key silently dropped. Persists
-  `pushRegistration: { registrationId, platform, filter, registeredAt }` on `DeviceEntry` in
+  `pushRegistration: { registrationId, platform, filter, registeredAt, expiresAt }` on `DeviceEntry` in
   `device-registry.ts` (new
   optional field, tolerated by old registries). When the gateway accepted the token but the host could
   not store it — the device left mobile scope mid-call (`not_mobile`) or the registry write threw
@@ -329,8 +332,8 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
   activity. The detailed payload disclosure remains in the notification documentation.
 - `notifications.delivery-policy.v1` advertises the away and mobile-inactivity lease policy.
   Filter flags are optional and ignored by older hosts; the UI identifies paired hosts requiring
-  an update. New hosts preserve old phones’ existing policy when these flags are absent.
-- Registrations with `expireAfterInactivity` receive a persisted seven-day `expiresAt` on the
+  an update. Category mirroring and seven-day expiry are fixed product rules.
+- All registrations receive a persisted seven-day `expiresAt` on the
   paired desktop. Delivery and transport retries exclude expired registrations. Only foreground
   mobile registration renews it: on connection, foreground return, and every 15 minutes while
   active. Background sockets, desktop use and notification delivery never renew a phone lease.
@@ -384,15 +387,10 @@ native authorization remain desktop-only presentation gates and do not change mo
 
 Updated mobile subscribes with `includeDesktopSuppressed: true` for mixed-version compatibility and
 to receive dismissals, but it never turns ordinary socket notification frames into OS banners. The
-optional subscribe/replay fields, replayed `notifications`, `followDesktop`, `sources`, and
-`agentStates` remain accepted and populated only for mixed-version compatibility. Updated hosts ignore
-the mobile category fields and gate provider alerts on `desktopAllowed`; old hosts and clients retain
-their previous behavior without a wire break.
-
-The mobile registration always sends `followDesktop: true` and complete legacy category arrays.
-There are no active phone category overrides or category defaults. Optional `emittedAt` and replay
-notification response fields remain compatibility surface rather than a second delivery policy or
-banner path.
+optional subscribe/replay fields and replayed `notifications` retain their existing remote-wire
+compatibility behavior. Push registrations carry no category overrides: hosts gate provider alerts
+on `desktopAllowed`. Optional `emittedAt` and replay notification response fields remain compatibility
+surface rather than a second delivery policy or banner path.
 
 `filter.sound` is also host-local. False groups that device's requests separately and adds
 optional `notification.sound: false` to gateway sends. The gateway omits APNs `aps.sound` and
@@ -440,3 +438,19 @@ processing only when invoked: iOS background push delivery remains best effort, 
 suspended or force-quit. Every delivered push represents one notification. Reconciliation inspects
 up to 2,048 individual identities in pages of 256. It has no stored replay watermark: every connection
 compares the current tray with host dismissal history and never replays an alert.
+
+### Dismissal storage ownership
+
+iOS requires the `OrcaNotificationDismissal` native module and uses its native ledger exclusively.
+Android uses AsyncStorage. A missing iOS module is a build defect; native calls never switch to a
+second JavaScript store. Reads still recheck when a concurrent dismissal overtakes a negative result.
+Storage and tray-operation failures propagate to the caller instead of silently selecting a fallback
+or treating an unsupported old native shell as successful cleanup.
+
+### Session schema
+
+One session per host is enforced by a unique index in the initial schema. Startup does not inspect
+old index layouts or repair duplicate sessions from unpublished builds. Existing test databases
+already carrying `push_sessions_host` need no change. If using an older test database without that
+index and with duplicate sessions, stop old gateway revisions and clear `push_sessions` before
+starting this version; hosts authenticate again. No device registrations need to be deleted.

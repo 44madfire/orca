@@ -210,9 +210,7 @@ export class DesktopPushService {
         platform: input.platform,
         filter: input.filter,
         registeredAt: Date.now(),
-        ...(input.filter.expireAfterInactivity
-          ? { expiresAt: Date.now() + 7 * 24 * 60 * 60_000 }
-          : {})
+        expiresAt: Date.now() + 7 * 24 * 60 * 60_000
       })
       // False means the device was removed or left mobile scope while the gateway
       // call was in flight.

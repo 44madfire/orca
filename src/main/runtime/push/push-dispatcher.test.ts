@@ -107,17 +107,15 @@ describe('PushDispatcher', () => {
     const harness = createHarness({
       devices: [
         {
-          deviceId: 'needs-input-only',
+          deviceId: 'first-phone',
           pushRegistration: registration({
-            registrationId: 'reg-needs',
-            filter: { sources: ['agent-task-complete'], agentStates: ['needs-input'] }
+            registrationId: 'reg-needs'
           })
         },
         {
-          deviceId: 'bells-only',
+          deviceId: 'second-phone',
           pushRegistration: registration({
-            registrationId: 'reg-bell',
-            filter: { sources: ['terminal-bell'], agentStates: ['needs-input', 'finished'] }
+            registrationId: 'reg-bell'
           })
         },
         { deviceId: 'everything', pushRegistration: registration({ registrationId: 'reg-all' }) }
@@ -135,9 +133,7 @@ describe('PushDispatcher', () => {
       devices: [
         {
           deviceId: 'a',
-          pushRegistration: registration({
-            filter: { sources: ['terminal-bell'], agentStates: [] }
-          })
+          pushRegistration: registration()
         }
       ]
     })

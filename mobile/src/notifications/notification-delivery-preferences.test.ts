@@ -36,28 +36,20 @@ it('persists only phone-specific delivery preferences', async () => {
   }
   await saveNotificationDeliveryPreferences(value)
   expect(await loadNotificationDeliveryPreferences()).toEqual(value)
-  expect(notificationPreferencesFilter(value)).toMatchObject({
-    followDesktop: true,
+  expect(notificationPreferencesFilter(value)).toEqual({
     onlyWhenDesktopAway: false,
-    sound: false,
-    expireAfterInactivity: true,
-    sources: ['agent-task-complete', 'terminal-bell', 'plugin'],
-    agentStates: ['needs-input', 'finished']
+    sound: false
   })
 })
 
-it('ignores obsolete category overrides from the previous settings screen', async () => {
+it('ignores unrelated stored preferences', async () => {
   storage.set(
     'orca:notificationDeliveryPreferences',
     JSON.stringify({
       onlyWhenDesktopAway: false,
       sound: false,
       suppressWhileViewing: false,
-      followDesktop: false,
-      taskFinished: false,
-      needsInput: false,
-      terminalBell: false,
-      plugin: false
+      unrelatedSetting: false
     })
   )
   expect(await loadNotificationDeliveryPreferences()).toEqual({
@@ -65,10 +57,9 @@ it('ignores obsolete category overrides from the previous settings screen', asyn
     sound: false,
     suppressWhileViewing: false
   })
-  expect(notificationPreferencesFilter(await loadNotificationDeliveryPreferences())).toMatchObject({
-    followDesktop: true,
-    sources: ['agent-task-complete', 'terminal-bell', 'plugin'],
-    agentStates: ['needs-input', 'finished']
+  expect(notificationPreferencesFilter(await loadNotificationDeliveryPreferences())).toEqual({
+    onlyWhenDesktopAway: false,
+    sound: false
   })
 })
 

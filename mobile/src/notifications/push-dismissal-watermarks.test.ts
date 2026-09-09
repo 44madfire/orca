@@ -53,7 +53,7 @@ it('expires retained metadata and ignores unversioned dismissals', async () => {
   expect(await wasPushDismissed(payload)).toBe(false)
 })
 
-it('joins an overtaking fallback write before retrying a delayed negative snapshot', async () => {
+it('joins an overtaking JavaScript write before retrying a delayed negative snapshot', async () => {
   let finish!: () => void
   vi.mocked(AsyncStorage.getItem).mockImplementationOnce(async (key) => {
     const snapshot = storage.get(key) ?? null

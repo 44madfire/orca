@@ -14,7 +14,6 @@ import { createPushServer } from './push-server.js'
 export const GATEWAY_ORIGIN = 'https://push.onorca.dev'
 export const APNS_TOKEN = 'a'.repeat(64)
 export const FCM_TOKEN = 'cQ1abcDEF_gh:APA91bZZ-zz0123456789abcdefghijklmnopqrstuvwxyz'
-export const FILTER = { sources: ['agent-task-complete'], agentStates: ['needs-input'] }
 
 export function notification(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -147,7 +146,7 @@ export async function createPushServerHarness() {
     registerAndroid: async (token: string, deviceId = 'device-1'): Promise<string> => {
       const response = await post(
         '/v1/devices',
-        { v: 1, deviceId, platform: 'android', token: FCM_TOKEN, filter: FILTER },
+        { v: 1, deviceId, platform: 'android', token: FCM_TOKEN },
         token
       )
       expect(response.status).toBe(200)

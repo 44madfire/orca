@@ -6,21 +6,15 @@ import { rememberPushDismissal, wasPushDismissed } from './push-dismissal-waterm
 async function dismissMatchingPresentedPushes(
   matches: (payload: OrcaPushPayload) => boolean | Promise<boolean>
 ): Promise<void> {
-  try {
-    const presented = await Notifications.getPresentedNotificationsAsync()
-    await Promise.all(
-      presented.map(async (notification) => {
-        const payload = readOrcaPushPayload(readNativeNotificationData(notification.request))
-        if (payload && (await matches(payload))) {
-          await Notifications.dismissNotificationAsync(notification.request.identifier).catch(
-            () => {}
-          )
-        }
-      })
-    )
-  } catch {
-    // Older native shells lack the tray query; local dismissal still runs.
-  }
+  const presented = await Notifications.getPresentedNotificationsAsync()
+  await Promise.all(
+    presented.map(async (notification) => {
+      const payload = readOrcaPushPayload(readNativeNotificationData(notification.request))
+      if (payload && (await matches(payload))) {
+        await Notifications.dismissNotificationAsync(notification.request.identifier)
+      }
+    })
+  )
 }
 
 export function dismissRememberedPushNotifications(

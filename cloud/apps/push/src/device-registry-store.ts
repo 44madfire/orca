@@ -3,7 +3,6 @@ import {
   PUSH_LIMITS,
   type ApnsEnvironment,
   type PushDeviceSummary,
-  type PushNotificationFilter,
   type PushPlatform
 } from '@orca-cloud/push-contract'
 import type { PushDatabase, SqlRow } from './push-database.js'
@@ -30,7 +29,6 @@ export type PushDeviceUpsert = {
   platform: PushPlatform
   token: string
   apnsEnvironment?: ApnsEnvironment
-  filter: PushNotificationFilter
 }
 
 function toRegistration(row: SqlRow): PushDeviceRegistration {
@@ -58,7 +56,6 @@ export class PushDeviceRegistryStore {
   // phone keeps the id the desktop already persisted; only the token rotates.
   async upsert(input: PushDeviceUpsert): Promise<PushDeviceUpsertResult> {
     const now = this.now()
-    const filterJson = JSON.stringify(input.filter)
     return await this.database.transaction<PushDeviceUpsertResult>(async (transaction) => {
       // deviceId is caller-chosen, so counting and inserting must not interleave
       // or a burst of new ids would walk straight past the cap.
@@ -71,14 +68,13 @@ export class PushDeviceRegistryStore {
         const registrationId = String(existing.registration_id)
         await transaction.query(
           `UPDATE push_devices
-           SET platform = ?, token = ?, apns_environment = ?, filter_json = ?,
+           SET platform = ?, token = ?, apns_environment = ?,
                dead_at = NULL, updated_at = ?
            WHERE registration_id = ?`,
           [
             input.platform,
             input.token,
             input.apnsEnvironment ?? null,
-            filterJson,
             now,
             registrationId
           ]
@@ -96,8 +92,8 @@ export class PushDeviceRegistryStore {
       await transaction.query(
         `INSERT INTO push_devices
          (registration_id, host_fingerprint, device_id, platform, token, apns_environment,
-          filter_json, dead_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+          dead_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
         [
           registrationId,
           input.hostFingerprint,
@@ -105,7 +101,6 @@ export class PushDeviceRegistryStore {
           input.platform,
           input.token,
           input.apnsEnvironment ?? null,
-          filterJson,
           now,
           now
         ]

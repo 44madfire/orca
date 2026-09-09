@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Notifications from 'expo-notifications'
 import { dismissPresentedPushNotification } from './push-tray-dismissal'
 
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: { getItem: vi.fn(async () => null), setItem: vi.fn(async () => {}) }
+}))
+
 vi.mock('expo-notifications', () => ({
   getPresentedNotificationsAsync: vi.fn(),
   dismissNotificationAsync: vi.fn()
@@ -47,12 +51,12 @@ describe('dismissPresentedPushNotification', () => {
     expect(Notifications.dismissNotificationAsync).not.toHaveBeenCalled()
   })
 
-  it('stays silent on a native shell that cannot query the tray', async () => {
+  it('reports tray query failures to the caller', async () => {
     vi.mocked(Notifications.getPresentedNotificationsAsync).mockRejectedValue(
       new Error('unavailable')
     )
 
-    await expect(dismissPresentedPushNotification('agent:one')).resolves.toBeUndefined()
+    await expect(dismissPresentedPushNotification('agent:one')).rejects.toThrow('unavailable')
   })
 })
 

@@ -31,7 +31,7 @@ it('expires per phone at the boundary, preserves leases across persistence, and 
   expect(sends).toHaveLength(1)
 })
 
-it('rechecks expiry before a retry and leaves legacy registrations compatible', async () => {
+it('rechecks expiry before a retry', async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(10)
   const { dispatcher, sends, runRetry } = createHarness({
@@ -44,5 +44,5 @@ it('rechecks expiry before a retry and leaves legacy registrations compatible', 
   runRetry()
   await flush()
   expect(sends).toHaveLength(1)
-  expect(parseMobilePushRegistration(registration())?.expiresAt).toBeUndefined()
+  expect(parseMobilePushRegistration({ ...registration(), expiresAt: undefined })).toBeUndefined()
 })

@@ -30,8 +30,7 @@ async function registered() {
     hostFingerprint: 'abcdefghijklmnop',
     deviceId: 'device',
     platform: 'android' as const,
-    token: 'old-token',
-    filter: { sources: [], agentStates: [] }
+    token: 'old-token'
   }
   const row = await devices.upsert(input)
   if (!row.ok) throw new Error('registration failed')

@@ -17,7 +17,7 @@ afterEach(() => {
 const input = {
   platform: 'android' as const,
   token: 'synthetic',
-  filter: { sources: ['plugin'] as const, agentStates: [] }
+  filter: {}
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 

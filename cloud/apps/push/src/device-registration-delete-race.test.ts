@@ -48,8 +48,7 @@ it.skipIf(!databaseUrl)(
       hostFingerprint: 'delete-race-host',
       deviceId: 'phone',
       platform: 'android' as const,
-      token: 'synthetic',
-      filter: { sources: [], agentStates: [] }
+      token: 'synthetic'
     }
     let registration: Promise<unknown> | undefined
     let deletion: Promise<boolean> | undefined

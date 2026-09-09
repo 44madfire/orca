@@ -4,5 +4,5 @@ export type NativeDismissal = {
   remember(payload: OrcaPushPayload): Promise<void>
   wasDismissed(payload: OrcaPushPayload): Promise<boolean>
 }
-// Web has no native notification center; native shells resolve the .native module.
+// Android and web use JavaScript storage; iOS requires the native ledger.
 export const nativePushDismissal: NativeDismissal | null = null

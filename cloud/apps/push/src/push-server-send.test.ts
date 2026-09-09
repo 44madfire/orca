@@ -6,7 +6,6 @@ import {
   APNS_TOKEN,
   createPushServerHarness,
   FCM_TOKEN,
-  FILTER,
   notification
 } from './push-server-harness.test-fixture.js'
 
@@ -125,8 +124,7 @@ describe('push gateway send route', () => {
         deviceId: 'iphone-1',
         platform: 'ios',
         token: APNS_TOKEN,
-        apnsEnvironment: 'sandbox',
-        filter: FILTER
+        apnsEnvironment: 'sandbox'
       },
       sessionToken
     )

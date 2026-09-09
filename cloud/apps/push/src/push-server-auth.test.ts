@@ -5,7 +5,6 @@ import type { PushDatabase } from './push-database.js'
 import { createPushServer } from './push-server.js'
 import {
   createPushServerHarness,
-  FILTER,
   testPushConfig
 } from './push-server-harness.test-fixture.js'
 
@@ -140,8 +139,7 @@ describe('push gateway authentication and device routes', () => {
         v: 1,
         deviceId: 'device-1',
         platform: 'android',
-        token: 'rotated_token:APA91b-newnewnewnewnewnewnewnewnewnew',
-        filter: FILTER
+        token: 'rotated_token:APA91b-newnewnewnewnewnewnewnewnewnew'
       },
       sessionToken
     )
@@ -155,7 +153,7 @@ describe('push gateway authentication and device routes', () => {
     const sessionToken = await harness.signIn(createPushHostKeypair(16))
     const bad = await harness.post(
       '/v1/devices',
-      { v: 1, deviceId: 'device-1', platform: 'ios', token: 'not-hex', filter: FILTER },
+      { v: 1, deviceId: 'device-1', platform: 'ios', token: 'not-hex' },
       sessionToken
     )
     expect(bad.status).toBe(400)

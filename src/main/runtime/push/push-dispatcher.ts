@@ -126,8 +126,7 @@ export class PushDispatcher {
       const targets = this.registry
         .listDevices()
         .flatMap(({ deviceId, pushRegistration: registration }) =>
-          registration &&
-          (registration.expiresAt === undefined || registration.expiresAt > Date.now())
+          registration && registration.expiresAt > Date.now()
             ? [{ deviceId, registrationId: registration.registrationId, registration }]
             : []
         )
@@ -159,7 +158,7 @@ export class PushDispatcher {
       const registration = device.pushRegistration
       if (
         !registration ||
-        (registration.expiresAt !== undefined && registration.expiresAt <= Date.now()) ||
+        registration.expiresAt <= Date.now() ||
         !allowsPushDelivery(registration, event)
       ) {
         return []
@@ -212,8 +211,7 @@ export class PushDispatcher {
           (device) =>
             device.deviceId === target.deviceId &&
             device.pushRegistration === target.registration &&
-            (target.registration.expiresAt === undefined ||
-              target.registration.expiresAt > Date.now())
+            target.registration.expiresAt > Date.now()
         )
     )
     if (!currentTargets.length) {

@@ -13,11 +13,7 @@ import { createPushHostKeypair } from './push-host-challenge-fixtures'
 const paths: string[] = []
 const services: DesktopPushService[] = []
 const filter = {
-  sources: ['agent-task-complete'] as const,
-  agentStates: ['finished'] as const,
-  onlyWhenDesktopAway: true,
-  expireAfterInactivity: true,
-  followDesktop: true
+  onlyWhenDesktopAway: true
 }
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 

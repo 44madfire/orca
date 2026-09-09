@@ -12,7 +12,7 @@ import { createPushHostKeypair } from './push-host-challenge-fixtures'
 const REGISTER_INPUT = {
   platform: 'android' as const,
   token: 'fcm-token',
-  filter: { sources: ['agent-task-complete'] as const, agentStates: ['finished'] as const }
+  filter: {}
 }
 
 function createService(
@@ -300,8 +300,7 @@ it('renews a seven-day mobile lease only on explicit registration', async () => 
   try {
     await h.service.register({
       deviceId: h.deviceId,
-      ...REGISTER_INPUT,
-      filter: { ...REGISTER_INPUT.filter, expireAfterInactivity: true }
+      ...REGISTER_INPUT
     })
     expect(h.registry.getDevice(h.deviceId)?.pushRegistration?.expiresAt).toBe(now + 7 * 86400_000)
     clock.mockReturnValue(now + 86400_000)
@@ -309,8 +308,7 @@ it('renews a seven-day mobile lease only on explicit registration', async () => 
     expect(h.registry.getDevice(h.deviceId)?.pushRegistration?.expiresAt).toBe(now + 7 * 86400_000)
     await h.service.register({
       deviceId: h.deviceId,
-      ...REGISTER_INPUT,
-      filter: { ...REGISTER_INPUT.filter, expireAfterInactivity: true }
+      ...REGISTER_INPUT
     })
     expect(h.registry.getDevice(h.deviceId)?.pushRegistration?.expiresAt).toBe(now + 8 * 86400_000)
   } finally {

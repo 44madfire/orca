@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openInMemoryPushDatabase, openPushDatabase, type PushDatabase } from './push-database.js'
 import { PushHostSessionStore } from './host-session-store.js'
-import { ensurePushSessionIndex } from './push-session-schema.js'
 const databases: PushDatabase[] = []
 afterEach(async () => {
   await Promise.all(databases.splice(0).map((db) => db.close()))
@@ -32,21 +31,14 @@ it('serializes sessions on SQLite', async () => {
   await concurrentSessions(await openInMemoryPushDatabase())
 })
 
-it('migrates existing duplicate hosts to the newest session and enforces uniqueness', async () => {
+it('enforces one session per host directly in the schema', async () => {
   const db = await openInMemoryPushDatabase()
   databases.push(db)
-  await db.query('DROP INDEX push_sessions_host')
-  for (const [token, created] of [
-    ['old', 1],
-    ['new', 2]
-  ] as const) {
-    await db.query('INSERT INTO push_sessions VALUES (?, ?, ?, ?)', [token, 'host', 100, created])
-  }
-  await ensurePushSessionIndex(db)
-  expect(await db.query('SELECT token_hash FROM push_sessions')).toEqual([{ token_hash: 'new' }])
+  await db.query('INSERT INTO push_sessions VALUES (?, ?, ?, ?)', ['first', 'host', 100, 1])
   await expect(
-    db.query('INSERT INTO push_sessions VALUES (?, ?, ?, ?)', ['third', 'host', 100, 3])
+    db.query('INSERT INTO push_sessions VALUES (?, ?, ?, ?)', ['second', 'host', 100, 2])
   ).rejects.toThrow()
+  expect(await db.query('SELECT token_hash FROM push_sessions')).toEqual([{ token_hash: 'first' }])
 })
 
 describe.skipIf(!process.env.ORCA_PUSH_TEST_DATABASE_URL)('PostgreSQL push sessions', () => {

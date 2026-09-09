@@ -118,8 +118,7 @@ const REGISTER_INPUT = {
   deviceId: 'device-1',
   platform: 'ios' as const,
   token: 'a'.repeat(64),
-  apnsEnvironment: 'sandbox' as const,
-  filter: { sources: ['agent-task-complete'] as const, agentStates: ['finished'] as const }
+  apnsEnvironment: 'sandbox' as const
 }
 
 describe('PushGatewayClient', () => {

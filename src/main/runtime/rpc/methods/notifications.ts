@@ -1,10 +1,8 @@
 import { z } from 'zod'
 import { createNotificationStreamFilter } from './notification-stream-policy'
 import {
-  MOBILE_PUSH_AGENT_STATES,
   MOBILE_PUSH_APNS_ENVIRONMENTS,
-  MOBILE_PUSH_PLATFORMS,
-  MOBILE_PUSH_SOURCES
+  MOBILE_PUSH_PLATFORMS
 } from '../../../../shared/mobile-push-contract'
 import { defineStreamingMethod, defineMethod, type RpcAnyMethod } from '../core'
 
@@ -47,15 +45,9 @@ const NotificationGetMissedSinceParams = z.object({
     .optional()
 })
 
-// Category fields remain required for older peers, but updated hosts use only
-// phone-specific away, expiry, and sound preferences from this filter.
 const NotificationPushFilterParams = z.object({
   onlyWhenDesktopAway: z.boolean().optional(),
-  expireAfterInactivity: z.boolean().optional(),
-  followDesktop: z.boolean().optional(),
-  sound: z.boolean().optional(),
-  sources: z.array(z.enum(MOBILE_PUSH_SOURCES)).max(MOBILE_PUSH_SOURCES.length),
-  agentStates: z.array(z.enum(MOBILE_PUSH_AGENT_STATES)).max(MOBILE_PUSH_AGENT_STATES.length)
+  sound: z.boolean().optional()
 })
 
 const NotificationRegisterPushParams = z

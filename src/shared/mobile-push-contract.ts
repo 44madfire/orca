@@ -17,12 +17,7 @@ export type MobilePushApnsEnvironment = (typeof MOBILE_PUSH_APNS_ENVIRONMENTS)[n
 
 export type MobilePushFilter = {
   onlyWhenDesktopAway?: boolean
-  expireAfterInactivity?: boolean
   sound?: boolean
-  /** Legacy category fields retained so independently updated clients and hosts still register. */
-  followDesktop?: boolean
-  sources: readonly MobilePushSource[]
-  agentStates: readonly MobilePushAgentState[]
 }
 
 /** Persisted on the paired DeviceEntry so a host restart can push without the phone re-registering. */
@@ -31,7 +26,7 @@ export type MobilePushRegistration = {
   platform: MobilePushPlatform
   filter: MobilePushFilter
   registeredAt: number
-  expiresAt?: number
+  expiresAt: number
 }
 
 export type MobilePushRegisterInput = {
@@ -63,36 +58,25 @@ function isStringMember<T extends string>(value: unknown, members: readonly T[])
 }
 
 function parseFilter(value: unknown): MobilePushFilter | null {
-  if (!value || typeof value !== 'object') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null
   }
   const filter = value as Partial<MobilePushFilter>
-  if (!Array.isArray(filter.sources) || !Array.isArray(filter.agentStates)) {
-    return null
-  }
   return {
     ...(typeof filter.onlyWhenDesktopAway === 'boolean'
       ? { onlyWhenDesktopAway: filter.onlyWhenDesktopAway }
       : {}),
-    ...(typeof filter.expireAfterInactivity === 'boolean'
-      ? { expireAfterInactivity: filter.expireAfterInactivity }
-      : {}),
-    ...(typeof filter.sound === 'boolean' ? { sound: filter.sound } : {}),
-    ...(typeof filter.followDesktop === 'boolean' ? { followDesktop: filter.followDesktop } : {}),
-    sources: filter.sources.filter((entry) => isStringMember(entry, MOBILE_PUSH_SOURCES)),
-    agentStates: filter.agentStates.filter((entry) =>
-      isStringMember(entry, MOBILE_PUSH_AGENT_STATES)
-    )
+    ...(typeof filter.sound === 'boolean' ? { sound: filter.sound } : {})
   }
 }
 
 /**
- * Reads a persisted registration back. Returns undefined for anything an older or
- * corrupted registry may hold, so a bad row degrades to "this device has no push"
+ * Reads a persisted registration back. Returns undefined for invalid data,
+ * so a bad row degrades to "this device has no push"
  * instead of failing the whole registry load.
  */
 export function parseMobilePushRegistration(value: unknown): MobilePushRegistration | undefined {
-  if (!value || typeof value !== 'object') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined
   }
   const registration = value as Partial<MobilePushRegistration>
@@ -102,9 +86,8 @@ export function parseMobilePushRegistration(value: unknown): MobilePushRegistrat
     registration.registrationId.length === 0 ||
     !isStringMember(registration.platform, MOBILE_PUSH_PLATFORMS) ||
     !filter ||
-    (registration.expiresAt !== undefined &&
-      (typeof registration.expiresAt !== 'number' || !Number.isFinite(registration.expiresAt))) ||
-    (filter.expireAfterInactivity === true && registration.expiresAt === undefined) ||
+    typeof registration.expiresAt !== 'number' ||
+    !Number.isFinite(registration.expiresAt) ||
     typeof registration.registeredAt !== 'number' ||
     !Number.isFinite(registration.registeredAt)
   ) {
@@ -115,8 +98,6 @@ export function parseMobilePushRegistration(value: unknown): MobilePushRegistrat
     platform: registration.platform,
     filter,
     registeredAt: registration.registeredAt,
-    ...(typeof registration.expiresAt === 'number' && Number.isFinite(registration.expiresAt)
-      ? { expiresAt: registration.expiresAt }
-      : {})
+    expiresAt: registration.expiresAt
   }
 }

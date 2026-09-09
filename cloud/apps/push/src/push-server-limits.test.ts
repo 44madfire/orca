@@ -4,7 +4,6 @@ import { createPushHostKeypair, hostPublicKeyB64 } from './host-challenge-answer
 import {
   createPushServerHarness,
   FCM_TOKEN,
-  FILTER,
   notification
 } from './push-server-harness.test-fixture.js'
 
@@ -212,8 +211,7 @@ describe('push gateway request limits', () => {
           v: 1,
           deviceId: `device-${index}`,
           platform: 'android',
-          token: FCM_TOKEN,
-          filter: FILTER
+          token: FCM_TOKEN
         },
         sessionToken
       )
@@ -222,7 +220,7 @@ describe('push gateway request limits', () => {
 
     const refused = await harness.post(
       '/v1/devices',
-      { v: 1, deviceId: 'one-too-many', platform: 'android', token: FCM_TOKEN, filter: FILTER },
+      { v: 1, deviceId: 'one-too-many', platform: 'android', token: FCM_TOKEN },
       sessionToken
     )
     expect(refused.status).toBe(409)

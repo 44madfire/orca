@@ -1,13 +1,8 @@
 import { vi } from 'vitest'
-import type { MobilePushFilter, MobilePushRegistration } from '../../../shared/mobile-push-contract'
+import type { MobilePushRegistration } from '../../../shared/mobile-push-contract'
 import type { MobileNotificationEvent } from '../runtime-mobile-notification-controller'
 import type { PushGatewayClient, PushSendResult } from './push-gateway-client'
 import { PushDispatcher, type PushDispatcherRegistry } from './push-dispatcher'
-
-const ALL_SOURCES: MobilePushFilter = {
-  sources: ['agent-task-complete', 'terminal-bell', 'plugin'],
-  agentStates: ['needs-input', 'finished']
-}
 
 export function registration(
   overrides: Partial<MobilePushRegistration> = {}
@@ -15,8 +10,9 @@ export function registration(
   return {
     registrationId: 'reg-1',
     platform: 'ios',
-    filter: ALL_SOURCES,
+    filter: {},
     registeredAt: 1,
+    expiresAt: Date.now() + 7 * 86400_000,
     ...overrides
   }
 }

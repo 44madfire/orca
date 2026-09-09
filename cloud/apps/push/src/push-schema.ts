@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS push_sessions (
   expires_at BIGINT NOT NULL,
   created_at BIGINT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS push_sessions_host ON push_sessions(host_fingerprint);
 CREATE INDEX IF NOT EXISTS push_sessions_expires_at ON push_sessions(expires_at);
 
 CREATE TABLE IF NOT EXISTS push_devices (
@@ -37,7 +38,6 @@ CREATE TABLE IF NOT EXISTS push_devices (
   platform TEXT NOT NULL,
   token TEXT NOT NULL,
   apns_environment TEXT,
-  filter_json TEXT NOT NULL,
   dead_at BIGINT,
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL

@@ -3,8 +3,7 @@ import {
   ApnsEnvironmentSchema,
   PushDeviceListResponseSchema,
   PushDeviceRegistrationRequestSchema,
-  PushDeviceRegistrationResponseSchema,
-  PushNotificationFilterSchema
+  PushDeviceRegistrationResponseSchema
 } from './device-registration-messages.js'
 import {
   PushErrorResponseSchema,
@@ -131,8 +130,7 @@ describe('device registration schemas', () => {
         deviceId: 'device-1',
         platform: 'ios',
         token: APNS_TOKEN,
-        apnsEnvironment: 'sandbox',
-        filter: { sources: ['agent-task-complete'], agentStates: ['needs-input'] }
+        apnsEnvironment: 'sandbox'
       }).success
     ).toBe(true)
     expect(
@@ -140,8 +138,7 @@ describe('device registration schemas', () => {
         v: 1,
         deviceId: 'device-1',
         platform: 'ios',
-        token: APNS_TOKEN,
-        filter: { sources: [], agentStates: [] }
+        token: APNS_TOKEN
       }).success
     ).toBe(false)
     expect(
@@ -150,8 +147,7 @@ describe('device registration schemas', () => {
         deviceId: 'device-1',
         platform: 'ios',
         token: 'not-hex',
-        apnsEnvironment: 'production',
-        filter: { sources: [], agentStates: [] }
+        apnsEnvironment: 'production'
       }).success
     ).toBe(false)
   })
@@ -162,8 +158,7 @@ describe('device registration schemas', () => {
         v: 1,
         deviceId: 'device-2',
         platform: 'android',
-        token: FCM_TOKEN,
-        filter: { sources: ['plugin', 'terminal-bell'], agentStates: [] }
+        token: FCM_TOKEN
       }).success
     ).toBe(true)
     expect(
@@ -172,28 +167,11 @@ describe('device registration schemas', () => {
         deviceId: 'device-2',
         platform: 'android',
         token: FCM_TOKEN,
-        apnsEnvironment: 'sandbox',
-        filter: { sources: [], agentStates: [] }
+        apnsEnvironment: 'sandbox'
       }).success
     ).toBe(false)
   })
 
-  it('rejects duplicate filter entries and unknown filter keys', () => {
-    expect(
-      PushNotificationFilterSchema.safeParse({
-        sources: ['plugin', 'plugin'],
-        agentStates: []
-      }).success
-    ).toBe(false)
-    expect(
-      PushNotificationFilterSchema.safeParse({
-        sources: [],
-        agentStates: ['finished'],
-        worktrees: []
-      }).success
-    ).toBe(false)
-    expect(ApnsEnvironmentSchema.safeParse('adhoc').success).toBe(false)
-  })
 
   it('shapes the registration and list responses', () => {
     expect(

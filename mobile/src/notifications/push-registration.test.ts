@@ -99,10 +99,7 @@ beforeEach(() => {
   vi.mocked(saveRemotePushEnabled).mockImplementation(async (value) => {
     enabled = value
   })
-  vi.mocked(loadRemotePushFilter).mockImplementation(async () => ({
-    sources: ['agent-task-complete', 'terminal-bell', 'plugin'],
-    agentStates: ['needs-input', 'finished']
-  }))
+  vi.mocked(loadRemotePushFilter).mockImplementation(async () => ({}))
   vi.mocked(loadRemotePushHostRegistrations).mockImplementation(async () => stored)
   vi.mocked(saveRemotePushHostRegistrations).mockImplementation(async (value) => {
     stored = value
@@ -123,10 +120,7 @@ describe('push registration capability gating', () => {
       platform: 'ios',
       token: IOS_TOKEN.token,
       apnsEnvironment: 'production',
-      filter: {
-        sources: ['agent-task-complete', 'terminal-bell', 'plugin'],
-        agentStates: ['needs-input', 'finished']
-      }
+      filter: {}
     })
     expect(stored.registeredHostIds).toEqual(['host-1'])
   })

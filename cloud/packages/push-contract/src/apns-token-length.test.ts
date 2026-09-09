@@ -6,8 +6,7 @@ const registration = (token: string) => ({
   deviceId: 'qa-device',
   platform: 'ios',
   token,
-  apnsEnvironment: 'sandbox',
-  filter: { sources: ['agent-task-complete'], agentStates: ['finished'] }
+  apnsEnvironment: 'sandbox'
 })
 
 it.each([32, 64, 160, 256])(

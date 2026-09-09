@@ -1,9 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import {
-  MOBILE_PUSH_AGENT_STATES,
-  MOBILE_PUSH_SOURCES,
-  type MobilePushFilter
-} from '../../../src/shared/mobile-push-contract'
+import type { MobilePushFilter } from '../../../src/shared/mobile-push-contract'
 
 const KEY = 'orca:notificationDeliveryPreferences'
 export type NotificationDeliveryPreferences = {
@@ -48,10 +44,6 @@ export function notificationPreferencesFilter(
 ): MobilePushFilter {
   return {
     onlyWhenDesktopAway: value.onlyWhenDesktopAway,
-    expireAfterInactivity: true,
-    followDesktop: true,
-    sound: value.sound,
-    sources: MOBILE_PUSH_SOURCES,
-    agentStates: MOBILE_PUSH_AGENT_STATES
+    sound: value.sound
   }
 }

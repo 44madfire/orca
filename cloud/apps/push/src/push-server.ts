@@ -209,8 +209,7 @@ export function createPushServer(
       token: body.data.token,
       ...(body.data.apnsEnvironment === undefined
         ? {}
-        : { apnsEnvironment: body.data.apnsEnvironment }),
-      filter: body.data.filter
+        : { apnsEnvironment: body.data.apnsEnvironment })
     })
     if (!registered.ok) {
       observability.record('device_rejected')

@@ -122,10 +122,7 @@ it('starts push after RPC identity is available and stops dispatch on shutdown',
       platform: 'android',
       token: 'test-token',
       filter: {
-        sources: ['agent-task-complete'],
-        agentStates: ['finished'],
-        onlyWhenDesktopAway: true,
-        expireAfterInactivity: true
+        onlyWhenDesktopAway: true
       }
     })
     expect(result).toMatchObject({ registered: true })

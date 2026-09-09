@@ -119,7 +119,7 @@ async function sendRegister(
     platform: token.platform,
     token: token.token,
     ...(token.apnsEnvironment ? { apnsEnvironment: token.apnsEnvironment } : {}),
-    filter: { ...filter, sources: [...filter.sources], agentStates: [...filter.agentStates] }
+    filter
   }
   const response = await client
     .sendRequest('notifications.registerPush', params, {

@@ -15,33 +15,13 @@ export const PushAgentStateSchema = z.enum(['needs-input', 'finished'])
 const APNS_TOKEN_PATTERN = /^(?:[0-9a-fA-F]{2})+$/
 const FCM_TOKEN_PATTERN = /^[A-Za-z0-9_:.\-]{32,4096}$/
 
-export const PushNotificationFilterSchema = z
-  .object({
-    sources: z.array(PushNotificationSourceSchema).max(3),
-    agentStates: z.array(PushAgentStateSchema).max(2)
-  })
-  .strict()
-  .superRefine((value, context) => {
-    if (new Set(value.sources).size !== value.sources.length) {
-      context.addIssue({ code: 'custom', path: ['sources'], message: 'sources must be unique' })
-    }
-    if (new Set(value.agentStates).size !== value.agentStates.length) {
-      context.addIssue({
-        code: 'custom',
-        path: ['agentStates'],
-        message: 'agentStates must be unique'
-      })
-    }
-  })
-
 export const PushDeviceRegistrationRequestSchema = z
   .object({
     v: z.literal(1),
     deviceId: OpaqueIdSchema,
     platform: PushPlatformSchema,
     token: z.string().min(1).max(4096),
-    apnsEnvironment: ApnsEnvironmentSchema.optional(),
-    filter: PushNotificationFilterSchema
+    apnsEnvironment: ApnsEnvironmentSchema.optional()
   })
   .strict()
   .superRefine((value, context) => {
@@ -99,6 +79,5 @@ export type PushPlatform = z.infer<typeof PushPlatformSchema>
 export type ApnsEnvironment = z.infer<typeof ApnsEnvironmentSchema>
 export type PushNotificationSource = z.infer<typeof PushNotificationSourceSchema>
 export type PushAgentState = z.infer<typeof PushAgentStateSchema>
-export type PushNotificationFilter = z.infer<typeof PushNotificationFilterSchema>
 export type PushDeviceRegistrationRequest = z.infer<typeof PushDeviceRegistrationRequestSchema>
 export type PushDeviceSummary = z.infer<typeof PushDeviceSummarySchema>

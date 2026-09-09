@@ -222,9 +222,9 @@ describe('push host challenge store', () => {
     }
     await database.query(
       `INSERT INTO push_devices (registration_id, host_fingerprint, device_id, platform, token,
-       filter_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ['reg-1', deriveHostFingerprint(kept.publicKey), 'device-1', 'android', 'token', '{}', clock, clock]
+       created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ['reg-1', deriveHostFingerprint(kept.publicKey), 'device-1', 'android', 'token', clock, clock]
     )
 
     clock += PUSH_LIMITS.hostRetentionMs

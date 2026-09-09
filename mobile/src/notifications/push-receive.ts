@@ -50,7 +50,7 @@ export async function foregroundNotificationBehavior(
 ): Promise<NotificationBehavior> {
   const data = readNativeNotificationData(notification.request)
   const recognizedPush = readOrcaPushPayload(data) !== null
-  const preferences = await loadNotificationDeliveryPreferences().catch(() => ({ sound: true }))
+  const preferences = await loadNotificationDeliveryPreferences()
   // Unrecognized notifications retain normal behavior; recognized pushes fail closed
   // when consent, host, viewing, or dismissal checks cannot complete.
   const suppressed = await shouldSuppressForegroundPush(data).catch(() => recognizedPush)

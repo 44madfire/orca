@@ -78,11 +78,7 @@ it('replaces an in-flight registration with the latest away and sound preference
   expect(latest?.params).toMatchObject({
     filter: {
       onlyWhenDesktopAway: false,
-      expireAfterInactivity: true,
-      followDesktop: true,
-      sound: false,
-      sources: ['agent-task-complete', 'terminal-bell', 'plugin'],
-      agentStates: ['needs-input', 'finished']
+      sound: false
     }
   })
   expect(calls.some((call) => call.method === 'notifications.unregisterPush')).toBe(true)

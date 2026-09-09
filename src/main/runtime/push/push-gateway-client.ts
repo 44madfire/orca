@@ -7,7 +7,6 @@ import type { E2EEKeypair } from '../e2ee-keypair'
 import type {
   MobilePushAgentState,
   MobilePushApnsEnvironment,
-  MobilePushFilter,
   MobilePushPlatform,
   MobilePushSource
 } from '../../../shared/mobile-push-contract'
@@ -83,7 +82,6 @@ export class PushGatewayClient {
     platform: MobilePushPlatform
     token: string
     apnsEnvironment?: MobilePushApnsEnvironment
-    filter: MobilePushFilter
   }): Promise<PushGatewayResult<{ registrationId: string }>> {
     const response = await this.authorized('/v1/devices', {
       method: 'POST',
@@ -92,8 +90,7 @@ export class PushGatewayClient {
         deviceId: input.deviceId,
         platform: input.platform,
         token: input.token,
-        ...(input.apnsEnvironment ? { apnsEnvironment: input.apnsEnvironment } : {}),
-        filter: { sources: [...input.filter.sources], agentStates: [...input.filter.agentStates] }
+        ...(input.apnsEnvironment ? { apnsEnvironment: input.apnsEnvironment } : {})
       }
     })
     const parsed = await readPushGatewayJson(response, RegisterResponseSchema)
