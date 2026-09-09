@@ -11,7 +11,13 @@ function client(sendRequest: RpcClient['sendRequest']): RpcClient {
 }
 
 const itemTarget = { repoId: 'repo-1', number: 7 }
-const projectTarget = { number: 7, slug: { owner: 'orca', repo: 'orca' }, type: 'pr' as const }
+const projectTarget = {
+  owner: 'orca',
+  repo: 'orca',
+  host: 'github.com',
+  number: 7,
+  type: 'pr' as const
+}
 
 describe('native host task operation contracts', () => {
   it('rejects a non-array checks payload instead of crashing the checks list', async () => {
@@ -77,5 +83,23 @@ describe('native host task operation contracts', () => {
     for (const call of sendRequest.mock.calls) {
       expect(call[2]).toEqual({ timeoutMs: 60_000 })
     }
+  })
+
+  it('carries the row repository on a project file request when the row has a slug', async () => {
+    // The target's owner/repo/host are what become prRepo; a target missing them only ever
+    // exercises the null path, which is why this pins the populated one.
+    const sendRequest = vi
+      .fn<RpcClient['sendRequest']>()
+      .mockResolvedValue({ ok: true, result: [] })
+
+    await nativeHostTaskProjectFileOperations(client(sendRequest)).refreshChecks(
+      projectTarget,
+      'repo-1',
+      'sha'
+    )
+
+    expect(sendRequest.mock.calls[0]?.[1]).toMatchObject({
+      prRepo: { owner: 'orca', repo: 'orca', host: 'github.com' }
+    })
   })
 })

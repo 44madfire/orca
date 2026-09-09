@@ -157,6 +157,13 @@ describe('session route offline-compose wiring', () => {
     for (const source of [sendActionsSource, terminalInputSource]) {
       expect(source).toContain('.terminal.sendInput(')
     }
+    // And the option is on that send, not merely somewhere in the adapter file.
+    const sendInput = terminalOperationsSource.slice(
+      terminalOperationsSource.indexOf('async sendInput(')
+    )
+    expect(sendInput.slice(0, sendInput.indexOf('\n    },'))).toContain(
+      'TERMINAL_INPUT_SEND_OPTIONS'
+    )
     expect(TERMINAL_INPUT_SEND_OPTIONS).toEqual({ failWhenDisconnected: true })
   })
 
