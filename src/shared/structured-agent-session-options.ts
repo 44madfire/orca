@@ -52,7 +52,12 @@ export function structuredAgentSessionOptionCatalog(
   // Why: only ids the provider lists may be offered. An unlisted `current.model` still
   // reaches the snapshot through the record, which draws it as tracked-but-unmatched —
   // a neutral pill plus effort from `unknownModelOptions` — instead of a raw-id row.
-  const models: CatalogModel[] = result.models.map(discoveredModel)
+  const discovered: CatalogModel[] = result.models.map(discoveredModel)
+  // Why here and not only in each host-side reader: this runs on the client, on a result a host
+  // of any version published. An empty list offers nothing to pick and carries no options, so the
+  // snapshot drops the whole row — and a host that predates the readers' own seed floor publishes
+  // exactly that for a restored thread whose provider listed nothing. The seed is agent-agnostic.
+  const models = discovered.length > 0 ? discovered : [...seed.models]
   return { ...seed, models, defaultModelIsCliDefault: true }
 }
 

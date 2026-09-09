@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { CODEX_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-claude-codex'
+import {
+  CLAUDE_SESSION_OPTION_CATALOG,
+  CODEX_SESSION_OPTION_CATALOG
+} from './agent-session-option-catalog-claude-codex'
 import { buildNativeChatSessionOptionSnapshot } from './native-chat-session-option-snapshot'
 import { createNativeChatSessionOptionRecord } from './native-chat-session-option-state'
 import {
@@ -92,6 +95,33 @@ describe('structured agent session options', () => {
       kind: { type: 'select' }
     })
   })
+
+  it.each([
+    { agent: 'codex' as const, seed: CODEX_SESSION_OPTION_CATALOG },
+    { agent: 'claude' as const, seed: CLAUDE_SESSION_OPTION_CATALOG }
+  ])(
+    'keeps the options row when an older host publishes an empty list: $agent',
+    ({ agent, seed }) => {
+      // Wire case, not a unit case: `structuredAgentSessionOptionCatalog` runs on the client over
+      // whatever a host published. A host that predates the readers' own seed floor still sends
+      // `models: []` beside a current model for a restored thread, and the row must survive it.
+      const state = applyStructuredAgentSessionOptions(
+        createStructuredAgentSessionOptionState(agent),
+        seed,
+        { models: [], current: { model: 'unlisted-from-an-old-host' } }
+      )
+
+      const snapshot = structuredAgentSessionOptionSnapshot(state)
+      expect(snapshot.map((descriptor) => descriptor.id)).toEqual(['model', 'effort'])
+      const model = snapshot[0]!
+      // Only official names reach the pill; the raw id is neither offered nor shown.
+      expect(model).toMatchObject({ valueSource: 'unknown' })
+      expect(model.kind.type === 'select' ? model.kind.choices.map((c) => c.value) : []).toEqual(
+        seed.models.map((seeded) => seeded.id)
+      )
+      expect(snapshot[1]).toMatchObject({ id: 'effort', settable: true, kind: { type: 'select' } })
+    }
+  )
 
   it('projects live options as directly settable descriptors', () => {
     const state = applyStructuredAgentSessionOptions(
