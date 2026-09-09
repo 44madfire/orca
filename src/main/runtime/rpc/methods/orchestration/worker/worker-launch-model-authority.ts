@@ -4,88 +4,73 @@
  * The agent CLI on the host that will run the worker is the only authority for which ids exist
  * there, so this reuses the same probe the native chat model picker uses
  * (`runtime.discoverRuntimeCommitMessageModels`), which already routes local / WSL / SSH from the
- * worktree selector. Orca's static catalog is the fallback when that host cannot be listed, and
- * the caller has to say which of the two answered.
+ * worktree selector, and the same catalog policy that decides what the picker offers — so the set
+ * `worker-start` accepts is the set the picker lists.
+ *
+ * A host that could not be listed answers `seed`, which claims no membership at all. Loss of
+ * contact with a host is never evidence that a model does not exist there
+ * (`docs/reference/ssh-execution-boundary.md`), and the catalogs say so themselves: the Codex seed
+ * is deliberately short and expects unknown ids to pass through. Only a `live` answer may reject.
  */
 
 import type { CommitMessageModelCapability } from '../../../../../../shared/commit-message-agent-spec'
 import {
-  findCatalogModel,
-  findCatalogOption,
-  type AgentSessionOptionCatalog
+  resolveDiscoveredCatalogModels,
+  type AgentSessionOptionCatalog,
+  type CatalogModel
 } from '../../../../../../shared/agent-session-option-catalog'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
 
 export type WorkerLaunchModelSource = 'live' | 'seed'
 
-export type WorkerLaunchModelEntry = {
-  id: string
-  /** Effort levels this id accepts, already narrowed to what the launch path can emit. */
-  effortChoices: readonly string[]
-}
-
 export type WorkerLaunchModelAuthority = {
   source: WorkerLaunchModelSource
-  models: readonly WorkerLaunchModelEntry[]
+  /** The host's whole membership. Empty and meaningless unless `source` is `live`. */
+  modelIds: readonly string[]
 }
 
 export type WorkerLaunchModelDiscoveryRuntime = Pick<
   OrcaRuntimeService,
-  'discoverRuntimeCommitMessageModels'
+  'discoverRuntimeCommitMessageModels' | 'resolveRuntimeCommitMessageDiscoveryHostKey'
 >
 
 const DISCOVERY_TTL_MS = 3 * 60_000
 /** A dispatch may not wait out the probe's own 60s budget; the seed answers past this. */
 const DISCOVERY_BUDGET_MS = 10_000
 
-type CachedModels = { expiresAt: number; models: readonly CommitMessageModelCapability[] }
-
-const cachedByScope = new Map<string, CachedModels>()
-const inFlightByScope = new Map<string, Promise<readonly CommitMessageModelCapability[] | null>>()
-
-/** The launch path can only emit levels the catalog's menu carries for this id. */
-function catalogEffortChoices(
-  catalog: AgentSessionOptionCatalog,
-  modelId: string
-): readonly string[] {
-  const seeded = findCatalogModel(catalog, modelId)
-  const option =
-    findCatalogOption(seeded, 'effort') ??
-    (seeded
-      ? undefined
-      : catalog.unknownModelOptions?.find((candidate) => candidate.id === 'effort'))
-  return option?.kind.type === 'select' ? option.kind.choices.map((choice) => choice.value) : []
+export const SEED_WORKER_LAUNCH_MODEL_AUTHORITY: WorkerLaunchModelAuthority = {
+  source: 'seed',
+  modelIds: []
 }
 
-export function seedWorkerLaunchModelAuthority(
-  catalog: AgentSessionOptionCatalog
-): WorkerLaunchModelAuthority {
+type CachedModels = { expiresAt: number; models: readonly CommitMessageModelCapability[] }
+
+/** Keyed by executing host, not by caller: one machine's CLI list is one fact. */
+const cachedByHost = new Map<string, CachedModels>()
+const inFlightByHost = new Map<string, Promise<readonly CommitMessageModelCapability[] | null>>()
+
+function discoveredCatalogModel(model: CommitMessageModelCapability): CatalogModel {
   return {
-    source: 'seed',
-    models: catalog.models.map((model) => ({
-      id: model.id,
-      effortChoices: catalogEffortChoices(catalog, model.id)
-    }))
+    id: model.id,
+    label: model.label,
+    ...(model.isDefault ? { isDefault: true as const } : {}),
+    // Only membership is read here; effort stays the catalog's, exactly as the picker's merge does.
+    options: []
   }
 }
 
-function liveWorkerLaunchModelAuthority(
-  catalog: AgentSessionOptionCatalog,
+function liveWorkerLaunchModelAuthority(args: {
+  catalog: AgentSessionOptionCatalog
+  agent: TuiAgent
   models: readonly CommitMessageModelCapability[]
-): WorkerLaunchModelAuthority {
+}): WorkerLaunchModelAuthority {
+  const discovered = args.models.map(discoveredCatalogModel)
   return {
     source: 'live',
-    models: models.map((model) => {
-      const levels = model.thinkingLevels?.map(({ id }) => id) ?? []
-      const menu = catalogEffortChoices(catalog, model.id)
-      // Why: a probe that lists no levels has not said the model refuses effort, so keep the
-      // menu; when it does list them, they narrow the menu rather than widening it.
-      return {
-        id: model.id,
-        effortChoices: levels.length > 0 ? menu.filter((value) => levels.includes(value)) : menu
-      }
-    })
+    modelIds: resolveDiscoveredCatalogModels(args.agent, args.catalog, discovered).map(
+      ({ id }) => id
+    )
   }
 }
 
@@ -124,6 +109,16 @@ function withDiscoveryBudget(
   })
 }
 
+function readCachedModels(scope: string): readonly CommitMessageModelCapability[] | null {
+  const now = Date.now()
+  for (const [key, entry] of cachedByHost) {
+    if (entry.expiresAt <= now) {
+      cachedByHost.delete(key)
+    }
+  }
+  return cachedByHost.get(scope)?.models ?? null
+}
+
 /**
  * `worktreeSelector` names the worktree whose host will run the worker; pass null when no
  * worktree exists yet on that host, which leaves the seed as the only honest answer.
@@ -136,30 +131,38 @@ export async function resolveWorkerLaunchModelAuthority(args: {
 }): Promise<WorkerLaunchModelAuthority> {
   const { catalog, agent, runtime, worktreeSelector } = args
   if (!runtime || !worktreeSelector) {
-    return seedWorkerLaunchModelAuthority(catalog)
+    return SEED_WORKER_LAUNCH_MODEL_AUTHORITY
   }
-  const scope = `${agent} ${worktreeSelector}`
-  const cached = cachedByScope.get(scope)
-  if (cached && cached.expiresAt > Date.now()) {
-    return liveWorkerLaunchModelAuthority(catalog, cached.models)
+  // A selector this host cannot resolve (an unknown worktree, a folder workspace) has no host to
+  // ask; the probe would fail the same way, so skip it rather than spend the budget.
+  let hostKey: string
+  try {
+    hostKey = await runtime.resolveRuntimeCommitMessageDiscoveryHostKey(worktreeSelector)
+  } catch {
+    return SEED_WORKER_LAUNCH_MODEL_AUTHORITY
   }
-  let pending = inFlightByScope.get(scope)
+  const scope = `${agent} ${hostKey}`
+  const cached = readCachedModels(scope)
+  if (cached) {
+    return liveWorkerLaunchModelAuthority({ catalog, agent, models: cached })
+  }
+  let pending = inFlightByHost.get(scope)
   if (!pending) {
     // Failures are never cached, so the next dispatch retries rather than inheriting a miss.
     pending = probeHostModels(runtime, agent, worktreeSelector).then((models) => {
-      inFlightByScope.delete(scope)
+      inFlightByHost.delete(scope)
       if (models) {
-        cachedByScope.set(scope, { expiresAt: Date.now() + DISCOVERY_TTL_MS, models })
+        cachedByHost.set(scope, { expiresAt: Date.now() + DISCOVERY_TTL_MS, models })
       }
       return models
     })
-    inFlightByScope.set(scope, pending)
+    inFlightByHost.set(scope, pending)
   }
   // A dispatch that gives up on the budget still leaves the probe running for the next one.
   const models = await withDiscoveryBudget(pending)
   return models
-    ? liveWorkerLaunchModelAuthority(catalog, models)
-    : seedWorkerLaunchModelAuthority(catalog)
+    ? liveWorkerLaunchModelAuthority({ catalog, agent, models })
+    : SEED_WORKER_LAUNCH_MODEL_AUTHORITY
 }
 
 export function describeWorkerLaunchModelRejection(args: {
@@ -167,15 +170,11 @@ export function describeWorkerLaunchModelRejection(args: {
   model: string
   authority: WorkerLaunchModelAuthority
 }): string {
-  const ids = args.authority.models.map((model) => model.id).sort()
-  const source =
-    args.authority.source === 'live'
-      ? `listed by the ${args.agent} CLI on the executing host`
-      : `the built-in list for ${args.agent}; the ${args.agent} CLI could not be listed on the executing host`
-  return `Agent ${args.agent} does not accept model ${args.model}. Accepted ids (${source}): ${ids.join(', ')}.`
+  const ids = [...args.authority.modelIds].sort()
+  return `Agent ${args.agent} does not accept model ${args.model}. Accepted ids (listed by the ${args.agent} CLI on the executing host): ${ids.join(', ')}.`
 }
 
 export function clearWorkerLaunchModelAuthorityCacheForTests(): void {
-  cachedByScope.clear()
-  inFlightByScope.clear()
+  cachedByHost.clear()
+  inFlightByHost.clear()
 }

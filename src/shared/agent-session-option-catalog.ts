@@ -105,6 +105,24 @@ export function mergeDiscoveredAuthoritativeModels(
   })
 }
 
+/**
+ * The models a host's probe answer offers for `agent`: Claude's list replaces the seed, an
+ * authoritative list decides membership while keeping seeded option menus, and everything else
+ * unions. Shared so the picker and `worker-start` cannot disagree about which ids are official.
+ */
+export function resolveDiscoveredCatalogModels(
+  agent: AgentType,
+  catalog: AgentSessionOptionCatalog,
+  discovered: readonly CatalogModel[]
+): CatalogModel[] {
+  if (agent === 'claude') {
+    return [...discovered]
+  }
+  return catalog.discoveredModelsAreAuthoritative
+    ? mergeDiscoveredAuthoritativeModels(catalog.models, discovered)
+    : mergeCatalogModels(catalog.models, discovered)
+}
+
 export function sessionOptionValueIsValid(value: unknown): value is SessionOptionValue {
   return typeof value === 'string' || typeof value === 'boolean'
 }

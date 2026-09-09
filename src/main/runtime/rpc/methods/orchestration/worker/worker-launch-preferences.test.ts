@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { getAgentSessionOptionCatalog } from '../../../../../../shared/agent-session-option-catalog'
 import { ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY } from '../../../../../../shared/protocol-version'
-import { seedWorkerLaunchModelAuthority } from './worker-launch-model-authority'
+import { SEED_WORKER_LAUNCH_MODEL_AUTHORITY } from './worker-launch-model-authority'
 import {
   assertWorkerLaunchPreferencesCreateTerminal,
   assertWorkerLaunchPreferencesRuntimeSupported,
@@ -31,19 +30,8 @@ describe('orchestration worker launch preferences', () => {
     })
   })
 
-  it('rejects a model no official list carries, naming the accepted ids and their source', () => {
-    expect(() =>
-      resolveWorkerLaunchPreferences({ agent: 'claude', model: 'claude-opus-5', effort: 'high' })
-    ).toThrow(
-      'Agent claude does not accept model claude-opus-5. Accepted ids (the built-in list for claude; the claude CLI could not be listed on the executing host): fable, haiku, opus, sonnet.'
-    )
-  })
-
   it('accepts an id only the live CLI list carries, and refuses one it has dropped', () => {
-    const authority = {
-      source: 'live' as const,
-      models: [{ id: 'opus[1m]', effortChoices: ['low', 'high', 'max'] }]
-    }
+    const authority = { source: 'live' as const, modelIds: ['opus[1m]'] }
 
     expect(
       resolveWorkerLaunchPreferences({
@@ -61,22 +49,43 @@ describe('orchestration worker launch preferences', () => {
     )
   })
 
-  it('validates effort against the levels the matched model lists', () => {
-    const authority = {
-      source: 'live' as const,
-      models: [{ id: 'opus[1m]', effortChoices: ['low', 'high'] }]
-    }
-
-    expect(() =>
+  it.each([
+    { label: 'no authority at all', authority: undefined },
+    { label: 'a seed fallback', authority: SEED_WORKER_LAUNCH_MODEL_AUTHORITY }
+  ])('accepts an unlisted id when the host was never listed: $label', ({ authority }) => {
+    // A probe that could not run is not a statement that the model does not exist. `opus[1m]` is
+    // the id `worker-start --model` documents, and it is absent from the short Claude seed.
+    expect(
       resolveWorkerLaunchPreferences({
         agent: 'claude',
         model: 'opus[1m]',
         effort: 'max',
+        ...(authority ? { authority } : {})
+      }).preferences
+    ).toEqual({ model: 'opus[1m]', effort: 'max' })
+  })
+
+  it('keeps a seeded model’s own effort menu when the probe advertises fewer levels', () => {
+    // The Codex probe reports one generic level list for every model; narrowing to it would
+    // refuse `ultra` on a warm cache and accept it on a cold one.
+    const authority = { source: 'live' as const, modelIds: ['gpt-5.6-sol'] }
+
+    expect(
+      resolveWorkerLaunchPreferences({
+        agent: 'codex',
+        model: 'gpt-5.6-sol',
+        effort: 'ultra',
+        authority
+      }).preferences
+    ).toEqual({ model: 'gpt-5.6-sol', effort: 'ultra' })
+    expect(() =>
+      resolveWorkerLaunchPreferences({
+        agent: 'codex',
+        model: 'gpt-5.6-sol',
+        effort: 'not-a-level',
         authority
       })
-    ).toThrow(
-      'Agent claude model opus[1m] does not support effort max. Accepted levels: low, high.'
-    )
+    ).toThrow('Agent codex model gpt-5.6-sol does not support effort not-a-level.')
   })
 
   it('accepts a seed id when the host could not be listed', () => {
@@ -85,7 +94,7 @@ describe('orchestration worker launch preferences', () => {
         agent: 'codex',
         model: 'gpt-5.5',
         effort: 'xhigh',
-        authority: seedWorkerLaunchModelAuthority(getAgentSessionOptionCatalog('codex')!)
+        authority: SEED_WORKER_LAUNCH_MODEL_AUTHORITY
       }).preferences
     ).toEqual({ model: 'gpt-5.5', effort: 'xhigh' })
   })
@@ -115,12 +124,6 @@ describe('orchestration worker launch preferences', () => {
       rejected: ['max', 'ultra', 'future-effort']
     }
   ])('enforces the Codex effort ceiling for $model', ({ model, accepted, rejected }) => {
-    const listed = seedWorkerLaunchModelAuthority(
-      getAgentSessionOptionCatalog('codex')!
-    ).models.find((candidate) => candidate.id === model)
-
-    expect(listed?.effortChoices).toEqual(accepted)
-
     for (const effortValue of accepted) {
       expect(
         resolveWorkerLaunchPreferences({ agent: 'codex', model, effort: effortValue }).preferences
@@ -134,11 +137,18 @@ describe('orchestration worker launch preferences', () => {
   })
 
   it.each(['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark', 'future-codex-model'])(
-    'no longer waves an unlisted Codex id through the unknown-model options: %s',
+    'refuses an unlisted Codex id only once the host has answered: %s',
     (model) => {
-      expect(() => resolveWorkerLaunchPreferences({ agent: 'codex', model })).toThrow(
-        `Agent codex does not accept model ${model}.`
-      )
+      expect(resolveWorkerLaunchPreferences({ agent: 'codex', model }).preferences).toEqual({
+        model
+      })
+      expect(() =>
+        resolveWorkerLaunchPreferences({
+          agent: 'codex',
+          model,
+          authority: { source: 'live', modelIds: ['gpt-5.6-sol'] }
+        })
+      ).toThrow(`Agent codex does not accept model ${model}.`)
     }
   )
 

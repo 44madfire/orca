@@ -5,7 +5,7 @@ import {
   clearWorkerLaunchModelAuthorityCacheForTests,
   describeWorkerLaunchModelRejection,
   resolveWorkerLaunchModelAuthority,
-  seedWorkerLaunchModelAuthority,
+  SEED_WORKER_LAUNCH_MODEL_AUTHORITY,
   type WorkerLaunchModelDiscoveryRuntime
 } from './worker-launch-model-authority'
 
@@ -22,14 +22,23 @@ function liveModel(id: string, effortLevels: readonly string[] = []): CommitMess
   }
 }
 
-function probeRuntime(respond: (worktreeSelector: string) => unknown): {
+function probeRuntime(
+  respond: (worktreeSelector: string) => unknown,
+  hostKeyFor: (worktreeSelector: string) => string = () => 'local'
+): {
   runtime: WorkerLaunchModelDiscoveryRuntime
   discover: ReturnType<typeof vi.fn>
+  resolveHostKey: ReturnType<typeof vi.fn>
 } {
   const discover = vi.fn(async (worktreeSelector: string) => respond(worktreeSelector))
+  const resolveHostKey = vi.fn(async (worktreeSelector: string) => hostKeyFor(worktreeSelector))
   return {
-    runtime: { discoverRuntimeCommitMessageModels: discover } as never,
-    discover
+    runtime: {
+      discoverRuntimeCommitMessageModels: discover,
+      resolveRuntimeCommitMessageDiscoveryHostKey: resolveHostKey
+    } as never,
+    discover,
+    resolveHostKey
   }
 }
 
@@ -54,23 +63,7 @@ describe('worker launch model authority', () => {
     clearWorkerLaunchModelAuthorityCacheForTests()
   })
 
-  it('seeds from the static catalog with each model’s own effort menu', () => {
-    const authority = seedWorkerLaunchModelAuthority(CLAUDE_CATALOG)
-
-    expect(authority.source).toBe('seed')
-    expect(authority.models.map(({ id }) => id)).toEqual(['fable', 'opus', 'sonnet', 'haiku'])
-    expect(authority.models.find(({ id }) => id === 'opus')?.effortChoices).toEqual([
-      'low',
-      'medium',
-      'high',
-      'xhigh',
-      'max'
-    ])
-    // Haiku carries no effort option, so the unknown-id menu must not leak into it.
-    expect(authority.models.find(({ id }) => id === 'haiku')?.effortChoices).toEqual([])
-  })
-
-  it('takes the live CLI list as the whole membership, dropping seed ids it omits', async () => {
+  it('takes the live Claude CLI list as the whole membership, dropping seed ids it omits', async () => {
     const { runtime } = probeRuntime(() =>
       probeSuccess([liveModel('opus[1m]', ['low', 'high', 'max']), liveModel('haiku')])
     )
@@ -82,12 +75,10 @@ describe('worker launch model authority', () => {
       worktreeSelector: 'id:wt_local'
     })
 
-    expect(authority.source).toBe('live')
-    expect(authority.models.map(({ id }) => id)).toEqual(['opus[1m]', 'haiku'])
-    expect(authority.models[0].effortChoices).toEqual(['low', 'high', 'max'])
+    expect(authority).toEqual({ source: 'live', modelIds: ['opus[1m]', 'haiku'] })
   })
 
-  it('keeps the catalog menu for a live model whose probe lists no effort levels', async () => {
+  it('keeps seeded Codex ids the probe omits, matching what the picker offers', async () => {
     const { runtime } = probeRuntime(() => probeSuccess([liveModel('gpt-5.7-preview')]))
 
     const authority = await resolveWorkerLaunchModelAuthority({
@@ -97,23 +88,16 @@ describe('worker launch model authority', () => {
       worktreeSelector: 'id:wt_local'
     })
 
-    // The unknown-id menu is what the launch path can actually emit for an unseeded id.
-    expect(authority.models[0].effortChoices).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh'])
-  })
-
-  it('narrows the catalog menu to the levels the CLI advertises', async () => {
-    const { runtime } = probeRuntime(() =>
-      probeSuccess([liveModel('gpt-5.6-sol', ['low', 'ultra', 'not-a-launch-level'])])
-    )
-
-    const authority = await resolveWorkerLaunchModelAuthority({
-      catalog: CODEX_CATALOG,
-      agent: 'codex',
-      runtime,
-      worktreeSelector: 'id:wt_local'
-    })
-
-    expect(authority.models[0].effortChoices).toEqual(['low', 'ultra'])
+    expect(authority.source).toBe('live')
+    // `mergeCatalogModels` is the picker's policy for Codex: seed ∪ probe, seed order first.
+    expect(authority.modelIds).toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.5',
+      'gpt-5.2-codex',
+      'gpt-5.7-preview'
+    ])
   })
 
   it.each([
@@ -134,7 +118,7 @@ describe('worker launch model authority', () => {
       worktreeSelector: 'id:wt_local'
     })
 
-    expect(authority).toEqual(seedWorkerLaunchModelAuthority(CLAUDE_CATALOG))
+    expect(authority).toEqual(SEED_WORKER_LAUNCH_MODEL_AUTHORITY)
   })
 
   it('seeds without probing when no worktree names the executing host yet', async () => {
@@ -151,20 +135,23 @@ describe('worker launch model authority', () => {
     expect(discover).not.toHaveBeenCalled()
   })
 
-  it('reuses a cached list instead of probing the same host twice', async () => {
-    const { runtime, discover } = probeRuntime(() => probeSuccess([liveModel('opus[1m]')]))
-    const args = {
+  it('seeds without probing when the selector names no host this client can resolve', async () => {
+    const { runtime, discover } = probeRuntime(
+      () => probeSuccess([liveModel('opus[1m]')]),
+      () => {
+        throw new Error('worktree_not_found')
+      }
+    )
+
+    const authority = await resolveWorkerLaunchModelAuthority({
       catalog: CLAUDE_CATALOG,
-      agent: 'claude' as const,
+      agent: 'claude',
       runtime,
-      worktreeSelector: 'id:wt_local'
-    }
+      worktreeSelector: 'id:wt_folder_workspace'
+    })
 
-    await resolveWorkerLaunchModelAuthority(args)
-    const second = await resolveWorkerLaunchModelAuthority(args)
-
-    expect(discover).toHaveBeenCalledTimes(1)
-    expect(second.models.map(({ id }) => id)).toEqual(['opus[1m]'])
+    expect(authority.source).toBe('seed')
+    expect(discover).not.toHaveBeenCalled()
   })
 
   it('does not cache a failure, so the next dispatch retries the host', async () => {
@@ -185,9 +172,55 @@ describe('worker launch model authority', () => {
     expect(discover).toHaveBeenCalledTimes(2)
   })
 
+  it('probes one host once for every worktree that runs on it', async () => {
+    const { runtime, discover } = probeRuntime(
+      () => probeSuccess([liveModel('opus[1m]')]),
+      () => 'local'
+    )
+
+    await resolveWorkerLaunchModelAuthority({
+      catalog: CLAUDE_CATALOG,
+      agent: 'claude',
+      runtime,
+      worktreeSelector: 'id:wt_one'
+    })
+    const second = await resolveWorkerLaunchModelAuthority({
+      catalog: CLAUDE_CATALOG,
+      agent: 'claude',
+      runtime,
+      worktreeSelector: 'id:wt_two'
+    })
+
+    expect(discover).toHaveBeenCalledTimes(1)
+    expect(second.modelIds).toEqual(['opus[1m]'])
+  })
+
+  it('re-probes a host once its cached list has expired', async () => {
+    vi.useFakeTimers()
+    try {
+      const { runtime, discover } = probeRuntime(() => probeSuccess([liveModel('opus[1m]')]))
+      const args = {
+        catalog: CLAUDE_CATALOG,
+        agent: 'claude' as const,
+        runtime,
+        worktreeSelector: 'id:wt_local'
+      }
+
+      await resolveWorkerLaunchModelAuthority(args)
+      vi.setSystemTime(Date.now() + 3 * 60_000 + 1)
+      await resolveWorkerLaunchModelAuthority(args)
+
+      expect(discover).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keys a remote host separately from the local one', async () => {
-    const { runtime, discover } = probeRuntime((worktreeSelector) =>
-      probeSuccess([liveModel(worktreeSelector === 'id:wt_remote' ? 'opus' : 'opus[1m]')])
+    const { runtime, discover } = probeRuntime(
+      (worktreeSelector) =>
+        probeSuccess([liveModel(worktreeSelector === 'id:wt_remote' ? 'opus' : 'opus[1m]')]),
+      (worktreeSelector) => (worktreeSelector === 'id:wt_remote' ? 'ssh:box' : 'local')
     )
 
     const local = await resolveWorkerLaunchModelAuthority({
@@ -204,8 +237,8 @@ describe('worker launch model authority', () => {
     })
 
     expect(discover).toHaveBeenCalledTimes(2)
-    expect(local.models.map(({ id }) => id)).toEqual(['opus[1m]'])
-    expect(remote.models.map(({ id }) => id)).toEqual(['opus'])
+    expect(local.modelIds).toEqual(['opus[1m]'])
+    expect(remote.modelIds).toEqual(['opus'])
   })
 
   it('keys each agent separately on the same host', async () => {
@@ -227,24 +260,15 @@ describe('worker launch model authority', () => {
     expect(discover).toHaveBeenCalledTimes(2)
   })
 
-  it('names the agent, the rejected id, the sorted accepted ids, and which list answered', () => {
+  it('names the agent, the rejected id and the sorted ids the host actually listed', () => {
     expect(
       describeWorkerLaunchModelRejection({
         agent: 'claude',
         model: 'claude-opus-5',
-        authority: seedWorkerLaunchModelAuthority(CLAUDE_CATALOG)
+        authority: { source: 'live', modelIds: ['sonnet', 'opus'] }
       })
     ).toBe(
-      'Agent claude does not accept model claude-opus-5. Accepted ids (the built-in list for claude; the claude CLI could not be listed on the executing host): fable, haiku, opus, sonnet.'
-    )
-    expect(
-      describeWorkerLaunchModelRejection({
-        agent: 'claude',
-        model: 'claude-opus-5',
-        authority: { source: 'live', models: [{ id: 'sonnet', effortChoices: [] }] }
-      })
-    ).toBe(
-      'Agent claude does not accept model claude-opus-5. Accepted ids (listed by the claude CLI on the executing host): sonnet.'
+      'Agent claude does not accept model claude-opus-5. Accepted ids (listed by the claude CLI on the executing host): opus, sonnet.'
     )
   })
 })

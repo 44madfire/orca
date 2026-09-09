@@ -1,12 +1,15 @@
 import type { AgentLaunchPreferences } from '../../../../../../shared/agent-session-host-authority'
-import { getAgentSessionOptionCatalog } from '../../../../../../shared/agent-session-option-catalog'
+import {
+  findCatalogModel,
+  findCatalogOption,
+  getAgentSessionOptionCatalog
+} from '../../../../../../shared/agent-session-option-catalog'
 import { resolveAgentSessionOptionLaunch } from '../../../../../../shared/agent-session-option-launch'
 import { ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY } from '../../../../../../shared/protocol-version'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import {
   describeWorkerLaunchModelRejection,
-  seedWorkerLaunchModelAuthority,
   type WorkerLaunchModelAuthority
 } from './worker-launch-model-authority'
 
@@ -49,7 +52,8 @@ export function createPendingWorkerLaunchReceipt(args: {
   }
 }
 
-/** `authority` names the ids the executing host's CLI lists; the seed answers when it is omitted. */
+/** `authority` names the ids the executing host's CLI lists. Only a `live` one may refuse a
+ *  model: a seed fallback (or no authority at all) means the host was never listed. */
 export function resolveWorkerLaunchPreferences(args: {
   agent: TuiAgent
   model?: string
@@ -77,22 +81,33 @@ export function resolveWorkerLaunchPreferences(args: {
     )
   }
 
-  const authority = args.authority ?? seedWorkerLaunchModelAuthority(catalog)
   const model = args.model
-  const listed = authority.models.find((candidate) => candidate.id === model)
-  if (!listed) {
+  // Only a host that actually answered may refuse an id. A seed fallback means the CLI could not
+  // be listed there, and an unreachable host is not a statement that the model does not exist —
+  // let the agent CLI itself report it.
+  const authority = args.authority
+  if (authority?.source === 'live' && !authority.modelIds.includes(model)) {
     throw new OrchestrationError(
       'invalid_argument',
       describeWorkerLaunchModelRejection({ agent: args.agent, model, authority })
     )
   }
-  if (args.effort && !listed.effortChoices.includes(args.effort)) {
-    const levels =
-      listed.effortChoices.length > 0 ? ` Accepted levels: ${listed.effortChoices.join(', ')}.` : ''
-    throw new OrchestrationError(
-      'invalid_argument',
-      `Agent ${args.agent} model ${model} does not support effort ${args.effort}.${levels}`
-    )
+  // Effort is a flag Orca emits, not a host fact, so the catalog decides it on both paths — a
+  // probe's generic level list must never narrow the menu a seeded model carries.
+  if (args.effort) {
+    const seeded = findCatalogModel(catalog, model)
+    const option =
+      findCatalogOption(seeded, 'effort') ??
+      (seeded ? undefined : catalog.unknownModelOptions?.find(({ id }) => id === 'effort'))
+    if (
+      option?.kind.type !== 'select' ||
+      !option.kind.choices.some((choice) => choice.value === args.effort)
+    ) {
+      throw new OrchestrationError(
+        'invalid_argument',
+        `Agent ${args.agent} model ${model} does not support effort ${args.effort}.`
+      )
+    }
   }
 
   const requested = {
