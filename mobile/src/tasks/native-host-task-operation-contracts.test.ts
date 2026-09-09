@@ -21,14 +21,12 @@ const projectTarget = {
 
 describe('native host task operation contracts', () => {
   it('rejects a non-array checks payload instead of crashing the checks list', async () => {
-    const sendRequest = vi
-      .fn<RpcClient['sendRequest']>()
-      .mockResolvedValue({
-        id: 'test',
-        _meta: { runtimeId: 'host' },
-        ok: true,
-        result: { error: 'rate limited' }
-      })
+    const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
+      id: 'test',
+      _meta: { runtimeId: 'host' },
+      ok: true,
+      result: { error: 'rate limited' }
+    })
 
     await expect(
       nativeHostTaskItemFileOperations(client(sendRequest)).refreshChecks(itemTarget, 'sha')
