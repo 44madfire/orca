@@ -50,6 +50,8 @@ function installHost(options: {
   stuck?: Set<string>
   /** Sessions the host drops without death evidence, so the observation is `unverifiable`. */
   unverifiable?: Set<string>
+  /** Sessions whose child dies and is recorded dead, but whose close then fails past that point. */
+  settledThenThrows?: Set<string>
   /** Blocks every close, to exercise the shared sweep budget without fake timers. */
   closeGate?: Promise<void>
 }): { closed: string[] } {
@@ -73,6 +75,9 @@ function installHost(options: {
       if (record) {
         record.lease.claimStatus = 'released'
         record.lease.deathEvidence = { kind: 'exit-observed', detail: 'closed', observedAt: 1 }
+      }
+      if (options.settledThenThrows?.has(sessionId)) {
+        throw new Error('the event sink could not be flushed')
       }
     }
   }
@@ -199,6 +204,28 @@ describe('worktree teardown and structured agent sessions', () => {
     expect(result.structuredStopped).toBeUndefined()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('still attached'))
     warn.mockRestore()
+  })
+
+  it('takes the proof when a failed close is re-observed as exited', async () => {
+    // `closeStructuredAgentSessionChild` reports `stopped: false` for anything that throws past its
+    // own observation, and for a record whose death evidence lands after it read. The re-read here
+    // can still PROVE the exit — refusing a delete over a child that is demonstrably gone is the
+    // defect this whole sweep exists to remove, so the proof has to win over the close's verdict.
+    const retired: string[] = []
+    const runtime = {
+      stopTerminalsForWorktree: async () => ({ stopped: 0 }),
+      retireStructuredAgentSessionTabFromSnapshot: (sessionId: string) => {
+        retired.push(sessionId)
+        return true
+      }
+    } as never
+    installHost({ records: [record('s1', WORKTREE)], settledThenThrows: new Set(['s1']) })
+    await expect(
+      killAllProcessesForWorktree(WORKTREE, { ...destructiveDeps(), runtime })
+    ).resolves.toMatchObject({ structuredStopped: 1 })
+    // Retired here because the close gave up before its own retirement step, and a chat tab left
+    // behind re-attaches a released session pointing at a workspace that is about to be deleted.
+    expect(retired).toEqual(['s1'])
   })
 
   it('leaves the best-effort reconciliation paths alone', async () => {
