@@ -34,13 +34,12 @@ const STOP_ONLY_CLIENT = {
     (capability) => capability !== AGENT_SESSION_BACKGROUND_TASK_ROW_STOP_CAPABILITY
   )
 }
+const FOREGROUND_ROW = { id: 'fore', kind: 'agent', stoppable: false } as const
+const BACKGROUNDED_ROW = { id: 'back', kind: 'agent' } as const
 const MIXED_ROWS: AgentSessionBackgroundTaskState = {
   state: 'monitoring',
   supportsTaskStop: true,
-  tasks: [
-    { id: 'fore', kind: 'agent', stoppable: false },
-    { id: 'back', kind: 'agent' }
-  ]
+  tasks: [FOREGROUND_ROW, BACKGROUNDED_ROW]
 }
 
 describe('background-task stop capability at the RPC boundary', () => {
@@ -127,7 +126,7 @@ describe('background-task stop capability at the RPC boundary', () => {
     [
       'stop-only reader',
       () => STOP_ONLY_CLIENT,
-      { state: 'monitoring', tasks: [MIXED_ROWS.tasks[1]] }
+      { state: 'monitoring', tasks: [BACKGROUNDED_ROW] }
     ],
     ['in-process reader', () => undefined, MIXED_ROWS]
   ] as const)('projects unstoppable rows for a %s', async (_label, client, expected) => {
