@@ -50,7 +50,11 @@ function runningChild(): CodexBackgroundTaskTracker {
   return tracker
 }
 
-function command(threadId = PRIMARY, method = 'item/started'): CodexBackgroundTaskEvent {
+function command(
+  threadId = PRIMARY,
+  method = 'item/started',
+  commandText = 'sleep 90'
+): CodexBackgroundTaskEvent {
   return {
     method,
     threadId,
@@ -62,7 +66,7 @@ function command(threadId = PRIMARY, method = 'item/started'): CodexBackgroundTa
         id: 'exec-1',
         processId: '71831',
         source: 'unifiedExecStartup',
-        command: 'sleep 90',
+        command: commandText,
         status: method === 'item/started' ? 'inProgress' : 'completed'
       }
     }
@@ -291,6 +295,37 @@ describe('CodexBackgroundTaskTracker command integration', () => {
     const description = tracker.state?.tasks?.[0]?.description ?? ''
     expect(description.isWellFormed()).toBe(true)
     expect(description).toBe(`${'L'.repeat(94)}… — sleep 90`)
+  })
+
+  it('never cuts a qualified command mid surrogate pair', () => {
+    // The label is bounded, then the COMPOSED row is bounded again. That second
+    // cut lands inside the description, so clipping only the label side leaves a
+    // lone surrogate — lossy through any non-JSON UTF-8 hop.
+    const tracker = new CodexBackgroundTaskTracker(PRIMARY)
+    tracker.observe(turn('turn/started', PRIMARY, PARENT_TURN))
+    tracker.observe(turn('turn/started', CHILD, CHILD_TURN))
+    tracker.observe(activity('started', PARENT_TURN, CHILD, 'L'.repeat(96)))
+    // Places the pair exactly where a raw slice of the composed row splits it.
+    tracker.observe(command(CHILD, 'item/started', `${'C'.repeat(412)}\u{1F600}${'D'.repeat(200)}`))
+    tracker.observe(turn('turn/completed', PRIMARY, PARENT_TURN))
+    tracker.observe(turn('turn/completed', CHILD, CHILD_TURN))
+    const description = tracker.state?.tasks?.[0]?.description ?? ''
+    expect(description.length).toBeLessThanOrEqual(512)
+    expect(description.startsWith(`${'L'.repeat(96)} — `)).toBe(true)
+    expect(description.isWellFormed()).toBe(true)
+  })
+
+  it('never cuts an unqualified primary command mid surrogate pair', () => {
+    const tracker = new CodexBackgroundTaskTracker(PRIMARY)
+    tracker.observe(turn('turn/started', PRIMARY, PARENT_TURN))
+    // The pair straddles the raw description bound itself.
+    tracker.observe(
+      command(PRIMARY, 'item/started', `${'C'.repeat(511)}\u{1F600}${'D'.repeat(50)}`)
+    )
+    tracker.observe(turn('turn/completed', PRIMARY, PARENT_TURN))
+    const description = tracker.state?.tasks?.[0]?.description ?? ''
+    expect(description.length).toBeLessThanOrEqual(512)
+    expect(description.isWellFormed()).toBe(true)
   })
 
   it('names a child shell whose label only arrives after the command', () => {

@@ -18,23 +18,25 @@ type Command = { threadId: string; task: AgentSessionBackgroundTask; bytes: numb
  *  the admitted count by. */
 const MAX_LABEL_CHARS = 96
 
-/** Clipped the way `boundSubagentField` clips the same provider string on the
- *  agent row: never mid surrogate pair, since a lone surrogate is lossy through
- *  any non-JSON UTF-8 hop. No ordinal, because the row's identity is its `id`. */
-function boundLabel(label: string): string {
-  if (label.length <= MAX_LABEL_CHARS) {
-    return label
+/** Every cut in this file goes through here, clipped the way `boundSubagentField`
+ *  clips the same provider string on the agent row: never mid surrogate pair,
+ *  since a lone surrogate is lossy through any non-JSON UTF-8 hop. A composed
+ *  row is cut a SECOND time, so a clip that is safe only where the label is
+ *  bounded is not safe. No ordinal, because a row's identity is its `id`. */
+function boundText(value: string, max: number): string {
+  if (value.length <= max) {
+    return value
   }
-  const keep = MAX_LABEL_CHARS - 1
-  const last = label.charCodeAt(keep - 1)
+  const keep = max - 1
+  const last = value.charCodeAt(keep - 1)
   const end = last >= 0xd800 && last <= 0xdbff ? keep - 1 : keep
-  return `${label.slice(0, end)}…`
+  return `${value.slice(0, end)}…`
 }
 
 /** Resolved on read, and capped at the bound the admitted description already respects. */
 function qualifiedDescription(label: string, description: string | undefined): string {
-  const name = boundLabel(label)
-  return (description ? `${name} — ${description}` : name).slice(0, MAX_DESCRIPTION_CHARS)
+  const name = boundText(label, MAX_LABEL_CHARS)
+  return boundText(description ? `${name} — ${description}` : name, MAX_DESCRIPTION_CHARS)
 }
 
 export class CodexBackgroundCommandTracker {
@@ -144,8 +146,7 @@ export class CodexBackgroundCommandTracker {
     }
     const key = JSON.stringify([event.threadId, item.id])
     const completed = event.method === 'item/completed' || item.status !== 'inProgress'
-    const description = readString(item, 'command')
-      ?.slice(0, MAX_DESCRIPTION_CHARS)
+    const description = boundText(readString(item, 'command') ?? '', MAX_DESCRIPTION_CHARS)
       .replace(/\s+/g, ' ')
       .trim()
     const value = {
