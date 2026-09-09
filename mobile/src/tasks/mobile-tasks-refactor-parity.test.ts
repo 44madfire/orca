@@ -16,20 +16,12 @@ const hash = (parts: string[] | string): string =>
     .update(Array.isArray(parts) ? parts.join('\n') : parts)
     .digest('hex')
 
-/**
- * Re-frozen when the Tasks screens stopped calling `client.sendRequest` and started calling the
- * host operation adapters. Every RPC envelope check, response cast and payload literal moved out
- * of the composition into `native-host-task-*-operations.ts`, so the semantic source shrinks and
- * the render tree loses the two casts that lived inside JSX callbacks. Screen hooks gain the three
- * `useMemo` adapter bindings in `useMobileTasksRouteAndItemState`; statements gain the same three
- * plus the row-target locals the adapters take in place of inline slug/number checks. Diff hooks,
- * declarations and styles are untouched.
- */
-const SCREEN_HOOKS = 'ef31f40ab364d2c1958f0b130382e9f244aa824d491d329b639c3f2cba2b044a'
+// N1 removes list casts; D1 shortens a comment included in hook/statement fingerprints.
+const SCREEN_HOOKS = '958721790452dd53263a84af0d882394d8abde9cde027a9c1b7726f020373ea4'
 const DIFF_HOOKS = '93c7189b32bed8456cc51814fffa8ce80cf62011ef968a9d53ddec2b9686f58f'
-const STATEMENTS = '9df42716307eb166b1a862e2cea3d4bf2a9f3fa9bc8acd74ccc1e4302bbee9e4'
+const STATEMENTS = '3f62cf6b6781006b7a24d0ae3aa8b6850df5d0f4ffc4e0667b013b1520637ff1'
 const DECLARATIONS = 'cff54172af17a877789be1479c2eb6ca97d83c3e31dd831cd59395962f2b4c4a'
-const SEMANTICS = 'f767906884b93537f2c6369d6d0bd2d4cb39b4314c31cca9d8f9e5e9b78a75ee'
+const SEMANTICS = 'f42b15496308dbed002740b3a9cf44c8dc630de67ec6dfde046dc15b659bfc65'
 const STYLES = '1db6af69c791d9963928541ad5310942fcbda6d984b422c90b6eb92b6816579a'
 const RENDER_TREE = '62b9f49e69e699887c9f1873d7d3c9c7e6f556d34a83ec1a1b79831b6f647ff3'
 
@@ -58,7 +50,7 @@ describe('Mobile Tasks refactor parity', () => {
 
   it('preserves RPC calls, runtime strings, and JSX host signatures', () => {
     const semantics = readMobileTasksSemanticSource()
-    expect(semantics.split('\n')).toHaveLength(3_278)
+    expect(semantics.split('\n')).toHaveLength(3_274)
     expect(hash(semantics)).toBe(SEMANTICS)
   })
 

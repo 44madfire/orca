@@ -23,7 +23,12 @@ describe('native host task operation contracts', () => {
   it('rejects a non-array checks payload instead of crashing the checks list', async () => {
     const sendRequest = vi
       .fn<RpcClient['sendRequest']>()
-      .mockResolvedValue({ ok: true, result: { error: 'rate limited' } })
+      .mockResolvedValue({
+        id: 'test',
+        _meta: { runtimeId: 'host' },
+        ok: true,
+        result: { error: 'rate limited' }
+      })
 
     await expect(
       nativeHostTaskItemFileOperations(client(sendRequest)).refreshChecks(itemTarget, 'sha')
@@ -39,6 +44,8 @@ describe('native host task operation contracts', () => {
 
   it('accepts a Linear workspace switch the host confirms by echoing the id', async () => {
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
+      id: 'test',
+      _meta: { runtimeId: 'host' },
       ok: true,
       result: { connected: true, workspaces: [], selectedWorkspaceId: 'ws-2' }
     })
@@ -51,6 +58,8 @@ describe('native host task operation contracts', () => {
   it('reports a refused Linear workspace switch, which the host answers with its old status', () => {
     // The host has no `ok` field here: a refusal is its unchanged status, so only the id proves it.
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
+      id: 'test',
+      _meta: { runtimeId: 'host' },
       ok: true,
       result: { connected: true, workspaces: [], selectedWorkspaceId: 'ws-1' }
     })
@@ -63,7 +72,7 @@ describe('native host task operation contracts', () => {
   it('reads an absent GitLab todo list as empty rather than an error banner', async () => {
     const sendRequest = vi
       .fn<RpcClient['sendRequest']>()
-      .mockResolvedValue({ ok: true, result: null })
+      .mockResolvedValue({ id: 'test', _meta: { runtimeId: 'host' }, ok: true, result: null })
 
     await expect(
       nativeHostTaskListOperations(client(sendRequest)).listGitLabTodos('repo-1')
@@ -72,6 +81,8 @@ describe('native host task operation contracts', () => {
 
   it('gives project merge and rerun the long timeout their item-level twins use', async () => {
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
+      id: 'test',
+      _meta: { runtimeId: 'host' },
       ok: true,
       result: { ok: true }
     })
@@ -90,7 +101,7 @@ describe('native host task operation contracts', () => {
     // exercises the null path, which is why this pins the populated one.
     const sendRequest = vi
       .fn<RpcClient['sendRequest']>()
-      .mockResolvedValue({ ok: true, result: [] })
+      .mockResolvedValue({ id: 'test', _meta: { runtimeId: 'host' }, ok: true, result: [] })
 
     await nativeHostTaskProjectFileOperations(client(sendRequest)).refreshChecks(
       projectTarget,

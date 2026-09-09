@@ -158,7 +158,7 @@ export function useMobileTasksProjectWorkspaceCommentActions(model: WorkspaceCre
       if (!taskOperations || projectMutating) {
         return
       }
-      // main gated on the slug, the number and a non-empty body; the item type was not read.
+      // Adding a comment requires a repository slug, item number, and non-empty body.
       const target = projectRowSlugTarget(row, activeGitHubProjectHost)
       const body = projectCommentDraft.trim()
       if (!target || !row.content.number || !body) {

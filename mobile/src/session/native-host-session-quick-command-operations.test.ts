@@ -14,7 +14,12 @@ describe('native host session quick command operations', () => {
       if (attempts === 1) {
         throw new LogicalClientCutoverError()
       }
-      return { ok: true, result: { terminalQuickCommands: [] } }
+      return {
+        id: 'test',
+        _meta: { runtimeId: 'host' },
+        ok: true,
+        result: { terminalQuickCommands: [] }
+      }
     })
 
     await expect(
@@ -27,6 +32,8 @@ describe('native host session quick command operations', () => {
     // A host refusal is an answer. Checking `ok` inside the retry would replay it up to five
     // times whenever the host's own error text happened to match the cutover string.
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
+      id: 'test',
+      _meta: { runtimeId: 'host' },
       ok: false,
       error: { code: 'failed', message: 'RPC interrupted by connection migration' }
     })

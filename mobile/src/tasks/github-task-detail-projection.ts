@@ -1,22 +1,11 @@
 import type { HostTaskGitHubDetail } from './host-task-provider-payloads'
-import type { GitHubAssignableUser } from './mobile-tasks-provider-detail-types'
+import type { GitHubWorkItemDetails } from '../../../src/shared/github/work-item-types'
 
-type GitHubRawDetails = {
-  body?: string
-  comments?: HostTaskGitHubDetail['comments']
-  assignees?: string[]
-  headSha?: string
-  baseSha?: string
-  pullRequestId?: string
-  checks?: HostTaskGitHubDetail['checks']
-  files?: HostTaskGitHubDetail['files']
+import type { DetailComment } from './mobile-tasks-provider-detail-types'
 
-  item?: {
-    labels?: string[]
-    reviewDecision?: string | null
-    reviewRequests?: GitHubAssignableUser[]
-    latestReviews?: HostTaskGitHubDetail['latestReviews']
-  }
+type GitHubRawDetails = Partial<Omit<GitHubWorkItemDetails, 'item' | 'comments'>> & {
+  comments?: DetailComment[]
+  item?: Partial<GitHubWorkItemDetails['item']>
 }
 
 export function projectGitHubTaskDetail(value: unknown): HostTaskGitHubDetail {

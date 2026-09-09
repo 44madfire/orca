@@ -8,7 +8,6 @@ import type { RpcResponse } from '../transport/types'
 import { defaultHostSessionOperations } from './default-host-session-operations'
 import { useQuickCommands } from './use-quick-commands'
 
-const WORKSPACE_ID = 'repo::/worktree'
 /** One provider per client, exactly as the session model memoizes it, so the
  *  effect keys stay stable across renders. */
 const operationsByClient = new WeakMap<

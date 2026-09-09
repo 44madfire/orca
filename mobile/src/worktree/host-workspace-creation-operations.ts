@@ -16,10 +16,9 @@ import type {
   ResolveComposerPrBaseArgs
 } from '../tasks/composer-source-base-resolve'
 import type { SetupHookTrust } from '../tasks/setup-hook-trust'
-import type { ExecutionHostId } from '../../../src/shared/execution-host'
-import type { GitRemoteIdentity } from '../../../src/shared/git-remote-identity'
-import type { RepoIcon } from '../../../src/shared/repo-icon'
 import type { RetiredNameRegistry } from '../../../src/shared/worktree/retired-name-registry'
+
+import type { MobileWorkspaceRepo } from '../components/new-worktree-modal-types'
 
 export type { MobileWorkspaceRepo as NewWorkspaceRepository } from '../components/new-worktree-modal-types'
 
@@ -37,7 +36,7 @@ export type NewWorkspaceRepoHooks = {
 }
 
 export type HostWorkspaceCreationOperations = {
-  listRepositories(): Promise<NewWorkspaceRepository[]>
+  listRepositories(): Promise<MobileWorkspaceRepo[]>
   readRetiredWorktreeNames(repoId: string): Promise<RetiredNameRegistry>
   /** Null when the host answers without a settings key: the caller keeps what it has. */
   readRuntimeSettings(): Promise<NewWorkspaceRuntimeSettings | null>
