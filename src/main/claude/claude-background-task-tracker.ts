@@ -19,7 +19,14 @@ import {
   type TrackedClaudeBackgroundTask
 } from './claude-settled-background-tasks'
 
-export { classifyClaudeBackgroundTaskKind } from './claude-background-task-frames'
+// `claude-subagent-*` reads this channel through these names; the readers themselves
+// live in the frames module so both consumers share one definition.
+export {
+  classifyClaudeBackgroundTaskKind,
+  isBoundedClaudeTaskId,
+  taskDescription as claudeTaskDescription,
+  taskId as claudeTaskId
+} from './claude-background-task-frames'
 export type { ClaudeBackgroundTaskKind } from './claude-background-task-frames'
 
 const MAX_TRACKED_TASKS = 256

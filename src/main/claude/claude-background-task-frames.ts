@@ -17,11 +17,16 @@ export function record(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null
 }
 
+/** The bound every task id shares, wherever it enters. An id the roster stores
+ *  becomes a durable entry key, so a provisional one takes the same bound the
+ *  announced path applies — an over-long id is rejected, never truncated. */
+export function isBoundedClaudeTaskId(value: string): boolean {
+  return value.length > 0 && value.length <= MAX_TASK_ID_LENGTH
+}
+
 export function taskId(message: Record<string, unknown>): string | null {
   const value = message.task_id
-  return typeof value === 'string' && value.length > 0 && value.length <= MAX_TASK_ID_LENGTH
-    ? value
-    : null
+  return typeof value === 'string' && isBoundedClaudeTaskId(value) ? value : null
 }
 
 function boundedTaskText(value: unknown): string | undefined {

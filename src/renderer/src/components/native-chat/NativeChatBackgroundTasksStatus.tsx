@@ -162,7 +162,7 @@ export function NativeChatBackgroundTasksStatus(props: {
                 </span>
               )}
             </span>
-            <span className="min-w-0 flex-1 truncate">
+            <span className="min-w-0 truncate">
               {header.segments.map((segment, index) => (
                 <span key={segment}>
                   {index > 0 ? <span className="text-border"> · </span> : null}

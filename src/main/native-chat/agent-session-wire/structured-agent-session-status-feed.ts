@@ -32,6 +32,7 @@ export type StructuredAgentSessionStatusSubscriber = {
 type StatusFeedSession = {
   journal: AgentSessionJournal
   params: { location: { workspaceId: string }; provider: AgentSessionRecord['provider'] }
+  hasProviderChild?: boolean
 }
 
 export type StructuredAgentSessionStatusFeedDeps = {
@@ -51,6 +52,7 @@ function summariesEqual(a: AgentSessionStatusSummary, b: AgentSessionStatusSumma
     a.workspaceId === b.workspaceId &&
     a.agent === b.agent &&
     a.status === b.status &&
+    a.hostExecutionOwned === b.hostExecutionOwned &&
     a.rewindBlockedReason === b.rewindBlockedReason &&
     // Settled activity changes ranking; streaming active turns must stay quiet.
     (a.status !== 'idle' || a.updatedAt === b.updatedAt) &&
@@ -117,6 +119,27 @@ export class StructuredAgentSessionStatusFeed {
     return () => this.unsubscribe(subscriber.id)
   }
 
+  /**
+   * Summaries for the sessions this host still holds, for readers that poll instead of subscribing.
+   *
+   * `published` never retracts, so it is a broadcast cache and not a roster: enumerating it lists
+   * every session ever opened here. A caller asking what is running gets the live intersection,
+   * while the retained view a subscriber opens on stays whole.
+   *
+   * Deliberately does NOT re-project: a subscriber's snapshot is the live read, and re-running the
+   * journal reduction per caller would make an enumerating command pay for every session it lists.
+   */
+  liveSessionSummaries(): AgentSessionStatusSummary[] {
+    const summaries: AgentSessionStatusSummary[] = []
+    for (const [sessionId] of this.deps.sessions) {
+      const summary = this.published.get(sessionId)
+      if (summary) {
+        summaries.push(summary)
+      }
+    }
+    return summaries
+  }
+
   unsubscribe(id: string): void {
     const subscriber = this.subscribers.get(id)
     if (!subscriber) {
@@ -128,6 +151,20 @@ export class StructuredAgentSessionStatusFeed {
     } catch {
       // The transport is already gone; teardown must remain idempotent.
     }
+  }
+
+  /** Revoke live execution authority while retaining the last projection for reload history. */
+  revokeLive(sessionId: string): void {
+    const previous = this.published.get(sessionId)
+    if (!previous) {
+      return
+    }
+    const { hostExecutionOwned: _hostExecutionOwned, ...retained } = previous
+    this.published.set(sessionId, retained)
+    this.broadcast({
+      type: 'status',
+      session: retained
+    })
   }
 
   /** Re-projects one session after its journal changed; equal projections are not re-sent. */
@@ -185,6 +222,7 @@ export class StructuredAgentSessionStatusFeed {
       sessionId,
       workspaceId: session.params.location.workspaceId,
       agent: session.params.provider,
+      ...(session.hasProviderChild ? { hostExecutionOwned: true as const } : {}),
       ...projection.summary,
       ...(record?.rewind?.phase === 'prepared' || record?.rewind?.phase === 'provider-succeeded'
         ? { rewindBlockedReason: 'outcome-unknown' as const }

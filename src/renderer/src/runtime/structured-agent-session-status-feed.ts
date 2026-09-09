@@ -86,6 +86,23 @@ function createOwner(target: RuntimeClientTarget): OwnedStatusFeed {
     handle?.unsubscribe()
     handle = null
   }
+  const revokeSnapshotOwnership = (): void => {
+    let next: Map<string, AgentSessionStatusSummary> | null = null
+    for (const [sessionId, summary] of snapshot) {
+      if (!summary.hostExecutionOwned) {
+        continue
+      }
+      if (!next) {
+        next = new Map(snapshot)
+      }
+      const { hostExecutionOwned: _owned, ...retained } = summary
+      next.set(sessionId, retained)
+    }
+    if (next) {
+      snapshot = next
+      emit()
+    }
+  }
   let open = (): void => {}
   const scheduleReconnect = (candidate: number): void => {
     if (!active(candidate) || reconnectTimer) {
@@ -100,12 +117,15 @@ function createOwner(target: RuntimeClientTarget): OwnedStatusFeed {
       }
     }, delay)
   }
+  // Losing contact is never exit: the sessions go unverifiable and this client stops
+  // claiming host-owned execution, but nothing here settles them.
   const loseConnection = (candidate: number): void => {
-    if (!active(candidate)) {
+    if (candidate !== generation) {
       return
     }
     generation += 1
     confirmedSessions.clear()
+    revokeSnapshotOwnership()
     emit()
     dropHandle()
     scheduleReconnect(generation)
@@ -174,6 +194,7 @@ function createOwner(target: RuntimeClientTarget): OwnedStatusFeed {
     generation += 1
     clearReconnect()
     dropHandle()
+    revokeSnapshotOwnership()
     reconnectAttempt = 0
     confirmedSessions.clear()
     emit()

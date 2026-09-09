@@ -11,7 +11,10 @@ import {
   type AgentSubagentSnapshot,
   type AgentSubagentState
 } from '../../../../shared/agent-status-types'
-import { structuredAgentSessionPaneKey } from '../../../../shared/structured-agent-session-projection'
+import {
+  structuredAgentSessionPaneKey,
+  structuredAgentSessionStatusState
+} from '../../../../shared/structured-agent-session-projection'
 import type { Tab } from '../../../../shared/tab-types'
 import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
@@ -138,12 +141,8 @@ function projectStatus(
   }
   const subagents = subagentSnapshotsFromTasks(summary.backgroundTasks)
   const desired = {
-    state:
-      summary.status === 'working'
-        ? 'working'
-        : summary.status === 'attention'
-          ? 'blocked'
-          : 'done',
+    // Shared with `worktree ps`, so the CLI and this row cannot disagree about one session.
+    state: structuredAgentSessionStatusState(summary.status),
     prompt: summary.latestPrompt,
     agentType: tab.agentSessionAgent,
     // The host projects these from the journal so the row reads like a hook-reported one:
@@ -173,6 +172,7 @@ function projectStatus(
     current.tabId === tab.id &&
     current.worktreeId === tab.worktreeId &&
     current.terminalResumeEligible === false &&
+    current.structuredHostOwned === summary.hostExecutionOwned &&
     agentProviderSessionsEqual(
       tab.agentSessionAgent,
       current.providerSession,
@@ -193,12 +193,13 @@ function projectStatus(
         desired.state !== 'done' && current?.state === desired.state
           ? current.stateStartedAt
           : summary.updatedAt,
-      evidenceObservedAt: Date.now()
+      evidenceObservedAt: summary.updatedAt
     },
     { tabId: tab.id, worktreeId: tab.worktreeId },
     {
       ...(summary.providerSession ? { providerSession: summary.providerSession } : {}),
-      terminalResumeEligible: false
+      terminalResumeEligible: false,
+      ...(summary.hostExecutionOwned ? { structuredHostOwned: true as const } : {})
     }
   )
 }

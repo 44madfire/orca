@@ -27,7 +27,6 @@ import { attachStructuredAgentSession } from './structured-agent-session-attach-
 import {
   createStructuredAgentSessionHolds,
   evictHeldStructuredAgentSession,
-  resumeStructuredAgentSessionForHold,
   type StructuredAgentSessionLifetimeContext
 } from './structured-agent-session-host-lifetime'
 import type {
@@ -119,16 +118,13 @@ export class StructuredAgentSessionHost {
       flush: (sessionId) => this.flushStreamedEvents(sessionId),
       serialize: (sessionId, task) => this.serialize(sessionId, task),
       subscribers: this.subscribers,
+      publishStatus: (sessionId) => this.statusFeed.publish(sessionId),
       now: this.now
     })
     this.holds = createStructuredAgentSessionHolds(this.lifetimeContext(), {
-      resume: (sessionId) =>
-        resumeStructuredAgentSessionForHold(
-          { ...this.lifetimeContext(), reconcileLeases: this.reconcileLeases },
-          sessionId,
-          (params) => this.attach({ callerKey: 'trusted-local:surface-hold' }, params)
-        ),
-      evict: (sessionId) => this.close(sessionId)
+      reconcileLeases: this.reconcileLeases,
+      attach: (params) => this.attach({ callerKey: 'trusted-local:surface-hold' }, params),
+      close: (sessionId) => this.close(sessionId)
     })
     this.restore = createStructuredAgentSessionHostRestore(deps, this.sessions, () => this.now(), {
       reconcile: this.reconcileLeases,
@@ -150,6 +146,7 @@ export class StructuredAgentSessionHost {
       flushLifecycle: (sessionId) => this.runtimeState.lifecycleBarrier(sessionId),
       publishFence: (sessionId, session) =>
         this.subscribers.snapshot(sessionId, session.journal, session.fence),
+      publishStatus: (sessionId) => this.statusFeed.publish(sessionId),
       hasResumeCapableHolder: (sessionId) => this.holds.hasResumeCapableHolder(sessionId),
       serialize: (sessionId, task) => this.serialize(sessionId, task),
       now: () => this.now(),
@@ -161,7 +158,8 @@ export class StructuredAgentSessionHost {
 
   private now = (): number => this.deps.now?.() ?? Date.now()
 
-  hasSession = (sessionId: string): boolean => this.sessions.has(sessionId); isHeld = (sessionId: string): boolean => this.holds.isHeld(sessionId)
+  hasSession = (sessionId: string): boolean => this.sessions.has(sessionId)
+  isHeld = (sessionId: string): boolean => this.holds.isHeld(sessionId)
 
   /** A surface bound to this session and wants it live. The FIRST hold on a session with no
    *  provider child is what resumes one; a retained hold (a subscription) only keeps it. */
@@ -193,7 +191,8 @@ export class StructuredAgentSessionHost {
       subscribers: this.subscribers,
       tasks: this.tasks,
       reconcileLeases: (sessionId) => this.reconcileLeases(sessionId),
-      serialize: (sessionId, task) => this.serialize(sessionId, task)
+      serialize: (sessionId, task) => this.serialize(sessionId, task),
+      publishStatus: (sessionId) => this.statusFeed.publish(sessionId)
     }
   }
   /** Releases a session's resources without ending the conversation: the record and journal stay
@@ -202,6 +201,7 @@ export class StructuredAgentSessionHost {
     return this.serialize(sessionId, async () => {
       await this.handoffs.closeRetainedTuiOwner(sessionId)
       await evictHeldStructuredAgentSession(this.lifetimeContext(), sessionId)
+      this.statusFeed.revokeLive(sessionId)
       // Whoever asked for the close, the surfaces that were holding this session are looking at a
       // session that no longer exists. A failed eviction throws above and keeps them.
       this.holds.forget(sessionId)
@@ -213,8 +213,11 @@ export class StructuredAgentSessionHost {
 
   listSessionTabs = () => listStructuredAgentSessionTabs(this.sessions)
 
-  getPersistedVisibleSessionTabIndex = (): { present: boolean; sessionIds: string[] } =>
-    this.deps.store.getVisibleSessionTabIndex()
+  /** Last projected status for every structured session this host still holds, for non-subscribing
+   *  readers. The retained projections of forgotten sessions are deliberately not included. */
+  readonly liveSessionStatusSummaries = () => this.statusFeed.liveSessionSummaries()
+
+  getPersistedVisibleSessionTabIndex = () => this.deps.store.getVisibleSessionTabIndex()
 
   setSessionTabVisibility = (sessionId: string, visible: boolean): Promise<void> =>
     this.deps.store.setSessionTabVisibility(sessionId, visible)
