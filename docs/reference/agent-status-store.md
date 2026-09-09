@@ -2,14 +2,17 @@
 
 ## Status
 
-Proposed on 2026-09-09 as the follow-up to #19217. It lands in three PRs, in
+Proposed on 2026-09-09 as the follow-up to #19217. It lands in four steps, in
 this order, each independently shippable:
 
-1. main-only: every producer writes into one store and `worktree ps` reads it;
+1. main-only: every producer writes into one store and `worktree ps` reads it,
+   split into 1a (structured sessions join the store) and 1b (the runtime's
+   duplicate retained store is deleted);
 2. renderer: the sidebar becomes a subscriber and stops re-deriving rows;
 3. shared: one worktree-status rollup and one freshness rule for every reader.
 
-The PR that carries this document is PR 1.
+The PR that carries this document is PR 1a. Sections below are grouped under
+the step that delivers them; only PR 1a has landed.
 
 ## The problem this solves
 
@@ -78,7 +81,7 @@ with them would be the wrong direction. So the design is not "add a store". It
 is: **route the two producers that bypass the hook server through it, then
 delete the copies.**
 
-## PR 1: main only
+## PR 1a: structured sessions publish into the store
 
 No renderer behavior changes. The sidebar keeps receiving the same IPC events
 it receives today, plus structured-session rows it currently derives itself.
@@ -95,8 +98,7 @@ ingests the summary into the hook server as a status row:
 | `tabId`           | `structuredAgentSessionTabId(sessionId)`                      |
 | `worktreeId`      | `summary.workspaceId` (a folder workspace id is a valid value) |
 | `state`           | `structuredAgentSessionStatusState(summary.status)`, the mapping #19217 shared |
-| `source`          | `'structured-host'`                                           |
-| `structuredHostOwned` | present while `summary.hostExecutionOwned` is present     |
+| `structuredHost`  | `'owned'` while `summary.hostExecutionOwned` is set, otherwise `'held'`; `worktree ps` derives its row's `structuredHostOwned` from it |
 | prompt, tool, last message, model, provider session | the summary's fields    |
 
 Sessions with no persisted turn (`status === null`) produce no row, matching
@@ -110,7 +112,8 @@ Two rules the ingest must keep:
 - **Never persist a structured row.** The journal is the durable truth for a
   structured session and the host republishes on restore. A structured row in
   `last-status.json` would hydrate as `restoredUnconfirmed` and then fight the
-  live republish. The serializer skips rows whose source is `structured-host`.
+  live republish. The serializer skips rows carrying `structuredHost`, and
+  hydrate drops any such row found on disk.
 - **Never let it fight a hook row.** A structured session has no PTY, so no
   hook or OSC event carries its pane key. The ingest still goes through the
   disposition gate so a retired pane key is refused like any other.
@@ -118,33 +121,17 @@ Two rules the ingest must keep:
 The ingest lives in the feed, not in `structured-agent-session-host.ts`, which
 sits at the file-length cap.
 
-### The runtime's retained row store is deleted
-
-`RuntimeAgentRowStore` keeps the same payload the hook server already holds.
-Its only extra is the pty id, used to clear rows on exit and as a fallback key
-for the mobile projection. PR 1 stamps `terminalHandle` on OSC-ingested rows
-from the runtime event's `ptyId`, and rewrites the three readers over the hook
-server's snapshot:
-
-- `worktree ps` reads `getStatusSnapshot()` directly;
-- `getFreshExplicit` already consults hook rows; it drops the retained input;
-- `getFreshForMobile` matches on pane key, then on `terminalHandle`.
-
-One behavior change follows and is intended: a row the user dismisses on the
-desktop disappears from `worktree ps` and the phone at the same time, instead
-of lingering until the pty exits.
-
 ### `worktree ps` becomes a reader
 
-`collectRuntimeWorktreePtyAgentSources` loses its retained-versus-hook
-reconciliation, because there is one row per pane. The structured adapter
-added in #19217 is deleted. What remains is one adapter from the store's
-snapshot to `RuntimeWorktreeAgentSource`, plus the admission gate that decides
-which rows a worktree listing may show:
+The structured adapter added in #19217 is deleted, and structured rows reach
+`worktree ps` through the same snapshot as every other row. The
+retained-versus-hook reconciliation in `collectRuntimeWorktreePtyAgentSources`
+stays until PR 1b removes the store that feeds it. What this step settles is
+the admission gate that decides which rows a worktree listing may show:
 
 - a hook or OSC row needs its tab mirrored or a connected pty, as today, and
   SSH rows stay exempt because their tabs may exist only remotely;
-- a `structured-host` row is admitted while the host holds the session, and
+- a row carrying `structuredHost` is admitted while the host holds the session, and
   the host's drop on close is what removes it; no tab-mirror requirement,
   because headless serve has no renderer to mirror tabs from.
 
@@ -164,6 +151,25 @@ Until PR 2 the main process does not forward structured rows to the renderer
 over `agentStatus:set` or `agentStatus:getSnapshot`. The renderer's feed
 bridge still writes those rows itself, and forwarding them too would give one
 pane key two writers. Removing that filter is the first step of PR 2.
+
+## PR 1b: the runtime's retained row store is deleted
+
+Not yet implemented; `RuntimeAgentRowStore` and the retained-versus-hook
+reconciliation it feeds are both still in place after PR 1a.
+
+`RuntimeAgentRowStore` keeps the same payload the hook server already holds.
+Its only extra is the pty id, used to clear rows on exit and as a fallback key
+for the mobile projection. PR 1b will stamp `terminalHandle` on OSC-ingested
+rows from the runtime event's `ptyId`, and rewrite the three readers over the
+hook server's snapshot:
+
+- `worktree ps` reads `getStatusSnapshot()` directly;
+- `getFreshExplicit` already consults hook rows; it drops the retained input;
+- `getFreshForMobile` matches on pane key, then on `terminalHandle`.
+
+One behavior change will follow and is intended: a row the user dismisses on
+the desktop disappears from `worktree ps` and the phone at the same time,
+instead of lingering until the pty exits.
 
 ## PR 2: the renderer subscribes
 
@@ -208,9 +214,10 @@ call it.
 
 - Unit: ingest a structured summary and read it back through
   `getStatusSnapshot`, `worktree ps`, and the mobile projection; assert the
-  serializer never writes a `structured-host` row; assert a hydrated file that
-  somehow contains one is dropped.
+  serializer never writes a row carrying `structuredHost`; assert a hydrated
+  file that somehow contains one is dropped.
 - Unit: the existing `worktree ps` suites pass unchanged, which is the
-  characterization that deleting the retained store changed no listing.
+  characterization that will show PR 1b's deletion of the retained store
+  changed no listing.
 - Live: the parity check from #19217 (working, done, close, reload) repeated
   against the merged store, with both surfaces read from the one row.
