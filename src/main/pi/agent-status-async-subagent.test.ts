@@ -116,11 +116,12 @@ describe('pi async subagent runs reach the pane as descendants (STA-6378)', () =
     const harness = createHarness()
     await drive(harness, 'before_agent_start', { prompt: 'fan out wide' })
     await drive(harness, 'agent_start')
-    await emitWithoutFlush(harness, [
-      { name: 'subagent:async-started', payload: { runId: 'run-1' } },
-      { name: 'subagent:async-started', payload: { runId: 'run-2' } },
-      { name: 'subagent:async-started', payload: { runId: 'run-3' } }
-    ])
+    // Why: the starts are delivered one at a time on purpose. Coalescing them too would drop
+    // the start that pairs with a dropped completion, and the two losses would cancel out —
+    // the pane would settle for the wrong reason and the test would prove nothing.
+    await emit(harness, 'subagent:async-started', { runId: 'run-1' })
+    await emit(harness, 'subagent:async-started', { runId: 'run-2' })
+    await emit(harness, 'subagent:async-started', { runId: 'run-3' })
     await drive(harness, 'agent_end', {})
     expect(harness.states.at(-1)).toBe('working')
 
@@ -139,10 +140,8 @@ describe('pi async subagent runs reach the pane as descendants (STA-6378)', () =
     const harness = createHarness()
     await drive(harness, 'before_agent_start', { prompt: 'partial' })
     await drive(harness, 'agent_start')
-    await emitWithoutFlush(harness, [
-      { name: 'subagent:async-started', payload: { runId: 'run-1' } },
-      { name: 'subagent:async-started', payload: { runId: 'run-2' } }
-    ])
+    await emit(harness, 'subagent:async-started', { runId: 'run-1' })
+    await emit(harness, 'subagent:async-started', { runId: 'run-2' })
     await drive(harness, 'agent_end', {})
 
     await emitWithoutFlush(harness, [
