@@ -108,28 +108,43 @@ export function listLiveStructuredSessionsForWorktree(
 }
 
 /**
- * Counts, providers and the post-close verdict — never session ids.
+ * A count and its providers — never session ids.
  *
  * A session id is one tab-id hop from the random pane key that gates a worker's mailbox, and this
  * string reaches agent-readable CLI output and a desktop toast. The count and the providers are
  * what a user deciding whether to force actually needs; the ids identify nothing they can act on.
+ */
+function countStructuredSessions(sessions: readonly UnclosedStructuredSession[]): string {
+  const noun = sessions.length === 1 ? 'agent session' : 'agent sessions'
+  const providers = [...new Set(sessions.map((session) => session.agent))].sort().join(', ')
+  return `${sessions.length} ${noun} (${providers})`
+}
+
+/**
+ * The two post-close verdicts, each with its own count.
  *
- * The verdict is here for the reason `describeUnstoppedPtys` carries one: "we watched it stay
+ * The split is here for the reason `describeUnstoppedPtys` carries one: "we watched it stay
  * attached" and "we could not confirm it went" are different decisions to waive, and the delete
- * toast branches on this marker. Any proven-live session makes the whole refusal a live one, as it
- * does for PTYs — that is the stronger warning, and the one whose work is about to be discarded.
+ * toast branches on the marker a proven-live session leads with.
+ *
+ * Both groups are named, though, which is where this differs from the PTY sibling: there, the
+ * verdict is a fresh inventory, so anything absent from the live list is PROVEN exited and
+ * rightly dropped. Here an `unverifiable` session is unclosed too — folding it into the live
+ * count would overstate what Orca watched, and dropping it said "1 agent session" while three
+ * were about to be discarded.
  */
 export function describeUnclosedStructuredSessions(
   sessions: readonly UnclosedStructuredSession[]
 ): string {
   const stillLive = sessions.filter((session) => session.status === 'live')
-  const named = stillLive.length > 0 ? stillLive : sessions
-  const noun = named.length === 1 ? 'agent session' : 'agent sessions'
-  const providers = [...new Set(named.map((session) => session.agent))].sort().join(', ')
-  const summary = `${named.length} ${noun} (${providers})`
-  return stillLive.length > 0
-    ? `${STILL_LIVE_DETAIL_PREFIX} ${summary}`
-    : `could not confirm these closed: ${summary}`
+  const unconfirmed = sessions.filter((session) => session.status !== 'live')
+  if (stillLive.length === 0) {
+    return `could not confirm these closed: ${countStructuredSessions(unconfirmed)}`
+  }
+  const live = `${STILL_LIVE_DETAIL_PREFIX} ${countStructuredSessions(stillLive)}`
+  return unconfirmed.length === 0
+    ? live
+    : `${live}; could not confirm these closed: ${countStructuredSessions(unconfirmed)}`
 }
 
 /**

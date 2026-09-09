@@ -281,6 +281,45 @@ describe('worktree teardown and structured agent sessions', () => {
     expect(error).toContain('still live: 2 agent sessions (claude, codex)')
   })
 
+  it('names the unconfirmed sessions too, instead of counting only the live ones', async () => {
+    // The PTY sibling may drop everything outside its live list because a fresh inventory PROVED
+    // those exited. Nothing proves that here: an `unverifiable` session is unclosed as well, so
+    // naming only the live subset told the user "1 agent session" while two were about to go.
+    installHost({
+      records: [record('s1', WORKTREE), record('s2', WORKTREE, { provider: 'codex' })],
+      stuck: new Set(['s1']),
+      unverifiable: new Set(['s2'])
+    })
+    const error = await killAllProcessesForWorktree(WORKTREE, destructiveDeps()).catch(
+      (thrown: Error) => thrown.message
+    )
+    expect(error).toContain(
+      'still live: 1 agent session (claude); could not confirm these closed: 1 agent session (codex)'
+    )
+    // The marker still leads, so the toast keeps showing the stronger of the two warnings.
+    expect(isProvenLiveStructuredSessionRemovalError(error as string)).toBe(true)
+  })
+
+  it('still reports what it closed when a forced removal skips the PTY verdict', async () => {
+    // A sweep that fails outright short-circuits the per-PTY verdict — but not the structured
+    // close that already ran, so the count has to survive that return or the removal log claims
+    // `structured=0` for chats it just ended.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const runtime = {
+      stopTerminalsForWorktree: async () => {
+        throw new Error('the terminal sweep died')
+      }
+    } as never
+    const host = installHost({ records: [record('s1', WORKTREE)] })
+    const result = await killAllProcessesForWorktree(WORKTREE, {
+      ...destructiveDeps({ allowUnverifiedStop: true }),
+      runtime
+    })
+    expect(host.closed).toEqual(['s1'])
+    expect(result.structuredStopped).toBe(1)
+    warn.mockRestore()
+  })
+
   it('separates a close it could not confirm from one it watched stay attached', async () => {
     // `src/shared/worktree/removal.ts` keeps these two apart on purpose: a user waiving "we could
     // not confirm" is making a different decision than one discarding a conversation Orca just saw

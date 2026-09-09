@@ -218,7 +218,10 @@ export async function killAllProcessesForWorktree(
       deadlineError
     )
     if (forced.incomplete) {
-      return forced.stopped
+      // Carries the structured count out too: this early return skips the PTY verdict, not the
+      // sweep that already closed a user's chats, and dropping it makes the log say `structured=0`
+      // for a removal that closed some.
+      return { ...forced.stopped, ...(structuredStopped > 0 ? { structuredStopped } : {}) }
     }
     runtimeResult = { stopped: forced.stopped.runtimeStopped }
     providerStopped = forced.stopped.providerStopped
