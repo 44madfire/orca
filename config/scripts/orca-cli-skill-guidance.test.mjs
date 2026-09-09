@@ -69,23 +69,21 @@ describe('orca CLI skill guidance', () => {
     expect(skill).toContain('<lineage-flag>')
   })
 
-  it('states the cost of each lineage option and prescribes neither', () => {
+  // Why: validation (n=66, two providers) showed prose cannot make a model pick lineage
+  // from the situation -- it only shifts each model's fixed disposition, and a vividly
+  // one-sided cost flips one provider outright. So the guide states the mechanism and
+  // argues for neither side; these assertions pin that shape, not an outcome.
+  it('states the lineage mechanism and prescribes neither option', () => {
     const skill = readSkill()
 
     expect(skill).toContain(
-      "As a child, it is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows."
+      "Lineage is the sidebar grouping: a child worktree is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows, and a top-level worktree is its own row."
     )
-    expect(skill).toContain("hidden while the parent's lineage group is collapsed")
-    expect(skill).toContain('deleting the parent in the Orca UI deletes it too')
     // The cascade is a UI-surface behaviour; the CLI removes only the named worktree.
     // Left unscoped, an agent cleaning up via the parent would leak its children.
     expect(skill).toContain(
-      '`orca worktree rm` removes only the worktree you name, so a child outlives a parent you remove from the CLI'
+      'Deleting a parent in the Orca UI deletes its children with it; `orca worktree rm` removes only the worktree you name'
     )
-    expect(skill).toContain(
-      'As a top-level worktree, it is always its own row and is unaffected when another worktree is deleted.'
-    )
-    expect(skill).toContain('Nothing groups it with the work it came from')
     expect(skill).toContain(
       'Orca infers a parent from the calling context (Orca terminal, orchestration context, or cwd)'
     )

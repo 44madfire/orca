@@ -38,7 +38,7 @@ ORCA worktree create --name <task-name> --parent-worktree active --agent codex -
 ORCA worktree create --name <task-name> --no-parent --agent codex --prompt "<task brief>" --json
 ```
 
-The first files the handoff under this worktree, the second files it at the top level; see Lineage for what each one costs. With neither flag Orca infers a parent from the calling context, so state the flag rather than leaving the grouping to where the command happened to run.
+The first files the handoff under this worktree, the second files it at the top level; see Lineage for what each one does. With neither flag Orca infers a parent from the calling context, so state the flag rather than leaving the grouping to where the command happened to run.
 
 Omit `--base-branch` unless the user explicitly asks for stacked work, "branch from current", or a specific base. Put any current-branch context in the prompt. The base is a separate choice from lineage.
 
@@ -103,18 +103,13 @@ Selectors:
 
 Lineage:
 
-Lineage controls sidebar grouping and which descendants participate in group lifecycle actions. It does not affect the branch, the base commit, or the PR, and `worktree set` can change it later.
-
-Each option trades the same two things in opposite directions. Pick against how the user will look for this worktree afterwards, and say which you picked:
-
-- As a child, it is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows. It is hidden while the parent's lineage group is collapsed, and deleting the parent in the Orca UI deletes it too — the delete dialog lists the child workspaces it will remove alongside the parent. `orca worktree rm` removes only the worktree you name, so a child outlives a parent you remove from the CLI.
-- As a top-level worktree, it is always its own row and is unaffected when another worktree is deleted. Nothing groups it with the work it came from, so it has to be found on its own.
+Lineage is the sidebar grouping: a child worktree is grouped under its parent and travels with it through the user's review, sleep, and status-lane flows, and a top-level worktree is its own row. It does not affect the branch, the base commit, or the PR, and `worktree set` can change it later. Deleting a parent in the Orca UI deletes its children with it; `orca worktree rm` removes only the worktree you name.
 
 Flags:
 
 - `--parent-worktree active`, `--parent-worktree folder:<folderId>`, or `--parent-worktree worktree:<repoId>::<worktreePath>` names a parent explicitly.
 - `--no-parent` makes the new worktree its own root.
-- With neither flag, Orca infers a parent from the calling context (Orca terminal, orchestration context, or cwd) and records the new worktree as its child; it comes out top-level only when nothing can be inferred. That inference follows from where the command ran, not from what the new work is about.
+- Pass one of them. With neither flag, Orca infers a parent from the calling context (Orca terminal, orchestration context, or cwd) and records the new worktree as its child; it comes out top-level only when nothing can be inferred. That inference follows from where the command ran, not from what the new work is about.
 - Lineage and Git base are independent. `--no-parent` never changes the base; `--base-branch` never changes lineage. Omit `--base-branch` to use the repo default base, or pass it explicitly. Never base on the current feature branch unless the user asks for stacked work or "branch from current".
 - If `--repo` is omitted, Orca infers the repo from the current Orca worktree when possible.
 

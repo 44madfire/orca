@@ -117,7 +117,7 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
       'Use --project with --host to create on a ready project host setup without spelling the backing repo id.',
       '--host runtime:<environment-id> creates on that paired Orca server; use the id from `orca environment list`, not the environment name.',
       'Pass --parent-worktree active, folder:<id>, or worktree:<worktreeId> to group the new worktree under an existing one, or --no-parent to make it its own root. Worktree ids are the full <repo-id>::<path> values returned by `orca worktree list --json`.',
-      'Lineage controls sidebar grouping and which descendants participate in group lifecycle actions. A child travels with its parent through review, sleep, and status moves, and deleting the parent in the Orca UI deletes it too, though `orca worktree rm` removes only the worktree you name; a top-level worktree is always its own row, but nothing groups it with the work it came from.',
+      'Lineage is the sidebar grouping: a child travels with its parent through review, sleep, and status moves, and a top-level worktree is its own row. Deleting a parent in the Orca UI deletes its children with it; `orca worktree rm` removes only the worktree you name.',
       'With neither flag, Orca infers a parent from the calling context and files the new worktree as its child; that follows from where the command ran, not from what the new work is about.',
       'Lineage and Git base are independent: --no-parent never changes the base, and --base-branch never changes lineage. Omit --base-branch to use the repo default base, or pass the default base ref explicitly.',
       'By default this creates the worktree and its first terminal without switching the active Orca view.',
