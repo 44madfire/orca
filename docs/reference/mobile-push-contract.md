@@ -180,20 +180,15 @@ to fit event lifetime: expire instead. Device validity is checked before each at
 cancel the matching pending alert and use silent provider messages. Mobile OS
 background execution remains best effort, particularly after force-quit on iOS.
 
-The queue table retains its historical `push_delivery_batches` name to avoid a data migration. New
-rows keep a one-element JSON array only as a rolling-deploy storage envelope so an older worker can
-read them, but new code models and sends one notification. New rows are immediately due, which keeps
-an overlapping older gateway from appending to them. A new worker atomically splits a pre-deployment
-multi-event row into individual rows, preserving its fixed expiry, attempt count, and existing event
-recipient records; legacy rows were capped at 32 events, bounding that transaction. A legacy row
-already leased by an older revision completes under that revision's behavior, while immediately due
-new rows cannot be appended to by its admission path.
+The queue stores one notification object per delivery. The existing `push_delivery_batches` table
+name remains to avoid a cosmetic schema change; there are no summary readers, split operations,
+or storage workarounds for old workers.
 
-Individual presentation is guaranteed only after every older worker revision has retired. During
-the overlap, an older worker can still send a pre-existing row as a summary and can assign its former
-host-wide collapse identity to a new singleton identity-less bell. Do not add fabricated IDs or new
-wire fields to conceal old-binary behavior. Post-retirement acceptance must verify that two alerts for
-one host retain independent provider replacement identities and can be dismissed independently.
+This feature is unpublished and its old deployment contains only test data. Before deploying this
+storage-format change, stop old gateway revisions and clear the old push delivery fixtures; clear
+old combined notifications from test-device trays as well. Do not run old and new workers together
+against this queue format. No legacy data migration or summary compatibility is provided. Pairing
+registrations and unrelated application data do not need to be reset.
 
 Shutdown stops admission and work acquisition, waits for active work within the platform grace, and
 leaves unfinished deliveries recoverable after their leases expire. A provider acceptance followed by a
@@ -442,7 +437,6 @@ center, independent of JavaScript initialization. Native and JavaScript dismissa
 same host/epoch/sequence fences; native dismissal fences retain up to 512 entries for 24 hours. Older
 native shells and Android retain the JavaScript implementation. A native callback test proves
 processing only when invoked: iOS background push delivery remains best effort, including while
-suspended or force-quit. Narrow legacy decoding keeps already delivered summary notifications from
-being mistaken for individual events during the transition. Reconciliation inspects up to 2,048
-represented identities in pages of 256. It has no stored replay watermark: every connection compares
-the current tray with host dismissal history and never replays an alert.
+suspended or force-quit. Every delivered push represents one notification. Reconciliation inspects
+up to 2,048 individual identities in pages of 256. It has no stored replay watermark: every connection
+compares the current tray with host dismissal history and never replays an alert.

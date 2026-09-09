@@ -27,12 +27,11 @@ beforeEach(() => {
   vi.mocked(Notifications.getPresentedNotificationsAsync).mockResolvedValue([
     presented('old'),
     presented('new', { notificationSeq: 14 }),
-    presented('other', { hostFingerprint: 'other-host' }),
-    presented('summary', { coalescedCount: 2 })
+    presented('other', { hostFingerprint: 'other-host' })
   ] as never)
   vi.mocked(Notifications.dismissNotificationAsync).mockResolvedValue(undefined)
 })
-it('clears a confirmed prior-epoch alert even with empty replay and preserves newer, other-host and summary entries', async () => {
+it('clears a confirmed prior-epoch alert even with empty replay and preserves newer and other-host entries', async () => {
   const sendRequest = vi.fn(async () => ({
     ok: true,
     result: { notifications: [], epoch: 'new-process', dismissedPushes: [id] }
@@ -79,4 +78,39 @@ it('ignores unrequested identities and a response arriving after disconnect', as
     () => true
   )
   expect(Notifications.dismissNotificationAsync).not.toHaveBeenCalled()
+})
+
+it('pages individual tray identities without replaying history twice', async () => {
+  const all = Array.from({ length: 288 }, (_, index) => ({
+    hostFingerprint,
+    notificationId: `paged-${index}`,
+    notificationEpoch: 'previous-host-process',
+    notificationSeq: index
+  }))
+  vi.mocked(Notifications.getPresentedNotificationsAsync).mockResolvedValue(
+    all.map((payload) => presented(payload.notificationId, payload)) as never
+  )
+  const sendRequest = vi.fn(async (_method: string, params: { deliveredPushes?: typeof all }) => ({
+    ok: true,
+    result: { notifications: [], dismissedPushes: params.deliveredPushes ?? [] }
+  }))
+  await requestNotificationCatchup(
+    { sendRequest } as never,
+    'host-a',
+    { lastSeenSeq: 4 },
+    () => false
+  )
+  expect(sendRequest).toHaveBeenCalledTimes(2)
+  expect(sendRequest.mock.calls[0]?.[1].deliveredPushes).toHaveLength(256)
+  expect(sendRequest.mock.calls[1]?.[1]).toMatchObject({
+    lastSeenSeq: Number.MAX_SAFE_INTEGER,
+    deliveredPushes: all
+      .slice(256)
+      .map(({ notificationId, notificationEpoch, notificationSeq }) => ({
+        notificationId,
+        notificationEpoch,
+        notificationSeq
+      }))
+  })
+  expect(vi.mocked(Notifications.dismissNotificationAsync)).toHaveBeenCalledTimes(288)
 })

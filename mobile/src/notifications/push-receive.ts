@@ -1,4 +1,4 @@
-import { areLegacySummaryPushesDismissed, wasPushDismissed } from './push-dismissal-watermarks'
+import { wasPushDismissed } from './push-dismissal-watermarks'
 import { dismissPresentedPushNotification } from './push-tray-dismissal'
 import { shouldSuppressNotificationWhileViewing } from './notification-viewing-policy'
 import { loadPushNotificationsEnabled, loadRemotePushEnabled } from '../storage/preferences'
@@ -97,9 +97,6 @@ export async function shouldSuppressForegroundPush(data: unknown): Promise<boole
     return true
   }
   // Keep this last: a socket/native dismissal may land during any preference or host read.
-  if ((payload.coalescedCount ?? 0) > 1) {
-    return areLegacySummaryPushesDismissed(payload)
-  }
   return (await wasPushDismissed(payload)) || !claimForegroundPush(payload)
 }
 

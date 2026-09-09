@@ -5,8 +5,7 @@ notification into an APNs or FCM push for a paired phone. The desktop registers 
 native token with it and calls `POST /v1/send` after the socket fan-out it already does; the
 phone treats APNs/FCM as the sole ordinary OS-banner path. The notification socket is retained only
 for live dismissal and reconnect tray reconciliation; it does not create or recover banners. Desktop
-notification categories remain authoritative; category and summary fields retained in contracts
-exist only for mixed-version compatibility. The service is the only place the Apple
+notification categories remain authoritative. The service is the only place the Apple
 `.p8` signing key is readable, which is the reason it exists as a service at all.
 
 The contract every lane builds against is `docs/reference/mobile-push-contract.md` in the
@@ -254,13 +253,12 @@ The inert phase intentionally cannot validate a new schema by applying it to pro
 migrations and validate them against isolated PostgreSQL before dispatch. No actual Cloud Run
 rollout, provider delivery or physical-device acceptance is implied by local contract tests.
 
-The individual-presentation contract begins only after every older worker revision has retired.
-During rollout overlap, an old worker may still send a pre-existing queue row as a summary or assign
-its former host-wide collapse identity to a new singleton identity-less bell. Do not compensate by
-fabricating notification IDs or extending the wire contract. After retirement and connection drain,
-acceptance must send two alerts for one host (including the identity-less shape) and confirm their
-provider replacement identities remain independent and each can be dismissed without replacing the
-other.
+### Incompatible queue rollout prerequisite
+
+The queue stores one notification object per delivery. Before deploying a revision that changes this
+format, stop every older push gateway revision and clear only unpublished push delivery fixtures from
+the push database. This is an unpublished feature, so do not preserve or migrate queued fixtures; no
+production mutation is implied by this prerequisite.
 
 ### Why the FCM probe impersonates the runtime account
 

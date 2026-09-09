@@ -64,8 +64,7 @@ it('a delayed dismissal preserves newer alerts, other epochs, and other hosts', 
     presented('newer', { ...base, notificationSeq: 3 }),
     presented('restarted', { ...base, notificationSeq: 1, notificationEpoch: 'epoch-b' }),
     presented('other-host', { ...base, notificationSeq: 1, hostFingerprint: 'host-b' }),
-    presented('legacy', base),
-    presented('summary', { ...base, notificationSeq: 1, coalescedCount: 3 })
+    presented('legacy', base)
   ] as never)
   await dismissPresentedPushNotification('note', 'host-a', {
     notificationEpoch: 'epoch-a',

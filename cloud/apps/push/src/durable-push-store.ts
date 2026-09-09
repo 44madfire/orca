@@ -1,10 +1,10 @@
-import { reconcileQueuedDismissal, removeDismissedAlerts } from './push-queued-dismissal.js'
+import { isDismissedAlert, reconcileQueuedDismissal } from './push-queued-dismissal.js'
+import { parsePushDeliveryPayload } from './push-delivery-payload.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { PUSH_LIMITS, type PushNotification } from '@orca-cloud/push-contract'
 import type { PushDatabase, SqlRow } from './push-database.js'
 
 const RETENTION_MS = 24 * 60 * 60_000
-const LEGACY_BATCH_MAX_NOTIFICATIONS = 32
 export const DELIVERY_LEASE_MS = 30_000
 export type QueuedPushDelivery = {
   id: string
@@ -73,10 +73,8 @@ export class DurablePushStore {
           host,
           registrationId,
           kind,
-          // Keep the persisted envelope readable by workers from the previous release.
-          JSON.stringify([notification]),
-          // Zero marks a singleton so an overlapping old gateway will not append to it.
-          0,
+          JSON.stringify(notification),
+          now,
           expiresAt,
           now
         ]
@@ -95,9 +93,9 @@ export class DurablePushStore {
       const now = this.now()
       const params = [now, now, now, now]
       const predicate =
-        "state = 'pending' AND lease_until <= ? AND expires_at > ? AND (attempts = 0 OR due_at <= ?) AND NOT EXISTS (SELECT 1 FROM push_delivery_batches busy WHERE busy.registration_id = push_delivery_batches.registration_id AND busy.lease_until > ?)"
+        "state = 'pending' AND lease_until <= ? AND expires_at > ? AND due_at <= ? AND NOT EXISTS (SELECT 1 FROM push_delivery_batches busy WHERE busy.registration_id = push_delivery_batches.registration_id AND busy.lease_until > ?)"
       let [row] = await tx.query(
-        `SELECT * FROM push_delivery_batches WHERE ${predicate} ORDER BY CASE WHEN attempts = 0 OR due_at = 0 THEN created_at ELSE due_at END, created_at, batch_id LIMIT 1`,
+        `SELECT * FROM push_delivery_batches WHERE ${predicate} ORDER BY due_at, created_at, batch_id LIMIT 1`,
         params
       )
       if (!row) return null
@@ -106,44 +104,13 @@ export class DurablePushStore {
         row.batch_id
       ])
       if (!row || row.state !== 'pending' || Number(row.expires_at) <= now) return null
-      const notifications = JSON.parse(String(row.payload_json)) as PushNotification[]
-      if (notifications.length > LEGACY_BATCH_MAX_NOTIFICATIONS) {
-        throw new Error('legacy_push_delivery_exceeds_member_limit')
-      }
-      const deliverable = await removeDismissedAlerts(
-        tx,
-        String(row.host_fingerprint),
-        notifications
-      )
-      if (!deliverable.length) {
+      const notification = parsePushDeliveryPayload(String(row.payload_json))
+      if (await isDismissedAlert(tx, String(row.host_fingerprint), notification)) {
         await tx.query(
-          "UPDATE push_delivery_batches SET state = 'dismissed', payload_json = '[]' WHERE batch_id = ?",
+          "UPDATE push_delivery_batches SET state = 'dismissed', payload_json = '{}' WHERE batch_id = ?",
           [row.batch_id]
         )
         return null
-      }
-      const [notification, ...legacyRemainder] = deliverable
-      row.payload_json = JSON.stringify([notification])
-      await tx.query('UPDATE push_delivery_batches SET payload_json = ? WHERE batch_id = ?', [
-        row.payload_json,
-        row.batch_id
-      ])
-      for (const [index, queued] of legacyRemainder.entries()) {
-        await tx.query(
-          `INSERT INTO push_delivery_batches(batch_id, host_fingerprint, registration_id, kind, payload_json, state, due_at, expires_at, lease_until, attempts, created_at)
-          VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 0, ?, ?)`,
-          [
-            `${String(row.batch_id)}:legacy:${String(index + 1).padStart(2, '0')}`,
-            row.host_fingerprint,
-            row.registration_id,
-            queued.kind ?? 'alert',
-            JSON.stringify([queued]),
-            row.due_at,
-            row.expires_at,
-            row.attempts,
-            row.created_at
-          ]
-        )
       }
       const lease = randomUUID()
       await tx.query(
@@ -159,7 +126,7 @@ export class DurablePushStore {
       id: String(row.batch_id),
       registrationId: String(row.registration_id),
       hostFingerprint: String(row.host_fingerprint),
-      notification: (JSON.parse(String(row.payload_json)) as PushNotification[])[0]!,
+      notification: parsePushDeliveryPayload(String(row.payload_json)),
       expiresAt: Number(row.expires_at),
       lease,
       attempts: Number(row.attempts) + 1
@@ -186,7 +153,7 @@ export class DurablePushStore {
       WHERE batch_id = ? AND lease_token = ?`,
       [
         retry ? 'pending' : retryAfterMs !== undefined ? 'expired' : outcome,
-        retry ? JSON.stringify([delivery.notification]) : '[]',
+        retry ? JSON.stringify(delivery.notification) : '{}',
         retry ? retryAt : now,
         delivery.id,
         delivery.lease
@@ -195,20 +162,17 @@ export class DurablePushStore {
   }
 
   async pendingCount(registrationId: string): Promise<number> {
-    const rows = await this.database.query(
-      "SELECT payload_json FROM push_delivery_batches WHERE registration_id = ? AND state = 'pending'",
+    const [row] = await this.database.query(
+      "SELECT COUNT(*) AS total FROM push_delivery_batches WHERE registration_id = ? AND state = 'pending'",
       [registrationId]
     )
-    return rows.reduce(
-      (total, row) => total + (JSON.parse(String(row.payload_json)) as unknown[]).length,
-      0
-    )
+    return Number(row?.total ?? 0)
   }
 
   async prune(): Promise<number> {
     const now = this.now()
     await this.database.query(
-      "UPDATE push_delivery_batches SET state = 'expired', payload_json = '[]' WHERE expires_at <= ? AND state = 'pending'",
+      "UPDATE push_delivery_batches SET state = 'expired', payload_json = '{}' WHERE expires_at <= ? AND state = 'pending'",
       [now]
     )
     await this.database.query('DELETE FROM push_dismissed_events WHERE created_at < ?', [

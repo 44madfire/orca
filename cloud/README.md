@@ -42,10 +42,9 @@ Provider push is the only ordinary mobile OS-banner path. The notification
 socket is retained only for live dismissal and reconnect tray reconciliation;
 it never creates or recovers banners. Desktop notification categories remain
 authoritative.
-During a rolling gateway update, old workers can still use their former summary
-and collapse behavior; the individual-presentation guarantee starts only after
-those revisions retire.
-Legacy category and summary fields remain only for mixed-version compatibility.
+Each delivery is persisted as one notification event. Before deploying an
+incompatible queue format, stop all older push gateway revisions and clear only
+unpublished push delivery fixtures; no queue preservation or migration is required.
 FCM notification messages are inherently collapsible while offline and have a
 small concurrent collapse-key budget, so every pending alert is not guaranteed.
 

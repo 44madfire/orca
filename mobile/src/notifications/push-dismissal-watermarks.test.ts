@@ -9,11 +9,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     }
   }
 }))
-import {
-  areLegacySummaryPushesDismissed,
-  rememberPushDismissal,
-  wasPushDismissed
-} from './push-dismissal-watermarks'
+import { rememberPushDismissal, wasPushDismissed } from './push-dismissal-watermarks'
 const payload = {
   hostFingerprint: 'host-a',
   notificationEpoch: 'epoch-a',
@@ -55,11 +51,6 @@ it('expires retained metadata and ignores unversioned dismissals', async () => {
   expect(await wasPushDismissed(payload)).toBe(false)
   await rememberPushDismissal({ ...payload, notificationEpoch: undefined })
   expect(await wasPushDismissed(payload)).toBe(false)
-})
-
-it('does not discard a summary representing other undismissed alerts', async () => {
-  await rememberPushDismissal(payload)
-  expect(await areLegacySummaryPushesDismissed({ ...payload, coalescedCount: 3 })).toBe(false)
 })
 
 it('joins an overtaking fallback write before retrying a delayed negative snapshot', async () => {

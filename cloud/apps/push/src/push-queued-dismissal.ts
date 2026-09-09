@@ -1,5 +1,6 @@
 import type { PushNotification } from '@orca-cloud/push-contract'
 import type { PushDatabase } from './push-database.js'
+import { parsePushDeliveryPayload } from './push-delivery-payload.js'
 
 export async function reconcileQueuedDismissal(
   tx: PushDatabase,
@@ -15,7 +16,7 @@ export async function reconcileQueuedDismissal(
     key
   )
   if (notification.kind !== 'dismiss')
-    return Number(dismissed?.notification_seq ?? -1) > notification.notificationSeq
+    return Number(dismissed?.notification_seq ?? -1) >= notification.notificationSeq
   await tx.query(
     `INSERT INTO push_dismissed_events(host_fingerprint, notification_epoch, notification_id, notification_seq, created_at)
     VALUES (?, ?, ?, ?, ?) ON CONFLICT(host_fingerprint, notification_epoch, notification_id)
@@ -27,50 +28,30 @@ export async function reconcileQueuedDismissal(
     [host, registrationId, now]
   )
   for (const delivery of deliveries) {
-    const previous = JSON.parse(String(delivery.payload_json)) as PushNotification[]
-    const remaining = previous.filter(
-      (item) =>
-        item.notificationEpoch !== notification.notificationEpoch ||
-        item.notificationId !== notification.notificationId ||
-        item.notificationSeq > notification.notificationSeq
+    const queued = parsePushDeliveryPayload(String(delivery.payload_json))
+    if (
+      queued.notificationEpoch !== notification.notificationEpoch ||
+      queued.notificationId !== notification.notificationId ||
+      queued.notificationSeq > notification.notificationSeq
     )
-    if (remaining.length === previous.length) continue
+      continue
     await tx.query(
       'UPDATE push_delivery_batches SET payload_json = ?, state = ? WHERE batch_id = ?',
-      [JSON.stringify(remaining), remaining.length ? 'pending' : 'dismissed', delivery.batch_id]
+      ['{}', 'dismissed', delivery.batch_id]
     )
   }
   return false
 }
 
-export async function removeDismissedAlerts(
+export async function isDismissedAlert(
   tx: PushDatabase,
   host: string,
-  notifications: PushNotification[]
-): Promise<PushNotification[]> {
-  const ids = [
-    ...new Set(
-      notifications
-        .filter((item) => item.kind !== 'dismiss' && item.notificationId)
-        .map((item) => item.notificationId!)
-    )
-  ]
-  if (!ids.length) return notifications
+  notification: PushNotification
+): Promise<boolean> {
+  if (notification.kind === 'dismiss' || !notification.notificationId) return false
   const rows = await tx.query(
-    `SELECT notification_epoch, notification_id, notification_seq FROM push_dismissed_events
-    WHERE host_fingerprint = ? AND notification_id IN (${ids.map(() => '?').join(',')})`,
-    [host, ...ids]
+    'SELECT notification_seq FROM push_dismissed_events WHERE host_fingerprint = ? AND notification_epoch = ? AND notification_id = ?',
+    [host, notification.notificationEpoch, notification.notificationId]
   )
-  const dismissed = new Map(
-    rows.map((row) => [
-      JSON.stringify([row.notification_epoch, row.notification_id]),
-      Number(row.notification_seq)
-    ])
-  )
-  return notifications.filter(
-    (item) =>
-      item.kind === 'dismiss' ||
-      (dismissed.get(JSON.stringify([item.notificationEpoch, item.notificationId])) ?? -1) <
-        item.notificationSeq
-  )
+  return Number(rows[0]?.notification_seq ?? -1) >= notification.notificationSeq
 }

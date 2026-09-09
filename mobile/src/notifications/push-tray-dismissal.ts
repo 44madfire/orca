@@ -1,12 +1,7 @@
-import { representedPushes } from './push-summary-members'
 import { readNativeNotificationData } from './native-notification-data'
 import * as Notifications from 'expo-notifications'
 import { readOrcaPushPayload, type OrcaPushPayload } from './push-payload'
-import {
-  areLegacySummaryPushesDismissed,
-  rememberPushDismissal,
-  wasPushDismissed
-} from './push-dismissal-watermarks'
+import { rememberPushDismissal, wasPushDismissed } from './push-dismissal-watermarks'
 
 async function dismissMatchingPresentedPushes(
   matches: (payload: OrcaPushPayload) => boolean | Promise<boolean>
@@ -36,24 +31,15 @@ export function dismissRememberedPushNotifications(
     if (payload.hostFingerprint !== hostFingerprint) {
       return false
     }
-    const members = representedPushes(payload)
     return (
-      members.length > 0 &&
-      (
-        await Promise.all(
-          members.map(
-            (member) =>
-              confirmed.some(
-                (fence) =>
-                  fence.notificationId === member.notificationId &&
-                  fence.notificationEpoch === member.notificationEpoch &&
-                  fence.notificationSeq !== undefined &&
-                  member.notificationSeq !== undefined &&
-                  fence.notificationSeq >= member.notificationSeq
-              ) || wasPushDismissed(member)
-          )
-        )
-      ).every(Boolean)
+      confirmed.some(
+        (fence) =>
+          fence.notificationId === payload.notificationId &&
+          fence.notificationEpoch === payload.notificationEpoch &&
+          fence.notificationSeq !== undefined &&
+          payload.notificationSeq !== undefined &&
+          fence.notificationSeq >= payload.notificationSeq
+      ) || wasPushDismissed(payload)
     )
   })
 }
@@ -70,9 +56,6 @@ export async function dismissPresentedPushNotification(
   await dismissMatchingPresentedPushes((payload) => {
     if (hostFingerprint && payload.hostFingerprint !== hostFingerprint) {
       return false
-    }
-    if ((payload.coalescedCount ?? 0) > 1) {
-      return areLegacySummaryPushesDismissed(payload)
     }
     return (
       payload.notificationId === notificationId &&

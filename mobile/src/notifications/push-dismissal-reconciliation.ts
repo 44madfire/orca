@@ -6,13 +6,12 @@ import { readNativeNotificationData } from './native-notification-data'
 import { readOrcaPushPayload, type OrcaPushPayload } from './push-payload'
 import { dismissRememberedPushNotifications } from './push-tray-dismissal'
 import { rememberPushDismissal } from './push-dismissal-watermarks'
-
 import {
-  readPushIdentity as identity,
-  representedPushes,
-  type Identity
-} from './push-summary-members'
-const key = (item: Identity) =>
+  readPushNotificationIdentity,
+  type PushNotificationIdentity
+} from './push-notification-identity'
+
+const key = (item: PushNotificationIdentity) =>
   JSON.stringify([item.notificationId, item.notificationEpoch, item.notificationSeq])
 async function readDelivered(hostId: string): Promise<Map<string, OrcaPushPayload>> {
   const selected = new Map<string, OrcaPushPayload>()
@@ -26,11 +25,9 @@ async function readDelivered(hostId: string): Promise<Map<string, OrcaPushPayloa
       if (!payload || resolveHostIdForFingerprint(payload.hostFingerprint, hosts) !== hostId) {
         continue
       }
-      for (const member of representedPushes(payload)) {
-        const id = identity(member)
-        if (id && selected.size < 2048) {
-          selected.set(key(id), member)
-        }
+      const identity = readPushNotificationIdentity(payload)
+      if (identity && selected.size < 2048) {
+        selected.set(key(identity), payload)
       }
       if (selected.size === 2048) {
         break
@@ -57,7 +54,11 @@ export async function requestNotificationCatchup(
     // First pairing reconciles tray identities without requesting historical events.
     ...(params ?? { lastSeenSeq: Number.MAX_SAFE_INTEGER }),
     ...(delivered.size
-      ? { deliveredPushes: entries.slice(0, 256).map(([, payload]) => identity(payload)!) }
+      ? {
+          deliveredPushes: entries
+            .slice(0, 256)
+            .map(([, payload]) => readPushNotificationIdentity(payload)!)
+        }
       : {})
   })
   if (!response.ok || isDisposed()) {
@@ -76,7 +77,7 @@ export async function requestNotificationCatchup(
       if (isDisposed()) {
         break
       }
-      const id = identity(raw)
+      const id = readPushNotificationIdentity(raw)
       const payload = id ? requested.get(key(id)) : undefined
       if (payload && id) {
         await rememberPushDismissal(payload)
@@ -95,7 +96,9 @@ export async function requestNotificationCatchup(
     try {
       const reply = await client.sendRequest('notifications.getMissedSince', {
         lastSeenSeq: Number.MAX_SAFE_INTEGER,
-        deliveredPushes: [...requested.values()].map((payload) => identity(payload)!)
+        deliveredPushes: [...requested.values()].map((payload) =>
+          readPushNotificationIdentity(payload)!
+        )
       })
       await applyDismissals(reply, requested)
     } catch {

@@ -1,7 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { OrcaPushPayload } from './push-payload'
 import { nativePushDismissal } from './native-push-dismissal'
-import { representedPushes } from './push-summary-members'
 
 const STORAGE_KEY = 'orca:pushDismissalWatermarks:v1'
 const RETENTION_MS = 24 * 60 * 60 * 1000
@@ -109,13 +108,4 @@ export async function wasPushDismissed(payload: OrcaPushPayload): Promise<boolea
   }
   // An overtaking write invalidates a negative snapshot; one queued read cannot be overtaken again.
   return queueDismissalOperation(() => readDismissal(payload, key))
-}
-
-/** Legacy summaries are expanded only while deciding whether to show or remove old deliveries. */
-export async function areLegacySummaryPushesDismissed(payload: OrcaPushPayload): Promise<boolean> {
-  if ((payload.coalescedCount ?? 0) <= 1) {
-    return wasPushDismissed(payload)
-  }
-  const members = representedPushes(payload)
-  return members.length > 0 && (await Promise.all(members.map(wasPushDismissed))).every(Boolean)
 }

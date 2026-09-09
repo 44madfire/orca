@@ -60,19 +60,6 @@ final class PushDismissalLedger {
   }
 
   func containsNotification(_ payload: [String: Any], now: TimeInterval = Date().timeIntervalSince1970) -> Bool {
-    // Summary expansion is retained only for legacy delivered tray entries; new
-    // pushes always carry one individual identity.
-    if let count = payload["coalescedCount"] as? NSNumber, count.doubleValue > 1 {
-      guard count.doubleValue.rounded(.down) == count.doubleValue, count.intValue <= 32,
-        let members = payload["summaryMembers"] as? [[String: Any]], members.count == count.intValue,
-        let host = payload["hostFingerprint"] as? String else { return false }
-      return members.allSatisfy { member in
-        var data = member
-        data["hostFingerprint"] = host
-        guard let identity = PushDismissalIdentity(data) else { return false }
-        return contains(identity, now: now)
-      }
-    }
     guard let identity = PushDismissalIdentity(payload) else { return false }
     return contains(identity, now: now)
   }

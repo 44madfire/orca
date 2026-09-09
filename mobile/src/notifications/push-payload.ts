@@ -1,4 +1,3 @@
-import { readSummaryMembers, type Identity } from './push-summary-members'
 // Why two shapes: APNs nests Orca's fields under `orca` beside `aps`, while FCM
 // carries them flat in `data` as strings. Both reach JS as the notification's
 // `content.data`, so the reader accepts either and coerces the numeric fields.
@@ -11,9 +10,6 @@ export type OrcaPushPayload = {
   readonly worktreeId?: string
   readonly source?: string
   readonly agentState?: string
-  // Legacy-only fields retained during rolling overlap to decode summaries already in OS trays.
-  readonly summaryMembers?: readonly Identity[]
-  readonly coalescedCount?: number
 }
 
 function readString(value: unknown): string | undefined {
@@ -44,8 +40,6 @@ export function readOrcaPushPayload(data: unknown): OrcaPushPayload | null {
     notificationEpoch: readString(record.notificationEpoch),
     worktreeId: readString(record.worktreeId),
     source: readString(record.source),
-    agentState: readString(record.agentState),
-    coalescedCount: readSeq(record.coalescedCount),
-    summaryMembers: readSummaryMembers(record.summaryMembers, readSeq(record.coalescedCount))
+    agentState: readString(record.agentState)
   }
 }

@@ -103,7 +103,7 @@
         "Does not prove APNs silent background wakeup or actual operating-system idle transitions.",
         "Rendererless agent/bell event generation remains outside the documented feature contract.",
         "No live Windows or Linux policy evidence.",
-        "Native iOS dismissal callback processing is verified separately; real APNs background wakeup and Android automatic grouping are not established. Legacy summaries already delivered during rolling overlap rely on the bounded compatibility reader outside this gate."
+        "Native iOS dismissal callback processing is verified separately; real APNs background wakeup and Android automatic grouping are not established."
       ],
       "demotionRule": "Keep experimental if lifecycle or policy assertions fail; do not weaken them to bypass platform delivery gaps."
     },
