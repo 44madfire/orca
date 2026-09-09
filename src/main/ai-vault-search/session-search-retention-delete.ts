@@ -39,11 +39,8 @@ export async function deleteExpiredSearchFiles(
             db.prepare(
               'INSERT OR IGNORE INTO search_pending_deletes(path, session_row_id) VALUES (?, ?)'
             ).run(path, file.session_row_id)
-            // Tombstoning is the moment the session leaves `visible_sessions`.
-            // The row deletes below only take away rows already invisible, so
-            // they must not move the generation: a backfill draining tombstones
-            // would refuse a cursor every 256 rows and pagination would be
-            // unusable for as long as indexing ran.
+            // Tombstoning is the moment the session leaves `visible_sessions`,
+            // so it is the moment a reader's answer changes.
             bumpIndexGeneration(db)
           }
           db.prepare('DELETE FROM files WHERE path = ?').run(path)
@@ -54,6 +51,14 @@ export async function deleteExpiredSearchFiles(
         db.exec('ROLLBACK')
         throw error
       }
+      // The loop below deliberately does not move the generation. It is sound
+      // only because every read joins a visibility view: these messages keep
+      // `batch_id` NULL, so `visible_messages` still lists them, and what makes
+      // them unreachable is their session's tombstone in `visible_sessions`,
+      // which the transaction above already recorded. Deleting them changes no
+      // answer. `session-search-visible-read-ratchet.test.ts` is what keeps that
+      // true, by failing any FTS read that skips the join. Bumping here instead
+      // would refuse every outstanding cursor once per 256 rows.
       while (!closed()) {
         const pending = db
           .prepare('SELECT session_row_id,batch_id FROM search_pending_deletes WHERE path = ?')
