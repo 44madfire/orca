@@ -13,12 +13,11 @@ import type { OnboardingState } from '../../../shared/onboarding-state-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import { resolveInitialNativeChatSessionOptions } from '@/components/native-chat/native-chat-launch-session-options'
 import type { SessionOptionValue } from '../../../shared/native-chat-session-options'
+import type { AgentLaunchRoute } from '@/lib/agent-launch-routing'
 import {
-  hasExplicitTuiLaunchCustomization,
-  resolveAgentLaunchRoute,
-  type AgentLaunchRoute
-} from '@/lib/agent-launch-routing'
-import { readLocalRuntimeCapabilitiesOrUnknown } from '@/runtime/local-runtime-capabilities'
+  resolveAgentLaunchRouteForWorkspace,
+  type AgentLaunchRouteStore
+} from '@/lib/agent-launch-route-input'
 
 export type OnboardingFolderAgentStartup = {
   command: string
@@ -110,7 +109,7 @@ export function buildDismissedOnboardingFolderAgentStartup(
 }
 
 export function resolveDismissedOnboardingFolderAgentLaunch(args: {
-  settings: GlobalSettings | null
+  store: AgentLaunchRouteStore
   onboarding: OnboardingState | null
   hasExistingProject: boolean
   executionHostId: string
@@ -122,7 +121,7 @@ export function resolveDismissedOnboardingFolderAgentLaunch(args: {
   fallbackStartup?: OnboardingFolderAgentStartup
 } {
   const startup = buildDismissedOnboardingFolderAgentStartup(
-    args.settings,
+    args.store.settings ?? null,
     args.onboarding,
     args.hasExistingProject,
     args.nativeChatTranscriptIsLocalReadable
@@ -131,14 +130,9 @@ export function resolveDismissedOnboardingFolderAgentLaunch(args: {
   if (!startup || !agent) {
     return { agent: null, route: 'terminal-tui' }
   }
-  const route = resolveAgentLaunchRoute({
+  const route = resolveAgentLaunchRouteForWorkspace(args.store, {
     agent,
-    settings: args.settings,
-    executionHostId: args.executionHostId,
-    hostCapabilities: readLocalRuntimeCapabilitiesOrUnknown(),
-    workspaceKind: 'folder',
-    nativeChatTranscriptIsLocalReadable: args.nativeChatTranscriptIsLocalReadable,
-    requiresTuiLaunchCustomization: hasExplicitTuiLaunchCustomization(args.settings, agent),
+    workspace: { kind: 'folder', executionHostId: args.executionHostId },
     initialSessionOptions: startup.sessionOptions
   })
   return {

@@ -19,9 +19,7 @@ export type FullCreationExecutionInput = Pick<
   | 'resolvedInitialWorkspaceStatus'
   | 'selectedRepoExecutionHostId'
   | 'selectedRepoIsGit'
-  | 'selectedRepoIsRemote'
   | 'setSidebarOpen'
-  | 'settings'
   | 'sparseEnabled'
   | 'taskSourceContext'
   | 'telemetrySource'
@@ -38,11 +36,8 @@ import { createBrowserUuid } from '@/lib/browser-uuid'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/native-chat-session-option-cache'
 import { queueWorkspaceActivationTerminalFocus } from '@/lib/workspace-activation-terminal-focus'
-import {
-  hasExplicitTuiLaunchCustomization,
-  resolveAgentLaunchRoute
-} from '@/lib/agent-launch-routing'
-import { readLocalRuntimeCapabilitiesOrUnknown } from '@/runtime/local-runtime-capabilities'
+import { useAppStore } from '@/store'
+import { resolveAgentLaunchRouteForWorkspace } from '@/lib/agent-launch-route-input'
 import { settleFullCreationStructuredLaunch } from './full-creation-structured-launch'
 import { finalizeFullCreation } from './full-creation-finalization'
 import { buildFullCreationIssueCommand } from './full-creation-issue-command'
@@ -67,9 +62,7 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
     resolvedInitialWorkspaceStatus,
     selectedRepoExecutionHostId,
     selectedRepoIsGit,
-    selectedRepoIsRemote,
     setSidebarOpen,
-    settings,
     sparseEnabled,
     taskSourceContext,
     telemetrySource,
@@ -136,16 +129,15 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
         return
       }
 
-      const agentLaunchRoute = resolveAgentLaunchRoute({
+      const agentLaunchRoute = resolveAgentLaunchRouteForWorkspace(useAppStore.getState(), {
         agent: tuiAgent,
-        settings,
-        executionHostId: selectedRepoExecutionHostId ?? 'local',
-        hostCapabilities: readLocalRuntimeCapabilitiesOrUnknown(),
-        workspaceKind: selectedRepoIsGit ? 'git-worktree' : 'folder',
+        workspace: {
+          kind: selectedRepoIsGit ? 'git-worktree' : 'folder',
+          repoId,
+          executionHostId: selectedRepoExecutionHostId ?? undefined
+        },
+        prompt: startupPlan?.draftPrompt ?? submitStartupPrompt,
         promptDelivery: startupPlan?.draftPrompt ? 'draft' : 'auto-submit',
-        launchText: startupPlan?.draftPrompt ?? submitStartupPrompt,
-        nativeChatTranscriptIsLocalReadable: !selectedRepoIsRemote,
-        requiresTuiLaunchCustomization: hasExplicitTuiLaunchCustomization(settings, tuiAgent),
         initialSessionOptions: startupPlan?.sessionOptions
       })
       const structuredLaunch = agentLaunchRoute === 'structured-native-chat'
@@ -308,9 +300,7 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
       resolvedInitialWorkspaceStatus,
       selectedRepoExecutionHostId,
       selectedRepoIsGit,
-      selectedRepoIsRemote,
       setSidebarOpen,
-      settings,
       sparseEnabled,
       taskSourceContext,
       telemetrySource,

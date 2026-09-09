@@ -20,14 +20,13 @@ const LAUNCH_AGENT_IN_NEW_TAB_CALLERS = [
   'src/renderer/src/lib/run-quick-command-in-new-tab.ts'
 ]
 
-const ROUTE_POLICY_OWNERS = [
-  'src/renderer/src/components/sidebar/folder-workspace-composer-submit.ts',
-  'src/renderer/src/hooks/composer-state/full-creation-execution.ts',
-  'src/renderer/src/hooks/composer-state/quick-creation-execution.ts',
-  'src/renderer/src/lib/launch-agent-in-new-tab.ts',
-  'src/renderer/src/lib/launch-work-item-direct.ts',
-  'src/renderer/src/lib/onboarding-folder-agent-startup.ts'
+// Why: every route decision must gather its inputs through the one builder. A direct call to
+// the resolver is how the seven launch sites drifted apart before it existed.
+const ROUTE_RESOLVER_OWNERS = [
+  'src/renderer/src/lib/agent-launch-route-input.ts',
+  'src/renderer/src/lib/agent-launch-routing.ts'
 ]
+const DIRECT_ROUTE_RESOLVER_CALL = /\b(?:resolveAgentLaunchRoute|structuredAgentLaunchSupported)\(/
 
 async function productionFiles(): Promise<string[]> {
   return glob(['src/**/*.ts', 'src/**/*.tsx'], {
@@ -47,14 +46,14 @@ describe('agent launch routing caller census', () => {
     expect(callers).toEqual([...LAUNCH_AGENT_IN_NEW_TAB_CALLERS].sort())
   })
 
-  it('pins the direct creation families that must own one route decision', async () => {
-    const owners = (await productionFiles())
-      .filter((file) => file !== 'src/renderer/src/lib/agent-launch-routing.ts')
+  it('routes every launch decision through the one route-input builder', async () => {
+    const directCallers = (await productionFiles())
+      .filter((file) => !ROUTE_RESOLVER_OWNERS.includes(file))
       .filter((file) =>
-        readFileSync(join(REPO_ROOT, file), 'utf8').includes('resolveAgentLaunchRoute(')
+        DIRECT_ROUTE_RESOLVER_CALL.test(readFileSync(join(REPO_ROOT, file), 'utf8'))
       )
       .sort()
-    expect(owners).toEqual([...ROUTE_POLICY_OWNERS].sort())
+    expect(directCallers).toEqual([])
   })
 
   it('keeps non-visible, resume, and floating launchers intentionally outside the route', () => {
@@ -63,7 +62,7 @@ describe('agent launch routing caller census', () => {
       'src/renderer/src/lib/launch-ai-vault-session.ts',
       'src/renderer/src/components/floating-terminal/FloatingTerminalWindowControls.tsx'
     ]) {
-      expect(readFileSync(join(REPO_ROOT, file), 'utf8')).not.toContain('resolveAgentLaunchRoute(')
+      expect(readFileSync(join(REPO_ROOT, file), 'utf8')).not.toContain('resolveAgentLaunchRoute')
     }
   })
 })

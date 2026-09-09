@@ -12,18 +12,13 @@ import { resolveLocalWindowsAgentStartupShell } from '../../../../shared/windows
 import type { LaunchSource } from '../../../../shared/telemetry-events'
 import type { SessionOptionValue } from '../../../../shared/native-chat-session-options'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
-import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 import {
   getLinkedItemDisplayName,
   toFolderWorkspaceLinkedTask
 } from './folder-workspace-composer-helpers'
-import {
-  hasExplicitTuiLaunchCustomization,
-  hasExplicitTuiAgentArgs,
-  resolveAgentLaunchRoute
-} from '@/lib/agent-launch-routing'
-import { readLocalRuntimeCapabilitiesOrUnknown } from '@/runtime/local-runtime-capabilities'
+import { resolveAgentLaunchRouteForWorkspace } from '@/lib/agent-launch-route-input'
+import { getNewWorkspaceProjectGroupHostId } from '@/lib/new-workspace-project-options'
 import { startStructuredAgentLaunch } from '@/lib/structured-agent-session-launch'
 import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
 import { StructuredAgentSessionCreateRefusalError } from '@/lib/launch-structured-agent-session'
@@ -68,7 +63,6 @@ type SubmitFolderWorkspaceCreateParams = {
   isRemote?: boolean
   launchSource?: LaunchSource
   runtimeEnvironmentId?: string | null
-  settings?: GlobalSettings | null
   createFolderWorkspace: (input: FolderWorkspaceCreateInput) => Promise<FolderWorkspace | null>
   onOpenChange: (open: boolean) => void
 }
@@ -89,7 +83,6 @@ export async function submitFolderWorkspaceCreate({
   terminalWindowsShell,
   launchSource = 'sidebar',
   runtimeEnvironmentId = null,
-  settings,
   createFolderWorkspace,
   onOpenChange
 }: SubmitFolderWorkspaceCreateParams): Promise<boolean> {
@@ -141,20 +134,16 @@ export async function submitFolderWorkspaceCreate({
   const launchDraftPrompt =
     quickAgent && linkedWorkItem ? resolveFolderWorkspaceLaunchDraft(linkedWorkItem, note) : null
   const agentLaunchRoute = quickAgent
-    ? resolveAgentLaunchRoute({
+    ? resolveAgentLaunchRouteForWorkspace(useAppStore.getState(), {
         agent: quickAgent,
-        settings,
-        executionHostId: runtimeEnvironmentId
-          ? `runtime:${encodeURIComponent(runtimeEnvironmentId)}`
-          : (projectGroup.connectionId ?? 'local'),
-        hostCapabilities: readLocalRuntimeCapabilitiesOrUnknown(),
-        workspaceKind: 'folder',
+        workspace: {
+          kind: 'folder',
+          runtimeEnvironmentId,
+          executionHostId: getNewWorkspaceProjectGroupHostId(projectGroup)
+        },
+        prompt: launchDraftPrompt ?? note,
         promptDelivery: launchDraftPrompt ? 'draft' : 'auto-submit',
-        launchText: launchDraftPrompt ?? note,
-        nativeChatTranscriptIsLocalReadable: !launchIsRemote,
-        requiresTuiLaunchCustomization:
-          hasExplicitTuiAgentArgs(quickAgent, agentArgs) ||
-          hasExplicitTuiLaunchCustomization(settings, quickAgent),
+        tuiCustomization: { agentArgs },
         initialSessionOptions: startupPlan?.sessionOptions
       })
     : 'terminal-tui'

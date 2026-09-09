@@ -22,7 +22,6 @@ export type NativeChatDefaultSettings = Pick<
 /** Why a launch that the user's default asked to be structured cannot be. */
 export type StructuredNativeChatBlocker =
   | 'agent-without-structured-session'
-  | 'draft-prompt'
   | 'floating-workspace'
   | 'tui-launch-customization'
   | 'remote-execution-host'
@@ -43,8 +42,6 @@ export type StructuredNativeChatSupportInput = {
   hostCapabilities: readonly string[] | null
   workspaceKind?: 'git-worktree' | 'folder' | 'floating'
   projectRuntime?: ProjectExecutionRuntimeResolution | null
-  /** A draft stays terminal-backed: the composer, not a turn, owns unsent text. */
-  isDraftPrompt?: boolean
   requiresTuiLaunchCustomization?: boolean
 }
 
@@ -71,9 +68,6 @@ export function resolveStructuredNativeChatSupport(
 ): StructuredNativeChatSupport {
   if (!isAgentSessionHandleProvider(input.agent)) {
     return { supported: false, blocker: 'agent-without-structured-session' }
-  }
-  if (input.isDraftPrompt === true) {
-    return { supported: false, blocker: 'draft-prompt' }
   }
   if (input.workspaceKind === 'floating') {
     return { supported: false, blocker: 'floating-workspace' }

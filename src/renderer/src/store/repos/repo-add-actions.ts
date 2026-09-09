@@ -189,7 +189,7 @@ export function createRepoAddActions(
           const onboarding = await window.api.onboarding.get().catch(() => null)
           // Why: adding the first folder from Landing skips onboarding's completeRepo hook; carry the default agent into the first terminal here.
           const launch = resolveDismissedOnboardingFolderAgentLaunch({
-            settings: get().settings,
+            store: get(),
             onboarding,
             hasExistingProject: hadProjectBeforeAdd,
             executionHostId: executionHostId ?? LOCAL_EXECUTION_HOST_ID,

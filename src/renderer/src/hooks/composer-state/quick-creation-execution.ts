@@ -46,11 +46,7 @@ import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-c
 import { buildQuickComposerStartup } from './quick-startup-plan'
 import { buildQuickCreationRequest } from './quick-creation-request'
 import type { PendingSmartGitHubSubmitResolution } from './source-selection-decisions'
-import {
-  hasExplicitTuiLaunchCustomization,
-  resolveAgentLaunchRoute
-} from '@/lib/agent-launch-routing'
-import { readLocalRuntimeCapabilitiesOrUnknown } from '@/runtime/local-runtime-capabilities'
+import { resolveAgentLaunchRouteForWorkspace } from '@/lib/agent-launch-route-input'
 
 export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
   const {
@@ -199,18 +195,17 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       }
 
       const agentLaunchRoute = agent
-        ? resolveAgentLaunchRoute({
+        ? resolveAgentLaunchRouteForWorkspace(useAppStore.getState(), {
             agent,
-            settings,
-            executionHostId: ephemeralVmRecipe
-              ? 'runtime:pending-ephemeral-vm'
-              : (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId ?? 'local'),
-            hostCapabilities: readLocalRuntimeCapabilitiesOrUnknown(),
-            workspaceKind: selectedRepoIsGit ? 'git-worktree' : 'folder',
+            workspace: {
+              kind: selectedRepoIsGit ? 'git-worktree' : 'folder',
+              repoId,
+              executionHostId: ephemeralVmRecipe
+                ? 'runtime:pending-ephemeral-vm'
+                : (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId ?? undefined)
+            },
+            prompt: quickDraftPrompt ?? quickPrompt,
             promptDelivery: quickDraftPrompt ? 'draft' : 'auto-submit',
-            launchText: quickDraftPrompt ?? quickPrompt,
-            nativeChatTranscriptIsLocalReadable: !selectedRepoIsRemote,
-            requiresTuiLaunchCustomization: hasExplicitTuiLaunchCustomization(settings, agent),
             initialSessionOptions: startupPlan?.sessionOptions
           })
         : 'terminal-tui'

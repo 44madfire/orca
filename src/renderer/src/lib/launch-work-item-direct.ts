@@ -30,11 +30,7 @@ import { getLocalRepoProjectExecutionRuntimeContext } from '@/lib/local-prefligh
 import { settleDirectWorkItemStructuredLaunch } from '@/lib/launch-work-item-direct-agent-routing'
 import { deliverDirectWorkItemPrompt } from '@/lib/launch-work-item-direct-prompt-delivery'
 import { prepareDirectWorkItemAgentLaunch } from '@/lib/launch-work-item-direct-route-preparation'
-import { resolveAgentLaunchRoute, type AgentLaunchRoutingInput } from '@/lib/agent-launch-routing'
-
-function resolveDirectWorkItemRoute(input: AgentLaunchRoutingInput) {
-  return resolveAgentLaunchRoute(input)
-}
+import { resolveAgentLaunchRouteForWorkspace } from '@/lib/agent-launch-route-input'
 
 /**
  * "Use" flow: create the workspace, activate it, launch the default agent,
@@ -207,7 +203,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       promptDelivery,
       launchPlatform: args.launchPlatform,
       repoProjectRuntime,
-      routeResolver: resolveDirectWorkItemRoute
+      routeResolver: resolveAgentLaunchRouteForWorkspace
     })
     if (launchPreparation.unavailable) {
       activateAndRevealWorktree(worktreeId, {

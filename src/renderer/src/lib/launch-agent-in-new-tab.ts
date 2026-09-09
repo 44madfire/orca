@@ -12,10 +12,7 @@ import {
 } from '@/lib/agent-launch-prompt-delivery'
 import { initialAgentTabViewModeProps } from '@/lib/native-chat-initial-view-mode'
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
-import {
-  getExecutionHostIdForWorktree,
-  getRuntimeEnvironmentIdForWorktree
-} from '@/lib/worktree-runtime-owner'
+import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { isWebRuntimeSessionActive } from '@/runtime/web-runtime-session'
 import { launchAgentInWebHostTab } from '@/lib/launch-agent-web-host-tab'
@@ -34,12 +31,9 @@ import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/na
 import { startStructuredAgentLaunch } from '@/lib/structured-agent-session-launch'
 import { isAgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
 import {
-  hasExplicitTuiLaunchCustomization,
-  hasExplicitTuiAgentArgs,
-  resolveAgentLaunchRoute
-} from '@/lib/agent-launch-routing'
-import { readLocalRuntimeCapabilitiesOrUnknown } from '@/runtime/local-runtime-capabilities'
-import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
+  resolveAgentLaunchRouteForWorkspace,
+  workspaceKindForWorktreeId
+} from '@/lib/agent-launch-route-input'
 
 export type LaunchAgentInNewTabArgs = {
   agent: TuiAgent
@@ -201,29 +195,14 @@ function launchAgentInNewTabInternal(
     }
   }
 
-  const workspaceKind =
-    worktreeId === FLOATING_TERMINAL_WORKTREE_ID
-      ? 'floating'
-      : worktreeId.startsWith('folder:')
-        ? 'folder'
-        : 'git-worktree'
   const launchRoute = forceLegacy
     ? 'legacy-native-chat'
-    : resolveAgentLaunchRoute({
+    : resolveAgentLaunchRouteForWorkspace(store, {
         agent,
-        settings: store.settings,
-        executionHostId: getExecutionHostIdForWorktree(store, worktreeId),
-        hostCapabilities: readLocalRuntimeCapabilitiesOrUnknown(),
-        workspaceKind,
-        projectRuntime: getLocalProjectExecutionRuntimeContext(store, worktreeId),
+        workspace: { kind: workspaceKindForWorktreeId(worktreeId), worktreeId },
+        prompt: trimmedPrompt,
         promptDelivery: viewModePromptDelivery,
-        launchText: trimmedPrompt,
-        nativeChatTranscriptIsLocalReadable:
-          initialViewModeOptions.nativeChatTranscriptIsLocalReadable,
-        requiresTuiLaunchCustomization:
-          Boolean(initialCwd?.trim()) ||
-          hasExplicitTuiAgentArgs(agent, agentArgs) ||
-          hasExplicitTuiLaunchCustomization(store.settings, agent),
+        tuiCustomization: { cwd: initialCwd, agentArgs },
         initialSessionOptions: startupPlan.sessionOptions
       })
   if (launchRoute === 'structured-native-chat' && isAgentSessionHandleProvider(agent)) {

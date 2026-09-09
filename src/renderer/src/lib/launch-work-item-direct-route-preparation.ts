@@ -3,15 +3,7 @@ import type { AppState } from '@/store/types'
 import { getConnectionId } from '@/lib/connection-context'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
-import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
-import {
-  hasExplicitTuiAgentArgs,
-  hasExplicitTuiLaunchCustomization,
-  type AgentLaunchRoute,
-  type AgentLaunchRoutingInput
-} from '@/lib/agent-launch-routing'
-import { readLocalRuntimeCapabilitiesOrUnknown } from '@/runtime/local-runtime-capabilities'
-import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
+import type { resolveAgentLaunchRouteForWorkspace } from '@/lib/agent-launch-route-input'
 import {
   buildDirectWorkItemStartup,
   markDirectWorkItemAgentTrusted,
@@ -41,7 +33,7 @@ export async function prepareDirectWorkItemAgentLaunch(args: {
   promptDelivery: 'draft' | 'submit-after-ready'
   launchPlatform?: NodeJS.Platform
   repoProjectRuntime?: Parameters<typeof buildDirectWorkItemStartup>[0]['repoProjectRuntime']
-  routeResolver: (input: AgentLaunchRoutingInput) => AgentLaunchRoute
+  routeResolver: typeof resolveAgentLaunchRouteForWorkspace
 }): Promise<DirectWorkItemAgentLaunchPreparation> {
   const launchConnectionId = getConnectionId(args.worktreeId) ?? args.repoConnectionId
   const agentSelection = await resolveDirectWorkItemAgent({
@@ -93,23 +85,12 @@ export async function prepareDirectWorkItemAgentLaunch(args: {
 
   const structuredLaunch =
     effectiveAgent !== null &&
-    args.routeResolver({
+    args.routeResolver(args.latestStore, {
       agent: effectiveAgent,
-      settings: args.settings,
-      executionHostId: getExecutionHostIdForWorktree(args.latestStore, args.worktreeId),
-      hostCapabilities: readLocalRuntimeCapabilitiesOrUnknown(),
-      workspaceKind: 'git-worktree',
-      projectRuntime: getLocalProjectExecutionRuntimeContext(
-        args.latestStore,
-        args.worktreeId,
-        CLIENT_PLATFORM
-      ),
+      workspace: { kind: 'git-worktree', worktreeId: args.worktreeId },
+      prompt: args.draftContent,
       promptDelivery: args.promptDelivery,
-      launchText: args.draftContent,
-      nativeChatTranscriptIsLocalReadable: isNativeChatTranscriptLocalReadable(launchConnectionId),
-      requiresTuiLaunchCustomization:
-        hasExplicitTuiAgentArgs(effectiveAgent, args.agentArgs) ||
-        hasExplicitTuiLaunchCustomization(args.settings, effectiveAgent),
+      tuiCustomization: { agentArgs: args.agentArgs },
       initialSessionOptions: startupPlan?.sessionOptions
     }) === 'structured-native-chat'
 
