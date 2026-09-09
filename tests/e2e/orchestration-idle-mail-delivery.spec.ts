@@ -377,9 +377,14 @@ test.describe('orchestration push-on-idle mail delivery', () => {
       code: 'runtime_error',
       message: expect.stringContaining('Run is required')
     })
-    expect((refusal as RuntimeRpcFailureError).data).toEqual({
-      orchestrationRequestId: expect.any(String)
-    })
+    // Pins that the SERVER attached no orchestrationSkillRecoveryData, without
+    // freezing whatever else the client may stamp alongside its request id.
+    const refusalData = (refusal as RuntimeRpcFailureError).data
+    expect(refusalData).toMatchObject({ orchestrationRequestId: expect.any(String) })
+    expect(refusalData).not.toHaveProperty('effectsApplied')
+    expect(refusalData).not.toHaveProperty('guide')
+    expect(refusalData).not.toHaveProperty('nextCommandArgs')
+    expect(refusalData).not.toHaveProperty('nextSteps')
     expect(readMailbox(userDataDir, pane.handle)).toEqual([])
 
     // A busy→idle edge is the push trigger. Walking one proves the refusal left
@@ -389,6 +394,8 @@ test.describe('orchestration push-on-idle mail delivery', () => {
     pane.agent.setTitle(CODEX_IDLE_TITLE)
     await waitForObservedTitle(client, pane.handle, CODEX_IDLE_TITLE)
 
+    // The ledger only proves anything once the push window has fully elapsed.
+    await orcaPage.waitForTimeout(NO_DELIVERY_SETTLE_MS)
     expect(readMailbox(userDataDir, pane.handle)).toEqual([])
     expect(pane.agent.readStdin()).toBe(stdinBeforeScan)
   })
