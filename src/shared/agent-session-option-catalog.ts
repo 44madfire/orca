@@ -106,21 +106,36 @@ export function mergeDiscoveredAuthoritativeModels(
 }
 
 /**
- * The models a host's probe answer offers for `agent`: Claude's list replaces the seed, an
- * authoritative list decides membership while keeping seeded option menus, and everything else
- * unions. Shared so the picker and `worker-start` cannot disagree about which ids are official.
+ * Whether a host's probe answer REPLACES the seed's membership or merely extends it.
+ *
+ * This is the one place in the tree that decides. A seed discovery only extends is, by
+ * construction, not a complete list — the Codex catalog says so of itself — so nothing may be
+ * refused against it. Both the picker's merge below and `worker-start`'s reject gate read this,
+ * so what is offered and what is accepted cannot drift apart.
+ */
+export function discoveredModelsReplaceSeed(
+  agent: AgentType,
+  catalog: AgentSessionOptionCatalog
+): boolean {
+  return agent === 'claude' || catalog.discoveredModelsAreAuthoritative === true
+}
+
+/**
+ * The models a host's probe answer offers for `agent`: Claude's list replaces the seed outright,
+ * an authoritative list decides membership while keeping seeded option menus, and a list that only
+ * extends unions with the seed.
  */
 export function resolveDiscoveredCatalogModels(
   agent: AgentType,
   catalog: AgentSessionOptionCatalog,
   discovered: readonly CatalogModel[]
 ): CatalogModel[] {
-  if (agent === 'claude') {
-    return [...discovered]
+  if (!discoveredModelsReplaceSeed(agent, catalog)) {
+    return mergeCatalogModels(catalog.models, discovered)
   }
-  return catalog.discoveredModelsAreAuthoritative
-    ? mergeDiscoveredAuthoritativeModels(catalog.models, discovered)
-    : mergeCatalogModels(catalog.models, discovered)
+  return agent === 'claude'
+    ? [...discovered]
+    : mergeDiscoveredAuthoritativeModels(catalog.models, discovered)
 }
 
 export function sessionOptionValueIsValid(value: unknown): value is SessionOptionValue {

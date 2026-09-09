@@ -9,9 +9,11 @@ import {
   type WorkerLaunchModelAuthority,
   type WorkerLaunchModelDiscoveryRuntime
 } from './worker-launch-model-authority'
+import { resolveWorkerLaunchPreferences } from './worker-launch-preferences'
 
 const CLAUDE_CATALOG = getAgentSessionOptionCatalog('claude')!
 const CODEX_CATALOG = getAgentSessionOptionCatalog('codex')!
+const GROK_CATALOG = getAgentSessionOptionCatalog('grok')!
 
 function liveModel(id: string, effortLevels: readonly string[] = []): CommitMessageModelCapability {
   return {
@@ -79,8 +81,10 @@ describe('worker launch model authority', () => {
     expect(authority).toEqual({ source: 'live', modelIds: ['opus[1m]', 'haiku'] })
   })
 
-  it('keeps seeded Codex ids the probe omits, matching what the picker offers', async () => {
-    const { runtime } = probeRuntime(() => probeSuccess([liveModel('gpt-5.7-preview')]))
+  it('never asks an agent whose probe only extends the seed, and so refuses nothing', async () => {
+    const { runtime, discover, resolveHostKey } = probeRuntime(() =>
+      probeSuccess([liveModel('gpt-5.7-preview')])
+    )
 
     const authority = await resolveWorkerLaunchModelAuthority({
       catalog: CODEX_CATALOG,
@@ -89,16 +93,39 @@ describe('worker launch model authority', () => {
       worktreeSelector: 'id:wt_local'
     })
 
-    expect(authority.source).toBe('live')
-    // `mergeCatalogModels` is the picker's policy for Codex: seed ∪ probe, seed order first.
-    expect(authority.modelIds).toEqual([
-      'gpt-5.6-sol',
-      'gpt-5.6-terra',
-      'gpt-5.6-luna',
-      'gpt-5.5',
-      'gpt-5.2-codex',
-      'gpt-5.7-preview'
-    ])
+    // The Codex seed is deliberately short, so a list that merges into it is not a complete one.
+    expect(authority).toEqual(SEED_WORKER_LAUNCH_MODEL_AUTHORITY)
+    expect(discover).not.toHaveBeenCalled()
+    expect(resolveHostKey).not.toHaveBeenCalled()
+  })
+
+  it('refuses an unlisted id for the agent whose list replaces the seed, and not for the one that extends it', async () => {
+    const { runtime } = probeRuntime(() => probeSuccess([liveModel('opus[1m]')]))
+    const claude = await resolveWorkerLaunchModelAuthority({
+      catalog: CLAUDE_CATALOG,
+      agent: 'claude',
+      runtime,
+      worktreeSelector: 'id:wt_local'
+    })
+    const codex = await resolveWorkerLaunchModelAuthority({
+      catalog: CODEX_CATALOG,
+      agent: 'codex',
+      runtime,
+      worktreeSelector: 'id:wt_local'
+    })
+
+    // The point of the PR: a resolved Claude id the CLI never offers stays refused.
+    expect(() =>
+      resolveWorkerLaunchPreferences({ agent: 'claude', model: 'claude-opus-5', authority: claude })
+    ).toThrow('Agent claude does not accept model claude-opus-5')
+    // And an id only the account knows about reaches the launch rather than being second-guessed.
+    expect(
+      resolveWorkerLaunchPreferences({
+        agent: 'codex',
+        model: 'gpt-account-only',
+        authority: codex
+      }).preferences
+    ).toEqual({ model: 'gpt-account-only' })
   })
 
   it.each([
@@ -372,9 +399,10 @@ describe('worker launch model authority', () => {
       runtime,
       worktreeSelector: 'id:wt_local'
     })
+    // Grok, not Codex: only an agent whose discovery replaces the seed is probed at all.
     await resolveWorkerLaunchModelAuthority({
-      catalog: CODEX_CATALOG,
-      agent: 'codex',
+      catalog: GROK_CATALOG,
+      agent: 'grok',
       runtime,
       worktreeSelector: 'id:wt_local'
     })

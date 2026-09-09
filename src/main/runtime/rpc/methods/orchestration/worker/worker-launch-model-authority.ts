@@ -7,14 +7,20 @@
  * worktree selector, and the same catalog policy that decides what the picker offers — so the set
  * `worker-start` accepts is the set the picker lists.
  *
- * A host that could not be listed answers `seed`, which claims no membership at all. Loss of
- * contact with a host is never evidence that a model does not exist there
- * (`docs/reference/ssh-execution-boundary.md`), and the catalogs say so themselves: the Codex seed
- * is deliberately short and expects unknown ids to pass through. Only a `live` answer may reject.
+ * Two things answer `seed`, which claims no membership at all and so refuses nothing.
+ *
+ * A host that could not be listed: loss of contact is never evidence that a model does not exist
+ * there (`docs/reference/ssh-execution-boundary.md`).
+ *
+ * And an agent whose probe only EXTENDS the seed rather than replacing it — the Codex catalog is
+ * explicit that its seed is short and that unknown ids must pass through, so a list that merges
+ * into it cannot be read as complete. Only an agent whose discovery replaces the seed gets a
+ * `live` answer, and only a `live` answer may reject.
  */
 
 import type { CommitMessageModelCapability } from '../../../../../../shared/commit-message-agent-spec'
 import {
+  discoveredModelsReplaceSeed,
   resolveDiscoveredCatalogModels,
   type AgentSessionOptionCatalog,
   type CatalogModel
@@ -130,6 +136,11 @@ export async function resolveWorkerLaunchModelAuthority(args: {
   worktreeSelector: string | null
 }): Promise<WorkerLaunchModelAuthority> {
   const { catalog, agent, runtime, worktreeSelector } = args
+  // Why: for an agent whose probe only EXTENDS the seed, the host's list is known not to be
+  // exhaustive, so it can refuse nothing — and there is correspondingly nothing to ask it.
+  if (!discoveredModelsReplaceSeed(agent, catalog)) {
+    return SEED_WORKER_LAUNCH_MODEL_AUTHORITY
+  }
   if (!runtime || !worktreeSelector) {
     return SEED_WORKER_LAUNCH_MODEL_AUTHORITY
   }
