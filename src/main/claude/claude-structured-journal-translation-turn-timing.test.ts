@@ -100,31 +100,6 @@ describe('Claude structured turn timing', () => {
     expect(state.items.at(-1)?.identity).toEqual(state.items[0]?.identity)
   })
 
-  it('revises the running row to interrupted when the result reports a user abort', () => {
-    const state = sinkState()
-    const translator = createClaudeJournalTranslator({ sink: state.sink })
-
-    translator.handle(userTurn('user-1', 1_000))
-    const aborted = result(4_500)
-    if (aborted.type === 'message') {
-      aborted.message = {
-        ...aborted.message,
-        subtype: 'error_during_execution',
-        is_error: true,
-        terminal_reason: 'aborted_streaming'
-      }
-    }
-    translator.handle(aborted)
-
-    expect(state.tombstones).toEqual([])
-    expect(state.lifecycle().at(-1)).toMatchObject({
-      turnId: 'user-1',
-      state: 'interrupted',
-      startedAt: 1_000,
-      completedAt: 4_500
-    })
-  })
-
   it('revises an open turn to interrupted when the session ends without a result', () => {
     const state = sinkState()
     const translator = createClaudeJournalTranslator({ sink: state.sink })

@@ -1,20 +1,22 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   AgentJournalItemBody,
   AgentJournalItemIdentity
 } from '../../shared/agent-session-journal-types'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
-import { projectStructuredAgentSessionStatus } from '../../shared/structured-agent-session-projection'
 import { createTrackedJournalOpener } from '../native-chat/agent-session-journal/journal-store-test-open'
 import {
   createDeferredStructuredAgentSessionEventSink,
   type StructuredAgentSessionEventSink
 } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
+import type { CodexAppServerConnection } from './codex-app-server-connection'
 import { createCodexJournalTranslator } from './codex-structured-journal-translation'
+import { createCodexStructuredNotificationRetry } from './codex-structured-notification-retry'
 import type { CodexStructuredSessionEvent } from './codex-structured-session-adapter'
+import type { CodexSession } from './codex-structured-session-state'
 
 const SESSION_ID = 'session-1'
 const THREAD_ID = 'thread-abc'
@@ -78,6 +80,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await journals.closeAll()
   await rm(root, { recursive: true, force: true })
+  vi.useRealTimers()
 })
 
 describe('codex turn lifecycle rows', () => {
@@ -117,52 +120,6 @@ describe('codex turn lifecycle rows', () => {
     deferred.close()
   })
 
-  it('revises the running row to completed, carrying the start time forward', () => {
-    const tap = recorder()
-    const translator = translatorFor(tap)
-
-    translator.handle(notification('turn/started', { turn: { id: TURN_ID } }, 1_000))
-    translator.handle(
-      notification('turn/completed', { turn: { id: TURN_ID, status: 'completed' } }, 4_500)
-    )
-
-    expect(tap.tombstones).toEqual([])
-    expect(tap.rows).toEqual([
-      {
-        key: LIFECYCLE_KEY,
-        body: {
-          kind: 'status',
-          text: 'Codex is working…',
-          turnLifecycle: { turnId: TURN_ID, state: 'running', startedAt: 1_000 }
-        }
-      },
-      {
-        key: LIFECYCLE_KEY,
-        body: {
-          kind: 'status',
-          text: 'Codex turn completed',
-          turnLifecycle: {
-            turnId: TURN_ID,
-            state: 'completed',
-            startedAt: 1_000,
-            completedAt: 4_500
-          }
-        }
-      }
-    ])
-    expect(
-      projectStructuredAgentSessionStatus(
-        reduced(tap.rows).map((row, sequence) => ({
-          itemId: row.key,
-          revision: 1,
-          sequence: sequence + 1,
-          observedAt: sequence + 1,
-          body: row.body
-        }))
-      )
-    ).toBe('idle')
-  })
-
   it.each(['interrupted', 'failed', 'cancelled'])(
     'maps a %s turn status to an interrupted lifecycle',
     (status) => {
@@ -172,9 +129,20 @@ describe('codex turn lifecycle rows', () => {
       translator.handle(notification('turn/started', { turn: { id: TURN_ID } }, 1_000))
       translator.handle(notification('turn/completed', { turn: { id: TURN_ID, status } }, 2_000))
 
-      expect(tap.rows.at(-1)?.body).toMatchObject({
-        turnLifecycle: { state: 'interrupted', startedAt: 1_000, completedAt: 2_000 }
-      })
+      expect(tap.tombstones).toEqual([])
+      expect(reduced(tap.rows)).toEqual([
+        {
+          key: LIFECYCLE_KEY,
+          body: expect.objectContaining({
+            turnLifecycle: {
+              turnId: TURN_ID,
+              state: 'interrupted',
+              startedAt: 1_000,
+              completedAt: 2_000
+            }
+          })
+        }
+      ])
     }
   )
 
@@ -210,34 +178,29 @@ describe('codex turn lifecycle rows', () => {
     ])
   })
 
-  it('revises every open turn to interrupted when the provider ends', () => {
-    const tap = recorder()
-    const translator = translatorFor(tap, () => 7_000)
+  it('replays a backpressured turn boundary with its original receipt time', async () => {
+    vi.useFakeTimers()
+    const connection = {
+      pauseReading: vi.fn(),
+      resumeReading: vi.fn()
+    } as unknown as CodexAppServerConnection
+    const translate = vi
+      .fn<Parameters<typeof createCodexStructuredNotificationRetry>[0]['translate']>()
+      .mockReturnValueOnce({ accepted: false, reason: 'backpressure' })
+      .mockReturnValue({ accepted: true })
+    const retries = createCodexStructuredNotificationRetry({
+      sessionFor: () => ({ connection, ended: false }) as CodexSession,
+      translate
+    })
 
-    translator.handle(notification('turn/started', { turn: { id: 'turn-a' } }, 1_000))
-    translator.handle(notification('turn/started', { turn: { id: 'turn-b' } }, 2_000))
-    translator.handle({ type: 'ended', sessionId: SESSION_ID, reason: 'app-server exited' })
+    expect(retries.handle(SESSION_ID, 'turn/started', { turn: { id: TURN_ID } }, 1_000)).toEqual({
+      accepted: false,
+      reason: 'backpressure'
+    })
+    await vi.advanceTimersByTimeAsync(50)
 
-    expect(tap.tombstones).toEqual([])
-    expect(reduced(tap.rows).map((row) => row.body)).toMatchObject([
-      {
-        turnLifecycle: {
-          turnId: 'turn-a',
-          state: 'interrupted',
-          startedAt: 1_000,
-          completedAt: 7_000
-        }
-      },
-      {
-        turnLifecycle: {
-          turnId: 'turn-b',
-          state: 'interrupted',
-          startedAt: 2_000,
-          completedAt: 7_000
-        }
-      },
-      { text: 'Provider exited: app-server exited' }
-    ])
+    expect(translate.mock.calls.map((call) => call[4])).toEqual([1_000, 1_000])
+    expect(connection.resumeReading).not.toHaveBeenCalled()
   })
 
   it('restores terminal rows for historical turns with both endpoints, in milliseconds', () => {

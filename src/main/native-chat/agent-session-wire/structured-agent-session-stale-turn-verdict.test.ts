@@ -47,10 +47,11 @@ describe('turn verdict from death evidence', () => {
 })
 
 describe('running turn lifecycle revisions', () => {
-  it('revises only running rows, keeping identity, text and start', () => {
+  it('revises only running rows in place and carries an end time only for an observed exit', () => {
     const items = [
       lifecycleItem('turn-1', 'completed', 1, { startedAt: 10, completedAt: 20 }),
-      lifecycleItem('turn-2', 'running', 2, { startedAt: 30 })
+      // A stray end on a running row is never carried into the verdict.
+      lifecycleItem('turn-2', 'running', 2, { startedAt: 30, completedAt: 99 })
     ]
     expect(runningTurnLifecycleRevisions(items, { state: 'interrupted', completedAt: 40 })).toEqual(
       [
@@ -70,16 +71,15 @@ describe('running turn lifecycle revisions', () => {
         }
       ]
     )
-  })
-
-  it('never carries or invents an end time for an unverifiable verdict', () => {
-    const [revision] = runningTurnLifecycleRevisions(
-      [lifecycleItem('turn-2', 'running', 2, { startedAt: 30, completedAt: 99 })],
-      { state: 'unverifiable' }
-    )
-    expect(
-      revision?.kind === 'item' && revision.body.kind === 'status' && revision.body.turnLifecycle
-    ).toEqual({ turnId: 'turn-2', state: 'unverifiable', startedAt: 30 })
+    expect(runningTurnLifecycleRevisions(items, { state: 'unverifiable' })).toEqual([
+      expect.objectContaining({
+        body: {
+          kind: 'status',
+          text: 'Working',
+          turnLifecycle: { turnId: 'turn-2', state: 'unverifiable', startedAt: 30 }
+        }
+      })
+    ])
   })
 
   it('skips rows without a parseable identity', () => {
@@ -132,30 +132,28 @@ describe('stale running turns on a cold acquire', () => {
     })
   })
 
-  it('writes nothing when no turn is running', async () => {
-    const { journal, appendLifecycleBatch } = journalWith([
+  it('writes nothing when no turn is running and keys on the journal position without a generation', async () => {
+    const idle = journalWith([
       lifecycleItem('turn-1', 'completed', 1, { startedAt: 10, completedAt: 20 })
     ])
     await expect(
       settleStaleRunningTurnsOnAcquire({
-        journal,
+        journal: idle.journal,
         sessionId: 'session-1',
         fence: 14,
-        acquisitionGeneration: 'generation-2'
+        acquisitionGeneration: null
       })
     ).resolves.toBe(0)
-    expect(appendLifecycleBatch).not.toHaveBeenCalled()
-  })
+    expect(idle.appendLifecycleBatch).not.toHaveBeenCalled()
 
-  it('keys the settlement on the journal position when the adapter minted no generation', async () => {
-    const { journal, appendLifecycleBatch } = journalWith([lifecycleItem('turn-2', 'running', 2)])
+    const running = journalWith([lifecycleItem('turn-2', 'running', 2)])
     await settleStaleRunningTurnsOnAcquire({
-      journal,
+      journal: running.journal,
       sessionId: 'session-1',
       fence: 14,
       acquisitionGeneration: null
     })
-    expect(appendLifecycleBatch).toHaveBeenCalledWith(
+    expect(running.appendLifecycleBatch).toHaveBeenCalledWith(
       expect.objectContaining({ settlementId: 'stale-turn:session-1:14:seq-8' })
     )
   })

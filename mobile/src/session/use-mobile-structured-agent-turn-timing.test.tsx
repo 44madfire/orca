@@ -61,7 +61,9 @@ describe('useMobileStructuredAgentTurnTiming', () => {
     vi.useRealTimers()
   })
 
-  it('hands settled host durations through keyed by user message', () => {
+  it('hands settled host durations through and anchors the live counter locally, once per turn', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(CLIENT_NOW)
     const items = [
       user('u1', 1),
       lifecycle(
@@ -69,34 +71,29 @@ describe('useMobileStructuredAgentTurnTiming', () => {
         2,
         { state: 'interrupted', startedAt: HOST_START, completedAt: HOST_START + 61_000 },
         HOST_START + 5
+      ),
+      user('u2', 3),
+      // The host appended the row 2.5s after it saw the turn start.
+      lifecycle(
+        't2',
+        4,
+        { state: 'running', startedAt: HOST_START + 100_000 },
+        HOST_START + 102_500
       )
     ]
     act(() => {
-      renderer = create(createElement(Harness, { items, turnId: null }))
+      renderer = create(createElement(Harness, { items, turnId: 't2' }))
     })
-    expect(timing?.workingStartedAt).toBeNull()
+    expect(timing?.workingStartedAt).toBe(CLIENT_NOW - 2_500)
     expect([...timing!.settledTurns]).toEqual([
       ['u1', { startedAt: HOST_START, workedSeconds: 61 }]
     ])
-  })
-
-  it('anchors the live counter on the local clock, once per turn, free of host skew', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(CLIENT_NOW)
-    const running = [
-      user('u1', 1),
-      lifecycle('t1', 2, { state: 'running', startedAt: HOST_START }, HOST_START + 2_500)
-    ]
-    act(() => {
-      renderer = create(createElement(Harness, { items: running, turnId: 't1' }))
-    })
-    expect(timing?.workingStartedAt).toBe(CLIENT_NOW - 2_500)
 
     vi.setSystemTime(CLIENT_NOW + 30_000)
-    act(() => renderer?.update(createElement(Harness, { items: [...running], turnId: 't1' })))
+    act(() => renderer?.update(createElement(Harness, { items: [...items], turnId: 't2' })))
     expect(timing?.workingStartedAt).toBe(CLIENT_NOW - 2_500)
 
-    act(() => renderer?.update(createElement(Harness, { items: running, turnId: null })))
+    act(() => renderer?.update(createElement(Harness, { items, turnId: null })))
     expect(timing?.workingStartedAt).toBeNull()
   })
 

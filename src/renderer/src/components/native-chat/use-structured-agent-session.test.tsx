@@ -495,48 +495,34 @@ describe('turn timing', () => {
     vi.useFakeTimers()
     try {
       vi.setSystemTime(50_000)
+      const item = (
+        itemId: string,
+        observedAt: number,
+        body: AgentJournalRenderItem['body']
+      ): AgentJournalRenderItem => ({ itemId, revision: 0, sequence: observedAt, observedAt, body })
+      const user: AgentJournalRenderItem['body'] = {
+        kind: 'message',
+        role: 'user',
+        blocks: [{ type: 'text', text: 'go' }]
+      }
       items = [
-        {
-          itemId: 'u1',
-          revision: 0,
-          sequence: 1,
-          observedAt: 9_000_000,
-          body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'one' }] }
-        },
-        {
-          itemId: 'l1',
-          revision: 1,
-          sequence: 2,
-          observedAt: 9_000_100,
-          body: {
-            kind: 'status',
-            text: 'Done',
-            turnLifecycle: {
-              turnId: 't1',
-              state: 'completed',
-              startedAt: 9_000_000,
-              completedAt: 9_004_000
-            }
+        item('u1', 9_000_000, user),
+        item('l1', 9_000_100, {
+          kind: 'status',
+          text: 'Done',
+          turnLifecycle: {
+            turnId: 't1',
+            state: 'completed',
+            startedAt: 9_000_000,
+            completedAt: 9_004_000
           }
-        },
-        {
-          itemId: 'u2',
-          revision: 0,
-          sequence: 3,
-          observedAt: 9_010_000,
-          body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'two' }] }
-        },
-        {
-          itemId: 'l2',
-          revision: 1,
-          sequence: 4,
-          observedAt: 9_010_300,
-          body: {
-            kind: 'status',
-            text: 'Working',
-            turnLifecycle: { turnId: 't2', state: 'running', startedAt: 9_010_000 }
-          }
-        }
+        }),
+        item('u2', 9_010_000, user),
+        item('l2', 9_010_300, {
+          kind: 'status',
+          text: 'Working',
+          turnLifecycle: { turnId: 't2', state: 'running', startedAt: 9_010_000 }
+        })
       ]
       const { result, rerender } = renderHook(() =>
         useStructuredAgentSession({

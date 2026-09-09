@@ -44,14 +44,32 @@ function recoveryContext(input: {
   } as never
 }
 
+function lifecycleItem(
+  turnId: string,
+  sequence: number,
+  turnLifecycle: { state: 'running' | 'completed'; startedAt: number; completedAt?: number }
+): AgentJournalRenderItem {
+  return {
+    itemId: agentJournalItemKey({ provider: 'codex', threadId: 'thread-1', turnId, ordinal: 0 }),
+    revision: 1,
+    sequence,
+    observedAt: sequence,
+    body: { kind: 'status', text: 'Working', turnLifecycle: { turnId, ...turnLifecycle } }
+  }
+}
+
 describe('provider-exit recovery tickets', () => {
-  it('uses the fallback when the one-shot translator admission was rejected', async () => {
-    const appendLifecycleBatch = vi.fn(async () => ({ epoch: 'epoch-1', sequence: 1 }))
+  it('uses the fallback when the one-shot translator admission was rejected, revising the running turn in place', async () => {
+    const appendLifecycleBatch = vi.fn(async () => ({ epoch: 'epoch-1', sequence: 3 }))
+    const items = [
+      lifecycleItem('turn-1', 1, { state: 'completed', startedAt: 10, completedAt: 20 }),
+      lifecycleItem('turn-2', 2, { state: 'running', startedAt: 30 })
+    ]
     const session = {
       hasProviderChild: true,
       fence: 7,
       acquisitionGeneration: GENERATION,
-      journal: { snapshot: () => ({ items: [] }), appendLifecycleBatch }
+      journal: { snapshot: () => ({ items }), appendLifecycleBatch }
     } as unknown as StructuredAgentSessionHostSession
     const store = {
       getRecord: () => ({
@@ -76,84 +94,6 @@ describe('provider-exit recovery tickets', () => {
         publishFence: vi.fn(),
         hasResumeCapableHolder: () => true,
         serialize: async (_sessionId, task) => task(),
-        now: () => 1
-      } as never,
-      {
-        type: 'ended',
-        sessionId: SESSION,
-        reason: 'provider exited',
-        cause: 'unexpected-exit',
-        fence: 7,
-        acquisitionGeneration: GENERATION,
-        settlementRetryRequired: true
-      }
-    )
-
-    expect(result).toMatchObject({ settlementRetryRequired: false, releasedFence: 8 })
-    expect(appendLifecycleBatch).toHaveBeenCalledOnce()
-    expect(session.hasProviderChild).toBe(false)
-  })
-
-  it('revises a running lifecycle row to interrupted at exit receipt instead of tombstoning it', async () => {
-    const running = {
-      provider: 'codex' as const,
-      threadId: 'thread-1',
-      turnId: 'turn-2',
-      ordinal: 0
-    }
-    const items: AgentJournalRenderItem[] = [
-      {
-        itemId: agentJournalItemKey({ ...running, turnId: 'turn-1' }),
-        revision: 1,
-        sequence: 1,
-        observedAt: 1,
-        body: {
-          kind: 'status',
-          text: 'Done',
-          turnLifecycle: { turnId: 'turn-1', state: 'completed', startedAt: 10, completedAt: 20 }
-        }
-      },
-      {
-        itemId: agentJournalItemKey(running),
-        revision: 1,
-        sequence: 2,
-        observedAt: 2,
-        body: {
-          kind: 'status',
-          text: 'Working',
-          turnLifecycle: { turnId: 'turn-2', state: 'running', startedAt: 30 }
-        }
-      }
-    ]
-    const appendLifecycleBatch = vi.fn(async () => ({ epoch: 'epoch-1', sequence: 3 }))
-    const session = {
-      hasProviderChild: true,
-      fence: 7,
-      acquisitionGeneration: GENERATION,
-      journal: { snapshot: () => ({ items }), appendLifecycleBatch }
-    } as unknown as StructuredAgentSessionHostSession
-
-    await settleUnexpectedStructuredAgentSessionExit(
-      {
-        store: {
-          getRecord: () => ({
-            lease: {
-              handoffStage: null,
-              runtimeFence: 7,
-              runtimeKind: 'native',
-              claimStatus: 'live',
-              ownerProcess: 'provider',
-              reservedSpawnToken: null,
-              processlessAt: null
-            }
-          }),
-          transitionHandoff: async () => ({ lease: { runtimeFence: 8 } })
-        },
-        sessions: new Map([[SESSION, session]]),
-        flushLifecycle: async () => ({ ok: true }),
-        publishFence: vi.fn(),
-        hasResumeCapableHolder: () => true,
-        serialize: async (_sessionId, task) => task(),
         now: () => 1_234
       } as never,
       {
@@ -167,6 +107,9 @@ describe('provider-exit recovery tickets', () => {
       }
     )
 
+    expect(result).toMatchObject({ settlementRetryRequired: false, releasedFence: 8 })
+    expect(session.hasProviderChild).toBe(false)
+    // The running row is revised to interrupted at exit receipt, never tombstoned.
     expect(appendLifecycleBatch).toHaveBeenCalledExactlyOnceWith({
       settlementId: `provider-exit:${SESSION}:7:${GENERATION}`,
       fence: 7,
@@ -182,7 +125,7 @@ describe('provider-exit recovery tickets', () => {
         },
         {
           kind: 'item',
-          identity: running,
+          identity: { provider: 'codex', threadId: 'thread-1', turnId: 'turn-2', ordinal: 0 },
           body: {
             kind: 'status',
             text: 'Working',
