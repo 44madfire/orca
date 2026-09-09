@@ -178,6 +178,20 @@ it('surfaces the unlink failure itself when a stale index cannot be removed', as
   }
 })
 
+it('creates the directory the index lives in', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'orca-session-search-mkdir-'))
+  roots.push(root)
+  // The real layout: `<userData>/ai-vault-search/index.sqlite`, where nothing
+  // has made that folder yet. SQLite would fail with `unable to open database
+  // file`, which is correctly not treated as corruption, so it never retries.
+  const db = openSessionSearchDatabase(join(root, 'ai-vault-search', 'index.sqlite'))
+  try {
+    expect(schemaVersion(db)).toBe(String(SESSION_SEARCH_SCHEMA_VERSION))
+  } finally {
+    db.close()
+  }
+})
+
 it('rebuilds a newer index rather than reading a schema it does not know', async () => {
   const path = await tempDatabasePath()
   const newer = openSessionSearchDatabase(path)

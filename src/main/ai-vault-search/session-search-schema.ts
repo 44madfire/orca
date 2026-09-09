@@ -1,3 +1,5 @@
+import { mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import SyncDatabase from '../sqlite/sync-database'
 import { removeTreeSync } from '../../shared/windows-transient-lock-removal'
 import { recoverSearchWrites } from './session-search-pending-deletes'
@@ -98,6 +100,12 @@ CREATE VIEW IF NOT EXISTS ${VISIBLE_MESSAGES} AS SELECT * FROM messages
  * refusing to open would strand the feature until a human deleted the file.
  */
 export function openSessionSearchDatabase(path: string): SyncDatabase {
+  // SQLite will not create the directory, and its failure is `unable to open
+  // database file`, which is correctly not corruption — so without this the
+  // feature strands on a profile that has never held an index.
+  if (path !== ':memory:') {
+    mkdirSync(dirname(path), { recursive: true })
+  }
   try {
     return openExisting(path)
   } catch (error) {
