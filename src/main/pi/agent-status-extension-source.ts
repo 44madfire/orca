@@ -101,7 +101,16 @@ export function getPiAgentStatusExtensionSource(kind: PiAgentKind = 'pi'): strin
     '// Orca receiver from building an unbounded queue of obsolete snapshots.',
     'const HOOK_POST_TIMEOUT_MS = 1000',
     'let activePost = false',
-    ...(kind === 'pi' ? ['let piUiPromptDepth = 0', 'let piTurnInFlight = false'] : []),
+    ...(kind === 'pi'
+      ? [
+          'let piUiPromptDepth = 0',
+          'let piTurnInFlight = false',
+          // Why: pi reloads extensions in-process, which re-runs the factory. Process-bus
+          // listeners are not replaced on reload the way pi.on handlers are, so a second
+          // registration would post every async child event twice.
+          'let piAsyncSubagentBusBound = false'
+        ]
+      : []),
     'let pendingPost: { hookEventName: string; extra: Record<string, unknown>; metadata: Record<string, unknown>; ompRuntime: boolean } | null = null',
     ...sessionMetadataSourceLines,
     '',

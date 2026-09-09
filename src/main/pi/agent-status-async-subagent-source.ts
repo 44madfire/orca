@@ -12,6 +12,10 @@ export function getPiAgentStatusAsyncSubagentSourceLines(kind: PiAgentKind): str
   return [
     '  // Why: a bus this pi build does not emit on simply never fires; registering costs nothing',
     '  // and keeps the parent-only path unchanged for installs without the subagent extension.',
+    '  // pi reloads extensions in-process and re-runs this factory: pi.on handlers are replaced,',
+    '  // but process-bus listeners accumulate, so bind at most once. Deliberately a BLOCK and not',
+    '  // an early return — returning here would skip every handler registered after this point.',
+    '  if (!piAsyncSubagentBusBound) {',
     '  try {',
     '    const bus = process as unknown as { on?: (event: string, listener: (payload: unknown) => void) => void }',
     '    const readRunId = (payload: unknown): string => {',
@@ -44,8 +48,10 @@ export function getPiAgentStatusAsyncSubagentSourceLines(kind: PiAgentKind): str
     '    }',
     "    bus.on?.('subagent:async-started', (payload) => postAsyncSubagent('subagent_async_started', payload))",
     "    bus.on?.('subagent:async-complete', (payload) => postAsyncSubagent('subagent_async_complete', payload))",
+    '    piAsyncSubagentBusBound = true',
     '  } catch {',
     '    // Why: status reporting must never fail the pi run; an unavailable bus just means no children.',
+    '  }',
     '  }',
     ''
   ]
