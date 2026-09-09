@@ -15,7 +15,7 @@ export async function settleFullCreationStructuredLaunch(args: {
   agent: TuiAgent
   worktreeId: string
   prompt: string
-  promptDelivery?: 'draft' | 'auto-submit'
+  promptDelivery: 'draft' | 'auto-submit'
   startup: WorktreeStartupPayload | undefined
   pendingFirstAgentMessageRename: boolean
   applyWorktreeMeta: (
@@ -29,10 +29,7 @@ export async function settleFullCreationStructuredLaunch(args: {
   return settleStructuredAgentLaunch(
     args.worktreeId,
     args.agent,
-    {
-      prompt: args.prompt,
-      ...(args.promptDelivery ? { promptDelivery: args.promptDelivery } : {})
-    },
+    { prompt: args.prompt, promptDelivery: args.promptDelivery },
     {
       legacyFallback: async () => {
         if (args.pendingFirstAgentMessageRename) {

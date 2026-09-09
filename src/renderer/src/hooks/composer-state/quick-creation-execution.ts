@@ -194,6 +194,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         }
       }
 
+      const promptDelivery = quickDraftPrompt ? 'draft' : 'auto-submit'
       const agentLaunchRoute = agent
         ? resolveAgentLaunchRouteForWorkspace(useAppStore.getState(), {
             agent,
@@ -205,7 +206,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
                 : (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId ?? undefined)
             },
             prompt: quickDraftPrompt ?? quickPrompt,
-            promptDelivery: quickDraftPrompt ? 'draft' : 'auto-submit',
+            promptDelivery,
             initialSessionOptions: startupPlan?.sessionOptions
           })
         : 'terminal-tui'
@@ -252,6 +253,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         startupPlan,
         quickPrompt,
         launchDraftPrompt: quickDraftPrompt,
+        promptDelivery,
         quickTelemetry,
         suppressTerminalFocusOnCompletion: createMultiple
       })

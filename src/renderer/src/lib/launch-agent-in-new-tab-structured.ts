@@ -78,6 +78,7 @@ export function launchAgentInStructuredNewTab(
   })
   return {
     structuredSettlement,
+    // Why: draft mode has no delivery event; the composer adopts the text and the user sends it.
     ...(hasPrompt && args.promptDelivery !== 'draft'
       ? { promptDeliveryResult: structuredSettlement.then(promptDeliveryFromSettlement) }
       : {})

@@ -84,6 +84,8 @@ export function settleStructuredAgentLaunchPrompt(args: {
   options: StructuredLaunchPromptOptions
   stagedEntry: StructuredAgentSessionOutboxEntry | null
 }): Promise<StructuredPromptDeliveryResult> | undefined {
+  // Why: a draft has no delivery event — the composer adopts it and the user sends it — so
+  // `onPromptDelivered` never fires and no result is reported.
   if (args.options.promptDelivery === 'draft' || !args.options.prompt?.trim()) {
     return undefined
   }

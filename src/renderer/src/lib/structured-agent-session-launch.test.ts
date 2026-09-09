@@ -172,6 +172,31 @@ describe('startStructuredAgentLaunch', () => {
     ).toBe(false)
   })
 
+  it('seeds a draft longer than the terminal mirror cap under the projected tab id', async () => {
+    const worktreeId = 'wt-long-draft'
+    const intent = launchIntent(worktreeId, 'long-draft-session')
+    mocks.createIntent.mockReturnValueOnce(intent)
+    mocks.launch.mockResolvedValue({ sessionId: intent.sessionId, fence: 1 })
+    vi.mocked(refreshLocalStructuredSessionTabs).mockResolvedValue([
+      publishedSnapshot(worktreeId, intent.sessionId)
+    ])
+    const sixtyLineDraft = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join('\n')
+
+    const launch = startStructuredAgentLaunch(worktreeId, 'codex', {
+      prompt: sixtyLineDraft,
+      promptDelivery: 'draft'
+    })
+    await launch.launchResult
+
+    expect(mocks.seedDraft).toHaveBeenCalledWith({
+      tabId: 'structured-agent-session-long-draft-session',
+      agent: 'codex',
+      text: sixtyLineDraft,
+      createdAt: expect.any(Number)
+    })
+    expect(readOutbox(intent.sessionId)).toEqual([])
+  })
+
   it('opens the chat without an informational progress toast', async () => {
     const worktreeId = 'wt-open-quiet'
     const intent = launchIntent(worktreeId, 'session-1')

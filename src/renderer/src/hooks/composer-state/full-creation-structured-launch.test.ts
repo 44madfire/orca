@@ -25,6 +25,7 @@ const baseArgs = {
   agent: 'codex' as const,
   worktreeId: 'worktree-1',
   prompt: 'Fix the route',
+  promptDelivery: 'auto-submit' as const,
   startup: { command: 'codex' } as never,
   pendingFirstAgentMessageRename: true,
   applyWorktreeMeta: vi.fn().mockResolvedValue(undefined)

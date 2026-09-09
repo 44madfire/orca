@@ -132,6 +132,8 @@ export async function submitFolderWorkspaceCreate({
   // `startupPlan.draftPrompt` alone can't tell whether this launch has one.
   const launchDraftPrompt =
     quickAgent && linkedWorkItem ? resolveFolderWorkspaceLaunchDraft(linkedWorkItem, note) : null
+  const launchPrompt = launchDraftPrompt ?? note
+  const promptDelivery = launchDraftPrompt ? 'draft' : 'auto-submit'
   const agentLaunchRoute = quickAgent
     ? resolveAgentLaunchRouteForWorkspace(useAppStore.getState(), {
         agent: quickAgent,
@@ -140,8 +142,8 @@ export async function submitFolderWorkspaceCreate({
           runtimeEnvironmentId,
           executionHostId: getNewWorkspaceProjectGroupHostId(projectGroup)
         },
-        prompt: launchDraftPrompt ?? note,
-        promptDelivery: launchDraftPrompt ? 'draft' : 'auto-submit',
+        prompt: launchPrompt,
+        promptDelivery,
         tuiCustomization: { agentArgs },
         initialSessionOptions: startupPlan?.sessionOptions
       })
@@ -218,10 +220,7 @@ export async function submitFolderWorkspaceCreate({
       const settlement = await settleStructuredAgentLaunch(
         folderWorkspaceKey(workspace.id),
         quickAgent,
-        {
-          prompt: launchDraftPrompt ?? note,
-          promptDelivery: launchDraftPrompt ? 'draft' : 'auto-submit'
-        },
+        { prompt: launchPrompt, promptDelivery },
         {
           legacyFallback: async () => {
             if (pendingFirstAgentMessageRename) {

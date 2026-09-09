@@ -121,7 +121,7 @@ export async function launchStructuredWorktreeSession(
       ? {}
       : {
           prompt: args.request.launchDraftPrompt ?? args.request.quickPrompt,
-          ...(args.request.launchDraftPrompt ? { promptDelivery: 'draft' as const } : {})
+          ...(args.request.promptDelivery ? { promptDelivery: args.request.promptDelivery } : {})
         },
     {
       cancellation: {

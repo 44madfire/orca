@@ -129,6 +129,8 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
         return
       }
 
+      const launchPrompt = startupPlan?.draftPrompt ?? submitStartupPrompt
+      const promptDelivery = startupPlan?.draftPrompt ? 'draft' : 'auto-submit'
       const agentLaunchRoute = resolveAgentLaunchRouteForWorkspace(useAppStore.getState(), {
         agent: tuiAgent,
         workspace: {
@@ -136,8 +138,8 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
           repoId,
           executionHostId: selectedRepoExecutionHostId ?? undefined
         },
-        prompt: startupPlan?.draftPrompt ?? submitStartupPrompt,
-        promptDelivery: startupPlan?.draftPrompt ? 'draft' : 'auto-submit',
+        prompt: launchPrompt,
+        promptDelivery,
         initialSessionOptions: startupPlan?.sessionOptions
       })
       const structuredLaunch = agentLaunchRoute === 'structured-native-chat'
@@ -231,8 +233,8 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
         structuredLaunch,
         agent: tuiAgent,
         worktreeId: worktree.id,
-        prompt: startupPlan?.draftPrompt ?? submitStartupPrompt,
-        promptDelivery: startupPlan?.draftPrompt ? 'draft' : 'auto-submit',
+        prompt: launchPrompt,
+        promptDelivery,
         startup,
         pendingFirstAgentMessageRename,
         applyWorktreeMeta

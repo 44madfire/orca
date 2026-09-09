@@ -43,7 +43,9 @@ export function NativeChatStructuredSession(
     terminalTabId: props.tabId,
     agent: props.agent,
     messages: controller.messages,
-    transcriptLoading: controller.status === 'loading'
+    // Why: the controller starts at `idle`, before any read; like the legacy view's unsettled
+    // phases, that empty list must not become the draft's turn baseline.
+    transcriptLoading: controller.status === 'idle' || controller.status === 'loading'
   })
   const [composerError, setComposerError] = useState<string | null>(null)
   const [stoppingBackgroundTasks, setStoppingBackgroundTasks] =

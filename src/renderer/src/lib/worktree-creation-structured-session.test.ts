@@ -152,6 +152,31 @@ describe('launchStructuredWorktreeSession', () => {
     expect(mocks.unsubscribe).toHaveBeenCalledOnce()
   })
 
+  it('hands the loop the delivery mode the composer decided with the route', async () => {
+    mocks.startStructuredAgentLaunch.mockReturnValue({
+      sessionId: 'session-1',
+      launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
+      isVisibilityUnknown: () => false,
+      releaseCallerAfterUnknownOutcome: vi.fn(),
+      claimDefinitiveRefusalFallback: vi.fn(() => Promise.resolve(false))
+    })
+
+    await launchStructuredWorktreeSession({
+      creationId: 'creation-1',
+      request: { ...request, launchDraftPrompt: 'PR #1 context', promptDelivery: 'draft' },
+      worktreeId: 'worktree-1',
+      shouldActivateOnCompletion: true,
+      fallbackStartupOpt: undefined,
+      activation: false,
+      primaryTabId: null
+    })
+
+    expect(mocks.startStructuredAgentLaunch).toHaveBeenCalledWith('worktree-1', 'codex', {
+      prompt: 'PR #1 context',
+      promptDelivery: 'draft'
+    })
+  })
+
   it('does not activate a published session when the user has moved on', async () => {
     mocks.startStructuredAgentLaunch.mockReturnValue({
       sessionId: 'session-1',
