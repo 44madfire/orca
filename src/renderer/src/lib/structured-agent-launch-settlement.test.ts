@@ -139,14 +139,47 @@ describe('settleStructuredAgentLaunch', () => {
     })
   })
 
-  it('fails a refusal that has no legacy equivalent', async () => {
+  it('fails a refusal that has no legacy equivalent without claiming a fallback', async () => {
     const error = new StructuredAgentSessionCreateRefusalError('unsupported')
-    fakeLaunch({ launchResult: Promise.reject(error) })
+    const { claimDefinitiveRefusalFallback } = fakeLaunch({ launchResult: Promise.reject(error) })
 
     await expect(settleStructuredAgentLaunch('worktree-1', 'codex', {}, {})).resolves.toEqual({
       kind: 'failed',
       error
     })
+    // Why: a claimed no-op would tell the launch layer a terminal fallback was attempted.
+    expect(claimDefinitiveRefusalFallback).not.toHaveBeenCalled()
+  })
+
+  it('returns cancelled and discards a legacy fallback that was mid-flight', async () => {
+    fakeLaunch({
+      launchResult: Promise.reject(new StructuredAgentSessionCreateRefusalError('unsupported'))
+    })
+    const cancellation = fakeCancellation()
+    let finishFallback!: () => void
+    const legacyFallback = vi.fn(
+      () =>
+        new Promise<typeof fallbackResult>((resolve) => {
+          finishFallback = () => resolve(fallbackResult)
+        })
+    )
+
+    const settlement = settleStructuredAgentLaunch(
+      'worktree-1',
+      'codex',
+      {},
+      { legacyFallback, cancellation: cancellation.hook }
+    )
+    await vi.waitFor(() => expect(legacyFallback).toHaveBeenCalledOnce())
+    cancellation.fire()
+    finishFallback()
+
+    // Current behavior: the fallback's tab is not reported back even though it opened.
+    await expect(settlement).resolves.toEqual({ kind: 'cancelled', sessionId: 'session-1' })
+    expect(mocks.cancelStructuredAgentLaunch).toHaveBeenCalledExactlyOnceWith(
+      'worktree-1',
+      'session-1'
+    )
   })
 
   it('fails when the legacy fallback itself throws', async () => {

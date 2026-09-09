@@ -178,12 +178,13 @@ export async function settleDirectWorkItemStructuredLaunch(args: {
       }
     case 'failed':
     case 'cancelled':
-      // Why: these used to read as completed; the launch layer already toasted the failure.
+      // Why: the launch layer already toasted the failure, and the pre-launch tab is the setup
+      // shell or default tab, never an agent tab: handing it back would paste the prompt there.
       return {
         completed: false,
         structuredLaunch: true,
         visibilityUnknown: false,
-        primaryTabId: args.primaryTabId
+        primaryTabId: null
       }
   }
 }

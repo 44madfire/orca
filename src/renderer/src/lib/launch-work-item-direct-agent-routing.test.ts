@@ -103,16 +103,25 @@ describe('settleDirectWorkItemStructuredLaunch', () => {
     expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
   })
 
-  it('no longer reports a failed launch as completed', async () => {
-    mocks.settleStructuredAgentLaunch.mockResolvedValue({ kind: 'failed', error: new Error('x') })
+  it.each([
+    ['failed', { kind: 'failed', error: new Error('x') }],
+    ['cancelled', { kind: 'cancelled', sessionId: 'session-1' }]
+  ])(
+    'drops the pre-launch tab on a %s settlement so nothing is pasted into it',
+    async (_kind, settlement) => {
+      mocks.settleStructuredAgentLaunch.mockResolvedValue(settlement)
 
-    await expect(settleDirectWorkItemStructuredLaunch(baseArgs)).resolves.toEqual({
-      completed: false,
-      structuredLaunch: true,
-      visibilityUnknown: false,
-      primaryTabId: null
-    })
-  })
+      await expect(
+        settleDirectWorkItemStructuredLaunch({ ...baseArgs, primaryTabId: 'setup-shell-tab' })
+      ).resolves.toEqual({
+        completed: false,
+        structuredLaunch: true,
+        visibilityUnknown: false,
+        primaryTabId: null
+      })
+      expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+    }
+  )
 
   it('skips the loop when the route is not structured', async () => {
     await expect(

@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
 import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-session-contracts'
+import type * as RecoveryModule from '@/lib/structured-agent-session-launch-recovery'
 
 const mocks = vi.hoisted(() => ({
   abandonIntent: vi.fn(),
@@ -30,6 +31,13 @@ vi.mock('@/lib/launch-structured-agent-session', () => {
     launchStructuredAgentSession: mocks.launch,
     StructuredAgentSessionCreateRefusalError
   }
+})
+
+vi.mock('@/lib/structured-agent-session-launch-recovery', async () => {
+  const actual = await vi.importActual<typeof RecoveryModule>(
+    '@/lib/structured-agent-session-launch-recovery'
+  )
+  return { ...actual, launchAndReconcile: vi.fn(actual.launchAndReconcile) }
 })
 
 vi.mock('@/runtime/local-structured-session-tabs-sync', () => ({
@@ -74,6 +82,7 @@ import {
   type StructuredAgentSessionLaunchIntent
 } from '@/lib/launch-structured-agent-session'
 import { refreshLocalStructuredSessionTabs } from '@/runtime/local-structured-session-tabs-sync'
+import { launchAndReconcile } from '@/lib/structured-agent-session-launch-recovery'
 import {
   cancelStructuredAgentLaunch,
   startStructuredAgentLaunch
@@ -195,6 +204,68 @@ describe('startStructuredAgentLaunch', () => {
       createdAt: expect.any(Number)
     })
     expect(readOutbox(intent.sessionId)).toEqual([])
+  })
+
+  it('clears the draft seed when the launch is definitively refused', async () => {
+    const worktreeId = 'wt-draft-refused'
+    const intent = launchIntent(worktreeId, 'refused-draft-session')
+    mocks.createIntent.mockReturnValueOnce(intent)
+    mocks.launch.mockRejectedValueOnce(new StructuredAgentSessionCreateRefusalError('refused'))
+
+    const launch = startStructuredAgentLaunch(worktreeId, 'codex', {
+      prompt: 'review this',
+      promptDelivery: 'draft'
+    })
+    await expect(launch.launchResult).rejects.toBeInstanceOf(
+      StructuredAgentSessionCreateRefusalError
+    )
+    await flushLaunchSettlement()
+
+    expect(mocks.seedDraft).toHaveBeenCalledOnce()
+    expect(mocks.clearDraft).toHaveBeenCalledWith('structured-agent-session-refused-draft-session')
+  })
+
+  it('clears the draft seed when the launch fails with a known outcome', async () => {
+    const worktreeId = 'wt-draft-failed'
+    const intent = launchIntent(worktreeId, 'failed-draft-session')
+    mocks.createIntent.mockReturnValueOnce(intent)
+    // Why: every real non-refusal error ends as visibility-unknown, which keeps the seed for the
+    // retry; a known failure is the recovery layer rejecting with the outcome settled.
+    vi.mocked(launchAndReconcile).mockRejectedValueOnce(new Error('boom'))
+
+    const launch = startStructuredAgentLaunch(worktreeId, 'codex', {
+      prompt: 'review this',
+      promptDelivery: 'draft'
+    })
+    await expect(launch.launchResult).rejects.toThrow()
+    await flushLaunchSettlement()
+
+    expect(mocks.seedDraft).toHaveBeenCalledOnce()
+    expect(mocks.clearDraft).toHaveBeenCalledWith('structured-agent-session-failed-draft-session')
+  })
+
+  it('clears the draft seed when the launch is cancelled', async () => {
+    const worktreeId = 'wt-draft-cancelled'
+    const intent = launchIntent(worktreeId, 'cancelled-draft-session')
+    let resolveRefresh!: (snapshots: RuntimeMobileSessionTabsResult[]) => void
+    mocks.createIntent.mockReturnValueOnce(intent)
+    mocks.launch.mockResolvedValueOnce({ sessionId: intent.sessionId, fence: 1 })
+    vi.mocked(refreshLocalStructuredSessionTabs).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRefresh = resolve))
+    )
+
+    startStructuredAgentLaunch(worktreeId, 'codex', {
+      prompt: 'review this',
+      promptDelivery: 'draft'
+    })
+    await vi.waitFor(() => expect(refreshLocalStructuredSessionTabs).toHaveBeenCalledOnce())
+    expect(cancelStructuredAgentLaunch(worktreeId, intent.sessionId)).toBe(true)
+    resolveRefresh([])
+    await flushLaunchSettlement()
+
+    expect(mocks.clearDraft).toHaveBeenCalledWith(
+      'structured-agent-session-cancelled-draft-session'
+    )
   })
 
   it('opens the chat without an informational progress toast', async () => {

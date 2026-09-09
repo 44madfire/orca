@@ -1,8 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import { toast } from 'sonner'
 import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
-import { getAgentLabel } from '@/lib/agent-catalog'
-import { translate } from '@/i18n/i18n'
+import { structuredAgentLabel } from '@/lib/structured-agent-session-launch-label'
 import {
   abandonStructuredAgentSessionLaunchIntent,
   createStructuredAgentSessionLaunchIntent,
@@ -15,7 +13,6 @@ import {
 import {
   launchAndReconcile,
   reconcileUnknownLaunch,
-  StructuredAgentSessionLaunchCancelledError,
   type StructuredAgentLaunchReceipt,
   type StructuredLaunchRecoveryState
 } from '@/lib/structured-agent-session-launch-recovery'
@@ -35,6 +32,7 @@ import {
 } from '@/lib/structured-agent-session-launch-callers'
 import type { StructuredAgentSessionResumeSource } from '../../../shared/structured-agent-session-create'
 import * as launchDraft from './structured-agent-session-launch-draft'
+import { trackStructuredLaunchFailureToast } from './structured-agent-session-launch-failure-toast'
 
 export type { StructuredAgentLaunchOptions, StructuredAgentLaunchReceipt }
 
@@ -58,6 +56,10 @@ export type StructuredAgentLaunchResult = {
 }
 
 export type StructuredAgentLaunchStatus = 'idle' | 'pending' | 'unknown'
+
+function structuredAgentLabel(agent: AgentSessionHandleProvider): string {
+  return getAgentCatalog().find((entry) => entry.id === agent)?.label ?? agent
+}
 
 const pendingStructuredLaunchesByIdentity = new Map<string, StructuredLaunchState>()
 const structuredLaunchListeners = new Set<() => void>()
@@ -163,6 +165,8 @@ function trackLaunchSettlement(
         settleDefinitiveRefusalFallback(state)
       } else if (!state.visibilityUnknown) {
         settleStructuredLaunchCallersWithoutFallback(state.callers, 'failed')
+        // Why: the seed lives under a tab that will never open; unknown keeps it for the retry.
+        launchDraft.clearStructuredAgentLaunchDraft(state.intent.sessionId)
         maybeCleanupLaunchState(state)
       } else {
         state.callers.outcome = 'unknown'
@@ -170,53 +174,6 @@ function trackLaunchSettlement(
       }
     }
   )
-}
-
-function trackLaunchFailureToast(state: StructuredLaunchState): void {
-  void state.promise.catch(async (error) => {
-    if (error instanceof StructuredAgentSessionLaunchCancelledError) {
-      return
-    }
-    const agentLabel = getAgentLabel(state.intent.agent)
-    if (
-      error instanceof StructuredAgentSessionCreateRefusalError &&
-      (await state.callers.refusalSettlement.promise.catch(() => false))
-    ) {
-      // Why: the callback proves the fallback was attempted, not that its terminal became visible.
-      toast.message(
-        translate(
-          'components.native-chat.structuredSessionFellBackToTerminal',
-          "Structured chat isn't available"
-        ),
-        {
-          description: translate(
-            'components.native-chat.structuredSessionFellBackToTerminalDescription',
-            'Orca tried to open a {{value0}} terminal instead.',
-            { value0: agentLabel }
-          )
-        }
-      )
-      return
-    }
-    // Why: the raw error carries errnos and absolute paths; it belongs in the log, not the toast.
-    console.warn('[native-chat] structured launch failed', error)
-    toast.error(
-      translate(
-        'components.native-chat.structuredSessionLaunchFailed',
-        'Could not open {{value0}} chat',
-        {
-          value0: agentLabel
-        }
-      ),
-      {
-        description: translate(
-          'components.native-chat.structuredSessionLaunchFailedDescription',
-          'Orca could not open a structured {{value0}} chat. See the logs for details.',
-          { value0: agentLabel }
-        )
-      }
-    )
-  })
 }
 
 function structuredAgentLaunchState(
@@ -231,7 +188,11 @@ function structuredAgentLaunchState(
       existing.callers.outcome = 'pending'
       existing.promise = reconcileUnknownLaunch(existing)
       trackLaunchSettlement(existing, existing.promise)
-      trackLaunchFailureToast(existing)
+      trackStructuredLaunchFailureToast(
+        structuredAgentLabel(existing.intent.agent),
+        existing.promise,
+        existing.callers.refusalSettlement.promise
+      )
       notifyStructuredLaunchListeners()
     }
     const text = options.promptDelivery === 'draft' ? '' : (options.prompt?.trim() ?? '')
@@ -275,7 +236,7 @@ function structuredAgentLaunchState(
     text && !stagedPrompt
       ? Promise.reject(
           new StructuredAgentSessionCreateRefusalError(
-            `Could not durably stage the ${getAgentLabel(agent)} launch prompt.`
+            `Could not durably stage the ${structuredAgentLabel(agent)} launch prompt.`
           )
         )
       : launchAndReconcile(state)
@@ -288,7 +249,11 @@ function structuredAgentLaunchState(
   pendingStructuredLaunchesByIdentity.set(identity, state)
   notifyStructuredLaunchListeners()
   trackLaunchSettlement(state, state.promise)
-  trackLaunchFailureToast(state)
+  trackStructuredLaunchFailureToast(
+    structuredAgentLabel(state.intent.agent),
+    state.promise,
+    state.callers.refusalSettlement.promise
+  )
   return {
     state,
     caller

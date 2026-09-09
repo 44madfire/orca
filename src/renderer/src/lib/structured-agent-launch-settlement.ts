@@ -70,15 +70,19 @@ export async function settleStructuredAgentLaunch(
   }
   // Why: a holder, not a `let`: TS narrows a closure-assigned local to its initial null.
   const fallback: { result: StructuredAgentLegacyFallbackResult | null } = { result: null }
+  const legacyFallback = hooks.legacyFallback
   // Why: the claim resolves after the callback settles, so awaiting it below is what serialises
   // "refused" and "the legacy surface is up". The callback returns nothing so that wait ends at
-  // activation, not at the end of a legacy paste that may be minutes away.
-  const refusalFallback = launch.claimDefinitiveRefusalFallback(async () => {
-    if (!hooks.legacyFallback || isCancelled()) {
-      return
-    }
-    fallback.result = await hooks.legacyFallback()
-  })
+  // activation, not at the end of a legacy paste that may be minutes away. Without a hook there is
+  // nothing to claim: a claimed no-op reads to the launch layer as "a terminal was attempted".
+  const refusalFallback = legacyFallback
+    ? launch.claimDefinitiveRefusalFallback(async () => {
+        if (isCancelled()) {
+          return
+        }
+        fallback.result = await legacyFallback()
+      })
+    : null
   const cancelled = (): StructuredAgentLaunchSettlement => ({
     kind: 'cancelled',
     sessionId: launch.sessionId
@@ -99,6 +103,9 @@ export async function settleStructuredAgentLaunch(
       return cancelled()
     }
     if (error instanceof StructuredAgentSessionCreateRefusalError) {
+      if (!refusalFallback) {
+        return { kind: 'failed', error }
+      }
       const ran = await refusalFallback.then(
         (value) => value,
         (fallbackError: unknown) => ({ fallbackError })
