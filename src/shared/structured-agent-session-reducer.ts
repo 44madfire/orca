@@ -74,7 +74,8 @@ function backgroundTaskStatesEqual(
     (task, index) =>
       task.id === right.tasks?.[index]?.id &&
       task.kind === right.tasks[index]?.kind &&
-      task.description === right.tasks[index]?.description
+      task.description === right.tasks[index]?.description &&
+      task.stoppable === right.tasks[index]?.stoppable
   )
 }
 

@@ -13,8 +13,17 @@ function backgroundTaskLabel(task: AgentSessionBackgroundTask): string {
   return task.description || backgroundTaskKindLabel(task.kind)
 }
 
+/** Absent means stoppable: a host that predates the field published only rows
+ *  its stop could act on. Only an explicit `false` withholds the control. */
+function backgroundTaskStoppable(task: AgentSessionBackgroundTask): boolean {
+  return task.stoppable !== false
+}
+
 export function NativeChatBackgroundTasksStatus(props: {
   tasks: readonly AgentSessionBackgroundTask[]
+  /** Whether the host accepts a targeted stop at all. A row still withholds its
+   *  own button when the row itself reports it cannot be stopped — same rule as
+   *  `supportsStopAll`: never a button that cannot act. */
   supportsTaskStop: boolean
   /** False when the provider exposes no honest stop at all; the fallback
    *  control is hidden rather than offering a button that cannot act. */
@@ -75,12 +84,9 @@ export function NativeChatBackgroundTasksStatus(props: {
                       key={task.id}
                       className="flex min-w-0 items-center gap-2 text-foreground/80"
                     >
-                      <BackgroundTaskKindIcon
-                        kind={task.kind}
-                        className="text-muted-foreground"
-                      />
+                      <BackgroundTaskKindIcon kind={task.kind} className="text-muted-foreground" />
                       <span className="min-w-0 flex-1 break-words">{label}</span>
-                      {props.supportsTaskStop ? (
+                      {props.supportsTaskStop && backgroundTaskStoppable(task) ? (
                         <Button
                           type="button"
                           variant="ghost"

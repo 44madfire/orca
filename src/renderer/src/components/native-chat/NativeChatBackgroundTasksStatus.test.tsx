@@ -80,9 +80,7 @@ describe('NativeChatBackgroundTasksStatus row glyphs', () => {
     const monitorGlyph = glyphClassFor('monitor')
     cleanup()
     const { container } = render(<AgentStateDot state="monitoring" size="md" title={null} />)
-    const dotGlyph = lucideGlyphName(
-      container.querySelector('svg')?.getAttribute('class') ?? ''
-    )
+    const dotGlyph = lucideGlyphName(container.querySelector('svg')?.getAttribute('class') ?? '')
     expect(monitorGlyph).not.toBe('')
     expect(monitorGlyph).toBe(dotGlyph)
   })
@@ -120,6 +118,30 @@ describe('NativeChatBackgroundTasksStatus stop affordances', () => {
   it('falls back to a stop-all on a host that only accepts an untargeted stop', () => {
     renderStrip({ supportsTaskStop: false, supportsStopAll: true })
     expect(screen.getByLabelText('Stop background tasks')).toBeInTheDocument()
+  })
+
+  it('withholds a row stop the host reported it cannot act on', () => {
+    // Claude publishes foreground rows with `stoppable: false`: the session
+    // accepts targeted stops, but not for this row.
+    const onStop = vi.fn()
+    render(
+      <NativeChatBackgroundTasksStatus
+        tasks={[
+          { id: 'fore-1', kind: 'agent', description: 'in-turn subagent', stoppable: false },
+          { id: 'back-1', kind: 'agent', description: 'backgrounded subagent' }
+        ]}
+        supportsTaskStop
+        supportsStopAll
+        stoppingTaskIds={new Set()}
+        stoppingAll={false}
+        onStop={onStop}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+
+    expect(screen.getByText('in-turn subagent')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Stop in-turn subagent')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Stop backgrounded subagent')).toBeInTheDocument()
   })
 
   it('offers no stop at all when the provider exposes none', () => {

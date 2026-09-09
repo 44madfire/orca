@@ -55,8 +55,8 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(tracker.state).toEqual({
       state: 'monitoring',
       tasks: [
-        { id: 'agent-1', kind: 'agent' },
-        { id: 'agent-2', kind: 'agent' }
+        { id: 'agent-1', kind: 'agent', stoppable: false },
+        { id: 'agent-2', kind: 'agent', stoppable: false }
       ]
     })
     // The turn IS the outcome of work the provider marked foreground.
@@ -64,6 +64,29 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(tracker.state).toBeNull()
     // Foreground work is never stoppable through the background-task control.
     expect(tracker.stoppableTaskIds).toEqual([])
+  })
+
+  it('marks a foreground row not stoppable and leaves a backgrounded row alone', () => {
+    // `stopTask` has no foreground target, so the row must not offer a Stop that
+    // would silently do nothing. A backgrounded row stays untouched on the wire.
+    const tracker = new ClaudeBackgroundTaskTracker()
+    tracker.observe({ type: 'user' }, true)
+    tracker.observe(
+      system('task_started', {
+        task_id: 'fore-1',
+        task_type: 'local_agent',
+        is_backgrounded: false
+      })
+    )
+    tracker.observe(
+      system('task_started', { task_id: 'back-1', task_type: 'local_agent', is_backgrounded: true })
+    )
+
+    expect(tracker.state?.tasks).toEqual([
+      { id: 'fore-1', kind: 'agent', stoppable: false },
+      { id: 'back-1', kind: 'agent' }
+    ])
+    expect(tracker.stoppableTaskIds).toEqual(['back-1'])
   })
 
   it('uses an explicit background update for a foreground task and ignores progress alone', () => {
@@ -80,7 +103,7 @@ describe('ClaudeBackgroundTaskTracker', () => {
       tracker.observe(system('task_progress', { task_id: 'task-1', description: 'still working' }))
     ).toBe(false)
     // Live while the turn runs, then retired by that turn's `result`.
-    expect(tracker.state?.tasks).toEqual([{ id: 'task-1', kind: 'command' }])
+    expect(tracker.state?.tasks).toEqual([{ id: 'task-1', kind: 'command', stoppable: false }])
     tracker.observe(result())
     expect(tracker.state).toBeNull()
 

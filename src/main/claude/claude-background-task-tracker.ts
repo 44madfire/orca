@@ -265,6 +265,9 @@ export class ClaudeBackgroundTaskTracker {
       details.push({
         id,
         kind: task.kind,
+        // Foreground work is not a target `stopTask` accepts, so the row says so
+        // rather than drawing a Stop that would silently do nothing.
+        ...(task.backgrounded ? {} : { stoppable: false }),
         ...(task.description ? { description: task.description } : {})
       })
     }

@@ -60,6 +60,11 @@ export type AgentSessionBackgroundTask = {
   id: string
   kind: 'agent' | 'workflow' | 'command' | 'monitor' | 'unknown'
   description?: string
+  /** Whether this row's own stop can act on it. Absent means yes: every host
+   *  that predates this field published only backgrounded, stoppable rows, and
+   *  a client that read absence as "not stoppable" would hide a working control
+   *  on those hosts. A row the host cannot target sends `false`. */
+  stoppable?: boolean
 }
 
 export type AgentSessionBackgroundTaskState = {
