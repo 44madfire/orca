@@ -1,7 +1,7 @@
 import type { DaemonPtyAdapter } from './daemon-pty-adapter'
 import { combineUnsubscribes } from './combine-unsubscribes'
 import { shutdownDegradedFallbackSessions } from './degraded-daemon-fallback-shutdown'
-import { inspectPtyProviderProcess } from '../providers/pty-process-inspection'
+import type { PtyProcessInspectionOptions } from '../providers/pty-process-inspection'
 import type {
   IPtyProvider,
   PtyBackgroundStreamEvent,
@@ -15,6 +15,7 @@ import {
   adoptOwningProvider,
   attachDaemonOwnedSession,
   findDaemonAdapter,
+  inspectRoutedDaemonProcess,
   listProviderSessionIds
 } from './degraded-daemon-session-routing'
 import { DegradedDaemonFreshSpawnRouter } from './degraded-daemon-fresh-spawn-routing'
@@ -184,10 +185,9 @@ export class DegradedDaemonPtyProvider implements IPtyProvider {
   async getForegroundProcess(id: string): Promise<string | null> {
     return this.providerFor(id).getForegroundProcess(id)
   }
-  inspectProcess(id: string) {
-    return this.hasPty(id)
-      ? inspectPtyProviderProcess(this.providerFor(id), id)
-      : Promise.reject(new Error('terminal_gone'))
+  inspectProcess(id: string, options?: PtyProcessInspectionOptions) {
+    const routed = this.hasPty(id) ? this.providerFor(id) : null
+    return inspectRoutedDaemonProcess(routed, this.current, id, options)
   }
   async confirmForegroundProcess(id: string): Promise<string | null> {
     return this.providerFor(id).confirmForegroundProcess?.(id) ?? null

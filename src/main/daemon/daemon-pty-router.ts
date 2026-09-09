@@ -182,7 +182,7 @@ export class DaemonPtyRouter implements IPtyProvider {
     id: string,
     options?: { expectedIncarnationId?: string; steadyState?: boolean }
   ): Promise<PtyProcessInspection> {
-    return this.adapterForInspection(id).inspectProcess(id, options)
+    return this.adapterForInspection(id, options?.expectedIncarnationId).inspectProcess(id, options)
   }
 
   async confirmForegroundProcess(id: string): Promise<string | null> {
@@ -325,15 +325,25 @@ export class DaemonPtyRouter implements IPtyProvider {
     return this.sessionAdapters.get(sessionId) ?? this.current
   }
 
-  private adapterForInspection(sessionId: string): DaemonPtyAdapter {
+  private adapterForInspection(
+    sessionId: string,
+    expectedIncarnationId?: string
+  ): DaemonPtyAdapter {
     const adapter =
       this.sessionAdapters.get(sessionId) ??
       this.allAdapters().find((candidate) => candidate.hasPty(sessionId))
-    if (!adapter) {
+    if (adapter) {
+      this.sessionAdapters.set(sessionId, adapter)
+      return adapter
+    }
+    // An unclaimed id is exactly what a caller naming a remembered incarnation asks about: the
+    // session that died while this client was away, so no route survived. A daemon that never held
+    // it answers not-found, so routing the question cannot manufacture an exit. A caller that names
+    // no incarnation is an ordinary poll and must not borrow a route it never owned.
+    if (expectedIncarnationId === undefined) {
       throw new Error('terminal_gone')
     }
-    this.sessionAdapters.set(sessionId, adapter)
-    return adapter
+    return this.current
   }
 
   private allAdapters(): DaemonPtyAdapter[] {

@@ -22,7 +22,6 @@ import { createOrAttachTerminalSession } from './terminal-host-session-create'
 import { TerminalAttachCanceledError } from './daemon-errors'
 import { rejectOnAbort } from './terminal-attach-cancellation'
 import { randomUUID } from 'node:crypto'
-import { pruneRetiredPtyIncarnations } from './retired-pty-incarnations'
 import {
   inspectTerminalHostProcess,
   type TerminalHostProcessInspection
@@ -42,7 +41,6 @@ export type { CreateOrAttachOptions, CreateOrAttachResult } from './terminal-hos
 export type { TerminalHostOptions } from './terminal-host-options'
 
 const DEFAULT_MAX_TOMBSTONES = 1000
-const REMOTE_FOREGROUND_TOMBSTONE_RETENTION_MS = 2_000
 
 export class TerminalHost {
   private sessions = new Map<string, Session>()
@@ -61,10 +59,6 @@ export class TerminalHost {
   private readonly agentSessionGenerations = new TerminalHostAgentSessionGenerations()
   private readonly authorityGeneration = randomUUID()
   private observationEpoch = 0
-  private readonly retiredIncarnations = new Map<
-    string,
-    { incarnationId: string; code: number; expiresAt: number }
-  >()
 
   constructor(opts: TerminalHostOptions) {
     this.spawnSubprocess = opts.spawnSubprocess
@@ -124,15 +118,6 @@ export class TerminalHost {
               ? { reportReadinessEvent: this.reportReadinessEvent }
               : {}),
             onSessionExit: (sessionId, generation) => {
-              const session = this.sessions.get(sessionId)
-              if (session) {
-                pruneRetiredPtyIncarnations(this.retiredIncarnations)
-                this.retiredIncarnations.set(sessionId, {
-                  incarnationId: session.incarnationId,
-                  code: session.exitCode ?? 0,
-                  expiresAt: Date.now() + REMOTE_FOREGROUND_TOMBSTONE_RETENTION_MS
-                })
-              }
               this.agentSessionOwners.release(sessionId, generation)
               this.agentSessionGenerations.forget(sessionId, generation)
               this.reapSession(sessionId)
@@ -199,8 +184,14 @@ export class TerminalHost {
     if (!session || session.isAlive) {
       return
     }
+    // `broadcastExit` just fanned this exit out to the clients attached at that instant. With none
+    // attached nobody received it, so the (now emulator-free) record stays until a caller naming
+    // this exact incarnation is handed it -- see takeUndeliveredExit.
+    const delivered = session.hasAttachedClients
     session.dispose()
-    this.sessions.delete(sessionId)
+    if (delivered) {
+      this.sessions.delete(sessionId)
+    }
     this.onSessionReaped?.(sessionId)
   }
 
@@ -235,15 +226,11 @@ export class TerminalHost {
     sessionId: string,
     options?: { expectedIncarnationId?: string; steadyState?: boolean }
   ): Promise<TerminalHostProcessInspection> {
-    pruneRetiredPtyIncarnations(this.retiredIncarnations)
     const session = this.sessions.get(sessionId)
-    if (
-      (!session || !session.isAlive) &&
-      !(
-        (this.retiredIncarnations.get(sessionId)?.expiresAt ?? 0) > Date.now() &&
-        options?.expectedIncarnationId === this.retiredIncarnations.get(sessionId)?.incarnationId
-      )
-    ) {
+    const undeliveredExit = session?.isAlive
+      ? undefined
+      : this.takeUndeliveredExit(sessionId, options?.expectedIncarnationId)
+    if (!session?.isAlive && !undeliveredExit) {
       // Preserve the historical synchronous missing-session failure.
       throw new SessionNotFoundError(sessionId)
     }
@@ -254,10 +241,34 @@ export class TerminalHost {
         ? { expectedIncarnationId: options.expectedIncarnationId }
         : {}),
       ...(options?.steadyState === true ? { steadyState: true } : {}),
-      retiredIncarnation: this.retiredIncarnations.get(sessionId),
+      ...(undeliveredExit ? { undeliveredExit } : {}),
       authorityGeneration: this.authorityGeneration,
       nextObservationEpoch: () => ++this.observationEpoch
     })
+  }
+
+  /**
+   * The exit this session's owner never received, for the incarnation the caller named. Handing it
+   * over IS the delivery, so the record leaves with it and a later ask reads as not-found -- that
+   * caller already has the exit. A caller that names no incarnation, or a different one, proves
+   * nothing about this process and gets the ordinary missing-session failure
+   * (docs/reference/ssh-execution-boundary.md).
+   */
+  private takeUndeliveredExit(
+    sessionId: string,
+    expectedIncarnationId: string | undefined
+  ): { incarnationId: string; code: number } | undefined {
+    const session = this.sessions.get(sessionId)
+    if (
+      !session ||
+      session.isAlive ||
+      session.exitCode === null ||
+      session.incarnationId !== expectedIncarnationId
+    ) {
+      return undefined
+    }
+    this.sessions.delete(sessionId)
+    return { incarnationId: session.incarnationId, code: session.exitCode }
   }
 
   async confirmForegroundProcess(sessionId: string): Promise<string | null> {

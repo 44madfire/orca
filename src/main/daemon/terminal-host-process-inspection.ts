@@ -19,7 +19,8 @@ export type TerminalHostProcessInspection = {
   foregroundProcessEvidence?: RemoteForegroundEvidence
 }
 
-type RetiredIncarnation = { incarnationId: string; code: number; expiresAt: number }
+/** An observed exit the session's owner never received; the host matched the caller's incarnation. */
+type UndeliveredExit = { incarnationId: string; code: number }
 
 /**
  * Tick tiers for a POSIX pane. `cheap` forks `ps` without `tty=`/`command=` (11-38x cheaper)
@@ -34,18 +35,14 @@ export async function inspectTerminalHostProcess(args: {
   expectedIncarnationId?: string
   /** The caller is a self-correcting poll that only reads the process name, never evidence. */
   steadyState?: boolean
-  retiredIncarnation?: RetiredIncarnation
+  undeliveredExit?: UndeliveredExit
   authorityGeneration: string
   nextObservationEpoch: () => number
   onTier?: (tier: TerminalHostInspectionTier) => void
 }): Promise<TerminalHostProcessInspection> {
-  const { sessionId, session, expectedIncarnationId, retiredIncarnation } = args
+  const { sessionId, session, expectedIncarnationId, undeliveredExit } = args
   if (!session || !session.isAlive) {
-    if (
-      retiredIncarnation &&
-      retiredIncarnation.expiresAt > Date.now() &&
-      expectedIncarnationId === retiredIncarnation.incarnationId
-    ) {
+    if (undeliveredExit) {
       return {
         foregroundProcess: null,
         hasChildProcesses: false,
@@ -54,9 +51,9 @@ export async function inspectTerminalHostProcess(args: {
           observationEpoch: args.nextObservationEpoch(),
           capturedAgeMs: 0,
           ptyId: sessionId,
-          ptyIncarnationId: retiredIncarnation.incarnationId,
+          ptyIncarnationId: undeliveredExit.incarnationId,
           verdict: 'exited',
-          reason: `pty_exit_${retiredIncarnation.code}`
+          reason: `pty_exit_${undeliveredExit.code}`
         }
       }
     }
