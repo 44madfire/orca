@@ -1,5 +1,6 @@
 import type { AiVaultSession } from '../../shared/ai-vault-types'
 import type { ResumableSessionParseState } from './session-scanner-types'
+import type { SessionSidecarObservation } from './session-sidecar-stat'
 import type { TranscriptMessageChannel } from './session-transcript-channel'
 
 // Sized past the default recency cap (1000) plus the in-scope cap (2000) so a
@@ -21,6 +22,12 @@ export type SessionParseCacheEntry = {
   sizeBytes: number | null
   platform: NodeJS.Platform
   session: AiVaultSession | null
+  // What the sibling file looked like when `session` was built. Tracked apart
+  // from the transcript's key so each can go stale on its own.
+  sidecar?: SessionSidecarObservation
+  // The session the transcript alone produced, before any sibling was merged
+  // onto it. In-memory only: without it a sibling change costs one re-parse.
+  foldSession?: AiVaultSession | null
   resume: SessionParseResumePoint | null
 }
 
@@ -37,8 +44,10 @@ export function invalidateSessionParseCacheEntry(path: string): void {
 }
 
 // Persisted subset of a cache entry: the non-serializable `resume` parser
-// state is dropped (see session-parse-cache-persistence.ts).
-export type PersistedSessionParseCacheEntry = Omit<SessionParseCacheEntry, 'resume'>
+// state is dropped, and `foldSession` with it, so a restart pays one re-parse
+// for a session whose sibling moved rather than storing every row twice
+// (see session-parse-cache-persistence.ts).
+export type PersistedSessionParseCacheEntry = Omit<SessionParseCacheEntry, 'resume' | 'foldSession'>
 
 export function snapshotSessionParseCacheForPersistence(): [
   string,
@@ -50,7 +59,8 @@ export function snapshotSessionParseCacheForPersistence(): [
       mtimeMs: entry.mtimeMs,
       sizeBytes: entry.sizeBytes,
       platform: entry.platform,
-      session: entry.session
+      session: entry.session,
+      ...(entry.sidecar === undefined ? {} : { sidecar: entry.sidecar })
     }
   ])
 }
@@ -77,6 +87,9 @@ export function seedSessionParseCache(
       sizeBytes: entry.sizeBytes,
       platform: entry.platform,
       session: entry.session,
+      // Absent in files an older build wrote; `sidecarUnchanged` reads that as
+      // unknown, so such a row re-enriches on its first scan.
+      sidecar: entry.sidecar,
       resume: null
     })
   }

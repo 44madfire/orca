@@ -61,23 +61,22 @@ async function statRemoteCandidateFile(
   if (!file || !source.contentDependencyPath) {
     return file
   }
-  const dependency = await statRemoteSessionFile(
+  const sidecarPath = source.contentDependencyPath(path)
+  const sidecar = await statRemoteSessionFile(
     context.provider,
-    source.contentDependencyPath(path),
+    sidecarPath,
     source.agent,
     context.executionHostId,
     issues,
     { missingIsExpected: true, signal: context.signal }
   )
-  if (!dependency) {
-    return file
-  }
-  const mtimeMs = Math.max(file.mtimeMs, dependency.mtimeMs)
+  // Recorded beside the transcript's own stat, never folded into it: one key
+  // cannot mean both "the transcript grew" and "the sibling changed".
   return {
     ...file,
-    mtimeMs,
-    modifiedAt: new Date(mtimeMs).toISOString(),
-    sizeBytes: (file.sizeBytes ?? 0) + (dependency.sizeBytes ?? 0)
+    sidecar: sidecar
+      ? { path: sidecarPath, mtimeMs: sidecar.mtimeMs, sizeBytes: sidecar.sizeBytes ?? 0 }
+      : 'none'
   }
 }
 

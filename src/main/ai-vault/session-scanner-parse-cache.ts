@@ -18,6 +18,11 @@ import {
   type SessionParseCacheEntry
 } from './session-parse-cache-store'
 import type { TranscriptMessageSink } from './session-transcript-consumers'
+import { sidecarUnchanged } from './session-sidecar-stat'
+import {
+  enrichSessionFromSidecar,
+  sidecarEnrichesWithoutReparse
+} from './session-scanner-sidecar-enrichment'
 import {
   readResumableTranscript,
   readWholeTranscript,
@@ -49,7 +54,7 @@ function resumableStateFactoryFor(
       return (messages) =>
         createCodexSessionResumeState(candidate.file, candidate.codexHome, messages)
     case 'cursor':
-      return (messages) => createCursorSessionResumeState(candidate.file, true, messages)
+      return (messages) => createCursorSessionResumeState(candidate.file, messages)
     case 'copilot':
       return (messages) => createCopilotSessionResumeState(candidate.file, messages)
     case 'droid':
@@ -77,10 +82,6 @@ function resumableStateFactoryFor(
       return null
   }
 }
-
-// No stat can report it, so `unchanged` is always false for such an entry
-// while its resume point stays usable.
-export const UNMATCHABLE_MTIME_MS = -1
 
 export type SessionParseStats = TranscriptReadStats & {
   reused: number
@@ -120,13 +121,27 @@ async function parseCachedInLane(
   const { file } = candidate
   const entry = getSessionParseCacheEntry(file.path)
 
-  const unchanged =
+  const transcriptUnchanged =
     entry !== undefined &&
     entry.platform === platform &&
     entry.mtimeMs === file.mtimeMs &&
     (entry.sizeBytes === null || file.sizeBytes === undefined || entry.sizeBytes === file.sizeBytes)
-  if (unchanged) {
-    return reuseCachedSession(candidate, entry, stats)
+  if (transcriptUnchanged) {
+    if (sidecarUnchanged(entry.sidecar, file.sidecar)) {
+      return reuseCachedSession(candidate, entry, stats)
+    }
+    // Only the sibling moved. For an agent whose sibling just adds metadata,
+    // re-merge it onto the stored fold result; the transcript is not re-read.
+    if (sidecarEnrichesWithoutReparse(candidate) && entry.foldSession !== undefined) {
+      const enriched = await enrichSessionFromSidecar(candidate, entry.foldSession, platform)
+      entry.session = enriched.session
+      entry.sidecar = enriched.refused ? 'unknown' : file.sidecar
+      storeSessionParseCacheEntry(file.path, entry)
+      if (stats) {
+        stats.reused++
+      }
+      return entry.session
+    }
   }
 
   const stateFactory = resumableStateFactoryFor(candidate)
@@ -138,19 +153,20 @@ async function parseCachedInLane(
       stateFactory,
       stats
     })
-    // The parse is usable but its key may not be: a sibling the key covers went
-    // unread, so the real key would look current on the next scan. Keep the
-    // entry for its resume cursor under a key no stat can produce, or a distro
-    // that keeps refusing would force a full re-read of every rescan.
-    const trustworthyKey = read.cacheable && !file.contentDependencyRefused
+    const enriched = await enrichSessionFromSidecar(candidate, read.session, platform)
     storeSessionParseCacheEntry(file.path, {
-      mtimeMs: trustworthyKey ? file.mtimeMs : UNMATCHABLE_MTIME_MS,
+      mtimeMs: file.mtimeMs,
       sizeBytes: file.sizeBytes ?? null,
       platform,
-      session: read.session,
+      session: enriched.session,
+      // A refused sibling leaves the transcript's own work cached and resumable;
+      // only the sibling is recorded as unknown, so the next healthy scan
+      // re-merges it without re-reading the transcript.
+      sidecar: enriched.refused ? 'unknown' : file.sidecar,
+      foldSession: read.session,
       resume: read.resume
     })
-    return read.session
+    return enriched.session
   }
 
   const session = await readWholeTranscript({ candidate, platform, stats })
@@ -159,6 +175,9 @@ async function parseCachedInLane(
     sizeBytes: file.sizeBytes ?? null,
     platform,
     session,
+    // A whole-file parse reads the sibling itself, so a change to it re-parses.
+    sidecar: file.sidecar,
+    foldSession: session,
     resume: null
   })
   return session

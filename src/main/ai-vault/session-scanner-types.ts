@@ -6,6 +6,7 @@ import type {
 } from '../../shared/ai-vault-types'
 import type { ExecutionHostId } from '../../shared/execution-host'
 import type { TranscriptMessageSink } from './session-transcript-consumers'
+import type { SessionSidecarObservation } from './session-sidecar-stat'
 
 export type AiVaultScanOptions = {
   claudeProjectsDir?: string
@@ -55,16 +56,12 @@ export type FileWithMtime = {
   modifiedAt: string
   // Present when discovery statted the file; lets the parse cache detect
   // unchanged/truncated files without a second stat. Synthetic candidates
-  // such as OpenCode SQLite rows omit it. Includes a content dependency's size
-  // when the agent declares one, so it is a cache key, not a file length.
+  // such as OpenCode SQLite rows omit it. The transcript's own length: a byte
+  // offset into it may be compared against this directly.
   sizeBytes?: number
-  // How much of `sizeBytes` belongs to the content dependency rather than the
-  // transcript. A byte offset into the transcript may only be compared against
-  // `sizeBytes` minus this.
-  dependencySizeBytes?: number
-  // The dependency could not be statted this scan, so `sizeBytes` silently
-  // omits it and the resulting parse must not be cached under that key.
-  contentDependencyRefused?: boolean
+  // What discovery saw of the agent's sibling file, tracked apart from the
+  // transcript's own stat (see session-sidecar-stat.ts).
+  sidecar?: SessionSidecarObservation
   // Present when discovery can prove filesystem identity. Codex dual-root
   // scans use a multi-link inode to collapse only actual hardlink aliases.
   dev?: number
@@ -107,9 +104,6 @@ export type ResumableSessionParseState = {
   // Lets a parser terminate an excluded transcript without draining the file.
   shouldStop?(): boolean
   clone(): ResumableSessionParseState
-  // False when the last finalize could not read metadata the session needs, so
-  // its result must not be stored under a key that will look unchanged.
-  isCacheable?(): boolean
   // Refresh per-scan file metadata (mtime display string) without re-parsing.
   touchFile(file: FileWithMtime): void
   finalize(

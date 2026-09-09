@@ -73,32 +73,22 @@ export function cloneSessionAccumulator(accumulator: SessionAccumulator): Sessio
 // closure state (claude, codex) build their own ResumableSessionParseState.
 export function accumulatorFoldResumeState(
   accumulator: SessionAccumulator,
-  consumeRecordLine: (accumulator: SessionAccumulator, line: string) => void,
-  // Runs per finalize, for agents whose metadata lives in a sibling file the
-  // fold never sees; it may only fill fields the transcript left empty, and
-  // returns 'refused' when it could not read that file at all.
-  enrichBeforeFinalize?: (accumulator: SessionAccumulator) => Promise<'refused' | void>
+  consumeRecordLine: (accumulator: SessionAccumulator, line: string) => void
 ): ResumableSessionParseState {
-  let enrichmentRefused = false
   return {
-    isCacheable: () => !enrichmentRefused,
     consumeLine: (line) => consumeRecordLine(accumulator, line),
     clone: () =>
-      accumulatorFoldResumeState(
-        cloneSessionAccumulator(accumulator),
-        consumeRecordLine,
-        enrichBeforeFinalize
-      ),
+      accumulatorFoldResumeState(cloneSessionAccumulator(accumulator), consumeRecordLine),
     touchFile: (file) => {
       accumulator.modifiedAt = file.modifiedAt
     },
     // Finalize a snapshot: the live accumulator (and its preview array) keeps
     // accumulating appended lines after this session object is handed out.
-    finalize: async (platform, options) => {
-      const snapshot = cloneSessionAccumulator(accumulator)
-      enrichmentRefused = (await enrichBeforeFinalize?.(snapshot)) === 'refused'
-      return finalizeSession(snapshot, platform, options)
-    }
+    // A sibling file's metadata is merged onto this result by the parse cache,
+    // never into the fold, so re-merging it later starts from what the
+    // transcript alone said (see session-scanner-sidecar-enrichment.ts).
+    finalize: (platform, options) =>
+      finalizeSession(cloneSessionAccumulator(accumulator), platform, options)
   }
 }
 
@@ -118,7 +108,7 @@ export function finalizeSession(
   const title =
     accumulator.title ||
     accumulator.fallbackTitle ||
-    `${aiVaultAgentLabel(accumulator.agent)} ${sessionId.slice(0, 8)}`
+    generatedSessionTitle(accumulator.agent, sessionId)
 
   const executionHostId = options.executionHostId ?? LOCAL_EXECUTION_HOST_ID
 
@@ -157,6 +147,15 @@ export function finalizeSession(
     }),
     subagent: null
   }
+}
+
+/**
+ * The title a session gets when neither the transcript nor the agent named it.
+ * Exported so a later merge can tell "the fold found no title" from a real one
+ * without re-deriving the string (session-scanner-sidecar-enrichment.ts).
+ */
+export function generatedSessionTitle(agent: AiVaultAgent, sessionId: string): string {
+  return `${aiVaultAgentLabel(agent)} ${sessionId.slice(0, 8)}`
 }
 
 export function updateTimeline(accumulator: SessionAccumulator, timestamp: unknown): void {

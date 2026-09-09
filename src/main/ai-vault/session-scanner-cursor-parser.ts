@@ -23,7 +23,6 @@ import {
   extractString,
   parseJsonObject
 } from './session-scanner-values'
-import { readCursorChatMeta, wasCursorChatMetaRefused } from './session-scanner-cursor-chat-meta'
 
 type ParserSessionOptions = {
   executionHostId?: ExecutionHostId
@@ -53,8 +52,7 @@ export async function parseCursorSessionContent(
     file,
     lines: remoteSessionContentLines(content, signal),
     platform,
-    options,
-    enrichFromChatMeta: false
+    options
   })
 }
 
@@ -81,8 +79,6 @@ function consumeCursorRecordLine(accumulator: SessionAccumulator, line: string):
 
 export function createCursorSessionResumeState(
   file: FileWithMtime,
-  // Remote hosts stream transcript content only, with no sibling meta.json to read.
-  enrichFromChatMeta = true,
   messages?: TranscriptMessageSink
 ): ResumableSessionParseState {
   return accumulatorFoldResumeState(
@@ -92,27 +88,8 @@ export function createCursorSessionResumeState(
       sessionId: sessionIdFromFileName(file.path),
       messages
     }),
-    consumeCursorRecordLine,
-    enrichFromChatMeta ? (accumulator) => applyCursorChatMeta(accumulator, file.path) : undefined
+    consumeCursorRecordLine
   )
-}
-
-/** Fills only what the transcript never recorded; its own records always win. */
-async function applyCursorChatMeta(
-  accumulator: SessionAccumulator,
-  transcriptPath: string
-): Promise<'refused' | void> {
-  if (accumulator.cwd && accumulator.createdAt && accumulator.updatedAt && accumulator.title) {
-    return
-  }
-  const meta = await readCursorChatMeta(transcriptPath)
-  if (!meta) {
-    return wasCursorChatMetaRefused(transcriptPath) ? 'refused' : undefined
-  }
-  accumulator.title ??= meta.title
-  accumulator.cwd ??= meta.cwd
-  accumulator.createdAt ??= meta.createdAt
-  accumulator.updatedAt ??= meta.updatedAt
 }
 
 async function parseCursorSessionLines(args: {
@@ -120,14 +97,9 @@ async function parseCursorSessionLines(args: {
   lines: AsyncIterable<string> | Iterable<string>
   platform: NodeJS.Platform
   options?: ParserSessionOptions
-  enrichFromChatMeta?: boolean
   messages?: TranscriptMessageSink
 }): Promise<AiVaultSession | null> {
-  const state = createCursorSessionResumeState(
-    args.file,
-    args.enrichFromChatMeta ?? true,
-    args.messages
-  )
+  const state = createCursorSessionResumeState(args.file, args.messages)
   for await (const line of args.lines) {
     state.consumeLine(line)
   }

@@ -2,24 +2,11 @@ import { readTranscriptSlice } from '../native-chat/wsl-transcript-fs-access'
 import type { AiVaultSession } from '../../shared/ai-vault-types'
 import { parseAgentSessionFile, parserPublishesMessages } from './session-scanner-agent-parser'
 import { consumeCompleteJsonlLines } from './session-scanner-jsonl-reader'
-import type {
-  FileWithMtime,
-  ResumableSessionParseState,
-  SessionFileCandidate
-} from './session-scanner-types'
+import type { ResumableSessionParseState, SessionFileCandidate } from './session-scanner-types'
 import type { SessionParseResumePoint } from './session-parse-cache-store'
 import { TranscriptMessageChannel } from './session-transcript-channel'
 
 const NEWLINE_BYTE = 0x0a
-
-/**
- * The transcript's own length. `sizeBytes` is a cache key that also covers a
- * content dependency (Cursor's meta.json), so comparing a byte offset into the
- * transcript against it would tolerate a truncation the size of that sibling.
- */
-function transcriptSizeBytes(file: FileWithMtime): number | undefined {
-  return file.sizeBytes === undefined ? undefined : file.sizeBytes - (file.dependencySizeBytes ?? 0)
-}
 
 // Why: this layer owns reading a transcript and nothing else. It decides where
 // a read starts, drives the parser, publishes the decoded messages to every
@@ -40,8 +27,6 @@ export type ResumableTranscriptRead = {
   session: AiVaultSession | null
   /** The fold to resume from next time, and the channel bound to it. */
   resume: SessionParseResumePoint
-  /** False when the parse missed metadata it needed; the result must not be cached. */
-  cacheable: boolean
 }
 
 /**
@@ -58,11 +43,10 @@ export async function readResumableTranscript(args: {
 }): Promise<ResumableTranscriptRead> {
   const { file } = args.candidate
   const resume = args.resume
-  const transcriptSize = transcriptSizeBytes(file)
   const canResume =
     resume !== null &&
-    typeof transcriptSize === 'number' &&
-    transcriptSize >= resume.byteOffset &&
+    typeof file.sizeBytes === 'number' &&
+    file.sizeBytes >= resume.byteOffset &&
     (resume.byteOffset === 0 || (await endsWithNewlineAt(file.path, resume.byteOffset)))
 
   // Clone before consuming: a failed read must not corrupt the cached state,
@@ -119,8 +103,7 @@ export async function readResumableTranscript(args: {
     channel.finishRead({ session, byteOffset: readResult.consumedThrough, incomplete: false })
     return {
       session,
-      resume: { state, byteOffset: readResult.consumedThrough, channel },
-      cacheable: displayState.isCacheable?.() ?? true
+      resume: { state, byteOffset: readResult.consumedThrough, channel }
     }
   } catch (error) {
     channel.finishRead({ session: null, byteOffset: startOffset, incomplete: true })
@@ -139,17 +122,16 @@ export async function readWholeTranscript(args: {
   stats?: TranscriptReadStats
 }): Promise<AiVaultSession | null> {
   const { file } = args.candidate
-  const transcriptSize = transcriptSizeBytes(file) ?? 0
   if (args.stats) {
     args.stats.fullParses++
-    args.stats.bytesRead += transcriptSize
+    args.stats.bytesRead += file.sizeBytes ?? 0
   }
   const publishes = parserPublishesMessages(args.candidate)
   const channel = new TranscriptMessageChannel()
   channel.beginRead({ candidate: args.candidate, mode: 'replace', previousByteOffset: 0 })
   try {
     const session = await parseAgentSessionFile(args.candidate, args.platform, channel)
-    channel.finishRead({ session, byteOffset: transcriptSize, incomplete: !publishes })
+    channel.finishRead({ session, byteOffset: file.sizeBytes ?? 0, incomplete: !publishes })
     return session
   } catch (error) {
     channel.finishRead({ session: null, byteOffset: 0, incomplete: true })

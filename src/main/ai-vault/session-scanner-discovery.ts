@@ -1,6 +1,7 @@
 import type { Dirent } from 'node:fs'
 import { extname, join } from 'node:path'
 import { SessionNewestFiles } from './session-newest-files'
+import type { SessionSidecarObservation } from './session-sidecar-stat'
 import type { AiVaultAgent, AiVaultScanIssue } from '../../shared/ai-vault-types'
 import { wslGatedReaddir, wslGatedStat } from '../native-chat/wsl-transcript-fs-access'
 import { WslTranscriptFsError } from '../native-chat/wsl-transcript-fs-gate'
@@ -19,7 +20,7 @@ export async function discoverFiles(args: {
   directoryPredicate?: (name: string, depth: number) => boolean
 }): Promise<SessionFileDiscovery> {
   const files = new SessionNewestFiles(args.limit)
-  let refusedDependency = false
+  let refusedSidecar = false
   try {
     await forEachSessionFile(
       args.rootDir,
@@ -33,27 +34,24 @@ export async function discoverFiles(args: {
       async (path) => {
         try {
           const fileStat = await wslGatedStat(path, 'scan')
-          const dependencyPath = await args.contentDependencyPath?.(path)
-          const dependencyStat = await optionalContentDependencyStat(dependencyPath)
-          if (dependencyStat === 'refused' && !refusedDependency) {
+          const sidecarPath = await args.contentDependencyPath?.(path)
+          const sidecar = await observeSessionSidecar(sidecarPath)
+          if (sidecar === 'unknown' && !refusedSidecar) {
             // One issue per root: a refused sibling is a property of the tree,
             // not of each transcript that happens to point at it.
-            refusedDependency = true
+            refusedSidecar = true
             recordSessionScanIssue(args.issues, {
               agent: args.agent,
-              path: dependencyPath ?? args.rootDir,
+              path: sidecarPath ?? args.rootDir,
               message: 'Session metadata could not be read this scan.'
             })
           }
-          const dependency = dependencyStat === 'refused' ? null : dependencyStat
-          const mtimeMs = Math.max(fileStat.mtimeMs, dependency?.mtimeMs ?? 0)
           files.add({
             path,
-            mtimeMs,
-            modifiedAt: new Date(mtimeMs).toISOString(),
-            sizeBytes: fileStat.size + (dependency?.size ?? 0),
-            dependencySizeBytes: dependency?.size,
-            ...(dependencyStat === 'refused' ? { contentDependencyRefused: true } : {}),
+            mtimeMs: fileStat.mtimeMs,
+            modifiedAt: new Date(fileStat.mtimeMs).toISOString(),
+            sizeBytes: fileStat.size,
+            sidecar,
             dev: fileStat.dev,
             ino: fileStat.ino,
             nlink: fileStat.nlink
@@ -86,24 +84,20 @@ export async function discoverFiles(args: {
 
 /**
  * A refused sibling stat is not "no sibling": it must not take the transcript
- * down with it, and it must not silently produce a cache key that omits the
- * sibling and then looks current forever. Report it as `refused` so the caller
- * lists the file, notes the tree once, and marks the key untrustworthy.
+ * down with it, and it must not read as absent either, or the parse cache would
+ * treat the session as current forever. Report it as `unknown`.
  */
-async function optionalContentDependencyStat(
+async function observeSessionSidecar(
   filePath: string | undefined
-): Promise<{ mtimeMs: number; size: number } | 'refused' | null> {
+): Promise<SessionSidecarObservation> {
   if (!filePath) {
-    return null
+    return 'none'
   }
   try {
     const fileStat = await wslGatedStat(filePath, 'scan')
-    return { mtimeMs: fileStat.mtimeMs, size: fileStat.size }
+    return { path: filePath, mtimeMs: fileStat.mtimeMs, sizeBytes: fileStat.size }
   } catch (error) {
-    if (error instanceof WslTranscriptFsError) {
-      return 'refused'
-    }
-    return null
+    return error instanceof WslTranscriptFsError ? 'unknown' : 'none'
   }
 }
 

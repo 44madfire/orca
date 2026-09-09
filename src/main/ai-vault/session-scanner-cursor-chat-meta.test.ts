@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -55,12 +55,8 @@ import {
   resetCursorChatMetaIndexCacheForTests,
   withCursorChatMetaScan
 } from './session-scanner-cursor-chat-meta'
-import {
-  createCursorSessionResumeState,
-  parseCursorSessionContent,
-  parseCursorSessionFile
-} from './session-scanner-cursor-parser'
-import type { AiVaultScanIssue } from '../../shared/ai-vault-types'
+import { parseCursorSessionContent } from './session-scanner-cursor-parser'
+import type { AiVaultScanIssue, AiVaultSession } from '../../shared/ai-vault-types'
 import { AI_VAULT_AGENT_SOURCES } from './session-scanner-agent-sources'
 import { discoverFiles } from './session-scanner-discovery'
 import { scanAiVaultSessions } from './session-scanner'
@@ -68,12 +64,17 @@ import {
   createSessionParseStats,
   parseAgentSessionFileCached,
   resetSessionParseCacheForTests,
-  UNMATCHABLE_MTIME_MS
+  seedSessionParseCache,
+  snapshotSessionParseCacheForPersistence,
+  type SessionParseStats
 } from './session-scanner-parse-cache'
-import { getSessionParseCacheEntry } from './session-parse-cache-store'
-import { appendFile, stat, truncate } from 'node:fs/promises'
+import {
+  getSessionParseCacheEntry,
+  type PersistedSessionParseCacheEntry
+} from './session-parse-cache-store'
 import { isolatedScanRoots } from './session-scanner-test-fixtures'
-import type { FileWithMtime, SessionFileDiscovery } from './session-scanner-types'
+import type { FileWithMtime } from './session-scanner-types'
+import type { SessionSidecarStat } from './session-sidecar-stat'
 
 // Cursor's real meta.json keys (~/.cursor/chats/<md5 of cwd>/<uuid>/meta.json, 2026-09).
 type CursorMetaFixture = {
@@ -231,111 +232,34 @@ describe('cursor chat meta', () => {
   })
 })
 
-describe('cursor discovery meta dependency', () => {
-  it('folds meta.json into candidate freshness so a rewrite invalidates the parse cache', async () => {
-    const cursorHome = await createCursorHome()
-    const metaPath = await writeChatMeta(cursorHome, 'workspace-hash', 'chat-7')
-    await writeTranscript(cursorHome, 'slug', 'chat-7', [])
-    const issues: AiVaultScanIssue[] = []
-    const discover = (): Promise<SessionFileDiscovery> =>
-      discoverFiles({
-        rootDir: join(cursorHome, 'projects'),
-        limit: 10,
-        agent: 'cursor',
-        issues,
-        extensions: [...AI_VAULT_AGENT_SOURCES.cursor.extensions],
-        filePredicate: AI_VAULT_AGENT_SOURCES.cursor.filePredicate,
-        contentDependencyPath: AI_VAULT_AGENT_SOURCES.cursor.contentDependencyPath
-      })
-
-    const before = (await discover()).files[0]
-    const future = new Date(Date.now() + 10_000)
-    await utimes(metaPath, future, future)
-    const after = (await discover()).files[0]
-
-    expect(after?.mtimeMs).toBeGreaterThan(before?.mtimeMs ?? 0)
-    expect(issues).toEqual([])
+async function cursorCandidate(cursorHome: string): Promise<FileWithMtime> {
+  const issues: AiVaultScanIssue[] = []
+  const discovery = await discoverFiles({
+    rootDir: join(cursorHome, 'projects'),
+    limit: 10,
+    agent: 'cursor',
+    issues,
+    extensions: [...AI_VAULT_AGENT_SOURCES.cursor.extensions],
+    filePredicate: AI_VAULT_AGENT_SOURCES.cursor.filePredicate,
+    contentDependencyPath: AI_VAULT_AGENT_SOURCES.cursor.contentDependencyPath
   })
-})
+  return discovery.files[0]
+}
 
-describe('cursor parser chat meta fallback', () => {
-  it('fills cwd, timestamps and title from meta.json', async () => {
-    const cursorHome = await createCursorHome()
-    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-2', { title: 'Named From Meta' })
-    const transcriptPath = await writeTranscript(cursorHome, 'slug', 'chat-2', [
-      JSON.stringify({ role: 'assistant', message: { content: 'hello' } })
-    ])
-
-    const session = await parseCursorSessionFile(fileWithMtime(transcriptPath), 'darwin')
-
-    expect(session?.cwd).toBe('/private/tmp/workspace')
-    expect(session?.title).toBe('Named From Meta')
-    expect(session?.createdAt).toBe(new Date(CREATED_AT_MS).toISOString())
-    expect(session?.updatedAt).toBe(new Date(UPDATED_AT_MS).toISOString())
-  })
-
-  it('keeps a transcript title and timestamps over meta.json', async () => {
-    const cursorHome = await createCursorHome()
-    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-3', { title: 'Meta Title' })
-    const transcriptPath = await writeTranscript(cursorHome, 'slug', 'chat-3', [
-      JSON.stringify({
-        role: 'user',
-        message: { content: 'transcript first prompt' },
-        timestamp: '2026-01-01T00:00:00.000Z'
-      })
-    ])
-
-    const session = await parseCursorSessionFile(fileWithMtime(transcriptPath), 'darwin')
-
-    expect(session?.title).toBe('transcript first prompt')
-    expect(session?.createdAt).toBe('2026-01-01T00:00:00.000Z')
-    // cwd is never in the transcript, so it still comes from meta.json.
-    expect(session?.cwd).toBe('/private/tmp/workspace')
-  })
-
-  it('builds the resume command from the meta.json cwd', async () => {
-    const cursorHome = await createCursorHome()
-    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-4', { cwd: '/repo/from-meta' })
-    const transcriptPath = await writeTranscript(cursorHome, 'slug', 'chat-4', [
-      JSON.stringify({ role: 'user', message: { content: 'hi' } })
-    ])
-
-    const session = await parseCursorSessionFile(fileWithMtime(transcriptPath), 'darwin')
-
-    expect(session?.resumeCommand).toContain('/repo/from-meta')
-  })
-
-  it('leaves remote content parses to the transcript alone', async () => {
-    const cursorHome = await createCursorHome()
-    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-5', { title: 'Meta Title' })
-    const transcriptPath = await writeTranscript(cursorHome, 'slug', 'chat-5', [])
-
-    const session = await parseCursorSessionContent(
-      fileWithMtime(transcriptPath),
-      `${JSON.stringify({ role: 'assistant', message: { content: 'remote' } })}\n`,
-      'linux'
+/** The production path: the parse cache owns the sidecar merge, not the parser. */
+function parseCursorCached(
+  file: FileWithMtime,
+  stats: SessionParseStats = createSessionParseStats()
+): Promise<{ session: AiVaultSession | null; stats: SessionParseStats }> {
+  return withCursorChatMetaScan(async () => {
+    const session = await parseAgentSessionFileCached(
+      { agent: 'cursor', file, codexHome: null },
+      'darwin',
+      stats
     )
-
-    expect(session?.cwd).toBeNull()
-    expect(session?.title).not.toBe('Meta Title')
+    return { session, stats }
   })
-
-  it('applies the fallback on every finalize of a resumed parse', async () => {
-    const cursorHome = await createCursorHome()
-    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-6', { title: 'Resumed Meta' })
-    const transcriptPath = await writeTranscript(cursorHome, 'slug', 'chat-6', [])
-
-    const state = createCursorSessionResumeState(fileWithMtime(transcriptPath))
-    state.consumeLine(JSON.stringify({ role: 'assistant', message: { content: 'first' } }))
-    const first = await state.finalize('darwin')
-    state.consumeLine(JSON.stringify({ role: 'assistant', message: { content: 'second' } }))
-    const second = await state.finalize('darwin')
-
-    expect(first?.cwd).toBe('/private/tmp/workspace')
-    expect(second?.title).toBe('Resumed Meta')
-    expect(second?.messageCount).toBe(2)
-  })
-})
+}
 
 async function writeCursorScanFixture(chatIds: string[]): Promise<{
   cursorHome: string
@@ -358,6 +282,146 @@ async function writeCursorScanFixture(chatIds: string[]): Promise<{
   }
 }
 
+describe('cursor discovery sidecar observation', () => {
+  it('records meta.json beside the transcript stat instead of folding it in', async () => {
+    const cursorHome = await createCursorHome()
+    const metaPath = await writeChatMeta(cursorHome, 'workspace-hash', 'chat-7')
+    const transcriptPath = await writeTranscript(cursorHome, 'slug', 'chat-7', [])
+
+    const before = await cursorCandidate(cursorHome)
+    const future = new Date(Date.now() + 10_000)
+    await utimes(metaPath, future, future)
+    const after = await cursorCandidate(cursorHome)
+
+    // The transcript's own key is untouched by a sibling rewrite.
+    const transcriptStat = await stat(transcriptPath)
+    expect(after.mtimeMs).toBe(transcriptStat.mtimeMs)
+    expect(after.sizeBytes).toBe(transcriptStat.size)
+    expect(after.mtimeMs).toBe(before.mtimeMs)
+    // The sibling is observed separately, and it did move.
+    expect(before.sidecar).toMatchObject({ path: metaPath })
+    expect(after.sidecar).toMatchObject({ path: metaPath })
+    expect((after.sidecar as SessionSidecarStat).mtimeMs).toBeGreaterThan(
+      (before.sidecar as SessionSidecarStat).mtimeMs
+    )
+  })
+})
+
+describe('cursor sidecar enrichment', () => {
+  it('fills cwd, timestamps and title from meta.json', async () => {
+    const cursorHome = await createCursorHome()
+    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-2', { title: 'Named From Meta' })
+    await writeTranscript(cursorHome, 'slug', 'chat-2', [
+      JSON.stringify({ role: 'assistant', message: { content: 'hello' } })
+    ])
+    resetSessionParseCacheForTests()
+
+    const { session } = await parseCursorCached(await cursorCandidate(cursorHome))
+
+    expect(session?.cwd).toBe('/private/tmp/workspace')
+    expect(session?.title).toBe('Named From Meta')
+    expect(session?.createdAt).toBe(new Date(CREATED_AT_MS).toISOString())
+    expect(session?.updatedAt).toBe(new Date(UPDATED_AT_MS).toISOString())
+  })
+
+  it('keeps a transcript title and timestamps over meta.json', async () => {
+    const cursorHome = await createCursorHome()
+    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-3', { title: 'Meta Title' })
+    await writeTranscript(cursorHome, 'slug', 'chat-3', [
+      JSON.stringify({
+        role: 'user',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        message: { content: 'transcript first prompt' }
+      })
+    ])
+    resetSessionParseCacheForTests()
+
+    const { session } = await parseCursorCached(await cursorCandidate(cursorHome))
+
+    expect(session?.title).toBe('transcript first prompt')
+    expect(session?.createdAt).toBe('2026-01-01T00:00:00.000Z')
+    // cwd is never in the transcript, so it still comes from meta.json.
+    expect(session?.cwd).toBe('/private/tmp/workspace')
+  })
+
+  it('builds the resume command from the meta.json cwd', async () => {
+    const cursorHome = await createCursorHome()
+    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-4', { cwd: '/repo/from-meta' })
+    await writeTranscript(cursorHome, 'slug', 'chat-4', [
+      JSON.stringify({ role: 'user', message: { content: 'hi' } })
+    ])
+    resetSessionParseCacheForTests()
+
+    const { session } = await parseCursorCached(await cursorCandidate(cursorHome))
+
+    expect(session?.resumeCommand).toContain('/repo/from-meta')
+  })
+
+  it('leaves remote content parses to the transcript alone', async () => {
+    const cursorHome = await createCursorHome()
+    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-5', { title: 'Meta Title' })
+    const transcriptPath = await writeTranscript(cursorHome, 'slug', 'chat-5', [])
+
+    const session = await parseCursorSessionContent(
+      fileWithMtime(transcriptPath),
+      `${JSON.stringify({ role: 'assistant', message: { content: 'remote' } })}\n`,
+      'linux'
+    )
+
+    expect(session?.cwd).toBeNull()
+    expect(session?.title).not.toBe('Meta Title')
+  })
+
+  it('re-enriches without a parse when only the sidecar is rewritten', async () => {
+    const cursorHome = await createCursorHome()
+    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-8', { cwd: '/repo/first' })
+    await writeTranscript(cursorHome, 'slug', 'chat-8', [
+      JSON.stringify({ role: 'user', message: { content: 'hi' } })
+    ])
+    resetSessionParseCacheForTests()
+    await parseCursorCached(await cursorCandidate(cursorHome))
+
+    const future = new Date(Date.now() + 10_000)
+    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-8', { cwd: '/repo/second' })
+    await utimes(join(cursorHome, 'chats', 'workspace-hash', 'chat-8', 'meta.json'), future, future)
+
+    const { session, stats } = await parseCursorCached(await cursorCandidate(cursorHome))
+
+    // The transcript is not re-read: the merge runs over the stored fold result.
+    expect(stats.reused).toBe(1)
+    expect(stats.fullParses).toBe(0)
+    expect(stats.incremental).toBe(0)
+    // A rewritten cwd REPLACES the merged one; `??=` on the cached session could
+    // never do this, because the cached cwd is already non-null.
+    expect(session?.cwd).toBe('/repo/second')
+    expect(session?.resumeCommand).toContain('/repo/second')
+  })
+
+  it('treats a persisted entry with no sidecar as unknown and enriches once', async () => {
+    const cursorHome = await createCursorHome()
+    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-9', { cwd: '/repo/persisted' })
+    await writeTranscript(cursorHome, 'slug', 'chat-9', [
+      JSON.stringify({ role: 'user', message: { content: 'hi' } })
+    ])
+    resetSessionParseCacheForTests()
+    await parseCursorCached(await cursorCandidate(cursorHome))
+
+    // What a build older than the sidecar field wrote: no such key.
+    const persisted = snapshotSessionParseCacheForPersistence().map(
+      ([path, entry]): [string, PersistedSessionParseCacheEntry] => {
+        const { sidecar: _sidecar, ...rest } = entry
+        return [path, rest]
+      }
+    )
+    resetSessionParseCacheForTests()
+    seedSessionParseCache(persisted)
+
+    const { session, stats } = await parseCursorCached(await cursorCandidate(cursorHome))
+    expect(stats.reused).toBe(0)
+    expect(session?.cwd).toBe('/repo/persisted')
+  })
+})
+
 describe('cursor chat meta scan failures', () => {
   it('lists cursor sessions without metadata when the chats tree is refused, then heals', async () => {
     const { cursorHome, scanOptions } = await writeCursorScanFixture(['chat-a', 'chat-b'])
@@ -373,7 +437,6 @@ describe('cursor chat meta scan failures', () => {
     expect(refused.issues[0].path).toBe(join(cursorHome, 'chats'))
     expect(refused.issues[0].agent).toBe('cursor')
 
-    // The refused scan must not leave a metadata-less entry that looks unchanged.
     const healed = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
     expect(healed.issues).toEqual([])
     expect(
@@ -384,142 +447,34 @@ describe('cursor chat meta scan failures', () => {
     ).toEqual(['/tmp/ws-chat-a', '/tmp/ws-chat-b'])
   })
 
-  it('does not cache an un-enriched session when only its meta.json read is refused', async () => {
-    const { cursorHome, scanOptions } = await writeCursorScanFixture(['chat-a', 'chat-b'])
+  it('re-enriches after a refused meta.json read without losing the resume cursor', async () => {
+    const { scanOptions } = await writeCursorScanFixture(['chat-a'])
     resetSessionParseCacheForTests()
 
-    // Discovery stats meta.json fine, so the cache key already covers it; only
-    // the parse-time read is refused.
     failMetaJsonReads = true
     const refused = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
-    const refusedCursor = refused.sessions.filter((session) => session.agent === 'cursor')
-    expect(refusedCursor).toHaveLength(2)
-    expect(refusedCursor.map((session) => session.cwd)).toEqual([null, null])
+    const listed = refused.sessions.find((session) => session.agent === 'cursor')
+    expect(listed?.cwd).toBeNull()
     expect(refused.issues).toHaveLength(1)
-    expect(refused.issues[0].path).toBe(join(cursorHome, 'chats'))
-    // The un-enriched parse is kept only under an unmatchable key.
-    expect(
-      refused.sessions
-        .filter((session) => session.agent === 'cursor')
-        .map((session) => getSessionParseCacheEntry(session.filePath)?.mtimeMs)
-    ).toEqual([UNMATCHABLE_MTIME_MS, UNMATCHABLE_MTIME_MS])
+
+    // The sibling alone is unknown; the transcript's work and its resume point
+    // are kept, so the next healthy scan merges without re-reading bytes.
+    const entry = getSessionParseCacheEntry(listed?.filePath ?? '')
+    expect(entry?.sidecar).toBe('unknown')
+    expect(entry?.resume).not.toBeNull()
 
     failMetaJsonReads = false
-    failMetaJsonStats = false
     const healed = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
     expect(healed.issues).toEqual([])
-    expect(
-      healed.sessions
-        .filter((session) => session.agent === 'cursor')
-        .map((session) => session.cwd)
-        .sort()
-    ).toEqual(['/tmp/ws-chat-a', '/tmp/ws-chat-b'])
-  })
-
-  it('reads the chats root once per scan across discovery and parse', async () => {
-    const { scanOptions } = await writeCursorScanFixture(['chat-a', 'chat-b', 'chat-c'])
-    resetSessionParseCacheForTests()
-    chatsRootReads = 0
-
-    const result = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
-
-    expect(result.sessions.filter((session) => session.agent === 'cursor')).toHaveLength(3)
-    expect(chatsRootReads).toBe(1)
-  })
-})
-
-describe('cursor chat meta cache keys', () => {
-  async function cursorCandidate(cursorHome: string): Promise<FileWithMtime> {
-    const issues: AiVaultScanIssue[] = []
-    const discovery = await discoverFiles({
-      rootDir: join(cursorHome, 'projects'),
-      limit: 10,
-      agent: 'cursor',
-      issues,
-      extensions: [...AI_VAULT_AGENT_SOURCES.cursor.extensions],
-      filePredicate: AI_VAULT_AGENT_SOURCES.cursor.filePredicate,
-      contentDependencyPath: AI_VAULT_AGENT_SOURCES.cursor.contentDependencyPath
-    })
-    return discovery.files[0]
-  }
-
-  function parseCursor(file: FileWithMtime, stats = createSessionParseStats()) {
-    return withCursorChatMetaScan(async () => {
-      await parseAgentSessionFileCached({ agent: 'cursor', file, codexHome: null }, 'darwin', stats)
-      return stats
-    })
-  }
-
-  async function writeOneCursorChat(): Promise<{ cursorHome: string; transcriptPath: string }> {
-    const cursorHome = await createCursorHome()
-    // A padded title makes meta.json larger than one transcript line.
-    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-key', { title: 'x'.repeat(400) })
-    const transcriptPath = await writeTranscript(
-      cursorHome,
-      'slug',
-      'chat-key',
-      [1, 2, 3].map((index) =>
-        JSON.stringify({
-          role: 'user',
-          message: { content: [{ type: 'text', text: `ask ${index}` }] }
-        })
-      )
+    expect(healed.sessions.find((session) => session.agent === 'cursor')?.cwd).toBe(
+      '/tmp/ws-chat-a'
     )
-    return { cursorHome, transcriptPath }
-  }
-
-  it('re-reads a transcript truncated by less than its meta.json size', async () => {
-    const { cursorHome, transcriptPath } = await writeOneCursorChat()
-    resetSessionParseCacheForTests()
-    await parseCursor(await cursorCandidate(cursorHome))
-
-    const metaSize = (
-      await stat(join(cursorHome, 'chats', 'workspace-hash', 'chat-key', 'meta.json'))
-    ).size
-    const transcriptSize = (await stat(transcriptPath)).size
-    // Inside the window where the folded meta.json size hides the truncation.
-    const truncatedTo = transcriptSize - 20
-    expect(metaSize).toBeGreaterThan(20)
-    await truncate(transcriptPath, truncatedTo)
-
-    const stats = await parseCursor(await cursorCandidate(cursorHome))
-    expect(stats.incremental).toBe(0)
-    expect(stats.fullParses).toBe(1)
-  })
-
-  it('keeps the resume cursor when a refused meta.json read poisons the key', async () => {
-    const { cursorHome, transcriptPath } = await writeOneCursorChat()
-    resetSessionParseCacheForTests()
-    await parseCursor(await cursorCandidate(cursorHome))
-
-    // A cache hit never reads meta.json, so the refusal needs a changed file.
-    await appendFile(
-      transcriptPath,
-      `${JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: 'ask 4' }] } })}\n`
-    )
-    failMetaJsonReads = true
-    const refused = await parseCursor(await cursorCandidate(cursorHome))
-    expect(refused.incremental).toBe(1)
-
-    // Pin the mechanism, not just its effect: the entry is kept under a key no
-    // stat can produce, and it still carries the fold to resume from.
-    const poisoned = getSessionParseCacheEntry(transcriptPath)
-    expect(poisoned?.mtimeMs).toBe(UNMATCHABLE_MTIME_MS)
-    expect(poisoned?.resume).not.toBeNull()
-
-    // So the next healthy scan re-reads, but only the appended bytes.
-    failMetaJsonReads = false
-    const healed = await parseCursor(await cursorCandidate(cursorHome))
-    expect(healed.incremental).toBe(1)
-    expect(healed.fullParses).toBe(0)
   })
 
   it('lists a cursor session whose meta.json stat is refused instead of dropping it', async () => {
     const { scanOptions } = await writeCursorScanFixture(['chat-a'])
     resetSessionParseCacheForTests()
 
-    // Only the stat is refused, so the parse still reads meta.json; what the
-    // refusal costs is the cache key, which now omits that sibling.
     failMetaJsonStats = true
     const refused = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
     expect(refused.sessions.filter((session) => session.agent === 'cursor')).toHaveLength(1)
@@ -532,5 +487,40 @@ describe('cursor chat meta cache keys', () => {
     expect(healed.sessions.find((session) => session.agent === 'cursor')?.cwd).toBe(
       '/tmp/ws-chat-a'
     )
+  })
+
+  it('reads the chats root once per scan across discovery and parse', async () => {
+    const { scanOptions } = await writeCursorScanFixture(['chat-a', 'chat-b', 'chat-c'])
+    resetSessionParseCacheForTests()
+    chatsRootReads = 0
+
+    const result = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
+
+    expect(result.sessions.filter((session) => session.agent === 'cursor')).toHaveLength(3)
+    expect(chatsRootReads).toBe(1)
+  })
+
+  it('resumes an appended transcript after a refused sidecar scan', async () => {
+    const cursorHome = await createCursorHome()
+    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-r', { cwd: '/repo/resume' })
+    const transcriptPath = await writeTranscript(cursorHome, 'slug', 'chat-r', [
+      JSON.stringify({ role: 'user', message: { content: 'one' } })
+    ])
+    resetSessionParseCacheForTests()
+    await parseCursorCached(await cursorCandidate(cursorHome))
+
+    await appendFile(
+      transcriptPath,
+      `${JSON.stringify({ role: 'user', message: { content: 'two' } })}\n`
+    )
+    failMetaJsonReads = true
+    const { stats: refusedStats } = await parseCursorCached(await cursorCandidate(cursorHome))
+    expect(refusedStats.incremental).toBe(1)
+
+    failMetaJsonReads = false
+    const { session, stats } = await parseCursorCached(await cursorCandidate(cursorHome))
+    expect(stats.reused).toBe(1)
+    expect(stats.fullParses).toBe(0)
+    expect(session?.cwd).toBe('/repo/resume')
   })
 })
