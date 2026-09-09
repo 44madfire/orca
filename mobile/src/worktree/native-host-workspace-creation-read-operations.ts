@@ -75,7 +75,7 @@ export function nativeHostWorkspaceCreationReadOperations(
       const result = await successfulResult<{ state?: SshConnectionState | null }>(
         client.sendRequest('ssh.getState', { targetId })
       )
-      return result.state ?? disconnectedSshState(targetId)
+      return result.state ?? null
     },
     async connectSsh(targetId) {
       const result = await successfulResult<{ state?: SshConnectionState | null }>(

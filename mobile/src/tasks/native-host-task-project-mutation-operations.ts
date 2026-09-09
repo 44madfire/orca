@@ -15,6 +15,10 @@ import {
 } from '../session/github-pr-mutations'
 
 const PROJECT_PR_MUTATION_TIMEOUT_MS = 60_000
+/** Every project mutation carried a connect deadline before this seam existed. Without one the
+ *  transport parks the request through the whole reconnect backoff, roughly six minutes, with
+ *  the row's mutation UI disabled and no error. */
+const PROJECT_MUTATION_TIMEOUT_MS = 30_000
 
 export function nativeHostTaskProjectMutationOperations(
   client: RpcRequestSender
@@ -83,44 +87,64 @@ export function nativeHostTaskProjectMutationOperations(
     },
     async resolveReviewThread(target, repoId, threadId, resolve) {
       requirePrMutation(
-        await fetchResolveReviewThread(client, repoId, {
-          threadId,
-          resolve,
-          // Why: a draft row
-          // has no slug — send it only when one resolved rather than an empty pair.
-          prRepo: prRepoPayload(target)
-        }),
+        await fetchResolveReviewThread(
+          client,
+          repoId,
+          {
+            threadId,
+            resolve,
+            // Why: a draft row
+            // has no slug — send it only when one resolved rather than an empty pair.
+            prRepo: prRepoPayload(target)
+          },
+          { timeoutMs: PROJECT_MUTATION_TIMEOUT_MS }
+        ),
         resolve ? 'Failed to resolve thread' : 'Failed to reopen thread'
       )
     },
     async replyReviewComment(target, repoId, payload) {
       return prMutationComment(
-        await fetchAddPRReviewCommentReply(client, repoId, {
-          prNumber: target.number,
-          ...payload,
-          prRepo: prRepoPayload(target)
-        }),
+        await fetchAddPRReviewCommentReply(
+          client,
+          repoId,
+          {
+            prNumber: target.number,
+            ...payload,
+            prRepo: prRepoPayload(target)
+          },
+          { timeoutMs: PROJECT_MUTATION_TIMEOUT_MS }
+        ),
         'Failed to reply'
       )
     },
     async addConversationComment(target, repoId, body) {
       return prMutationComment(
-        await fetchAddIssueComment(client, repoId, {
-          prNumber: target.number,
-          body,
-          prRepo: prRepoPayload(target),
-          type: target.type
-        }),
+        await fetchAddIssueComment(
+          client,
+          repoId,
+          {
+            prNumber: target.number,
+            body,
+            prRepo: prRepoPayload(target),
+            type: target.type
+          },
+          { timeoutMs: PROJECT_MUTATION_TIMEOUT_MS }
+        ),
         'Failed to reply'
       )
     },
     async requestReviewers(target, repoId, reviewers) {
       requirePrMutation(
-        await fetchRequestPRReviewers(client, repoId, {
-          prNumber: target.number,
-          reviewers,
-          prRepo: prRepoPayload(target)
-        }),
+        await fetchRequestPRReviewers(
+          client,
+          repoId,
+          {
+            prNumber: target.number,
+            reviewers,
+            prRepo: prRepoPayload(target)
+          },
+          { timeoutMs: PROJECT_MUTATION_TIMEOUT_MS }
+        ),
         'Failed to request reviewers'
       )
     },

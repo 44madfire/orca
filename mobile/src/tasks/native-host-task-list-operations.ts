@@ -6,16 +6,12 @@ export function nativeHostTaskListOperations(client: RpcRequestSender): HostTask
   return {
     async listGitHub(payload) {
       return successfulResult(
-        client.sendRequest(
-          'github.listWorkItems',
-          {
-            repo: `id:${payload.repoId}`,
-            limit: payload.limit,
-            query: payload.query,
-            before: payload.before
-          },
-          { timeoutMs: 30_000 }
-        )
+        client.sendRequest('github.listWorkItems', {
+          repo: `id:${payload.repoId}`,
+          limit: payload.limit,
+          query: payload.query,
+          before: payload.before
+        })
       )
     },
     async countGitHub(payload) {

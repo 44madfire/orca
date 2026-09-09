@@ -19,10 +19,14 @@ type RawResult = { ok: true; result: unknown } | { ok: false; error: string }
 async function sendRaw(
   client: RpcRequestSender,
   method: string,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  options?: { timeoutMs?: number }
 ): Promise<RawResult> {
   try {
-    const response = await client.sendRequest(method, params)
+    // Keep the two-argument call shape when no timeout is requested.
+    const response = options
+      ? await client.sendRequest(method, params, options)
+      : await client.sendRequest(method, params)
     if (!response.ok) {
       return { ok: false, error: response.error?.message || `Request failed: ${method}` }
     }
@@ -166,7 +170,8 @@ export async function fetchUpdatePRState(
 export async function fetchRequestPRReviewers(
   client: RpcRequestSender,
   worktreeId: string,
-  args: { prNumber: number; reviewers: string[]; prRepo?: GitHubPrRepoSlug | null }
+  args: { prNumber: number; reviewers: string[]; prRepo?: GitHubPrRepoSlug | null },
+  options?: { timeoutMs?: number }
 ): Promise<GitHubPrMutationOutcome> {
   return sendGithubPrMutation(
     client,
@@ -176,7 +181,8 @@ export async function fetchRequestPRReviewers(
       worktreeId,
       { prNumber: args.prNumber, reviewers: args.reviewers },
       { prRepo: args.prRepo }
-    )
+    ),
+    options
   )
 }
 
@@ -211,7 +217,8 @@ export async function fetchAddPRReviewCommentReply(
     path?: string
     line?: number
     prRepo?: GitHubPrRepoSlug | null
-  }
+  },
+  options?: { timeoutMs?: number }
 ): Promise<GitHubPrMutationOutcome> {
   const params: Record<string, unknown> = {
     prNumber: args.prNumber,
@@ -232,7 +239,8 @@ export async function fetchAddPRReviewCommentReply(
     'github.addPRReviewCommentReply',
     buildGithubPrParams('github.addPRReviewCommentReply', worktreeId, params, {
       prRepo: args.prRepo
-    })
+    }),
+    options
   )
 }
 
@@ -247,7 +255,8 @@ export async function fetchAddIssueComment(
     // Why: the host addresses the comment by this; an issue row sent as 'pr' targets the
     // wrong conversation. PR call sites omit it.
     type?: 'issue' | 'pr'
-  }
+  },
+  options?: { timeoutMs?: number }
 ): Promise<GitHubPrMutationOutcome> {
   const params: Record<string, unknown> = {
     number: args.prNumber,
@@ -257,7 +266,8 @@ export async function fetchAddIssueComment(
   return sendGithubPrMutation(
     client,
     'github.addIssueComment',
-    buildGithubPrParams('github.addIssueComment', worktreeId, params, { prRepo: args.prRepo })
+    buildGithubPrParams('github.addIssueComment', worktreeId, params, { prRepo: args.prRepo }),
+    options
   )
 }
 
@@ -267,7 +277,8 @@ export async function fetchAddIssueComment(
 export async function fetchResolveReviewThread(
   client: RpcRequestSender,
   worktreeId: string,
-  args: { threadId: string; resolve: boolean; prRepo?: GitHubPrRepoSlug | null }
+  args: { threadId: string; resolve: boolean; prRepo?: GitHubPrRepoSlug | null },
+  options?: { timeoutMs?: number }
 ): Promise<GitHubPrMutationOutcome> {
   const response = await sendRaw(
     client,
@@ -277,7 +288,8 @@ export async function fetchResolveReviewThread(
       worktreeId,
       { threadId: args.threadId, resolve: args.resolve },
       { prRepo: args.prRepo }
-    )
+    ),
+    options
   )
   if (!response.ok) {
     return {

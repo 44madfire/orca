@@ -49,11 +49,11 @@ export function nativeHostSessionTerminalOperations(
           () => false
         )
     },
-    clear(terminalId) {
-      return client.sendRequest('terminal.clearBuffer', { terminal: terminalId }).then(
-        (response) => response.ok,
-        () => false
-      )
+    async clear(terminalId) {
+      // Rejection is deliberately not caught: the caller distinguishes a clear that never
+      // reached the host from one the host refused, and only the former is a failure.
+      const response = await client.sendRequest('terminal.clearBuffer', { terminal: terminalId })
+      return response.ok
     },
     rename(terminalId, title) {
       return client.sendRequest('terminal.rename', { terminal: terminalId, title }).then(

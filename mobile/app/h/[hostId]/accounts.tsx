@@ -43,7 +43,7 @@ export default function AccountsScreen() {
   // Why: shared client per host. See docs/mobile-shared-client-per-host.md.
   const { client, state: connState } = useHostClient(hostId)
   const operations = useMemo(
-    () => (client && hostId ? defaultHostAccountOperations(client, hostId) : null),
+    () => (client && hostId ? defaultHostAccountOperations(client) : null),
     [client, hostId]
   )
   const [hostName, setHostName] = useState<string>('')

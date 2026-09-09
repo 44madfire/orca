@@ -2,8 +2,6 @@ import type { RpcClient } from '../transport/rpc-client'
 import { buildNativeChatSubscriptionId } from '../../../src/shared/native-chat-stream-unsubscribe'
 import { isFloatingWorkspaceWorktreeId } from './floating-workspace'
 import { isMobileNativeChatTranscriptReadable } from './mobile-native-chat-eligibility'
-import { openMobileNativeChatFile } from './mobile-native-chat-open-file'
-import { healMobileNativeChatStaleInput } from './mobile-native-chat-stale-input'
 import {
   sendMobileNativeChatMessageWithOutcome,
   typeMobileNativeChatCommandWithOutcome,
@@ -80,17 +78,6 @@ export function nativeHostSessionNativeChatOperations(
       }
       return sendNative(target, text, true, client, deadline, clearInputFirst, resolvedLaunchDraft)
     },
-    prepareCommit(target, deadline) {
-      if (!target.terminalId) {
-        return Promise.resolve(false)
-      }
-      return healMobileNativeChatStaleInput({
-        client,
-        terminal: target.terminalId,
-        deviceToken: target.clientId,
-        deadline
-      })
-    },
     respond(target, text, enter, deadline) {
       return sendNative(target, text, enter, client, deadline)
     },
@@ -98,6 +85,11 @@ export function nativeHostSessionNativeChatOperations(
       // Escape must not carry Return: the extra newline submits whatever the agent
       // had parked on its input line.
       return sendNative(target, escape(), false, client, deadline)
+    },
+    resetFileSearchCache(workspaceId) {
+      searchSupported = null
+      legacyPathsByWorkspace.delete(workspaceId)
+      legacyLoadByWorkspace.delete(workspaceId)
     },
     async searchFiles(target, query) {
       if (searchSupported !== false) {
@@ -141,14 +133,6 @@ export function nativeHostSessionNativeChatOperations(
         legacyPathsByWorkspace.set(target.workspaceId, paths)
       }
       return rankSuggestions(legacyPaths, query, FILE_RESULT_LIMIT)
-    },
-    openFile(target, pathText) {
-      return openMobileNativeChatFile({
-        client,
-        worktreeId: target.workspaceId,
-        pathText,
-        terminal: target.terminalId
-      })
     }
   }
 }

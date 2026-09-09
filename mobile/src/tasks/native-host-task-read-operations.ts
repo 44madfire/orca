@@ -13,6 +13,7 @@ import type { RpcResponse, RpcSuccess } from '../transport/types'
 
 export function nativeHostTaskReadOperations(client: RpcRequestSender): HostTaskReadOperations {
   return {
+    tasksSupported: () => tasksSupported(client),
     bootstrap: () => bootstrap(client),
     listRepositories: () => listRepositories(client),
     linearStatus: () => linearStatus(client),
@@ -21,13 +22,14 @@ export function nativeHostTaskReadOperations(client: RpcRequestSender): HostTask
   }
 }
 
+async function tasksSupported(client: RpcRequestSender): Promise<boolean> {
+  const response = await client.sendRequest('status.get')
+  requireSuccess(response)
+  const status = response.result as { capabilities?: string[] }
+  return status.capabilities?.includes(MOBILE_TASKS_CAPABILITY) === true
+}
+
 async function bootstrap(client: RpcRequestSender): Promise<HostTaskBootstrap> {
-  const statusResponse = await client.sendRequest('status.get')
-  requireSuccess(statusResponse)
-  const status = statusResponse.result as { capabilities?: string[] }
-  if (!status.capabilities?.includes(MOBILE_TASKS_CAPABILITY)) {
-    return emptyBootstrap(false)
-  }
   const [settingsResponse, uiResponse, preflightResponse, linearStatusResponse] = await Promise.all(
     [
       client.sendRequest('settings.get'),
@@ -47,7 +49,6 @@ async function bootstrap(client: RpcRequestSender): Promise<HostTaskBootstrap> {
   }>(uiResponse)
   const preflight = successResult<{ glab?: { installed?: boolean } }>(preflightResponse)
   return {
-    supported: true,
     settings: settingsEnvelope?.settings ?? {},
     taskResumeState: uiEnvelope?.ui?.taskResumeState ?? {},
     trustedOrcaHooks: uiEnvelope?.ui?.trustedOrcaHooks ?? {},
@@ -91,17 +92,6 @@ async function resolveGitHubRepoSlug(
   )
   requireSuccess(response)
   return response.result as GitHubOwnerRepo | null
-}
-
-function emptyBootstrap(supported: boolean): HostTaskBootstrap {
-  return {
-    supported,
-    settings: {},
-    taskResumeState: {},
-    trustedOrcaHooks: {},
-    gitLabInstalled: false,
-    linearStatus: normalizeLinearStatus(null)
-  }
 }
 
 function successResult<T>(response: RpcResponse): T | null {

@@ -3,22 +3,12 @@ import {
   type ProviderKey,
   type RateLimitRuntimeTarget
 } from '../components/account-usage-state'
-import { requestCodexResetCredit } from '../components/codex-reset-credit'
-import { readCodexResetCreditCapability } from '../components/codex-reset-credit-capability'
-import { nativeDeviceOperations } from '../device/native-device-operations'
-import { loadHosts } from '../transport/host-store'
 import type { RpcClient } from '../transport/rpc-client'
 import type { RpcSuccess } from '../transport/types'
 import type { HostAccountOperations } from './host-account-operations'
 
-export function nativeHostAccountOperations(
-  client: RpcClient,
-  hostId: string
-): HostAccountOperations {
+export function nativeHostAccountOperations(client: RpcClient): HostAccountOperations {
   return {
-    async loadHostName(hostId) {
-      return (await loadHosts()).find((host) => host.id === hostId)?.name ?? null
-    },
     async snapshot() {
       const response = await client.sendRequest('accounts.list')
       requireSuccess(response)
@@ -33,16 +23,6 @@ export function nativeHostAccountOperations(
           ? { accountId, target: codexTarget }
           : { accountId }
       requireSuccess(await client.sendRequest(method, params))
-    },
-    readCodexResetCreditCapability() {
-      return readCodexResetCreditCapability(client)
-    },
-    consumeCodexResetCredit(expectedScope) {
-      return requestCodexResetCredit(client, {
-        hostId,
-        expectedScope,
-        createIdempotencyKey: () => nativeDeviceOperations.randomNonce()
-      })
     },
     subscribe(listener, onInvalid) {
       return client.subscribe('accounts.subscribe', null, (payload) => {

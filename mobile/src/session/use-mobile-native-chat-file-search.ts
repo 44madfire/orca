@@ -26,6 +26,7 @@ export function useMobileNativeChatFileSearch(args: {
   useEffect(() => {
     sequenceRef.current++
     queryCacheRef.current.clear()
+    operations?.resetFileSearchCache(worktreeId)
     setNativeChatFilePaths([])
     return () => {
       if (timerRef.current) {

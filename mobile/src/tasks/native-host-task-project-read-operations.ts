@@ -70,7 +70,8 @@ export function nativeHostTaskProjectReadOperations(
     },
     async listItemLabels(payload) {
       const result = await projectResult<{ labels?: string[] }>(
-        client.sendRequest('github.project.listLabelsBySlug', payload, { timeoutMs: 30_000 })
+        client.sendRequest('github.project.listLabelsBySlug', payload, { timeoutMs: 30_000 }),
+        'Failed to load labels'
       )
       return result.labels ?? []
     },
@@ -80,7 +81,8 @@ export function nativeHostTaskProjectReadOperations(
       }>(
         client.sendRequest('github.project.listAssignableUsersBySlug', payload, {
           timeoutMs: 30_000
-        })
+        }),
+        'Failed to load assignees'
       )
       return result.users ?? []
     },
@@ -90,24 +92,30 @@ export function nativeHostTaskProjectReadOperations(
       }>(
         client.sendRequest('github.project.listIssueTypesBySlug', payload, {
           timeoutMs: 30_000
-        })
+        }),
+        'Failed to load issue types'
       )
       return result.types ?? []
     }
   }
 }
 
-export async function projectResult<T>(request: Promise<unknown>): Promise<T> {
+/** `fallback` is the wording the calling screen reported before these reads moved behind the
+ *  seam; a host that refuses without a message must still name what failed to load. */
+export async function projectResult<T>(
+  request: Promise<unknown>,
+  fallback = 'GitHub Project request failed'
+): Promise<T> {
   const response = (await request) as {
     ok: boolean
     result?: { ok?: boolean; error?: { message?: string } }
     error?: { message?: string }
   }
   if (!response.ok) {
-    throw new Error(response.error?.message ?? 'GitHub Project request failed')
+    throw new Error(response.error?.message ?? fallback)
   }
   if (response.result?.ok === false) {
-    throw new Error(response.result.error?.message ?? 'GitHub Project request failed')
+    throw new Error(response.result.error?.message ?? fallback)
   }
   return response.result as T
 }

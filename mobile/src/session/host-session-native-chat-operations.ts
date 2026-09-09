@@ -56,7 +56,6 @@ export type HostSessionNativeChatOperations = {
     resolvedLaunchDraft?: { text: string; createdAt: number },
     typeCommand?: boolean
   ): Promise<MobileNativeChatSendOutcome>
-  prepareCommit(target: HostSessionNativeChatTarget, deadline?: number): Promise<boolean>
   respond(
     target: HostSessionNativeChatTarget,
     text: string,
@@ -75,8 +74,11 @@ export type HostSessionNativeChatOperations = {
     followedByText?: boolean
   ): Promise<boolean>
   releaseImages?(target: HostSessionNativeChatTarget, references: readonly string[]): Promise<void>
+  /** Drops the legacy full-inventory fallback's cached listing for a workspace. Without it a
+   *  second visit inside one connection serves the first read's inventory, so a file created in
+   *  between is missing from `@` autocomplete. */
+  resetFileSearchCache(workspaceId: string): void
   /** Null when the host refused the search. An empty array is a real answer the caller may
    *  cache; a refusal must not be cached, or the next keystroke would never retry. */
   searchFiles(target: HostSessionNativeChatTarget, query: string): Promise<string[] | null>
-  openFile(target: HostSessionNativeChatTarget, pathText: string): Promise<void>
 }

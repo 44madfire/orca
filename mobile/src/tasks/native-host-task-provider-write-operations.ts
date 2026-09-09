@@ -24,7 +24,10 @@ export function nativeHostTaskProviderWriteOperations(
         error?: string
       }
       if (result.ok === false) {
-        throw new Error(result.error ?? `Failed to create ${payload.provider} issue`)
+        throw new Error(
+          result.error ??
+            `Failed to create ${payload.provider === 'github' ? 'GitHub' : 'GitLab'} issue`
+        )
       }
       return {
         ...(typeof result.number === 'number' ? { number: result.number } : {}),

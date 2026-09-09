@@ -14,7 +14,6 @@ export type HostTaskLinearStatus = {
 }
 
 export type HostTaskBootstrap = {
-  supported: boolean
   settings: RuntimeTaskSettings
   taskResumeState: TaskResumeState
   trustedOrcaHooks: PersistedTrustedOrcaHooks

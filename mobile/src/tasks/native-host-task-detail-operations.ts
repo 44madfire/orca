@@ -93,12 +93,11 @@ export function nativeHostTaskDetailOperations(client: RpcRequestSender): HostTa
   }
 }
 
+/** Tolerates a refusal envelope only. A transport rejection still fails the detail load, so a
+ *  timed-out comment read cannot render as an issue that simply has no comments. */
 async function optionalComments(request: Promise<unknown>): Promise<DetailComment[]> {
-  try {
-    return await successfulResult(request)
-  } catch {
-    return []
-  }
+  const response = (await request) as { ok: boolean; result?: unknown }
+  return response.ok ? ((response.result as DetailComment[]) ?? []) : []
 }
 
 async function successfulResult<T>(request: Promise<unknown>): Promise<T> {

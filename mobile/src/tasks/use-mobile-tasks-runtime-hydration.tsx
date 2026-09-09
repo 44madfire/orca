@@ -185,11 +185,11 @@ export function useMobileTasksRuntimeHydration(model: ClientSettingsActionsModel
     resetWorkspaceCreateState()
 
     const hydrateTaskState = async (): Promise<void> => {
-      const bootstrap = await taskOperations.read.bootstrap()
+      const supported = await taskOperations.read.tasksSupported()
       if (stale) {
         return
       }
-      if (!bootstrap.supported) {
+      if (!supported) {
         // Why: Tasks is additive RPC surface, so old desktop builds can still
         // pair but must not receive the newer task-specific method calls.
         setTasksSupportState({ kind: 'unsupported', client })
@@ -236,8 +236,15 @@ export function useMobileTasksRuntimeHydration(model: ClientSettingsActionsModel
         setTaskStateHydrated(false)
         return
       }
+      // Committed before the settings fan-out: a transport failure there must still leave the
+      // Tasks chrome rendered behind an error banner. The effect deps do not change on a
+      // post-connect timeout, so an uncommitted screen would never retry.
       setTasksSupportState({ kind: 'supported', client })
       setError('')
+      const bootstrap = await taskOperations.read.bootstrap()
+      if (stale) {
+        return
+      }
       const settings = bootstrap.settings
       setRuntimeTaskSettings(settings)
       setTrustedOrcaHooks(bootstrap.trustedOrcaHooks)

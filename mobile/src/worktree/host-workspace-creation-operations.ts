@@ -85,7 +85,8 @@ export type HostWorkspaceCreationOperations = {
   readTrustedHooks(): Promise<PersistedTrustedOrcaHooks>
   isGitLabCliInstalled(): Promise<boolean>
   isLinearConnected(): Promise<boolean>
-  readSshState(targetId: string): Promise<SshConnectionState>
+  /** Null when the host knows nothing about the target, which is not the same as disconnected. */
+  readSshState(targetId: string): Promise<SshConnectionState | null>
   connectSsh(targetId: string): Promise<SshConnectionState>
   detectAgents(connectionId: string | null): Promise<string[]>
   readRepoHooks(repoId: string): Promise<NewWorkspaceRepoHooks>

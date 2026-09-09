@@ -223,9 +223,12 @@ export function useMobileSessionTerminalInput(scope: MobileSessionFileActionsMod
       return
     }
     getTerminalRef(target.handle)?.clear()
-    if (await sessionOperations.terminal.clear(target.handle)) {
+    try {
+      // The refusal envelope is not a failure here: the local buffer above is already cleared,
+      // and only a clear that never reached the host is reported.
+      await sessionOperations.terminal.clear(target.handle)
       showToast('Terminal cleared')
-    } else {
+    } catch {
       showToast("Couldn't clear terminal", 1500)
     }
   }

@@ -87,7 +87,7 @@ export function nativeHostTaskItemReviewOperations(
               },
               { timeoutMs: 60_000 }
             )
-      assertMutation(response, 'Failed to merge review')
+      assertMutation(response, 'Failed to merge')
     }
   }
 }

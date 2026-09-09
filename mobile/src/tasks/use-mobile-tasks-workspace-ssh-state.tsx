@@ -72,8 +72,11 @@ export function useMobileTasksWorkspaceSshState(model: WorkspaceSparseActionsMod
         return
       }
       const state = await taskWorkspaceCreationOperations.readSshState(repo.connectionId)
-      setWorkspaceSshState(state)
-      if (state.status !== 'connected') {
+      // An unregistered target answers with no state at all; leave whatever the badge shows.
+      if (state) {
+        setWorkspaceSshState(state)
+      }
+      if (state?.status !== 'connected') {
         throw new Error(`Connect ${repo.displayName} before creating a workspace.`)
       }
     },
