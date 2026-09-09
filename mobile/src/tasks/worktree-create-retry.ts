@@ -21,9 +21,7 @@ import {
 // branches outlive worktrees in git, and remote branches/PRs aren't visible from
 // worktree.ps. Retry by appending -2, -3, ... mirroring the desktop createWorktree
 // loop in src/renderer/src/store/slices/worktrees.ts.
-export type WorktreeCreateResult =
-  | { worktreeId: string; name: string; warning?: string }
-  | { error: string }
+export type WorktreeCreateResult = { worktreeId: string; name: string } | { error: string }
 
 // Why: a create in flight when the mobile transport migrates (relay/direct
 // hand-off on shoddy cellular, relay lease rotation) rejects with a cutover error
@@ -86,7 +84,6 @@ export async function createWorktreeWithNameRetry(
     if (response.ok) {
       const result = (response as RpcSuccess).result as {
         worktree: { id: string; displayName?: string }
-        warning?: string
       }
       const authoritativeName = result.worktree.displayName
       return {
@@ -94,8 +91,7 @@ export async function createWorktreeWithNameRetry(
         name:
           typeof authoritativeName === 'string' && authoritativeName.trim()
             ? authoritativeName
-            : candidateName,
-        ...(result.warning ? { warning: result.warning } : {})
+            : candidateName
       }
     }
     lastError = response.error.message
