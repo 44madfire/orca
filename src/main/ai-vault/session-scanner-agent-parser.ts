@@ -6,7 +6,10 @@ import { parseClineSessionFile } from './session-scanner-cline-parser'
 import { parseGrokSessionFile } from './session-scanner-grok-parser'
 import { parseMessageGraphSessionFile, parseRovoSessionFile } from './session-scanner-graph-parsers'
 import { parseKimiSessionFile } from './session-scanner-kimi-parser'
-import { splitOpenCodeSqliteCandidate } from './session-scanner-opencode-sqlite-paths'
+import {
+  looksLikeOpenCodeSqliteCandidate,
+  splitOpenCodeSqliteCandidate
+} from './session-scanner-opencode-sqlite-paths'
 import { parseOpenCodeSqliteSessionViaWorker } from './session-scanner-opencode-sqlite-worker-spawn'
 import { parseClaudeSessionFile } from './session-scanner-primary-parsers'
 import { parseGeminiSessionFile } from './session-scanner-gemini-parsers'
@@ -17,6 +20,15 @@ import { parseHermesSessionFile } from './session-scanner-hermes-parser'
 import { parseOpenCodeSessionFile } from './session-scanner-opencode-parser'
 import type { SessionFileCandidate } from './session-scanner-types'
 import type { TranscriptMessageSink } from './session-transcript-consumers'
+
+/**
+ * False when a parser decodes its messages somewhere the channel cannot reach.
+ * OpenCode's SQLite sessions are read on a worker thread, so their messages
+ * never come back over the sink and the read must not be reported as complete.
+ */
+export function parserPublishesMessages(candidate: SessionFileCandidate): boolean {
+  return candidate.agent !== 'opencode' || !looksLikeOpenCodeSqliteCandidate(candidate.file.path)
+}
 
 /**
  * Parse a single agent session file into an `AiVaultSession`. Routes to the

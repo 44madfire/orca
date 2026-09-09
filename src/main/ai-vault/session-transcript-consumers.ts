@@ -40,7 +40,11 @@ export type TranscriptReadOutcome = {
   session: AiVaultSession | null
   /** Byte offset just past the last complete line this read consumed. */
   byteOffset: number
-  /** The read did not cover the whole span; its messages are not the whole file. */
+  /**
+   * The messages of this read are not the whole span: the read failed part way,
+   * or the parser decodes where the channel cannot reach it. A consumer must
+   * not record a cursor for an incomplete read.
+   */
   incomplete: boolean
 }
 

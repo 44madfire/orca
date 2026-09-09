@@ -1,4 +1,5 @@
 import type { AiVaultSession } from '../../shared/ai-vault-types'
+import { inSessionParseFileLane } from './session-parse-file-lane'
 import { createAntigravitySessionResumeState } from './session-scanner-antigravity-parser'
 import { createCodexSessionResumeState } from './session-scanner-codex-parser'
 import { createDroidSessionResumeState } from './session-scanner-droid-parser'
@@ -96,6 +97,18 @@ export function createSessionParseStats(): SessionParseStats {
  * and never consult this one.
  */
 export async function parseAgentSessionFileCached(
+  candidate: SessionFileCandidate,
+  platform: NodeJS.Platform,
+  stats?: SessionParseStats
+): Promise<AiVaultSession | null> {
+  // The whole lookup-read-store sequence runs in the lane: a concurrent parse of
+  // the same path shares this entry's resume point and its message channel.
+  return inSessionParseFileLane(candidate.file.path, () =>
+    parseCachedInLane(candidate, platform, stats)
+  )
+}
+
+async function parseCachedInLane(
   candidate: SessionFileCandidate,
   platform: NodeJS.Platform,
   stats?: SessionParseStats

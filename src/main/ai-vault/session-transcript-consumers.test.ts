@@ -1,10 +1,29 @@
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { scanAiVaultSessions } from './session-scanner'
-import { resetSessionParseCacheForTests } from './session-scanner-parse-cache'
+import {
+  parseAgentSessionFileCached,
+  resetSessionParseCacheForTests
+} from './session-scanner-parse-cache'
 import { isolatedScanRoots, jsonLines } from './session-scanner-test-fixtures'
+import type { FileWithMtime, SessionFileCandidate } from './session-scanner-types'
+import { readWholeTranscript } from './session-transcript-reader'
+
+const OPENCODE_SQLITE_SESSION = {
+  id: 'local:opencode:sqlite-session:db',
+  agent: 'opencode' as const,
+  sessionId: 'sqlite-session'
+}
+
+// Stands in for the worker thread: the point is that its messages never come
+// back over the channel, not what the SQLite read returns.
+vi.mock('./session-scanner-opencode-sqlite-worker-spawn', async (importOriginal) => ({
+  ...(await importOriginal<typeof OpenCodeSqliteWorkerSpawn>()),
+  parseOpenCodeSqliteSessionViaWorker: () => Promise.resolve(OPENCODE_SQLITE_SESSION)
+}))
+import type * as OpenCodeSqliteWorkerSpawn from './session-scanner-opencode-sqlite-worker-spawn'
 import {
   registerTranscriptConsumer,
   resetTranscriptConsumersForTests,
@@ -209,4 +228,71 @@ it('skips a read a consumer declines without disturbing the others', async () =>
   await scanAiVaultSessions({ ...roots, platform: 'darwin', limit: 20 })
 
   expect(textsFor(healthy.reads, 'claude')).toHaveLength(12)
+})
+
+async function claudeCandidate(transcript: string): Promise<SessionFileCandidate> {
+  const stats = await stat(transcript)
+  const file: FileWithMtime = {
+    path: transcript,
+    mtimeMs: stats.mtimeMs,
+    modifiedAt: stats.mtime.toISOString(),
+    sizeBytes: stats.size
+  }
+  return { agent: 'claude', file, codexHome: null }
+}
+
+it('serializes overlapping parses of one path so no consumer read is orphaned', async () => {
+  const { transcript } = await writeClaudeFixture()
+  // Seed a resume point: the channel it stores is what concurrent reads share.
+  await parseAgentSessionFileCached(await claudeCandidate(transcript), 'darwin')
+
+  await appendFile(transcript, `${jsonLines(claudeTurns(5, 5))}\n`)
+  const consumer = recordingConsumer()
+  const appended = await claudeCandidate(transcript)
+
+  const [first, second] = await Promise.all([
+    parseAgentSessionFileCached(appended, 'darwin'),
+    parseAgentSessionFileCached(appended, 'darwin')
+  ])
+
+  // Every read that opened must also close, or its consumer keeps a half-read
+  // stream forever and never learns the outcome.
+  expect(consumer.reads.filter((read) => read.outcome === null)).toEqual([])
+  expect(consumer.reads).toHaveLength(1)
+  expect(consumer.reads[0].start.mode).toBe('append')
+  expect(textsFor(consumer.reads, 'claude')).toEqual([
+    'user:ask 5',
+    'assistant:reply 5',
+    'tool:Bash: ls 5'
+  ])
+  // The later caller reuses the stored entry rather than moving the cursor back.
+  expect(first?.messageCount).toBe(10)
+  expect(second?.messageCount).toBe(10)
+})
+
+it('reports a read whose parser cannot publish its messages as not complete', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'orca-transcript-opencode-'))
+  tempRoots.push(root)
+  const dbPath = join(root, 'opencode.db')
+  await writeFile(dbPath, '')
+  const consumer = recordingConsumer()
+
+  const session = await readWholeTranscript({
+    candidate: {
+      agent: 'opencode',
+      codexHome: null,
+      file: {
+        path: `${dbPath}#sqlite-session`,
+        mtimeMs: 1,
+        modifiedAt: new Date(1).toISOString(),
+        sizeBytes: 10
+      }
+    },
+    platform: 'darwin'
+  })
+
+  expect(session).toEqual(OPENCODE_SQLITE_SESSION)
+  expect(consumer.reads).toHaveLength(1)
+  expect(consumer.reads[0].messages).toEqual([])
+  expect(consumer.reads[0].outcome?.incomplete).toBe(true)
 })
