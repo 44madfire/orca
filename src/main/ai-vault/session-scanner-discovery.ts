@@ -83,9 +83,11 @@ export async function discoverFiles(args: {
 }
 
 /**
- * A refused sibling stat is not "no sibling": it must not take the transcript
- * down with it, and it must not read as absent either, or the parse cache would
- * treat the session as current forever. Report it as `unknown`.
+ * A sibling that cannot be statted is not "no sibling": it must not take the
+ * transcript down with it, and it must not read as absent either, or the parse
+ * cache would treat a session enriched from a file nobody can see as current
+ * forever. Only a genuinely missing path is `'none'`; every other failure —
+ * a stalled WSL distro, EACCES, EIO — is `'unknown'`.
  */
 async function observeSessionSidecar(
   filePath: string | undefined
@@ -97,8 +99,19 @@ async function observeSessionSidecar(
     const fileStat = await wslGatedStat(filePath, 'scan')
     return { path: filePath, mtimeMs: fileStat.mtimeMs, sizeBytes: fileStat.size }
   } catch (error) {
-    return error instanceof WslTranscriptFsError ? 'unknown' : 'none'
+    return isMissingSidecarError(error) ? 'none' : 'unknown'
   }
+}
+
+function isMissingSidecarError(error: unknown): boolean {
+  if (error instanceof WslTranscriptFsError) {
+    return false
+  }
+  const code =
+    error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : null
+  return code === 'ENOENT' || code === 'ENOTDIR'
 }
 
 export type SessionFileWalkOptions = {

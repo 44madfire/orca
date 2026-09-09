@@ -8,7 +8,7 @@ import { WslTranscriptFsError } from '../native-chat/wsl-transcript-fs-error'
 let failNextChatsReaddir = false
 let failNextChatsRootReaddir = false
 let failMetaJsonReads = false
-let failMetaJsonStats = false
+let failMetaJsonStats: false | true | 'eacces' = false
 let chatsRootReads = 0
 vi.mock('../native-chat/wsl-transcript-fs-access', async (importOriginal) => {
   const actual = await importOriginal<typeof WslTranscriptFsAccess>()
@@ -42,7 +42,11 @@ vi.mock('../native-chat/wsl-transcript-fs-access', async (importOriginal) => {
       ...args: Parameters<typeof actual.wslGatedStat>
     ): ReturnType<typeof actual.wslGatedStat> => {
       if (failMetaJsonStats && String(args[0]).endsWith('meta.json')) {
-        return Promise.reject(new WslTranscriptFsError('timeout', 'wsl fs timed out'))
+        return Promise.reject(
+          failMetaJsonStats === 'eacces'
+            ? Object.assign(new Error('permission denied'), { code: 'EACCES' })
+            : new WslTranscriptFsError('timeout', 'wsl fs timed out')
+        )
       }
       return actual.wslGatedStat(...args)
     }
@@ -464,6 +468,28 @@ describe('cursor chat meta scan failures', () => {
     expect(entry?.resume).not.toBeNull()
 
     failMetaJsonReads = false
+    const healed = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
+    expect(healed.issues).toEqual([])
+    expect(healed.sessions.find((session) => session.agent === 'cursor')?.cwd).toBe(
+      '/tmp/ws-chat-a'
+    )
+  })
+
+  it('treats a local EACCES on the sidecar stat as unknown, not as absent', async () => {
+    const { scanOptions } = await writeCursorScanFixture(['chat-a'])
+    resetSessionParseCacheForTests()
+
+    // On mac/Linux/Windows the gated stat is a bare fs stat, so a permissions
+    // failure is not a WslTranscriptFsError and must not read as "no sidecar".
+    failMetaJsonStats = 'eacces'
+    const refused = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
+    const listed = refused.sessions.find((session) => session.agent === 'cursor')
+    expect(listed?.sessionId).toBeTruthy()
+    expect(refused.issues).toHaveLength(1)
+    expect(refused.issues[0].agent).toBe('cursor')
+    expect(getSessionParseCacheEntry(listed?.filePath ?? '')?.sidecar).toBe('unknown')
+
+    failMetaJsonStats = false
     const healed = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
     expect(healed.issues).toEqual([])
     expect(healed.sessions.find((session) => session.agent === 'cursor')?.cwd).toBe(

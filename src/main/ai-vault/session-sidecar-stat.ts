@@ -24,17 +24,21 @@ export type SessionSidecarObservation =
  * Asymmetric on purpose: `file` is observed now, so a missing value means the
  * agent has no sidecar, while `entry` may predate the field (an entry seeded
  * from a cache file an older build wrote), so a missing value means unknown.
+ *
+ * `'none'` is a claim, not an absence of one: a sidecar that was there and is
+ * gone changed, and one that was unreadable last time is still unknown now.
  */
 export function sidecarUnchanged(
   entry: SessionSidecarObservation | undefined,
   file: SessionSidecarObservation | undefined
 ): boolean {
   const observed = file ?? 'none'
-  if (observed === 'none') {
-    return true
-  }
-  if (observed === 'unknown') {
+  if (observed === 'unknown' || entry === 'unknown') {
     return false
+  }
+  if (observed === 'none') {
+    // Absent now: a hit only if it was absent before, or the agent never had one.
+    return entry === undefined || entry === 'none'
   }
   return (
     typeof entry === 'object' &&

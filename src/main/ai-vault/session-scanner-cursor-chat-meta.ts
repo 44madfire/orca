@@ -36,8 +36,8 @@ type CursorChatMetaScan = {
   index: Map<string, Promise<Map<string, string>>>
   // Chats roots this scan could not read, reported once by the scan owner.
   refusals: Map<string, string>
-  // Transcripts whose own meta.json read was refused after discovery had
-  // already folded that file's stat into their parse-cache key.
+  // Transcripts whose own meta.json read was refused, so the metadata merged
+  // onto them is not what the file on disk says.
   refusedTranscripts: Set<string>
 }
 
@@ -60,10 +60,9 @@ export function withCursorChatMetaScan<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * True when this transcript's own meta.json read was refused. Discovery had
- * already stat'd that file into the candidate's cache key, so caching the
- * un-enriched parse would leave it looking unchanged until Cursor rewrites
- * meta.json. The parse is used and then not cached.
+ * True when this transcript's own meta.json read was refused, so the caller
+ * records the sidecar as unknown rather than as the observation discovery made.
+ * The transcript's own work and its resume point are kept either way.
  */
 export function wasCursorChatMetaRefused(transcriptPath: string): boolean {
   return scanScopedIndex.getStore()?.refusedTranscripts.has(transcriptPath) ?? false
@@ -103,9 +102,9 @@ function readCursorChatMetaIndexOncePerScan(chatsRoot: string): Promise<Map<stri
  * A refused WSL read is not "no chats", but it must not take the transcript
  * down with it: before this join a stalled distro could not hide a Cursor
  * session at all. Degrade to no metadata for the scan and report the root once.
- * The cache stays honest without the throw, because discovery then stats no
- * meta.json, so the entry's recorded size omits it and the next healthy scan
- * sees a changed file and re-reads it.
+ * The session still lists from its transcript alone, and the sidecar is
+ * recorded as unknown, so the next healthy scan merges the real metadata in
+ * without re-reading a byte of the transcript.
  */
 async function readCursorChatMetaIndexOrNone(chatsRoot: string): Promise<Map<string, string>> {
   try {
