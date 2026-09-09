@@ -71,14 +71,9 @@ async function openMobileFileTapAsync<T extends FileTapSessionTab>(
   // Keep the raw values on the wire; only their emptiness decides whether they are sent.
   const terminalHandle = options.terminalHandle?.trim() ? options.terminalHandle : null
   const cwd = options.cwd?.trim() ? options.cwd : null
-  const activation = options.getActivationState(false)
-  // Structured agent-session chat has no backing terminal; its tab id anchors the resolve.
-  const sourceTabId =
-    terminalHandle ?? activation.sourceTerminalHandle ?? activation.sourceSessionTabId ?? ''
   // Why: resolution opts into sibling-workspace hits; this caller honors resolved.workspaceId.
   const resolved = await options.operations.resolveTerminalPath({
     workspaceId: options.worktreeId,
-    tabId: sourceTabId,
     terminalHandle,
     pathText: options.pathText,
     cwd,

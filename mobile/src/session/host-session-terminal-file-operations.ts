@@ -24,7 +24,6 @@ export type HostSessionTerminalFileTarget =
 
 export type HostSessionTerminalFileResolveRequest = {
   workspaceId: string
-  tabId: string
   terminalHandle: string | null
   pathText: string
   cwd: string | null
