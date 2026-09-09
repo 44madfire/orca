@@ -6,6 +6,7 @@ import {
   describeWorkerLaunchModelRejection,
   resolveWorkerLaunchModelAuthority,
   SEED_WORKER_LAUNCH_MODEL_AUTHORITY,
+  type WorkerLaunchModelAuthority,
   type WorkerLaunchModelDiscoveryRuntime
 } from './worker-launch-model-authority'
 
@@ -30,7 +31,7 @@ function probeRuntime(
   discover: ReturnType<typeof vi.fn>
   resolveHostKey: ReturnType<typeof vi.fn>
 } {
-  const discover = vi.fn(async (worktreeSelector: string) => respond(worktreeSelector))
+  const discover = vi.fn(async (worktreeSelector: string) => await respond(worktreeSelector))
   const resolveHostKey = vi.fn(async (worktreeSelector: string) => hostKeyFor(worktreeSelector))
   return {
     runtime: {
@@ -193,6 +194,88 @@ describe('worker launch model authority', () => {
 
     expect(discover).toHaveBeenCalledTimes(1)
     expect(second.modelIds).toEqual(['opus[1m]'])
+  })
+
+  it('reuses one host answer instead of probing on every dispatch', async () => {
+    const { runtime, discover } = probeRuntime(() => probeSuccess([liveModel('opus[1m]')]))
+    const args = {
+      catalog: CLAUDE_CATALOG,
+      agent: 'claude' as const,
+      runtime,
+      worktreeSelector: 'id:wt_local'
+    }
+
+    await resolveWorkerLaunchModelAuthority(args)
+    const second = await resolveWorkerLaunchModelAuthority(args)
+
+    expect(discover).toHaveBeenCalledTimes(1)
+    expect(second.modelIds).toEqual(['opus[1m]'])
+  })
+
+  it('shares one in-flight probe across dispatches that race it', async () => {
+    let release: (() => void) | undefined
+    const started = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { runtime, discover } = probeRuntime(async () => {
+      await started
+      return probeSuccess([liveModel('opus[1m]')])
+    })
+    const args = {
+      catalog: CLAUDE_CATALOG,
+      agent: 'claude' as const,
+      runtime,
+      worktreeSelector: 'id:wt_local'
+    }
+
+    const both = Promise.all([
+      resolveWorkerLaunchModelAuthority(args),
+      resolveWorkerLaunchModelAuthority(args)
+    ])
+    release!()
+    const [first, second] = await both
+
+    expect(discover).toHaveBeenCalledTimes(1)
+    expect(first.modelIds).toEqual(['opus[1m]'])
+    expect(second.modelIds).toEqual(['opus[1m]'])
+  })
+
+  it('answers with the seed past the dispatch budget, leaving the probe to fill the cache', async () => {
+    vi.useFakeTimers()
+    try {
+      let release: (() => void) | undefined
+      const slow = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const { runtime, discover } = probeRuntime(async () => {
+        await slow
+        return probeSuccess([liveModel('opus[1m]')])
+      })
+      const args = {
+        catalog: CLAUDE_CATALOG,
+        agent: 'claude' as const,
+        runtime,
+        worktreeSelector: 'id:wt_local'
+      }
+
+      let settled: WorkerLaunchModelAuthority | 'waiting' = 'waiting'
+      const dispatch = resolveWorkerLaunchModelAuthority(args).then((value) => {
+        settled = value
+      })
+      await vi.advanceTimersByTimeAsync(10_000)
+      // The dispatch does not wait out the probe's own 60s budget.
+      expect(settled).toEqual(SEED_WORKER_LAUNCH_MODEL_AUTHORITY)
+
+      release!()
+      await dispatch
+      const next = await resolveWorkerLaunchModelAuthority(args)
+
+      // The abandoned probe still landed in the cache, so the next dispatch pays nothing.
+      expect(discover).toHaveBeenCalledTimes(1)
+      expect(next).toEqual({ source: 'live', modelIds: ['opus[1m]'] })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('re-probes a host once its cached list has expired', async () => {

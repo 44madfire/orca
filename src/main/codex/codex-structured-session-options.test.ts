@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+import { CODEX_SESSION_OPTION_CATALOG } from '../../shared/agent-session-option-catalog-claude-codex'
+import {
+  applyStructuredAgentSessionOptions,
+  createStructuredAgentSessionOptionState,
+  structuredAgentSessionOptionSnapshot
+} from '../../shared/structured-agent-session-options'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import { CodexAcquisitionWindow } from './codex-structured-acquisition-window'
 import {
@@ -138,6 +144,44 @@ describe('structured Codex session options', () => {
       models: [{ id: 'gpt-live', label: 'GPT Live', isDefault: true, efforts: [] }],
       current: { model: 'gpt-unlisted' }
     })
+  })
+
+  it('falls back to the seed when model/list answers nothing for a running thread', async () => {
+    // The thread still runs a model, and an empty list carries no options — the snapshot drops
+    // the whole row on it, taking the effort picker with the (deliberately unlistable) name.
+    const request = vi.fn(async () => ({ data: [], nextCursor: null }))
+
+    const result = await readCodexStructuredSessionOptions({
+      connection: { request } as never,
+      current: { model: 'gpt-5.9-secret' }
+    })
+
+    expect(result.current.model).toBe('gpt-5.9-secret')
+    expect(result.models.map((model) => model.id)).toEqual(
+      CODEX_SESSION_OPTION_CATALOG.models.map((model) => model.id)
+    )
+    expect(result.models.some((model) => model.id === 'gpt-5.9-secret')).toBe(false)
+    expect(result.models[0]?.efforts.length).toBeGreaterThan(1)
+
+    // What the floor is for: both pills survive, and the unlistable id never reaches either.
+    const snapshot = structuredAgentSessionOptionSnapshot(
+      applyStructuredAgentSessionOptions(
+        createStructuredAgentSessionOptionState('codex'),
+        CODEX_SESSION_OPTION_CATALOG,
+        result
+      )
+    )
+    expect(snapshot.map((descriptor) => descriptor.id)).toEqual(['model', 'effort'])
+    expect(snapshot[0]).toMatchObject({ valueSource: 'unknown' })
+    expect(snapshot[1]).toMatchObject({ settable: true })
+  })
+
+  it('still refuses a thread with neither a listed model nor a current one', async () => {
+    const request = vi.fn(async () => ({ data: [], nextCursor: null }))
+
+    await expect(
+      readCodexStructuredSessionOptions({ connection: { request } as never, current: {} })
+    ).rejects.toThrow('codex app-server returned no available models')
   })
 
   it('hydrates current values from thread start or resume', () => {

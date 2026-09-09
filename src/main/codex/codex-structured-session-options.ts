@@ -1,3 +1,4 @@
+import { CODEX_SESSION_OPTION_CATALOG } from '../../shared/agent-session-option-catalog-claude-codex'
 import type {
   AgentSessionModelOption,
   AgentSessionOptionChoice,
@@ -75,6 +76,21 @@ function modelOption(value: unknown): AgentSessionModelOption | null {
   }
 }
 
+function seedCodexModels(): AgentSessionModelOption[] {
+  return CODEX_SESSION_OPTION_CATALOG.models.map((model) => {
+    const effort = model.options.find((option) => option.id === 'effort')
+    const choices = effort?.kind.type === 'select' ? effort.kind : null
+    return {
+      id: model.id,
+      label: model.label,
+      ...(model.description ? { description: model.description } : {}),
+      isDefault: model.isDefault === true,
+      ...(choices ? { defaultEffort: String(choices.defaultValue) } : {}),
+      efforts: choices ? choices.choices : []
+    }
+  })
+}
+
 export async function readCodexStructuredSessionOptions(input: {
   connection: Pick<CodexAppServerConnection, 'request'>
   current: { model?: string; effort?: string }
@@ -108,8 +124,11 @@ export async function readCodexStructuredSessionOptions(input: {
   if (!model) {
     throw new Error('codex app-server returned no available models')
   }
+  // Why: a restored thread runs a model even when `model/list` comes back empty, and an empty
+  // list offers nothing to pick and carries no options — it blanks the whole row downstream.
+  // The seed is the floor, the same one the Claude reader falls back to.
   return {
-    models,
+    models: models.length > 0 ? models : seedCodexModels(),
     current: { model, ...(input.current.effort ? { effort: input.current.effort } : {}) }
   }
 }

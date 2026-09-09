@@ -212,15 +212,10 @@ export function buildNativeChatSessionOptionSnapshot(args: {
   liveTransport: NativeChatLiveOptionTransport
 }): SessionOptionDescriptor[] {
   const { catalog, models, record, mode, modelLabel, liveTransport } = args
-  const modelTracked = record.model
-  const trackedModelId = typeof modelTracked?.value === 'string' ? modelTracked.value : null
-  const defaultModelId = cliDefaultModelId(catalog, models, trackedModelId)
-  const effectiveModelId = trackedModelId ?? defaultModelId
-  // Why: an empty list is a provider that offered nothing, not a session without a model. A
-  // tracked id still names what the session runs, so its options row survives the blank picker.
-  if (models.length === 0 && !effectiveModelId) {
+  if (models.length === 0) {
     return []
   }
+  const modelTracked = record.model
   // Why: every row is an official model — the catalog's or a probe's. A tracked id
   // outside both (a stale launch flag, a typo'd `/model`) names none of them, so it
   // is never offered and never shown as the value.
@@ -229,6 +224,9 @@ export function buildNativeChatSessionOptionSnapshot(args: {
     label,
     ...(description ? { description } : {})
   }))
+  const trackedModelId = typeof modelTracked?.value === 'string' ? modelTracked.value : null
+  const defaultModelId = cliDefaultModelId(catalog, models, trackedModelId)
+  const effectiveModelId = trackedModelId ?? defaultModelId
   const listedModel = models.find((candidate) => candidate.id === effectiveModelId)
   const modelAction = actionForApply(catalog.modelApply, modelTracked, mode, liveTransport)
   const snapshot: SessionOptionDescriptor[] = [
