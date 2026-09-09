@@ -588,7 +588,12 @@ describe('Claude structured journal translation', () => {
     expect(state.items.at(-1)?.body).toEqual({
       kind: 'status',
       text: 'Claude is working…',
-      turnLifecycle: { turnId: 'user-image', state: 'running', startedAt: expect.any(Number) }
+      turnLifecycle: {
+        turnId: 'user-image',
+        state: 'running',
+        startedAt: expect.any(Number),
+        userItemId: 'claude:claude-session:user-image'
+      }
     })
   })
 

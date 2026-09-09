@@ -22,6 +22,7 @@ const SESSION_ID = 'session-1'
 const THREAD_ID = 'thread-abc'
 const TURN_ID = 'turn-1'
 const LIFECYCLE_KEY = 'legacy:codex:session-1:turn-lifecycle%3Aturn-1'
+const USER_ITEM_ID = 'codex:thread-abc:turn-1:0'
 
 type Row = { key: string; body: AgentJournalItemBody }
 
@@ -113,11 +114,44 @@ describe('codex turn lifecycle rows', () => {
         body: {
           kind: 'status',
           text: 'Codex is working…',
-          turnLifecycle: { turnId: TURN_ID, state: 'running', startedAt: 1_000 }
+          turnLifecycle: {
+            turnId: TURN_ID,
+            state: 'running',
+            userItemId: USER_ITEM_ID,
+            startedAt: 1_000
+          }
         }
       })
     ])
     deferred.close()
+  })
+
+  it('carries the provider duration and the same user item onto the terminal row', () => {
+    const tap = recorder()
+    const translator = translatorFor(tap)
+
+    translator.handle(notification('turn/started', { turn: { id: TURN_ID } }, 1_000))
+    translator.handle(
+      notification(
+        'turn/completed',
+        { turn: { id: TURN_ID, status: 'completed', durationMs: 3_250 } },
+        4_500
+      )
+    )
+
+    expect(tap.rows.at(-1)).toEqual({
+      key: LIFECYCLE_KEY,
+      body: expect.objectContaining({
+        turnLifecycle: {
+          turnId: TURN_ID,
+          state: 'completed',
+          userItemId: USER_ITEM_ID,
+          startedAt: 1_000,
+          completedAt: 4_500,
+          durationMs: 3_250
+        }
+      })
+    })
   })
 
   it.each(['interrupted', 'failed', 'cancelled'])(
@@ -137,6 +171,7 @@ describe('codex turn lifecycle rows', () => {
             turnLifecycle: {
               turnId: TURN_ID,
               state: 'interrupted',
+              userItemId: USER_ITEM_ID,
               startedAt: 1_000,
               completedAt: 2_000
             }
@@ -160,7 +195,7 @@ describe('codex turn lifecycle rows', () => {
     ])
   })
 
-  it('writes only the end time when the start was never observed', () => {
+  it('writes only the end time, and no duration, when Codex reports neither', () => {
     const tap = recorder()
     const translator = translatorFor(tap)
 
@@ -172,7 +207,12 @@ describe('codex turn lifecycle rows', () => {
         body: {
           kind: 'status',
           text: 'Codex turn completed',
-          turnLifecycle: { turnId: TURN_ID, state: 'completed', completedAt: 3_000 }
+          turnLifecycle: {
+            turnId: TURN_ID,
+            state: 'completed',
+            userItemId: USER_ITEM_ID,
+            completedAt: 3_000
+          }
         }
       }
     ])
@@ -215,6 +255,7 @@ describe('codex turn lifecycle rows', () => {
             status: 'completed',
             startedAt: 1_700_000_000,
             completedAt: 1_700_000_042,
+            durationMs: 41_900,
             items: [{ type: 'agentMessage', id: 'agent-done', text: 'done' }]
           },
           {
@@ -240,8 +281,10 @@ describe('codex turn lifecycle rows', () => {
           turnLifecycle: {
             turnId: 'turn-done',
             state: 'completed',
+            userItemId: 'codex:thread-abc:turn-done:0',
             startedAt: 1_700_000_000_000,
-            completedAt: 1_700_000_042_000
+            completedAt: 1_700_000_042_000,
+            durationMs: 41_900
           }
         }
       },
@@ -253,6 +296,7 @@ describe('codex turn lifecycle rows', () => {
           turnLifecycle: {
             turnId: 'turn-cut',
             state: 'interrupted',
+            userItemId: 'codex:thread-abc:turn-cut:0',
             startedAt: 1_700_000_100_000,
             completedAt: 1_700_000_101_000
           }

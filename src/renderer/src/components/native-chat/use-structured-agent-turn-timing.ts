@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react'
-import type { AgentJournalRenderItem } from '../../../../shared/agent-session-journal-types'
+import type {
+  AgentJournalRenderItem,
+  AgentJournalSubmission
+} from '../../../../shared/agent-session-journal-types'
 import type { NativeChatSettledTurn } from '../../../../shared/native-chat-turn-status'
 import {
   selectStructuredAgentRunningTurnTiming,
@@ -24,9 +27,13 @@ function anchorRunningTurn(items: readonly AgentJournalRenderItem[], turnId: str
  *  turn so re-renders never move it. */
 export function useStructuredAgentTurnTiming(
   items: readonly AgentJournalRenderItem[],
+  submissions: readonly AgentJournalSubmission[],
   turnId: string | null
 ): { settledTurns: ReadonlyMap<string, NativeChatSettledTurn>; workingStartedAt: number | null } {
-  const settledTurns = useMemo(() => selectStructuredAgentSettledTurns(items), [items])
+  const settledTurns = useMemo(
+    () => selectStructuredAgentSettledTurns(items, submissions),
+    [items, submissions]
+  )
   const [anchor, setAnchor] = useState<TurnAnchor | null>(null)
   // Stamp during render (React's derive-from-props pattern) so the first paint of
   // a new turn already counts from the right instant.

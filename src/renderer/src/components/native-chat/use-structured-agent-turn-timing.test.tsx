@@ -2,7 +2,10 @@
 
 import { renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentJournalRenderItem } from '../../../../shared/agent-session-journal-types'
+import type {
+  AgentJournalRenderItem,
+  AgentJournalSubmission
+} from '../../../../shared/agent-session-journal-types'
 import { useStructuredAgentTurnTiming } from './use-structured-agent-turn-timing'
 
 // Host clock sits an hour ahead of the client's so any leak of a host timestamp
@@ -38,6 +41,20 @@ function lifecycle(
   }
 }
 
+// The submission the provider acknowledged under the key its lifecycle row cites.
+const SUBMISSIONS: AgentJournalSubmission[] = [
+  {
+    clientMessageId: 'first',
+    fence: 1,
+    payloadFingerprint: 'fp',
+    dispatchState: 'accepted',
+    providerItemId: 'codex:thread:t1:0',
+    reason: null,
+    submittedAt: 1,
+    resolvedAt: 2
+  }
+]
+
 afterEach(() => {
   vi.useRealTimers()
 })
@@ -51,7 +68,12 @@ describe('useStructuredAgentTurnTiming', () => {
       lifecycle(
         't1',
         2,
-        { state: 'completed', startedAt: HOST_START, completedAt: HOST_START + 197_900 },
+        {
+          state: 'completed',
+          startedAt: HOST_START,
+          completedAt: HOST_START + 197_900,
+          userItemId: 'codex:thread:t1:0'
+        },
         HOST_START + 5
       ),
       user('u2', 3),
@@ -65,12 +87,13 @@ describe('useStructuredAgentTurnTiming', () => {
     ]
     const { result, rerender } = renderHook(
       ({ items, turnId }: { items: AgentJournalRenderItem[]; turnId: string | null }) =>
-        useStructuredAgentTurnTiming(items, turnId),
+        useStructuredAgentTurnTiming(items, SUBMISSIONS, turnId),
       { initialProps: { items: running, turnId: 't2' as string | null } }
     )
     expect(result.current.workingStartedAt).toBe(CLIENT_NOW - 2_500)
+    // The row's provider key resolves through the submission alias, not journal order.
     expect([...result.current.settledTurns]).toEqual([
-      ['u1', { startedAt: HOST_START, workedSeconds: 197 }]
+      ['orca:first', { startedAt: HOST_START, workedSeconds: 197 }]
     ])
 
     vi.setSystemTime(CLIENT_NOW + 30_000)
@@ -99,7 +122,7 @@ describe('useStructuredAgentTurnTiming', () => {
     vi.useFakeTimers()
     vi.setSystemTime(CLIENT_NOW)
     const items = [user('u1', 1), lifecycle('t1', 2, { state: 'running' }, HOST_START)]
-    const { result } = renderHook(() => useStructuredAgentTurnTiming(items, 't1'))
+    const { result } = renderHook(() => useStructuredAgentTurnTiming(items, [], 't1'))
     expect(result.current.workingStartedAt).toBeNull()
     expect(result.current.settledTurns.size).toBe(0)
   })

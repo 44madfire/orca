@@ -235,7 +235,12 @@ describe('codex journal translation', () => {
         body: {
           kind: 'status',
           text: 'Codex is working…',
-          turnLifecycle: { turnId: TURN_ID, state: 'running', startedAt: expect.any(Number) }
+          turnLifecycle: {
+            turnId: TURN_ID,
+            state: 'running',
+            userItemId: `codex:${THREAD_ID}:${TURN_ID}:0`,
+            startedAt: expect.any(Number)
+          }
         }
       },
       {
@@ -246,6 +251,7 @@ describe('codex journal translation', () => {
           turnLifecycle: {
             turnId: TURN_ID,
             state: 'completed',
+            userItemId: `codex:${THREAD_ID}:${TURN_ID}:0`,
             startedAt: expect.any(Number),
             completedAt: expect.any(Number)
           }

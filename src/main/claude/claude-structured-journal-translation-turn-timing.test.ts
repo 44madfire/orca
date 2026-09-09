@@ -50,7 +50,10 @@ function userTurn(uuid: string, observedAt?: number): ClaudeStructuredSessionEve
   }
 }
 
-function result(observedAt?: number): ClaudeStructuredSessionEvent {
+function result(
+  observedAt?: number,
+  fields: Record<string, unknown> = {}
+): ClaudeStructuredSessionEvent {
   return {
     type: 'message',
     sessionId: 'orca-session',
@@ -61,10 +64,13 @@ function result(observedAt?: number): ClaudeStructuredSessionEvent {
       uuid: 'result-1',
       session_id: 'claude-session',
       is_error: false,
-      result: 'done'
+      result: 'done',
+      ...fields
     }
   }
 }
+
+const USER_1_KEY = 'claude:claude-session:user-1'
 
 describe('Claude structured turn timing', () => {
   afterEach(() => {
@@ -78,8 +84,25 @@ describe('Claude structured turn timing', () => {
     translator.handle(userTurn('user-1', 1_000))
 
     expect(state.lifecycle()).toEqual([
-      { turnId: 'user-1', state: 'running', startedAt: 1_000, options: { observedAt: 1_000 } }
+      {
+        turnId: 'user-1',
+        state: 'running',
+        startedAt: 1_000,
+        userItemId: USER_1_KEY,
+        options: { observedAt: 1_000 }
+      }
     ])
+  })
+
+  it('keys the running row to the user echo that opened the turn', () => {
+    const state = sinkState()
+    const translator = createClaudeJournalTranslator({ sink: state.sink })
+
+    translator.handle(userTurn('user-1', 1_000))
+
+    // The echo itself is never a row; its provider key is what the submission adopted.
+    expect(state.items.some((item) => item.body.kind === 'message')).toBe(false)
+    expect(state.lifecycle().at(-1)?.userItemId).toBe(USER_1_KEY)
   })
 
   it('revises the running row to completed with the result receipt time', () => {
@@ -95,9 +118,34 @@ describe('Claude structured turn timing', () => {
       state: 'completed',
       startedAt: 1_000,
       completedAt: 4_500,
+      userItemId: USER_1_KEY,
       options: {}
     })
     expect(state.items.at(-1)?.identity).toEqual(state.items[0]?.identity)
+  })
+
+  it('carries the provider-measured duration onto the completed row', () => {
+    const state = sinkState()
+    const translator = createClaudeJournalTranslator({ sink: state.sink })
+
+    translator.handle(userTurn('user-1', 1_000))
+    translator.handle(result(4_500, { duration_ms: 3_210 }))
+
+    expect(state.lifecycle().at(-1)).toMatchObject({
+      state: 'completed',
+      durationMs: 3_210,
+      userItemId: USER_1_KEY
+    })
+  })
+
+  it('omits durationMs when the result reports none', () => {
+    const state = sinkState()
+    const translator = createClaudeJournalTranslator({ sink: state.sink })
+
+    translator.handle(userTurn('user-1', 1_000))
+    translator.handle(result(4_500))
+
+    expect(state.lifecycle().at(-1)).not.toHaveProperty('durationMs')
   })
 
   it('revises an open turn to interrupted when the session ends without a result', () => {
@@ -129,9 +177,20 @@ describe('Claude structured turn timing', () => {
     translator.handle(userTurn('user-2', 3_000))
 
     expect(state.lifecycle().map(({ options: _options, ...row }) => row)).toEqual([
-      { turnId: 'user-1', state: 'running', startedAt: 1_000 },
-      { turnId: 'user-1', state: 'interrupted', startedAt: 1_000, completedAt: 3_000 },
-      { turnId: 'user-2', state: 'running', startedAt: 3_000 }
+      { turnId: 'user-1', state: 'running', startedAt: 1_000, userItemId: USER_1_KEY },
+      {
+        turnId: 'user-1',
+        state: 'interrupted',
+        startedAt: 1_000,
+        completedAt: 3_000,
+        userItemId: USER_1_KEY
+      },
+      {
+        turnId: 'user-2',
+        state: 'running',
+        startedAt: 3_000,
+        userItemId: 'claude:claude-session:user-2'
+      }
     ])
   })
 

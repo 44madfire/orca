@@ -46,3 +46,13 @@ export function readCodexTurnStatus(payload: unknown): string | null {
   }
   return nonEmptyString(record(root.turn)?.status) ?? nonEmptyString(root.status)
 }
+
+/** Codex's own turn duration, already in milliseconds; absent or malformed reads as null. */
+export function readCodexTurnDurationMs(payload: unknown): number | null {
+  const root = record(payload)
+  if (!root) {
+    return null
+  }
+  const value = record(root.turn)?.durationMs ?? root.durationMs
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+}

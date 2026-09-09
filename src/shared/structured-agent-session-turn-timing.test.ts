@@ -182,3 +182,93 @@ describe('selectStructuredAgentRunningTurnTiming', () => {
     ).toBeNull()
   })
 })
+
+describe('explicit user-item attribution', () => {
+  const submission = (clientMessageId: string, providerItemId: string | null) => ({
+    clientMessageId,
+    fence: 1,
+    payloadFingerprint: 'fp',
+    dispatchState: 'accepted' as const,
+    providerItemId,
+    reason: null,
+    submittedAt: 1,
+    resolvedAt: 2
+  })
+
+  it('resolves a submission through its provider alias instead of journal order', () => {
+    const items = [
+      user('orca:first'),
+      user('orca:second'),
+      lifecycle('t1', {
+        state: 'completed',
+        userItemId: 'codex:thread:t1:0',
+        startedAt: 1_000,
+        completedAt: 5_000
+      })
+    ]
+    const timings = selectStructuredAgentTurnTimings(items, [
+      submission('first', 'codex:thread:t1:0'),
+      submission('second', null)
+    ])
+    expect([...timings.keys()]).toEqual(['orca:first'])
+  })
+
+  it('uses the key directly when the user item is journaled under it', () => {
+    const items = [
+      user('claude:s:u1'),
+      lifecycle('u1', {
+        state: 'completed',
+        userItemId: 'claude:s:u1',
+        startedAt: 1_000,
+        completedAt: 2_000
+      })
+    ]
+    expect([...selectStructuredAgentTurnTimings(items).keys()]).toEqual(['claude:s:u1'])
+  })
+
+  it('attributes nothing when a keyed row names a user item nobody journaled', () => {
+    const items = [
+      user('orca:first'),
+      lifecycle('auto', {
+        state: 'completed',
+        userItemId: 'codex:thread:auto:0',
+        startedAt: 1_000,
+        completedAt: 2_000
+      })
+    ]
+    expect(selectStructuredAgentTurnTimings(items).size).toBe(0)
+  })
+
+  it('falls back to journal order only for rows without a key (older hosts)', () => {
+    const items = [
+      user('orca:first'),
+      lifecycle('t1', { state: 'completed', startedAt: 1_000, completedAt: 2_000 })
+    ]
+    expect([...selectStructuredAgentTurnTimings(items).keys()]).toEqual(['orca:first'])
+  })
+})
+
+describe('provider-measured duration', () => {
+  it('outranks the host interval and floors to seconds', () => {
+    expect(
+      completedStructuredAgentTurnSeconds({
+        state: 'completed',
+        startedAt: 1_000,
+        completedAt: 9_999,
+        durationMs: 7_172,
+        observedAt: 1_000
+      })
+    ).toBe(7)
+  })
+
+  it('is ignored while the turn is not settled', () => {
+    expect(
+      completedStructuredAgentTurnSeconds({
+        state: 'running',
+        startedAt: 1_000,
+        durationMs: 7_172,
+        observedAt: 1_000
+      })
+    ).toBeNull()
+  })
+})

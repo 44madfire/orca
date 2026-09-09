@@ -1,7 +1,10 @@
 import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentJournalRenderItem } from '../../../src/shared/agent-session-journal-types'
+import type {
+  AgentJournalRenderItem,
+  AgentJournalSubmission
+} from '../../../src/shared/agent-session-journal-types'
 import { useMobileStructuredAgentTurnTiming } from './use-mobile-structured-agent-turn-timing'
 
 // Host clock sits an hour ahead of the client's so any leak of a host timestamp
@@ -38,6 +41,21 @@ function lifecycle(
 }
 
 type Timing = ReturnType<typeof useMobileStructuredAgentTurnTiming>
+const NO_SUBMISSIONS: readonly AgentJournalSubmission[] = []
+
+// The submission the provider acknowledged under the key its lifecycle row cites.
+const SUBMISSIONS: AgentJournalSubmission[] = [
+  {
+    clientMessageId: 'first',
+    fence: 1,
+    payloadFingerprint: 'fp',
+    dispatchState: 'accepted',
+    providerItemId: 'codex:thread:t1:0',
+    reason: null,
+    submittedAt: 1,
+    resolvedAt: 2
+  }
+]
 
 describe('useMobileStructuredAgentTurnTiming', () => {
   let renderer: ReactTestRenderer | null = null
@@ -45,12 +63,14 @@ describe('useMobileStructuredAgentTurnTiming', () => {
 
   function Harness({
     items,
+    submissions = NO_SUBMISSIONS,
     turnId
   }: {
     items: readonly AgentJournalRenderItem[]
+    submissions?: readonly AgentJournalSubmission[]
     turnId: string | null
   }): null {
-    timing = useMobileStructuredAgentTurnTiming(items, turnId)
+    timing = useMobileStructuredAgentTurnTiming(items, submissions, turnId)
     return null
   }
 
@@ -69,7 +89,12 @@ describe('useMobileStructuredAgentTurnTiming', () => {
       lifecycle(
         't1',
         2,
-        { state: 'interrupted', startedAt: HOST_START, completedAt: HOST_START + 61_000 },
+        {
+          state: 'interrupted',
+          startedAt: HOST_START,
+          completedAt: HOST_START + 61_000,
+          userItemId: 'codex:thread:t1:0'
+        },
         HOST_START + 5
       ),
       user('u2', 3),
@@ -81,16 +106,20 @@ describe('useMobileStructuredAgentTurnTiming', () => {
         HOST_START + 102_500
       )
     ]
+    const submissions = SUBMISSIONS
     act(() => {
-      renderer = create(createElement(Harness, { items, turnId: 't2' }))
+      renderer = create(createElement(Harness, { items, submissions, turnId: 't2' }))
     })
     expect(timing?.workingStartedAt).toBe(CLIENT_NOW - 2_500)
+    // The row's provider key resolves through the submission alias, not journal order.
     expect([...timing!.settledTurns]).toEqual([
-      ['u1', { startedAt: HOST_START, workedSeconds: 61 }]
+      ['orca:first', { startedAt: HOST_START, workedSeconds: 61 }]
     ])
 
     vi.setSystemTime(CLIENT_NOW + 30_000)
-    act(() => renderer?.update(createElement(Harness, { items: [...items], turnId: 't2' })))
+    act(() =>
+      renderer?.update(createElement(Harness, { items: [...items], submissions, turnId: 't2' }))
+    )
     expect(timing?.workingStartedAt).toBe(CLIENT_NOW - 2_500)
 
     act(() => renderer?.update(createElement(Harness, { items, turnId: null })))

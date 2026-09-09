@@ -4,7 +4,9 @@ import type {
   AgentJournalTurnLifecycle,
   AgentJournalTurnLifecycleState
 } from '../../shared/agent-session-journal-types'
+import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import { agentTurnLifecycleText } from '../../shared/agent-turn-lifecycle-text'
+import { CODEX_USER_MESSAGE_ORDINAL } from './codex-structured-turn-start'
 import type {
   StructuredAgentSessionEventSink,
   StructuredAgentSessionSinkAdmission
@@ -22,6 +24,16 @@ export function codexTurnLifecycleIdentity(
     sessionId,
     recordId: `turn-lifecycle:${turnId}`
   }
+}
+
+/** Provider key of the user message that opened the turn; deterministic, so never remembered. */
+export function codexTurnUserItemId(threadId: string, turnId: string): string {
+  return agentJournalItemKey({
+    provider: 'codex',
+    threadId,
+    turnId,
+    ordinal: CODEX_USER_MESSAGE_ORDINAL
+  })
 }
 
 export function codexTurnLifecycleBody(
@@ -50,6 +62,7 @@ export function publishCodexTurnLifecycle(input: {
   state: AgentJournalTurnLifecycleState
   startedAt?: number
   completedAt?: number
+  durationMs?: number
 }): StructuredAgentSessionSinkAdmission {
   if (input.primaryThreadId !== input.threadId) {
     return ADMITTED
@@ -58,8 +71,10 @@ export function publishCodexTurnLifecycle(input: {
   const body = codexTurnLifecycleBody({
     turnId: input.turnId,
     state: input.state,
+    userItemId: codexTurnUserItemId(input.threadId, input.turnId),
     ...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}),
-    ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {})
+    ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
+    ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {})
   })
   // The running row's `ts` is the host's turn-start receipt so clients can anchor a live counter.
   const appendOptions = {

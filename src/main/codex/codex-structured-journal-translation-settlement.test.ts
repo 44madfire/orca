@@ -572,6 +572,7 @@ describe('codex journal translation', () => {
               turnLifecycle: {
                 turnId: TURN_ID,
                 state: 'completed',
+                userItemId: `codex:${THREAD_ID}:${TURN_ID}:0`,
                 startedAt: expect.any(Number),
                 completedAt: expect.any(Number)
               }

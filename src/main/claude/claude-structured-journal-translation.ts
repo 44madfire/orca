@@ -198,7 +198,13 @@ export function createClaudeJournalTranslator(
         subagents.settleTurn(groupKeyOf(currentTurn))
         publishLifecycle(currentTurn, { state: 'interrupted', completedAt: observedAt })
       }
-      currentTurn = { sessionId: envelope.sessionId, turnId: envelope.uuid, startedAt: observedAt }
+      currentTurn = {
+        sessionId: envelope.sessionId,
+        turnId: envelope.uuid,
+        startedAt: observedAt,
+        // A user echo lands on its own message identity, so this is the user row's key.
+        userItemId: agentJournalItemKey(identity)
+      }
       publishLifecycle(currentTurn)
       deps.sink.setActivity?.(null)
     }

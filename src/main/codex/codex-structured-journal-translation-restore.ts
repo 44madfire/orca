@@ -5,8 +5,11 @@ import {
   readCodexJournalString
 } from './codex-structured-journal-translation-values'
 import type { CodexJournalTranslationAdmission } from './codex-structured-journal-translation'
-import { codexTurnLifecycleState } from './codex-structured-journal-translation-turns'
-import { readCodexTurnStatus } from './codex-structured-thread-facts'
+import {
+  codexTurnLifecycleState,
+  codexTurnUserItemId
+} from './codex-structured-journal-translation-turns'
+import { readCodexTurnDurationMs, readCodexTurnStatus } from './codex-structured-thread-facts'
 
 /** Old providers may return the complete thread from resume. Keep that fallback
  * bounded before admitting any rows to the asynchronous sink. */
@@ -38,7 +41,9 @@ export function restoreCodexJournalThread(input: {
       : []
   })
   const lifecycles = input.restoreTurnLifecycle
-    ? turns.flatMap((rawTurn) => historicalTurnLifecycle(readCodexJournalRecord(rawTurn)) ?? [])
+    ? turns.flatMap(
+        (rawTurn) => historicalTurnLifecycle(input.threadId, readCodexJournalRecord(rawTurn)) ?? []
+      )
     : []
   const encodedBytes = Buffer.byteLength(JSON.stringify(items), 'utf8')
   if (
@@ -66,7 +71,9 @@ export function restoreCodexJournalThread(input: {
     }
     input.currentTurnIds.delete(input.threadId)
     input.ordinals.forgetTurn(input.threadId, turnId)
-    const lifecycle = input.restoreTurnLifecycle ? historicalTurnLifecycle(turn) : null
+    const lifecycle = input.restoreTurnLifecycle
+      ? historicalTurnLifecycle(input.threadId, turn)
+      : null
     if (lifecycle) {
       const admission = input.restoreTurnLifecycle?.(lifecycle) ?? { accepted: true }
       if (!admission.accepted) {
@@ -79,7 +86,10 @@ export function restoreCodexJournalThread(input: {
 }
 
 /** Codex reports both endpoints in unix seconds; a turn missing either has no durable duration. */
-function historicalTurnLifecycle(turn: Record<string, unknown>): AgentJournalTurnLifecycle | null {
+function historicalTurnLifecycle(
+  threadId: string,
+  turn: Record<string, unknown>
+): AgentJournalTurnLifecycle | null {
   const turnId = readCodexJournalString(turn, 'id')
   const startedAt = turn.startedAt
   const completedAt = turn.completedAt
@@ -92,10 +102,13 @@ function historicalTurnLifecycle(turn: Record<string, unknown>): AgentJournalTur
   ) {
     return null
   }
+  const durationMs = readCodexTurnDurationMs(turn)
   return {
     turnId,
     state: codexTurnLifecycleState(readCodexTurnStatus(turn)),
+    userItemId: codexTurnUserItemId(threadId, turnId),
     startedAt: startedAt * 1000,
-    completedAt: completedAt * 1000
+    completedAt: completedAt * 1000,
+    ...(durationMs !== null ? { durationMs } : {})
   }
 }

@@ -9,9 +9,14 @@ import { settleCodexJournalTurn } from './codex-structured-journal-settlement'
 import type { CodexJournalActiveTurns } from './codex-structured-journal-translation-turn-state'
 import {
   codexTurnLifecycleState,
+  codexTurnUserItemId,
   publishCodexTurnLifecycle
 } from './codex-structured-journal-translation-turns'
-import { readCodexTurnId, readCodexTurnStatus } from './codex-structured-thread-facts'
+import {
+  readCodexTurnDurationMs,
+  readCodexTurnId,
+  readCodexTurnStatus
+} from './codex-structured-thread-facts'
 
 type TurnBoundaryEvent = {
   sessionId: string
@@ -83,7 +88,8 @@ export class CodexJournalTurnBoundaries {
               event.threadId,
               turnId,
               codexTurnLifecycleState(readCodexTurnStatus(event.params)),
-              this.receiptTime(event)
+              this.receiptTime(event),
+              readCodexTurnDurationMs(event.params)
             )
           : null,
       streams: this.deps.items.streams,
@@ -102,14 +108,17 @@ export class CodexJournalTurnBoundaries {
     threadId: string,
     turnId: string,
     state: 'completed' | 'interrupted',
-    completedAt: number
+    completedAt: number,
+    durationMs: number | null = null
   ): AgentJournalTurnLifecycle {
     const startedAt = this.deps.activeTurns.startedAt(threadId, turnId)
     return {
       turnId,
       state,
+      userItemId: codexTurnUserItemId(threadId, turnId),
       ...(startedAt !== undefined ? { startedAt } : {}),
-      completedAt
+      completedAt,
+      ...(durationMs !== null ? { durationMs } : {})
     }
   }
 

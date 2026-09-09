@@ -1,9 +1,12 @@
 // Turn timing read straight off durable lifecycle items. The execution host
-// stamps both endpoints on its own clock, so a completed value is the same on
+// stamps both endpoints on its own clock and records the provider's own
+// measured duration when it reports one, so a completed value is the same on
 // every client and needs no local clock. Shared by desktop and mobile.
 
+import { agentJournalSubmissionKey } from './agent-session-journal-item-key'
 import type {
   AgentJournalRenderItem,
+  AgentJournalSubmission,
   AgentJournalTurnLifecycleState
 } from './agent-session-journal-types'
 import type { NativeChatSettledTurn } from './native-chat-turn-status'
@@ -14,6 +17,8 @@ export type StructuredAgentTurnTiming = {
   startedAt: number
   /** Host clock at the terminal provider event; absent while running or unverifiable. */
   completedAt?: number
+  /** The provider's own measured duration; outranks the host interval. */
+  durationMs?: number
   /** Host clock when the lifecycle row was appended; with `startedAt` it gives
    *  the host-side lag a client must subtract to anchor a live counter. */
   observedAt: number
@@ -24,7 +29,7 @@ function readTiming(item: AgentJournalRenderItem): StructuredAgentTurnTiming | n
   if (body.kind !== 'status' || !body.turnLifecycle) {
     return null
   }
-  const { state, startedAt, completedAt } = body.turnLifecycle
+  const { state, startedAt, completedAt, durationMs } = body.turnLifecycle
   if (startedAt === undefined || !Number.isFinite(startedAt) || startedAt <= 0) {
     return null
   }
@@ -32,32 +37,51 @@ function readTiming(item: AgentJournalRenderItem): StructuredAgentTurnTiming | n
     completedAt !== undefined && Number.isFinite(completedAt) && completedAt >= startedAt
       ? completedAt
       : undefined
+  const measured =
+    durationMs !== undefined && Number.isFinite(durationMs) && durationMs >= 0
+      ? durationMs
+      : undefined
   return {
     state,
     startedAt,
     ...(end !== undefined ? { completedAt: end } : {}),
+    ...(measured !== undefined ? { durationMs: measured } : {}),
     observedAt: item.observedAt
   }
 }
 
-/** Timing keyed by the user message that opened each turn. A lifecycle row
- *  belongs to the nearest user message before it in journal order — the
- *  submission row is written ahead of dispatch, so it always precedes the
- *  provider's turn-start, and a prompt Codex folds into an already-running turn
- *  correctly claims no timing of its own. Lifecycle rows without `startedAt`
- *  (older hosts, conversation commands) are skipped. */
+/** Timing keyed by the user message that opened each turn. A row names its
+ *  user item by provider key; a submission the provider later acknowledged is
+ *  reached through its alias. Rows from older hosts carry no key and fall back
+ *  to the nearest user message before them in journal order — the submission
+ *  row is written ahead of dispatch, so it always precedes the provider's
+ *  turn-start. Rows without `startedAt` (conversation commands) are skipped. */
 export function selectStructuredAgentTurnTimings(
-  items: readonly AgentJournalRenderItem[]
+  items: readonly AgentJournalRenderItem[],
+  submissions: readonly AgentJournalSubmission[] = []
 ): ReadonlyMap<string, StructuredAgentTurnTiming> {
+  const itemIds = new Set(items.map((item) => item.itemId))
+  const aliases = new Map<string, string>()
+  for (const submission of submissions) {
+    if (submission.providerItemId) {
+      aliases.set(submission.providerItemId, agentJournalSubmissionKey(submission.clientMessageId))
+    }
+  }
   const timings = new Map<string, StructuredAgentTurnTiming>()
-  let userItemId: string | null = null
+  let precedingUserItemId: string | null = null
   for (const item of items) {
     if (item.body.kind === 'message' && item.body.role === 'user') {
-      userItemId = item.itemId
+      precedingUserItemId = item.itemId
       continue
     }
     const timing = readTiming(item)
-    if (timing && userItemId !== null) {
+    if (!timing) {
+      continue
+    }
+    const key = item.body.kind === 'status' ? item.body.turnLifecycle?.userItemId : undefined
+    const userItemId =
+      key === undefined ? precedingUserItemId : itemIds.has(key) ? key : (aliases.get(key) ?? null)
+    if (userItemId !== null) {
       timings.set(userItemId, timing)
     }
   }
@@ -83,9 +107,13 @@ export function selectStructuredAgentRunningTurnTiming(
 export function completedStructuredAgentTurnSeconds(
   timing: StructuredAgentTurnTiming | undefined
 ): number | null {
-  return timing &&
-    (timing.state === 'completed' || timing.state === 'interrupted') &&
-    timing.completedAt !== undefined
+  if (!timing || (timing.state !== 'completed' && timing.state !== 'interrupted')) {
+    return null
+  }
+  if (timing.durationMs !== undefined) {
+    return Math.floor(timing.durationMs / 1000)
+  }
+  return timing.completedAt !== undefined
     ? Math.floor((timing.completedAt - timing.startedAt) / 1000)
     : null
 }
@@ -102,10 +130,11 @@ export function structuredAgentTurnLocalStartedAt(
 
 /** The settled turns a chat surface hands to the shared turn-status selector. */
 export function selectStructuredAgentSettledTurns(
-  items: readonly AgentJournalRenderItem[]
+  items: readonly AgentJournalRenderItem[],
+  submissions: readonly AgentJournalSubmission[] = []
 ): ReadonlyMap<string, NativeChatSettledTurn> {
   const settled = new Map<string, NativeChatSettledTurn>()
-  for (const [userItemId, timing] of selectStructuredAgentTurnTimings(items)) {
+  for (const [userItemId, timing] of selectStructuredAgentTurnTimings(items, submissions)) {
     const workedSeconds = completedStructuredAgentTurnSeconds(timing)
     if (workedSeconds !== null) {
       settled.set(userItemId, { startedAt: timing.startedAt, workedSeconds })

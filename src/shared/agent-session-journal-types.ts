@@ -156,8 +156,13 @@ export type AgentJournalTurnLifecycleState = (typeof AGENT_JOURNAL_TURN_LIFECYCL
 export type AgentJournalTurnLifecycle = {
   turnId: string
   state: AgentJournalTurnLifecycleState
+  /** Provider key of the user item that opened the turn; clients resolve a
+   *  submission alias through it. Absent on rows from older hosts. */
+  userItemId?: string
   startedAt?: number
   completedAt?: number
+  /** The provider's own measured turn duration, preferred over the host interval. */
+  durationMs?: number
 }
 
 export type AgentJournalStatusItem = {
