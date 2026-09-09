@@ -94,7 +94,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS conversation_fts USING fts5(
 -- word list: it can never suggest a term this index does not hold, and it needs
 -- no model. fts5vocab is a view over the FTS5 b-tree, so it costs no extra rows.
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_vocab USING fts5vocab(messages_fts, 'row');
--- Locally logged queries, redacted, bounded. Nothing writes here unless a caller
+-- Locally logged queries, stored as typed, bounded. Nothing writes here unless a caller
 -- opts in; the eval set is rebuilt from it (see session-search-query-log).
 CREATE TABLE IF NOT EXISTS search_log(
   id INTEGER PRIMARY KEY,
