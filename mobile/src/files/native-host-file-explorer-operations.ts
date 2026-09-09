@@ -16,8 +16,7 @@ export function nativeHostFileExplorerOperations(client: RpcClient): HostFileExp
       if (response.ok) {
         return {
           kind: 'directory',
-          entries: response.result as MobileDirEntry[],
-          truncated: false
+          entries: response.result as MobileDirEntry[]
         }
       }
       // Why: desktops that predate the files.readDir mobile allowlist entry still serve the

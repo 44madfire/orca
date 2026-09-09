@@ -42,6 +42,17 @@ describe('native host session tab operations', () => {
     await expect(operations.close('workspace-1', 'tab-1')).resolves.toBe(true)
   })
 
+  it('prunes a close the host refused, as main did', async () => {
+    const operations = nativeHostSessionTabOperations({
+      sendRequest: vi.fn().mockResolvedValue({
+        ok: true,
+        result: { closed: true, refused: true, refusalReason: 'live-host-pty' }
+      })
+    } as unknown as RpcClient)
+
+    await expect(operations.close('workspace-1', 'tab-1')).resolves.toBe(true)
+  })
+
   it('reports a close the host refused at the transport', async () => {
     const operations = nativeHostSessionTabOperations({
       sendRequest: vi.fn().mockResolvedValue({ ok: false, error: { code: 'x', message: 'no' } })
