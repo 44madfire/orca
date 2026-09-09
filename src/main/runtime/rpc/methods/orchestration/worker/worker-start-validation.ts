@@ -14,7 +14,13 @@ import {
 import type { WorkerStartInput } from './worker-start-schema'
 
 type WorkerStartLaunch = ReturnType<typeof resolveWorkerLaunchPreferences>
-type WorkerStartAgentPlan = { agent: TuiAgent | undefined; launch: WorkerStartLaunch }
+type WorkerStartAgentPlan = {
+  agent: TuiAgent | undefined
+  launch: WorkerStartLaunch
+  /** Present only when the model probe already paid for it; `startLocalWorker` reuses it
+   *  instead of making a second `showTerminal` round trip for the same dispatch. */
+  callerWorktreeId?: string
+}
 
 const COORDINATOR_HOSTED_PLACEMENTS = new Set(['current', 'new-child', 'new-top-level'])
 
@@ -22,18 +28,20 @@ const COORDINATOR_HOSTED_PLACEMENTS = new Set(['current', 'new-child', 'new-top-
  * The worktree whose host will run the worker, as a selector the model probe can resolve.
  * A worktree that does not exist yet inherits the coordinator's host, which is where it is made.
  */
-async function resolveLocalLaunchHostSelector(
+async function resolveLocalLaunchHost(
   runtime: OrcaRuntimeService,
   params: WorkerStartInput
-): Promise<string | null> {
+): Promise<{ selector: string | null; callerWorktreeId?: string }> {
   const requested = params.worktree ?? 'current'
   if (!COORDINATOR_HOSTED_PLACEMENTS.has(requested)) {
-    return requested
+    return { selector: requested }
   }
   try {
-    return `id:${await resolveDispatchCallerWorktreeId(runtime, params.from)}`
+    const callerWorktreeId = await resolveDispatchCallerWorktreeId(runtime, params.from)
+    return { selector: `id:${callerWorktreeId}`, callerWorktreeId }
   } catch {
-    return null
+    // The same failure resurfaces where the dispatch actually needs the coordinator's worktree.
+    return { selector: null }
   }
 }
 
@@ -101,15 +109,19 @@ export async function prepareLocalWorkerStart(args: {
       'Creation and setup options apply only to new-child or new-top-level worktrees.'
     )
   }
-  return resolveWorkerStartAgent({
+  const host: { selector: string | null; callerWorktreeId?: string } = params.model
+    ? await resolveLocalLaunchHost(runtime, params)
+    : { selector: null }
+  const plan = await resolveWorkerStartAgent({
     runtime,
     terminal: params.terminal,
     agent: params.agent,
     model: params.model,
     effort: params.effort,
-    worktreeSelector: params.model ? await resolveLocalLaunchHostSelector(runtime, params) : null,
+    worktreeSelector: host.selector,
     missingAgentMessage: 'A configured --agent is required when worker-start creates a terminal.'
   })
+  return host.callerWorktreeId ? { ...plan, callerWorktreeId: host.callerWorktreeId } : plan
 }
 
 export async function prepareFederationAttachmentWorkerStart(args: {
