@@ -11,13 +11,11 @@ export const PUSH_LIMITS = {
   maxHttpBodyBytes: 16 * 1024,
   hostEventsPerWindow: 300,
   eventQuotaWindowMs: 15 * 60 * 1000,
-  coalesceWindowMs: 3_000,
   challengeTtlMs: 10_000,
   // Covers routine NTP drift without extending the signed challenge window.
   clockSkewToleranceMs: 30_000,
   sessionTtlMs: 24 * 60 * 60 * 1000,
   notificationTtlSeconds: 5 * 60,
-  apnsCollapseIdMaxBytes: 64,
   // Nothing reads a host row, and any keypair mints one for free, so a host
   // with no registration left is kept only long enough to survive a phone swap.
   hostRetentionMs: 60 * 60 * 1000,

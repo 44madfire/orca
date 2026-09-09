@@ -45,12 +45,10 @@ describe('push contract limits', () => {
       maxDevicesPerListResponse: 1_024,
       hostEventsPerWindow: 300,
       eventQuotaWindowMs: 900_000,
-      coalesceWindowMs: 3_000,
       challengeTtlMs: 10_000,
       clockSkewToleranceMs: 30_000,
       sessionTtlMs: 86_400_000,
       notificationTtlSeconds: 300,
-      apnsCollapseIdMaxBytes: 64,
       hostRetentionMs: 3_600_000,
       unauthenticatedRequestsPerMinutePerIp: 30,
       authenticatedRequestsPerMinutePerHost: 600

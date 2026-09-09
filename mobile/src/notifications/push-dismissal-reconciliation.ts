@@ -37,7 +37,7 @@ async function readDelivered(hostId: string): Promise<Map<string, OrcaPushPayloa
       }
     }
   } catch {
-    // Legacy shells can still use ordinary event replay without tray inspection.
+    // Tray inspection is best-effort; failure leaves OS banners for later reconciliation.
   }
   return selected
 }
@@ -54,7 +54,7 @@ export async function requestNotificationCatchup(
   }
   const entries = [...delivered.entries()]
   const response = await client.sendRequest('notifications.getMissedSince', {
-    // First pairing reconciles the tray without requesting historical alerts.
+    // First pairing reconciles tray identities without requesting historical events.
     ...(params ?? { lastSeenSeq: Number.MAX_SAFE_INTEGER }),
     ...(delivered.size
       ? { deliveredPushes: entries.slice(0, 256).map(([, payload]) => identity(payload)!) }
@@ -89,7 +89,7 @@ export async function requestNotificationCatchup(
     }
   }
   await applyDismissals(response, new Map(entries.slice(0, 256)))
-  // Summaries may represent more identities than one RPC permits; replay only once.
+  // Page remaining tray identities without requesting historical events again.
   for (let offset = 256; offset < entries.length && !isDisposed(); offset += 256) {
     const requested = new Map(entries.slice(offset, offset + 256))
     try {

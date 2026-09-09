@@ -6,7 +6,7 @@ import { buildPushDelivery } from './push-delivery-message.js'
 const HOST = 'abcdefghijklmnop'
 const TOKEN = 'cQ1abcDEF_gh:APA91bZZ-zz0123456789abcdefghijklmnopqrstuvwxyz'
 
-function delivery(coalescedCount = 1, agentState: 'needs-input' | null = 'needs-input') {
+function delivery(agentState: 'needs-input' | null = 'needs-input') {
   return buildPushDelivery({
     registrationId: 'reg-1',
     hostFingerprint: HOST,
@@ -19,10 +19,7 @@ function delivery(coalescedCount = 1, agentState: 'needs-input' | null = 'needs-
       title: 'Agent needs input',
       body: 'Waiting on your answer',
       worktreeId: 'wt-1'
-    },
-    title: coalescedCount > 1 ? 'Orca' : 'Agent needs input',
-    body: coalescedCount > 1 ? '3 agents need attention' : 'Waiting on your answer',
-    coalescedCount
+    }
   })
 }
 
@@ -85,8 +82,7 @@ describe('fcm client', () => {
           notificationSeq: '7',
           notificationEpoch: 'epoch-1',
           source: 'agent-task-complete',
-          agentState: 'needs-input',
-          coalescedCount: '1'
+          agentState: 'needs-input'
         }
       }
     })
@@ -94,7 +90,7 @@ describe('fcm client', () => {
 
   it('carries every data value as a string and omits a null agent state', async () => {
     const { fake, client: fcm } = client({ status: 200, body: '{}' })
-    await fcm.send(delivery(3, null), { token: TOKEN })
+    await fcm.send(delivery(null), { token: TOKEN })
     const message = JSON.parse(fake.requests[0]!.body) as {
       message: {
         android: { collapse_key: string; notification: { tag: string } }
@@ -105,9 +101,12 @@ describe('fcm client', () => {
       true
     )
     expect(message.message.data.agentState).toBeUndefined()
-    expect(message.message.data.coalescedCount).toBe('3')
-    expect(message.message.android.notification.tag).toBe(`host:${HOST}`)
-    expect(message.message.android.collapse_key).toBe(fcmCollapseKey(`host:${HOST}`))
+    const tag = createHash('sha256')
+      .update(JSON.stringify([HOST, 'note-1']))
+      .digest('hex')
+    expect(message.message.data.coalescedCount).toBeUndefined()
+    expect(message.message.android.notification.tag).toBe(tag)
+    expect(message.message.android.collapse_key).toBe(fcmCollapseKey(tag))
     expect(message.message.android.collapse_key).toHaveLength(32)
   })
 

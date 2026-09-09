@@ -6,7 +6,7 @@ afterEach(async () => {
   await Promise.all(harnesses.splice(0).map((h) => h.close()))
 })
 
-it('returns queued for concurrent retries without double quota or a false summary', async () => {
+it('returns queued for concurrent retries without double quota or delivery', async () => {
   const h = await createPushServerHarness()
   harnesses.push(h)
   const token = await h.signIn(createPushHostKeypair(2))
@@ -22,7 +22,7 @@ it('returns queued for concurrent retries without double quota or a false summar
   await h.post('/v1/send', body, token)
   await h.flushDeliveries()
   expect(h.fcmRequests).toHaveLength(1)
-  expect(JSON.parse(h.fcmRequests[0]!.body).message.data.coalescedCount).toBe('1')
+  expect(JSON.parse(h.fcmRequests[0]!.body).message.data.coalescedCount).toBeUndefined()
   expect(
     Number((await h.database.query('SELECT COUNT(*) AS count FROM push_events'))[0]?.count)
   ).toBe(1)

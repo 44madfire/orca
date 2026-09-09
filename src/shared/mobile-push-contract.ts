@@ -18,8 +18,9 @@ export type MobilePushApnsEnvironment = (typeof MOBILE_PUSH_APNS_ENVIRONMENTS)[n
 export type MobilePushFilter = {
   onlyWhenDesktopAway?: boolean
   expireAfterInactivity?: boolean
-  followDesktop?: boolean
   sound?: boolean
+  /** Legacy category fields retained so independently updated clients and hosts still register. */
+  followDesktop?: boolean
   sources: readonly MobilePushSource[]
   agentStates: readonly MobilePushAgentState[]
 }

@@ -1,15 +1,10 @@
 import { notifyNotificationConsentChanged } from '../notifications/notification-consent-events'
 import {
   loadNotificationDeliveryPreferences,
-  notificationPreferencesFilter,
-  saveNotificationDeliveryPreferences
+  notificationPreferencesFilter
 } from '../notifications/notification-delivery-preferences'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import {
-  MOBILE_PUSH_AGENT_STATES,
-  type MobilePushAgentState,
-  type MobilePushFilter
-} from '../../../src/shared/mobile-push-contract'
+import type { MobilePushFilter } from '../../../src/shared/mobile-push-contract'
 
 const PINS_PREFIX = 'orca:pins:'
 const NOTIF_KEY = 'orca:pushNotificationsEnabled'
@@ -45,11 +40,8 @@ export async function savePushNotificationsEnabled(enabled: boolean): Promise<vo
 
 // Retained for older mobile builds; the master preference owns both delivery paths.
 const REMOTE_PUSH_KEY = 'orca:remotePushEnabled'
-const REMOTE_PUSH_AGENT_STATES_KEY = 'orca:remotePushAgentStates'
 const REMOTE_PUSH_HOST_REGISTRATIONS_KEY = 'orca:remotePushHostRegistrations'
 
-// The host and phone share the same source and agent-state vocabulary.
-export type RemotePushAgentState = MobilePushAgentState
 export type RemotePushFilter = MobilePushFilter
 
 export async function loadRemotePushEnabled(): Promise<boolean> {
@@ -66,35 +58,6 @@ export async function loadRemotePushEnabled(): Promise<boolean> {
 
 export async function saveRemotePushEnabled(enabled: boolean): Promise<void> {
   await savePushNotificationsEnabled(enabled)
-}
-
-function remotePushAgentStates(value: unknown): RemotePushAgentState[] {
-  return stringArray(value).filter((state): state is RemotePushAgentState =>
-    (MOBILE_PUSH_AGENT_STATES as readonly string[]).includes(state)
-  )
-}
-
-// Both states default on; an absent key is a device that never opened the section.
-export async function loadRemotePushAgentStates(): Promise<readonly RemotePushAgentState[]> {
-  try {
-    const raw = await AsyncStorage.getItem(REMOTE_PUSH_AGENT_STATES_KEY)
-    return raw === null ? MOBILE_PUSH_AGENT_STATES : remotePushAgentStates(JSON.parse(raw))
-  } catch {
-    return MOBILE_PUSH_AGENT_STATES
-  }
-}
-
-export async function saveRemotePushAgentStates(
-  states: readonly RemotePushAgentState[]
-): Promise<void> {
-  const current = await loadNotificationDeliveryPreferences()
-  await saveNotificationDeliveryPreferences({
-    ...current,
-    followDesktop: false,
-    taskFinished: states.includes('finished'),
-    needsInput: states.includes('needs-input')
-  })
-  await AsyncStorage.setItem(REMOTE_PUSH_AGENT_STATES_KEY, JSON.stringify([...states]))
 }
 
 export async function loadRemotePushFilter(): Promise<RemotePushFilter> {

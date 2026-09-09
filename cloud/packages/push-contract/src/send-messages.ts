@@ -43,8 +43,7 @@ export const PushNotificationSchema = z
 export const PushSendRequestSchema = z
   .object({
     v: z.literal(1),
-    // Deduped before the gateway sees it: a repeated id would otherwise reserve
-    // quota twice and inflate the coalesced count for one banner.
+    // Deduped before the gateway sees it so a repeated id cannot reserve quota twice.
     registrationIds: z
       .array(OpaqueIdSchema)
       .min(1)

@@ -103,7 +103,7 @@ describe('PushDispatcher', () => {
     expect(harness.sends).toHaveLength(0)
   })
 
-  it('applies each device filter independently', async () => {
+  it('ignores obsolete category filters on existing registrations', async () => {
     const harness = createHarness({
       devices: [
         {
@@ -127,10 +127,10 @@ describe('PushDispatcher', () => {
     harness.dispatcher.enqueue(notification({ agentState: 'blocked' }))
     await flush()
 
-    expect(harness.sends[0]?.registrationIds).toEqual(['reg-needs', 'reg-all'])
+    expect(harness.sends[0]?.registrationIds).toEqual(['reg-needs', 'reg-bell', 'reg-all'])
   })
 
-  it('pushes a bell to a device that filtered agent states out', async () => {
+  it('pushes a desktop-eligible bell despite an obsolete empty agent-state filter', async () => {
     const harness = createHarness({
       devices: [
         {

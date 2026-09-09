@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto'
-import { PUSH_DEFAULTS, PUSH_LIMITS } from '@orca-cloud/push-contract'
+import { PUSH_DEFAULTS } from '@orca-cloud/push-contract'
 import { describe, expect, it } from 'vitest'
 import { loadPushConfig, PUSH_DATABASE_POOL_MAX } from './config.js'
 
@@ -25,7 +25,6 @@ describe('push gateway config', () => {
       apns: undefined,
       apnsTopic: PUSH_DEFAULTS.apnsTopic,
       fcmProjectId: PUSH_DEFAULTS.fcmProjectId,
-      coalesceMs: PUSH_LIMITS.coalesceWindowMs,
       trustedProxyHops: 0
     })
   })
@@ -42,7 +41,6 @@ describe('push gateway config', () => {
       ORCA_PUSH_APPLE_TEAM_ID: 'TEAM123456',
       ORCA_PUSH_APNS_TOPIC: 'com.stably.orca.mobile.dev',
       ORCA_PUSH_FCM_PROJECT_ID: 'onorca-staging',
-      ORCA_PUSH_COALESCE_MS: '1500',
       ORCA_PUSH_TRUSTED_PROXY_HOPS: '1'
     })
     expect(config).toMatchObject({
@@ -52,8 +50,7 @@ describe('push gateway config', () => {
       apns: { keyPem, keyId: 'ABCDE12345', teamId: 'TEAM123456' },
       apnsTopic: 'com.stably.orca.mobile.dev',
       trustedProxyHops: 1,
-      fcmProjectId: 'onorca-staging',
-      coalesceMs: 1500
+      fcmProjectId: 'onorca-staging'
     })
   })
 
@@ -97,7 +94,6 @@ it('treats blank defaulted environment settings as absent', () => {
       'ORCA_PUSH_DATA_DIR',
       'ORCA_PUSH_APNS_TOPIC',
       'ORCA_PUSH_FCM_PROJECT_ID',
-      'ORCA_PUSH_COALESCE_MS',
       'ORCA_PUSH_DATABASE_POOL_MAX',
       'ORCA_PUSH_TRUSTED_PROXY_HOPS'
     ].map((key) => [key, ' '])

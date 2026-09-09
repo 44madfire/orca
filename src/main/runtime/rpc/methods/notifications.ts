@@ -47,9 +47,8 @@ const NotificationGetMissedSinceParams = z.object({
     .optional()
 })
 
-// Why: the phone owns which alerts are worth waking it for; the host stores the
-// filter per device and applies it before it ever calls the gateway. Native push
-// tokens are long (FCM registration strings), so the bound is generous.
+// Category fields remain required for older peers, but updated hosts use only
+// phone-specific away, expiry, and sound preferences from this filter.
 const NotificationPushFilterParams = z.object({
   onlyWhenDesktopAway: z.boolean().optional(),
   expireAfterInactivity: z.boolean().optional(),
@@ -75,10 +74,8 @@ const NotificationRegisterPushParams = z
     message: 'apnsEnvironment is required for ios'
   })
 
-// Why: notifications.subscribe streams desktop notification events to mobile
-// clients over WebSocket. The mobile client shows a local push notification
-// for each event. This avoids requiring Firebase/APNs — the existing
-// persistent WebSocket connection doubles as the push channel.
+// The socket stream keeps mobile app state and dismissal reconciliation live;
+// native push is the only route that presents ordinary mobile OS alerts.
 export const NOTIFICATION_METHODS: readonly RpcAnyMethod[] = [
   defineStreamingMethod({
     name: 'notifications.subscribe',

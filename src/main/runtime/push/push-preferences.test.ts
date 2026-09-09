@@ -1,7 +1,8 @@
 import { expect, it } from 'vitest'
+import { parseMobilePushRegistration } from '../../../shared/mobile-push-contract'
 import { createHarness, notification, registration, flush } from './push-dispatcher.test-fixture'
 
-it('routes a desktop-disabled bell only to a phone that independently permits bells', async () => {
+it('applies current desktop category eligibility over every persisted phone filter', async () => {
   const filter = registration().filter
   const harness = createHarness({
     devices: [
@@ -21,17 +22,24 @@ it('routes a desktop-disabled bell only to a phone that independently permits be
       },
       {
         deviceId: 'no-bells',
-        pushRegistration: registration({
-          registrationId: 'no-bells',
-          filter: { ...filter, followDesktop: false, sources: ['agent-task-complete'] }
-        })
+        pushRegistration: parseMobilePushRegistration(
+          registration({
+            registrationId: 'no-bells',
+            filter: { ...filter, followDesktop: false, sources: ['agent-task-complete'] }
+          })
+        )
       }
     ]
   })
   harness.dispatcher.enqueue(notification({ source: 'terminal-bell', desktopAllowed: false }))
   await flush()
-  expect(harness.sends).toHaveLength(1)
-  expect(harness.sends[0]).toMatchObject({
+  expect(harness.sends).toHaveLength(0)
+
+  harness.dispatcher.enqueue(notification({ source: 'terminal-bell', desktopAllowed: true }))
+  await flush()
+  expect(harness.sends).toHaveLength(2)
+  expect(harness.sends[0]).toMatchObject({ registrationIds: ['mirror', 'no-bells'] })
+  expect(harness.sends[1]).toMatchObject({
     registrationIds: ['override'],
     notification: { sound: false }
   })
@@ -61,7 +69,7 @@ it('keeps sound preferences separate when several phones receive the same event'
   })
 })
 
-it('applies burst suppression after each phone filters event types', async () => {
+it('applies burst suppression independently to each eligible phone', async () => {
   const harness = createHarness({
     devices: [
       {
@@ -83,5 +91,5 @@ it('applies burst suppression after each phone filters event types', async () =>
   harness.dispatcher.enqueue(notification({ source: 'terminal-bell', emittedAt: 10000 }))
   harness.dispatcher.enqueue(notification({ emittedAt: 10250 }))
   await flush()
-  expect(harness.sends.map((send) => send.registrationIds)).toEqual([['all'], ['no-bells']])
+  expect(harness.sends.map((send) => send.registrationIds)).toEqual([['all', 'no-bells']])
 })

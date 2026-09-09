@@ -7,10 +7,13 @@ This document is the single contract every lane builds against. Do not deviate w
 
 A small Orca-hosted push gateway (`cloud/apps/push`) holds the APNs key and FCM credentials and sends
 to phones. The desktop host registers each paired phone's native push token with the gateway and asks
-the gateway to push on every mobile notification it already fans out over the socket. The phone dedupes
-by host, counter epoch, and `notificationId#notificationSeq`. Foreground pushes and socket events
-share the same per-host delivery queue so a pending native schedule cannot produce a second banner. No ack gate, no generic mode, no staging gateway, one auth path for
-signed-in and accountless hosts.
+the gateway to push each eligible desktop notification. Native APNs/FCM delivery is the only ordinary
+mobile OS-banner path. The notification socket is retained only for live dismissals and reconnect tray
+reconciliation; ordinary notification frames never create banners. Reconciliation compares the current
+native tray with durable host dismissal history and does not replay alerts. Desktop notification
+categories are authoritative. Legacy category, replay-notification, and summary fields remain on the
+wire only for mixed-version compatibility. No ack gate, no generic mode, no staging gateway, one auth
+path for signed-in and accountless hosts.
 
 ## Identities
 
@@ -96,9 +99,10 @@ replaces the old. `deviceId` is caller-chosen, so a host is capped at 64 registr
 distinct `deviceId` → 409 `{ "error": "too_many_devices" }`. Re-registering a `deviceId` the host
 already owns is always accepted, and deleting a registration frees its slot. `GET /v1/devices` is
 bounded at 1024 rows to match its response schema, which the per-host cap keeps well out of reach.
-`filter` is stored but enforced by the host (see desktop); gateway stores it only so a
-host restart can re-read it. iOS tokens are variable-length, hex-encoded byte strings; Android
-tokens are FCM registration strings.
+The gateway `filter` contains only the legacy `sources` and `agentStates` arrays. It remains stored and
+accepted for mixed-version schema compatibility but is not an updated delivery-policy input. The host
+persists and enforces desktop eligibility plus the phone-specific away-only, sound, and expiry settings.
+iOS tokens are variable-length, hex-encoded byte strings; Android tokens are FCM registration strings.
 
 `DELETE /v1/devices/:registrationId` (Bearer) → 204. Only the owning host may delete.
 
@@ -162,25 +166,37 @@ tokens are FCM registration strings.
   but the OS banner shows while the app is backgrounded. Reaching it needs the victim's native token,
   which the gateway never returns and which only the phone and its host ever see.
 
-### Coalescing (gateway)
+### Individual delivery (gateway)
 
-Per registration, persist a three-second window and summarize bursts using the latest event's
-routing fields and `coalescedCount`. Windows are shared across replicas. Single-alert collapse IDs
-hash host and notification identity; summaries hash the host and their complete membership.
-Each summary carries optional `summaryMembers` (ID, epoch, sequence), encoded as a JSON string
-in FCM data. Admission splits bursts into independently leased batches of at most 32 members,
-and reserves provider envelope space within the 4 KB payload limit. An event without a notification
-identity stays individual. Batches that fill the membership/payload budget become immediately due;
-quota accounting still counts logical alerts, not batches or recipients.
+Each accepted event immediately creates one queued delivery per eligible registration. Bursts retain
+their original title, body, routing fields, and replacement identity; the gateway does not generate
+summary text or summary membership. APNs groups alerts visually by the host thread identifier. Android
+uses a distinct notification tag for each event and relies on platform behavior rather than a custom
+summary notification. Quota accounting still counts logical alerts, not deliveries or recipients.
 
-Four worker lanes per instance claim delivery batches with expiring, renewed SQL leases. Retry state
+Four worker lanes per instance claim deliveries with expiring, renewed SQL leases. Retry state
 is persistent, with exponential backoff and provider minimum delays. Retry-After is never shortened
 to fit event lifetime: expire instead. Device validity is checked before each attempt. Dismissals
-cancel pending matching alerts, bypass alert coalescing, and use silent provider messages. Mobile OS
+cancel the matching pending alert and use silent provider messages. Mobile OS
 background execution remains best effort, particularly after force-quit on iOS.
 
+The queue table retains its historical `push_delivery_batches` name to avoid a data migration. New
+rows keep a one-element JSON array only as a rolling-deploy storage envelope so an older worker can
+read them, but new code models and sends one notification. New rows are immediately due, which keeps
+an overlapping older gateway from appending to them. A new worker atomically splits a pre-deployment
+multi-event row into individual rows, preserving its fixed expiry, attempt count, and existing event
+recipient records; legacy rows were capped at 32 events, bounding that transaction. A legacy row
+already leased by an older revision completes under that revision's behavior, while immediately due
+new rows cannot be appended to by its admission path.
+
+Individual presentation is guaranteed only after every older worker revision has retired. During
+the overlap, an older worker can still send a pre-existing row as a summary and can assign its former
+host-wide collapse identity to a new singleton identity-less bell. Do not add fabricated IDs or new
+wire fields to conceal old-binary behavior. Post-retirement acceptance must verify that two alerts for
+one host retain independent provider replacement identities and can be dismissed independently.
+
 Shutdown stops admission and work acquisition, waits for active work within the platform grace, and
-leaves unfinished batches recoverable after their leases expire. A provider acceptance followed by a
+leaves unfinished deliveries recoverable after their leases expire. A provider acceptance followed by a
 crash before SQL completion can still cause a repeated send; collapse identity mitigates this without
 promising exactly-once delivery.
 
@@ -190,10 +206,11 @@ APNs (HTTP/2, `api.push.apple.com` or `api.sandbox.push.apple.com` by `apnsEnvir
 from key id + team id + `.p8`, token cached and refreshed every 50 min):
 
 - headers: `apns-topic: com.stably.orca.mobile`, `apns-push-type: alert`, `apns-priority: 10`,
-  `apns-expiration: fixed event deadline (at most five minutes)`, `apns-collapse-id: <sha256(host + notification identity), or host:<fp>>`
+  `apns-expiration: fixed event deadline (at most five minutes)`, `apns-collapse-id: <sha256(host + notification identity)>`
+  (identity-less events use their epoch and sequence)
 - body: `{"aps":{"alert":{"title","body"},"sound":"default","thread-id":"<hostFingerprint>"},
 "orca":{ hostFingerprint, worktreeId, notificationId, notificationSeq, notificationEpoch, source,
-agentState, coalescedCount }}`
+agentState }}`
 - Dismissals use `apns-push-type: background`, priority `5`, no collapse header, and
   `aps: {"content-available": 1}` with `orca.kind: "dismiss"`. They carry no alert or sound.
 - Dead token: 410, or 400 with `BadDeviceToken`/`Unregistered`/`DeviceTokenNotForTopic`.
@@ -206,9 +223,12 @@ metadata server or `GOOGLE_APPLICATION_CREDENTIALS` locally):
 "data":{ all orca fields as strings }}}`
 - Dismissals are data-only (`kind: "dismiss"`); omit both `message.notification` and
   `android.notification`. No visible alert or sound is requested.
-- FCM notification messages are inherently collapsible while offline; `collapse_key` does not
-  preserve every alert. Android `tag` controls replacement after delivery. On reconnect, the
-  existing host notification replay recovers retained events; the tray is not an event log.
+- FCM notification messages are inherently collapsible while offline, and FCM supports only a small
+  number of concurrent collapse keys per device. Per-event `collapse_key` and Android `tag` preserve
+  individual replacement identity while a message is retained, but excess offline pending messages
+  may be discarded and every alert is not guaranteed to appear. Android automatic grouping remains
+  platform-owned and is unverified on physical devices. Socket reconnect never recovers missed OS
+  banners; the tray is not an event log.
 - Dead token: `UNREGISTERED`, or `INVALID_ARGUMENT` whose message names the token.
 
 ### Gateway storage (Postgres in prod, SQLite in tests, same pattern as `cloud/apps/relay/src/database.ts`)
@@ -225,7 +245,8 @@ expires_at, consumed_at)`
 filter_json, dead_at, created_at, updated_at, unique(host_fingerprint, device_id))`
 - `push_events` holds logical event identity, content fingerprint, quota timestamp, and expiry.
 - `push_event_recipients` records accepted event/phone pairs for idempotent fanout.
-- `push_delivery_batches` holds coalesced payloads, retry deadlines, and renewable worker leases.
+- `push_delivery_batches` holds individual payload envelopes, retry deadlines, and renewable worker
+  leases.
 - `push_dismissed_events` fences older alerts from replaying after dismissal.
 - Queue identities and dismissal fences are retained for 24 hours; completed payloads are cleared.
 
@@ -237,7 +258,7 @@ Logging: aggregate counters only. Never log tokens, titles, bodies, or raw finge
 `PORT`, `ORCA_PUSH_PUBLIC_URL`, `ORCA_PUSH_DATABASE_URL` (absent → SQLite under `ORCA_PUSH_DATA_DIR`),
 `ORCA_PUSH_APNS_KEY` (PEM text), `ORCA_PUSH_APNS_KEY_ID`, `ORCA_PUSH_APPLE_TEAM_ID`,
 `ORCA_PUSH_APNS_TOPIC` (default `com.stably.orca.mobile`), `ORCA_PUSH_FCM_PROJECT_ID` (default
-`onorca-cloud`), `ORCA_PUSH_COALESCE_MS` (default 3000), `ORCA_PUSH_TRUSTED_PROXY_HOPS` (default 0,
+`onorca-cloud`), `ORCA_PUSH_TRUSTED_PROXY_HOPS` (default 0,
 proxies appending to `x-forwarded-for` after the client).
 Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-key`,
 `orca-cloud-push-apns-key-id`, `orca-cloud-push-apple-team-id`. Runtime SA:
@@ -247,16 +268,19 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 
 - Capability `NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY = 'notifications.remote-push.v1'` in
   `src/shared/protocol-version.ts`, advertised statically.
-- RPC `notifications.registerPush` params `{ platform, token, apnsEnvironment?, filter }` (same shapes
-  as the gateway `POST /v1/devices` minus deviceId, which comes from `ctx.pairedDeviceId`). Returns
+- RPC `notifications.registerPush` params `{ platform, token, apnsEnvironment?, filter }`. The mobile
+  filter includes away-only, expiry, and sound settings plus the legacy category fields; the host
+  persists that full policy, while its gateway `POST /v1/devices` forwards only `sources` and
+  `agentStates` for compatibility. `deviceId` comes from `ctx.pairedDeviceId`. The RPC returns
   `{ registered: true, registrationId } | { registered: false, reason: 'gateway_unreachable' |
 'gateway_rejected' | 'not_mobile' | 'registration_storage_failed' | 'throttled' }`. A device may
   register at most 10 times per minute (`throttled` beyond that, its earlier registration untouched):
   each call is a gateway write plus a synchronous registry write on the main thread, and a paired
   phone could otherwise loop it. The unregister RPC is not throttled, since with nothing registered it
   is a lookup and with something registered it can only run once per successful register. The params
-  schema is strict, so a caller-supplied `deviceId` is an error, not a key silently dropped. Persists `pushRegistration:
-{ registrationId, platform, filter, registeredAt }` on `DeviceEntry` in `device-registry.ts` (new
+  schema is strict, so a caller-supplied `deviceId` is an error, not a key silently dropped. Persists
+  `pushRegistration: { registrationId, platform, filter, registeredAt }` on `DeviceEntry` in
+  `device-registry.ts` (new
   optional field, tolerated by old registries). When the gateway accepted the token but the host could
   not store it — the device left mobile scope mid-call (`not_mobile`) or the registry write threw
   (`registration_storage_failed`) — the host queues the gateway delete in the unregister outbox rather
@@ -279,8 +303,9 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
   `answerRelayHostChallenge` with the push transcript fields. Shared code with the relay proof is
   welcome if it stays a pure refactor.
 - Dispatch hook: in `RuntimeMobileNotificationController.dispatch`, after the socket fan-out, call
-  `pushDispatcher.enqueue(eventWithSeq)`. The dispatcher applies each device's `filter`, skips `dismiss`
-  events, maps `agentState` to `needs-input | finished` (blocked/waiting → needs-input, else finished),
+  `pushDispatcher.enqueue(eventWithSeq)`. The dispatcher requires desktop category eligibility, applies
+  each device's phone-specific away-only and sound preferences, skips `dismiss` events, maps `agentState`
+  to `needs-input | finished` (blocked/waiting → needs-input, else finished),
   batches matching registrationIds into `POST /v1/send` requests of at most 20 registrations each (the
   gateway's per-request cap; extra devices get their own request rather than being dropped), and drops
   unchanged registrations the gateway reports `dead`. Failure categories are counted without payload
@@ -301,10 +326,10 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
   `apnsEnvironment`: `__DEV__ ? 'sandbox' : 'production'` (dev-client builds are debug, TestFlight and
   App Store are release). Listen with `addPushTokenListener` and re-register on change.
 - Settings (`mobile/app/notifications.tsx`): one default-off **Enable notifications** switch
-  controls connected and background delivery. Hint: “Get agent alerts even when the app is closed.
-  Delivered through Orca’s push service and Apple or Google.” Source controls remain visible,
-  indented and disabled while **Use desktop settings** is on. Phone sound and focus controls
-  remain independent. **Only when away from desktop** defaults on (180 seconds of OS input idle,
+  controls native push registration. Hint: “Get agent alerts even when the app is closed.
+  Delivered through Orca’s push service and Apple or Google.” Desktop category controls are
+  authoritative and are not duplicated as phone overrides. Phone sound and viewing controls remain
+  independent. **Only when away from desktop** defaults on (180 seconds of OS input idle,
   or locked). Unknown/headless presence does not suppress; it is never inferred from remote CPU
   activity. The detailed payload disclosure remains in the notification documentation.
 - `notifications.delivery-policy.v1` advertises the away and mobile-inactivity lease policy.
@@ -319,14 +344,17 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
   switch is on, call `notifications.registerPush` on that host if it advertises the capability. On
   switch-off call `notifications.unregisterPush` on every connected host and remember to retry on hosts
   that were offline. On host removal, best-effort unregister before deleting credentials.
-- Receive: `addNotificationReceivedListener` (foreground) checks `data.orca.notificationId` +
-  `notificationSeq` against the host session seen set in `notification-reconnect-catchup.ts`; if seen,
-  suppress via `setNotificationHandler` returning no banner; otherwise show and mark seen. Background and
-  killed: OS shows it.
+- Receive: `addNotificationReceivedListener` (foreground) validates that the host is paired, master
+  consent is enabled, the destination is not currently viewed, and the event is not fenced by a
+  persisted dismissal. A bounded process-local identity claim suppresses concurrent duplicates by
+  host, epoch, sequence, and optional notification ID. Background and killed delivery remains owned by
+  the OS and is best effort.
 - Tap: `data.orca.hostFingerprint` → hostId by computing the same sha256/base64url/16 derivation over each
   stored host's `publicKeyB64`; then existing `getNotificationNavigationTarget` + `useOpenNotificationRoute`.
-- Reopen: existing replay catch-up runs unchanged. Dismiss events also
-  `dismissNotificationAsync` any presented notification whose `data.orca.notificationId` matches.
+- Reopen: subscribe to socket notifications for live dismissals, but ignore ordinary
+  notification frames for banner presentation. Reconnect reconciliation sends identities currently in
+  the native tray and applies returned dismissal decisions; it does not replay notifications or create
+  banners. Live dismiss events also remove matching presented notifications.
 - Old host without the capability: nothing changes.
 
 ## Infra (`cloud/infra/terraform`, `.github/workflows`)
@@ -353,25 +381,23 @@ alert messages, Live Activities, account-based quota tiers.
 
 ### Device delivery preferences
 
-The desktop advertises `notifications.delivery-preferences.v1`. Completion detection remains
-active when desktop notifications are off; semantic validity checks still precede delivery.
-IPC publishes `desktopAllowed: false` for terminal events disabled by the desktop master or
-source switch. Desktop focus and native authorization remain desktop-only delivery gates.
+The desktop advertises `notifications.delivery-preferences.v1`. Completion detection remains active
+when desktop notifications are off; semantic validity checks still precede delivery. IPC publishes
+`desktopAllowed: false` when the desktop master or source/category switch rejects an event. That
+desktop category decision is authoritative for both desktop and phone alerts. Desktop focus and
+native authorization remain desktop-only presentation gates and do not change mobile eligibility.
 
-`notifications.subscribe` and `notifications.getMissedSince` accept optional
-`includeDesktopSuppressed: true`. Only opted-in callers receive those events, including replay;
-legacy callers keep the old filtered stream. A new phone against an older host can narrow the
-available events but cannot recover events that host never published.
+Updated mobile subscribes with `includeDesktopSuppressed: true` for mixed-version compatibility and
+to receive dismissals, but it never turns ordinary socket notification frames into OS banners. The
+optional subscribe/replay fields, replayed `notifications`, `followDesktop`, `sources`, and
+`agentStates` remain accepted and populated only for mixed-version compatibility. Updated hosts ignore
+the mobile category fields and gate provider alerts on `desktopAllowed`; old hosts and clients retain
+their previous behavior without a wire break.
 
-The phone defaults to following each host. `filter.followDesktop` is optional: absent retains
-legacy desktop gating; explicit false permits independent event choices. The desktop persists
-it with the paired registration and evaluates it for every send, so desktop preference changes
-work while the phone is disconnected. This flag is host-local and is not sent to the gateway.
-The phone uses the same shared event predicate for socket/replay delivery as the push dispatcher.
-Optional `emittedAt` carries the event time for per-device five-second burst suppression after
-source filtering. Desktop eligibility, source, and agent state use separate upstream cooldown
-buckets so filtered events cannot suppress the next eligible event. Legacy RPC callers retain
-workspace-wide burst suppression on the host.
+The mobile registration always sends `followDesktop: true` and complete legacy category arrays.
+There are no active phone category overrides or category defaults. Optional `emittedAt` and replay
+notification response fields remain compatibility surface rather than a second delivery policy or
+banner path.
 
 `filter.sound` is also host-local. False groups that device's requests separately and adds
 optional `notification.sound: false` to gateway sends. The gateway omits APNs `aps.sound` and
@@ -379,20 +405,21 @@ uses Android's `orca-desktop-silent` channel. Missing sound preserves existing a
 Deploy the updated gateway before distributing hosts that send the optional sound field: older
 gateways strictly reject unknown notification fields. No token or database migration is needed.
 
-The phone's master switch disables background registration as well as local scheduling. Sound
-and viewing preferences belong to the receiving phone. The phone suppresses a banner for its
+The phone's master switch disables native push registration. Sound and viewing preferences belong to
+the receiving phone. The phone suppresses a foreground banner for its
 currently viewed host/workspace only while active; it never assumes desktop focus means the
-phone is viewing that workspace. Changes to an offline host's persisted filter take effect on
-reconnection. No live APNs/FCM delivery is implied by simulator notification injection.
+phone is viewing that workspace. Once registered, the host applies its persisted phone settings while
+the phone is disconnected; preference changes synchronize when it reconnects. No live APNs/FCM
+delivery is implied by simulator notification injection.
 
-For a phone registered for background push, socket notification delivery waits while the app is
-inactive. On foreground, it checks the native push tray before scheduling a local fallback, so
-a still-connected background socket cannot duplicate APNs/FCM delivery. Unsubscribing cancels
-the wait without claiming delivery. Hosts without push registration keep local delivery.
+APNs/FCM is the sole ordinary OS-banner path whether the app is foregrounded, backgrounded, or
+killed. Socket notification events do not wait, schedule a local fallback, or recover a missed native
+alert. Hosts without push registration therefore have no mobile OS-banner fallback.
 
 Native notification readers accept Expo's iOS `request.trigger.payload` as well as
-`request.content.data`. APNs custom fields can exist only in the former; foreground deduplication,
-tray replay suppression, dismissal, and tap routing all use the same reader.
+`request.content.data`. APNs custom fields can exist only in the former; foreground identity claims,
+dismissal, reconciliation, and tap routing all use the same reader. Legacy summary members remain
+readable only for notifications already delivered during a mixed-version transition.
 
 ### Dismissal recovery and desktop presence
 
@@ -403,20 +430,19 @@ attention; explicit mark-read actions remain available, including in browser cli
 
 The runtime persists notification identities and dismissal sequence fences in its own user-data
 directory before fanout. History is bounded to 4,096 records retained for seven days. It stores no
-notification text or push tokens. On reconnect, mobile optionally includes up to 256 `deliveredPushes`
-identities in `notifications.getMissedSince`; updated hosts return optional `dismissedPushes` for
-confirmed handled identities. This recovers dismissals after event replay eviction or host restart
-within retained history. Unknown IDs, newer sequences and different epochs are preserved. Older
-hosts ignore the optional request field, and older clients ignore the additional response field.
-No new RPC method or stream opcode is required.
+notification text or push tokens. On reconnect, mobile sends up to 256 `deliveredPushes` identities
+from the current native tray in each `notifications.getMissedSince` request; updated hosts return
+optional `dismissedPushes` for confirmed handled identities. Mobile processes only those dismissal
+decisions. Unknown IDs, newer sequences, and different epochs are preserved. Older hosts ignore the
+optional request field, and older clients ignore the additional response fields. Legacy replayed
+`notifications` and epoch fields remain wire-compatible but do not drive current mobile banners.
 
 On iOS, a local Expo module handles silent dismissals directly through the native notification
 center, independent of JavaScript initialization. Native and JavaScript dismissal paths use the
-same host/epoch/sequence fences; native watermarks retain up to 512 entries for 24 hours. Older
+same host/epoch/sequence fences; native dismissal fences retain up to 512 entries for 24 hours. Older
 native shells and Android retain the JavaScript implementation. A native callback test proves
-processing only when invoked: iOS background push delivery remains best-effort, including while
-suspended or force-quit. Summaries with complete membership are removed only when every member is
-covered by a matching host/epoch/sequence dismissal fence. Partial, malformed and legacy summaries
-without membership remain preserved. Reconciliation inspects up to 2,048 represented identities,
-sending pages of 256 without repeating historical replay. A first connection without a saved
-watermark reconciles the tray without replaying old alerts.
+processing only when invoked: iOS background push delivery remains best effort, including while
+suspended or force-quit. Narrow legacy decoding keeps already delivered summary notifications from
+being mistaken for individual events during the transition. Reconciliation inspects up to 2,048
+represented identities in pages of 256. It has no stored replay watermark: every connection compares
+the current tray with host dismissal history and never replays an alert.

@@ -35,17 +35,26 @@ the repository's root [MIT license](../LICENSE).
 Orca credential for it: the desktop host authenticates with the same X25519
 key it uses for the relay, answering an encrypted challenge to mint a 24 hour
 session, then registers each paired phone's native push token and asks the
-gateway to push. The gateway coalesces a burst per registration into one
-notification, enforces per-host and per-registration quotas, and retires a
+gateway to push. The gateway queues each event as its own notification,
+enforces per-host quotas and request limits, and retires a
 registration as soon as Apple or Google reports the token unregistered.
+Provider push is the only ordinary mobile OS-banner path. The notification
+socket is retained only for live dismissal and reconnect tray reconciliation;
+it never creates or recovers banners. Desktop notification categories remain
+authoritative.
+During a rolling gateway update, old workers can still use their former summary
+and collapse behavior; the individual-presentation guarantee starts only after
+those revisions retire.
+Legacy category and summary fields remain only for mixed-version compatibility.
+FCM notification messages are inherently collapsible while offline and have a
+small concurrent collapse-key budget, so every pending alert is not guaranteed.
 
 Storage follows the relay pattern: PostgreSQL in production, SQLite for tests
 and local development. Configure it with `ORCA_PUSH_PUBLIC_URL`,
 `ORCA_PUSH_DATABASE_URL`, the three APNs variables (`ORCA_PUSH_APNS_KEY`,
 `ORCA_PUSH_APNS_KEY_ID`, `ORCA_PUSH_APPLE_TEAM_ID`, all three or none), and
-optionally `ORCA_PUSH_APNS_TOPIC`, `ORCA_PUSH_FCM_PROJECT_ID`, and
-`ORCA_PUSH_COALESCE_MS`. The FCM credential comes from the runtime service
-account, so no key material is configured for Android. The full contract lives
+optionally `ORCA_PUSH_APNS_TOPIC` and `ORCA_PUSH_FCM_PROJECT_ID`. The FCM credential comes from
+the runtime service account, so no key material is configured for Android. The full contract lives
 in `docs/reference/mobile-push-contract.md` at the repository root.
 
 Logging is aggregate counters only. Tokens, notification titles, notification

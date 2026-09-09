@@ -22,12 +22,12 @@ export async function reconcileQueuedDismissal(
     DO UPDATE SET notification_seq = CASE WHEN push_dismissed_events.notification_seq > excluded.notification_seq THEN push_dismissed_events.notification_seq ELSE excluded.notification_seq END, created_at = excluded.created_at`,
     [...key, notification.notificationSeq, now]
   )
-  const batches = await tx.query(
-    "SELECT batch_id, payload_json FROM push_delivery_batches WHERE registration_id = ? AND kind = 'alert' AND state = 'pending' AND lease_until <= ?",
-    [registrationId, now]
+  const deliveries = await tx.query(
+    "SELECT batch_id, payload_json FROM push_delivery_batches WHERE host_fingerprint = ? AND registration_id = ? AND kind = 'alert' AND state = 'pending' AND lease_until <= ?",
+    [host, registrationId, now]
   )
-  for (const batch of batches) {
-    const previous = JSON.parse(String(batch.payload_json)) as PushNotification[]
+  for (const delivery of deliveries) {
+    const previous = JSON.parse(String(delivery.payload_json)) as PushNotification[]
     const remaining = previous.filter(
       (item) =>
         item.notificationEpoch !== notification.notificationEpoch ||
@@ -37,7 +37,7 @@ export async function reconcileQueuedDismissal(
     if (remaining.length === previous.length) continue
     await tx.query(
       'UPDATE push_delivery_batches SET payload_json = ?, state = ? WHERE batch_id = ?',
-      [JSON.stringify(remaining), remaining.length ? 'pending' : 'dismissed', batch.batch_id]
+      [JSON.stringify(remaining), remaining.length ? 'pending' : 'dismissed', delivery.batch_id]
     )
   }
   return false

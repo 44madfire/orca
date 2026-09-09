@@ -17,7 +17,7 @@ function credentials(): ApnsCredentials {
   return { keyPem: privateKey, keyId: 'ABCDE12345', teamId: 'TEAM123456' }
 }
 
-function delivery(coalescedCount = 1) {
+function delivery() {
   return buildPushDelivery({
     registrationId: 'reg-1',
     hostFingerprint: HOST,
@@ -30,10 +30,7 @@ function delivery(coalescedCount = 1) {
       title: 'Agent needs input',
       body: 'Waiting on your answer',
       worktreeId: 'wt-1'
-    },
-    title: 'Agent needs input',
-    body: 'Waiting on your answer',
-    coalescedCount
+    }
   })
 }
 
@@ -108,22 +105,21 @@ describe('apns client', () => {
         notificationSeq: 7,
         notificationEpoch: 'epoch-1',
         source: 'agent-task-complete',
-        agentState: 'needs-input',
-        coalescedCount: 1
+        agentState: 'needs-input'
       }
     })
   })
 
-  it('targets the sandbox host and the host collapse id for a summary', async () => {
+  it('targets the sandbox host and keeps the individual collapse id', async () => {
     const fake = fakeTransport({ status: 200, body: '' })
     const client = new ApnsClient({
       topic: 'com.stably.orca.mobile',
       credentials: credentials(),
       transport: fake.transport
     })
-    await client.send(delivery(3), { token: 'b'.repeat(64), apnsEnvironment: 'sandbox' })
+    await client.send(delivery(), { token: 'b'.repeat(64), apnsEnvironment: 'sandbox' })
     expect(fake.requests[0]?.host).toBe('api.sandbox.push.apple.com')
-    expect(fake.requests[0]?.headers['apns-collapse-id']).toBe(`host:${HOST}`)
+    expect(fake.requests[0]?.headers['apns-collapse-id']).toMatch(/^[a-f0-9]{64}$/)
   })
 
   it.each([

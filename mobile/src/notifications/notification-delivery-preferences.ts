@@ -8,22 +8,12 @@ import {
 const KEY = 'orca:notificationDeliveryPreferences'
 export type NotificationDeliveryPreferences = {
   onlyWhenDesktopAway: boolean
-  followDesktop: boolean
-  taskFinished: boolean
-  needsInput: boolean
-  terminalBell: boolean
-  plugin: boolean
   sound: boolean
   suppressWhileViewing: boolean
 }
 
 export const DEFAULT_NOTIFICATION_DELIVERY: NotificationDeliveryPreferences = {
   onlyWhenDesktopAway: true,
-  followDesktop: true,
-  taskFinished: true,
-  needsInput: true,
-  terminalBell: true,
-  plugin: true,
   sound: true,
   suppressWhileViewing: true
 }
@@ -32,19 +22,6 @@ export async function loadNotificationDeliveryPreferences(): Promise<Notificatio
   try {
     const raw = await AsyncStorage.getItem(KEY)
     if (!raw) {
-      // Preserve an existing explicit background filter when upgrading.
-      const legacy = await AsyncStorage.getItem('orca:remotePushAgentStates')
-      if (legacy) {
-        const states: unknown = JSON.parse(legacy)
-        if (Array.isArray(states)) {
-          return {
-            ...DEFAULT_NOTIFICATION_DELIVERY,
-            followDesktop: false,
-            taskFinished: states.includes('finished'),
-            needsInput: states.includes('needs-input')
-          }
-        }
-      }
       return { ...DEFAULT_NOTIFICATION_DELIVERY }
     }
     const stored = JSON.parse(raw) as Record<string, unknown>
@@ -69,30 +46,12 @@ export async function saveNotificationDeliveryPreferences(
 export function notificationPreferencesFilter(
   value: NotificationDeliveryPreferences
 ): MobilePushFilter {
-  if (value.followDesktop) {
-    return {
-      onlyWhenDesktopAway: value.onlyWhenDesktopAway,
-      expireAfterInactivity: true,
-      sound: value.sound,
-      followDesktop: true,
-      sources: MOBILE_PUSH_SOURCES,
-      agentStates: MOBILE_PUSH_AGENT_STATES
-    }
-  }
   return {
     onlyWhenDesktopAway: value.onlyWhenDesktopAway,
     expireAfterInactivity: true,
-    followDesktop: false,
+    followDesktop: true,
     sound: value.sound,
-    sources: MOBILE_PUSH_SOURCES.filter((source) =>
-      source === 'terminal-bell'
-        ? value.terminalBell
-        : source === 'plugin'
-          ? value.plugin
-          : value.needsInput || value.taskFinished
-    ),
-    agentStates: MOBILE_PUSH_AGENT_STATES.filter((state) =>
-      state === 'needs-input' ? value.needsInput : value.taskFinished
-    )
+    sources: MOBILE_PUSH_SOURCES,
+    agentStates: MOBILE_PUSH_AGENT_STATES
   }
 }

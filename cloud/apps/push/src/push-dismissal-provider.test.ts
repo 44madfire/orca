@@ -16,10 +16,7 @@ it('dismissal provider payloads cannot display a new alert or play a sound', () 
       agentState: null,
       title: 'Orca',
       body: ''
-    },
-    title: 'Orca',
-    body: '',
-    coalescedCount: 1
+    }
   })
   expect(JSON.parse(apnsBody(delivery)).aps).toEqual({ 'content-available': 1 })
   const android = JSON.parse(fcmMessageBody({ delivery, token: 'test', channelId: 'test' })).message

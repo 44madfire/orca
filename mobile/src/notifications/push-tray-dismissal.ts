@@ -2,7 +2,11 @@ import { representedPushes } from './push-summary-members'
 import { readNativeNotificationData } from './native-notification-data'
 import * as Notifications from 'expo-notifications'
 import { readOrcaPushPayload, type OrcaPushPayload } from './push-payload'
-import { rememberPushDismissal, wasPushDismissed } from './push-dismissal-watermarks'
+import {
+  areLegacySummaryPushesDismissed,
+  rememberPushDismissal,
+  wasPushDismissed
+} from './push-dismissal-watermarks'
 
 async function dismissMatchingPresentedPushes(
   matches: (payload: OrcaPushPayload) => boolean | Promise<boolean>
@@ -68,7 +72,7 @@ export async function dismissPresentedPushNotification(
       return false
     }
     if ((payload.coalescedCount ?? 0) > 1) {
-      return wasPushDismissed(payload)
+      return areLegacySummaryPushesDismissed(payload)
     }
     return (
       payload.notificationId === notificationId &&

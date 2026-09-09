@@ -1,16 +1,16 @@
-import { canCoalescePushNotifications } from './push-delivery-message.js'
 import { reconcileQueuedDismissal, removeDismissedAlerts } from './push-queued-dismissal.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { PUSH_LIMITS, type PushNotification } from '@orca-cloud/push-contract'
 import type { PushDatabase, SqlRow } from './push-database.js'
 
 const RETENTION_MS = 24 * 60 * 60_000
+const LEGACY_BATCH_MAX_NOTIFICATIONS = 32
 export const DELIVERY_LEASE_MS = 30_000
-export type DeliveryBatch = {
+export type QueuedPushDelivery = {
   id: string
   registrationId: string
   hostFingerprint: string
-  notifications: PushNotification[]
+  notification: PushNotification
   expiresAt: number
   lease: string
   attempts: number
@@ -19,8 +19,7 @@ export type DeliveryBatch = {
 export class DurablePushStore {
   constructor(
     private readonly database: PushDatabase,
-    private readonly now = Date.now,
-    private readonly coalesceMs: number = PUSH_LIMITS.coalesceWindowMs
+    private readonly now = Date.now
   ) {}
 
   async accept(
@@ -66,46 +65,22 @@ export class DurablePushStore {
       if (recipient) return 'queued'
       if (await reconcileQueuedDismissal(tx, host, registrationId, notification, now))
         return 'queued'
-      const [batch] =
-        kind === 'alert'
-          ? await tx.query(
-              "SELECT * FROM push_delivery_batches WHERE registration_id = ? AND kind = ? AND state = 'pending' AND attempts = 0 AND due_at > ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
-              [registrationId, kind, now, now]
-            )
-          : []
-      const notifications = batch
-        ? [...(JSON.parse(String(batch.payload_json)) as PushNotification[]), notification]
-        : [notification]
-      if (batch && canCoalescePushNotifications(notifications, host)) {
-        await tx.query(
-          'UPDATE push_delivery_batches SET payload_json = ?, expires_at = ? WHERE batch_id = ?',
-          [
-            JSON.stringify(notifications),
-            Math.min(expiresAt, Number(batch.expires_at)),
-            batch.batch_id
-          ]
-        )
-      } else {
-        if (batch)
-          await tx.query('UPDATE push_delivery_batches SET due_at = ? WHERE batch_id = ?', [
-            now,
-            batch.batch_id
-          ])
-        await tx.query(
-          `INSERT INTO push_delivery_batches(batch_id, host_fingerprint, registration_id, kind, payload_json, state, due_at, expires_at, lease_until, attempts, created_at)
-          VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 0, 0, ?)`,
-          [
-            randomUUID(),
-            host,
-            registrationId,
-            kind,
-            JSON.stringify([notification]),
-            now + (kind === 'dismiss' ? 0 : this.coalesceMs),
-            expiresAt,
-            now
-          ]
-        )
-      }
+      await tx.query(
+        `INSERT INTO push_delivery_batches(batch_id, host_fingerprint, registration_id, kind, payload_json, state, due_at, expires_at, lease_until, attempts, created_at)
+        VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 0, 0, ?)`,
+        [
+          randomUUID(),
+          host,
+          registrationId,
+          kind,
+          // Keep the persisted envelope readable by workers from the previous release.
+          JSON.stringify([notification]),
+          // Zero marks a singleton so an overlapping old gateway will not append to it.
+          0,
+          expiresAt,
+          now
+        ]
+      )
       await tx.query(
         'INSERT INTO push_event_recipients(event_id, registration_id, created_at) VALUES (?, ?, ?)',
         [eventId, registrationId, now]
@@ -114,15 +89,15 @@ export class DurablePushStore {
     })
   }
 
-  async claim(): Promise<DeliveryBatch | null> {
+  async claim(): Promise<QueuedPushDelivery | null> {
     return this.database.transaction(async (tx) => {
       await tx.lockQuotaScope('push-worker-claim')
       const now = this.now()
       const params = [now, now, now, now]
       const predicate =
-        "state = 'pending' AND lease_until <= ? AND expires_at > ? AND due_at <= ? AND NOT EXISTS (SELECT 1 FROM push_delivery_batches busy WHERE busy.registration_id = push_delivery_batches.registration_id AND busy.lease_until > ?)"
+        "state = 'pending' AND lease_until <= ? AND expires_at > ? AND (attempts = 0 OR due_at <= ?) AND NOT EXISTS (SELECT 1 FROM push_delivery_batches busy WHERE busy.registration_id = push_delivery_batches.registration_id AND busy.lease_until > ?)"
       let [row] = await tx.query(
-        `SELECT * FROM push_delivery_batches WHERE ${predicate} ORDER BY due_at, created_at LIMIT 1`,
+        `SELECT * FROM push_delivery_batches WHERE ${predicate} ORDER BY CASE WHEN attempts = 0 OR due_at = 0 THEN created_at ELSE due_at END, created_at, batch_id LIMIT 1`,
         params
       )
       if (!row) return null
@@ -131,64 +106,90 @@ export class DurablePushStore {
         row.batch_id
       ])
       if (!row || row.state !== 'pending' || Number(row.expires_at) <= now) return null
-      const notifications = await removeDismissedAlerts(
+      const notifications = JSON.parse(String(row.payload_json)) as PushNotification[]
+      if (notifications.length > LEGACY_BATCH_MAX_NOTIFICATIONS) {
+        throw new Error('legacy_push_delivery_exceeds_member_limit')
+      }
+      const deliverable = await removeDismissedAlerts(
         tx,
         String(row.host_fingerprint),
-        JSON.parse(String(row.payload_json)) as PushNotification[]
+        notifications
       )
-      if (!notifications.length) {
+      if (!deliverable.length) {
         await tx.query(
           "UPDATE push_delivery_batches SET state = 'dismissed', payload_json = '[]' WHERE batch_id = ?",
           [row.batch_id]
         )
         return null
       }
-      row.payload_json = JSON.stringify(notifications)
+      const [notification, ...legacyRemainder] = deliverable
+      row.payload_json = JSON.stringify([notification])
       await tx.query('UPDATE push_delivery_batches SET payload_json = ? WHERE batch_id = ?', [
         row.payload_json,
         row.batch_id
       ])
+      for (const [index, queued] of legacyRemainder.entries()) {
+        await tx.query(
+          `INSERT INTO push_delivery_batches(batch_id, host_fingerprint, registration_id, kind, payload_json, state, due_at, expires_at, lease_until, attempts, created_at)
+          VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 0, ?, ?)`,
+          [
+            `${String(row.batch_id)}:legacy:${String(index + 1).padStart(2, '0')}`,
+            row.host_fingerprint,
+            row.registration_id,
+            queued.kind ?? 'alert',
+            JSON.stringify([queued]),
+            row.due_at,
+            row.expires_at,
+            row.attempts,
+            row.created_at
+          ]
+        )
+      }
       const lease = randomUUID()
       await tx.query(
         'UPDATE push_delivery_batches SET lease_token = ?, lease_until = ?, attempts = attempts + 1 WHERE batch_id = ?',
         [lease, now + DELIVERY_LEASE_MS, row.batch_id]
       )
-      return this.batch(row, lease)
+      return this.delivery(row, lease)
     })
   }
 
-  private batch(row: SqlRow, lease: string): DeliveryBatch {
+  private delivery(row: SqlRow, lease: string): QueuedPushDelivery {
     return {
       id: String(row.batch_id),
       registrationId: String(row.registration_id),
       hostFingerprint: String(row.host_fingerprint),
-      notifications: JSON.parse(String(row.payload_json)) as PushNotification[],
+      notification: (JSON.parse(String(row.payload_json)) as PushNotification[])[0]!,
       expiresAt: Number(row.expires_at),
       lease,
       attempts: Number(row.attempts) + 1
     }
   }
 
-  async renew(batch: DeliveryBatch): Promise<void> {
+  async renew(delivery: QueuedPushDelivery): Promise<void> {
     await this.database.query(
       'UPDATE push_delivery_batches SET lease_until = ? WHERE batch_id = ? AND lease_token = ?',
-      [this.now() + DELIVERY_LEASE_MS, batch.id, batch.lease]
+      [this.now() + DELIVERY_LEASE_MS, delivery.id, delivery.lease]
     )
   }
 
-  async finish(batch: DeliveryBatch, retryAfterMs?: number, outcome = 'done'): Promise<void> {
+  async finish(
+    delivery: QueuedPushDelivery,
+    retryAfterMs?: number,
+    outcome = 'done'
+  ): Promise<void> {
     const now = this.now()
     const retryAt = retryAfterMs === undefined ? Infinity : now + Math.max(1000, retryAfterMs)
-    const retry = retryAt < batch.expiresAt
+    const retry = retryAt < delivery.expiresAt
     await this.database.query(
       `UPDATE push_delivery_batches SET state = ?, payload_json = ?, due_at = ?, lease_until = 0, lease_token = NULL
       WHERE batch_id = ? AND lease_token = ?`,
       [
         retry ? 'pending' : retryAfterMs !== undefined ? 'expired' : outcome,
-        retry ? JSON.stringify(batch.notifications) : '[]',
+        retry ? JSON.stringify([delivery.notification]) : '[]',
         retry ? retryAt : now,
-        batch.id,
-        batch.lease
+        delivery.id,
+        delivery.lease
       ]
     )
   }

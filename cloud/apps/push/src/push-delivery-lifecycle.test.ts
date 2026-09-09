@@ -38,10 +38,7 @@ async function registered() {
   const delivery = buildPushDelivery({
     registrationId: row.registrationId,
     hostFingerprint: input.hostFingerprint,
-    notification: note,
-    title: note.title,
-    body: note.body,
-    coalescedCount: 1
+    notification: note
   })
   return { db, devices, input, delivery }
 }

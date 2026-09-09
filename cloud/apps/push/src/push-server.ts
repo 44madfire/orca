@@ -60,7 +60,7 @@ export function createPushServer(
   const challenges = new PushHostChallengeStore(database, config.publicUrl, now)
   const sessions = new PushHostSessionStore(database, now)
   const devices = new PushDeviceRegistryStore(database, now)
-  const deliveryStore = new DurablePushStore(database, now, config.coalesceMs)
+  const deliveryStore = new DurablePushStore(database, now)
   const apnsTransport = options.apnsTransport ?? (config.apns ? createApnsHttp2Transport() : null)
   const dispatcher = new PushDispatcher({
     devices,

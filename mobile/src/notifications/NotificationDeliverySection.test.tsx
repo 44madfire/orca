@@ -12,7 +12,7 @@ vi.mock('react-native', () => ({
   Switch: 'Switch'
 }))
 
-it('keeps inherited controls visible and disables editing until mirroring is off', () => {
+it('shows only phone-specific controls while desktop owns category eligibility', () => {
   const onChange = vi.fn()
   let renderer: ReturnType<typeof create>
   act(() => {
@@ -22,31 +22,16 @@ it('keeps inherited controls visible and disables editing until mirroring is off
   })
   const switches = () => renderer.root.findAllByType('Switch' as never)
   expect(switches().map((node) => node.props.accessibilityLabel)).toEqual([
-    'Use desktop settings',
-    'Agent task complete',
-    'Terminal bell',
-    'Plugin notifications',
     'Only when away from desktop',
     'Notification sound',
     'Suppress while focused'
   ])
-  expect(switches()[1].props.disabled).toBe(true)
-  expect(switches()[2].props.disabled).toBe(true)
+  expect(JSON.stringify(renderer.toJSON())).toContain(
+    'Alert types follow each paired desktop’s notification settings.'
+  )
   act(() => switches()[0].props.onValueChange(false))
-  const independent = onChange.mock.calls[0][0]
-  expect(independent.followDesktop).toBe(false)
-  act(() =>
-    renderer.update(createElement(NotificationDeliverySection, { value: independent, onChange }))
-  )
-  expect(switches()[1].props.disabled).toBe(false)
-  expect(switches().map((node) => node.props.accessibilityLabel)).toContain('Terminal bell')
-  act(() =>
-    switches()
-      .find((node) => node.props.accessibilityLabel === 'Terminal bell')!
-      .props.onValueChange(false)
-  )
   expect(onChange).toHaveBeenLastCalledWith(
-    expect.objectContaining({ terminalBell: false, taskFinished: true, needsInput: true })
+    expect.objectContaining({ onlyWhenDesktopAway: false, sound: true, suppressWhileViewing: true })
   )
   act(() => renderer.unmount())
 })

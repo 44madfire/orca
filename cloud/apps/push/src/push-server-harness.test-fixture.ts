@@ -1,5 +1,4 @@
 import { generateKeyPairSync } from 'node:crypto'
-import { PUSH_LIMITS } from '@orca-cloud/push-contract'
 import { expect } from 'vitest'
 import type { ApnsRequest, ApnsResponse } from './apns-http2-transport.js'
 import type { PushConfig } from './config.js'
@@ -45,7 +44,6 @@ export function testPushConfig(): PushConfig {
     apns: { keyPem: privateKey, keyId: 'ABCDE12345', teamId: 'TEAM123456' },
     apnsTopic: 'com.stably.orca.mobile',
     fcmProjectId: 'onorca-cloud',
-    coalesceMs: PUSH_LIMITS.coalesceWindowMs,
     trustedProxyHops: 0
   }
 }
@@ -117,7 +115,6 @@ export async function createPushServerHarness() {
     answer,
     now: () => clock,
     flushDeliveries: async (): Promise<void> => {
-      clock += PUSH_LIMITS.coalesceWindowMs
       await server.worker.runDue()
     },
     advanceClock: (deltaMs: number): void => {

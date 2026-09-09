@@ -1,29 +1,59 @@
-import { wasPushDismissed } from './push-dismissal-watermarks'
+import { areLegacySummaryPushesDismissed, wasPushDismissed } from './push-dismissal-watermarks'
 import { dismissPresentedPushNotification } from './push-tray-dismissal'
-import { allowsLocalNotification } from './notification-viewing-policy'
+import { shouldSuppressNotificationWhileViewing } from './notification-viewing-policy'
 import { loadPushNotificationsEnabled, loadRemotePushEnabled } from '../storage/preferences'
 import { loadHostCatalog } from '../transport/host-store'
-import {
-  adoptNotificationEpoch,
-  enqueueHostDelivery,
-  getHostNotificationSession,
-  seedWatermarkFromStorage,
-  seenKeyForEvent
-} from './notification-reconnect-catchup'
 import { resolveHostIdForFingerprint } from './push-host-fingerprint'
 import { readOrcaPushPayload, type OrcaPushPayload } from './push-payload'
 import type { Notification, NotificationBehavior } from 'expo-notifications'
 import { readNativeNotificationData } from './native-notification-data'
 import { loadNotificationDeliveryPreferences } from './notification-delivery-preferences'
 
+const RECENT_FOREGROUND_PUSH_CAP = 512
+const recentForegroundPushes = new Set<string>()
+
+function claimForegroundPush(payload: OrcaPushPayload): boolean {
+  const seq = payload.notificationSeq
+  if (
+    !payload.notificationEpoch ||
+    typeof seq !== 'number' ||
+    !Number.isSafeInteger(seq) ||
+    seq < 0
+  ) {
+    return true
+  }
+  const key = JSON.stringify([
+    payload.hostFingerprint,
+    payload.notificationEpoch,
+    payload.notificationId ?? null,
+    seq
+  ])
+  if (recentForegroundPushes.has(key)) {
+    return false
+  }
+  recentForegroundPushes.add(key)
+  if (recentForegroundPushes.size > RECENT_FOREGROUND_PUSH_CAP) {
+    const oldest = recentForegroundPushes.values().next().value
+    if (oldest !== undefined) {
+      recentForegroundPushes.delete(oldest)
+    }
+  }
+  return true
+}
+
+export function resetForegroundPushClaimsForTests(): void {
+  recentForegroundPushes.clear()
+}
+
 export async function foregroundNotificationBehavior(
   notification: Pick<Notification, 'request'>
 ): Promise<NotificationBehavior> {
-  const preferences = await loadNotificationDeliveryPreferences()
-  // No storage awaits after suppression: a dismissal may arrive during any read.
-  const suppressed = await shouldSuppressForegroundPush(
-    readNativeNotificationData(notification.request)
-  ).catch(() => false)
+  const data = readNativeNotificationData(notification.request)
+  const recognizedPush = readOrcaPushPayload(data) !== null
+  const preferences = await loadNotificationDeliveryPreferences().catch(() => ({ sound: true }))
+  // Unrecognized notifications retain normal behavior; recognized pushes fail closed
+  // when consent, host, viewing, or dismissal checks cannot complete.
+  const suppressed = await shouldSuppressForegroundPush(data).catch(() => recognizedPush)
   return {
     shouldShowBanner: !suppressed,
     shouldShowList: !suppressed,
@@ -37,14 +67,6 @@ async function resolvePushHostId(payload: OrcaPushPayload): Promise<string | nul
   return resolveHostIdForFingerprint(payload.hostFingerprint, hosts)
 }
 
-/**
- * Whether a foreground notification is a push for an event the socket already
- * delivered, and must therefore be swallowed instead of banner'd a second time.
- *
- * Marking happens here rather than in a received listener because the handler is
- * the only hook that can actually suppress, and the key must be claimed exactly
- * once — a listener running afterwards would mark an event the handler dropped.
- */
 export async function shouldSuppressForegroundPush(data: unknown): Promise<boolean> {
   const payload = readOrcaPushPayload(data)
   if (!payload) {
@@ -60,9 +82,6 @@ export async function shouldSuppressForegroundPush(data: unknown): Promise<boole
     }
     return true
   }
-  if (await wasPushDismissed(payload)) {
-    return true
-  }
   const hostId = await resolvePushHostId(payload)
   // Why suppressed rather than shown: the only pushes that outlive their host are
   // ones a gateway registration still holds after a removal whose unregister never
@@ -74,50 +93,14 @@ export async function shouldSuppressForegroundPush(data: unknown): Promise<boole
   if (!(await loadPushNotificationsEnabled()) || !(await loadRemotePushEnabled())) {
     return true
   }
-  if (
-    !(await allowsLocalNotification(
-      { ...payload, source: payload.source ?? 'agent-task-complete' },
-      hostId
-    ))
-  ) {
+  if (await shouldSuppressNotificationWhileViewing(payload, hostId)) {
     return true
   }
-  const session = getHostNotificationSession(hostId)
-  // Why seeded first: the socket may never have connected this launch (phone on
-  // cellular), leaving lastDeliveredEpoch null. Adopting against an unseeded session
-  // resets the seq to 0 and persists that over a valid watermark, so the next
-  // reconnect replays the desktop's whole retained buffer.
-  seedWatermarkFromStorage(session, hostId)
-  await session.watermarkSeeded
-  // A push that names no counter lifetime cannot claim a seq-derived key: the
-  // desktop always sends the epoch, so this is shown as-is and never marked.
-  if (payload.notificationEpoch == null) {
-    return false
+  // Keep this last: a socket/native dismissal may land during any preference or host read.
+  if ((payload.coalescedCount ?? 0) > 1) {
+    return areLegacySummaryPushesDismissed(payload)
   }
-  // Push and socket delivery share one claim, including an in-flight native schedule.
-  return enqueueHostDelivery(session, async () => {
-    if (await wasPushDismissed(payload)) {
-      return true
-    }
-    // The seen keys are seq-derived, so a push from a new desktop lifetime must void
-    // them before its own key is tested against a counter that no longer exists.
-    adoptNotificationEpoch(session, hostId, payload.notificationEpoch)
-    // Why a coalesced summary is neither suppressed nor marked: it carries only the
-    // latest event's fields, so claiming that key would make the socket swallow the
-    // specific banner for an event the summary only ever counted.
-    if ((payload.coalescedCount ?? 0) > 1) {
-      return false
-    }
-    const key = seenKeyForEvent(payload)
-    if (!key) {
-      return false
-    }
-    if (session.seen.has(key)) {
-      return true
-    }
-    session.seen.add(key)
-    return false
-  })
+  return (await wasPushDismissed(payload)) || !claimForegroundPush(payload)
 }
 
 /** Whether the OS says a notification came from a provider rather than this app. */

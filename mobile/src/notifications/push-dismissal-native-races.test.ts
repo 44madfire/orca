@@ -4,7 +4,6 @@ import { nativePushDismissal } from './native-push-dismissal'
 import { rememberPushDismissal, wasPushDismissed } from './push-dismissal-watermarks'
 import { foregroundNotificationBehavior, shouldSuppressForegroundPush } from './push-receive'
 import { loadNotificationDeliveryPreferences } from './notification-delivery-preferences'
-import { resetHostNotificationSessionsForTests } from './notification-reconnect-catchup'
 
 const memory = vi.hoisted(() => new Map<string, string>())
 const nativeLedger = vi.hoisted(() => new Map<string, number>())
@@ -45,7 +44,9 @@ vi.mock('../storage/preferences', () => ({
   loadPushNotificationsEnabled: async () => true,
   loadRemotePushEnabled: async () => true
 }))
-vi.mock('./notification-viewing-policy', () => ({ allowsLocalNotification: async () => true }))
+vi.mock('./notification-viewing-policy', () => ({
+  shouldSuppressNotificationWhileViewing: async () => false
+}))
 vi.mock('./notification-delivery-preferences', () => ({
   loadNotificationDeliveryPreferences: vi.fn(async () => ({ sound: true }))
 }))
@@ -63,14 +64,13 @@ beforeEach(() => {
   vi.mocked(AsyncStorage.getItem).mockImplementation(async (key) => memory.get(key) ?? null)
   memory.clear()
   nativeLedger.clear()
-  resetHostNotificationSessionsForTests()
 })
 
 it('suppresses a foreground push dismissed natively during its queued fallback read', async () => {
   let finish!: () => void
   let reads = 0
   vi.mocked(AsyncStorage.getItem).mockImplementation(async (key) => {
-    if (key === 'orca:pushDismissalWatermarks:v1' && ++reads === 2) {
+    if (key === 'orca:pushDismissalWatermarks:v1' && ++reads === 1) {
       await new Promise<void>((resolve) => {
         finish = resolve
       })

@@ -4,7 +4,7 @@ import { readOrcaPushPayload } from './push-payload'
 import { deriveHostFingerprint } from './push-host-fingerprint'
 import { dismissPresentedPushNotification } from './push-tray-dismissal'
 import { requestNotificationCatchup } from './push-dismissal-reconciliation'
-import { wasPushDismissed } from './push-dismissal-watermarks'
+import { areLegacySummaryPushesDismissed } from './push-dismissal-watermarks'
 
 const storage = new Map<string, string>()
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -51,10 +51,10 @@ beforeEach(() => {
 it('preserves partially handled summaries and clears only fully handled membership', async () => {
   await dismissPresentedPushNotification(members[0]!.notificationId, hostFingerprint, members[0])
   expect(Notifications.dismissNotificationAsync).not.toHaveBeenCalled()
-  expect(await wasPushDismissed(summary)).toBe(false)
+  expect(await areLegacySummaryPushesDismissed(summary)).toBe(false)
   await dismissPresentedPushNotification(members[1]!.notificationId, hostFingerprint, members[1])
   expect(Notifications.dismissNotificationAsync).toHaveBeenCalledExactlyOnceWith('summary')
-  expect(await wasPushDismissed(summary)).toBe(true)
+  expect(await areLegacySummaryPushesDismissed(summary)).toBe(true)
 })
 it('reconciles every summary member, preserving a summary containing a newer unread event', async () => {
   const sendRequest = vi.fn(async () => ({
@@ -87,7 +87,9 @@ it('accepts APNs arrays and FCM JSON strings but never treats incomplete or malf
   ]) {
     expect(readOrcaPushPayload({ ...summary, summaryMembers: bad })?.summaryMembers).toBeUndefined()
   }
-  expect(await wasPushDismissed({ ...summary, summaryMembers: members.slice(0, 1) })).toBe(false)
+  expect(
+    await areLegacySummaryPushesDismissed({ ...summary, summaryMembers: members.slice(0, 1) })
+  ).toBe(false)
 })
 
 it('pages summary identities without replaying history twice or trusting identities from another page', async () => {

@@ -3,11 +3,14 @@ import { reserveNotificationCooldown } from '../../../shared/notification-burst-
 // already went to connected sockets is offered to the push gateway so a phone
 // with Orca closed still hears about it. Fire-and-forget by construction: the
 // socket fan-out must never wait on, or fail because of, a push.
-import type { MobilePushRegistration } from '../../../shared/mobile-push-contract'
-import { PushOutcomeCounters } from './push-outcome-counters'
-import { MOBILE_PUSH_SOURCES } from '../../../shared/mobile-push-contract'
+import {
+  MOBILE_PUSH_SOURCES,
+  type MobilePushAgentState,
+  type MobilePushRegistration
+} from '../../../shared/mobile-push-contract'
 import type { MobileNotificationEvent } from '../runtime-mobile-notification-controller'
 import type { PushGatewayClient, PushSendNotification } from './push-gateway-client'
+import { PushOutcomeCounters } from './push-outcome-counters'
 
 const PUSH_RETRY_DELAY_MS = 2_000
 // The gateway rejects a whole request above this, so a host with more paired
@@ -35,11 +38,29 @@ function clip(value: string, maxLength: number): string {
   return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 1)}…`
 }
 
-export { mapPushAgentState } from '../../../shared/mobile-notification-policy'
-import {
-  allowsMobileNotification,
-  mapPushAgentState
-} from '../../../shared/mobile-notification-policy'
+export function mapPushAgentState(
+  source: string,
+  state: string | undefined
+): MobilePushAgentState | null | undefined {
+  if (source !== 'agent-task-complete') {
+    return null
+  }
+  if (state === 'blocked' || state === 'waiting' || state === 'needs-input') {
+    return 'needs-input'
+  }
+  return state === undefined || state === 'done' || state === 'finished' ? 'finished' : undefined
+}
+
+function allowsPushDelivery(
+  registration: MobilePushRegistration,
+  event: MobileNotificationEvent
+): boolean {
+  return (
+    event.type === 'notification' &&
+    event.desktopAllowed !== false &&
+    (!registration.filter.onlyWhenDesktopAway || event.desktopAway !== false)
+  )
+}
 
 export class PushDispatcher {
   private readonly recentNotifications = new Map<string, number>()
@@ -139,7 +160,7 @@ export class PushDispatcher {
       if (
         !registration ||
         (registration.expiresAt !== undefined && registration.expiresAt <= Date.now()) ||
-        !allowsMobileNotification(registration.filter, event)
+        !allowsPushDelivery(registration, event)
       ) {
         return []
       }

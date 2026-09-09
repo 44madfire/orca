@@ -16,10 +16,8 @@ import {
   loadRemotePushEnabled,
   loadRemotePushFilter,
   loadRemotePushHostRegistrations,
-  saveRemotePushAgentStates,
   saveRemotePushEnabled,
   saveRemotePushHostRegistrations,
-  type RemotePushAgentState,
   type RemotePushFilter
 } from '../storage/preferences'
 import { addPushTokenListener, getDevicePushToken, type MobilePushToken } from './push-token'
@@ -255,15 +253,6 @@ export async function setNotificationDeliveryPreferences(
 ): Promise<void> {
   consentGeneration++
   await saveNotificationDeliveryPreferences(value)
-  await reconcileAllHosts()
-}
-
-/** Re-registers every connected host so the gateway stores the narrowed filter. */
-export async function setRemotePushAgentStates(
-  states: readonly RemotePushAgentState[]
-): Promise<void> {
-  consentGeneration++
-  await saveRemotePushAgentStates(states)
   await reconcileAllHosts()
 }
 

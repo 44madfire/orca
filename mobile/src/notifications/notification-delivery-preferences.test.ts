@@ -7,10 +7,9 @@ import {
   saveNotificationDeliveryPreferences
 } from './notification-delivery-preferences'
 import {
-  allowsLocalNotification,
-  setNotificationViewingWorkspace
+  setNotificationViewingWorkspace,
+  shouldSuppressNotificationWhileViewing
 } from './notification-viewing-policy'
-import { allowsMobileNotification } from '../../../src/shared/mobile-notification-policy'
 
 const storage = new Map<string, string>()
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -28,68 +27,65 @@ beforeEach(() => {
   AppState.currentState = 'background'
 })
 
-it('defaults to following desktop and persists independent event preferences', async () => {
+it('persists only phone-specific delivery preferences', async () => {
   expect(await loadNotificationDeliveryPreferences()).toEqual(DEFAULT_NOTIFICATION_DELIVERY)
   const value = {
     ...DEFAULT_NOTIFICATION_DELIVERY,
-    followDesktop: false,
-    terminalBell: false,
+    onlyWhenDesktopAway: false,
     sound: false
   }
   await saveNotificationDeliveryPreferences(value)
   expect(await loadNotificationDeliveryPreferences()).toEqual(value)
   expect(notificationPreferencesFilter(value)).toMatchObject({
-    followDesktop: false,
+    followDesktop: true,
+    onlyWhenDesktopAway: false,
     sound: false,
-    sources: ['agent-task-complete', 'plugin']
+    expireAfterInactivity: true,
+    sources: ['agent-task-complete', 'terminal-bell', 'plugin'],
+    agentStates: ['needs-input', 'finished']
   })
 })
 
-it('preserves explicitly narrowed filters from before the new settings screen', async () => {
-  storage.set('orca:remotePushAgentStates', '["needs-input"]')
-  expect(await loadNotificationDeliveryPreferences()).toMatchObject({
-    followDesktop: false,
-    needsInput: true,
-    taskFinished: false
+it('ignores obsolete category overrides from the previous settings screen', async () => {
+  storage.set(
+    'orca:notificationDeliveryPreferences',
+    JSON.stringify({
+      onlyWhenDesktopAway: false,
+      sound: false,
+      suppressWhileViewing: false,
+      followDesktop: false,
+      taskFinished: false,
+      needsInput: false,
+      terminalBell: false,
+      plugin: false
+    })
+  )
+  expect(await loadNotificationDeliveryPreferences()).toEqual({
+    onlyWhenDesktopAway: false,
+    sound: false,
+    suppressWhileViewing: false
+  })
+  expect(notificationPreferencesFilter(await loadNotificationDeliveryPreferences())).toMatchObject({
+    followDesktop: true,
+    sources: ['agent-task-complete', 'terminal-bell', 'plugin'],
+    agentStates: ['needs-input', 'finished']
   })
 })
-
-it.each(['agent-task-complete', 'terminal-bell', 'plugin'])(
-  'uses identical type filtering for socket/replay and background push: %s',
-  async (source) => {
-    for (const followDesktop of [true, false]) {
-      const value = {
-        ...DEFAULT_NOTIFICATION_DELIVERY,
-        followDesktop,
-        terminalBell: false,
-        taskFinished: false
-      }
-      await saveNotificationDeliveryPreferences(value)
-      for (const desktopAllowed of [true, false]) {
-        const event = { source, desktopAllowed, agentState: 'done' }
-        expect(await allowsLocalNotification(event, 'host')).toBe(
-          allowsMobileNotification(notificationPreferencesFilter(value), event)
-        )
-      }
-    }
-  }
-)
 
 it('suppresses only the workspace being viewed on this phone, and never while backgrounded', async () => {
   const event = { source: 'terminal-bell', worktreeId: 'folder-id' }
   setNotificationViewingWorkspace({ hostId: 'ssh-host', worktreeId: 'folder-id' })
   AppState.currentState = 'active'
-  expect(await allowsLocalNotification(event, 'ssh-host')).toBe(false)
-  expect(await allowsLocalNotification(event, 'another-host')).toBe(true)
-  expect(await allowsLocalNotification({ ...event, worktreeId: 'other' }, 'ssh-host')).toBe(true)
+  expect(await shouldSuppressNotificationWhileViewing(event, 'ssh-host')).toBe(true)
+  expect(await shouldSuppressNotificationWhileViewing(event, 'another-host')).toBe(false)
+  expect(
+    await shouldSuppressNotificationWhileViewing({ ...event, worktreeId: 'other' }, 'ssh-host')
+  ).toBe(false)
   AppState.currentState = 'background'
-  expect(await allowsLocalNotification(event, 'ssh-host')).toBe(true)
+  expect(await shouldSuppressNotificationWhileViewing(event, 'ssh-host')).toBe(false)
 })
 
-it.each(['orca:notificationDeliveryPreferences', 'orca:remotePushAgentStates'])(
-  'recovers defaults from malformed stored %s',
-  async (key) => {
-    storage.set(key, '{broken')
-    expect(await loadNotificationDeliveryPreferences()).toEqual(DEFAULT_NOTIFICATION_DELIVERY)
-  }
-)
+it('recovers defaults from malformed stored preferences', async () => {
+  storage.set('orca:notificationDeliveryPreferences', '{broken')
+  expect(await loadNotificationDeliveryPreferences()).toEqual(DEFAULT_NOTIFICATION_DELIVERY)
+})

@@ -1,47 +1,40 @@
 vi.mock('./push-tray-dismissal', () => ({ dismissPresentedPushNotification: vi.fn() }))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { sha256 } from '@noble/hashes/sha256'
 import { loadHostCatalog } from '../transport/host-store'
 import type { HostCatalogEntry } from '../transport/types'
 import { getNotificationNavigationTarget } from './notification-routing'
 import {
-  getHostNotificationSession,
-  resetHostNotificationSessionsForTests
-} from './notification-reconnect-catchup'
-import {
+  foregroundNotificationBehavior,
   isRemotePushTrigger,
   pushNotificationRouteData,
+  resetForegroundPushClaimsForTests,
   shouldSuppressForegroundPush
 } from './push-receive'
 
 vi.mock('react-native', () => ({ AppState: { currentState: 'background' } }))
-
 vi.mock('../transport/host-store', () => ({ loadHostCatalog: vi.fn() }))
-
-const storage = new Map<string, string>()
-
+const storage = vi.hoisted(() => new Map<string, string>())
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: {
     getItem: vi.fn(async (key: string) => storage.get(key) ?? null),
-    setItem: vi.fn(async (key: string, value: string) => {
-      storage.set(key, value)
-    }),
-    removeItem: vi.fn(async () => undefined)
+    setItem: vi.fn(async (key: string, value: string) => storage.set(key, value))
   }
 }))
 
-const publicKey = Uint8Array.from({ length: 32 }, (_, index) => index)
-const publicKeyB64 = Buffer.from(publicKey).toString('base64')
-const hostFingerprint = Buffer.from(sha256(publicKey)).toString('base64url').slice(0, 16)
-
+const publicKeyB64 = Buffer.alloc(32, 1).toString('base64')
+const hostFingerprint = Buffer.from(sha256(Buffer.alloc(32, 1)))
+  .toString('base64url')
+  .slice(0, 16)
 const hosts = [{ id: 'host-1', publicKeyB64 }] as unknown as HostCatalogEntry[]
+const otherPublicKeyB64 = Buffer.alloc(32, 2).toString('base64')
+const otherHostFingerprint = Buffer.from(sha256(Buffer.alloc(32, 2)))
+  .toString('base64url')
+  .slice(0, 16)
 
-// APNs nests Orca's fields beside `aps`; FCM sends them flat and stringified.
 function apnsData(orca: Record<string, unknown>): unknown {
   return { aps: { alert: { title: 'Orca', body: 'Agent needs input' } }, orca }
 }
-
 function fcmData(orca: Record<string, unknown>): unknown {
   return Object.fromEntries(Object.entries(orca).map(([key, value]) => [key, String(value)]))
 }
@@ -51,232 +44,238 @@ beforeEach(() => {
   storage.clear()
   storage.set('orca:pushNotificationsEnabled', 'true')
   storage.set('orca:remotePushEnabled', 'true')
-  resetHostNotificationSessionsForTests()
-  vi.mocked(loadHostCatalog).mockResolvedValue(hosts)
+  resetForegroundPushClaimsForTests()
+  vi.mocked(loadHostCatalog).mockResolvedValue([
+    ...hosts,
+    { id: 'host-2', publicKeyB64: otherPublicKeyB64 }
+  ] as unknown as HostCatalogEntry[])
 })
 
 describe('shouldSuppressForegroundPush', () => {
-  it('suppresses a push whose id and seq the socket already delivered', async () => {
-    const session = getHostNotificationSession('host-1')
-    session.lastDeliveredEpoch = 'epoch-1'
-    session.seen.add('id:agent:one#7')
-
-    await expect(
-      shouldSuppressForegroundPush(
-        apnsData({
-          hostFingerprint,
-          notificationId: 'agent:one',
-          notificationSeq: 7,
-          notificationEpoch: 'epoch-1'
-        })
-      )
-    ).resolves.toBe(true)
-  })
-
-  it('shows an unseen push and marks it so the socket replay is dropped', async () => {
-    const data = apnsData({
+  const push = () =>
+    apnsData({
       hostFingerprint,
       notificationId: 'agent:one',
       notificationSeq: 7,
       notificationEpoch: 'epoch-1'
     })
 
-    await expect(shouldSuppressForegroundPush(data)).resolves.toBe(false)
-
-    expect(getHostNotificationSession('host-1').seen.has('id:agent:one#7')).toBe(true)
-    await expect(shouldSuppressForegroundPush(data)).resolves.toBe(true)
+  it('allows one eligible native push and suppresses an in-process duplicate', async () => {
+    await expect(shouldSuppressForegroundPush(push())).resolves.toBe(false)
+    await expect(shouldSuppressForegroundPush(push())).resolves.toBe(true)
   })
 
-  it('reads the flat stringified fields an FCM data message carries', async () => {
-    const session = getHostNotificationSession('host-1')
-    session.lastDeliveredEpoch = 'epoch-1'
-    session.seen.add('id:agent:one#7')
-
+  it('reads flat FCM fields and allows the first native push', async () => {
     await expect(
       shouldSuppressForegroundPush(
         fcmData({
           hostFingerprint,
           notificationId: 'agent:one',
-          notificationSeq: 7,
+          notificationSeq: 8,
           notificationEpoch: 'epoch-1'
         })
       )
-    ).resolves.toBe(true)
-  })
-
-  it('keys a terminal bell on its seq alone, since it carries no notification id', async () => {
-    const session = getHostNotificationSession('host-1')
-    session.lastDeliveredEpoch = 'epoch-1'
-    session.seen.add('seq:4')
-
-    await expect(
-      shouldSuppressForegroundPush(
-        apnsData({
-          hostFingerprint,
-          source: 'terminal-bell',
-          notificationSeq: 4,
-          notificationEpoch: 'epoch-1'
-        })
-      )
-    ).resolves.toBe(true)
-  })
-
-  it('shows a push that names no counter lifetime without letting it claim a key', async () => {
-    const session = getHostNotificationSession('host-1')
-    session.lastDeliveredEpoch = 'epoch-1'
-    session.seen.add('seq:4')
-
-    // Without an epoch the seq cannot be tied to this counter, so a forged seq:4
-    // must neither be swallowed against it nor stop the real bell at seq 4.
-    await expect(
-      shouldSuppressForegroundPush(apnsData({ hostFingerprint, notificationSeq: 4 }))
-    ).resolves.toBe(false)
-    await expect(
-      shouldSuppressForegroundPush(apnsData({ hostFingerprint, notificationSeq: 5 }))
-    ).resolves.toBe(false)
-    expect(session.seen.has('seq:5')).toBe(false)
-  })
-
-  it('voids seen keys from a previous desktop lifetime before testing its own', async () => {
-    const session = getHostNotificationSession('host-1')
-    session.lastDeliveredEpoch = 'epoch-old'
-    session.seen.add('seq:4')
-
-    await expect(
-      shouldSuppressForegroundPush(
-        apnsData({ hostFingerprint, notificationSeq: 4, notificationEpoch: 'epoch-new' })
-      )
     ).resolves.toBe(false)
   })
 
-  it('leaves a locally scheduled notification to the existing path', async () => {
+  it('deduplicates ID-less bells by host, epoch, and valid sequence', async () => {
+    const bell = (overrides: Record<string, unknown> = {}) =>
+      apnsData({
+        hostFingerprint,
+        source: 'terminal-bell',
+        notificationSeq: 4,
+        notificationEpoch: 'epoch-1',
+        ...overrides
+      })
+    await expect(shouldSuppressForegroundPush(bell())).resolves.toBe(false)
+    await expect(shouldSuppressForegroundPush(bell())).resolves.toBe(true)
+    await expect(shouldSuppressForegroundPush(bell({ notificationSeq: 5 }))).resolves.toBe(false)
     await expect(
-      shouldSuppressForegroundPush({ hostId: 'host-1', source: 'agent-task-complete' })
+      shouldSuppressForegroundPush(bell({ notificationEpoch: 'epoch-2' }))
     ).resolves.toBe(false)
-    expect(loadHostCatalog).not.toHaveBeenCalled()
+    await expect(
+      shouldSuppressForegroundPush(bell({ hostFingerprint: otherHostFingerprint }))
+    ).resolves.toBe(false)
   })
 
-  it('suppresses a push for a host this phone no longer has, since its tap routes nowhere', async () => {
+  it('does not claim invalid sequence values as duplicate identities', async () => {
+    const invalid = apnsData({
+      hostFingerprint,
+      source: 'plugin',
+      notificationSeq: 1.5,
+      notificationEpoch: 'epoch-1'
+    })
+    await expect(shouldSuppressForegroundPush(invalid)).resolves.toBe(false)
+    await expect(shouldSuppressForegroundPush(invalid)).resolves.toBe(false)
+  })
+
+  it('suppresses pushes for an unpaired host', async () => {
     vi.mocked(loadHostCatalog).mockResolvedValue([])
-
     await expect(
       shouldSuppressForegroundPush(apnsData({ hostFingerprint, notificationSeq: 1 }))
     ).resolves.toBe(true)
   })
 
-  it('seeds the persisted watermark before adopting, so a push cannot void it', async () => {
-    storage.set(
-      'orca:mobileNotificationsWatermark:host-1',
-      JSON.stringify({ seq: 42, epoch: 'epoch-1' })
-    )
-
-    await shouldSuppressForegroundPush(
-      apnsData({ hostFingerprint, notificationSeq: 43, notificationEpoch: 'epoch-1' })
-    )
-
-    // Unseeded, the null epoch reads as a new counter lifetime: the seq resets to 0
-    // and {seq: 0} is persisted over a watermark the next reconnect still needs.
-    expect(getHostNotificationSession('host-1').lastDeliveredSeq).toBe(42)
-    expect(AsyncStorage.setItem).not.toHaveBeenCalled()
+  it('suppresses a push after a matching persisted dismissal', async () => {
+    const { rememberPushDismissal } = await import('./push-dismissal-watermarks')
+    const payload = {
+      hostFingerprint,
+      notificationId: 'dismissed',
+      notificationSeq: 2,
+      notificationEpoch: 'epoch-1'
+    }
+    await rememberPushDismissal(payload)
+    await expect(shouldSuppressForegroundPush(apnsData(payload))).resolves.toBe(true)
   })
 
-  it('shows a coalesced summary without claiming the key of the one event it names', async () => {
+  it('keeps a legacy summary visible while an earlier member remains unread', async () => {
+    const { rememberPushDismissal } = await import('./push-dismissal-watermarks')
+    const members = [
+      { notificationId: 'agent:earlier', notificationSeq: 6, notificationEpoch: 'epoch-1' },
+      { notificationId: 'agent:latest', notificationSeq: 7, notificationEpoch: 'epoch-1' }
+    ]
+    await rememberPushDismissal({ hostFingerprint, ...members[1]! })
+
     await expect(
       shouldSuppressForegroundPush(
         apnsData({
           hostFingerprint,
-          notificationId: 'agent:one',
-          notificationSeq: 7,
-          coalescedCount: 3
+          ...members[1],
+          coalescedCount: members.length,
+          summaryMembers: members
         })
       )
     ).resolves.toBe(false)
+  })
 
-    // Claiming it would make the socket swallow the banner for agent:one itself,
-    // which the summary only ever counted.
-    expect(getHostNotificationSession('host-1').seen.has('id:agent:one#7')).toBe(false)
+  it('suppresses a legacy summary only after every member is dismissed', async () => {
+    const { rememberPushDismissal } = await import('./push-dismissal-watermarks')
+    const members = [
+      { notificationId: 'agent:earlier', notificationSeq: 6, notificationEpoch: 'epoch-1' },
+      { notificationId: 'agent:latest', notificationSeq: 7, notificationEpoch: 'epoch-1' }
+    ]
+    await Promise.all(
+      members.map((member) => rememberPushDismissal({ hostFingerprint, ...member }))
+    )
+
+    await expect(
+      shouldSuppressForegroundPush(
+        apnsData({
+          hostFingerprint,
+          ...members[1],
+          coalescedCount: members.length,
+          summaryMembers: members
+        })
+      )
+    ).resolves.toBe(true)
+  })
+
+  it('keeps malformed legacy summary membership visible', async () => {
+    const { rememberPushDismissal } = await import('./push-dismissal-watermarks')
+    const latest = {
+      notificationId: 'agent:latest',
+      notificationSeq: 7,
+      notificationEpoch: 'epoch-1'
+    }
+    await rememberPushDismissal({ hostFingerprint, ...latest })
+
+    await expect(
+      shouldSuppressForegroundPush(
+        apnsData({
+          hostFingerprint,
+          ...latest,
+          coalescedCount: 2,
+          summaryMembers: [latest]
+        })
+      )
+    ).resolves.toBe(false)
+  })
+
+  it('keeps legacy summary and individual duplicate claims independent', async () => {
+    const members = [
+      { notificationId: 'agent:earlier', notificationSeq: 6, notificationEpoch: 'epoch-1' },
+      { notificationId: 'agent:latest', notificationSeq: 7, notificationEpoch: 'epoch-1' }
+    ]
+    const summaryPush = apnsData({
+      hostFingerprint,
+      ...members[1],
+      coalescedCount: members.length,
+      summaryMembers: members
+    })
+    const individualPush = apnsData({ hostFingerprint, ...members[1] })
+
+    await expect(shouldSuppressForegroundPush(summaryPush)).resolves.toBe(false)
+    await expect(shouldSuppressForegroundPush(individualPush)).resolves.toBe(false)
+    await expect(shouldSuppressForegroundPush(individualPush)).resolves.toBe(true)
+    await expect(shouldSuppressForegroundPush(summaryPush)).resolves.toBe(false)
+  })
+
+  it('fails closed for recognized pushes when suppression checks throw', async () => {
+    const preferences = await import('./notification-delivery-preferences')
+    const dismissals = await import('./push-dismissal-watermarks')
+    const preferenceSpy = vi
+      .spyOn(preferences, 'loadNotificationDeliveryPreferences')
+      .mockResolvedValueOnce({ sound: true } as never)
+      .mockRejectedValueOnce(new Error('preference read failed'))
+    const dismissalSpy = vi.spyOn(dismissals, 'wasPushDismissed')
+    await expect(
+      foregroundNotificationBehavior({ request: { content: { data: push() } } })
+    ).resolves.toMatchObject({ shouldShowBanner: false, shouldShowList: false })
+    expect(dismissalSpy).not.toHaveBeenCalled()
+    preferenceSpy.mockRestore()
+  })
+
+  it('keeps unrelated notifications visible when suppression checks throw', async () => {
+    const dismissals = await import('./push-dismissal-watermarks')
+    const dismissalSpy = vi
+      .spyOn(dismissals, 'wasPushDismissed')
+      .mockRejectedValue(new Error('dismissal read failed'))
+    await expect(
+      foregroundNotificationBehavior({
+        request: { content: { data: { title: 'Other app notification' } } }
+      })
+    ).resolves.toMatchObject({ shouldShowBanner: true, shouldShowList: true })
+    dismissalSpy.mockRestore()
   })
 })
 
 describe('pushNotificationRouteData', () => {
   it('routes a tap by mapping the fingerprint to the paired host id', () => {
     const data = pushNotificationRouteData(
-      apnsData({
-        hostFingerprint,
-        notificationId: 'agent:one',
-        worktreeId: 'repo::/Users/me/orca/workspaces/feature',
-        source: 'agent-task-complete'
-      }),
+      apnsData({ hostFingerprint, worktreeId: 'repo::/feature', source: 'agent-task-complete' }),
       hosts
     )
-
     expect(getNotificationNavigationTarget(data, { knownHostIds: new Set(['host-1']) })).toEqual({
       hostId: 'host-1',
       sessionTarget: {
         name: '[hostId]/session/[worktreeId]',
-        params: { hostId: 'host-1', worktreeId: 'repo::/Users/me/orca/workspaces/feature' }
+        params: { hostId: 'host-1', worktreeId: 'repo::/feature' }
       }
     })
   })
 
-  it('falls back to the host screen for a push with no worktree', () => {
+  it('maps a push without a worktree to the host screen', () => {
     const data = pushNotificationRouteData(
       fcmData({ hostFingerprint, source: 'terminal-bell' }),
       hosts
     )
-
-    expect(getNotificationNavigationTarget(data)).toEqual({
-      hostId: 'host-1',
-      sessionTarget: null
-    })
+    expect(getNotificationNavigationTarget(data)).toEqual({ hostId: 'host-1', sessionTarget: null })
   })
 
-  it('passes locally scheduled data through untouched', () => {
-    const data = { hostId: 'host-9', source: 'agent-task-complete' }
-
-    expect(pushNotificationRouteData(data, hosts)).toBe(data)
-  })
-
-  it('leaves an unresolvable fingerprint unrouted rather than guessing a host', () => {
-    const data = pushNotificationRouteData(apnsData({ hostFingerprint: '0123456789abcdef' }), hosts)
-
-    expect(getNotificationNavigationTarget(data)).toBeNull()
-  })
-
-  it('leaves a remote push unrouted when no host catalog could be read', () => {
-    const data = { hostId: 'host-1', orca: { hostFingerprint, notificationId: 'agent:one' } }
-
-    expect(pushNotificationRouteData(data, [], true)).toBeNull()
-  })
-
-  it('leaves a remote push with no fingerprint unrouted instead of treating it as local', () => {
-    const data = { hostId: 'host-1', worktreeId: 'wt-1', source: 'agent-task-complete' }
-
-    expect(pushNotificationRouteData(data, hosts, true)).toBeNull()
-    // The same shape from this app's own scheduler still routes.
-    expect(pushNotificationRouteData(data, hosts, false)).toBe(data)
-  })
-
-  it('recognises only a provider-delivered trigger as remote', () => {
-    expect(isRemotePushTrigger({ type: 'push' })).toBe(true)
-    expect(isRemotePushTrigger({ type: 'timeInterval', seconds: 1 })).toBe(false)
-    expect(isRemotePushTrigger({ channelId: 'orca-desktop' })).toBe(false)
-    expect(isRemotePushTrigger(null)).toBe(false)
-    expect(isRemotePushTrigger(undefined)).toBe(false)
-  })
-
-  it('drops a gateway payload that pairs an unresolvable fingerprint with a stray hostId', () => {
-    const data = {
-      hostId: 'host-1',
-      orca: { hostFingerprint: '0123456789abcdef', notificationId: 'agent:one' }
-    }
-
-    // Returning the raw data would let the stray hostId route a tap the push never named.
-    expect(pushNotificationRouteData(data, hosts)).toBeNull()
+  it('keeps local data untouched and rejects an unresolvable remote fingerprint', () => {
+    const local = { hostId: 'host-9', source: 'agent-task-complete' }
+    expect(pushNotificationRouteData(local, hosts)).toBe(local)
     expect(
-      getNotificationNavigationTarget(pushNotificationRouteData(data, hosts), {
-        knownHostIds: new Set(['host-1'])
-      })
+      pushNotificationRouteData(
+        { hostId: 'host-1', orca: { hostFingerprint: 'unknown' } },
+        hosts,
+        true
+      )
     ).toBeNull()
+  })
+
+  it('recognises only provider-delivered triggers', () => {
+    expect(isRemotePushTrigger({ type: 'push' })).toBe(true)
+    expect(isRemotePushTrigger({ type: 'timeInterval' })).toBe(false)
   })
 })

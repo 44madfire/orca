@@ -12,8 +12,7 @@ export type PushDispatcherOptions = {
   onOutcome?: (outcome: PushProviderOutcome['status']) => void
 }
 
-// Sends one coalesced delivery through the provider the registration belongs
-// to, and retires the registration when the provider says the token is gone.
+// Retires the registration when the provider says the token is gone.
 export class PushDispatcher {
   constructor(private readonly options: PushDispatcherOptions) {}
 

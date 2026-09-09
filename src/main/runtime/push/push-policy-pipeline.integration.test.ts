@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { readDesktopAwayState } from '../../notifications/desktop-away-state'
-import { allowsMobileNotification } from '../../../shared/mobile-notification-policy'
 import { DeviceRegistry } from '../device-registry'
 import { RuntimeMobileNotificationController } from '../runtime-mobile-notification-controller'
 import { setRuntimeDesktopSurface } from '../runtime-desktop-surface'
@@ -76,7 +75,7 @@ async function pipeline() {
   return { path, registry, device, controller, client, register, dispatch }
 }
 
-it('carries the native idle boundary through replay, socket policy and push dispatch', async () => {
+it('carries the native idle boundary through replay and push dispatch', async () => {
   let idle = 179
   setRuntimeDesktopSurface({
     isAwayForMobileNotifications: () =>
@@ -90,12 +89,6 @@ it('carries the native idle boundary through replay, socket policy and push disp
     removeIpcListener: () => {}
   })
   const h = await pipeline()
-  const socketVerdicts: boolean[] = []
-  h.controller.onDispatched((event) => {
-    if (event.type === 'notification') {
-      socketVerdicts.push(allowsMobileNotification(filter, JSON.parse(JSON.stringify(event))))
-    }
-  })
   h.dispatch()
   await flush()
   expect(h.client.send).not.toHaveBeenCalled()
@@ -107,12 +100,11 @@ it('carries the native idle boundary through replay, socket policy and push disp
   h.dispatch()
   await flush()
   expect(h.client.send).toHaveBeenCalledTimes(1)
-  expect(socketVerdicts).toEqual([false, true, false])
   const replay = h.controller.getMissedSince(0)
   expect(replay).toHaveLength(3)
-  expect(
-    replay.map((event) => allowsMobileNotification(filter, JSON.parse(JSON.stringify(event))))
-  ).toEqual([false, true, false])
+  expect(replay.map((event) => (event.type === 'notification' ? event.desktopAway : null))).toEqual(
+    [false, true, false]
+  )
 })
 
 it('keeps headless presence unknown and legacy socket events readable', async () => {
@@ -124,12 +116,6 @@ it('keeps headless presence unknown and legacy socket events readable', async ()
   await flush()
   expect(events[0]).not.toHaveProperty('desktopAway')
   expect(h.client.send).toHaveBeenCalledTimes(1)
-  expect(
-    allowsMobileNotification(filter, {
-      source: 'agent-task-complete',
-      agentState: 'done'
-    })
-  ).toBe(true)
 })
 
 it('expires persisted registration at seven days despite host activity and renews explicitly', async () => {

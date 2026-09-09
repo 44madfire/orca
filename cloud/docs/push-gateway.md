@@ -3,7 +3,10 @@
 `orca-cloud-push` is a public Cloud Run service in `onorca-cloud` that turns a desktop
 notification into an APNs or FCM push for a paired phone. The desktop registers each phone's
 native token with it and calls `POST /v1/send` after the socket fan-out it already does; the
-phone dedupes by `notificationId#notificationSeq`. The service is the only place the Apple
+phone treats APNs/FCM as the sole ordinary OS-banner path. The notification socket is retained only
+for live dismissal and reconnect tray reconciliation; it does not create or recover banners. Desktop
+notification categories remain authoritative; category and summary fields retained in contracts
+exist only for mixed-version compatibility. The service is the only place the Apple
 `.p8` signing key is readable, which is the reason it exists as a service at all.
 
 The contract every lane builds against is `docs/reference/mobile-push-contract.md` in the
@@ -17,22 +20,22 @@ edit plus a second set of Apple credentials.
 
 ## Shape
 
-| Setting | Value | Where |
-| --- | --- | --- |
-| Cloud Run service | `orca-cloud-push` | `push_cloud_run_service_name` |
-| Region | `us-central1` | `region` |
-| Instances | min 1, max 2 | `push_min_instances`, `push_max_instances` |
-| Database pool | 2 per instance | `push_database_pool_max` |
-| Concurrency | 80 | `push_concurrency` |
-| Ingress | all | `INGRESS_TRAFFIC_ALL` |
-| Invoker | IAM disabled | `invoker_iam_disabled = true` on the service |
-| Runtime identity | `orca-cloud-push@onorca-cloud.iam.gserviceaccount.com` | `google_service_account.push_runtime` |
-| Database | `orca_push` on the shared Cloud SQL instance | `google_sql_database.push` |
-| Hostname | `push.onorca.dev` | `push_base_url` |
+| Setting           | Value                                                  | Where                                        |
+| ----------------- | ------------------------------------------------------ | -------------------------------------------- |
+| Cloud Run service | `orca-cloud-push`                                      | `push_cloud_run_service_name`                |
+| Region            | `us-central1`                                          | `region`                                     |
+| Instances         | min 1, max 2                                           | `push_min_instances`, `push_max_instances`   |
+| Database pool     | 2 per instance                                         | `push_database_pool_max`                     |
+| Concurrency       | 80                                                     | `push_concurrency`                           |
+| Ingress           | all                                                    | `INGRESS_TRAFFIC_ALL`                        |
+| Invoker           | IAM disabled                                           | `invoker_iam_disabled = true` on the service |
+| Runtime identity  | `orca-cloud-push@onorca-cloud.iam.gserviceaccount.com` | `google_service_account.push_runtime`        |
+| Database          | `orca_push` on the shared Cloud SQL instance           | `google_sql_database.push`                   |
+| Hostname          | `push.onorca.dev`                                      | `push_base_url`                              |
 
 The minimum of one instance is deliberate and did not move when the ceiling came down to two. A
-cold start delays a notification past the point where it is worth showing, and the three-second
-coalescing window lives in instance memory, so the floor is what keeps a notification prompt. The
+cold start delays a notification past the point where it is worth showing, so the floor is what
+keeps a notification prompt. The
 ceiling is a different question, answered below.
 
 The maximum and the pool are set by the connection budget, not by the gateway's own appetite. Two
@@ -58,20 +61,20 @@ the only way to reach an open service here.
 
 Set on the container by Terraform:
 
-| Variable | Source |
-| --- | --- |
-| `PORT` | Cloud Run, container port 8080 |
-| `ORCA_PUSH_PUBLIC_URL` | `push_base_url` |
-| `ORCA_PUSH_FCM_PROJECT_ID` | `push_fcm_project_id`, empty means `project_id` |
-| `ORCA_PUSH_DATABASE_URL` | Secret `orca-cloud-push-database-url`, version `latest` |
-| `ORCA_PUSH_DATABASE_POOL_MAX` | `push_database_pool_max`, 2 per instance |
-| `ORCA_PUSH_APNS_KEY` | Secret `orca-cloud-push-apns-key`, version `latest` |
-| `ORCA_PUSH_APNS_KEY_ID` | Secret `orca-cloud-push-apns-key-id`, version `latest` |
-| `ORCA_PUSH_APPLE_TEAM_ID` | Secret `orca-cloud-push-apple-team-id`, version `latest` |
+| Variable                      | Source                                                   |
+| ----------------------------- | -------------------------------------------------------- |
+| `PORT`                        | Cloud Run, container port 8080                           |
+| `ORCA_PUSH_PUBLIC_URL`        | `push_base_url`                                          |
+| `ORCA_PUSH_FCM_PROJECT_ID`    | `push_fcm_project_id`, empty means `project_id`          |
+| `ORCA_PUSH_DATABASE_URL`      | Secret `orca-cloud-push-database-url`, version `latest`  |
+| `ORCA_PUSH_DATABASE_POOL_MAX` | `push_database_pool_max`, 2 per instance                 |
+| `ORCA_PUSH_APNS_KEY`          | Secret `orca-cloud-push-apns-key`, version `latest`      |
+| `ORCA_PUSH_APNS_KEY_ID`       | Secret `orca-cloud-push-apns-key-id`, version `latest`   |
+| `ORCA_PUSH_APPLE_TEAM_ID`     | Secret `orca-cloud-push-apple-team-id`, version `latest` |
 
-`ORCA_PUSH_APNS_TOPIC` and `ORCA_PUSH_COALESCE_MS` are left to their application defaults
-(`com.stably.orca.mobile` and `3000`). Add them here only when one of them has to differ from
-the code default, so that a code-side change stays visible rather than silently overridden.
+`ORCA_PUSH_APNS_TOPIC` is left to its application default (`com.stably.orca.mobile`). Add it here
+only when it has to differ from the code default, so that a code-side change stays visible rather
+than silently overridden.
 
 Terraform owns the three Apple secret **names, labels, and replication, and never a version.**
 The `.p8` is issued by the Apple developer portal, so a Terraform-managed version would put the
@@ -251,6 +254,14 @@ The inert phase intentionally cannot validate a new schema by applying it to pro
 migrations and validate them against isolated PostgreSQL before dispatch. No actual Cloud Run
 rollout, provider delivery or physical-device acceptance is implied by local contract tests.
 
+The individual-presentation contract begins only after every older worker revision has retired.
+During rollout overlap, an old worker may still send a pre-existing queue row as a summary or assign
+its former host-wide collapse identity to a new singleton identity-less bell. Do not compensate by
+fabricating notification IDs or extending the wire contract. After retirement and connection drain,
+acceptance must send two alerts for one host (including the identity-less shape) and confirm their
+provider replacement identities remain independent and each can be dismissed without replacing the
+other.
+
 ### Why the FCM probe impersonates the runtime account
 
 A gateway that boots and answers `/ready` can still be unable to send: the FCM grant lives on
@@ -283,6 +294,7 @@ the window between.
    ```
 
    The team ID does not change, so `orca-cloud-push-apple-team-id` is untouched.
+
 3. Dispatch `Deploy Push Gateway Production`. The container reads `latest` at start, so only a
    new revision picks the key up; there is no in-place reload.
 4. Verify from a real device that an iOS notification still arrives. The workflow's FCM probe
@@ -321,11 +333,11 @@ problem, not device churn.
 Two independent limits, both enforced in the gateway and both returning HTTP 200 with
 `status: "rate_limited"` per result rather than failing the request:
 
-| Limit | Scope |
-| --- | --- |
-| 300 logical alerts per rolling 15 minutes | per `hostFingerprint` |
-| 300 logical dismissals per rolling 15 minutes | per `hostFingerprint`, separate budget |
-| 20 `registrationIds` | per request, hard cap, HTTP 400 over it |
+| Limit                                         | Scope                                   |
+| --------------------------------------------- | --------------------------------------- |
+| 300 logical alerts per rolling 15 minutes     | per `hostFingerprint`                   |
+| 300 logical dismissals per rolling 15 minutes | per `hostFingerprint`, separate budget  |
+| 20 `registrationIds`                          | per request, hard cap, HTTP 400 over it |
 
 Fanout to several phones counts one logical event; there is no per-phone daily allowance.
 Unauthenticated handshakes and invalid bearer attempts have separate 30/minute IP buckets.
@@ -333,7 +345,8 @@ Authenticated requests use a 600/minute host bucket per instance. Auth database 
 and waiting work are bounded independently of HTTP concurrency.
 
 `push_events` backs quota accounting. `push_event_recipients` deduplicates fanout and
-`push_delivery_batches` persists coalescing, worker leases, retries and outcomes. Identity metadata
+`push_delivery_batches` retains its historical name and persists individual deliveries, worker
+leases, retries and outcomes. Identity metadata
 is retained for 24 hours. Payloads expire within five minutes and are cleared on completion or by
 minute-level expiry cleanup. FCM project-level provider quotas remain independent of host limits.
 
@@ -355,7 +368,6 @@ push.onorca.dev.  CNAME  ghs.googlehosted.com.   (DNS only, not proxied)
 record is ever lost, recreate it exactly like that; Cloudflare proxying blocks certificate
 issuance and breaks Cloud Run host routing.
 
-
 ### Recovery and delivery guarantees
 
 Candidate tags and deterministic revision names are recorded before deployment. Promotion intent is
@@ -370,14 +382,18 @@ Session replacement is serialized per host and a unique host index upgrades olde
 retaining their newest session. Cloud Verify runs push concurrency tests against PostgreSQL.
 
 Accepted sends commit quota and pending work together before returning `queued`. Workers resume
-unfinished batches after restarts without relying on desktop retries. Shared batching and expiring
-leases coordinate replicas. All provider attempts retain the original five-minute deadline and
-respect provider backoff; no retry extends alert life. Silent dismissal messages have their own quota
-and cancel matching unsent alerts. Mobile OS delivery/execution is not guaranteed.
+unfinished deliveries after restarts without relying on desktop retries. The durable queue and
+expiring leases coordinate replicas. All provider attempts retain the original five-minute deadline
+and respect provider backoff; no retry extends alert life. Silent dismissal messages have their own
+quota and cancel matching unsent alerts. Mobile OS delivery/execution is not guaranteed.
 
 Shutdown stops admission and new claims; unfinished leases remain recoverable. Provider acceptance
 and SQL completion cannot be atomic, so repeated transport delivery remains possible after a crash.
-Stable collapse identities reduce duplicates without promising exactly-once visible delivery.
+Stable per-event replacement identities reduce duplicates without promising exactly-once visible
+delivery. FCM notification messages are inherently collapsible while offline and support only a
+small number of concurrent collapse keys per device, so excess pending messages may be discarded and
+every offline alert is not guaranteed to appear. Socket reconnect reconciles dismissals against the
+current native tray; it has no stored replay watermark and never recovers a missed OS banner.
 
 ### Dedicated database preparation
 

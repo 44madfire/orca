@@ -60,6 +60,8 @@ final class PushDismissalLedger {
   }
 
   func containsNotification(_ payload: [String: Any], now: TimeInterval = Date().timeIntervalSince1970) -> Bool {
+    // Summary expansion is retained only for legacy delivered tray entries; new
+    // pushes always carry one individual identity.
     if let count = payload["coalescedCount"] as? NSNumber, count.doubleValue > 1 {
       guard count.doubleValue.rounded(.down) == count.doubleValue, count.intValue <= 32,
         let members = payload["summaryMembers"] as? [[String: Any]], members.count == count.intValue,

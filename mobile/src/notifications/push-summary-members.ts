@@ -49,6 +49,8 @@ export function readSummaryMembers(
 }
 
 export function representedPushes(payload: OrcaPushPayload): OrcaPushPayload[] {
+  // Gateway summaries are no longer generated; this bounded reader exists only
+  // for notifications already sitting in a user's tray during the transition.
   if ((payload.coalescedCount ?? 0) <= 1) {
     return [payload]
   }

@@ -1,4 +1,4 @@
-import { buildPushDelivery, summaryBody } from './push-delivery-message.js'
+import { buildPushDelivery } from './push-delivery-message.js'
 import type { PushDispatcher } from './push-dispatcher.js'
 import type { DurablePushStore } from './durable-push-store.js'
 
@@ -45,41 +45,35 @@ export class DurablePushWorker {
 
   private async drain(): Promise<void> {
     for (let count = 0; count < 25 && !this.stopped; count++) {
-      const batch = await this.store.claim()
-      if (!batch) return
-      const latest = batch.notifications.at(-1)!
-      const multiple = batch.notifications.length > 1
+      const queued = await this.store.claim()
+      if (!queued) return
       const delivery = buildPushDelivery({
-        registrationId: batch.registrationId,
-        hostFingerprint: batch.hostFingerprint,
-        notification: latest,
-        title: multiple ? 'Orca' : latest.title,
-        body: multiple ? summaryBody(batch.notifications) : latest.body,
-        coalescedCount: batch.notifications.length,
-        notifications: batch.notifications
+        registrationId: queued.registrationId,
+        hostFingerprint: queued.hostFingerprint,
+        notification: queued.notification
       })
-      delivery.expiresAt = batch.expiresAt
-      if ((this.options.now ?? Date.now)() >= batch.expiresAt) {
-        await this.store.finish(batch)
+      delivery.expiresAt = queued.expiresAt
+      if ((this.options.now ?? Date.now)() >= queued.expiresAt) {
+        await this.store.finish(queued)
         continue
       }
       const heartbeat = setInterval(() => {
-        void this.store.renew(batch).catch(() => {})
+        void this.store.renew(queued).catch(() => {})
       }, 10_000)
       heartbeat.unref()
       try {
-        if (batch.attempts > 1) this.options.onRetry?.()
+        if (queued.attempts > 1) this.options.onRetry?.()
         const outcome = await this.dispatcher.sendOnce(delivery)
         const retryAfterMs =
           outcome.status === 'error' && outcome.retryable
             ? Math.max(
                 outcome.retryAfterMs ?? 0,
-                Math.min(30_000, 1000 * 2 ** Math.min(batch.attempts, 5))
+                Math.min(30_000, 1000 * 2 ** Math.min(queued.attempts, 5))
               )
             : undefined
-        await this.store.finish(batch, retryAfterMs, outcome.status)
+        await this.store.finish(queued, retryAfterMs, outcome.status)
       } catch {
-        await this.store.finish(batch, 5000)
+        await this.store.finish(queued, 5000)
       } finally {
         clearInterval(heartbeat)
       }

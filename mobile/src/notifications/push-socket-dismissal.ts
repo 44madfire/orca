@@ -2,7 +2,7 @@ import { wasPushDismissed } from './push-dismissal-watermarks'
 import { loadHostCatalog } from '../transport/host-store'
 import { deriveHostFingerprint } from './push-host-fingerprint'
 import { dismissPresentedPushNotification } from './push-tray-dismissal'
-import type { DismissNotificationEvent } from './local-notification-scheduling'
+import type { DismissNotificationEvent } from './desktop-notification-events'
 
 async function hostFingerprint(hostId: string): Promise<string | null> {
   const hosts = await loadHostCatalog().catch(() => [])

@@ -67,40 +67,36 @@ async function fixture() {
   }
 }
 
-it('waits for the real coalescing deadline and sends complete summaries', async () => {
+it('sends every burst event immediately with its original content and identity', async () => {
   const h = await fixture()
   await h.accept(note(1))
-  h.advance(2000)
-  await h.accept(note(2, { agentState: 'needs-input' }))
+  await h.accept(
+    note(2, { agentState: 'needs-input', title: 'Answer needed', body: 'Please respond' })
+  )
   await h.worker.runDue()
-  expect(h.send).not.toHaveBeenCalled()
-  h.advance(1000)
-  await h.worker.runDue()
-  expect(h.send).toHaveBeenCalledOnce()
-  expect(h.send.mock.calls[0]![0]).toMatchObject({
-    title: 'Orca',
-    body: '2 agents need attention',
-    orca: {
-      notificationSeq: 2,
-      coalescedCount: 2,
-      summaryMembers: [
-        { notificationId: 'note-1', notificationSeq: 1, notificationEpoch: 'epoch' },
-        { notificationId: 'note-2', notificationSeq: 2, notificationEpoch: 'epoch' }
-      ]
-    }
-  })
-  await h.accept(note(3))
-  h.advance(3000)
-  await h.worker.runDue()
-  expect(h.send.mock.calls[1]![0]).toMatchObject({
+  expect(h.send).toHaveBeenCalledTimes(2)
+  const first = h.send.mock.calls.find(([delivery]) => delivery.orca.notificationSeq === 1)![0]
+  const second = h.send.mock.calls.find(([delivery]) => delivery.orca.notificationSeq === 2)![0]
+  expect(first).toMatchObject({
     title: 'Done',
     body: 'Finished task',
-    orca: { coalescedCount: 1 }
+    orca: {
+      notificationId: 'note-1',
+      notificationSeq: 1
+    }
   })
+  expect(second).toMatchObject({
+    title: 'Answer needed',
+    body: 'Please respond',
+    orca: { notificationId: 'note-2', notificationSeq: 2 }
+  })
+  expect(first.collapseId).not.toBe(second.collapseId)
+  expect(h.send.mock.calls.every(([delivery]) => !('coalescedCount' in delivery.orca))).toBe(true)
+  expect(h.send.mock.calls.every(([delivery]) => !('summaryMembers' in delivery.orca))).toBe(true)
   expect(h.onRetry).not.toHaveBeenCalled()
 })
 
-it('keeps untrackable bells individual and summaries scoped to each phone', async () => {
+it('keeps untrackable bells and per-phone deliveries individually replaceable', async () => {
   const h = await fixture()
   const other = await h.devices.upsert({
     hostFingerprint: 'host',
@@ -114,22 +110,15 @@ it('keeps untrackable bells individual and summaries scoped to each phone', asyn
   await h.accept(note(2))
   await h.accept(note(3))
   await h.store.accept('host', other.registrationId, note(2))
-  h.advance(3000)
   await h.worker.runDue()
-  expect(h.send).toHaveBeenCalledTimes(3)
+  expect(h.send).toHaveBeenCalledTimes(4)
   const deliveries = h.send.mock.calls.map(([delivery]) => delivery)
-  expect(deliveries.find((delivery) => delivery.orca.source === 'terminal-bell')).toMatchObject({
-    collapseId: 'host:host',
-    orca: { coalescedCount: 1 }
-  })
-  expect(deliveries.find((delivery) => delivery.orca.coalescedCount === 2)).toMatchObject({
-    registrationId: h.registrationId,
-    body: '2 updates'
-  })
+  const primary = deliveries.filter((delivery) => delivery.registrationId === h.registrationId)
+  expect(primary).toHaveLength(3)
+  expect(new Set(primary.map((delivery) => delivery.collapseId)).size).toBe(3)
   expect(
-    deliveries.find((delivery) => delivery.registrationId === other.registrationId)?.orca
-      .coalescedCount
-  ).toBe(1)
+    deliveries.find((delivery) => delivery.registrationId === other.registrationId)
+  ).toMatchObject({ orca: { notificationId: 'note-2', notificationSeq: 2 } })
 })
 
 it('persists provider retry delay and resumes it through a new worker', async () => {
@@ -141,7 +130,6 @@ it('persists provider retry delay and resumes it through a new worker', async ()
     retryAfterMs: 10000
   })
   await h.accept(note(1))
-  h.advance(3000)
   await h.worker.runDue()
   expect(h.send).toHaveBeenCalledOnce()
   await h.worker.stop()
@@ -166,7 +154,6 @@ it('expires instead of shortening a provider delay beyond the delivery lifetime'
     retryAfterMs: 600000
   })
   await h.accept(note(1))
-  h.advance(3000)
   await h.worker.runDue()
   h.advance(600000)
   await h.worker.runDue()
@@ -179,7 +166,6 @@ it('rechecks the device before a persisted retry and does not send after unregis
   const h = await fixture()
   h.send.mockResolvedValue({ status: 'error', reason: 'timeout', retryable: true })
   await h.accept(note(1))
-  h.advance(3000)
   await h.worker.runDue()
   await h.devices.deleteOwned('host', h.registrationId)
   h.advance(3000)
@@ -202,11 +188,9 @@ it('joins active work on shutdown and leaves unclaimed work for the next instanc
     })
   })
   await h.accept(note(1))
-  h.advance(3000)
   const pending = h.worker.runDue()
   await entered
   await h.accept(note(2))
-  h.advance(3000)
   let stopped = false
   const stopping = h.worker.stop().then(() => {
     stopped = true
@@ -230,7 +214,6 @@ it('runs due work on its timer and releases the timer on stop', async () => {
   h.worker.start()
   h.worker.start()
   expect(vi.getTimerCount()).toBe(1)
-  h.advance(3000)
   await vi.advanceTimersByTimeAsync(1000)
   await h.worker.runDue()
   expect(h.send).toHaveBeenCalledOnce()

@@ -11,8 +11,7 @@ export type OrcaPushPayload = {
   readonly worktreeId?: string
   readonly source?: string
   readonly agentState?: string
-  // Present only on a gateway summary standing in for N events; see the coalescing
-  // window in docs/reference/mobile-push-contract.md.
+  // Legacy-only fields retained during rolling overlap to decode summaries already in OS trays.
   readonly summaryMembers?: readonly Identity[]
   readonly coalescedCount?: number
 }

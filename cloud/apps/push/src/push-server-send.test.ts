@@ -116,7 +116,7 @@ describe('push gateway send route', () => {
     })
   })
 
-  it('coalesces a burst into one apns summary with a membership-specific identity', async () => {
+  it('sends a burst as individual APNs alerts grouped by the host thread', async () => {
     const sessionToken = await harness.signIn(createPushHostKeypair(18))
     const registration = await harness.post(
       '/v1/devices',
@@ -143,17 +143,30 @@ describe('push gateway send route', () => {
       )
     }
     await harness.flushDeliveries()
-    expect(harness.apnsRequests).toHaveLength(1)
-    const request = harness.apnsRequests[0]!
-    expect(request.host).toBe('api.sandbox.push.apple.com')
-    const body = JSON.parse(request.body) as {
-      aps: { alert: { title: string; body: string } }
-      orca: { coalescedCount: number; notificationSeq: number }
-    }
-    expect(body.aps.alert).toEqual({ title: 'Orca', body: '3 agents need attention' })
-    expect(body.orca.coalescedCount).toBe(3)
-    expect(body.orca.notificationSeq).toBe(3)
-    expect(request.headers['apns-collapse-id']).toMatch(/^[a-f0-9]{64}$/)
+    expect(harness.apnsRequests).toHaveLength(3)
+    const bodies = harness.apnsRequests.map(
+      (request) =>
+        JSON.parse(request.body) as {
+          aps: { alert: { title: string; body: string }; 'thread-id': string }
+          orca: Record<string, unknown> & { notificationSeq: number }
+        }
+    )
+    expect(
+      harness.apnsRequests.every((request) => request.host === 'api.sandbox.push.apple.com')
+    ).toBe(true)
+    expect(bodies.map((body) => body.aps.alert)).toEqual(
+      Array.from({ length: 3 }, () => ({
+        title: 'Agent needs input',
+        body: 'Waiting on your answer'
+      }))
+    )
+    expect(new Set(bodies.map((body) => body.aps['thread-id'])).size).toBe(1)
+    expect(bodies.map((body) => body.orca.notificationSeq).sort((a, b) => a - b)).toEqual([1, 2, 3])
+    expect(bodies.every((body) => !('coalescedCount' in body.orca))).toBe(true)
+    expect(bodies.every((body) => !('summaryMembers' in body.orca))).toBe(true)
+    expect(
+      new Set(harness.apnsRequests.map((request) => request.headers['apns-collapse-id'])).size
+    ).toBe(3)
   })
 
   it('sends a lone event through unchanged with its own collapse id', async () => {
@@ -169,7 +182,7 @@ describe('push gateway send route', () => {
       message: { android: { notification: { tag: string } }; data: Record<string, string> }
     }
     expect(message.message.android.notification.tag).toMatch(/^[a-f0-9]{64}$/)
-    expect(message.message.data.coalescedCount).toBe('1')
+    expect(message.message.data.coalescedCount).toBeUndefined()
   })
 
   it('reports an error for a registration the host does not own', async () => {
@@ -200,7 +213,9 @@ describe('push gateway send route', () => {
         await harness.server.deliveryStore.accept(
           hostFingerprint,
           registrationId,
-          PushNotificationSchema.parse(notification({ notificationSeq: index + 1000 }))
+          PushNotificationSchema.parse(
+            notification({ notificationId: `note-${index + 1000}`, notificationSeq: index + 1000 })
+          )
         )
       ).toBe('queued')
     }

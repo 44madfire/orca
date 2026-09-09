@@ -17,10 +17,7 @@ it('carries a silent preference through validation to APNs and Android payloads'
   const delivery = buildPushDelivery({
     registrationId: 'reg',
     hostFingerprint: 'host',
-    notification,
-    title: 'Bell',
-    body: '',
-    coalescedCount: 1
+    notification
   })
   expect(JSON.parse(apnsBody(delivery)).aps).not.toHaveProperty('sound')
   expect(
