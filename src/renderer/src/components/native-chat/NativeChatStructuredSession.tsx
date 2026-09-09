@@ -316,6 +316,7 @@ export function NativeChatStructuredSession(
         <NativeChatBackgroundTasksStatus
           tasks={controller.backgroundTasks}
           supportsTaskStop={controller.supportsBackgroundTaskStop}
+          supportsStopAll={controller.supportsBackgroundTaskStopAll}
           stoppingTaskIds={activeStoppingBackgroundTasks?.taskIds ?? NO_STOPPING_TASKS}
           stoppingAll={activeStoppingBackgroundTasks?.all ?? false}
           onStop={(taskId) => {
