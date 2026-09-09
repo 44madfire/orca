@@ -61,7 +61,7 @@ describe('structured agent session options', () => {
     })
   })
 
-  it('uses provider-scoped models and retains the current unknown id', () => {
+  it('uses provider-scoped models and withholds a current id they do not carry', () => {
     const state = applyStructuredAgentSessionOptions(
       createStructuredAgentSessionOptionState('codex'),
       CODEX_SESSION_OPTION_CATALOG,
@@ -77,11 +77,20 @@ describe('structured agent session options', () => {
         current: { model: 'persisted-unknown' }
       }
     )
-    const model = structuredAgentSessionOptionSnapshot(state)[0]
+    // Was: a fabricated `persisted-unknown` choice. The provider never listed that id,
+    // so it is tracked as the running model but never offered and never named.
+    const snapshot = structuredAgentSessionOptionSnapshot(state)
+    const model = snapshot[0]
     expect(
       model.kind.type === 'select' ? model.kind.choices.map((choice) => choice.value) : []
-    ).toEqual(['account-model', 'persisted-unknown'])
-    expect(model.kind.type === 'select' ? model.kind.currentValue : null).toBe('persisted-unknown')
+    ).toEqual(['account-model'])
+    expect(model.kind.type === 'select' ? model.kind.currentValue : null).toBeUndefined()
+    expect(model).toMatchObject({ valueSource: 'unknown' })
+    // The thread still runs it, so effort stays settable off `unknownModelOptions`.
+    expect(snapshot.find((descriptor) => descriptor.id === 'effort')).toMatchObject({
+      settable: true,
+      kind: { type: 'select' }
+    })
   })
 
   it('projects live options as directly settable descriptors', () => {

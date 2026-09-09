@@ -104,6 +104,9 @@ describe('buildNativeChatSessionOptionSnapshot', () => {
     expect(model.kind.choices.map((choice) => choice.value)).toEqual(
       CLAUDE_SESSION_OPTION_CATALOG.models.map((catalogModel) => catalogModel.id)
     )
+    // Nor does it name one it cannot offer: the trigger would show a raw id.
+    expect(model.kind.currentValue).toBeUndefined()
+    expect(model).toMatchObject({ valueSource: 'unknown' })
   })
 
   it('is empty when the model list is empty', () => {
@@ -178,19 +181,42 @@ describe('buildNativeChatSessionOptionSnapshot', () => {
       expect(snapshot.length).toBeGreaterThan(1)
     })
 
-    it('labels a wholly unknown tracked model by its id rather than dropping it', () => {
+    it('offers no row for a tracked id neither the discovered list nor the seed carries', () => {
+      // Was: a fabricated `{ id, label: id, options: [] }` row, which put a raw launch
+      // flag (`worker-start --model claude-opus-5`) in the pill and took the effort
+      // picker with it. Only ids an agent actually lists may be offered.
       const record = claudeRecord()
-      record.model = { value: 'experimental-model', source: 'reported' }
+      record.model = { value: 'claude-opus-5', source: 'reported' }
+      record.valuesByModel['claude-opus-5'] = { effort: { value: 'high', source: 'dispatched' } }
       const reconciled = withTrackedNativeChatModel(
         CLAUDE_SESSION_OPTION_CATALOG,
         CLAUDE_SESSION_OPTION_CATALOG.models,
         record
       )
-      expect(reconciled.at(-1)).toEqual({
-        id: 'experimental-model',
-        label: 'experimental-model',
-        options: []
+      expect(reconciled).toEqual([...CLAUDE_SESSION_OPTION_CATALOG.models])
+
+      const snapshot = buildNativeChatSessionOptionSnapshot({
+        catalog: CLAUDE_SESSION_OPTION_CATALOG,
+        models: reconciled,
+        record,
+        mode: 'live',
+        modelLabel: 'Model',
+        liveTransport: 'catalog'
       })
+      const model = snapshot[0]!
+      if (model.kind.type !== 'select') {
+        throw new Error('model descriptor must be a select')
+      }
+      // `unknown` is what the pill reads to render the neutral "Model" label.
+      expect(model).toMatchObject({ valueSource: 'unknown' })
+      expect(model.kind.currentValue).toBeUndefined()
+      expect(model.kind.choices.some((choice) => choice.value === 'claude-opus-5')).toBe(false)
+      // The session still runs that model, so effort stays visible and settable off
+      // the launch-safe set, scoped to the id the record tracks.
+      const effort = snapshot.find((descriptor) => descriptor.id === 'effort')
+      expect(effort).toMatchObject({ settable: true, valueSource: 'dispatched' })
+      expect(effort?.kind.type === 'select' ? effort.kind.currentValue : null).toBe('high')
+      expect(CLAUDE_SESSION_OPTION_CATALOG.unknownModelOptions?.[0]?.id).toBe('effort')
     })
 
     it('leaves the list alone when the tracked model is already listed', () => {

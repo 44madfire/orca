@@ -1,13 +1,14 @@
 import type { AgentLaunchPreferences } from '../../../../../../shared/agent-session-host-authority'
-import {
-  findCatalogModel,
-  findCatalogOption,
-  getAgentSessionOptionCatalog
-} from '../../../../../../shared/agent-session-option-catalog'
+import { getAgentSessionOptionCatalog } from '../../../../../../shared/agent-session-option-catalog'
 import { resolveAgentSessionOptionLaunch } from '../../../../../../shared/agent-session-option-launch'
 import { ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY } from '../../../../../../shared/protocol-version'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
+import {
+  describeWorkerLaunchModelRejection,
+  seedWorkerLaunchModelAuthority,
+  type WorkerLaunchModelAuthority
+} from './worker-launch-model-authority'
 
 export type OrchestrationWorkerLaunchSelection = {
   agent: TuiAgent | null
@@ -48,10 +49,12 @@ export function createPendingWorkerLaunchReceipt(args: {
   }
 }
 
+/** `authority` names the ids the executing host's CLI lists; the seed answers when it is omitted. */
 export function resolveWorkerLaunchPreferences(args: {
   agent: TuiAgent
   model?: string
   effort?: string
+  authority?: WorkerLaunchModelAuthority
 }): {
   preferences: AgentLaunchPreferences | undefined
   receipt: OrchestrationWorkerLaunchReceipt
@@ -74,22 +77,22 @@ export function resolveWorkerLaunchPreferences(args: {
     )
   }
 
-  if (args.effort) {
-    const model = findCatalogModel(catalog, args.model)
-    const option =
-      findCatalogOption(model, 'effort') ??
-      (!model
-        ? catalog.unknownModelOptions?.find((candidate) => candidate.id === 'effort')
-        : undefined)
-    if (
-      option?.kind.type !== 'select' ||
-      !option.kind.choices.some((choice) => choice.value === args.effort)
-    ) {
-      throw new OrchestrationError(
-        'invalid_argument',
-        `Agent ${args.agent} model ${args.model} does not support effort ${args.effort}.`
-      )
-    }
+  const authority = args.authority ?? seedWorkerLaunchModelAuthority(catalog)
+  const model = args.model
+  const listed = authority.models.find((candidate) => candidate.id === model)
+  if (!listed) {
+    throw new OrchestrationError(
+      'invalid_argument',
+      describeWorkerLaunchModelRejection({ agent: args.agent, model, authority })
+    )
+  }
+  if (args.effort && !listed.effortChoices.includes(args.effort)) {
+    const levels =
+      listed.effortChoices.length > 0 ? ` Accepted levels: ${listed.effortChoices.join(', ')}.` : ''
+    throw new OrchestrationError(
+      'invalid_argument',
+      `Agent ${args.agent} model ${model} does not support effort ${args.effort}.${levels}`
+    )
   }
 
   const requested = {

@@ -34,7 +34,7 @@ export const ORCHESTRATION_WORKER_COMMAND_SPECS: CommandSpec[] = [
     notes: [
       'Current and existing worktrees never rerun setup; a fresh agent terminal is created unless --terminal is explicit.',
       'When reusing --terminal, pass --worktree for that terminal; current means the coordinator worktree.',
-      '--model supports Claude, Codex, and Cursor opaque provider model ids; --effort requires --model. Neither can combine with --terminal.',
+      '--model must be an id the agent CLI itself lists on the executing host (Claude, Codex, and Cursor), such as sonnet or opus[1m]; unknown ids are rejected and the error names the accepted ones. --effort requires --model and must be a level that model lists. Neither can combine with --terminal.',
       'New worktrees use agent-first creation and default --setup to run. Repository start-immediately runs setup beside the agent; wait-for-setup gates agent readiness and task input.',
       'Creation flags (--name, --repo, --base-branch, --display-name, --comment, --setup) are rejected for current/existing worktrees. Use exact --repo on the selected server; project/host convenience routing remains on worktree create.',
       "How the worker runs follows the user's own setting for new agent tabs; there is no flag for it and no caller needs to ask. A dispatch the setting cannot apply to still starts, so the placement, agent, and launch options passed here are always the ones honoured.",

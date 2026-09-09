@@ -44,10 +44,10 @@ describe('nativeChatModelPillLabel', () => {
     expect(nativeChatModelPillLabel(modelDescriptor('default'))).toBe('Model')
   })
 
-  it('falls back to the raw id when the list no longer offers it', () => {
-    // A discovered list can drop an id the record still tracks; showing the id beats
-    // showing "Model" while a real model is running.
-    expect(nativeChatModelPillLabel(modelDescriptor('reported', 'grok-build'))).toBe('grok-build')
+  it('withholds an id no listed choice backs, so only official names reach the pill', () => {
+    // Was: the raw id. The producer no longer names an unlisted model, and a value with
+    // no choice behind it is exactly that state — a raw string, not a model we can show.
+    expect(nativeChatModelPillLabel(modelDescriptor('reported', 'grok-build'))).toBe('Model')
   })
 })
 

@@ -67,19 +67,16 @@ export function nativeChatModelPillLabel(descriptor: SessionOptionDescriptor): s
   // the control's aria-label/tooltip already names the category.
   // Only `unknown` withholds the value; a `default` source still names the model
   // the launch will use, so it renders like any observed one.
-  if (
-    descriptor.valueSource === 'unknown' ||
-    descriptor.kind.type !== 'select' ||
-    !descriptor.kind.currentValue
-  ) {
+  const choice =
+    descriptor.kind.type === 'select' && descriptor.kind.currentValue
+      ? descriptor.kind.choices.find((entry) => entry.value === descriptor.kind.currentValue)
+      : undefined
+  // A value with no choice behind it is an id no list offers, so it names no model
+  // we can show — only official names reach the pill.
+  if (descriptor.valueSource === 'unknown' || !choice) {
     return translate('components.native-chat.composer.model', 'Model')
   }
-  return nativeChatSessionChoiceLabel(
-    descriptor.kind.choices.find((choice) => choice.value === descriptor.kind.currentValue) ?? {
-      value: descriptor.kind.currentValue,
-      label: descriptor.kind.currentValue
-    }
-  )
+  return nativeChatSessionChoiceLabel(choice)
 }
 
 export function nativeChatOptionsPillTitle(

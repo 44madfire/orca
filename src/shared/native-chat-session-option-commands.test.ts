@@ -379,6 +379,25 @@ describe('recordNativeChatSessionOptionCommand for grok', () => {
     })
   })
 
+  it('tracks a typed effort under a model no list carries, matching the rendered row', () => {
+    // The picker draws that row from `unknownModelOptions`, so resolving the typed
+    // command through the model list alone would leave the row it just set `unknown`.
+    const record = grokRecord()
+    record.model = { value: 'grok-experimental', source: 'reported' }
+    expect(
+      recordNativeChatSessionOptionCommand({
+        catalog: GROK_SESSION_OPTION_CATALOG,
+        models: GROK_SESSION_OPTION_CATALOG.models,
+        record,
+        command: '/effort low'
+      })
+    ).toEqual({ changed: true, opensAgentPicker: false })
+    expect(record.valuesByModel['grok-experimental']?.effort).toEqual({
+      value: 'low',
+      source: 'dispatched'
+    })
+  })
+
   it('still tracks a model the discovered list dropped', () => {
     const record = grokRecord()
     recordNativeChatSessionOptionCommand({

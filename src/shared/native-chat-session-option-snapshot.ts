@@ -1,8 +1,9 @@
-import type {
-  AgentSessionOptionCatalog,
-  CatalogMidSessionApply,
-  CatalogModel,
-  CatalogOption
+import {
+  resolveCatalogModelOptions,
+  type AgentSessionOptionCatalog,
+  type CatalogMidSessionApply,
+  type CatalogModel,
+  type CatalogOption
 } from './agent-session-option-catalog'
 import type {
   NativeChatLiveOptionTransport,
@@ -157,9 +158,10 @@ export function sortNativeChatSessionOptions(
 }
 
 /**
- * Why: the tracked model can sit outside the active list — a persisted default,
- * or an alias this host's CLI no longer lists. Keeping a row for it preserves
- * the labelled selection and the model's own options instead of blanking both.
+ * Why: an alias this host's CLI no longer lists is still a real, seeded model, so
+ * its seed row preserves the labelled selection and the model's own options instead
+ * of blanking both. An id neither list carries names no model we can offer — the
+ * picker lists only official models, so it gets no row at all.
  * Shared so mobile satisfies the same caller contract the desktop surface does.
  */
 export function withTrackedNativeChatModel(
@@ -172,7 +174,7 @@ export function withTrackedNativeChatModel(
     return [...models]
   }
   const seeded = catalog.models.find((model) => model.id === trackedId)
-  return [...models, seeded ?? { id: trackedId, label: trackedId, options: [] }]
+  return seeded ? [...models, seeded] : [...models]
 }
 
 /** Why: no tracked model means no `-m` was ever emitted, so the CLI is running its
@@ -214,9 +216,9 @@ export function buildNativeChatSessionOptionSnapshot(args: {
     return []
   }
   const modelTracked = record.model
-  // Why: callers reconcile the tracked model into `models` (see
-  // withTrackedNativeChatModel), so every listed row is a real choice and the
-  // trigger never shows a value without one.
+  // Why: every row is an official model — the catalog's or a probe's. A tracked id
+  // outside both (a stale launch flag, a typo'd `/model`) names none of them, so it
+  // is never offered and never shown as the value.
   const modelChoices = models.map(({ id, label, description }) => ({
     value: id,
     label,
@@ -225,6 +227,7 @@ export function buildNativeChatSessionOptionSnapshot(args: {
   const trackedModelId = typeof modelTracked?.value === 'string' ? modelTracked.value : null
   const defaultModelId = cliDefaultModelId(catalog, models, trackedModelId)
   const effectiveModelId = trackedModelId ?? defaultModelId
+  const listedModel = models.find((candidate) => candidate.id === effectiveModelId)
   const modelAction = actionForApply(catalog.modelApply, modelTracked, mode, liveTransport)
   const snapshot: SessionOptionDescriptor[] = [
     {
@@ -233,10 +236,14 @@ export function buildNativeChatSessionOptionSnapshot(args: {
       category: 'model',
       kind: {
         type: 'select',
-        ...(effectiveModelId ? { currentValue: effectiveModelId } : {}),
+        ...(listedModel ? { currentValue: listedModel.id } : {}),
         choices: modelChoices
       },
-      valueSource: modelTracked?.source ?? (defaultModelId ? 'default' : 'unknown'),
+      // An unlisted id is tracked but unnameable: `unknown` is what the pill reads to
+      // withhold it, and it keeps the raw string out of the trigger.
+      valueSource: listedModel
+        ? (modelTracked?.source ?? (defaultModelId ? 'default' : 'unknown'))
+        : 'unknown',
       transport: liveTransport,
       ...settableState({ mode, liveTransport, apply: catalog.modelApply }),
       ...(modelAction ? { action: modelAction } : {})
@@ -245,9 +252,10 @@ export function buildNativeChatSessionOptionSnapshot(args: {
   if (!effectiveModelId) {
     return snapshot
   }
-  const model = models.find((candidate) => candidate.id === effectiveModelId)
+  // Why: an unlisted model still runs, so its options stay settable off the
+  // launch-safe set rather than leaving the session with no effort picker at all.
   const trackedValues = record.valuesByModel[effectiveModelId] ?? {}
-  for (const option of model?.options ?? []) {
+  for (const option of resolveCatalogModelOptions(catalog, models, effectiveModelId)) {
     const descriptor = optionDescriptor({
       option,
       tracked: trackedValues[option.id],

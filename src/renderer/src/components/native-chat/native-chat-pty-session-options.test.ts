@@ -593,20 +593,32 @@ describe('native chat PTY session options', () => {
     expect(surface.getSnapshot()[0]).toMatchObject({ valueSource: 'unknown' })
   })
 
-  it('passes an unknown persisted model through as a literal choice', () => {
-    seedNativeChatAppliedSessionOptions('pty-1', 'claude', {
-      model: 'future-model'
-    })
+  it('withholds an unknown persisted model instead of offering it as a choice', async () => {
+    // Was: a literal `{ value: id, label: id }` row. A launch flag the CLI never listed
+    // (`worker-start --model claude-opus-5`) names no model we can offer, so the pill
+    // reads `unknown` and the dropdown stays official — but the session still runs it,
+    // so its effort row survives on the launch-safe set.
+    seedNativeChatAppliedSessionOptions('pty-1', 'claude', { model: 'future-model' })
+    const dispatch = vi.fn()
     const surface = createNativeChatPtySessionOptions({
       agent: 'claude',
       scopeKey: 'pty-1',
       mode: 'live',
-      dispatchCommand: vi.fn()
+      dispatchCommand: dispatch
     })!
     const model = surface.getSnapshot()[0]
-    expect(model.kind).toMatchObject({
-      currentValue: 'future-model',
-      choices: expect.arrayContaining([{ value: 'future-model', label: 'future-model' }])
+    expect(model).toMatchObject({ valueSource: 'unknown', kind: { type: 'select' } })
+    expect(model.kind.type === 'select' ? model.kind.currentValue : 'set').toBeUndefined()
+    expect(
+      model.kind.type === 'select' ? model.kind.choices.map(({ value }) => value) : []
+    ).not.toContain('future-model')
+
+    await surface.setOption('effort', 'high')
+
+    expect(dispatch).toHaveBeenCalledWith('/effort high')
+    expect(surface.getSnapshot().find(({ id }) => id === 'effort')).toMatchObject({
+      settable: true,
+      kind: { currentValue: 'high' }
     })
   })
 
