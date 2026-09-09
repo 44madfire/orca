@@ -75,10 +75,13 @@ export function accumulatorFoldResumeState(
   accumulator: SessionAccumulator,
   consumeRecordLine: (accumulator: SessionAccumulator, line: string) => void,
   // Runs per finalize, for agents whose metadata lives in a sibling file the
-  // fold never sees; it may only fill fields the transcript left empty.
-  enrichBeforeFinalize?: (accumulator: SessionAccumulator) => Promise<void>
+  // fold never sees; it may only fill fields the transcript left empty, and
+  // returns 'refused' when it could not read that file at all.
+  enrichBeforeFinalize?: (accumulator: SessionAccumulator) => Promise<'refused' | void>
 ): ResumableSessionParseState {
+  let enrichmentRefused = false
   return {
+    isCacheable: () => !enrichmentRefused,
     consumeLine: (line) => consumeRecordLine(accumulator, line),
     clone: () =>
       accumulatorFoldResumeState(
@@ -93,7 +96,7 @@ export function accumulatorFoldResumeState(
     // accumulating appended lines after this session object is handed out.
     finalize: async (platform, options) => {
       const snapshot = cloneSessionAccumulator(accumulator)
-      await enrichBeforeFinalize?.(snapshot)
+      enrichmentRefused = (await enrichBeforeFinalize?.(snapshot)) === 'refused'
       return finalizeSession(snapshot, platform, options)
     }
   }

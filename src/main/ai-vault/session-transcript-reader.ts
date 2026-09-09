@@ -27,6 +27,8 @@ export type ResumableTranscriptRead = {
   session: AiVaultSession | null
   /** The fold to resume from next time, and the channel bound to it. */
   resume: SessionParseResumePoint
+  /** False when the parse missed metadata it needed; the result must not be cached. */
+  cacheable: boolean
 }
 
 /**
@@ -103,7 +105,8 @@ export async function readResumableTranscript(args: {
     channel.finishRead({ session, byteOffset: readResult.consumedThrough, incomplete: false })
     return {
       session,
-      resume: { state, byteOffset: readResult.consumedThrough, channel }
+      resume: { state, byteOffset: readResult.consumedThrough, channel },
+      cacheable: displayState.isCacheable?.() ?? true
     }
   } catch (error) {
     channel.finishRead({ session: null, byteOffset: startOffset, incomplete: true })

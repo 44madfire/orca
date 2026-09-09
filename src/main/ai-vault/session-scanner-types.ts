@@ -99,6 +99,9 @@ export type ResumableSessionParseState = {
   // Lets a parser terminate an excluded transcript without draining the file.
   shouldStop?(): boolean
   clone(): ResumableSessionParseState
+  // False when the last finalize could not read metadata the session needs, so
+  // its result must not be stored under a key that will look unchanged.
+  isCacheable?(): boolean
   // Refresh per-scan file metadata (mtime display string) without re-parsing.
   touchFile(file: FileWithMtime): void
   finalize(

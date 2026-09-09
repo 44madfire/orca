@@ -14,6 +14,7 @@ import type { ResumableSessionParseState, SessionFileCandidate } from './session
 import { refreshCachedCodexTitle } from './session-scanner-codex-cached-title'
 import {
   getSessionParseCacheEntry,
+  invalidateSessionParseCacheEntry,
   storeSessionParseCacheEntry,
   type SessionParseCacheEntry
 } from './session-parse-cache-store'
@@ -134,13 +135,19 @@ async function parseCachedInLane(
       stateFactory,
       stats
     })
-    storeSessionParseCacheEntry(file.path, {
-      mtimeMs: file.mtimeMs,
-      sizeBytes: file.sizeBytes ?? null,
-      platform,
-      session: read.session,
-      resume: read.resume
-    })
+    if (read.cacheable) {
+      storeSessionParseCacheEntry(file.path, {
+        mtimeMs: file.mtimeMs,
+        sizeBytes: file.sizeBytes ?? null,
+        platform,
+        session: read.session,
+        resume: read.resume
+      })
+    } else {
+      // The parse is usable but its key is not: a sibling the key covers went
+      // unread, so an entry stored now would look current on the next scan.
+      invalidateSessionParseCacheEntry(file.path)
+    }
     return read.session
   }
 

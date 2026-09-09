@@ -7,6 +7,7 @@ import { WslTranscriptFsError } from '../native-chat/wsl-transcript-fs-error'
 // Why: a refused WSL read is the one build failure that must not be cached.
 let failNextChatsReaddir = false
 let failNextChatsRootReaddir = false
+let failMetaJsonReads = false
 let chatsRootReads = 0
 vi.mock('../native-chat/wsl-transcript-fs-access', async (importOriginal) => {
   const actual = await importOriginal<typeof WslTranscriptFsAccess>()
@@ -27,6 +28,14 @@ vi.mock('../native-chat/wsl-transcript-fs-access', async (importOriginal) => {
         return Promise.reject(new WslTranscriptFsError('timeout', 'wsl fs timed out'))
       }
       return actual.wslGatedReaddir(...args)
+    },
+    wslGatedReadFile: (
+      ...args: Parameters<typeof actual.wslGatedReadFile>
+    ): ReturnType<typeof actual.wslGatedReadFile> => {
+      if (failMetaJsonReads && String(args[0]).endsWith('meta.json')) {
+        return Promise.reject(new WslTranscriptFsError('timeout', 'wsl fs timed out'))
+      }
+      return actual.wslGatedReadFile(...args)
     }
   }
 })
@@ -69,6 +78,7 @@ afterEach(async () => {
   resetCursorChatMetaIndexCacheForTests()
   resetSessionParseCacheForTests()
   failNextChatsRootReaddir = false
+  failMetaJsonReads = false
   await Promise.all(tempRoots.map((root) => rm(root, { recursive: true, force: true })))
   tempRoots = []
 })
@@ -347,6 +357,31 @@ describe('cursor chat meta scan failures', () => {
     expect(refused.issues[0].agent).toBe('cursor')
 
     // The refused scan must not leave a metadata-less entry that looks unchanged.
+    const healed = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
+    expect(healed.issues).toEqual([])
+    expect(
+      healed.sessions
+        .filter((session) => session.agent === 'cursor')
+        .map((session) => session.cwd)
+        .sort()
+    ).toEqual(['/tmp/ws-chat-a', '/tmp/ws-chat-b'])
+  })
+
+  it('does not cache an un-enriched session when only its meta.json read is refused', async () => {
+    const { cursorHome, scanOptions } = await writeCursorScanFixture(['chat-a', 'chat-b'])
+    resetSessionParseCacheForTests()
+
+    // Discovery stats meta.json fine, so the cache key already covers it; only
+    // the parse-time read is refused.
+    failMetaJsonReads = true
+    const refused = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
+    const refusedCursor = refused.sessions.filter((session) => session.agent === 'cursor')
+    expect(refusedCursor).toHaveLength(2)
+    expect(refusedCursor.map((session) => session.cwd)).toEqual([null, null])
+    expect(refused.issues).toHaveLength(1)
+    expect(refused.issues[0].path).toBe(join(cursorHome, 'chats'))
+
+    failMetaJsonReads = false
     const healed = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
     expect(healed.issues).toEqual([])
     expect(

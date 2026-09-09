@@ -23,7 +23,7 @@ import {
   extractString,
   parseJsonObject
 } from './session-scanner-values'
-import { readCursorChatMeta } from './session-scanner-cursor-chat-meta'
+import { readCursorChatMeta, wasCursorChatMetaRefused } from './session-scanner-cursor-chat-meta'
 
 type ParserSessionOptions = {
   executionHostId?: ExecutionHostId
@@ -101,13 +101,13 @@ export function createCursorSessionResumeState(
 async function applyCursorChatMeta(
   accumulator: SessionAccumulator,
   transcriptPath: string
-): Promise<void> {
+): Promise<'refused' | void> {
   if (accumulator.cwd && accumulator.createdAt && accumulator.updatedAt && accumulator.title) {
     return
   }
   const meta = await readCursorChatMeta(transcriptPath)
   if (!meta) {
-    return
+    return wasCursorChatMetaRefused(transcriptPath) ? 'refused' : undefined
   }
   accumulator.title ??= meta.title
   accumulator.cwd ??= meta.cwd

@@ -36,6 +36,9 @@ type CursorChatMetaScan = {
   index: Map<string, Promise<Map<string, string>>>
   // Chats roots this scan could not read, reported once by the scan owner.
   refusals: Map<string, string>
+  // Transcripts whose own meta.json read was refused after discovery had
+  // already folded that file's stat into their parse-cache key.
+  refusedTranscripts: Set<string>
 }
 
 // Why: validating the module cache costs a readdir of the chats root plus a stat
@@ -50,7 +53,20 @@ export function resetCursorChatMetaIndexCacheForTests(): void {
 
 /** Runs one whole scan, discovery and parse; every Cursor transcript in it shares one index read. */
 export function withCursorChatMetaScan<T>(fn: () => Promise<T>): Promise<T> {
-  return scanScopedIndex.run({ index: new Map(), refusals: new Map() }, fn)
+  return scanScopedIndex.run(
+    { index: new Map(), refusals: new Map(), refusedTranscripts: new Set() },
+    fn
+  )
+}
+
+/**
+ * True when this transcript's own meta.json read was refused. Discovery had
+ * already stat'd that file into the candidate's cache key, so caching the
+ * un-enriched parse would leave it looking unchanged until Cursor rewrites
+ * meta.json. The parse is used and then not cached.
+ */
+export function wasCursorChatMetaRefused(transcriptPath: string): boolean {
+  return scanScopedIndex.getStore()?.refusedTranscripts.has(transcriptPath) ?? false
 }
 
 /** Chats roots the current scan was refused, for the caller to report as scan issues. */
@@ -122,11 +138,14 @@ export async function readCursorChatMeta(transcriptPath: string): Promise<Cursor
     if (!(error instanceof WslTranscriptFsError)) {
       throw error
     }
-    // Same trade as the index read: enrichment never costs the session itself.
+    // The session still lists, but unlike the index read this transcript's key
+    // already includes meta.json's stat, so the caller must not cache the
+    // un-enriched result. One issue per chats root, as for a refused index.
     recordCursorChatMetaRefusal(
       cursorChatsRootFromTranscriptPath(transcriptPath) ?? metaPath,
       error.message
     )
+    scanScopedIndex.getStore()?.refusedTranscripts.add(transcriptPath)
     return null
   }
   if (!record) {
