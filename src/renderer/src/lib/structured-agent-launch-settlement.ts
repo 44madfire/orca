@@ -1,6 +1,7 @@
 import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
 import { StructuredAgentSessionCreateRefusalError } from '@/lib/launch-structured-agent-session'
 import {
+  cancelStructuredAgentLaunch,
   startStructuredAgentLaunch,
   type StructuredAgentLaunchOptions
 } from '@/lib/structured-agent-session-launch'
@@ -21,9 +22,16 @@ export type StructuredAgentLaunchSettlement =
       promptDeliveryResult?: Promise<StructuredPromptDeliveryResult>
     }
   | ({ kind: 'refused-then-legacy' } & StructuredAgentLegacyFallbackResult)
-  | { kind: 'cancelled' }
+  | { kind: 'cancelled'; sessionId: string }
   | { kind: 'visibility-unknown'; sessionId: string }
   | { kind: 'failed'; error: unknown }
+
+export type StructuredAgentLaunchCancellation = {
+  isCancelled: () => boolean
+  /** Fires the moment the caller abandons the launch. The loop cancels eagerly on it so a staged
+   *  prompt is discarded before it can reach the provider; a token read only after awaits is late. */
+  subscribe: (onCancel: () => void) => () => void
+}
 
 export type StructuredAgentLaunchHooks = {
   /** What this flow did before structured chat existed: activate with a startup payload, set the
@@ -31,7 +39,7 @@ export type StructuredAgentLaunchHooks = {
    *  Resume has no legacy equivalent, so a refusal without this hook settles as `failed`. */
   legacyFallback?: () => Promise<StructuredAgentLegacyFallbackResult>
   onStructuredReady?: (sessionId: string) => void
-  isCancelled?: () => boolean
+  cancellation?: StructuredAgentLaunchCancellation
 }
 
 /**
@@ -45,8 +53,21 @@ export async function settleStructuredAgentLaunch(
   options: StructuredAgentLaunchOptions,
   hooks: StructuredAgentLaunchHooks
 ): Promise<StructuredAgentLaunchSettlement> {
-  const isCancelled = (): boolean => hooks.isCancelled?.() === true
   const launch = startStructuredAgentLaunch(worktreeId, agent, options)
+  let cancelRequested = false
+  const isCancelled = (): boolean => cancelRequested || hooks.cancellation?.isCancelled() === true
+  const cancelLaunch = (): void => {
+    if (cancelRequested) {
+      return
+    }
+    cancelRequested = true
+    cancelStructuredAgentLaunch(worktreeId, launch.sessionId)
+  }
+  const unsubscribe = hooks.cancellation?.subscribe(cancelLaunch)
+  // Why: the caller may have been abandoned between its own check and this subscription.
+  if (isCancelled()) {
+    cancelLaunch()
+  }
   // Why: a holder, not a `let`: TS narrows a closure-assigned local to its initial null.
   const fallback: { result: StructuredAgentLegacyFallbackResult | null } = { result: null }
   // Why: the claim resolves after the callback settles, so awaiting it below is what serialises
@@ -58,10 +79,14 @@ export async function settleStructuredAgentLaunch(
     }
     fallback.result = await hooks.legacyFallback()
   })
+  const cancelled = (): StructuredAgentLaunchSettlement => ({
+    kind: 'cancelled',
+    sessionId: launch.sessionId
+  })
   try {
     const receipt = await launch.launchResult
     if (isCancelled()) {
-      return { kind: 'cancelled' }
+      return cancelled()
     }
     hooks.onStructuredReady?.(receipt.sessionId)
     return {
@@ -71,7 +96,7 @@ export async function settleStructuredAgentLaunch(
     }
   } catch (error) {
     if (isCancelled()) {
-      return { kind: 'cancelled' }
+      return cancelled()
     }
     if (error instanceof StructuredAgentSessionCreateRefusalError) {
       const ran = await refusalFallback.then(
@@ -79,7 +104,7 @@ export async function settleStructuredAgentLaunch(
         (fallbackError: unknown) => ({ fallbackError })
       )
       if (isCancelled()) {
-        return { kind: 'cancelled' }
+        return cancelled()
       }
       if (typeof ran !== 'boolean') {
         return { kind: 'failed', error: ran.fallbackError }
@@ -96,5 +121,7 @@ export async function settleStructuredAgentLaunch(
       return { kind: 'visibility-unknown', sessionId: launch.sessionId }
     }
     return { kind: 'failed', error }
+  } finally {
+    unsubscribe?.()
   }
 }

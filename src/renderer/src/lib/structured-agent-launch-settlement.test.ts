@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  startStructuredAgentLaunch: vi.fn()
+  startStructuredAgentLaunch: vi.fn(),
+  cancelStructuredAgentLaunch: vi.fn()
 }))
 
 vi.mock('@/lib/structured-agent-session-launch', () => ({
-  startStructuredAgentLaunch: mocks.startStructuredAgentLaunch
+  startStructuredAgentLaunch: mocks.startStructuredAgentLaunch,
+  cancelStructuredAgentLaunch: mocks.cancelStructuredAgentLaunch
 }))
 
 vi.mock('@/lib/launch-structured-agent-session', () => ({
@@ -50,6 +52,29 @@ function fakeLaunch(args: FakeLaunch) {
 const fallbackResult = {
   activation: { primaryTabId: 'fallback-tab' },
   primaryTabId: 'fallback-tab'
+}
+
+/** A caller-side cancel signal: `fire` is what the caller's store subscription would call. */
+function fakeCancellation(initiallyCancelled = false) {
+  let cancelled = initiallyCancelled
+  const unsubscribe = vi.fn()
+  const listeners: (() => void)[] = []
+  return {
+    unsubscribe,
+    fire: () => {
+      cancelled = true
+      for (const listener of listeners) {
+        listener()
+      }
+    },
+    hook: {
+      isCancelled: () => cancelled,
+      subscribe: vi.fn((onCancel: () => void) => {
+        listeners.push(onCancel)
+        return unsubscribe
+      })
+    }
+  }
 }
 
 describe('settleStructuredAgentLaunch', () => {
@@ -173,10 +198,10 @@ describe('settleStructuredAgentLaunch', () => {
         {},
         {
           onStructuredReady,
-          isCancelled: () => true
+          cancellation: fakeCancellation(true).hook
         }
       )
-    ).resolves.toEqual({ kind: 'cancelled' })
+    ).resolves.toEqual({ kind: 'cancelled', sessionId: 'session-1' })
     expect(onStructuredReady).not.toHaveBeenCalled()
   })
 
@@ -193,10 +218,71 @@ describe('settleStructuredAgentLaunch', () => {
         {},
         {
           legacyFallback,
-          isCancelled: () => true
+          cancellation: fakeCancellation(true).hook
         }
       )
-    ).resolves.toEqual({ kind: 'cancelled' })
+    ).resolves.toEqual({ kind: 'cancelled', sessionId: 'session-1' })
     expect(legacyFallback).not.toHaveBeenCalled()
+  })
+
+  it('cancels the launch eagerly, once, before the launch settles', async () => {
+    let resolveLaunch!: (receipt: { sessionId: string; fence: number }) => void
+    fakeLaunch({
+      launchResult: new Promise((resolve) => {
+        resolveLaunch = resolve
+      })
+    })
+    const cancellation = fakeCancellation()
+    const onStructuredReady = vi.fn()
+
+    const settlement = settleStructuredAgentLaunch(
+      'worktree-1',
+      'codex',
+      {},
+      { onStructuredReady, cancellation: cancellation.hook }
+    )
+    expect(mocks.cancelStructuredAgentLaunch).not.toHaveBeenCalled()
+    cancellation.fire()
+    cancellation.fire()
+    expect(mocks.cancelStructuredAgentLaunch).toHaveBeenCalledExactlyOnceWith(
+      'worktree-1',
+      'session-1'
+    )
+    expect(cancellation.unsubscribe).not.toHaveBeenCalled()
+
+    resolveLaunch({ sessionId: 'session-1', fence: 1 })
+    await expect(settlement).resolves.toEqual({ kind: 'cancelled', sessionId: 'session-1' })
+    expect(onStructuredReady).not.toHaveBeenCalled()
+    expect(cancellation.unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('honours a cancellation that fired before the loop subscribed', async () => {
+    fakeLaunch({ launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }) })
+    const cancellation = fakeCancellation(true)
+
+    const settlement = settleStructuredAgentLaunch(
+      'worktree-1',
+      'codex',
+      {},
+      { cancellation: cancellation.hook }
+    )
+    expect(cancellation.hook.subscribe).toHaveBeenCalledOnce()
+    expect(mocks.cancelStructuredAgentLaunch).toHaveBeenCalledExactlyOnceWith(
+      'worktree-1',
+      'session-1'
+    )
+    await expect(settlement).resolves.toEqual({ kind: 'cancelled', sessionId: 'session-1' })
+    expect(cancellation.unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('unsubscribes from the cancel signal once a launch settles without cancelling', async () => {
+    fakeLaunch({ launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }) })
+    const cancellation = fakeCancellation()
+
+    await expect(
+      settleStructuredAgentLaunch('worktree-1', 'codex', {}, { cancellation: cancellation.hook })
+    ).resolves.toEqual({ kind: 'structured', sessionId: 'session-1' })
+    expect(mocks.cancelStructuredAgentLaunch).not.toHaveBeenCalled()
+    expect(cancellation.unsubscribe).toHaveBeenCalledOnce()
   })
 })
