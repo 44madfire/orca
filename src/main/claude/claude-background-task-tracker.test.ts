@@ -185,6 +185,73 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(tracker.state).toBeNull()
   })
 
+  it('keeps live foreground work across an aggregate roster that never lists it', () => {
+    // `background_tasks_changed` enumerates BACKGROUNDED work only, so it is
+    // authoritative over that class alone. Treating it as the whole world wiped
+    // every in-flight foreground row and then dropped every later start.
+    const tracker = new ClaudeBackgroundTaskTracker()
+    tracker.observe({ type: 'user' }, true)
+    tracker.observe(
+      system('task_started', {
+        task_id: 'fore-1',
+        task_type: 'local_agent',
+        is_backgrounded: false
+      })
+    )
+    tracker.observe(
+      aggregate([{ task_id: 'back-1', task_type: 'local_bash', description: 'bash' }])
+    )
+
+    expect(tracker.state?.tasks).toEqual([
+      { id: 'back-1', kind: 'command', description: 'bash' },
+      { id: 'fore-1', kind: 'agent', stoppable: false }
+    ])
+
+    // A foreground start after the roster is new work, not a stale echo.
+    tracker.observe(
+      system('task_started', {
+        task_id: 'fore-2',
+        task_type: 'local_agent',
+        is_backgrounded: false
+      })
+    )
+    expect(tracker.state?.tasks).toEqual([
+      { id: 'back-1', kind: 'command', description: 'bash' },
+      { id: 'fore-1', kind: 'agent', stoppable: false },
+      { id: 'fore-2', kind: 'agent', stoppable: false }
+    ])
+
+    // Turn end still retires the foreground rows and only those.
+    tracker.observe(result())
+    expect(tracker.state?.tasks).toEqual([{ id: 'back-1', kind: 'command', description: 'bash' }])
+  })
+
+  it('drops a backgrounded start the roster no longer lists but bounds what it retains', () => {
+    const tracker = new ClaudeBackgroundTaskTracker()
+    tracker.observe({ type: 'user' }, true)
+    for (let index = 0; index < 300; index += 1) {
+      tracker.observe(
+        system('task_started', {
+          task_id: `fore-${index}`,
+          task_type: 'local_agent',
+          is_backgrounded: false
+        })
+      )
+    }
+    tracker.observe(
+      aggregate([{ task_id: 'back-1', task_type: 'local_bash', description: 'bash' }])
+    )
+    // 255 retained foreground rows plus the roster's own entry: retention is
+    // real and still counts against the cap.
+    expect(tracker.state?.tasks).toHaveLength(256)
+
+    // Aggregate authority over its OWN class is unchanged.
+    tracker.observe(
+      system('task_started', { task_id: 'stale', task_type: 'local_agent', is_backgrounded: true })
+    )
+    expect(tracker.stoppableTaskIds).toEqual(['back-1'])
+  })
+
   it('excludes ambient aggregate tasks', () => {
     const tracker = new ClaudeBackgroundTaskTracker()
     tracker.observe(

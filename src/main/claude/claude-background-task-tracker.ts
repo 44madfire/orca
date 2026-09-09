@@ -162,12 +162,16 @@ export class ClaudeBackgroundTaskTracker {
       this.finish(id)
       return true
     }
-    if (this.aggregateRosterObserved && !this.tasks.has(id)) {
+    const kind = classifyClaudeBackgroundTaskKind(message.task_type)
+    const backgrounded =
+      message.is_backgrounded === true || kind === 'workflow' || kind === 'monitor'
+    // The roster enumerates backgrounded work only, so it can only convict a
+    // backgrounded start of being stale. Foreground work it never lists is new.
+    if (backgrounded && this.aggregateRosterObserved && !this.tasks.has(id)) {
       return false
     }
-    const kind = classifyClaudeBackgroundTaskKind(message.task_type)
     this.upsert(id, {
-      backgrounded: message.is_backgrounded === true || kind === 'workflow' || kind === 'monitor',
+      backgrounded,
       kind,
       description: claudeTaskDescription(message.description)
     })
@@ -179,6 +183,15 @@ export class ClaudeBackgroundTaskTracker {
       return
     }
     this.aggregateRosterObserved = true
+    // The roster says nothing about foreground work, so it cannot retire it:
+    // those rows survive replacement and only their own turn's `result` ends
+    // them. They still count against the cap, so the map stays bounded.
+    const liveForeground = new Map<string, TrackedTask>()
+    for (const [id, task] of this.tasks) {
+      if (!task.backgrounded && task.liveInTurn) {
+        liveForeground.set(id, task)
+      }
+    }
     this.tasks.clear()
     this.terminalTaskIds.clear()
     for (const valueTask of value) {
@@ -199,6 +212,14 @@ export class ClaudeBackgroundTaskTracker {
         kind: classifyClaudeBackgroundTaskKind(task.task_type),
         description: claudeTaskDescription(task.description)
       })
+    }
+    for (const [id, task] of liveForeground) {
+      if (this.tasks.size >= MAX_TRACKED_TASKS) {
+        break
+      }
+      if (!this.tasks.has(id)) {
+        this.tasks.set(id, task)
+      }
     }
   }
 
