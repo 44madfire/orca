@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { decodeAgentSessionQuestionAnswers } from '../../../../shared/agent-session-question-answer'
 import { useAppStore } from '@/store'

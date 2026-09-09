@@ -1,9 +1,12 @@
-import React, { forwardRef, useImperativeHandle } from 'react'
-import { vi } from 'vitest'
+import { forwardRef, useImperativeHandle } from 'react'
+import { vi, type Mock } from 'vitest'
 import type { AgentJournalRenderItem } from '../../../../shared/agent-session-journal-types'
 import type { AgentSessionBackgroundTask } from '../../../../shared/agent-session-wire'
 import type { NativeChatQuestionCardProps } from './NativeChatQuestionCard'
 import type { NativeChatLaunchSeed } from './native-chat-composer-types'
+
+// Why: a named spy type keeps the harness's inferred return type portable across the test files.
+type StructuredSessionSpy = Mock
 
 /**
  * Shared mock state and `vi.mock` factories for the NativeChatStructuredSession test files.
@@ -12,8 +15,8 @@ import type { NativeChatLaunchSeed } from './native-chat-composer-types'
  */
 export function createStructuredSessionMocks() {
   const mocks = {
-    call: vi.fn(),
-    fileLinkClick: vi.fn(),
+    call: vi.fn() as StructuredSessionSpy,
+    fileLinkClick: vi.fn() as StructuredSessionSpy,
     mode: 'static' as 'static' | 'outbox',
     status: 'ready' as 'idle' | 'loading' | 'ready' | 'error',
     messages: null as null | unknown[],
@@ -30,14 +33,14 @@ export function createStructuredSessionMocks() {
     },
     questionCardProps: null as NativeChatQuestionCardProps | null,
     promptItems: [] as AgentJournalRenderItem[],
-    respond: vi.fn(),
-    handlePasteEvent: vi.fn(),
-    pasteFromClipboard: vi.fn(),
+    respond: vi.fn() as StructuredSessionSpy,
+    handlePasteEvent: vi.fn() as StructuredSessionSpy,
+    pasteFromClipboard: vi.fn() as StructuredSessionSpy,
     submissions: [] as unknown[],
     monitoringBackgroundTasks: false,
     supportsBackgroundTaskStop: false,
     backgroundTasks: [] as AgentSessionBackgroundTask[],
-    stopBackgroundTask: vi.fn()
+    stopBackgroundTask: vi.fn() as StructuredSessionSpy
   }
 
   const moduleFactories = {
@@ -81,7 +84,7 @@ export function createStructuredSessionMocks() {
             error: outbox.error,
             hasOlder: false,
             loadingOlder: false,
-            loadOlder: vi.fn(),
+            loadOlder: vi.fn() as StructuredSessionSpy,
             prompts: mocks.promptItems,
             outbox: outbox.outbox,
             blockedClientMessageId: outbox.blockedClientMessageId,
@@ -92,7 +95,7 @@ export function createStructuredSessionMocks() {
             supportsBackgroundTaskStop: mocks.supportsBackgroundTaskStop,
             backgroundTasks: mocks.backgroundTasks,
             turnId: null,
-            cancel: vi.fn(),
+            cancel: vi.fn() as StructuredSessionSpy,
             stopBackgroundTask: (taskId?: string) =>
               mocks.stopBackgroundTask(props.sessionId, taskId),
             respond: mocks.respond,
@@ -112,11 +115,11 @@ export function createStructuredSessionMocks() {
             ],
             optionSurface: {
               getSnapshot: () => [],
-              setOption: vi.fn(),
-              invokeAction: vi.fn(),
+              setOption: vi.fn() as StructuredSessionSpy,
+              invokeAction: vi.fn() as StructuredSessionSpy,
               subscribe: () => () => {}
             },
-            setStructuredOption: vi.fn()
+            setStructuredOption: vi.fn() as StructuredSessionSpy
           }
         }
       }
