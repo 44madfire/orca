@@ -3,6 +3,7 @@
 import '@testing-library/jest-dom/vitest'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionBackgroundTask } from '../../../../shared/agent-session-wire'
 import { NativeChatBackgroundTasksStatus } from './NativeChatBackgroundTasksStatus'
@@ -10,6 +11,23 @@ import { MONITOR_GLYPH_COLOR } from './native-chat-background-task-kinds'
 import { AgentStateDot } from '@/components/AgentStateDot'
 
 afterEach(cleanup)
+
+/** The strip's disclosure is parent-owned; this stands in for that owner. */
+function DisclosureHost(
+  props: Omit<
+    Parameters<typeof NativeChatBackgroundTasksStatus>[0],
+    'expanded' | 'onExpandedChange'
+  >
+): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <NativeChatBackgroundTasksStatus
+      {...props}
+      expanded={expanded}
+      onExpandedChange={setExpanded}
+    />
+  )
+}
 
 const TASKS: AgentSessionBackgroundTask[] = [
   { id: 'codex-agent:child-1', kind: 'agent', description: 'count_a' },
@@ -21,7 +39,7 @@ function renderStrip(props: { supportsTaskStop: boolean; supportsStopAll: boolea
 } {
   const onStop = vi.fn()
   render(
-    <NativeChatBackgroundTasksStatus
+    <DisclosureHost
       tasks={TASKS}
       supportsTaskStop={props.supportsTaskStop}
       supportsStopAll={props.supportsStopAll}
@@ -37,7 +55,7 @@ function renderStrip(props: { supportsTaskStop: boolean; supportsStopAll: boolea
 describe('NativeChatBackgroundTasksStatus row glyphs', () => {
   function glyphClassFor(kind: AgentSessionBackgroundTask['kind']): string {
     render(
-      <NativeChatBackgroundTasksStatus
+      <DisclosureHost
         tasks={[{ id: 'row-1', kind, description: 'row one' }]}
         supportsTaskStop={false}
         supportsStopAll={false}
@@ -55,7 +73,7 @@ describe('NativeChatBackgroundTasksStatus row glyphs', () => {
   /** Colour sits on the 16px slot the glyph inherits through currentColor. */
   function glyphSlotClassFor(kind: AgentSessionBackgroundTask['kind']): string {
     render(
-      <NativeChatBackgroundTasksStatus
+      <DisclosureHost
         tasks={[{ id: 'row-1', kind, description: 'row one' }]}
         supportsTaskStop={false}
         supportsStopAll={false}
@@ -128,7 +146,7 @@ describe('NativeChatBackgroundTasksStatus stop affordances', () => {
     // accepts targeted stops, but not for this row.
     const onStop = vi.fn()
     render(
-      <NativeChatBackgroundTasksStatus
+      <DisclosureHost
         tasks={[
           { id: 'fore-1', kind: 'agent', description: 'in-turn subagent', stoppable: false },
           { id: 'back-1', kind: 'agent', description: 'backgrounded subagent' }

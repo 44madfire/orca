@@ -231,7 +231,7 @@ describe('NativeChatStructuredSession', () => {
     }
   )
 
-  it('places background monitoring above the usable composer and stops without an active turn', async () => {
+  it('places background monitoring above the usable composer, keeps its list open across a gap in live work, and stops without an active turn', async () => {
     mocks.monitoringBackgroundTasks = true
     mocks.supportsBackgroundTaskStop = true
     mocks.backgroundTasks = [
@@ -240,7 +240,8 @@ describe('NativeChatStructuredSession', () => {
     ]
     mocks.stopBackgroundTask.mockResolvedValue({ cancelled: true })
 
-    render(
+    // A fresh element each time: React bails out of re-rendering an identical one.
+    const view = (): React.JSX.Element => (
       <NativeChatStructuredSession
         isVisible
         tabId="structured-tab-background"
@@ -249,6 +250,7 @@ describe('NativeChatStructuredSession', () => {
         agent="claude"
       />
     )
+    const { rerender } = render(view())
 
     const status = screen
       .getByText('Monitoring background tasks')
@@ -274,6 +276,16 @@ describe('NativeChatStructuredSession', () => {
     await waitFor(() =>
       expect(mocks.stopBackgroundTask).toHaveBeenCalledWith('session-background', 'task-command')
     )
+
+    // The strip is mounted on live work, so a sequential fan-out unmounts it
+    // between one subagent finishing and the next starting. The disclosure is
+    // not the strip's to forget in that gap.
+    mocks.monitoringBackgroundTasks = false
+    rerender(view())
+    expect(screen.queryByText('Monitoring background tasks')).toBeNull()
+    mocks.monitoringBackgroundTasks = true
+    rerender(view())
+    expect(screen.getByRole('list', { name: 'Running background tasks' })).toBeTruthy()
   })
 
   it('tracks concurrent task stops independently and clears each pending result', async () => {
@@ -359,6 +371,8 @@ describe('NativeChatStructuredSession', () => {
         agent="claude"
       />
     )
+    // The disclosure is keyed by session, so a new session opens collapsed.
+    fireEvent.click(screen.getByRole('button', { name: 'Monitoring background tasks' }))
     const currentStop = screen.getByRole('button', { name: 'Stop Shared task' })
     expect((currentStop as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(currentStop)

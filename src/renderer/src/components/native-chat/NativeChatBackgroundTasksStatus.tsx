@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { AgentSessionBackgroundTask } from '../../../../shared/agent-session-wire'
 import { AgentStateDot } from '@/components/AgentStateDot'
@@ -30,9 +30,14 @@ export function NativeChatBackgroundTasksStatus(props: {
   supportsStopAll: boolean
   stoppingTaskIds: ReadonlySet<string>
   stoppingAll: boolean
+  /** Owned by the parent. The strip is mounted on live work, so it disappears
+   *  and comes back whenever the roster momentarily empties between two pieces
+   *  of a fan-out; local state would collapse the list on every such gap. */
+  expanded: boolean
+  onExpandedChange: (expanded: boolean) => void
   onStop: (taskId?: string) => void
 }): React.JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+  const expanded = props.expanded
   const taskListId = useId()
   return (
     <div
@@ -46,7 +51,7 @@ export function NativeChatBackgroundTasksStatus(props: {
             className="flex h-6 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 text-left outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
             aria-expanded={expanded}
             aria-controls={taskListId}
-            onClick={() => setExpanded((current) => !current)}
+            onClick={() => props.onExpandedChange(!expanded)}
           >
             <span aria-hidden="true">
               <AgentStateDot state="monitoring" size="md" title={null} />
