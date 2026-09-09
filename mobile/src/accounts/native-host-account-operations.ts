@@ -25,6 +25,8 @@ export function nativeHostAccountOperations(
       return decodeAccountsSnapshot((response as RpcSuccess).result)
     },
     async select(provider, accountId, codexTarget) {
+      // Why: old hosts silently strip unknown target fields. Use the distinct
+      // targeted RPC for WSL so version skew fails before mutating host state.
       const method = selectionMethod(provider, codexTarget)
       const params =
         provider === 'codex' && codexTarget?.runtime === 'wsl'

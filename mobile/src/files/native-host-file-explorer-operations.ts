@@ -23,6 +23,8 @@ export function nativeHostFileExplorerOperations(
           truncated: false
         }
       }
+      // Why: desktops that predate the files.readDir mobile allowlist entry still serve the
+      // capped files.list; fall back so the Files tab keeps working until the desktop updates.
       if (
         relativePath === '' &&
         isMobileMethodUnavailableError(response.error?.code, response.error?.message)

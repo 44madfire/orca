@@ -1,16 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { RpcClient } from '../transport/rpc-client'
-import { isLogicalClientCutoverError } from '../transport/stable-logical-rpc-client'
-import type { RpcFailure, RpcResponse, RpcSuccess } from '../transport/types'
 import type { TerminalQuickCommand } from '../../../src/shared/terminal-quick-command-types'
 import {
   applyTerminalQuickCommandMutation,
-  parseNormalizedTerminalQuickCommands,
   type TerminalQuickCommandMutation
 } from '../terminal/quick-commands'
+import type { HostSessionQuickCommandOperations } from './host-session-quick-command-operations'
 
 type Args = {
-  client: RpcClient | null
+  operations: HostSessionQuickCommandOperations | null
+  workspaceId: string
   // Fetch only while the sheet is open — quick commands are settings data we
   // don't need to keep hydrated for every session screen.
   enabled: boolean
@@ -32,43 +30,15 @@ type PendingMutation = {
 }
 
 type MutationContext = {
-  client: RpcClient
+  operations: HostSessionQuickCommandOperations
+  workspaceId: string
   confirmed: TerminalQuickCommand[]
   pending: PendingMutation[]
   queue: Promise<void>
   nextMutationId: number
 }
 
-function readQuickCommands(result: unknown): TerminalQuickCommand[] | null {
-  const list = (result as { terminalQuickCommands?: unknown } | null)?.terminalQuickCommands
-  return parseNormalizedTerminalQuickCommands(list)
-}
-
-const LOAD_CUTOVER_MAX_RETRIES = 5
-
-// Why: opening the sheet right after connecting over relay races the relay→direct
-// cutover, which rejects in-flight one-shots while connState stays 'connected';
-// the read is side-effect-free, so replay it instead of stranding an empty sheet.
-async function loadQuickCommandsWithCutoverRetry(
-  client: RpcClient,
-  cancelled: () => boolean
-): Promise<RpcResponse> {
-  for (let migrationRetry = 0; ; migrationRetry += 1) {
-    try {
-      return await client.sendRequest('settings.getTerminalQuickCommands')
-    } catch (error) {
-      if (
-        cancelled() ||
-        !isLogicalClientCutoverError(error) ||
-        migrationRetry >= LOAD_CUTOVER_MAX_RETRIES
-      ) {
-        throw error
-      }
-    }
-  }
-}
-
-export function useQuickCommands({ client, enabled }: Args): QuickCommandsState {
+export function useQuickCommands({ operations, workspaceId, enabled }: Args): QuickCommandsState {
   const [commands, setCommands] = useState<TerminalQuickCommand[]>([])
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
@@ -78,15 +48,16 @@ export function useQuickCommands({ client, enabled }: Args): QuickCommandsState 
   const mutationContextRef = useRef<MutationContext | null>(null)
 
   useEffect(() => {
-    if (!enabled || !client) {
+    if (!enabled || !operations) {
       setReady(false)
       return
     }
     let mutationContext = mutationContextRef.current
-    if (mutationContext?.client !== client) {
+    if (mutationContext?.operations !== operations || mutationContext.workspaceId !== workspaceId) {
       // A request for an old host must not delay or update mutations on a new one.
       mutationContext = {
-        client,
+        operations,
+        workspaceId,
         confirmed: [],
         pending: [],
         queue: Promise.resolve(),
@@ -97,6 +68,9 @@ export function useQuickCommands({ client, enabled }: Args): QuickCommandsState 
       setCommands([])
     }
     let stale = false
+    // Why: opening the sheet right after connecting over relay races the relay→direct
+    // cutover; the adapter replays the side-effect-free read until this aborts it.
+    const abortController = new AbortController()
     const operationId = operationIdRef.current + 1
     operationIdRef.current = operationId
     setLoading(true)
@@ -115,13 +89,7 @@ export function useQuickCommands({ client, enabled }: Args): QuickCommandsState 
         ) {
           return
         }
-        const response = await loadQuickCommandsWithCutoverRetry(
-          client,
-          () =>
-            stale ||
-            operationId !== operationIdRef.current ||
-            mutationContextRef.current !== mutationContext
-        )
+        const snapshot = await operations.snapshot(workspaceId, abortController.signal)
         if (
           stale ||
           operationId !== operationIdRef.current ||
@@ -129,18 +97,9 @@ export function useQuickCommands({ client, enabled }: Args): QuickCommandsState 
         ) {
           return
         }
-        if (!response.ok) {
-          setError((response as RpcFailure).error.message || 'Failed to load quick commands')
-          return
-        }
-        const next = readQuickCommands((response as RpcSuccess).result)
-        if (!next) {
-          setError('Failed to load quick commands')
-          return
-        }
-        mutationContext.confirmed = next
-        commandsRef.current = next
-        setCommands(next)
+        mutationContext.confirmed = snapshot.commands
+        commandsRef.current = snapshot.commands
+        setCommands(snapshot.commands)
         setReady(true)
       } catch (err) {
         if (
@@ -163,15 +122,22 @@ export function useQuickCommands({ client, enabled }: Args): QuickCommandsState 
 
     return () => {
       stale = true
+      abortController.abort()
     }
-  }, [client, enabled])
+  }, [enabled, operations, workspaceId])
 
   const persist = useCallback(
     async (commandMutation: TerminalQuickCommandMutation) => {
       // Why: the loaded list is the optimistic/rollback baseline; mutating
       // before it arrives would make failure recovery show invented state.
       const mutationContext = mutationContextRef.current
-      if (!client || loading || !ready || mutationContext?.client !== client) {
+      if (
+        !operations ||
+        loading ||
+        !ready ||
+        mutationContext?.operations !== operations ||
+        mutationContext.workspaceId !== workspaceId
+      ) {
         return false
       }
       const mutation: PendingMutation = {
@@ -189,21 +155,10 @@ export function useQuickCommands({ client, enabled }: Args): QuickCommandsState 
         let succeeded = false
         let failureMessage: string | null = null
         try {
-          const response = await client.sendRequest('settings.updateTerminalQuickCommands', {
-            mutation: commandMutation
-          })
-          if (!response.ok) {
-            throw new Error(
-              (response as RpcFailure).error.message || 'Failed to save quick command'
-            )
-          }
-          const confirmed = readQuickCommands((response as RpcSuccess).result)
-          if (!confirmed) {
-            // Why: treating an invalid success payload as [] would let the next
-            // full-list mutation erase commands that still exist on the host.
-            throw new Error('Failed to save quick command')
-          }
-          mutationContext.confirmed = confirmed
+          // Why: an invalid success payload throws inside the adapter rather than
+          // confirming [] — a later full-list mutation would erase live commands.
+          const snapshot = await operations.mutate(workspaceId, commandMutation)
+          mutationContext.confirmed = snapshot.commands
           succeeded = true
           return true
         } catch (err) {
@@ -236,7 +191,7 @@ export function useQuickCommands({ client, enabled }: Args): QuickCommandsState 
       )
       return await request
     },
-    [client, loading, ready]
+    [loading, operations, ready, workspaceId]
   )
 
   return { commands, loading, ready, error, persist }
