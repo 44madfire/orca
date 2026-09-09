@@ -8,6 +8,7 @@ import { WslTranscriptFsError } from '../native-chat/wsl-transcript-fs-error'
 let failNextChatsReaddir = false
 let failNextChatsRootReaddir = false
 let failMetaJsonReads = false
+let failMetaJsonStats = false
 let chatsRootReads = 0
 vi.mock('../native-chat/wsl-transcript-fs-access', async (importOriginal) => {
   const actual = await importOriginal<typeof WslTranscriptFsAccess>()
@@ -36,6 +37,14 @@ vi.mock('../native-chat/wsl-transcript-fs-access', async (importOriginal) => {
         return Promise.reject(new WslTranscriptFsError('timeout', 'wsl fs timed out'))
       }
       return actual.wslGatedReadFile(...args)
+    },
+    wslGatedStat: (
+      ...args: Parameters<typeof actual.wslGatedStat>
+    ): ReturnType<typeof actual.wslGatedStat> => {
+      if (failMetaJsonStats && String(args[0]).endsWith('meta.json')) {
+        return Promise.reject(new WslTranscriptFsError('timeout', 'wsl fs timed out'))
+      }
+      return actual.wslGatedStat(...args)
     }
   }
 })
@@ -55,7 +64,12 @@ import type { AiVaultScanIssue } from '../../shared/ai-vault-types'
 import { AI_VAULT_AGENT_SOURCES } from './session-scanner-agent-sources'
 import { discoverFiles } from './session-scanner-discovery'
 import { scanAiVaultSessions } from './session-scanner'
-import { resetSessionParseCacheForTests } from './session-scanner-parse-cache'
+import {
+  createSessionParseStats,
+  parseAgentSessionFileCached,
+  resetSessionParseCacheForTests
+} from './session-scanner-parse-cache'
+import { appendFile, stat, truncate } from 'node:fs/promises'
 import { isolatedScanRoots } from './session-scanner-test-fixtures'
 import type { FileWithMtime, SessionFileDiscovery } from './session-scanner-types'
 
@@ -79,6 +93,7 @@ afterEach(async () => {
   resetSessionParseCacheForTests()
   failNextChatsRootReaddir = false
   failMetaJsonReads = false
+  failMetaJsonStats = false
   await Promise.all(tempRoots.map((root) => rm(root, { recursive: true, force: true })))
   tempRoots = []
 })
@@ -320,28 +335,28 @@ describe('cursor parser chat meta fallback', () => {
   })
 })
 
-describe('cursor chat meta scan failures', () => {
-  async function writeCursorScanFixture(chatIds: string[]): Promise<{
-    cursorHome: string
-    scanOptions: ReturnType<typeof isolatedScanRoots> & { cursorProjectsDir: string }
-  }> {
-    const cursorHome = await createCursorHome()
-    for (const chatId of chatIds) {
-      await writeChatMeta(cursorHome, 'workspace-hash', chatId, { cwd: `/tmp/ws-${chatId}` })
-      await writeTranscript(cursorHome, 'slug', chatId, [
-        JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: chatId }] } })
-      ])
-    }
-    const root = join(cursorHome, '..')
-    return {
-      cursorHome,
-      scanOptions: {
-        ...isolatedScanRoots(root),
-        cursorProjectsDir: join(cursorHome, 'projects')
-      }
+async function writeCursorScanFixture(chatIds: string[]): Promise<{
+  cursorHome: string
+  scanOptions: ReturnType<typeof isolatedScanRoots> & { cursorProjectsDir: string }
+}> {
+  const cursorHome = await createCursorHome()
+  for (const chatId of chatIds) {
+    await writeChatMeta(cursorHome, 'workspace-hash', chatId, { cwd: `/tmp/ws-${chatId}` })
+    await writeTranscript(cursorHome, 'slug', chatId, [
+      JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: chatId }] } })
+    ])
+  }
+  const root = join(cursorHome, '..')
+  return {
+    cursorHome,
+    scanOptions: {
+      ...isolatedScanRoots(root),
+      cursorProjectsDir: join(cursorHome, 'projects')
     }
   }
+}
 
+describe('cursor chat meta scan failures', () => {
   it('lists cursor sessions without metadata when the chats tree is refused, then heals', async () => {
     const { cursorHome, scanOptions } = await writeCursorScanFixture(['chat-a', 'chat-b'])
     resetSessionParseCacheForTests()
@@ -382,6 +397,7 @@ describe('cursor chat meta scan failures', () => {
     expect(refused.issues[0].path).toBe(join(cursorHome, 'chats'))
 
     failMetaJsonReads = false
+    failMetaJsonStats = false
     const healed = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
     expect(healed.issues).toEqual([])
     expect(
@@ -401,5 +417,107 @@ describe('cursor chat meta scan failures', () => {
 
     expect(result.sessions.filter((session) => session.agent === 'cursor')).toHaveLength(3)
     expect(chatsRootReads).toBe(1)
+  })
+})
+
+describe('cursor chat meta cache keys', () => {
+  async function cursorCandidate(cursorHome: string): Promise<FileWithMtime> {
+    const issues: AiVaultScanIssue[] = []
+    const discovery = await discoverFiles({
+      rootDir: join(cursorHome, 'projects'),
+      limit: 10,
+      agent: 'cursor',
+      issues,
+      extensions: [...AI_VAULT_AGENT_SOURCES.cursor.extensions],
+      filePredicate: AI_VAULT_AGENT_SOURCES.cursor.filePredicate,
+      contentDependencyPath: AI_VAULT_AGENT_SOURCES.cursor.contentDependencyPath
+    })
+    return discovery.files[0]
+  }
+
+  function parseCursor(file: FileWithMtime, stats = createSessionParseStats()) {
+    return withCursorChatMetaScan(async () => {
+      await parseAgentSessionFileCached({ agent: 'cursor', file, codexHome: null }, 'darwin', stats)
+      return stats
+    })
+  }
+
+  async function writeOneCursorChat(): Promise<{ cursorHome: string; transcriptPath: string }> {
+    const cursorHome = await createCursorHome()
+    // A padded title makes meta.json larger than one transcript line.
+    await writeChatMeta(cursorHome, 'workspace-hash', 'chat-key', { title: 'x'.repeat(400) })
+    const transcriptPath = await writeTranscript(
+      cursorHome,
+      'slug',
+      'chat-key',
+      [1, 2, 3].map((index) =>
+        JSON.stringify({
+          role: 'user',
+          message: { content: [{ type: 'text', text: `ask ${index}` }] }
+        })
+      )
+    )
+    return { cursorHome, transcriptPath }
+  }
+
+  it('re-reads a transcript truncated by less than its meta.json size', async () => {
+    const { cursorHome, transcriptPath } = await writeOneCursorChat()
+    resetSessionParseCacheForTests()
+    await parseCursor(await cursorCandidate(cursorHome))
+
+    const metaSize = (
+      await stat(join(cursorHome, 'chats', 'workspace-hash', 'chat-key', 'meta.json'))
+    ).size
+    const transcriptSize = (await stat(transcriptPath)).size
+    // Inside the window where the folded meta.json size hides the truncation.
+    const truncatedTo = transcriptSize - 20
+    expect(metaSize).toBeGreaterThan(20)
+    await truncate(transcriptPath, truncatedTo)
+
+    const stats = await parseCursor(await cursorCandidate(cursorHome))
+    expect(stats.incremental).toBe(0)
+    expect(stats.fullParses).toBe(1)
+  })
+
+  it('keeps the resume cursor when a refused meta.json read poisons the key', async () => {
+    const { cursorHome, transcriptPath } = await writeOneCursorChat()
+    resetSessionParseCacheForTests()
+    await parseCursor(await cursorCandidate(cursorHome))
+
+    // A cache hit never reads meta.json, so the refusal needs a changed file.
+    await appendFile(
+      transcriptPath,
+      `${JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: 'ask 4' }] } })}\n`
+    )
+    failMetaJsonReads = true
+    const refused = await parseCursor(await cursorCandidate(cursorHome))
+    expect(refused.incremental).toBe(1)
+
+    // The poisoned key must force a re-read, but not a full one: the resume
+    // point survives, so the next healthy scan resumes at the stored offset.
+    failMetaJsonReads = false
+    const healed = await parseCursor(await cursorCandidate(cursorHome))
+    expect(healed.incremental).toBe(1)
+    expect(healed.fullParses).toBe(0)
+  })
+
+  it('lists a cursor session whose meta.json stat is refused instead of dropping it', async () => {
+    const { scanOptions } = await writeCursorScanFixture(['chat-a'])
+    resetSessionParseCacheForTests()
+
+    // Only the stat is refused, so the parse still reads meta.json; what the
+    // refusal costs is the cache key, which now omits that sibling.
+    failMetaJsonStats = true
+    const refused = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
+    expect(refused.sessions.filter((session) => session.agent === 'cursor')).toHaveLength(1)
+    expect(refused.issues).toHaveLength(1)
+    expect(refused.issues[0].agent).toBe('cursor')
+
+    failMetaJsonStats = false
+    const healed = await scanAiVaultSessions({ ...scanOptions, platform: 'darwin', limit: 20 })
+    expect(healed.issues).toEqual([])
+    expect(healed.sessions.find((session) => session.agent === 'cursor')?.cwd).toBe(
+      '/tmp/ws-chat-a'
+    )
   })
 })

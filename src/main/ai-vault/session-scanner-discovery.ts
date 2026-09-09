@@ -19,6 +19,7 @@ export async function discoverFiles(args: {
   directoryPredicate?: (name: string, depth: number) => boolean
 }): Promise<SessionFileDiscovery> {
   const files = new SessionNewestFiles(args.limit)
+  let refusedDependency = false
   try {
     await forEachSessionFile(
       args.rootDir,
@@ -32,15 +33,27 @@ export async function discoverFiles(args: {
       async (path) => {
         try {
           const fileStat = await wslGatedStat(path, 'scan')
-          const dependencyStat = await optionalContentDependencyStat(
-            await args.contentDependencyPath?.(path)
-          )
-          const mtimeMs = Math.max(fileStat.mtimeMs, dependencyStat?.mtimeMs ?? 0)
+          const dependencyPath = await args.contentDependencyPath?.(path)
+          const dependencyStat = await optionalContentDependencyStat(dependencyPath)
+          if (dependencyStat === 'refused' && !refusedDependency) {
+            // One issue per root: a refused sibling is a property of the tree,
+            // not of each transcript that happens to point at it.
+            refusedDependency = true
+            recordSessionScanIssue(args.issues, {
+              agent: args.agent,
+              path: dependencyPath ?? args.rootDir,
+              message: 'Session metadata could not be read this scan.'
+            })
+          }
+          const dependency = dependencyStat === 'refused' ? null : dependencyStat
+          const mtimeMs = Math.max(fileStat.mtimeMs, dependency?.mtimeMs ?? 0)
           files.add({
             path,
             mtimeMs,
             modifiedAt: new Date(mtimeMs).toISOString(),
-            sizeBytes: fileStat.size + (dependencyStat?.size ?? 0),
+            sizeBytes: fileStat.size + (dependency?.size ?? 0),
+            dependencySizeBytes: dependency?.size,
+            ...(dependencyStat === 'refused' ? { contentDependencyRefused: true } : {}),
             dev: fileStat.dev,
             ino: fileStat.ino,
             nlink: fileStat.nlink
@@ -71,9 +84,15 @@ export async function discoverFiles(args: {
   return { agent: args.agent, rootDir: args.rootDir, files: files.newest() }
 }
 
+/**
+ * A refused sibling stat is not "no sibling": it must not take the transcript
+ * down with it, and it must not silently produce a cache key that omits the
+ * sibling and then looks current forever. Report it as `refused` so the caller
+ * lists the file, notes the tree once, and marks the key untrustworthy.
+ */
 async function optionalContentDependencyStat(
   filePath: string | undefined
-): Promise<{ mtimeMs: number; size: number } | null> {
+): Promise<{ mtimeMs: number; size: number } | 'refused' | null> {
   if (!filePath) {
     return null
   }
@@ -82,7 +101,7 @@ async function optionalContentDependencyStat(
     return { mtimeMs: fileStat.mtimeMs, size: fileStat.size }
   } catch (error) {
     if (error instanceof WslTranscriptFsError) {
-      throw error
+      return 'refused'
     }
     return null
   }

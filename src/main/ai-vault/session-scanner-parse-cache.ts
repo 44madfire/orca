@@ -14,7 +14,6 @@ import type { ResumableSessionParseState, SessionFileCandidate } from './session
 import { refreshCachedCodexTitle } from './session-scanner-codex-cached-title'
 import {
   getSessionParseCacheEntry,
-  invalidateSessionParseCacheEntry,
   storeSessionParseCacheEntry,
   type SessionParseCacheEntry
 } from './session-parse-cache-store'
@@ -79,6 +78,10 @@ function resumableStateFactoryFor(
   }
 }
 
+// No stat can report it, so `unchanged` is always false for such an entry
+// while its resume point stays usable.
+const UNMATCHABLE_MTIME_MS = -1
+
 export type SessionParseStats = TranscriptReadStats & {
   reused: number
 }
@@ -135,19 +138,18 @@ async function parseCachedInLane(
       stateFactory,
       stats
     })
-    if (read.cacheable) {
-      storeSessionParseCacheEntry(file.path, {
-        mtimeMs: file.mtimeMs,
-        sizeBytes: file.sizeBytes ?? null,
-        platform,
-        session: read.session,
-        resume: read.resume
-      })
-    } else {
-      // The parse is usable but its key is not: a sibling the key covers went
-      // unread, so an entry stored now would look current on the next scan.
-      invalidateSessionParseCacheEntry(file.path)
-    }
+    // The parse is usable but its key may not be: a sibling the key covers went
+    // unread, so the real key would look current on the next scan. Keep the
+    // entry for its resume cursor under a key no stat can produce, or a distro
+    // that keeps refusing would force a full re-read of every rescan.
+    const trustworthyKey = read.cacheable && !file.contentDependencyRefused
+    storeSessionParseCacheEntry(file.path, {
+      mtimeMs: trustworthyKey ? file.mtimeMs : UNMATCHABLE_MTIME_MS,
+      sizeBytes: file.sizeBytes ?? null,
+      platform,
+      session: read.session,
+      resume: read.resume
+    })
     return read.session
   }
 

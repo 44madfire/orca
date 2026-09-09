@@ -55,8 +55,16 @@ export type FileWithMtime = {
   modifiedAt: string
   // Present when discovery statted the file; lets the parse cache detect
   // unchanged/truncated files without a second stat. Synthetic candidates
-  // such as OpenCode SQLite rows omit it.
+  // such as OpenCode SQLite rows omit it. Includes a content dependency's size
+  // when the agent declares one, so it is a cache key, not a file length.
   sizeBytes?: number
+  // How much of `sizeBytes` belongs to the content dependency rather than the
+  // transcript. A byte offset into the transcript may only be compared against
+  // `sizeBytes` minus this.
+  dependencySizeBytes?: number
+  // The dependency could not be statted this scan, so `sizeBytes` silently
+  // omits it and the resulting parse must not be cached under that key.
+  contentDependencyRefused?: boolean
   // Present when discovery can prove filesystem identity. Codex dual-root
   // scans use a multi-link inode to collapse only actual hardlink aliases.
   dev?: number
