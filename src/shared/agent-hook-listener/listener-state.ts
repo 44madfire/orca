@@ -38,7 +38,9 @@ export type HookListenerState = {
   /** Live descendants for every provider that does not own a roster of its own. */
   descendantRosterByPaneKey: Map<string, AgentDescendantRoster>
   /** What the LEAD session last said, before descendants gated it — so draining the
-   *  last child republishes the lead's verdict instead of the gated one. */
+   *  last child republishes the lead's verdict instead of the gated one. Deliberately
+   *  NOT a state claim (see `paneHasStateClaims`): it only refines a republish that an
+   *  incoming descendant event already triggered, and never creates a row on its own. */
   descendantLeadStateByPaneKey: Map<string, AgentStatusState>
 }
 
@@ -121,8 +123,7 @@ export function paneHasStateClaims(state: HookListenerState, paneKey: string): b
     state.claudeSessionOwnerByPaneKey.has(paneKey) ||
     state.codexSubagentRosterByPaneKey.has(paneKey) ||
     state.codexLeadStateByPaneKey.has(paneKey) ||
-    state.descendantRosterByPaneKey.has(paneKey) ||
-    state.descendantLeadStateByPaneKey.has(paneKey)
+    state.descendantRosterByPaneKey.has(paneKey)
   )
 }
 

@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  clearPaneCacheState,
   createHookListenerState,
+  movePaneCacheState,
+  paneHasStateClaims,
   type HookListenerState
 } from './agent-hook-listener/listener-state'
 import { normalizeAndAccept, PANE_KEY } from './agent-hook-listener-test-harness'
 import type { AgentHookSource } from './agent-hook-relay'
+import { AGENT_DESCENDANT_QUIET_REAP_MS } from './agent-descendant-roster'
 
 /** Every case drives `normalizeHookPayload`, the entry both the main process and the relay
  *  call, so a fix that never reaches production wiring cannot pass here. */
@@ -124,6 +128,64 @@ describe('descendant lifecycle never settles the pane', () => {
       expect(childTool?.hasExplicitPrompt).toBeUndefined()
     })
 
+    it('clears children when the lead turn is interrupted before its stop gate runs', () => {
+      startTurn()
+      publish('grok', { hookEventName: 'SubagentStart', subagentId: 'sub-1', subagentType: 'x' })
+      expect(publishedState('grok', { hookEventName: 'Stop', reason: 'end_turn' })).toBe('working')
+
+      // Why: an interrupted turn skips the stop gate, so the child never reports a finish and
+      // this cancel is the only proof it is gone. Without it the pane never settles again.
+      publish('grok', {
+        hookEventName: 'StopCancelled',
+        reason: 'user_interrupt',
+        cancelledBy: 'user'
+      })
+      expect(state.descendantRosterByPaneKey.has(PANE_KEY)).toBe(false)
+      expect(
+        publishedState('grok', {
+          hookEventName: 'Notification',
+          notificationType: 'idle_prompt',
+          message: 'Type your message'
+        })
+      ).toBe('done')
+    })
+
+    it('keeps siblings alive when one child cancels itself', () => {
+      startTurn()
+      publish('grok', { hookEventName: 'SubagentStart', subagentId: 'sub-1', subagentType: 'x' })
+      publish('grok', { hookEventName: 'SubagentStart', subagentId: 'sub-2', subagentType: 'x' })
+      publish('grok', {
+        hookEventName: 'StopCancelled',
+        reason: 'max_turns',
+        cancelledBy: 'runtime',
+        subagentType: 'x',
+        subagentId: 'sub-1'
+      })
+      expect(state.descendantRosterByPaneKey.get(PANE_KEY)?.size).toBe(1)
+      expect(publishedState('grok', { hookEventName: 'Stop', reason: 'end_turn' })).toBe('working')
+    })
+
+    it('reaps a child whose finish never arrived instead of pinning the pane forever', () => {
+      startTurn()
+      publish('grok', { hookEventName: 'SubagentStart', subagentId: 'sub-1', subagentType: 'x' })
+      expect(publishedState('grok', { hookEventName: 'Stop', reason: 'end_turn' })).toBe('working')
+
+      const tracked = state.descendantRosterByPaneKey.get(PANE_KEY)?.get('sub-1')
+      expect(tracked).toBeDefined()
+      // Why: every provider loses a stop hook sometimes (disabled, untrusted, timed out, killed).
+      // A claim nothing can retract must not outlive the quiet window.
+      tracked!.lastEventAt = Date.now() - AGENT_DESCENDANT_QUIET_REAP_MS - 1
+
+      expect(
+        publishedState('grok', {
+          hookEventName: 'Notification',
+          notificationType: 'idle_prompt',
+          message: 'Type your message'
+        })
+      ).toBe('done')
+      expect(state.descendantRosterByPaneKey.has(PANE_KEY)).toBe(false)
+    })
+
     it('drops a stale child roster when the pane starts a new agent process', () => {
       startTurn()
       publish('grok', { hookEventName: 'SubagentStart', subagentId: 'sub-1', subagentType: 'x' })
@@ -155,9 +217,8 @@ describe('descendant lifecycle never settles the pane', () => {
     it('stays working when the parent settles while an async child run continues', () => {
       startTurn()
       const started = publish('pi', {
-        hook_event_name: 'subagent_async_started',
-        subagent_id: 'run-1',
-        agent_type: 'researcher'
+        hook_event_name: 'subagent_async_state',
+        subagent_runs: [{ id: 'run-1', agent_type: 'researcher' }]
       })
       expect(started?.payload.state).toBe('working')
       expect(started?.payload.subagents).toEqual([
@@ -167,8 +228,8 @@ describe('descendant lifecycle never settles the pane', () => {
       expect(publishedState('pi', { hook_event_name: 'agent_end' })).toBe('working')
 
       const finished = publish('pi', {
-        hook_event_name: 'subagent_async_complete',
-        subagent_id: 'run-1'
+        hook_event_name: 'subagent_async_state',
+        subagent_runs: []
       })
       expect(finished?.payload.state).toBe('done')
       expect(finished?.payload.subagents).toBeUndefined()
@@ -176,25 +237,46 @@ describe('descendant lifecycle never settles the pane', () => {
 
     it('completes once when the final child wakes the parent for another turn', () => {
       startTurn()
-      publish('pi', { hook_event_name: 'subagent_async_started', subagent_id: 'run-1' })
-      publish('pi', { hook_event_name: 'subagent_async_started', subagent_id: 'run-2' })
+      publish('pi', {
+        hook_event_name: 'subagent_async_state',
+        subagent_runs: [{ id: 'run-1' }, { id: 'run-2' }]
+      })
 
       const states = [
         publishedState('pi', { hook_event_name: 'agent_end' }),
-        publishedState('pi', { hook_event_name: 'subagent_async_complete', subagent_id: 'run-1' }),
+        publishedState('pi', {
+          hook_event_name: 'subagent_async_state',
+          subagent_runs: [{ id: 'run-2' }]
+        }),
         // The last child wakes the parent, which runs another turn before the pane is idle.
-        publishedState('pi', { hook_event_name: 'subagent_async_complete', subagent_id: 'run-2' }),
+        publishedState('pi', { hook_event_name: 'subagent_async_state', subagent_runs: [] }),
         publishedState('pi', { hook_event_name: 'agent_start' }),
         publishedState('pi', { hook_event_name: 'agent_end' })
       ]
       expect(states).toEqual(['working', 'working', 'done', 'working', 'done'])
     })
 
+    it('repairs a dropped intermediate set from the next one', () => {
+      startTurn()
+      publish('pi', {
+        hook_event_name: 'subagent_async_state',
+        subagent_runs: [{ id: 'run-1' }, { id: 'run-2' }, { id: 'run-3' }]
+      })
+      expect(publishedState('pi', { hook_event_name: 'agent_end' })).toBe('working')
+
+      // Why: the extension transport coalesces, so the sets naming run-2 and run-3 as still
+      // live can be dropped entirely. The surviving newest message alone must settle the pane.
+      expect(
+        publishedState('pi', { hook_event_name: 'subagent_async_state', subagent_runs: [] })
+      ).toBe('done')
+      expect(state.descendantRosterByPaneKey.has(PANE_KEY)).toBe(false)
+    })
+
     it('keeps the parent prompt while an async child reports', () => {
       startTurn()
       const started = publish('pi', {
-        hook_event_name: 'subagent_async_started',
-        subagent_id: 'run-1',
+        hook_event_name: 'subagent_async_state',
+        subagent_runs: [{ id: 'run-1' }],
         prompt: 'child task text'
       })
       expect(started?.payload.prompt).toBe('delegate')
@@ -203,9 +285,7 @@ describe('descendant lifecycle never settles the pane', () => {
   })
 
   describe('pane-scoped state bookkeeping', () => {
-    it('reports a descendant-only pane as holding a state claim', async () => {
-      const { paneHasStateClaims, clearPaneCacheState } =
-        await import('./agent-hook-listener/listener-state')
+    it('reports a descendant-only pane as holding a state claim', () => {
       publish('grok', { hookEventName: 'UserPromptSubmit', prompt: 'go' })
       publish('grok', { hookEventName: 'SubagentStart', subagentId: 'sub-1', subagentType: 'x' })
       expect(paneHasStateClaims(state, PANE_KEY)).toBe(true)
@@ -215,8 +295,20 @@ describe('descendant lifecycle never settles the pane', () => {
       expect(state.descendantLeadStateByPaneKey.has(PANE_KEY)).toBe(false)
     })
 
-    it('moves descendant state with the pane when its key is remapped', async () => {
-      const { movePaneCacheState } = await import('./agent-hook-listener/listener-state')
+    it('does not claim a state for a pane that only cached a lead verdict', () => {
+      publish('grok', { hookEventName: 'UserPromptSubmit', prompt: 'go' })
+      publish('grok', { hookEventName: 'Stop', reason: 'end_turn' })
+      expect(state.descendantLeadStateByPaneKey.has(PANE_KEY)).toBe(true)
+      expect(state.descendantRosterByPaneKey.has(PANE_KEY)).toBe(false)
+
+      // Why: the lead cache only refines a republish an incoming child event already
+      // triggered; it never creates a row. With the pane's stored row gone it is the
+      // only descendant state left, and it must not read as a live claim on its own.
+      state.lastStatusByPaneKey.delete(PANE_KEY)
+      expect(paneHasStateClaims(state, PANE_KEY)).toBe(false)
+    })
+
+    it('moves descendant state with the pane when its key is remapped', () => {
       publish('grok', { hookEventName: 'UserPromptSubmit', prompt: 'go' })
       publish('grok', { hookEventName: 'SubagentStart', subagentId: 'sub-1', subagentType: 'x' })
 

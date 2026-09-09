@@ -3,6 +3,8 @@ import {
   agentDescendantEffectiveState,
   agentDescendantRosterToSnapshots,
   finishAgentDescendant,
+  pruneStaleAgentDescendants,
+  replaceAgentDescendants,
   upsertAgentDescendant,
   type AgentDescendantRoster
 } from '../agent-descendant-roster'
@@ -33,15 +35,13 @@ export function applyDescendantEventToPane(
   paneKey: string,
   facts: DescendantEventFacts
 ): ParsedAgentStatusPayload | null {
-  if (facts.id) {
+  const now = Date.now()
+  if (facts.kind === 'live-set') {
+    const roster = getOrCreateDescendantRoster(state, paneKey)
+    replaceAgentDescendants(roster, facts.children, now)
+  } else if (facts.id) {
     if (facts.ended) {
-      const roster = state.descendantRosterByPaneKey.get(paneKey)
-      if (roster) {
-        finishAgentDescendant(roster, facts.id)
-        if (roster.size === 0) {
-          state.descendantRosterByPaneKey.delete(paneKey)
-        }
-      }
+      finishAgentDescendant(state.descendantRosterByPaneKey.get(paneKey) ?? new Map(), facts.id)
     } else {
       upsertAgentDescendant(
         getOrCreateDescendantRoster(state, paneKey),
@@ -52,10 +52,11 @@ export function applyDescendantEventToPane(
           model: facts.model,
           state: 'working'
         },
-        Date.now()
+        now
       )
     }
   }
+  dropEmptyDescendantRoster(state, paneKey, now)
 
   // Why: a child event before any lead event still proves the pane is working — the lead spawned it.
   const leadState = state.descendantLeadStateByPaneKey.get(paneKey) ?? 'working'
@@ -85,14 +86,28 @@ export function gatePaneStateOnDescendants(
     return payload
   }
   state.descendantLeadStateByPaneKey.set(paneKey, payload.state)
+  dropEmptyDescendantRoster(state, paneKey, Date.now())
   const roster = state.descendantRosterByPaneKey.get(paneKey)
-  if (!roster || roster.size === 0) {
+  if (!roster) {
     return payload
   }
   return {
     ...payload,
     state: agentDescendantEffectiveState(roster, payload.state),
     subagents: agentDescendantRosterToSnapshots(roster)
+  }
+}
+
+/** Reap children nothing has mentioned for the quiet window, then forget a roster with
+ *  nothing left in it — the pane must not keep a claim it can no longer justify. */
+function dropEmptyDescendantRoster(state: HookListenerState, paneKey: string, now: number): void {
+  const roster = state.descendantRosterByPaneKey.get(paneKey)
+  if (!roster) {
+    return
+  }
+  pruneStaleAgentDescendants(roster, now)
+  if (roster.size === 0) {
+    state.descendantRosterByPaneKey.delete(paneKey)
   }
 }
 

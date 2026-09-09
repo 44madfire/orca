@@ -30,7 +30,21 @@ type TrackedAgentDescendant = {
   model?: string
   state: 'working' | 'waiting'
   startedAt: number
+  /** When this child was last named by one of its provider's events. The reaper's clock:
+   *  a roster entry can only ever hold a pane 'working', so a claim nothing can retract
+   *  is strictly worse than settling late. */
+  lastEventAt: number
 }
+
+/** How long a descendant may go unmentioned before the pane stops believing in it.
+ *
+ *  Every provider loses a child's finish sometimes — the hook was disabled, untrusted or
+ *  timed out, the process was killed, the turn was interrupted before its stop gate ran.
+ *  Without a ceiling that pane is pinned 'working' for the life of the process, and only
+ *  closing it recovers. Deliberately generous: a wrongly reaped child merely settles the
+ *  pane early, which the lead's next event corrects, while too short a window would
+ *  reintroduce the very bug this roster exists to fix. */
+export const AGENT_DESCENDANT_QUIET_REAP_MS = 30 * 60_000
 
 export function upsertAgentDescendant(
   roster: AgentDescendantRoster,
@@ -56,6 +70,7 @@ export function upsertAgentDescendant(
     existing.description = description ?? existing.description
     existing.model = model ?? existing.model
     existing.state = fields.state
+    existing.lastEventAt = now
     return
   }
   if (roster.size >= AGENT_STATUS_MAX_SUBAGENTS) {
@@ -66,8 +81,51 @@ export function upsertAgentDescendant(
     description,
     model,
     state: fields.state,
-    startedAt: now
+    startedAt: now,
+    lastEventAt: now
   })
+}
+
+/** Replace the roster with the provider's authoritative live set. For a provider whose
+ *  transport can drop an intermediate message this is the only safe shape: the newest
+ *  message is complete, so it repairs every add and removal lost before it. */
+export function replaceAgentDescendants(
+  roster: AgentDescendantRoster,
+  children: readonly {
+    id: string
+    agentType?: string
+    description?: string
+    model?: string
+  }[],
+  now: number
+): void {
+  const live = new Set<string>()
+  for (const child of children) {
+    const normalizedId = child.id.trim()
+    if (normalizedId.length === 0 || normalizedId.length > AGENT_DESCENDANT_ID_MAX_LENGTH) {
+      continue
+    }
+    live.add(normalizedId)
+    upsertAgentDescendant(roster, normalizedId, { ...child, state: 'working' }, now)
+  }
+  for (const id of Array.from(roster.keys())) {
+    if (!live.has(id)) {
+      roster.delete(id)
+    }
+  }
+}
+
+/** Drop descendants no event has named for {@link AGENT_DESCENDANT_QUIET_REAP_MS}.
+ *  Runs on read rather than on a timer so the roster stays passive. */
+export function pruneStaleAgentDescendants(roster: AgentDescendantRoster, now: number): boolean {
+  let changed = false
+  for (const [id, tracked] of Array.from(roster.entries())) {
+    if (now - tracked.lastEventAt > AGENT_DESCENDANT_QUIET_REAP_MS) {
+      roster.delete(id)
+      changed = true
+    }
+  }
+  return changed
 }
 
 export function finishAgentDescendant(roster: AgentDescendantRoster, id: string): void {
@@ -115,6 +173,12 @@ export function seedAgentDescendantRoster(
       },
       snapshot.startedAt
     )
+    // Why: a restored child's quiet clock starts at its own start time, so a seed whose
+    // finish was lost while Orca was down cannot outlive the reap window a live one gets.
+    const restored = roster.get(snapshot.id.trim())
+    if (restored) {
+      restored.lastEventAt = snapshot.startedAt
+    }
   }
 }
 

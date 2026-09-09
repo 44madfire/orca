@@ -65,7 +65,7 @@ export function normalizeProviderEvent(input: {
   // reaches the provider normalizer, so it cannot settle the pane or relabel the row.
   const ownsDescendants = providerOwnsDescendantLifecycle(source)
   if (!ownsDescendants) {
-    if (isDescendantScopeResetEvent(source, eventName)) {
+    if (isDescendantScopeResetEvent(source, eventName, hookPayload)) {
       clearDescendantScope(state, paneKey)
     }
     const descendant = readDescendantEventFacts(source, eventName, hookPayload)

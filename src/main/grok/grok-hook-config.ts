@@ -34,7 +34,11 @@ export const GROK_EVENTS = [
   // is what lets Orca show its row and keep the pane working while a background child outlives the
   // parent turn. Older grok builds ignore unregistered event names (the StopFailure precedent).
   { eventName: 'SubagentStart', definition: { hooks: [{ type: 'command', command: '' }] } },
-  { eventName: 'SubagentStop', definition: { hooks: [{ type: 'command', command: '' }] } }
+  { eventName: 'SubagentStop', definition: { hooks: [{ type: 'command', command: '' }] } },
+  // Why: an interrupted turn skips the stop gate entirely and reports StopCancelled instead, so a
+  // child spawned by that turn never sends its finish. Without this event the pane keeps a child
+  // nothing can retract and stays working until the process is replaced.
+  { eventName: 'StopCancelled', definition: { hooks: [{ type: 'command', command: '' }] } }
 ] as const
 
 export function buildInstalledGrokConfig(

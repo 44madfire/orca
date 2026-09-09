@@ -61,6 +61,20 @@ async function emit(
   await flushPosts()
 }
 
+/** Emit several bus events with NO flush between them, so every one after the first lands
+ *  while a delivery is already in flight — the window where the transport's latest-only slot
+ *  discards the pending message. Awaiting between emits would flush that window every time
+ *  and the race would never be exercised. */
+async function emitWithoutFlush(
+  harness: ReturnType<typeof createHarness>,
+  events: readonly { name: string; payload: unknown }[]
+): Promise<void> {
+  for (const event of events) {
+    harness.emitProcessBus(event.name, event.payload)
+  }
+  await flushPosts()
+}
+
 describe('pi async subagent runs reach the pane as descendants (STA-6378)', () => {
   it('holds the pane working while an async child run outlives the parent turn', async () => {
     const harness = createHarness()
@@ -96,6 +110,64 @@ describe('pi async subagent runs reach the pane as descendants (STA-6378)', () =
     expect(harness.states.at(-1)).toBe('done')
 
     expect(harness.states.filter((value) => value === 'done')).toHaveLength(2)
+  })
+
+  it('settles when several children finish inside one in-flight delivery window', async () => {
+    const harness = createHarness()
+    await drive(harness, 'before_agent_start', { prompt: 'fan out wide' })
+    await drive(harness, 'agent_start')
+    await emitWithoutFlush(harness, [
+      { name: 'subagent:async-started', payload: { runId: 'run-1' } },
+      { name: 'subagent:async-started', payload: { runId: 'run-2' } },
+      { name: 'subagent:async-started', payload: { runId: 'run-3' } }
+    ])
+    await drive(harness, 'agent_end', {})
+    expect(harness.states.at(-1)).toBe('working')
+
+    // Why: the transport coalesces to a latest-only slot, so of these three only the last
+    // is ever delivered. It carries the whole live set, so the pane still settles; a
+    // start/complete delta would strand run-1 and run-2 and pin the pane working forever.
+    await emitWithoutFlush(harness, [
+      { name: 'subagent:async-complete', payload: { runId: 'run-1' } },
+      { name: 'subagent:async-complete', payload: { runId: 'run-2' } },
+      { name: 'subagent:async-complete', payload: { runId: 'run-3' } }
+    ])
+    expect(harness.states.at(-1)).toBe('done')
+  })
+
+  it('keeps the pane working when only some of a coalesced burst finish', async () => {
+    const harness = createHarness()
+    await drive(harness, 'before_agent_start', { prompt: 'partial' })
+    await drive(harness, 'agent_start')
+    await emitWithoutFlush(harness, [
+      { name: 'subagent:async-started', payload: { runId: 'run-1' } },
+      { name: 'subagent:async-started', payload: { runId: 'run-2' } }
+    ])
+    await drive(harness, 'agent_end', {})
+
+    await emitWithoutFlush(harness, [
+      { name: 'subagent:async-complete', payload: { runId: 'run-1' } }
+    ])
+    expect(harness.states.at(-1)).toBe('working')
+
+    await emit(harness, 'subagent:async-complete', { runId: 'run-2' })
+    expect(harness.states.at(-1)).toBe('done')
+  })
+
+  it('survives an in-process reload without forgetting live children', async () => {
+    const harness = createHarness()
+    await drive(harness, 'before_agent_start', { prompt: 'reload me' })
+    await drive(harness, 'agent_start')
+    await emit(harness, 'subagent:async-started', { runId: 'run-1' })
+
+    // Why: the posted set is authoritative, so a reload that rebuilt it empty would tell the
+    // receiver the child had finished. The set lives at module scope for exactly this reason.
+    harness.reload()
+    await drive(harness, 'agent_end', {})
+    expect(harness.states.at(-1)).toBe('working')
+
+    await emit(harness, 'subagent:async-complete', { runId: 'run-1' })
+    expect(harness.states.at(-1)).toBe('done')
   })
 
   it('ignores a bus payload with no run id rather than inventing a child', async () => {
