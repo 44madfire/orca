@@ -138,7 +138,13 @@ export async function resolveWorkerLaunchModelAuthority(args: {
   let hostKey: string
   try {
     hostKey = await runtime.resolveRuntimeCommitMessageDiscoveryHostKey(worktreeSelector)
-  } catch {
+  } catch (error) {
+    // An unresolvable selector and a runtime that no longer carries this method both land here,
+    // and only the second makes `--model` validation a permanent no-op. A missing method is the
+    // TypeError; say so, because nothing else would ever surface it.
+    if (error instanceof TypeError) {
+      console.error('[worker-launch] no discovery host key; --model cannot be checked:', error)
+    }
     return SEED_WORKER_LAUNCH_MODEL_AUTHORITY
   }
   const scope = `${agent} ${hostKey}`

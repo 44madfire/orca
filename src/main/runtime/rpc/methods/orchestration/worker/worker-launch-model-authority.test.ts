@@ -155,6 +155,45 @@ describe('worker launch model authority', () => {
     expect(discover).not.toHaveBeenCalled()
   })
 
+  it('reports a runtime that cannot answer at all, which would silence --model for good', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { discover } = probeRuntime(() => probeSuccess([liveModel('opus[1m]')]))
+      // A runtime missing the method is a wiring failure, not an unresolvable worktree.
+      const unwired = { discoverRuntimeCommitMessageModels: discover } as never
+
+      const authority = await resolveWorkerLaunchModelAuthority({
+        catalog: CLAUDE_CATALOG,
+        agent: 'claude',
+        runtime: unwired,
+        worktreeSelector: 'id:wt_local'
+      })
+
+      expect(authority.source).toBe('seed')
+      expect(consoleError).toHaveBeenCalledWith(
+        '[worker-launch] no discovery host key; --model cannot be checked:',
+        expect.any(TypeError)
+      )
+      // An unresolvable selector is ordinary and must stay silent.
+      consoleError.mockClear()
+      const { runtime: resolvable } = probeRuntime(
+        () => probeSuccess([liveModel('opus[1m]')]),
+        () => {
+          throw new Error('selector_not_found')
+        }
+      )
+      await resolveWorkerLaunchModelAuthority({
+        catalog: CLAUDE_CATALOG,
+        agent: 'claude',
+        runtime: resolvable,
+        worktreeSelector: 'id:wt_missing'
+      })
+      expect(consoleError).not.toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('does not cache a failure, so the next dispatch retries the host', async () => {
     let attempt = 0
     const { runtime, discover } = probeRuntime(() => {
