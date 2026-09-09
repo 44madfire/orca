@@ -1,4 +1,5 @@
 import type SyncDatabase from '../sqlite/sync-database'
+import type { AiVaultAgent } from '../../shared/ai-vault-types'
 import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
 import { compactSessionSearchIndex } from './session-search-index-compaction'
 import type {
@@ -17,6 +18,13 @@ import { openSessionSearchDatabase } from './session-search-schema'
 // Above it the oldest record goes and the drop is counted, because a re-read set
 // that silently forgets is worse than one that says it is incomplete.
 export const STALE_PATH_LIMIT = 20_000
+
+/** One row of the index's own file table, joined to the agent that wrote it. */
+export type SessionSearchIndexedSource = {
+  path: string
+  agent: AiVaultAgent | null
+  codexHome: string | null
+}
 
 export type SessionSearchStoreOptions = {
   /** The WAL backlog a staging write refuses to grow past. Only tests narrow it. */
@@ -39,6 +47,7 @@ export class SessionSearchStore {
   private warmed: Promise<void> | null = null
   private lastIndexedAt: string | null = null
   private writeFailures = 0
+  private readonly recoveredWriteCount: number
   // Files this index knows it is behind on. Filled by a declined or abandoned
   // read; PR 3's indexer drains it. Nothing here schedules the re-read.
   private readonly stale = new Map<string, SessionFileCandidate>()
@@ -54,7 +63,18 @@ export class SessionSearchStore {
     options: SessionSearchStoreOptions = {}
   ) {
     this.db = openSessionSearchDatabase(path)
+    // Read before anything can write: open-time recovery tombstones every write
+    // that outlived its writer, and the first publish after this starts adding
+    // tombstones of its own, so the count is only a crash signal right here.
+    this.recoveredWriteCount = Number(
+      (this.db.prepare('SELECT count(*) AS n FROM search_pending_deletes').get() as { n: number }).n
+    )
     this.writer = new SessionSearchIndexWriter(this.db, options.walBudgetBytes)
+  }
+
+  /** Unfinished writes this open had to tombstone; PR 3 reports it as crash recovery. */
+  get recoveredWrites(): number {
+    return this.recoveredWriteCount
   }
 
   setAcceptingWrites(accept: boolean): void {
@@ -180,6 +200,26 @@ export class SessionSearchStore {
 
   get failures(): number {
     return this.writeFailures
+  }
+
+  /**
+   * What this index believes it holds, for a scheduler that has to notice a
+   * source that vanished while nothing was running. `paths` narrows it to a
+   * lookup; omitting it walks the whole table, which only a full sweep does.
+   */
+  indexedSources(paths?: readonly string[]): SessionSearchIndexedSource[] {
+    const sql = `SELECT f.path AS path, s.agent AS agent, s.codex_home AS codexHome
+      FROM files f LEFT JOIN sessions s ON s.id = f.session_row_id`
+    try {
+      if (!paths) {
+        return this.db.prepare(sql).all() as SessionSearchIndexedSource[]
+      }
+      const one = this.db.prepare(`${sql} WHERE f.path = ?`)
+      return paths.flatMap((path) => one.all(path) as SessionSearchIndexedSource[])
+    } catch (error) {
+      this.onError(error)
+      return []
+    }
   }
 
   /**
