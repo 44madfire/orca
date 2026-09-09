@@ -4,6 +4,12 @@ import SyncDatabase from '../sqlite/sync-database'
 import { removeTreeSync } from '../../shared/windows-transient-lock-removal'
 import { recoverSearchWrites } from './session-search-pending-deletes'
 
+// The index stores transcript content as written, with no redaction. A secret in
+// a transcript is already plaintext under the user's home directory and is
+// treated as compromised; this is a second copy of content the user already
+// holds. What a snippet may carry once it leaves this machine is a transport
+// policy, decided where the wire is.
+
 // Bump to drop and rebuild: the index is a cache over the transcripts, never a source.
 export const SESSION_SEARCH_SCHEMA_VERSION = 1
 

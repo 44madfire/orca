@@ -3,7 +3,6 @@ import type { SessionFileCandidate } from '../ai-vault/session-scanner-types'
 import type SyncDatabase from '../sqlite/sync-database'
 import { EMPTY_CONTENT_HASH, type SessionContentHash } from './session-search-content-hash'
 import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
-import { redactSessionSearchText } from './session-search-redaction'
 
 /**
  * The stored comparison key for a session's working directory.
@@ -45,7 +44,7 @@ export class SessionSearchFileRecords {
       session.sessionId,
       session.filePath,
       session.codexHome,
-      redactSessionSearchText(session.title),
+      session.title,
       session.cwd,
       cwdKey(session.cwd),
       session.branch,

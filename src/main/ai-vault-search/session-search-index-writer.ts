@@ -10,11 +10,7 @@ import type {
   SessionSearchIndexedFile
 } from './session-search-file-cursor'
 import { SessionSearchFileRecords } from './session-search-file-records'
-import {
-  insertSearchMessage,
-  searchMessageRows,
-  type RedactedMessageRow
-} from './session-search-message-rows'
+import { insertSearchMessage, searchMessageRows } from './session-search-message-rows'
 import { discardSearchBatch, retireSearchSession } from './session-search-pending-deletes'
 import { assertSearchWalBudget, SEARCH_WAL_PENDING_BYTES } from './session-search-wal-budget'
 
@@ -175,7 +171,7 @@ export class SessionSearchIndexWriter {
 
     const open = { invalidated: false }
     this.staging.set(path, open)
-    const buffer: RedactedMessageRow[] = []
+    const buffer: TranscriptMessage[] = []
     let bufferedChars = 0
     let steps = 0
 

@@ -17,8 +17,6 @@ import {
   userRecord
 } from './session-search-transcript-fixtures'
 
-const GITHUB_TOKEN = `ghp_${'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'}`
-
 let tempRoots: string[] = []
 let store: SessionSearchStore
 // The store keeps its connection private, so row assertions need a second one.
@@ -108,35 +106,6 @@ it('keeps a tool result searchable but out of the conversation half', async () =
   // The prompt is conversation; the command output is not.
   expect(sessionsMatching('pericardium', 'conversation_fts')).toHaveLength(1)
   expect(sessionsMatching('rg', 'conversation_fts')).toHaveLength(0)
-})
-
-it('never indexes a credential that appeared in tool output', async () => {
-  const root = await makeTempDir()
-  const path = join(root, `${SESSION_ID}.jsonl`)
-  await writeFile(
-    path,
-    `${[
-      userRecord(0, 'deploy the staging worker'),
-      userRecord(1, [
-        {
-          type: 'tool_result',
-          tool_use_id: 'toolu_1',
-          content: [
-            'writing deployment credentials to the staging environment',
-            `github_token=${GITHUB_TOKEN}`,
-            'deployment finished with a green rollout'
-          ].join('\n')
-        }
-      ])
-    ].join('\n')}\n`
-  )
-  await parseTranscript(path)
-  expect(errors).toEqual([])
-
-  expect(sessionsMatching('credentials')).toEqual([SESSION_ID])
-  expect(sessionsMatching('rollout')).toEqual([SESSION_ID])
-  expect(sessionsMatching(`"${GITHUB_TOKEN}"`)).toEqual([])
-  expect(sessionsMatching('redacted')).toEqual([SESSION_ID])
 })
 
 it('indexes a file the session list already read past, once a whole read is asked for', async () => {
