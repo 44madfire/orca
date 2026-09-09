@@ -43,7 +43,7 @@ export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) 
     if (!taskOperations || connState !== 'connected' || !tasksSupported) {
       return
     }
-    const { status, teams } = await taskOperations.read.loadLinearContext()
+    const status = await taskOperations.read.linearStatus()
     setLinearConnected(status.connected)
     if (!status.connected) {
       setLinearWorkspaces([])
@@ -52,8 +52,13 @@ export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) 
       setSelectedLinearWorkspaceId(null)
       return
     }
+    const workspaceId =
+      status.selectedWorkspaceId ?? status.activeWorkspaceId ?? status.workspaces[0]?.id ?? null
+    // Committed before the team read: a failed team read must leave the picker populated and the
+    // workspace resolved, or the next list request goes out with no workspace at all.
     setLinearWorkspaces(status.workspaces)
-    setSelectedLinearWorkspaceId(status.selectedWorkspaceId)
+    setSelectedLinearWorkspaceId(workspaceId)
+    const teams = await taskOperations.read.linearTeams(workspaceId)
     setLinearTeams(teams)
     setSelectedLinearTeamIds(reconcileTeamSelection(teams, defaultLinearTeamSelectionRef.current))
   }, [connState, taskOperations, tasksSupported])

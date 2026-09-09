@@ -90,6 +90,34 @@ describe('useMobileNativeChatFileSearch', () => {
     ])
   })
 
+  it('does not cache a refused search, so the next keystroke retries it', async () => {
+    let refuse = true
+    const sendRequest = vi.fn(async (_method: string, params: { query: string }) => {
+      if (refuse) {
+        return {
+          id: 'refused',
+          ok: false as const,
+          error: { code: 'worktree_unavailable', message: 'Workspace moved' },
+          _meta: { runtimeId: 'runtime-1' }
+        }
+      }
+      return rpcSuccess([`src/${params.query}.ts`])
+    })
+    await mount({ sendRequest } as unknown as RpcClient)
+
+    act(() => state?.loadNativeChatFiles('comp'))
+    await act(async () => vi.advanceTimersByTimeAsync(120))
+    expect(sendRequest).toHaveBeenCalledTimes(1)
+    expect(state?.nativeChatFilePaths).toEqual([])
+
+    // The identical prefix must reach the host again rather than serve a cached empty answer.
+    refuse = false
+    act(() => state?.loadNativeChatFiles('comp'))
+    await act(async () => vi.advanceTimersByTimeAsync(120))
+    expect(sendRequest).toHaveBeenCalledTimes(2)
+    expect(state?.nativeChatFilePaths).toEqual(['src/comp.ts'])
+  })
+
   it('cancels an in-flight query on a cache hit so a stale result cannot clobber it', async () => {
     const sendRequest = vi.fn(async (_method: string, params: { query: string }) =>
       rpcSuccess(params.query === 'app' ? ['src/app.ts'] : ['src/beta.ts'])

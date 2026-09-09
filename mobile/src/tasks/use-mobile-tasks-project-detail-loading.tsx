@@ -128,6 +128,7 @@ export function useMobileTasksProjectDetailLoading(model: ItemDetailLoadingModel
     githubProjectTable,
     projectRowDetailRefreshSeq,
     projectRowItem,
+    taskOperations,
     tasksSupported
   ])
   return model

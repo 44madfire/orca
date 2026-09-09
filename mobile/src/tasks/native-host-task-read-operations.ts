@@ -2,10 +2,12 @@ import type { GitHubOwnerRepo } from '../../../src/shared/github/pull-request-ty
 import { MOBILE_TASKS_CAPABILITY } from './mobile-tasks-capability'
 import type {
   HostTaskBootstrap,
-  HostTaskLinearContext,
+  HostTaskLinearStatus,
+  HostTaskLinearTeams,
   HostTaskReadOperations,
   HostTaskRepository
 } from './host-task-read-operations'
+import { normalizeLinearStatus } from './linear-status-projection'
 import type { RpcRequestSender } from '../transport/rpc-client'
 import type { RpcResponse, RpcSuccess } from '../transport/types'
 
@@ -13,7 +15,8 @@ export function nativeHostTaskReadOperations(client: RpcRequestSender): HostTask
   return {
     bootstrap: () => bootstrap(client),
     listRepositories: () => listRepositories(client),
-    loadLinearContext: () => loadLinearContext(client),
+    linearStatus: () => linearStatus(client),
+    linearTeams: (workspaceId) => linearTeams(client, workspaceId),
     resolveGitHubRepoSlug: (repoId) => resolveGitHubRepoSlug(client, repoId)
   }
 }
@@ -60,23 +63,21 @@ async function listRepositories(client: RpcRequestSender): Promise<HostTaskRepos
   return result.repos ?? []
 }
 
-async function loadLinearContext(client: RpcRequestSender): Promise<HostTaskLinearContext> {
-  const statusResponse = await client.sendRequest('linear.status')
-  requireSuccess(statusResponse)
-  const status = normalizeLinearStatus(statusResponse.result)
-  if (!status.connected) {
-    return { status, teams: [] }
-  }
-  const workspaceId =
-    status.selectedWorkspaceId ?? status.activeWorkspaceId ?? status.workspaces[0]?.id ?? null
-  const teamsResponse = await client.sendRequest('linear.listTeams', {
+async function linearStatus(client: RpcRequestSender): Promise<HostTaskLinearStatus> {
+  const response = await client.sendRequest('linear.status')
+  requireSuccess(response)
+  return normalizeLinearStatus(response.result)
+}
+
+async function linearTeams(
+  client: RpcRequestSender,
+  workspaceId: string | null
+): Promise<HostTaskLinearTeams> {
+  const response = await client.sendRequest('linear.listTeams', {
     workspaceId: workspaceId ?? undefined
   })
-  requireSuccess(teamsResponse)
-  return {
-    status: { ...status, selectedWorkspaceId: workspaceId },
-    teams: teamsResponse.result as HostTaskLinearContext['teams']
-  }
+  requireSuccess(response)
+  return response.result as HostTaskLinearTeams
 }
 
 async function resolveGitHubRepoSlug(
@@ -100,16 +101,6 @@ function emptyBootstrap(supported: boolean): HostTaskBootstrap {
     trustedOrcaHooks: {},
     gitLabInstalled: false,
     linearStatus: normalizeLinearStatus(null)
-  }
-}
-
-function normalizeLinearStatus(value: unknown): HostTaskBootstrap['linearStatus'] {
-  const status = (value ?? {}) as Partial<HostTaskBootstrap['linearStatus']>
-  return {
-    connected: status.connected === true,
-    workspaces: Array.isArray(status.workspaces) ? status.workspaces : [],
-    selectedWorkspaceId: status.selectedWorkspaceId ?? null,
-    activeWorkspaceId: status.activeWorkspaceId ?? null
   }
 }
 

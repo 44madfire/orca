@@ -22,11 +22,6 @@ export type HostSessionTabOperations = {
     onError: () => void
   ): () => void
   agentOptions(workspaceId: string): Promise<MobileNewTabAgentOption[]>
-  createBlank(workspaceId: string): Promise<SessionTabsResult>
-  createAgent(
-    workspaceId: string,
-    agent: MobileNewTabAgentOption['agent']
-  ): Promise<SessionTabsResult>
   createQuickCommand?(
     workspaceId: string,
     commandId: string

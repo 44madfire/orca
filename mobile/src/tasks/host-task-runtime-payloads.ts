@@ -24,10 +24,7 @@ export type HostTaskBootstrap = {
 
 export type HostTaskRepository = RepoSummary
 
-export type HostTaskLinearContext = {
-  status: HostTaskLinearStatus
-  teams: LinearTeam[]
-}
+export type HostTaskLinearTeams = LinearTeam[]
 
 export type HostTaskSettingsUpdate = Pick<
   RuntimeTaskSettings,

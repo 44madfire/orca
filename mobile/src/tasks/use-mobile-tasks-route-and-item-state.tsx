@@ -43,7 +43,6 @@ import {
   type TasksSupportState,
   getTaskPresetQuery
 } from './mobile-tasks-legacy-foundation'
-import { defaultDeviceOperations } from '../device/default-device-operations'
 import { defaultHostTaskOperations } from './default-host-task-operations'
 import { defaultHostWorkspaceCreationOperations } from '../worktree/default-host-workspace-creation-operations'
 import { useMobileTasksItemState } from './use-mobile-tasks-item-state'
@@ -67,7 +66,6 @@ export function useMobileTasksRouteAndItemState() {
     () => (client ? defaultHostWorkspaceCreationOperations(client) : null),
     [client]
   )
-  const deviceOperations = useMemo(() => defaultDeviceOperations(), [])
   const repoList = useHostRepoList<RepoSummary>(
     taskOperations,
     taskOperations && connState === 'connected'
@@ -182,7 +180,6 @@ export function useMobileTasksRouteAndItemState() {
     client,
     taskOperations,
     taskWorkspaceCreationOperations,
-    deviceOperations,
     connState,
     reconnectAttempts,
     lastConnectedAt,

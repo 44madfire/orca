@@ -1,4 +1,5 @@
 import type { HostTaskLinearOperations } from './host-task-linear-operations'
+import { normalizeLinearStatus } from './linear-status-projection'
 import type { RpcRequestSender } from '../transport/rpc-client'
 import type { SendRequestOptions } from '../transport/rpc-client'
 
@@ -22,11 +23,15 @@ export function nativeHostTaskLinearOperations(client: RpcRequestSender): HostTa
       }),
     async selectWorkspace(workspaceId) {
       // Deliberate improvement over the call this replaced: that one dropped a refusal on the
-      // floor, leaving the picker showing a workspace the host never switched to.
-      assertMutation(
-        await request(client, 'linear.selectWorkspace', { workspaceId }),
-        'Failed to select workspace'
+      // floor, leaving the picker showing a workspace the host never switched to. The host
+      // answers a refusal with its unchanged connection status and no `ok` field, so the id
+      // coming back is the only proof the switch took.
+      const status = normalizeLinearStatus(
+        await request(client, 'linear.selectWorkspace', { workspaceId })
       )
+      if (status.selectedWorkspaceId !== workspaceId) {
+        throw new Error('Failed to select workspace')
+      }
     },
     async updateState(target, stateId) {
       await request(client, 'linear.updateIssue', {

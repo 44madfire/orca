@@ -223,12 +223,9 @@ export function useMobileSessionTerminalInput(scope: MobileSessionFileActionsMod
       return
     }
     getTerminalRef(target.handle)?.clear()
-    try {
-      // Why the result is ignored: a host that answers `ok: false` still cleared the local
-      // buffer above, and only a transport failure told the user the clear did not happen.
-      await sessionOperations.terminal.clear(target.handle)
+    if (await sessionOperations.terminal.clear(target.handle)) {
       showToast('Terminal cleared')
-    } catch {
+    } else {
       showToast("Couldn't clear terminal", 1500)
     }
   }

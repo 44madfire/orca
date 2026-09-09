@@ -60,8 +60,8 @@ export function useMobileNativeChatFileSearch(args: {
       setNativeChatFilePaths([])
       timerRef.current = setTimeout(() => {
         timerRef.current = null
-        const applyPaths = (paths: string[]): void => {
-          if (sequenceRef.current !== sequence) {
+        const applyPaths = (paths: string[] | null): void => {
+          if (sequenceRef.current !== sequence || !paths) {
             return
           }
           queryCacheRef.current.set(normalizedQuery, paths)
@@ -76,7 +76,7 @@ export function useMobileNativeChatFileSearch(args: {
         }
         void operations
           .searchFiles(target, normalizedQuery)
-          .then((paths) => applyPaths(paths.slice(0, FILE_SEARCH_RESULT_LIMIT)))
+          .then((paths) => applyPaths(paths ? paths.slice(0, FILE_SEARCH_RESULT_LIMIT) : null))
           .catch(() => {})
       }, FILE_SEARCH_DEBOUNCE_MS)
     },

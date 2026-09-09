@@ -47,41 +47,6 @@ export function nativeHostSessionTabOperations(client: RpcClient): HostSessionTa
     agentOptions(workspaceId) {
       return loadMobileNewTabAgentOptions({ client, worktreeId: workspaceId })
     },
-    async createBlank(workspaceId) {
-      const create = await client.sendRequest('session.tabs.createTerminal', {
-        worktree: `id:${workspaceId}`,
-        clientMutationId: nativeSessionCreateMutationId(),
-        activate: false,
-        select: true,
-        navigation: 'caller'
-      })
-      if (!create.ok) {
-        throw new Error('session_create_failed')
-      }
-      return successfulSnapshot(
-        await client.sendRequest('session.tabs.list', {
-          worktree: `id:${workspaceId}`
-        })
-      )
-    },
-    async createAgent(workspaceId, agent) {
-      const create = await client.sendRequest('session.tabs.createTerminal', {
-        worktree: `id:${workspaceId}`,
-        clientMutationId: nativeSessionCreateMutationId(),
-        agent,
-        activate: false,
-        select: true,
-        navigation: 'caller'
-      })
-      if (!create.ok) {
-        throw new Error('session_create_failed')
-      }
-      return successfulSnapshot(
-        await client.sendRequest('session.tabs.list', {
-          worktree: `id:${workspaceId}`
-        })
-      )
-    },
     async createBrowser(workspaceId, url) {
       const response = await client.sendRequest(
         'browser.tabCreate',
@@ -132,10 +97,6 @@ export function nativeHostSessionTabOperations(client: RpcClient): HostSessionTa
         : { outcome: 'closed' }
     }
   }
-}
-
-function nativeSessionCreateMutationId(): string {
-  return `mobile-create:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function successfulSnapshot(response: Awaited<ReturnType<RpcClient['sendRequest']>>) {

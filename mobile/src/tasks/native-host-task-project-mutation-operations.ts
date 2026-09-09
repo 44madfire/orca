@@ -90,7 +90,7 @@ export function nativeHostTaskProjectMutationOperations(
           // has no slug — send it only when one resolved rather than an empty pair.
           prRepo: prRepoPayload(target)
         }),
-        'Failed to resolve thread'
+        resolve ? 'Failed to resolve thread' : 'Failed to reopen thread'
       )
     },
     async replyReviewComment(target, repoId, payload) {
@@ -201,11 +201,14 @@ async function projectMutation<T extends object = object>(
   return (response.result ?? {}) as T
 }
 
+/** The wrapper substitutes its own copy for two cases the caller used to word itself: a host
+ *  that says nothing (`Request failed: <method>`) and a review thread it could not update. */
+const WRAPPER_SUBSTITUTED_COPY = ['Request failed: ', 'Failed to update review thread.']
+
 function requirePrMutation(result: GitHubPrMutationOutcome, fallback: string): void {
   if (!result.ok) {
-    // The wrapper mints `Request failed: <method>` when the host says nothing; the caller's own
-    // wording is what the user read before these calls moved behind the seam.
-    throw new Error(result.error.startsWith('Request failed: ') ? fallback : result.error)
+    const substituted = WRAPPER_SUBSTITUTED_COPY.some((copy) => result.error.startsWith(copy))
+    throw new Error(substituted ? fallback : result.error)
   }
 }
 

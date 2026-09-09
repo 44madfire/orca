@@ -43,7 +43,11 @@ export function nativeHostTaskItemReviewOperations(
         { repo: `id:${target.repoId}`, threadId, resolve },
         { timeoutMs: 30_000 }
       )
-      if (!response.ok || response.result !== true) {
+      if (!response.ok) {
+        throw new Error(response.error?.message ?? 'Task request failed')
+      }
+      // The host returns a bare `true`; anything else is a refusal, not a transport problem.
+      if (response.result !== true) {
         throw new Error(resolve ? 'Failed to resolve thread' : 'Failed to reopen thread')
       }
     },

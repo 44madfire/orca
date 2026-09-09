@@ -1,4 +1,3 @@
-import { sendMobileTerminalQueryReply } from '../terminal/mobile-terminal-query-reply'
 import { isTerminalSendRpcAccepted } from '../terminal/terminal-send-rpc-response'
 import { TERMINAL_INPUT_SEND_OPTIONS } from '../terminal/terminal-send-request'
 import type { RpcClient } from '../transport/rpc-client'
@@ -8,7 +7,6 @@ import { subscribeMobileTerminalSafely } from './mobile-terminal-stream-subscrib
 export function nativeHostSessionTerminalOperations(
   client: RpcClient
 ): HostSessionTerminalOperations {
-  const subscribedTerminals = new Set<string>()
   return {
     subscribe(args, onEvent, onError) {
       const unsubscribe = subscribeMobileTerminalSafely(
@@ -22,11 +20,7 @@ export function nativeHostSessionTerminalOperations(
         (event) => onEvent(event as Parameters<typeof onEvent>[0]),
         onError
       )
-      subscribedTerminals.add(args.terminalId)
-      return () => {
-        subscribedTerminals.delete(args.terminalId)
-        unsubscribe()
-      }
+      return unsubscribe
     },
     acknowledge() {},
     async sendInput(terminalId, text, enter, clientId) {
@@ -42,17 +36,6 @@ export function nativeHostSessionTerminalOperations(
           TERMINAL_INPUT_SEND_OPTIONS
         )
         .then(isTerminalSendRpcAccepted, () => false)
-    },
-    sendQueryReply(terminalId, bytes, clientId, hostSupportsQueryReply) {
-      return sendMobileTerminalQueryReply({
-        bytes,
-        client,
-        clientId,
-        connected: true,
-        handle: terminalId,
-        hostSupportsQueryReplyInput: hostSupportsQueryReply,
-        subscribedTerminals
-      })
     },
     setDisplayMode(terminalId, mode, viewport, clientId) {
       return client

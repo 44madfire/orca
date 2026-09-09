@@ -74,6 +74,8 @@ export type HostSessionNativeChatOperations = {
     followedByText?: boolean
   ): Promise<boolean>
   releaseImages?(target: HostSessionNativeChatTarget, references: readonly string[]): Promise<void>
-  searchFiles(target: HostSessionNativeChatTarget, query: string): Promise<string[]>
+  /** Null when the host refused the search. An empty array is a real answer the caller may
+   *  cache; a refusal must not be cached, or the next keystroke would never retry. */
+  searchFiles(target: HostSessionNativeChatTarget, query: string): Promise<string[] | null>
   openFile(target: HostSessionNativeChatTarget, pathText: string): Promise<void>
 }

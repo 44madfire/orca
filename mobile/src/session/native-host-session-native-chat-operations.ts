@@ -111,7 +111,9 @@ export function nativeHostSessionNativeChatOperations(
           return extractPaths(response.result)
         }
         if (response.error.code !== 'method_not_found') {
-          return []
+          // Null, not empty: an empty list is a real answer the caller caches, and caching a
+          // refusal would keep autocomplete dead for that prefix until the client changes.
+          return null
         }
         searchSupported = false
       }
@@ -133,7 +135,7 @@ export function nativeHostSessionNativeChatOperations(
         }
         const paths = await legacyLoad
         if (!paths) {
-          return []
+          return null
         }
         legacyPaths = paths
         legacyPathsByWorkspace.set(target.workspaceId, paths)

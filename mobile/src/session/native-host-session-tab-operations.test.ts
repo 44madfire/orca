@@ -34,8 +34,6 @@ describe('native host session tab operations', () => {
     const sendRequest = vi
       .fn<RpcClient['sendRequest']>()
       .mockResolvedValueOnce({ ok: true, result: sessionSnapshot(1) })
-      .mockResolvedValueOnce({ ok: true, result: { created: true } })
-      .mockResolvedValueOnce({ ok: true, result: sessionSnapshot(2) })
       .mockResolvedValueOnce({ ok: true, result: { browserPageId: 'browser-1' } })
       .mockResolvedValueOnce({ ok: true, result: sessionSnapshot(3) })
       .mockResolvedValueOnce({ ok: true, result: { closed: true } })
@@ -44,7 +42,6 @@ describe('native host session tab operations', () => {
     } as unknown as RpcClient)
 
     await expect(operations.snapshot('workspace-1')).resolves.toEqual(sessionSnapshot(1))
-    await expect(operations.createBlank('workspace-1')).resolves.toEqual(sessionSnapshot(2))
     await expect(operations.createBrowser('workspace-1', 'https://example.com')).resolves.toEqual({
       browserPageId: 'browser-1'
     })
@@ -56,17 +53,6 @@ describe('native host session tab operations', () => {
     })
 
     expect(sendRequest.mock.calls).toEqual([
-      ['session.tabs.list', { worktree: 'id:workspace-1' }],
-      [
-        'session.tabs.createTerminal',
-        {
-          worktree: 'id:workspace-1',
-          clientMutationId: expect.stringMatching(/^mobile-create:/),
-          activate: false,
-          select: true,
-          navigation: 'caller'
-        }
-      ],
       ['session.tabs.list', { worktree: 'id:workspace-1' }],
       [
         'browser.tabCreate',
@@ -156,7 +142,7 @@ describe('native host session tab operations', () => {
     expect(sendRequest).toHaveBeenCalledTimes(2)
   })
 
-  it('loads enabled agent choices and creates the selected agent through named operations', async () => {
+  it('loads enabled agent choices', async () => {
     const sendRequest = vi.fn<RpcClient['sendRequest']>(async (method) => {
       if (method === 'settings.get') {
         return {
@@ -166,9 +152,6 @@ describe('native host session tab operations', () => {
       }
       if (method === 'preflight.detectAgents') {
         return { ok: true, result: ['claude', 'codex'] }
-      }
-      if (method === 'session.tabs.createTerminal') {
-        return { ok: true, result: { created: true } }
       }
       return { ok: true, result: sessionSnapshot(4) }
     })
@@ -180,17 +163,6 @@ describe('native host session tab operations', () => {
       { agent: 'codex', label: 'Codex' },
       { agent: 'claude', label: 'Claude' }
     ])
-    await expect(operations.createAgent('global-floating-terminal', 'codex')).resolves.toEqual(
-      sessionSnapshot(4)
-    )
-    expect(sendRequest).toHaveBeenCalledWith('session.tabs.createTerminal', {
-      worktree: 'id:global-floating-terminal',
-      clientMutationId: expect.stringMatching(/^mobile-create:/),
-      agent: 'codex',
-      activate: false,
-      select: true,
-      navigation: 'caller'
-    })
   })
 
   it('keeps refused closes visible to the shared screen', async () => {

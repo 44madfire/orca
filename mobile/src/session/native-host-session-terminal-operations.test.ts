@@ -81,30 +81,4 @@ describe('native host session terminal operations', () => {
     cleanup()
     expect(unsubscribe).toHaveBeenCalledOnce()
   })
-
-  it('keeps query replies capability-gated and bound to an active subscription', async () => {
-    const operations = nativeHostSessionTerminalOperations({
-      subscribe: vi.fn().mockReturnValue(vi.fn()),
-      sendRequest: vi.fn().mockResolvedValue({ ok: true, result: { send: { accepted: true } } })
-    } as unknown as RpcClient)
-    operations.subscribe(
-      {
-        workspaceId: 'workspace-1',
-        terminalId: 'terminal-native-1',
-        clientId: null,
-        viewport: null,
-        visible: true,
-        capabilities: { terminalBinaryStream: 1 }
-      },
-      vi.fn(),
-      vi.fn()
-    )
-
-    await expect(
-      operations.sendQueryReply('terminal-native-1', '\u001b[0n', null, false)
-    ).resolves.toBe(false)
-    await expect(
-      operations.sendQueryReply('terminal-native-1', '\u001b[0n', null, true)
-    ).resolves.toBe(true)
-  })
 })

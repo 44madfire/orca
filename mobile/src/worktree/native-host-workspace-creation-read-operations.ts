@@ -47,10 +47,10 @@ export function nativeHostWorkspaceCreationReadOperations(
       return readRetiredNameRegistryForRepo(result, repoId)
     },
     async readRuntimeSettings() {
-      const result = await successfulResult<{ settings: NewWorkspaceRuntimeSettings }>(
+      const result = await successfulResult<{ settings?: NewWorkspaceRuntimeSettings }>(
         client.sendRequest('settings.get')
       )
-      return result.settings
+      return result.settings ?? {}
     },
     async readTrustedHooks() {
       const result = await successfulResult<{

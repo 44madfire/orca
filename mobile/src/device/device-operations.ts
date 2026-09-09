@@ -1,22 +1,8 @@
 /** Device capabilities a screen reaches through its host binding instead of importing a native
- *  module directly, so the same screen runs against a non-native provider later. */
-export type DeviceHapticKind = 'selection' | 'success' | 'error' | 'edge-bump' | 'medium-impact'
-
-export type DeviceClipboardAvailability = {
-  hasText: boolean
-  hasImage: boolean
-}
-
-/** iOS shows its own paste banner; every other platform needs the app to confirm. */
-export type DeviceClipboardWriteResult = {
-  confirmation: 'in-app' | 'system'
-}
-
+ *  module directly, so the same screen runs against a non-native provider later.
+ *
+ *  Deliberately narrow: only what a caller on this branch reads. Haptics, clipboard and external
+ *  links join it when the screens that use them are routed. */
 export type DeviceOperations = {
-  hapticFeedback(kind: DeviceHapticKind): void
-  clipboardAvailability(): Promise<DeviceClipboardAvailability>
-  copyText(text: string): Promise<DeviceClipboardWriteResult>
-  openExternalUrl(url: string): Promise<void>
-  openTerminalSettings(): void
   randomNonce(): string
 }

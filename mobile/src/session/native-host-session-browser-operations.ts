@@ -50,7 +50,10 @@ export function nativeHostSessionBrowserOperations(
       )
     },
     async click(target, point, button, modifiers, radius) {
-      const click = await client.sendRequest(
+      // No move/down/up fallback here: the live caller wraps that sequence in a try/catch
+      // because pointer commands race page navigation, and a throwing copy of it would surface
+      // those races as errors the user never saw.
+      await client.sendRequest(
         'browser.mouseClick',
         {
           ...nativeTarget(target),
@@ -61,12 +64,6 @@ export function nativeHostSessionBrowserOperations(
         },
         { timeoutMs: 5_000 }
       )
-      if (click.ok || modifiers.length > 0) {
-        return
-      }
-      await requestResult(client, 'browser.mouseMove', { ...nativeTarget(target), ...point }, 5_000)
-      await requestResult(client, 'browser.mouseDown', { ...nativeTarget(target), button }, 5_000)
-      await requestResult(client, 'browser.mouseUp', { ...nativeTarget(target), button }, 5_000)
     },
     async insertText(target, text) {
       await requestResult(
