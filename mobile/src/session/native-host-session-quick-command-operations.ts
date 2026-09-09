@@ -5,8 +5,6 @@ import type {
   HostSessionQuickCommandOperations,
   HostSessionQuickCommandSnapshot
 } from './host-session-quick-command-operations'
-import { isFloatingWorkspaceWorktreeId } from './floating-workspace'
-import { getRepoIdFromMobileWorktreeId } from './mobile-session-route-helpers'
 
 const LOAD_CUTOVER_MAX_RETRIES = 5
 
@@ -14,16 +12,16 @@ export function nativeHostSessionQuickCommandOperations(
   client: RpcClient
 ): HostSessionQuickCommandOperations {
   return {
-    async snapshot(workspaceId, signal) {
+    async snapshot(signal) {
       // The ok check sits outside the retry, as it did before this seam existed: a refusal
       // envelope is an answer, and replaying it would depend on the host's error text.
       const response = await loadWithCutoverRetry(client, signal)
       if (!response.ok) {
         throw new Error(response.error.message || 'Failed to load quick commands')
       }
-      return quickCommandSnapshot(response.result, workspaceId, 'Failed to load quick commands')
+      return quickCommandSnapshot(response.result, 'Failed to load quick commands')
     },
-    async mutate(workspaceId, mutation) {
+    async mutate(mutation) {
       // Why no cutover retry here: a quick-command mutation is not idempotent, so a replay
       // after a logical cutover could apply the same edit twice.
       const response = await client.sendRequest('settings.updateTerminalQuickCommands', {
@@ -32,7 +30,7 @@ export function nativeHostSessionQuickCommandOperations(
       if (!response.ok) {
         throw new Error(response.error.message || 'Failed to save quick command')
       }
-      return quickCommandSnapshot(response.result, workspaceId, 'Failed to save quick command')
+      return quickCommandSnapshot(response.result, 'Failed to save quick command')
     }
   }
 }
@@ -55,7 +53,6 @@ async function loadWithCutoverRetry(client: RpcClient, signal?: AbortSignal) {
 
 function quickCommandSnapshot(
   result: unknown,
-  workspaceId: string,
   invalidResultMessage: string
 ): HostSessionQuickCommandSnapshot {
   const commands = parseNormalizedTerminalQuickCommands(
@@ -64,12 +61,5 @@ function quickCommandSnapshot(
   if (!commands) {
     throw new Error(invalidResultMessage)
   }
-  return {
-    commands,
-    totalCount: commands.length,
-    repoId:
-      workspaceId.startsWith('folder:') || isFloatingWorkspaceWorktreeId(workspaceId)
-        ? null
-        : getRepoIdFromMobileWorktreeId(workspaceId)
-  }
+  return { commands }
 }

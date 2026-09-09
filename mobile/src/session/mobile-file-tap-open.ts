@@ -77,9 +77,7 @@ async function openMobileFileTapAsync<T extends FileTapSessionTab>(
     terminalHandle,
     pathText: options.pathText,
     cwd,
-    nativeChatContext: options.nativeChatContext ?? null,
-    line: options.line,
-    column: options.column
+    nativeChatContext: options.nativeChatContext ?? null
   })
   if (!resolved) {
     reportOpenFailure(options)

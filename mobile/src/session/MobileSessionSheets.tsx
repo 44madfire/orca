@@ -105,7 +105,6 @@ export function MobileSessionSheets({ controller }: { controller: MobileSessionC
         visible={showQuickCommands && quickCommandsSupported === true}
         onClose={() => setShowQuickCommands(false)}
         operations={sessionOperations?.quickCommand ?? null}
-        workspaceId={worktreeId}
         repoId={
           isFolderWorkspaceRoute || isFloatingWorkspaceRoute
             ? null

@@ -2,26 +2,11 @@ import { isTerminalSendRpcAccepted } from '../terminal/terminal-send-rpc-respons
 import { TERMINAL_INPUT_SEND_OPTIONS } from '../terminal/terminal-send-request'
 import type { RpcClient } from '../transport/rpc-client'
 import type { HostSessionTerminalOperations } from './host-session-terminal-operations'
-import { subscribeMobileTerminalSafely } from './mobile-terminal-stream-subscribe'
 
 export function nativeHostSessionTerminalOperations(
   client: RpcClient
 ): HostSessionTerminalOperations {
   return {
-    subscribe(args, onEvent, onError) {
-      const unsubscribe = subscribeMobileTerminalSafely(
-        client,
-        {
-          terminal: args.terminalId,
-          ...(args.clientId ? { client: { id: args.clientId, type: 'mobile' as const } } : {}),
-          viewport: args.viewport,
-          capabilities: args.capabilities
-        },
-        (event) => onEvent(event as Parameters<typeof onEvent>[0]),
-        onError
-      )
-      return unsubscribe
-    },
     async sendInput(terminalId, text, enter, clientId) {
       return client
         .sendRequest(

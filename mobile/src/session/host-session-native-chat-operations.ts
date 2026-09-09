@@ -44,13 +44,6 @@ export type HostSessionNativeChatOperations = {
     beforeOffset?: number
   ): Promise<HostSessionNativeChatReadResult>
   stop(target: HostSessionNativeChatTarget, deadline?: number): Promise<MobileNativeChatSendOutcome>
-  pasteImages?(
-    target: HostSessionNativeChatTarget,
-    references: readonly string[],
-    deadline?: number,
-    followedByText?: boolean
-  ): Promise<boolean>
-  releaseImages?(target: HostSessionNativeChatTarget, references: readonly string[]): Promise<void>
   /** Drops the legacy full-inventory fallback's cached listing for a workspace. Without it a
    *  second visit inside one connection serves the first read's inventory, so a file created in
    *  between is missing from `@` autocomplete. */

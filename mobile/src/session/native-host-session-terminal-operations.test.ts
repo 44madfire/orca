@@ -3,47 +3,14 @@ import type { RpcClient } from '../transport/rpc-client'
 import { nativeHostSessionTerminalOperations } from './native-host-session-terminal-operations'
 
 describe('native host session terminal operations', () => {
-  it('preserves the existing mobile subscription and input RPC semantics', async () => {
-    const unsubscribe = vi.fn()
-    let onData: ((event: unknown) => void) | null = null
-    const subscribe = vi.fn((_method, _params, listener) => {
-      onData = listener
-      return unsubscribe
-    })
+  it('preserves the existing mobile terminal input RPC semantics', async () => {
     const sendRequest = vi
       .fn()
       .mockResolvedValue({ ok: true, result: { send: { accepted: true } } })
     const operations = nativeHostSessionTerminalOperations({
-      subscribe,
       sendRequest
     } as unknown as RpcClient)
-    const onEvent = vi.fn()
 
-    const cleanup = operations.subscribe(
-      {
-        workspaceId: 'workspace-1',
-        terminalId: 'terminal-native-1',
-        clientId: 'device-1',
-        viewport: { cols: 90, rows: 30 },
-        visible: true,
-        capabilities: { terminalBinaryStream: 1 }
-      },
-      onEvent,
-      vi.fn()
-    )
-    onData?.({ type: 'data', chunk: 'hello' })
-
-    expect(subscribe).toHaveBeenCalledWith(
-      'terminal.subscribe',
-      {
-        terminal: 'terminal-native-1',
-        client: { id: 'device-1', type: 'mobile' },
-        viewport: { cols: 90, rows: 30 },
-        capabilities: { terminalBinaryStream: 1 }
-      },
-      expect.any(Function)
-    )
-    expect(onEvent).toHaveBeenCalledWith({ type: 'data', chunk: 'hello' })
     await expect(operations.sendInput('terminal-native-1', 'ls', true, 'device-1')).resolves.toBe(
       true
     )
@@ -60,9 +27,7 @@ describe('native host session terminal operations', () => {
     await expect(
       operations.setDisplayMode('terminal-native-1', 'auto', { cols: 90, rows: 30 }, 'device-1')
     ).resolves.toBe(true)
-    await expect(
-      operations.rename('terminal-native-1', 'Build', 'workspace-native-1')
-    ).resolves.toBe(true)
+    await expect(operations.rename('terminal-native-1', 'Build')).resolves.toBe(true)
     await expect(operations.clear('terminal-native-1')).resolves.toBe(true)
     expect(sendRequest).toHaveBeenCalledWith('terminal.setDisplayMode', {
       terminal: 'terminal-native-1',
@@ -77,8 +42,5 @@ describe('native host session terminal operations', () => {
     expect(sendRequest).toHaveBeenCalledWith('terminal.clearBuffer', {
       terminal: 'terminal-native-1'
     })
-
-    cleanup()
-    expect(unsubscribe).toHaveBeenCalledOnce()
   })
 })

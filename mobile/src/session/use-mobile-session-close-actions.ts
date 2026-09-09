@@ -40,7 +40,7 @@ export function useMobileSessionCloseActions(scope: MobileSessionContentCreateAc
 
     try {
       const title = value.trim()
-      if (await sessionOperations.terminal.rename(target.handle, title, worktreeId)) {
+      if (await sessionOperations.terminal.rename(target.handle, title)) {
         setTerminals((prev) => {
           const next = prev.map((terminal) =>
             terminal.handle === target.handle

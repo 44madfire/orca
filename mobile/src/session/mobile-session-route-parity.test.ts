@@ -70,7 +70,7 @@ const HEAD_CALLBACK_BODY_SHA256 = 'e66e6436cdb9a66e870c06fdfc140106502fbeddd8db4
 const HEAD_EFFECT_SHA256 = 'd9ebfaabc1e79773cdada7ab370b20459ed972f1f8edce1652199f4d0391cd13'
 const HEAD_CONTENT_HOOK_SHA256 = '9c3b612fef3f370d66873aefdbe1d701f20cb64ded31fef5cc45fde6f8189581'
 const HEAD_NESTED_FUNCTION_SHA256 =
-  '3b75d854a92b086907571f4c877961bd429f76e3826979cee5b0e94ed2007c8e'
+  'ad78ecb8bd61cd0cc3a7037bbd7dcc06b0fbe0de62b23090b8350c2947d65c3d'
 const HEAD_NATIVE_REGISTRATION_SHA256 =
   'cab85e4e4a3f43289ba93ddea9ccce57aea83e0bf14fd1620a965aad0c1cb49e'
 const HEAD_NATIVE_REMOVAL_SHA256 =
@@ -79,13 +79,13 @@ const HEAD_TIMER_CREATION_SHA256 =
   '1a31b625e2174c3db77272249843196d2b6b06ab1e654a96d8f7858e3082e66b'
 const HEAD_TIMER_CLEANUP_SHA256 = 'c73f1d1c2cc89642f3d727d6f3b6b81860a9d6f34234541a2065ec3d1a8cd116'
 const HEAD_RUNTIME_STRING_SHA256 =
-  '2f78f3e8f835b3a786c8940dabc127d0d131e909c0e736a4a341c5d50ce35059'
+  '58ee753e4fc849c693aa6ebb71b2ff7c38dbbba50977cacc737b03c4bb2a7224'
 const HEAD_HOST_JSX_SHA256 = '390405926b1695fa3a33686f0bc192b432f5468d8576499d7cafbb4922defbb5'
-const HEAD_LEAF_JSX_SHA256 = 'd5f1ef0db57c63eb3e4ee7c98e8483bc21882a151ce0ca24e42c7d1234e1dace'
+const HEAD_LEAF_JSX_SHA256 = '15ea1af8ae1a28a4a5f2ea31c2aac908fc24a0fe68923733889f1d40d0c8e3a3'
 const HEAD_STYLE_REFERENCE_SHA256 =
   '295a3501c2c6d7bea7c8bbf38b3f3534f01344cd7e1b91bb8e07c040821d596a'
 const HEAD_IDENTITY_FIELD_SHA256 =
-  '2084e23285fc128e02ffbf751092ffc834b2d257c5c4bd782769f0bf97d2f161'
+  '89bdd544369e41829581e80d320112019f3127fd3529c810d9651e5ece37338b'
 const HEAD_NAVIGATION_SHA256 = '9d96f5dad7de555d6553eac39c0fab00efad507470fd562cb9beaa32db16f512'
 const HEAD_CAPABILITY_SHA256 = 'ca219f7909a091717110b823d5b94a20770ad3ae51894e0fa765e8628309392d'
 
@@ -529,9 +529,7 @@ describe('mobile session route extraction parity', () => {
     )
     expect(hash(native.cleanups)).toBe(HEAD_TIMER_CLEANUP_SHA256)
     const compatibility = readCompatibilityFacts(definitions)
-    // 15, not main's 14: the seam moved two hook-side `deviceToken` fields into three
-    // adapter-side `client: { id }` builders. Every binding main pinned is still pinned.
-    expect(compatibility.identityFields).toHaveLength(15)
+    expect(compatibility.identityFields).toHaveLength(14)
     expect(hash(compatibility.identityFields)).toBe(HEAD_IDENTITY_FIELD_SHA256)
     expect(compatibility.navigation).toHaveLength(6)
     expect(hash(compatibility.navigation)).toBe(HEAD_NAVIGATION_SHA256)
@@ -541,7 +539,7 @@ describe('mobile session route extraction parity', () => {
 
   it('preserves runtime strings, styles, and the expanded JSX tree', () => {
     const strings = readRuntimeStrings()
-    expect(strings).toHaveLength(593)
+    expect(strings).toHaveLength(591)
     expect(hash(strings)).toBe(HEAD_RUNTIME_STRING_SHA256)
     const jsx = readJsxFacts(readDefinitions())
     expect(jsx.host).toHaveLength(124)

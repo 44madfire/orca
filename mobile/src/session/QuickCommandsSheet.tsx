@@ -24,7 +24,6 @@ type Props = {
   visible: boolean
   onClose: () => void
   operations: HostSessionQuickCommandOperations | null
-  workspaceId: string
   repoId: string | null
   repoName: string | null
   onLaunch: (command: TerminalQuickCommand) => boolean
@@ -36,14 +35,12 @@ export function QuickCommandsSheet({
   visible,
   onClose,
   operations,
-  workspaceId,
   repoId,
   repoName,
   onLaunch
 }: Props) {
   const { commands, loading, ready, error, persist } = useQuickCommands({
     operations,
-    workspaceId,
     enabled: visible
   })
   const [view, setView] = useState<SheetView>('list')

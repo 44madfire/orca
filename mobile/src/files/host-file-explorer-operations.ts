@@ -5,7 +5,6 @@ export type HostFileExplorerDirectoryResult =
   | {
       kind: 'directory'
       entries: MobileDirEntry[]
-      truncated: boolean
     }
   | {
       kind: 'legacy-list'

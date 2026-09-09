@@ -13,14 +13,6 @@ export type HostSessionTerminalFileTarget =
       grantId: string
       workspaceId?: string
     }
-  | {
-      kind: 'web-artifact'
-      /** The terminal text the desktop re-resolves for every chunk read. */
-      pathText: string
-      displayName: string
-      previewKind: 'text' | 'raster'
-      workspaceId?: string
-    }
 
 export type HostSessionTerminalFileResolveRequest = {
   workspaceId: string
@@ -28,8 +20,6 @@ export type HostSessionTerminalFileResolveRequest = {
   pathText: string
   cwd: string | null
   nativeChatContext: RuntimeNativeChatFileContext | null
-  line: number | null
-  column: number | null
 }
 
 export type HostSessionTerminalFileOperations = {

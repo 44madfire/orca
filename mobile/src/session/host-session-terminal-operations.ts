@@ -52,11 +52,6 @@ export type HostSessionTerminalSubscribeArgs = {
 }
 
 export type HostSessionTerminalOperations = {
-  subscribe(
-    args: HostSessionTerminalSubscribeArgs,
-    onEvent: (event: HostSessionTerminalStreamEvent) => void,
-    onError: () => void
-  ): () => void
   sendInput(
     terminalId: string,
     text: string,
@@ -70,5 +65,5 @@ export type HostSessionTerminalOperations = {
     clientId: string | null
   ): Promise<boolean>
   clear(terminalId: string): Promise<boolean>
-  rename(terminalId: string, title: string, workspaceId: string): Promise<boolean>
+  rename(terminalId: string, title: string): Promise<boolean>
 }

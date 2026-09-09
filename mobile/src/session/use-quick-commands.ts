@@ -8,7 +8,6 @@ import type { HostSessionQuickCommandOperations } from './host-session-quick-com
 
 type Args = {
   operations: HostSessionQuickCommandOperations | null
-  workspaceId: string
   // Fetch only while the sheet is open — quick commands are settings data we
   // don't need to keep hydrated for every session screen.
   enabled: boolean
@@ -31,14 +30,13 @@ type PendingMutation = {
 
 type MutationContext = {
   operations: HostSessionQuickCommandOperations
-  workspaceId: string
   confirmed: TerminalQuickCommand[]
   pending: PendingMutation[]
   queue: Promise<void>
   nextMutationId: number
 }
 
-export function useQuickCommands({ operations, workspaceId, enabled }: Args): QuickCommandsState {
+export function useQuickCommands({ operations, enabled }: Args): QuickCommandsState {
   const [commands, setCommands] = useState<TerminalQuickCommand[]>([])
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
@@ -53,11 +51,10 @@ export function useQuickCommands({ operations, workspaceId, enabled }: Args): Qu
       return
     }
     let mutationContext = mutationContextRef.current
-    if (mutationContext?.operations !== operations || mutationContext.workspaceId !== workspaceId) {
+    if (mutationContext?.operations !== operations) {
       // A request for an old host must not delay or update mutations on a new one.
       mutationContext = {
         operations,
-        workspaceId,
         confirmed: [],
         pending: [],
         queue: Promise.resolve(),
@@ -89,7 +86,7 @@ export function useQuickCommands({ operations, workspaceId, enabled }: Args): Qu
         ) {
           return
         }
-        const snapshot = await operations.snapshot(workspaceId, abortController.signal)
+        const snapshot = await operations.snapshot(abortController.signal)
         if (
           stale ||
           operationId !== operationIdRef.current ||
@@ -124,20 +121,14 @@ export function useQuickCommands({ operations, workspaceId, enabled }: Args): Qu
       stale = true
       abortController.abort()
     }
-  }, [enabled, operations, workspaceId])
+  }, [enabled, operations])
 
   const persist = useCallback(
     async (commandMutation: TerminalQuickCommandMutation) => {
       // Why: the loaded list is the optimistic/rollback baseline; mutating
       // before it arrives would make failure recovery show invented state.
       const mutationContext = mutationContextRef.current
-      if (
-        !operations ||
-        loading ||
-        !ready ||
-        mutationContext?.operations !== operations ||
-        mutationContext.workspaceId !== workspaceId
-      ) {
+      if (!operations || loading || !ready || mutationContext?.operations !== operations) {
         return false
       }
       const mutation: PendingMutation = {
@@ -157,7 +148,7 @@ export function useQuickCommands({ operations, workspaceId, enabled }: Args): Qu
         try {
           // Why: an invalid success payload throws inside the adapter rather than
           // confirming [] — a later full-list mutation would erase live commands.
-          const snapshot = await operations.mutate(workspaceId, commandMutation)
+          const snapshot = await operations.mutate(commandMutation)
           mutationContext.confirmed = snapshot.commands
           succeeded = true
           return true
@@ -191,7 +182,7 @@ export function useQuickCommands({ operations, workspaceId, enabled }: Args): Qu
       )
       return await request
     },
-    [loading, operations, ready, workspaceId]
+    [loading, operations, ready]
   )
 
   return { commands, loading, ready, error, persist }
