@@ -2,21 +2,10 @@ import { DURABLE_PUSH_SCHEMA } from './durable-push-schema.js'
 // Applied at startup for both dialects, including additive queue tables,
 // so every column type has to read the same in SQLite and PostgreSQL.
 const PUSH_SCHEMA = `
-CREATE TABLE IF NOT EXISTS push_hosts (
-  host_fingerprint TEXT PRIMARY KEY,
-  host_public_key TEXT NOT NULL,
-  created_at BIGINT NOT NULL,
-  last_seen_at BIGINT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS push_challenges (
   challenge_id TEXT PRIMARY KEY,
   host_fingerprint TEXT NOT NULL,
-  -- Carried here so a host row is only written once a proof succeeds; an
-  -- unauthenticated challenge must not be able to create one.
-  host_public_key TEXT NOT NULL,
   secret_hash TEXT NOT NULL,
-  transcript TEXT NOT NULL,
   expires_at BIGINT NOT NULL,
   consumed_at BIGINT
 );
@@ -44,10 +33,6 @@ CREATE TABLE IF NOT EXISTS push_devices (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS push_devices_host_device
   ON push_devices(host_fingerprint, device_id);
-
--- The stale-host pruner scans by last contact. Its owning-host subquery rides
--- the push_devices_host_device index.
-CREATE INDEX IF NOT EXISTS push_hosts_last_seen_at ON push_hosts(last_seen_at);
 `
 
 export function pushSchemaStatements(): string[] {

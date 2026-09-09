@@ -16,9 +16,6 @@ export const PUSH_LIMITS = {
   clockSkewToleranceMs: 30_000,
   sessionTtlMs: 24 * 60 * 60 * 1000,
   notificationTtlSeconds: 5 * 60,
-  // Nothing reads a host row, and any keypair mints one for free, so a host
-  // with no registration left is kept only long enough to survive a phone swap.
-  hostRetentionMs: 60 * 60 * 1000,
   // The challenge and session routes are the only unauthenticated writes, so
   // they are capped per client IP before any key material is generated.
   unauthenticatedRequestsPerMinutePerIp: 30,

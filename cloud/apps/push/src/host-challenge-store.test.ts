@@ -43,8 +43,6 @@ describe('push host challenge store', () => {
       ok: true,
       hostFingerprint: deriveHostFingerprint(host.publicKey)
     })
-    const [hostRow] = await database.query('SELECT host_fingerprint, last_seen_at FROM push_hosts')
-    expect(hostRow?.host_fingerprint).toBe(deriveHostFingerprint(host.publicKey))
   })
 
   it('never stores material that reproduces the proof', async () => {
@@ -181,58 +179,6 @@ describe('push host challenge store', () => {
     })
     await expect(store.issue('not-base64!!')).resolves.toBeNull()
     await expect(store.issue(Buffer.alloc(31, 1).toString('base64'))).resolves.toBeNull()
-  })
-
-  it('creates no host row until a proof succeeds', async () => {
-    const host = createPushHostKeypair(30)
-    const challenge = await store.issue(hostPublicKeyB64(host))
-    const [beforeProof] = await database.query('SELECT COUNT(*) AS hosts FROM push_hosts')
-    expect(Number(beforeProof?.hosts)).toBe(0)
-
-    const proof = answerPushHostChallenge(challenge!, {
-      gatewayOrigin: GATEWAY_ORIGIN,
-      keypair: host,
-      now: () => clock
-    })!
-    await expect(store.verify(challenge!.challengeId, proof)).resolves.toMatchObject({ ok: true })
-    const [row] = await database.query('SELECT host_public_key, last_seen_at FROM push_hosts')
-    expect(row?.host_public_key).toBe(hostPublicKeyB64(host))
-    expect(Number(row?.last_seen_at)).toBe(clock)
-  })
-
-  it('leaves no host row behind when a challenge is never answered', async () => {
-    for (let index = 0; index < 5; index++) {
-      await store.issue(hostPublicKeyB64(createPushHostKeypair(40 + index)))
-    }
-    const [row] = await database.query('SELECT COUNT(*) AS hosts FROM push_hosts')
-    expect(Number(row?.hosts)).toBe(0)
-  })
-
-  it('prunes a host past retention only when it has no registration left', async () => {
-    const stale = createPushHostKeypair(50)
-    const kept = createPushHostKeypair(51)
-    for (const host of [stale, kept]) {
-      const challenge = await store.issue(hostPublicKeyB64(host))
-      const proof = answerPushHostChallenge(challenge!, {
-        gatewayOrigin: GATEWAY_ORIGIN,
-        keypair: host,
-        now: () => clock
-      })!
-      await store.verify(challenge!.challengeId, proof)
-    }
-    await database.query(
-      `INSERT INTO push_devices (registration_id, host_fingerprint, device_id, platform, token,
-       created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ['reg-1', deriveHostFingerprint(kept.publicKey), 'device-1', 'android', 'token', clock, clock]
-    )
-
-    clock += PUSH_LIMITS.hostRetentionMs
-    expect(await store.pruneStaleHosts()).toBe(0)
-    clock += 1
-    expect(await store.pruneStaleHosts()).toBe(1)
-    const [row] = await database.query('SELECT host_fingerprint FROM push_hosts')
-    expect(row?.host_fingerprint).toBe(deriveHostFingerprint(kept.publicKey))
   })
 
   it('prunes challenges that fell out of the skew window', async () => {

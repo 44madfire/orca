@@ -4,7 +4,6 @@ import type { createPushServer } from './push-server.js'
 const CHALLENGE_PRUNE_INTERVAL_MS = 60_000
 const SESSION_PRUNE_INTERVAL_MS = 10 * 60_000
 const DELIVERY_PRUNE_INTERVAL_MS = 60_000
-const STALE_HOST_PRUNE_INTERVAL_MS = 30 * 60_000
 
 function prune(label: string, run: () => Promise<number>, intervalMs: number): NodeJS.Timeout {
   const timer = setInterval(() => {
@@ -34,8 +33,7 @@ export function startPushBackground(
   const timers = [
     prune('challenges', () => challenges.pruneExpired(), CHALLENGE_PRUNE_INTERVAL_MS),
     prune('sessions', () => sessions.pruneExpired(), SESSION_PRUNE_INTERVAL_MS),
-    prune('deliveries', () => deliveryStore.prune(), DELIVERY_PRUNE_INTERVAL_MS),
-    prune('stale_hosts', () => challenges.pruneStaleHosts(), STALE_HOST_PRUNE_INTERVAL_MS)
+    prune('deliveries', () => deliveryStore.prune(), DELIVERY_PRUNE_INTERVAL_MS)
   ]
   worker.start()
   return async () => {

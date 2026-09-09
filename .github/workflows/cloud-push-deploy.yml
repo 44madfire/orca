@@ -16,10 +16,9 @@ permissions:
   contents: read
   id-token: write
 
-# Push uses dedicated Cloud SQL; its schema startup and connection-budget rollout intentionally
-# retain the production rollout coordination group and lease shared with Relay.
+# Serialize push traffic changes independently of Relay and the shared database.
 concurrency:
-  group: production-cloud-sql-rollout
+  group: production-push-rollout
   cancel-in-progress: false
 
 defaults:
@@ -85,10 +84,7 @@ jobs:
       - name: Configure Docker auth
         run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
 
-      # Why: the build runs before the lease. Artifact Registry is not the Cloud SQL instance,
-      # and a multi-minute image build inside the lease blocks every relay deploy and rehome for
-      # its duration. The lease below covers exactly the connection-budget window: deploy, probe,
-      # shift.
+      # Building an image does not need the deployment lease.
       - name: Build and publish the immutable gateway image
         shell: bash
         run: |
@@ -122,7 +118,7 @@ jobs:
       - uses: ./.github/actions/cloud-sql-rollout-lease
         with:
           bucket: onorca-cloud-terraform-state
-          object: terraform/state/cloud-sql-rollout/production.lock
+          object: terraform/state/push-rollout/production.lock
 
       # Why: the candidate inherits the serving revision's scaling. A serving revision that has
       # drifted below the floor would hand the candidate a cold start on every notification, and

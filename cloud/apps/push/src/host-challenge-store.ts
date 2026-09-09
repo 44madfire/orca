@@ -69,21 +69,17 @@ export class PushHostChallengeStore {
     const expectedProof = createHmac('sha256', challengeSecret)
       .update(buildPushHostProofMacInput(transcript))
       .digest()
-    // No push_hosts row yet: issuing is unauthenticated, so anyone could
-    // otherwise fill the table. The key rides the challenge until verify() proves it.
     await this.database.query(
       `INSERT INTO push_challenges
-       (challenge_id, host_fingerprint, host_public_key, secret_hash, transcript, expires_at,
+       (challenge_id, host_fingerprint, secret_hash, expires_at,
         consumed_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+       VALUES (?, ?, ?, ?, NULL)`,
       [
         challengeId,
         hostFingerprint,
-        hostPublicKeyB64,
         // The stored digest is of the ack the secret produces, never of the
         // secret itself: a database reader must not be able to forge a proof.
         sha256(expectedProof),
-        Buffer.from(transcript).toString('base64'),
         expiresAt
       ]
     )
@@ -101,7 +97,7 @@ export class PushHostChallengeStore {
     const proof = decodeCanonicalBase64(proofB64, 32)
     return await this.database.transaction<PushProofVerification>(async (transaction) => {
       const [row] = await transaction.query(
-        `SELECT host_fingerprint, host_public_key, secret_hash, expires_at, consumed_at
+        `SELECT host_fingerprint, secret_hash, expires_at, consumed_at
          FROM push_challenges WHERE challenge_id = ?`,
         [challengeId]
       )
@@ -123,12 +119,6 @@ export class PushHostChallengeStore {
         [now, challengeId]
       )
       if (Number(consumed?.changes ?? 0) !== 1) return { ok: false, reason: 'already_consumed' }
-      await this.rememberHost(
-        transaction,
-        String(row.host_fingerprint),
-        String(row.host_public_key),
-        now
-      )
       return { ok: true, hostFingerprint: String(row.host_fingerprint) }
     })
   }
@@ -141,32 +131,5 @@ export class PushHostChallengeStore {
       cutoff
     ])
     return Number(result?.changes ?? 0)
-  }
-
-  // A host that stopped proving and has no registration left is dead weight;
-  // its public key is recoverable from the desktop on the next challenge.
-  async pruneStaleHosts(): Promise<number> {
-    const [result] = await this.database.query(
-      `DELETE FROM push_hosts
-       WHERE last_seen_at < ?
-         AND host_fingerprint NOT IN (SELECT host_fingerprint FROM push_devices)`,
-      [this.now() - PUSH_LIMITS.hostRetentionMs]
-    )
-    return Number(result?.changes ?? 0)
-  }
-
-  private async rememberHost(
-    transaction: PushDatabase,
-    hostFingerprint: string,
-    hostPublicKeyB64: string,
-    now: number
-  ): Promise<void> {
-    await transaction.query(
-      `INSERT INTO push_hosts (host_fingerprint, host_public_key, created_at, last_seen_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(host_fingerprint) DO UPDATE SET
-         host_public_key = excluded.host_public_key, last_seen_at = excluded.last_seen_at`,
-      [hostFingerprint, hostPublicKeyB64, now, now]
-    )
   }
 }

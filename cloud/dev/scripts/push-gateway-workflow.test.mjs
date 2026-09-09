@@ -12,7 +12,7 @@ import { readRelayWorkflow, relayWorkflowFile } from './relay-repository.mjs'
 
 // Why: the push gateway holds the APNs key and is the only thing standing between a paired
 // phone and a silent notification pipeline. Its deploy is a blue/green rollout against the
-// shared Cloud SQL instance, and each of the guarantees below is one careless edit from gone.
+// dedicated Cloud SQL instance, and each of the guarantees below is one careless edit from gone.
 const WORKFLOW = 'push-deploy.yml'
 const workflow = readRelayWorkflow(WORKFLOW)
 const deploy = () => {
@@ -60,15 +60,15 @@ test('Terraform trusts this exact workflow file on the production deploy provide
   assert.equal(relayWorkflowFile(WORKFLOW), 'cloud-push-deploy.yml')
 })
 
-test('the rollout is serialized and leases the production Cloud SQL rollout lock', () => {
+test('the rollout is serialized and leases its dedicated push rollout lock', () => {
   const blocks = concurrencyBlocks(workflow)
   assert.equal(blocks.length, 1)
-  assert.equal(blocks[0].group, 'production-cloud-sql-rollout')
+  assert.equal(blocks[0].group, 'production-push-rollout')
   assert.equal(blocks[0].cancelInProgress, 'false')
   const steps = leaseSteps(workflow)
   assert.equal(steps.length, 1, 'exactly one lease step, held for the whole run')
   assert.equal(steps[0].bucket, 'onorca-cloud-terraform-state')
-  assert.equal(steps[0].object, 'terraform/state/cloud-sql-rollout/production.lock')
+  assert.equal(steps[0].object, 'terraform/state/push-rollout/production.lock')
   assert.equal(steps[0].release, undefined, 'release stays at its default for a single-job run')
 })
 
@@ -138,7 +138,7 @@ test('the database pool size is Terraform-owned and bounded at plan time', () =>
   assert.ok(block, 'the push service no longer declares a lifecycle block')
   assert.match(
     block[1],
-    /var\.push_max_instances \* var\.push_database_pool_max <= 4/,
+    /var\.push_max_instances \* var\.push_database_pool_max \* 3 <= 64/,
     'instances x pool must be bounded at plan time'
   )
   assert.match(
@@ -312,4 +312,23 @@ test('push credentials cannot assume the shared Relay deploy identity', () => {
 // A latest revision needs a successor even when validation is inert.
 test('dedicated database admits three simultaneous revision pools', () => {
   assert.match(terraform('push-gateway.tf'), /var\.push_max_instances \* var\.push_database_pool_max \* 3 <= 64/)
+})
+
+test('push has only a dedicated database attachment and a narrowly scoped deployment lease', () => {
+  const service = terraform('push-gateway.tf')
+  const database = terraform('push-dedicated-database.tf')
+  assert.match(service, /instances = \[google_sql_database_instance\.push_dedicated\[0\]\.connection_name\]/)
+  assert.match(service, /secret\s*= google_secret_manager_secret\.push_dedicated_database_url\[0\]\.secret_id/)
+  assert.match(service, /version = google_secret_manager_secret_version\.push_dedicated_database_url\[0\]\.version/)
+  assert.doesNotMatch(service + database, /push_dedicated_database_(?:active|enabled)|local\.relay_database_connection_name|resource "google_sql_database" "push"/)
+  assert.match(database, /tier\s*= "db-custom-2-7680"/)
+  assert.match(database, /availability_type = "REGIONAL"/)
+  assert.match(database, /deletion_protection\s*= true/)
+  assert.match(database, /deletion_protection_enabled = true/)
+  const identity = terraform('push-deploy-identity.tf')
+  const lease = identity.match(/resource "google_storage_bucket_iam_member" "github_push_rollout_lease" \{([\s\S]*?)\n\}/)?.[1]
+  assert.ok(lease)
+  assert.match(lease, /member = local\.push_deploy_member/)
+  assert.match(lease, /role\s*= "roles\/storage.objectAdmin"/)
+  assert.match(lease, /resource.name == 'projects\/_\/buckets\/\$\{var.project_id\}-terraform-state\/objects\/terraform\/state\/push-rollout\/production.lock'/)
 })

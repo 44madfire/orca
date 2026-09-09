@@ -548,13 +548,7 @@ variable "push_max_instances" {
   }
 }
 
-# Why: the gateway's draw on the shared Cloud SQL instance is instances x pool, and the rollout
-# lease is taken for twice that, because a tagged candidate is directly addressable and sits
-# outside the service-wide cap. Leaving the pool at its application default made that draw
-# invisible to this root, so it is declared here and set on the container.
-#
-# Two is sized to the work, not to the default: a send runs two or three short queries, and at
-# concurrency 80 those queue against the pool for microseconds rather than holding it.
+# The dedicated database budget counts pools across all three rollout revision resources.
 variable "push_database_pool_max" {
   type        = number
   description = "Push gateway database pool size per instance; instances x pool is its Cloud SQL draw."

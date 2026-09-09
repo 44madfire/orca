@@ -70,7 +70,7 @@ it.skipIf(!databaseUrl)(
       expect((await runtime.app.request('/v1/send', { method: 'POST' })).status).toBe(503)
       expect(calls.mock.calls.map(([sql]) => sql)).toEqual(['SELECT 1 AS ready'])
       await expect(
-        database.query('DELETE FROM public.push_hosts WHERE false')
+        database.query('DELETE FROM public.push_challenges WHERE false')
       ).rejects.toMatchObject({ code: '25006' })
     } finally {
       vi.useRealTimers()

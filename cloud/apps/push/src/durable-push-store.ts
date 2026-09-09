@@ -34,8 +34,10 @@ export class DurablePushStore {
         JSON.stringify([host, kind, notification.notificationEpoch, notification.notificationSeq])
       )
       .digest('hex')
-    const { sound: _sound, ...content } = notification
-    const fingerprint = createHash('sha256').update(JSON.stringify(content)).digest('hex')
+    const { sound: _sound, kind: _kind, ...content } = notification
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify({ kind, ...content }))
+      .digest('hex')
     return this.database.transaction(async (tx) => {
       await tx.lockQuotaScope(`push-events:${host}`)
       const [existing] = await tx.query('SELECT * FROM push_events WHERE event_id = ?', [eventId])
@@ -135,7 +137,7 @@ export class DurablePushStore {
 
   async renew(delivery: QueuedPushDelivery): Promise<void> {
     await this.database.query(
-      'UPDATE push_delivery_batches SET lease_until = ? WHERE batch_id = ? AND lease_token = ?',
+      "UPDATE push_delivery_batches SET lease_until = ? WHERE batch_id = ? AND lease_token = ? AND state = 'pending'",
       [this.now() + DELIVERY_LEASE_MS, delivery.id, delivery.lease]
     )
   }
@@ -150,7 +152,7 @@ export class DurablePushStore {
     const retry = retryAt < delivery.expiresAt
     await this.database.query(
       `UPDATE push_delivery_batches SET state = ?, payload_json = ?, due_at = ?, lease_until = 0, lease_token = NULL
-      WHERE batch_id = ? AND lease_token = ?`,
+      WHERE batch_id = ? AND lease_token = ? AND state = 'pending'`,
       [
         retry ? 'pending' : retryAfterMs !== undefined ? 'expired' : outcome,
         retry ? JSON.stringify(delivery.notification) : '{}',

@@ -201,7 +201,7 @@ output "push_runtime_service_account" {
 }
 
 output "push_database_name" {
-  value       = try(google_sql_database.push[0].name, null)
+  value       = try(google_sql_database.push_dedicated[0].name, null)
   description = "Database isolated for durable push gateway state."
 }
 

@@ -29,7 +29,7 @@ edit plus a second set of Apple credentials.
 | Ingress           | all                                                    | `INGRESS_TRAFFIC_ALL`                        |
 | Invoker           | IAM disabled                                           | `invoker_iam_disabled = true` on the service |
 | Runtime identity  | `orca-cloud-push@onorca-cloud.iam.gserviceaccount.com` | `google_service_account.push_runtime`        |
-| Database          | `orca_push` on the shared Cloud SQL instance           | `google_sql_database.push`                   |
+| Database          | `orca_push` on dedicated HA PostgreSQL 17           | `google_sql_database.push_dedicated`                   |
 | Hostname          | `push.onorca.dev`                                      | `push_base_url`                              |
 
 The minimum of one instance is deliberate and did not move when the ceiling came down to two. A
@@ -37,19 +37,11 @@ cold start delays a notification past the point where it is worth showing, so th
 keeps a notification prompt. The
 ceiling is a different question, answered below.
 
-The maximum and the pool are set by the connection budget, not by the gateway's own appetite. Two
-instances times a two-connection pool is a draw of 4, and a rollout triples it to 12, because the
-tagged candidate is directly addressable and sits outside the service-wide cap. The shared Cloud
-SQL instance's 400 connections were already spoken for by the relay cells, the directors, auth,
-and the API, which left five. Four is the whole of the room there was, and the gateway fits in
-it.
-
-Two connections per instance is enough for the work. A send runs two or three short queries, so
-at concurrency 80 requests queue against the pool for microseconds rather than holding it. A
-`lifecycle` precondition refuses a plan whose instances times pool exceeds 4, because a fifth
-connection puts the checked budget over its ceiling and blocks `Deploy Relay Asia Topology`,
-which gates on it. `dev/scripts/relay-cloud-sql-connection-budget.mjs` counts the gateway and
-prints the whole picture.
+Push uses its approved dedicated two-vCPU HA database. Two instances with a two-connection
+pool draw four connections; three simultaneous revision resources draw twelve. Tagged
+candidates can run outside the service-wide cap, so Terraform bounds instances × pool × 3
+at 64 connections, leaving dedicated capacity for maintenance and operators. Increase pool
+sizes only after measuring contention. The shared Relay budget excludes push entirely.
 
 Authentication is the host proof in `POST /v1/host/challenge`, not Cloud Run IAM, so the service
 opts out of invoker IAM with `invoker_iam_disabled = true`, exactly as the relay director does.
@@ -65,7 +57,7 @@ Set on the container by Terraform:
 | `PORT`                        | Cloud Run, container port 8080                           |
 | `ORCA_PUSH_PUBLIC_URL`        | `push_base_url`                                          |
 | `ORCA_PUSH_FCM_PROJECT_ID`    | `push_fcm_project_id`, empty means `project_id`          |
-| `ORCA_PUSH_DATABASE_URL`      | Secret `orca-cloud-push-database-url`, version `latest`  |
+| `ORCA_PUSH_DATABASE_URL`      | Secret `orca-cloud-push-dedicated-database-url`, pinned version  |
 | `ORCA_PUSH_DATABASE_POOL_MAX` | `push_database_pool_max`, 2 per instance                 |
 | `ORCA_PUSH_APNS_KEY`          | Secret `orca-cloud-push-apns-key`, version `latest`      |
 | `ORCA_PUSH_APNS_KEY_ID`       | Secret `orca-cloud-push-apns-key-id`, version `latest`   |
@@ -129,11 +121,9 @@ terraform -chdir=infra/terraform import -var-file=environments/production.tfvars
   'projects/onorca-cloud/secrets/orca-cloud-push-apple-team-id roles/secretmanager.secretAccessor serviceAccount:orca-cloud-push@onorca-cloud.iam.gserviceaccount.com'
 ```
 
-Everything else in `push-gateway.tf` is new and is created by the apply: the `orca_push`
-database and user, the database-URL secret and its accessor, the `roles/cloudsql.client` binding
-on the runtime account, the Cloud Run service, the domain mapping, and the
-three deploy-identity bindings. Save that plan and review it before applying; this root carries
-unrelated standing drift, so an untargeted apply is never automatic.
+The push resources already exist in production. Preserve their addresses, dedicated database
+and identities; review the [database cleanup runbook](./push-database-cutover.md) before applying
+changes. This root has unrelated standing drift, so an untargeted apply is never automatic.
 
 Two things this root does **not** declare, because the carve assigns them elsewhere. Neither
 affects whether this root's plan is clean, since an undeclared resource is invisible to it.
@@ -156,16 +146,17 @@ It authenticates as the dedicated `orca-cloud-gha-push` identity through
 to this exact dispatch workflow on main in the production environment. Its distinct principal
 attribute cannot assume the shared Relay deploy identity.
 
-The account can write images to the existing Artifact Registry repository, deploy the push service,
-and impersonate only the push runtime account. Foundation separately grants access to the shared
-rollout-lock prefix and bucket metadata; it grants no Terraform-state object access.
+The account can write images to Artifact Registry, deploy the push service, impersonate only
+the push runtime account, and manage exactly `terraform/state/push-rollout/production.lock`
+in the production state bucket. The relay root owns that conditional lease grant. It grants
+no Terraform-state object access. Publish `github_push_workload_identity_provider` and
+`github_push_deploy_service_account` as the production-environment variables above.
 
-Before the next deployment, apply the reviewed identity changes in the relay root, add
-`serviceAccount:orca-cloud-gha-push@onorca-cloud.iam.gserviceaccount.com` to production foundation's
-`cloud_sql_rollout_lease_members`, and apply foundation. Publish the relay outputs
-`github_push_workload_identity_provider` and `github_push_deploy_service_account` as the two
-GitHub production-environment variables above. Keep the shared identity's existing lease grant
-for Relay. Do not fall back to that identity if push setup is incomplete.
+The workflow uses the `production-push-rollout` concurrency group with cancellation disabled
+and the existing durable lease action on the push-specific object. Push and Relay deploy
+independently; two push deploys cannot race traffic changes. Finish every old shared-lock push
+run before enabling the new workflow and lease grant. See the cleanup runbook for the bounded
+IAM transition and removal of any obsolete foundation-owned push membership.
 
 The run builds the reviewed `source_sha` while the workflow stays on `main`. Buildx returns
 its own pushed digest (no mutable-tag lookup); every subsequent check and deployment uses that
@@ -173,11 +164,11 @@ same digest. Before any production boot, a network-isolated container checks tha
 recognizes `ORCA_PUSH_MODE=validation` and rejects invalid modes. Older images that lack this
 capability are refused before they can connect to production.
 
-Under the production Cloud SQL rollout lease, it records the serving rollback revision and
+Under the production push rollout lease, it records the serving rollback revision and
 asserts Terraform-owned scaling. It deploys a tagged, zero-traffic validation revision:
 
 - Validation opens PostgreSQL with `default_transaction_read_only=on` and skips schema setup.
-- No delivery worker or challenge, session, delivery, or stale-host pruner starts.
+- No delivery worker or challenge, session, or delivery pruner starts.
 - Only `/health` and `/ready` are available; all application routes return 503.
 - `/health` attests `mode: validation`; `/ready` checks database connectivity only. It does not
   prove schema compatibility, provider delivery, or active-worker readiness. Container probes
@@ -189,7 +180,7 @@ The workflow verifies the exact image and scaling, probes readiness and mode, an
 runtime identity with a validate-only FCM request. Cloud Run rejects deletion of the latest
 created revision even when it has no tag or traffic. Activation therefore creates a successor
 before removing the validation tag and deleting validation. The dedicated 64-connection budget
-and legacy shared budget reserve three simultaneous revision pools: serving, validation/rejected,
+reserves three simultaneous revision pools: serving, validation/rejected,
 and active/recovery successor (12 configured pool connections at the current two-by-two shape).
 Revision deletion is not proof of physical SQL session drain; verify termination and SQL sessions
 in controlled rollout acceptance. There is no shutdown sleep used as a drain gate.
@@ -393,10 +384,8 @@ small number of concurrent collapse keys per device, so excess pending messages 
 every offline alert is not guaranteed to appear. Socket reconnect reconciles dismissals against the
 current native tray; it has no stored replay watermark and never recovers a missed OS banner.
 
-### Dedicated database preparation
+### Dedicated database operations
 
-`push_dedicated_database_enabled` provisions an independent HA PostgreSQL instance without changing
-the live gateway attachment. It defaults to false. Follow [the database cutover runbook](./push-database-cutover.md)
-before enabling it or switching stores. The current pre-release activation discards registrations
-and queued deliveries; phones re-register on foreground use. A future public-service migration
-requires a separate preservation procedure.
+Push has one dedicated database attachment, with stable Terraform addresses and deletion
+protection. There is no switch to shared storage. Follow the [database operations runbook](./push-database-cutover.md)
+for deployment prerequisites, legacy resource ownership, capacity and recovery.

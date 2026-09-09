@@ -65,3 +65,18 @@ output "github_push_workload_identity_provider" {
 output "github_push_deploy_service_account" {
   value = try(google_service_account.github_push_deploy[0].email, null)
 }
+
+
+resource "google_storage_bucket_iam_member" "github_push_rollout_lease" {
+  count = local.push_gateway_deploy_count
+
+  bucket = "${var.project_id}-terraform-state"
+  role   = "roles/storage.objectAdmin"
+  member = local.push_deploy_member
+
+  condition {
+    title       = "push_rollout_lease"
+    description = "Limits push deployment coordination to its own lease object."
+    expression  = "resource.name == 'projects/_/buckets/${var.project_id}-terraform-state/objects/terraform/state/push-rollout/production.lock'"
+  }
+}

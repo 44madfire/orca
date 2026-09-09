@@ -48,7 +48,6 @@ describe('push contract limits', () => {
       clockSkewToleranceMs: 30_000,
       sessionTtlMs: 86_400_000,
       notificationTtlSeconds: 300,
-      hostRetentionMs: 3_600_000,
       unauthenticatedRequestsPerMinutePerIp: 30,
       authenticatedRequestsPerMinutePerHost: 600
     })
@@ -171,7 +170,6 @@ describe('device registration schemas', () => {
       }).success
     ).toBe(false)
   })
-
 
   it('shapes the registration and list responses', () => {
     expect(

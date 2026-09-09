@@ -1,25 +1,5 @@
-# Provision independently of the gateway's SQL attachment switch.
-variable "push_dedicated_database_enabled" {
-  type        = bool
-  description = "Provision the dedicated push database without switching live gateway traffic."
-  default     = false
-}
-
-variable "push_dedicated_database_active" {
-  type        = bool
-  description = "Attach the gateway to the provisioned dedicated database; does not copy existing state."
-  default     = false
-}
-
-locals {
-  push_dedicated_database_count = var.push_gateway_enabled && var.push_dedicated_database_enabled ? 1 : 0
-  push_database_connection_name = var.push_dedicated_database_active ? google_sql_database_instance.push_dedicated[0].connection_name : local.relay_database_connection_name
-  push_database_secret_id       = var.push_dedicated_database_active ? google_secret_manager_secret.push_dedicated_database_url[0].secret_id : google_secret_manager_secret.push_database_url[0].secret_id
-  push_database_secret_version  = var.push_dedicated_database_active ? google_secret_manager_secret_version.push_dedicated_database_url[0].version : "latest"
-}
-
 resource "google_sql_database_instance" "push_dedicated" {
-  count = local.push_dedicated_database_count
+  count = local.push_gateway_count
 
   project             = var.project_id
   name                = "${var.name_prefix}-push-db"
@@ -66,7 +46,7 @@ resource "google_sql_database_instance" "push_dedicated" {
 }
 
 resource "google_sql_database" "push_dedicated" {
-  count = local.push_dedicated_database_count
+  count = local.push_gateway_count
 
   project  = var.project_id
   name     = "orca_push"
@@ -78,13 +58,13 @@ resource "google_sql_database" "push_dedicated" {
 }
 
 resource "random_password" "push_dedicated_database" {
-  count   = local.push_dedicated_database_count
+  count   = local.push_gateway_count
   length  = 32
   special = false
 }
 
 resource "google_sql_user" "push_dedicated" {
-  count = local.push_dedicated_database_count
+  count = local.push_gateway_count
 
   project  = var.project_id
   name     = "orca_push"
@@ -93,7 +73,7 @@ resource "google_sql_user" "push_dedicated" {
 }
 
 resource "google_secret_manager_secret" "push_dedicated_database_url" {
-  count = local.push_dedicated_database_count
+  count = local.push_gateway_count
 
   project   = var.project_id
   secret_id = "${var.name_prefix}-push-dedicated-database-url"
@@ -109,7 +89,7 @@ resource "google_secret_manager_secret" "push_dedicated_database_url" {
 }
 
 resource "google_secret_manager_secret_version" "push_dedicated_database_url" {
-  count = local.push_dedicated_database_count
+  count = local.push_gateway_count
 
   secret = google_secret_manager_secret.push_dedicated_database_url[0].id
   secret_data = format(
@@ -122,7 +102,7 @@ resource "google_secret_manager_secret_version" "push_dedicated_database_url" {
 }
 
 resource "google_secret_manager_secret_iam_member" "push_dedicated_database_url_accessor" {
-  count = local.push_dedicated_database_count
+  count = local.push_gateway_count
 
   project   = var.project_id
   secret_id = google_secret_manager_secret.push_dedicated_database_url[0].secret_id

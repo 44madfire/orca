@@ -57,12 +57,11 @@ The host keypair is X25519 (box), so it cannot sign. Reuse the relay's challenge
 - Challenge TTL 10 s, and 10 s is the whole window the gateway honours. The 30 s clock skew tolerance
   is the host's alone: it validates a timestamp the gateway chose, so it needs the allowance and the
   gateway does not. A gateway that subtracted the tolerance from its own check would run a 40 s TTL.
-  Store challenge (id, secret hash, host fingerprint, host public key, expiry) in DB so any Cloud Run
+  Store challenge (id, expected-proof digest, host fingerprint, expiry, consumption time) in DB so any Cloud Run
   instance can verify. Expired rows are pruned 30 s late so a slow proof reads as expired rather than
   as an unknown challenge.
-- Issuing a challenge writes no `push_hosts` row. It is unauthenticated, so a `push_hosts` row would be
-  a free permanent write for any caller. The row is upserted in `POST /v1/host/session` once the proof
-  verifies, from the public key the challenge row carries.
+- No host registry or public-key/transcript copy is stored. The encrypted challenge and expected-proof
+  digest provide proof verification; session and device rows retain host ownership.
 
 `POST /v1/host/session`
 
@@ -232,17 +231,15 @@ metadata server or `GOOGLE_APPLICATION_CREDENTIALS` locally):
 
 ### Gateway storage (Postgres in prod, SQLite in tests, same pattern as `cloud/apps/relay/src/database.ts`)
 
-- `push_hosts(host_fingerprint pk, host_public_key, created_at, last_seen_at)`, written only on a
-  verified proof and pruned after 1 h of no contact when no `push_devices` row still names the host.
-  Nothing reads it, and any keypair mints a host for free, so it is not allowed to accumulate.
 - `push_sessions` holds one row per host, enforced by a unique index and transaction lock. Minting a
   session deletes the host's earlier one, since a desktop holds a single session and only re-proves once it is gone.
-- `push_challenges(challenge_id pk, host_fingerprint, host_public_key, secret_hash, transcript,
+- `push_challenges(challenge_id pk, host_fingerprint, secret_hash,
 expires_at, consumed_at)`
 - `push_sessions(token_hash pk, host_fingerprint, expires_at, created_at)`
 - `push_devices(registration_id pk, host_fingerprint, device_id, platform, token, apns_environment,
 dead_at, created_at, updated_at, unique(host_fingerprint, device_id))`
 - `push_events` holds logical event identity, content fingerprint, quota timestamp, and expiry.
+  Omitted `kind` and explicit `kind: "alert"` have the same fingerprint; changed content still conflicts.
 - `push_event_recipients` records accepted event/phone pairs for idempotent fanout.
 - `push_delivery_batches` holds individual payload envelopes, retry deadlines, and renewable worker
   leases.
@@ -368,7 +365,12 @@ Secret Manager names (already exist in `onorca-cloud`): `orca-cloud-push-apns-ke
 - Workflow `.github/workflows/cloud-push-deploy.yml`: gated on `vars.ORCA_CLOUD_OPERATIONS_ENABLED`,
   Workload Identity like `cloud-relay-*`, builds a reviewed full `source_sha`, deploys with `--no-traffic`, probes the new
   revision's `/ready` and a validate-only FCM send, then shifts 100% traffic. Uses
-  `.github/actions/cloud-sql-rollout-lease` around the schema step.
+  `.github/actions/cloud-sql-rollout-lease` throughout rollout using
+  `terraform/state/push-rollout/production.lock` and concurrency group `production-push-rollout`.
+  The deploy identity can manage only that lease object. Push uses only its dedicated 2-vCPU HA
+  database and is excluded from Relay's shared database budget. See
+  [database operations](../../cloud/docs/push-database-cutover.md) for existing-schema preparation,
+  obsolete resource ownership, and the lock transition before deployment.
 - Add the new root files to `cloud/dev/contracts` and `cloud/dev/fixtures` partitions so
   `terraform-root-partition.test.mjs` and `Cloud Verify` pass.
 

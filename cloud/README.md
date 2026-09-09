@@ -82,8 +82,8 @@ surface: publish and deploy the director, roll GCE cell capacity, operate Asia
 admission and regional rehoming, prove staging capacity, monitor production,
 power staging up and down, and deploy the mobile push gateway.
 `.github/actions/cloud-sql-rollout-lease` is the compare-and-swap lease that
-serializes every rollout against the shared Cloud SQL instance, the push
-gateway deploy included.
+serializes rollouts against the shared Cloud SQL instance. Push reuses that
+action with its own lease object and deployment concurrency group.
 
 Every one of them is inert. Each top-level job is gated on
 `vars.ORCA_CLOUD_OPERATIONS_ENABLED == 'true'`, a repository variable that is

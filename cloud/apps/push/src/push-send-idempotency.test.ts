@@ -34,3 +34,31 @@ it('returns queued for concurrent retries without double quota or delivery', asy
   await h.flushDeliveries()
   expect(h.fcmRequests).toHaveLength(2)
 })
+
+it.each([false, true])(
+  'accepts default alert kind equivalently through the API (explicit first: %s)',
+  async (explicitFirst) => {
+    const h = await createPushServerHarness()
+    harnesses.push(h)
+    const token = await h.signIn(createPushHostKeypair(3))
+    const registrationId = await h.registerAndroid(token)
+    const implicit = notification()
+    const explicit = { kind: 'alert', ...implicit }
+    for (const event of explicitFirst ? [explicit, implicit] : [implicit, explicit]) {
+      const response = await h.post(
+        '/v1/send',
+        { v: 1, registrationIds: [registrationId], notification: event },
+        token
+      )
+      expect(await response.json()).toEqual({ results: [{ registrationId, status: 'queued' }] })
+    }
+    await h.flushDeliveries()
+    expect(h.fcmRequests).toHaveLength(1)
+    const changed = await h.post(
+      '/v1/send',
+      { v: 1, registrationIds: [registrationId], notification: { ...explicit, body: 'changed' } },
+      token
+    )
+    expect(await changed.json()).toEqual({ results: [{ registrationId, status: 'error' }] })
+  }
+)

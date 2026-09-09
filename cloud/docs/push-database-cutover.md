@@ -1,84 +1,112 @@
-# Dedicated push database cutover
+# Dedicated push database operations
 
-The gateway has a dedicated PostgreSQL 17 instance configured in
-`infra/terraform/push-dedicated-database.tf`: regional HA, 2 vCPU, 7.5 GiB RAM, 50 GiB SSD
-with automatic growth, seven retained backups and seven-day point-in-time recovery.
-Cloud SQL and Terraform both protect it from deletion. Connections use the Cloud SQL
-connector and a separate Secret Manager secret pinned to its Terraform-managed version.
+Push attaches only to its dedicated PostgreSQL 17 instance: regional HA, 2 vCPU,
+7.5 GiB RAM, 50 GiB SSD with automatic growth, seven retained backups and seven-day
+point-in-time recovery. Cloud SQL and Terraform deletion protections remain enabled.
+The Cloud SQL connector uses the dedicated URL secret pinned to its managed version.
+There is no shared-storage fallback or provision/activate switch.
 
-Provisioning (`push_dedicated_database_enabled`) and attachment
-(`push_dedicated_database_active`) are separate switches. Neither changes the existing
-shared database or its credentials. The production feature is still in internal testing;
-its owner approved an empty database and discarding the previous test state. No data
-transfer or application maintenance mechanism is needed for this initial activation.
-Test phones must register again; pending notifications and old sessions do not transfer.
-This reset procedure is not suitable after public launch without explicit data-loss approval.
+## Existing-resource cleanup: operator prerequisite
 
-## Provision
+This is a plan/runbook, not authorization to apply or delete resources. Preserve the
+shared Orca instance, dedicated push instance, all dedicated data and identities, and
+unrelated resources. The dedicated resource addresses remain unchanged:
 
-Use the production relay backend and environment variables documented in
-`infra/terraform/README.md`. Save and review a targeted Terraform plan containing only:
+- `google_sql_database_instance.push_dedicated[0]`
+- `google_sql_database.push_dedicated[0]`
+- `random_password.push_dedicated_database[0]`
+- `google_sql_user.push_dedicated[0]`
+- `google_secret_manager_secret.push_dedicated_database_url[0]`
+- `google_secret_manager_secret_version.push_dedicated_database_url[0]`
+- `google_secret_manager_secret_iam_member.push_dedicated_database_url_accessor[0]`
 
-- `google_sql_database_instance.push_dedicated`
-- `google_sql_database.push_dedicated`
-- `random_password.push_dedicated_database`
-- `google_sql_user.push_dedicated`
-- `google_secret_manager_secret.push_dedicated_database_url`
-- `google_secret_manager_secret_version.push_dedicated_database_url`
-- `google_secret_manager_secret_iam_member.push_dedicated_database_url_accessor`
+The relay state may still own these six obsolete shared-store resources, whose
+configuration is removed. An untargeted plan would propose deleting them; do not apply it:
 
-Require exactly seven additions and no updates or deletions for initial provisioning.
-Apply that saved plan with backend locking, then require the same targeted plan to be
-empty. Keep sensitive Terraform plans access-restricted; never print secret values or
-upload raw state/plan JSON. Verify the instance is RUNNABLE with the expected version,
-tier, backup policy, and regional availability. No Cloud Run service changes in this step.
+- `google_sql_database.push[0]`
+- `google_sql_user.push[0]`
+- `random_password.push_database[0]`
+- `google_secret_manager_secret.push_database_url[0]`
+- `google_secret_manager_secret_version.push_database_url[0]`
+- `google_secret_manager_secret_iam_member.push_database_url_runtime_accessor[0]`
 
-## Activate the empty store
+1. Use the production backend in `infra/terraform/README.md`. Inspect state addresses and
+   the live service attachment, pinned secret reference and revision resources without
+   printing credentials. Require the dedicated attachment and no old shared-store consumers;
+   source connection drain needs an authorized operator's read-only observation.
+2. Have the shared database owner adopt the six legacy resources in an explicitly owned
+   archival configuration before retiring their relay-state ownership. Retain the former
+   database's `prevent_destroy` protection and secret versions; do not disable protection,
+   drop databases, rotate passwords or introduce a second runtime attachment. A reviewed
+   exact-address state transfer must preserve remote IDs and secret material in approved
+   Terraform storage, with no credential exports to local files or terminal output.
+3. Require the owner's import/ownership plan to preserve existing resources and then an
+   empty plan for those addresses. Only after adoption is proven may the operator remove
+   precisely the six former addresses from relay state under backend locking. Do not
+   automate this via `removed` blocks, broad `state rm`, force, or an untargeted apply.
+4. Review a fresh relay plan. Reject every delete or replace affecting either SQL instance,
+   dedicated databases/users/secrets, or unrelated resources. Target only the intended push
+   service and lease IAM grant for rollout; review their dependency closure too. Existing
+   unrelated drift must be handled by its owner, outside this cleanup.
 
-1. Record the current immutable serving image, revision, SQL attachment, and database
-   secret reference. Confirm traffic is pinned to that revision rather than LATEST.
-2. Set `push_dedicated_database_active = true` in production. Save a targeted plan for
-   `google_cloud_run_v2_service.push`. Inspect its dependency closure and reject unrelated
-   changes. Require only the SQL attachment and database secret reference to change.
-3. Hold the existing Cloud SQL rollout lease while applying that saved service-shape plan.
-   Terraform ignores traffic and image; verify traffic remains pinned to the old revision.
-   Do not apply a plan that would shift traffic or revert runtime configuration.
-4. Dispatch `cloud-push-deploy.yml` from main with the exact reviewed source SHA. It creates
-   an inert, read-only candidate inheriting the dedicated attachment, probes readiness and provider
-   access, then deliberately creates an active successor of the same digest before deleting validation.
-   Activation starts schema writes and workers before HTTP promotion. Verify the candidate's SQL
-   attachment and pinned secret reference as well as its image and health.
-5. Register a test phone against the deployed origin and prove real APNs delivery. Check
-   database errors and confirm the old revisions have no traffic or tags and source SQL
-   connections have drained. Leave the old database intact; do not delete shared resources.
+No data transfer, dedicated database reset, or phone re-registration is part of this cleanup.
 
-If activation fails before promotion, the existing HTTP serving revision is unchanged, but
-activated workers may already have sent notifications or mutated the queue. Cloud Run will not
-delete the latest created revision, even untagged at zero traffic. Recovery creates a known-good
-successor first, verifies its template/runtime/secret shape and health, promotes and verifies it,
-then deletes rejected and previous consumers. The recovery successor remains serving; it can run
-known-good schema/workers before promotion and does not undo earlier queue or schema changes.
-A partial activation leaving three resources must retire non-latest inert validation before
-recovery creates another; failed retirement stops automation. Every deploy requires a single
-serving revision resource at admission, so review and retire historical/leftover revisions under
-the lease before dispatch. A Terraform attachment update can itself create such a revision:
-verify/promote that known-good image and attachment and retire the former revision before dispatch.
-The deploy workflow can roll traffic back on failure; in this internal reset rollout,
-that may discard registrations created during the probe window. After successful activation,
-application rollback should retain the dedicated attachment and deploy an older compatible
-image through the workflow. Returning to the shared store is another explicit state reset,
-not a lossless rollback. Future public migrations require a separately rehearsed transfer.
+## Schema prerequisite for existing internal test databases
 
-## Capacity and resizing
+New schemas omit `push_hosts` and the unused `host_public_key` and `transcript` columns
+on `push_challenges`. Authentication still verifies the encrypted transcript and consumes
+its challenge digest once; sessions and device ownership are unchanged. No compatibility
+migration for unpublished builds runs at application startup.
 
-The initial gateway keeps its existing two-connection pool and two-instance maximum.
-Dedicated database rollout pools are capped at 64 total configured pool connections across three simultaneous
-revision resources (serving, validation/rejected, and active/recovery successor), leaving room for maintenance and operators; this is an admission
-budget, not a throughput claim. Increase the pool only after measuring deployed contention.
-Keep the shared database allocation reserved until source connections have drained.
+Before deploying onto an older internal schema, an operator must arrange a separately
+reviewed schema-preparation job through the approved database execution path. Its entire
+scope is dropping `push_hosts` (including its index) and those two unused challenge columns;
+preserve challenge digest/expiry/consumption fields and every session, device and delivery
+table. Verify that the old NOT NULL columns are absent before admitting the new image.
+Do not hand-edit production SQL or reset the dedicated database to satisfy this prerequisite.
+Until that job is reviewed and executed, the new image is not ready for an existing schema.
 
-Cloud SQL CPU/RAM resizing is an in-place infrastructure change but can interrupt database
-connections. HA does not make a resize interruption-free. Durable accepted events remain in
-SQL and workers retry after recovery within their five-minute expiry; requests that never
-reach durable acceptance depend on client retries. Schedule resizes and verify reconnection,
-queue recovery, readiness, and real delivery afterward.
+## Deployment serialization transition
+
+Finish all old push workflow runs before changing the workflow's lock namespace. An old
+shared-lock push run and a new push-lock run do not exclude each other. Hold off new push
+dispatches while preparing the following exact changes:
+
+1. Review the relay-root plan for
+   `google_storage_bucket_iam_member.github_push_rollout_lease[0]`. It grants only
+   `roles/storage.objectAdmin` on
+   `projects/_/buckets/onorca-cloud-terraform-state/objects/terraform/state/push-rollout/production.lock`
+   to the dedicated push deploy account. The lease action uses object GET/upload/delete,
+   so no bucket-wide listing or Terraform-state access is needed.
+2. After approval, apply only the reviewed IAM/dependency plan. Verify the exact condition
+   and principal independently. If foundation still grants push membership in the old
+   `cloud_sql_rollout_lease_members`, its owner removes only that push member; keep Relay's
+   existing members and permissions. Do not mutate foundation through the relay root.
+3. Publish the reviewed workflow on main with `production-push-rollout`, cancellation
+   disabled, and the existing lease action pointed at the dedicated object. The durable
+   lease covers admission, candidate validation, activation, traffic changes and recovery.
+   A stale/conflicting lease stops the run; it is never stolen or force-deleted.
+4. Deploy the reviewed image through `cloud-push-deploy.yml`. Preserve candidate readiness,
+   runtime-provider validation, exact digest/configuration checks, and explicit activation.
+   Verify the public origin and real notification delivery/dismissal afterward.
+
+## Recovery and capacity
+
+Activation starts schema writes and workers before HTTP promotion. Traffic rollback cannot
+undo queue or schema changes. Cloud Run cannot delete its latest revision, so failed
+activation creates a known-good successor, verifies it, promotes it, then retires rejected
+and previous revisions. When partial activation leaves three resources, retire non-latest
+inert validation before creating recovery. Failed retirement stops automation. Admission
+requires one serving revision resource; retire historical leftovers under the push lease.
+Keep the dedicated attachment for application rollback and retain an immutable compatible
+image. An image requiring the removed challenge columns needs separate schema review.
+
+The two-instance ceiling and two-connection pool draw four configured connections, twelve
+across three simultaneous revision resources. Terraform caps instances × pool × 3 at 64
+for serving, validation/rejected and active/recovery pools. Push does not draw from Relay's
+shared connection budget. Source connections must have drained before treating that old
+allocation as free. Increase capacity only after measuring deployed contention.
+
+Cloud SQL resizing can interrupt connections despite HA. Durable accepted events remain in
+SQL; workers retry within each event's original five-minute deadline. Schedule resizes and
+verify reconnection, queue recovery, readiness and real delivery afterward.

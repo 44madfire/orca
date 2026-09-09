@@ -80,74 +80,6 @@ resource "google_project_iam_member" "push_runtime_cloudsql_client" {
   member  = google_service_account.push_runtime[0].member
 }
 
-# --- Database -----------------------------------------------------------------------------
-# Gateway state shares the foundation-owned Cloud SQL instance with auth and the relay, and uses
-# an isolated database and principal, exactly as relay-database.tf does. The application applies
-# its own schema at startup.
-
-resource "google_sql_database" "push" {
-  count = local.push_gateway_count
-
-  project  = var.project_id
-  name     = "orca_push"
-  instance = local.relay_database_instance_name
-
-  # Why: this database holds every live device token. Disabling the gateway must not drop it.
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "random_password" "push_database" {
-  count = local.push_gateway_count
-
-  length  = 32
-  special = false
-}
-
-resource "google_sql_user" "push" {
-  count = local.push_gateway_count
-
-  project  = var.project_id
-  name     = "orca_push"
-  instance = local.relay_database_instance_name
-  password = random_password.push_database[0].result
-}
-
-resource "google_secret_manager_secret" "push_database_url" {
-  count = local.push_gateway_count
-
-  project   = var.project_id
-  secret_id = "${var.name_prefix}-push-database-url"
-  labels    = local.relay_shared_labels
-
-  replication {
-    auto {}
-  }
-}
-
-resource "google_secret_manager_secret_version" "push_database_url" {
-  count = local.push_gateway_count
-
-  secret = google_secret_manager_secret.push_database_url[0].id
-  secret_data = format(
-    "postgresql://%s:%s@/%s?host=/cloudsql/%s",
-    google_sql_user.push[0].name,
-    random_password.push_database[0].result,
-    google_sql_database.push[0].name,
-    local.relay_database_connection_name
-  )
-}
-
-resource "google_secret_manager_secret_iam_member" "push_database_url_runtime_accessor" {
-  count = local.push_gateway_count
-
-  project   = var.project_id
-  secret_id = google_secret_manager_secret.push_database_url[0].secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = google_service_account.push_runtime[0].member
-}
-
 # --- Apple credentials ----------------------------------------------------------------------
 
 resource "google_secret_manager_secret" "push_provider" {
@@ -207,7 +139,7 @@ resource "google_cloud_run_v2_service" "push" {
       name = "cloudsql"
 
       cloud_sql_instance {
-        instances = [local.push_database_connection_name]
+        instances = [google_sql_database_instance.push_dedicated[0].connection_name]
       }
     }
 
@@ -233,9 +165,7 @@ resource "google_cloud_run_v2_service" "push" {
         value = local.push_fcm_project_id
       }
 
-      # Declared rather than left to the application default, so the gateway's share of the
-      # shared Cloud SQL connection budget is a value this root states and the precondition
-      # below can bound.
+      # Bound the declared pool against the dedicated database rollout budget.
       env {
         name  = "ORCA_PUSH_DATABASE_POOL_MAX"
         value = tostring(var.push_database_pool_max)
@@ -246,8 +176,8 @@ resource "google_cloud_run_v2_service" "push" {
 
         value_source {
           secret_key_ref {
-            secret  = local.push_database_secret_id
-            version = local.push_database_secret_version
+            secret  = google_secret_manager_secret.push_dedicated_database_url[0].secret_id
+            version = google_secret_manager_secret_version.push_dedicated_database_url[0].version
           }
         }
       }
@@ -298,19 +228,8 @@ resource "google_cloud_run_v2_service" "push" {
   # 100% LATEST would silently undo either, and this root carries unrelated standing drift, so
   # that apply need not be a push change at all.
   lifecycle {
-    # Shared SQL retains its four-connection allocation until the dedicated attachment is active.
     precondition {
-      condition     = var.push_dedicated_database_active || var.push_max_instances * var.push_database_pool_max <= 4
-      error_message = "Push gateway instances x database pool must stay within its 4-connection share while attached to shared Cloud SQL."
-    }
-
-    precondition {
-      condition     = !var.push_dedicated_database_active || var.push_dedicated_database_enabled
-      error_message = "Provision the dedicated push database before activating it."
-    }
-
-    precondition {
-      condition     = !var.push_dedicated_database_active || var.push_max_instances * var.push_database_pool_max * 3 <= 64
+      condition     = var.push_max_instances * var.push_database_pool_max * 3 <= 64
       error_message = "Dedicated push serving, validation/rejected and successor pools must fit the 64-connection rollout budget."
     }
 
@@ -325,9 +244,7 @@ resource "google_cloud_run_v2_service" "push" {
   depends_on = [
     data.google_artifact_registry_repository.relay_images,
     google_project_iam_member.push_runtime_cloudsql_client,
-    google_secret_manager_secret_iam_member.push_database_url_runtime_accessor,
     google_secret_manager_secret_iam_member.push_provider_runtime_accessor,
-    google_secret_manager_secret_version.push_database_url,
     google_secret_manager_secret_version.push_dedicated_database_url,
     google_secret_manager_secret_iam_member.push_dedicated_database_url_accessor
   ]
