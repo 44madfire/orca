@@ -357,3 +357,76 @@ describe('one table, however the two sides spell it', () => {
     expect(readRuntimeConfig()).not.toContain('[mcp_servers.foo.env]')
   })
 })
+
+describe('a table the source declares without a [header]', () => {
+  // Why a second describe: the spelling cases above are all header-vs-header.
+  // These are the other declaration sites — a dotted key, an inline table, and
+  // a plain value — each of which binds a name a runtime header would then
+  // redefine. Same unparseable-config outcome, reached a different way, so
+  // each site is pinned rather than trusted to a representative.
+  it('claims a table a dotted key declares inside a body', () => {
+    writeSystemConfig('[mcp_servers]', 'serena.command = "serena"')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[mcp_servers.serena]', 'command = "runtime"')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(readRuntimeConfig()).not.toContain('[mcp_servers.serena]')
+  })
+
+  it('claims a table an inline value declares inside a body', () => {
+    writeSystemConfig('[mcp_servers]', 'serena = { command = "serena" }')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[mcp_servers.serena]', 'command = "runtime"')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(readRuntimeConfig()).not.toContain('[mcp_servers.serena]')
+  })
+
+  it('claims a name a plain scalar already binds', () => {
+    // Why a scalar counts: `model = "x"` leaves no table for `[model]` to add
+    // to, so emitting the header is a redefinition, not a merge.
+    writeSystemConfig('model = "system-model"')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[model]', 'nested = true')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(readRuntimeConfig()).not.toContain('[model]')
+    expect(readRuntimeConfig()).toContain('model = "system-model"')
+  })
+
+  it('claims a name an array value already binds', () => {
+    writeSystemConfig('model = "system-model"', 'items = [1, 2]')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[items]', 'nested = true')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(readRuntimeConfig()).not.toContain('[items]')
+  })
+
+  it('claims a nested name a scalar inside a body binds', () => {
+    writeSystemConfig('[mcp_servers]', 'serena = "shorthand"')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[mcp_servers.serena]', 'command = "runtime"')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(readRuntimeConfig()).not.toContain('[mcp_servers.serena]')
+  })
+
+  it('still keeps a table the source only mentions as a bare header', () => {
+    // Why paired here: every rule above deletes, so one case has to prove the
+    // scan did not simply start dropping whatever it is shown.
+    writeSystemConfig('[mcp_servers]')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[mcp_servers.added-in-orca]', 'command = "added"')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(readRuntimeConfig()).toContain('[mcp_servers.added-in-orca]')
+  })
+})
+
