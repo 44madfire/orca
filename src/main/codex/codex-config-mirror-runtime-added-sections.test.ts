@@ -183,7 +183,7 @@ describe('a config section added inside the managed Codex home', () => {
 
     syncSystemConfigIntoManagedCodexHome()
 
-    expect(readBaselineSections()).toEqual(['[mcp_servers.serena]'])
+    expect(readBaselineSections()).toEqual(['["mcp_servers","serena"]'])
   })
 })
 
@@ -288,5 +288,72 @@ describe('a per-account managed home passed explicitly', () => {
     expect(accountConfig).toContain('[mcp_servers.added-in-orca]')
     expect(accountConfig).not.toContain('[mcp_servers.retired]')
     expect(readBaselineSections(accountHome)).toEqual([])
+  })
+})
+
+describe('one table, however the two sides spell it', () => {
+  // Why these are their own describe: before canonical keys a spelling
+  // difference read as "the source does not declare this", so the mirror
+  // emitted BOTH spellings. A duplicate table is an unparseable config.toml —
+  // a worse outcome than the setting loss this change exists to fix, so each
+  // spelling is pinned separately rather than trusted to one representative.
+  function expectSingleServerTable(runtimeConfig: string): void {
+    const declarations = runtimeConfig.match(/^\s*\[\[?[^\]]*serena[^\]]*\]\]?/gm) ?? []
+    expect(declarations).toHaveLength(1)
+  }
+
+  it('treats a whitespace-padded source header as the same table', () => {
+    writeSystemConfig('[ mcp_servers.serena ]', 'command = "serena"')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[mcp_servers.serena]', 'command = "runtime"')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expectSingleServerTable(readRuntimeConfig())
+    expect(readRuntimeConfig()).toContain('command = "serena"')
+  })
+
+  it('treats a quoted source key as the same table as a bare one', () => {
+    writeSystemConfig('[mcp_servers."serena"]', 'command = "serena"')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[mcp_servers.serena]', 'command = "runtime"')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expectSingleServerTable(readRuntimeConfig())
+  })
+
+  it('treats an array-of-tables name as claimed by a plain source table', () => {
+    // Why: a table and an array of tables cannot share a name, so emitting both
+    // is the same fatal shape as a duplicate.
+    writeSystemConfig('[profiles]', 'x = 1')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[[profiles]]', 'x = 2')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(readRuntimeConfig().match(/^\s*\[\[?profiles\]\]?/gm) ?? []).toHaveLength(1)
+  })
+
+  it('lets a dotted source key claim the whole table path it declares', () => {
+    writeSystemConfig('mcp_servers.foo.command = "x"')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[mcp_servers.foo]', 'command = "runtime"')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(readRuntimeConfig()).not.toContain('[mcp_servers.foo]')
+  })
+
+  it('does not extend a source inline table with a runtime sub-table', () => {
+    // Why: TOML forbids it outright, so emitting the sub-table would produce a
+    // config Codex refuses rather than a merge the user wanted.
+    writeSystemConfig('mcp_servers = { foo = { command = "x" } }')
+    syncSystemConfigIntoManagedCodexHome()
+    addServerInsideManagedHome('[mcp_servers.foo.env]', 'TOKEN = "value"')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    expect(readRuntimeConfig()).not.toContain('[mcp_servers.foo.env]')
   })
 })

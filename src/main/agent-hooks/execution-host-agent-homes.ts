@@ -1,7 +1,6 @@
-import { execFile } from 'node:child_process'
 import { basename } from 'node:path'
 import { userInfo } from 'node:os'
-import { promisify } from 'node:util'
+import { runProcess } from '../../shared/child-process/run-process'
 import { initializeCodexAppServerConnection } from '../codex/codex-app-server-handshake'
 import { runCodexAppServerSession } from '../codex/codex-app-server-session'
 
@@ -10,7 +9,6 @@ import { runCodexAppServerSession } from '../codex/codex-app-server-session'
 // installer, which otherwise assumes `~/.<agent>` and writes where the agent
 // will never read.
 
-const execFileAsync = promisify(execFile)
 const AGENT_HOME_MAX_LENGTH = 4096
 const HOME_PROBE_TIMEOUT_MS = 8_000
 
@@ -64,11 +62,14 @@ export async function resolveExecutionHostGrokHome(
     const shell = resolveLoginShell()
     // Why: agent PTYs start login shells, so read the same profile-derived
     // GROK_HOME without opening two additional SSH exec channels.
-    const { stdout } = await execFileAsync(
-      shell,
-      [loginShellFlag(shell), `printenv GROK_HOME | head -c ${AGENT_HOME_MAX_LENGTH + 1}`],
-      { encoding: 'utf8', timeout: HOME_PROBE_TIMEOUT_MS, signal }
-    )
+    // Why: a non-zero exit needs no special case — it yields no stdout, and an
+    // unparseable home already falls back.
+    const { stdout } = await runProcess({
+      program: shell,
+      args: [loginShellFlag(shell), `printenv GROK_HOME | head -c ${AGENT_HOME_MAX_LENGTH + 1}`],
+      timeoutMs: HOME_PROBE_TIMEOUT_MS,
+      signal
+    })
     return normalizePosixAgentHome(stdout.split(/\r?\n/, 1)[0] ?? '') ?? fallback
   } catch {
     signal?.throwIfAborted()
