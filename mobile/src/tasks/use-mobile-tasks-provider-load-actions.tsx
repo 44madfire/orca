@@ -103,9 +103,7 @@ export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) 
               before
             })
             return {
-              items: envelope.items.map((item) =>
-                createGitHubTask(repo, item as Omit<GitHubWorkItem, 'repoId' | 'repoName'>)
-              ),
+              items: envelope.items.map((item) => createGitHubTask(repo, item)),
               sources: envelope.sources,
               sourceError: extractGitHubIssueSourceError(repo, envelope),
               sourceFallback: extractGitHubIssueSourceFallback(repo, envelope),

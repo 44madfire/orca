@@ -170,9 +170,7 @@ export function useMobileTasksTaskListLoading(model: ProviderLoadActionsModel) {
                   return { items: [], error: envelope.error.message }
                 }
                 return {
-                  items: envelope.items.map((item) =>
-                    createGitLabTask(repo, item as Omit<GitLabWorkItem, 'repoId' | 'repoName'>)
-                  )
+                  items: envelope.items.map((item) => createGitLabTask(repo, item))
                 }
               } catch (err) {
                 console.warn(`[mobile tasks] failed to fetch ${provider} work items`, repo.id, err)

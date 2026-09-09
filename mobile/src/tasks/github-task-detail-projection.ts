@@ -1,7 +1,16 @@
 import type { HostTaskGitHubDetail } from './host-task-provider-payloads'
 import type { GitHubAssignableUser } from './mobile-tasks-provider-detail-types'
 
-type GitHubRawDetails = Partial<HostTaskGitHubDetail> & {
+type GitHubRawDetails = {
+  body?: string
+  comments?: HostTaskGitHubDetail['comments']
+  assignees?: string[]
+  headSha?: string
+  baseSha?: string
+  pullRequestId?: string
+  checks?: HostTaskGitHubDetail['checks']
+  files?: HostTaskGitHubDetail['files']
+
   item?: {
     labels?: string[]
     reviewDecision?: string | null
@@ -18,11 +27,11 @@ export function projectGitHubTaskDetail(value: unknown): HostTaskGitHubDetail {
   return {
     body: details.body ?? '',
     comments: details.comments ?? [],
-    labels: details.item?.labels ?? details.labels,
+    labels: details.item?.labels,
     assignees: details.assignees ?? [],
-    reviewDecision: details.item?.reviewDecision ?? details.reviewDecision,
-    reviewRequests: details.item?.reviewRequests ?? details.reviewRequests,
-    latestReviews: details.item?.latestReviews ?? details.latestReviews,
+    reviewDecision: details.item?.reviewDecision,
+    reviewRequests: details.item?.reviewRequests,
+    latestReviews: details.item?.latestReviews,
     headSha: details.headSha,
     baseSha: details.baseSha,
     pullRequestId: details.pullRequestId,

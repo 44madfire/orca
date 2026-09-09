@@ -66,7 +66,7 @@ export type HostTaskGitHubListPayload = {
 }
 
 export type HostTaskGitHubListResult = {
-  items: GitHubWorkItem[]
+  items: Array<Omit<GitHubWorkItem, 'repoId' | 'repoName'>>
   sources?: GitHubRepoSources
   errors?: { issues?: { message: string } }
   issueSourceFellBack?: true
@@ -86,7 +86,7 @@ export type HostTaskGitLabListPayload = {
 }
 
 export type HostTaskGitLabListResult = {
-  items: GitLabWorkItem[]
+  items: Array<Omit<GitLabWorkItem, 'repoId' | 'repoName'>>
   error?: { type?: string; message: string }
 }
 
