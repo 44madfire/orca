@@ -193,7 +193,6 @@ export class ClaudeBackgroundTaskTracker {
       }
     }
     this.tasks.clear()
-    this.terminalTaskIds.clear()
     for (const valueTask of value) {
       if (this.tasks.size >= MAX_TRACKED_TASKS) {
         break
@@ -206,6 +205,11 @@ export class ClaudeBackgroundTaskTracker {
       if (!id) {
         continue
       }
+      // Current evidence overrules an earlier terminal edge, but only for the
+      // ids the roster actually lists. Wiping the whole set would leave a
+      // finished FOREGROUND id undefended: the admission guard no longer
+      // rejects it, so a replayed start would revive it for the rest of the turn.
+      this.terminalTaskIds.delete(id)
       this.tasks.set(id, {
         backgrounded: true,
         liveInTurn: true,

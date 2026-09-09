@@ -286,6 +286,36 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(tracker.state).toBeNull()
   })
 
+  it('keeps a finished foreground id dead across a roster that never listed it', () => {
+    // The admission guard only convicts BACKGROUNDED starts now, so terminal
+    // evidence is the only thing left defending a finished foreground id — and
+    // the roster carries no evidence about one, so it must not wipe it.
+    const tracker = new ClaudeBackgroundTaskTracker()
+    tracker.observe({ type: 'user' }, true)
+    tracker.observe(
+      system('task_started', {
+        task_id: 'fore-1',
+        task_type: 'local_agent',
+        is_backgrounded: false
+      })
+    )
+    tracker.observe(system('task_notification', { task_id: 'fore-1', status: 'completed' }))
+    expect(tracker.state).toBeNull()
+
+    tracker.observe(
+      aggregate([{ task_id: 'back-1', task_type: 'local_bash', description: 'bash' }])
+    )
+    tracker.observe(
+      system('task_started', {
+        task_id: 'fore-1',
+        task_type: 'local_agent',
+        is_backgrounded: false
+      })
+    )
+
+    expect(tracker.state?.tasks).toEqual([{ id: 'back-1', kind: 'command', description: 'bash' }])
+  })
+
   it('lets an authoritative aggregate roster replace earlier terminal-edge evidence', () => {
     const tracker = new ClaudeBackgroundTaskTracker()
     tracker.observe(system('task_notification', { task_id: 'task-live', status: 'completed' }))
