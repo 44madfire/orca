@@ -20,7 +20,12 @@
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import type { WorkerEffect, WorkerSetupReceipt } from './worker-topology'
 
-export type StructuredWorkerSetupGate = { satisfied: boolean; status: string }
+export type StructuredWorkerSetupGate = {
+  satisfied: boolean
+  status: string
+  /** A setup gate has no agent prompt to block on; declared so the wait union stays property-typed. */
+  blockedReason?: undefined
+}
 
 export async function awaitStructuredWorkerSetupGate(args: {
   runtime: Pick<OrcaRuntimeService, 'waitForSetupTerminalCompletion'>

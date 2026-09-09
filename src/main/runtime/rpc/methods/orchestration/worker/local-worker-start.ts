@@ -185,7 +185,7 @@ export async function startLocalWorker(args: {
           failedStage = 'setup_wait'
         }
         throw new Error(
-          'blockedReason' in wait && wait.blockedReason
+          wait.blockedReason
             ? `Agent startup blocked: ${wait.blockedReason}`
             : structuredSession
               ? `Setup did not finish before the structured worker started (${wait.status}).`
