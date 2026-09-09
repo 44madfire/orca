@@ -196,8 +196,9 @@ function createOwner(target: RuntimeClientTarget): OwnedStatusFeed {
     dropHandle()
     revokeSnapshotOwnership()
     reconnectAttempt = 0
+    // Teardown only runs once nothing is activated, so re-confirmation is the next
+    // subscribe's job and there is no mounted reader left to notify.
     confirmedSessions.clear()
-    emit()
   }
 
   return {
