@@ -185,6 +185,29 @@ describe('TerminalHost undelivered exits', () => {
     }
   })
 
+  it('drops the record of a session its owner killed, even with no client attached', async () => {
+    const { host, lastSubprocess } = createHost()
+    try {
+      const created = await host.createOrAttach({
+        sessionId: 'session-killed',
+        cols: 80,
+        rows: 24,
+        streamClient: { onData: vi.fn(), onExit: vi.fn() }
+      })
+      host.detach('session-killed', created.attachToken as symbol)
+      await host.kill('session-killed')
+      lastSubprocess().exit(0)
+
+      // The owner asked for this exit; there is nothing left to tell it, so nothing is retained.
+      expect(host.isKilled('session-killed')).toBe(true)
+      expect(() =>
+        host.inspectProcess('session-killed', { expectedIncarnationId: created.incarnationId })
+      ).toThrow(SessionNotFoundError)
+    } finally {
+      await host.dispose()
+    }
+  })
+
   it('keeps kill tombstones independent of a held exit', async () => {
     const { host, lastSubprocess } = createHost()
     try {

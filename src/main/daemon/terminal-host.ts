@@ -173,20 +173,32 @@ export class TerminalHost {
       )
     }
     const session = this.getAliveSession(sessionId)
-    const killed = this.sessionTeardown.killSession(sessionId, session, opts.immediate === true)
-    this.killedTombstones.record(sessionId)
+    // Why record inside: the exit can land synchronously within the signal, and the reaper reads
+    // the tombstone; a refused signal must leave none (the admission test pins that).
+    let killed: void | Promise<void>
+    try {
+      this.killedTombstones.record(sessionId)
+      killed = this.sessionTeardown.killSession(sessionId, session, opts.immediate === true)
+    } catch (error) {
+      this.killedTombstones.clearForCreate(sessionId)
+      throw error
+    }
     return Promise.resolve(killed)
   }
 
   // Why: dispose a dead session's emulator so exited terminals don't pin their scrollback window for
-  // the daemon's life. An exited session is a state of its record, so the record itself leaves only
-  // when its owner recreates the id or the host is disposed.
+  // the daemon's life. A session its owner asked to end has nothing left to tell, so its record goes
+  // now. One that ended on its own is evidence its owner may not have received; that record leaves
+  // when the owner recreates the id or the host is disposed.
   private reapSession(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session || session.isAlive) {
       return
     }
     session.dispose()
+    if (this.killedTombstones.has(sessionId)) {
+      this.sessions.delete(sessionId)
+    }
     this.onSessionReaped?.(sessionId)
   }
 
