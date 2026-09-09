@@ -11,7 +11,8 @@ import { recoverSearchWrites } from './session-search-pending-deletes'
 // policy, decided where the wire is.
 
 // Bump to drop and rebuild: the index is a cache over the transcripts, never a source.
-export const SESSION_SEARCH_SCHEMA_VERSION = 1
+// 2: `messages_vocab` (the typo repair's dictionary) and `search_log`.
+export const SESSION_SEARCH_SCHEMA_VERSION = 2
 
 // unicode61 keeps `_ . - /` inside tokens so paths and identifiers match exactly;
 // the `identifiers` column carries the split form (see session-search-identifier-split).
@@ -88,6 +89,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS conversation_fts USING fts5(
   user_text, assistant_text, ${TOKENIZER}, detail=full
+);
+-- The typo repair's whole dictionary. Why the index's own vocabulary and not a
+-- word list: it can never suggest a term this index does not hold, and it needs
+-- no model. fts5vocab is a view over the FTS5 b-tree, so it costs no extra rows.
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_vocab USING fts5vocab(messages_fts, 'row');
+-- Locally logged queries, redacted, bounded. Nothing writes here unless a caller
+-- opts in; the eval set is rebuilt from it (see session-search-query-log).
+CREATE TABLE IF NOT EXISTS search_log(
+  id INTEGER PRIMARY KEY,
+  ts TEXT NOT NULL,
+  query TEXT NOT NULL,
+  route TEXT NOT NULL,
+  hits INTEGER NOT NULL,
+  duration_ms REAL NOT NULL
 );
 -- Why: staged rows must never reach a result. One definition per half, so a new
 -- read site cannot forget one; SQLite flattens both into the caller's plan.

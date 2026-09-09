@@ -9,6 +9,7 @@ import {
   SessionSearchIndexWriter,
   type SessionSearchStagedWrite
 } from './session-search-index-writer'
+import { bumpIndexGeneration } from './session-search-index-generation'
 import { warmSessionSearchPages } from './session-search-page-warmup'
 import { deleteExpiredSearchFiles } from './session-search-retention-delete'
 import { openSessionSearchDatabase } from './session-search-schema'
@@ -24,9 +25,9 @@ export type SessionSearchStoreOptions = {
 }
 
 /**
- * Owns the index database. PR 2 scope: the write half only — the transcript
- * consumer writes through it and nothing reads from it yet. Lifecycle (who
- * indexes, when, and how the re-read set is drained) belongs to the service.
+ * Owns the index database: the transcript consumer writes through it and the
+ * query engine reads through it. Lifecycle (who indexes, when, and how the
+ * re-read set is drained) belongs to the service.
  */
 export class SessionSearchStore {
   private readonly db: SyncDatabase
@@ -39,6 +40,7 @@ export class SessionSearchStore {
   private warmed: Promise<void> | null = null
   private lastIndexedAt: string | null = null
   private writeFailures = 0
+  private indexGeneration: number
   // Files this index knows it is behind on. Filled by a declined or abandoned
   // read; PR 3's indexer drains it. Nothing here schedules the re-read.
   private readonly stale = new Map<string, SessionFileCandidate>()
@@ -55,6 +57,26 @@ export class SessionSearchStore {
   ) {
     this.db = openSessionSearchDatabase(path)
     this.writer = new SessionSearchIndexWriter(this.db, options.walBudgetBytes)
+    // Why bump on open and not just read: a crash can land a write whose
+    // generation bump never did, so the value on disk can describe content that
+    // is already gone. Starting a new generation refuses every cursor minted
+    // before this process, which is the only safe answer to that.
+    this.indexGeneration = bumpIndexGeneration(this.db)
+  }
+
+  /**
+   * The connection the query engine reads through. Why share rather than open a
+   * second one: a reader on its own connection pins a WAL snapshot for as long
+   * as it lives, which is exactly the backlog `session-search-wal-budget`
+   * refuses to let a staging write grow.
+   */
+  get connection(): SyncDatabase {
+    return this.db
+  }
+
+  /** What the index publishes right now; see session-search-index-generation. */
+  get generation(): number {
+    return this.indexGeneration
   }
 
   setAcceptingWrites(accept: boolean): void {
@@ -114,6 +136,7 @@ export class SessionSearchStore {
     // one lands, a later pass must not re-read the whole queue.
     this.stale.delete(candidate.file.path)
     this.lastIndexedAt = new Date().toISOString()
+    this.bumpGeneration()
     this.scheduleCleanup()
   }
 
@@ -191,6 +214,7 @@ export class SessionSearchStore {
     this.stale.delete(path)
     try {
       this.writer.removeFile(path)
+      this.bumpGeneration()
       this.scheduleCleanup()
     } catch (error) {
       this.onError(error)
@@ -204,7 +228,7 @@ export class SessionSearchStore {
         this.db,
         cutoffMs,
         () => this.closed || signal?.aborted === true,
-        () => undefined
+        () => this.bumpGeneration()
       )
       if (!this.closed && !signal?.aborted) {
         await compactSessionSearchIndex(this.db, () => this.closed || signal?.aborted === true)
@@ -248,7 +272,7 @@ export class SessionSearchStore {
       this.db,
       null,
       () => this.closed,
-      () => undefined
+      () => this.bumpGeneration()
     )
       .catch((error) => {
         if (!this.closed) {
@@ -261,6 +285,18 @@ export class SessionSearchStore {
           this.scheduleCleanup()
         }
       })
+  }
+
+  /** Never throws into a caller: a retention step reports its own failures. */
+  private bumpGeneration(): void {
+    if (this.closed) {
+      return
+    }
+    try {
+      this.indexGeneration = bumpIndexGeneration(this.db)
+    } catch (error) {
+      this.onError(error)
+    }
   }
 
   /** Tests only: the cleanup lane is fire-and-forget everywhere else. */

@@ -85,6 +85,25 @@ describe('openSessionSearchDatabase', () => {
     expect((await stat(path)).mtimeMs).toBeGreaterThanOrEqual(before.mtimeMs)
   })
 
+  it('rebuilds a version-1 index, which has neither vocabulary nor query log', async () => {
+    const path = await tempDatabasePath()
+    const version1 = openSessionSearchDatabase(path)
+    version1.prepare("INSERT INTO files(path,byte_offset,mtime_ms) VALUES ('a',1,1)").run()
+    // A real v1 file: the two tables version 2 adds do not exist in it.
+    version1.exec('DROP TABLE messages_vocab; DROP TABLE search_log')
+    version1.prepare("UPDATE meta SET value = '1' WHERE key = 'schema_version'").run()
+    version1.close()
+
+    const rebuilt = openSessionSearchDatabase(path)
+    expect(schemaVersion(rebuilt)).toBe('2')
+    expect(rebuilt.prepare('SELECT COUNT(*) AS c FROM files').get()).toEqual({ c: 0 })
+    // The typo repair reads the first and the query log writes the second; a
+    // rebuild that left either missing would throw on the first query instead.
+    expect(rebuilt.prepare('SELECT COUNT(*) AS c FROM messages_vocab').get()).toEqual({ c: 0 })
+    expect(rebuilt.prepare('SELECT COUNT(*) AS c FROM search_log').get()).toEqual({ c: 0 })
+    rebuilt.close()
+  })
+
   it('indexes only in-flight batch pointers, not every published message', async () => {
     const db = openSessionSearchDatabase(await tempDatabasePath())
     try {
