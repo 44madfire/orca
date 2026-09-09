@@ -18,7 +18,7 @@ type BackgroundTaskKind = AgentSessionBackgroundTask['kind']
 /** `heartbeat` is deliberately outside the tool table: monitoring is one idea
  *  app-wide, and the heartbeat is the glyph that already stands for it in the
  *  agent sidebar and on AgentStateDot. A second monitor glyph would split it. */
-export type BackgroundTaskGlyph = NativeChatToolIconName | 'heartbeat'
+type BackgroundTaskGlyph = NativeChatToolIconName | 'heartbeat'
 
 const KIND_GLYPHS: Record<BackgroundTaskKind, BackgroundTaskGlyph> = {
   agent: 'bot',

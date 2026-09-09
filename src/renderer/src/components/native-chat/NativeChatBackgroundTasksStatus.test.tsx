@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionBackgroundTask } from '../../../../shared/agent-session-wire'
 import { NativeChatBackgroundTasksStatus } from './NativeChatBackgroundTasksStatus'
+import { MONITOR_GLYPH_COLOR } from './native-chat-background-task-kinds'
 import { AgentStateDot } from '@/components/AgentStateDot'
 
 afterEach(cleanup)
@@ -86,16 +87,18 @@ describe('NativeChatBackgroundTasksStatus row glyphs', () => {
   })
 
   it('gives the monitor heartbeat the amber the monitoring dot uses', () => {
-    // Same glyph on a muted grey would not read as the same thing.
-    expect(glyphSlotClassFor('monitor')).toContain('text-yellow-500')
+    // Same glyph on a muted grey would not read as the same thing. Reading the
+    // colour from the module is what actually pins the two together: a hardcoded
+    // string here would let the strip and the dot drift apart silently.
+    expect(glyphSlotClassFor('monitor')).toContain(MONITOR_GLYPH_COLOR)
     cleanup()
     const { container } = render(<AgentStateDot state="monitoring" size="md" title={null} />)
-    expect(container.querySelector('svg')?.getAttribute('class')).toContain('text-yellow-500')
+    expect(container.querySelector('svg')?.getAttribute('class')).toContain(MONITOR_GLYPH_COLOR)
   })
 
   it('leaves the other kinds muted, so only monitoring reads as a state', () => {
     for (const kind of ['agent', 'command', 'workflow', 'unknown'] as const) {
-      expect(glyphSlotClassFor(kind)).not.toContain('text-yellow-500')
+      expect(glyphSlotClassFor(kind)).not.toContain(MONITOR_GLYPH_COLOR)
       cleanup()
     }
   })
