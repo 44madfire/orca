@@ -240,9 +240,41 @@ describe('CodexBackgroundTaskTracker command integration', () => {
     expect(tracker.state?.tasks).toHaveLength(1)
     tracker.observe(turn('turn/completed', CHILD, CHILD_TURN, 'interrupted'))
     expect(tracker.state?.tasks).toEqual([
-      { id: `codex-command:thread:${CHILD}:exec-1`, kind: 'command', description: 'sleep 90' }
+      {
+        id: `codex-command:thread:${CHILD}:exec-1`,
+        kind: 'command',
+        description: 'count_a — sleep 90'
+      }
     ])
     tracker.observe(command(CHILD, 'item/completed'))
     expect(tracker.state).toBeNull()
+  })
+
+  it('leaves a primary shell unqualified', () => {
+    const tracker = runningChild()
+    tracker.observe(command(PRIMARY))
+    tracker.observe(turn('turn/completed', PRIMARY, PARENT_TURN))
+    expect(tracker.state?.tasks).toContainEqual({
+      id: 'codex-command:primary:exec-1',
+      kind: 'command',
+      description: 'sleep 90'
+    })
+  })
+
+  it('names a child shell whose label only arrives after the command', () => {
+    const tracker = new CodexBackgroundTaskTracker(PRIMARY)
+    tracker.observe(turn('turn/started', PRIMARY, PARENT_TURN))
+    tracker.observe(turn('turn/started', CHILD, CHILD_TURN))
+    tracker.observe(command(CHILD))
+    tracker.observe(turn('turn/completed', PRIMARY, PARENT_TURN))
+    tracker.observe(activity())
+    tracker.observe(turn('turn/completed', CHILD, CHILD_TURN))
+    expect(tracker.state?.tasks).toEqual([
+      {
+        id: `codex-command:thread:${CHILD}:exec-1`,
+        kind: 'command',
+        description: 'count_a — sleep 90'
+      }
+    ])
   })
 })

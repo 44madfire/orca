@@ -10,6 +10,11 @@ const MAX_DESCRIPTION_CHARS = 512
 
 type Command = { threadId: string; task: AgentSessionBackgroundTask; bytes: number }
 
+/** Stays within the retained bound, so read-time qualification cannot outgrow admission. */
+function qualifiedDescription(label: string, description: string | undefined): string {
+  return (description ? `${label} — ${description}` : label).slice(0, MAX_DESCRIPTION_CHARS)
+}
+
 export class CodexBackgroundCommandTracker {
   private readonly commands = new Map<string, Command>()
   private readonly settled = new Map<string, number>()
@@ -67,10 +72,21 @@ export class CodexBackgroundCommandTracker {
     this.trimSettled()
   }
 
-  tasks(coveredThreads?: ReadonlySet<string>): AgentSessionBackgroundTask[] {
+  tasks(
+    coveredThreads?: ReadonlySet<string>,
+    childLabel?: (threadId: string) => string | null
+  ): AgentSessionBackgroundTask[] {
     return [...this.commands.values()]
       .filter((command) => !coveredThreads?.has(command.threadId))
-      .map(({ task }) => task)
+      .map(({ threadId, task }) => {
+        // The agent row carrying the child's name is gone by the time this row shows;
+        // unqualified it reads as a bare shell string with no owner. Resolved on read so
+        // a label registered after the command still lands.
+        const label = threadId === this.primaryThreadId ? null : childLabel?.(threadId)
+        return label
+          ? { ...task, description: qualifiedDescription(label, task.description) }
+          : task
+      })
   }
 
   clear(): void {

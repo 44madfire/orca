@@ -75,7 +75,9 @@ export class CodexBackgroundTaskTracker {
     }))
     return [
       ...agents,
-      ...this.commands.tasks(new Set(children.map((child) => child.agentThreadId)))
+      ...this.commands.tasks(new Set(children.map((child) => child.agentThreadId)), (threadId) =>
+        this.executions.label(threadId)
+      )
     ]
   }
 

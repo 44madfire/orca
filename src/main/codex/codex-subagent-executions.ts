@@ -82,6 +82,11 @@ export class CodexSubagentExecutions {
     return { child, execution }
   }
 
+  /** Survives the child's turn, so a row outliving that turn can still name it. */
+  label(agentThreadId: string): string | null {
+    return this.children.get(agentThreadId)?.label ?? null
+  }
+
   workingChildren(): CodexExecutionChild[] {
     return [...this.children.values()].filter(
       (child) => child.registered && child.execution?.state === 'working'
