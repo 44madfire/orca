@@ -167,7 +167,10 @@ export function useMobileTasksProviderLoadActions(model: RuntimeHydrationModel) 
         GITHUB_REPO_CONCURRENCY,
         async (repo) => {
           try {
-            return listOperations.countGitHub({
+            // Awaited inside the try on purpose: returning the promise would let a per-repo
+            // rejection escape this catch, reject the whole batch and reach a caller with no
+            // handler. A failed count is a zero, not a failed load.
+            return await listOperations.countGitHub({
               repoId: repo.id,
               query: scopeGitHubTaskSearch(appliedQuery, githubKind)
             })
