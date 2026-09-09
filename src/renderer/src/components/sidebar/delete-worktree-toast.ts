@@ -81,12 +81,12 @@ export function getDeleteWorktreeToastCopy(
           'Failed to delete workspace {{value0}}',
           { value0: worktreeName }
         ),
-        // Why this is not the "could not confirm" wording: Orca watched these sessions stay
-        // attached, so there is no doubt to waive — Force Delete ends a conversation that is
-        // running right now, and any work it holds goes with it.
+        // Why this is the "could not confirm" wording: an ordinary delete already closed these
+        // sessions, so reaching here means the close did not settle — the same doubt the
+        // unverified-PTY case asks the user to waive, not a session Orca declined to close.
         description: translate(
           'auto.components.sidebar.delete.worktree.toast.runningAgentSession',
-          'This workspace still has running agent sessions, so Orca stopped before deleting any files. Force Delete will close them and discard any work they hold.'
+          'Orca could not confirm every agent session in this workspace has closed, so it stopped before deleting any files. Use Force Delete to remove it anyway.'
         ),
         isDestructive: false
       }

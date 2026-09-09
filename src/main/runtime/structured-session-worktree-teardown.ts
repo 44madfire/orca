@@ -11,7 +11,12 @@
  * Membership is `location.workspaceId`, which every structured session carries — so this covers a
  * plain chat session in the worktree as well as a dispatched worker. Liveness is
  * `observeStructuredWorker`, the same `live` / `unverifiable` / `exited` vocabulary the rest of the
- * structured surface uses; only a PROVEN live child is worth refusing a removal over.
+ * structured surface uses.
+ *
+ * `live` here is lease state — a provider child is attached — not work in flight, so it says
+ * nothing about whether the user would lose anything. It selects what to CLOSE, never what to
+ * refuse over: a removal refuses only on a close that did not settle, exactly as the PTY sweep
+ * refuses only on a stop it could not verify.
  */
 
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
@@ -77,8 +82,9 @@ export function describeLiveStructuredSessions(
 /**
  * Closes every live structured session in the worktree, and reports what stayed.
  *
- * Force is the documented escape hatch, so it closes rather than orphaning: a child left running
- * against a deleted `cwd` is the exact outcome this whole sweep exists to prevent.
+ * Runs on the ordinary removal too, not just force: a child left running against a deleted `cwd` is
+ * the outcome this whole sweep exists to prevent, and closing is how you prevent it. What stayed is
+ * the only thing worth refusing over.
  */
 export async function closeStructuredSessionsForWorktree(
   worktreeId: string,

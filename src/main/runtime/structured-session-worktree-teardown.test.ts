@@ -89,19 +89,28 @@ describe('worktree teardown and structured agent sessions', () => {
     ])
   })
 
-  it('refuses a destructive removal rather than deleting the checkout under a live child', async () => {
-    // The defect this pins: all three PTY sweeps enumerate leaves, provider sessions and the local
-    // registry, and a structured session is on NONE of them. Every sweep answered zero, nothing
-    // errored, and removal proceeded — leaving the provider child running with its `cwd` deleted
-    // and the dispatch still reporting the worker live and exact.
-    installHost({ records: [record('s1', WORKTREE)] })
+  it('closes a live session on an ordinary removal instead of refusing it', async () => {
+    // The defect this pins, and the reason the guard is not simply deleted: all three PTY sweeps
+    // enumerate leaves, provider sessions and the local registry, and a structured session is on
+    // NONE of them, so removal used to proceed leaving the provider child running with its `cwd`
+    // deleted. The stop belongs on the ordinary path — the same one that kills a terminal running
+    // the same agent — so an idle chat is no harder to delete than that terminal.
+    const host = installHost({ records: [record('s1', WORKTREE)] })
+    await expect(killAllProcessesForWorktree(WORKTREE, destructiveDeps())).resolves.toMatchObject({
+      structuredStopped: 1
+    })
+    expect(host.closed).toEqual(['s1'])
+  })
+
+  it('refuses only when the close does not settle', async () => {
+    installHost({ records: [record('s1', WORKTREE)], stuck: new Set(['s1']) })
     await expect(killAllProcessesForWorktree(WORKTREE, destructiveDeps())).rejects.toThrow(
       /1 running agent session/
     )
   })
 
   it('names the force escape hatch in the refusal, like the unstopped-PTY gate', async () => {
-    installHost({ records: [record('s1', WORKTREE)] })
+    installHost({ records: [record('s1', WORKTREE)], stuck: new Set(['s1']) })
     await expect(killAllProcessesForWorktree(WORKTREE, destructiveDeps())).rejects.toThrow(/force/i)
   })
 
@@ -109,7 +118,7 @@ describe('worktree teardown and structured agent sessions', () => {
     // The #11960 dead end, and the shape this file's own comments warn about: the desktop
     // affordance comes ONLY from the classifier, and an ordinary delete already passes force:true
     // for the dirty-file skip — so a refusal with no matcher shows raw CLI wording with no button.
-    installHost({ records: [record('s1', WORKTREE)] })
+    installHost({ records: [record('s1', WORKTREE)], stuck: new Set(['s1']) })
     const error = await killAllProcessesForWorktree(WORKTREE, destructiveDeps()).catch(
       (thrown: Error) => thrown.message
     )
@@ -123,7 +132,7 @@ describe('worktree teardown and structured agent sessions', () => {
     // A session id is one tab-id hop from the random pane key that gates a worker's mailbox, and
     // this string reaches CLI output and a desktop toast. A count and the providers are what a
     // user deciding whether to force actually needs.
-    installHost({ records: [record('s1', WORKTREE)] })
+    installHost({ records: [record('s1', WORKTREE)], stuck: new Set(['s1']) })
     const error = await killAllProcessesForWorktree(WORKTREE, destructiveDeps()).catch(
       (thrown: Error) => thrown.message
     )
