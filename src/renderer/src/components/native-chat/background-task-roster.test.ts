@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionBackgroundTask } from '../../../../shared/agent-session-wire'
+import { backgroundTasksHeaderContent } from './background-task-header-content'
 import {
   backgroundTasksDotState,
-  backgroundTasksHeaderContent,
   buildBackgroundTaskGroups,
   formatBackgroundTaskTokens,
   resolveBackgroundTaskName
@@ -31,13 +31,16 @@ function header(
 describe('backgroundTasksHeaderContent', () => {
   it('lists all states for a single-kind fan-out (agents only)', () => {
     expect(header([agent('a'), agent('b'), agent('c', { state: 'waiting' })])).toEqual({
-      segments: ['3 agents'],
+      segments: [{ text: '3 agents', kind: 'agent' }],
       detail: '2 working, 1 waiting'
     })
   })
 
   it('names a single working agent', () => {
-    expect(header([agent('a')])).toEqual({ segments: ['1 agent'], detail: 'working' })
+    expect(header([agent('a')])).toEqual({
+      segments: [{ text: '1 agent', kind: 'agent' }],
+      detail: 'working'
+    })
   })
 
   it('counts by kind for a mixed roster without a partial state breakdown', () => {
@@ -48,18 +51,25 @@ describe('backgroundTasksHeaderContent', () => {
         { id: 's', kind: 'command', state: 'working', startedAt: NOW },
         { id: 'm', kind: 'monitor', state: 'monitoring', startedAt: NOW }
       ])
-    ).toEqual({ segments: ['2 agents', '1 shell', '1 monitor'], detail: null })
+    ).toEqual({
+      segments: [
+        { text: '2 agents', kind: 'agent' },
+        { text: '1 shell', kind: 'command' },
+        { text: '1 monitor', kind: 'monitor' }
+      ],
+      detail: null
+    })
   })
 
   it('shows elapsed for a single shell command', () => {
     expect(
       header([{ id: 's', kind: 'command', state: 'working', startedAt: NOW - 72_000 }])
-    ).toEqual({ segments: ['1 shell command'], detail: '1m 12s' })
+    ).toEqual({ segments: [{ text: '1 shell command', kind: 'command' }], detail: '1m 12s' })
   })
 
   it('leads with the attention state when a single agent needs the user', () => {
     expect(header([agent('a', { state: 'waiting' })])).toEqual({
-      segments: ['1 agent waiting'],
+      segments: [{ text: '1 agent waiting', kind: 'agent' }],
       detail: 'needs approval'
     })
   })
@@ -67,7 +77,10 @@ describe('backgroundTasksHeaderContent', () => {
   it('reports lost contact above running work', () => {
     expect(
       header([agent('a', { state: 'unverifiable' }), agent('b', { state: 'unverifiable' })])
-    ).toEqual({ segments: ['2 agents unverifiable'], detail: 'no contact' })
+    ).toEqual({
+      segments: [{ text: '2 agents unverifiable', kind: 'agent' }],
+      detail: 'no contact'
+    })
   })
 
   it('keeps the existing copy for a host that sends state without a task list', () => {
@@ -85,15 +98,18 @@ describe('backgroundTasksHeaderContent', () => {
         { id: 'f', kind: 'command', state: 'working', startedAt: NOW },
         { id: 'g', kind: 'unknown', startedAt: NOW }
       ])
-    ).toEqual({ segments: ['7 background tasks'], detail: null })
+    ).toEqual({ segments: [{ text: '7 background tasks', kind: null }], detail: null })
   })
 
   it('falls back to the total on a narrow strip', () => {
     expect(
       header([agent('a'), { id: 's', kind: 'command', state: 'working', startedAt: NOW }], [], true)
-    ).toEqual({ segments: ['2 background tasks'], detail: null })
+    ).toEqual({ segments: [{ text: '2 background tasks', kind: null }], detail: null })
     // A single task stays named: the short form fits.
-    expect(header([agent('a')], [], true)).toEqual({ segments: ['1 agent'], detail: 'working' })
+    expect(header([agent('a')], [], true)).toEqual({
+      segments: [{ text: '1 agent', kind: 'agent' }],
+      detail: 'working'
+    })
   })
 
   it('drops the state list when every task is done', () => {
@@ -106,12 +122,12 @@ describe('backgroundTasksHeaderContent', () => {
           agent('c', { state: 'done' })
         ]
       )
-    ).toEqual({ segments: ['3 agents'], detail: null })
+    ).toEqual({ segments: [{ text: '3 agents', kind: 'agent' }], detail: null })
   })
 
   it('counts unknown tasks instead of hiding them', () => {
     expect(header([{ id: 'u', kind: 'unknown', startedAt: NOW }])).toEqual({
-      segments: ['1 task'],
+      segments: [{ text: '1 task', kind: 'unknown' }],
       detail: 'working'
     })
   })
@@ -216,8 +232,8 @@ describe('resumed tasks from mixed-version hosts', () => {
       groups.flatMap((group) => group.tasks).filter((entry) => entry.task.id === live.id)
     ).toEqual([{ task: live, settled: false, state: 'working', name: 'Background agent' }])
     expect(backgroundTasksHeaderContent(groups, { narrow: false, now: NOW }).segments).toEqual([
-      '2 agents',
-      '4 shells'
+      { text: '2 agents', kind: 'agent' },
+      { text: '4 shells', kind: 'command' }
     ])
   })
 })

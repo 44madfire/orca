@@ -1,15 +1,14 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { Bot, ChevronDown, CircleHelp, Eye, SquareTerminal, Workflow } from 'lucide-react'
+import { Activity, Bot, ChevronDown, CircleHelp, SquareTerminal, Workflow } from 'lucide-react'
 import type { AgentSessionBackgroundTask } from '../../../../shared/agent-session-wire'
 import { AgentStateDot } from '@/components/AgentStateDot'
 import { Button } from '@/components/ui/button'
 import { useNow } from '@/hooks/use-now'
 import { translate } from '@/i18n/i18n'
+import { backgroundTasksHeaderContent } from './background-task-header-content'
 import {
   backgroundTaskElapsedLabel,
   backgroundTaskGroupLabel,
-  backgroundTasksDotState,
-  backgroundTasksHeaderContent,
   backgroundTaskStateReason,
   buildBackgroundTaskGroups,
   formatBackgroundTaskTokens,
@@ -49,7 +48,7 @@ function useNarrowStrip(ref: React.RefObject<HTMLDivElement | null>): boolean {
 const KIND_ICONS = {
   agent: Bot,
   command: SquareTerminal,
-  monitor: Eye,
+  monitor: Activity,
   workflow: Workflow,
   unknown: CircleHelp
 } as const
@@ -136,7 +135,7 @@ export function NativeChatBackgroundTasksStatus(props: {
   )
   const now = useNow(1_000, props.isVisible && hasElapsed && (expanded || singleLiveCommand))
   const header = backgroundTasksHeaderContent(groups, { narrow, now })
-  const headerText = `${header.segments.join(' · ')}${header.detail ? `${header.segments.length > 0 ? ' — ' : ''}${header.detail}` : ''}`
+  const headerText = `${header.segments.map((segment) => segment.text).join(' · ')}${header.detail ? `${header.segments.length > 0 ? ' — ' : ''}${header.detail}` : ''}`
   return (
     <div
       data-native-chat-background-tasks="true"
@@ -155,23 +154,28 @@ export function NativeChatBackgroundTasksStatus(props: {
             aria-label={headerText}
             onClick={() => setExpanded((current) => !current)}
           >
-            <span aria-hidden="true">
-              {props.indicatorActive ? (
-                <AgentStateDot state={backgroundTasksDotState(groups)} size="md" title={null} />
-              ) : (
-                // The turn owns the voice: same contents, no animated state glyph.
-                <span className="flex size-3 shrink-0 items-center justify-center">
-                  <span className="size-2 rounded-full bg-muted-foreground/40" />
-                </span>
-              )}
-            </span>
             <span className="min-w-0 truncate">
-              {header.segments.map((segment, index) => (
-                <span key={segment}>
-                  {index > 0 ? <span className="text-border"> · </span> : null}
-                  <span className="font-medium text-foreground">{segment}</span>
-                </span>
-              ))}
+              {header.segments.map((segment, index) => {
+                // A collapsed total spans kinds, so no single icon can stand for it.
+                const Icon = segment.kind ? KIND_ICONS[segment.kind] : null
+                return (
+                  <span key={segment.text}>
+                    {index > 0 ? <span className="text-border"> · </span> : null}
+                    {Icon ? (
+                      <Icon
+                        aria-hidden="true"
+                        className={`mr-1 inline size-3 align-[-0.125em] ${
+                          // The turn owns the voice: same icons, dimmed.
+                          props.indicatorActive
+                            ? 'text-muted-foreground'
+                            : 'text-muted-foreground/40'
+                        }`}
+                      />
+                    ) : null}
+                    <span className="font-medium text-foreground">{segment.text}</span>
+                  </span>
+                )
+              })}
               {header.detail ? (
                 <span>
                   {header.segments.length > 0 ? ' — ' : null}

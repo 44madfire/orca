@@ -61,6 +61,54 @@ describe('NativeChatBackgroundTasksStatus stop affordances', () => {
   })
 })
 
+describe('background-tasks strip header', () => {
+  function renderHeader(tasks: AgentSessionBackgroundTask[]): HTMLElement {
+    render(
+      <NativeChatBackgroundTasksStatus
+        isVisible
+        tasks={tasks}
+        settledTasks={[]}
+        indicatorActive
+        supportsTaskStop={false}
+        supportsStopAll={false}
+        stoppingTaskIds={new Set()}
+        stoppingAll={false}
+        onStop={() => {}}
+      />
+    )
+    return screen.getByRole('button', { expanded: false })
+  }
+
+  it('leads each kind segment with that kind icon and keeps the counts in the accessible name', () => {
+    const header = renderHeader([
+      { id: 'a1', kind: 'agent' },
+      { id: 'a2', kind: 'agent' },
+      { id: 'a3', kind: 'agent' },
+      { id: 'm1', kind: 'monitor' }
+    ])
+    expect(header).toHaveAttribute('aria-label', '3 agents · 1 monitor')
+    expect(header.querySelector('.lucide-bot')).toBeInTheDocument()
+    // Heartbeat, the same glyph the agent sidebar shows for monitoring.
+    expect(header.querySelector('.lucide-activity')).toBeInTheDocument()
+    // Two kind icons and the chevron: the aggregate state dot is gone.
+    expect(header.querySelectorAll('svg')).toHaveLength(3)
+    for (const icon of header.querySelectorAll('svg')) {
+      expect(icon).toHaveAttribute('aria-hidden', 'true')
+    }
+  })
+
+  it('carries no icon on a collapsed total, which spans kinds', () => {
+    const header = renderHeader([
+      { id: 'a1', kind: 'agent' },
+      { id: 'c1', kind: 'command' },
+      { id: 'm1', kind: 'monitor' },
+      { id: 'w1', kind: 'workflow' }
+    ])
+    expect(header).toHaveAttribute('aria-label', '4 background tasks')
+    expect(header.querySelectorAll('svg')).toHaveLength(1)
+  })
+})
+
 it('stops elapsed renders in a hidden pane and catches up on reveal', () => {
   vi.useFakeTimers()
   vi.setSystemTime(100_000)
