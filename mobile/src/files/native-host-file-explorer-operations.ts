@@ -6,10 +6,7 @@ import type {
 } from './host-file-explorer-operations'
 import type { MobileDirEntry } from './file-tree'
 
-export function nativeHostFileExplorerOperations(
-  client: RpcClient,
-  reconnect: () => Promise<void>
-): HostFileExplorerOperations {
+export function nativeHostFileExplorerOperations(client: RpcClient): HostFileExplorerOperations {
   return {
     async readDirectory(workspaceId, relativePath) {
       const response = await client.sendRequest('files.readDir', {
@@ -32,8 +29,7 @@ export function nativeHostFileExplorerOperations(
         return readLegacyFileList(client, workspaceId, response.error?.message)
       }
       throw new Error(response.error?.message || 'Unable to load files')
-    },
-    reconnect
+    }
   }
 }
 

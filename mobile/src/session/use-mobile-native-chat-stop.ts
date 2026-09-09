@@ -30,8 +30,10 @@ export function useMobileNativeChatStop(args: {
    *  never happen. */
   const dropSecondEscapeRef = useRef<(() => void) | null>(null)
   const activeRouteRef = useRef({ operations, enabled, streamIdentity })
-  // Layout, not render or a passive Effect: the paced Escape fires from a timer, and only a
-  // synchronous post-commit write guarantees it never reads a route the render discarded.
+  // Layout, not render: the changed-code React Doctor gate rejects a ref write during render,
+  // and this file's rename put that pre-existing write in scope. Not a passive Effect either,
+  // because the paced Escape fires from a timer and needs a synchronous post-commit write. The
+  // guard now reads the last committed route rather than the last rendered one.
   useLayoutEffect(() => {
     activeRouteRef.current = { operations, enabled, streamIdentity }
   }, [operations, enabled, streamIdentity])

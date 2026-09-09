@@ -5,10 +5,12 @@ import { describe, expect, it } from 'vitest'
 /** Every RPC entry point a screen could reach for. `subscribe` counts as much as `sendRequest`:
  *  a streaming read reintroduces the same coupling the operations seam exists to remove. It is
  *  recognised either by a client receiver or by the streaming-RPC call shape (a method-name
- *  string as the first argument), so aliasing the client into a local cannot hide it, while an
- *  adapter's or a store's listener-only `subscribe` is not counted. `sendRequest` is matched on
- *  the identifier rather than on `name(`, so `bind`, bracket access and a space before the paren
- *  all still count. */
+ *  string as the first argument), while an adapter's or a store's listener-only `subscribe` is
+ *  not counted. `sendRequest` is matched on the identifier rather than on `name(`, so `bind`,
+ *  bracket access, destructuring and a space before the paren all still count.
+ *
+ *  Known gaps, both contrived: `const go = c.subscribe.bind(c)` on a non-client-named local, and
+ *  a non-client receiver whose method name is held in a variable. Neither is caught. */
 const RPC_ENTRY_POINT =
   /\bsendRequest\b|\b\w*[Cc]lient(?:Ref)?(?:\.current)?\s*\??\.\s*subscribe\s*\(|\b\w*[Cc]lient\w*\s*\[\s*['"]subscribe['"]\s*\]|\.\s*subscribe\s*\(\s*['"`]/g
 
@@ -170,9 +172,10 @@ const INLINE_RPC_BY_FILE: Record<string, number> = {
   'src/worktree/worktree-catalog-snapshot-client.ts': 1
 }
 
-/** Four calls stay inline on purpose. Each has no adapter method that means the same thing, so
- *  routing it would change what reaches the host. Counted separately from the map above so a
- *  swap for a different RPC in the same file is still visible in review. */
+/** Four calls in the routed screens stay inline on purpose. Each has no adapter method that
+ *  means the same thing, so routing it would change what reaches the host. This is not the whole
+ *  remaining surface: the map above pins ~110 files, most of them screens this PR simply did not
+ *  extract. Counted by RPC name rather than by count, so a swap in the same file is visible. */
 const DELIBERATE_INLINE_CALLS: Record<string, string[]> = {
   // `terminal.close` — closing the terminal, not the tab; the tab adapter's close is a tab close.
   'src/session/use-mobile-session-close-actions.ts': ['terminal.close'],

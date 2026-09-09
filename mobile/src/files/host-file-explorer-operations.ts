@@ -14,5 +14,4 @@ export type HostFileExplorerDirectoryResult =
 
 export type HostFileExplorerOperations = {
   readDirectory(workspaceId: string, relativePath: string): Promise<HostFileExplorerDirectoryResult>
-  reconnect(): Promise<void>
 }

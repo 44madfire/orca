@@ -44,15 +44,12 @@ export function MobileFileExplorerPanel(props: {
   const { client, state: connState } = useHostClient(hostId)
   const forceReconnect = useForceReconnect()
   const operations = useMemo(
-    () => (client ? defaultHostFileExplorerOperations(client, () => forceReconnect(hostId)) : null),
-    [client, forceReconnect, hostId]
+    () => (client ? defaultHostFileExplorerOperations(client) : null),
+    [client]
   )
-  // Why: `operations` is null in exactly the disconnected state Retry exists for
-  // (no client), so the revive path cannot hang off it (#5049).
-  const reconnect = useCallback(
-    () => (operations ? operations.reconnect() : forceReconnect(hostId)),
-    [forceReconnect, hostId, operations]
-  )
+  // Why: Retry exists for the disconnected state, where there is no client and so no operations
+  // provider; the revive path calls the transport directly rather than hanging off one (#5049).
+  const reconnect = useCallback(() => forceReconnect(hostId), [forceReconnect, hostId])
   const scopeRef = useRef('')
   const scope = `${hostId}:${worktreeId}`
   scopeRef.current = scope
