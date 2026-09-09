@@ -7,6 +7,12 @@ import type {
   StructuredAgentSessionSinkState,
   StructuredAgentSessionSinkWatermarks
 } from './structured-agent-session-event-sink'
+import {
+  journalPayloadLimits,
+  UNRETAINED_JOURNAL_PAYLOAD_LIMITS,
+  type JournalPayloadLimits
+} from '../agent-session-journal/journal-payload-bounds'
+import { journalOverflowSink } from '../agent-session-journal/journal-overflow-store'
 
 export type StructuredAgentSessionSinkOperation = {
   sequence: number
@@ -26,6 +32,7 @@ export type StructuredAgentSessionDrainWaiter = {
 export class StructuredAgentSessionSinkQueue {
   private readingControl: StructuredAgentSessionReadingControl | undefined
   private target: StructuredAgentSessionEventTarget | null = null
+  private limits: JournalPayloadLimits | null = null
   private closed = false
   private failure: { error: unknown } | null = null
   private running = false
@@ -75,12 +82,26 @@ export class StructuredAgentSessionSinkQueue {
   bind(target: StructuredAgentSessionEventTarget): void {
     if (!this.closed) {
       this.target = target
+      this.limits = null
       this.pump()
     }
   }
 
   unbind(): void {
     this.target = null
+    this.limits = null
+  }
+
+  /** The row budget for the bound journal, so a clipped payload's remainder is
+   *  retained beside that journal rather than dropped. Unretained while nothing
+   *  is bound: there is no session directory to retain into yet. */
+  payloadLimits = (): JournalPayloadLimits => {
+    const journalDir = this.target?.journal.directory
+    if (!journalDir) {
+      return UNRETAINED_JOURNAL_PAYLOAD_LIMITS
+    }
+    this.limits ??= journalPayloadLimits(journalOverflowSink(journalDir))
+    return this.limits
   }
 
   close(): void {

@@ -3,6 +3,7 @@ import type {
   AgentJournalItemIdentity
 } from '../../shared/agent-session-journal-types'
 import { requiresTerminalSettlement } from '../native-chat/agent-session-journal/journal-terminal-settlement'
+import { structuredAgentSessionPayloadLimits } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import {
   codexItemIdentity,
   codexJournalItem,
@@ -89,7 +90,7 @@ export class CodexJournalItems {
     ) {
       return { handled: true, admission: { accepted: false, reason: 'failed' } }
     }
-    const translated = codexJournalItem(item)
+    const translated = codexJournalItem(item, structuredAgentSessionPayloadLimits(this.deps.sink))
     const command = readCodexJournalString(item, 'command')
     if (command) {
       const boundedCommand = Buffer.from(command, 'utf8')
@@ -214,7 +215,10 @@ export class CodexJournalItems {
       }
       const evicted = this.activeItems.get(oldest)
       if (evicted) {
-        const translated = codexJournalItem(evicted.item).body
+        const translated = codexJournalItem(
+          evicted.item,
+          structuredAgentSessionPayloadLimits(this.deps.sink)
+        ).body
         if (translated) {
           const admission = appendCodexLifecycleItem(
             this.deps.sink,

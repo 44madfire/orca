@@ -1,4 +1,5 @@
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
+import { structuredAgentSessionPayloadLimits } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { createAgentSessionDeltaCoalescer } from '../native-chat/agent-session-wire/agent-session-delta-coalescer'
 import { CodexItemStreamRetention } from './codex-item-stream-retention'
 import {
@@ -99,7 +100,8 @@ export function createCodexStructuredItemStreams(
   }
 
   const append = (state: CodexItemStreamState, text: string): boolean => {
-    const translated = codexStreamingJournalItem(state.item, text)
+    const limits = structuredAgentSessionPayloadLimits(deps.sink)
+    const translated = codexStreamingJournalItem(state.item, text, limits)
     if (!translated.body) {
       return true
     }
@@ -237,7 +239,8 @@ export function createCodexStructuredItemStreams(
           return { handled: true, admission: { accepted: false, reason: 'failed' } }
         }
         state.item = { ...state.item, changes: paramsRecord.changes }
-        const translated = codexJournalItem(state.item)
+        const limits = structuredAgentSessionPayloadLimits(deps.sink)
+        const translated = codexJournalItem(state.item, limits)
         if (translated.body) {
           const nextPending: CodexPendingItemPatch = {
             identity: state.identity,
