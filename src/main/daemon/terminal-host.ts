@@ -186,7 +186,7 @@ export class TerminalHost {
     }
     // `broadcastExit` just fanned this exit out to the clients attached at that instant. With none
     // attached nobody received it, so the (now emulator-free) record stays until a caller naming
-    // this exact incarnation is handed it -- see takeUndeliveredExit.
+    // this exact incarnation reads it -- see undeliveredExitFor.
     const delivered = session.hasAttachedClients
     session.dispose()
     if (delivered) {
@@ -229,7 +229,7 @@ export class TerminalHost {
     const session = this.sessions.get(sessionId)
     const undeliveredExit = session?.isAlive
       ? undefined
-      : this.takeUndeliveredExit(sessionId, options?.expectedIncarnationId)
+      : this.undeliveredExitFor(sessionId, options?.expectedIncarnationId)
     if (!session?.isAlive && !undeliveredExit) {
       // Preserve the historical synchronous missing-session failure.
       throw new SessionNotFoundError(sessionId)
@@ -248,13 +248,14 @@ export class TerminalHost {
   }
 
   /**
-   * The exit this session's owner never received, for the incarnation the caller named. Handing it
-   * over IS the delivery, so the record leaves with it and a later ask reads as not-found -- that
-   * caller already has the exit. A caller that names no incarnation, or a different one, proves
-   * nothing about this process and gets the ordinary missing-session failure
-   * (docs/reference/ssh-execution-boundary.md).
+   * The exit this session's owner never received, for the incarnation the caller named. Reading it
+   * is not delivery: a sweep can read the proof and then fail to persist the settlement, and the
+   * next sweep must find it again. The record leaves only when the id is recreated by its owner or
+   * the host is disposed -- the same rule the relay's `pendingExitByPty` follows. A caller that
+   * names no incarnation, or a different one, proves nothing about this process and gets the
+   * ordinary missing-session failure (docs/reference/ssh-execution-boundary.md).
    */
-  private takeUndeliveredExit(
+  private undeliveredExitFor(
     sessionId: string,
     expectedIncarnationId: string | undefined
   ): { incarnationId: string; code: number } | undefined {
@@ -267,7 +268,6 @@ export class TerminalHost {
     ) {
       return undefined
     }
-    this.sessions.delete(sessionId)
     return { incarnationId: session.incarnationId, code: session.exitCode }
   }
 

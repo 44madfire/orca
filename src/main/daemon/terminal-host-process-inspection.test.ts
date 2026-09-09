@@ -82,7 +82,7 @@ describe('TerminalHost undelivered exits', () => {
     return created.incarnationId
   }
 
-  it('hands a close-and-reopen caller the exit its client never received, once', async () => {
+  it('keeps handing a close-and-reopen caller the exit its client never received', async () => {
     const { host, lastSubprocess } = createHost()
     try {
       const incarnationId = await exitWhileClientIsAway(host, lastSubprocess, 'session-away', 3)
@@ -102,10 +102,11 @@ describe('TerminalHost undelivered exits', () => {
         }
       })
 
-      // Handing it over was the delivery: that client now has the exit.
-      expect(() =>
+      // Reading is not delivery: a sweep that reads the proof and then fails to persist the
+      // settlement must find it again next time.
+      await expect(
         host.inspectProcess('session-away', { expectedIncarnationId: incarnationId })
-      ).toThrow(SessionNotFoundError)
+      ).resolves.toMatchObject({ foregroundProcessEvidence: { verdict: 'exited' } })
     } finally {
       await host.dispose()
     }
