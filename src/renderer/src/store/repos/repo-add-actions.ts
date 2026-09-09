@@ -3,7 +3,6 @@ import { toast } from 'sonner'
 import type { AppState } from '../types'
 import type { Repo } from '../../../../shared/repo-types'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
-import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
 import { getRepoHostIdentity } from '../slices/repo-host-identity'
 import { callRuntimeRpc, getActiveRuntimeTarget } from '../../runtime/runtime-rpc-client'
 import { resolveDismissedOnboardingFolderAgentLaunch } from '@/lib/onboarding-folder-agent-startup'
@@ -185,7 +184,6 @@ export function createRepoAddActions(
           (worktree) => executionHostId === undefined || worktree.hostId === executionHostId
         )
         if (folderWorktree) {
-          const { activateAndRevealWorktree } = await import('../../lib/worktree-activation')
           const onboarding = await window.api.onboarding.get().catch(() => null)
           // Why: adding the first folder from Landing skips onboarding's completeRepo hook; carry the default agent into the first terminal here.
           const launch = resolveDismissedOnboardingFolderAgentLaunch({
@@ -197,37 +195,14 @@ export function createRepoAddActions(
               repo.connectionId
             )
           })
-          activateAndRevealWorktree(folderWorktree.id, {
-            sidebarRevealBehavior: 'auto',
-            ...(executionHostId ? { executionHostId } : {}),
-            ...(launch.startup ? { startup: launch.startup } : {}),
-            ...(launch.route === 'structured-native-chat' ? { providesInitialSurface: true } : {})
+          // Why: lazy-import to avoid a circular module load (the launch graph imports the store root).
+          const { revealOnboardingFolderWithAgentLaunch } =
+            await import('@/lib/onboarding-folder-agent-launch')
+          await revealOnboardingFolderWithAgentLaunch({
+            worktreeId: folderWorktree.id,
+            executionHostId,
+            launch
           })
-          if (
-            launch.route === 'structured-native-chat' &&
-            isAgentSessionHandleProvider(launch.agent)
-          ) {
-            const [{ startStructuredAgentLaunch }, { StructuredAgentSessionCreateRefusalError }] =
-              await Promise.all([
-                import('@/lib/structured-agent-session-launch'),
-                import('@/lib/launch-structured-agent-session')
-              ])
-            const structured = startStructuredAgentLaunch(folderWorktree.id, launch.agent)
-            const fallback = structured.claimDefinitiveRefusalFallback(() => {
-              activateAndRevealWorktree(folderWorktree.id, {
-                sidebarRevealBehavior: 'auto',
-                ...(executionHostId ? { executionHostId } : {}),
-                ...(launch.fallbackStartup ? { startup: launch.fallbackStartup } : {})
-              })
-            })
-            try {
-              await structured.launchResult
-            } catch (error) {
-              if (error instanceof StructuredAgentSessionCreateRefusalError) {
-                await fallback
-              }
-            }
-          }
         }
         return repo
       } catch (err) {

@@ -19,9 +19,8 @@ import {
 } from './folder-workspace-composer-helpers'
 import { resolveAgentLaunchRouteForWorkspace } from '@/lib/agent-launch-route-input'
 import { getNewWorkspaceProjectGroupHostId } from '@/lib/new-workspace-project-options'
-import { startStructuredAgentLaunch } from '@/lib/structured-agent-session-launch'
+import { settleStructuredAgentLaunch } from '@/lib/structured-agent-launch-settlement'
 import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
-import { StructuredAgentSessionCreateRefusalError } from '@/lib/launch-structured-agent-session'
 import { useAppStore } from '@/store'
 import {
   buildFolderWorkspaceLinkedStartupPlan,
@@ -216,35 +215,48 @@ export async function submitFolderWorkspaceCreate({
     })
     let structuredLaunchAccepted = structuredLaunch
     if (structuredLaunch && isAgentSessionHandleProvider(quickAgent)) {
-      const launch = startStructuredAgentLaunch(folderWorkspaceKey(workspace.id), quickAgent, {
-        prompt: launchDraftPrompt ?? note,
-        promptDelivery: launchDraftPrompt ? 'draft' : 'auto-submit'
-      })
-      const refusalFallback = launch.claimDefinitiveRefusalFallback(async () => {
+      const settlement = await settleStructuredAgentLaunch(
+        folderWorkspaceKey(workspace.id),
+        quickAgent,
+        {
+          prompt: launchDraftPrompt ?? note,
+          promptDelivery: launchDraftPrompt ? 'draft' : 'auto-submit'
+        },
+        {
+          legacyFallback: async () => {
+            if (pendingFirstAgentMessageRename) {
+              await useAppStore
+                .getState()
+                .updateFolderWorkspace(workspace.id, { pendingFirstAgentMessageRename: true })
+                .catch(() => undefined)
+            }
+            await preflightFolderWorkspaceAgentTrust({
+              agent: quickAgent,
+              workspacePath: workspace.folderPath,
+              connectionId: workspace.connectionId ?? projectGroup.connectionId
+            })
+            const fallbackActivation = activateAndRevealFolderWorkspace(workspace.id, {
+              ...(startup ? { startup } : {}),
+              runtimeEnvironmentId
+            })
+            return {
+              activation: fallbackActivation,
+              primaryTabId: fallbackActivation === false ? null : fallbackActivation.primaryTabId
+            }
+          }
+        }
+      )
+      // Why: the workspace exists either way. Unknown keeps reporting false and failed true, as
+      // the boolean did before the loop was shared; the launch layer owns the failure toast.
+      if (settlement.kind === 'visibility-unknown') {
+        return false
+      }
+      if (settlement.kind === 'failed' || settlement.kind === 'cancelled') {
+        return true
+      }
+      if (settlement.kind === 'refused-then-legacy') {
         structuredLaunchAccepted = false
-        if (pendingFirstAgentMessageRename) {
-          await useAppStore
-            .getState()
-            .updateFolderWorkspace(workspace.id, { pendingFirstAgentMessageRename: true })
-            .catch(() => undefined)
-        }
-        await preflightFolderWorkspaceAgentTrust({
-          agent: quickAgent,
-          workspacePath: workspace.folderPath,
-          connectionId: workspace.connectionId ?? projectGroup.connectionId
-        })
-        activation = activateAndRevealFolderWorkspace(workspace.id, {
-          ...(startup ? { startup } : {}),
-          runtimeEnvironmentId
-        })
-      })
-      try {
-        await launch.launchResult
-      } catch (error) {
-        if (!(error instanceof StructuredAgentSessionCreateRefusalError)) {
-          return !launch.isVisibilityUnknown()
-        }
-        await refusalFallback
+        activation = settlement.activation
       }
     }
     if (

@@ -10,8 +10,7 @@ import {
   buildDirectWorkItemAgentStartupPlan,
   buildDirectWorkItemStartupOpts
 } from '@/lib/launch-work-item-direct-agent'
-import { startStructuredAgentLaunch } from '@/lib/structured-agent-session-launch'
-import { StructuredAgentSessionCreateRefusalError } from '@/lib/launch-structured-agent-session'
+import { settleStructuredAgentLaunch } from '@/lib/structured-agent-launch-settlement'
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
 import { resolveSourceControlLaunchPlatform } from '@/lib/source-control-launch-platform'
 import { preflightAgentTrust } from '@/lib/agent-trust-preflight'
@@ -127,48 +126,70 @@ export async function settleDirectWorkItemStructuredLaunch(args: {
   visibilityUnknown: boolean
   primaryTabId: string | null
 }> {
-  let { structuredLaunch, primaryTabId } = args
-  if (!structuredLaunch || !isAgentSessionHandleProvider(args.agent)) {
-    return { completed: false, structuredLaunch, visibilityUnknown: false, primaryTabId }
+  if (!args.structuredLaunch || !isAgentSessionHandleProvider(args.agent)) {
+    return {
+      completed: false,
+      structuredLaunch: args.structuredLaunch,
+      visibilityUnknown: false,
+      primaryTabId: args.primaryTabId
+    }
   }
-
-  const launch = startStructuredAgentLaunch(args.worktreeId, args.agent, {
-    prompt: args.draftContent,
-    promptDelivery: args.promptDelivery
-  })
-  const refusalFallback = launch.claimDefinitiveRefusalFallback(async () => {
-    structuredLaunch = false
-    await preflightAgentTrust({
-      agent: args.agent,
-      workspacePath: args.workspacePath,
-      connectionId: args.connectionId
-    })
-    const fallbackActivation = activateAndRevealWorktree(args.worktreeId, {
-      sidebarRevealBehavior: 'auto',
-      createNewTerminalForStartup: true,
-      ...buildDirectWorkItemStartupOpts(
-        args.agent,
-        args.startupPlan,
-        args.launchSource,
-        args.promptDelivery === 'draft' ? args.draftContent : undefined
-      )
-    })
-    primaryTabId = fallbackActivation === false ? null : fallbackActivation.primaryTabId
-  })
-  try {
-    await launch.launchResult
-    return { completed: true, structuredLaunch, visibilityUnknown: false, primaryTabId }
-  } catch (error) {
-    if (!(error instanceof StructuredAgentSessionCreateRefusalError)) {
-      const visibilityUnknown = launch.isVisibilityUnknown()
-      return {
-        completed: !visibilityUnknown,
-        structuredLaunch,
-        visibilityUnknown,
-        primaryTabId
+  const agent = args.agent
+  const settlement = await settleStructuredAgentLaunch(
+    args.worktreeId,
+    agent,
+    { prompt: args.draftContent, promptDelivery: args.promptDelivery },
+    {
+      legacyFallback: async () => {
+        await preflightAgentTrust({
+          agent,
+          workspacePath: args.workspacePath,
+          connectionId: args.connectionId
+        })
+        const activation = activateAndRevealWorktree(args.worktreeId, {
+          sidebarRevealBehavior: 'auto',
+          createNewTerminalForStartup: true,
+          ...buildDirectWorkItemStartupOpts(
+            agent,
+            args.startupPlan,
+            args.launchSource,
+            args.promptDelivery === 'draft' ? args.draftContent : undefined
+          )
+        })
+        return { activation, primaryTabId: activation === false ? null : activation.primaryTabId }
       }
     }
-    await refusalFallback
+  )
+  switch (settlement.kind) {
+    case 'structured':
+      return {
+        completed: true,
+        structuredLaunch: true,
+        visibilityUnknown: false,
+        primaryTabId: args.primaryTabId
+      }
+    case 'refused-then-legacy':
+      return {
+        completed: false,
+        structuredLaunch: false,
+        visibilityUnknown: false,
+        primaryTabId: settlement.primaryTabId
+      }
+    case 'visibility-unknown':
+      return {
+        completed: false,
+        structuredLaunch: true,
+        visibilityUnknown: true,
+        primaryTabId: args.primaryTabId
+      }
+    case 'failed':
+    case 'cancelled':
+      // Why: these used to read as completed; the launch layer already toasted the failure.
+      return {
+        completed: false,
+        structuredLaunch: true,
+        visibilityUnknown: false,
+        primaryTabId: args.primaryTabId
+      }
   }
-  return { completed: false, structuredLaunch, visibilityUnknown: false, primaryTabId }
 }

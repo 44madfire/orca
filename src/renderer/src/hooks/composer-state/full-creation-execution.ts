@@ -227,33 +227,27 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
         ...(structuredLaunch ? { providesInitialSurface: true } : {})
       })
 
-      const { structuredLaunchAccepted, visibilityUnknown, activation } =
-        await settleFullCreationStructuredLaunch({
-          structuredLaunch,
-          agent: tuiAgent,
-          worktreeId: worktree.id,
-          prompt: startupPlan?.draftPrompt ?? submitStartupPrompt,
-          promptDelivery: startupPlan?.draftPrompt ? 'draft' : 'auto-submit',
-          initialActivation,
-          onDefinitiveRefusal: async () => {
-            if (pendingFirstAgentMessageRename) {
-              await applyWorktreeMeta(worktree.id, { pendingFirstAgentMessageRename: true }).catch(
-                () => undefined
-              )
-            }
-            return activateAndRevealWorktree(worktree.id, {
-              sidebarRevealBehavior: 'auto',
-              createNewTerminalForStartup: true,
-              ...(startup ? { startup } : {})
-            })
-          }
-        })
+      const settlement = await settleFullCreationStructuredLaunch({
+        structuredLaunch,
+        agent: tuiAgent,
+        worktreeId: worktree.id,
+        prompt: startupPlan?.draftPrompt ?? submitStartupPrompt,
+        promptDelivery: startupPlan?.draftPrompt ? 'draft' : 'auto-submit',
+        startup,
+        pendingFirstAgentMessageRename,
+        applyWorktreeMeta
+      })
 
-      if (visibilityUnknown) {
+      // Why: both leave the workspace revealed and the composer text intact; the launch layer has
+      // already toasted a failure, and an unknown outcome reconciles on the next click.
+      if (settlement?.kind === 'visibility-unknown' || settlement?.kind === 'failed') {
         setSidebarOpen(true)
         onCreated?.()
         return
       }
+      const structuredLaunchAccepted = settlement?.kind === 'structured'
+      const activation =
+        settlement?.kind === 'refused-then-legacy' ? settlement.activation : initialActivation
 
       if (!structuredLaunchAccepted && startupPlan) {
         const optionScopeKey =
