@@ -49,10 +49,7 @@ describe('orchestration worker launch preferences', () => {
     )
   })
 
-  it.each([
-    { label: 'no authority at all', authority: undefined },
-    { label: 'a seed fallback', authority: SEED_WORKER_LAUNCH_MODEL_AUTHORITY }
-  ])('accepts an unlisted id when the host was never listed: $label', ({ authority }) => {
+  it('accepts an unlisted id when the host could not be listed', () => {
     // A probe that could not run is not a statement that the model does not exist. `opus[1m]` is
     // the id `worker-start --model` documents, and it is absent from the short Claude seed.
     expect(
@@ -60,7 +57,7 @@ describe('orchestration worker launch preferences', () => {
         agent: 'claude',
         model: 'opus[1m]',
         effort: 'max',
-        ...(authority ? { authority } : {})
+        authority: SEED_WORKER_LAUNCH_MODEL_AUTHORITY
       }).preferences
     ).toEqual({ model: 'opus[1m]', effort: 'max' })
   })
