@@ -188,14 +188,6 @@ export class StructuredAgentSessionHost {
   })
 
   /** The host's half of attaching, named so it cannot grow dependencies unnoticed. */
-  private attachContext = (): StructuredAgentSessionAttachContext => ({
-    ...this.lifetimeContext(),
-    subscribers: this.subscribers,
-    tasks: this.tasks,
-    reconcileLeases: (sessionId) => this.reconcileLeases(sessionId),
-    serialize: (sessionId, task) => this.serialize(sessionId, task),
-       publishStatus: (sessionId) => this.statusFeed.publish(sessionId)
-  })
   private attachContext(): StructuredAgentSessionAttachContext {
     return {
       ...this.lifetimeContext(),
@@ -227,9 +219,6 @@ export class StructuredAgentSessionHost {
   /** Last projected status for every structured session this host still holds, for non-subscribing
    *  readers. The retained projections of forgotten sessions are deliberately not included. */
   readonly liveSessionStatusSummaries = () => this.statusFeed.liveSessionSummaries()
-
-  /** Last projected status for every structured session this host still holds. */
-   readonly liveSessionStatusSummaries = () => this.statusFeed.liveSessionSummaries()
 
   getPersistedVisibleSessionTabIndex = () => this.deps.store.getVisibleSessionTabIndex()
 
