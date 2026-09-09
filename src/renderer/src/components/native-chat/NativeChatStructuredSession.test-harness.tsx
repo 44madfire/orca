@@ -39,6 +39,7 @@ export function createStructuredSessionMocks() {
     submissions: [] as unknown[],
     monitoringBackgroundTasks: false,
     supportsBackgroundTaskStop: false,
+    supportsBackgroundTaskStopAll: true,
     backgroundTasks: [] as AgentSessionBackgroundTask[],
     stopBackgroundTask: vi.fn() as StructuredSessionSpy
   }
@@ -93,6 +94,7 @@ export function createStructuredSessionMocks() {
             isWorking: false,
             isMonitoringBackgroundTasks: mocks.monitoringBackgroundTasks,
             supportsBackgroundTaskStop: mocks.supportsBackgroundTaskStop,
+            supportsBackgroundTaskStopAll: mocks.supportsBackgroundTaskStopAll,
             backgroundTasks: mocks.backgroundTasks,
             turnId: null,
             cancel: vi.fn() as StructuredSessionSpy,
@@ -180,6 +182,7 @@ export function createStructuredSessionMocks() {
     mocks.submissions = []
     mocks.monitoringBackgroundTasks = false
     mocks.supportsBackgroundTaskStop = false
+    mocks.supportsBackgroundTaskStopAll = true
     mocks.stopBackgroundTask.mockReset()
     mocks.backgroundTasks = []
   }
