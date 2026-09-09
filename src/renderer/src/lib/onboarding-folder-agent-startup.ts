@@ -13,11 +13,6 @@ import type { OnboardingState } from '../../../shared/onboarding-state-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import { resolveInitialNativeChatSessionOptions } from '@/components/native-chat/native-chat-launch-session-options'
 import type { SessionOptionValue } from '../../../shared/native-chat-session-options'
-import type { AgentLaunchRoute } from '@/lib/agent-launch-routing'
-import {
-  resolveAgentLaunchRouteForWorkspace,
-  type AgentLaunchRouteStore
-} from '@/lib/agent-launch-route-input'
 
 export type OnboardingFolderAgentStartup = {
   command: string
@@ -106,38 +101,4 @@ export function buildDismissedOnboardingFolderAgentStartup(
     return undefined
   }
   return buildOnboardingFolderAgentStartup(settings, nativeChatTranscriptIsLocalReadable)
-}
-
-export function resolveDismissedOnboardingFolderAgentLaunch(args: {
-  store: AgentLaunchRouteStore
-  onboarding: OnboardingState | null
-  hasExistingProject: boolean
-  executionHostId: string
-  nativeChatTranscriptIsLocalReadable?: boolean
-}): {
-  agent: TuiAgent | null
-  route: AgentLaunchRoute
-  startup?: OnboardingFolderAgentStartup
-  fallbackStartup?: OnboardingFolderAgentStartup
-} {
-  const startup = buildDismissedOnboardingFolderAgentStartup(
-    args.store.settings ?? null,
-    args.onboarding,
-    args.hasExistingProject,
-    args.nativeChatTranscriptIsLocalReadable
-  )
-  const agent = startup?.launchAgent ?? null
-  if (!startup || !agent) {
-    return { agent: null, route: 'terminal-tui' }
-  }
-  const route = resolveAgentLaunchRouteForWorkspace(args.store, {
-    agent,
-    workspace: { kind: 'folder', executionHostId: args.executionHostId },
-    initialSessionOptions: startup.sessionOptions
-  })
-  return {
-    agent,
-    route,
-    ...(route === 'structured-native-chat' ? { fallbackStartup: startup } : { startup })
-  }
 }

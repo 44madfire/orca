@@ -1,20 +1,11 @@
-import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
+import type { AgentSessionLaunchPlan } from '@/lib/agent-session-launch-plan'
 import type { LaunchAgentInNewTabResult } from '@/lib/launch-agent-in-new-tab'
-import {
-  settleStructuredAgentLaunch,
-  type StructuredAgentLaunchSettlement
-} from '@/lib/structured-agent-launch-settlement'
-import type { StructuredAgentLaunchOptions } from '@/lib/structured-agent-session-launch'
+import type { StructuredAgentLaunchSettlement } from '@/lib/structured-agent-launch-settlement'
 import type { StructuredPromptDeliveryResult } from '@/lib/structured-agent-session-launch-prompt'
 
-export type StructuredNewTabLaunchArgs = Pick<
-  StructuredAgentLaunchOptions,
-  'promptDelivery' | 'onPromptDelivered'
-> & {
-  worktreeId: string
-  agent: AgentSessionHandleProvider
-  /** Already trimmed; empty means no prompt. */
-  prompt: string
+export type StructuredNewTabLaunchArgs = {
+  /** Planned on the structured route with an already-trimmed prompt; empty means no prompt. */
+  plan: AgentSessionLaunchPlan
   /** The terminal-backed launch with the same arguments. Runs at most once, on definitive refusal. */
   legacyLaunch: () => LaunchAgentInNewTabResult
 }
@@ -43,16 +34,9 @@ function promptDeliveryFromSettlement(
 export function launchAgentInStructuredNewTab(
   args: StructuredNewTabLaunchArgs
 ): StructuredNewTabLaunch {
-  const hasPrompt = args.prompt.length > 0
-  const structuredSettlement = settleStructuredAgentLaunch(
-    args.worktreeId,
-    args.agent,
-    {
-      prompt: args.prompt,
-      promptDelivery: args.promptDelivery,
-      onPromptDelivered: args.onPromptDelivered
-    },
-    {
+  const hasPrompt = Boolean(args.plan.prompt)
+  const structuredSettlement = args.plan
+    .launch({
       legacyFallback: async () => {
         const fallback = args.legacyLaunch()
         // Why: a legacy launch with no delivery promise still delivered an argv-carried or draft
@@ -67,8 +51,15 @@ export function launchAgentInStructuredNewTab(
           ...(promptDeliveryResult ? { promptDeliveryResult } : {})
         }
       }
-    }
-  ).catch((error: unknown): StructuredAgentLaunchSettlement => ({ kind: 'failed', error }))
+    })
+    .then(
+      (settlement): StructuredAgentLaunchSettlement =>
+        settlement ?? {
+          kind: 'failed',
+          error: new Error('Launch planned off the structured route')
+        },
+      (error: unknown): StructuredAgentLaunchSettlement => ({ kind: 'failed', error })
+    )
   void structuredSettlement.then((settlement) => {
     // Why: unknown already shows the launch badge and failed already toasted; this is the log
     // line the old fire-and-forget fallback claim kept.
@@ -79,7 +70,7 @@ export function launchAgentInStructuredNewTab(
   return {
     structuredSettlement,
     // Why: draft mode has no delivery event; the composer adopts the text and the user sends it.
-    ...(hasPrompt && args.promptDelivery !== 'draft'
+    ...(hasPrompt && args.plan.promptDelivery !== 'draft'
       ? { promptDeliveryResult: structuredSettlement.then(promptDeliveryFromSettlement) }
       : {})
   }

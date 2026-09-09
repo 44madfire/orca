@@ -22,19 +22,25 @@ vi.mock('@/lib/native-chat-transcript-readability', () => ({
   isNativeChatTranscriptLocalReadable: vi.fn(() => true)
 }))
 
+import { adoptAgentSessionLaunchVerdict } from './agent-session-launch-plan'
 import {
   markDirectWorkItemAgentTrusted,
   settleDirectWorkItemStructuredLaunch
 } from './launch-work-item-direct-agent-routing'
 
+const structuredPlan = adoptAgentSessionLaunchVerdict({
+  route: 'structured-native-chat',
+  agent: 'codex',
+  worktreeId: 'worktree-1',
+  prompt: 'Fix the route',
+  promptDelivery: 'draft'
+})
+
 const baseArgs = {
-  structuredLaunch: true,
-  agent: 'codex' as const,
+  plan: structuredPlan,
   worktreeId: 'worktree-1',
   workspacePath: '/repo/worktree',
   connectionId: null,
-  draftContent: 'Fix the route',
-  promptDelivery: 'draft' as const,
   primaryTabId: null,
   startupPlan: null,
   launchSource: 'task_page' as const
@@ -125,7 +131,10 @@ describe('settleDirectWorkItemStructuredLaunch', () => {
 
   it('skips the loop when the route is not structured', async () => {
     await expect(
-      settleDirectWorkItemStructuredLaunch({ ...baseArgs, structuredLaunch: false })
+      settleDirectWorkItemStructuredLaunch({
+        ...baseArgs,
+        plan: adoptAgentSessionLaunchVerdict({ ...structuredPlan, route: 'legacy-native-chat' })
+      })
     ).resolves.toEqual({
       completed: false,
       structuredLaunch: false,

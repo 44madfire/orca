@@ -1,21 +1,15 @@
-import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
-import type { TuiAgent } from '../../../../shared/tui-agent'
+import type { AgentSessionLaunchPlan } from '@/lib/agent-session-launch-plan'
 import type { WorktreeStartupPayload } from '@/lib/worktree-startup-payload'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
-import {
-  settleStructuredAgentLaunch,
-  type StructuredAgentLaunchSettlement
-} from '@/lib/structured-agent-launch-settlement'
+import type { StructuredAgentLaunchSettlement } from '@/lib/structured-agent-launch-settlement'
 import { activateStructuredAgentSessionById } from '@/lib/structured-agent-session-tab-activation'
 
 /** Full-create dialog: the structured launch plus what this flow did before structured chat
- *  existed. Returns null when the route is not structured. */
+ *  existed. Returns null when the plan's route is not structured. */
 export async function settleFullCreationStructuredLaunch(args: {
-  structuredLaunch: boolean
-  agent: TuiAgent
+  /** Planned before the worktree existed; `worktreeId` names the one that was created. */
+  plan: AgentSessionLaunchPlan
   worktreeId: string
-  prompt: string
-  promptDelivery: 'draft' | 'auto-submit'
   startup: WorktreeStartupPayload | undefined
   pendingFirstAgentMessageRename: boolean
   applyWorktreeMeta: (
@@ -23,13 +17,7 @@ export async function settleFullCreationStructuredLaunch(args: {
     meta: { pendingFirstAgentMessageRename: boolean }
   ) => Promise<void>
 }): Promise<StructuredAgentLaunchSettlement | null> {
-  if (!args.structuredLaunch || !isAgentSessionHandleProvider(args.agent)) {
-    return null
-  }
-  return settleStructuredAgentLaunch(
-    args.worktreeId,
-    args.agent,
-    { prompt: args.prompt, promptDelivery: args.promptDelivery },
+  return args.plan.launch(
     {
       legacyFallback: async () => {
         if (args.pendingFirstAgentMessageRename) {
@@ -46,6 +34,7 @@ export async function settleFullCreationStructuredLaunch(args: {
       },
       onStructuredReady: (sessionId) =>
         activateStructuredAgentSessionById({ worktreeId: args.worktreeId, sessionId })
-    }
+    },
+    { worktreeId: args.worktreeId }
   )
 }

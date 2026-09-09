@@ -37,7 +37,7 @@ import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/native-chat-session-option-cache'
 import { queueWorkspaceActivationTerminalFocus } from '@/lib/workspace-activation-terminal-focus'
 import { useAppStore } from '@/store'
-import { resolveAgentLaunchRouteForWorkspace } from '@/lib/agent-launch-route-input'
+import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
 import { settleFullCreationStructuredLaunch } from './full-creation-structured-launch'
 import { finalizeFullCreation } from './full-creation-finalization'
 import { buildFullCreationIssueCommand } from './full-creation-issue-command'
@@ -129,20 +129,18 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
         return
       }
 
-      const launchPrompt = startupPlan?.draftPrompt ?? submitStartupPrompt
-      const promptDelivery = startupPlan?.draftPrompt ? 'draft' : 'auto-submit'
-      const agentLaunchRoute = resolveAgentLaunchRouteForWorkspace(useAppStore.getState(), {
+      const launchPlan = planAgentSessionLaunch(useAppStore.getState(), {
         agent: tuiAgent,
         workspace: {
           kind: selectedRepoIsGit ? 'git-worktree' : 'folder',
           repoId,
           executionHostId: selectedRepoExecutionHostId ?? undefined
         },
-        prompt: launchPrompt,
-        promptDelivery,
+        prompt: startupPlan?.draftPrompt ?? submitStartupPrompt,
+        promptDelivery: startupPlan?.draftPrompt ? 'draft' : 'auto-submit',
         initialSessionOptions: startupPlan?.sessionOptions
       })
-      const structuredLaunch = agentLaunchRoute === 'structured-native-chat'
+      const structuredLaunch = launchPlan.route === 'structured-native-chat'
       const effectiveBackendStartup = structuredLaunch ? undefined : backendStartup
 
       const result = await createWorktree(
@@ -230,11 +228,8 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
       })
 
       const settlement = await settleFullCreationStructuredLaunch({
-        structuredLaunch,
-        agent: tuiAgent,
+        plan: launchPlan,
         worktreeId: worktree.id,
-        prompt: launchPrompt,
-        promptDelivery,
         startup,
         pendingFirstAgentMessageRename,
         applyWorktreeMeta

@@ -1,0 +1,114 @@
+import { isAgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
+import type { StructuredAgentSessionResumeSource } from '../../../shared/structured-agent-session-create'
+import type { TuiAgent } from '../../../shared/tui-agent'
+import {
+  buildAgentLaunchRouteInput,
+  type AgentLaunchRouteArgs,
+  type AgentLaunchRouteStore
+} from '@/lib/agent-launch-route-input'
+import {
+  resolveAgentLaunchRoute,
+  structuredAgentLaunchSupported,
+  type AgentLaunchRoute
+} from '@/lib/agent-launch-routing'
+import type { NativeChatLaunchPromptDelivery } from '@/lib/native-chat-initial-view-mode'
+import {
+  settleStructuredAgentLaunch,
+  type StructuredAgentLaunchHooks,
+  type StructuredAgentLaunchSettlement
+} from '@/lib/structured-agent-launch-settlement'
+import type { StructuredAgentLaunchOptions } from '@/lib/structured-agent-session-launch'
+
+export type AgentSessionLaunchRequest = AgentLaunchRouteArgs & {
+  /** An explicit chat request (vault resume): structured feasibility without the default-view-mode gate. */
+  explicitStructured?: boolean
+  resumeFrom?: StructuredAgentSessionResumeSource
+  onPromptDelivered?: () => void
+}
+
+/**
+ * A route decided once plus exactly what its structured launch delivers. The persisted quick-create
+ * request carries the data fields, so a launch that happens after the workspace exists (or a
+ * recovery replay) re-enters here without re-resolving.
+ */
+export type AgentSessionLaunchVerdict = {
+  route: AgentLaunchRoute
+  agent: TuiAgent
+  worktreeId?: string
+  prompt?: string
+  promptDelivery?: NativeChatLaunchPromptDelivery
+  resumeFrom?: StructuredAgentSessionResumeSource
+  onPromptDelivered?: () => void
+}
+
+export type AgentSessionLaunchTarget = {
+  /** Overrides the verdict's workspace when it was created after planning. */
+  worktreeId?: string
+}
+
+export type AgentSessionLaunchPlan = Readonly<AgentSessionLaunchVerdict> & {
+  /** Runs the structured settle loop for this plan. Null when the route is not structured. */
+  launch(
+    hooks: StructuredAgentLaunchHooks,
+    target?: AgentSessionLaunchTarget
+  ): Promise<StructuredAgentLaunchSettlement | null>
+}
+
+function structuredLaunchOptions(verdict: AgentSessionLaunchVerdict): StructuredAgentLaunchOptions {
+  return {
+    ...(verdict.prompt !== undefined ? { prompt: verdict.prompt } : {}),
+    ...(verdict.promptDelivery ? { promptDelivery: verdict.promptDelivery } : {}),
+    ...(verdict.resumeFrom ? { resumeFrom: verdict.resumeFrom } : {}),
+    ...(verdict.onPromptDelivered ? { onPromptDelivered: verdict.onPromptDelivered } : {})
+  }
+}
+
+/** Re-enter with a verdict decided earlier; the route is data here and is never re-resolved. */
+export function adoptAgentSessionLaunchVerdict(
+  verdict: AgentSessionLaunchVerdict
+): AgentSessionLaunchPlan {
+  return {
+    ...verdict,
+    launch: async (hooks, target) => {
+      if (
+        verdict.route !== 'structured-native-chat' ||
+        !isAgentSessionHandleProvider(verdict.agent)
+      ) {
+        return null
+      }
+      const worktreeId = target?.worktreeId ?? verdict.worktreeId
+      if (!worktreeId) {
+        throw new Error('A structured agent launch needs the workspace it targets.')
+      }
+      return settleStructuredAgentLaunch(
+        worktreeId,
+        verdict.agent,
+        structuredLaunchOptions(verdict),
+        hooks
+      )
+    }
+  }
+}
+
+/** The one place a launch route is decided. Delivery mode is fixed here too, so the settle loop
+ *  later receives exactly the prompt and mode the route was decided on. */
+export function planAgentSessionLaunch(
+  store: AgentLaunchRouteStore,
+  request: AgentSessionLaunchRequest
+): AgentSessionLaunchPlan {
+  const input = buildAgentLaunchRouteInput(store, request)
+  const route: AgentLaunchRoute = request.explicitStructured
+    ? structuredAgentLaunchSupported(input)
+      ? 'structured-native-chat'
+      : 'legacy-native-chat'
+    : resolveAgentLaunchRoute(input)
+  return adoptAgentSessionLaunchVerdict({
+    route,
+    agent: request.agent,
+    ...(request.workspace.worktreeId ? { worktreeId: request.workspace.worktreeId } : {}),
+    ...(request.prompt !== undefined ? { prompt: request.prompt } : {}),
+    ...(request.promptDelivery ? { promptDelivery: request.promptDelivery } : {}),
+    ...(request.resumeFrom ? { resumeFrom: request.resumeFrom } : {}),
+    ...(request.onPromptDelivered ? { onPromptDelivered: request.onPromptDelivered } : {})
+  })
+}

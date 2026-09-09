@@ -1,7 +1,5 @@
-import {
-  structuredAgentLaunchSupportedForWorkspace,
-  workspaceKindForWorktreeId
-} from '@/lib/agent-launch-route-input'
+import { workspaceKindForWorktreeId } from '@/lib/agent-launch-route-input'
+import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
 import { readLocalRuntimeCapabilities } from '@/runtime/local-runtime-capabilities'
 import { useAppStore } from '@/store'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
@@ -36,13 +34,14 @@ export function resolveAiVaultSessionResumeInChatForWorkspace(args: {
     structuredRouteAvailable:
       isAgentSessionHandleProvider(args.session.agent) &&
       targetWorkspaceId !== null &&
-      structuredAgentLaunchSupportedForWorkspace(useAppStore.getState(), {
+      planAgentSessionLaunch(useAppStore.getState(), {
         agent: args.session.agent,
         workspace: {
           kind: workspaceKindForWorktreeId(targetWorkspaceId),
           worktreeId: targetWorkspaceId
-        }
-      }) &&
+        },
+        explicitStructured: true
+      }).route === 'structured-native-chat' &&
       readLocalRuntimeCapabilities().includes(
         STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY
       )

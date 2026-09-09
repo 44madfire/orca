@@ -36,7 +36,10 @@ import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { getLocalRepoProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { settleDirectWorkItemStructuredLaunch } from '@/lib/launch-work-item-direct-agent-routing'
 import { prepareDirectWorkItemAgentLaunch } from '@/lib/launch-work-item-direct-route-preparation'
-import { resolveAgentLaunchRouteForWorkspace } from '@/lib/agent-launch-route-input'
+import {
+  planAgentSessionLaunch,
+  type AgentSessionLaunchPlan
+} from '@/lib/agent-session-launch-plan'
 
 /**
  * "Use" flow: create the workspace, activate it, launch the default agent,
@@ -161,7 +164,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   let startupPlan = null as ReturnType<typeof buildDirectWorkItemAgentStartupPlan>['startupPlan']
   let effectiveAgent: TuiAgent | null = null
   let draftLaunchedNatively = false
-  let structuredLaunch = false
+  let plan: AgentSessionLaunchPlan | null = null
   const draftContent = await getDirectWorkItemDraftContent(item, repoConnectionId)
   let startupPlanFailed = false
   try {
@@ -209,7 +212,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       promptDelivery,
       launchPlatform: args.launchPlatform,
       repoProjectRuntime,
-      routeResolver: resolveAgentLaunchRouteForWorkspace
+      planLaunch: planAgentSessionLaunch
     })
     if (launchPreparation.unavailable) {
       activateAndRevealWorktree(worktreeId, {
@@ -223,13 +226,13 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     startupPlan = launchPreparation.startupPlan
     draftLaunchedNatively = launchPreparation.draftLaunchedNatively
     startupPlanFailed = launchPreparation.startupPlanFailed
-    structuredLaunch = launchPreparation.structuredLaunch
+    plan = launchPreparation.plan
 
     const activation = activateAndRevealWorktree(worktreeId, {
       sidebarRevealBehavior: 'auto',
       setup: result.setup,
       defaultTabs: result.defaultTabs,
-      ...(structuredLaunch
+      ...(launchPreparation.structuredLaunch
         ? { providesInitialSurface: true }
         : buildDirectWorkItemStartupOpts(
             effectiveAgent,
@@ -254,13 +257,10 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   store.setSidebarOpen(true)
 
   const structuredResult = await settleDirectWorkItemStructuredLaunch({
-    structuredLaunch,
-    agent: effectiveAgent,
+    plan,
     worktreeId,
     workspacePath: worktreePath,
     connectionId: repoConnectionId,
-    draftContent,
-    promptDelivery,
     primaryTabId,
     startupPlan,
     launchSource

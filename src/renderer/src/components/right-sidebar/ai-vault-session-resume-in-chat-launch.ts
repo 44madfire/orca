@@ -6,7 +6,7 @@ import type { AgentSessionHandleProvider } from '../../../../shared/agent-sessio
 import { hasRuntimeRpcErrorCode } from '../../../../shared/runtime-rpc-error-code'
 import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import { prepareAiVaultSessionForResume } from '@/lib/ai-vault-session-resume-preparation'
-import { settleStructuredAgentLaunch } from '@/lib/structured-agent-launch-settlement'
+import { adoptAgentSessionLaunchVerdict } from '@/lib/agent-session-launch-plan'
 import {
   activateAndRevealFolderWorkspace,
   activateAndRevealWorktree
@@ -21,9 +21,10 @@ export function activateAiVaultResumeWorkspace(workspaceId: string): void {
   activateAndRevealWorktree(workspaceId)
 }
 
-/** Adopt a vault conversation into a new structured chat. No legacy fallback: resume has no
- *  terminal equivalent short of the resume command, and switching surface silently would hide
- *  the refusal the user needs to see. */
+/** Adopt a vault conversation into a new structured chat. The route was decided by the
+ *  eligibility gate that showed this action, so it re-enters as a verdict. No legacy fallback:
+ *  resume has no terminal equivalent short of the resume command, and switching surface silently
+ *  would hide the refusal the user needs to see. */
 export async function resumeAiVaultSessionInNewChat(
   session: AiVaultSession,
   agent: AgentSessionHandleProvider,
@@ -33,18 +34,18 @@ export async function resumeAiVaultSessionInNewChat(
     // Codex rows can live under a shared legacy home; the same preparation the terminal resume
     // runs re-pins them, and its result is what names the conversation the host will look for.
     const preparedSession = await prepareAiVaultSessionForResume(session)
-    const settlement = await settleStructuredAgentLaunch(
-      worktreeId,
+    const settlement = await adoptAgentSessionLaunchVerdict({
+      route: 'structured-native-chat',
       agent,
-      { resumeFrom: { providerSessionId: preparedSession.sessionId } },
-      {}
-    )
-    if (settlement.kind === 'failed') {
+      worktreeId,
+      resumeFrom: { providerSessionId: preparedSession.sessionId }
+    }).launch({})
+    if (settlement?.kind === 'failed') {
       notifyAiVaultSessionResumeInChatFailure(settlement.error)
       return
     }
     // Why: an unknown outcome is not a failure; the launch layer reconciles it on the next attempt.
-    if (settlement.kind !== 'structured') {
+    if (settlement?.kind !== 'structured') {
       return
     }
     if (useAppStore.getState().activeWorktreeId !== worktreeId) {

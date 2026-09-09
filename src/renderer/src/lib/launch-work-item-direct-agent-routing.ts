@@ -1,4 +1,3 @@
-import { isAgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
 import type { LaunchSource } from '../../../shared/telemetry-events'
@@ -10,7 +9,7 @@ import {
   buildDirectWorkItemAgentStartupPlan,
   buildDirectWorkItemStartupOpts
 } from '@/lib/launch-work-item-direct-agent'
-import { settleStructuredAgentLaunch } from '@/lib/structured-agent-launch-settlement'
+import type { AgentSessionLaunchPlan } from '@/lib/agent-session-launch-plan'
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
 import { resolveSourceControlLaunchPlatform } from '@/lib/source-control-launch-platform'
 import { preflightAgentTrust } from '@/lib/agent-trust-preflight'
@@ -104,13 +103,10 @@ export async function markDirectWorkItemAgentTrusted(args: {
 }
 
 export async function settleDirectWorkItemStructuredLaunch(args: {
-  structuredLaunch: boolean
-  agent: TuiAgent | null
+  plan: AgentSessionLaunchPlan | null
   worktreeId: string
   workspacePath: string
   connectionId: string | null
-  draftContent: string
-  promptDelivery: PromptDelivery
   primaryTabId: string | null
   startupPlan: AgentStartupPlan | null
   launchSource: LaunchSource
@@ -120,40 +116,40 @@ export async function settleDirectWorkItemStructuredLaunch(args: {
   visibilityUnknown: boolean
   primaryTabId: string | null
 }> {
-  if (!args.structuredLaunch || !isAgentSessionHandleProvider(args.agent)) {
-    return {
-      completed: false,
-      structuredLaunch: args.structuredLaunch,
-      visibilityUnknown: false,
-      primaryTabId: args.primaryTabId
-    }
+  const { plan } = args
+  const notLaunched = (structuredLaunch: boolean) => ({
+    completed: false,
+    structuredLaunch,
+    visibilityUnknown: false,
+    primaryTabId: args.primaryTabId
+  })
+  if (plan?.route !== 'structured-native-chat') {
+    return notLaunched(false)
   }
-  const agent = args.agent
-  const settlement = await settleStructuredAgentLaunch(
-    args.worktreeId,
-    agent,
-    { prompt: args.draftContent, promptDelivery: args.promptDelivery },
-    {
-      legacyFallback: async () => {
-        await preflightAgentTrust({
+  const { agent } = plan
+  const settlement = await plan.launch({
+    legacyFallback: async () => {
+      await preflightAgentTrust({
+        agent,
+        workspacePath: args.workspacePath,
+        connectionId: args.connectionId
+      })
+      const activation = activateAndRevealWorktree(args.worktreeId, {
+        sidebarRevealBehavior: 'auto',
+        createNewTerminalForStartup: true,
+        ...buildDirectWorkItemStartupOpts(
           agent,
-          workspacePath: args.workspacePath,
-          connectionId: args.connectionId
-        })
-        const activation = activateAndRevealWorktree(args.worktreeId, {
-          sidebarRevealBehavior: 'auto',
-          createNewTerminalForStartup: true,
-          ...buildDirectWorkItemStartupOpts(
-            agent,
-            args.startupPlan,
-            args.launchSource,
-            args.promptDelivery === 'draft' ? args.draftContent : undefined
-          )
-        })
-        return { activation, primaryTabId: activation === false ? null : activation.primaryTabId }
-      }
+          args.startupPlan,
+          args.launchSource,
+          plan.promptDelivery === 'draft' ? plan.prompt : undefined
+        )
+      })
+      return { activation, primaryTabId: activation === false ? null : activation.primaryTabId }
     }
-  )
+  })
+  if (!settlement) {
+    return notLaunched(true)
+  }
   switch (settlement.kind) {
     case 'structured':
       return {

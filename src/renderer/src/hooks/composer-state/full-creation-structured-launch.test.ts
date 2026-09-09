@@ -18,14 +18,25 @@ vi.mock('@/lib/structured-agent-session-tab-activation', () => ({
   activateStructuredAgentSessionById: mocks.activateStructuredAgentSessionById
 }))
 
+import {
+  adoptAgentSessionLaunchVerdict,
+  type AgentSessionLaunchVerdict
+} from '@/lib/agent-session-launch-plan'
 import { settleFullCreationStructuredLaunch } from './full-creation-structured-launch'
 
+/** Planned before the worktree existed, so the verdict names no workspace. */
+const plan = (overrides: Partial<AgentSessionLaunchVerdict> = {}) =>
+  adoptAgentSessionLaunchVerdict({
+    route: 'structured-native-chat',
+    agent: 'codex',
+    prompt: 'Fix the route',
+    promptDelivery: 'auto-submit',
+    ...overrides
+  })
+
 const baseArgs = {
-  structuredLaunch: true,
-  agent: 'codex' as const,
+  plan: plan(),
   worktreeId: 'worktree-1',
-  prompt: 'Fix the route',
-  promptDelivery: 'auto-submit' as const,
   startup: { command: 'codex' } as never,
   pendingFirstAgentMessageRename: true,
   applyWorktreeMeta: vi.fn().mockResolvedValue(undefined)
@@ -36,7 +47,7 @@ describe('settleFullCreationStructuredLaunch', () => {
 
   it('skips the loop when the route is not structured', async () => {
     await expect(
-      settleFullCreationStructuredLaunch({ ...baseArgs, structuredLaunch: false })
+      settleFullCreationStructuredLaunch({ ...baseArgs, plan: plan({ route: 'terminal-tui' }) })
     ).resolves.toBeNull()
     expect(mocks.settleStructuredAgentLaunch).not.toHaveBeenCalled()
   })
@@ -50,7 +61,7 @@ describe('settleFullCreationStructuredLaunch', () => {
     )
 
     await expect(
-      settleFullCreationStructuredLaunch({ ...baseArgs, promptDelivery: 'draft' })
+      settleFullCreationStructuredLaunch({ ...baseArgs, plan: plan({ promptDelivery: 'draft' }) })
     ).resolves.toEqual({ kind: 'structured', sessionId: 'session-1' })
     expect(mocks.settleStructuredAgentLaunch).toHaveBeenCalledWith(
       'worktree-1',

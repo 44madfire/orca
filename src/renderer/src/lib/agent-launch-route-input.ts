@@ -9,13 +9,10 @@ import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import {
   hasExplicitTuiAgentArgs,
   hasExplicitTuiLaunchCustomization,
-  resolveAgentLaunchRoute,
-  structuredAgentLaunchSupported,
-  type AgentLaunchRoute,
   type AgentLaunchRoutingInput
 } from '@/lib/agent-launch-routing'
-// Why: the store root imports the onboarding launch path, which imports this module; the
-// resolver's own module keeps that graph acyclic where the `connection-context` facade would not.
+// Why: the `connection-context` facade imports the store root; the resolver's own module keeps
+// this input builder importable from anywhere in the launch graph without a cycle.
 import { getConnectionIdFromState } from '@/lib/connection-owner-resolution'
 import {
   getLocalProjectExecutionRuntimeContext,
@@ -104,7 +101,7 @@ function resolveTranscriptIsLocalReadable(
   return host?.kind === 'ssh' ? isNativeChatTranscriptLocalReadable(host.targetId) : true
 }
 
-/** The one place that gathers what a launch route decision needs; no caller assembles it by hand. */
+/** The one place that gathers what a launch route decision needs; only the planner resolves on it. */
 export function buildAgentLaunchRouteInput(
   store: AgentLaunchRouteStore,
   args: AgentLaunchRouteArgs
@@ -131,19 +128,4 @@ export function buildAgentLaunchRouteInput(
       hasExplicitTuiLaunchCustomization(store.settings, agent),
     initialSessionOptions: args.initialSessionOptions
   }
-}
-
-export function resolveAgentLaunchRouteForWorkspace(
-  store: AgentLaunchRouteStore,
-  args: AgentLaunchRouteArgs
-): AgentLaunchRoute {
-  return resolveAgentLaunchRoute(buildAgentLaunchRouteInput(store, args))
-}
-
-/** An explicit chat request: structured feasibility without the default-view-mode gate. */
-export function structuredAgentLaunchSupportedForWorkspace(
-  store: AgentLaunchRouteStore,
-  args: AgentLaunchRouteArgs
-): boolean {
-  return structuredAgentLaunchSupported(buildAgentLaunchRouteInput(store, args))
 }

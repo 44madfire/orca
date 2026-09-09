@@ -5,7 +5,6 @@ import type { Repo } from '../../../../shared/repo-types'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
 import { getRepoHostIdentity } from '../slices/repo-host-identity'
 import { callRuntimeRpc, getActiveRuntimeTarget } from '../../runtime/runtime-rpc-client'
-import { resolveDismissedOnboardingFolderAgentLaunch } from '@/lib/onboarding-folder-agent-startup'
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
 import { markOnboardingProjectAdded } from '@/lib/onboarding-project-checklist'
 import { translate } from '@/i18n/i18n'
@@ -185,6 +184,11 @@ export function createRepoAddActions(
         )
         if (folderWorktree) {
           const onboarding = await window.api.onboarding.get().catch(() => null)
+          // Why: lazy-import to avoid a circular module load (the launch graph imports the store root).
+          const {
+            resolveDismissedOnboardingFolderAgentLaunch,
+            revealOnboardingFolderWithAgentLaunch
+          } = await import('@/lib/onboarding-folder-agent-launch')
           // Why: adding the first folder from Landing skips onboarding's completeRepo hook; carry the default agent into the first terminal here.
           const launch = resolveDismissedOnboardingFolderAgentLaunch({
             store: get(),
@@ -195,9 +199,6 @@ export function createRepoAddActions(
               repo.connectionId
             )
           })
-          // Why: lazy-import to avoid a circular module load (the launch graph imports the store root).
-          const { revealOnboardingFolderWithAgentLaunch } =
-            await import('@/lib/onboarding-folder-agent-launch')
           await revealOnboardingFolderWithAgentLaunch({
             worktreeId: folderWorktree.id,
             executionHostId,

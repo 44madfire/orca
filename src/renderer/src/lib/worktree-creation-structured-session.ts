@@ -1,11 +1,8 @@
 import { useAppStore } from '@/store'
 import { ensureWorktreeHasInitialTerminal } from '@/lib/worktree-initial-terminal-seeding'
 import { activateAndRevealWorktree, type ActivateAndRevealResult } from '@/lib/worktree-activation'
-import {
-  settleStructuredAgentLaunch,
-  type StructuredAgentLegacyFallbackResult
-} from '@/lib/structured-agent-launch-settlement'
-import { isAgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
+import type { StructuredAgentLegacyFallbackResult } from '@/lib/structured-agent-launch-settlement'
+import { adoptAgentSessionLaunchVerdict } from '@/lib/agent-session-launch-plan'
 import { activateStructuredAgentSessionById } from '@/lib/structured-agent-session-tab-activation'
 import { preflightAgentTrust } from '@/lib/agent-trust-preflight'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
@@ -104,8 +101,8 @@ export async function launchStructuredWorktreeSession(
 ): Promise<WorktreeCreationStructuredSessionResult> {
   const { activation, primaryTabId } = args
   const settled = { accepted: true, cancelled: false, visibilityUnknown: false }
-  const agent = args.request.agent
-  if (!isAgentSessionHandleProvider(agent)) {
+  const { agent, agentLaunchRoute } = args.request
+  if (!agent) {
     return { ...settled, activation, primaryTabId }
   }
   const isCancelled = (): boolean =>
@@ -114,15 +111,19 @@ export async function launchStructuredWorktreeSession(
     return { ...settled, cancelled: true, activation, primaryTabId }
   }
   let refused = false
-  const settlement = await settleStructuredAgentLaunch(
-    args.worktreeId,
+  // Why: the composer decided route and delivery mode before the worktree existed; re-entering
+  // with that persisted verdict is what keeps recovery from re-resolving on a changed host.
+  const plan = adoptAgentSessionLaunchVerdict({
+    route: agentLaunchRoute ?? 'terminal-tui',
     agent,
-    args.recoverUnknownLaunch
+    ...(args.recoverUnknownLaunch
       ? {}
       : {
           prompt: args.request.launchDraftPrompt ?? args.request.quickPrompt,
           ...(args.request.promptDelivery ? { promptDelivery: args.request.promptDelivery } : {})
-        },
+        })
+  })
+  const settlement = await plan.launch(
     {
       cancellation: {
         isCancelled,
@@ -142,8 +143,12 @@ export async function launchStructuredWorktreeSession(
           activateStructuredAgentSessionById({ worktreeId: args.worktreeId, sessionId })
         }
       }
-    }
+    },
+    { worktreeId: args.worktreeId }
   )
+  if (!settlement) {
+    return { ...settled, activation, primaryTabId }
+  }
   switch (settlement.kind) {
     case 'cancelled':
       // Why: a refusal means no session exists on the host, so there is nothing to retire.

@@ -18,10 +18,8 @@ import {
   getLinkedItemDisplayName,
   toFolderWorkspaceLinkedTask
 } from './folder-workspace-composer-helpers'
-import { resolveAgentLaunchRouteForWorkspace } from '@/lib/agent-launch-route-input'
+import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
 import { getNewWorkspaceProjectGroupHostId } from '@/lib/new-workspace-project-options'
-import { settleStructuredAgentLaunch } from '@/lib/structured-agent-launch-settlement'
-import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
 import { useAppStore } from '@/store'
 import {
   buildFolderWorkspaceLinkedStartupPlan,
@@ -132,23 +130,21 @@ export async function submitFolderWorkspaceCreate({
   // `startupPlan.draftPrompt` alone can't tell whether this launch has one.
   const launchDraftPrompt =
     quickAgent && linkedWorkItem ? resolveFolderWorkspaceLaunchDraft(linkedWorkItem, note) : null
-  const launchPrompt = launchDraftPrompt ?? note
-  const promptDelivery = launchDraftPrompt ? 'draft' : 'auto-submit'
-  const agentLaunchRoute = quickAgent
-    ? resolveAgentLaunchRouteForWorkspace(useAppStore.getState(), {
+  const plan = quickAgent
+    ? planAgentSessionLaunch(useAppStore.getState(), {
         agent: quickAgent,
         workspace: {
           kind: 'folder',
           runtimeEnvironmentId,
           executionHostId: getNewWorkspaceProjectGroupHostId(projectGroup)
         },
-        prompt: launchPrompt,
-        promptDelivery,
+        prompt: launchDraftPrompt ?? note,
+        promptDelivery: launchDraftPrompt ? 'draft' : 'auto-submit',
         tuiCustomization: { agentArgs },
         initialSessionOptions: startupPlan?.sessionOptions
       })
-    : 'terminal-tui'
-  const structuredLaunch = agentLaunchRoute === 'structured-native-chat'
+    : null
+  const structuredLaunch = plan?.route === 'structured-native-chat'
   // Why: the pending badge should only appear when the submitted prompt can
   // actually produce the first agent message that names the workspace.
   const pendingFirstAgentMessageRename =
@@ -216,35 +212,37 @@ export async function submitFolderWorkspaceCreate({
       runtimeEnvironmentId
     })
     let structuredLaunchAccepted = structuredLaunch
-    if (structuredLaunch && isAgentSessionHandleProvider(quickAgent)) {
-      const settlement = await settleStructuredAgentLaunch(
-        folderWorkspaceKey(workspace.id),
-        quickAgent,
-        { prompt: launchPrompt, promptDelivery },
-        {
-          legacyFallback: async () => {
-            if (pendingFirstAgentMessageRename) {
-              await useAppStore
-                .getState()
-                .updateFolderWorkspace(workspace.id, { pendingFirstAgentMessageRename: true })
-                .catch(() => undefined)
-            }
-            await preflightAgentTrust({
-              agent: quickAgent,
-              workspacePath: workspace.folderPath,
-              connectionId: workspace.connectionId ?? projectGroup.connectionId
-            })
-            const fallbackActivation = activateAndRevealFolderWorkspace(workspace.id, {
-              ...(startup ? { startup } : {}),
-              runtimeEnvironmentId
-            })
-            return {
-              activation: fallbackActivation,
-              primaryTabId: fallbackActivation === false ? null : fallbackActivation.primaryTabId
-            }
-          }
-        }
-      )
+    const settlement =
+      plan?.route === 'structured-native-chat'
+        ? await plan.launch(
+            {
+              legacyFallback: async () => {
+                if (pendingFirstAgentMessageRename) {
+                  await useAppStore
+                    .getState()
+                    .updateFolderWorkspace(workspace.id, { pendingFirstAgentMessageRename: true })
+                    .catch(() => undefined)
+                }
+                await preflightAgentTrust({
+                  agent: quickAgent,
+                  workspacePath: workspace.folderPath,
+                  connectionId: workspace.connectionId ?? projectGroup.connectionId
+                })
+                const fallbackActivation = activateAndRevealFolderWorkspace(workspace.id, {
+                  ...(startup ? { startup } : {}),
+                  runtimeEnvironmentId
+                })
+                return {
+                  activation: fallbackActivation,
+                  primaryTabId:
+                    fallbackActivation === false ? null : fallbackActivation.primaryTabId
+                }
+              }
+            },
+            { worktreeId: folderWorkspaceKey(workspace.id) }
+          )
+        : null
+    if (settlement) {
       // Why: the workspace exists either way. Unknown keeps reporting false and failed true, as
       // the boolean did before the loop was shared; the launch layer owns the failure toast.
       if (settlement.kind === 'visibility-unknown') {

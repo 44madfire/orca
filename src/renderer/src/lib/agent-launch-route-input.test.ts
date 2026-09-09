@@ -24,14 +24,24 @@ vi.mock('@/lib/local-preflight-context', () => ({
 vi.mock('@/runtime/local-runtime-capabilities', () => ({
   readLocalRuntimeCapabilitiesOrUnknown: mocks.readLocalRuntimeCapabilitiesOrUnknown
 }))
+// Why: the planner is the only route consumer; its settle loop is out of scope here.
+vi.mock('@/lib/structured-agent-launch-settlement', () => ({
+  settleStructuredAgentLaunch: vi.fn()
+}))
 
 import {
   buildAgentLaunchRouteInput,
-  resolveAgentLaunchRouteForWorkspace,
-  structuredAgentLaunchSupportedForWorkspace,
   workspaceKindForWorktreeId,
+  type AgentLaunchRouteArgs,
   type AgentLaunchRouteStore
 } from './agent-launch-route-input'
+import { planAgentSessionLaunch } from './agent-session-launch-plan'
+
+const routeFor = (appStore: AgentLaunchRouteStore, args: AgentLaunchRouteArgs) =>
+  planAgentSessionLaunch(appStore, args).route
+const explicitStructuredFor = (appStore: AgentLaunchRouteStore, args: AgentLaunchRouteArgs) =>
+  planAgentSessionLaunch(appStore, { ...args, explicitStructured: true }).route ===
+  'structured-native-chat'
 
 const STRUCTURED_SETTINGS = {
   experimentalNativeChat: true,
@@ -97,7 +107,7 @@ describe('buildAgentLaunchRouteInput', () => {
     expect(mocks.getLocalProjectExecutionRuntimeContext).toHaveBeenCalledWith(appStore, 'wt-1')
     expect(mocks.getLocalRepoProjectExecutionRuntimeContext).not.toHaveBeenCalled()
     expect(
-      resolveAgentLaunchRouteForWorkspace(appStore, {
+      routeFor(appStore, {
         agent: 'codex',
         workspace: { kind: 'git-worktree', worktreeId: 'wt-1' }
       })
@@ -117,7 +127,7 @@ describe('buildAgentLaunchRouteInput', () => {
     expect(mocks.getLocalProjectExecutionRuntimeContext).not.toHaveBeenCalled()
     expect(mocks.getLocalRepoProjectExecutionRuntimeContext).not.toHaveBeenCalled()
     expect(
-      structuredAgentLaunchSupportedForWorkspace(store(), {
+      explicitStructuredFor(store(), {
         agent: 'claude',
         workspace: { kind: 'git-worktree', worktreeId: 'wt-remote' }
       })
@@ -142,7 +152,7 @@ describe('buildAgentLaunchRouteInput', () => {
     expect(mocks.getExecutionHostIdForWorktree).not.toHaveBeenCalled()
     expect(mocks.getLocalProjectExecutionRuntimeContext).not.toHaveBeenCalled()
     expect(
-      resolveAgentLaunchRouteForWorkspace(appStore, {
+      routeFor(appStore, {
         agent: 'codex',
         workspace: { kind: 'git-worktree', repoId: 'repo-1' },
         prompt: 'issue body',
@@ -203,7 +213,7 @@ describe('buildAgentLaunchRouteInput', () => {
     expect(input.projectRuntime).toBeUndefined()
     expect(mocks.getLocalProjectExecutionRuntimeContext).not.toHaveBeenCalled()
     expect(
-      structuredAgentLaunchSupportedForWorkspace(store(), {
+      explicitStructuredFor(store(), {
         agent: 'codex',
         workspace: { kind: 'floating', worktreeId: FLOATING_TERMINAL_WORKTREE_ID }
       })
@@ -218,8 +228,8 @@ describe('buildAgentLaunchRouteInput', () => {
       promptDelivery: 'draft' as const
     }
     expect(buildAgentLaunchRouteInput(store(), args).promptDelivery).toBe('draft')
-    expect(resolveAgentLaunchRouteForWorkspace(store(), args)).toBe('structured-native-chat')
-    expect(structuredAgentLaunchSupportedForWorkspace(store(), args)).toBe(true)
+    expect(routeFor(store(), args)).toBe('structured-native-chat')
+    expect(explicitStructuredFor(store(), args)).toBe(true)
   })
 
   it.each([

@@ -12,7 +12,19 @@ vi.mock('@/lib/structured-agent-launch-settlement', () => ({
   settleStructuredAgentLaunch: mocks.settleStructuredAgentLaunch
 }))
 
+import { adoptAgentSessionLaunchVerdict } from './agent-session-launch-plan'
 import { launchAgentInStructuredNewTab } from './launch-agent-in-new-tab-structured'
+
+type Delivery = 'auto-submit' | 'submit-after-ready' | 'draft'
+const structuredPlan = (prompt: string, promptDelivery: Delivery, onPromptDelivered?: () => void) =>
+  adoptAgentSessionLaunchVerdict({
+    route: 'structured-native-chat',
+    agent: 'codex',
+    worktreeId: 'wt-1',
+    prompt,
+    promptDelivery,
+    ...(onPromptDelivered ? { onPromptDelivered } : {})
+  })
 
 const delivered = { delivered: true, failureNotified: false }
 const undelivered = { delivered: false, failureNotified: true }
@@ -56,11 +68,7 @@ describe('launchAgentInStructuredNewTab', () => {
     const onPromptDelivered = vi.fn()
 
     const result = launchAgentInStructuredNewTab({
-      worktreeId: 'wt-1',
-      agent: 'codex',
-      prompt: 'Fix it',
-      promptDelivery: 'submit-after-ready',
-      onPromptDelivered,
+      plan: structuredPlan('Fix it', 'submit-after-ready', onPromptDelivered),
       legacyLaunch
     })
 
@@ -91,10 +99,7 @@ describe('launchAgentInStructuredNewTab', () => {
     }))
 
     const result = launchAgentInStructuredNewTab({
-      worktreeId: 'wt-1',
-      agent: 'codex',
-      prompt: 'Fix it',
-      promptDelivery: 'submit-after-ready',
+      plan: structuredPlan('Fix it', 'submit-after-ready'),
       legacyLaunch
     })
 
@@ -116,10 +121,7 @@ describe('launchAgentInStructuredNewTab', () => {
     }))
 
     const result = launchAgentInStructuredNewTab({
-      worktreeId: 'wt-1',
-      agent: 'codex',
-      prompt: 'Fix it',
-      promptDelivery: 'auto-submit',
+      plan: structuredPlan('Fix it', 'auto-submit'),
       legacyLaunch
     })
 
@@ -131,10 +133,7 @@ describe('launchAgentInStructuredNewTab', () => {
     settleWith('refusal')
 
     const result = launchAgentInStructuredNewTab({
-      worktreeId: 'wt-1',
-      agent: 'codex',
-      prompt: 'Fix it',
-      promptDelivery: 'auto-submit',
+      plan: structuredPlan('Fix it', 'auto-submit'),
       legacyLaunch: () => null
     })
 
@@ -151,10 +150,7 @@ describe('launchAgentInStructuredNewTab', () => {
     const legacyLaunch = vi.fn()
 
     const result = launchAgentInStructuredNewTab({
-      worktreeId: 'wt-1',
-      agent: 'codex',
-      prompt: 'Fix it',
-      promptDelivery: 'submit-after-ready',
+      plan: structuredPlan('Fix it', 'submit-after-ready'),
       legacyLaunch
     })
 
@@ -169,10 +165,7 @@ describe('launchAgentInStructuredNewTab', () => {
     mocks.settleStructuredAgentLaunch.mockRejectedValue(error)
 
     const result = launchAgentInStructuredNewTab({
-      worktreeId: 'wt-1',
-      agent: 'codex',
-      prompt: 'Fix it',
-      promptDelivery: 'submit-after-ready',
+      plan: structuredPlan('Fix it', 'submit-after-ready'),
       legacyLaunch: vi.fn()
     })
 
@@ -186,10 +179,7 @@ describe('launchAgentInStructuredNewTab', () => {
     const legacyLaunch = vi.fn()
 
     const result = launchAgentInStructuredNewTab({
-      worktreeId: 'wt-1',
-      agent: 'codex',
-      prompt: 'Fix it',
-      promptDelivery: 'submit-after-ready',
+      plan: structuredPlan('Fix it', 'submit-after-ready'),
       legacyLaunch
     })
 
@@ -203,15 +193,13 @@ describe('launchAgentInStructuredNewTab', () => {
   })
 
   it.each([
-    ['no prompt', { prompt: '', promptDelivery: 'auto-submit' as const }],
-    ['a draft prompt', { prompt: 'Fix it', promptDelivery: 'draft' as const }]
-  ])('exposes no delivery promise for %s', async (_label, options) => {
+    ['no prompt', '', 'auto-submit' as const],
+    ['a draft prompt', 'Fix it', 'draft' as const]
+  ])('exposes no delivery promise for %s', async (_label, prompt, promptDelivery) => {
     settleWith({ kind: 'structured', sessionId: 'session-1' })
 
     const result = launchAgentInStructuredNewTab({
-      worktreeId: 'wt-1',
-      agent: 'codex',
-      ...options,
+      plan: structuredPlan(prompt, promptDelivery),
       legacyLaunch: vi.fn()
     })
 

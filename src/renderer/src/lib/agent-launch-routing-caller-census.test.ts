@@ -20,12 +20,10 @@ const LAUNCH_AGENT_IN_NEW_TAB_CALLERS = [
   'src/renderer/src/lib/run-quick-command-in-new-tab.ts'
 ]
 
-// Why: every route decision must gather its inputs through the one builder. A direct call to
-// the resolver is how the seven launch sites drifted apart before it existed.
-const ROUTE_RESOLVER_OWNERS = [
-  'src/renderer/src/lib/agent-launch-route-input.ts',
-  'src/renderer/src/lib/agent-launch-routing.ts'
-]
+// Why: the planner is the one production module that decides a route. A second resolver call
+// site is how the seven launch sites drifted apart before it existed.
+const ROUTE_RESOLVER_DEFINITION = 'src/renderer/src/lib/agent-launch-routing.ts'
+const ROUTE_PLANNER = 'src/renderer/src/lib/agent-session-launch-plan.ts'
 const DIRECT_ROUTE_RESOLVER_CALL = /\b(?:resolveAgentLaunchRoute|structuredAgentLaunchSupported)\(/
 
 async function productionFiles(): Promise<string[]> {
@@ -46,14 +44,14 @@ describe('agent launch routing caller census', () => {
     expect(callers).toEqual([...LAUNCH_AGENT_IN_NEW_TAB_CALLERS].sort())
   })
 
-  it('routes every launch decision through the one route-input builder', async () => {
+  it('lets only the planner decide a launch route', async () => {
     const directCallers = (await productionFiles())
-      .filter((file) => !ROUTE_RESOLVER_OWNERS.includes(file))
+      .filter((file) => file !== ROUTE_RESOLVER_DEFINITION)
       .filter((file) =>
         DIRECT_ROUTE_RESOLVER_CALL.test(readFileSync(join(REPO_ROOT, file), 'utf8'))
       )
       .sort()
-    expect(directCallers).toEqual([])
+    expect(directCallers).toEqual([ROUTE_PLANNER])
   })
 
   it('keeps non-visible, resume, and floating launchers intentionally outside the route', () => {

@@ -30,11 +30,8 @@ import { resolveInitialNativeChatSessionOptions } from '@/components/native-chat
 import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/native-chat-session-option-cache'
 import { launchAgentInStructuredNewTab } from '@/lib/launch-agent-in-new-tab-structured'
 import type { StructuredAgentLaunchSettlement } from '@/lib/structured-agent-launch-settlement'
-import { isAgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
-import {
-  resolveAgentLaunchRouteForWorkspace,
-  workspaceKindForWorktreeId
-} from '@/lib/agent-launch-route-input'
+import { workspaceKindForWorktreeId } from '@/lib/agent-launch-route-input'
+import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
 
 export type LaunchAgentInNewTabArgs = {
   agent: TuiAgent
@@ -199,23 +196,21 @@ function launchAgentInNewTabInternal(
     }
   }
 
-  const launchRoute = forceLegacy
-    ? 'legacy-native-chat'
-    : resolveAgentLaunchRouteForWorkspace(store, {
+  // Why: the legacy re-entry is the plan's own fallback; deciding a route again would loop.
+  const plan = forceLegacy
+    ? null
+    : planAgentSessionLaunch(store, {
         agent,
         workspace: { kind: workspaceKindForWorktreeId(worktreeId), worktreeId },
         prompt: trimmedPrompt,
         promptDelivery: viewModePromptDelivery,
         tuiCustomization: { cwd: initialCwd, agentArgs },
-        initialSessionOptions: startupPlan.sessionOptions
+        initialSessionOptions: startupPlan.sessionOptions,
+        onPromptDelivered
       })
-  if (launchRoute === 'structured-native-chat' && isAgentSessionHandleProvider(agent)) {
+  if (plan?.route === 'structured-native-chat') {
     const structured = launchAgentInStructuredNewTab({
-      worktreeId,
-      agent,
-      prompt: trimmedPrompt,
-      promptDelivery: viewModePromptDelivery,
-      onPromptDelivered,
+      plan,
       legacyLaunch: () => launchAgentInNewTabInternal(args, true)
     })
     return {

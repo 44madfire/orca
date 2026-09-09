@@ -7,18 +7,10 @@ const REPO_ROOT = join(import.meta.dirname, '../../../..')
 const CENSUS_FILE = 'src/renderer/src/lib/structured-agent-launch-settlement-caller-census.test.ts'
 const LOOP_FILE = 'src/renderer/src/lib/structured-agent-launch-settlement.ts'
 
-// Why: every structured entrypoint consumes the one settle loop and decides its route before
-// calling it. A new caller is a new entrypoint and must be reviewed for route, cancellation,
-// fallback, and draft-seed handling before it lands here.
-const SETTLE_LOOP_CALLERS = [
-  'src/renderer/src/components/right-sidebar/ai-vault-session-resume-in-chat-launch.ts',
-  'src/renderer/src/components/sidebar/folder-workspace-composer-submit.ts',
-  'src/renderer/src/hooks/composer-state/full-creation-structured-launch.ts',
-  'src/renderer/src/lib/launch-agent-in-new-tab-structured.ts',
-  'src/renderer/src/lib/launch-work-item-direct-agent-routing.ts',
-  'src/renderer/src/lib/onboarding-folder-agent-launch.ts',
-  'src/renderer/src/lib/worktree-creation-structured-session.ts'
-]
+// Why: every structured entrypoint reaches the settle loop through the planner, which decided
+// its route and delivery mode first. A second caller is a bypass of that decision, not a new
+// entrypoint; entrypoints add a plan, never a loop call.
+const SETTLE_LOOP_CALLERS = ['src/renderer/src/lib/agent-session-launch-plan.ts']
 
 describe('structured launch settle loop caller census', () => {
   it('pins every production settleStructuredAgentLaunch caller', async () => {

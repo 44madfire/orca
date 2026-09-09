@@ -10,8 +10,10 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/store'
-import { revealOnboardingFolderWithAgentLaunch } from '@/lib/onboarding-folder-agent-launch'
-import { resolveDismissedOnboardingFolderAgentLaunch } from '@/lib/onboarding-folder-agent-startup'
+import {
+  resolveDismissedOnboardingFolderAgentLaunch,
+  revealOnboardingFolderWithAgentLaunch
+} from '@/lib/onboarding-folder-agent-launch'
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
 import { markOnboardingProjectAdded } from '@/lib/onboarding-project-checklist'
 import { translate } from '@/i18n/i18n'
