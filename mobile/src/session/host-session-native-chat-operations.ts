@@ -36,11 +36,12 @@ export type HostSessionNativeChatImageAttachResult =
 export type HostSessionNativeChatOperations = {
   /** Whether the serving host can read this workspace's agent transcripts. */
   readability(workspaceId: string): Promise<boolean>
+  /** No error callback: the transport has none, and a stream error arrives as an `error` frame
+   *  through `onEvent`, which is where the caller already handles it. */
   subscribe(
     target: HostSessionNativeChatTarget,
     limit: number,
-    onEvent: (event: MobileNativeChatStreamFrame) => void,
-    onError: () => void
+    onEvent: (event: MobileNativeChatStreamFrame) => void
   ): () => void
   read(
     target: HostSessionNativeChatTarget,

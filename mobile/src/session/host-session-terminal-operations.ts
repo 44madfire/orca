@@ -57,7 +57,6 @@ export type HostSessionTerminalOperations = {
     onEvent: (event: HostSessionTerminalStreamEvent) => void,
     onError: () => void
   ): () => void
-  acknowledge(terminalId: string, throughSequence: number): void
   sendInput(
     terminalId: string,
     text: string,

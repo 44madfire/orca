@@ -22,7 +22,6 @@ export function nativeHostSessionTerminalOperations(
       )
       return unsubscribe
     },
-    acknowledge() {},
     async sendInput(terminalId, text, enter, clientId) {
       return client
         .sendRequest(
