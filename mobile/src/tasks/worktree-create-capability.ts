@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { RpcClient } from '../transport/rpc-client'
+import type { RpcClient, RpcRequestSender } from '../transport/rpc-client'
 import { isLogicalClientCutoverError } from '../transport/stable-logical-rpc-client'
 import type { RpcSuccess } from '../transport/types'
 import { readMobileRuntimeHostPlatform } from '../transport/mobile-runtime-host-platform'
@@ -32,7 +32,7 @@ const UNSUPPORTED_CAPABILITIES: NewWorktreeRuntimeCapabilities = {
 // Why: status.get is safe to replay and must settle before create, independently
 // of slower provider probes, so ambiguous cutover retries are gated correctly.
 export async function readNewWorktreeRuntimeCapabilities(
-  client: RpcClient
+  client: RpcRequestSender
 ): Promise<NewWorktreeRuntimeCapabilities> {
   for (let migrationRetry = 0; ; migrationRetry += 1) {
     try {
