@@ -89,6 +89,15 @@ export class ClaudeBackgroundTaskTracker {
   }
 
   observe(message: Record<string, unknown>, startsTurn = false): boolean {
+    // A new turn is the same evidence `result` is: nothing the previous turn
+    // left foreground is still that turn's work. This is CLEANUP ONLY — a row's
+    // visibility never depends on `startsTurn`, which is Orca's own
+    // dispatch-correlation bookkeeping and is false by design for undispatched
+    // turns, so a missed one degrades to the old behaviour and can never hide
+    // live work.
+    if (startsTurn) {
+      this.settleForegroundTasks()
+    }
     if (message.type === 'result') {
       this.settleForegroundTasks()
     } else if (message.type === 'system') {

@@ -114,6 +114,25 @@ describe('ClaudeBackgroundTaskTracker', () => {
     })
   })
 
+  it('retires a phantom foreground row when the next turn starts', () => {
+    // A foreground `task_started` with no turn open has no `result` coming to
+    // retire it, so it would sit in the strip — with no stop of its own — and
+    // refuse a conversation command. Turn start is the same evidence `result`
+    // is, and settling on it is cleanup only: nothing gates visibility on it.
+    const tracker = new ClaudeBackgroundTaskTracker()
+    tracker.observe(
+      system('task_started', {
+        task_id: 'phantom',
+        task_type: 'local_agent',
+        is_backgrounded: false
+      })
+    )
+    expect(tracker.state?.tasks).toEqual([{ id: 'phantom', kind: 'agent', stoppable: false }])
+
+    tracker.observe({ type: 'user' }, true)
+    expect(tracker.state).toBeNull()
+  })
+
   it('publishes bounded display details when a running task description changes', () => {
     const tracker = new ClaudeBackgroundTaskTracker()
     expect(
