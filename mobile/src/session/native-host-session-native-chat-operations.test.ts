@@ -60,6 +60,27 @@ describe('native host session native chat operations', () => {
     expect(sendRequest).not.toHaveBeenCalled()
   })
 
+  it('ignores an older inventory completion after cache reset', async () => {
+    const deferred: Array<(value: any) => void> = []
+    const sendRequest = vi.fn<RpcClient['sendRequest']>((method) => {
+      if (method === 'files.searchPaths')
+        return Promise.resolve({
+          ok: false,
+          error: { code: 'method_not_found', message: 'unsupported' }
+        })
+      return new Promise((resolve) => deferred.push(resolve))
+    })
+    const operations = nativeHostSessionNativeChatOperations(client(sendRequest))
+    const old = operations.searchFiles(target(), 'fresh')
+    operations.resetFileSearchCache('wt-1')
+    const fresh = operations.searchFiles(target(), 'fresh')
+    deferred[1]?.({ ok: true, result: { files: [{ relativePath: 'fresh.ts' }] } })
+    await expect(fresh).resolves.toEqual(['fresh.ts'])
+    deferred[0]?.({ ok: true, result: { files: [{ relativePath: 'old.ts' }] } })
+    await old
+    await expect(operations.searchFiles(target(), 'fresh')).resolves.toEqual(['fresh.ts'])
+  })
+
   it('keeps the legacy file inventory scoped to the workspace that produced it', async () => {
     const sendRequest = vi.fn<RpcClient['sendRequest']>(async (method, params) => {
       if (method === 'files.searchPaths') {
