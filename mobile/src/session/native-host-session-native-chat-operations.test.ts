@@ -22,6 +22,8 @@ function client(sendRequest: RpcClient['sendRequest']): RpcClient {
 describe('native host session native chat operations', () => {
   it('stops the agent with a bare Escape that carries no enter at all', async () => {
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
+      id: 'test',
+      _meta: { runtimeId: 'host' },
       ok: true,
       result: { delivered: true }
     })
@@ -40,6 +42,8 @@ describe('native host session native chat operations', () => {
     // The shared chat write refuses to start under a 2s residual budget. Stop does not: the
     // call it replaced tried on whatever was left and could be accepted.
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
+      id: 'test',
+      _meta: { runtimeId: 'host' },
       ok: true,
       result: { send: { accepted: true } }
     })
@@ -61,33 +65,57 @@ describe('native host session native chat operations', () => {
   })
 
   it('ignores an older inventory completion after cache reset', async () => {
-    const deferred: Array<(value: any) => void> = []
+    const deferred: Array<(value: Awaited<ReturnType<RpcClient['sendRequest']>>) => void> = []
     const sendRequest = vi.fn<RpcClient['sendRequest']>((method) => {
-      if (method === 'files.searchPaths')
+      if (method === 'files.searchPaths') {
         return Promise.resolve({
+          id: 'test',
+          _meta: { runtimeId: 'host' },
           ok: false,
           error: { code: 'method_not_found', message: 'unsupported' }
         })
+      }
       return new Promise((resolve) => deferred.push(resolve))
     })
     const operations = nativeHostSessionNativeChatOperations(client(sendRequest))
     const old = operations.searchFiles(target(), 'fresh')
+    await vi.waitFor(() => expect(deferred).toHaveLength(1))
+    const overlapping = operations.searchFiles(target(), 'old')
     operations.resetFileSearchCache('wt-1')
     const fresh = operations.searchFiles(target(), 'fresh')
-    deferred[1]?.({ ok: true, result: { files: [{ relativePath: 'fresh.ts' }] } })
+    await vi.waitFor(() => expect(deferred).toHaveLength(2))
+    deferred[1]!({
+      id: 'test',
+      _meta: { runtimeId: 'host' },
+      ok: true,
+      result: { files: [{ relativePath: 'fresh.ts' }] }
+    })
     await expect(fresh).resolves.toEqual(['fresh.ts'])
-    deferred[0]?.({ ok: true, result: { files: [{ relativePath: 'old.ts' }] } })
-    await old
+    deferred[0]!({
+      id: 'test',
+      _meta: { runtimeId: 'host' },
+      ok: true,
+      result: { files: [{ relativePath: 'old.ts' }] }
+    })
+    await expect(old).resolves.toBeNull()
+    await expect(overlapping).resolves.toBeNull()
     await expect(operations.searchFiles(target(), 'fresh')).resolves.toEqual(['fresh.ts'])
   })
 
   it('keeps the legacy file inventory scoped to the workspace that produced it', async () => {
     const sendRequest = vi.fn<RpcClient['sendRequest']>(async (method, params) => {
       if (method === 'files.searchPaths') {
-        return { ok: false, error: { code: 'method_not_found', message: 'unsupported' } }
+        return {
+          id: 'test',
+          _meta: { runtimeId: 'host' },
+          ok: false,
+          error: { code: 'method_not_found', message: 'unsupported' }
+        }
       }
       const worktree = (params as { worktree: string }).worktree
       return {
+        id: 'test',
+        _meta: { runtimeId: 'host' },
         ok: true,
         result: {
           files:

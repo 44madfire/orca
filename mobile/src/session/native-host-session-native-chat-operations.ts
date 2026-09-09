@@ -28,7 +28,6 @@ export function nativeHostSessionNativeChatOperations(
   const legacyPathsByWorkspace = new Map<string, string[]>()
   const legacyLoadByWorkspace = new Map<string, Promise<string[] | null>>()
   const legacyGenerationByWorkspace = new Map<string, number>()
-  const legacyGenerationByWorkspace = new Map<string, number>()
   return {
     async readability(workspaceId) {
       if (isFloatingWorkspaceWorktreeId(workspaceId)) {
@@ -74,6 +73,7 @@ export function nativeHostSessionNativeChatOperations(
     resetFileSearchCache(workspaceId) {
       searchSupported = null
       legacyPathsByWorkspace.delete(workspaceId)
+      legacyLoadByWorkspace.delete(workspaceId)
       legacyGenerationByWorkspace.set(
         workspaceId,
         (legacyGenerationByWorkspace.get(workspaceId) ?? 0) + 1
@@ -108,26 +108,33 @@ export function nativeHostSessionNativeChatOperations(
             .sendRequest('files.list', {
               worktree: `id:${target.workspaceId}`
             })
-            .then((response) => (response.ok ? extractPaths(response.result) : null))
-          legacyLoad = request.finally(() => {
-            if (legacyLoadByWorkspace.get(target.workspaceId) === legacyLoad) {
-              legacyLoadByWorkspace.delete(target.workspaceId)
-            }
-          })
-          legacyLoadByWorkspace.set(target.workspaceId, legacyLoad)
-          const paths = await legacyLoad
-          if ((legacyGenerationByWorkspace.get(target.workspaceId) ?? 0) !== generation) {
-            return null
-          }
-          if (!paths) return null
-          legacyPaths = paths
-          legacyPathsByWorkspace.set(target.workspaceId, paths)
-        } else {
-          const paths = await legacyLoad
-          if (!paths) return null
-          legacyPaths = paths
-          legacyPathsByWorkspace.set(target.workspaceId, paths)
+            .then((response) => {
+              if (
+                !response.ok ||
+                (legacyGenerationByWorkspace.get(target.workspaceId) ?? 0) !== generation
+              ) {
+                return null
+              }
+              const paths = extractPaths(response.result)
+              legacyPathsByWorkspace.set(target.workspaceId, paths)
+              return paths
+            })
+            .finally(() => {
+              if (
+                legacyLoadByWorkspace.get(target.workspaceId) === request &&
+                !legacyPathsByWorkspace.has(target.workspaceId)
+              ) {
+                legacyLoadByWorkspace.delete(target.workspaceId)
+              }
+            })
+          legacyLoad = request
+          legacyLoadByWorkspace.set(target.workspaceId, request)
         }
+        const paths = await legacyLoad
+        if (!paths) {
+          return null
+        }
+        legacyPaths = paths
       }
       return rankSuggestions(legacyPaths, query, FILE_RESULT_LIMIT)
     }
