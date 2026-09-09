@@ -53,6 +53,15 @@ const KIND_ICONS = {
   unknown: CircleHelp
 } as const
 
+/** Monitoring is a STATE the app colours the same on every surface — the agent
+ *  sidebar and `AgentStateDot` both draw an amber heartbeat — so the strip must
+ *  match it or the two stop reading as the same thing. The other four are plain
+ *  kind markers and stay neutral. `dimmed` is the running-turn treatment. */
+function kindIconTone(kind: AgentSessionBackgroundTask['kind'], dimmed: boolean): string {
+  const tone = kind === 'monitor' ? 'text-yellow-500' : 'text-muted-foreground'
+  return dimmed ? `${tone}/40` : tone
+}
+
 function BackgroundTaskRow(props: {
   entry: BackgroundRosterTask
   now: number
@@ -75,7 +84,10 @@ function BackgroundTaskRow(props: {
     .join(' · ')
   return (
     <li className="flex h-6 min-w-0 items-center gap-2 text-foreground/80">
-      <Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+      <Icon
+        aria-hidden="true"
+        className={`size-3.5 shrink-0 ${kindIconTone(entry.task.kind, false)}`}
+      />
       <AgentStateDot state={entry.state} size="sm" title={null} />
       <span className="min-w-0 flex-1 truncate">
         <span className="font-medium text-foreground">{entry.name}</span>
@@ -157,19 +169,19 @@ export function NativeChatBackgroundTasksStatus(props: {
             <span className="min-w-0 truncate">
               {header.segments.map((segment, index) => {
                 // A collapsed total spans kinds, so no single icon can stand for it.
-                const Icon = segment.kind ? KIND_ICONS[segment.kind] : null
+                const kind = segment.kind
+                const Icon = kind ? KIND_ICONS[kind] : null
                 return (
                   <span key={segment.text}>
                     {index > 0 ? <span className="text-border"> · </span> : null}
-                    {Icon ? (
+                    {Icon && kind ? (
                       <Icon
                         aria-hidden="true"
-                        className={`mr-1 inline size-3 align-[-0.125em] ${
-                          // The turn owns the voice: same icons, dimmed.
-                          props.indicatorActive
-                            ? 'text-muted-foreground'
-                            : 'text-muted-foreground/40'
-                        }`}
+                        // The turn owns the voice: same icons, dimmed until it ends.
+                        className={`mr-1 inline size-3 align-[-0.125em] ${kindIconTone(
+                          kind,
+                          !props.indicatorActive
+                        )}`}
                       />
                     ) : null}
                     <span className="font-medium text-foreground">{segment.text}</span>

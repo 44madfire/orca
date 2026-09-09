@@ -97,6 +97,51 @@ describe('background-tasks strip header', () => {
     }
   })
 
+  it('gives the monitor heartbeat the sidebar amber and leaves other kinds neutral', () => {
+    const header = renderHeader([
+      { id: 'a1', kind: 'agent' },
+      { id: 'm1', kind: 'monitor' }
+    ])
+    // Same glyph AND same colour as AgentStateDot/StatusIndicator, or a monitor
+    // here does not read as the monitor there.
+    expect(header.querySelector('.lucide-activity')?.classList).toContain('text-yellow-500')
+    expect(header.querySelector('.lucide-bot')?.classList).toContain('text-muted-foreground')
+    expect(header.querySelector('.lucide-bot')?.classList).not.toContain('text-yellow-500')
+  })
+
+  it('dims the monitor amber while a turn owns the voice', () => {
+    render(
+      <NativeChatBackgroundTasksStatus
+        isVisible
+        tasks={[{ id: 'm1', kind: 'monitor' }]}
+        settledTasks={[]}
+        indicatorActive={false}
+        supportsTaskStop={false}
+        supportsStopAll={false}
+        stoppingTaskIds={new Set()}
+        stoppingAll={false}
+        onStop={() => {}}
+      />
+    )
+    const header = screen.getByRole('button', { expanded: false })
+    expect(header.querySelector('.lucide-activity')?.classList).toContain('text-yellow-500/40')
+  })
+
+  it('carries the monitor amber on the expanded row too', () => {
+    const header = renderHeader([
+      { id: 'm1', kind: 'monitor', description: 'watcher' },
+      { id: 'c1', kind: 'command', description: 'sleep 90' }
+    ])
+    fireEvent.click(header)
+    // Each kind group is its own labelled list, so scope to the monitor one.
+    const monitors = screen.getByRole('list', { name: 'Monitors' })
+    expect(monitors.querySelector('.lucide-activity')?.classList).toContain('text-yellow-500')
+    const shell = screen.getByRole('list', { name: 'Shell' })
+    expect(shell.querySelector('.lucide-square-terminal')?.classList).toContain(
+      'text-muted-foreground'
+    )
+  })
+
   it('carries no icon on a collapsed total, which spans kinds', () => {
     const header = renderHeader([
       { id: 'a1', kind: 'agent' },
