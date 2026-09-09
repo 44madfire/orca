@@ -67,8 +67,10 @@ import { scanAiVaultSessions } from './session-scanner'
 import {
   createSessionParseStats,
   parseAgentSessionFileCached,
-  resetSessionParseCacheForTests
+  resetSessionParseCacheForTests,
+  UNMATCHABLE_MTIME_MS
 } from './session-scanner-parse-cache'
+import { getSessionParseCacheEntry } from './session-parse-cache-store'
 import { appendFile, stat, truncate } from 'node:fs/promises'
 import { isolatedScanRoots } from './session-scanner-test-fixtures'
 import type { FileWithMtime, SessionFileDiscovery } from './session-scanner-types'
@@ -395,6 +397,12 @@ describe('cursor chat meta scan failures', () => {
     expect(refusedCursor.map((session) => session.cwd)).toEqual([null, null])
     expect(refused.issues).toHaveLength(1)
     expect(refused.issues[0].path).toBe(join(cursorHome, 'chats'))
+    // The un-enriched parse is kept only under an unmatchable key.
+    expect(
+      refused.sessions
+        .filter((session) => session.agent === 'cursor')
+        .map((session) => getSessionParseCacheEntry(session.filePath)?.mtimeMs)
+    ).toEqual([UNMATCHABLE_MTIME_MS, UNMATCHABLE_MTIME_MS])
 
     failMetaJsonReads = false
     failMetaJsonStats = false
@@ -493,8 +501,13 @@ describe('cursor chat meta cache keys', () => {
     const refused = await parseCursor(await cursorCandidate(cursorHome))
     expect(refused.incremental).toBe(1)
 
-    // The poisoned key must force a re-read, but not a full one: the resume
-    // point survives, so the next healthy scan resumes at the stored offset.
+    // Pin the mechanism, not just its effect: the entry is kept under a key no
+    // stat can produce, and it still carries the fold to resume from.
+    const poisoned = getSessionParseCacheEntry(transcriptPath)
+    expect(poisoned?.mtimeMs).toBe(UNMATCHABLE_MTIME_MS)
+    expect(poisoned?.resume).not.toBeNull()
+
+    // So the next healthy scan re-reads, but only the appended bytes.
     failMetaJsonReads = false
     const healed = await parseCursor(await cursorCandidate(cursorHome))
     expect(healed.incremental).toBe(1)

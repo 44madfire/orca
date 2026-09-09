@@ -80,7 +80,7 @@ function resumableStateFactoryFor(
 
 // No stat can report it, so `unchanged` is always false for such an entry
 // while its resume point stays usable.
-const UNMATCHABLE_MTIME_MS = -1
+export const UNMATCHABLE_MTIME_MS = -1
 
 export type SessionParseStats = TranscriptReadStats & {
   reused: number
