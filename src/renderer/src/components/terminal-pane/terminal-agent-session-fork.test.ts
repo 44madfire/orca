@@ -245,36 +245,40 @@ describe('forkAgentSessionFromPane', () => {
   })
 
   it.each([
-    ['failed', { kind: 'failed', error: new Error('boom') }],
-    ['cancelled', { kind: 'cancelled', sessionId: 'session-1' }],
-    ['visibility-unknown', { kind: 'visibility-unknown', sessionId: 'session-1' }]
-  ])('shows no success toast on a %s structured settlement', async (_kind, settlement) => {
-    store.agentStatusByPaneKey = {
-      [`tab-1:${LEAF_ID}`]: { agentType: 'codex' }
-    }
-    mockLaunchAgentInNewTab.mockReturnValue({
-      tabId: null,
-      startupPlan: {},
-      pasteDraftAfterLaunch: false,
-      structuredSettlement: Promise.resolve(settlement)
-    })
-    const { startAgentSessionFork, prepareAgentSessionForkFromPane } =
-      await import('./terminal-agent-session-fork')
+    ['failed', { kind: 'failed', error: new Error('boom') }, true],
+    ['cancelled', { kind: 'cancelled', sessionId: 'session-1' }, true],
+    ['visibility-unknown', { kind: 'visibility-unknown', sessionId: 'session-1' }, false]
+  ])(
+    'closes the dialog without a success toast on a %s structured settlement',
+    async (_kind, settlement, copiesContext) => {
+      store.agentStatusByPaneKey = {
+        [`tab-1:${LEAF_ID}`]: { agentType: 'codex' }
+      }
+      mockLaunchAgentInNewTab.mockReturnValue({
+        tabId: null,
+        startupPlan: {},
+        pasteDraftAfterLaunch: false,
+        structuredSettlement: Promise.resolve(settlement)
+      })
+      const { startAgentSessionFork, prepareAgentSessionForkFromPane } =
+        await import('./terminal-agent-session-fork')
 
-    const prepared = prepareAgentSessionForkFromPane({
-      pane: makePane('User: compare OAuth options'),
-      tabId: 'tab-1',
-      worktreeId: 'wt-1',
-      groupId: null
-    })
-    await expect(startAgentSessionFork(prepared!)).resolves.toBe(false)
-    expect(mockToast.success).not.toHaveBeenCalled()
-    expect(mockWriteClipboardText).not.toHaveBeenCalled()
-    expect(mockActivateAndRevealWorktree).toHaveBeenCalledWith('wt-fork', {
-      sidebarRevealBehavior: 'auto',
-      providesInitialSurface: true
-    })
-  })
+      const prepared = prepareAgentSessionForkFromPane({
+        pane: makePane('User: compare OAuth options'),
+        tabId: 'tab-1',
+        worktreeId: 'wt-1',
+        groupId: null
+      })
+      // Why: the worktree already exists; a false return would keep the dialog open for a second fork.
+      await expect(startAgentSessionFork(prepared!)).resolves.toBe(true)
+      expect(mockToast.success).not.toHaveBeenCalled()
+      expect(mockWriteClipboardText).toHaveBeenCalledTimes(copiesContext ? 1 : 0)
+      expect(mockActivateAndRevealWorktree).toHaveBeenCalledWith('wt-fork', {
+        sidebarRevealBehavior: 'auto',
+        providesInitialSurface: true
+      })
+    }
+  )
 
   it('pre-marks trust for the created fork workspace before launching a trusted agent', async () => {
     store.agentStatusByPaneKey = {

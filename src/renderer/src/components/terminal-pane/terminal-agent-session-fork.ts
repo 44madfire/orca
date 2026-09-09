@@ -268,8 +268,14 @@ export async function startAgentSessionFork(fork: PreparedAgentSessionFork): Pro
   if (settlement.kind === 'refused-then-legacy' && settlement.primaryTabId === null) {
     return copyAgentSessionForkContext(fork)
   }
-  if (settlement.kind !== 'structured' && settlement.kind !== 'refused-then-legacy') {
-    return false
+  // Why: the worktree already exists, so a false return would keep the dialog open and a second
+  // click would create another one. Unknown already shows the launch badge; failed hands the
+  // user the context the way a null launch does.
+  if (settlement.kind === 'visibility-unknown') {
+    return true
+  }
+  if (settlement.kind === 'failed' || settlement.kind === 'cancelled') {
+    return copyAgentSessionForkContext(fork)
   }
   notifyForkOpened()
   return true
