@@ -140,7 +140,7 @@ describe('codex turn lifecycle rows', () => {
         key: LIFECYCLE_KEY,
         body: {
           kind: 'status',
-          text: 'Codex is working…',
+          text: 'Codex turn completed',
           turnLifecycle: {
             turnId: TURN_ID,
             state: 'completed',
@@ -203,7 +203,7 @@ describe('codex turn lifecycle rows', () => {
         key: LIFECYCLE_KEY,
         body: {
           kind: 'status',
-          text: 'Codex is working…',
+          text: 'Codex turn completed',
           turnLifecycle: { turnId: TURN_ID, state: 'completed', completedAt: 3_000 }
         }
       }
@@ -273,7 +273,7 @@ describe('codex turn lifecycle rows', () => {
         key: 'legacy:codex:session-1:turn-lifecycle%3Aturn-done',
         body: {
           kind: 'status',
-          text: 'Codex is working…',
+          text: 'Codex turn completed',
           turnLifecycle: {
             turnId: 'turn-done',
             state: 'completed',
@@ -286,7 +286,7 @@ describe('codex turn lifecycle rows', () => {
         key: 'legacy:codex:session-1:turn-lifecycle%3Aturn-cut',
         body: {
           kind: 'status',
-          text: 'Codex is working…',
+          text: 'Codex turn completed',
           turnLifecycle: {
             turnId: 'turn-cut',
             state: 'interrupted',

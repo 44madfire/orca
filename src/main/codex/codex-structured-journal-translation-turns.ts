@@ -26,7 +26,8 @@ export function codexTurnLifecycleIdentity(
 export function codexTurnLifecycleBody(
   turnLifecycle: AgentJournalTurnLifecycle
 ): AgentJournalStatusItem {
-  return { kind: 'status', text: 'Codex is working…', turnLifecycle }
+  const text = turnLifecycle.state === 'running' ? 'Codex is working…' : 'Codex turn completed'
+  return { kind: 'status', text, turnLifecycle }
 }
 
 /** `turn/completed` is Codex's only turn-end notification; a missing status is a clean finish. */

@@ -50,7 +50,7 @@ export function claudeTurnLifecycleItem(
     identity: claudeTurnLifecycleIdentity(sessionId, turnId),
     body: {
       kind: 'status',
-      text: 'Claude is working…',
+      text: end ? 'Claude turn completed' : 'Claude is working…',
       turnLifecycle: end
         ? { turnId, state: end.state, startedAt, completedAt: end.completedAt }
         : { turnId, state: 'running', startedAt }
