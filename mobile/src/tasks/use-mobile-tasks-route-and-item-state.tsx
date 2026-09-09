@@ -10,6 +10,7 @@ import {
   useLastConnectedAt,
   useRelayRecoveryStatus,
   useLocalSearchParams,
+  useMemo,
   useReconnectAttempt,
   useRef,
   useRouter,
@@ -40,9 +41,11 @@ import {
   type TaskResumeState,
   type TaskSort,
   type TasksSupportState,
-  getTaskPresetQuery,
-  isSuccess
+  getTaskPresetQuery
 } from './mobile-tasks-legacy-foundation'
+import { defaultDeviceOperations } from '../device/default-device-operations'
+import { defaultHostTaskOperations } from './default-host-task-operations'
+import { defaultHostWorkspaceCreationOperations } from '../worktree/default-host-workspace-creation-operations'
 import { useMobileTasksItemState } from './use-mobile-tasks-item-state'
 
 export function useMobileTasksRouteAndItemState() {
@@ -56,16 +59,19 @@ export function useMobileTasksRouteAndItemState() {
   const clientRef = useRef<RpcClient | null>(null)
   const loadGenerationRef = useRef(0)
   const taskResumeRef = useRef<TaskResumeState>({})
+  const taskOperations = useMemo(
+    () => (client ? defaultHostTaskOperations(client) : null),
+    [client]
+  )
+  const taskWorkspaceCreationOperations = useMemo(
+    () => (client ? defaultHostWorkspaceCreationOperations(client) : null),
+    [client]
+  )
+  const deviceOperations = useMemo(() => defaultDeviceOperations(), [])
   const repoList = useHostRepoList<RepoSummary>(
-    client,
-    client && connState === 'connected'
-      ? async () => {
-          const response = await client.sendRequest('repo.list')
-          if (!isSuccess(response)) {
-            throw new Error(response.error.message)
-          }
-          return (response.result as { repos: RepoSummary[] }).repos
-        }
+    taskOperations,
+    taskOperations && connState === 'connected'
+      ? () => taskOperations.read.listRepositories()
       : null
   )
   const repos = repoList.state.repos
@@ -174,6 +180,9 @@ export function useMobileTasksRouteAndItemState() {
     router,
     insets,
     client,
+    taskOperations,
+    taskWorkspaceCreationOperations,
+    deviceOperations,
     connState,
     reconnectAttempts,
     lastConnectedAt,
