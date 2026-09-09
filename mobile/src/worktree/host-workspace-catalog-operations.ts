@@ -33,7 +33,7 @@ export type HostWorkspaceCatalogOperations = {
   sleepWorkspace(workspaceId: string): Promise<void>
   notifyForeground(): void
   subscribeChanges(listener: (event: HostWorkspaceChange) => void): () => void
-  // Why: a hosted page reads `connected` from the shell's relayed snapshot, so it can issue its
-  // first catalog request a beat before that socket serves one. A direct socket omits this.
+  // Why: a provider that relays connection state can report `connected` a beat before its
+  // socket serves a catalog request. A direct socket omits this, so the flag is optional.
   readonly connectionStateIsRelayed?: boolean
 }

@@ -9,9 +9,9 @@ export type RpcWorkspaceCreationOperations = Omit<
   'createBlankWorkspace' | 'createWorkspaceFromSource'
 >
 
-/** Every workspace-creation call that is a plain desktop request. The native app passes its socket
- * and the hosted page passes a bridge-backed sender, so neither side owns a second copy. Creation
- * itself is excluded: it needs connection state for its retry, which a sender cannot report. */
+/** Every workspace-creation call that is a plain desktop request, written against a bare request
+ * sender so any non-socket provider can supply one without a second copy. Creation itself is
+ * excluded: it needs connection state for its retry, which a sender cannot report. */
 export function rpcWorkspaceCreationOperations(
   client: RpcRequestSender
 ): RpcWorkspaceCreationOperations {

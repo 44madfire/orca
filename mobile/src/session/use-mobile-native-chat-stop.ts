@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type MutableRefObject } from 'react'
 import type { HostSessionNativeChatOperations } from './host-session-native-chat-operations'
 import { mobileNativeChatOperationTarget } from './mobile-native-chat-operation-target'
 import { openMobileNativeChatSendBudget } from './mobile-native-chat-send'
@@ -30,7 +30,11 @@ export function useMobileNativeChatStop(args: {
    *  never happen. */
   const dropSecondEscapeRef = useRef<(() => void) | null>(null)
   const activeRouteRef = useRef({ operations, enabled, streamIdentity })
-  activeRouteRef.current = { operations, enabled, streamIdentity }
+  // Layout, not render or a passive Effect: the paced Escape fires from a timer, and only a
+  // synchronous post-commit write guarantees it never reads a route the render discarded.
+  useLayoutEffect(() => {
+    activeRouteRef.current = { operations, enabled, streamIdentity }
+  }, [operations, enabled, streamIdentity])
   const cancelSecondEscape = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current)

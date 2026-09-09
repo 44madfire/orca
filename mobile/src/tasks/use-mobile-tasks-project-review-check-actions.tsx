@@ -6,7 +6,7 @@ import {
   type GitHubProjectRow,
   splitReviewerList
 } from './mobile-tasks-legacy-foundation'
-import { projectRowMutationTarget } from './mobile-tasks-mutation-targets'
+import { projectRowPullRequestTarget } from './mobile-tasks-mutation-targets'
 
 export function useMobileTasksProjectReviewCheckActions(model: ProjectMetadataActionsModel) {
   const {
@@ -25,7 +25,7 @@ export function useMobileTasksProjectReviewCheckActions(model: ProjectMetadataAc
   const requestProjectGitHubReviewers = useCallback(
     async (row: GitHubProjectRow, logins?: string[]): Promise<void> => {
       const repo = findProjectRowRepo(row)
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
+      const target = projectRowPullRequestTarget(row, activeGitHubProjectHost)
       if (
         !taskOperations ||
         projectMutating ||
@@ -92,7 +92,7 @@ export function useMobileTasksProjectReviewCheckActions(model: ProjectMetadataAc
   const refreshProjectGitHubChecks = useCallback(
     async (row: GitHubProjectRow): Promise<void> => {
       const repo = findProjectRowRepo(row)
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
+      const target = projectRowPullRequestTarget(row, activeGitHubProjectHost)
       if (
         !taskOperations ||
         projectMutating ||
@@ -125,7 +125,7 @@ export function useMobileTasksProjectReviewCheckActions(model: ProjectMetadataAc
   const rerunProjectGitHubChecks = useCallback(
     async (row: GitHubProjectRow, failedOnly: boolean): Promise<void> => {
       const repo = findProjectRowRepo(row)
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
+      const target = projectRowPullRequestTarget(row, activeGitHubProjectHost)
       if (
         !taskOperations ||
         projectMutating ||
@@ -157,7 +157,7 @@ export function useMobileTasksProjectReviewCheckActions(model: ProjectMetadataAc
   const toggleProjectGitHubFileViewed = useCallback(
     async (row: GitHubProjectRow, file: GitHubDetailFile): Promise<void> => {
       const repo = findProjectRowRepo(row)
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
+      const target = projectRowPullRequestTarget(row, activeGitHubProjectHost)
       if (
         !taskOperations ||
         projectMutating ||

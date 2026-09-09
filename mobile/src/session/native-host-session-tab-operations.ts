@@ -83,19 +83,18 @@ export function nativeHostSessionTabOperations(client: RpcClient): HostSessionTa
       )
     },
     async createBrowser(workspaceId, url) {
-      const response = await client.sendRequest('browser.tabCreate', {
-        worktree: `id:${workspaceId}`,
-        url,
-        activate: true
-      })
+      const response = await client.sendRequest(
+        'browser.tabCreate',
+        { worktree: `id:${workspaceId}`, url, activate: true },
+        { timeoutMs: 30_000 }
+      )
       if (!response.ok) {
-        throw new Error('browser_create_failed')
+        throw new Error(response.error.message)
       }
+      // A host that answers without a page id still created the tab; the caller only loses the
+      // focus hint, so this is not a create failure.
       const result = (response as RpcSuccess).result as { browserPageId?: unknown }
-      if (typeof result.browserPageId !== 'string') {
-        throw new Error('browser_create_failed')
-      }
-      return { browserPageId: result.browserPageId }
+      return typeof result.browserPageId === 'string' ? { browserPageId: result.browserPageId } : {}
     },
     async activate(workspaceId, tabId, leafId) {
       // Why: a relay-to-direct cutover rejects the in-flight request; activation is idempotent,

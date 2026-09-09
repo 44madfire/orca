@@ -74,7 +74,10 @@ describe('native host session tab operations', () => {
           worktree: 'id:workspace-1',
           url: 'https://example.com',
           activate: true
-        }
+        },
+        // The caller carried this budget before the seam existed; a browser create that parks on
+        // reconnect leaves the composer spinning with no error.
+        { timeoutMs: 30_000 }
       ],
       [
         'session.tabs.activate',

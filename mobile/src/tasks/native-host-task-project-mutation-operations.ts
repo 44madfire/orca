@@ -86,10 +86,11 @@ export function nativeHostTaskProjectMutationOperations(
         await fetchResolveReviewThread(client, repoId, {
           threadId,
           resolve,
-          // Why: `prRepo` is fork/GHES decoration the host treats as optional, and a draft row
+          // Why: a draft row
           // has no slug — send it only when one resolved rather than an empty pair.
-          prRepo: target.owner && target.repo ? slugPayload(target) : null
-        })
+          prRepo: prRepoPayload(target)
+        }),
+        'Failed to resolve thread'
       )
     },
     async replyReviewComment(target, repoId, payload) {
@@ -97,8 +98,9 @@ export function nativeHostTaskProjectMutationOperations(
         await fetchAddPRReviewCommentReply(client, repoId, {
           prNumber: target.number,
           ...payload,
-          prRepo: slugPayload(target)
-        })
+          prRepo: prRepoPayload(target)
+        }),
+        'Failed to reply'
       )
     },
     async addConversationComment(target, repoId, body) {
@@ -106,9 +108,10 @@ export function nativeHostTaskProjectMutationOperations(
         await fetchAddIssueComment(client, repoId, {
           prNumber: target.number,
           body,
-          prRepo: slugPayload(target),
+          prRepo: prRepoPayload(target),
           type: target.type
-        })
+        }),
+        'Failed to reply'
       )
     },
     async requestReviewers(target, repoId, reviewers) {
@@ -116,8 +119,9 @@ export function nativeHostTaskProjectMutationOperations(
         await fetchRequestPRReviewers(client, repoId, {
           prNumber: target.number,
           reviewers,
-          prRepo: slugPayload(target)
-        })
+          prRepo: prRepoPayload(target)
+        }),
+        'Failed to request reviewers'
       )
     },
     async rerunChecks(target, repoId, payload) {
@@ -125,10 +129,11 @@ export function nativeHostTaskProjectMutationOperations(
         await fetchRerunPRChecks(
           client,
           repoId,
-          { prNumber: target.number, ...payload, prRepo: slugPayload(target) },
+          { prNumber: target.number, ...payload, prRepo: prRepoPayload(target) },
           // A CI rerun and a merge both routinely outrun the 30s default.
           { timeoutMs: PROJECT_PR_MUTATION_TIMEOUT_MS }
-        )
+        ),
+        'Failed to rerun checks'
       )
     },
     async merge(target, repoId, method) {
@@ -136,12 +141,21 @@ export function nativeHostTaskProjectMutationOperations(
         await fetchMergePR(
           client,
           repoId,
-          { prNumber: target.number, method, prRepo: slugPayload(target) },
+          { prNumber: target.number, method, prRepo: prRepoPayload(target) },
           { timeoutMs: PROJECT_PR_MUTATION_TIMEOUT_MS }
-        )
+        ),
+        'Failed to merge pull request'
       )
     }
   }
+}
+
+/** Fork/GHES decoration the host treats as optional. A row with no repository slug sent `null`
+ *  before this seam existed, so refusing the whole call here would lose a working path. */
+function prRepoPayload(target: HostTaskProjectItemTarget) {
+  return target.owner && target.repo
+    ? { owner: target.owner, repo: target.repo, host: target.host }
+    : null
 }
 
 function slugPayload(target: HostTaskProjectItemTarget) {
@@ -153,35 +167,52 @@ function slugPayload(target: HostTaskProjectItemTarget) {
   }
 }
 
+/** The wording each caller reported for a refused mutation before these calls moved behind the
+ *  seam. A host that refuses without a message must still name the action that failed. */
+const PROJECT_MUTATION_FALLBACKS: Record<string, string> = {
+  'github.project.updateIssueBySlug': 'Failed to update GitHub item',
+  'github.project.updatePullRequestBySlug': 'Failed to update GitHub item',
+  'github.project.addIssueCommentBySlug': 'Failed to add comment',
+  'github.project.updateIssueCommentBySlug': 'Failed to edit comment',
+  'github.project.deleteIssueCommentBySlug': 'Failed to delete comment',
+  'github.project.updateItemField': 'Failed to update project field',
+  'github.project.clearItemField': 'Failed to update project field',
+  'github.project.updateIssueTypeBySlug': 'Failed to update issue type'
+}
+
 async function projectMutation<T extends object = object>(
   client: RpcRequestSender,
   method: string,
   payload: object
 ): Promise<T> {
+  const fallback = PROJECT_MUTATION_FALLBACKS[method] ?? 'GitHub Project request failed'
   const response = (await client.sendRequest(method, payload, { timeoutMs: 30_000 })) as {
     ok: boolean
     result?: { ok?: boolean; error?: string | { message?: string } }
     error?: { message?: string }
   }
   if (!response.ok) {
-    throw new Error(response.error?.message ?? 'GitHub Project request failed')
+    throw new Error(response.error?.message ?? fallback)
   }
   if (response.result?.ok === false) {
     const error = response.result.error
-    throw new Error(
-      typeof error === 'string' ? error : (error?.message ?? 'GitHub Project request failed')
-    )
+    throw new Error(typeof error === 'string' ? error : (error?.message ?? fallback))
   }
   return (response.result ?? {}) as T
 }
 
-function requirePrMutation(result: GitHubPrMutationOutcome): void {
+function requirePrMutation(result: GitHubPrMutationOutcome, fallback: string): void {
   if (!result.ok) {
-    throw new Error(result.error)
+    // The wrapper mints `Request failed: <method>` when the host says nothing; the caller's own
+    // wording is what the user read before these calls moved behind the seam.
+    throw new Error(result.error.startsWith('Request failed: ') ? fallback : result.error)
   }
 }
 
-function prMutationComment(result: GitHubPrMutationOutcome): DetailComment | undefined {
-  requirePrMutation(result)
+function prMutationComment(
+  result: GitHubPrMutationOutcome,
+  fallback: string
+): DetailComment | undefined {
+  requirePrMutation(result, fallback)
   return (result as { comment?: DetailComment }).comment
 }

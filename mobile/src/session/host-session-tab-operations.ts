@@ -31,7 +31,7 @@ export type HostSessionTabOperations = {
     workspaceId: string,
     commandId: string
   ): Promise<HostSessionQuickCommandLaunchResult>
-  createBrowser(workspaceId: string, url: string): Promise<{ browserPageId: string }>
+  createBrowser(workspaceId: string, url: string): Promise<{ browserPageId?: string }>
   activate(workspaceId: string, tabId: string, leafId?: string): Promise<SessionTabsResult>
   close(workspaceId: string, tabId: string): Promise<HostSessionTabCloseResult>
 }

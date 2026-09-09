@@ -23,6 +23,7 @@ type ReadOperations = Pick<
   | 'connectSsh'
   | 'detectAgents'
   | 'readRepoHooks'
+  | 'readRepoHooksIfAvailable'
   | 'readRuntimeCapabilities'
 >
 
@@ -37,10 +38,12 @@ export function nativeHostWorkspaceCreationReadOperations(
       return result.repos
     },
     async readRetiredWorktreeNames(repoId) {
-      const result = await successfulResult<unknown>(
-        client.sendRequest('worktree.listRetiredNames', { repo: `id:${repoId}` })
-      )
-      return readRetiredNameRegistryForRepo(result, repoId)
+      // Why no ok check: a refused read must read as an empty registry, not as a failure. The
+      // caller holds its previous answer on a failure, which would keep offering a spent name.
+      const response = await client.sendRequest('worktree.listRetiredNames', {
+        repo: `id:${repoId}`
+      })
+      return readRetiredNameRegistryForRepo((response as { result?: unknown }).result, repoId)
     },
     async readRuntimeSettings() {
       const result = await successfulResult<{ settings: NewWorkspaceRuntimeSettings }>(
@@ -89,6 +92,10 @@ export function nativeHostWorkspaceCreationReadOperations(
       return successfulResult<NewWorkspaceRepoHooks>(
         client.sendRequest('repo.hooks', { repo: `id:${repoId}` })
       )
+    },
+    async readRepoHooksIfAvailable(repoId) {
+      const response = await client.sendRequest('repo.hooks', { repo: `id:${repoId}` })
+      return response.ok ? ((response as RpcSuccess).result as NewWorkspaceRepoHooks) : null
     },
     readRuntimeCapabilities() {
       return readNewWorktreeRuntimeCapabilities(client)

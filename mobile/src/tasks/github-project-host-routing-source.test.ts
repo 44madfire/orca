@@ -45,13 +45,19 @@ describe('mobile GitHub Project host routing boundary', () => {
 
   it('pins Project-row PR actions to the row repository identity', () => {
     // Every Project-row action resolves its target from the row plus the active Project host.
-    const targets = [...compositionSource.matchAll(/projectRowMutationTarget\(([^)]*)\)/g)]
+    const targets = [
+      ...compositionSource.matchAll(/projectRow(?:Mutation|PullRequest)Target\(([^)]*)\)/g)
+    ]
     expect(targets.length).toBeGreaterThan(10)
     for (const target of targets) {
       expect(target[1].replace(/\s+/g, ' ').trim()).toBe('row, activeGitHubProjectHost')
     }
-    // The target type carries the host that the PR mutations forward as prRepo.
-    expect(projectMutationAdapter).toContain('prRepo: slugPayload(target)')
+    // The target type carries the host that the PR mutations forward as prRepo, and a row with
+    // no slug forwards null rather than being refused.
+    expect(projectMutationAdapter).toContain('prRepo: prRepoPayload(target)')
+    expect(projectMutationAdapter).toMatch(
+      /function prRepoPayload\(target: HostTaskProjectItemTarget\) \{\s*return target\.owner && target\.repo/
+    )
     for (const method of [
       'fetchResolveReviewThread',
       'fetchAddPRReviewCommentReply',

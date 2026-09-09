@@ -25,6 +25,28 @@ export function projectRowMutationTarget(
 }
 
 /**
+ * For the pull-request mutations the host addresses by number, carrying the slug only as
+ * optional `prRepo` decoration: reviewers, check reruns, merges and file-viewed state. The slug
+ * is not required, because a row without one still names a pull request the host can act on.
+ */
+export function projectRowPullRequestTarget(
+  row: GitHubProjectRow,
+  host: string
+): HostTaskProjectItemTarget | null {
+  const slug = splitRepositorySlug(row.content.repository)
+  const type = projectRowType(row)
+  return type && row.content.number
+    ? {
+        owner: slug?.owner ?? '',
+        repo: slug?.repo ?? '',
+        host,
+        number: row.content.number,
+        type
+      }
+    : null
+}
+
+/**
  * For mutations the host addresses by repository slug and comment id — the `*BySlug` comment
  * edits. They read no issue number and no issue/PR kind, so requiring those refused rows
  * (draft project items, PR rows before their number lands) the host would have accepted.

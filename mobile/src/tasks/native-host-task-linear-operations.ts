@@ -1,5 +1,10 @@
 import type { HostTaskLinearOperations } from './host-task-linear-operations'
 import type { RpcRequestSender } from '../transport/rpc-client'
+import type { SendRequestOptions } from '../transport/rpc-client'
+
+/** The interactive Linear writes carry their own budget; the reads that only feed a picker do
+ *  not, so a slow host degrades the picker instead of the whole screen. */
+const INTERACTIVE: SendRequestOptions = { timeoutMs: 30_000 }
 
 export function nativeHostTaskLinearOperations(client: RpcRequestSender): HostTaskLinearOperations {
   return {
@@ -16,26 +21,23 @@ export function nativeHostTaskLinearOperations(client: RpcRequestSender): HostTa
         workspaceId: target.workspaceId
       }),
     async selectWorkspace(workspaceId) {
-      assertMutation(
-        await request(client, 'linear.selectWorkspace', { workspaceId }),
-        'Failed to select workspace'
-      )
+      // Why no result check: the picker already switched, and it reloads the Linear context next.
+      // A rejected switch surfaces through that reload, not as a second error on the same tap.
+      await client.sendRequest('linear.selectWorkspace', { workspaceId })
     },
     async updateState(target, stateId) {
-      assertMutation(
-        await request(client, 'linear.updateIssue', {
-          id: target.issueId,
-          workspaceId: target.workspaceId,
-          updates: { stateId }
-        }),
-        'Failed to update Linear issue'
-      )
+      await request(client, 'linear.updateIssue', {
+        id: target.issueId,
+        workspaceId: target.workspaceId,
+        updates: { stateId }
+      })
     },
     async addComment(target, body) {
       const result = await request<{ ok?: boolean; id?: string; error?: string }>(
         client,
         'linear.addIssueComment',
-        { issueId: target.issueId, workspaceId: target.workspaceId, body }
+        { issueId: target.issueId, workspaceId: target.workspaceId, body },
+        INTERACTIVE
       )
       assertMutation(result, 'Failed to add comment')
       return result.id
@@ -43,21 +45,32 @@ export function nativeHostTaskLinearOperations(client: RpcRequestSender): HostTa
     async loadIssue(target) {
       const issue = await request<Awaited<
         ReturnType<HostTaskLinearOperations['loadIssue']>
-      > | null>(client, 'linear.getIssue', { id: target.issueId, workspaceId: target.workspaceId })
+      > | null>(
+        client,
+        'linear.getIssue',
+        { id: target.issueId, workspaceId: target.workspaceId },
+        INTERACTIVE
+      )
       if (!issue) {
-        throw new Error('Linear issue not found')
+        throw new Error('Sub-issue not found')
       }
       return issue
     },
     async createSubIssue(target, title) {
       return createdIssue(
-        await request(client, 'linear.createIssue', {
-          teamId: target.teamId,
-          title,
-          workspaceId: target.workspaceId,
-          parentIssueId: target.issueId,
-          projectId: target.projectId ?? null
-        })
+        await request(
+          client,
+          'linear.createIssue',
+          {
+            teamId: target.teamId,
+            title,
+            workspaceId: target.workspaceId,
+            parentIssueId: target.issueId,
+            projectId: target.projectId ?? null
+          },
+          INTERACTIVE
+        ),
+        'Failed to create sub-issue'
       )
     },
     async createIssue(payload) {
@@ -67,7 +80,8 @@ export function nativeHostTaskLinearOperations(client: RpcRequestSender): HostTa
           title: payload.title,
           description: payload.description,
           workspaceId: payload.team.workspaceId
-        })
+        }),
+        'Failed to create Linear issue'
       )
     }
   }
@@ -76,9 +90,12 @@ export function nativeHostTaskLinearOperations(client: RpcRequestSender): HostTa
 async function request<T = unknown>(
   client: RpcRequestSender,
   method: string,
-  payload?: object
+  payload?: object,
+  options?: SendRequestOptions
 ): Promise<T> {
-  const response = await client.sendRequest(method, payload, { timeoutMs: 30_000 })
+  const response = options
+    ? await client.sendRequest(method, payload, options)
+    : await client.sendRequest(method, payload)
   if (!response.ok) {
     throw new Error(response.error?.message ?? 'Task request failed')
   }
@@ -94,7 +111,7 @@ function assertMutation(
   }
 }
 
-function createdIssue(result: unknown) {
+function createdIssue(result: unknown, fallback: string) {
   const issue = result as {
     ok?: boolean
     id?: string
@@ -104,7 +121,7 @@ function createdIssue(result: unknown) {
     error?: string
   }
   if (issue.ok === false || !issue.id || !issue.identifier) {
-    throw new Error(issue.error ?? 'Failed to create Linear issue')
+    throw new Error(issue.error ?? fallback)
   }
   return {
     id: issue.id,

@@ -55,7 +55,11 @@ export function nativeHostTaskProjectFileOperations(
 function repoPayload(target: HostTaskProjectItemTarget, repoId: string) {
   return {
     repo: `id:${repoId}`,
-    prRepo: { owner: target.owner, repo: target.repo, host: target.host }
+    // Null when the row carries no slug: that is what the screens sent before this seam.
+    prRepo:
+      target.owner && target.repo
+        ? { owner: target.owner, repo: target.repo, host: target.host }
+        : null
   }
 }
 

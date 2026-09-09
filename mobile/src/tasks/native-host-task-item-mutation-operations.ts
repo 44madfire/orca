@@ -14,14 +14,25 @@ export function nativeHostTaskItemMutationOperations(
         target.provider === 'github'
           ? await setGitHubClosed(client, target, closed)
           : await setGitLabClosed(client, target, closed)
-      assertMutation(response, 'Failed to update task status')
+      // Provider-keyed, because each caller reported its own provider's wording before the seam.
+      assertMutation(
+        response,
+        target.provider === 'github'
+          ? 'Failed to update GitHub status'
+          : 'Failed to update GitLab item'
+      )
     },
     async updateMetadata(target, updates) {
       const response =
         target.provider === 'github'
           ? await updateGitHubMetadata(client, target, updates)
           : await updateGitLabMetadata(client, target, updates)
-      assertMutation(response, 'Failed to update task')
+      assertMutation(
+        response,
+        target.provider === 'github'
+          ? 'Failed to update GitHub issue'
+          : 'Failed to update GitLab item'
+      )
     }
   }
 }

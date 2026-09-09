@@ -35,9 +35,9 @@ export function useNewWorkspaceSetupScript(args: {
     }
     let stale = false
     void operations
-      .readRepoHooks(selectedRepo.id)
+      .readRepoHooksIfAvailable(selectedRepo.id)
       .then((result) => {
-        if (stale) {
+        if (stale || !result) {
           return
         }
         const command = result.hooks?.scripts?.setup?.trim() || null

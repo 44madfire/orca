@@ -1,7 +1,4 @@
-import {
-  parseNormalizedTerminalQuickCommands,
-  type TerminalQuickCommandMutation
-} from '../terminal/quick-commands'
+import { parseNormalizedTerminalQuickCommands } from '../terminal/quick-commands'
 import type { RpcClient } from '../transport/rpc-client'
 import { isLogicalClientCutoverError } from '../transport/stable-logical-rpc-client'
 import type {
@@ -19,36 +16,31 @@ export function nativeHostSessionQuickCommandOperations(
   return {
     async snapshot(workspaceId, signal) {
       return quickCommandSnapshot(
-        await quickCommandRequest(client, 'settings.getTerminalQuickCommands', undefined, signal),
+        await loadWithCutoverRetry(client, signal),
         workspaceId,
         'Failed to load quick commands'
       )
     },
     async mutate(workspaceId, mutation) {
-      return quickCommandSnapshot(
-        await quickCommandRequest(client, 'settings.updateTerminalQuickCommands', {
-          mutation
-        }),
-        workspaceId,
-        'Failed to save quick command'
-      )
+      // Why no cutover retry here: a quick-command mutation is not idempotent, so a replay
+      // after a logical cutover could apply the same edit twice.
+      const response = await client.sendRequest('settings.updateTerminalQuickCommands', {
+        mutation
+      })
+      if (!response.ok) {
+        throw new Error(response.error.message || 'Failed to save quick command')
+      }
+      return quickCommandSnapshot(response.result, workspaceId, 'Failed to save quick command')
     }
   }
 }
 
-async function quickCommandRequest(
-  client: RpcClient,
-  method: 'settings.getTerminalQuickCommands' | 'settings.updateTerminalQuickCommands',
-  params?: { mutation: TerminalQuickCommandMutation },
-  signal?: AbortSignal
-) {
+async function loadWithCutoverRetry(client: RpcClient, signal?: AbortSignal) {
   for (let retry = 0; ; retry += 1) {
     try {
-      const response = params
-        ? await client.sendRequest(method, params)
-        : await client.sendRequest(method)
+      const response = await client.sendRequest('settings.getTerminalQuickCommands')
       if (!response.ok) {
-        throw new Error(response.error.message || 'quick_commands_failed')
+        throw new Error(response.error.message || 'Failed to load quick commands')
       }
       return response.result
     } catch (error) {

@@ -7,7 +7,10 @@ import type {
   HostedReviewMergeMethod,
   TaskItem
 } from './mobile-tasks-legacy-foundation'
-import { projectRowMutationTarget, taskItemMutationTarget } from './mobile-tasks-mutation-targets'
+import {
+  projectRowPullRequestTarget,
+  taskItemMutationTarget
+} from './mobile-tasks-mutation-targets'
 
 export function useMobileTasksProjectFileMergeActions(model: ProjectReviewCheckActionsModel) {
   const {
@@ -45,7 +48,7 @@ export function useMobileTasksProjectFileMergeActions(model: ProjectReviewCheckA
         return
       }
       const repo = findProjectRowRepo(row)
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
+      const target = projectRowPullRequestTarget(row, activeGitHubProjectHost)
       if (
         !taskOperations ||
         row.itemType !== 'PULL_REQUEST' ||
@@ -90,7 +93,7 @@ export function useMobileTasksProjectFileMergeActions(model: ProjectReviewCheckA
   const addProjectGitHubFileReviewComment = useCallback(
     async (row: GitHubProjectRow, file: GitHubDetailFile, line: number): Promise<void> => {
       const repo = findProjectRowRepo(row)
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
+      const target = projectRowPullRequestTarget(row, activeGitHubProjectHost)
       if (
         !taskOperations ||
         projectMutating ||
@@ -157,7 +160,7 @@ export function useMobileTasksProjectFileMergeActions(model: ProjectReviewCheckA
   const mergeProjectGitHubPullRequest = useCallback(
     async (row: GitHubProjectRow, method: HostedReviewMergeMethod): Promise<void> => {
       const repo = findProjectRowRepo(row)
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
+      const target = projectRowPullRequestTarget(row, activeGitHubProjectHost)
       if (
         !taskOperations ||
         projectMutating ||

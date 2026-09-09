@@ -64,6 +64,8 @@ export type HostSessionTerminalOperations = {
     enter: boolean,
     clientId: string | null
   ): Promise<boolean>
+  /** Answers only for a terminal this same instance subscribed: the reply is dropped otherwise.
+   *  A caller that routes query replies must route `subscribe` through the same instance too. */
   sendQueryReply(
     terminalId: string,
     bytes: string,

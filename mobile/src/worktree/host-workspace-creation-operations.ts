@@ -89,6 +89,9 @@ export type HostWorkspaceCreationOperations = {
   connectSsh(targetId: string): Promise<SshConnectionState>
   detectAgents(connectionId: string | null): Promise<string[]>
   readRepoHooks(repoId: string): Promise<NewWorkspaceRepoHooks>
+  /** Null when the host refuses the read. The create sheet keeps whatever it already showed
+   *  rather than replacing it with a "no setup script" answer it cannot stand behind. */
+  readRepoHooksIfAvailable(repoId: string): Promise<NewWorkspaceRepoHooks | null>
   readRuntimeCapabilities(): Promise<NewWorktreeRuntimeCapabilities>
   listSparsePresets(repoId: string): Promise<SparsePreset[]>
   saveSparsePreset(

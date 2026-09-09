@@ -9,6 +9,7 @@ import type { TaskItem } from './mobile-tasks-project-workspace-types'
 export {
   projectRowIdentityTarget,
   projectRowMutationTarget,
+  projectRowPullRequestTarget,
   projectRowSlugTarget
 } from './mobile-tasks-project-row-targets'
 
