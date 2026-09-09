@@ -50,7 +50,7 @@ export function applyDescendantEventToPane(
           agentType: facts.agentType,
           description: facts.description,
           model: facts.model,
-          state: 'working'
+          state: facts.waiting === true ? 'waiting' : 'working'
         },
         now
       )
@@ -61,8 +61,14 @@ export function applyDescendantEventToPane(
   // Why: a child event before any lead event still proves the pane is working — the lead spawned it.
   const leadState = state.descendantLeadStateByPaneKey.get(paneKey) ?? 'working'
   const cachedTool = state.lastToolByPaneKey.get(paneKey) ?? {}
+  // Why: a child's wait must surface even when its provider never named which child is waiting,
+  // so there is no roster row to carry the state.
+  const effectiveState =
+    facts.kind === 'child' && facts.waiting === true
+      ? 'waiting'
+      : agentDescendantEffectiveState(state.descendantRosterByPaneKey.get(paneKey), leadState)
   return normalizeAgentStatusPayload({
-    state: agentDescendantEffectiveState(state.descendantRosterByPaneKey.get(paneKey), leadState),
+    state: effectiveState,
     prompt: state.lastPromptByPaneKey.get(paneKey) ?? '',
     agentType: source,
     toolName: cachedTool.toolName,

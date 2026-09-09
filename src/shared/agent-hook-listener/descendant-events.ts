@@ -1,4 +1,5 @@
 import type { AgentHookSource } from '../agent-hook-relay'
+import { isAskUserQuestionTool } from '../agent-question-answered-intent'
 import { readFirstString } from './interactive-tool'
 import { isGrokEvent, normalizeHookEventName } from './provider-event-names'
 import { readString } from './tool-input-preview'
@@ -27,7 +28,13 @@ export type DescendantEntry = {
  *  to clear it — whereas replacing the set makes every message self-sufficient, so the
  *  newest one repairs whatever was dropped before it. */
 export type DescendantEventFacts =
-  | ({ kind: 'child'; ended: boolean } & Partial<DescendantEntry>)
+  | ({
+      kind: 'child'
+      ended: boolean
+      /** The child is blocked on a human answer. A descendant's wait is the pane's actionable
+       *  state, so it surfaces even when the provider never names which child is waiting. */
+      waiting?: boolean
+    } & Partial<DescendantEntry>)
   | { kind: 'live-set'; children: readonly DescendantEntry[] }
 
 /** How one provider reports its descendants. Both questions live together on purpose: a
@@ -56,11 +63,18 @@ function readGrokDescendantEvent(
   if (!isLifecycleEvent && subagentType === undefined) {
     return null
   }
+  // Why: grok auto-allows ask_user_question, so a child blocked on a human answer announces it as
+  // a PreToolUse. Routing child events away from the lead normalizer would otherwise drop that
+  // wait entirely, and a pane silently waiting on an answer is the worst state to hide.
+  const isChildAsking =
+    isGrokEvent(eventName, 'pre_tool_use') &&
+    isAskUserQuestionTool(readFirstString(hookPayload, ['toolName', 'tool_name', 'name']))
   return {
     kind: 'child',
     id: readFirstString(hookPayload, ['subagentId', 'subagent_id']),
     agentType: subagentType,
     description: readFirstString(hookPayload, ['description']),
+    ...(isChildAsking ? { waiting: true } : {}),
     ended:
       isGrokEvent(eventName, 'subagent_stop', 'subagent_end') ||
       isGrokEvent(eventName, 'stop', 'session_end', 'stop_failure', 'stop_cancelled')
