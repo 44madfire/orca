@@ -202,9 +202,11 @@ describe('ClaudeBackgroundTaskTracker', () => {
       aggregate([{ task_id: 'back-1', task_type: 'local_bash', description: 'bash' }])
     )
 
+    // A retained row keeps the place the user is already reading it in: a roster
+    // frame must not make a live row jump down the list.
     expect(tracker.state?.tasks).toEqual([
-      { id: 'back-1', kind: 'command', description: 'bash' },
-      { id: 'fore-1', kind: 'agent', stoppable: false }
+      { id: 'fore-1', kind: 'agent', stoppable: false },
+      { id: 'back-1', kind: 'command', description: 'bash' }
     ])
 
     // A foreground start after the roster is new work, not a stale echo.
@@ -216,8 +218,8 @@ describe('ClaudeBackgroundTaskTracker', () => {
       })
     )
     expect(tracker.state?.tasks).toEqual([
-      { id: 'back-1', kind: 'command', description: 'bash' },
       { id: 'fore-1', kind: 'agent', stoppable: false },
+      { id: 'back-1', kind: 'command', description: 'bash' },
       { id: 'fore-2', kind: 'agent', stoppable: false }
     ])
 
@@ -243,7 +245,12 @@ describe('ClaudeBackgroundTaskTracker', () => {
     )
     // 255 retained foreground rows plus the roster's own entry: retention is
     // real and still counts against the cap.
-    expect(tracker.state?.tasks).toHaveLength(256)
+    const ids = tracker.state?.tasks?.map((task) => task.id) ?? []
+    expect(ids).toHaveLength(256)
+    // When the cap bites, the STALEST retained row goes, not the newest.
+    expect(ids).toContain('fore-299')
+    expect(ids).not.toContain('fore-44')
+    expect(ids).toContain('back-1')
 
     // Aggregate authority over its OWN class is unchanged.
     tracker.observe(

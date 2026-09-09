@@ -183,18 +183,9 @@ export class ClaudeBackgroundTaskTracker {
       return
     }
     this.aggregateRosterObserved = true
-    // The roster says nothing about foreground work, so it cannot retire it:
-    // those rows survive replacement and only their own turn's `result` ends
-    // them. They still count against the cap, so the map stays bounded.
-    const liveForeground = new Map<string, TrackedTask>()
-    for (const [id, task] of this.tasks) {
-      if (!task.backgrounded && task.liveInTurn) {
-        liveForeground.set(id, task)
-      }
-    }
-    this.tasks.clear()
+    const roster = new Map<string, TrackedTask>()
     for (const valueTask of value) {
-      if (this.tasks.size >= MAX_TRACKED_TASKS) {
+      if (roster.size >= MAX_TRACKED_TASKS) {
         break
       }
       const task = record(valueTask)
@@ -210,20 +201,53 @@ export class ClaudeBackgroundTaskTracker {
       // finished FOREGROUND id undefended: the admission guard no longer
       // rejects it, so a replayed start would revive it for the rest of the turn.
       this.terminalTaskIds.delete(id)
-      this.tasks.set(id, {
+      roster.set(id, {
         backgrounded: true,
         liveInTurn: true,
         kind: classifyClaudeBackgroundTaskKind(task.task_type),
         description: claudeTaskDescription(task.description)
       })
     }
-    for (const [id, task] of liveForeground) {
-      if (this.tasks.size >= MAX_TRACKED_TASKS) {
-        break
+    this.replaceTracked(roster)
+  }
+
+  /** The roster says nothing about foreground work, so it cannot retire it:
+   *  live foreground rows survive replacement and only their own turn's
+   *  `result` ends them. They keep the place the user is already reading them
+   *  in, and they count against the cap — when it bites, the STALEST retained
+   *  row goes, never the newest, and roster entries are never starved. */
+  private replaceTracked(roster: Map<string, TrackedTask>): void {
+    let retained = 0
+    for (const [id, task] of this.tasks) {
+      if (!roster.has(id) && !task.backgrounded && task.liveInTurn) {
+        retained += 1
       }
-      if (!this.tasks.has(id)) {
-        this.tasks.set(id, task)
+    }
+    let evict = Math.max(0, roster.size + retained - MAX_TRACKED_TASKS)
+    const merged = new Map<string, TrackedTask>()
+    for (const [id, task] of this.tasks) {
+      const listed = roster.get(id)
+      if (listed) {
+        merged.set(id, listed)
+        continue
       }
+      if (task.backgrounded || !task.liveInTurn) {
+        continue
+      }
+      if (evict > 0) {
+        evict -= 1
+        continue
+      }
+      merged.set(id, task)
+    }
+    for (const [id, task] of roster) {
+      if (!merged.has(id)) {
+        merged.set(id, task)
+      }
+    }
+    this.tasks.clear()
+    for (const [id, task] of merged) {
+      this.tasks.set(id, task)
     }
   }
 
