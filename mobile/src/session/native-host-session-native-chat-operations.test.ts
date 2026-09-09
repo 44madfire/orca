@@ -20,7 +20,7 @@ function client(sendRequest: RpcClient['sendRequest']): RpcClient {
 }
 
 describe('native host session native chat operations', () => {
-  it('stops the agent with a bare Escape that cannot submit the input line', async () => {
+  it('stops the agent with a bare Escape that carries no enter at all', async () => {
     const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
       ok: true,
       result: { delivered: true }
@@ -29,11 +29,35 @@ describe('native host session native chat operations', () => {
 
     await operations.stop(target(), Date.now() + 15_000)
 
-    expect(sendRequest).toHaveBeenCalledWith(
-      'terminal.send',
-      expect.objectContaining({ text: String.fromCharCode(27), enter: false }),
-      expect.anything()
-    )
+    const params = sendRequest.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(sendRequest.mock.calls[0]?.[0]).toBe('terminal.send')
+    expect(params.text).toBe(String.fromCharCode(27))
+    // The host tests `enter === true`, and the call it replaced omitted the field entirely.
+    expect(params).not.toHaveProperty('enter')
+  })
+
+  it('still attempts the Escape inside the shared write floor', async () => {
+    // The shared chat write refuses to start under a 2s residual budget. Stop does not: the
+    // call it replaced tried on whatever was left and could be accepted.
+    const sendRequest = vi.fn<RpcClient['sendRequest']>().mockResolvedValue({
+      ok: true,
+      result: { send: { accepted: true } }
+    })
+    const operations = nativeHostSessionNativeChatOperations(client(sendRequest))
+
+    await expect(operations.stop(target(), Date.now() + 1_500)).resolves.toBe('accepted')
+    // The second call is the worker-takeover report an accepted Stop always makes.
+    const sends = sendRequest.mock.calls.filter(([method]) => method === 'terminal.send')
+    expect(sends).toHaveLength(1)
+    expect(sends[0]?.[2]).toMatchObject({ budgetSpansConnect: true })
+  })
+
+  it('does not attempt an Escape whose budget is already spent', async () => {
+    const sendRequest = vi.fn<RpcClient['sendRequest']>()
+    const operations = nativeHostSessionNativeChatOperations(client(sendRequest))
+
+    await expect(operations.stop(target(), Date.now() - 1)).resolves.toBe('rejected')
+    expect(sendRequest).not.toHaveBeenCalled()
   })
 
   it('keeps the legacy file inventory scoped to the workspace that produced it', async () => {

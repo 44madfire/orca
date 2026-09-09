@@ -70,7 +70,7 @@ const HEAD_CALLBACK_BODY_SHA256 = 'e66e6436cdb9a66e870c06fdfc140106502fbeddd8db4
 const HEAD_EFFECT_SHA256 = 'd9ebfaabc1e79773cdada7ab370b20459ed972f1f8edce1652199f4d0391cd13'
 const HEAD_CONTENT_HOOK_SHA256 = '9c3b612fef3f370d66873aefdbe1d701f20cb64ded31fef5cc45fde6f8189581'
 const HEAD_NESTED_FUNCTION_SHA256 =
-  'd0aada4091de4551fcb5edabad4aa84249799d2fd3244c0f7493eadb4fe3ba58'
+  '3b75d854a92b086907571f4c877961bd429f76e3826979cee5b0e94ed2007c8e'
 const HEAD_NATIVE_REGISTRATION_SHA256 =
   'cab85e4e4a3f43289ba93ddea9ccce57aea83e0bf14fd1620a965aad0c1cb49e'
 const HEAD_NATIVE_REMOVAL_SHA256 =
@@ -79,13 +79,13 @@ const HEAD_TIMER_CREATION_SHA256 =
   '1a31b625e2174c3db77272249843196d2b6b06ab1e654a96d8f7858e3082e66b'
 const HEAD_TIMER_CLEANUP_SHA256 = 'c73f1d1c2cc89642f3d727d6f3b6b81860a9d6f34234541a2065ec3d1a8cd116'
 const HEAD_RUNTIME_STRING_SHA256 =
-  'f7ab0549d15dfa0b830bf916844816fa317581a129ace4e99917ddf9cfb3771e'
+  '2f78f3e8f835b3a786c8940dabc127d0d131e909c0e736a4a341c5d50ce35059'
 const HEAD_HOST_JSX_SHA256 = '390405926b1695fa3a33686f0bc192b432f5468d8576499d7cafbb4922defbb5'
 const HEAD_LEAF_JSX_SHA256 = 'd5f1ef0db57c63eb3e4ee7c98e8483bc21882a151ce0ca24e42c7d1234e1dace'
 const HEAD_STYLE_REFERENCE_SHA256 =
   '295a3501c2c6d7bea7c8bbf38b3f3534f01344cd7e1b91bb8e07c040821d596a'
 const HEAD_IDENTITY_FIELD_SHA256 =
-  'c5c6eaa5c161e842e66077dc2e934bb5871c6267f38d2f3046f902c92ae55f7b'
+  '2084e23285fc128e02ffbf751092ffc834b2d257c5c4bd782769f0bf97d2f161'
 const HEAD_NAVIGATION_SHA256 = '9d96f5dad7de555d6553eac39c0fab00efad507470fd562cb9beaa32db16f512'
 const HEAD_CAPABILITY_SHA256 = 'ca219f7909a091717110b823d5b94a20770ad3ae51894e0fa765e8628309392d'
 
@@ -409,6 +409,37 @@ function readJsxFacts(definitions: ReadonlyMap<string, Definition>): {
   return { host, leaf, styleReferences }
 }
 
+/** The route's device identity now reaches the wire from inside these adapters, and the visitor
+ *  follows bare-identifier calls only, so `operations.terminal.sendInput(...)` never leads it
+ *  there. They are walked directly instead: the `deviceToken` to `client.id` binding is exactly
+ *  what a presence-lock bug breaks, so it has to stay pinned wherever it now lives. */
+const ADAPTER_IDENTITY_SOURCES = [
+  './native-host-session-terminal-operations.ts',
+  './native-host-session-native-chat-operations.ts'
+] as const
+
+function collectIdentityFields(
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  identityFields: string[]
+): void {
+  if (!ts.isPropertyAssignment(node)) {
+    return
+  }
+  const name = node.name.getText(sourceFile)
+  if (['notifyClients', 'deviceToken', 'clientId'].includes(name)) {
+    identityFields.push(`${name}|${canonical(node.initializer, sourceFile)}`)
+  }
+  if (
+    name === 'client' &&
+    ts.isObjectLiteralExpression(node.initializer) &&
+    node.initializer.properties.some((property) => property.name?.getText(sourceFile) === 'id') &&
+    node.initializer.properties.some((property) => property.name?.getText(sourceFile) === 'type')
+  ) {
+    identityFields.push(`client|${canonical(node.initializer, sourceFile)}`)
+  }
+}
+
 function readCompatibilityFacts(definitions: ReadonlyMap<string, Definition>): {
   capabilities: string[]
   identityFields: string[]
@@ -421,24 +452,7 @@ function readCompatibilityFacts(definitions: ReadonlyMap<string, Definition>): {
     if (!isRuntimeNode(node)) {
       return
     }
-    if (ts.isPropertyAssignment(node)) {
-      const name = node.name.getText(sourceFile)
-      if (['notifyClients', 'deviceToken', 'clientId'].includes(name)) {
-        identityFields.push(`${name}|${canonical(node.initializer, sourceFile)}`)
-      }
-      if (
-        name === 'client' &&
-        ts.isObjectLiteralExpression(node.initializer) &&
-        node.initializer.properties.some(
-          (property) => property.name?.getText(sourceFile) === 'id'
-        ) &&
-        node.initializer.properties.some(
-          (property) => property.name?.getText(sourceFile) === 'type'
-        )
-      ) {
-        identityFields.push(`client|${canonical(node.initializer, sourceFile)}`)
-      }
-    }
+    collectIdentityFields(node, sourceFile, identityFields)
     if (!ts.isCallExpression(node)) {
       return
     }
@@ -462,6 +476,14 @@ function readCompatibilityFacts(definitions: ReadonlyMap<string, Definition>): {
       capabilities.push(callText)
     }
   })
+  for (const relativePath of ADAPTER_IDENTITY_SOURCES) {
+    const sourceFile = parse(relativePath)
+    const visit = (node: ts.Node): void => {
+      collectIdentityFields(node, sourceFile, identityFields)
+      ts.forEachChild(node, visit)
+    }
+    visit(sourceFile)
+  }
   return { capabilities, identityFields, navigation }
 }
 
@@ -507,7 +529,9 @@ describe('mobile session route extraction parity', () => {
     )
     expect(hash(native.cleanups)).toBe(HEAD_TIMER_CLEANUP_SHA256)
     const compatibility = readCompatibilityFacts(definitions)
-    expect(compatibility.identityFields).toHaveLength(11)
+    // 15, not main's 14: the seam moved two hook-side `deviceToken` fields into three
+    // adapter-side `client: { id }` builders. Every binding main pinned is still pinned.
+    expect(compatibility.identityFields).toHaveLength(15)
     expect(hash(compatibility.identityFields)).toBe(HEAD_IDENTITY_FIELD_SHA256)
     expect(compatibility.navigation).toHaveLength(6)
     expect(hash(compatibility.navigation)).toBe(HEAD_NAVIGATION_SHA256)
@@ -517,7 +541,7 @@ describe('mobile session route extraction parity', () => {
 
   it('preserves runtime strings, styles, and the expanded JSX tree', () => {
     const strings = readRuntimeStrings()
-    expect(strings).toHaveLength(592)
+    expect(strings).toHaveLength(593)
     expect(hash(strings)).toBe(HEAD_RUNTIME_STRING_SHA256)
     const jsx = readJsxFacts(readDefinitions())
     expect(jsx.host).toHaveLength(124)

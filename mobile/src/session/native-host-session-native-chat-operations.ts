@@ -3,9 +3,13 @@ import { buildNativeChatSubscriptionId } from '../../../src/shared/native-chat-s
 import { isFloatingWorkspaceWorktreeId } from './floating-workspace'
 import { isMobileNativeChatTranscriptReadable } from './mobile-native-chat-eligibility'
 import {
-  sendMobileNativeChatMessageWithOutcome,
+  MOBILE_NATIVE_CHAT_SEND_TIMEOUT_MS,
   type MobileNativeChatSendOutcome
 } from './mobile-native-chat-send'
+import { isRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
+import { isLogicalClientCutoverError } from '../transport/stable-logical-rpc-client'
+import { isTerminalSendRpcAccepted } from '../terminal/terminal-send-rpc-response'
+import { reportWorkerTerminalUserInput } from '../terminal/worker-terminal-takeover-report'
 import { rankSuggestions } from './mobile-native-chat-autocomplete'
 import { getRepoIdFromMobileWorktreeId } from './mobile-session-route-helpers'
 import type {
@@ -63,9 +67,7 @@ export function nativeHostSessionNativeChatOperations(
       }
     },
     stop(target, deadline) {
-      // Escape must not carry Return: the extra newline submits whatever the agent
-      // had parked on its input line.
-      return sendNative(target, escape(), false, client, deadline)
+      return sendStopEscape(target, client, deadline)
     },
     resetFileSearchCache(workspaceId) {
       searchSupported = null
@@ -128,30 +130,46 @@ function nativeChatReadParams(target: HostSessionNativeChatTarget, limit: number
   }
 }
 
-function sendNative(
+/** Stop keeps its own send rather than the shared chat write: the shared one refuses to start
+ *  under a 2s residual budget, and Stop is worth attempting on whatever is left. It carries no
+ *  `enter`, so the Escape cannot submit whatever the agent had parked on its input line. */
+async function sendStopEscape(
   target: HostSessionNativeChatTarget,
-  text: string,
-  enter: boolean,
   client: RpcClient,
-  deadline?: number,
-  resolvedLaunchDraft?: { text: string; createdAt: number }
+  deadline?: number
 ): Promise<MobileNativeChatSendOutcome> {
   if (!target.terminalId) {
-    return Promise.resolve('rejected')
+    return 'rejected'
   }
-  return sendMobileNativeChatMessageWithOutcome({
-    client,
-    terminal: target.terminalId,
-    text,
-    enter,
-    resolvedLaunchDraft,
-    deadline,
-    ...(target.clientId ? { mobileClient: { id: target.clientId, type: 'mobile' as const } } : {})
-  })
-}
-
-function escape(): string {
-  return String.fromCharCode(27)
+  const handle = target.terminalId
+  const timeoutMs =
+    deadline === undefined ? MOBILE_NATIVE_CHAT_SEND_TIMEOUT_MS : deadline - Date.now()
+  if (timeoutMs <= 0) {
+    return 'rejected'
+  }
+  try {
+    const response = await client.sendRequest(
+      'terminal.send',
+      {
+        terminal: handle,
+        text: String.fromCharCode(27),
+        ...(target.clientId ? { client: { id: target.clientId, type: 'mobile' as const } } : {})
+      },
+      // Why: without this the call parks indefinitely on reconnect, so "Stop not sent" never
+      // appears and a stale Escape can land minutes later, into a composer holding fresh text.
+      { timeoutMs, budgetSpansConnect: true }
+    )
+    if (!isTerminalSendRpcAccepted(response)) {
+      return 'rejected'
+    }
+    // A deliberate Stop is human input; it takes the worker over like any other key.
+    reportWorkerTerminalUserInput(client, handle)
+    return 'accepted'
+  } catch (error) {
+    return isRpcDeliveryUnknown(error) || isLogicalClientCutoverError(error)
+      ? 'unknown'
+      : 'rejected'
+  }
 }
 
 function extractPaths(result: unknown): string[] {
