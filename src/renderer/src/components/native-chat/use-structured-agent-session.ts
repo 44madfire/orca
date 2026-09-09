@@ -84,7 +84,7 @@ export function useStructuredAgentSession(args: {
     () => selectStructuredAgentTurnActivity(state.items, turnId, state.activity),
     [state.activity, state.items, turnId]
   )
-  const backgroundTasksView = structuredSessionBackgroundTasksView(state.backgroundTasks, turnId)
+  const backgroundTasksView = structuredSessionBackgroundTasksView(state.backgroundTasks)
 
   useEffect(() => {
     if (!isVisible || !optionCatalog) {

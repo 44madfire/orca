@@ -104,15 +104,19 @@ describe('CodexBackgroundTaskTracker child execution ownership', () => {
     expect(tracker.state).toBeNull()
   })
 
-  it('reports an executing child only after the foreground turn ends', () => {
+  it('reports an executing child while the spawning turn is still open', () => {
     const tracker = runningChild()
-    expect(tracker.state).toBeNull()
-    expect(tracker.observe(turn('turn/completed', PRIMARY, PARENT_TURN))).toBe(true)
-    expect(tracker.state).toEqual({
+    const running = {
       state: 'monitoring',
       supportsStopAll: false,
       tasks: [{ id: `codex-agent:${CHILD}`, kind: 'agent', description: 'count_a' }]
-    })
+    }
+    // The strip is a live view: a fan-out is reported while it runs, not once
+    // the parent turn happens to end.
+    expect(tracker.state).toEqual(running)
+    // Turn end reveals children, it never settles them; the child is unchanged.
+    expect(tracker.observe(turn('turn/completed', PRIMARY, PARENT_TURN))).toBe(false)
+    expect(tracker.state).toEqual(running)
   })
 
   it('never settles a child when a primary turn ends', () => {
@@ -221,15 +225,16 @@ describe('CodexBackgroundTaskTracker child execution ownership', () => {
 })
 
 describe('CodexBackgroundTaskTracker command integration', () => {
-  it('keeps a primary shell visible after the turn until its own completion', () => {
+  it('keeps a primary shell visible from launch until its own completion', () => {
     const tracker = new CodexBackgroundTaskTracker(PRIMARY)
+    const shell = [{ id: 'codex-command:primary:exec-1', kind: 'command', description: 'sleep 90' }]
     tracker.observe(turn('turn/started', PRIMARY, PARENT_TURN))
     tracker.observe(command())
-    expect(tracker.state).toBeNull()
+    // Visible while the turn that launched it is still running.
+    expect(tracker.state?.tasks).toEqual(shell)
     tracker.observe(turn('turn/completed', PRIMARY, PARENT_TURN))
-    expect(tracker.state?.tasks).toEqual([
-      { id: 'codex-command:primary:exec-1', kind: 'command', description: 'sleep 90' }
-    ])
+    expect(tracker.state?.tasks).toEqual(shell)
+    // Only the shell's own completion retires the row.
     tracker.observe(command(PRIMARY, 'item/completed'))
     expect(tracker.state).toBeNull()
   })

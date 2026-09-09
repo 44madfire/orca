@@ -1,8 +1,9 @@
 // The background-tasks strip's view of one session's wire state.
 //
-// The strip stands for work that OUTLIVED a turn, not work in flight: a running
-// turn already has the working status, the turn activity line, and its own
-// durable rows, so the strip is suppressed while one is open.
+// The strip reports work that is IN FLIGHT, whether or not a turn is open and
+// whether or not it was backgrounded: a fan-out of subagents is running work
+// and the strip says so while it runs. Turn state is not a filter here — the
+// producers publish only tasks they still have live evidence for.
 
 import type {
   AgentSessionBackgroundTask,
@@ -17,11 +18,10 @@ export type StructuredSessionBackgroundTasksView = {
 }
 
 export function structuredSessionBackgroundTasksView(
-  state: AgentSessionBackgroundTaskState | null | undefined,
-  turnId: string | null
+  state: AgentSessionBackgroundTaskState | null | undefined
 ): StructuredSessionBackgroundTasksView {
   return {
-    isMonitoringBackgroundTasks: turnId === null && state?.state === 'monitoring',
+    isMonitoringBackgroundTasks: state?.state === 'monitoring',
     backgroundTasks: state?.tasks ?? [],
     supportsBackgroundTaskStop: state?.supportsTaskStop === true,
     // Absent means the host predates the field and does accept an untargeted

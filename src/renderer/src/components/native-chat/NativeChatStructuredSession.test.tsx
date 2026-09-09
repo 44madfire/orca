@@ -268,7 +268,7 @@ describe('NativeChatStructuredSession', () => {
     expect(disclosure.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByRole('list', { name: 'Running background tasks' })).toBeTruthy()
     expect(screen.getByText('sleep 180')).toBeTruthy()
-    expect(screen.getByText('Background agent')).toBeTruthy()
+    expect(screen.getByText('Subagent')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop sleep 180' }))
     await waitFor(() =>

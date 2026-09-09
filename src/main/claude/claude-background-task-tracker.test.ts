@@ -25,7 +25,7 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(classifyClaudeBackgroundTaskKind('future_task')).toBe('unknown')
   })
 
-  it('waits for the foreground turn to settle before monitoring a background task', () => {
+  it('monitors a background task while the foreground turn is still open', () => {
     const tracker = new ClaudeBackgroundTaskTracker()
     tracker.observe({ type: 'user' }, true)
     tracker.observe(
@@ -35,13 +35,35 @@ describe('ClaudeBackgroundTaskTracker', () => {
         is_backgrounded: true
       })
     )
-    expect(tracker.state).toBeNull()
+    const running = { state: 'monitoring', tasks: [{ id: 'task-1', kind: 'agent' }] }
+    expect(tracker.state).toEqual(running)
 
-    expect(tracker.observe(result())).toBe(true)
+    // `result` is not this task's outcome: it was backgrounded, so it survives.
+    expect(tracker.observe(result())).toBe(false)
+    expect(tracker.state).toEqual(running)
+  })
+
+  it('reports a foreground subagent in flight and retires it when the turn ends', () => {
+    const tracker = new ClaudeBackgroundTaskTracker()
+    tracker.observe({ type: 'user' }, true)
+    for (const id of ['agent-1', 'agent-2']) {
+      tracker.observe(
+        system('task_started', { task_id: id, task_type: 'local_agent', is_backgrounded: false })
+      )
+    }
+    // A fan-out the turn is awaiting is running work, so the strip says so.
     expect(tracker.state).toEqual({
       state: 'monitoring',
-      tasks: [{ id: 'task-1', kind: 'agent' }]
+      tasks: [
+        { id: 'agent-1', kind: 'agent' },
+        { id: 'agent-2', kind: 'agent' }
+      ]
     })
+    // The turn IS the outcome of work the provider marked foreground.
+    expect(tracker.observe(result())).toBe(true)
+    expect(tracker.state).toBeNull()
+    // Foreground work is never stoppable through the background-task control.
+    expect(tracker.stoppableTaskIds).toEqual([])
   })
 
   it('uses an explicit background update for a foreground task and ignores progress alone', () => {
@@ -57,6 +79,8 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(
       tracker.observe(system('task_progress', { task_id: 'task-1', description: 'still working' }))
     ).toBe(false)
+    // Live while the turn runs, then retired by that turn's `result`.
+    expect(tracker.state?.tasks).toEqual([{ id: 'task-1', kind: 'command' }])
     tracker.observe(result())
     expect(tracker.state).toBeNull()
 
@@ -301,19 +325,20 @@ describe('ClaudeBackgroundTaskTracker', () => {
     expect(tracker.stoppableTaskIds).toEqual(['edge-after-reset'])
   })
 
-  it('gates aggregate monitoring behind foreground turn completion', () => {
+  it('monitors an aggregate roster without waiting for the turn to finish', () => {
     const tracker = new ClaudeBackgroundTaskTracker()
     tracker.observe({ type: 'user' }, true)
     tracker.observe(
       aggregate([{ task_id: 'task-live', task_type: 'local_bash', description: 'command' }])
     )
-    expect(tracker.state).toBeNull()
-
-    expect(tracker.observe(result())).toBe(true)
-    expect(tracker.state).toEqual({
+    const running = {
       state: 'monitoring',
       tasks: [{ id: 'task-live', kind: 'command', description: 'command' }]
-    })
+    }
+    expect(tracker.state).toEqual(running)
+
+    expect(tracker.observe(result())).toBe(false)
+    expect(tracker.state).toEqual(running)
   })
 
   it('ignores ambient SDK tasks and clears all liveness when the session ends', () => {

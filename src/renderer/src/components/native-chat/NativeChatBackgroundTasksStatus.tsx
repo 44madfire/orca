@@ -4,23 +4,13 @@ import type { AgentSessionBackgroundTask } from '../../../../shared/agent-sessio
 import { AgentStateDot } from '@/components/AgentStateDot'
 import { Button } from '@/components/ui/button'
 import { translate } from '@/i18n/i18n'
+import {
+  BackgroundTaskKindIcon,
+  backgroundTaskKindLabel
+} from './native-chat-background-task-kinds'
 
 function backgroundTaskLabel(task: AgentSessionBackgroundTask): string {
-  if (task.description) {
-    return task.description
-  }
-  switch (task.kind) {
-    case 'agent':
-      return translate('components.native-chat.backgroundTasks.agent', 'Background agent')
-    case 'workflow':
-      return translate('components.native-chat.backgroundTasks.workflow', 'Background workflow')
-    case 'command':
-      return translate('components.native-chat.backgroundTasks.command', 'Background command')
-    case 'monitor':
-      return translate('components.native-chat.backgroundTasks.monitor', 'Background monitor')
-    case 'unknown':
-      return translate('components.native-chat.backgroundTasks.task', 'Background task')
-  }
+  return task.description || backgroundTaskKindLabel(task.kind)
 }
 
 export function NativeChatBackgroundTasksStatus(props: {
@@ -85,9 +75,9 @@ export function NativeChatBackgroundTasksStatus(props: {
                       key={task.id}
                       className="flex min-w-0 items-center gap-2 text-foreground/80"
                     >
-                      <span
-                        aria-hidden="true"
-                        className="size-1.5 shrink-0 rounded-full bg-primary"
+                      <BackgroundTaskKindIcon
+                        kind={task.kind}
+                        className="text-muted-foreground"
                       />
                       <span className="min-w-0 flex-1 break-words">{label}</span>
                       {props.supportsTaskStop ? (

@@ -33,8 +33,10 @@ const NATIVE_CHAT_TOOL_GLYPHS: Record<NativeChatToolIconName, LucideIcon> = {
 }
 
 /** The fixed 16px slot with a 14px glyph, which keeps every row left-aligned
- *  including rows whose category this vocabulary doesn't model. */
-function NativeChatGlyphSlot({
+ *  including rows whose category this vocabulary doesn't model. Exported so a
+ *  glyph outside this table (the strip's monitor heartbeat) sits in the same
+ *  slot instead of re-stating the layout. */
+export function NativeChatGlyphSlot({
   glyph: Glyph,
   className
 }: {

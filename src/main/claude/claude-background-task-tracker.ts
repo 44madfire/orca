@@ -12,6 +12,9 @@ export type ClaudeBackgroundTaskKind = AgentSessionBackgroundTask['kind']
 
 type TrackedTask = {
   backgrounded: boolean
+  /** Foreground work is turn-scoped: the provider's `result` is its outcome, so
+   *  it stays visible only until that frame. Backgrounded work ignores this. */
+  liveInTurn: boolean
   kind: ClaudeBackgroundTaskKind
   description?: string
 }
@@ -62,7 +65,6 @@ export class ClaudeBackgroundTaskTracker {
   private readonly tasks = new Map<string, TrackedTask>()
   private readonly terminalTaskIds = new Set<string>()
   private aggregateRosterObserved = false
-  private foregroundTurnActive = false
   private monitoring = false
   private publishedTasksFingerprint = ''
 
@@ -87,11 +89,8 @@ export class ClaudeBackgroundTaskTracker {
   }
 
   observe(message: Record<string, unknown>, startsTurn = false): boolean {
-    if (startsTurn) {
-      this.foregroundTurnActive = true
-    }
     if (message.type === 'result') {
-      this.foregroundTurnActive = false
+      this.settleForegroundTasks()
     } else if (message.type === 'system') {
       if (!this.observeSystemFrame(message) && !startsTurn) {
         return false
@@ -106,8 +105,18 @@ export class ClaudeBackgroundTaskTracker {
     this.tasks.clear()
     this.terminalTaskIds.clear()
     this.aggregateRosterObserved = false
-    this.foregroundTurnActive = false
     return this.refreshMonitoring()
+  }
+
+  /** `result` is the outcome of every task the provider marked foreground, so
+   *  they stop being live work. Backgrounded tasks outlive the turn and are
+   *  never swept here — only their own terminal frame retires them. */
+  private settleForegroundTasks(): void {
+    for (const task of this.tasks.values()) {
+      if (!task.backgrounded) {
+        task.liveInTurn = false
+      }
+    }
   }
 
   private observeSystemFrame(message: Record<string, unknown>): boolean {
@@ -186,17 +195,20 @@ export class ClaudeBackgroundTaskTracker {
       }
       this.tasks.set(id, {
         backgrounded: true,
+        liveInTurn: true,
         kind: classifyClaudeBackgroundTaskKind(task.task_type),
         description: claudeTaskDescription(task.description)
       })
     }
   }
 
-  private upsert(id: string, task: TrackedTask): void {
+  private upsert(id: string, task: Omit<TrackedTask, 'liveInTurn'>): void {
     const existing = this.tasks.get(id)
     if (existing) {
       this.tasks.set(id, {
         backgrounded: existing.backgrounded || task.backgrounded,
+        // A settled foreground task is not revived by a late edge frame.
+        liveInTurn: existing.liveInTurn,
         kind: existing.kind === 'unknown' ? task.kind : existing.kind,
         description: task.description ?? existing.description
       })
@@ -215,7 +227,7 @@ export class ClaudeBackgroundTaskTracker {
       }
       this.tasks.delete(foregroundId)
     }
-    this.tasks.set(id, task)
+    this.tasks.set(id, { ...task, liveInTurn: true })
   }
 
   private finish(id: string): void {
@@ -231,7 +243,7 @@ export class ClaudeBackgroundTaskTracker {
   }
 
   private refreshMonitoring(): boolean {
-    const details = this.foregroundTurnActive ? [] : this.backgroundTaskDetails()
+    const details = this.backgroundTaskDetails()
     const next = details.length > 0
     const fingerprint = next ? JSON.stringify(details) : ''
     if (next === this.monitoring && fingerprint === this.publishedTasksFingerprint) {
@@ -242,10 +254,12 @@ export class ClaudeBackgroundTaskTracker {
     return true
   }
 
+  /** Every task in flight, foreground included, so the strip reports the work
+   *  that is actually running rather than only what outlived a turn. */
   private backgroundTaskDetails(): AgentSessionBackgroundTask[] {
     const details: AgentSessionBackgroundTask[] = []
     for (const [id, task] of this.tasks) {
-      if (!task.backgrounded) {
+      if (!task.backgrounded && !task.liveInTurn) {
         continue
       }
       details.push({
