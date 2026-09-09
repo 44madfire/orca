@@ -51,12 +51,16 @@ export abstract class AgentHookServerIngestStructured extends AgentHookServerIng
     )
   }
 
-  /** The host no longer holds the session; its last projection is history the journal keeps. */
+  /** The host no longer holds the session; its last projection is history the journal keeps.
+   *  `dropStatusEntry`, not `clearPaneState`: the renderer's own bridge still owns this pane key,
+   *  so a pane-status-clear would make main a second writer for it. */
   dropStructuredStatus(sessionId: string): void {
-    this.clearPaneState(structuredStatusPaneKey(sessionId))
+    this.dropStatusEntry(structuredStatusPaneKey(sessionId), { preserveResumeIdentity: false })
   }
 }
 
+// The DERIVED pane key the renderer publishes, never the orchestration bearer handle or the minted
+// worker pane key: both of those are credentials.
 function structuredStatusPaneKey(sessionId: string): string {
   return structuredAgentSessionPaneKey(structuredAgentSessionTabId(sessionId), sessionId)
 }
