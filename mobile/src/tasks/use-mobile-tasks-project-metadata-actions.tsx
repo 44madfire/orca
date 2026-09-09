@@ -7,7 +7,7 @@ import {
   type GitHubProjectRow,
   optimisticProjectFieldValue
 } from './mobile-tasks-legacy-foundation'
-import { projectRowIdentityTarget, projectRowMutationTarget } from './mobile-tasks-mutation-targets'
+import { projectRowIdentityTarget, projectRowSlugTarget } from './mobile-tasks-mutation-targets'
 
 export function useMobileTasksProjectMetadataActions(model: ProjectThreadReplyActionsModel) {
   const {
@@ -35,8 +35,9 @@ export function useMobileTasksProjectMetadataActions(model: ProjectThreadReplyAc
       if (!taskOperations || projectMutating) {
         return
       }
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
-      if (!target) {
+      // main gated on the slug and the number only; an unrecognised item type was not a refusal.
+      const target = projectRowSlugTarget(row, activeGitHubProjectHost)
+      if (!target || !row.content.number) {
         setProjectRowDetailError('This project item cannot be edited from mobile.')
         return
       }
@@ -178,8 +179,8 @@ export function useMobileTasksProjectMetadataActions(model: ProjectThreadReplyAc
       if (!taskOperations || projectMutating) {
         return
       }
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
-      if (row.itemType !== 'ISSUE' || !target) {
+      const target = projectRowSlugTarget(row, activeGitHubProjectHost)
+      if (row.itemType !== 'ISSUE' || !target || !row.content.number) {
         setProjectRowDetailError('This project issue type cannot be edited from mobile.')
         return
       }

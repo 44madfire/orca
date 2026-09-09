@@ -93,7 +93,9 @@ describe('mobile GitHub Project host routing boundary', () => {
   it('pins Project-row PR actions to the row repository identity', () => {
     // Every Project-row action resolves its target from the row plus the active Project host.
     const targets = [
-      ...compositionSource.matchAll(/projectRow(?:Mutation|PullRequest)Target\(([^)]*)\)/g)
+      ...compositionSource.matchAll(
+        /projectRow(?:Mutation|PullRequest|Slug|Identity)Target\(([^)]*)\)/g
+      )
     ]
     expect(targets.length).toBeGreaterThan(10)
     for (const target of targets) {

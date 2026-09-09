@@ -6,7 +6,10 @@ import {
   type GitHubProjectRow,
   splitReviewerList
 } from './mobile-tasks-legacy-foundation'
-import { projectRowPullRequestTarget } from './mobile-tasks-mutation-targets'
+import {
+  projectRowIdentityTarget,
+  projectRowPullRequestTarget
+} from './mobile-tasks-mutation-targets'
 
 export function useMobileTasksProjectReviewCheckActions(model: ProjectMetadataActionsModel) {
   const {
@@ -157,16 +160,10 @@ export function useMobileTasksProjectReviewCheckActions(model: ProjectMetadataAc
   const toggleProjectGitHubFileViewed = useCallback(
     async (row: GitHubProjectRow, file: GitHubDetailFile): Promise<void> => {
       const repo = findProjectRowRepo(row)
-      const target = projectRowPullRequestTarget(row, activeGitHubProjectHost)
-      if (
-        !taskOperations ||
-        projectMutating ||
-        row.itemType !== 'PULL_REQUEST' ||
-        !repo ||
-        !target
-      ) {
+      if (!taskOperations || projectMutating || row.itemType !== 'PULL_REQUEST' || !repo) {
         return
       }
+      const target = projectRowIdentityTarget(row, activeGitHubProjectHost)
       if (projectRowDetail?.provider !== 'github' || !projectRowDetail.pullRequestId) {
         setProjectRowDetailError('Unable to sync viewed state for this pull request.')
         return

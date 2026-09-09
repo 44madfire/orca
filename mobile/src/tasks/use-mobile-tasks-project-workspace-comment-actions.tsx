@@ -158,9 +158,10 @@ export function useMobileTasksProjectWorkspaceCommentActions(model: WorkspaceCre
       if (!taskOperations || projectMutating) {
         return
       }
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
+      // main gated on the slug, the number and a non-empty body; the item type was not read.
+      const target = projectRowSlugTarget(row, activeGitHubProjectHost)
       const body = projectCommentDraft.trim()
-      if (!target || !body) {
+      if (!target || !row.content.number || !body) {
         return
       }
       setProjectMutating(true)

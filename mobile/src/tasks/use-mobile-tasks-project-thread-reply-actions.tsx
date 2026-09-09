@@ -5,11 +5,7 @@ import {
   type GitHubProjectRow,
   commentAuthor
 } from './mobile-tasks-legacy-foundation'
-import {
-  projectRowIdentityTarget,
-  projectRowMutationTarget,
-  projectRowSlugTarget
-} from './mobile-tasks-mutation-targets'
+import { projectRowIdentityTarget, projectRowSlugTarget } from './mobile-tasks-mutation-targets'
 
 export function useMobileTasksProjectThreadReplyActions(
   model: ProjectWorkspaceCommentActionsModel
@@ -116,10 +112,10 @@ export function useMobileTasksProjectThreadReplyActions(
   const replyToProjectGitHubComment = useCallback(
     async (row: GitHubProjectRow, comment: DetailComment): Promise<void> => {
       const repo = findProjectRowRepo(row)
-      const target = projectRowMutationTarget(row, activeGitHubProjectHost)
-      if (!taskOperations || projectMutating || !repo || !target) {
+      if (!taskOperations || projectMutating || !repo || !row.content.number) {
         return
       }
+      const target = projectRowIdentityTarget(row, activeGitHubProjectHost)
       const key = String(comment.id)
       const body = (itemReplyDrafts[key] ?? '').trim()
       if (!body) {
