@@ -8,18 +8,31 @@ vi.mock('../native-chat/agent-session-wire/structured-agent-session-registry', (
 }))
 
 const { killAllProcessesForWorktree } = await import('./worktree-teardown')
-const { classifyWorktreeForceDeleteReason } = await import('../../shared/worktree/removal')
+const {
+  classifyWorktreeForceDeleteReason,
+  isProvenLiveStructuredSessionRemovalError,
+  isUnstoppedPtyRemovalError
+} = await import('../../shared/worktree/removal')
 const { listLiveStructuredSessionsForWorktree } =
   await import('./structured-session-worktree-teardown')
 
 const WORKTREE = 'repo_1::/tmp/wt-a'
 const OTHER_WORKTREE = 'repo_1::/tmp/wt-b'
 
-function record(sessionId: string, workspaceId: string): AgentSessionRecord {
+function record(
+  sessionId: string,
+  workspaceId: string,
+  options: { provider?: 'claude' | 'codex'; executionHostId?: string } = {}
+): AgentSessionRecord {
   return {
     sessionId,
-    provider: 'claude',
-    location: { executionHostId: 'local', wslDistro: null, workspaceId, workspaceKind: 'folder' },
+    provider: options.provider ?? 'claude',
+    location: {
+      executionHostId: options.executionHostId ?? 'local',
+      wslDistro: null,
+      workspaceId,
+      workspaceKind: 'folder'
+    },
     lease: {
       sessionId,
       runtimeKind: 'native',
@@ -33,8 +46,12 @@ function record(sessionId: string, workspaceId: string): AgentSessionRecord {
 
 function installHost(options: {
   records: AgentSessionRecord[]
-  /** Sessions the host still holds; a close removes one unless it is listed as stuck. */
+  /** Sessions the host keeps holding through a close, so the post-close observation is `live`. */
   stuck?: Set<string>
+  /** Sessions the host drops without death evidence, so the observation is `unverifiable`. */
+  unverifiable?: Set<string>
+  /** Blocks every close, to exercise the shared sweep budget without fake timers. */
+  closeGate?: Promise<void>
 }): { closed: string[] } {
   const held = new Set(options.records.map((entry) => entry.sessionId))
   const closed: string[] = []
@@ -44,13 +61,18 @@ function installHost(options: {
     setSessionTabVisibility: async () => {},
     close: async (sessionId: string) => {
       closed.push(sessionId)
-      if (!options.stuck?.has(sessionId)) {
-        held.delete(sessionId)
-        const record = options.records.find((entry) => entry.sessionId === sessionId)
-        if (record) {
-          record.lease.claimStatus = 'released'
-          record.lease.deathEvidence = { kind: 'exit-observed', detail: 'closed', observedAt: 1 }
-        }
+      await options.closeGate
+      if (options.stuck?.has(sessionId)) {
+        return
+      }
+      held.delete(sessionId)
+      if (options.unverifiable?.has(sessionId)) {
+        return
+      }
+      const record = options.records.find((entry) => entry.sessionId === sessionId)
+      if (record) {
+        record.lease.claimStatus = 'released'
+        record.lease.deathEvidence = { kind: 'exit-observed', detail: 'closed', observedAt: 1 }
       }
     }
   }
@@ -67,7 +89,7 @@ const localProvider = {
   shutdown: async () => {}
 } as never
 
-function destructiveDeps(extra: { allowUnverifiedStop?: boolean } = {}) {
+function destructiveDeps(extra: { allowUnverifiedStop?: boolean; timeoutMs?: number } = {}) {
   return {
     localProvider,
     requirePhysicalStop: true,
@@ -84,7 +106,7 @@ describe('worktree teardown and structured agent sessions', () => {
 
   it('finds sessions by workspace, and ignores a sibling worktree', () => {
     installHost({ records: [record('s1', WORKTREE), record('s2', OTHER_WORKTREE)] })
-    expect(listLiveStructuredSessionsForWorktree(WORKTREE)).toEqual([
+    expect(listLiveStructuredSessionsForWorktree(WORKTREE, {})).toEqual([
       { sessionId: 's1', agent: 'claude' }
     ])
   })
@@ -105,7 +127,7 @@ describe('worktree teardown and structured agent sessions', () => {
   it('refuses only when the close does not settle', async () => {
     installHost({ records: [record('s1', WORKTREE)], stuck: new Set(['s1']) })
     await expect(killAllProcessesForWorktree(WORKTREE, destructiveDeps())).rejects.toThrow(
-      /1 running agent session/
+      /still live: 1 agent session \(claude\)/
     )
   })
 
@@ -137,7 +159,7 @@ describe('worktree teardown and structured agent sessions', () => {
       (thrown: Error) => thrown.message
     )
     expect(error).not.toContain('s1')
-    expect(error).toContain('1 running agent session')
+    expect(error).toContain('1 agent session (claude)')
   })
 
   it('closes best-effort for a folder-workspace removal, which requires no stop proof', async () => {
@@ -189,6 +211,116 @@ describe('worktree teardown and structured agent sessions', () => {
         includeLocalRegistry: false
       })
     ).resolves.toMatchObject({ runtimeStopped: 0 })
+  })
+
+  it('leaves a same-id workspace on another execution host alone', async () => {
+    // A workspace id is `repoId::path` with no host component, so the local, SSH and paired-runtime
+    // copies of one id are DIFFERENT workspaces. Unfenced, deleting the local one closed a chat
+    // running on somebody else's machine — a destructive cross-host act, not a spurious refusal.
+    const host = installHost({
+      records: [record('s1', WORKTREE, { executionHostId: 'ssh:host-a' })]
+    })
+    await expect(killAllProcessesForWorktree(WORKTREE, destructiveDeps())).resolves.toMatchObject({
+      runtimeStopped: 0
+    })
+    expect(host.closed).toEqual([])
+  })
+
+  it('closes only the session on the host the removal resolved to', async () => {
+    const host = installHost({
+      records: [record('s1', WORKTREE, { executionHostId: 'ssh:host-a' }), record('s2', WORKTREE)]
+    })
+    await expect(
+      killAllProcessesForWorktree(WORKTREE, {
+        ...destructiveDeps(),
+        resolvedConnectionId: 'host-a'
+      })
+    ).resolves.toMatchObject({ structuredStopped: 1 })
+    expect(host.closed).toEqual(['s1'])
+  })
+
+  it('names only the sessions that stayed, and every provider still there', async () => {
+    installHost({
+      records: [
+        record('s1', WORKTREE),
+        record('s2', WORKTREE, { provider: 'codex' }),
+        record('s3', WORKTREE)
+      ],
+      stuck: new Set(['s2', 's3'])
+    })
+    const error = await killAllProcessesForWorktree(WORKTREE, destructiveDeps()).catch(
+      (thrown: Error) => thrown.message
+    )
+    expect(error).toContain('still live: 2 agent sessions (claude, codex)')
+  })
+
+  it('separates a close it could not confirm from one it watched stay attached', async () => {
+    // `src/shared/worktree/removal.ts` keeps these two apart on purpose: a user waiving "we could
+    // not confirm" is making a different decision than one discarding a conversation Orca just saw
+    // running. The toast branches on this marker, so flattening them makes one of the two a lie.
+    installHost({ records: [record('s1', WORKTREE)], unverifiable: new Set(['s1']) })
+    const unconfirmed = await killAllProcessesForWorktree(WORKTREE, destructiveDeps()).catch(
+      (thrown: Error) => thrown.message
+    )
+    expect(unconfirmed).toContain('could not confirm these closed: 1 agent session (claude)')
+    expect(isProvenLiveStructuredSessionRemovalError(unconfirmed as string)).toBe(false)
+
+    installHost({ records: [record('s1', WORKTREE)], stuck: new Set(['s1']) })
+    const live = await killAllProcessesForWorktree(WORKTREE, destructiveDeps()).catch(
+      (thrown: Error) => thrown.message
+    )
+    expect(isProvenLiveStructuredSessionRemovalError(live as string)).toBe(true)
+  })
+
+  it('refuses in agent-session wording when the close outlives the sweep budget', async () => {
+    // A structured close that runs out of time used to reject with the PTY timeout sentinel, which
+    // the classifier reads FIRST — so the toast blamed terminals, and the Force Delete meant to
+    // clear the wedge hit the same rejection again (#11960).
+    installHost({ records: [record('s1', WORKTREE)], closeGate: new Promise<void>(() => {}) })
+    const error = await killAllProcessesForWorktree(
+      WORKTREE,
+      destructiveDeps({ timeoutMs: 5 })
+    ).catch((thrown: Error) => thrown.message)
+    expect(error).toContain('could not confirm these closed: 1 agent session (claude)')
+    expect(isUnstoppedPtyRemovalError(error as string)).toBe(false)
+    expect(classifyWorktreeForceDeleteReason(error as string, true)).toBe('running-agent-session')
+  })
+
+  it('never wedges Force Delete on a close that will not settle', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    installHost({ records: [record('s1', WORKTREE)], closeGate: new Promise<void>(() => {}) })
+    await expect(
+      killAllProcessesForWorktree(
+        WORKTREE,
+        destructiveDeps({ allowUnverifiedStop: true, timeoutMs: 5 })
+      )
+    ).resolves.toMatchObject({ runtimeStopped: 0 })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('still attached'))
+    warn.mockRestore()
+  })
+
+  it('starts the terminal sweeps while the structured close is still in flight', async () => {
+    // The close is serial and each one waits on a provider round trip. Awaiting it before the
+    // sweeps exist spends the shared budget head-first, and the sweeps then report a timeout for
+    // a stop they never attempted.
+    let releaseClose: () => void = () => {}
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve
+    })
+    installHost({ records: [record('s1', WORKTREE)], closeGate })
+    let terminalSweepStarted = false
+    const runtime = {
+      stopTerminalsForWorktree: async () => {
+        terminalSweepStarted = true
+        return { stopped: 0 }
+      }
+    } as never
+    const removal = killAllProcessesForWorktree(WORKTREE, { ...destructiveDeps(), runtime })
+    await vi.waitFor(() => {
+      expect(terminalSweepStarted).toBe(true)
+    })
+    releaseClose()
+    await expect(removal).resolves.toMatchObject({ structuredStopped: 1 })
   })
 
   it('does not block removal when no structured host is installed', async () => {
