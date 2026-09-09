@@ -2,21 +2,23 @@ import type { AppState } from '../../types'
 import { toVisibleTabType } from '../../../../../shared/tab-types'
 import type { WorkspaceVisibleTabType } from '../../../../../shared/tab-types'
 
+export type ActiveSurfaceSourceState = Pick<
+  AppState,
+  | 'activeBrowserTabIdByWorktree'
+  | 'activeFileIdByWorktree'
+  | 'activeGroupIdByWorktree'
+  | 'activeTabIdByWorktree'
+  | 'activeTabTypeByWorktree'
+  | 'browserTabsByWorktree'
+  | 'groupsByWorktree'
+  | 'layoutByWorktree'
+  | 'openFiles'
+  | 'tabsByWorktree'
+  | 'unifiedTabsByWorktree'
+>
+
 export function deriveActiveSurfaceForWorktree(
-  state: Pick<
-    AppState,
-    | 'activeBrowserTabIdByWorktree'
-    | 'activeFileIdByWorktree'
-    | 'activeGroupIdByWorktree'
-    | 'activeTabIdByWorktree'
-    | 'activeTabTypeByWorktree'
-    | 'browserTabsByWorktree'
-    | 'groupsByWorktree'
-    | 'layoutByWorktree'
-    | 'openFiles'
-    | 'tabsByWorktree'
-    | 'unifiedTabsByWorktree'
-  >,
+  state: ActiveSurfaceSourceState,
   worktreeId: string,
   preferredGroupId?: string | null,
   options?: { preferredTabId?: string; legacySelection?: 'remembered-type' }
@@ -58,6 +60,9 @@ export function deriveActiveSurfaceForWorktree(
   const restoredTabType = restoreLegacyType
     ? (state.activeTabTypeByWorktree[worktreeId] ?? 'terminal')
     : null
+  // Why: only a remembered browser type — or group focus, which remembers no type at all — may keep
+  // the remembered file selected under the browser surface; a stale agent-session/simulator clears it.
+  const keepRememberedFileUnderBrowser = restoredTabType === null || restoredTabType === 'browser'
 
   let activeFileId: string | null
   let activeBrowserTabId: string | null
@@ -94,12 +99,7 @@ export function deriveActiveSurfaceForWorktree(
     activeBrowserTabId = browserTabStillOpen ? restoredBrowserTabId : (browserTabs[0]?.id ?? null)
     activeTabType = 'editor'
   } else if (browserTabStillOpen) {
-    activeFileId =
-      !restoreLegacyType || restoredTabType === 'browser'
-        ? fileStillOpen
-          ? restoredFileId
-          : null
-        : null
+    activeFileId = keepRememberedFileUnderBrowser && fileStillOpen ? restoredFileId : null
     activeBrowserTabId = restoredBrowserTabId
     activeTabType = 'browser'
   } else if (fileStillOpen) {
@@ -128,20 +128,7 @@ export function deriveActiveSurfaceForWorktree(
 }
 
 export function buildActiveSurfacePatch(
-  state: Pick<
-    AppState,
-    | 'activeBrowserTabIdByWorktree'
-    | 'activeFileIdByWorktree'
-    | 'activeGroupIdByWorktree'
-    | 'activeTabIdByWorktree'
-    | 'activeTabTypeByWorktree'
-    | 'browserTabsByWorktree'
-    | 'groupsByWorktree'
-    | 'layoutByWorktree'
-    | 'openFiles'
-    | 'tabsByWorktree'
-    | 'unifiedTabsByWorktree'
-  >,
+  state: ActiveSurfaceSourceState,
   worktreeId: string,
   preferredGroupId?: string | null
 ): Pick<

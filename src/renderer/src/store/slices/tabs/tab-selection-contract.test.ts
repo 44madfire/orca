@@ -182,16 +182,24 @@ describe('tab selection and hydration ownership', () => {
     expect(state.groupsByWorktree[workspace][0].activeTabId).toBe('selected')
   })
 
-  it.each(['terminal', 'editor', 'browser'] as const)(
-    'restores legacy %s selection when unified groups are absent',
-    (activeTabType) => {
+  it.each([
+    ['terminal', 'terminal', 'remembered-file'],
+    ['editor', 'editor', 'remembered-file'],
+    ['browser', 'browser', 'remembered-file'],
+    // Why: nothing renders a remembered agent-session/simulator once its tab is gone, so the browser
+    // surface takes over and must not leave the remembered file selected underneath it.
+    ['agent-session', 'browser', null],
+    ['simulator', 'browser', null]
+  ] as const)(
+    'projects legacy %s memory as %s when unified groups are absent',
+    (activeTabType, visible, activeFileId) => {
       const state = selectionState(null)
       state.groupsByWorktree = {}
       state.activeTabTypeByWorktree[workspace] = activeTabType
       expect(activate(state)).toEqual({
-        activeTabType,
+        activeTabType: visible,
         activeTabId: 'remembered-terminal',
-        activeFileId: 'remembered-file',
+        activeFileId,
         activeBrowserTabId: 'remembered-browser'
       })
     }

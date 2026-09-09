@@ -47,6 +47,29 @@ function makeFolderWorkspace(overrides: Partial<FolderWorkspace> = {}): FolderWo
   }
 }
 
+function rememberedBrowserSurface(workspaceKey: string): Partial<AppState> {
+  return {
+    browserTabsByWorktree: {
+      [workspaceKey]: [
+        {
+          id: 'remembered',
+          worktreeId: workspaceKey,
+          url: 'about:blank',
+          title: 'Browser',
+          loading: false,
+          faviconUrl: null,
+          canGoBack: false,
+          canGoForward: false,
+          loadError: null,
+          createdAt: 1
+        }
+      ]
+    },
+    activeBrowserTabIdByWorktree: { [workspaceKey]: 'remembered' },
+    activeTabTypeByWorktree: { [workspaceKey]: 'browser' }
+  }
+}
+
 type FolderWorkspaceUpdateArgs = {
   folderWorkspaceId: string
   updates: Partial<FolderWorkspace>
@@ -135,7 +158,7 @@ describe('folder workspace generic activation and activity', () => {
       store.getState().createUnifiedTab(workspaceKey, contentType, { id: 'selected' })
       store.setState({ activeTabTypeByWorktree: { [workspaceKey]: 'editor' } })
 
-      store.getState().setActiveWorktree(workspaceKey, executionHostId)
+      store.getState().setActiveFolderWorkspace(folder.id, executionHostId)
 
       expect(store.getState().activeWorkspaceExecutionHostId).toBe(executionHostId)
       expect(store.getState().activeTabType).toBe(contentType)
@@ -149,6 +172,7 @@ describe('folder workspace generic activation and activity', () => {
     const workspaceKey = folderWorkspaceKey(folder.id)
     const store = seedLocalFolderStore(folder)
     store.setState({
+      ...rememberedBrowserSurface(workspaceKey),
       groupsByWorktree: {
         [workspaceKey]: [
           {
@@ -159,28 +183,26 @@ describe('folder workspace generic activation and activity', () => {
           }
         ]
       },
-      activeGroupIdByWorktree: { [workspaceKey]: 'empty' },
-      browserTabsByWorktree: {
-        [workspaceKey]: [
-          {
-            id: 'remembered',
-            worktreeId: workspaceKey,
-            url: 'about:blank',
-            title: 'Browser',
-            loading: false,
-            faviconUrl: null,
-            canGoBack: false,
-            canGoForward: false,
-            loadError: null,
-            createdAt: 1
-          }
-        ]
-      },
-      activeBrowserTabIdByWorktree: { [workspaceKey]: 'remembered' },
-      activeTabTypeByWorktree: { [workspaceKey]: 'browser' }
+      activeGroupIdByWorktree: { [workspaceKey]: 'empty' }
     } as Partial<AppState>)
 
-    store.getState().setActiveWorktree(workspaceKey)
+    store.getState().setActiveFolderWorkspace(folder.id)
+
+    expect(store.getState().activeTabType).toBe('terminal')
+    expect(store.getState().activeBrowserTabId).toBe('remembered')
+  })
+
+  it('keeps layout-only folder ownership above remembered browser state', () => {
+    const folder = makeFolderWorkspace()
+    const workspaceKey = folderWorkspaceKey(folder.id)
+    const store = seedLocalFolderStore(folder)
+    store.setState({
+      ...rememberedBrowserSurface(workspaceKey),
+      groupsByWorktree: {},
+      layoutByWorktree: { [workspaceKey]: { type: 'leaf', groupId: 'pending' } }
+    } as Partial<AppState>)
+
+    store.getState().setActiveFolderWorkspace(folder.id)
 
     expect(store.getState().activeTabType).toBe('terminal')
     expect(store.getState().activeBrowserTabId).toBe('remembered')
