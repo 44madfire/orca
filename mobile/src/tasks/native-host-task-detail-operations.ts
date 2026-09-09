@@ -69,22 +69,20 @@ export function nativeHostTaskDetailOperations(client: RpcRequestSender): HostTa
       }
     },
     async loadLinear(payload) {
-      const [issue, comments] = await Promise.all([
-        successfulResult<LinearIssue | null>(
-          client.sendRequest(
-            'linear.getIssue',
-            { id: payload.issueId, workspaceId: payload.workspaceId },
-            { timeoutMs: 30_000 }
-          )
+      const [issueResponse, commentsResponse] = await Promise.all([
+        client.sendRequest(
+          'linear.getIssue',
+          { id: payload.issueId, workspaceId: payload.workspaceId },
+          { timeoutMs: 30_000 }
         ),
-        optionalComments(
-          client.sendRequest(
-            'linear.issueComments',
-            { issueId: payload.issueId, workspaceId: payload.workspaceId },
-            { timeoutMs: 30_000 }
-          )
+        client.sendRequest(
+          'linear.issueComments',
+          { issueId: payload.issueId, workspaceId: payload.workspaceId },
+          { timeoutMs: 30_000 }
         )
       ])
+      const issue = await successfulResult<LinearIssue | null>(issueResponse)
+      const comments = await optionalComments(commentsResponse)
       if (!issue) {
         throw new Error('Details not found')
       }

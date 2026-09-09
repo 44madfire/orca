@@ -34,10 +34,11 @@ export function nativeHostTaskProjectMutationOperations(
       )
     },
     async addComment(target, body) {
-      const result = await projectMutation<{ comment?: DetailComment }>(
+      const result = await projectMutation<{ ok?: boolean; comment?: DetailComment }>(
         client,
         'github.project.addIssueCommentBySlug',
-        { ...slugPayload(target), body }
+        { ...slugPayload(target), body },
+        true
       )
       return result.comment
     },
@@ -207,7 +208,8 @@ const PROJECT_MUTATION_FALLBACKS: Record<string, string> = {
 async function projectMutation<T extends object = object>(
   client: RpcRequestSender,
   method: string,
-  payload: object
+  payload: object,
+  requireOk = false
 ): Promise<T> {
   const fallback = PROJECT_MUTATION_FALLBACKS[method] ?? 'GitHub Project request failed'
   const response = (await client.sendRequest(method, payload, { timeoutMs: 30_000 })) as {
@@ -217,6 +219,9 @@ async function projectMutation<T extends object = object>(
   }
   if (!response.ok) {
     throw new Error(response.error?.message ?? fallback)
+  }
+  if (requireOk && !response.result?.ok) {
+    throw new Error(fallback)
   }
   if (response.result?.ok === false) {
     const error = response.result.error
