@@ -7,7 +7,7 @@ locals {
     for prefix in local.relay_github_workflow_ref_prefixes :
     "assertion.workflow_ref == '${prefix}push-deploy.yml@refs/heads/main' && assertion.job_workflow_ref == '${prefix}push-deploy.yml@refs/heads/main'"
   ]
-  push_deploy_member = "serviceAccount:${var.name_prefix}-gha-push@${var.project_id}.iam.gserviceaccount.com"
+  push_deploy_member = one(google_service_account.github_push_deploy[*].member)
 }
 
 resource "google_service_account" "github_push_deploy" {
