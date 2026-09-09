@@ -2,6 +2,7 @@ import type {
   AgentJournalItemIdentity,
   AgentJournalStatusItem
 } from '../../shared/agent-session-journal-types'
+import { agentTurnLifecycleText } from '../../shared/agent-turn-lifecycle-text'
 import type { StructuredAgentSessionAppendOptions } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { claudeText } from './claude-structured-item-translation'
 
@@ -50,7 +51,7 @@ export function claudeTurnLifecycleItem(
     identity: claudeTurnLifecycleIdentity(sessionId, turnId),
     body: {
       kind: 'status',
-      text: end ? 'Claude turn completed' : 'Claude is working…',
+      text: agentTurnLifecycleText('Claude', end ? end.state : 'running'),
       turnLifecycle: end
         ? { turnId, state: end.state, startedAt, completedAt: end.completedAt }
         : { turnId, state: 'running', startedAt }

@@ -4,6 +4,7 @@ import type {
   AgentJournalTurnLifecycle,
   AgentJournalTurnLifecycleState
 } from '../../shared/agent-session-journal-types'
+import { agentTurnLifecycleText } from '../../shared/agent-turn-lifecycle-text'
 import type {
   StructuredAgentSessionEventSink,
   StructuredAgentSessionSinkAdmission
@@ -26,8 +27,11 @@ export function codexTurnLifecycleIdentity(
 export function codexTurnLifecycleBody(
   turnLifecycle: AgentJournalTurnLifecycle
 ): AgentJournalStatusItem {
-  const text = turnLifecycle.state === 'running' ? 'Codex is working…' : 'Codex turn completed'
-  return { kind: 'status', text, turnLifecycle }
+  return {
+    kind: 'status',
+    text: agentTurnLifecycleText('Codex', turnLifecycle.state),
+    turnLifecycle
+  }
 }
 
 /** `turn/completed` is Codex's only turn-end notification; a missing status is a clean finish. */

@@ -286,7 +286,7 @@ describe('codex turn lifecycle rows', () => {
         key: 'legacy:codex:session-1:turn-lifecycle%3Aturn-cut',
         body: {
           kind: 'status',
-          text: 'Codex turn completed',
+          text: 'Codex turn interrupted',
           turnLifecycle: {
             turnId: 'turn-cut',
             state: 'interrupted',
