@@ -57,7 +57,9 @@ const ProviderHandle = z.discriminatedUnion('kind', [
       sessionId: Identifier('Invalid provider session id'),
       leafUuid: Identifier('Invalid leaf uuid').nullable()
     })
-    .strict()
+    .strict(),
+  // SNC1.3 dev seam: the out-of-process bridge names its own session id.
+  z.object({ kind: z.literal('external'), sessionId: Identifier('Invalid provider session id') }).strict()
 ])
 
 const ExecutionHostId = z
@@ -79,7 +81,7 @@ const ExecutionLocation = z
 
 const AccountHome = z
   .object({
-    variable: z.enum(['CLAUDE_CONFIG_DIR', 'CODEX_HOME']),
+    variable: z.enum(['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'EXTERNAL_BRIDGE_DIR']),
     path: z.string().min(1).max(4096)
   })
   .strict()
@@ -88,7 +90,9 @@ export const AttachParams = z
   .object({
     envelope: MutationEnvelope,
     location: ExecutionLocation,
-    provider: z.enum(['codex', 'claude']),
+    // `external` is the SNC1.3 dev seam (explicit bridge path only; the worktree-intent
+    // create surface below stays claude/codex until a Pi-backed provider lands in SNC1.4+).
+    provider: z.enum(['codex', 'claude', 'external']),
     agent: Identifier('Invalid agent'),
     accountHome: AccountHome,
     runtimeKind: z.enum(['native', 'tui']),

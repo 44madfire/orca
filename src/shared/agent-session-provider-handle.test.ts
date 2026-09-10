@@ -391,3 +391,45 @@ describe('adopted chain heads', () => {
     expect(isAgentSessionProviderHandleChain([adopted()])).toBe(true)
   })
 })
+
+describe('external bridge handles (SNC1.3 dev seam)', () => {
+  const EXTERNAL: AgentSessionProviderHandle = { provider: 'external', sessionId: 'ses_bridge_1' }
+
+  it('recognises the external provider without letting unknowns impersonate Codex', () => {
+    expect(isAgentSessionHandleProvider('external')).toBe(true)
+    expect(isAgentSessionHandleProvider('gemini')).toBe(false)
+    expect(isAgentSessionProviderHandle(EXTERNAL)).toBe(true)
+    expect(isAgentSessionProviderHandle({ provider: 'external', sessionId: '' })).toBe(false)
+    expect(isAgentSessionProviderHandle({ provider: 'external' })).toBe(false)
+  })
+
+  it('keys an external handle by bridge session id under its own namespace', () => {
+    expect(agentSessionProviderHandleKey(EXTERNAL)).toBe('external:\"ses_bridge_1\"')
+    expect(agentSessionProviderHandleRoot(EXTERNAL)).toBe('external:\"ses_bridge_1\"')
+    expect(agentSessionProviderHandlesEqual(EXTERNAL, { ...EXTERNAL })).toBe(true)
+    expect(
+      agentSessionProviderHandlesEqual(EXTERNAL, { provider: 'codex', threadId: 'ses_bridge_1' })
+    ).toBe(false)
+  })
+
+  it('chains external resumes and still refuses cross-provider rewrites', () => {
+    const created = link({ linkId: 'ext-1', handle: EXTERNAL, origin: 'created' })
+    const resumed = link({
+      linkId: 'ext-2',
+      handle: EXTERNAL,
+      origin: 'resumed',
+      mintedAtFence: 2
+    })
+    const chain = appendAgentSessionProviderHandleLink([created], resumed)
+    expect(agentSessionProviderHandleChainHead(chain)?.linkId).toBe('ext-2')
+    expect(isAgentSessionProviderHandleChain(chain)).toBe(true)
+    expect(() =>
+      appendAgentSessionProviderHandleLink(chain, {
+        ...resumed,
+        linkId: 'ext-3',
+        handle: { provider: 'codex', threadId: 'ses_bridge_1' },
+        mintedAtFence: 3
+      })
+    ).toThrow('agent_session_provider_handle_provider_mismatch')
+  })
+})
