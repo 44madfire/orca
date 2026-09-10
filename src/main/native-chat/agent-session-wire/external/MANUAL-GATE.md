@@ -100,6 +100,11 @@ If Gate 0 fails, fix it before touching Gates 1–5.
    `<ROOT>` = its folder path.
 3. **Stamp operation ids** with the `opId()` helper in §4 — bare
    `crypto.randomUUID()` is refused as `agent_session_operation_invalid`.
+4. **Give the project group a `parentPath`.** The sidebar only renders
+   folders whose group has one (`getRenderableFolderWorkspaces` skips the
+   rest silently), so create the group with `parentPath` set (e.g. the
+   folder's parent dir) — otherwise the folder and its chats are invisible
+   even though `folderWorkspace.list` returns them.
 
 ## 4. Gate 1 — create a real session through the adapter
 
