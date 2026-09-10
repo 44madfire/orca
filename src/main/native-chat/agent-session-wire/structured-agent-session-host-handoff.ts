@@ -169,7 +169,7 @@ async function importTuiHistory(
   }
   const options = structuredTuiTranscriptImportOptions(record, input.transcriptPath)
   const providerSessionId =
-    head.handle.provider === 'claude' ? head.handle.sessionId : head.handle.threadId
+    head.handle.provider === 'codex' ? head.handle.threadId : head.handle.sessionId
   const imported = await importLegacyTranscriptIntoJournal({
     journal: session.journal,
     agent: head.handle.provider,
@@ -190,9 +190,14 @@ export function structuredTuiTranscriptImportOptions(
   if (transcriptPath) {
     return { filePath: transcriptPath }
   }
-  return record.provider === 'claude'
-    ? { claudeProjectsDir: join(record.accountHome.path, 'projects') }
-    : { codexSessionsDirs: [join(record.accountHome.path, 'sessions')] }
+  if (record.provider === 'claude') {
+    return { claudeProjectsDir: join(record.accountHome.path, 'projects') }
+  }
+  if (record.provider === 'codex') {
+    return { codexSessionsDirs: [join(record.accountHome.path, 'sessions')] }
+  }
+  // External bridge has no TUI transcript; fail closed rather than mis-attributing.
+  throw new Error('structured_agent_session_unsupported')
 }
 
 export async function acquireNativeHandoffOwner(

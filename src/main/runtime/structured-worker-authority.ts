@@ -69,7 +69,9 @@ export function resolveStructuredWorkerAuthority(
  * relabel every restarted Codex worker as Claude, permanently, because the startup release
  * reconciler stamps the frozen journal archive with whatever it is told here.
  */
-export function structuredWorkerAgent(identity: StructuredWorkerIdentity): 'claude' | 'codex' {
+export function structuredWorkerAgent(
+  identity: StructuredWorkerIdentity
+): 'claude' | 'codex' | 'external' {
   return (
     identity.agent ?? readStructuredAgentSessionRecord(identity.sessionId)?.provider ?? 'claude'
   )

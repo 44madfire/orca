@@ -342,7 +342,9 @@ export function isAgentSessionRecord(value: unknown): value is AgentSessionRecor
     record.schemaVersion === AGENT_SESSION_RECORD_SCHEMA_VERSION &&
     isAgentSessionId(record.sessionId) &&
     isAgentSessionExecutionLocation(record.location) &&
-    (record.provider === 'claude' || record.provider === 'codex') &&
+    (record.provider === 'claude' ||
+      record.provider === 'codex' ||
+      record.provider === 'external') &&
     isAgentSessionProviderHandleChain(record.providerHandleChain) &&
     isAgentSessionAccountHome(record.accountHome) &&
     (record.options === undefined || isAgentSessionOptions(record.options)) &&
