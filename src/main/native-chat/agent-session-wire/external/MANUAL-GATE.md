@@ -79,6 +79,28 @@ npm run build && npm test -- packages/structured-bridge && npm run lint
 
 If Gate 0 fails, fix it before touching Gates 1–5.
 
+## 3.5 Dev-app prerequisites (first gate run found these)
+
+1. **Enable structured native chat in the dev profile.** The `agentSession.*`
+   surface refuses with `structured_agent_session_unsupported` (and never
+   installs the host) while the setting is off. In the dev build's devtools
+   console once:
+   ```js
+   await window.api.settings.set({ experimentalNativeChat: true,
+     experimentalStructuredNativeChat: true, openAgentTabsInChatByDefault: true });
+   ```
+   (Same switches live under Settings → Experimental → Chat UI.)
+   `settings.update` over runtime RPC does NOT accept these keys.
+2. **Use a folder workspace the dev app knows.** Dev runs on an isolated
+   profile, so production `worktree list` ids 404 with `selector_not_found`.
+   Create one in the dev app (e.g. via `window.api.folderWorkspaces.create`
+   — the runtime-RPC `folderWorkspace.create` needs a paired-device identity
+   and throws `authenticated_device_identity_missing` from desktop), then use
+   `<WS> = folder:<uuid>` (the workspace KEY, not the bare uuid) and
+   `<ROOT>` = its folder path.
+3. **Stamp operation ids** with the `opId()` helper in §4 — bare
+   `crypto.randomUUID()` is refused as `agent_session_operation_invalid`.
+
 ## 4. Gate 1 — create a real session through the adapter
 
 Boot the stack (first build is long; native modules are already rebuilt):
@@ -108,6 +130,9 @@ const canon = v => v===null||typeof v!=='object' ? JSON.stringify(v??null)
 const fp = async (method, sessionId, fields) => [...new Uint8Array(await crypto.subtle.digest('SHA-256',
   new TextEncoder().encode(canon({method, sessionId, fields}))))].map(b=>b.toString(16).padStart(2,'0')).join('');
 const call = (method, params) => window.api.runtime.call({method, params});
+// Operation ids are ledger-stamped `${13-digit-ms}-${32-hex}`; a bare
+// `crypto.randomUUID()` is refused as `agent_session_operation_invalid`.
+const opId = () => `${Date.now()}-${crypto.randomUUID().replaceAll('-','').toLowerCase()}`;
 ```
 
 Create the session (entry point: client-supplied-location `ensure`;
@@ -118,7 +143,7 @@ const sessionId = 'external_' + crypto.randomUUID().replaceAll('-','');
 const base = { location:{executionHostId:'local',wslDistro:null,workspaceId:'<WS>',workspaceKind:'folder'},
   provider:'external', agent:'external',
   accountHome:{variable:'EXTERNAL_BRIDGE_DIR', path:'<ROOT>'}, runtimeKind:'native' };
-const envelope = { sessionId, clientOperationId:crypto.randomUUID(), expectedRuntimeFence:null, payloadFingerprint:'' };
+const envelope = { sessionId, clientOperationId:opId(), expectedRuntimeFence:null, payloadFingerprint:'' };
 envelope.payloadFingerprint = await fp('agentSession.attach', sessionId,
   {...base, providerHandle:undefined, adoptedProviderHandle:undefined, expectedRuntimeFence:null});
 const created = await call('agentSession.ensure', {...base, envelope});
@@ -135,7 +160,7 @@ durable record (`provider:'external'`), journal, lease, host-owned.
 ```js
 const fence = created.fence;
 const body = {kind:'message', role:'user', blocks:[{type:'text', text:'hello native chat'}]};
-const senv = {sessionId, clientOperationId:crypto.randomUUID(), expectedRuntimeFence:fence,
+const senv = {sessionId, clientOperationId:opId(), expectedRuntimeFence:fence,
   payloadFingerprint: await fp('agentSession.send', sessionId, {body})};
 await call('agentSession.send', {envelope:senv, body});   // expect accepted
 await call('agentSession.history', {sessionId, direction:'tail', limit:40});
@@ -225,6 +250,14 @@ semantics, re-validate the adapter + re-run §3 before claiming the gate.
 8. **Dispatch `unknown`** → reconcile via `history`, confirm with the user
    before any retry. Never auto-resend — that rule is the whole point of
    the honest-dispatch contract.
+9. **`selector_not_found` on `ensure`** → `<WS>` names a workspace the dev
+   profile does not know (production worktree id, or bare folder uuid
+   without the `folder:` key prefix). See §3.5.
+10. **`agent_session_operation_invalid` on `ensure`** → `clientOperationId`
+    is not ledger-stamped. Use the §4 `opId()` helper.
+11. **`authenticated_device_identity_missing` on `folderWorkspace.create`**
+    → create desktop folders via `window.api.folderWorkspaces.create`, not
+    the runtime-RPC method (paired-device entry point).
 
 ## 11. Report format
 

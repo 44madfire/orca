@@ -59,7 +59,9 @@ const ProviderHandle = z.discriminatedUnion('kind', [
     })
     .strict(),
   // SNC1.3 dev seam: the out-of-process bridge names its own session id.
-  z.object({ kind: z.literal('external'), sessionId: Identifier('Invalid provider session id') }).strict()
+  z
+    .object({ kind: z.literal('external'), sessionId: Identifier('Invalid provider session id') })
+    .strict()
 ])
 
 const ExecutionHostId = z
@@ -96,7 +98,7 @@ export const AttachParams = z
     agent: Identifier('Invalid agent'),
     accountHome: AccountHome,
     runtimeKind: z.enum(['native', 'tui']),
-    providerHandle: ProviderHandle
+    providerHandle: ProviderHandle.optional()
   })
   .strict()
 
