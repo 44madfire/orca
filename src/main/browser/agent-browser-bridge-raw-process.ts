@@ -55,6 +55,12 @@ export abstract class AgentBrowserBridgeRawProcess extends AgentBrowserBridgeExe
               reject(execOptions.timeoutError)
               return
             }
+            const timeoutMs = execOptions?.timeoutMs ?? EXEC_TIMEOUT_MS
+            const consecutive = (liveSession?.consecutiveTimeouts ?? 0) + 1
+            // Why: timeouts wedged the CLI as runtime_unavailable before the snapshot keepalive fix; log command + count to distinguish slow page vs stuck daemon.
+            console.warn(
+              `[agent-browser] command timed out session=${sessionName} args=${args.slice(-2).join(' ')} timeoutMs=${timeoutMs} consecutive=${consecutive}`
+            )
             if (liveSession) {
               liveSession.consecutiveTimeouts++
               if (liveSession.consecutiveTimeouts >= CONSECUTIVE_TIMEOUT_LIMIT) {
