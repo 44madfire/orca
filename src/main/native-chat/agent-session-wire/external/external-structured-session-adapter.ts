@@ -231,9 +231,30 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
       )
     }
     const requested = optionsFromRecord(input.options)
-    const acquired = await host.acquire({ options: requested })
+    let acquired
+    try {
+      acquired = await host.acquire({ options: requested })
+    } catch (error) {
+      await host.dispose().catch(() => undefined)
+      throw error
+    }
     const bridgeSessionId = acquired.sessionId
-    // Fence isolation: a reacquire for the same Orca id starts clean (no option/prompt/op leak).
+    // Validate the candidate fully BEFORE touching the existing session: a late
+    // validation failure must dispose only the candidate and leave the working
+    // session (if any) intact. Swap happens atomically below.
+    const pidCandidate = (host as { providerPid?: unknown }).providerPid
+    let resolvedPid: number | null =
+      typeof pidCandidate === 'number' ? (pidCandidate as number) : null
+    if (resolvedPid === null) {
+      const maybeProc = (host as unknown as { proc?: { pid?: unknown } }).proc
+      resolvedPid = typeof maybeProc?.pid === 'number' ? (maybeProc.pid as number) : null
+    }
+    if (resolvedPid === null || !Number.isSafeInteger(resolvedPid) || resolvedPid <= 0) {
+      await host.dispose().catch(() => undefined)
+      throw new AgentSessionPreSpawnError('external bridge started without a probeable pid')
+    }
+    // Candidate valid: fence isolation now — teardown the existing session (if any)
+    // so the reacquire starts clean (no option/prompt/op leak), then install.
     if (this.hosts.has(orcaSessionId)) {
       await this.teardown(orcaSessionId).catch(() => undefined)
     }
@@ -256,18 +277,6 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
       // Lifecycle is diagnostic only; journal/lease ownership stays with Orca.
       console.warn(`[external-bridge] ${kind} session=${orcaSessionId} ${message}`)
     })
-    const pidCandidate = (host as { providerPid?: unknown }).providerPid
-    let resolvedPid: number | null =
-      typeof pidCandidate === 'number' ? (pidCandidate as number) : null
-    if (resolvedPid === null) {
-      const maybeProc = (host as unknown as { proc?: { pid?: unknown } }).proc
-      resolvedPid = typeof maybeProc?.pid === 'number' ? (maybeProc.pid as number) : null
-    }
-    if (resolvedPid === null || !Number.isSafeInteger(resolvedPid) || resolvedPid <= 0) {
-      await host.dispose().catch(() => undefined)
-      this.hosts.delete(orcaSessionId)
-      throw new AgentSessionPreSpawnError('external bridge started without a probeable pid')
-    }
     let startTime: number | null = null
     try {
       const read = this.deps.readProcessStartTime?.(resolvedPid)

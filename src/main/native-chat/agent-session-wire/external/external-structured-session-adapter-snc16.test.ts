@@ -564,6 +564,51 @@ describe('SNC1.6 model/thinking controls', () => {
   })
 })
 
+describe('SNC1.6 reacquire safety', () => {
+  it('failed reacquire preserves the working session (candidate validated before swap)', async () => {
+    const fakeA = makeSnc16Fake({ sessionId: 'bridge-keep' })
+    const fakeB = makeSnc16Fake({ sessionId: 'bridge-bad' })
+    ;(fakeB as unknown as { providerPid: unknown }).providerPid = 0
+    let calls = 0
+    const adapter = new ExternalStructuredSessionAdapter({
+      resolveWorkspacePath: () => '/tmp/ws',
+      env: DEV_ENV,
+      argv: DEV_ARGV,
+      createHost: () => {
+        calls += 1
+        if (calls === 1) {
+          return fakeA
+        }
+        return fakeB
+      },
+    })
+    await adapter.acquire({ identity: makeIdentity(), fence: 0, spawnToken: 'a' })
+    const first = await adapter.dispatch({
+      sessionId: 'sess-external-01',
+      clientMessageId: 'c-1',
+      body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'hi' }] },
+      fence: 0,
+    })
+    expect(first.state).toBe('accepted')
+    await expect(
+      adapter.acquire({ identity: makeIdentity(), fence: 1, spawnToken: 'b' }),
+    ).rejects.toThrow(/probeable pid/)
+    // Candidate cleaned up; working session untouched and still usable.
+    expect((fakeB as unknown as { disposed: boolean }).disposed).toBe(true)
+    expect((fakeA as unknown as { disposed: boolean }).disposed).toBe(false)
+    const second = await adapter.dispatch({
+      sessionId: 'sess-external-01',
+      clientMessageId: 'c-2',
+      body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'still here' }] },
+      fence: 0,
+    })
+    expect(second.state).toBe('accepted')
+    expect(fakeA.dispatched.map((d) => d.text)).toEqual(['hi', 'still here'])
+    expect(fakeB.dispatched).toHaveLength(0)
+    await adapter.closeAll()
+  })
+})
+
 describe('SNC1.6 prompts', () => {
   it('renders input/editor prompt_requests and answers exactly once (stale refused)', async () => {
     const fake = makeBaseFake('bridge-prompt-16')
