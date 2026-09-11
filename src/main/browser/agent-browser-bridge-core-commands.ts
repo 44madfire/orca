@@ -32,9 +32,14 @@ export abstract class AgentBrowserBridgeCoreCommands extends AgentBrowserBridgeQ
         const durationMs = Date.now() - startedAt
         // Why: slow snapshots hit the 30s socket idle timer before this fix; log the breakdown so heavy-page vs wedged-daemon is distinguishable.
         if (durationMs > 10_000) {
-          const refs = Array.isArray(result?.refs) ? result.refs.length : -1
+          const refs = result?.refs
+          const refCount = Array.isArray(refs)
+            ? refs.length
+            : refs && typeof refs === 'object'
+              ? Object.keys(refs).length
+              : -1
           console.warn(
-            `[browser-snapshot] slow snapshot session=${sessionName} page=${target.browserPageId} durationMs=${durationMs} refs=${refs} bytes=${result?.snapshot?.length ?? -1}`
+            `[browser-snapshot] slow snapshot session=${sessionName} page=${target.browserPageId} durationMs=${durationMs} refs=${refCount} bytes=${result?.snapshot?.length ?? -1}`
           )
         }
         return {
