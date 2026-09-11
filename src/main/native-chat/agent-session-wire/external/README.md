@@ -26,7 +26,7 @@ src/main/native-chat/agent-session-wire/external/
 
 ## Dev setup (mock, no Pi)
 
-```sh
+````sh
 # 1. Build orca-pi bridge + mock provider:
 cd /path/to/orca-pi
 npm ci && npm run build
@@ -61,7 +61,7 @@ export ORCA_PI_BRIDGE_COMMAND="node /path/to/orca-pi/packages/structured-bridge/
 # Dispatch from Native Chat, observe streamed fake output
 # ("mock response for: …") in the normal chat bubble; kill + restart the mock
 # independently and confirm fail-closed fallback + explicit re-acquire.
-```
+````
 
 The inline-mock test in `external-structured-session-adapter.test.ts`
 proves the same path headlessly: real `BridgeHost` + live `node -e` mock →
@@ -75,7 +75,7 @@ import { ExternalStructuredSessionAdapter } from './external/external-structured
 
 const adapter = new ExternalStructuredSessionAdapter({
   resolveWorkspacePath: (workspaceId) => resolveWorkspace(workspaceId),
-  readProcessStartTime,
+  readProcessStartTime
 })
 // Dev gate: only when --enable-external-structured-bridge + ORCA_PI_BRIDGE_COMMAND
 if (adapter.supportsCreate(location, 'external')) {
@@ -95,16 +95,16 @@ Packaged Orca never requires the bridge.
 
 ## Failure semantics (fail closed)
 
-| Situation | Adapter behavior |
-|---|---|
-| Flag absent / command empty | `supportsCreate=false`; `acquire` throws refusal |
-| Missing binary / spawn error / hello timeout / version mismatch | `acquire` throws `PreSpawn` → TUI fallback, helper torn down |
-| Dispatch with no live session | `{rejected: bridge-unavailable}` → TUI fallback |
-| Provider `rejected` | `{rejected}` with reason surfaced |
-| Timeout / malformed ack / exit racing send | `{unknown}` — reconcile via history, never auto-resend |
-| Image blocks (SNC1.3) | `{rejected}` — path/url mapping is SNC1.6 |
-| Unknown option key / bad queueMode | throws — wire records restore failure |
-| `close`/`dispose` | release + bounded dispose; `closeAll` joins Orca teardown |
+| Situation                                                       | Adapter behavior                                                                                                                                                         |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Flag absent / command empty                                     | `supportsCreate=false`; `acquire` throws refusal                                                                                                                         |
+| Missing binary / spawn error / hello timeout / version mismatch | `acquire` throws `PreSpawn` → TUI fallback, helper torn down                                                                                                             |
+| Dispatch with no live session                                   | `{rejected: bridge-unavailable}` → TUI fallback                                                                                                                          |
+| Provider `rejected`                                             | `{rejected}` with reason surfaced                                                                                                                                        |
+| Timeout / malformed ack / exit racing send                      | `{unknown}` — reconcile via history, never auto-resend                                                                                                                   |
+| Image attachments (SNC1.6)                                      | `image-ref` → bridge `images[]` opaque base64; URL refs / unreadable / oversize → `{rejected}` actionable; provider `model-rejects-images` → `{rejected}` + TUI fallback |
+| Unknown option key / bad queueMode                              | throws — wire records restore failure                                                                                                                                    |
+| `close`/`dispose`                                               | release + bounded dispose; `closeAll` joins Orca teardown                                                                                                                |
 
 ## Temporary dev mapping (must go before upstream)
 
@@ -113,9 +113,17 @@ Packaged Orca never requires the bridge.
   `legacy`/`external` identities (bridge-era records with no provider-stable
   identity) — honest about provenance.
 - `readCommands` returns `undefined` (client stays on its catalog until
-  SNC1.6 proves Pi commands); `historyFilePath` returns `null`.
-- Images, rewind, compact, background tasks are unimplemented (optional
-  surface); the wire degrades gracefully.
+  SNC1.8 proves Pi commands); `historyFilePath` returns `null`.
+- SNC1.6 done: structured images (attachment `image-ref` → `images[]`,
+  text-only history, `model-rejects-images` refusal), model/thinking
+  current via `get_session` + set via `setOptions` (exact qualified
+  `provider/modelId`, `AMBIGUOUS_MODEL`/`UNKNOWN_MODEL`/
+  `UNKNOWN_THINKING_LEVEL` fail closed, no fuzzy), prompts via normal
+  affordances with exactly-once `answerPrompt` (stale → `UNKNOWN_REQUEST`).
+- SNC1.8 follow-up: full catalog seam (`models:[]` until bridge v1 gains a
+  provider-neutral catalog response; never claim list-complete without it).
+- Rewind, compact, background tasks are unimplemented (optional surface);
+  the wire degrades gracefully.
 - `agentSession.create` worktree-intent + tab publication + UI pickers stay
   claude/codex-only; the seam's entry point is client-supplied-location
   `agentSession.ensure`/attach. TUI↔Chat handoff of external sessions is
