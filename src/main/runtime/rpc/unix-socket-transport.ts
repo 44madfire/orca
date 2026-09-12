@@ -29,6 +29,18 @@ type MessageHandler = (
   context?: RpcMessageContext
 ) => void
 
+// Why: dropped-reply diagnostics must name the request without echoing its payload; unparseable frames stay labelled unknown.
+function describeRpcRequest(rawMessage: string): string {
+  try {
+    const parsed = JSON.parse(rawMessage) as { id?: unknown; method?: unknown }
+    const id = typeof parsed.id === 'string' ? parsed.id : '?'
+    const method = typeof parsed.method === 'string' ? parsed.method : '?'
+    return `${method} id=${id}`
+  } catch {
+    return 'unknown'
+  }
+}
+
 export class UnixSocketTransport implements RpcTransport {
   private readonly endpoint: string
   private readonly kind: 'unix' | 'named-pipe'
@@ -117,6 +129,10 @@ export class UnixSocketTransport implements RpcTransport {
     socket.setEncoding('utf8')
     socket.setNoDelay(true)
     socket.setTimeout(RUNTIME_RPC_SOCKET_IDLE_TIMEOUT_MS, () => {
+      // Why: a slow handler (e.g. snapshot before keepalive) dies here and the CLI only sees runtime_unavailable with no _meta; log inflight so the method is identifiable.
+      console.warn(
+        `[runtime-rpc] socket idle timeout after ${RUNTIME_RPC_SOCKET_IDLE_TIMEOUT_MS}ms inflight=${inflight.size}`
+      )
       socket.destroy()
     })
     socket.on('error', () => {
@@ -185,6 +201,8 @@ export class UnixSocketTransport implements RpcTransport {
     const abortDispatch = (): void => cleanupDispatch(true)
     inflight.add(abortDispatch)
 
+    // Why: log request identity (never the response body — snapshot/AX payloads carry page text) so dropped slow-snapshot replies stay diagnosable without leaking user data.
+    const requestLabel = describeRpcRequest(rawMessage)
     const reply = (response: string): void => {
       if (replied) {
         return
@@ -193,6 +211,9 @@ export class UnixSocketTransport implements RpcTransport {
       cleanupDispatch(false)
       if (!socket.destroyed && socket.writable) {
         socket.write(`${response}\n`)
+      } else {
+        // Why: handler finished after the client went away; log the id so slow-snapshot vs client-cancel is distinguishable.
+        console.warn(`[runtime-rpc] dropped reply for destroyed socket request=${requestLabel}`)
       }
     }
 

@@ -24,12 +24,34 @@ export abstract class AgentBrowserBridgeCoreCommands extends AgentBrowserBridgeQ
   async snapshot(worktreeId?: string, browserPageId?: string): Promise<BrowserSnapshotResult> {
     // Why: snapshot creates fresh refs so it must bypass the stale-ref guard
     return this.enqueueTargetedCommand(worktreeId, browserPageId, async (sessionName, target) => {
-      const result = (await this.execAgentBrowser(sessionName, [
-        'snapshot'
-      ])) as BrowserSnapshotResult
-      return {
-        ...result,
-        browserPageId: target.browserPageId
+      const startedAt = Date.now()
+      try {
+        const result = (await this.execAgentBrowser(sessionName, [
+          'snapshot'
+        ])) as BrowserSnapshotResult
+        const durationMs = Date.now() - startedAt
+        // Why: slow snapshots hit the 30s socket idle timer before this fix; log the breakdown so heavy-page vs wedged-daemon is distinguishable.
+        if (durationMs > 10_000) {
+          const refs = result?.refs
+          const refCount = Array.isArray(refs)
+            ? refs.length
+            : refs && typeof refs === 'object'
+              ? Object.keys(refs).length
+              : -1
+          console.warn(
+            `[browser-snapshot] slow snapshot session=${sessionName} page=${target.browserPageId} durationMs=${durationMs} refs=${refCount} bytes=${result?.snapshot?.length ?? -1}`
+          )
+        }
+        return {
+          ...result,
+          browserPageId: target.browserPageId
+        }
+      } catch (error) {
+        // Why: surface which page/session failed and after how long; the CLI otherwise only sees runtime_unavailable with no _meta.
+        console.warn(
+          `[browser-snapshot] snapshot failed session=${sessionName} page=${target.browserPageId} durationMs=${Date.now() - startedAt} error=${error instanceof Error ? error.message : String(error)}`
+        )
+        throw error
       }
     })
   }
