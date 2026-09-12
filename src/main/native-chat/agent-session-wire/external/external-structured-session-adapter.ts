@@ -15,10 +15,12 @@
 // Pi assumptions stay in `orca-pi`; this file knows only the generic bridge.
 
 import { createHash, randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { extname } from 'node:path'
 import type {
   AgentJournalItemBody,
   AgentJournalItemIdentity,
-  AgentJournalMessageItem,
+  AgentJournalMessageItem
 } from '../../../../shared/agent-session-journal-types'
 import { agentJournalItemKey } from '../../../../shared/agent-session-journal-item-key'
 import type { AgentSessionProviderHandleLink } from '../../../../shared/agent-session-provider-handle'
@@ -31,7 +33,7 @@ import {
   type AgentSessionDispatchOutcome,
   type StructuredAgentSessionAcquireInput,
   type StructuredAgentSessionAdapter,
-  type StructuredAgentSessionSetOptionInput,
+  type StructuredAgentSessionSetOptionInput
 } from '../structured-agent-session-adapter'
 import type { StructuredAgentSessionEventSink } from '../structured-agent-session-event-sink'
 import { BridgeHost, type SessionEventEnvelope } from './bridge-host'
@@ -39,7 +41,7 @@ import { externalProviderHandleLink } from './external-structured-owner-identity
 import type { BridgeProviderEvent, BridgeSessionOptions } from './bridge-protocol'
 import {
   EXTERNAL_BRIDGE_COMMAND_ENV,
-  readExternalBridgeConfig,
+  readExternalBridgeConfig
 } from './external-structured-bridge-config'
 
 /** Agent string used for journal identities. Provider-neutral on purpose. */
@@ -50,6 +52,20 @@ export const EXTERNAL_BRIDGE_SPAWN_TOKEN_ENV = 'ORCA_AGENT_SESSION_SPAWN_TOKEN'
 
 /** Option keys the generic seam accepts (provider-neutral subset). */
 const EXTERNAL_OPTION_KEYS = new Set(['model', 'thinkingLevel', 'queueMode', 'autoCompaction'])
+
+// SNC1.6 image budgets (same proven values as the Claude lane; provider-neutral
+// caps so one dispatch cannot blow the JSONL frame or the provider payload).
+const MAX_EXTERNAL_IMAGE_BYTES = 5 * 1024 * 1024
+const MAX_EXTERNAL_IMAGE_COUNT = 20
+const MAX_EXTERNAL_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024
+
+const EXTERNAL_IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp'
+}
 
 export type ExternalBridgeHostLike = Pick<
   BridgeHost,
@@ -71,6 +87,8 @@ export type ExternalAdapterDeps = {
   resolveWorkspacePath: (workspaceId: string) => Promise<string> | string
   readProcessStartTime?: (pid: number) => Promise<number | null> | number | null
   now?: () => number
+  /** Authorized attachment bytes (tests supply fakes; production reads the file). */
+  readImageFile?: (path: string) => Promise<Buffer> | Buffer
   /** Injectable host factory (tests supply fakes; production uses BridgeHost). */
   createHost?: (options: {
     bridgeCommand: string
@@ -112,15 +130,23 @@ function extractText(body: AgentJournalMessageItem): string {
   return parts.join('\n')
 }
 
-function hasImageBlocks(body: AgentJournalMessageItem): boolean {
-  return (body.blocks as NativeChatBlock[]).some((block) => block.type === 'image-ref')
+function imageRefsOf(
+  body: AgentJournalMessageItem
+): Extract<NativeChatBlock, { type: 'image-ref' }>[] {
+  return (body.blocks as NativeChatBlock[]).filter(
+    (block): block is Extract<NativeChatBlock, { type: 'image-ref' }> => block.type === 'image-ref'
+  )
+}
+
+function mimeTypeForImagePath(path: string): string | null {
+  const map: Record<string, string> = EXTERNAL_IMAGE_MIME_BY_EXTENSION
+  return map[extname(path).toLowerCase()] ?? null
 }
 
 function optionsFromRecord(options?: Readonly<Record<string, string>>): BridgeSessionOptions {
   if (!options) return {}
   const out: BridgeSessionOptions = {}
-  if (typeof options['model'] === 'string' && options['model'] !== '')
-    out.model = options['model']
+  if (typeof options['model'] === 'string' && options['model'] !== '') out.model = options['model']
   if (typeof options['thinkingLevel'] === 'string' && options['thinkingLevel'] !== '')
     out.thinkingLevel = options['thinkingLevel']
   const queue = options['queueMode']
@@ -167,7 +193,7 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
     const config = readExternalBridgeConfig(this.deps.env, this.deps.argv)
     if (!config.enabled || config.command === '') {
       throw new AgentSessionAcquisitionRefusal(
-        `external structured bridge not configured (set ${EXTERNAL_BRIDGE_COMMAND_ENV} + dev flag)`,
+        `external structured bridge not configured (set ${EXTERNAL_BRIDGE_COMMAND_ENV} + dev flag)`
       )
     }
     const orcaSessionId = input.identity.sessionId
@@ -185,7 +211,7 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
           bridgeArgs: options.bridgeArgs,
           workspaceRoot: options.workspaceRoot,
           ...(options.env ? { env: options.env } : {}),
-          ...(this.deps.hostVersion ? { hostVersion: this.deps.hostVersion } : {}),
+          ...(this.deps.hostVersion ? { hostVersion: this.deps.hostVersion } : {})
         }))
     const pathValue = this.deps.env?.['PATH']
     const host = createHost({
@@ -194,31 +220,28 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
       workspaceRoot,
       env: {
         ...(typeof pathValue === 'string' ? { PATH: pathValue } : {}),
-        [EXTERNAL_BRIDGE_SPAWN_TOKEN_ENV]: input.spawnToken,
-      },
+        [EXTERNAL_BRIDGE_SPAWN_TOKEN_ENV]: input.spawnToken
+      }
     })
     const support = await host.probeSupport()
     if (!support.available) {
       await host.dispose().catch(() => undefined)
       throw new AgentSessionPreSpawnError(
-        `external bridge unavailable: ${support.reason} (fall back to Pi TUI)`,
+        `external bridge unavailable: ${support.reason} (fall back to Pi TUI)`
       )
     }
-    const acquired = await host.acquire({ options: optionsFromRecord(input.options) })
+    const requested = optionsFromRecord(input.options)
+    let acquired
+    try {
+      acquired = await host.acquire({ options: requested })
+    } catch (error) {
+      await host.dispose().catch(() => undefined)
+      throw error
+    }
     const bridgeSessionId = acquired.sessionId
-    this.hosts.set(orcaSessionId, host)
-    this.bridgeSessionByOrca.set(orcaSessionId, bridgeSessionId)
-    this.orcaSessionByBridge.set(bridgeSessionId, orcaSessionId)
-    const initialOptions: BridgeSessionOptions = {}
-    if (acquired.metadata.model) initialOptions.model = acquired.metadata.model
-    if (acquired.metadata.thinkingLevel) initialOptions.thinkingLevel = acquired.metadata.thinkingLevel
-    this.sessionOptions.set(orcaSessionId, initialOptions)
-    if (input.events) this.sinks.set(orcaSessionId, input.events)
-    host.onSessionEvent((envelope) => this.routeSessionEvent(orcaSessionId, envelope))
-    host.onLifecycle(({ kind, message }) => {
-      // Lifecycle is diagnostic only; journal/lease ownership stays with Orca.
-      console.warn(`[external-bridge] ${kind} session=${orcaSessionId} ${message}`)
-    })
+    // Validate the candidate fully BEFORE touching the existing session: a late
+    // validation failure must dispose only the candidate and leave the working
+    // session (if any) intact. Swap happens atomically below.
     const pidCandidate = (host as { providerPid?: unknown }).providerPid
     let resolvedPid: number | null =
       typeof pidCandidate === 'number' ? (pidCandidate as number) : null
@@ -228,9 +251,32 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
     }
     if (resolvedPid === null || !Number.isSafeInteger(resolvedPid) || resolvedPid <= 0) {
       await host.dispose().catch(() => undefined)
-      this.hosts.delete(orcaSessionId)
       throw new AgentSessionPreSpawnError('external bridge started without a probeable pid')
     }
+    // Candidate valid: fence isolation now — teardown the existing session (if any)
+    // so the reacquire starts clean (no option/prompt/op leak), then install.
+    if (this.hosts.has(orcaSessionId)) {
+      await this.teardown(orcaSessionId).catch(() => undefined)
+    }
+    this.hosts.set(orcaSessionId, host)
+    this.bridgeSessionByOrca.set(orcaSessionId, bridgeSessionId)
+    this.orcaSessionByBridge.set(bridgeSessionId, orcaSessionId)
+    const initialOptions: BridgeSessionOptions = {}
+    if (acquired.metadata.model) initialOptions.model = acquired.metadata.model
+    else if (requested.model) initialOptions.model = requested.model
+    if (acquired.metadata.thinkingLevel)
+      initialOptions.thinkingLevel = acquired.metadata.thinkingLevel
+    else if (requested.thinkingLevel) initialOptions.thinkingLevel = requested.thinkingLevel
+    if (requested.queueMode) initialOptions.queueMode = requested.queueMode
+    if (typeof requested.autoCompaction === 'boolean')
+      initialOptions.autoCompaction = requested.autoCompaction
+    this.sessionOptions.set(orcaSessionId, initialOptions)
+    if (input.events) this.sinks.set(orcaSessionId, input.events)
+    host.onSessionEvent((envelope) => this.routeSessionEvent(orcaSessionId, envelope))
+    host.onLifecycle(({ kind, message }) => {
+      // Lifecycle is diagnostic only; journal/lease ownership stays with Orca.
+      console.warn(`[external-bridge] ${kind} session=${orcaSessionId} ${message}`)
+    })
     let startTime: number | null = null
     try {
       const read = this.deps.readProcessStartTime?.(resolvedPid)
@@ -245,17 +291,17 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
     const link = externalProviderHandleLink({
       sessionId: bridgeSessionId,
       fence: input.fence,
-      observedAt: now,
+      observedAt: now
     })
     return {
       process: {
         hostId: input.identity.hostId,
         pid: resolvedPid,
         processStartTimeMs: startTime,
-        spawnToken: input.spawnToken,
+        spawnToken: input.spawnToken
       },
       link,
-      acquisitionGeneration: generation,
+      acquisitionGeneration: generation
     }
   }
 
@@ -274,28 +320,74 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
     if (!host || !bridgeSessionId) {
       return { state: 'rejected', reason: 'bridge-unavailable: no live external session' }
     }
-    if (hasImageBlocks(input.body)) {
-      // SNC1.6 owns path/url → base64 mapping; SNC1.3 stays text-only fail-closed.
-      return { state: 'rejected', reason: 'external-bridge-dev: image blocks unsupported (SNC1.6)' }
-    }
     const text = extractText(input.body)
+    const imageRefs = imageRefsOf(input.body)
+    let images: { data: string; mimeType: string }[] | undefined
+    if (imageRefs.length > 0) {
+      // SNC1.6: authorized attachment image-ref blocks → bridge images[].
+      // Only structured blocks (never terminal paste syntax, never raw paths/URLs in text).
+      if (imageRefs.length > MAX_EXTERNAL_IMAGE_COUNT) {
+        return {
+          state: 'rejected',
+          reason: `external-bridge-dev: too many images (max ${MAX_EXTERNAL_IMAGE_COUNT})`
+        }
+      }
+      const resolved: { data: string; mimeType: string }[] = []
+      let totalBytes = 0
+      for (const ref of imageRefs) {
+        if (!ref.path) {
+          return {
+            state: 'rejected',
+            reason: 'external-bridge-dev: image URL refs unsupported (attachments only)'
+          }
+        }
+        const mimeType = mimeTypeForImagePath(ref.path)
+        if (!mimeType) {
+          return {
+            state: 'rejected',
+            reason: 'external-bridge-dev: unsupported image type (use png/jpg/gif/webp)'
+          }
+        }
+        let bytes: Buffer
+        try {
+          const reader = this.deps.readImageFile ?? readFile
+          bytes = Buffer.from(await reader(ref.path))
+        } catch {
+          return { state: 'rejected', reason: 'external-bridge-dev: image unreadable' }
+        }
+        if (bytes.byteLength === 0 || bytes.byteLength > MAX_EXTERNAL_IMAGE_BYTES) {
+          return { state: 'rejected', reason: 'external-bridge-dev: image unreadable' }
+        }
+        totalBytes += bytes.byteLength
+        if (totalBytes > MAX_EXTERNAL_TOTAL_IMAGE_BYTES) {
+          return { state: 'rejected', reason: 'external-bridge-dev: images exceed total budget' }
+        }
+        // Opaque base64, no re-encode; never journaled (history stays text-only provider-side).
+        resolved.push({ data: bytes.toString('base64'), mimeType })
+      }
+      images = resolved
+    }
     if (text.trim() === '') {
       return { state: 'rejected', reason: 'external-bridge-dev: empty text dispatch' }
     }
-    const outcome = await host.dispatch({ sessionId: bridgeSessionId, text })
+    const outcome = await host.dispatch({
+      sessionId: bridgeSessionId,
+      text,
+      ...(images ? { images } : {})
+    })
     if (outcome.status === 'accepted') {
       this.opSession.set(outcome.opId, input.sessionId)
       this.turns.set(outcome.opId, {
         sessionId: input.sessionId,
         textByIndex: new Map(),
         thinkingByIndex: new Map(),
-        tools: new Map(),
+        tools: new Map()
       })
       const providerIdentity: AgentJournalItemIdentity = {
         provider: 'legacy',
         agent: EXTERNAL_BRIDGE_AGENT,
         sessionId: input.sessionId,
-        recordId: outcome.opId,
+        recordId: outcome.opId
       }
       return { state: 'accepted', providerIdentity }
     }
@@ -339,7 +431,7 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
   }
 
   async setOption(
-    input: StructuredAgentSessionSetOptionInput,
+    input: StructuredAgentSessionSetOptionInput
   ): Promise<void | Readonly<Record<string, string>>> {
     const host = this.hosts.get(input.sessionId)
     const bridgeSessionId = this.bridgeSessionByOrca.get(input.sessionId)
@@ -380,15 +472,36 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
     fence: number
   }): Promise<AgentSessionOptionsResult> {
     const cached = this.sessionOptions.get(input.sessionId) ?? {}
-    // Generic seam: no provider catalog to report (models:[] keeps the client
-    // on its own catalog until SNC1.6 proves Pi models). thinkingLevel rides
-    // as `effort`, the closest wire-level knob.
+    // SNC1.6: current comes from provider-confirmed get_session metadata
+    // (model/thinkingLevel). Bridge v1 has no dedicated catalog response, so
+    // models:[] stays explicitly as the SNC1.8 catalog-seam follow-up — never
+    // claim list-complete without it. thinkingLevel rides as `effort`.
+    const host = this.hosts.get(input.sessionId)
+    const bridgeSessionId = this.bridgeSessionByOrca.get(input.sessionId)
+    if (host && bridgeSessionId) {
+      try {
+        const meta = await host.getSession(bridgeSessionId)
+        const next: BridgeSessionOptions = { ...cached }
+        if (meta.model) next.model = meta.model
+        if (meta.thinkingLevel) next.thinkingLevel = meta.thinkingLevel
+        this.sessionOptions.set(input.sessionId, next)
+        return {
+          models: [],
+          current: {
+            model: next.model ?? 'external',
+            ...(next.thinkingLevel ? { effort: next.thinkingLevel } : {})
+          }
+        }
+      } catch {
+        // Transient state-read failure: fall back to last confirmed cache.
+      }
+    }
     return {
       models: [],
       current: {
         model: cached.model ?? 'external',
-        ...(cached.thinkingLevel ? { effort: cached.thinkingLevel } : {}),
-      },
+        ...(cached.thinkingLevel ? { effort: cached.thinkingLevel } : {})
+      }
     }
   }
 
@@ -478,7 +591,7 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
         sessionId: orcaSessionId,
         textByIndex: new Map(),
         thinkingByIndex: new Map(),
-        tools: new Map(),
+        tools: new Map()
       }
       this.turns.set(turnKey, turn)
     }
@@ -520,12 +633,12 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
           provider: 'legacy',
           agent: EXTERNAL_BRIDGE_AGENT,
           sessionId: orcaSessionId,
-          recordId: `${opId}-text-${index}`,
+          recordId: `${opId}-text-${index}`
         }
         const body: AgentJournalItemBody = {
           kind: 'message',
           role: 'assistant',
-          blocks: [{ type: 'text', text: next }],
+          blocks: [{ type: 'text', text: next }]
         }
         sink.appendItem(identity, body)
         sink.setActivity?.({ turnId: opId, text: next.slice(-280) })
@@ -540,12 +653,12 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
           provider: 'legacy',
           agent: EXTERNAL_BRIDGE_AGENT,
           sessionId: orcaSessionId,
-          recordId: `${opId}-text-${index}`,
+          recordId: `${opId}-text-${index}`
         }
         const body: AgentJournalItemBody = {
           kind: 'message',
           role: 'assistant',
-          blocks: [{ type: 'text', text: finalText }],
+          blocks: [{ type: 'text', text: finalText }]
         }
         sink.appendItem(identity, body)
         sink.publish()
@@ -562,12 +675,12 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
           provider: 'legacy',
           agent: EXTERNAL_BRIDGE_AGENT,
           sessionId: orcaSessionId,
-          recordId: `${opId}-thinking-${index}`,
+          recordId: `${opId}-thinking-${index}`
         }
         const body: AgentJournalItemBody = {
           kind: 'message',
           role: 'reasoning',
-          blocks: [{ type: 'text', text: next }],
+          blocks: [{ type: 'text', text: next }]
         }
         sink.appendItem(identity, body)
         sink.publish()
@@ -582,12 +695,12 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
           provider: 'legacy',
           agent: EXTERNAL_BRIDGE_AGENT,
           sessionId: orcaSessionId,
-          recordId: `${opId}-thinking-${index}`,
+          recordId: `${opId}-thinking-${index}`
         }
         const body: AgentJournalItemBody = {
           kind: 'message',
           role: 'reasoning',
-          blocks: [{ type: 'text', text: finalText }],
+          blocks: [{ type: 'text', text: finalText }]
         }
         sink.appendItem(identity, body)
         sink.publish()
@@ -598,19 +711,19 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
           name: event.toolName,
           output: '',
           done: false,
-          isError: false,
+          isError: false
         })
         const identity: AgentJournalItemIdentity = {
           provider: 'legacy',
           agent: EXTERNAL_BRIDGE_AGENT,
           sessionId: orcaSessionId,
-          recordId: `${opId}-tool-${event.toolCallId}`,
+          recordId: `${opId}-tool-${event.toolCallId}`
         }
         const body: AgentJournalItemBody = {
           kind: 'tool-call',
           name: event.toolName,
           input: event.args ?? {},
-          state: 'running',
+          state: 'running'
         }
         sink.appendItem(identity, body)
         sink.publish()
@@ -623,14 +736,14 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
           provider: 'legacy',
           agent: EXTERNAL_BRIDGE_AGENT,
           sessionId: orcaSessionId,
-          recordId: `${opId}-tool-${event.toolCallId}`,
+          recordId: `${opId}-tool-${event.toolCallId}`
         }
         const body: AgentJournalItemBody = {
           kind: 'tool-call',
           name: tool?.name ?? 'tool',
           input: {},
           state: 'running',
-          output: boundedPayload(event.partialResult),
+          output: boundedPayload(event.partialResult)
         }
         sink.appendItem(identity, body)
         sink.publish()
@@ -647,14 +760,14 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
           provider: 'legacy',
           agent: EXTERNAL_BRIDGE_AGENT,
           sessionId: orcaSessionId,
-          recordId: `${opId}-tool-${event.toolCallId}`,
+          recordId: `${opId}-tool-${event.toolCallId}`
         }
         const body: AgentJournalItemBody = {
           kind: 'tool-call',
           name: tool?.name ?? 'tool',
           input: {},
           state: event.isError ? 'failed' : 'completed',
-          output: boundedPayload(event.result),
+          output: boundedPayload(event.result)
         }
         sink.appendItem(identity, body)
         sink.publish()
@@ -670,14 +783,14 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
             detail: prompt.message,
             options: [
               { id: 'confirm', label: 'Confirm' },
-              { id: 'cancel', label: 'Cancel' },
+              { id: 'cancel', label: 'Cancel' }
             ],
             resolution: {
               state: 'pending',
               selectedOptionId: null,
               resolvedBy: null,
-              resolvedAt: null,
-            },
+              resolvedAt: null
+            }
           }
         } else if (prompt.kind === 'select') {
           body = {
@@ -688,8 +801,8 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
               state: 'pending',
               selectedOptionId: null,
               resolvedBy: null,
-              resolvedAt: null,
-            },
+              resolvedAt: null
+            }
           }
         } else {
           body = {
@@ -701,21 +814,21 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
               state: 'pending',
               selectedOptionId: null,
               resolvedBy: null,
-              resolvedAt: null,
-            },
+              resolvedAt: null
+            }
           }
         }
         const identity: AgentJournalItemIdentity = {
           provider: 'legacy',
           agent: EXTERNAL_BRIDGE_AGENT,
           sessionId: orcaSessionId,
-          recordId: `${opId}-prompt-${event.requestId}`,
+          recordId: `${opId}-prompt-${event.requestId}`
         }
         sink.appendItem(identity, body)
         sink.publish()
         this.promptRequestByItemId.set(agentJournalItemKey(identity), {
           sessionId: orcaSessionId,
-          requestId: event.requestId,
+          requestId: event.requestId
         })
         break
       }
@@ -725,11 +838,11 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
             provider: 'legacy',
             agent: EXTERNAL_BRIDGE_AGENT,
             sessionId: orcaSessionId,
-            recordId: `${opId}-error`,
+            recordId: `${opId}-error`
           }
           const body: AgentJournalItemBody = {
             kind: 'status',
-            text: 'provider dispatch failed',
+            text: 'provider dispatch failed'
           }
           sink.appendItem(identity, body)
         }
@@ -746,7 +859,7 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
           provider: 'legacy',
           agent: EXTERNAL_BRIDGE_AGENT,
           sessionId: orcaSessionId,
-          recordId: `${opId}-bridge-error`,
+          recordId: `${opId}-bridge-error`
         }
         const body: AgentJournalItemBody = { kind: 'status', text: 'provider dispatch failed' }
         sink.appendItem(identity, body)
