@@ -29,6 +29,18 @@ type MessageHandler = (
   context?: RpcMessageContext
 ) => void
 
+// Why: dropped-reply diagnostics must name the request without echoing its payload; unparseable frames stay labelled unknown.
+function describeRpcRequest(rawMessage: string): string {
+  try {
+    const parsed = JSON.parse(rawMessage) as { id?: unknown; method?: unknown }
+    const id = typeof parsed.id === 'string' ? parsed.id : '?'
+    const method = typeof parsed.method === 'string' ? parsed.method : '?'
+    return `${method} id=${id}`
+  } catch {
+    return 'unknown'
+  }
+}
+
 export class UnixSocketTransport implements RpcTransport {
   private readonly endpoint: string
   private readonly kind: 'unix' | 'named-pipe'
@@ -189,6 +201,8 @@ export class UnixSocketTransport implements RpcTransport {
     const abortDispatch = (): void => cleanupDispatch(true)
     inflight.add(abortDispatch)
 
+    // Why: log request identity (never the response body — snapshot/AX payloads carry page text) so dropped slow-snapshot replies stay diagnosable without leaking user data.
+    const requestLabel = describeRpcRequest(rawMessage)
     const reply = (response: string): void => {
       if (replied) {
         return
@@ -199,9 +213,7 @@ export class UnixSocketTransport implements RpcTransport {
         socket.write(`${response}\n`)
       } else {
         // Why: handler finished after the client went away; log the id so slow-snapshot vs client-cancel is distinguishable.
-        console.warn(
-          `[runtime-rpc] dropped reply for destroyed socket response=${response.slice(0, 200)}`
-        )
+        console.warn(`[runtime-rpc] dropped reply for destroyed socket request=${requestLabel}`)
       }
     }
 

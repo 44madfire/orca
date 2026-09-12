@@ -1,6 +1,6 @@
 import { execFile, type ChildProcess } from 'node:child_process'
 import { BrowserError } from './cdp-bridge'
-import { classifyErrorCode } from './agent-browser-bridge-process'
+import { classifyErrorCode, stripAgentBrowserTargetArgs } from './agent-browser-bridge-process'
 import { AgentBrowserBridgeExecution } from './agent-browser-bridge-execution'
 import {
   CONSECUTIVE_TIMEOUT_LIMIT,
@@ -57,9 +57,11 @@ export abstract class AgentBrowserBridgeRawProcess extends AgentBrowserBridgeExe
             }
             const timeoutMs = execOptions?.timeoutMs ?? EXEC_TIMEOUT_MS
             const consecutive = (liveSession?.consecutiveTimeouts ?? 0) + 1
+            // Why: args carry typed chunks (type/inserttext) and fill values; log only the command name so secrets never reach process logs.
+            const commandName = stripAgentBrowserTargetArgs(args)[0] ?? 'unknown'
             // Why: timeouts wedged the CLI as runtime_unavailable before the snapshot keepalive fix; log command + count to distinguish slow page vs stuck daemon.
             console.warn(
-              `[agent-browser] command timed out session=${sessionName} args=${args.slice(-2).join(' ')} timeoutMs=${timeoutMs} consecutive=${consecutive}`
+              `[agent-browser] command timed out session=${sessionName} command=${commandName} timeoutMs=${timeoutMs} consecutive=${consecutive}`
             )
             if (liveSession) {
               liveSession.consecutiveTimeouts++
