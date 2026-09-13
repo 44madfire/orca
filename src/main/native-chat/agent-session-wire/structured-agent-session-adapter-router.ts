@@ -2,13 +2,17 @@ import type { AgentSessionJournalIdentity } from '../../../shared/agent-session-
 import type { AgentSessionExecutionLocation } from '../../../shared/agent-session-record'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 
-type RoutedAgent = 'claude' | 'codex'
-
+/**
+ * Provider adapters behind one structured-session contract. `claude` and `codex` are always
+ * present; `external` is the SNC1.3 dev seam (hot-swappable out-of-process bridge) and is only
+ * installed when the dev flag + bridge command are configured — packaged Orca never sees it.
+ */
 export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessionAdapter {
   private readonly owners = new Map<string, StructuredAgentSessionAdapter>()
 
   constructor(
-    private readonly adapters: Record<RoutedAgent, StructuredAgentSessionAdapter>,
+    private readonly adapters: Record<'claude' | 'codex', StructuredAgentSessionAdapter> &
+      Partial<Record<'external', StructuredAgentSessionAdapter>>,
     private readonly closeAdapters: () => Promise<void>
   ) {}
 
@@ -61,11 +65,12 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
     Promise.resolve({ ok: false, reason: 'unsupported' })
 
   compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) => {
-    const compact = this.owner(input.sessionId).compact
+    const owner = this.owner(input.sessionId)
+    const compact = owner.compact
     if (!compact) {
       throw new Error('Compaction is unavailable for this provider.')
     }
-    return compact(input)
+    return compact.call(owner, input)
   }
 
   cancelTurn: StructuredAgentSessionAdapter['cancelTurn'] = (input) =>
@@ -74,8 +79,9 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
   stopBackgroundTasks: NonNullable<StructuredAgentSessionAdapter['stopBackgroundTasks']> = (
     input
   ) => {
-    const stop = this.owner(input.sessionId).stopBackgroundTasks
-    return stop ? stop(input) : Promise.resolve({ cancelled: false })
+    const owner = this.owner(input.sessionId)
+    const stop = owner.stopBackgroundTasks
+    return stop ? stop.call(owner, input) : Promise.resolve({ cancelled: false })
   }
 
   backgroundTaskState: NonNullable<StructuredAgentSessionAdapter['backgroundTaskState']> = (
@@ -92,11 +98,12 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
     this.owner(input.sessionId).setOption(input)
 
   readOptions = (input: { sessionId: string; fence: number }) => {
-    const reader = this.owner(input.sessionId).readOptions
+    const owner = this.owner(input.sessionId)
+    const reader = owner.readOptions
     if (!reader) {
       throw new Error(`structured session ${input.sessionId} does not report options`)
     }
-    return reader(input)
+    return reader.call(owner, input)
   }
 
   readOptionRestoreFailures = (sessionId: string): readonly string[] =>
@@ -155,6 +162,12 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
   }
 
   private adapterForAgent(agent: string): StructuredAgentSessionAdapter | null {
-    return agent === 'claude' || agent === 'codex' ? this.adapters[agent] : null
+    if (agent === 'claude' || agent === 'codex') {
+      return this.adapters[agent]
+    }
+    if (agent === 'external') {
+      return this.adapters.external ?? null
+    }
+    return null
   }
 }

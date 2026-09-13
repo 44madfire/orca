@@ -21,6 +21,7 @@ import {
   type StructuredAgentSessionHostDeps
 } from '../native-chat/agent-session-wire/structured-agent-session-host'
 import { StructuredAgentSessionAdapterRouter } from '../native-chat/agent-session-wire/structured-agent-session-adapter-router'
+import { createExternalStructuredSessionAdapterForRuntime } from '../native-chat/agent-session-wire/external/external-structured-runtime'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import {
@@ -279,9 +280,23 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       ...(deps.openClaudeConnection ? { openClaudeConnection: deps.openClaudeConnection } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
     })
-    const adapter = new StructuredAgentSessionAdapterRouter({ codex, claude }, async () => {
-      await Promise.all([codex.closeAll(), claude.closeAll()])
+    // SNC1.3 dev seam: hot-swappable out-of-process bridge. Installed only when the
+    // explicit dev flag + bridge command are present; otherwise null and production
+    // keeps its codex/claude pair untouched. Packaged Orca never sees this adapter.
+    const external = createExternalStructuredSessionAdapterForRuntime({
+      resolveWorkspacePath: deps.resolveWorkspacePath,
+      ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
     })
+    const adapter = new StructuredAgentSessionAdapterRouter(
+      external ? { codex, claude, external } : { codex, claude },
+      async () => {
+        await Promise.all([
+          codex.closeAll(),
+          claude.closeAll(),
+          ...(external ? [external.closeAll()] : [])
+        ])
+      }
+    )
     host = new StructuredAgentSessionHost({
       store,
       adapter,

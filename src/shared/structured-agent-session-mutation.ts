@@ -29,7 +29,7 @@ export function structuredAgentSessionPayloadFingerprint(input: {
 export function structuredAgentSessionCreateFingerprint(input: {
   sessionId: string
   worktree: string
-  agent: 'claude' | 'codex'
+  agent: 'claude' | 'codex' | 'external'
   resumeFrom?: { providerSessionId: string }
 }): string {
   return structuredAgentSessionPayloadFingerprint({

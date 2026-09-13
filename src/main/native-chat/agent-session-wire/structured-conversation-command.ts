@@ -9,6 +9,7 @@ import type {
   AgentSessionMutationEnvelope,
   AgentSessionMutationResult
 } from '../../../shared/agent-session-wire'
+import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
 import {
   attachFingerprintFields,
@@ -28,7 +29,9 @@ export type ConversationReplacement = {
   sourceSessionId: string
   sessionId: string
   workspaceId: string
-  agent: 'claude' | 'codex'
+  // `external` rides along for the SNC1.3 dev seam; tab label + status paths
+  // already degrade through the shared agent-name table instead of assuming Codex.
+  agent: AgentSessionHandleProvider
 }
 
 export function runStructuredConversationCommand(
