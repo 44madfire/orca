@@ -90,7 +90,7 @@ export class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRu
   async publishStructuredAgentSessionTab(input: {
     workspaceId: string
     sessionId: string
-    agent: 'claude' | 'codex'
+    agent: 'claude' | 'codex' | 'external'
     activate: boolean
     notify?: boolean
     replacesSessionId?: string

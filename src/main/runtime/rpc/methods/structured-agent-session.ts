@@ -24,6 +24,7 @@ import {
   supportsStructuredSessions
 } from './structured-agent-session-gate'
 import type { AgentSessionAttachParams } from '../../../native-chat/agent-session-wire/structured-agent-session-attach'
+import type { AgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
 import {
   commitStructuredAgentSessionCreate,
   prepareStructuredAgentSessionCreateForWorktree
@@ -72,8 +73,10 @@ async function resolveClientSuppliedAttach(params: z.infer<typeof AttachParams>,
   const { agent: _attachAgent, provider: _attachProvider, ...attachWithoutAgent } = params
   const attachParams = {
     ...attachWithoutAgent,
-    provider: params.provider as 'claude' | 'codex',
-    agent: params.agent as 'claude' | 'codex'
+    // Client-supplied-location attach is the SNC1.3 dev seam's entry point: provider/agent
+    // widen to the shared union (`external` included) instead of the worktree-intent pair.
+    provider: params.provider as AgentSessionHandleProvider,
+    agent: params.agent as AgentSessionHandleProvider
   } as AgentSessionAttachParams
   return { host, attachParams }
 }

@@ -35,9 +35,11 @@ export type AgentSessionExecutionLocation = {
   workspaceKind: AgentSessionWorkspaceKind
 }
 
-/** Account root pinned at launch by the account selector, so a resume cannot drift to another login. */
+/** Account root pinned at launch by the account selector, so a resume cannot drift to another login.
+ *  `EXTERNAL_BRIDGE_DIR` is the SNC1.3 dev seam's pin: the out-of-process bridge child takes no
+ *  provider credentials, so the pin names the workspace root it was launched against. */
 export type AgentSessionAccountHome = {
-  variable: 'CLAUDE_CONFIG_DIR' | 'CODEX_HOME'
+  variable: 'CLAUDE_CONFIG_DIR' | 'CODEX_HOME' | 'EXTERNAL_BRIDGE_DIR'
   /** Host-resolved absolute path in the execution host's own path syntax. */
   path: string
 }
@@ -223,7 +225,9 @@ function isAgentSessionAccountHome(value: unknown): value is AgentSessionAccount
   }
   const home = value as Partial<AgentSessionAccountHome>
   return (
-    (home.variable === 'CLAUDE_CONFIG_DIR' || home.variable === 'CODEX_HOME') &&
+    (home.variable === 'CLAUDE_CONFIG_DIR' ||
+      home.variable === 'CODEX_HOME' ||
+      home.variable === 'EXTERNAL_BRIDGE_DIR') &&
     isBoundedString(home.path, MAX_PATH_LENGTH)
   )
 }
@@ -338,7 +342,9 @@ export function isAgentSessionRecord(value: unknown): value is AgentSessionRecor
     record.schemaVersion === AGENT_SESSION_RECORD_SCHEMA_VERSION &&
     isAgentSessionId(record.sessionId) &&
     isAgentSessionExecutionLocation(record.location) &&
-    (record.provider === 'claude' || record.provider === 'codex') &&
+    (record.provider === 'claude' ||
+      record.provider === 'codex' ||
+      record.provider === 'external') &&
     isAgentSessionProviderHandleChain(record.providerHandleChain) &&
     isAgentSessionAccountHome(record.accountHome) &&
     (record.options === undefined || isAgentSessionOptions(record.options)) &&
