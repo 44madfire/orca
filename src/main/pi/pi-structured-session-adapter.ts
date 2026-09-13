@@ -120,12 +120,19 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
       sink: input.events ?? null,
       closed: false
     })
+    // The exact session file is host-observed backend output, persisted on the
+    // durable link so structured→TUI can build `pi --session <file>` after restart.
+    const sessionFile =
+      typeof acquired.sessionFilePath === 'string' && acquired.sessionFilePath !== ''
+        ? acquired.sessionFilePath
+        : undefined
     const link = piProviderHandleLink({
       sessionId: acquired.piSessionId,
       leafId: acquired.leafId,
       resumed: resumePiSessionId !== null,
       fence: input.fence,
-      observedAt: now
+      observedAt: now,
+      ...(sessionFile ? { sessionFile } : {})
     })
     return { process: exactProcess, link, acquisitionGeneration: generation }
   }

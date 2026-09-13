@@ -96,7 +96,12 @@ describe('PiStructuredSessionAdapter lifecycle proof', () => {
       readProcessStartTime: async (pid) => (pid === 4242 ? 12345 : null)
     })
     const acquired = await adapter.acquire({ identity: identity('ses-1'), fence: 7, spawnToken: 'spawn-1' })
-    expect(acquired.link.handle).toEqual({ provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-1' })
+    expect(acquired.link.handle).toEqual({
+      provider: 'pi',
+      sessionId: 'pi-ses-1',
+      leafId: 'leaf-1',
+      sessionFile: '/tmp/pi-ses-1.jsonl'
+    })
     expect(acquired.link.mintedAtFence).toBe(7)
     expect(acquired.process).toMatchObject({ pid: 4242, processStartTimeMs: 12345, spawnToken: 'spawn-1' })
     expect(typeof acquired.acquisitionGeneration).toBe('string')

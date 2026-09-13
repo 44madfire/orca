@@ -7,6 +7,7 @@ import { readStructuredTuiProcessIdentity } from './structured-tui-process-ident
 import { codexProviderHandleLink } from '../codex/codex-structured-owner-identity'
 import { claudeProviderHandleLink } from '../claude/claude-structured-owner-identity'
 import { piProviderHandleLink } from '../pi/pi-structured-owner-identity'
+import { buildPiTuiResumeProviderSession } from '../pi/pi-structured-tui-resume'
 import { StructuredTuiLaunchCleanupError } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 
 export class OrcaRuntimeWithStructuredAgentSessionLaunchTui extends OrcaRuntimeWithStartTuiIdleVisibleReadProbe {
@@ -28,13 +29,19 @@ export class OrcaRuntimeWithStructuredAgentSessionLaunchTui extends OrcaRuntimeW
           : provider === 'pi'
             ? head.handle.sessionId
             : head.handle.threadId
+      // Pi resumes by exact session file (`pi --session <file>`); the planner
+      // reads the host-owned locator off the durable chain head and fails
+      // closed when it is missing, so a stale record can never launch a fresh
+      // Pi session masquerading as a resume.
+      const piResumeSession =
+        provider === 'pi' ? buildPiTuiResumeProviderSession(record) : null
       const launchStartedAt = Date.now()
       const launched = await this.ensureAgentSession(
         {
           kind: 'explicit',
           worktree: `id:${record.location.workspaceId}`,
           agent: provider,
-          providerSession: { key: 'session_id', id: providerSessionId },
+          providerSession: piResumeSession ?? { key: 'session_id', id: providerSessionId },
           ...(record.options ? { launchPreferences: record.options } : {}),
           presentation: 'background'
         },
@@ -89,7 +96,8 @@ export class OrcaRuntimeWithStructuredAgentSessionLaunchTui extends OrcaRuntimeW
                     leafId: head.handle.leafId,
                     resumed: true,
                     fence,
-                    observedAt: Date.now()
+                    observedAt: Date.now(),
+                    ...(head.handle.sessionFile ? { sessionFile: head.handle.sessionFile } : {})
                   })
                 : claudeProviderHandleLink({
                     sessionId: head.handle.sessionId,

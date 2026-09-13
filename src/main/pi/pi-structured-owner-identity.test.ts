@@ -26,6 +26,31 @@ describe('Pi owner identity', () => {
     expect(resumed.origin).toBe('resumed')
   })
 
+  it('carries the host-observed session file without changing handle identity', () => {
+    const link = piProviderHandleLink({
+      sessionId: 'pi-ses-1',
+      leafId: 'leaf-9',
+      resumed: false,
+      fence: 3,
+      observedAt: 100,
+      sessionFile: '/tmp/pi-ses-1.jsonl'
+    })
+    expect(link.handle).toMatchObject({ provider: 'pi', sessionFile: '/tmp/pi-ses-1.jsonl' })
+    const bare = piProviderHandleLink({
+      sessionId: 'pi-ses-1',
+      leafId: 'leaf-9',
+      resumed: false,
+      fence: 3,
+      observedAt: 100
+    })
+    expect(agentSessionProviderHandleKey(link.handle)).toBe(
+      agentSessionProviderHandleKey(bare.handle)
+    )
+    expect(agentSessionProviderHandleRoot(link.handle)).toBe(
+      agentSessionProviderHandleRoot(bare.handle)
+    )
+  })
+
   it('records the observed start time alongside the spawn token', async () => {
     await expect(
       piProcessIdentity({ identity: IDENTITY, spawnToken: 'spawn-a', pid: 4242 }, async () => 123)

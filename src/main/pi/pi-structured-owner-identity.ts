@@ -51,12 +51,19 @@ export function piProviderHandleLink(input: {
   fence: number
   linkId?: string
   observedAt: number
+  /** Exact Pi session file from the backend acquire result (host-observed locator). */
+  sessionFile?: string
 }): AgentSessionProviderHandleLink {
   return {
     linkId:
       input.linkId ??
       `pi-${input.fence}-${input.sessionId}-${input.leafId ?? 'empty'}`.slice(0, 128),
-    handle: { provider: 'pi', sessionId: input.sessionId, leafId: input.leafId },
+    handle: {
+      provider: 'pi',
+      sessionId: input.sessionId,
+      leafId: input.leafId,
+      ...(input.sessionFile ? { sessionFile: input.sessionFile } : {})
+    },
     origin: input.origin ?? (input.resumed ? 'resumed' : 'created'),
     mintedAtFence: input.fence,
     observedAt: input.observedAt

@@ -24,7 +24,7 @@ export type AgentSessionProviderHandle =
   | { provider: 'claude'; sessionId: string; leafUuid: string | null }
   | { provider: 'codex'; threadId: string }
   | { provider: 'external'; sessionId: string }
-  | { provider: 'pi'; sessionId: string; leafId: string | null }
+  | { provider: 'pi'; sessionId: string; leafId: string | null; sessionFile?: string }
 
 export type AgentSessionProviderHandleOrigin = 'created' | 'adopted' | 'resumed' | 'forked'
 
@@ -71,8 +71,14 @@ export function isAgentSessionProviderHandle(value: unknown): value is AgentSess
   if (handle.provider === 'external') {
     return isHandleField(handle.sessionId)
   }
+  // `sessionFile` is locator metadata for `pi --session` resume, never identity:
+  // links enter the chain only via adapter-minted handles, never client params.
   if (handle.provider === 'pi') {
-    return isHandleField(handle.sessionId) && (handle.leafId === null || isHandleField(handle.leafId))
+    return (
+      isHandleField(handle.sessionId) &&
+      (handle.leafId === null || isHandleField(handle.leafId)) &&
+      (handle.sessionFile === undefined || isHandleField(handle.sessionFile))
+    )
   }
   return handle.provider === 'codex' && isHandleField(handle.threadId)
 }
