@@ -47,7 +47,7 @@ export type StructuredAgentSessionHandoffTransport = {
   revealNativeSession?(input: {
     workspaceId: string
     sessionId: string
-    agent?: 'claude' | 'codex' | 'external'
+    agent?: 'claude' | 'codex' | 'external' | 'pi'
     adoptedTerminal?: true
   }): Promise<void> | void
   waitForTuiExit(owner: StructuredTuiOwner): Promise<{ transcriptPath?: string }>

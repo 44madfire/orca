@@ -22,6 +22,7 @@ import {
 } from '../native-chat/agent-session-wire/structured-agent-session-host'
 import { StructuredAgentSessionAdapterRouter } from '../native-chat/agent-session-wire/structured-agent-session-adapter-router'
 import { createExternalStructuredSessionAdapterForRuntime } from '../native-chat/agent-session-wire/external/external-structured-runtime'
+import { PiStructuredSessionAdapter } from '../pi/pi-structured-session-adapter'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import {
@@ -287,12 +288,20 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       resolveWorkspacePath: deps.resolveWorkspacePath,
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
     })
+    // SNC1.9 native Pi: always installed for routing/capability gates. Without
+    // the Pi RPC backend it fails closed with PI_STRUCTURED_UNAVAILABLE so
+    // callers fall back to ordinary Pi TUI; Codex/Claude selection is unchanged.
+    const pi = new PiStructuredSessionAdapter({
+      resolveWorkspacePath: deps.resolveWorkspacePath,
+      ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
+    })
     const adapter = new StructuredAgentSessionAdapterRouter(
-      external ? { codex, claude, external } : { codex, claude },
+      external ? { codex, claude, pi, external } : { codex, claude, pi },
       async () => {
         await Promise.all([
           codex.closeAll(),
           claude.closeAll(),
+          pi.closeAll(),
           ...(external ? [external.closeAll()] : [])
         ])
       }

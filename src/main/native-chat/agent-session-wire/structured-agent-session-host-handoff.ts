@@ -189,6 +189,11 @@ export function structuredTuiTranscriptImportOptions(
   if (record.provider === 'codex') {
     return { codexSessionsDirs: [join(record.accountHome.path, 'sessions')] }
   }
+  // Pi history reconciles by provider-resume (Pi session file root → leaf),
+  // never by legacy row import; the legacy decoders cannot parse Pi rows.
+  // The reverse flow skips this import when historySource is provider-resume;
+  // reaching here for Pi means the TUI owner proved no resume source, so fail
+  // closed rather than mis-attributing another provider's transcript.
   // External bridge has no TUI transcript; fail closed rather than mis-attributing.
   throw new Error('structured_agent_session_unsupported')
 }

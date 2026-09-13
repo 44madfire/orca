@@ -4,15 +4,16 @@ import type { StructuredAgentSessionAdapter } from './structured-agent-session-a
 
 /**
  * Provider adapters behind one structured-session contract. `claude` and `codex` are always
- * present; `external` is the SNC1.3 dev seam (hot-swappable out-of-process bridge) and is only
- * installed when the dev flag + bridge command are configured — packaged Orca never sees it.
+ * present; `pi` is the SNC1.9 native Pi adapter (local-only, fail-closed without the Pi RPC
+ * backend); `external` is the SNC1.3 dev seam (hot-swappable out-of-process bridge) and is
+ * only installed when the dev flag + bridge command are configured — packaged Orca never sees it.
  */
 export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessionAdapter {
   private readonly owners = new Map<string, StructuredAgentSessionAdapter>()
 
   constructor(
     private readonly adapters: Record<'claude' | 'codex', StructuredAgentSessionAdapter> &
-      Partial<Record<'external', StructuredAgentSessionAdapter>>,
+      Partial<Record<'external' | 'pi', StructuredAgentSessionAdapter>>,
     private readonly closeAdapters: () => Promise<void>
   ) {}
 
@@ -167,6 +168,9 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
     }
     if (agent === 'external') {
       return this.adapters.external ?? null
+    }
+    if (agent === 'pi') {
+      return this.adapters.pi ?? null
     }
     return null
   }

@@ -6,17 +6,28 @@ import { readCodexResumeProcessIdentity } from '../codex/codex-resume-process-pr
 import { readStructuredTuiProcessIdentity } from './structured-tui-process-identity'
 import { codexProviderHandleLink } from '../codex/codex-structured-owner-identity'
 import { claudeProviderHandleLink } from '../claude/claude-structured-owner-identity'
+import { piProviderHandleLink } from '../pi/pi-structured-owner-identity'
 import { StructuredTuiLaunchCleanupError } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 
 export class OrcaRuntimeWithStructuredAgentSessionLaunchTui extends OrcaRuntimeWithStartTuiIdleVisibleReadProbe {
   protected createStructuredAgentSessionLaunchTuiCallback() {
     return async ({ record, fence, spawnToken, onSpawned }) => {
       const head = record.providerHandleChain.at(-1)
-      if (!head || (head.handle.provider !== 'codex' && head.handle.provider !== 'claude')) {
+      if (
+        !head ||
+        (head.handle.provider !== 'codex' &&
+          head.handle.provider !== 'claude' &&
+          head.handle.provider !== 'pi')
+      ) {
         throw new Error('agent_session_identity_required')
       }
       const provider = head.handle.provider
-      const providerSessionId = provider === 'claude' ? head.handle.sessionId : head.handle.threadId
+      const providerSessionId =
+        provider === 'claude'
+          ? head.handle.sessionId
+          : provider === 'pi'
+            ? head.handle.sessionId
+            : head.handle.threadId
       const launchStartedAt = Date.now()
       const launched = await this.ensureAgentSession(
         {
@@ -72,16 +83,27 @@ export class OrcaRuntimeWithStructuredAgentSessionLaunchTui extends OrcaRuntimeW
                   fence,
                   observedAt: Date.now()
                 })
-              : claudeProviderHandleLink({
-                  sessionId: head.handle.sessionId,
-                  leafUuid: head.handle.leafUuid,
-                  resumed: true,
-                  fence,
-                  observedAt: Date.now()
-                })
+              : provider === 'pi'
+                ? piProviderHandleLink({
+                    sessionId: head.handle.sessionId,
+                    leafId: head.handle.leafId,
+                    resumed: true,
+                    fence,
+                    observedAt: Date.now()
+                  })
+                : claudeProviderHandleLink({
+                    sessionId: head.handle.sessionId,
+                    leafUuid: head.handle.leafUuid,
+                    resumed: true,
+                    fence,
+                    observedAt: Date.now()
+                  })
         })
         await onSpawned?.(spawnedOwner)
         await this.waitForTerminal(terminal.handle, { condition: 'tui-idle', timeoutMs: 30000 })
+        // Pi TUI resume is proven by tui-idle + process identity; the Pi session
+        // file stays authoritative and structured resume reads root → leaf, so no
+        // Claude-style transcript proof applies here.
         const proof =
           provider === 'codex'
             ? await this.waitForAdoptedStructuredTuiProof({
@@ -89,15 +111,17 @@ export class OrcaRuntimeWithStructuredAgentSessionLaunchTui extends OrcaRuntimeW
                 threadId: head.handle.threadId,
                 codexHome: record.accountHome.path
               })
-            : await this.waitForStructuredClaudeTuiProof({
-                handle: terminal.handle,
-                paneKey: terminal.paneKey,
-                sessionId: head.handle.sessionId,
-                previousLeafUuid: head.handle.leafUuid,
-                projectsDir: join(record.accountHome.path, 'projects'),
-                spawnToken,
-                minimumProviderSessionReceivedAt: launchStartedAt
-              })
+            : provider === 'pi'
+              ? {}
+              : await this.waitForStructuredClaudeTuiProof({
+                  handle: terminal.handle,
+                  paneKey: terminal.paneKey,
+                  sessionId: head.handle.sessionId,
+                  previousLeafUuid: head.handle.leafUuid,
+                  projectsDir: join(record.accountHome.path, 'projects'),
+                  spawnToken,
+                  minimumProviderSessionReceivedAt: launchStartedAt
+                })
         const revealed = await this.focusTerminal(terminal.handle)
         return this.refreshStructuredTuiOwnerBinding({
           ...spawnedOwner,
