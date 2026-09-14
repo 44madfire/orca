@@ -107,6 +107,15 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
     return reader.call(owner, input)
   }
 
+  readResumeHistory = (input: { sessionId: string; fence: number }) => {
+    const owner = this.owner(input.sessionId)
+    const reader = owner.readResumeHistory
+    if (!reader) {
+      throw new Error(`structured session ${input.sessionId} does not support history resume`)
+    }
+    return reader.call(owner, input)
+  }
+
   readOptionRestoreFailures = (sessionId: string): readonly string[] =>
     this.owner(sessionId).readOptionRestoreFailures?.(sessionId) ?? []
 

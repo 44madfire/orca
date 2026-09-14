@@ -37,7 +37,7 @@ function fakeBackend(): PiStructuredBackend {
       pid: 4242,
       sessionFilePath: PI_FILE
     }),
-    dispatch: async () => ({ status: 'accepted', piSessionId: PI_SESSION_ID }),
+    dispatch: async () => ({ status: 'accepted' as const }),
     cancel: async () => ({ cancelled: true }),
     close: async () => true
   }
@@ -139,7 +139,15 @@ describe('Pi native acquire → TUI launch planning', () => {
       agent: 'pi',
       value: `pi:${PI_SESSION_ID}`
     })
-    const resumed = await adapter().acquire({ identity, fence: 4, spawnToken: 'spawn-2' })
+    const head = reloaded.providerHandleChain.at(-1)
+    const resumeSessionFile =
+      head?.handle.provider === 'pi' && head.handle.sessionFile ? head.handle.sessionFile : undefined
+    const resumed = await adapter().acquire({
+      identity,
+      fence: 4,
+      spawnToken: 'spawn-2',
+      ...(resumeSessionFile ? { resumeSessionFile } : {})
+    })
     expect(resumed.link.handle).toMatchObject({ provider: 'pi', sessionId: PI_SESSION_ID })
     // Same writer target: the resume did not fork a new Pi session.
     expect(agentSessionProviderHandleKey(resumed.link.handle)).toBe(

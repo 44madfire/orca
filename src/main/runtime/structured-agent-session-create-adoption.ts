@@ -22,12 +22,17 @@ type AdoptionSettings = {
 export function resolveCommittedStructuredAgentSessionAdoptionIntent(input: {
   host: StructuredAgentSessionHost | null
   envelope: { sessionId: string; clientOperationId: string }
-  agent: 'claude' | 'codex'
+  agent: 'claude' | 'codex' | 'pi'
   callerKey?: string
   resumeFrom?: { providerSessionId: string }
   location: AgentSessionExecutionLocation
   options?: Readonly<Record<string, string>>
 }): AgentSessionAttachParams | null {
+  // Pi has no transcript adoption (history resumes through structured
+  // re-acquire); there is no committed adoption replay to find.
+  if (input.agent === 'pi') {
+    return null
+  }
   const replay =
     input.resumeFrom && input.callerKey && input.host
       ? findCommittedStructuredAgentSessionAdoptionReplay({
@@ -63,11 +68,15 @@ export function resolveCommittedStructuredAgentSessionAdoptionIntent(input: {
 export async function resolveStructuredAgentSessionAdoptionForCreate(input: {
   host: StructuredAgentSessionHost | null
   settings: AdoptionSettings
-  agent: 'claude' | 'codex'
+  agent: 'claude' | 'codex' | 'pi'
   providerSessionId: string
   selfSessionId: string
   selectedAccountHomePath: string
 }) {
+  // Pi has no transcript decoder; adoption would mis-attribute history.
+  if (input.agent === 'pi') {
+    throw new Error('structured_agent_session_unsupported')
+  }
   const conflict = input.host
     ? findConflictingStructuredAdoption({
         agent: input.agent,
@@ -100,10 +109,10 @@ export async function resolveStructuredAgentSessionAdoptionForCreate(input: {
   })
 }
 
-/** Recognised adoption homes, most-preferred first. */
+/** Recognised adoption homes, most-preferred first. Pi never reaches here (refused above). */
 function structuredAdoptionAccountHomeCandidates(input: {
   settings: AdoptionSettings
-  agent: 'claude' | 'codex'
+  agent: 'claude' | 'codex' | 'pi'
   selectedAccountHomePath: string
 }): string[] {
   if (input.agent === 'claude') {

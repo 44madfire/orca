@@ -83,7 +83,7 @@ const ExecutionLocation = z
 
 const AccountHome = z
   .object({
-    variable: z.enum(['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'EXTERNAL_BRIDGE_DIR']),
+    variable: z.enum(['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'EXTERNAL_BRIDGE_DIR', 'PI_STATE_DIR']),
     path: z.string().min(1).max(4096)
   })
   .strict()
@@ -92,9 +92,9 @@ export const AttachParams = z
   .object({
     envelope: MutationEnvelope,
     location: ExecutionLocation,
-    // `external` is the SNC1.3 dev seam (explicit bridge path only; the worktree-intent
-    // create surface below stays claude/codex until a Pi-backed provider lands in SNC1.4+).
-    provider: z.enum(['codex', 'claude', 'external']),
+    // `external` is the SNC1.3 dev seam (explicit bridge path only); `pi` is the
+    // SNC1.9 native Pi provider (local-only structured sessions + Pi TUI handoff).
+    provider: z.enum(['codex', 'claude', 'external', 'pi']),
     agent: Identifier('Invalid agent'),
     accountHome: AccountHome,
     runtimeKind: z.enum(['native', 'tui']),
@@ -115,7 +115,7 @@ export const CreateIntentParams = z
   .object({
     envelope: MutationEnvelope,
     worktree: Identifier('Invalid worktree selector'),
-    agent: z.enum(['claude', 'codex']),
+    agent: z.enum(['claude', 'codex', 'pi']),
     resumeFrom: ResumeSource.optional()
   })
   .strict()
@@ -125,7 +125,7 @@ export const CreateParams = z.union([AttachParams, CreateIntentParams])
 export const CreateSupportParams = z
   .object({
     worktree: Identifier('Invalid worktree selector'),
-    agent: z.enum(['claude', 'codex'])
+    agent: z.enum(['claude', 'codex', 'pi'])
   })
   .strict()
 

@@ -10,6 +10,7 @@ import type {
 import type { AgentSessionProcessIdentity } from '../../shared/agent-session-record'
 import type { NativeChatBlock } from '../../shared/native-chat-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
+import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { piProcessIdentity } from './pi-structured-owner-identity'
 
 export type PiStructuredAcquireResult = {
@@ -17,32 +18,51 @@ export type PiStructuredAcquireResult = {
   leafId: string | null
   pid: number | undefined
   sessionFilePath?: string | null
+  model?: string
+  thinkingLevel?: string
 }
 
 export type PiStructuredDispatchResult =
-  | { status: 'accepted'; piSessionId: string }
-  | { status: 'rejected'; piSessionId: string; reason: string }
-  | { status: 'unknown'; piSessionId: string; reason: string }
+  | { status: 'accepted' }
+  | { status: 'rejected'; reason: string }
+  | { status: 'unknown'; reason: string }
 
 export type PiStructuredBackend = {
   acquire(input: {
+    orcaSessionId: string
     workspaceRoot: string
     resumePiSessionId?: string
+    resumeSessionFile?: string
     options?: Readonly<Record<string, string>>
     spawnToken: string
+    sink?: StructuredAgentSessionEventSink | null
   }): Promise<PiStructuredAcquireResult>
   dispatch(input: {
-    piSessionId: string
-    text: string
-    fence: number
+    orcaSessionId: string
+    body: AgentJournalMessageItem
   }): Promise<PiStructuredDispatchResult>
-  cancel(input: { piSessionId: string; fence: number }): Promise<{ cancelled: boolean }>
+  cancel(input: { orcaSessionId: string }): Promise<{ cancelled: boolean }>
   // Returns true only after the Pi child exit AND descendant cleanup are proven.
-  close(input: { piSessionId: string }): Promise<boolean>
-  sessionFilePath?(input: { piSessionId: string }): Promise<string | null>
-  answerPrompt?(input: { piSessionId: string; requestId: string; optionId: string }): Promise<void>
-  setOption?(input: { piSessionId: string; key: string; value: string }): Promise<void>
-  readOptions?(input: { piSessionId: string }): Promise<Readonly<Record<string, string>>>
+  // Throws when the root exit was observed but descendants stay unverified.
+  close(input: { orcaSessionId: string }): Promise<boolean>
+  sessionFilePath?(input: { orcaSessionId: string }): Promise<string | null>
+  answerPrompt?(input: {
+    itemKey: string
+    kind: 'approval' | 'question'
+    optionId: string
+  }): Promise<void>
+  setOption?(input: { orcaSessionId: string; key: string; value: string }): Promise<Record<string, string>>
+  readOptions?(input: { orcaSessionId: string }): Promise<{
+    options: Record<string, string>
+    model: string | undefined
+    thinkingLevel: string | undefined
+  }>
+  listModels?(input: { orcaSessionId: string }): Promise<{ id: string; provider: string }[]>
+  listThinkingLevels?(input: { orcaSessionId: string }): Promise<string[]>
+  readResumeHistory?(input: { orcaSessionId: string }): Promise<{
+    rows: { id: string; role: string; text: string }[]
+    leafId: string
+  }>
 }
 
 export function extractPiDispatchText(body: AgentJournalMessageItem): string {
@@ -65,6 +85,8 @@ export type PiStructuredSessionAdapterDeps = {
   now?: () => number
   backend?: PiStructuredBackend
   hostId?: string
+  /** Publishes adapter lifecycle events (unexpected exits) to the host. */
+  onEvent?: (event: StructuredAgentSessionLifecycleEvent) => void
 }
 
 export type PiSession = {
