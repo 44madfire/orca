@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
 import type { SpawnedProcess, spawnProcess } from '../../shared/child-process/run-process'
 import { forceTerminateProcessTree } from '../../shared/child-process/process-tree-termination'
-
+import { sweepCrashedServiceTree } from './plugin-service-crashed-tree-sweep'
+import type { SidecarRequestSendTarget } from './plugin-service-pending-requests'
 // Host-owned launch description. Built entirely from the service
 // registration + resolved worktree runtime; panel input never reaches here.
 export type SidecarLaunch = {
@@ -26,21 +27,15 @@ export type PluginServiceSidecarDeps = {
   // False once the owning host is torn down; guards against serving or
   // starting children from a disposed scope.
   isHostOpen?: () => boolean
+  // Crash-sweep override for the dead-root path (tests); production walks
+  // the Windows process table for surviving descendants.
+  sweepCrashedTreeImpl?: typeof sweepCrashedServiceTree
 }
 export type SteadyChildHandlers = {
   owner: SpawnedProcess
   onError: (error: Error) => void
   onExit: () => void
 }
-export type PendingServiceRequest = {
-  resolve: (value: unknown) => void
-  reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
-  signal?: AbortSignal
-  onAbort?: () => void
-  settled: boolean
-}
-
 export function jsonBytes(value: unknown): number | null {
   try {
     const text = JSON.stringify(value ?? null)
@@ -94,83 +89,6 @@ export function parseServiceRecord(
     throw serviceExecutionError('malformed-response', serviceId, 'unreadable response')
   }
   return { id: record.id, response: record.response ?? null }
-}
-
-// Pending-request registry: timeout detaches only the timed-out caller.
-export class SidecarPendingRequests {
-  readonly pending = new Map<string, PendingServiceRequest>()
-
-  get size(): number {
-    return this.pending.size
-  }
-
-  add(input: {
-    id: string
-    resolve: (value: unknown) => void
-    reject: (error: Error) => void
-    timeoutMs: number
-    signal?: AbortSignal
-    onTimeout: (id: string) => void
-    onCancel: (id: string) => void
-  }): void {
-    if (input.signal?.aborted) {
-      throw serviceExecutionError('cancelled', '<unknown>', 'request was cancelled')
-    }
-    const timer = setTimeout(() => input.onTimeout(input.id), input.timeoutMs)
-    timer.unref?.()
-    const entry: PendingServiceRequest = {
-      resolve: input.resolve,
-      reject: input.reject,
-      timer,
-      settled: false,
-      signal: input.signal
-    }
-    entry.onAbort = () => input.onCancel(input.id)
-    input.signal?.addEventListener('abort', entry.onAbort, { once: true })
-    this.pending.set(input.id, entry)
-  }
-
-  take(id: string): PendingServiceRequest | null {
-    const entry = this.pending.get(id)
-    if (!entry || entry.settled) {
-      return null
-    }
-    entry.settled = true
-    this.pending.delete(id)
-    clearTimeout(entry.timer)
-    entry.signal?.removeEventListener('abort', entry.onAbort as () => void)
-    return entry
-  }
-
-  failAll(error: Error): void {
-    for (const [, entry] of this.pending) {
-      if (entry.settled) {
-        continue
-      }
-      entry.settled = true
-      clearTimeout(entry.timer)
-      entry.signal?.removeEventListener('abort', entry.onAbort as () => void)
-      entry.reject(error)
-    }
-    this.pending.clear()
-  }
-
-  drainForClose(serviceId: string): void {
-    for (const [, entry] of this.pending) {
-      clearTimeout(entry.timer)
-      entry.signal?.removeEventListener('abort', entry.onAbort as () => void)
-      entry.reject(serviceExecutionError('cancelled', serviceId, 'service is closing'))
-    }
-    this.pending.clear()
-  }
-}
-
-export type SidecarRequestSendTarget = {
-  serviceId: string
-  child: SpawnedProcess | null
-  dead: Error | null
-  pending: SidecarPendingRequests
-  deps: PluginServiceSidecarDeps
 }
 
 // Correlated JSONL write; concurrent callers never see each other's payloads.
@@ -228,59 +146,71 @@ export function sendSidecarRequest(
 // Retired children awaiting proven termination (registered pre-await); at most
 // one kill attempt runs per victim so the recycled-PID check stays meaningful.
 export class SidecarVictimTracker {
+  constructor(
+    private readonly terminateImpl?: typeof forceTerminateProcessTree,
+    private readonly sweepImpl: typeof sweepCrashedServiceTree = sweepCrashedServiceTree
+  ) {}
+
   private readonly victims = new Set<SpawnedProcess>()
   private readonly inFlight = new Map<SpawnedProcess, Promise<boolean>>()
 
-  retire(
-    victim: SpawnedProcess,
-    terminateImpl?: typeof forceTerminateProcessTree
-  ): Promise<boolean> {
+  retire(victim: SpawnedProcess): Promise<boolean> {
     const running = this.inFlight.get(victim)
     if (running) {
       return running
     }
     this.victims.add(victim)
-    const attempt = terminateSidecarChild(victim, terminateImpl).then((proven) => {
-      if (proven) {
-        this.victims.delete(victim)
+    const attempt = terminateSidecarChild(victim, this.terminateImpl, this.sweepImpl).then(
+      (proven) => {
+        if (proven) {
+          this.victims.delete(victim)
+        }
+        if (this.inFlight.get(victim) === attempt) {
+          this.inFlight.delete(victim)
+        }
+        return proven
       }
-      if (this.inFlight.get(victim) === attempt) {
-        this.inFlight.delete(victim)
-      }
-      return proven
-    })
+    )
     this.inFlight.set(victim, attempt)
     return attempt
   }
 
-  async redrive(terminateImpl?: typeof forceTerminateProcessTree): Promise<boolean> {
+  async redrive(): Promise<boolean> {
     let verified = true
     // Deleting during Set iteration is safe; each victim is visited once.
     for (const victim of this.victims) {
-      if (!(await this.drive(victim, terminateImpl))) {
+      if (!(await this.drive(victim))) {
         verified = false
       }
     }
     return verified && this.victims.size === 0
   }
 
-  private drive(
-    victim: SpawnedProcess,
-    terminateImpl?: typeof forceTerminateProcessTree
-  ): Promise<boolean> {
-    return this.inFlight.get(victim) ?? this.retire(victim, terminateImpl)
+  private drive(victim: SpawnedProcess): Promise<boolean> {
+    return this.inFlight.get(victim) ?? this.retire(victim)
   }
 }
 
 // Best-effort tree kill so WSL/Windows descendants die with the root.
 // True only when termination verified; callers propagate a false return so
-// teardown retries instead of forgetting a possibly-live tree.
+// teardown retries instead of forgetting a possibly-live tree. A root that
+// already exited takes the crash sweep on Windows (explicit descendant pids,
+// never a /T walk from a possibly-reused root); other hosts keep the group
+// semantics of forceTerminateProcessTree.
 export async function terminateSidecarChild(
   child: SpawnedProcess,
-  terminateImpl?: typeof forceTerminateProcessTree
+  terminateImpl?: typeof forceTerminateProcessTree,
+  sweepImpl: typeof sweepCrashedServiceTree = sweepCrashedServiceTree
 ): Promise<boolean> {
-  const terminate = terminateImpl ?? forceTerminateProcessTree
-  const verified = await terminate(child).catch(() => false)
+  const dead = (child.exitCode ?? null) !== null || (child.signalCode ?? null) !== null
+  const pid = typeof child.pid === 'number' ? child.pid : null
+  let verified: boolean
+  if (dead && pid !== null && process.platform === 'win32') {
+    verified = await sweepImpl(pid).catch(() => false)
+  } else {
+    const terminate = terminateImpl ?? forceTerminateProcessTree
+    verified = await terminate(child).catch(() => false)
+  }
   try {
     child.kill('SIGKILL')
   } catch {

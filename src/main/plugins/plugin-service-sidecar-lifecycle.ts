@@ -3,7 +3,6 @@ import type { SpawnedProcess } from '../../shared/child-process/run-process'
 import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
 import { startSidecarProcess } from './plugin-service-sidecar-startup'
 import {
-  SidecarPendingRequests,
   SidecarVictimTracker,
   jsonBytes,
   parseServiceRecord,
@@ -14,7 +13,7 @@ import {
   type SidecarLaunch,
   type SteadyChildHandlers
 } from './plugin-service-sidecar-transport'
-
+import { SidecarPendingRequests } from './plugin-service-pending-requests'
 const DEFAULT_MAX_LINE_BYTES = 256 * 1024
 // One long-lived child over bounded JSONL; requests correlate by id.
 export class PluginServiceSidecar {
@@ -26,7 +25,7 @@ export class PluginServiceSidecar {
   private starting: Promise<void> | null = null
   private closed = false
   // Retired victims awaiting proven termination; close() re-drives them.
-  private readonly victims = new SidecarVictimTracker()
+  private readonly victims: SidecarVictimTracker
   private steady: SteadyChildHandlers | null = null
   private readonly onData = (chunk: Buffer | string): void => this.onStdout(chunk)
   private readonly onStderr = (): void => {}
@@ -35,7 +34,9 @@ export class PluginServiceSidecar {
     private readonly serviceId: string,
     private readonly launch: SidecarLaunch,
     private readonly deps: PluginServiceSidecarDeps = {}
-  ) {}
+  ) {
+    this.victims = new SidecarVictimTracker(this.deps.terminateImpl, this.deps.sweepCrashedTreeImpl)
+  }
   async invoke(request: unknown, options: SidecarInvokeOptions = {}): Promise<unknown> {
     if (this.closed) {
       throw serviceExecutionError('crashed', this.serviceId, 'service is closed')
@@ -63,11 +64,11 @@ export class PluginServiceSidecar {
     let verified = true
     if (child) {
       this.detach(child)
-      if (!(await this.victims.retire(child, this.deps.terminateImpl))) {
+      if (!(await this.victims.retire(child))) {
         verified = false
       }
     }
-    if (!(await this.victims.redrive(this.deps.terminateImpl))) {
+    if (!(await this.victims.redrive())) {
       verified = false
     }
     return verified
@@ -99,21 +100,19 @@ export class PluginServiceSidecar {
 
   private async startAndGuard(): Promise<void> {
     await this.starting
-    // The host may have disposed mid-start; drop the orphan deterministically
-    // instead of serving requests from a torn-down scope.
+    // A mid-start dispose drops the orphan instead of serving a torn-down scope.
     if (this.closed || !this.hostOpen()) {
       const orphan = this.child
       this.child = null
       if (orphan) {
         this.detach(orphan)
-        await this.victims.retire(orphan, this.deps.terminateImpl)
+        await this.victims.retire(orphan)
       }
       throw serviceExecutionError('crashed', this.serviceId, 'service host is closed')
     }
   }
 
-  // A failed startup never reaches steady state: drop every listener the
-  // attempt attached and retire the child instead of promoting or leaking it.
+  // A failed startup never reaches steady state: drop listeners, retire child.
   private abandonStart(child: SpawnedProcess): void {
     if (this.child === child) {
       this.child = null
@@ -121,7 +120,7 @@ export class PluginServiceSidecar {
     child.stdout?.off('data', this.onData)
     child.stderr?.off('data', this.onStderr)
     if (!this.closed) {
-      void this.victims.retire(child, this.deps.terminateImpl)
+      void this.victims.retire(child)
     }
   }
 
@@ -195,22 +194,28 @@ export class PluginServiceSidecar {
     // Byte-safe: a multibyte point split across events must not decode halves.
     this.buffer += typeof chunk === 'string' ? chunk : this.decoder.write(chunk)
     const maxLine = this.deps.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES
-    if (Buffer.byteLength(this.buffer, 'utf8') > maxLine * 4) {
-      this.protocolViolation(
-        serviceExecutionError('malformed-response', this.serviceId, 'unreadable response')
-      )
-      return
-    }
     const { lines, rest } = splitFramedLines(this.buffer)
     this.buffer = rest
     for (const line of lines) {
       if (line.length === 0) {
         continue
       }
+      // Per-record bound: oversized lines fail; many small lines never trip.
+      if (Buffer.byteLength(line, 'utf8') > maxLine) {
+        this.protocolViolation(
+          serviceExecutionError('malformed-response', this.serviceId, 'unreadable response')
+        )
+        return
+      }
       this.onLine(line)
       if (this.closed) {
         return
       }
+    }
+    if (Buffer.byteLength(this.buffer, 'utf8') > maxLine) {
+      this.protocolViolation(
+        serviceExecutionError('malformed-response', this.serviceId, 'unreadable response')
+      )
     }
   }
 
@@ -245,7 +250,7 @@ export class PluginServiceSidecar {
     this.decoder = new StringDecoder('utf8')
     this.failAll(error)
     if (victim) {
-      void this.victims.retire(victim, this.deps.terminateImpl)
+      void this.victims.retire(victim)
     }
   }
 
@@ -258,7 +263,7 @@ export class PluginServiceSidecar {
     this.child = null
     this.buffer = ''
     this.decoder = new StringDecoder('utf8')
-    await this.victims.retire(victim, this.deps.terminateImpl)
+    await this.victims.retire(victim)
   }
 
   private detach(child: SpawnedProcess): void {
@@ -274,15 +279,13 @@ export class PluginServiceSidecar {
   }
 
   // A crash keeps tree accountability: the dead root retires through the
-  // victim tracker instead of being forgotten, so surviving descendants
-  // stay inside dispose() even though restart proceeds immediately.
+  // victim tracker, so descendants stay inside dispose().
   private failAll(error: Error, retire?: SpawnedProcess | null): void {
     this.dead =
       error instanceof ServiceExecutionError
         ? error
         : serviceExecutionError('crashed', this.serviceId, 'service exited')
-    // A crashed child may still deliver trailing stdout after exit; detach
-    // first so its bytes can never parse as the replacement's stream.
+    // Detach first: trailing stdout after exit must not parse as the next stream.
     const deadChild = this.child
     if (deadChild) {
       this.detach(deadChild)
@@ -291,7 +294,7 @@ export class PluginServiceSidecar {
     this.steady = null
     this.pending.failAll(this.dead)
     if (retire) {
-      void this.victims.retire(retire, this.deps.terminateImpl)
+      void this.victims.retire(retire)
     }
   }
 }
