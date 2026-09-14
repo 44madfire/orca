@@ -639,4 +639,89 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
     ).rejects.toMatchObject({ code: 'service-unavailable' })
     await execution.dispose()
   })
+
+  it('refuses to spawn when dispose wins the race with resolution', async () => {
+    let spawns = 0
+    const fakeSpawn = (() => {
+      spawns += 1
+      return createFakeChild(
+        echoOnWrite((request) => ({ echo: request }))
+      ) as unknown as ReturnType<typeof spawnProcess>
+    }) as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({
+      platform: 'win32',
+      runtimeProbe: {
+        platform: 'win32',
+        parseWslUncPath: () => ({ distro: 'Ubuntu', linuxPath: '/home/u/wt' }),
+        isWslAvailable: () => true,
+        listWslDistros: () => ['Ubuntu']
+      },
+      spawnImpl: fakeSpawn
+    })
+    execution.register({
+      serviceId: 'demo.race-close',
+      launch: { command: '/usr/local/bin/demo-bridge', args: [], env: {} },
+      limits: { terminateImpl: fakeTerminate }
+    })
+    const pending = execution.invoke({
+      serviceId: 'demo.race-close',
+      worktree: { worktreeId: 'wt', path: '\\\\wsl.localhost\\Ubuntu\\home\\u\\wt' },
+      request: null
+    })
+    await execution.dispose()
+    await expect(pending).rejects.toMatchObject({ code: 'crashed' })
+    expect(spawns).toBe(0)
+  })
+
+  it('ignores trailing stdout from a crashed child after exit', async () => {
+    const children: FakeChild[] = []
+    const fakeSpawn = (() => {
+      if (children.length === 0) {
+        const first = createFakeChild((_line, child) => {
+          child.emit('exit', 1, null)
+          // Buffered stdio may still arrive after exit; it belongs to no request.
+          child.stdout.emit('data', '{"id":"frag')
+        })
+        children.push(first)
+        return first as unknown as ReturnType<typeof spawnProcess>
+      }
+      const next = createFakeChild(echoOnWrite((request) => ({ echo: request })))
+      children.push(next)
+      return next as unknown as ReturnType<typeof spawnProcess>
+    }) as unknown as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
+    execution.register(
+      nativeEchoDefinition('demo.trailing', undefined, { terminateImpl: fakeTerminate })
+    )
+    const worktree = { worktreeId: 'wt', path: '/tmp/wt' }
+    await expect(
+      execution.invoke({ serviceId: 'demo.trailing', worktree, request: null })
+    ).rejects.toMatchObject({ code: 'crashed' })
+    await expect(
+      execution.invoke({ serviceId: 'demo.trailing', worktree, request: { n: 2 } })
+    ).resolves.toEqual({ echo: { n: 2 } })
+    expect(children.length).toBe(2)
+    await execution.dispose()
+  })
+
+  it('re-drives termination on retry instead of repeating a stored verdict', async () => {
+    let calls = 0
+    const fakeSpawn = (() =>
+      createFakeChild(echoOnWrite((request) => ({ echo: request }))) as unknown as ReturnType<
+        typeof spawnProcess
+      >) as unknown as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
+    execution.register({
+      serviceId: 'demo.retry',
+      launch: { command: '/opt/host-owned/bridge', args: [], env: {} },
+      limits: { terminateImpl: async () => ++calls !== 1 }
+    })
+    const worktree = { worktreeId: 'wt', path: '/tmp/wt' }
+    await expect(
+      execution.invoke({ serviceId: 'demo.retry', worktree, request: null })
+    ).resolves.toEqual({ echo: null })
+    await expect(execution.dispose()).resolves.toBeUndefined()
+    // First close drove termination and failed; the retry re-drove it.
+    expect(calls).toBe(2)
+  })
 })

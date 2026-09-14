@@ -1,6 +1,7 @@
 import { StringDecoder } from 'node:string_decoder'
-import { spawnProcess, type SpawnedProcess } from '../../shared/child-process/run-process'
+import type { SpawnedProcess } from '../../shared/child-process/run-process'
 import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
+import { startSidecarProcess } from './plugin-service-sidecar-startup'
 import {
   SidecarPendingRequests,
   jsonBytes,
@@ -8,13 +9,12 @@ import {
   sendSidecarRequest,
   splitFramedLines,
   terminateSidecarChild,
-  toStartError,
   type PluginServiceSidecarDeps,
   type SidecarInvokeOptions,
-  type SidecarLaunch
+  type SidecarLaunch,
+  type SteadyChildHandlers
 } from './plugin-service-sidecar-transport'
 
-const STARTUP_GRACE_MS = 50
 const DEFAULT_MAX_LINE_BYTES = 256 * 1024
 // One long-lived child over bounded JSONL; requests correlate by id.
 export class PluginServiceSidecar {
@@ -26,12 +26,9 @@ export class PluginServiceSidecar {
   private starting: Promise<void> | null = null
   private closed = false
   private shutdownVerified = true
-  private steady: {
-    owner: SpawnedProcess
-    onError: (error: Error) => void
-    onExit: () => void
-  } | null = null
-  // Stable refs for detach.
+  // Retired victims awaiting proven termination; close() re-drives them.
+  private readonly unverified = new Set<SpawnedProcess>()
+  private steady: SteadyChildHandlers | null = null
   private readonly onData = (chunk: Buffer | string): void => this.onStdout(chunk)
   private readonly onStderr = (): void => {}
 
@@ -56,19 +53,39 @@ export class PluginServiceSidecar {
     return this.sendRequest(request, options)
   }
 
-  // True only when tree termination verified; false keeps the registry entry for retry.
+  // True only when tree termination verified; false keeps the registry entry.
+  // The victim is preserved across retries so every attempt re-drives termination.
   async close(): Promise<boolean> {
     this.closed = true
     this.pending.drainForClose(this.serviceId)
     const child = this.child
     this.child = null
     this.buffer = ''
-    if (!child) {
-      return this.shutdownVerified
+    this.decoder = new StringDecoder('utf8')
+    let verified = true
+    // Snapshot first: a victim stashed by this same call waits for the next
+    // attempt instead of paying a second termination spawn immediately.
+    const backlog = [...this.unverified]
+    if (child) {
+      this.detach(child)
+      if (!(await terminateSidecarChild(child, this.deps.terminateImpl))) {
+        this.unverified.add(child)
+        verified = false
+      }
     }
-    this.detach(child)
-    this.shutdownVerified = await terminateSidecarChild(child, this.deps.terminateImpl)
+    for (const victim of backlog) {
+      if (await terminateSidecarChild(victim, this.deps.terminateImpl)) {
+        this.unverified.delete(victim)
+      } else {
+        verified = false
+      }
+    }
+    this.shutdownVerified = verified && this.unverified.size === 0
     return this.shutdownVerified
+  }
+
+  private hostOpen(): boolean {
+    return this.deps.isHostOpen?.() ?? true
   }
 
   private ensureStarted(): Promise<void> {
@@ -77,97 +94,64 @@ export class PluginServiceSidecar {
     }
     // Crashed sidecars restart on next invoke; start failures reject once.
     this.dead = null
-    this.starting ??= this.start().finally(() => {
+    this.starting ??= startSidecarProcess({
+      serviceId: this.serviceId,
+      launch: this.launch,
+      deps: this.deps,
+      onSpawned: (child) => this.adopt(child),
+      onStartFailed: () => {
+        this.child = null
+      },
+      onLiveFailure: (error) => this.failAll(error),
+      trackSteady: (child) => this.trackSteady(child)
+    }).finally(() => {
       this.starting = null
     })
-    return this.starting
+    return this.startAndGuard()
   }
 
-  private start(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      let child: SpawnedProcess
-      try {
-        const spawn = this.deps.spawnImpl ?? spawnProcess
-        child = spawn({
-          program: this.launch.program,
-          args: [...this.launch.args],
-          ...(this.launch.cwd !== undefined ? { cwd: this.launch.cwd } : {}),
-          ...(this.launch.env !== undefined ? { env: this.launch.env } : {}),
-          stdio: ['pipe', 'pipe', 'pipe'],
-          detached: process.platform !== 'win32'
-        }) as SpawnedProcess
-      } catch (error) {
-        reject(toStartError(error, this.serviceId))
+  private async startAndGuard(): Promise<void> {
+    await this.starting
+    // The host may have disposed mid-start; drop the orphan deterministically
+    // instead of serving requests from a torn-down scope.
+    if (this.closed || !this.hostOpen()) {
+      const orphan = this.child
+      this.child = null
+      if (orphan) {
+        this.detach(orphan)
+        await terminateSidecarChild(orphan, this.deps.terminateImpl)
+      }
+      throw serviceExecutionError('crashed', this.serviceId, 'service host is closed')
+    }
+  }
+
+  private adopt(child: SpawnedProcess): void {
+    this.child = child
+    this.buffer = ''
+    this.decoder = new StringDecoder('utf8')
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      stream?.on('error', () => {})
+    }
+    child.stdout?.on('data', this.onData)
+    child.stderr?.on('data', this.onStderr)
+  }
+
+  private trackSteady(child: SpawnedProcess): void {
+    const steadyError = (error: Error): void => {
+      if (this.child !== child) {
         return
       }
-      this.child = child
-      this.buffer = ''
-      this.decoder = new StringDecoder('utf8')
-      for (const stream of [child.stdin, child.stdout, child.stderr]) {
-        stream?.on('error', () => {})
+      this.failAll(error)
+    }
+    const steadyExit = (): void => {
+      if (this.child !== child) {
+        return
       }
-      child.stdout?.on('data', this.onData)
-      child.stderr?.on('data', this.onStderr)
-      let settled = false
-      const grace = setTimeout(() => {
-        if (!settled) {
-          settled = true
-          rewire()
-          resolve()
-        }
-      }, this.deps.startupGraceMs ?? STARTUP_GRACE_MS)
-      grace.unref?.()
-      const onError = (error: Error): void => {
-        if (!settled) {
-          settled = true
-          clearTimeout(grace)
-          rewire()
-          this.child = null
-          reject(toStartError(error, this.serviceId))
-          return
-        }
-        this.failAll(error)
-      }
-      const onExit = (code: unknown): void => {
-        if (!settled) {
-          settled = true
-          clearTimeout(grace)
-          rewire()
-          this.child = null
-          reject(
-            serviceExecutionError(
-              'start-failed',
-              this.serviceId,
-              `service exited during startup (code=${String(code)})`
-            )
-          )
-          return
-        }
-        this.failAll(serviceExecutionError('crashed', this.serviceId, 'service exited'))
-      }
-      // Steady handlers ignore children they no longer own.
-      const rewire = (): void => {
-        child.off('error', onError)
-        child.off('exit', onExit)
-        const steadyError = (error: Error): void => {
-          if (this.child !== child) {
-            return
-          }
-          this.failAll(error)
-        }
-        const steadyExit = (): void => {
-          if (this.child !== child) {
-            return
-          }
-          this.failAll(serviceExecutionError('crashed', this.serviceId, 'service exited'))
-        }
-        this.steady = { owner: child, onError: steadyError, onExit: steadyExit }
-        child.on('error', steadyError)
-        child.on('exit', steadyExit)
-      }
-      child.once('error', onError)
-      child.once('exit', onExit)
-    })
+      this.failAll(serviceExecutionError('crashed', this.serviceId, 'service exited'))
+    }
+    this.steady = { owner: child, onError: steadyError, onExit: steadyExit }
+    child.on('error', steadyError)
+    child.on('exit', steadyExit)
   }
 
   private sendRequest(request: unknown, options: SidecarInvokeOptions): Promise<unknown> {
@@ -250,7 +234,7 @@ export class PluginServiceSidecar {
     entry.resolve(record.response)
   }
 
-  // Ends this child but not the scope: terminate the victim, then restart fresh.
+  // Ends this child but not the scope: retire the victim, then restart fresh.
   private protocolViolation(error: Error): void {
     const victim = this.child
     if (victim) {
@@ -261,11 +245,11 @@ export class PluginServiceSidecar {
     this.decoder = new StringDecoder('utf8')
     this.failAll(error)
     if (victim) {
-      void terminateSidecarChild(victim, this.deps.terminateImpl)
+      void this.retireVictim(victim)
     }
   }
 
-  // Detach + terminate only the targeted child; detach is synchronous.
+  // Detach + retire only the targeted child; detach is synchronous.
   private async recycle(victim: SpawnedProcess | null): Promise<void> {
     if (!victim || this.child !== victim) {
       return
@@ -274,7 +258,15 @@ export class PluginServiceSidecar {
     this.child = null
     this.buffer = ''
     this.decoder = new StringDecoder('utf8')
-    await terminateSidecarChild(victim, this.deps.terminateImpl)
+    await this.retireVictim(victim)
+  }
+
+  // Proven termination or tracked accountability for the retired victim.
+  private async retireVictim(victim: SpawnedProcess): Promise<void> {
+    if (await terminateSidecarChild(victim, this.deps.terminateImpl)) {
+      return
+    }
+    this.unverified.add(victim)
   }
 
   private detach(child: SpawnedProcess): void {
@@ -288,11 +280,18 @@ export class PluginServiceSidecar {
     child.stdout?.off('data', this.onData)
     child.stderr?.off('data', this.onStderr)
   }
+
   private failAll(error: Error): void {
     this.dead =
       error instanceof ServiceExecutionError
         ? error
         : serviceExecutionError('crashed', this.serviceId, 'service exited')
+    // A crashed child may still deliver trailing stdout after exit; detach
+    // first so its bytes can never parse as the replacement's stream.
+    const deadChild = this.child
+    if (deadChild) {
+      this.detach(deadChild)
+    }
     this.child = null
     this.steady = null
     this.pending.failAll(this.dead)

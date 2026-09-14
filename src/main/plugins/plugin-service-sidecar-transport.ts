@@ -33,6 +33,14 @@ export type PluginServiceSidecarDeps = {
   maxRequestBytes?: number
   maxResponseBytes?: number
   maxLineBytes?: number
+  // False once the owning host is torn down; guards against serving or
+  // starting children from a disposed scope.
+  isHostOpen?: () => boolean
+}
+export type SteadyChildHandlers = {
+  owner: SpawnedProcess
+  onError: (error: Error) => void
+  onExit: () => void
 }
 export type PendingServiceRequest = {
   resolve: (value: unknown) => void

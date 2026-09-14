@@ -127,6 +127,11 @@ export class PluginServiceRuntimeExecution {
       throw serviceExecutionError('service-unavailable', input.serviceId, 'unknown service')
     }
     const runtime = await this.resolveRuntime(input.serviceId, input.worktree)
+    // Runtime resolution awaits; the host may have disposed meanwhile, so
+    // re-check before installing or starting any child in a torn-down scope.
+    if (this.disposed) {
+      throw serviceExecutionError('crashed', input.serviceId, 'service host is closed')
+    }
     const sidecar = this.sidecarFor(input.serviceId, definition, runtime)
     try {
       return await sidecar.invoke(input.request, {
@@ -208,9 +213,13 @@ export class PluginServiceRuntimeExecution {
     if (existing) {
       return existing
     }
+    if (this.disposed) {
+      throw serviceExecutionError('crashed', serviceId, 'service host is closed')
+    }
     const launch = this.buildLaunch(definition, runtime)
     const sidecar = new PluginServiceSidecar(serviceId, launch, {
       ...definition.limits,
+      isHostOpen: () => !this.disposed,
       ...(this.deps.spawnImpl ? { spawnImpl: this.deps.spawnImpl } : {})
     })
     this.sidecars.set(key, sidecar)
