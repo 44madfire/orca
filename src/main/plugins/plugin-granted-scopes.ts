@@ -26,3 +26,17 @@ export function grantedServiceIdsFor(
   }
   return collectGrantedServiceIds(plugin.manifest.capabilities)
 }
+
+export type GrantedScopesResolver = {
+  findValidPlugin(pluginKey: string): ValidDiscoveredPlugin | null
+  isRuntimeApproved(plugin: ValidDiscoveredPlugin): boolean
+}
+
+// Production chokepoint helper so PluginService stays under its line budget.
+export function resolveGrantedServiceIds(
+  service: GrantedScopesResolver,
+  pluginKey: string
+): string[] | null {
+  const plugin = service.findValidPlugin(pluginKey)
+  return grantedServiceIdsFor(plugin, !!plugin && service.isRuntimeApproved(plugin))
+}

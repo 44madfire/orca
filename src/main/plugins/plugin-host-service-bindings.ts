@@ -43,15 +43,21 @@ export type PluginHostServiceHandler = (
 export type PluginHostServiceRegistry = ReadonlyMap<string, PluginHostServiceHandler>
 
 export function bindPluginHostServices(input: {
-  delegate: PluginRuntimeDelegate
+  delegate: PluginRuntimeDelegate | null
   pluginsDataDir: string
   subscribeEvents: (pluginKey: string, events: PluginEventName[]) => PluginEventName[]
   services?: PluginHostServiceRegistry | null
 }): PluginHostServices {
   const { delegate, pluginsDataDir, subscribeEvents, services: serviceRegistry } = input
+  const requireDelegate = (): PluginRuntimeDelegate => {
+    if (!delegate) {
+      throw new Error('runtime is not available')
+    }
+    return delegate
+  }
   return {
     resolveActiveWorktreeContext: async () => {
-      const context = await delegate.resolveActiveWorktreeContext()
+      const context = await requireDelegate().resolveActiveWorktreeContext()
       if (!context) {
         return null
       }
@@ -64,7 +70,7 @@ export function bindPluginHostServices(input: {
       }
     },
     listWorktreeTerminals: async (worktreeId) => {
-      const result = await delegate.listTerminals(
+      const result = await requireDelegate().listTerminals(
         `id:${worktreeId}`,
         PLUGIN_WORKSPACE_TERMINAL_LIMIT,
         { includeVisualLayouts: false }
@@ -75,7 +81,7 @@ export function bindPluginHostServices(input: {
     },
     sendTerminalText: async (terminalId, action) => {
       try {
-        const result = await delegate.sendTerminal(terminalId, action)
+        const result = await requireDelegate().sendTerminal(terminalId, action)
         return { accepted: result.accepted }
       } catch (error) {
         // Why: the plugin API carries only `accepted`, so a lease refusal would read as a silent
@@ -86,7 +92,8 @@ export function bindPluginHostServices(input: {
         throw error
       }
     },
-    dispatchPluginNotification: (notification) => delegate.dispatchPluginNotification(notification),
+    dispatchPluginNotification: (notification) =>
+      requireDelegate().dispatchPluginNotification(notification),
     storage: {
       get: (key, itemKey) => new PluginKvStore(pluginsDataDir, key, 'storage.json').get(itemKey),
       set: (key, itemKey, value) =>

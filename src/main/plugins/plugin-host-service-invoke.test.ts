@@ -461,7 +461,11 @@ afterEach(async () => {
 })
 
 describe('service.invoke production PluginService wiring', () => {
-  it('invokes a host-registered service through PluginService.executeHostCall', async () => {
+  async function installServiceInvokePlugin(): Promise<{
+    userDataPath: string
+    pluginKey: string
+    manifest: ReturnType<typeof pluginManifestSchema.parse>
+  }> {
     const userDataPath = await mkdtemp(join(tmpdir(), 'orca-service-invoke-service-'))
     serviceInvokeRoots.push(userDataPath)
     const pluginKey = PLUGIN_KEY
@@ -491,6 +495,11 @@ describe('service.invoke production PluginService wiring', () => {
     }
     await rename(stagingDir, join(pluginDir, content.hash))
     await writeFile(join(pluginDir, 'current'), content.hash)
+    return { userDataPath, pluginKey, manifest }
+  }
+
+  it('invokes a host-registered service through PluginService.executeHostCall', async () => {
+    const { userDataPath, pluginKey, manifest } = await installServiceInvokePlugin()
     const service = new PluginService({
       userDataPath,
       hostVersion: '1.4.0',
@@ -507,6 +516,31 @@ describe('service.invoke production PluginService wiring', () => {
         sendTerminal: async () => ({ accepted: true }),
         dispatchPluginNotification: async () => ({ delivered: true })
       })
+      await service.initialize()
+      const outcome = await service.executeHostCall(
+        pluginKey,
+        'service.invoke',
+        { serviceId: SERVICE_ID, request: { op: 'ping' } },
+        { viaPanel: true }
+      )
+      expect(outcome).toEqual({ ok: true, value: { response: { echo: { op: 'ping' } } } })
+    } finally {
+      await service.dispose()
+    }
+  })
+
+  it('invokes host services without a runtime delegate', async () => {
+    const { userDataPath, pluginKey, manifest } = await installServiceInvokePlugin()
+    const service = new PluginService({
+      userDataPath,
+      hostVersion: '1.4.0',
+      isPluginSystemEnabled: () => true,
+      getDisabledPlugins: () => [],
+      getPluginConsents: () => ({ [pluginKey]: fingerprintPluginConsent(manifest) }),
+      getDevPluginPaths: () => [],
+      hostServices: new Map([[SERVICE_ID, async (request) => ({ echo: request })]])
+    })
+    try {
       await service.initialize()
       const outcome = await service.executeHostCall(
         pluginKey,

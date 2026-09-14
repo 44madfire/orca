@@ -1,6 +1,6 @@
 import type { PluginEventName } from '../../shared/plugins/plugin-manifest'
 import type { PluginCapabilityKind } from '../../shared/plugins/plugin-capabilities'
-import { grantedCapabilityKindsFor, grantedServiceIdsFor } from './plugin-granted-scopes'
+import { grantedCapabilityKindsFor, resolveGrantedServiceIds } from './plugin-granted-scopes'
 import {
   getPluginActivationState,
   type PluginConsentLists
@@ -211,7 +211,7 @@ export class PluginService {
     })
   }
 
-  private isRuntimeApproved(plugin: ValidDiscoveredPlugin): boolean {
+  isRuntimeApproved(plugin: ValidDiscoveredPlugin): boolean {
     return (
       this.contentPacksReady &&
       this.activationState(plugin) === 'approved' &&
@@ -240,12 +240,6 @@ export class PluginService {
     return grantedCapabilityKindsFor(plugin, plugin ? this.isRuntimeApproved(plugin) : false)
   }
 
-  /** Explicitly authorized service ids; null when consent is stale. */
-  getGrantedServiceIds(pluginKey: string): string[] | null {
-    const plugin = this.findValidPlugin(pluginKey)
-    return grantedServiceIdsFor(plugin, plugin ? this.isRuntimeApproved(plugin) : false)
-  }
-
   /** Host API chokepoint for both transports (worker fork IPC + panel
    *  bridge); serve RPC reuses it through the same entry points. */
   async executeHostCall(
@@ -260,15 +254,17 @@ export class PluginService {
       viaPanel: options.viaPanel,
       resolvePolicy: (boundPluginKey) => ({
         grantedCapabilities: this.getGrantedCapabilities(boundPluginKey),
-        grantedServiceIds: this.getGrantedServiceIds(boundPluginKey),
-        services: this.runtimeDelegate
-          ? bindPluginHostServices({
-              delegate: this.runtimeDelegate,
-              pluginsDataDir: getPluginsDataDir(this.options.userDataPath),
-              subscribeEvents: (key, events) => this.eventBus.subscribe(key, events),
-              services: this.options.hostServices ?? null
-            })
-          : null,
+        grantedServiceIds: resolveGrantedServiceIds(this, boundPluginKey),
+        // service.invoke needs only the host-owned registry, not the delegate.
+        services:
+          this.runtimeDelegate || method === 'service.invoke'
+            ? bindPluginHostServices({
+                delegate: this.runtimeDelegate,
+                pluginsDataDir: getPluginsDataDir(this.options.userDataPath),
+                subscribeEvents: (key, events) => this.eventBus.subscribe(key, events),
+                services: this.options.hostServices ?? null
+              })
+            : null,
         audit: this.audit
       })
     })
