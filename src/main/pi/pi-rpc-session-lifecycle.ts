@@ -23,6 +23,7 @@
 import { isAbsolute } from 'node:path'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { PiRpcConnection } from './rpc/pi-rpc-connection'
+import { PiRpcError } from './rpc/pi-rpc-errors'
 import { resolvePiRpcEnv, toPiRpcProcessSpec } from './rpc/pi-rpc-launch'
 import type { PiState } from './rpc/pi-wire-protocol'
 import { spawnProcess } from '../../shared/child-process/run-process'
@@ -167,6 +168,13 @@ export abstract class PiRpcSessionLifecycle {
       await conn.start()
     } catch (error) {
       await conn.close(0).catch(() => undefined)
+      // A spawn error means the OS never created a provider process. Drop the
+      // transport ownership so a missing/unrunnable binary remains retryable;
+      // startup failures after spawn stay fenced through backend cleanup.
+      if (error instanceof PiRpcError && error.code === 'spawn-failed') {
+        this.conn = null
+        this.child = null
+      }
       throw new Error(`PI_STARTUP_FAILED: ${classifyStartupError(error)}`)
     }
     try {

@@ -156,6 +156,60 @@ describe('Pi RPC backend over a scripted child', () => {
     }
   })
 
+  it.each([
+    [
+      'false',
+      'PI_ACQUIRE_UNCLOSED: failed Pi session teardown was not proven',
+      'PI_STALE_SESSION_UNCLOSED: previous Pi session exit was not proven'
+    ],
+    [
+      'throws',
+      'PI_ACQUIRE_UNCLOSED: failed Pi session teardown was not proven',
+      'PI_STALE_SESSION_UNCLOSED: previous Pi session teardown failed'
+    ]
+  ])(
+    'fences a spawned driver when acquisition cleanup %s',
+    async (_outcome, firstError, expectedError) => {
+      const dir = workspace()
+      const file = join(dir, 'pi-session.jsonl')
+      writeFileSync(file, '')
+      const backend = backendWithScript({
+        PI_SCRIPT_SESSION_FILE: file,
+        PI_SCRIPT_EXIT_AT_START: '1'
+      })
+      const acquire = vi.spyOn(PiRpcSessionDriver.prototype, 'acquire')
+      const close = vi.spyOn(PiRpcSessionDriver.prototype, 'close')
+      if (_outcome === 'false') {
+        close.mockResolvedValue(false)
+      } else {
+        close.mockRejectedValue(new Error('teardown failed'))
+      }
+      try {
+        await expect(
+          backend.acquire({
+            orcaSessionId: 'ses-acquire-failed',
+            workspaceRoot: dir,
+            spawnToken: 's1'
+          })
+        ).rejects.toThrow(firstError)
+        expect(acquire).toHaveBeenCalledTimes(1)
+        await expect(
+          backend.acquire({
+            orcaSessionId: 'ses-acquire-failed',
+            workspaceRoot: dir,
+            spawnToken: 's2'
+          })
+        ).rejects.toThrow(expectedError)
+        expect(acquire).toHaveBeenCalledTimes(1)
+      } finally {
+        close.mockRestore()
+        acquire.mockRestore()
+        await backend.close({ orcaSessionId: 'ses-acquire-failed' }).catch(() => undefined)
+        rmDir(dir)
+      }
+    }
+  )
+
   it('dispatches text to settled with journaled rows and cleared activity', async () => {
     const dir = workspace()
     const file = join(dir, 'pi-session.jsonl')

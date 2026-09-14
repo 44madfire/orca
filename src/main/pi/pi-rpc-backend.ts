@@ -73,7 +73,16 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
           ...(input.sink !== undefined ? { sink: input.sink } : {})
         })
       } catch (error) {
-        await driver.close().catch(() => undefined)
+        let closed = false
+        try {
+          closed = await driver.close()
+        } catch {
+          // Keep the failed driver registered below so a retry must reconcile it.
+        }
+        if (!closed) {
+          drivers.set(input.orcaSessionId, driver)
+          throw new Error('PI_ACQUIRE_UNCLOSED: failed Pi session teardown was not proven')
+        }
         throw error
       }
       drivers.set(input.orcaSessionId, driver)
