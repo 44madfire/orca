@@ -32,15 +32,32 @@ export type PluginRuntimeDelegate = {
   }): Promise<{ delivered: boolean }>
 }
 
+/** Host-owned service implementation: receives only a structured JSON
+ *  request, never exec paths, shell strings, cwd, or env overrides. */
+export type PluginHostServiceHandler = (
+  request: unknown,
+  context: { pluginId: string; serviceId: string }
+) => Promise<unknown> | unknown
+
+/** Host-owned registry: only ids registered by trusted host code are callable. */
+export type PluginHostServiceRegistry = ReadonlyMap<string, PluginHostServiceHandler>
+
 export function bindPluginHostServices(input: {
-  delegate: PluginRuntimeDelegate
+  delegate: PluginRuntimeDelegate | null
   pluginsDataDir: string
   subscribeEvents: (pluginKey: string, events: PluginEventName[]) => PluginEventName[]
+  services?: PluginHostServiceRegistry | null
 }): PluginHostServices {
-  const { delegate, pluginsDataDir, subscribeEvents } = input
+  const { delegate, pluginsDataDir, subscribeEvents, services: serviceRegistry } = input
+  const requireDelegate = (): PluginRuntimeDelegate => {
+    if (!delegate) {
+      throw new Error('runtime is not available')
+    }
+    return delegate
+  }
   return {
     resolveActiveWorktreeContext: async () => {
-      const context = await delegate.resolveActiveWorktreeContext()
+      const context = await requireDelegate().resolveActiveWorktreeContext()
       if (!context) {
         return null
       }
@@ -53,7 +70,7 @@ export function bindPluginHostServices(input: {
       }
     },
     listWorktreeTerminals: async (worktreeId) => {
-      const result = await delegate.listTerminals(
+      const result = await requireDelegate().listTerminals(
         `id:${worktreeId}`,
         PLUGIN_WORKSPACE_TERMINAL_LIMIT,
         { includeVisualLayouts: false }
@@ -64,7 +81,7 @@ export function bindPluginHostServices(input: {
     },
     sendTerminalText: async (terminalId, action) => {
       try {
-        const result = await delegate.sendTerminal(terminalId, action)
+        const result = await requireDelegate().sendTerminal(terminalId, action)
         return { accepted: result.accepted }
       } catch (error) {
         // Why: the plugin API carries only `accepted`, so a lease refusal would read as a silent
@@ -75,7 +92,8 @@ export function bindPluginHostServices(input: {
         throw error
       }
     },
-    dispatchPluginNotification: (notification) => delegate.dispatchPluginNotification(notification),
+    dispatchPluginNotification: (notification) =>
+      requireDelegate().dispatchPluginNotification(notification),
     storage: {
       get: (key, itemKey) => new PluginKvStore(pluginsDataDir, key, 'storage.json').get(itemKey),
       set: (key, itemKey, value) =>
@@ -94,6 +112,13 @@ export function bindPluginHostServices(input: {
       set: (key, itemKey, value) =>
         new PluginKvStore(pluginsDataDir, key, 'settings.json').set(itemKey, value)
     },
-    subscribeEvents
+    subscribeEvents,
+    invokeService: async (pluginId, serviceId, request) => {
+      const handler = serviceRegistry?.get(serviceId)
+      if (!handler) {
+        throw new Error(`unknown service: ${serviceId}`)
+      }
+      return handler(request, { pluginId, serviceId })
+    }
   }
 }

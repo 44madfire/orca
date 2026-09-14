@@ -44,7 +44,7 @@ export type PluginHostListEntry = {
   isDev: boolean
   official: boolean
   bundled: boolean
-  capabilities: { kind: string; description: string }[]
+  capabilities: { kind: string; description: string; serviceIds?: string[] }[]
   panels: PluginHostPanel[]
   commands: {
     id: string

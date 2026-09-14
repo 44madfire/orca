@@ -1,4 +1,5 @@
 import {
+  mergeServiceInvokeCapabilities,
   PLUGIN_CAPABILITY_DESCRIPTIONS,
   type PluginCapabilityKind
 } from '../../shared/plugins/plugin-capabilities'
@@ -55,7 +56,7 @@ export type PluginListEntry = {
   isDev: boolean
   official: boolean
   bundled: boolean
-  capabilities: { kind: PluginCapabilityKind; description: string }[]
+  capabilities: { kind: PluginCapabilityKind; description: string; serviceIds?: string[] }[]
   panels: PluginListPanelEntry[]
   commands: {
     id: string
@@ -167,10 +168,15 @@ export async function buildPluginList(
         isDev: plugin.isDev,
         official,
         bundled,
-        capabilities: plugin.manifest.capabilities.map((capability) => ({
-          kind: capability.kind,
-          description: PLUGIN_CAPABILITY_DESCRIPTIONS[capability.kind]
-        })),
+        capabilities: mergeServiceInvokeCapabilities(plugin.manifest.capabilities).map(
+          (capability) => ({
+            kind: capability.kind,
+            description: PLUGIN_CAPABILITY_DESCRIPTIONS[capability.kind],
+            ...(capability.kind === 'service:invoke'
+              ? { serviceIds: [...(capability.serviceIds ?? [])].sort() }
+              : {})
+          })
+        ),
         panels: plugin.manifest.contributes.panels.map((panel) => ({
           id: panel.id,
           title: panel.title,
