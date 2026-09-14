@@ -9,6 +9,7 @@ import { listWslDistrosAsync } from '../wsl'
 import {
   resolveServiceWorktreeRuntime,
   serviceRuntimeScopeKey,
+  serviceTeardownScopeKey,
   type ServiceRuntimeProbe,
   type TrustedServiceWorktree
 } from './plugin-service-worktree-runtime'
@@ -143,9 +144,10 @@ export class PluginServiceRuntimeExecution {
     }
   }
 
+  // Teardown resolves the scope from path shape alone: a WSL runtime that
+  // has since become unavailable must not shield a running sidecar from close.
   async closeScope(serviceId: string, worktree: TrustedServiceWorktree): Promise<void> {
-    const runtime = await this.resolveRuntime(serviceId, worktree)
-    const key = serviceRuntimeScopeKey(serviceId, runtime)
+    const key = serviceTeardownScopeKey(serviceId, worktree, this.deps.platform ?? process.platform)
     const sidecar = this.sidecars.get(key)
     if (!sidecar) {
       return

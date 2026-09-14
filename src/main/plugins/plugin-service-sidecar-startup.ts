@@ -13,7 +13,7 @@ export type SidecarStartupEvents = {
   launch: SidecarLaunch
   deps: PluginServiceSidecarDeps
   onSpawned: (child: SpawnedProcess) => void
-  onStartFailed: () => void
+  onStartFailed: (child: SpawnedProcess) => void
   onLiveFailure: (error: Error) => void
   trackSteady: (child: SpawnedProcess) => void
 }
@@ -52,8 +52,8 @@ export function startSidecarProcess(events: SidecarStartupEvents): Promise<void>
       if (!settled) {
         settled = true
         clearTimeout(grace)
-        rewire()
-        events.onStartFailed()
+        dropStartupListeners()
+        events.onStartFailed(child)
         reject(toStartError(error, events.serviceId))
         return
       }
@@ -63,8 +63,8 @@ export function startSidecarProcess(events: SidecarStartupEvents): Promise<void>
       if (!settled) {
         settled = true
         clearTimeout(grace)
-        rewire()
-        events.onStartFailed()
+        dropStartupListeners()
+        events.onStartFailed(child)
         reject(
           serviceExecutionError(
             'start-failed',
@@ -76,9 +76,12 @@ export function startSidecarProcess(events: SidecarStartupEvents): Promise<void>
       }
       events.onLiveFailure(serviceExecutionError('crashed', events.serviceId, 'service exited'))
     }
-    const rewire = (): void => {
+    const dropStartupListeners = (): void => {
       child.off('error', onError)
       child.off('exit', onExit)
+    }
+    const rewire = (): void => {
+      dropStartupListeners()
       events.trackSteady(child)
     }
     child.once('error', onError)

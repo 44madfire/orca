@@ -130,3 +130,23 @@ export function serviceRuntimeScopeKey(
     runtime.worktreeId
   ].join('\u0000')
 }
+
+// Teardown key without health checks: locating an existing scope for close
+// must not depend on WSL currently answering, exactly when teardown matters.
+export function serviceTeardownScopeKey(
+  serviceId: string,
+  identity: TrustedServiceWorktree,
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (platform === 'win32') {
+    const wsl = parseWslUncPath(identity.path)
+    if (wsl && wsl.distro) {
+      return serviceRuntimeScopeKey(serviceId, {
+        kind: 'wsl',
+        worktreeId: identity.worktreeId,
+        distro: wsl.distro
+      })
+    }
+  }
+  return serviceRuntimeScopeKey(serviceId, { kind: 'native', worktreeId: identity.worktreeId })
+}

@@ -4,11 +4,11 @@ import { ServiceExecutionError, serviceExecutionError } from './plugin-service-e
 import { startSidecarProcess } from './plugin-service-sidecar-startup'
 import {
   SidecarPendingRequests,
+  SidecarVictimTracker,
   jsonBytes,
   parseServiceRecord,
   sendSidecarRequest,
   splitFramedLines,
-  terminateSidecarChild,
   type PluginServiceSidecarDeps,
   type SidecarInvokeOptions,
   type SidecarLaunch,
@@ -25,9 +25,8 @@ export class PluginServiceSidecar {
   private dead: Error | null = null
   private starting: Promise<void> | null = null
   private closed = false
-  private shutdownVerified = true
   // Retired victims awaiting proven termination; close() re-drives them.
-  private readonly unverified = new Set<SpawnedProcess>()
+  private readonly victims = new SidecarVictimTracker()
   private steady: SteadyChildHandlers | null = null
   private readonly onData = (chunk: Buffer | string): void => this.onStdout(chunk)
   private readonly onStderr = (): void => {}
@@ -54,7 +53,6 @@ export class PluginServiceSidecar {
   }
 
   // True only when tree termination verified; false keeps the registry entry.
-  // The victim is preserved across retries so every attempt re-drives termination.
   async close(): Promise<boolean> {
     this.closed = true
     this.pending.drainForClose(this.serviceId)
@@ -63,25 +61,16 @@ export class PluginServiceSidecar {
     this.buffer = ''
     this.decoder = new StringDecoder('utf8')
     let verified = true
-    // Snapshot first: a victim stashed by this same call waits for the next
-    // attempt instead of paying a second termination spawn immediately.
-    const backlog = [...this.unverified]
     if (child) {
       this.detach(child)
-      if (!(await terminateSidecarChild(child, this.deps.terminateImpl))) {
-        this.unverified.add(child)
+      if (!(await this.victims.retire(child, this.deps.terminateImpl))) {
         verified = false
       }
     }
-    for (const victim of backlog) {
-      if (await terminateSidecarChild(victim, this.deps.terminateImpl)) {
-        this.unverified.delete(victim)
-      } else {
-        verified = false
-      }
+    if (!(await this.victims.redrive(this.deps.terminateImpl))) {
+      verified = false
     }
-    this.shutdownVerified = verified && this.unverified.size === 0
-    return this.shutdownVerified
+    return verified
   }
 
   private hostOpen(): boolean {
@@ -99,9 +88,7 @@ export class PluginServiceSidecar {
       launch: this.launch,
       deps: this.deps,
       onSpawned: (child) => this.adopt(child),
-      onStartFailed: () => {
-        this.child = null
-      },
+      onStartFailed: (child) => this.abandonStart(child),
       onLiveFailure: (error) => this.failAll(error),
       trackSteady: (child) => this.trackSteady(child)
     }).finally(() => {
@@ -119,9 +106,22 @@ export class PluginServiceSidecar {
       this.child = null
       if (orphan) {
         this.detach(orphan)
-        await terminateSidecarChild(orphan, this.deps.terminateImpl)
+        await this.victims.retire(orphan, this.deps.terminateImpl)
       }
       throw serviceExecutionError('crashed', this.serviceId, 'service host is closed')
+    }
+  }
+
+  // A failed startup never reaches steady state: drop every listener the
+  // attempt attached and retire the child instead of promoting or leaking it.
+  private abandonStart(child: SpawnedProcess): void {
+    if (this.child === child) {
+      this.child = null
+    }
+    child.stdout?.off('data', this.onData)
+    child.stderr?.off('data', this.onStderr)
+    if (!this.closed) {
+      void this.victims.retire(child, this.deps.terminateImpl)
     }
   }
 
@@ -141,13 +141,13 @@ export class PluginServiceSidecar {
       if (this.child !== child) {
         return
       }
-      this.failAll(error)
+      this.failAll(error, child)
     }
     const steadyExit = (): void => {
       if (this.child !== child) {
         return
       }
-      this.failAll(serviceExecutionError('crashed', this.serviceId, 'service exited'))
+      this.failAll(serviceExecutionError('crashed', this.serviceId, 'service exited'), child)
     }
     this.steady = { owner: child, onError: steadyError, onExit: steadyExit }
     child.on('error', steadyError)
@@ -245,7 +245,7 @@ export class PluginServiceSidecar {
     this.decoder = new StringDecoder('utf8')
     this.failAll(error)
     if (victim) {
-      void this.retireVictim(victim)
+      void this.victims.retire(victim, this.deps.terminateImpl)
     }
   }
 
@@ -258,18 +258,12 @@ export class PluginServiceSidecar {
     this.child = null
     this.buffer = ''
     this.decoder = new StringDecoder('utf8')
-    await this.retireVictim(victim)
-  }
-
-  // Proven termination or tracked accountability for the retired victim.
-  private async retireVictim(victim: SpawnedProcess): Promise<void> {
-    if (await terminateSidecarChild(victim, this.deps.terminateImpl)) {
-      return
-    }
-    this.unverified.add(victim)
+    await this.victims.retire(victim, this.deps.terminateImpl)
   }
 
   private detach(child: SpawnedProcess): void {
+    child.stdout?.off('data', this.onData)
+    child.stderr?.off('data', this.onStderr)
     const steady = this.steady
     if (steady?.owner !== child) {
       return
@@ -277,11 +271,12 @@ export class PluginServiceSidecar {
     this.steady = null
     child.off('error', steady.onError)
     child.off('exit', steady.onExit)
-    child.stdout?.off('data', this.onData)
-    child.stderr?.off('data', this.onStderr)
   }
 
-  private failAll(error: Error): void {
+  // A crash keeps tree accountability: the dead root retires through the
+  // victim tracker instead of being forgotten, so surviving descendants
+  // stay inside dispose() even though restart proceeds immediately.
+  private failAll(error: Error, retire?: SpawnedProcess | null): void {
     this.dead =
       error instanceof ServiceExecutionError
         ? error
@@ -295,5 +290,8 @@ export class PluginServiceSidecar {
     this.child = null
     this.steady = null
     this.pending.failAll(this.dead)
+    if (retire) {
+      void this.victims.retire(retire, this.deps.terminateImpl)
+    }
   }
 }

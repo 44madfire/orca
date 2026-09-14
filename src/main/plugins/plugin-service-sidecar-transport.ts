@@ -237,6 +237,38 @@ export function sendSidecarRequest(
   })
 }
 
+// Retired children awaiting proven termination. Registration happens before
+// the first await so a concurrent teardown can never miss an in-flight victim.
+export class SidecarVictimTracker {
+  private readonly victims = new Set<SpawnedProcess>()
+
+  retire(
+    victim: SpawnedProcess,
+    terminateImpl?: typeof forceTerminateProcessTree
+  ): Promise<boolean> {
+    this.victims.add(victim)
+    return terminateSidecarChild(victim, terminateImpl).then((proven) => {
+      if (proven) {
+        this.victims.delete(victim)
+      }
+      return proven
+    })
+  }
+
+  async redrive(terminateImpl?: typeof forceTerminateProcessTree): Promise<boolean> {
+    let verified = true
+    // Deleting during Set iteration is safe; each victim is visited once.
+    for (const victim of this.victims) {
+      if (await terminateSidecarChild(victim, terminateImpl)) {
+        this.victims.delete(victim)
+      } else {
+        verified = false
+      }
+    }
+    return verified && this.victims.size === 0
+  }
+}
+
 // Best-effort tree kill so WSL/Windows descendants die with the root.
 // True only when termination verified; callers propagate a false return so
 // teardown retries instead of forgetting a possibly-live tree.
