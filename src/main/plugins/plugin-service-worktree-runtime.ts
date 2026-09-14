@@ -53,6 +53,8 @@ function assertTrustedWorktree(identity: TrustedServiceWorktree): void {
 
 // Resolve where a worktree's service executes, host-side. WSL detection uses
 // the trusted path's UNC spelling; panel distro/cwd hints are never read.
+// Direct callers must supply availability/distro probes; production defaults
+// live in `defaultServiceRuntimeProbe` (used by PluginServiceRuntimeExecution).
 export function resolveServiceWorktreeRuntime(
   identity: TrustedServiceWorktree,
   probe: ServiceRuntimeProbe = {}

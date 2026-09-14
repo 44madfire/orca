@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { spawnProcess } from '../../shared/child-process/run-process'
 import {
   PluginServiceRuntimeExecution,
+  defaultServiceRuntimeProbe,
   type RegisteredServiceDefinition
 } from './plugin-service-runtime-execution'
 import { ServiceExecutionError } from './plugin-service-execution-errors'
@@ -383,5 +384,111 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
     expect(() =>
       resolveServiceWorktreeRuntime({ worktreeId: '', path: '/tmp/wt' }, { platform: 'linux' })
     ).toThrow()
+  })
+
+  it('keeps the replacement sidecar alive when the recycled child exits late', async () => {
+    const children: FakeChild[] = []
+    const box: { held: { line: string; child: FakeChild } | null } = { held: null }
+    const fakeSpawn = (() => {
+      if (children.length === 0) {
+        const hung = createFakeChild(() => {})
+        children.push(hung)
+        return hung as unknown as ReturnType<typeof spawnProcess>
+      }
+      const next = createFakeChild((line, child) => {
+        if (!box.held) {
+          box.held = { line, child }
+          return
+        }
+        echoOnWrite((request) => ({ echo: request }))(line, child)
+      })
+      children.push(next)
+      return next as unknown as ReturnType<typeof spawnProcess>
+    }) as unknown as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
+    execution.register(nativeEchoDefinition('demo.race', undefined, { requestTimeoutMs: 500 }))
+    const worktree = { worktreeId: 'wt', path: '/tmp/wt' }
+    await expect(
+      execution.invoke({ serviceId: 'demo.race', worktree, request: null })
+    ).rejects.toMatchObject({
+      code: 'timeout'
+    })
+    // The replacement starts while the victim is still shutting down; the
+    // victim's late exit must not poison the replacement's requests.
+    const second = execution.invoke({ serviceId: 'demo.race', worktree, request: { n: 2 } })
+    for (let waited = 0; !box.held && waited < 2000; waited += 5) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    const h = box.held as { line: string; child: FakeChild } | null
+    expect(h).not.toBeNull()
+    ;(children[0] as unknown as EventEmitter | undefined)?.emit('exit', null, 'SIGKILL')
+    if (h) {
+      echoOnWrite((request) => ({ echo: request }))(h.line, h.child)
+    }
+    await expect(second).resolves.toEqual({ echo: { n: 2 } })
+    await expect(
+      execution.invoke({ serviceId: 'demo.race', worktree, request: { n: 3 } })
+    ).resolves.toEqual({ echo: { n: 3 } })
+    expect(children.length).toBe(2)
+    await execution.dispose()
+  })
+
+  it('decodes multibyte UTF-8 split across stdout chunks without corruption', async () => {
+    const fakeSpawn = (() =>
+      createFakeChild((line, child) => {
+        const msg = JSON.parse(line) as { id: string }
+        const record = `${JSON.stringify({ id: msg.id, response: { echo: '🎉 done' } })}\n`
+        const bytes = Buffer.from(record, 'utf8')
+        // Split inside the emoji's 4-byte sequence: the ASCII prefix plus one byte of 🎉.
+        const asciiPrefix = JSON.stringify({ id: msg.id, response: { echo: '' } }).slice(0, -2)
+        const at = Buffer.byteLength(asciiPrefix, 'utf8') + 1
+        queueMicrotask(() => {
+          child.stdout.emit('data', bytes.subarray(0, at))
+          child.stdout.emit('data', bytes.subarray(at))
+        })
+      }) as unknown as ReturnType<typeof spawnProcess>) as unknown as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
+    execution.register(nativeEchoDefinition('demo.utf8'))
+    await expect(
+      execution.invoke({
+        serviceId: 'demo.utf8',
+        worktree: { worktreeId: 'wt', path: '/tmp/wt' },
+        request: null
+      })
+    ).resolves.toEqual({ echo: '🎉 done' })
+    await execution.dispose()
+  })
+
+  it('checks real WSL availability on the non-injected production path', async () => {
+    expect(defaultServiceRuntimeProbe('linux')).toEqual({ platform: 'linux' })
+    const probe = defaultServiceRuntimeProbe('win32')
+    expect(typeof probe.isWslAvailable).toBe('function')
+    expect(typeof probe.listWslDistros).toBe('function')
+    const launches: { program: string }[] = []
+    const fakeSpawn = ((spec: { program: string }) => {
+      launches.push({ program: spec.program })
+      return createFakeChild(
+        echoOnWrite((request) => ({ echo: request }))
+      ) as unknown as ReturnType<typeof spawnProcess>
+    }) as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'win32', spawnImpl: fakeSpawn })
+    execution.register({
+      serviceId: 'demo.prod',
+      launch: { command: '/usr/local/bin/demo-bridge', args: [], env: {} }
+    })
+    const worktree = { worktreeId: 'wt', path: '\\\\wsl.localhost\\Ubuntu\\home\\u\\wt' }
+    try {
+      const response = await execution.invoke({ serviceId: 'demo.prod', worktree, request: null })
+      expect(response).toEqual({ echo: null })
+      expect(launches[0]?.program).toBe('wsl.exe')
+    } catch (error) {
+      // No WSL or no Ubuntu here: still a stable normalized code, never a raw spawn failure.
+      expect(error).toBeInstanceOf(ServiceExecutionError)
+      expect(['wsl-unavailable', 'distro-unavailable']).toContain(
+        (error as ServiceExecutionError).code
+      )
+      expect(launches).toHaveLength(0)
+    }
+    await execution.dispose()
   })
 })

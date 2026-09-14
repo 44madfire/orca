@@ -1,6 +1,7 @@
-import { serviceExecutionError } from './plugin-service-execution-errors'
-import type { spawnProcess } from '../../shared/child-process/run-process'
-import type { forceTerminateProcessTree } from '../../shared/child-process/process-tree-termination'
+import { randomUUID } from 'node:crypto'
+import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
+import type { SpawnedProcess, spawnProcess } from '../../shared/child-process/run-process'
+import { forceTerminateProcessTree } from '../../shared/child-process/process-tree-termination'
 
 // Host-owned launch description. Built entirely from the service
 // registration + resolved worktree runtime; panel input never reaches here.
@@ -134,7 +135,7 @@ export class SidecarPendingRequests {
     return entry
   }
 
-  failAll(error: Error): { dead: Error } {
+  failAll(error: Error): void {
     for (const [, entry] of this.pending) {
       if (entry.settled) {
         continue
@@ -145,7 +146,6 @@ export class SidecarPendingRequests {
       entry.reject(error)
     }
     this.pending.clear()
-    return { dead: error }
   }
 
   drainForClose(serviceId: string): void {
@@ -155,5 +155,90 @@ export class SidecarPendingRequests {
       entry.reject(serviceExecutionError('cancelled', serviceId, 'service is closing'))
     }
     this.pending.clear()
+  }
+}
+
+export type SidecarRequestSendTarget = {
+  serviceId: string
+  child: SpawnedProcess | null
+  dead: Error | null
+  pending: SidecarPendingRequests
+  deps: PluginServiceSidecarDeps
+}
+
+// Correlated JSONL write behind one sidecar; concurrent callers never see
+// each other's payloads. Rejects locally on validation/write failure.
+export function sendSidecarRequest(
+  target: SidecarRequestSendTarget,
+  request: unknown,
+  options: SidecarInvokeOptions & {
+    onTimeout: (id: string) => void
+    onCancel: (id: string) => void
+  }
+): Promise<unknown> {
+  if (!target.child || target.dead) {
+    return Promise.reject(serviceExecutionError('crashed', target.serviceId, 'service exited'))
+  }
+  const child = target.child
+  const id = randomUUID()
+  const line = `${JSON.stringify({ id, request })}\n`
+  const timeoutMs = options.timeoutMs ?? target.deps.requestTimeoutMs ?? 30_000
+  return new Promise<unknown>((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(serviceExecutionError('cancelled', target.serviceId, 'request was cancelled'))
+      return
+    }
+    try {
+      target.pending.add({
+        id,
+        resolve,
+        reject,
+        timeoutMs,
+        signal: options.signal,
+        onTimeout: options.onTimeout,
+        onCancel: options.onCancel
+      })
+    } catch (error) {
+      reject(
+        error instanceof ServiceExecutionError
+          ? error
+          : serviceExecutionError('cancelled', target.serviceId, 'request was cancelled')
+      )
+      return
+    }
+    try {
+      child.stdin?.write(line)
+    } catch (error) {
+      target.pending.take(id)
+      reject(
+        error instanceof ServiceExecutionError
+          ? error
+          : serviceExecutionError('crashed', target.serviceId, 'service exited')
+      )
+    }
+  })
+}
+
+// Best-effort tree kill so WSL/Windows descendants die with the root.
+export async function terminateSidecarChild(
+  child: SpawnedProcess,
+  terminateImpl?: typeof forceTerminateProcessTree
+): Promise<void> {
+  const terminate = terminateImpl ?? forceTerminateProcessTree
+  await terminate(child).catch(() => false)
+  try {
+    child.kill('SIGKILL')
+  } catch {
+    /* already gone */
+  }
+  try {
+    child.stdout?.destroy()
+  } catch {
+    /* ignore */
+  }
+  try {
+    child.stderr?.destroy()
+  } catch {
+    /* ignore */
   }
 }

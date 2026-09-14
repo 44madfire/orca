@@ -3,6 +3,8 @@ import { buildWslExecArgs, quotePosixShell } from '../../shared/wsl-login-shell-
 import type { spawnProcess } from '../../shared/child-process/run-process'
 import { closeProcessRegistry } from '../../shared/child-process/close-process-registry'
 import { resolveWslInteropSpawnCwd } from '../wsl-interop-spawn-directory'
+import { isWslAvailable } from '../wsl-availability'
+import { listWslDistros } from '../wsl'
 import {
   resolveServiceWorktreeRuntime,
   serviceRuntimeScopeKey,
@@ -40,6 +42,20 @@ export type PluginServiceRuntimeExecutionDeps = {
   runtimeProbe?: ServiceRuntimeProbe
   spawnImpl?: typeof spawnProcess
   wslExecutable?: string
+}
+
+// Production WSL probes. Injected `runtimeProbe` fields override these, so
+// tests stay off real wsl.exe while production always checks availability
+// and the distro list before spawning (cached, bounded, shared with git/PTY).
+export function defaultServiceRuntimeProbe(platform: NodeJS.Platform): ServiceRuntimeProbe {
+  if (platform !== 'win32') {
+    return { platform }
+  }
+  return {
+    platform,
+    isWslAvailable: () => isWslAvailable(),
+    listWslDistros: () => listWslDistros()
+  }
 }
 
 const MAX_COMMAND_LENGTH = 1024
@@ -151,7 +167,7 @@ export class PluginServiceRuntimeExecution {
   private resolveRuntime(serviceId: string, worktree: TrustedServiceWorktree) {
     try {
       return resolveServiceWorktreeRuntime(worktree, {
-        platform: this.deps.platform,
+        ...defaultServiceRuntimeProbe(this.deps.platform ?? process.platform),
         ...this.deps.runtimeProbe
       })
     } catch (error) {

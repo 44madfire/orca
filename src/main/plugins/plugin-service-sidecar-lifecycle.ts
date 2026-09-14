@@ -1,38 +1,40 @@
-import { randomUUID } from 'node:crypto'
+import { StringDecoder } from 'node:string_decoder'
 import { spawnProcess, type SpawnedProcess } from '../../shared/child-process/run-process'
-import { forceTerminateProcessTree } from '../../shared/child-process/process-tree-termination'
 import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
 import {
   SidecarPendingRequests,
   jsonBytes,
   parseServiceRecord,
+  sendSidecarRequest,
   splitFramedLines,
+  terminateSidecarChild,
   type PluginServiceSidecarDeps,
   type SidecarInvokeOptions,
   type SidecarLaunch
 } from './plugin-service-sidecar-transport'
 
 const STARTUP_GRACE_MS = 50
-const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 const DEFAULT_MAX_LINE_BYTES = 256 * 1024
 // One long-lived child over bounded JSONL; requests correlate by id.
 export class PluginServiceSidecar {
   private child: SpawnedProcess | null = null
   private buffer = ''
+  private readonly decoder = new StringDecoder('utf8')
   private readonly pending = new SidecarPendingRequests()
   private dead: Error | null = null
   private starting: Promise<void> | null = null
   private closed = false
+  private steady: {
+    owner: SpawnedProcess
+    onError: (error: Error) => void
+    onExit: () => void
+  } | null = null
 
   constructor(
     private readonly serviceId: string,
     private readonly launch: SidecarLaunch,
     private readonly deps: PluginServiceSidecarDeps = {}
   ) {}
-  get isRunning(): boolean {
-    return this.child !== null && this.dead === null && !this.closed
-  }
-
   async invoke(request: unknown, options: SidecarInvokeOptions = {}): Promise<unknown> {
     if (this.closed) {
       throw serviceExecutionError('crashed', this.serviceId, 'service is closed')
@@ -56,9 +58,11 @@ export class PluginServiceSidecar {
     this.child = null
     this.buffer = ''
     if (!child) {
+      this.steady = null
       return
     }
-    await this.terminateChild(child)
+    this.detach(child)
+    await terminateSidecarChild(child, this.deps.terminateImpl)
   }
 
   private ensureStarted(): Promise<void> {
@@ -138,13 +142,26 @@ export class PluginServiceSidecar {
         }
         this.failAll(serviceExecutionError('crashed', this.serviceId, 'service exited'))
       }
+      // Steady handlers ignore stale children so a recycled child's exit
+      // can never reject the replacement's requests (all other paths detach).
       const rewire = (): void => {
         child.off('error', onError)
         child.off('exit', onExit)
-        child.on('error', (error: Error) => this.failAll(error))
-        child.on('exit', () =>
+        const steadyError = (error: Error): void => {
+          if (this.child !== child) {
+            return
+          }
+          this.failAll(error)
+        }
+        const steadyExit = (): void => {
+          if (this.child !== child) {
+            return
+          }
           this.failAll(serviceExecutionError('crashed', this.serviceId, 'service exited'))
-        )
+        }
+        this.steady = { owner: child, onError: steadyError, onExit: steadyExit }
+        child.on('error', steadyError)
+        child.on('exit', steadyExit)
       }
       child.once('error', onError)
       child.once('exit', onExit)
@@ -152,47 +169,21 @@ export class PluginServiceSidecar {
   }
 
   private sendRequest(request: unknown, options: SidecarInvokeOptions): Promise<unknown> {
-    const child = this.child
-    if (!child || this.dead) {
-      return Promise.reject(serviceExecutionError('crashed', this.serviceId, 'service exited'))
-    }
-    const id = randomUUID()
-    const line = `${JSON.stringify({ id, request })}\n`
-    const timeoutMs = options.timeoutMs ?? this.deps.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
-    return new Promise<unknown>((resolve, reject) => {
-      if (options.signal?.aborted) {
-        reject(serviceExecutionError('cancelled', this.serviceId, 'request was cancelled'))
-        return
+    return sendSidecarRequest(
+      {
+        serviceId: this.serviceId,
+        child: this.child,
+        dead: this.dead,
+        pending: this.pending,
+        deps: this.deps
+      },
+      request,
+      {
+        ...options,
+        onTimeout: (timedOut) => this.onRequestTimeout(timedOut),
+        onCancel: (cancelled) => this.onRequestCancelled(cancelled)
       }
-      try {
-        this.pending.add({
-          id,
-          resolve,
-          reject,
-          timeoutMs,
-          signal: options.signal,
-          onTimeout: (timedOut) => this.onRequestTimeout(timedOut),
-          onCancel: (cancelled) => this.onRequestCancelled(cancelled)
-        })
-      } catch (error) {
-        reject(
-          error instanceof ServiceExecutionError
-            ? error
-            : serviceExecutionError('cancelled', this.serviceId, 'request was cancelled')
-        )
-        return
-      }
-      try {
-        child.stdin?.write(line)
-      } catch (error) {
-        this.pending.take(id)
-        reject(
-          error instanceof ServiceExecutionError
-            ? error
-            : serviceExecutionError('crashed', this.serviceId, 'service exited')
-        )
-      }
-    })
+    )
   }
 
   private onRequestTimeout(id: string): void {
@@ -201,8 +192,12 @@ export class PluginServiceSidecar {
       return
     }
     entry.reject(serviceExecutionError('timeout', this.serviceId, 'service timed out'))
-    // Hung state is unknowable; recycle so the next invoke starts fresh.
-    void this.recycle()
+    const victim = this.child
+    // Siblings shared the hung child; their outcome is unknowable too.
+    if (this.pending.size > 0) {
+      this.pending.failAll(serviceExecutionError('crashed', this.serviceId, 'service exited'))
+    }
+    void this.recycle(victim)
   }
 
   private onRequestCancelled(id: string): void {
@@ -215,7 +210,9 @@ export class PluginServiceSidecar {
   }
 
   private onStdout(chunk: Buffer | string): void {
-    this.buffer += chunk.toString()
+    // Byte-safe: a multibyte code point split across data events must not
+    // decode to U+FFFD halves and corrupt otherwise-valid JSON responses.
+    this.buffer += typeof chunk === 'string' ? chunk : this.decoder.write(chunk)
     const maxLine = this.deps.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES
     if (Buffer.byteLength(this.buffer, 'utf8') > maxLine * 4) {
       this.failAll(
@@ -258,34 +255,27 @@ export class PluginServiceSidecar {
     entry.resolve(record.response)
   }
 
-  private async recycle(): Promise<void> {
-    const child = this.child
-    this.child = null
-    this.buffer = ''
-    if (!child) {
+  // Detach + terminate only the child this recycle targeted; a replacement
+  // installed meanwhile is left alone. Runs synchronously through detach so
+  // the victim's exit event can never reach the shared registries after.
+  private async recycle(victim: SpawnedProcess | null): Promise<void> {
+    if (!victim || this.child !== victim) {
       return
     }
-    await this.terminateChild(child)
+    this.detach(victim)
+    this.child = null
+    this.buffer = ''
+    await terminateSidecarChild(victim, this.deps.terminateImpl)
   }
 
-  private async terminateChild(child: SpawnedProcess): Promise<void> {
-    const terminate = this.deps.terminateImpl ?? forceTerminateProcessTree
-    await terminate(child).catch(() => false)
-    try {
-      child.kill('SIGKILL')
-    } catch {
-      /* already gone */
+  private detach(child: SpawnedProcess): void {
+    const steady = this.steady
+    if (steady?.owner !== child) {
+      return
     }
-    try {
-      child.stdout?.destroy()
-    } catch {
-      /* ignore */
-    }
-    try {
-      child.stderr?.destroy()
-    } catch {
-      /* ignore */
-    }
+    this.steady = null
+    child.off('error', steady.onError)
+    child.off('exit', steady.onExit)
   }
 
   private failAll(error: Error): void {
@@ -294,7 +284,7 @@ export class PluginServiceSidecar {
         ? error
         : serviceExecutionError('crashed', this.serviceId, 'service exited')
     this.child = null
-    const { dead } = this.pending.failAll(this.dead)
-    void dead
+    this.steady = null
+    this.pending.failAll(this.dead)
   }
 }
