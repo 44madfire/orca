@@ -134,6 +134,8 @@ export type StructuredAgentSessionAcquireInput = {
    * fail closed when a resume needs it and it is absent.
    */
   resumeSessionFile?: string
+  /** Host-owned execution location for pre-spawn compat gates (optional). */
+  location?: AgentSessionExecutionLocation
 }
 
 export type StructuredAgentSessionSetOptionInput = {

@@ -42,6 +42,9 @@ import { resolveLoginShellEnvironment } from '../startup/login-shell-environment
 import { recordAgentSessionProviderHandle } from './agent-session-provider-handle-transition'
 import type { ClaudeStructuredAuthPolicy } from '../claude-accounts/claude-structured-auth-policy'
 import { createStructuredClaudeRuntimeAdapter } from './structured-claude-runtime-adapter'
+import { createLazyPiVersionProbe } from '../pi/pi-runtime-compat'
+import type { PiRuntimeCompatOverrides } from '../pi/pi-runtime-compat'
+import { PI_STRUCTURED_REQUIRED_CAPABILITIES } from '../pi/pi-structured-compat'
 
 /** Sibling of the journal tree rather than inside it: one file adjudicates every
  *  session's lease, while a journal is per session. */
@@ -71,6 +74,8 @@ export type StructuredAgentSessionRuntimeDeps = {
   openClaudeConnection?: ClaudeStructuredSessionAdapterDeps['openConnection']
   /** Pi child spawn override; production always spawns the real `pi --mode rpc`. */
   spawnPiProcess?: PiRpcBackendDeps['spawnImpl']
+  /** Deterministic compat evidence for scripted harnesses; production probes. */
+  piCompatOverrides?: PiRuntimeCompatOverrides
   /** Scripted app-servers carry fake pids the real start-time read cannot answer for. */
   readProcessStartTime?: CodexStructuredSessionAdapterDeps['readProcessStartTime']
   resolveLaunchArgs?: (provider: AgentSessionRecord['provider']) => Promise<string[]> | string[]
@@ -293,23 +298,42 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
     })
     // SNC1.9 native Pi: always installed with the production RPC backend —
     // one `pi --mode rpc` child per session in the Orca-selected workspace.
-    // A missing/unusable Pi binary fails closed at acquire (callers fall back
-    // to ordinary Pi TUI); Codex/Claude selection is unchanged.
+    // SNC1.10 compat is enforced, not advisory: the host probes `pi
+    // --version` once (bounded, out of band) and every structured acquire
+    // carries version plus the production capability set; refusals name Pi
+    // TUI. Codex/Claude selection is unchanged.
     const resolvePiEnvironment = async (): Promise<NodeJS.ProcessEnv> => ({
       ...(await bootEnvironment),
       ...(await deps.resolveLaunchEnv?.())
     })
     let pi: PiStructuredSessionAdapter | null = null
+    // Lazy Pi version: install never blocks Codex/Claude on `pi --version`;
+    // the first Pi acquire pays one bounded probe with the Pi launch env.
+    const piIsTest = deps.spawnPiProcess !== undefined || deps.piCompatOverrides !== undefined
+    const piOverrides = deps.piCompatOverrides
+    const piRequireEvidence = piIsTest ? (piOverrides?.requireCompatEvidence ?? false) : true
+    const piRequireBackend = piIsTest ? (piOverrides?.requireCompat ?? false) : true
+    const piRequiredCapabilities =
+      piOverrides?.requiredCapabilities ?? PI_STRUCTURED_REQUIRED_CAPABILITIES
+    const piStaticVersion = piOverrides?.piVersion !== undefined ? piOverrides.piVersion : undefined
+    const resolvePiVersionLazy = piIsTest
+      ? undefined
+      : createLazyPiVersionProbe({ resolveEnv: resolvePiEnvironment })
     const piBackend = createPiRpcBackend({
       ...(deps.spawnPiProcess ? { spawnImpl: deps.spawnPiProcess } : {}),
       resolveEnv: resolvePiEnvironment,
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
+      ...(piRequireBackend ? { requireCompat: true } : {}),
       onUnexpectedExit: (sessionId) => pi?.publishUnexpectedExit(sessionId)
     })
     pi = new PiStructuredSessionAdapter({
       resolveWorkspacePath: deps.resolveWorkspacePath,
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
       backend: piBackend,
+      requireCompatEvidence: piRequireEvidence,
+      ...(piStaticVersion !== undefined ? { piVersion: piStaticVersion } : {}),
+      ...(resolvePiVersionLazy !== undefined ? { resolvePiVersion: resolvePiVersionLazy } : {}),
+      requiredCapabilities: piRequiredCapabilities,
       onEvent: (event) => {
         if (event.type !== 'ended' || event.cause !== 'unexpected-exit') {
           return

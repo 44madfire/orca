@@ -12,6 +12,7 @@ import type { NativeChatBlock } from '../../shared/native-chat-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { piProcessIdentity } from './pi-structured-owner-identity'
+import type { PiAcquireCompat } from './pi-structured-compat'
 
 export type PiStructuredAcquireResult = {
   piSessionId: string
@@ -36,6 +37,7 @@ export type PiStructuredBackend = {
     options?: Readonly<Record<string, string>>
     spawnToken: string
     sink?: StructuredAgentSessionEventSink | null
+    compat?: PiAcquireCompat
   }): Promise<PiStructuredAcquireResult>
   dispatch(input: {
     orcaSessionId: string
@@ -51,7 +53,11 @@ export type PiStructuredBackend = {
     kind: 'approval' | 'question'
     optionId: string
   }): Promise<void>
-  setOption?(input: { orcaSessionId: string; key: string; value: string }): Promise<Record<string, string>>
+  setOption?(input: {
+    orcaSessionId: string
+    key: string
+    value: string
+  }): Promise<Record<string, string>>
   readOptions?(input: { orcaSessionId: string }): Promise<{
     options: Record<string, string>
     model: string | undefined
@@ -87,6 +93,14 @@ export type PiStructuredSessionAdapterDeps = {
   hostId?: string
   /** Publishes adapter lifecycle events (unexpected exits) to the host. */
   onEvent?: (event: StructuredAgentSessionLifecycleEvent) => void
+  /** Production demands nonempty version plus capability evidence. */
+  requireCompatEvidence?: boolean
+  /** Bounded `pi --version` probe result, cached per install. */
+  piVersion?: string | null
+  /** Lazy version probe (production); static `piVersion` wins when present. */
+  resolvePiVersion?: () => Promise<string | null>
+  /** Capability set production relies on; forwarded on every acquire. */
+  requiredCapabilities?: readonly string[]
 }
 
 export type PiSession = {
@@ -137,5 +151,9 @@ export async function resolvePiProcessIdentity(input: {
       reader
     )
   }
-  return piProcessIdentity({ identity: input.identity, spawnToken: input.spawnToken, pid: input.pid })
+  return piProcessIdentity({
+    identity: input.identity,
+    spawnToken: input.spawnToken,
+    pid: input.pid
+  })
 }
