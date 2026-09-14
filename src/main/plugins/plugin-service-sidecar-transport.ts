@@ -3,6 +3,7 @@ import { ServiceExecutionError, serviceExecutionError } from './plugin-service-e
 import type { SpawnedProcess, spawnProcess } from '../../shared/child-process/run-process'
 import { forceTerminateProcessTree } from '../../shared/child-process/process-tree-termination'
 import { sweepCrashedServiceTree } from './plugin-service-crashed-tree-sweep'
+import type { WslGuestHandle } from './plugin-service-wsl-guest'
 import { writeSidecarLine, type SidecarRequestSendTarget } from './plugin-service-pending-requests'
 // Host-owned launch description. Built entirely from the service
 // registration + resolved worktree runtime; panel input never reaches here.
@@ -32,6 +33,8 @@ export type PluginServiceSidecarDeps = {
   // Crash-sweep override for the dead-root path (tests); production walks
   // the Windows process table for surviving descendants.
   sweepCrashedTreeImpl?: typeof sweepCrashedServiceTree
+  // Guest-side owner for WSL sidecars; wrapper-only hosts leave this empty.
+  wslGuest?: WslGuestHandle | null
   // Root-identity capture override (tests); production reads the table.
   readRootCreationTime?: (pid: number | undefined) => Promise<number | null>
 }
@@ -162,20 +165,20 @@ export function sendSidecarRequest(
   })
 }
 
-// Retired children awaiting proven termination (registered pre-await); at most
-// one kill attempt runs per victim so the recycled-PID check stays meaningful.
+// Retired children awaiting proven termination; at most one kill attempt
+// runs per victim so the recycled-PID check stays meaningful.
 export type TrackedVictim = {
   proc: SpawnedProcess
   creationTimeMs: number | null
-  // Wall-clock stamp of retirement; bounds legitimate births attributed to
-  // the dead root, since a dead pid cannot spawn.
+  // Retirement stamp bounding legitimate births under dead parents.
   retiredAtMs: number
 }
 
 export class SidecarVictimTracker {
   constructor(
     private readonly terminateImpl?: typeof forceTerminateProcessTree,
-    private readonly sweepImpl: typeof sweepCrashedServiceTree = sweepCrashedServiceTree
+    private readonly sweepImpl: typeof sweepCrashedServiceTree = sweepCrashedServiceTree,
+    private readonly guest: WslGuestHandle | null = null
   ) {}
 
   private readonly victims = new Set<TrackedVictim>()
@@ -200,10 +203,19 @@ export class SidecarVictimTracker {
       victim.creationTimeMs = creationTimeMs
     }
     this.victims.add(victim)
-    const attempt = terminateSidecarChild(victim.proc, this.terminateImpl, this.sweepImpl, {
-      creationTimeMs: victim.creationTimeMs,
-      notAfterMs: victim.retiredAtMs
-    }).then((proven) => {
+    // Guest first would invite wslhost adoption of a live guest; the guest
+    // dies first so the wrapper has nothing left to outlive, then the
+    // wrapper is reaped. A reused record keeps its original retirement bound.
+    const attempt = (async (): Promise<boolean> => {
+      const guestOk = this.guest ? await this.guest.retire() : true
+      const wrapperOk = await terminateSidecarChild(
+        victim.proc,
+        this.terminateImpl,
+        this.sweepImpl,
+        { creationTimeMs: victim.creationTimeMs, notAfterMs: victim.retiredAtMs }
+      )
+      return wrapperOk && guestOk
+    })().then((proven) => {
       if (proven) {
         this.victims.delete(victim)
       }
@@ -220,6 +232,19 @@ export class SidecarVictimTracker {
     return this.inFlight.get(victim.proc) ?? this.retire(victim.proc, victim.creationTimeMs)
   }
 
+  // Late identity upgrades a tracked victim for the next redrive.
+  enrich(proc: SpawnedProcess, creationTimeMs: number | null): void {
+    if (creationTimeMs == null) {
+      return
+    }
+    for (const victim of this.victims) {
+      if (victim.proc === proc && victim.creationTimeMs == null) {
+        victim.creationTimeMs = creationTimeMs
+        return
+      }
+    }
+  }
+
   async redrive(): Promise<boolean> {
     let verified = true
     // Deleting during Set iteration is safe; each victim is visited once.
@@ -232,12 +257,9 @@ export class SidecarVictimTracker {
   }
 }
 
-// Best-effort tree kill so WSL/Windows descendants die with the root.
-// True only when termination verified; callers propagate a false return so
-// teardown retries instead of forgetting a possibly-live tree. A root that
-// already exited takes the crash sweep on Windows (explicit descendant pids,
-// never a /T walk from a possibly-reused root); other hosts keep the group
-// semantics of forceTerminateProcessTree.
+// Best-effort tree kill with verified teardown. A dead Windows root takes
+// the crash sweep (explicit pids, never /T from a reused root); other hosts
+// keep the group semantics of forceTerminateProcessTree.
 export async function terminateSidecarChild(
   child: SpawnedProcess,
   terminateImpl?: typeof forceTerminateProcessTree,

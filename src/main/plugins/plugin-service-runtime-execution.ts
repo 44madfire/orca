@@ -4,6 +4,7 @@ import { parseWslUncPath } from '../../shared/wsl-paths'
 import type { spawnProcess } from '../../shared/child-process/run-process'
 import { closeProcessRegistry } from '../../shared/child-process/close-process-registry'
 import { resolveWslInteropSpawnCwd } from '../wsl-interop-spawn-directory'
+import { createWslGuestHandle, type WslGuestHandle } from './plugin-service-wsl-guest'
 import { isWslAvailableAsync } from '../wsl-availability'
 import { listWslDistrosAsync } from '../wsl'
 import {
@@ -44,6 +45,9 @@ export type PluginServiceRuntimeExecutionDeps = {
   runtimeProbe?: ServiceRuntimeProbe
   spawnImpl?: typeof spawnProcess
   wslExecutable?: string
+  // Injected guest owner for WSL scopes (tests); production builds one per
+  // WSL sidecar so teardown owns the Linux process, not just wsl.exe.
+  wslGuest?: WslGuestHandle | null
 }
 
 // Production WSL reality, read through the async cached probes so a wedged
@@ -224,10 +228,13 @@ export class PluginServiceRuntimeExecution {
     if (this.disposed) {
       throw serviceExecutionError('crashed', serviceId, 'service host is closed')
     }
-    const launch = this.buildLaunch(definition, runtime)
+    const guest =
+      this.deps.wslGuest ?? (runtime.kind === 'wsl' ? createWslGuestHandle(runtime.distro) : null)
+    const launch = this.buildLaunch(definition, runtime, guest)
     const sidecar = new PluginServiceSidecar(serviceId, launch, {
       ...definition.limits,
       isHostOpen: () => !this.disposed,
+      ...(guest ? { wslGuest: guest } : {}),
       ...(this.deps.spawnImpl ? { spawnImpl: this.deps.spawnImpl } : {})
     })
     this.sidecars.set(key, sidecar)
@@ -238,7 +245,8 @@ export class PluginServiceRuntimeExecution {
   // the trusted path, env from the registration. No panel field is read.
   private buildLaunch(
     definition: RegisteredServiceDefinition,
-    runtime: ReturnType<typeof resolveServiceWorktreeRuntime>
+    runtime: ReturnType<typeof resolveServiceWorktreeRuntime>,
+    guest: WslGuestHandle | null
   ): SidecarLaunch {
     const { launch } = definition
     const env = { ...launch.env }
@@ -252,18 +260,24 @@ export class PluginServiceRuntimeExecution {
     }
     const guestCommand = launch.wslCommand ?? launch.command
     const guestArgs = [...(launch.wslArgs ?? launch.args ?? [])]
-    // Non-login `sh -c` with `cd && exec`: `--exec` keeps argv byte-exact
-    // (no `$` expansion) and no login banner pollutes the JSONL stream.
+    // Guest-wrapped argv carries the pid marker when a guest owner exists;
+    // otherwise the previous direct form (non-login shell, byte-exact).
     const assignments = Object.entries(env).map(([k, v]) => quotePosixShell(`${k}=${v}`))
-    const script = [
-      `cd ${quotePosixShell(runtime.linuxPath)}`,
+    const runLine =
       assignments.length > 0
         ? `exec /usr/bin/env ${assignments.join(' ')} ${quotePosixShell(guestCommand)}${guestArgs.map((a) => ` ${quotePosixShell(a)}`).join('')}`
         : `exec ${quotePosixShell(guestCommand)}${guestArgs.map((a) => ` ${quotePosixShell(a)}`).join('')}`
-    ].join(' && ')
+    const guestArgv = guest
+      ? guest.wrapGuestCommand({
+          cwd: runtime.linuxPath,
+          env,
+          command: guestCommand,
+          args: guestArgs
+        })
+      : ['sh', '-c', [`cd ${quotePosixShell(runtime.linuxPath)}`, runLine].join(' && ')]
     return {
       program: this.deps.wslExecutable ?? 'wsl.exe',
-      args: buildWslExecArgs(runtime.distro, ['sh', '-c', script]),
+      args: buildWslExecArgs(runtime.distro, guestArgv),
       cwd: resolveWslInteropSpawnCwd(),
       env: { SYSTEMROOT: process.env.SYSTEMROOT ?? 'C:\\Windows', WSL_UTF8: '1' }
     }

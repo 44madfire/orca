@@ -1,7 +1,7 @@
 import { StringDecoder } from 'node:string_decoder'
 import type { SpawnedProcess } from '../../shared/child-process/run-process'
 import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
-import { startSidecarProcess } from './plugin-service-sidecar-startup'
+import { startSidecarProcess, trackSteadyChild } from './plugin-service-sidecar-startup'
 import {
   SidecarVictimTracker,
   jsonBytes,
@@ -28,13 +28,19 @@ export class PluginServiceSidecar {
   private steady: SteadyChildHandlers | null = null
   private rootCreationTimeMs: number | null = null
   private readonly onData = (chunk: Buffer | string): void => this.onStdout(chunk)
-  private readonly onStderr = (): void => {}
+  private readonly onStderr = (chunk: Buffer | string): void => {
+    this.deps.wslGuest?.observeStderr(chunk)
+  }
   constructor(
     private readonly serviceId: string,
     private readonly launch: SidecarLaunch,
     private readonly deps: PluginServiceSidecarDeps = {}
   ) {
-    this.victims = new SidecarVictimTracker(this.deps.terminateImpl, this.deps.sweepCrashedTreeImpl)
+    this.victims = new SidecarVictimTracker(
+      this.deps.terminateImpl,
+      this.deps.sweepCrashedTreeImpl,
+      this.deps.wslGuest ?? null
+    )
   }
   async invoke(request: unknown, options: SidecarInvokeOptions = {}): Promise<unknown> {
     if (this.closed) {
@@ -73,9 +79,9 @@ export class PluginServiceSidecar {
     return verified
   }
 
-  private ensureStarted(): Promise<void> {
+  private async ensureStarted(): Promise<void> {
     if (this.child && !this.dead) {
-      return Promise.resolve()
+      return
     }
     // Crashed sidecars restart on next invoke; start failures reject once.
     this.dead = null
@@ -88,6 +94,8 @@ export class PluginServiceSidecar {
       onLiveFailure: (error) => this.failAll(error),
       trackSteady: (child) => this.trackSteady(child),
       onIdentity: (child, creationTimeMs) => {
+        // A retired victim keeps no other path to late-arriving identity.
+        this.victims.enrich(child, creationTimeMs)
         if (this.child === child) {
           this.rootCreationTimeMs = creationTimeMs
         }
@@ -95,10 +103,6 @@ export class PluginServiceSidecar {
     }).finally(() => {
       this.starting = null
     })
-    return this.startAndGuard()
-  }
-
-  private async startAndGuard(): Promise<void> {
     await this.starting
     // A mid-start dispose drops the orphan instead of serving a torn-down scope.
     if (this.closed || !(this.deps.isHostOpen?.() ?? true)) {
@@ -137,21 +141,11 @@ export class PluginServiceSidecar {
   }
 
   private trackSteady(child: SpawnedProcess): void {
-    const steadyError = (error: Error): void => {
-      if (this.child !== child) {
-        return
-      }
-      this.failAll(error, child)
-    }
-    const steadyExit = (): void => {
-      if (this.child !== child) {
-        return
-      }
-      this.failAll(serviceExecutionError('crashed', this.serviceId, 'service exited'), child)
-    }
-    this.steady = { owner: child, onError: steadyError, onExit: steadyExit }
-    child.on('error', steadyError)
-    child.on('exit', steadyExit)
+    this.steady = trackSteadyChild(child, {
+      serviceId: this.serviceId,
+      isCurrent: () => this.child === child,
+      onFailure: (error, failed) => this.failAll(error, failed)
+    })
   }
 
   private sendRequest(request: unknown, options: SidecarInvokeOptions): Promise<unknown> {
@@ -279,7 +273,6 @@ export class PluginServiceSidecar {
     child.off('exit', steady.onExit)
   }
 
-  // A crash retires the dead root through the victim tracker.
   private failAll(error: Error, retire?: SpawnedProcess | null): void {
     this.dead =
       error instanceof ServiceExecutionError

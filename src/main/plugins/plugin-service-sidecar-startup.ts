@@ -1,5 +1,9 @@
 import { spawnProcess, type SpawnedProcess } from '../../shared/child-process/run-process'
-import type { PluginServiceSidecarDeps, SidecarLaunch } from './plugin-service-sidecar-transport'
+import type {
+  PluginServiceSidecarDeps,
+  SidecarLaunch,
+  SteadyChildHandlers
+} from './plugin-service-sidecar-transport'
 import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
 import { readServiceRootCreationTime } from './plugin-service-crashed-tree-sweep'
 
@@ -54,22 +58,23 @@ export function startSidecarProcess(events: SidecarStartupEvents): Promise<void>
     const readIdentity = events.deps.readRootCreationTime ?? readServiceRootCreationTime
     const identity = process.platform === 'win32' ? readIdentity(child.pid) : Promise.resolve(null)
     let settled = false
+    // Identity is consumed regardless of the startup outcome: a child that
+    // exits during the grace still needs its creation time bound to the
+    // retired victim. Bounded so a wedged reader cannot pin the child.
+    void Promise.race([
+      identity,
+      new Promise<null>((giveUp) => {
+        const timer = setTimeout(() => giveUp(null), IDENTITY_TIMEOUT_MS)
+        timer.unref?.()
+      })
+    ]).then((creationTimeMs) => {
+      events.onIdentity?.(child, creationTimeMs)
+    })
     const grace = setTimeout(() => {
       if (!settled) {
         settled = true
         rewire()
         resolve()
-        // Enrichment only: applies while this child is still current, and
-        // gives up after a bounded wait instead of pinning the child.
-        void Promise.race([
-          identity,
-          new Promise<null>((giveUp) => {
-            const timer = setTimeout(() => giveUp(null), IDENTITY_TIMEOUT_MS)
-            timer.unref?.()
-          })
-        ]).then((creationTimeMs) => {
-          events.onIdentity?.(child, creationTimeMs)
-        })
       }
     }, events.deps.startupGraceMs ?? STARTUP_GRACE_MS)
     grace.unref?.()
@@ -112,4 +117,32 @@ export function startSidecarProcess(events: SidecarStartupEvents): Promise<void>
     child.once('error', onError)
     child.once('exit', onExit)
   })
+}
+
+// Identity-checked steady handlers: a recycled child's late exit can never
+// fail the replacement's requests once ownership has moved on.
+export function trackSteadyChild(
+  child: SpawnedProcess,
+  host: {
+    serviceId: string
+    isCurrent: () => boolean
+    onFailure: (error: Error, failed: SpawnedProcess) => void
+  }
+): SteadyChildHandlers {
+  const steadyError = (error: Error): void => {
+    if (!host.isCurrent()) {
+      return
+    }
+    host.onFailure(error, child)
+  }
+  const steadyExit = (): void => {
+    if (!host.isCurrent()) {
+      return
+    }
+    host.onFailure(serviceExecutionError('crashed', host.serviceId, 'service exited'), child)
+  }
+  const steady: SteadyChildHandlers = { owner: child, onError: steadyError, onExit: steadyExit }
+  child.on('error', steadyError)
+  child.on('exit', steadyExit)
+  return steady
 }
