@@ -1,6 +1,7 @@
 import type { PluginWorkerFactory } from './plugin-worker-manager'
 import type { KeybindingOverrides } from '../../shared/keybindings'
 import type { PluginKillListEntry } from '../../shared/plugins/plugin-kill-list'
+import type { PluginHostServiceRegistry } from './plugin-host-service-bindings'
 
 export type PluginServiceOptions = {
   userDataPath: string
@@ -15,4 +16,6 @@ export type PluginServiceOptions = {
   workerFactory?: PluginWorkerFactory
   maxActiveWorkers?: number
   idleReapMs?: number
+  /** Trusted host-owned service registry for service.invoke. */
+  hostServices?: PluginHostServiceRegistry | null
 }

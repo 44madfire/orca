@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp, mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   PLUGIN_SERVICE_REQUEST_MAX_BYTES,
   PLUGIN_SERVICE_RESPONSE_MAX_BYTES
@@ -8,7 +11,14 @@ import {
   type PluginCapability
 } from '../../shared/plugins/plugin-capabilities'
 import { gatePluginHostCall } from '../../shared/plugins/plugin-capability-gate'
-import { parsePluginManifest } from '../../shared/plugins/plugin-manifest'
+import { fingerprintPluginConsent } from '../../shared/plugins/plugin-consent-fingerprint'
+import { emptyPluginLockfile } from '../../shared/plugins/plugin-install-lockfile'
+import { parsePluginManifest, pluginManifestSchema } from '../../shared/plugins/plugin-manifest'
+import { bindPluginHostServices } from './plugin-host-service-bindings'
+import { buildPluginList } from './plugin-list-projection'
+import { hashPluginTree } from './plugin-content-hash'
+import { PluginService } from './plugin-service'
+import type { ValidDiscoveredPlugin } from './plugin-discovery'
 import { executePluginHostCall, type PluginHostServices } from './plugin-host-methods'
 
 const PLUGIN_KEY = 'orca-samples.demo'
@@ -319,5 +329,145 @@ describe('service.invoke scoped invocation', () => {
         capabilities: [{ kind: 'storage', serviceIds: [SERVICE_ID] }]
       }).ok
     ).toBe(false)
+  })
+
+  it('routes production binder calls through a host-owned registry', async () => {
+    const services = bindPluginHostServices({
+      delegate: {
+        resolveActiveWorktreeContext: async () => null,
+        listTerminals: async () => ({ terminals: [] }),
+        sendTerminal: async () => ({ accepted: true }),
+        dispatchPluginNotification: async () => ({ delivered: true })
+      },
+      pluginsDataDir: join(tmpdir(), 'service-invoke-binder-test'),
+      subscribeEvents: () => [],
+      services: new Map([['orca-pi.bridge', async (request) => ({ echo: request })]])
+    })
+    const outcome = await executePluginHostCall({
+      pluginId: PLUGIN_KEY,
+      method: 'service.invoke',
+      params: { serviceId: 'orca-pi.bridge', request: { op: 'ping' } },
+      viaPanel: true,
+      grantedCapabilities: ['service:invoke'],
+      grantedServiceIds: ['orca-pi.bridge'],
+      services,
+      audit: audit()
+    })
+    expect(outcome).toEqual({ ok: true, value: { response: { echo: { op: 'ping' } } } })
+  })
+
+  it('changes consent when only service ids change and projects them', async () => {
+    const first = fingerprintPluginConsent({
+      main: undefined,
+      capabilities: [{ kind: 'service:invoke', serviceIds: ['orca-pi.bridge'] }]
+    })
+    const second = fingerprintPluginConsent({
+      main: undefined,
+      capabilities: [{ kind: 'service:invoke', serviceIds: ['other.service'] }]
+    })
+    expect(second).not.toBe(first)
+    const manifest = pluginManifestSchema.parse({
+      manifestVersion: 1,
+      id: 'demo',
+      publisher: 'orca-samples',
+      name: 'Demo',
+      version: '1.0.0',
+      engines: { orca: '>=1.0.0' },
+      pluginApi: 1,
+      contributes: { panels: [], commands: [], events: [] },
+      capabilities: [{ kind: 'service:invoke', serviceIds: ['orca-pi.bridge'] }]
+    })
+    const plugin: ValidDiscoveredPlugin = {
+      pluginKey: PLUGIN_KEY,
+      rootDir: join(tmpdir(), 'plugins', 'demo'),
+      manifest,
+      consentFingerprint: 'sha256-current',
+      contentHash: null,
+      isDev: true
+    }
+    const service = {
+      options: { getPluginConsents: () => ({}), getDisabledPlugins: () => [] },
+      getDiscovered: () => [plugin],
+      activationState: () => 'pending',
+      workerState: () => ({ state: 'inactive', restarts: 0 }),
+      activationError: () => null,
+      contentPacks: {
+        vmRecipes: { preview: () => [] },
+        commands: { preview: () => [] }
+      }
+    } as unknown as PluginService
+    const [entry] = await buildPluginList(service, emptyPluginLockfile())
+    expect(entry?.capabilities).toMatchObject([
+      { kind: 'service:invoke', serviceIds: ['orca-pi.bridge'] }
+    ])
+  })
+})
+
+const serviceInvokeRoots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(
+    serviceInvokeRoots.splice(0).map((root) => rm(root, { recursive: true, force: true }))
+  )
+})
+
+describe('service.invoke production PluginService wiring', () => {
+  it('invokes a host-registered service through PluginService.executeHostCall', async () => {
+    const userDataPath = await mkdtemp(join(tmpdir(), 'orca-service-invoke-service-'))
+    serviceInvokeRoots.push(userDataPath)
+    const pluginKey = PLUGIN_KEY
+    const pluginDir = join(userDataPath, 'plugins', pluginKey)
+    const stagingDir = join(pluginDir, 'staging')
+    await mkdir(stagingDir, { recursive: true })
+    const manifest = pluginManifestSchema.parse({
+      manifestVersion: 1,
+      id: 'demo',
+      publisher: 'orca-samples',
+      name: 'Demo',
+      version: '1.0.0',
+      engines: { orca: '>=1.0.0' },
+      pluginApi: 1,
+      contributes: {
+        panels: [{ id: 'panel', title: 'Panel', entry: 'panel.html' }],
+        commands: [],
+        events: []
+      },
+      capabilities: [{ kind: 'service:invoke', serviceIds: [SERVICE_ID] }]
+    })
+    await writeFile(join(stagingDir, 'orca-plugin.json'), JSON.stringify(manifest))
+    await writeFile(join(stagingDir, 'panel.html'), '<h1>Panel</h1>')
+    const content = await hashPluginTree(stagingDir)
+    if (!content.ok) {
+      throw new Error(content.error)
+    }
+    await rename(stagingDir, join(pluginDir, content.hash))
+    await writeFile(join(pluginDir, 'current'), content.hash)
+    const service = new PluginService({
+      userDataPath,
+      hostVersion: '1.4.0',
+      isPluginSystemEnabled: () => true,
+      getDisabledPlugins: () => [],
+      getPluginConsents: () => ({ [pluginKey]: fingerprintPluginConsent(manifest) }),
+      getDevPluginPaths: () => [],
+      hostServices: new Map([[SERVICE_ID, async (request) => ({ echo: request })]])
+    })
+    try {
+      service.setRuntimeDelegate({
+        resolveActiveWorktreeContext: async () => null,
+        listTerminals: async () => ({ terminals: [] }),
+        sendTerminal: async () => ({ accepted: true }),
+        dispatchPluginNotification: async () => ({ delivered: true })
+      })
+      await service.initialize()
+      const outcome = await service.executeHostCall(
+        pluginKey,
+        'service.invoke',
+        { serviceId: SERVICE_ID, request: { op: 'ping' } },
+        { viaPanel: true }
+      )
+      expect(outcome).toEqual({ ok: true, value: { response: { echo: { op: 'ping' } } } })
+    } finally {
+      await service.dispose()
+    }
   })
 })

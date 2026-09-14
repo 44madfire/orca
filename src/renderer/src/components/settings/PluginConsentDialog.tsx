@@ -191,6 +191,11 @@ export function PluginConsentDialog({
                         <span className="font-mono text-[11px] text-muted-foreground">
                           ({capability.kind})
                         </span>
+                        {capability.serviceIds?.length ? (
+                          <span className="font-mono block text-[11px] text-muted-foreground">
+                            {capability.serviceIds.join(', ')}
+                          </span>
+                        ) : null}
                       </span>
                     </div>
                   ))}

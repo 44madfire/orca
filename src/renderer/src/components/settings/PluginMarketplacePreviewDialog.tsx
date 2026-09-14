@@ -223,6 +223,11 @@ export function PluginMarketplacePreviewDialog({
                       <span className="font-mono text-[11px] text-muted-foreground">
                         ({capability.kind})
                       </span>
+                      {capability.kind === 'service:invoke' && capability.serviceIds?.length ? (
+                        <span className="font-mono block text-[11px] text-muted-foreground">
+                          {capability.serviceIds.join(', ')}
+                        </span>
+                      ) : null}
                     </span>
                   </div>
                 ))}
