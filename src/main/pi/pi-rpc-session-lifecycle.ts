@@ -223,7 +223,7 @@ export abstract class PiRpcSessionLifecycle {
     }
     // Live capability verification against the running Pi, before exposure.
     // Refusal closes the just-started child via the acquire() wrapper.
-    await verifyDriverLiveCompat(conn, input, this.deps)
+    await verifyDriverLiveCompat(conn, input, this.deps, state.model)
     let resumed = false
     if (input.resumeSessionFile !== undefined) {
       const outcome = await resumePiSession(conn, {

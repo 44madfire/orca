@@ -224,7 +224,7 @@ function handleCommand(cmd) {
         { id: "dup-model", provider: "provider-b" },
       ].find((m) => m.provider === cmd.provider && m.id === cmd.modelId);
       if (!found) {
-        respond(false, undefined, "unknown model");
+        respond(false, undefined, "Model not found: no exact provider/modelId match");
         return;
       }
       session.model = { id: found.id, provider: found.provider };

@@ -7,6 +7,7 @@ import {
   type PiAcquireCompat
 } from './pi-structured-compat'
 import { verifyPiLiveCapabilities, type PiLiveProbeConnection } from './pi-live-capability-probe'
+import type { PiModel } from './rpc/pi-wire-protocol'
 export type PiDriverCompatDeps = { requireCompat?: boolean; liveProbeTimeoutMs?: number }
 // Throws PI_COMPAT_* before any child exists; safe for TUI fallback.
 export function assertDriverAcquireCompat(
@@ -44,13 +45,19 @@ export function assertDriverAcquireCompat(
 export async function verifyDriverLiveCompat(
   conn: PiLiveProbeConnection,
   input: { compat?: PiAcquireCompat },
-  deps: PiDriverCompatDeps
+  deps: PiDriverCompatDeps,
+  currentModel?: PiModel
 ): Promise<void> {
   const required = input.compat?.requiredCapabilities ?? []
   if (required.length === 0) {
     return
   }
-  const failure = await verifyPiLiveCapabilities(conn, required, deps.liveProbeTimeoutMs ?? 5_000)
+  const failure = await verifyPiLiveCapabilities(
+    conn,
+    required,
+    deps.liveProbeTimeoutMs ?? 5_000,
+    currentModel
+  )
   if (failure !== null) {
     throw new Error(`PI_COMPAT_CAPABILITY: ${failure} (use Pi TUI)`)
   }

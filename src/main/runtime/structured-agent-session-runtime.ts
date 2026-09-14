@@ -42,7 +42,9 @@ import { resolveLoginShellEnvironment } from '../startup/login-shell-environment
 import { recordAgentSessionProviderHandle } from './agent-session-provider-handle-transition'
 import type { ClaudeStructuredAuthPolicy } from '../claude-accounts/claude-structured-auth-policy'
 import { createStructuredClaudeRuntimeAdapter } from './structured-claude-runtime-adapter'
-import { resolvePiRuntimeCompat, type PiRuntimeCompatOverrides } from '../pi/pi-runtime-compat'
+import { createLazyPiVersionProbe } from '../pi/pi-runtime-compat'
+import type { PiRuntimeCompatOverrides } from '../pi/pi-runtime-compat'
+import { PI_STRUCTURED_REQUIRED_CAPABILITIES } from '../pi/pi-structured-compat'
 
 /** Sibling of the journal tree rather than inside it: one file adjudicates every
  *  session's lease, while a journal is per session. */
@@ -305,24 +307,33 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       ...(await deps.resolveLaunchEnv?.())
     })
     let pi: PiStructuredSessionAdapter | null = null
-    const piCompat = await resolvePiRuntimeCompat({
-      spawnOverridePresent: deps.spawnPiProcess !== undefined,
-      ...(deps.piCompatOverrides !== undefined ? { overrides: deps.piCompatOverrides } : {})
-    })
+    // Lazy Pi version: install never blocks Codex/Claude on `pi --version`;
+    // the first Pi acquire pays one bounded probe with the Pi launch env.
+    const piIsTest = deps.spawnPiProcess !== undefined || deps.piCompatOverrides !== undefined
+    const piOverrides = deps.piCompatOverrides
+    const piRequireEvidence = piIsTest ? (piOverrides?.requireCompatEvidence ?? false) : true
+    const piRequireBackend = piIsTest ? (piOverrides?.requireCompat ?? false) : true
+    const piRequiredCapabilities =
+      piOverrides?.requiredCapabilities ?? PI_STRUCTURED_REQUIRED_CAPABILITIES
+    const piStaticVersion = piOverrides?.piVersion !== undefined ? piOverrides.piVersion : undefined
+    const resolvePiVersionLazy = piIsTest
+      ? undefined
+      : createLazyPiVersionProbe({ resolveEnv: resolvePiEnvironment })
     const piBackend = createPiRpcBackend({
       ...(deps.spawnPiProcess ? { spawnImpl: deps.spawnPiProcess } : {}),
       resolveEnv: resolvePiEnvironment,
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
-      ...(piCompat.requireCompat ? { requireCompat: true } : {}),
+      ...(piRequireBackend ? { requireCompat: true } : {}),
       onUnexpectedExit: (sessionId) => pi?.publishUnexpectedExit(sessionId)
     })
     pi = new PiStructuredSessionAdapter({
       resolveWorkspacePath: deps.resolveWorkspacePath,
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
       backend: piBackend,
-      requireCompatEvidence: piCompat.requireCompatEvidence,
-      piVersion: piCompat.piVersion,
-      requiredCapabilities: piCompat.requiredCapabilities,
+      requireCompatEvidence: piRequireEvidence,
+      ...(piStaticVersion !== undefined ? { piVersion: piStaticVersion } : {}),
+      ...(resolvePiVersionLazy !== undefined ? { resolvePiVersion: resolvePiVersionLazy } : {}),
+      requiredCapabilities: piRequiredCapabilities,
       onEvent: (event) => {
         if (event.type !== 'ended' || event.cause !== 'unexpected-exit') {
           return

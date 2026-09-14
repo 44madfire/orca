@@ -95,7 +95,7 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
       )
     }
     const backend = this.requireBackend()
-    const compat = buildPiAdapterCompat(input, this.deps)
+    const compat = await buildPiAdapterCompat(input, this.deps)
     assertPiAdapterCompat(compat)
     const workspaceRoot = await this.deps.resolveWorkspacePath(input.identity.workspaceId)
     if (!workspaceRoot || workspaceRoot.trim() === '') {

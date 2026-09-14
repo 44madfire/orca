@@ -1,8 +1,12 @@
 // Live RPC verification for the running Pi child (SNC1.10 Orca slice).
-// Presence-only for setters/switch; catalog/history reads prove the RPCs.
+// `set_model` is proven via a safe bogus-id verb (definite rejection without
+// mutation); thinking/autoCompaction/switch are declared presence-only because
+// probing them would mutate or redirect. History tries entries then tree.
 // Every probe is bounded; failures name evidence, never text/paths/bytes.
 import { splitProbedCapabilities } from './pi-structured-compat'
 import { shortPiError } from './pi-driver-errors'
+import { PiRpcError } from './rpc/pi-rpc-errors'
+import type { PiModel } from './rpc/pi-wire-protocol'
 export type PiLiveProbeConnection = {
   getAvailableModels?(opts?: { timeoutMs?: number }): Promise<{ models: readonly unknown[] }>
   setModel?(provider: string, modelId: string, opts?: { timeoutMs?: number }): Promise<unknown>
@@ -20,9 +24,37 @@ export type PiLiveProbeConnection = {
   ): Promise<{ cancelled: boolean }>
 }
 const PI_LIVE_PROBE_TIMEOUT_MS = 5_000
+async function probeSetModelVerb(
+  conn: PiLiveProbeConnection,
+  currentModel: PiModel | undefined,
+  timeoutMs: number
+): Promise<string | null> {
+  try {
+    await conn.setModel!('__snc110_probe__', '__snc110_probe__', { timeoutMs })
+  } catch (error) {
+    if (
+      error instanceof PiRpcError &&
+      error.code === 'rejected' &&
+      /model not found|unknown model/i.test(`${error.piError ?? ''} ${error.message}`)
+    ) {
+      return null
+    }
+    return `live probe failed: set_model verb unproven (${shortPiError(error)})`
+  }
+  if (!currentModel) {
+    return 'live probe failed: set_model accepted a bogus id with no model to restore'
+  }
+  try {
+    await conn.setModel!(currentModel.provider, currentModel.id, { timeoutMs })
+    return null
+  } catch (error) {
+    return `live probe failed: set_model restore failed (${shortPiError(error)})`
+  }
+}
 async function probeOptions(
   conn: PiLiveProbeConnection,
-  timeoutMs: number
+  timeoutMs: number,
+  currentModel: PiModel | undefined
 ): Promise<string | null> {
   if (
     typeof conn.getAvailableModels !== 'function' ||
@@ -43,10 +75,10 @@ async function probeOptions(
     if (!Array.isArray(models?.models) || !Array.isArray(levels?.levels)) {
       return 'live probe failed: options RPCs returned malformed catalogs'
     }
-    return null
   } catch (error) {
     return `live probe failed: options (${shortPiError(error)})`
   }
+  return probeSetModelVerb(conn, currentModel, timeoutMs)
 }
 async function probeImages(conn: PiLiveProbeConnection, timeoutMs: number): Promise<string | null> {
   if (typeof conn.getAvailableModels !== 'function') {
@@ -75,22 +107,30 @@ async function probeHistory(
   if (!canEntries && !canTree) {
     return 'live probe failed: history RPCs unavailable on the running Pi (update Pi)'
   }
-  try {
-    if (canEntries) {
+  const errors: string[] = []
+  if (canEntries) {
+    try {
       const data = await conn.getEntries!(undefined, { timeoutMs })
-      if (!Array.isArray(data?.entries)) {
-        return 'live probe failed: get_entries returned malformed entries'
+      if (Array.isArray(data?.entries)) {
+        return null
       }
-    } else {
-      const data = await conn.getTree!({ timeoutMs })
-      if (!Array.isArray(data?.tree)) {
-        return 'live probe failed: get_tree returned a malformed tree'
-      }
+      errors.push('get_entries returned malformed entries')
+    } catch (error) {
+      errors.push(`get_entries (${shortPiError(error)})`)
     }
-    return null
-  } catch (error) {
-    return `live probe failed: history (${shortPiError(error)})`
   }
+  if (canTree) {
+    try {
+      const data = await conn.getTree!({ timeoutMs })
+      if (Array.isArray(data?.tree)) {
+        return null
+      }
+      errors.push('get_tree returned a malformed tree')
+    } catch (error) {
+      errors.push(`get_tree (${shortPiError(error)})`)
+    }
+  }
+  return `live probe failed: history (${errors.join('; ')})`
 }
 function probeResume(conn: PiLiveProbeConnection): string | null {
   if (typeof conn.switchSession !== 'function') {
@@ -102,7 +142,8 @@ function probeResume(conn: PiLiveProbeConnection): string | null {
 export async function verifyPiLiveCapabilities(
   conn: PiLiveProbeConnection,
   required: readonly string[],
-  timeoutMs: number = PI_LIVE_PROBE_TIMEOUT_MS
+  timeoutMs: number = PI_LIVE_PROBE_TIMEOUT_MS,
+  currentModel?: PiModel
 ): Promise<string | null> {
   const { live } = splitProbedCapabilities(required)
   if (live.length === 0) {
@@ -110,7 +151,7 @@ export async function verifyPiLiveCapabilities(
   }
   const probes: Promise<string | null>[] = []
   if (live.includes('options')) {
-    probes.push(probeOptions(conn, timeoutMs))
+    probes.push(probeOptions(conn, timeoutMs, currentModel))
   }
   if (live.includes('images')) {
     probes.push(probeImages(conn, timeoutMs))

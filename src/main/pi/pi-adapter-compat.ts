@@ -1,6 +1,7 @@
 // Adapter-side Pi compat gate (SNC1.10 Orca slice).
 // Builds the acquire-time evidence object and enforces the static gate
 // before any child exists; live probes run in the driver post-start.
+// Production version comes from a lazy probe (never blocks install).
 import type { StructuredAgentSessionAcquireInput } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { AgentSessionPreSpawnError } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import {
@@ -13,12 +14,21 @@ export type PiAdapterCompatDeps = {
   requireCompatEvidence?: boolean
   piVersion?: string | null
   requiredCapabilities?: readonly string[]
+  resolvePiVersion?: () => Promise<string | null>
 }
-export function buildPiAdapterCompat(
+export async function buildPiAdapterCompat(
   input: StructuredAgentSessionAcquireInput,
   deps: PiAdapterCompatDeps
-): PiAcquireCompat | null {
-  const versionRaw = typeof deps.piVersion === 'string' ? deps.piVersion.trim() : ''
+): Promise<PiAcquireCompat | null> {
+  let versionRaw = typeof deps.piVersion === 'string' ? deps.piVersion.trim() : ''
+  if (versionRaw === '' && typeof deps.resolvePiVersion === 'function') {
+    try {
+      const probed = await deps.resolvePiVersion()
+      versionRaw = typeof probed === 'string' ? probed.trim() : ''
+    } catch {
+      versionRaw = ''
+    }
+  }
   const required = Array.isArray(deps.requiredCapabilities)
     ? deps.requiredCapabilities.filter((c) => typeof c === 'string' && c !== '')
     : [...PI_STRUCTURED_REQUIRED_CAPABILITIES]

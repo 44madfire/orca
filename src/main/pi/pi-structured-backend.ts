@@ -97,6 +97,8 @@ export type PiStructuredSessionAdapterDeps = {
   requireCompatEvidence?: boolean
   /** Bounded `pi --version` probe result, cached per install. */
   piVersion?: string | null
+  /** Lazy version probe (production); static `piVersion` wins when present. */
+  resolvePiVersion?: () => Promise<string | null>
   /** Capability set production relies on; forwarded on every acquire. */
   requiredCapabilities?: readonly string[]
 }

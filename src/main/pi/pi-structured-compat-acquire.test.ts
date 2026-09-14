@@ -13,6 +13,7 @@ import { createPiRpcBackend } from './pi-rpc-backend'
 import { PiStructuredSessionAdapter } from './pi-structured-session-adapter'
 import { MIN_KNOWN_GOOD_PI_VERSION } from './pi-structured-compat'
 import { verifyPiLiveCapabilities } from './pi-live-capability-probe'
+import { rejectedError } from './rpc/pi-rpc-errors'
 import { classifyPiHandoffFailure } from './pi-structured-handoff-policy'
 import { buildPiTuiResumeProviderSession } from './pi-structured-tui-resume'
 const SCRIPT = fileURLToPath(new URL('./rpc/__fixtures__/scripted-pi-child.mjs', import.meta.url))
@@ -289,6 +290,48 @@ describe('Pi compat acquisition over a scripted child', () => {
         ['resume']
       )
     ).resolves.toMatch(/switchSession/)
+    // `set_model` verb proof without mutation: a definite Model-not-found
+    // rejection proves the running Pi understands the command; any other
+    // outcome proves nothing and fails the probe.
+    const verbProven = {
+      getAvailableModels: async () => ({ models: [{ input: ['image'] }] }),
+      getAvailableThinkingLevels: async () => ({ levels: ['low'] }),
+      setModel: async () => {
+        throw rejectedError(
+          'set_model',
+          undefined,
+          'Model not found: no exact provider/modelId match'
+        )
+      },
+      setThinkingLevel: async () => undefined,
+      setAutoCompaction: async () => undefined
+    } as never
+    await expect(
+      verifyPiLiveCapabilities(verbProven, ['options'], 1_000, { id: 'm', provider: 'p' } as never)
+    ).resolves.toBeNull()
+    const verbUnproven = {
+      getAvailableModels: async () => ({ models: [{ input: ['image'] }] }),
+      getAvailableThinkingLevels: async () => ({ levels: ['low'] }),
+      setModel: async () => {
+        throw new Error('transport boom')
+      },
+      setThinkingLevel: async () => undefined,
+      setAutoCompaction: async () => undefined
+    } as never
+    await expect(
+      verifyPiLiveCapabilities(verbUnproven, ['options'], 1_000, {
+        id: 'm',
+        provider: 'p'
+      } as never)
+    ).resolves.toMatch(/verb unproven/)
+    // History serves from either RPC: entries failure falls back to tree.
+    const treeFallback = {
+      getEntries: async () => {
+        throw new Error('entries gone')
+      },
+      getTree: async () => ({ tree: [] })
+    } as never
+    await expect(verifyPiLiveCapabilities(treeFallback, ['history'])).resolves.toBeNull()
     const dir = workspace()
     const file = join(dir, 'pi-session.jsonl')
     writeFileSync(file, '')
@@ -316,6 +359,30 @@ describe('Pi compat acquisition over a scripted child', () => {
     } finally {
       await textOnly.close({ orcaSessionId: 's' }).catch(() => undefined)
       await textOnly.close({ orcaSessionId: 's2' }).catch(() => undefined)
+      rmDir(dir)
+    }
+  })
+  it('refuses options when the set_model verb is unproven though wrappers exist', async () => {
+    const dir = workspace()
+    const file = join(dir, 'pi-session.jsonl')
+    writeFileSync(file, '')
+    // Wrappers stay present (real PiRpcConnection shape); the underlying
+    // `set_model` command rejects without Model-not-found evidence.
+    const noVerb = backendWithScript({
+      PI_SCRIPT_SESSION_FILE: file,
+      PI_SCRIPT_DISABLE_METHODS: 'set_model'
+    })
+    try {
+      await expect(
+        noVerb.acquire({
+          orcaSessionId: 's',
+          workspaceRoot: dir,
+          spawnToken: 's',
+          compat: { piVersion: MIN_KNOWN_GOOD_PI_VERSION, requiredCapabilities: ['options'] }
+        })
+      ).rejects.toThrow(/verb unproven|PI_COMPAT_CAPABILITY/)
+    } finally {
+      await noVerb.close({ orcaSessionId: 's' }).catch(() => undefined)
       rmDir(dir)
     }
   })
@@ -535,5 +602,42 @@ describe('Pi compat acquisition over a scripted child', () => {
       await backend.close({ orcaSessionId: 'ses-b' }).catch(() => undefined)
       rmDir(dir)
     }
+  })
+  it('probes the version lazily on Pi acquire, never at construction', async () => {
+    const dir = workspace()
+    const file = join(dir, 'pi-session.jsonl')
+    writeFileSync(file, '')
+    const backend = backendWithScript({ PI_SCRIPT_SESSION_FILE: file })
+    let probeCalls = 0
+    const resolvePiVersion = async (): Promise<string | null> => {
+      probeCalls += 1
+      return MIN_KNOWN_GOOD_PI_VERSION
+    }
+    const adapter = new PiStructuredSessionAdapter({
+      resolveWorkspacePath: () => dir,
+      backend,
+      readProcessStartTime: async () => 12345,
+      requireCompatEvidence: true,
+      resolvePiVersion,
+      requiredCapabilities: [...PROD_CAPS]
+    })
+    expect(probeCalls).toBe(0)
+    await adapter.acquire({
+      identity: identity('lazy-1'),
+      fence: 0,
+      spawnToken: 's1',
+      location: LOCAL
+    })
+    expect(probeCalls).toBe(1)
+    await adapter.acquire({
+      identity: identity('lazy-2'),
+      fence: 0,
+      spawnToken: 's2',
+      location: LOCAL
+    })
+    expect(probeCalls).toBe(2)
+    await expect(adapter.closeSession('lazy-1')).resolves.toBe(true)
+    await expect(adapter.closeSession('lazy-2')).resolves.toBe(true)
+    rmDir(dir)
   })
 })

@@ -7,6 +7,8 @@ export type PiVersionProbeDeps = {
   timeoutMs?: number
   maxOutputBytes?: number
   runImpl?: typeof runProcess
+  /** Resolved launch env (login-shell PATH); ambient env misses GUI PATH. */
+  env?: NodeJS.ProcessEnv
 }
 const PI_VERSION_TIMEOUT_MS = 5_000
 const PI_VERSION_MAX_BYTES = 8 * 1024
@@ -22,7 +24,8 @@ export async function probePiVersionBounded(
       program: command,
       args: ['--version'],
       timeoutMs: deps.timeoutMs ?? PI_VERSION_TIMEOUT_MS,
-      maxOutputBytes: deps.maxOutputBytes ?? PI_VERSION_MAX_BYTES
+      maxOutputBytes: deps.maxOutputBytes ?? PI_VERSION_MAX_BYTES,
+      ...(deps.env !== undefined ? { env: deps.env } : {})
     })
     result = { code: observed.code, stdout: observed.stdout, timedOut: observed.timedOut }
   } catch {

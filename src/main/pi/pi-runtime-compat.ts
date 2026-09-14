@@ -1,6 +1,6 @@
 // Production Pi compat wiring for the structured host (SNC1.10 Orca slice).
-// Probes `pi --version` once per install, bounded, out of band; test
-// harnesses with a spawn override keep deterministic floor evidence.
+// Version probing is lazy to first Pi acquire (never blocks Codex/Claude)
+// and uses the same resolved launch env as the Pi child (GUI PATH safe).
 import {
   MIN_KNOWN_GOOD_PI_VERSION,
   PI_STRUCTURED_REQUIRED_CAPABILITIES
@@ -23,6 +23,7 @@ export async function resolvePiRuntimeCompat(input: {
   spawnOverridePresent: boolean
   overrides?: PiRuntimeCompatOverrides
   probeCommand?: string
+  resolveEnv?: () => Promise<NodeJS.ProcessEnv> | NodeJS.ProcessEnv
 }): Promise<PiRuntimeCompat> {
   if (input.overrides !== undefined) {
     const floor = MIN_KNOWN_GOOD_PI_VERSION
@@ -46,10 +47,15 @@ export async function resolvePiRuntimeCompat(input: {
   }
   let piVersion: string | null = null
   try {
+    const env = await input.resolveEnv?.()
     const probed =
       input.probeCommand !== undefined
-        ? await probePiVersionBounded({ command: input.probeCommand })
-        : await probePiVersionBounded()
+        ? env !== undefined
+          ? await probePiVersionBounded({ command: input.probeCommand, env })
+          : await probePiVersionBounded({ command: input.probeCommand })
+        : env !== undefined
+          ? await probePiVersionBounded({ env })
+          : await probePiVersionBounded()
     piVersion = probed.ok ? probed.version : null
   } catch {
     piVersion = null
@@ -59,5 +65,28 @@ export async function resolvePiRuntimeCompat(input: {
     requiredCapabilities: PI_STRUCTURED_REQUIRED_CAPABILITIES,
     requireCompatEvidence: true,
     requireCompat: true
+  }
+}
+// Lazy probe for production install: construction never blocks; the first Pi
+// acquire pays one bounded probe with the Pi launch env, later acquires reuse.
+export function createLazyPiVersionProbe(input: {
+  resolveEnv: () => Promise<NodeJS.ProcessEnv> | NodeJS.ProcessEnv
+  command?: string
+}): () => Promise<string | null> {
+  let cached: Promise<string | null> | null = null
+  return () => {
+    cached ??= (async () => {
+      try {
+        const env = await input.resolveEnv()
+        const probed = await probePiVersionBounded({
+          ...(input.command !== undefined ? { command: input.command } : {}),
+          env
+        })
+        return probed.ok ? probed.version : null
+      } catch {
+        return null
+      }
+    })()
+    return cached
   }
 }

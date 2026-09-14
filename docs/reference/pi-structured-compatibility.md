@@ -12,14 +12,18 @@ this repository owns the Orca production wiring that consumes the evidence.
   (`0.85.1`, SemVer prerelease-aware) and required capabilities against the
   static advertisement. Production (`requireCompatEvidence: true`) refuses
   missing version or empty capability evidence with
-  `PI_COMPAT_EVIDENCE_MISSING` before any child exists.
+  `PI_COMPAT_EVIDENCE_MISSING` before any child exists. The version probe
+  runs with the resolved Pi launch env (login-shell PATH) and is lazy to
+  the first Pi acquire, so Codex/Claude install never blocks on Pi.
 - Post-start: `PiRpcSessionLifecycle` re-verifies live RPCs on the running
-  child before exposure — option catalogs plus `setModel` /
-  `setThinkingLevel` / `setAutoCompaction` presence, image-capable model
-  when `images` is required, readable `get_entries` / `get_tree` for
-  `history`, `switchSession` presence for `resume`, and `get_state`
-  identity. Refusal closes the just-started child (no leak) with
-  `PI_COMPAT_CAPABILITY`.
+  child before exposure — option catalogs plus `set_model` verb proof via a
+  safe bogus id (definite Model-not-found rejection without mutation;
+  thinking/autoCompaction setters stay declared presence-only because
+  probing them would mutate), image-capable model when `images` is required,
+  readable `get_entries` with `get_tree` fallback for `history`,
+  `switchSession` presence (declared) plus readable history for `resume`,
+  and `get_state` identity. Refusal closes the just-started child (no leak)
+  with `PI_COMPAT_CAPABILITY`.
 - Every structured acquire carries `{ piVersion, requiredCapabilities,
   executionHostId, wslDistro }`; production required set is
   `textStreaming, thinking, tools, options, history, cancel, resume,
