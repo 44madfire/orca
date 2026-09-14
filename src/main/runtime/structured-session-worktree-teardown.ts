@@ -14,6 +14,7 @@
  * structured surface uses; only a PROVEN live child is worth refusing a removal over.
  */
 
+import type { AgentSessionHandleProvider } from '../../shared/agent-session-provider-handle'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import { observeStructuredWorker } from './structured-worker-authority'
 import { closeStructuredAgentSessionChild } from './structured-agent-session-close'
@@ -21,7 +22,7 @@ import type { OrcaRuntimeService } from './orca-runtime'
 
 export type LiveStructuredSessionInWorkspace = {
   sessionId: string
-  agent: 'claude' | 'codex' | 'external'
+  agent: AgentSessionHandleProvider
 }
 
 export type StructuredWorktreeSweepRuntime = Pick<

@@ -166,7 +166,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS: RpcAnyMethod[] = [
             },
             envelope: params.envelope,
             worktree: params.worktree,
-            agent: params.agent as 'claude' | 'codex',
+            agent: params.agent as 'claude' | 'codex' | 'pi',
             caller: callerFor(ctx),
             ...(params.resumeFrom ? { resumeFrom: params.resumeFrom } : {})
           })

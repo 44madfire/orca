@@ -22,6 +22,8 @@ import {
 } from '../native-chat/agent-session-wire/structured-agent-session-host'
 import { StructuredAgentSessionAdapterRouter } from '../native-chat/agent-session-wire/structured-agent-session-adapter-router'
 import { createExternalStructuredSessionAdapterForRuntime } from '../native-chat/agent-session-wire/external/external-structured-runtime'
+import { PiStructuredSessionAdapter } from '../pi/pi-structured-session-adapter'
+import { createPiRpcBackend, type PiRpcBackendDeps } from '../pi/pi-rpc-backend'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import {
@@ -67,6 +69,8 @@ export type StructuredAgentSessionRuntimeDeps = {
   /** Provider transports are overridden only to drive the runtime against scripted children. */
   openCodexConnection?: CodexStructuredSessionAdapterDeps['openConnection']
   openClaudeConnection?: ClaudeStructuredSessionAdapterDeps['openConnection']
+  /** Pi child spawn override; production always spawns the real `pi --mode rpc`. */
+  spawnPiProcess?: PiRpcBackendDeps['spawnImpl']
   /** Scripted app-servers carry fake pids the real start-time read cannot answer for. */
   readProcessStartTime?: CodexStructuredSessionAdapterDeps['readProcessStartTime']
   resolveLaunchArgs?: (provider: AgentSessionRecord['provider']) => Promise<string[]> | string[]
@@ -287,12 +291,47 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       resolveWorkspacePath: deps.resolveWorkspacePath,
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
     })
+    // SNC1.9 native Pi: always installed with the production RPC backend —
+    // one `pi --mode rpc` child per session in the Orca-selected workspace.
+    // A missing/unusable Pi binary fails closed at acquire (callers fall back
+    // to ordinary Pi TUI); Codex/Claude selection is unchanged.
+    const resolvePiEnvironment = async (): Promise<NodeJS.ProcessEnv> => ({
+      ...(await bootEnvironment),
+      ...(await deps.resolveLaunchEnv?.())
+    })
+    let pi: PiStructuredSessionAdapter | null = null
+    const piBackend = createPiRpcBackend({
+      ...(deps.spawnPiProcess ? { spawnImpl: deps.spawnPiProcess } : {}),
+      resolveEnv: resolvePiEnvironment,
+      ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
+      onUnexpectedExit: (sessionId) => pi?.publishUnexpectedExit(sessionId)
+    })
+    pi = new PiStructuredSessionAdapter({
+      resolveWorkspacePath: deps.resolveWorkspacePath,
+      ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
+      backend: piBackend,
+      onEvent: (event) => {
+        if (event.type !== 'ended' || event.cause !== 'unexpected-exit') {
+          return
+        }
+        // Same serialization as Codex exits: recovery must not append after
+        // the host has flushed and its journal directory is removed.
+        recoveryChain = recoveryChain.then(async () => {
+          try {
+            await host?.handleAdapterEvent(event)
+          } catch (error) {
+            deps.onError?.({ scope: `structured-agent-session-exit:${event.sessionId}`, error })
+          }
+        })
+      }
+    })
     const adapter = new StructuredAgentSessionAdapterRouter(
-      external ? { codex, claude, external } : { codex, claude },
+      external ? { codex, claude, pi, external } : { codex, claude, pi },
       async () => {
         await Promise.all([
           codex.closeAll(),
           claude.closeAll(),
+          pi.closeAll(),
           ...(external ? [external.closeAll()] : [])
         ])
       }
