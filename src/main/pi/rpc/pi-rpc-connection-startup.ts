@@ -139,7 +139,7 @@ export abstract class PiRpcConnectionStartup extends PiRpcConnectionState {
                 signal: signal as string | null,
                 stderrTail: this.stderrTail,
               },
-              `pi exited during startup (code=${String(code)} signal=${String(signal)})${ 
+              `pi exited during startup (code=${String(code)} signal=${String(signal)})${
                 this.stderrTail ? `: ${this.stderrTail}` : ""}`,
             ),
           );
@@ -254,7 +254,7 @@ export abstract class PiRpcConnectionStartup extends PiRpcConnectionState {
             stderrTail: this.stderrTail,
           },
           `pi exited before RPC readiness ` +
-            `(code=${String(error.exitCode)} signal=${String(error.signal)})${ 
+            `(code=${String(error.exitCode)} signal=${String(error.signal)})${
             this.stderrTail ? `: ${this.stderrTail}` : ""}`,
         );
       } else if (error instanceof PiRpcError && error.code === "request-timeout") {

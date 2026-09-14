@@ -51,7 +51,7 @@ export class PiRpcConnection extends PiRpcConnectionCommands {
             stderrTail: tail,
           },
           `pi exited before answering ${entry.command} (id=${id}, ` +
-            `code=${String(code)} signal=${String(signal)})${ 
+            `code=${String(code)} signal=${String(signal)})${
             tail ? `: ${tail}` : ""}`,
         ),
       );
