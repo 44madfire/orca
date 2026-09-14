@@ -122,3 +122,27 @@ export function collectGrantedServiceIds(capabilities: readonly PluginCapability
   }
   return [...ids].sort()
 }
+
+// Deterministic display form: merges repeated service:invoke entries to the
+// same union the gate enforces, so permission rows never collide on kind.
+export function mergeServiceInvokeCapabilities(
+  capabilities: readonly PluginCapability[]
+): PluginCapability[] {
+  const union = collectGrantedServiceIds(capabilities)
+  if (union.length === 0) {
+    return [...capabilities]
+  }
+  const merged: PluginCapability[] = []
+  let inserted = false
+  for (const capability of capabilities) {
+    if (capability.kind === 'service:invoke') {
+      if (!inserted) {
+        inserted = true
+        merged.push({ kind: 'service:invoke', serviceIds: union })
+      }
+    } else {
+      merged.push(capability)
+    }
+  }
+  return merged
+}

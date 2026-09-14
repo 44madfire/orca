@@ -183,8 +183,12 @@ export function PluginConsentDialog({
                   )}
                 </p>
                 <div className="space-y-2">
-                  {plugin.capabilities.map((capability) => (
-                    <div key={capability.kind} className="flex items-start gap-2 text-sm leading-6">
+                  {plugin.capabilities.map((capability, index) => (
+                    <div
+                      key={`${capability.kind}-${index}`}
+                      className="flex items-start gap-2 text-sm leading-6"
+                    >
+                      {' '}
                       <Check className="mt-1 size-3.5 shrink-0 text-muted-foreground" />
                       <span>
                         {pluginCapabilityDescription(capability.kind, capability.description)}{' '}

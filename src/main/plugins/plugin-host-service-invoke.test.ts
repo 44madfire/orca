@@ -8,6 +8,7 @@ import {
 } from '../../shared/plugins/plugin-host-api'
 import {
   collectGrantedServiceIds,
+  mergeServiceInvokeCapabilities,
   type PluginCapability
 } from '../../shared/plugins/plugin-capabilities'
 import { gatePluginHostCall } from '../../shared/plugins/plugin-capability-gate'
@@ -399,6 +400,54 @@ describe('service.invoke scoped invocation', () => {
     const [entry] = await buildPluginList(service, emptyPluginLockfile())
     expect(entry?.capabilities).toMatchObject([
       { kind: 'service:invoke', serviceIds: ['orca-pi.bridge'] }
+    ])
+  })
+
+  it('merges repeated service entries to one deterministic row', async () => {
+    const capabilities: PluginCapability[] = [
+      { kind: 'service:invoke', serviceIds: ['b.service'] },
+      { kind: 'storage' },
+      { kind: 'service:invoke', serviceIds: ['a.service'] }
+    ]
+    expect(collectGrantedServiceIds(capabilities)).toEqual(['a.service', 'b.service'])
+    expect(mergeServiceInvokeCapabilities(capabilities)).toEqual([
+      { kind: 'service:invoke', serviceIds: ['a.service', 'b.service'] },
+      { kind: 'storage' }
+    ])
+    const manifest = pluginManifestSchema.parse({
+      manifestVersion: 1,
+      id: 'demo',
+      publisher: 'orca-samples',
+      name: 'Demo',
+      version: '1.0.0',
+      engines: { orca: '>=1.0.0' },
+      pluginApi: 1,
+      contributes: { panels: [], commands: [], events: [] },
+      capabilities
+    })
+    const plugin: ValidDiscoveredPlugin = {
+      pluginKey: PLUGIN_KEY,
+      rootDir: join(tmpdir(), 'plugins', 'demo'),
+      manifest,
+      consentFingerprint: 'sha256-current',
+      contentHash: null,
+      isDev: true
+    }
+    const service = {
+      options: { getPluginConsents: () => ({}), getDisabledPlugins: () => [] },
+      getDiscovered: () => [plugin],
+      activationState: () => 'pending',
+      workerState: () => ({ state: 'inactive', restarts: 0 }),
+      activationError: () => null,
+      contentPacks: {
+        vmRecipes: { preview: () => [] },
+        commands: { preview: () => [] }
+      }
+    } as unknown as PluginService
+    const [entry] = await buildPluginList(service, emptyPluginLockfile())
+    expect(entry?.capabilities).toEqual([
+      expect.objectContaining({ kind: 'service:invoke', serviceIds: ['a.service', 'b.service'] }),
+      expect.objectContaining({ kind: 'storage' })
     ])
   })
 })
