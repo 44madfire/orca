@@ -36,7 +36,7 @@ function nativeEchoDefinition(
 // Minimal fake child speaking the sidecar JSONL protocol.
 type FakeChild = EventEmitter & {
   pid: number
-  stdin: { write: (line: string) => void; on: () => void; destroy?: () => void }
+  stdin: EventEmitter & { write: (line: string) => boolean; destroy?: () => void }
   stdout: EventEmitter & { destroy?: () => void }
   stderr: EventEmitter & { destroy?: () => void }
   kill: () => boolean
@@ -53,13 +53,12 @@ function createFakeChild(onWrite: (line: string, child: FakeChild) => void): Fak
   const stderr = new EventEmitter() as FakeChild['stderr']
   child.stdout = stdout
   child.stderr = stderr
-  child.stdin = {
+  child.stdin = Object.assign(new EventEmitter(), {
     write: (line: string) => {
       onWrite(line, child)
       return true
-    },
-    on: () => undefined
-  }
+    }
+  }) as FakeChild['stdin']
   child.kill = () => {
     queueMicrotask(() => child.emit('exit', null, 'SIGKILL'))
     return true

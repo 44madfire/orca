@@ -1,6 +1,7 @@
 import { spawnProcess, type SpawnedProcess } from '../../shared/child-process/run-process'
 import type { PluginServiceSidecarDeps, SidecarLaunch } from './plugin-service-sidecar-transport'
 import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
+import { readServiceRootCreationTime } from './plugin-service-crashed-tree-sweep'
 
 const STARTUP_GRACE_MS = 50
 
@@ -20,6 +21,7 @@ export type SidecarStartupEvents = {
   deps: PluginServiceSidecarDeps
   onSpawned: (child: SpawnedProcess) => void
   onStartFailed: (child: SpawnedProcess) => void
+  onIdentity?: (child: SpawnedProcess, creationTimeMs: number | null) => void
   onLiveFailure: (error: Error) => void
   trackSteady: (child: SpawnedProcess) => void
 }
@@ -45,12 +47,18 @@ export function startSidecarProcess(events: SidecarStartupEvents): Promise<void>
       return
     }
     events.onSpawned(child)
+    // Bound while alive: resolves to null (never rejects) when unreadable.
+    const readIdentity = events.deps.readRootCreationTime ?? readServiceRootCreationTime
+    const identity = process.platform === 'win32' ? readIdentity(child.pid) : Promise.resolve(null)
     let settled = false
     const grace = setTimeout(() => {
       if (!settled) {
         settled = true
         rewire()
-        resolve()
+        void identity.then((creationTimeMs) => {
+          events.onIdentity?.(child, creationTimeMs)
+          resolve()
+        })
       }
     }, events.deps.startupGraceMs ?? STARTUP_GRACE_MS)
     grace.unref?.()

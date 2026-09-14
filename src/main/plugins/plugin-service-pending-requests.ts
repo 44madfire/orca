@@ -1,4 +1,4 @@
-import { serviceExecutionError } from './plugin-service-execution-errors'
+import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
 import type { SpawnedProcess } from '../../shared/child-process/run-process'
 import type { PluginServiceSidecarDeps } from './plugin-service-sidecar-transport'
 
@@ -86,4 +86,71 @@ export type SidecarRequestSendTarget = {
   dead: Error | null
   pending: SidecarPendingRequests
   deps: PluginServiceSidecarDeps
+}
+
+// Bounded stdin write: resolves once the line is accepted, rejects when the
+// stream errors, aborts, or stays unwritable past the request budget. Every
+// listener is removed on settle so a hung child cannot accrue handlers.
+export function writeSidecarLine(
+  child: SpawnedProcess,
+  line: string,
+  input: { serviceId: string; timeoutMs: number; signal?: AbortSignal }
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const stdin = child.stdin
+    if (!stdin) {
+      reject(serviceExecutionError('crashed', input.serviceId, 'service exited'))
+      return
+    }
+    if (input.signal?.aborted) {
+      reject(serviceExecutionError('cancelled', input.serviceId, 'request was cancelled'))
+      return
+    }
+    let settled = false
+    const timer = setTimeout(() => {
+      finish(() => reject(serviceExecutionError('timeout', input.serviceId, 'service timed out')))
+    }, input.timeoutMs)
+    timer.unref?.()
+    const finish = (settle: () => void): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      input.signal?.removeEventListener('abort', onAbort)
+      stdin.removeListener('drain', onDrain)
+      stdin.removeListener('error', onError)
+      settle()
+    }
+    const onAbort = (): void => {
+      finish(() =>
+        reject(serviceExecutionError('cancelled', input.serviceId, 'request was cancelled'))
+      )
+    }
+    const onDrain = (): void => {
+      finish(() => resolve())
+    }
+    const onError = (error: Error): void => {
+      finish(() =>
+        reject(
+          error instanceof ServiceExecutionError
+            ? error
+            : serviceExecutionError('crashed', input.serviceId, 'service exited')
+        )
+      )
+    }
+    input.signal?.addEventListener('abort', onAbort, { once: true })
+    stdin.once('drain', onDrain)
+    stdin.once('error', onError)
+    let accepted: boolean
+    try {
+      accepted = stdin.write(line)
+    } catch (error) {
+      finish(() => reject(error instanceof Error ? error : new Error('service write failed')))
+      return
+    }
+    if (accepted) {
+      finish(() => resolve())
+    }
+  })
 }

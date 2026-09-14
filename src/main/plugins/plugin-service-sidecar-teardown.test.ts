@@ -4,8 +4,13 @@ import { parseWslUncPath } from '../../shared/wsl-paths'
 import type { spawnProcess } from '../../shared/child-process/run-process'
 import { PluginServiceRuntimeExecution } from './plugin-service-runtime-execution'
 import { serviceRuntimeScopeKey, serviceTeardownScopeKey } from './plugin-service-worktree-runtime'
+import type { ServiceExecutionError } from './plugin-service-execution-errors'
 import type { PluginServiceSidecarDeps } from './plugin-service-sidecar-transport'
-import { collectCrashedTree, sweepCrashedServiceTree } from './plugin-service-crashed-tree-sweep'
+import {
+  readServiceRootCreationTime,
+  sweepCrashedServiceTree,
+  type CrashedTreeRoot
+} from './plugin-service-crashed-tree-sweep'
 
 // Teardown-race coverage for the sidecar lifecycle (ORCA-UI1.2 round 4):
 // in-flight retirement vs dispose, teardown without a healthy runtime,
@@ -15,7 +20,7 @@ type FakeChild = EventEmitter & {
   pid: number
   exitCode: number | null
   signalCode: NodeJS.Signals | null
-  stdin: { write: (line: string) => void; on: () => void }
+  stdin: EventEmitter & { write: (line: string) => boolean }
   stdout: EventEmitter & { destroy?: () => void }
   stderr: EventEmitter & { destroy?: () => void }
   kill: () => boolean
@@ -28,13 +33,12 @@ function createFakeChild(onWrite: (line: string, child: FakeChild) => void): Fak
   child.signalCode = null
   child.stdout = new EventEmitter() as FakeChild['stdout']
   child.stderr = new EventEmitter() as FakeChild['stderr']
-  child.stdin = {
+  child.stdin = Object.assign(new EventEmitter(), {
     write: (line: string) => {
       onWrite(line, child)
       return true
-    },
-    on: () => undefined
-  }
+    }
+  }) as FakeChild['stdin']
   child.kill = () => {
     queueMicrotask(() => child.emit('exit', null, 'SIGKILL'))
     return true
@@ -264,8 +268,8 @@ describe('plugin service teardown races', () => {
         launch: { command: '/opt/host-owned/bridge', args: [], env: {} },
         limits: {
           terminateImpl: fakeTerminate,
-          sweepCrashedTreeImpl: (async (pid: number) => {
-            swept.push(pid)
+          sweepCrashedTreeImpl: (async (root: CrashedTreeRoot) => {
+            swept.push(root.pid)
             return true
           }) as unknown as PluginServiceSidecarDeps['sweepCrashedTreeImpl']
         }
@@ -323,48 +327,140 @@ describe('plugin service teardown races', () => {
 
   it('sweeps explicit descendant pids and verifies by absence', async () => {
     const table = [
-      { pid: 10, ppid: 1 },
-      { pid: 11, ppid: 10 },
-      { pid: 12, ppid: 11 },
-      { pid: 13, ppid: 1 }
+      { pid: 11, ppid: 10, creationTimeMs: 101 },
+      { pid: 12, ppid: 11, creationTimeMs: 102 },
+      { pid: 13, ppid: 1, creationTimeMs: 103 }
     ]
-    expect(collectCrashedTree(10, table).sort((a, b) => a - b)).toEqual([11, 12])
     const killed: number[][] = []
     const dead = new Set<number>()
-    const proven = await sweepCrashedServiceTree(10, {
-      platform: 'win32',
-      readTable: async () => table.filter((row) => !dead.has(row.pid)),
-      killPids: async (pids) => {
-        killed.push([...pids])
-        for (const pid of pids) {
-          dead.add(pid)
+    const proven = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100 },
+      {
+        platform: 'win32',
+        readTable: async () => table.filter((row) => !dead.has(row.pid)),
+        killPids: async (pids) => {
+          killed.push([...pids])
+          for (const pid of pids) {
+            dead.add(pid)
+          }
         }
       }
-    })
+    )
     expect(proven).toBe(true)
     expect(killed).toEqual([[11, 12]])
   })
 
-  it('reports unverified when descendants survive or the table is unreadable', async () => {
-    const table = [
-      { pid: 10, ppid: 1 },
-      { pid: 11, ppid: 10 }
-    ]
-    const survivors = await sweepCrashedServiceTree(10, {
-      platform: 'win32',
-      readTable: async () => table,
-      killPids: async () => undefined
-    })
-    expect(survivors).toBe(false)
-    const blind = await sweepCrashedServiceTree(10, {
-      platform: 'win32',
-      readTable: async () => {
-        throw new Error('no table')
-      },
-      killPids: async () => undefined
-    })
+  it('refuses identity-ambiguous trees without killing', async () => {
+    const killed: number[][] = []
+    const killPids = async (pids: readonly number[]): Promise<void> => {
+      killed.push([...pids])
+    }
+    const reused = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100 },
+      {
+        platform: 'win32',
+        readTable: async () => [
+          { pid: 10, ppid: 1, creationTimeMs: 999 },
+          { pid: 11, ppid: 10, creationTimeMs: 101 }
+        ],
+        killPids
+      }
+    )
+    expect(reused).toBe(false)
+    const live = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100 },
+      {
+        platform: 'win32',
+        readTable: async () => [
+          { pid: 10, ppid: 1, creationTimeMs: 100 },
+          { pid: 11, ppid: 10, creationTimeMs: 101 }
+        ],
+        killPids
+      }
+    )
+    expect(live).toBe(false)
+    const blind = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: null },
+      {
+        platform: 'win32',
+        readTable: async () => [{ pid: 10, ppid: 1, creationTimeMs: 100 }],
+        killPids
+      }
+    )
     expect(blind).toBe(false)
-    expect(await sweepCrashedServiceTree(-1, { platform: 'win32' })).toBe(true)
+    expect(killed).toEqual([])
+  })
+
+  it('keeps scanning until late descendants are gone', async () => {
+    let nursing = true
+    const killed: number[][] = []
+    const dead = new Set<number>()
+    const proven = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100 },
+      {
+        platform: 'win32',
+        readTable: async () => {
+          const rows = [{ pid: 11, ppid: 10, creationTimeMs: 101 }].filter(
+            (row) => !dead.has(row.pid)
+          )
+          if (!nursing && !dead.has(12)) {
+            rows.push({ pid: 12, ppid: 11, creationTimeMs: 102 })
+          }
+          return rows
+        },
+        killPids: async (pids) => {
+          killed.push([...pids])
+          for (const pid of pids) {
+            dead.add(pid)
+          }
+          nursing = false
+        }
+      }
+    )
+    expect(proven).toBe(true)
+    expect(killed).toEqual([[11], [12]])
+  })
+
+  it('reads the live root creation time for later binding', async () => {
+    const rows = [{ pid: 4242, ppid: 1, creationTimeMs: 555 }]
+    await expect(
+      readServiceRootCreationTime(4242, {
+        platform: 'win32',
+        readTable: async () => rows
+      })
+    ).resolves.toBe(555)
+    await expect(
+      readServiceRootCreationTime(9999, {
+        platform: 'win32',
+        readTable: async () => rows
+      })
+    ).resolves.toBeNull()
+    await expect(readServiceRootCreationTime(4242, { platform: 'linux' })).resolves.toBeNull()
+  })
+
+  it('reports unverified when descendants survive or the table is unreadable', async () => {
+    const table = [{ pid: 11, ppid: 10, creationTimeMs: 101 }]
+    const survivors = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100 },
+      {
+        platform: 'win32',
+        readTable: async () => table,
+        killPids: async () => undefined
+      }
+    )
+    expect(survivors).toBe(false)
+    const blind = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100 },
+      {
+        platform: 'win32',
+        readTable: async () => {
+          throw new Error('no table')
+        },
+        killPids: async () => undefined
+      }
+    )
+    expect(blind).toBe(false)
+    expect(await sweepCrashedServiceTree({ pid: -1, creationTimeMs: null })).toBe(true)
   })
 
   it('rejects an oversized record even with a small response', async () => {
@@ -426,6 +522,125 @@ describe('plugin service teardown races', () => {
     )
     const responses = (await Promise.all(calls)) as { n: number }[]
     expect(responses).toEqual(Array.from({ length: 5 }, () => ({ n: 36 })))
+    await execution.dispose()
+  })
+
+  it(
+    'binds the crash sweep to the identity captured while alive',
+    { skip: process.platform !== 'win32' },
+    async () => {
+      const seen: { pid: number; creationTimeMs: number | null }[] = []
+      const children: FakeChild[] = []
+      const fakeSpawn = (() => {
+        const child = createFakeChild(echoOnWrite((request) => ({ echo: request })))
+        children.push(child)
+        return child as unknown as ReturnType<typeof spawnProcess>
+      }) as unknown as typeof spawnProcess
+      const execution = new PluginServiceRuntimeExecution({
+        platform: 'linux',
+        spawnImpl: fakeSpawn
+      })
+      execution.register({
+        serviceId: 'demo.bound',
+        launch: { command: '/opt/host-owned/bridge', args: [], env: {} },
+        limits: {
+          terminateImpl: fakeTerminate,
+          readRootCreationTime: async () => 4242,
+          sweepCrashedTreeImpl: (async (root: CrashedTreeRoot) => {
+            seen.push({ pid: root.pid, creationTimeMs: root.creationTimeMs })
+            return true
+          }) as unknown as PluginServiceSidecarDeps['sweepCrashedTreeImpl']
+        }
+      })
+      const worktree = { worktreeId: 'wt', path: '/tmp/wt' }
+      await expect(
+        execution.invoke({ serviceId: 'demo.bound', worktree, request: null })
+      ).resolves.toEqual({ echo: null })
+      const first = children[0]
+      expect(first).toBeDefined()
+      if (first) {
+        first.exitCode = 1
+        first.emit('exit', 1, null)
+      }
+      await expect(
+        execution.invoke({ serviceId: 'demo.bound', worktree, request: null })
+      ).resolves.toEqual({ echo: null })
+      expect(seen).toEqual(first ? [{ pid: first.pid, creationTimeMs: 4242 }] : [])
+      await execution.dispose()
+    }
+  )
+
+  it('fails fast past the in-flight request cap', async () => {
+    const fakeSpawn = (() =>
+      createFakeChild(() => {}) as unknown as ReturnType<
+        typeof spawnProcess
+      >) as unknown as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
+    execution.register({
+      serviceId: 'demo.capped',
+      launch: { command: '/opt/host-owned/bridge', args: [], env: {} },
+      limits: { maxPendingRequests: 2, terminateImpl: fakeTerminate }
+    })
+    const worktree = { worktreeId: 'wt', path: '/tmp/wt' }
+    // Admission order under shared startup is unspecified: exactly one of
+    // the three concurrent callers must fail fast while two stay queued.
+    const codes: string[] = []
+    for (const request of [{ n: 1 }, { n: 2 }, { n: 3 }]) {
+      void execution.invoke({ serviceId: 'demo.capped', worktree, request }).then(
+        () => codes.push('resolved'),
+        (error: unknown) => codes.push((error as ServiceExecutionError).code)
+      )
+    }
+    for (let waited = 0; codes.length < 1 && waited < 2000; waited += 10) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(codes).toEqual(['overloaded'])
+    await execution.dispose()
+    for (let waited = 0; codes.length < 3 && waited < 2000; waited += 10) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(codes.filter((code) => code === 'cancelled')).toHaveLength(2)
+  })
+
+  it('cleans up stalled-write listeners without dropping the response', async () => {
+    const stdin = new EventEmitter()
+    let writes = 0
+    const fakeSpawn = (() => {
+      const child = createFakeChild(() => {})
+      const respond = (line: string): void => {
+        echoOnWrite((request) => ({ echo: request }))(line, child)
+      }
+      child.stdin = Object.assign(stdin, {
+        write: (line: string) => {
+          writes += 1
+          respond(line)
+          queueMicrotask(() => stdin.emit('drain'))
+          return false
+        }
+      }) as FakeChild['stdin']
+      return child as unknown as ReturnType<typeof spawnProcess>
+    }) as unknown as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
+    execution.register({
+      serviceId: 'demo.backpressure',
+      launch: { command: '/opt/host-owned/bridge', args: [], env: {} },
+      limits: { terminateImpl: fakeTerminate }
+    })
+    // Drain arrives with the response; the request still resolves on time and
+    // leaves no write listeners behind.
+    await expect(
+      execution.invoke({
+        serviceId: 'demo.backpressure',
+        worktree: { worktreeId: 'wt', path: '/tmp/wt' },
+        request: null,
+        timeoutMs: 2000
+      })
+    ).resolves.toEqual({ echo: null })
+    expect(writes).toBe(1)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    // The write-scoped drain listener is gone; the permanent stream guard
+    // installed at adopt stays until teardown detaches it.
+    expect(stdin.listeners('drain').length).toBe(0)
     await execution.dispose()
   })
 

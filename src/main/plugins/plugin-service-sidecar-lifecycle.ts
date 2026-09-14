@@ -24,12 +24,11 @@ export class PluginServiceSidecar {
   private dead: Error | null = null
   private starting: Promise<void> | null = null
   private closed = false
-  // Retired victims awaiting proven termination; close() re-drives them.
   private readonly victims: SidecarVictimTracker
   private steady: SteadyChildHandlers | null = null
+  private rootCreationTimeMs: number | null = null
   private readonly onData = (chunk: Buffer | string): void => this.onStdout(chunk)
   private readonly onStderr = (): void => {}
-
   constructor(
     private readonly serviceId: string,
     private readonly launch: SidecarLaunch,
@@ -64,7 +63,7 @@ export class PluginServiceSidecar {
     let verified = true
     if (child) {
       this.detach(child)
-      if (!(await this.victims.retire(child))) {
+      if (!(await this.victims.retire({ proc: child, creationTimeMs: this.rootCreationTimeMs }))) {
         verified = false
       }
     }
@@ -72,10 +71,6 @@ export class PluginServiceSidecar {
       verified = false
     }
     return verified
-  }
-
-  private hostOpen(): boolean {
-    return this.deps.isHostOpen?.() ?? true
   }
 
   private ensureStarted(): Promise<void> {
@@ -91,7 +86,12 @@ export class PluginServiceSidecar {
       onSpawned: (child) => this.adopt(child),
       onStartFailed: (child) => this.abandonStart(child),
       onLiveFailure: (error) => this.failAll(error),
-      trackSteady: (child) => this.trackSteady(child)
+      trackSteady: (child) => this.trackSteady(child),
+      onIdentity: (child, creationTimeMs) => {
+        if (this.child === child) {
+          this.rootCreationTimeMs = creationTimeMs
+        }
+      }
     }).finally(() => {
       this.starting = null
     })
@@ -101,12 +101,12 @@ export class PluginServiceSidecar {
   private async startAndGuard(): Promise<void> {
     await this.starting
     // A mid-start dispose drops the orphan instead of serving a torn-down scope.
-    if (this.closed || !this.hostOpen()) {
+    if (this.closed || !(this.deps.isHostOpen?.() ?? true)) {
       const orphan = this.child
       this.child = null
       if (orphan) {
         this.detach(orphan)
-        await this.victims.retire(orphan)
+        await this.victims.retire({ proc: orphan, creationTimeMs: this.rootCreationTimeMs })
       }
       throw serviceExecutionError('crashed', this.serviceId, 'service host is closed')
     }
@@ -120,12 +120,13 @@ export class PluginServiceSidecar {
     child.stdout?.off('data', this.onData)
     child.stderr?.off('data', this.onStderr)
     if (!this.closed) {
-      void this.victims.retire(child)
+      void this.victims.retire({ proc: child, creationTimeMs: this.rootCreationTimeMs })
     }
   }
 
   private adopt(child: SpawnedProcess): void {
     this.child = child
+    this.rootCreationTimeMs = null
     this.buffer = ''
     this.decoder = new StringDecoder('utf8')
     for (const stream of [child.stdin, child.stdout, child.stderr]) {
@@ -250,7 +251,7 @@ export class PluginServiceSidecar {
     this.decoder = new StringDecoder('utf8')
     this.failAll(error)
     if (victim) {
-      void this.victims.retire(victim)
+      void this.victims.retire({ proc: victim, creationTimeMs: this.rootCreationTimeMs })
     }
   }
 
@@ -263,7 +264,7 @@ export class PluginServiceSidecar {
     this.child = null
     this.buffer = ''
     this.decoder = new StringDecoder('utf8')
-    await this.victims.retire(victim)
+    await this.victims.retire({ proc: victim, creationTimeMs: this.rootCreationTimeMs })
   }
 
   private detach(child: SpawnedProcess): void {
@@ -278,8 +279,7 @@ export class PluginServiceSidecar {
     child.off('exit', steady.onExit)
   }
 
-  // A crash keeps tree accountability: the dead root retires through the
-  // victim tracker, so descendants stay inside dispose().
+  // A crash retires the dead root through the victim tracker.
   private failAll(error: Error, retire?: SpawnedProcess | null): void {
     this.dead =
       error instanceof ServiceExecutionError
@@ -294,7 +294,7 @@ export class PluginServiceSidecar {
     this.steady = null
     this.pending.failAll(this.dead)
     if (retire) {
-      void this.victims.retire(retire)
+      void this.victims.retire({ proc: retire, creationTimeMs: this.rootCreationTimeMs })
     }
   }
 }
