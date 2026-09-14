@@ -63,7 +63,7 @@ export class PluginServiceSidecar {
     let verified = true
     if (child) {
       this.detach(child)
-      if (!(await this.victims.retire({ proc: child, creationTimeMs: this.rootCreationTimeMs }))) {
+      if (!(await this.victims.retire(child, this.rootCreationTimeMs))) {
         verified = false
       }
     }
@@ -106,7 +106,7 @@ export class PluginServiceSidecar {
       this.child = null
       if (orphan) {
         this.detach(orphan)
-        await this.victims.retire({ proc: orphan, creationTimeMs: this.rootCreationTimeMs })
+        await this.victims.retire(orphan, this.rootCreationTimeMs)
       }
       throw serviceExecutionError('crashed', this.serviceId, 'service host is closed')
     }
@@ -120,7 +120,7 @@ export class PluginServiceSidecar {
     child.stdout?.off('data', this.onData)
     child.stderr?.off('data', this.onStderr)
     if (!this.closed) {
-      void this.victims.retire({ proc: child, creationTimeMs: this.rootCreationTimeMs })
+      void this.victims.retire(child, this.rootCreationTimeMs)
     }
   }
 
@@ -251,7 +251,7 @@ export class PluginServiceSidecar {
     this.decoder = new StringDecoder('utf8')
     this.failAll(error)
     if (victim) {
-      void this.victims.retire({ proc: victim, creationTimeMs: this.rootCreationTimeMs })
+      void this.victims.retire(victim, this.rootCreationTimeMs)
     }
   }
 
@@ -264,7 +264,7 @@ export class PluginServiceSidecar {
     this.child = null
     this.buffer = ''
     this.decoder = new StringDecoder('utf8')
-    await this.victims.retire({ proc: victim, creationTimeMs: this.rootCreationTimeMs })
+    await this.victims.retire(victim, this.rootCreationTimeMs)
   }
 
   private detach(child: SpawnedProcess): void {
@@ -294,7 +294,7 @@ export class PluginServiceSidecar {
     this.steady = null
     this.pending.failAll(this.dead)
     if (retire) {
-      void this.victims.retire({ proc: retire, creationTimeMs: this.rootCreationTimeMs })
+      void this.victims.retire(retire, this.rootCreationTimeMs)
     }
   }
 }

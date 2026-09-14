@@ -4,6 +4,9 @@ import { ServiceExecutionError, serviceExecutionError } from './plugin-service-e
 import { readServiceRootCreationTime } from './plugin-service-crashed-tree-sweep'
 
 const STARTUP_GRACE_MS = 50
+// Identity must never gate readiness: a wedged table reader would otherwise
+// stall every invoke on this sidecar with no timeout to bound it.
+const IDENTITY_TIMEOUT_MS = 5_000
 
 // Missing executables stay `service-unavailable`, distinct from start failure.
 function toStartError(error: unknown, serviceId: string): ServiceExecutionError {
@@ -55,9 +58,17 @@ export function startSidecarProcess(events: SidecarStartupEvents): Promise<void>
       if (!settled) {
         settled = true
         rewire()
-        void identity.then((creationTimeMs) => {
+        resolve()
+        // Enrichment only: applies while this child is still current, and
+        // gives up after a bounded wait instead of pinning the child.
+        void Promise.race([
+          identity,
+          new Promise<null>((giveUp) => {
+            const timer = setTimeout(() => giveUp(null), IDENTITY_TIMEOUT_MS)
+            timer.unref?.()
+          })
+        ]).then((creationTimeMs) => {
           events.onIdentity?.(child, creationTimeMs)
-          resolve()
         })
       }
     }, events.deps.startupGraceMs ?? STARTUP_GRACE_MS)

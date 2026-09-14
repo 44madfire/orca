@@ -421,6 +421,110 @@ describe('plugin service teardown races', () => {
     expect(killed).toEqual([[11], [12]])
   })
 
+  it('rejects an orphan that predates the root without killing', async () => {
+    const killed: number[][] = []
+    const stale = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100 },
+      {
+        platform: 'win32',
+        readTable: async () => [{ pid: 11, ppid: 10, creationTimeMs: 50 }],
+        killPids: async (pids) => {
+          killed.push([...pids])
+        }
+      }
+    )
+    expect(stale).toBe(false)
+    expect(killed).toEqual([])
+  })
+
+  it('rejects rows without creation-time identity without killing', async () => {
+    const killed: number[][] = []
+    const blindTargets = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100 },
+      {
+        platform: 'win32',
+        readTable: async () => [{ pid: 11, ppid: 10 }],
+        killPids: async (pids) => {
+          killed.push([...pids])
+        }
+      }
+    )
+    expect(blindTargets).toBe(false)
+    expect(killed).toEqual([])
+    const blindRoot = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: null },
+      {
+        platform: 'win32',
+        readTable: async () => [{ pid: 11, ppid: 10, creationTimeMs: 101 }],
+        killPids: async (pids) => {
+          killed.push([...pids])
+        }
+      }
+    )
+    expect(blindRoot).toBe(false)
+    expect(killed).toEqual([])
+  })
+
+  it('rejects births after retirement under dead parents', async () => {
+    const killed: number[][] = []
+    const late = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100, notAfterMs: 1000 },
+      {
+        platform: 'win32',
+        readTable: async () => [{ pid: 11, ppid: 10, creationTimeMs: 1500 }],
+        killPids: async (pids) => {
+          killed.push([...pids])
+        }
+      }
+    )
+    expect(late).toBe(false)
+    expect(killed).toEqual([])
+  })
+
+  it('still cleans live-spawning trees under the bound', async () => {
+    const killed: number[][] = []
+    const dead = new Set<number>()
+    const proven = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100, notAfterMs: 1000 },
+      {
+        platform: 'win32',
+        readTable: async () =>
+          [
+            { pid: 11, ppid: 10, creationTimeMs: 500 },
+            { pid: 12, ppid: 11, creationTimeMs: 1600 }
+          ].filter((row) => !dead.has(row.pid)),
+        killPids: async (pids) => {
+          killed.push([...pids])
+          for (const pid of pids) {
+            dead.add(pid)
+          }
+        }
+      }
+    )
+    expect(proven).toBe(true)
+    expect(killed).toEqual([[11, 12]])
+  })
+
+  it('never signals a pid that changes identity between scan and kill', async () => {
+    let flip = false
+    const killed: number[][] = []
+    const flapping = await sweepCrashedServiceTree(
+      { pid: 10, creationTimeMs: 100 },
+      {
+        platform: 'win32',
+        readTable: async () => {
+          flip = !flip
+          return [{ pid: 11, ppid: 10, creationTimeMs: flip ? 101 : 999 }]
+        },
+        killPids: async (pids) => {
+          killed.push([...pids])
+        }
+      }
+    )
+    expect(flapping).toBe(false)
+    expect(killed).toEqual([])
+  })
+
   it('reads the live root creation time for later binding', async () => {
     const rows = [{ pid: 4242, ppid: 1, creationTimeMs: 555 }]
     await expect(

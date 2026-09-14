@@ -167,6 +167,9 @@ export function sendSidecarRequest(
 export type TrackedVictim = {
   proc: SpawnedProcess
   creationTimeMs: number | null
+  // Wall-clock stamp of retirement; bounds legitimate births attributed to
+  // the dead root, since a dead pid cannot spawn.
+  retiredAtMs: number
 }
 
 export class SidecarVictimTracker {
@@ -178,18 +181,29 @@ export class SidecarVictimTracker {
   private readonly victims = new Set<TrackedVictim>()
   private readonly inFlight = new Map<SpawnedProcess, Promise<boolean>>()
 
-  retire(victim: TrackedVictim): Promise<boolean> {
-    const running = this.inFlight.get(victim.proc)
+  retire(proc: SpawnedProcess, creationTimeMs: number | null): Promise<boolean> {
+    const running = this.inFlight.get(proc)
     if (running) {
       return running
     }
+    // One record per proc: re-retiring a tracked victim must reuse it,
+    // otherwise redrive-while-tracked grows the set without bound.
+    let victim: TrackedVictim | undefined
+    for (const candidate of this.victims) {
+      if (candidate.proc === proc) {
+        victim = candidate
+        break
+      }
+    }
+    victim ??= { proc, creationTimeMs, retiredAtMs: Date.now() }
+    if (victim.creationTimeMs == null) {
+      victim.creationTimeMs = creationTimeMs
+    }
     this.victims.add(victim)
-    const attempt = terminateSidecarChild(
-      victim.proc,
-      this.terminateImpl,
-      this.sweepImpl,
-      victim.creationTimeMs
-    ).then((proven) => {
+    const attempt = terminateSidecarChild(victim.proc, this.terminateImpl, this.sweepImpl, {
+      creationTimeMs: victim.creationTimeMs,
+      notAfterMs: victim.retiredAtMs
+    }).then((proven) => {
       if (proven) {
         this.victims.delete(victim)
       }
@@ -202,6 +216,10 @@ export class SidecarVictimTracker {
     return attempt
   }
 
+  private drive(victim: TrackedVictim): Promise<boolean> {
+    return this.inFlight.get(victim.proc) ?? this.retire(victim.proc, victim.creationTimeMs)
+  }
+
   async redrive(): Promise<boolean> {
     let verified = true
     // Deleting during Set iteration is safe; each victim is visited once.
@@ -211,10 +229,6 @@ export class SidecarVictimTracker {
       }
     }
     return verified && this.victims.size === 0
-  }
-
-  private drive(victim: TrackedVictim): Promise<boolean> {
-    return this.inFlight.get(victim.proc) ?? this.retire(victim)
   }
 }
 
@@ -228,13 +242,17 @@ export async function terminateSidecarChild(
   child: SpawnedProcess,
   terminateImpl?: typeof forceTerminateProcessTree,
   sweepImpl: typeof sweepCrashedServiceTree = sweepCrashedServiceTree,
-  creationTimeMs: number | null = null
+  rootIdentity: { creationTimeMs: number | null; notAfterMs?: number | null } | null = null
 ): Promise<boolean> {
   const dead = (child.exitCode ?? null) !== null || (child.signalCode ?? null) !== null
   const pid = typeof child.pid === 'number' ? child.pid : null
   let verified: boolean
   if (dead && pid !== null && process.platform === 'win32') {
-    verified = await sweepImpl({ pid, creationTimeMs }).catch(() => false)
+    verified = await sweepImpl({
+      pid,
+      creationTimeMs: rootIdentity?.creationTimeMs ?? null,
+      notAfterMs: rootIdentity?.notAfterMs ?? null
+    }).catch(() => false)
   } else {
     const terminate = terminateImpl ?? forceTerminateProcessTree
     verified = await terminate(child).catch(() => false)
