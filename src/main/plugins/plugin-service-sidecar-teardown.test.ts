@@ -63,6 +63,8 @@ describe('plugin service teardown races', () => {
       release = resolve
     })
     let calls = 0
+    let active = 0
+    let maxActive = 0
     const fakeSpawn = (() =>
       createFakeChild(() => {}) as unknown as ReturnType<
         typeof spawnProcess
@@ -75,7 +77,15 @@ describe('plugin service teardown races', () => {
         requestTimeoutMs: 40,
         terminateImpl: () => {
           calls += 1
-          return calls === 1 ? gate : Promise.resolve(false)
+          active += 1
+          maxActive = Math.max(maxActive, active)
+          if (calls === 1) {
+            return gate.finally(() => {
+              active -= 1
+            })
+          }
+          active -= 1
+          return Promise.resolve(false)
         }
       }
     })
@@ -83,11 +93,14 @@ describe('plugin service teardown races', () => {
     await expect(
       execution.invoke({ serviceId: 'demo.gated', worktree, request: null })
     ).rejects.toMatchObject({ code: 'timeout' })
-    // Retirement call #1 is held; dispose must not report success and forget it.
+    // Retirement call #1 is held; dispose must await it rather than doubling
+    // the tree kill, then fail on the unverified victim instead of forgetting it.
     const disposing = execution.dispose()
-    await expect(disposing).rejects.toThrow(/could not prove every sidecar stopped/)
-    expect(calls).toBeGreaterThanOrEqual(2)
+    await new Promise((resolve) => setTimeout(resolve, 20))
     release(false)
+    await expect(disposing).rejects.toThrow(/could not prove every sidecar stopped/)
+    expect(maxActive).toBe(1)
+    expect(calls).toBeGreaterThanOrEqual(2)
     await execution.dispose().catch(() => undefined)
   })
 
@@ -201,6 +214,27 @@ describe('plugin service teardown races', () => {
     ).resolves.toEqual({ echo: { n: 2 } })
     await expect(execution.dispose()).rejects.toThrow(/could not prove every sidecar stopped/)
     expect(calls).toBeGreaterThanOrEqual(3)
+    await execution.dispose().catch(() => undefined)
+  })
+
+  it('fails closeScope instead of silently keeping an unverified sidecar', async () => {
+    const fakeSpawn = (() =>
+      createFakeChild(echoOnWrite((request) => ({ echo: request }))) as unknown as ReturnType<
+        typeof spawnProcess
+      >) as unknown as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
+    execution.register({
+      serviceId: 'demo.scope-unverified',
+      launch: { command: '/opt/host-owned/bridge', args: [], env: {} },
+      limits: { terminateImpl: async () => false }
+    })
+    const worktree = { worktreeId: 'wt', path: '/tmp/wt' }
+    await expect(
+      execution.invoke({ serviceId: 'demo.scope-unverified', worktree, request: null })
+    ).resolves.toEqual({ echo: null })
+    await expect(execution.closeScope('demo.scope-unverified', worktree)).rejects.toMatchObject({
+      code: 'teardown-unverified'
+    })
     await execution.dispose().catch(() => undefined)
   })
 

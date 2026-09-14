@@ -146,15 +146,21 @@ export class PluginServiceRuntimeExecution {
 
   // Teardown resolves the scope from path shape alone: a WSL runtime that
   // has since become unavailable must not shield a running sidecar from close.
+  // Teardown keys off path shape alone so an unhealthy runtime cannot shield
+  // a running sidecar; an unverified shutdown throws after bounded retries.
   async closeScope(serviceId: string, worktree: TrustedServiceWorktree): Promise<void> {
     const key = serviceTeardownScopeKey(serviceId, worktree, this.deps.platform ?? process.platform)
     const sidecar = this.sidecars.get(key)
     if (!sidecar) {
       return
     }
-    if (await sidecar.close()) {
-      this.sidecars.delete(key)
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (await sidecar.close()) {
+        this.sidecars.delete(key)
+        return
+      }
     }
+    throw serviceExecutionError('teardown-unverified', serviceId, 'service teardown is unverified')
   }
 
   async dispose(): Promise<void> {

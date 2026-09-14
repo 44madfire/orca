@@ -9,6 +9,7 @@ export type ServiceExecutionErrorCode =
   | 'timeout'
   | 'cancelled'
   | 'crashed'
+  | 'teardown-unverified'
   | 'malformed-response'
 
 const CODE_ORDER: readonly ServiceExecutionErrorCode[] = [
@@ -20,6 +21,7 @@ const CODE_ORDER: readonly ServiceExecutionErrorCode[] = [
   'timeout',
   'cancelled',
   'crashed',
+  'teardown-unverified',
   'malformed-response'
 ]
 

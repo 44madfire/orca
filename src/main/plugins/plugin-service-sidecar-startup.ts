@@ -1,12 +1,18 @@
 import { spawnProcess, type SpawnedProcess } from '../../shared/child-process/run-process'
-import {
-  toStartError,
-  type PluginServiceSidecarDeps,
-  type SidecarLaunch
-} from './plugin-service-sidecar-transport'
-import { serviceExecutionError } from './plugin-service-execution-errors'
+import type { PluginServiceSidecarDeps, SidecarLaunch } from './plugin-service-sidecar-transport'
+import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
 
 const STARTUP_GRACE_MS = 50
+
+// Missing executables stay `service-unavailable`, distinct from start failure.
+function toStartError(error: unknown, serviceId: string): ServiceExecutionError {
+  if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+    return serviceExecutionError('service-unavailable', serviceId)
+  }
+  return error instanceof ServiceExecutionError
+    ? error
+    : serviceExecutionError('start-failed', serviceId, 'service failed to start')
+}
 
 export type SidecarStartupEvents = {
   serviceId: string

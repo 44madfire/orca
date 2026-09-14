@@ -1,15 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
-
-// Missing executables stay `service-unavailable`, distinct from start failure.
-export function toStartError(error: unknown, serviceId: string): ServiceExecutionError {
-  if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-    return serviceExecutionError('service-unavailable', serviceId)
-  }
-  return error instanceof ServiceExecutionError
-    ? error
-    : serviceExecutionError('start-failed', serviceId, 'service failed to start')
-}
 import type { SpawnedProcess, spawnProcess } from '../../shared/child-process/run-process'
 import { forceTerminateProcessTree } from '../../shared/child-process/process-tree-termination'
 
@@ -106,8 +96,7 @@ export function parseServiceRecord(
   return { id: record.id, response: record.response ?? null }
 }
 
-// Pending-request registry behind one sidecar. Timeout detaches only the
-// timed-out caller; cancellation keeps the child alive for siblings.
+// Pending-request registry: timeout detaches only the timed-out caller.
 export class SidecarPendingRequests {
   readonly pending = new Map<string, PendingServiceRequest>()
 
@@ -184,8 +173,7 @@ export type SidecarRequestSendTarget = {
   deps: PluginServiceSidecarDeps
 }
 
-// Correlated JSONL write behind one sidecar; concurrent callers never see
-// each other's payloads. Rejects locally on validation/write failure.
+// Correlated JSONL write; concurrent callers never see each other's payloads.
 export function sendSidecarRequest(
   target: SidecarRequestSendTarget,
   request: unknown,
@@ -237,35 +225,50 @@ export function sendSidecarRequest(
   })
 }
 
-// Retired children awaiting proven termination. Registration happens before
-// the first await so a concurrent teardown can never miss an in-flight victim.
+// Retired children awaiting proven termination (registered pre-await); at most
+// one kill attempt runs per victim so the recycled-PID check stays meaningful.
 export class SidecarVictimTracker {
   private readonly victims = new Set<SpawnedProcess>()
+  private readonly inFlight = new Map<SpawnedProcess, Promise<boolean>>()
 
   retire(
     victim: SpawnedProcess,
     terminateImpl?: typeof forceTerminateProcessTree
   ): Promise<boolean> {
+    const running = this.inFlight.get(victim)
+    if (running) {
+      return running
+    }
     this.victims.add(victim)
-    return terminateSidecarChild(victim, terminateImpl).then((proven) => {
+    const attempt = terminateSidecarChild(victim, terminateImpl).then((proven) => {
       if (proven) {
         this.victims.delete(victim)
       }
+      if (this.inFlight.get(victim) === attempt) {
+        this.inFlight.delete(victim)
+      }
       return proven
     })
+    this.inFlight.set(victim, attempt)
+    return attempt
   }
 
   async redrive(terminateImpl?: typeof forceTerminateProcessTree): Promise<boolean> {
     let verified = true
     // Deleting during Set iteration is safe; each victim is visited once.
     for (const victim of this.victims) {
-      if (await terminateSidecarChild(victim, terminateImpl)) {
-        this.victims.delete(victim)
-      } else {
+      if (!(await this.drive(victim, terminateImpl))) {
         verified = false
       }
     }
     return verified && this.victims.size === 0
+  }
+
+  private drive(
+    victim: SpawnedProcess,
+    terminateImpl?: typeof forceTerminateProcessTree
+  ): Promise<boolean> {
+    return this.inFlight.get(victim) ?? this.retire(victim, terminateImpl)
   }
 }
 
