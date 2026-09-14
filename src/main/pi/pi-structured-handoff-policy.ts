@@ -61,7 +61,9 @@ export type PiHandoffIdentityFailureCode =
   | 'PI_HANDOFF_PROVIDER_MISMATCH'
 
 function isNonEmptyHandleField(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= 512 && value === value.trim()
+  return (
+    typeof value === 'string' && value.length > 0 && value.length <= 512 && value === value.trim()
+  )
 }
 
 // The new owner must resume the exact same Pi session. The leaf is the current
@@ -117,7 +119,10 @@ export function validatePiHandoffIdentity(input: {
       message: 'Pi current leaf is missing or malformed (reacquire the session).'
     }
   }
-  return { ok: true, resumed: input.to.leafId !== input.from.leafId || input.to.sessionId === input.from.sessionId }
+  return {
+    ok: true,
+    resumed: input.to.leafId !== input.from.leafId || input.to.sessionId === input.from.sessionId
+  }
 }
 
 export type PiHistoryReconciliationDecision =
@@ -136,7 +141,10 @@ export function decidePiHistoryReconciliation(input: {
   leafId?: string | null
 }): PiHistoryReconciliationDecision {
   if (input.historySource === 'provider-resume') {
-    return { kind: 'provider-resume', reason: 'Pi session file is authoritative; resume replaces wholesale.' }
+    return {
+      kind: 'provider-resume',
+      reason: 'Pi session file is authoritative; resume replaces wholesale.'
+    }
   }
   if (!input.transcriptPath && !input.piSessionId) {
     return {
@@ -153,10 +161,7 @@ export function decidePiHistoryReconciliation(input: {
   }
 }
 
-export type PiRecoverableFailure =
-  | 'retry-native'
-  | 'retry-tui'
-  | 'manual-recovery'
+export type PiRecoverableFailure = 'retry-native' | 'retry-tui' | 'manual-recovery'
 
 export function classifyPiHandoffFailure(code: string): PiRecoverableFailure {
   if (
@@ -167,10 +172,24 @@ export function classifyPiHandoffFailure(code: string): PiRecoverableFailure {
   ) {
     return 'manual-recovery'
   }
-  if (code === 'PI_RESUME_FAILED' || code === 'PI_RESUME_CWD_MISMATCH' || code === 'PI_HISTORY_EMPTY') {
+  if (
+    code === 'PI_RESUME_FAILED' ||
+    code === 'PI_RESUME_CWD_MISMATCH' ||
+    code === 'PI_HISTORY_EMPTY'
+  ) {
     return 'manual-recovery'
   }
-  if (code === 'PI_STARTUP_FAILED' || code === 'PI_SPEC_FAILED' || code === 'PI_STATE_FAILED') {
+  if (
+    code === 'PI_STARTUP_FAILED' ||
+    code === 'PI_SPEC_FAILED' ||
+    code === 'PI_STATE_FAILED' ||
+    code === 'PI_COMPAT_LOCATION' ||
+    code === 'PI_COMPAT_VERSION' ||
+    code === 'PI_COMPAT_CAPABILITY' ||
+    code === 'PI_COMPAT_EVIDENCE_MISSING' ||
+    code === 'PI_TUI_FLAG' ||
+    code === 'BAD_WORKSPACE'
+  ) {
     return 'retry-tui'
   }
   return 'manual-recovery'

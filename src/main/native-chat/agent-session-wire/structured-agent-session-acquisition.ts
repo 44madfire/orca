@@ -56,7 +56,11 @@ export async function acquireOwner(
       ...(input.eventSink ? { events: input.eventSink } : {}),
       // Pi resumes by exact session file carried on the durable chain head;
       // other providers ignore this locator.
-      ...(piResumeSessionFile(record) ? { resumeSessionFile: piResumeSessionFile(record) as string } : {})
+      ...(piResumeSessionFile(record)
+        ? { resumeSessionFile: piResumeSessionFile(record) as string }
+        : {}),
+      // Host-owned location for Pi pre-spawn compat gates; others ignore it.
+      ...(record.location ? { location: record.location } : {})
     })
     const options = await readNativeSessionOptions({
       adapter: input.adapter,

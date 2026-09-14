@@ -33,9 +33,15 @@ import { qualifyPiModelRef } from './pi-session-options'
 import { rebuildPiHistory, resumePiSession } from './pi-rpc-session-resume'
 import { createPiTurnBuffer } from './pi-event-journal'
 import { PiSessionOptionState } from './pi-session-options'
-import { isPiPidAbsent, PiRootExitObservedError, terminatePiProcessTree } from './pi-process-teardown'
+import {
+  isPiPidAbsent,
+  PiRootExitObservedError,
+  terminatePiProcessTree
+} from './pi-process-teardown'
 import { PI_SPAWN_TOKEN_ENV } from './pi-structured-owner-identity'
 import { classifyStartupError, shortPiError } from './pi-driver-errors'
+import type { PiAcquireCompat } from './pi-structured-compat'
+import { assertDriverAcquireCompat, verifyDriverLiveCompat } from './pi-driver-compat'
 
 function argsForOptions(
   options: Readonly<Record<string, string>> | undefined,
@@ -59,6 +65,7 @@ export type PiDriverAcquireInput = {
   options?: Readonly<Record<string, string>>
   spawnToken: string
   sink?: StructuredAgentSessionEventSink | null
+  compat?: PiAcquireCompat
 }
 
 export type PiDriverAcquireResult = {
@@ -86,6 +93,8 @@ export type PiDriverDeps = {
   startupTimeoutMs?: number
   optionTimeoutMs?: number
   closeGraceMs?: number
+  liveProbeTimeoutMs?: number
+  requireCompat?: boolean
   onUnexpectedExit?: (orcaSessionId: string) => void
 }
 
@@ -124,17 +133,23 @@ export abstract class PiRpcSessionLifecycle {
   protected get closeGrace(): number {
     return this.deps.closeGraceMs ?? PI_CLOSE_GRACE_MS
   }
-  async acquire(input: Omit<PiDriverAcquireInput, 'orcaSessionId'>): Promise<PiDriverAcquireResult> {
+  async acquire(
+    input: Omit<PiDriverAcquireInput, 'orcaSessionId'>
+  ): Promise<PiDriverAcquireResult> {
     if (!input.workspaceRoot || input.workspaceRoot.trim() === '') {
       throw new Error('BAD_WORKSPACE: acquire requires a non-empty workspaceRoot')
     }
     if (!isAbsolute(input.workspaceRoot)) {
       throw new Error('BAD_WORKSPACE: acquire requires an absolute workspaceRoot')
     }
+    assertDriverAcquireCompat(input, this.deps)
     this.sink = input.sink ?? null
     const baseEnv = (await this.deps.resolveEnv?.()) ?? process.env
     let command = this.deps.piCommand ?? 'pi'
-    let args: readonly string[] = [...(this.deps.piArgs ?? []), ...argsForOptions(input.options, this.deps.piArgs ?? [])]
+    let args: readonly string[] = [
+      ...(this.deps.piArgs ?? []),
+      ...argsForOptions(input.options, this.deps.piArgs ?? [])
+    ]
     try {
       const spec = toPiRpcProcessSpec({ command, cwd: input.workspaceRoot, args })
       command = spec.command
@@ -160,8 +175,12 @@ export abstract class PiRpcSessionLifecycle {
         this.child = child
         return child
       },
-      ...(this.deps.defaultTimeoutMs !== undefined ? { defaultTimeoutMs: this.deps.defaultTimeoutMs } : {}),
-      ...(this.deps.startupTimeoutMs !== undefined ? { startupTimeoutMs: this.deps.startupTimeoutMs } : {})
+      ...(this.deps.defaultTimeoutMs !== undefined
+        ? { defaultTimeoutMs: this.deps.defaultTimeoutMs }
+        : {}),
+      ...(this.deps.startupTimeoutMs !== undefined
+        ? { startupTimeoutMs: this.deps.startupTimeoutMs }
+        : {})
     })
     this.conn = conn
     try {
@@ -187,8 +206,10 @@ export abstract class PiRpcSessionLifecycle {
 
   // Implemented by the driver subclass: option application and event
   // streaming touch live RPC and journal state owned downstream.
-  protected abstract applyOptions(options: Readonly<Record<string, string>>): Promise<Record<string, string>>;
-  protected abstract handlePiRecord(record: Record<string, unknown>): void;
+  protected abstract applyOptions(
+    options: Readonly<Record<string, string>>
+  ): Promise<Record<string, string>>
+  protected abstract handlePiRecord(record: Record<string, unknown>): void
 
   protected async finishAcquire(
     conn: PiRpcConnection,
@@ -200,6 +221,9 @@ export abstract class PiRpcSessionLifecycle {
     } catch (error) {
       throw new Error(`PI_STATE_FAILED: Pi started but get_state failed (${shortPiError(error)})`)
     }
+    // Live capability verification against the running Pi, before exposure.
+    // Refusal closes the just-started child via the acquire() wrapper.
+    await verifyDriverLiveCompat(conn, input, this.deps)
     let resumed = false
     if (input.resumeSessionFile !== undefined) {
       const outcome = await resumePiSession(conn, {
@@ -210,14 +234,16 @@ export abstract class PiRpcSessionLifecycle {
       state = outcome.state
       resumed = outcome.resumed
     }
-    const piSessionId = typeof state.sessionId === 'string' && state.sessionId !== '' ? state.sessionId : null
+    const piSessionId =
+      typeof state.sessionId === 'string' && state.sessionId !== '' ? state.sessionId : null
     if (!piSessionId) {
       throw new Error('PI_STATE_FAILED: Pi started but reported no session id')
     }
     if (input.resumePiSessionId && piSessionId !== input.resumePiSessionId) {
       throw new Error('PI_RESUME_FAILED: Pi resumed a different session than requested')
     }
-    this.sessionFile = typeof state.sessionFile === 'string' && state.sessionFile !== '' ? state.sessionFile : null
+    this.sessionFile =
+      typeof state.sessionFile === 'string' && state.sessionFile !== '' ? state.sessionFile : null
     this.optionsState.model = qualifyPiModelRef(state.model) ?? input.options?.['model']
     if (typeof state.thinkingLevel === 'string') {
       this.optionsState.thinkingLevel = state.thinkingLevel
@@ -228,7 +254,11 @@ export abstract class PiRpcSessionLifecycle {
       await this.applyOptions(input.options)
     }
     if (resumed) {
-      const rebuilt = await rebuildPiHistory(conn, { timeoutMs: this.optionTimeout, busy: false, closed: false })
+      const rebuilt = await rebuildPiHistory(conn, {
+        timeoutMs: this.optionTimeout,
+        busy: false,
+        closed: false
+      })
       if (!rebuilt.ok) {
         throw new Error(`${rebuilt.code}: ${rebuilt.message}`)
       }

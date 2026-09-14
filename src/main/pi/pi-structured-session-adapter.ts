@@ -32,6 +32,7 @@ import {
 import { supportsPiStructuredLocation } from './pi-structured-location-support'
 import { piProviderHandleLink } from './pi-structured-owner-identity'
 import { PiRootExitObservedError } from './pi-process-teardown'
+import { assertPiAdapterCompat, buildPiAdapterCompat } from './pi-adapter-compat'
 import {
   opaquePiResumeSessionId,
   resolvePiProcessIdentity,
@@ -89,12 +90,18 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     acquisitionGeneration?: string
   }> {
     if (input.identity.agent !== 'pi') {
-      throw new AgentSessionAcquisitionRefusal(`pi adapter does not own agent ${input.identity.agent}`)
+      throw new AgentSessionAcquisitionRefusal(
+        `pi adapter does not own agent ${input.identity.agent}`
+      )
     }
     const backend = this.requireBackend()
+    const compat = buildPiAdapterCompat(input, this.deps)
+    assertPiAdapterCompat(compat)
     const workspaceRoot = await this.deps.resolveWorkspacePath(input.identity.workspaceId)
     if (!workspaceRoot || workspaceRoot.trim() === '') {
-      throw new AgentSessionPreSpawnError('BAD_WORKSPACE: acquire requires a non-empty workspaceRoot')
+      throw new AgentSessionPreSpawnError(
+        'BAD_WORKSPACE: acquire requires a non-empty workspaceRoot'
+      )
     }
     // Resume comes from the durable chain via opaque `pi:<sessionId>` plus the
     // host-owned session file on the chain head (see `resumeSessionFile`);
@@ -113,6 +120,7 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
         ...(resumePiSessionId ? { resumePiSessionId } : {}),
         ...(input.resumeSessionFile ? { resumeSessionFile: input.resumeSessionFile } : {}),
         ...(input.options ? { options: input.options } : {}),
+        ...(compat !== null ? { compat } : {}),
         spawnToken: input.spawnToken,
         ...(input.events ? { sink: input.events } : {})
       })
@@ -180,7 +188,10 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     }
     let result: PiStructuredDispatchResult
     try {
-      result = await this.requireBackend().dispatch({ orcaSessionId: input.sessionId, body: input.body })
+      result = await this.requireBackend().dispatch({
+        orcaSessionId: input.sessionId,
+        body: input.body
+      })
     } catch (error) {
       // Unsettled dispatch stays `unknown`; the caller reconciles via history.
       return { state: 'unknown', reason: error instanceof Error ? error.message : String(error) }
@@ -284,7 +295,13 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     const current = await backend.readOptions?.({ orcaSessionId: input.sessionId })
     const model = current?.model ?? 'pi'
     const effort = current?.thinkingLevel
-    let models: { id: string; label: string; isDefault: boolean; defaultEffort?: string; efforts: { value: string; label: string }[] }[] = []
+    let models: {
+      id: string
+      label: string
+      isDefault: boolean
+      defaultEffort?: string
+      efforts: { value: string; label: string }[]
+    }[] = []
     try {
       const [catalog, levels] = await Promise.all([
         backend.listModels?.({ orcaSessionId: input.sessionId }) ?? Promise.resolve([]),
@@ -310,7 +327,10 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     ...(this.optionRestoreFailures.get(sessionId) ?? [])
   ]
 
-  readResumeHistory = async (input: { sessionId: string; fence: number }): Promise<{
+  readResumeHistory = async (input: {
+    sessionId: string
+    fence: number
+  }): Promise<{
     rows: { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string }[]
     leafId: string | null
   }> => {

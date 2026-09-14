@@ -19,6 +19,9 @@
 // - `get_available_models`/`set_model`, `get_available_thinking_levels`/
 //   `set_thinking_level`, `set_auto_compaction` → canned catalog + state.
 // - `EXIT-AT-START` env → exit(1) immediately (startup failure).
+// - `PI_SCRIPT_DISABLE_METHODS` env (comma list) → those RPCs fail closed
+//   (SNC1.10 live-probe failure injection, no leak on refusal).
+// - `PI_SCRIPT_TEXT_ONLY_CATALOG=1` → model catalog without image support.
 //
 // Live prompt turns append user/assistant entries to memory so resumed
 // history converges. Never logs prompt text; diagnostics go to stderr.
@@ -27,6 +30,10 @@ import { appendFileSync, readFileSync } from "node:fs";
 
 const SESSION_FILE = process.env.PI_SCRIPT_SESSION_FILE ?? "";
 const EXIT_AT_START = process.env.PI_SCRIPT_EXIT_AT_START === "1";
+const DISABLED_METHODS = new Set(
+  (process.env.PI_SCRIPT_DISABLE_METHODS ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "")
+);
+const TEXT_ONLY_CATALOG = process.env.PI_SCRIPT_TEXT_ONLY_CATALOG === "1";
 
 function send(record) {
   process.stdout.write(`${JSON.stringify(record)}\n`);
@@ -150,6 +157,12 @@ function handleCommand(cmd) {
     }
     send(record);
   };
+  // SNC1.10 live-probe failure injection: disabled methods fail closed so
+  // Orca can prove post-start verification tears down the child (no leak).
+  if (DISABLED_METHODS.has(type)) {
+    respond(false, undefined, `scripted unavailable: ${type}`);
+    return;
+  }
   switch (type) {
     case "get_state":
       respond(true, {
@@ -188,6 +201,12 @@ function handleCommand(cmd) {
       return;
     }
     case "get_available_models":
+      if (TEXT_ONLY_CATALOG) {
+        respond(true, {
+          models: [{ id: "text-model", name: "Text Model", provider: "script-provider", reasoning: false, supportsImages: false }],
+        });
+        return;
+      }
       respond(true, {
         models: [
           { id: "script-model", name: "Script Model", provider: "script-provider", reasoning: true, supportsImages: true },

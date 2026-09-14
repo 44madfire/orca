@@ -17,7 +17,12 @@
 
 import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
-import { PiRpcSessionDriver, type PiDriverAcquireResult, type PiDriverDeps } from './pi-rpc-session-driver'
+import {
+  PiRpcSessionDriver,
+  type PiDriverAcquireResult,
+  type PiDriverDeps
+} from './pi-rpc-session-driver'
+import type { PiAcquireCompat } from './pi-structured-compat'
 import { collectPiDispatchContent } from './pi-dispatch-images'
 import type {
   PiStructuredAcquireResult,
@@ -47,6 +52,7 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
       options?: Readonly<Record<string, string>>
       spawnToken: string
       sink?: StructuredAgentSessionEventSink | null
+      compat?: PiAcquireCompat
     }): Promise<PiStructuredAcquireResult> {
       const stale = drivers.get(input.orcaSessionId)
       if (stale) {
@@ -66,9 +72,14 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
       try {
         acquired = await driver.acquire({
           workspaceRoot: input.workspaceRoot,
-          ...(input.resumeSessionFile !== undefined ? { resumeSessionFile: input.resumeSessionFile } : {}),
-          ...(input.resumePiSessionId !== undefined ? { resumePiSessionId: input.resumePiSessionId } : {}),
+          ...(input.resumeSessionFile !== undefined
+            ? { resumeSessionFile: input.resumeSessionFile }
+            : {}),
+          ...(input.resumePiSessionId !== undefined
+            ? { resumePiSessionId: input.resumePiSessionId }
+            : {}),
           ...(input.options !== undefined ? { options: input.options } : {}),
+          ...(input.compat !== undefined ? { compat: input.compat } : {}),
           spawnToken: input.spawnToken,
           ...(input.sink !== undefined ? { sink: input.sink } : {})
         })
@@ -181,7 +192,9 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
       return requireDriver(input.orcaSessionId).readOptions()
     },
 
-    async listModels(input: { orcaSessionId: string }): Promise<{ id: string; provider: string }[]> {
+    async listModels(input: {
+      orcaSessionId: string
+    }): Promise<{ id: string; provider: string }[]> {
       return requireDriver(input.orcaSessionId).listModels()
     },
 
@@ -200,7 +213,10 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
 
 function sanitizeDispatchError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  const singleLine = message.replace(/[\r\n]+/g, ' ').trim().slice(0, 220)
+  const singleLine = message
+    .replace(/[\r\n]+/g, ' ')
+    .trim()
+    .slice(0, 220)
   if (/^(pi-exited|no live pi structured session)/.test(singleLine)) {
     return singleLine
   }
@@ -209,7 +225,10 @@ function sanitizeDispatchError(error: unknown): string {
 
 function sanitizeImageError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  if (/^Pi (image|messages) /.test(message) || message === 'image reference has neither a path nor a URL') {
+  if (
+    /^Pi (image|messages) /.test(message) ||
+    message === 'image reference has neither a path nor a URL'
+  ) {
     return message
   }
   return 'Pi image could not be read (missing or unreadable file)'
