@@ -32,12 +32,23 @@ export type PluginRuntimeDelegate = {
   }): Promise<{ delivered: boolean }>
 }
 
+/** Host-owned service implementation: receives only a structured JSON
+ *  request, never exec paths, shell strings, cwd, or env overrides. */
+export type PluginHostServiceHandler = (
+  request: unknown,
+  context: { pluginId: string; serviceId: string }
+) => Promise<unknown> | unknown
+
+/** Host-owned registry: only ids registered by trusted host code are callable. */
+export type PluginHostServiceRegistry = ReadonlyMap<string, PluginHostServiceHandler>
+
 export function bindPluginHostServices(input: {
   delegate: PluginRuntimeDelegate
   pluginsDataDir: string
   subscribeEvents: (pluginKey: string, events: PluginEventName[]) => PluginEventName[]
+  services?: PluginHostServiceRegistry | null
 }): PluginHostServices {
-  const { delegate, pluginsDataDir, subscribeEvents } = input
+  const { delegate, pluginsDataDir, subscribeEvents, services: serviceRegistry } = input
   return {
     resolveActiveWorktreeContext: async () => {
       const context = await delegate.resolveActiveWorktreeContext()
@@ -94,6 +105,13 @@ export function bindPluginHostServices(input: {
       set: (key, itemKey, value) =>
         new PluginKvStore(pluginsDataDir, key, 'settings.json').set(itemKey, value)
     },
-    subscribeEvents
+    subscribeEvents,
+    invokeService: async (pluginId, serviceId, request) => {
+      const handler = serviceRegistry?.get(serviceId)
+      if (!handler) {
+        throw new Error(`unknown service: ${serviceId}`)
+      }
+      return handler(request, { pluginId, serviceId })
+    }
   }
 }

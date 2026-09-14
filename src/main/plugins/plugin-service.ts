@@ -1,8 +1,6 @@
 import type { PluginEventName } from '../../shared/plugins/plugin-manifest'
-import {
-  capabilityKinds,
-  type PluginCapabilityKind
-} from '../../shared/plugins/plugin-capabilities'
+import type { PluginCapabilityKind } from '../../shared/plugins/plugin-capabilities'
+import { grantedCapabilityKindsFor, grantedServiceIdsFor } from './plugin-granted-scopes'
 import {
   getPluginActivationState,
   type PluginConsentLists
@@ -239,10 +237,13 @@ export class PluginService {
    *  callers deny uniformly (no probe-able distinction). */
   getGrantedCapabilities(pluginKey: string): PluginCapabilityKind[] | null {
     const plugin = this.findValidPlugin(pluginKey)
-    if (!plugin || !this.isRuntimeApproved(plugin)) {
-      return null
-    }
-    return capabilityKinds(plugin.manifest.capabilities)
+    return grantedCapabilityKindsFor(plugin, plugin ? this.isRuntimeApproved(plugin) : false)
+  }
+
+  /** Explicitly authorized service ids; null when consent is stale. */
+  getGrantedServiceIds(pluginKey: string): string[] | null {
+    const plugin = this.findValidPlugin(pluginKey)
+    return grantedServiceIdsFor(plugin, plugin ? this.isRuntimeApproved(plugin) : false)
   }
 
   /** Host API chokepoint for both transports (worker fork IPC + panel
@@ -259,6 +260,7 @@ export class PluginService {
       viaPanel: options.viaPanel,
       resolvePolicy: (boundPluginKey) => ({
         grantedCapabilities: this.getGrantedCapabilities(boundPluginKey),
+        grantedServiceIds: this.getGrantedServiceIds(boundPluginKey),
         services: this.runtimeDelegate
           ? bindPluginHostServices({
               delegate: this.runtimeDelegate,
