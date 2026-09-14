@@ -7,13 +7,17 @@
 // with agent `pi` (Pi entry ids are stable per session but not journal keys;
 // the recordId names the turn-scoped row so retries reconcile by key).
 
-import { createHash } from 'node:crypto'
 import type {
   AgentJournalItemBody,
   AgentJournalItemIdentity
 } from '../../shared/agent-session-journal-types'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
+import {
+  boundPayload,
+  boundToolInput,
+  DEFAULT_JOURNAL_PAYLOAD_LIMITS
+} from '../native-chat/agent-session-journal/journal-payload-bounds'
 import type { PiSessionEvent } from './translation/pi-session-events'
 
 export const PI_JOURNAL_AGENT = 'pi'
@@ -21,26 +25,14 @@ export const PI_JOURNAL_AGENT = 'pi'
 type PiTurnBuffer = {
   textByIndex: Map<number, string>
   thinkingByIndex: Map<number, string>
-  tools: Map<string, { name: string; output: string; done: boolean; isError: boolean }>
+  tools: Map<
+    string,
+    { name: string; input: unknown; output: string; done: boolean; isError: boolean }
+  >
 }
 
 function newTurnBuffer(): PiTurnBuffer {
   return { textByIndex: new Map(), thinkingByIndex: new Map(), tools: new Map() }
-}
-
-function boundedPayload(text: string): {
-  head: string
-  byteLength: number
-  digest: string
-  truncated: boolean
-} {
-  const byteLength = Buffer.byteLength(text, 'utf8')
-  return {
-    head: text,
-    byteLength,
-    digest: createHash('sha256').update(text, 'utf8').digest('hex'),
-    truncated: false
-  }
 }
 
 function messageIdentity(
@@ -131,8 +123,10 @@ export function applyPiSessionEvent(input: {
       break
     }
     case 'tool_start': {
+      const input = boundToolInput(event.args ?? {}, DEFAULT_JOURNAL_PAYLOAD_LIMITS)
       turn.tools.set(event.toolCallId, {
         name: event.toolName,
+        input,
         output: '',
         done: false,
         isError: false
@@ -140,7 +134,7 @@ export function applyPiSessionEvent(input: {
       sink.appendItem(messageIdentity(orcaSessionId, `${opId}-tool-${event.toolCallId}`), {
         kind: 'tool-call',
         name: event.toolName,
-        input: event.args ?? {},
+        input,
         state: 'running'
       })
       sink.publish()
@@ -154,9 +148,9 @@ export function applyPiSessionEvent(input: {
       sink.appendItem(messageIdentity(orcaSessionId, `${opId}-tool-${event.toolCallId}`), {
         kind: 'tool-call',
         name: tool?.name ?? 'tool',
-        input: {},
+        input: tool?.input ?? {},
         state: 'running',
-        output: boundedPayload(event.partialResult)
+        output: boundPayload(event.partialResult, DEFAULT_JOURNAL_PAYLOAD_LIMITS)
       })
       sink.publish()
       break
@@ -171,9 +165,9 @@ export function applyPiSessionEvent(input: {
       sink.appendItem(messageIdentity(orcaSessionId, `${opId}-tool-${event.toolCallId}`), {
         kind: 'tool-call',
         name: tool?.name ?? 'tool',
-        input: {},
+        input: tool?.input ?? {},
         state: event.isError ? 'failed' : 'completed',
-        output: boundedPayload(event.result)
+        output: boundPayload(event.result, DEFAULT_JOURNAL_PAYLOAD_LIMITS)
       })
       sink.publish()
       break

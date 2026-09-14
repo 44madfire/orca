@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import type { AgentJournalItemBody } from '../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
@@ -20,6 +20,7 @@ import { getAgentResumeArgv } from '../../shared/agent-session-resume'
 import { buildPiTuiResumeProviderSession } from './pi-structured-tui-resume'
 import { piProviderHandleLink } from './pi-structured-owner-identity'
 import { createPiRpcBackend } from './pi-rpc-backend'
+import { PiRpcSessionDriver } from './pi-rpc-session-driver'
 
 const SCRIPT = fileURLToPath(new URL('./rpc/__fixtures__/scripted-pi-child.mjs', import.meta.url))
 
@@ -121,6 +122,36 @@ describe('Pi RPC backend over a scripted child', () => {
       expect(acquired.model).toBe('script-provider/script-model')
       await expect(backend.close({ orcaSessionId: 'ses-fresh' })).resolves.toBe(true)
     } finally {
+      rmDir(dir)
+    }
+  })
+
+  it.each([
+    ['false', 'PI_STALE_SESSION_UNCLOSED: previous Pi session exit was not proven'],
+    ['throws', 'PI_STALE_SESSION_UNCLOSED: previous Pi session teardown failed']
+  ])('does not replace a stale driver when close %s', async (_outcome, expectedError) => {
+    const dir = workspace()
+    const file = join(dir, 'pi-session.jsonl')
+    writeFileSync(file, '')
+    const backend = backendWithScript({ PI_SCRIPT_SESSION_FILE: file })
+    const acquire = vi.spyOn(PiRpcSessionDriver.prototype, 'acquire')
+    const close = vi.spyOn(PiRpcSessionDriver.prototype, 'close')
+    if (_outcome === 'false') {
+      close.mockResolvedValueOnce(false)
+    } else {
+      close.mockRejectedValueOnce(new Error('teardown failed'))
+    }
+    try {
+      await backend.acquire({ orcaSessionId: 'ses-stale', workspaceRoot: dir, spawnToken: 's1' })
+      expect(acquire).toHaveBeenCalledTimes(1)
+      await expect(
+        backend.acquire({ orcaSessionId: 'ses-stale', workspaceRoot: dir, spawnToken: 's2' })
+      ).rejects.toThrow(expectedError)
+      expect(acquire).toHaveBeenCalledTimes(1)
+    } finally {
+      close.mockRestore()
+      acquire.mockRestore()
+      await backend.close({ orcaSessionId: 'ses-stale' }).catch(() => undefined)
       rmDir(dir)
     }
   })

@@ -50,7 +50,15 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
     }): Promise<PiStructuredAcquireResult> {
       const stale = drivers.get(input.orcaSessionId)
       if (stale) {
-        await stale.close().catch(() => undefined)
+        let closed = false
+        try {
+          closed = await stale.close()
+        } catch {
+          throw new Error('PI_STALE_SESSION_UNCLOSED: previous Pi session teardown failed')
+        }
+        if (!closed) {
+          throw new Error('PI_STALE_SESSION_UNCLOSED: previous Pi session exit was not proven')
+        }
         drivers.delete(input.orcaSessionId)
       }
       const driver = new PiRpcSessionDriver(input.orcaSessionId, deps)
