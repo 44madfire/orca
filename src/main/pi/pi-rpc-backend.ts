@@ -8,6 +8,12 @@
 // cross-session namespacing is needed (unlike the external bridge, where op
 // ids crossed processes). Image bytes are read host-side bounded and never
 // journaled or logged; filesystem errors are mapped to path-free refusals.
+//
+// Provenance: the vendored transport was smoke-probed live against a real
+// `pi --mode rpc` binary (read-only `get_state` / catalog / entries / stats
+// plus clean close; no prompt dispatch, so live turn streaming is covered by
+// the scripted-child suite only). Turn/option/history semantics follow the
+// orca-pi bridge provider as reference.
 
 import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
