@@ -8,6 +8,7 @@ import {
   sendSidecarRequest,
   splitFramedLines,
   terminateSidecarChild,
+  toStartError,
   type PluginServiceSidecarDeps,
   type SidecarInvokeOptions,
   type SidecarLaunch
@@ -19,16 +20,20 @@ const DEFAULT_MAX_LINE_BYTES = 256 * 1024
 export class PluginServiceSidecar {
   private child: SpawnedProcess | null = null
   private buffer = ''
-  private readonly decoder = new StringDecoder('utf8')
+  private decoder = new StringDecoder('utf8')
   private readonly pending = new SidecarPendingRequests()
   private dead: Error | null = null
   private starting: Promise<void> | null = null
   private closed = false
+  private shutdownVerified = true
   private steady: {
     owner: SpawnedProcess
     onError: (error: Error) => void
     onExit: () => void
   } | null = null
+  // Stable refs for detach.
+  private readonly onData = (chunk: Buffer | string): void => this.onStdout(chunk)
+  private readonly onStderr = (): void => {}
 
   constructor(
     private readonly serviceId: string,
@@ -51,18 +56,19 @@ export class PluginServiceSidecar {
     return this.sendRequest(request, options)
   }
 
-  async close(): Promise<void> {
+  // True only when tree termination verified; false keeps the registry entry for retry.
+  async close(): Promise<boolean> {
     this.closed = true
     this.pending.drainForClose(this.serviceId)
     const child = this.child
     this.child = null
     this.buffer = ''
     if (!child) {
-      this.steady = null
-      return
+      return this.shutdownVerified
     }
     this.detach(child)
-    await terminateSidecarChild(child, this.deps.terminateImpl)
+    this.shutdownVerified = await terminateSidecarChild(child, this.deps.terminateImpl)
+    return this.shutdownVerified
   }
 
   private ensureStarted(): Promise<void> {
@@ -91,20 +97,17 @@ export class PluginServiceSidecar {
           detached: process.platform !== 'win32'
         }) as SpawnedProcess
       } catch (error) {
-        reject(
-          error instanceof ServiceExecutionError
-            ? error
-            : serviceExecutionError('start-failed', this.serviceId, 'service failed to start')
-        )
+        reject(toStartError(error, this.serviceId))
         return
       }
       this.child = child
       this.buffer = ''
+      this.decoder = new StringDecoder('utf8')
       for (const stream of [child.stdin, child.stdout, child.stderr]) {
         stream?.on('error', () => {})
       }
-      child.stdout?.on('data', (chunk: Buffer | string) => this.onStdout(chunk))
-      child.stderr?.on('data', () => {})
+      child.stdout?.on('data', this.onData)
+      child.stderr?.on('data', this.onStderr)
       let settled = false
       const grace = setTimeout(() => {
         if (!settled) {
@@ -120,7 +123,7 @@ export class PluginServiceSidecar {
           clearTimeout(grace)
           rewire()
           this.child = null
-          reject(serviceExecutionError('start-failed', this.serviceId, 'service failed to start'))
+          reject(toStartError(error, this.serviceId))
           return
         }
         this.failAll(error)
@@ -142,8 +145,7 @@ export class PluginServiceSidecar {
         }
         this.failAll(serviceExecutionError('crashed', this.serviceId, 'service exited'))
       }
-      // Steady handlers ignore stale children so a recycled child's exit
-      // can never reject the replacement's requests (all other paths detach).
+      // Steady handlers ignore children they no longer own.
       const rewire = (): void => {
         child.off('error', onError)
         child.off('exit', onExit)
@@ -181,7 +183,12 @@ export class PluginServiceSidecar {
       {
         ...options,
         onTimeout: (timedOut) => this.onRequestTimeout(timedOut),
-        onCancel: (cancelled) => this.onRequestCancelled(cancelled)
+        onCancel: (cancelled) => {
+          // Detaches the caller; the child stays alive for siblings.
+          this.pending
+            .take(cancelled)
+            ?.reject(serviceExecutionError('cancelled', this.serviceId, 'request was cancelled'))
+        }
       }
     )
   }
@@ -200,25 +207,14 @@ export class PluginServiceSidecar {
     void this.recycle(victim)
   }
 
-  private onRequestCancelled(id: string): void {
-    const entry = this.pending.take(id)
-    if (!entry) {
-      return
-    }
-    // Cancellation detaches the caller; the child stays alive for siblings.
-    entry.reject(serviceExecutionError('cancelled', this.serviceId, 'request was cancelled'))
-  }
-
   private onStdout(chunk: Buffer | string): void {
-    // Byte-safe: a multibyte code point split across data events must not
-    // decode to U+FFFD halves and corrupt otherwise-valid JSON responses.
+    // Byte-safe: a multibyte point split across events must not decode halves.
     this.buffer += typeof chunk === 'string' ? chunk : this.decoder.write(chunk)
     const maxLine = this.deps.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES
     if (Buffer.byteLength(this.buffer, 'utf8') > maxLine * 4) {
-      this.failAll(
+      this.protocolViolation(
         serviceExecutionError('malformed-response', this.serviceId, 'unreadable response')
       )
-      void this.close()
       return
     }
     const { lines, rest } = splitFramedLines(this.buffer)
@@ -240,12 +236,11 @@ export class PluginServiceSidecar {
     try {
       record = parseServiceRecord(line, this.serviceId, maxResponse)
     } catch (error) {
-      this.failAll(
+      this.protocolViolation(
         error instanceof ServiceExecutionError
           ? error
           : serviceExecutionError('malformed-response', this.serviceId, 'unreadable response')
       )
-      void this.close()
       return
     }
     const entry = this.pending.take(record.id)
@@ -255,9 +250,22 @@ export class PluginServiceSidecar {
     entry.resolve(record.response)
   }
 
-  // Detach + terminate only the child this recycle targeted; a replacement
-  // installed meanwhile is left alone. Runs synchronously through detach so
-  // the victim's exit event can never reach the shared registries after.
+  // Ends this child but not the scope: terminate the victim, then restart fresh.
+  private protocolViolation(error: Error): void {
+    const victim = this.child
+    if (victim) {
+      this.detach(victim)
+    }
+    this.child = null
+    this.buffer = ''
+    this.decoder = new StringDecoder('utf8')
+    this.failAll(error)
+    if (victim) {
+      void terminateSidecarChild(victim, this.deps.terminateImpl)
+    }
+  }
+
+  // Detach + terminate only the targeted child; detach is synchronous.
   private async recycle(victim: SpawnedProcess | null): Promise<void> {
     if (!victim || this.child !== victim) {
       return
@@ -265,6 +273,7 @@ export class PluginServiceSidecar {
     this.detach(victim)
     this.child = null
     this.buffer = ''
+    this.decoder = new StringDecoder('utf8')
     await terminateSidecarChild(victim, this.deps.terminateImpl)
   }
 
@@ -276,8 +285,9 @@ export class PluginServiceSidecar {
     this.steady = null
     child.off('error', steady.onError)
     child.off('exit', steady.onExit)
+    child.stdout?.off('data', this.onData)
+    child.stderr?.off('data', this.onStderr)
   }
-
   private failAll(error: Error): void {
     this.dead =
       error instanceof ServiceExecutionError

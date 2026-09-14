@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { spawnProcess } from '../../shared/child-process/run-process'
 import {
   PluginServiceRuntimeExecution,
-  defaultServiceRuntimeProbe,
+  defaultWin32ServiceProbe,
   type RegisteredServiceDefinition
 } from './plugin-service-runtime-execution'
 import { ServiceExecutionError } from './plugin-service-execution-errors'
@@ -84,6 +84,9 @@ function echoOnWrite(respond: (request: unknown) => unknown) {
   }
 }
 
+// Fake tree termination: stub children own no real pid for taskkill to verify.
+const fakeTerminate = async (): Promise<boolean> => true
+
 describe('plugin service runtime execution (ORCA-UI1.2)', () => {
   it('executes a registered service in a native worktree without generic exec', async () => {
     const execution = new PluginServiceRuntimeExecution({ platform: process.platform })
@@ -122,7 +125,8 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
         command: '/usr/local/bin/demo-bridge',
         args: ['--serve'],
         env: { BRIDGE_MODE: 'rpc' }
-      }
+      },
+      limits: { terminateImpl: fakeTerminate }
     })
     const response = await execution.invoke({
       serviceId: 'demo.bridge',
@@ -155,7 +159,8 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
     const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
     execution.register({
       serviceId: 'demo.fixed',
-      launch: { command: '/opt/host-owned/bridge', args: ['--serve'], env: {} }
+      launch: { command: '/opt/host-owned/bridge', args: ['--serve'], env: {} },
+      limits: { terminateImpl: fakeTerminate }
     })
     await execution.invoke({
       serviceId: 'demo.fixed',
@@ -232,7 +237,12 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
       return createFakeChild(() => {}) as unknown as ReturnType<typeof spawnProcess>
     }) as typeof spawnProcess
     const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
-    execution.register(nativeEchoDefinition('demo.hang', undefined, { requestTimeoutMs: 40 }))
+    execution.register(
+      nativeEchoDefinition('demo.hang', undefined, {
+        requestTimeoutMs: 40,
+        terminateImpl: fakeTerminate
+      })
+    )
     await expect(
       execution.invoke({
         serviceId: 'demo.hang',
@@ -272,7 +282,9 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
       return spawn
     })() as typeof spawnProcess
     const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
-    execution.register(nativeEchoDefinition('demo.cancel'))
+    execution.register(
+      nativeEchoDefinition('demo.cancel', undefined, { terminateImpl: fakeTerminate })
+    )
     const controller = new AbortController()
     const cancelled = execution.invoke({
       serviceId: 'demo.cancel',
@@ -304,7 +316,9 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
       return child as unknown as ReturnType<typeof spawnProcess>
     }) as unknown as typeof spawnProcess as typeof spawnProcess
     const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
-    execution.register(nativeEchoDefinition('demo.flaky'))
+    execution.register(
+      nativeEchoDefinition('demo.flaky', undefined, { terminateImpl: fakeTerminate })
+    )
     await expect(
       execution.invoke({
         serviceId: 'demo.flaky',
@@ -330,7 +344,9 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
         queueMicrotask(() => child.stdout.emit('data', 'not-json\n'))
       }) as unknown as ReturnType<typeof spawnProcess>) as unknown as typeof spawnProcess
     const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
-    execution.register(nativeEchoDefinition('demo.broken'))
+    execution.register(
+      nativeEchoDefinition('demo.broken', undefined, { terminateImpl: fakeTerminate })
+    )
     const failure = await execution
       .invoke({
         serviceId: 'demo.broken',
@@ -354,7 +370,9 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
       return child as unknown as ReturnType<typeof spawnProcess>
     }) as unknown as typeof spawnProcess as typeof spawnProcess
     const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
-    execution.register(nativeEchoDefinition('demo.iso'))
+    execution.register(
+      nativeEchoDefinition('demo.iso', undefined, { terminateImpl: fakeTerminate })
+    )
     const worktreeA = { worktreeId: 'wt-a', path: '/tmp/wt-a' }
     const worktreeB = { worktreeId: 'wt-b', path: '/tmp/wt-b' }
     const [responseA, responseB] = await Promise.all([
@@ -406,7 +424,12 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
       return next as unknown as ReturnType<typeof spawnProcess>
     }) as unknown as typeof spawnProcess
     const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
-    execution.register(nativeEchoDefinition('demo.race', undefined, { requestTimeoutMs: 500 }))
+    execution.register(
+      nativeEchoDefinition('demo.race', undefined, {
+        requestTimeoutMs: 500,
+        terminateImpl: fakeTerminate
+      })
+    )
     const worktree = { worktreeId: 'wt', path: '/tmp/wt' }
     await expect(
       execution.invoke({ serviceId: 'demo.race', worktree, request: null })
@@ -448,7 +471,9 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
         })
       }) as unknown as ReturnType<typeof spawnProcess>) as unknown as typeof spawnProcess
     const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
-    execution.register(nativeEchoDefinition('demo.utf8'))
+    execution.register(
+      nativeEchoDefinition('demo.utf8', undefined, { terminateImpl: fakeTerminate })
+    )
     await expect(
       execution.invoke({
         serviceId: 'demo.utf8',
@@ -460,10 +485,13 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
   })
 
   it('checks real WSL availability on the non-injected production path', async () => {
-    expect(defaultServiceRuntimeProbe('linux')).toEqual({ platform: 'linux' })
-    const probe = defaultServiceRuntimeProbe('win32')
-    expect(typeof probe.isWslAvailable).toBe('function')
-    expect(typeof probe.listWslDistros).toBe('function')
+    expect(await defaultWin32ServiceProbe('linux')).toEqual({ platform: 'linux' })
+    // Bounded real probes (cached, shared with git/PTY); type-level only here.
+    const probe = await defaultWin32ServiceProbe(process.platform)
+    if (process.platform === 'win32') {
+      expect(typeof probe.isWslAvailable).toBe('function')
+      expect(typeof probe.listWslDistros).toBe('function')
+    }
     const launches: { program: string }[] = []
     const fakeSpawn = ((spec: { program: string }) => {
       launches.push({ program: spec.program })
@@ -474,7 +502,8 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
     const execution = new PluginServiceRuntimeExecution({ platform: 'win32', spawnImpl: fakeSpawn })
     execution.register({
       serviceId: 'demo.prod',
-      launch: { command: '/usr/local/bin/demo-bridge', args: [], env: {} }
+      launch: { command: '/usr/local/bin/demo-bridge', args: [], env: {} },
+      limits: { terminateImpl: fakeTerminate }
     })
     const worktree = { worktreeId: 'wt', path: '\\\\wsl.localhost\\Ubuntu\\home\\u\\wt' }
     try {
@@ -489,6 +518,125 @@ describe('plugin service runtime execution (ORCA-UI1.2)', () => {
       )
       expect(launches).toHaveLength(0)
     }
+    await execution.dispose()
+  })
+
+  it('terminates the victim instead of forgetting it on malformed output', async () => {
+    let spawns = 0
+    let terminations = 0
+    const fakeSpawn = (() => {
+      spawns += 1
+      return createFakeChild((_line, child) => {
+        queueMicrotask(() => child.stdout.emit('data', 'not-json\n'))
+      }) as unknown as ReturnType<typeof spawnProcess>
+    }) as unknown as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
+    execution.register({
+      serviceId: 'demo.malformed',
+      launch: { command: '/opt/host-owned/bridge', args: [], env: {} },
+      limits: {
+        terminateImpl: async () => {
+          terminations += 1
+          return true
+        }
+      }
+    })
+    const worktree = { worktreeId: 'wt', path: '/tmp/wt' }
+    await expect(
+      execution.invoke({ serviceId: 'demo.malformed', worktree, request: null })
+    ).rejects.toMatchObject({ code: 'malformed-response' })
+    expect(terminations).toBe(1)
+    // The scope is not permanently poisoned: the next invoke restarts fresh
+    // and fails the same deterministic way instead of reporting a dead host.
+    await expect(
+      execution.invoke({ serviceId: 'demo.malformed', worktree, request: null })
+    ).rejects.toMatchObject({ code: 'malformed-response' })
+    expect(spawns).toBe(2)
+    expect(terminations).toBe(2)
+    await execution.dispose()
+  })
+
+  it("drops a recycled child's partial bytes and late stdout", async () => {
+    const children: FakeChild[] = []
+    const box: { held: { line: string; child: FakeChild } | null } = { held: null }
+    const fakeSpawn = (() => {
+      if (children.length === 0) {
+        const first = createFakeChild((_line, child) => {
+          // Partial emoji with no newline, then silence: the timeout recycles.
+          child.stdout.emit('data', Buffer.from([0xf0, 0x9f]))
+        })
+        children.push(first)
+        return first as unknown as ReturnType<typeof spawnProcess>
+      }
+      const next = createFakeChild((line, child) => {
+        if (!box.held) {
+          box.held = { line, child }
+          return
+        }
+        echoOnWrite((request) => ({ echo: request }))(line, child)
+      })
+      children.push(next)
+      return next as unknown as ReturnType<typeof spawnProcess>
+    }) as unknown as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
+    execution.register(
+      nativeEchoDefinition('demo.framing', undefined, {
+        requestTimeoutMs: 60,
+        terminateImpl: fakeTerminate
+      })
+    )
+    const worktree = { worktreeId: 'wt', path: '/tmp/wt' }
+    await expect(
+      execution.invoke({ serviceId: 'demo.framing', worktree, request: null })
+    ).rejects.toMatchObject({ code: 'timeout' })
+    const second = execution.invoke({
+      serviceId: 'demo.framing',
+      worktree,
+      request: { emoji: '🎉' }
+    })
+    for (let waited = 0; !box.held && waited < 2000; waited += 5) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    const h = box.held as { line: string; child: FakeChild } | null
+    expect(h).not.toBeNull()
+    // Late bytes from the detached victim must not reach the replacement.
+    children[0]?.stdout.emit('data', Buffer.from('{"id":"forged","response":1}\n'))
+    if (h) {
+      echoOnWrite((request) => ({ echo: request }))(h.line, h.child)
+    }
+    await expect(second).resolves.toEqual({ echo: { emoji: '🎉' } })
+    await execution.dispose()
+  })
+
+  it('surfaces unverified teardown instead of forgetting the sidecar', async () => {
+    const fakeSpawn = (() =>
+      createFakeChild(echoOnWrite((request) => ({ echo: request }))) as unknown as ReturnType<
+        typeof spawnProcess
+      >) as unknown as typeof spawnProcess
+    const execution = new PluginServiceRuntimeExecution({ platform: 'linux', spawnImpl: fakeSpawn })
+    execution.register({
+      serviceId: 'demo.unverified',
+      launch: { command: '/opt/host-owned/bridge', args: [], env: {} },
+      limits: { terminateImpl: async () => false }
+    })
+    const worktree = { worktreeId: 'wt', path: '/tmp/wt' }
+    await expect(
+      execution.invoke({ serviceId: 'demo.unverified', worktree, request: null })
+    ).resolves.toEqual({ echo: null })
+    await expect(execution.dispose()).rejects.toThrow(/could not prove every sidecar stopped/)
+    await execution.dispose().catch(() => undefined)
+  })
+
+  it('reports a missing native executable as service-unavailable', async () => {
+    const execution = new PluginServiceRuntimeExecution({ platform: process.platform })
+    execution.register({
+      serviceId: 'demo.gone',
+      launch: { command: '/definitely/not/here-demo-gone', args: [], env: {} }
+    })
+    const worktree = { worktreeId: 'wt', path: tmpdir() }
+    await expect(
+      execution.invoke({ serviceId: 'demo.gone', worktree, request: null })
+    ).rejects.toMatchObject({ code: 'service-unavailable' })
     await execution.dispose()
   })
 })

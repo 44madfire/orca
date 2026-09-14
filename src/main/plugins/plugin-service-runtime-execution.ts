@@ -1,10 +1,11 @@
 import { isSafePluginServiceId } from '../../shared/plugins/plugin-capabilities'
 import { buildWslExecArgs, quotePosixShell } from '../../shared/wsl-login-shell-command'
+import { parseWslUncPath } from '../../shared/wsl-paths'
 import type { spawnProcess } from '../../shared/child-process/run-process'
 import { closeProcessRegistry } from '../../shared/child-process/close-process-registry'
 import { resolveWslInteropSpawnCwd } from '../wsl-interop-spawn-directory'
-import { isWslAvailable } from '../wsl-availability'
-import { listWslDistros } from '../wsl'
+import { isWslAvailableAsync } from '../wsl-availability'
+import { listWslDistrosAsync } from '../wsl'
 import {
   resolveServiceWorktreeRuntime,
   serviceRuntimeScopeKey,
@@ -44,17 +45,20 @@ export type PluginServiceRuntimeExecutionDeps = {
   wslExecutable?: string
 }
 
-// Production WSL probes. Injected `runtimeProbe` fields override these, so
-// tests stay off real wsl.exe while production always checks availability
-// and the distro list before spawning (cached, bounded, shared with git/PTY).
-export function defaultServiceRuntimeProbe(platform: NodeJS.Platform): ServiceRuntimeProbe {
+// Production WSL reality, read through the async cached probes so a wedged
+// wsl.exe never blocks Electron main inside a service call. Injected
+// `runtimeProbe` fields override these, so tests stay off real wsl.exe.
+export async function defaultWin32ServiceProbe(
+  platform: NodeJS.Platform
+): Promise<ServiceRuntimeProbe> {
   if (platform !== 'win32') {
     return { platform }
   }
+  const [available, distros] = await Promise.all([isWslAvailableAsync(), listWslDistrosAsync()])
   return {
     platform,
-    isWslAvailable: () => isWslAvailable(),
-    listWslDistros: () => listWslDistros()
+    isWslAvailable: () => available,
+    listWslDistros: () => [...distros]
   }
 }
 
@@ -122,7 +126,7 @@ export class PluginServiceRuntimeExecution {
     if (!definition) {
       throw serviceExecutionError('service-unavailable', input.serviceId, 'unknown service')
     }
-    const runtime = this.resolveRuntime(input.serviceId, input.worktree)
+    const runtime = await this.resolveRuntime(input.serviceId, input.worktree)
     const sidecar = this.sidecarFor(input.serviceId, definition, runtime)
     try {
       return await sidecar.invoke(input.request, {
@@ -135,14 +139,15 @@ export class PluginServiceRuntimeExecution {
   }
 
   async closeScope(serviceId: string, worktree: TrustedServiceWorktree): Promise<void> {
-    const runtime = this.resolveRuntime(serviceId, worktree)
+    const runtime = await this.resolveRuntime(serviceId, worktree)
     const key = serviceRuntimeScopeKey(serviceId, runtime)
     const sidecar = this.sidecars.get(key)
     if (!sidecar) {
       return
     }
-    this.sidecars.delete(key)
-    await sidecar.close()
+    if (await sidecar.close()) {
+      this.sidecars.delete(key)
+    }
   }
 
   async dispose(): Promise<void> {
@@ -156,20 +161,38 @@ export class PluginServiceRuntimeExecution {
         if (!sidecar) {
           return true
         }
-        this.sidecars.delete(id)
-        await sidecar.close()
-        return true
+        // The entry stays until shutdown verifies, so the retry path can
+        // re-drive an unverified tree instead of forgetting a live child.
+        if (await sidecar.close()) {
+          this.sidecars.delete(id)
+          return true
+        }
+        return false
       },
       failureMessage: 'plugin service shutdown could not prove every sidecar stopped'
     })
   }
 
-  private resolveRuntime(serviceId: string, worktree: TrustedServiceWorktree) {
+  private async resolveRuntime(serviceId: string, worktree: TrustedServiceWorktree) {
+    const platform = this.deps.platform ?? process.platform
+    // Fast path: native worktrees need no WSL probes, so service calls never
+    // pay for (or block on) wsl.exe unless the trusted path is UNC-shaped.
+    if (platform !== 'win32' || !parseWslUncPath(worktree.path)) {
+      try {
+        return resolveServiceWorktreeRuntime(worktree, { platform })
+      } catch (error) {
+        throw this.withServiceId(error, serviceId)
+      }
+    }
+    // Fully-injected probes stay synchronous for tests; otherwise snapshot
+    // production reality once per call through the async cached probes.
+    const injected = this.deps.runtimeProbe
+    const probe: ServiceRuntimeProbe =
+      injected?.isWslAvailable && injected?.listWslDistros
+        ? { platform, ...injected }
+        : { ...(await defaultWin32ServiceProbe(platform)), ...injected }
     try {
-      return resolveServiceWorktreeRuntime(worktree, {
-        ...defaultServiceRuntimeProbe(this.deps.platform ?? process.platform),
-        ...this.deps.runtimeProbe
-      })
+      return resolveServiceWorktreeRuntime(worktree, probe)
     } catch (error) {
       throw this.withServiceId(error, serviceId)
     }

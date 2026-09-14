@@ -1,5 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { ServiceExecutionError, serviceExecutionError } from './plugin-service-execution-errors'
+
+// Missing executables stay `service-unavailable`, distinct from start failure.
+export function toStartError(error: unknown, serviceId: string): ServiceExecutionError {
+  if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+    return serviceExecutionError('service-unavailable', serviceId)
+  }
+  return error instanceof ServiceExecutionError
+    ? error
+    : serviceExecutionError('start-failed', serviceId, 'service failed to start')
+}
 import type { SpawnedProcess, spawnProcess } from '../../shared/child-process/run-process'
 import { forceTerminateProcessTree } from '../../shared/child-process/process-tree-termination'
 
@@ -220,12 +230,14 @@ export function sendSidecarRequest(
 }
 
 // Best-effort tree kill so WSL/Windows descendants die with the root.
+// True only when termination verified; callers propagate a false return so
+// teardown retries instead of forgetting a possibly-live tree.
 export async function terminateSidecarChild(
   child: SpawnedProcess,
   terminateImpl?: typeof forceTerminateProcessTree
-): Promise<void> {
+): Promise<boolean> {
   const terminate = terminateImpl ?? forceTerminateProcessTree
-  await terminate(child).catch(() => false)
+  const verified = await terminate(child).catch(() => false)
   try {
     child.kill('SIGKILL')
   } catch {
@@ -241,4 +253,5 @@ export async function terminateSidecarChild(
   } catch {
     /* ignore */
   }
+  return verified
 }

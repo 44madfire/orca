@@ -90,11 +90,15 @@ function resolveWslRuntime(
       'unknown worktree'
     ) as ServiceExecutionError
   }
-  if ((probe.isWslAvailable ?? (() => true))() === false) {
+  // Fail closed: without a probe there is no evidence the runtime exists.
+  if (probe.isWslAvailable?.() !== true) {
     throw serviceExecutionError('wsl-unavailable', '<unknown>', 'WSL runtime is unavailable')
   }
   const known = probe.listWslDistros?.()
-  if (known && !known.includes(distro)) {
+  if (!known) {
+    throw serviceExecutionError('distro-unavailable', '<unknown>', 'unavailable distribution')
+  }
+  if (!known.includes(distro)) {
     throw serviceExecutionError('distro-unavailable', '<unknown>', 'unavailable distribution')
   }
   return {
