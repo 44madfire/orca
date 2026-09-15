@@ -11305,7 +11305,8 @@
             "storage": "Store data in the plugin's own storage folder",
             "secrets": "Store and read secrets in the plugin's own encrypted vault",
             "eventsSubscribe": "Get notified when worktrees are created or removed and when agent status changes",
-            "settingsOwn": "Read and change the plugin's own settings"
+            "settingsOwn": "Read and change the plugin's own settings",
+            "serviceInvoke": "Invoke explicitly authorized host-registered services by id"
           },
           "decisionFailed": "Could not save the permission decision. Try again."
         },

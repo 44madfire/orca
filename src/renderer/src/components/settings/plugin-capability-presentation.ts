@@ -37,6 +37,11 @@ export function pluginCapabilityDescription(kind: string, fallback: string): str
         'auto.components.settings.PluginConsentDialog.capability.settingsOwn',
         "Read and change the plugin's own settings"
       )
+    case 'service:invoke':
+      return translate(
+        'auto.components.settings.PluginConsentDialog.capability.serviceInvoke',
+        'Invoke explicitly authorized host-registered services by id'
+      )
     default:
       return fallback
   }

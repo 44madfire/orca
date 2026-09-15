@@ -27,7 +27,8 @@ function createServices(storageSet: PluginHostServices['storage']['set']): Plugi
       getAll: vi.fn().mockReturnValue({}),
       set: vi.fn().mockReturnValue({ ok: true })
     },
-    subscribeEvents: vi.fn().mockReturnValue([])
+    subscribeEvents: vi.fn().mockReturnValue([]),
+    invokeService: vi.fn().mockRejectedValue(new Error('unknown service: none'))
   }
 }
 

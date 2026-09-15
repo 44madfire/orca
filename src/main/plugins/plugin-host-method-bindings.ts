@@ -47,6 +47,8 @@ export type PluginHostServices = {
     set(pluginId: string, key: string, value: unknown): { ok: true } | { ok: false; error: string }
   }
   subscribeEvents(pluginId: string, events: PluginEventName[]): PluginEventName[]
+  /** Invoke a host-registered service by id with a structured JSON request. */
+  invokeService(pluginId: string, serviceId: string, request: unknown): Promise<unknown>
 }
 
 export type BoundPluginHostMethod = {
@@ -167,6 +169,13 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   definePluginMethod('events.subscribe', async (params, { pluginId, services }) => {
     const { events } = params as { events: PluginEventName[] }
     return { subscribed: services.subscribeEvents(pluginId, events) }
+  }),
+  definePluginMethod('service.invoke', async (params, { pluginId, services }) => {
+    // Params already validated + size-checked at the chokepoint; the binding
+    // only resolves the host-owned registry and wraps the JSON response.
+    const { serviceId, request } = params as { serviceId: string; request?: unknown }
+    const response = await services.invokeService(pluginId, serviceId, request ?? null)
+    return { response }
   })
 ])
 

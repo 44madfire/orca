@@ -18,7 +18,7 @@ export function isPluginHostCallRequest(request: unknown): request is PluginHost
 
 export type PluginHostCallPolicy = Pick<
   ExecutePluginHostCallInput,
-  'grantedCapabilities' | 'services' | 'audit'
+  'grantedCapabilities' | 'grantedServiceIds' | 'services' | 'audit'
 >
 
 export type ResolvePluginHostCallPolicy = (

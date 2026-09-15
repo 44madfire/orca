@@ -53,16 +53,18 @@ function createServices(): PluginHostServices {
       getAll: vi.fn().mockReturnValue({ theme: 'dark' }),
       set: vi.fn().mockReturnValue({ ok: true })
     },
-    subscribeEvents: vi.fn().mockImplementation((_pluginKey, events) => events)
+    subscribeEvents: vi.fn().mockImplementation((_pluginKey, events) => events),
+    invokeService: vi.fn().mockResolvedValue({ pong: true })
   }
 }
 
 function createPolicy(
   grantedCapabilities: readonly PluginCapabilityKind[] | null,
   services: PluginHostServices = createServices(),
-  audit = { record: vi.fn().mockResolvedValue(undefined) }
+  audit = { record: vi.fn().mockResolvedValue(undefined) },
+  grantedServiceIds?: readonly string[] | null
 ): PluginHostCallPolicy {
-  return { grantedCapabilities, services, audit }
+  return { grantedCapabilities, grantedServiceIds, services, audit }
 }
 
 function createAdapters(
@@ -117,12 +119,13 @@ const successParams: Record<string, unknown> = {
   'secrets.delete': { key: 'token' },
   'settings.get': {},
   'settings.set': { key: 'theme', value: 'dark' },
-  'events.subscribe': { events: ['worktree.created'] }
+  'events.subscribe': { events: ['worktree.created'] },
+  'service.invoke': { serviceId: 'orca-pi.bridge', request: { op: 'ping' } }
 }
 
 describe('plugin host main/relay conformance', () => {
-  it('runs a granted success through both transports for all 13 v0 methods', async () => {
-    expect(PLUGIN_HOST_API_V0).toHaveLength(13)
+  it('runs a granted success through both transports for all 14 host methods', async () => {
+    expect(PLUGIN_HOST_API_V0).toHaveLength(14)
     expect(Object.keys(successParams).sort()).toEqual(
       PLUGIN_HOST_API_V0.map((entry) => entry.name).sort()
     )
@@ -130,7 +133,9 @@ describe('plugin host main/relay conformance', () => {
     expect(PLUGIN_HOST_API_V0.every((entry) => entry.scope.length > 0)).toBe(true)
 
     for (const spec of PLUGIN_HOST_API_V0) {
-      const policy = createPolicy([spec.capability])
+      const grantedServiceIds =
+        spec.capability === 'service:invoke' ? ['orca-pi.bridge'] : undefined
+      const policy = createPolicy([spec.capability], createServices(), undefined, grantedServiceIds)
       const resolvePolicy = vi.fn().mockResolvedValue(policy)
       const outcomes = await Promise.all(
         Object.values(createAdapters(resolvePolicy)).map((adapter) =>
