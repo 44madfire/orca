@@ -617,6 +617,52 @@ describe('wsl sidecar lifecycle', () => {
     }
   })
 
+  it('a crash between READY and CHILD still reaps the supervisor', async () => {
+    const sweeps: { distro: string; script: string }[] = []
+    const owned = new Map<number, string>()
+    const { controller, children } = wslController(
+      (child) => {
+        const nonce = nonceOf(child.spec)
+        owned.set(100, nonce)
+        holdableResponder(child)
+        // No CHILD line: the wrapper dies in the READY-before-CHILD window.
+        child.stdout.write(`ORCA_SIDECAR_READY pid=100 nonce=${nonce}\n`)
+      },
+      undefined,
+      { ownedGuests: owned, sweeps }
+    )
+    try {
+      expect(await controller.invoke({ ping: 1 })).toEqual({ ping: 1 })
+      const pending = controller.invoke({ hold: true })
+      pending.catch(() => undefined)
+      children[0].closeWith(1)
+      expect(await codeOf(pending)).toBe('crashed')
+      expect(await controller.invoke({ after: 'crash' })).toEqual({ after: 'crash' })
+      expect(children).toHaveLength(2)
+      // Only the proven supervisor pid is signaled.
+      expect(sweeps).toHaveLength(1)
+      expect(sweeps[0].script).toContain('targets="100"')
+    } finally {
+      await controller.dispose()
+    }
+  })
+
+  it('aborting during startup cancels instead of hanging on readiness', async () => {
+    const startedAt = Date.now()
+    const { controller } = wslController(() => undefined, { startupGraceMs: 3000 })
+    try {
+      const abort = new AbortController()
+      const pending = controller.invoke({}, { signal: abort.signal })
+      pending.catch(() => undefined)
+      setTimeout(() => abort.abort(), 50)
+      // Cancelled promptly: never waits out the startup grace.
+      expect(await codeOf(pending)).toBe('cancelled')
+      expect(Date.now() - startedAt).toBeLessThan(2500)
+    } finally {
+      await controller.dispose()
+    }
+  })
+
   it('stop during startup settles the starter instead of stranding it', async () => {
     const { controller } = wslController(() => undefined, { startupGraceMs: 5000 })
     const pending = controller.invoke({})

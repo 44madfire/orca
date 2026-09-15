@@ -14,7 +14,6 @@ import {
   detachGenerationStreams,
   failGenerationPending,
   flushGeneration,
-  markGenerationGuestChild,
   markGenerationReady,
   openGenerationFramer,
   pushGenerationMessage,
@@ -27,10 +26,10 @@ import {
 import { claimSidecarProcess } from './plugin-service-process-ownership'
 import {
   createGenerationTeardown,
+  createOrphanTracker,
   stopSidecarGeneration,
-  sweepOrphanedGuestList,
   type GenerationTeardown,
-  type OrphanedGuest
+  type OrphanTracker
 } from './plugin-service-sidecar-teardown'
 
 export type { SidecarLifecycleDeps } from './plugin-service-sidecar-generation'
@@ -47,7 +46,7 @@ export class ServiceSidecarController {
   private readonly limits: ReturnType<typeof resolveSidecarLimits>
   private readonly deps: SidecarLifecycleDeps
   private current: Generation | null = null
-  private orphans: OrphanedGuest[] = []
+  private readonly orphans: OrphanTracker = createOrphanTracker()
   private generationCounter = 0
   private requestCounter = 0
   private tail: Promise<void> = Promise.resolve()
@@ -74,7 +73,7 @@ export class ServiceSidecarController {
     if (this.closed) {
       throw serviceExecutionError('service-unavailable', this.serviceId, 'scope is closed')
     }
-    const gen = await this.ensureRunning()
+    const gen = await this.ensureRunningAbortable(options.signal)
     if (gen.state !== 'ready' || !gen.child) {
       throw serviceExecutionError('crashed', this.serviceId, 'sidecar is not running')
     }
@@ -97,7 +96,9 @@ export class ServiceSidecarController {
 
   stop(): Promise<void> {
     return this.serialized(async () => {
-      await this.sweepOrphanedGuests()
+      // Reap orphaned guests first: a failed sweep keeps the records and
+      // fails loud instead of stopping beside a possibly-live guest.
+      await this.orphans.sweep(this.deps, this.serviceId)
       await stopSidecarGeneration(this.teardownContext(), this.current)
     })
   }
@@ -105,26 +106,9 @@ export class ServiceSidecarController {
   dispose(): Promise<void> {
     return this.serialized(async () => {
       this.closed = true
-      await this.sweepOrphanedGuests()
+      await this.orphans.sweep(this.deps, this.serviceId)
       await stopSidecarGeneration(this.teardownContext(), this.current)
     })
-  }
-
-  // Reap guests orphaned by earlier wrapper crashes before this scope
-  // forgets them. A failed sweep keeps the records and fails loud instead
-  // of starting or stopping beside a possibly-live guest.
-  private async sweepOrphanedGuests(): Promise<void> {
-    if (this.orphans.length === 0) {
-      return
-    }
-    this.orphans = await sweepOrphanedGuestList(this.deps, this.orphans)
-    if (this.orphans.length > 0) {
-      throw serviceExecutionError(
-        'teardown-unverified',
-        this.serviceId,
-        'guest processes may survive'
-      )
-    }
   }
 
   private teardownContext(): GenerationTeardown {
@@ -138,23 +122,15 @@ export class ServiceSidecarController {
           this.current = null
         }
       },
-      (orphan) => this.noteOrphan(orphan)
+      (orphan) => this.orphans.note(orphan)
     )
-  }
-
-  private noteOrphan(orphan: OrphanedGuest): void {
-    // One record per generation: the sweep is idempotent, the list is not.
-    if (!this.orphans.some((existing) => existing.nonce === orphan.nonce)) {
-      this.orphans.push(orphan)
-    }
   }
 
   private streamHooks(): GenerationStreamHooks {
     return {
       isCurrent: (gen) => this.current === gen,
       markReady: (gen, supervisorPid) =>
-        markGenerationReady(gen, supervisorPid, this.current === gen),
-      markGuestChild: (gen, pid) => markGenerationGuestChild(gen, pid)
+        markGenerationReady(gen, supervisorPid, this.current === gen)
     }
   }
 
@@ -165,6 +141,25 @@ export class ServiceSidecarController {
       () => undefined
     )
     return next
+  }
+
+  // Startup itself is abort-aware: the race rejects the caller on abort
+  // while the shared generation keeps starting for later invokes.
+  private ensureRunningAbortable(signal?: AbortSignal): Promise<Generation> {
+    if (!signal) {
+      return this.ensureRunning()
+    }
+    if (signal.aborted) {
+      return Promise.reject(serviceExecutionError('cancelled', this.serviceId))
+    }
+    let onAbort!: () => void
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(serviceExecutionError('cancelled', this.serviceId))
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
+    return Promise.race([this.ensureRunning(), aborted]).finally(() => {
+      signal.removeEventListener('abort', onAbort)
+    })
   }
 
   private ensureRunning(): Promise<Generation> {
@@ -192,7 +187,7 @@ export class ServiceSidecarController {
 
   private async startGeneration(): Promise<Generation> {
     // A replacement never starts beside a possibly-live orphan: reap first.
-    await this.sweepOrphanedGuests()
+    await this.orphans.sweep(this.deps, this.serviceId)
     const platform = this.deps.platform ?? process.platform
     const id = ++this.generationCounter
     const nonce = (this.deps.createNonce ?? randomUUID)()
@@ -292,12 +287,10 @@ export class ServiceSidecarController {
     flushGeneration(gen, this.runtime.kind === 'wsl', this.streamHooks())
     detachGenerationStreams(gen)
     // Losing the wrapper is not losing the guest: preserve the in-distro
-    // identity so restart/stop sweeps the supervisor with proof.
-    if (
-      this.runtime.kind === 'wsl' &&
-      (gen.guestSupervisorPid !== null || gen.guestChildPid !== null)
-    ) {
-      this.noteOrphan({
+    // identity so restart/stop sweeps the supervisor with proof. Pids may
+    // both be null here; the tracker drops pid-less records itself.
+    if (this.runtime.kind === 'wsl') {
+      this.orphans.note({
         distro: this.runtime.distro,
         nonce: gen.nonce,
         supervisorPid: gen.guestSupervisorPid,

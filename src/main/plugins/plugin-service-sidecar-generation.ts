@@ -64,7 +64,6 @@ export type SidecarLifecycleDeps = {
 export type GenerationStreamHooks = {
   isCurrent: (gen: Generation) => boolean
   markReady: (gen: Generation, supervisorPid: number) => void
-  markGuestChild: (gen: Generation, pid: number) => void
 }
 
 // Supervisor identity lands here: READY flips a starting generation to
@@ -79,10 +78,6 @@ export function markGenerationReady(
     gen.state = 'ready'
     gen.readyResolve()
   }
-}
-
-export function markGenerationGuestChild(gen: Generation, pid: number): void {
-  gen.guestChildPid = pid
 }
 
 export function createGeneration(id: number, nonce: string): Generation {
@@ -146,8 +141,6 @@ export function encodeGenerationRequest(
 
 // Native bytes flow straight to the framer; WSL stdout is line-split first
 // so supervisor control lines never reach JSON parsing.
-export type GenerationRequestSend = (bytes: Buffer) => void
-
 // Register one request on a ready generation: timeout, cancellation, and
 // settle all clean up after themselves, so a caller-shared AbortSignal never
 // accumulates listeners across invokes.
@@ -160,11 +153,16 @@ export function sendGenerationRequest(
     maxMessageBytes: number
     timeoutMs: number
     signal?: AbortSignal
-    send: GenerationRequestSend
+    send: (bytes: Buffer) => void
   }
 ): Promise<unknown> {
   const encoded = encodeGenerationRequest(requestId, payload, opts.serviceId, opts.maxMessageBytes)
   return new Promise<unknown>((resolve, reject) => {
+    // The signal may have fired while the caller awaited startup; an
+    // addEventListener on an already-aborted signal never fires.
+    if (opts.signal?.aborted) {
+      throw serviceExecutionError('cancelled', opts.serviceId)
+    }
     const timer = setTimeout(() => {
       if (gen.pending.delete(requestId)) {
         cleanup()
@@ -238,7 +236,7 @@ function pushGenerationLine(gen: Generation, line: string, hooks: GenerationStre
     if (event.type === 'ready') {
       hooks.markReady(gen, event.pid)
     } else if (event.type === 'child') {
-      hooks.markGuestChild(gen, event.pid)
+      gen.guestChildPid = event.pid
     }
     return
   }

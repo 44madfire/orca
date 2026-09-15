@@ -39,6 +39,40 @@ export type GenerationTeardown = {
   noteOrphan: (orphan: OrphanedGuest) => void
 }
 
+// Tracks WSL guests that outlived their wrapper. Sweeps are idempotent
+// (verify-then-kill), so a record is kept until a sweep proves it gone.
+export type OrphanTracker = {
+  readonly orphans: OrphanedGuest[]
+  note: (orphan: OrphanedGuest) => void
+  sweep: (deps: SidecarLifecycleDeps, serviceId: string) => Promise<void>
+}
+
+export function createOrphanTracker(): OrphanTracker {
+  const orphans: OrphanedGuest[] = []
+  return {
+    orphans,
+    note: (orphan) => {
+      if (orphan.supervisorPid === null && orphan.childPid === null) {
+        return
+      }
+      if (!orphans.some((existing) => existing.nonce === orphan.nonce)) {
+        orphans.push(orphan)
+      }
+    },
+    sweep: async (deps, serviceId) => {
+      if (orphans.length === 0) {
+        return
+      }
+      const remaining = await sweepOrphanedGuestList(deps, orphans)
+      orphans.length = 0
+      orphans.push(...remaining)
+      if (remaining.length > 0) {
+        throw serviceExecutionError('teardown-unverified', serviceId, 'guest processes may survive')
+      }
+    }
+  }
+}
+
 export function createGenerationTeardown(
   serviceId: string,
   runtime: ServiceWorktreeRuntime,

@@ -138,6 +138,36 @@ describeWithSh('supervisor protocol under sh', () => {
     expect(exit).toEqual({ type: 'exit', status: 0 })
   })
 
+  it('transports a JSONL request through the supervisor to the service', () => {
+    // The service backgrounds with an explicit stdin redirection; without
+    // it the request would vanish into /dev/null and this would hang.
+    const service = 'IFS= read -r req; printf \'{"id":"fixed1","result":"seen"}\\n\''
+    const result = spawnSync(
+      'sh',
+      ['-c', buildSupervisorScript(), 'sup', 'pipe-nonce', '', 'sh', '-c', service],
+      {
+        input: '{"id":"fixed1","params":{}}' + '\n',
+        encoding: 'utf8'
+      }
+    )
+    expect(result.status).toBe(0)
+    expect(String(result.stdout)).toContain('ORCA_SIDECAR_READY pid=')
+    expect(String(result.stdout)).toContain('{"id":"fixed1","result":"seen"}')
+  })
+
+  it('exports the nonce into the supervisor environment', () => {
+    const service =
+      'tr "\\0" "\\n" < /proc/$PPID/environ | grep ORCA_SIDECAR_NONCE || echo missing-sup'
+    const result = spawnSync(
+      'sh',
+      ['-c', buildSupervisorScript(), 'sup', 'sup-nonce', '', 'sh', '-c', service],
+      {
+        encoding: 'utf8'
+      }
+    )
+    expect(String(result.stdout)).toContain('ORCA_SIDECAR_NONCE=sup-nonce')
+  })
+
   it('exports the nonce into the service environment', () => {
     const service = 'tr "\\0" "\\n" < /proc/$$/environ | grep ORCA_SIDECAR_NONCE || echo missing'
     const result = spawnSync(

@@ -28,15 +28,21 @@ export function buildSupervisorScript(): string {
     // The guest cwd comes from the resolved runtime, never the panel. A
     // failed cd exits before READY so the host reports start-failed.
     'if [ -n "$guestCwd" ]; then cd "$guestCwd" || exit 127; fi',
+    // Exported (not command-prefixed) so the supervisor's own /proc environ
+    // also carries the lease: the host's pre-kill ownership check must prove
+    // the supervisor pid too, and the service inherits it either way.
+    `export ${SIDECAR_NONCE_ENV}="$nonce"`,
+    // Duplicating the host pipe to fd 3 before spawning: a background job
+    // with no explicit stdin redirection reads /dev/null under
+    // non-interactive sh, which would starve the service of requests.
+    'exec 3<&0 || exit 127',
     `printf '%s\\n' "${CONTROL_PREFIX}READY pid=$$ nonce=$nonce"`,
     'child=',
-    'cleanup() {',
-    '  if [ -n "$child" ]; then kill "$child" 2>/dev/null; fi',
-    '}',
-    "trap 'cleanup; exit 143' TERM INT HUP",
-    // Value quoted, name bare: quoting any of the name turns the assignment
-    // into a command word and the service never starts.
-    `${SIDECAR_NONCE_ENV}="$nonce" "$@" &`,
+    // wait reaps the child synchronously so no exit path strands it.
+    'trap \'kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 143\' TERM INT HUP',
+    // Explicit redirection onto the fd-3 dup: without it the backgrounded
+    // service would read /dev/null instead of the host pipe.
+    '"$@" <&3 &',
     'child=$!',
     `printf '%s\\n' "${CONTROL_PREFIX}CHILD pid=$child nonce=$nonce"`,
     'wait "$child"',
