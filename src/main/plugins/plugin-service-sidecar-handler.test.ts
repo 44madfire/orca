@@ -50,7 +50,10 @@ describe('createSidecarServiceHandler', () => {
     const handler = createSidecarServiceHandler(echoRegistration(seen), {
       resolveWorktree: async () => worktree('wt-a'),
       runtimeProbe: { platform: 'linux' },
-      lifecycle: { spawnImpl: (spec) => spawnProcess(spec) }
+      lifecycle: {
+        spawnImpl: (spec) => spawnProcess(spec),
+        ownership: { requireIdentityMatch: false }
+      }
     })
     try {
       expect(await handler({ ping: 1 }, { pluginId: 'p', serviceId: 'svc.echo' })).toEqual({
@@ -97,7 +100,10 @@ describe('createSidecarServiceHandler', () => {
     const handler = createSidecarServiceHandler(echoRegistration(seen), {
       resolveWorktree: async () => worktree(current),
       runtimeProbe: { platform: 'linux' },
-      lifecycle: { spawnImpl: (spec) => spawnProcess(spec) }
+      lifecycle: {
+        spawnImpl: (spec) => spawnProcess(spec),
+        ownership: { requireIdentityMatch: false }
+      }
     })
     try {
       expect(await handler({ from: 'a' }, { pluginId: 'p', serviceId: 'svc.echo' })).toEqual({
@@ -168,7 +174,10 @@ describe('createSidecarServiceHandler', () => {
     const handler = createSidecarServiceHandler(echoRegistration(seen), {
       resolveWorktree: async () => worktree('wt-a'),
       runtimeProbe: { platform: 'linux' },
-      lifecycle: { spawnImpl: (spec) => spawnProcess(spec) }
+      lifecycle: {
+        spawnImpl: (spec) => spawnProcess(spec),
+        ownership: { requireIdentityMatch: false }
+      }
     })
     expect(await handler({ n: 1 }, { pluginId: 'p', serviceId: 'svc.echo' })).toEqual({ n: 1 })
     await handler.dispose()

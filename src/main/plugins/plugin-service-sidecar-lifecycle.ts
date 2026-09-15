@@ -297,16 +297,10 @@ export class ServiceSidecarController {
     }
     flushGeneration(gen, this.runtime.kind === 'wsl', this.streamHooks())
     detachGenerationStreams(gen)
-    // Losing the wrapper is not losing the guest: preserve the in-distro
-    // identity so restart/stop sweeps the supervisor with proof. Pids may
-    // both be null here; the tracker drops pid-less records itself.
+    // Losing the wrapper is not losing the guest: preserve the lease so
+    // restart/stop sweeps by identity even when no pid was ever reported.
     if (this.runtime.kind === 'wsl') {
-      this.orphans.note({
-        distro: this.runtime.distro,
-        nonce: gen.nonce,
-        supervisorPid: gen.guestSupervisorPid,
-        childPid: gen.guestChildPid
-      })
+      this.orphans.note({ distro: this.runtime.distro, nonce: gen.nonce })
     }
     if (gen.state === 'stopping') {
       // Owned by an in-flight stopSidecarGeneration: leave child + claim

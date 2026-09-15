@@ -26,6 +26,12 @@ export type ProcessOwnershipDeps = {
   terminateTree?: (child: SpawnedProcess) => Promise<boolean>
   isPidAlive?: (pid: number) => boolean
   jobBinder?: SidecarJobBinder | null
+  // Windows only: creation-time identity is available there, so a
+  // pid-addressed tree kill (taskkill) must re-prove it immediately
+  // beforehand and fail closed on mismatch or unreadable identity.
+  // POSIX process-group kills cannot observe a reaped group (ESRCH) and
+  // stay on the verify-afterwards path.
+  requireIdentityMatch?: boolean
   identityTimeoutMs?: number
   verifyPollMs?: number
   verifyDeadlineMs?: number
@@ -110,12 +116,20 @@ export async function terminateClaimedSidecar(
     }
   }
   if (child) {
+    // Pre-kill gate: never address a pid that is not proven ours. A dead
+    // pid needs no kill; a recycled or unreadable one fails closed.
+    const gate = await preKillGate(claim, deps)
+    if (gate === 'refuse') {
+      return 'unverifiable'
+    }
     const terminateTree = deps.terminateTree ?? forceTerminateProcessTree
     let issued = false
-    try {
-      issued = await terminateTree(child)
-    } catch {
-      issued = false
+    if (gate === 'proceed') {
+      try {
+        issued = await terminateTree(child)
+      } catch {
+        issued = false
+      }
     }
     if (claim.generation !== generation) {
       return 'stale'
@@ -129,6 +143,39 @@ export async function terminateClaimedSidecar(
   // No live handle: never address the pid blind. Gone-by-identity reads as
   // exited; anything else stays unverifiable.
   return (await verifyAbsenceByIdentity(claim, deps)) ? 'exited' : 'unverifiable'
+}
+
+// Whether a pid-addressed kill may proceed. `proceed` means the pid is
+// live and (where required) proven ours; `alreadyGone` skips the kill and
+// lets verification confirm the exit; `refuse` fails closed without killing.
+async function preKillGate(
+  claim: ClaimedSidecarProcess,
+  deps: ProcessOwnershipDeps
+): Promise<'proceed' | 'alreadyGone' | 'refuse'> {
+  const isPidAlive = deps.isPidAlive ?? defaultIsPidAlive
+  if (!isPidAlive(claim.pid)) {
+    return 'alreadyGone'
+  }
+  const requireMatch = deps.requireIdentityMatch ?? process.platform === 'win32'
+  if (!requireMatch) {
+    return 'proceed'
+  }
+  if (claim.creationTimeMs === null) {
+    return 'refuse'
+  }
+  const readCreationTimeMs = deps.readCreationTimeMs ?? defaultReadCreationTimeMs
+  let current: number | null = null
+  try {
+    current = await readCreationTimeMs(claim.pid)
+  } catch {
+    current = null
+  }
+  if (current === null || current !== claim.creationTimeMs) {
+    // Vanished or recycled since the liveness check: either way this pid
+    // is not provably ours, so no kill is issued against it.
+    return 'alreadyGone'
+  }
+  return 'proceed'
 }
 
 // Absence BY IDENTITY: a missing pid proves exit; a different creation time

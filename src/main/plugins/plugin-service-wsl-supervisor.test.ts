@@ -8,8 +8,7 @@ import {
   buildWslSupervisorSpawn,
   isSupervisorControlLine,
   parseGuestSweepOutput,
-  parseSupervisorLine,
-  verifyGuestProcessNonce
+  parseSupervisorLine
 } from './plugin-service-wsl-supervisor'
 
 function shAvailable(): boolean {
@@ -90,81 +89,23 @@ describe('supervisor script', () => {
   })
 })
 
-describe('verifyGuestProcessNonce', () => {
-  // Fake guest filesystem: `present` pids have a /proc entry, `readable`
-  // pids allow reading it, `owned` maps pid to its lease nonce.
-  const guestRunner = ({
-    present = new Set([42]),
-    readable = new Set([42]),
-    owned = new Map([[42, 'n1']]),
-    procfs = true,
-    throws = false
-  }: {
-    present?: Set<number>
-    readable?: Set<number>
-    owned?: Map<number, string>
-    procfs?: boolean
-    throws?: boolean
-  } = {}) => {
-    return async (args: readonly string[]): Promise<{ code: number | null; stdout: string }> => {
-      if (throws) {
-        throw new Error('transport down')
-      }
-      if (args[0] === 'test') {
-        const dir = args[2] ?? ''
-        if (dir === '/proc') {
-          return { code: procfs ? 0 : 1, stdout: '' }
-        }
-        const pid = Number(/^\/proc\/(\d+)$/.exec(dir)?.[1])
-        return { code: present.has(pid) ? 0 : 1, stdout: '' }
-      }
-      const pid = Number(/^\/proc\/(\d+)\/environ$/.exec(args[1] ?? '')?.[1])
-      if (!readable.has(pid)) {
-        return { code: 1, stdout: '' }
-      }
-      const nonce = owned.get(pid)
-      return { code: 0, stdout: `PATH=/usr/bin\0ORCA_SIDECAR_NONCE=${nonce ?? 'other'}\0` }
-    }
-  }
-
-  it('proves identity from /proc environ', async () => {
-    const runner = guestRunner()
-    expect(await verifyGuestProcessNonce(runner, 42, 'n1')).toBe('ours')
-    expect(await verifyGuestProcessNonce(runner, 42, 'other')).toBe('not-ours')
-  })
-
-  it('reads a missing /proc entry as not-ours', async () => {
-    const runner = guestRunner({ present: new Set(), readable: new Set(), owned: new Map() })
-    expect(await verifyGuestProcessNonce(runner, 42, 'n1')).toBe('not-ours')
-  })
-
-  it('reads a live but unreadable identity as unknown, never not-ours', async () => {
-    // EACCES-shaped: the /proc entry exists but environ cannot be read.
-    const runner = guestRunner({ readable: new Set(), owned: new Map() })
-    expect(await verifyGuestProcessNonce(runner, 42, 'n1')).toBe('unknown')
-  })
-
-  it('reads a missing /proc filesystem as unknown', async () => {
-    const runner = guestRunner({
-      present: new Set(),
-      readable: new Set(),
-      owned: new Map(),
-      procfs: false
-    })
-    expect(await verifyGuestProcessNonce(runner, 42, 'n1')).toBe('unknown')
-  })
-
-  it('reads transport failures as unknown', async () => {
-    expect(await verifyGuestProcessNonce(guestRunner({ throws: true }), 42, 'n1')).toBe('unknown')
-    expect(await verifyGuestProcessNonce(guestRunner(), -1, 'n1')).toBe('unknown')
+describe('sweep lease gating', () => {
+  it('pins the in-guest verification semantics', () => {
+    const script = buildGuestSweepScript()
+    expect(script).toContain('bearers()')
+    expect(script).toContain('kill_bearers -TERM')
+    expect(script).toContain('kill_bearers -KILL')
+    // Unreadable identities are skipped by construction (2>/dev/null),
+    // which can only make the quiescence report loud, never wrong.
+    expect(script).toContain('2>/dev/null; then echo')
   })
 })
 
 describe('guest sweep', () => {
   it('verifies the lease adjacent to each signal, then reports survivors', () => {
     const script = buildGuestSweepScript()
-    expect(script).toContain('kill_tree -TERM')
-    expect(script).toContain('kill_tree -KILL')
+    expect(script).toContain('kill_bearers -TERM')
+    expect(script).toContain('kill_bearers -KILL')
     expect(script).toContain('ORCA_SIDECAR_NONCE=$nonce')
     // Shell-parseable on every platform: sh -n would have caught the
     // missing-bracket regression before any guest ever ran it.
@@ -173,36 +114,20 @@ describe('guest sweep', () => {
       expect(parsed.error).toBeUndefined()
       expect(parsed.status).toBe(0)
     }
-    const argv = buildGuestSweepArgv('sweep-nonce', 100, 101)
+    const argv = buildGuestSweepArgv('sweep-nonce')
     expect(argv.slice(0, 4)).toEqual(['/bin/sh', '-c', script, 'orca-sweep'])
-    expect(argv.slice(4)).toEqual(['sweep-nonce', '100', '101'])
-    expect(buildGuestSweepArgv('sweep-nonce', null, 101).slice(4)).toEqual([
-      'sweep-nonce',
-      '',
-      '101'
-    ])
-    expect(parseGuestSweepOutput('noise\nORCA_SWEEP done=1\n')).toEqual({
-      done: true,
-      alive: [],
-      groups: []
-    })
-    expect(parseGuestSweepOutput('ORCA_SWEEP done=0 alive= 100 group=\n')).toEqual({
+    expect(argv.slice(4)).toEqual(['sweep-nonce'])
+    expect(parseGuestSweepOutput('noise\nORCA_SWEEP done=1\n')).toEqual({ done: true, alive: [] })
+    expect(parseGuestSweepOutput('ORCA_SWEEP done=0 alive= 100 101\n')).toEqual({
       done: false,
-      alive: [100],
-      groups: []
+      alive: [100, 101]
     })
-    expect(parseGuestSweepOutput('ORCA_SWEEP done=0 alive= group= 101\n')).toEqual({
-      done: false,
-      alive: [],
-      groups: [101]
-    })
-    expect(parseGuestSweepOutput('garbage\n')).toEqual({ done: false, alive: [], groups: [] })
+    expect(parseGuestSweepOutput('garbage\n')).toEqual({ done: false, alive: [] })
   })
 
   it('rejects non-word-safe nonces instead of smuggling script', () => {
-    expect(() => buildGuestSweepArgv('a b', 100, null)).toThrow()
-    expect(() => buildGuestSweepArgv('a$b', 100, null)).toThrow()
-    expect(() => buildGuestSweepArgv('sweep-nonce', -3, null)).toThrow()
+    expect(() => buildGuestSweepArgv('a b')).toThrow()
+    expect(() => buildGuestSweepArgv('a$b')).toThrow()
   })
 })
 

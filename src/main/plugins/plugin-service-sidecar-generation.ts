@@ -12,11 +12,7 @@ import type {
   ProcessOwnershipDeps
 } from './plugin-service-process-ownership'
 import type { SidecarJobBinder } from './plugin-service-windows-job'
-import {
-  isSupervisorControlLine,
-  parseSupervisorLine,
-  type GuestCommandRunner
-} from './plugin-service-wsl-supervisor'
+import { isSupervisorControlLine, parseSupervisorLine } from './plugin-service-wsl-supervisor'
 
 // One generation of a sidecar: its process, its in-flight requests, and its
 // byte routing. The lifecycle owns when generations live; this module owns
@@ -54,9 +50,6 @@ export type SidecarLifecycleDeps = {
   ownership?: ProcessOwnershipDeps
   jobBinder?: SidecarJobBinder | null
   sweepGuestImpl?: (distro: string, argv: readonly string[]) => Promise<boolean>
-  // In-distro ownership proofs for PID-addressed kills; production runs
-  // `cat /proc/<pid>/environ` through wsl.exe bounded.
-  guestRunnerImpl?: (distro: string) => GuestCommandRunner
   platform?: NodeJS.Platform
   createNonce?: () => string
 }

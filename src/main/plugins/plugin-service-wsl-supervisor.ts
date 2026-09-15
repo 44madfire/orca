@@ -37,19 +37,11 @@ export function buildSupervisorScript(): string {
     // with no explicit stdin redirection reads /dev/null under
     // non-interactive sh, which would starve the service of requests.
     'exec 3<&0 || exit 127',
-    // Job control puts the backgrounded service in its own process group
-    // (pgid equals its pid), so teardown reaps the whole guest subtree —
-    // helpers and grandchildren included — instead of only the direct
-    // child. Best-effort: without it the service shares this shell's
-    // group and teardown stays correct, just coarser.
-    'set -m 2>/dev/null || true',
     `printf '%s\\n' "${CONTROL_PREFIX}READY pid=$$ nonce=$nonce"`,
     'child=',
-    // The trap kills the service directly, then its process group (helpers
-    // and grandchildren that never daemonized away), then waits: no exit
-    // path strands the guest subtree. A double-forked daemon escapes any
-    // same-tree reaping by design and stays out of scope.
-    'trap \'kill "$child" 2>/dev/null; kill -TERM -- "-$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 143\' TERM INT HUP',
+    // The trap kills the direct child and waits: no exit path strands what
+    // it knows. Unknown descendants are owned by the sweep lease scan.
+    'trap \'kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 143\' TERM INT HUP',
     // Explicit redirection onto the fd-3 dup: without it the backgrounded
     // service would read /dev/null instead of the host pipe.
     '"$@" <&3 &',
@@ -152,166 +144,60 @@ export function parseSupervisorLine(line: string, nonce: string): SupervisorCont
   return null
 }
 
-export type GuestCommandRunner = (args: readonly string[]) => Promise<{
-  code: number | null
-  stdout: string
-}>
-
-// In-distro identity proof: the lease sits in the exec-time environment,
-// so /proc/<pid>/environ either names our generation (ours), names another
-// one (not-ours: recycled pid), or cannot decide. Existence and readability
-// are probed separately: cat(1) reports one exit code for a missing file
-// and for EACCES, and only a missing /proc entry proves absence. A live
-// process with an unreadable identity is `unknown` — never permission to
-// kill, never evidence of exit.
-export async function verifyGuestProcessNonce(
-  runner: GuestCommandRunner,
-  pid: number,
-  nonce: string
-): Promise<'ours' | 'not-ours' | 'unknown'> {
-  if (!Number.isInteger(pid) || pid <= 0 || nonce.length === 0) {
-    return 'unknown'
-  }
-  let stdout: string
-  try {
-    const entry = await runner(['test', '-d', `/proc/${pid}`])
-    if (entry.code !== 0) {
-      // No /proc entry: gone — unless /proc itself is missing, in which
-      // case this host cannot answer at all.
-      const proc = await runner(['test', '-d', '/proc'])
-      return proc.code === 0 ? 'not-ours' : 'unknown'
-    }
-    const result = await runner(['cat', `/proc/${pid}/environ`])
-    if (result.code !== 0) {
-      // Present but unreadable (EACCES, ptrace scope, corrupted): alive
-      // as far as anyone can prove, identity withheld.
-      return 'unknown'
-    }
-    stdout = result.stdout
-  } catch {
-    return 'unknown'
-  }
-  const token = `${SIDECAR_NONCE_ENV}=${nonce}`
-  return stdout.split('\0').includes(token) ? 'ours' : 'not-ours'
-}
-
-// One guest invocation that verifies ownership adjacent to each signal,
-// then kills, escalates to -KILL, and reports who is still alive. The host
-// runs it bounded (runProcess timeout) and treats any surviving pid as
-// teardown-unverified.
-//
-// The in-distro environ match is the kill gate, never an earlier host
-// probe: a pid that died and recycled after the host's skip-check fails the
-// match here and is never signaled, and an unreadable identity is skipped
-// the same way. `ORCA_SWEEP_PROCROOT` overrides /proc for tests only.
 export function buildGuestSweepScript(): string {
   const LF = String.fromCharCode(10)
   return [
-    'nonce="$1"; shift',
+    'nonce="$1"',
     // Refuse an empty or smuggled lease: an empty pattern would match any
     // lease-holder, so a missing argv fails closed instead of signaling.
     'case "$nonce" in ""|*[!A-Za-z0-9_-]*) exit 1 ;; esac',
     'procroot="${ORCA_SWEEP_PROCROOT:-/proc}"',
-    'verified() {',
-    '  p="$1"',
-    '  case "$p" in ""|*[!0-9]*) return 1 ;; esac',
-    '  if grep -qF "ORCA_SIDECAR_NONCE=$nonce" "$procroot/$p/environ" 2>/dev/null; then',
-    '    return 0',
-    '  fi',
-    '  return 1',
-    '}',
-    'is_live() {',
-    '  p="$1"',
-    '  kill -0 "$p" 2>/dev/null || return 1',
-    '  stat=$(cat "$procroot/$p/stat" 2>/dev/null) || return 0',
-    '  stat=${stat##*)}',
-    '  case "$stat" in " Z"*) return 1 ;; esac',
-    '  return 0',
-    '}',
-    'group_live() {',
-    '  g="$1"',
-    '  case "$g" in ""|*[!0-9]*) return 1 ;; esac',
-    '  kill -0 -- "-$g" 2>/dev/null',
-    '}',
-    'kill_tree() {',
-    '  sig="$1"; shift',
-    '  for p in "$@"; do',
-    '    if [ "$p" = "$sup" ]; then',
-    '      if verified "$p"; then kill "$sig" "$p" 2>/dev/null; fi',
-    '    else',
-    '      if verified "$p"; then kill "$sig" "$p" 2>/dev/null; kill "$sig" -- "-$p" 2>/dev/null; fi',
-    '    fi',
+    'bearers() {',
+    '  for d in "$procroot"/[0-9]*; do',
+    '    [ -d "$d" ] || continue',
+    '    p=${d##*/}',
+    '    case "$p" in ""|*[!0-9]*) continue ;; esac',
+    '    if grep -qF "ORCA_SIDECAR_NONCE=$nonce" "$d/environ" 2>/dev/null; then echo "$p"; fi',
     '  done',
     '}',
-    'collect_status() {',
-    '  alive=""',
-    '  cgroup=""',
-    '  if [ -n "$sup" ] && is_live "$sup"; then alive="$alive $sup"; fi',
-    '  if [ -n "$child" ] && group_live "$child"; then cgroup="$child"; fi',
+    'kill_bearers() {',
+    '  sig="$1"',
+    '  for p in $(bearers); do kill "$sig" "$p" 2>/dev/null; done',
     '}',
-    'sup="$1"; child="$2"',
-    'kill_tree -TERM "$sup" "$child"',
+    'kill_bearers -TERM',
     'i=0; while [ "$i" -lt 20 ]; do',
-    '  collect_status',
-    '  if [ -z "$alive$cgroup" ]; then echo "ORCA_SWEEP done=1"; exit 0; fi',
+    '  if [ -z "$(bearers)" ]; then echo "ORCA_SWEEP done=1"; exit 0; fi',
     '  sleep 0.25; i=$((i + 1))',
     'done',
-    'kill_tree -KILL "$sup" "$child"',
+    'kill_bearers -KILL',
     'i=0; while [ "$i" -lt 20 ]; do',
-    '  collect_status',
-    '  if [ -z "$alive$cgroup" ]; then echo "ORCA_SWEEP done=1"; exit 0; fi',
+    '  if [ -z "$(bearers)" ]; then echo "ORCA_SWEEP done=1"; exit 0; fi',
     '  sleep 0.25; i=$((i + 1))',
     'done',
-    'collect_status',
-    'echo "ORCA_SWEEP done=0 alive=$alive group=$cgroup"',
+    'alive=""; for p in $(bearers); do alive="$alive $p"; done',
+    'echo "ORCA_SWEEP done=0 alive=$alive"',
     'exit 0'
   ].join(LF)
 }
-export type GuestSweepReport = { done: boolean; alive: number[]; groups: number[] }
-
-function parsePidList(value: string | undefined): number[] {
-  return (
-    value
-      ?.split(' ')
-      .map((part) => Number(part))
-      .filter((pid) => Number.isInteger(pid) && pid > 0) ?? []
-  )
-}
-
-// Argv for one sweep invocation: the lease plus supervisor and child pids
-// travel as words (safe under wsl.exe --exec), never baked into the script.
-// All three are validated here and re-guarded in-script, where the environ
-// match remains the kill gate adjacent to each signal.
-export function buildGuestSweepArgv(
-  nonce: string,
-  supervisorPid: number | null,
-  childPid: number | null
-): string[] {
+// Argv for one sweep invocation: only the lease travels (safe under
+// wsl.exe --exec). Targets are discovered in-distro by the script itself,
+// so a stale host pid can never redirect a kill.
+export function buildGuestSweepArgv(nonce: string): string[] {
   if (!NONCE_WORD_RE.test(nonce)) {
     throw new Error('sidecar nonce must be a shell-word-safe token')
   }
-  for (const pid of [supervisorPid, childPid]) {
-    if (pid !== null && (!Number.isInteger(pid) || pid <= 0)) {
-      throw new Error('sweep target must be a positive pid')
-    }
-  }
-  return [
-    '/bin/sh',
-    '-c',
-    buildGuestSweepScript(),
-    'orca-sweep',
-    nonce,
-    supervisorPid === null ? '' : String(supervisorPid),
-    childPid === null ? '' : String(childPid)
-  ]
+  return ['/bin/sh', '-c', buildGuestSweepScript(), 'orca-sweep', nonce]
 }
 
-export function parseGuestSweepOutput(stdout: string): GuestSweepReport {
-  const match = /^ORCA_SWEEP done=([01])( alive=(.*?))?( group=(.*?))?$/.exec(
-    stdout.trim().split('\n').pop() ?? ''
-  )
+export function parseGuestSweepOutput(stdout: string): { done: boolean; alive: number[] } {
+  const match = /^ORCA_SWEEP done=([01])( alive=(.*))?$/.exec(stdout.trim().split('\n').pop() ?? '')
   if (!match) {
-    return { done: false, alive: [], groups: [] }
+    return { done: false, alive: [] }
   }
-  return { done: match[1] === '1', alive: parsePidList(match[3]), groups: parsePidList(match[5]) }
+  const alive =
+    match[2]
+      ?.split(' ')
+      .map((part) => Number(part))
+      .filter((pid) => Number.isInteger(pid) && pid > 0) ?? []
+  return { done: match[1] === '1', alive }
 }

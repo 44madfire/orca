@@ -7,12 +7,7 @@ import {
   type ClaimedSidecarProcess
 } from './plugin-service-process-ownership'
 import type { SidecarJobBinder } from './plugin-service-windows-job'
-import {
-  buildGuestSweepArgv,
-  parseGuestSweepOutput,
-  verifyGuestProcessNonce,
-  type GuestCommandRunner
-} from './plugin-service-wsl-supervisor'
+import { buildGuestSweepArgv, parseGuestSweepOutput } from './plugin-service-wsl-supervisor'
 import {
   detachGenerationStreams,
   failGenerationPending,
@@ -26,8 +21,6 @@ import {
 export type OrphanedGuest = {
   distro: string
   nonce: string
-  supervisorPid: number | null
-  childPid: number | null
 }
 
 export type GenerationTeardown = {
@@ -52,9 +45,6 @@ export function createOrphanTracker(): OrphanTracker {
   return {
     orphans,
     note: (orphan) => {
-      if (orphan.supervisorPid === null && orphan.childPid === null) {
-        return
-      }
       if (!orphans.some((existing) => existing.nonce === orphan.nonce)) {
         orphans.push(orphan)
       }
@@ -85,7 +75,6 @@ export function createGenerationTeardown(
 }
 
 const GUEST_SWEEP_TIMEOUT_MS = 12_000
-const GUEST_PROBE_TIMEOUT_MS = 8_000
 
 // End one generation: fail its callers, close stdin, sweep the guest first
 // (WSL), then tear the wrapper down through ownership-verified teardown. Any
@@ -118,11 +107,11 @@ export async function stopSidecarGeneration(
   } catch {
     /* already gone */
   }
-  if (
-    ctx.runtime.kind === 'wsl' &&
-    (gen.guestSupervisorPid !== null || gen.guestChildPid !== null)
-  ) {
-    if (!(await sweepVerifiedGuest(ctx.deps, guestTarget(ctx, gen)))) {
+  // A spawned wrapper may own guest life the host never observed (no
+  // READY yet, or a helper outliving its leader), so the sweep always runs
+  // when a wrapper exists and the script arbitrates quiescence by lease.
+  if (ctx.runtime.kind === 'wsl' && gen.claim) {
+    if (!(await sweepGuestByLease(ctx.deps, guestTarget(ctx, gen)))) {
       // Identity is preserved in the orphan record so a later stop/dispose
       // retries the sweep instead of leaking the guest behind this throw.
       ctx.noteOrphan(guestTarget(ctx, gen))
@@ -159,9 +148,7 @@ export async function stopSidecarGeneration(
 function guestTarget(ctx: GenerationTeardown, gen: Generation): OrphanedGuest {
   return {
     distro: ctx.runtime.kind === 'wsl' ? ctx.runtime.distro : '',
-    nonce: gen.nonce,
-    supervisorPid: gen.guestSupervisorPid,
-    childPid: gen.guestChildPid
+    nonce: gen.nonce
   }
 }
 
@@ -173,7 +160,7 @@ export async function sweepOrphanedGuestList(
 ): Promise<OrphanedGuest[]> {
   const remaining: OrphanedGuest[] = []
   for (const orphan of orphans) {
-    const swept = await sweepVerifiedGuest(deps, orphan).catch(() => false)
+    const swept = await sweepGuestByLease(deps, orphan).catch(() => false)
     if (!swept) {
       remaining.push(orphan)
     }
@@ -181,62 +168,22 @@ export async function sweepOrphanedGuestList(
   return remaining
 }
 
-// Verified guest sweep. The host probe below is only a skip gate (both
-// gone: nothing to do). The kill gate lives INSIDE the sweep script, which
-// re-proves the nonce adjacent to each signal — a pid that died and
-// recycled after this probe still fails the in-guest match and is never
-// signaled. An unreadable identity refuses the sweep as unverified.
-async function sweepVerifiedGuest(
+// Lease sweep: the host never decides liveness from its own probes here.
+// Only the in-guest scan can prove quiescence (a dead leader never implies
+// a dead tree), so every WSL teardown with a spawned wrapper runs exactly
+// one sweep invocation and lets the script arbitrate.
+async function sweepGuestByLease(
   deps: SidecarLifecycleDeps,
   target: OrphanedGuest
 ): Promise<boolean> {
   if (!target.distro) {
     return true
   }
-  const runner = (deps.guestRunnerImpl ?? defaultGuestRunner)(target.distro)
-  // verifyGuestProcessNonce never rejects: transport failures read as
-  // unknown, which below refuses the kill.
-  const supervisor =
-    target.supervisorPid === null
-      ? 'not-ours'
-      : await verifyGuestProcessNonce(runner, target.supervisorPid, target.nonce)
-  const child =
-    target.childPid === null
-      ? 'not-ours'
-      : await verifyGuestProcessNonce(runner, target.childPid, target.nonce)
-  if (supervisor === 'unknown' || child === 'unknown') {
-    return false
-  }
-  if (supervisor === 'not-ours' && child === 'not-ours') {
-    return true
-  }
-  // Only proven-ours pids travel to the sweep; the script re-proves each
-  // one adjacent to its signals, with the child addressed directly and as
-  // a process group so non-daemonized descendants die with it.
   const sweep = deps.sweepGuestImpl ?? defaultSweepGuest
   try {
-    return await sweep(
-      target.distro,
-      buildGuestSweepArgv(
-        target.nonce,
-        supervisor === 'ours' ? target.supervisorPid : null,
-        child === 'ours' ? target.childPid : null
-      )
-    )
+    return await sweep(target.distro, buildGuestSweepArgv(target.nonce))
   } catch {
     return false
-  }
-}
-
-function defaultGuestRunner(distro: string): GuestCommandRunner {
-  return async (args) => {
-    const result = await runProcess({
-      program: 'wsl.exe',
-      args: buildWslExecArgs(distro, [...args]),
-      timeoutMs: GUEST_PROBE_TIMEOUT_MS,
-      maxOutputBytes: 64 * 1024
-    })
-    return { code: result.code, stdout: result.stdout }
   }
 }
 

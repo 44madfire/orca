@@ -127,10 +127,12 @@ describe('terminateClaimedSidecar', () => {
 
   it('holds unverifiable while the same process stays alive', async () => {
     const claim = claimSidecarProcess(4242, 1, {
+      requireIdentityMatch: false,
       readCreationTimeMs: async () => 111,
       isPidAlive: () => true
     })!
     const verdict = await terminateClaimedSidecar(claim, fakeChild(), 1, {
+      requireIdentityMatch: false,
       terminateTree: async () => true,
       readCreationTimeMs: async () => 111,
       isPidAlive: () => true,
@@ -138,6 +140,63 @@ describe('terminateClaimedSidecar', () => {
       verifyDeadlineMs: 5
     })
     expect(verdict).toBe('unverifiable')
+  })
+
+  it('refuses a recycled pid before any pid-addressed kill', async () => {
+    const claim = claimSidecarProcess(4242, 1, {
+      requireIdentityMatch: true,
+      readCreationTimeMs: async () => 111,
+      isPidAlive: () => true
+    })!
+    await claim.identityReady
+    const terminateTree = vi.fn(async () => true)
+    // The pid now names a different process: no kill may be issued, and
+    // the verdict reports our own tree gone rather than success.
+    const verdict = await terminateClaimedSidecar(claim, fakeChild(), 1, {
+      requireIdentityMatch: true,
+      terminateTree,
+      readCreationTimeMs: async () => 999,
+      isPidAlive: () => true
+    })
+    expect(verdict).toBe('exited')
+    expect(terminateTree).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when identity was never captured', async () => {
+    const claim = claimSidecarProcess(4242, 1, {
+      requireIdentityMatch: true,
+      readCreationTimeMs: async () => null,
+      isPidAlive: () => true
+    })!
+    await claim.identityReady
+    const terminateTree = vi.fn(async () => true)
+    const verdict = await terminateClaimedSidecar(claim, fakeChild(), 1, {
+      requireIdentityMatch: true,
+      terminateTree,
+      readCreationTimeMs: async () => 111,
+      isPidAlive: () => true,
+      verifyPollMs: 1,
+      verifyDeadlineMs: 5
+    })
+    expect(verdict).toBe('unverifiable')
+    expect(terminateTree).not.toHaveBeenCalled()
+  })
+
+  it('skips the kill for an already-dead pid on any platform', async () => {
+    const claim = claimSidecarProcess(4242, 1, {
+      requireIdentityMatch: true,
+      readCreationTimeMs: async () => 111,
+      isPidAlive: () => false
+    })!
+    const terminateTree = vi.fn(async () => true)
+    const verdict = await terminateClaimedSidecar(claim, fakeChild(), 1, {
+      requireIdentityMatch: true,
+      terminateTree,
+      readCreationTimeMs: async () => null,
+      isPidAlive: () => false
+    })
+    expect(verdict).toBe('exited')
+    expect(terminateTree).not.toHaveBeenCalled()
   })
 
   it('enriches identity before any pid-addressed decision', async () => {
