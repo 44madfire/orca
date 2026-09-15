@@ -73,7 +73,13 @@ export async function resolveStructuredAgentSessionAdoptionForCreate(input: {
         agent: input.agent,
         providerSessionId: input.providerSessionId,
         selfSessionId: input.selfSessionId,
-        ownership: listStructuredProviderSessionOwnership(input.host.deps.store.listRecords())
+        // Adoption is TUI-only (claude/codex); external bridge sessions never adopt.
+        ownership: listStructuredProviderSessionOwnership(
+          input.host.deps.store.listRecords()
+        ).filter(
+          (owner): owner is Extract<typeof owner, { provider: 'claude' | 'codex' }> =>
+            owner.provider !== 'external'
+        )
       })
     : null
   if (conflict) {

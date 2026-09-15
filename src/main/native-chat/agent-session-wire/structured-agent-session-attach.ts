@@ -141,6 +141,9 @@ export function journalIdentityFor(
   params: AgentSessionAttachParams
 ): AgentSessionJournalIdentity {
   const head = agentSessionProviderHandleChainHead(record.providerHandleChain)
+  // External bridge sessions (SNC1.3 dev seam) have no transcript-backed provider identity:
+  // the journal names the opaque bridge session id, and the adapter streams under
+  // `legacy`/`external` item identities. Orca still owns the journal, lease, and fence.
   const providerHandle: AgentSessionProviderHandle =
     head?.handle.provider === 'codex'
       ? { kind: 'codex', threadId: head.handle.threadId }
@@ -150,7 +153,9 @@ export function journalIdentityFor(
             sessionId: head.handle.sessionId,
             leafUuid: head.handle.leafUuid
           }
-        : (params.providerHandle ?? { kind: 'opaque', agent: params.agent, value: 'pending' })
+        : head?.handle.provider === 'external'
+          ? { kind: 'opaque', agent: params.agent, value: head.handle.sessionId }
+          : (params.providerHandle ?? { kind: 'opaque', agent: params.agent, value: 'pending' })
   return {
     sessionId: record.sessionId,
     workspaceId: params.location.workspaceId,

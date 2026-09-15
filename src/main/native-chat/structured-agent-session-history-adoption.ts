@@ -58,8 +58,15 @@ export function findCommittedStructuredAgentSessionAdoptionReplay(input: {
     return null
   }
   const providerSessionId =
-    adopted.handle.provider === 'codex' ? adopted.handle.threadId : adopted.handle.sessionId
+    adopted.handle.provider === 'external'
+      ? null
+      : adopted.handle.provider === 'codex'
+        ? adopted.handle.threadId
+        : adopted.handle.sessionId
   if (providerSessionId !== input.providerSessionId) {
+    return null
+  }
+  if (adopted.handle.provider === 'external') {
     return null
   }
   return {

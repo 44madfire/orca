@@ -35,7 +35,7 @@ import type { OrcaRuntimeService } from './orca-runtime'
 
 export type StructuredSessionInWorkspace = {
   sessionId: string
-  agent: 'claude' | 'codex'
+  agent: 'claude' | 'codex' | 'external'
 }
 
 export type UnclosedStructuredSession = StructuredSessionInWorkspace & {

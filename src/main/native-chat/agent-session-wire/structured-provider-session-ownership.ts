@@ -3,7 +3,7 @@ import type { AgentSessionLease, AgentSessionRecord } from '../../../shared/agen
 export type StructuredProviderSessionOwnership = {
   sessionId: string
   workspaceId: string
-  provider: 'claude' | 'codex'
+  provider: 'claude' | 'codex' | 'external'
   providerSessionId: string
   lease: AgentSessionLease
 }
