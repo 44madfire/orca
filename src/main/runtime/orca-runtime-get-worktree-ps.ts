@@ -178,11 +178,16 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
 
   // Why the provider is honoured rather than assumed: Codex app-server flags are not
   // Claude CLI flags, and prepending them to `claude` makes it exit on an unknown option.
+  // Pi structured sessions spawn `pi --mode rpc` via the adapter backend, not via
+  // launch-args injection, so Pi contributes no CLI flags here.
   protected resolveConfiguredStructuredLaunchArgs(
     provider: AgentSessionRecord['provider']
   ): string[] {
     if (provider === 'claude') {
       return this.resolveConfiguredClaudeStructuredArgs()
+    }
+    if (provider === 'pi') {
+      return []
     }
     return this.resolveConfiguredCodexStructuredArgs()
   }
@@ -248,7 +253,7 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
       tuiStatus: (owner) => this.structuredTuiStatus(owner),
       closeTuiOwner: (owner) => this.closeStructuredTuiOwner(owner),
       revealNativeSession: async ({ workspaceId, sessionId, agent = 'codex', adoptedTerminal }) => {
-        if (adoptedTerminal || (agent !== 'codex' && agent !== 'claude')) {
+        if (adoptedTerminal || (agent !== 'codex' && agent !== 'claude' && agent !== 'pi')) {
           return
         }
         await this.publishStructuredAgentSessionTab({
