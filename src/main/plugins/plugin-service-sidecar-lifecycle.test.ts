@@ -317,8 +317,8 @@ function wslController(
     runnerImpl?: (
       distro: string
     ) => (args: readonly string[]) => Promise<{ code: number | null; stdout: string }>
-    sweepImpl?: (distro: string, script: string) => Promise<boolean>
-    sweeps?: { distro: string; script: string }[]
+    sweepImpl?: (distro: string, argv: readonly string[]) => Promise<boolean>
+    sweeps?: { distro: string; argv: readonly string[] }[]
   }
 ): { controller: ServiceSidecarController; children: FakeWslChild[] } {
   const children: FakeWslChild[] = []
@@ -345,9 +345,9 @@ function wslController(
       guestRunnerImpl:
         extra?.runnerImpl ??
         fakeGuestRunner(owned, extra?.onVerify, { unreadable: extra?.unreadableGuests }),
-      sweepGuestImpl: async (distro, script) => {
-        extra?.sweeps?.push({ distro, script })
-        return extra?.sweepImpl ? extra.sweepImpl(distro, script) : true
+      sweepGuestImpl: async (distro, argv) => {
+        extra?.sweeps?.push({ distro, argv })
+        return extra?.sweepImpl ? extra.sweepImpl(distro, argv) : true
       }
     }
   )
@@ -481,7 +481,7 @@ describe('wsl sidecar lifecycle', () => {
 
   it('a wrapper crash reaps the orphaned guest before restart, verified first', async () => {
     const events: string[] = []
-    const sweeps: { distro: string; script: string }[] = []
+    const sweeps: { distro: string; argv: readonly string[] }[] = []
     const owned = new Map<number, string>()
     let spawns = 0
     const { controller, children } = wslController(
@@ -519,8 +519,9 @@ describe('wsl sidecar lifecycle', () => {
       expect(await controller.invoke({ after: 'crash' })).toEqual({ after: 'crash' })
       expect(children).toHaveLength(2)
       expect(sweeps).toHaveLength(1)
-      expect(sweeps[0].script).toContain('100')
-      expect(sweeps[0].script).toContain('101')
+      const expectedNonce = nonceOf(children[0].spec)
+      expect(sweeps[0].argv).toContain(expectedNonce)
+      expect(sweeps[0].argv.slice(-2)).toEqual(['100', '101'])
       const order = events.filter(
         (event) => event.startsWith('verify:') || event === 'sweep' || event.startsWith('spawn')
       )
@@ -540,7 +541,7 @@ describe('wsl sidecar lifecycle', () => {
   })
 
   it('recycled guest pids are never signaled', async () => {
-    const sweeps: { distro: string; script: string }[] = []
+    const sweeps: { distro: string; argv: readonly string[] }[] = []
     const { controller, children } = wslController(
       (child) => {
         const nonce = nonceOf(child.spec)
@@ -623,7 +624,7 @@ describe('wsl sidecar lifecycle', () => {
   })
 
   it('dispose sweeps a crash-orphaned guest', async () => {
-    const sweeps: { distro: string; script: string }[] = []
+    const sweeps: { distro: string; argv: readonly string[] }[] = []
     const owned = new Map<number, string>()
     const { controller, children } = wslController(
       (child) => {
@@ -643,14 +644,14 @@ describe('wsl sidecar lifecycle', () => {
       expect(await codeOf(pending)).toBe('crashed')
       await controller.dispose()
       expect(sweeps).toHaveLength(1)
-      expect(sweeps[0].script).toContain('100')
+      expect(sweeps[0].argv.slice(-1)).toEqual(['100'])
     } finally {
       await controller.dispose()
     }
   })
 
   it('a crash between READY and CHILD still reaps the supervisor', async () => {
-    const sweeps: { distro: string; script: string }[] = []
+    const sweeps: { distro: string; argv: readonly string[] }[] = []
     const owned = new Map<number, string>()
     const { controller, children } = wslController(
       (child) => {
@@ -673,7 +674,7 @@ describe('wsl sidecar lifecycle', () => {
       expect(children).toHaveLength(2)
       // Only the proven supervisor pid is signaled.
       expect(sweeps).toHaveLength(1)
-      expect(sweeps[0].script).toContain('targets="100"')
+      expect(sweeps[0].argv.slice(-1)).toEqual(['100'])
     } finally {
       await controller.dispose()
     }

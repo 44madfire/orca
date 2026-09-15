@@ -3,7 +3,6 @@ import type { ProcessSpec } from '../../shared/child-process/process-spec'
 import type { SpawnedProcess } from '../../shared/child-process/run-process'
 import { serviceExecutionError } from './plugin-service-execution-errors'
 import {
-  createJsonlFramer,
   decodeSidecarEnvelope,
   encodeSidecarRequest,
   jsonBytes
@@ -46,6 +45,7 @@ export type Generation = {
   guestChildPid: number | null
   wslDecoder: StringDecoder
   wslText: string
+  wslOverlong: boolean
   framer: { push: (chunk: Buffer) => void; finish: () => void }
 }
 
@@ -53,7 +53,7 @@ export type SidecarLifecycleDeps = {
   spawnImpl?: (spec: ProcessSpec) => SpawnedProcess
   ownership?: ProcessOwnershipDeps
   jobBinder?: SidecarJobBinder | null
-  sweepGuestImpl?: (distro: string, script: string) => Promise<boolean>
+  sweepGuestImpl?: (distro: string, argv: readonly string[]) => Promise<boolean>
   // In-distro ownership proofs for PID-addressed kills; production runs
   // `cat /proc/<pid>/environ` through wsl.exe bounded.
   guestRunnerImpl?: (distro: string) => GuestCommandRunner
@@ -64,20 +64,6 @@ export type SidecarLifecycleDeps = {
 export type GenerationStreamHooks = {
   isCurrent: (gen: Generation) => boolean
   markReady: (gen: Generation, supervisorPid: number) => void
-}
-
-// Supervisor identity lands here: READY flips a starting generation to
-// ready exactly once; late or foreign lines never revive a dead one.
-export function markGenerationReady(
-  gen: Generation,
-  supervisorPid: number,
-  isCurrent: boolean
-): void {
-  gen.guestSupervisorPid = supervisorPid
-  if (gen.state === 'starting' && isCurrent) {
-    gen.state = 'ready'
-    gen.readyResolve()
-  }
 }
 
 export function createGeneration(id: number, nonce: string): Generation {
@@ -104,21 +90,9 @@ export function createGeneration(id: number, nonce: string): Generation {
     guestChildPid: null,
     wslDecoder: new StringDecoder('utf8'),
     wslText: '',
+    wslOverlong: false,
     framer: { push: () => undefined, finish: () => undefined }
   }
-}
-
-export function openGenerationFramer(
-  gen: Generation,
-  serviceId: string,
-  maxLineBytes: number,
-  onMessage: (gen: Generation, value: unknown) => void,
-  onFramingError: (gen: Generation, error: Error) => void
-): void {
-  gen.framer = createJsonlFramer(serviceId, maxLineBytes, {
-    onMessage: (value) => onMessage(gen, value),
-    onFramingError: (error) => onFramingError(gen, error)
-  })
 }
 
 export function encodeGenerationRequest(
@@ -206,24 +180,53 @@ export function pushGenerationStdout(
   gen: Generation,
   chunk: Buffer,
   isWsl: boolean,
-  hooks: GenerationStreamHooks
+  maxLineBytes: number,
+  hooks: GenerationStreamHooks,
+  onOverlongLine: () => void
 ): void {
-  if (!hooks.isCurrent(gen)) {
+  if (!isWsl) {
+    if (hooks.isCurrent(gen)) {
+      gen.framer.push(chunk)
+    }
     return
   }
-  if (!isWsl) {
-    gen.framer.push(chunk)
+  if (!hooks.isCurrent(gen)) {
     return
   }
   gen.wslText += gen.wslDecoder.write(chunk)
   for (;;) {
     const index = gen.wslText.indexOf('\n')
     if (index === -1) {
-      return
+      break
     }
     const raw = gen.wslText.slice(0, index)
     gen.wslText = gen.wslText.slice(index + 1)
+    if (gen.wslOverlong) {
+      // Dropped-tail resync: this remainder is not a message.
+      gen.wslOverlong = false
+      continue
+    }
+    // Complete lines are measured too, so a bounded splitter never hands
+    // the framer (or the heap) an arbitrarily long line to hold.
+    if (Buffer.byteLength(raw, 'utf8') > maxLineBytes) {
+      onOverlongLine()
+      continue
+    }
     pushGenerationLine(gen, raw.endsWith('\r') ? raw.slice(0, -1) : raw, hooks)
+  }
+  if (gen.wslOverlong) {
+    // Still inside the dropped line: keep nothing while waiting for its
+    // LF, or an LF-less line would grow the heap across pushes.
+    gen.wslText = ''
+    return
+  }
+  // The splitter itself is bounded: an LF-less tail cannot grow the heap
+  // waiting for a newline that never comes. Complete lines were already
+  // measured one by one inside the bounded framer.
+  if (Buffer.byteLength(gen.wslText, 'utf8') > maxLineBytes) {
+    gen.wslText = ''
+    gen.wslOverlong = true
+    onOverlongLine()
   }
 }
 
@@ -267,8 +270,12 @@ export function pushGenerationMessage(
   gen.pending.delete(envelope.id)
   clearTimeout(pending.timer)
   if (envelope.error !== undefined) {
+    const text =
+      typeof envelope.error === 'string'
+        ? envelope.error
+        : (JSON.stringify(envelope.error) ?? 'failed')
     pending.reject(
-      new Error(`service ${serviceId} failed: ${boundGenerationErrorText(envelope.error)}`)
+      new Error(`service ${serviceId} failed: ${text.replace(/[\r\n]+/g, ' ').slice(0, 512)}`)
     )
     return
   }
@@ -305,11 +312,6 @@ export function flushGeneration(
     }
   }
   gen.framer.finish()
-}
-
-export function boundGenerationErrorText(error: unknown): string {
-  const text = typeof error === 'string' ? error : (JSON.stringify(error) ?? 'failed')
-  return text.replace(/[\r\n]+/g, ' ').slice(0, 512)
 }
 
 // A sidecar whose stderr is never read blocks once the pipe fills; discard it

@@ -161,36 +161,67 @@ export async function verifyGuestProcessNonce(
   return stdout.split('\0').includes(token) ? 'ours' : 'not-ours'
 }
 
-// One guest invocation that kills the proven-ours targets, escalates to
-// -9, and reports who is still alive. The host runs it bounded (runProcess
-// timeout) and treats any surviving pid as teardown-unverified. Either pid
-// may be null when only the other was proven ours.
-export function buildGuestSweepScript(
-  supervisorPid: number | null,
-  childPid: number | null
-): string {
-  const targets = [supervisorPid, childPid].filter(
-    (pid): pid is number => Number.isInteger(pid) && (pid as number) > 0
-  )
-  const unique = [...new Set(targets)].join(' ')
+// One guest invocation that verifies ownership adjacent to each signal,
+// then kills, escalates to -KILL, and reports who is still alive. The host
+// runs it bounded (runProcess timeout) and treats any surviving pid as
+// teardown-unverified.
+//
+// The in-distro environ match is the kill gate, never an earlier host
+// probe: a pid that died and recycled after the host's skip-check fails the
+// match here and is never signaled, and an unreadable identity is skipped
+// the same way. `ORCA_SWEEP_PROCROOT` overrides /proc for tests only.
+export function buildGuestSweepScript(): string {
   return [
-    `targets="${unique}"`,
-    'for p in $targets; do kill "$p" 2>/dev/null; done',
+    'nonce="$1"; shift',
+    // Refuse an empty or smuggled lease: an empty pattern would match any
+    // lease-holder, so a missing argv fails closed instead of signaling.
+    'case "$nonce" in ""|*[!A-Za-z0-9_-]*) exit 1 ;; esac',
+    'procroot="${ORCA_SWEEP_PROCROOT:-/proc}"',
+    'signal_verified() {',
+    '  sig="$1"; shift',
+    '  for p in "$@"; do',
+    '    case "$p" in ""|*[!0-9]*) continue ;; esac',
+    '    if grep -qF "ORCA_SIDECAR_NONCE=$nonce" "$procroot/$p/environ" 2>/dev/null; then',
+    '      kill "$sig" "$p" 2>/dev/null',
+    '    fi',
+    '  done',
+    '}',
+    'is_live() {',
+    '  p="$1"',
+    '  kill -0 "$p" 2>/dev/null || return 1',
+    '  stat=$(cat "$procroot/$p/stat" 2>/dev/null) || return 0',
+    '  stat=${stat##*)}',
+    '  case "$stat" in " Z"*) return 1 ;; esac',
+    '  return 0',
+    '}',
+    'signal_verified -TERM "$@"',
     'i=0; while [ "$i" -lt 20 ]; do',
-    '  alive=""; for p in $targets; do kill -0 "$p" 2>/dev/null && alive="$alive $p"; done',
-    '  if [ -z "$alive" ]; then printf \'%s\\n\' "ORCA_SWEEP done=1"; exit 0; fi',
+    '  alive=""; for p in "$@"; do is_live "$p" && alive="$alive $p"; done',
+    '  if [ -z "$alive"; then printf \'%s\\n\' "ORCA_SWEEP done=1"; exit 0; fi',
     '  sleep 0.25; i=$((i + 1))',
     'done',
-    'for p in $targets; do kill -9 "$p" 2>/dev/null; done',
+    'signal_verified -KILL "$@"',
     'i=0; while [ "$i" -lt 20 ]; do',
-    '  alive=""; for p in $targets; do kill -0 "$p" 2>/dev/null && alive="$alive $p"; done',
-    '  if [ -z "$alive" ]; then printf \'%s\\n\' "ORCA_SWEEP done=1"; exit 0; fi',
+    '  alive=""; for p in "$@"; do is_live "$p" && alive="$alive $p"; done',
+    '  if [ -z "$alive"; then printf \'%s\\n\' "ORCA_SWEEP done=1"; exit 0; fi',
     '  sleep 0.25; i=$((i + 1))',
     'done',
-    'alive=""; for p in $targets; do kill -0 "$p" 2>/dev/null && alive="$alive $p"; done',
+    'alive=""; for p in "$@"; do is_live "$p" && alive="$alive $p"; done',
     'printf \'%s\\n\' "ORCA_SWEEP done=0 alive=$alive"',
     'exit 0'
   ].join('\n')
+}
+
+// Argv for one sweep invocation: the lease and targets travel as words
+// (safe under wsl.exe --exec), never baked into the script. Both are
+// validated here and re-guarded in-script, where the environ match remains
+// the kill gate adjacent to each signal.
+export function buildGuestSweepArgv(nonce: string, targets: readonly number[]): string[] {
+  if (!NONCE_WORD_RE.test(nonce)) {
+    throw new Error('sidecar nonce must be a shell-word-safe token')
+  }
+  const pids = targets.filter((pid) => Number.isInteger(pid) && pid > 0).map(String)
+  return ['/bin/sh', '-c', buildGuestSweepScript(), 'orca-sweep', nonce, ...pids]
 }
 
 export function parseGuestSweepOutput(stdout: string): { done: boolean; alive: number[] } {

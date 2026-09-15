@@ -8,7 +8,7 @@ import {
 } from './plugin-service-process-ownership'
 import type { SidecarJobBinder } from './plugin-service-windows-job'
 import {
-  buildGuestSweepScript,
+  buildGuestSweepArgv,
   parseGuestSweepOutput,
   verifyGuestProcessNonce,
   type GuestCommandRunner
@@ -181,9 +181,11 @@ export async function sweepOrphanedGuestList(
   return remaining
 }
 
-// Verified guest sweep: prove nonce ownership in-distro BEFORE signaling.
-// A recycled pid reads as not-ours (our process is gone: nothing to kill);
-// an unreadable identity reads as unknown (never permission to kill).
+// Verified guest sweep. The host probe below is only a skip gate (both
+// gone: nothing to do). The kill gate lives INSIDE the sweep script, which
+// re-proves the nonce adjacent to each signal — a pid that died and
+// recycled after this probe still fails the in-guest match and is never
+// signaled. An unreadable identity refuses the sweep as unverified.
 async function sweepVerifiedGuest(
   deps: SidecarLifecycleDeps,
   target: OrphanedGuest
@@ -208,13 +210,16 @@ async function sweepVerifiedGuest(
   if (supervisor === 'not-ours' && child === 'not-ours') {
     return true
   }
-  const script = buildGuestSweepScript(
-    supervisor === 'ours' ? target.supervisorPid : null,
-    child === 'ours' ? target.childPid : null
-  )
+  const targets: number[] = []
+  if (supervisor === 'ours' && target.supervisorPid !== null) {
+    targets.push(target.supervisorPid)
+  }
+  if (child === 'ours' && target.childPid !== null) {
+    targets.push(target.childPid)
+  }
   const sweep = deps.sweepGuestImpl ?? defaultSweepGuest
   try {
-    return await sweep(target.distro, script)
+    return await sweep(target.distro, buildGuestSweepArgv(target.nonce, targets))
   } catch {
     return false
   }
@@ -247,11 +252,11 @@ function killGenerationRoot(gen: Generation): void {
   }
 }
 
-async function defaultSweepGuest(distro: string, script: string): Promise<boolean> {
+async function defaultSweepGuest(distro: string, argv: readonly string[]): Promise<boolean> {
   try {
     const result = await runProcess({
       program: 'wsl.exe',
-      args: buildWslExecArgs(distro, ['/bin/sh', '-c', script]),
+      args: buildWslExecArgs(distro, [...argv]),
       timeoutMs: GUEST_SWEEP_TIMEOUT_MS,
       maxOutputBytes: 64 * 1024
     })

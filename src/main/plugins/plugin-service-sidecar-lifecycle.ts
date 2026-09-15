@@ -14,8 +14,6 @@ import {
   detachGenerationStreams,
   failGenerationPending,
   flushGeneration,
-  markGenerationReady,
-  openGenerationFramer,
   pushGenerationMessage,
   pushGenerationStdout,
   sendGenerationRequest,
@@ -23,6 +21,7 @@ import {
   type GenerationStreamHooks,
   type SidecarLifecycleDeps
 } from './plugin-service-sidecar-generation'
+import { createJsonlFramer } from './plugin-service-framed-transport'
 import { claimSidecarProcess } from './plugin-service-process-ownership'
 import {
   createGenerationTeardown,
@@ -129,8 +128,15 @@ export class ServiceSidecarController {
   private streamHooks(): GenerationStreamHooks {
     return {
       isCurrent: (gen) => this.current === gen,
-      markReady: (gen, supervisorPid) =>
-        markGenerationReady(gen, supervisorPid, this.current === gen)
+      // READY flips a starting generation to ready exactly once; late or
+      // foreign lines never revive a dead one.
+      markReady: (gen, supervisorPid) => {
+        gen.guestSupervisorPid = supervisorPid
+        if (gen.state === 'starting' && this.current === gen) {
+          gen.state = 'ready'
+          gen.readyResolve()
+        }
+      }
     }
   }
 
@@ -194,20 +200,17 @@ export class ServiceSidecarController {
     const gen = createGeneration(id, nonce)
     this.current = gen
     const hooks = this.streamHooks()
-    openGenerationFramer(
-      gen,
-      this.serviceId,
-      this.limits.maxLineBytes,
-      (messageGen, value) =>
+    gen.framer = createJsonlFramer(this.serviceId, this.limits.maxLineBytes, {
+      onMessage: (value) =>
         pushGenerationMessage(
-          messageGen,
+          gen,
           value,
           this.serviceId,
           this.limits.maxMessageBytes,
-          this.current === messageGen
+          this.current === gen
         ),
-      (framingGen, error) => failGenerationPending(framingGen, error, this.current === framingGen)
-    )
+      onFramingError: (error) => failGenerationPending(gen, error, this.current === gen)
+    })
     let child: SpawnedProcess
     try {
       child = (this.deps.spawnImpl ?? spawnProcess)(
@@ -235,7 +238,15 @@ export class ServiceSidecarController {
     }
     gen.claim = claim
     const isWsl = this.runtime.kind === 'wsl'
-    attachQuiet(child, (chunk) => pushGenerationStdout(gen, chunk, isWsl, hooks))
+    attachQuiet(child, (chunk) =>
+      pushGenerationStdout(gen, chunk, isWsl, this.limits.maxLineBytes, hooks, () =>
+        failGenerationPending(
+          gen,
+          serviceExecutionError('malformed-response', this.serviceId, 'sidecar line exceeds bound'),
+          this.current === gen
+        )
+      )
+    )
     child.once('error', () => {
       this.onChildGone(gen, 'error')
     })

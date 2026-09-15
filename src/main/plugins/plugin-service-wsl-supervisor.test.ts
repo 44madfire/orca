@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  buildGuestSweepArgv,
   buildGuestSweepScript,
   buildSupervisorArgv,
   buildSupervisorScript,
@@ -136,20 +137,25 @@ describe('verifyGuestProcessNonce', () => {
 })
 
 describe('guest sweep', () => {
-  it('kills supervisor and child, then reports survivors', () => {
-    const script = buildGuestSweepScript(100, 101)
-    expect(script).toContain('100')
-    expect(script).toContain('101')
-    expect(script).toContain('kill -9')
+  it('verifies the lease adjacent to each signal, then reports survivors', () => {
+    const script = buildGuestSweepScript()
+    expect(script).toContain('signal_verified -TERM')
+    expect(script).toContain('signal_verified -KILL')
+    expect(script).toContain('ORCA_SIDECAR_NONCE=$nonce')
+    const argv = buildGuestSweepArgv('sweep-nonce', [100, 101])
+    expect(argv.slice(0, 4)).toEqual(['/bin/sh', '-c', script, 'orca-sweep'])
+    expect(argv.slice(4)).toEqual(['sweep-nonce', '100', '101'])
     expect(parseGuestSweepOutput('noise\nORCA_SWEEP done=1\n')).toEqual({ done: true, alive: [] })
     expect(parseGuestSweepOutput('ORCA_SWEEP done=0 alive= 100 101\n')).toEqual({
       done: false,
       alive: [100, 101]
     })
     expect(parseGuestSweepOutput('garbage\n')).toEqual({ done: false, alive: [] })
-    // Only the proven-ours pid is signaled; a recycled co-target is excluded.
-    const solo = buildGuestSweepScript(null, 101)
-    expect(solo).toContain('targets="101"')
+  })
+
+  it('rejects non-word-safe nonces instead of smuggling script', () => {
+    expect(() => buildGuestSweepArgv('a b', [100])).toThrow()
+    expect(() => buildGuestSweepArgv('a$b', [100])).toThrow()
   })
 })
 
@@ -328,6 +334,40 @@ describeWithSh('supervisor protocol under sh', () => {
       }
     }
   )
+
+  // A recycled pid observed as a target but foreign at signal time must
+  // never be signaled: the stranger below stands in for the replacement.
+  // Everything runs inside one shell so the sweep shares a process tree
+  // with its targets on every platform (cross-tree /proc views vary).
+  it('the sweep kills a lease-holder and spares an identity-changed pid', () => {
+    const argv = buildGuestSweepArgv('sweep-n1', [])
+    const sweepBody = argv[2]
+    expect(typeof sweepBody).toBe('string')
+    const driver =
+      'ORCA_SIDECAR_NONCE=sweep-n1 sleep 30 & owned=$!; ' +
+      'sleep 30 & stranger=$!; ' +
+      'sh -c "$SWEEP_BODY" sweep-helper sweep-n1 "$owned" "$stranger"; ' +
+      'wait "$owned" 2>/dev/null; ' +
+      'if kill -0 "$owned" 2>/dev/null; then echo OWNED_ALIVE; else echo OWNED_DEAD; fi; ' +
+      'if kill -0 "$stranger" 2>/dev/null; then echo STRANGER_ALIVE; else echo STRANGER_DEAD; fi; ' +
+      'kill -9 "$stranger" 2>/dev/null'
+    const result = spawnSync('sh', ['-c', driver], {
+      encoding: 'utf8',
+      timeout: 20000,
+      env: { ...process.env, SWEEP_BODY: sweepBody as string }
+    })
+    const output = String(result.stdout)
+    expect(result.status).toBe(0)
+    // The sweep killed the lease-holder and spared the stranger on every
+    // platform. Its done=1 verdict additionally needs zombie visibility
+    // (/proc/PID/stat state), which MSYS cannot provide for this tree, so
+    // the conservative done=0 stands in for it on Windows runners.
+    if (process.platform !== 'win32') {
+      expect(output).toContain('ORCA_SWEEP done=1')
+    }
+    expect(output).toContain('OWNED_DEAD')
+    expect(output).toContain('STRANGER_ALIVE')
+  })
 
   it('a missing lease exits before READY', () => {
     const result = spawnSync(
