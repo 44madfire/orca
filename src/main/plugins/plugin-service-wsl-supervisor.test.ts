@@ -44,6 +44,30 @@ describe('supervisor script', () => {
     expect(() => buildSupervisorArgv('a$b', null, ['/usr/bin/svc'])).toThrow()
   })
 
+  it('maps an explicit environment exactly and validates names', () => {
+    const argv = buildSupervisorArgv('nonce-1', null, ['/usr/bin/svc'], {
+      FOO_REQ: 'req-value',
+      EMPTY_OK: ''
+    })
+    const envIndex = argv.indexOf('/usr/bin/env')
+    expect(argv[envIndex + 1]).toBe('-i')
+    expect(argv).toContain('FOO_REQ=req-value')
+    expect(argv).toContain('EMPTY_OK=')
+    expect(argv).toContain('ORCA_SIDECAR_NONCE=nonce-1')
+    expect(() => buildSupervisorArgv('nonce-1', null, ['/usr/bin/svc'], { '0BAD': 'x' })).toThrow()
+    expect(() =>
+      buildSupervisorArgv('nonce-1', null, ['/usr/bin/svc'], {
+        BAD: `has${String.fromCharCode(0)}nul`
+      })
+    ).toThrow()
+  })
+
+  it('leaves the distro default in place without an explicit map', () => {
+    const argv = buildSupervisorArgv('nonce-1', null, ['/usr/bin/svc'])
+    expect(argv).not.toContain('-i')
+    expect(argv).toContain('ORCA_SIDECAR_NONCE=nonce-1')
+  })
+
   it('parses nonce-bound control lines and rejects foreign ones', () => {
     expect(parseSupervisorLine('ORCA_SIDECAR_READY pid=12 nonce=n1', 'n1')).toEqual({
       type: 'ready',
@@ -139,23 +163,46 @@ describe('verifyGuestProcessNonce', () => {
 describe('guest sweep', () => {
   it('verifies the lease adjacent to each signal, then reports survivors', () => {
     const script = buildGuestSweepScript()
-    expect(script).toContain('signal_verified -TERM')
-    expect(script).toContain('signal_verified -KILL')
+    expect(script).toContain('kill_tree -TERM')
+    expect(script).toContain('kill_tree -KILL')
     expect(script).toContain('ORCA_SIDECAR_NONCE=$nonce')
-    const argv = buildGuestSweepArgv('sweep-nonce', [100, 101])
+    // Shell-parseable on every platform: sh -n would have caught the
+    // missing-bracket regression before any guest ever ran it.
+    for (const text of [script, buildSupervisorScript()]) {
+      const parsed = spawnSync('sh', ['-n', '-c', text])
+      expect(parsed.error).toBeUndefined()
+      expect(parsed.status).toBe(0)
+    }
+    const argv = buildGuestSweepArgv('sweep-nonce', 100, 101)
     expect(argv.slice(0, 4)).toEqual(['/bin/sh', '-c', script, 'orca-sweep'])
     expect(argv.slice(4)).toEqual(['sweep-nonce', '100', '101'])
-    expect(parseGuestSweepOutput('noise\nORCA_SWEEP done=1\n')).toEqual({ done: true, alive: [] })
-    expect(parseGuestSweepOutput('ORCA_SWEEP done=0 alive= 100 101\n')).toEqual({
-      done: false,
-      alive: [100, 101]
+    expect(buildGuestSweepArgv('sweep-nonce', null, 101).slice(4)).toEqual([
+      'sweep-nonce',
+      '',
+      '101'
+    ])
+    expect(parseGuestSweepOutput('noise\nORCA_SWEEP done=1\n')).toEqual({
+      done: true,
+      alive: [],
+      groups: []
     })
-    expect(parseGuestSweepOutput('garbage\n')).toEqual({ done: false, alive: [] })
+    expect(parseGuestSweepOutput('ORCA_SWEEP done=0 alive= 100 group=\n')).toEqual({
+      done: false,
+      alive: [100],
+      groups: []
+    })
+    expect(parseGuestSweepOutput('ORCA_SWEEP done=0 alive= group= 101\n')).toEqual({
+      done: false,
+      alive: [],
+      groups: [101]
+    })
+    expect(parseGuestSweepOutput('garbage\n')).toEqual({ done: false, alive: [], groups: [] })
   })
 
   it('rejects non-word-safe nonces instead of smuggling script', () => {
-    expect(() => buildGuestSweepArgv('a b', [100])).toThrow()
-    expect(() => buildGuestSweepArgv('a$b', [100])).toThrow()
+    expect(() => buildGuestSweepArgv('a b', 100, null)).toThrow()
+    expect(() => buildGuestSweepArgv('a$b', 100, null)).toThrow()
+    expect(() => buildGuestSweepArgv('sweep-nonce', -3, null)).toThrow()
   })
 })
 
@@ -209,6 +256,30 @@ describeWithSh('supervisor protocol under sh', () => {
     expect(result.status).toBe(0)
     expect(String(result.stdout)).toContain('ORCA_SIDECAR_READY pid=')
     expect(String(result.stdout)).toContain('{"id":"fixed1","result":"seen"}')
+  })
+
+  it('applies an exact environment and exposes no ambient variables', () => {
+    const service = [
+      'echo "FOO_REQ=$FOO_REQ"; echo "NONCE=$ORCA_SIDECAR_NONCE";',
+      'if [ -z "${JUNK_AMBIENT:-}" ]; then echo NO_JUNK; else echo HAS_JUNK; fi; exit 0'
+    ].join(' ')
+    const argv = buildSupervisorArgv('env-exact', '', ['sh', '-c', service], {
+      FOO_REQ: 'req-value'
+    })
+    // argv[0] is the POSIX path production passes to wsl.exe; on a Windows
+    // runner the same binary is reached through PATH instead.
+    const program = process.platform === 'win32' ? 'env' : argv[0]
+    const result = spawnSync(program, argv.slice(1), {
+      encoding: 'utf8',
+      env: { ...process.env, JUNK_AMBIENT: 'junk' }
+    })
+    const output = String(result.stdout)
+    expect(result.status).toBe(0)
+    expect(output).toContain('ORCA_SIDECAR_READY pid=')
+    expect(output).toContain('FOO_REQ=req-value')
+    expect(output).toContain('NONCE=env-exact')
+    expect(output).toContain('NO_JUNK')
+    expect(output).not.toContain('HAS_JUNK')
   })
 
   it('exports the nonce into the supervisor environment', () => {
@@ -340,17 +411,17 @@ describeWithSh('supervisor protocol under sh', () => {
   // Everything runs inside one shell so the sweep shares a process tree
   // with its targets on every platform (cross-tree /proc views vary).
   it('the sweep kills a lease-holder and spares an identity-changed pid', () => {
-    const argv = buildGuestSweepArgv('sweep-n1', [])
-    const sweepBody = argv[2]
+    const sweepBody = buildGuestSweepScript()
     expect(typeof sweepBody).toBe('string')
-    const driver =
-      'ORCA_SIDECAR_NONCE=sweep-n1 sleep 30 & owned=$!; ' +
-      'sleep 30 & stranger=$!; ' +
-      'sh -c "$SWEEP_BODY" sweep-helper sweep-n1 "$owned" "$stranger"; ' +
-      'wait "$owned" 2>/dev/null; ' +
-      'if kill -0 "$owned" 2>/dev/null; then echo OWNED_ALIVE; else echo OWNED_DEAD; fi; ' +
-      'if kill -0 "$stranger" 2>/dev/null; then echo STRANGER_ALIVE; else echo STRANGER_DEAD; fi; ' +
+    const driver = [
+      'ORCA_SIDECAR_NONCE=sweep-n1 sleep 30 & owned=$!;',
+      'sleep 30 & stranger=$!;',
+      'sh -c "$SWEEP_BODY" sweep-helper sweep-n1 "$owned" "$stranger";',
+      'wait "$owned" 2>/dev/null;',
+      'if kill -0 "$owned" 2>/dev/null; then echo OWNED_ALIVE; else echo OWNED_DEAD; fi;',
+      'if kill -0 "$stranger" 2>/dev/null; then echo STRANGER_ALIVE; else echo STRANGER_DEAD; fi;',
       'kill -9 "$stranger" 2>/dev/null'
+    ].join(' ')
     const result = spawnSync('sh', ['-c', driver], {
       encoding: 'utf8',
       timeout: 20000,
@@ -367,6 +438,46 @@ describeWithSh('supervisor protocol under sh', () => {
     }
     expect(output).toContain('OWNED_DEAD')
     expect(output).toContain('STRANGER_ALIVE')
+  })
+
+  // The sidecar spawns a long-lived grandchild that the host never learns
+  // the pid of; teardown must still prove the entire guest tree is gone.
+  // Same-tree throughout so MSYS runners observe it as well as Linux.
+  it('reaps the whole guest tree including grandchildren', () => {
+    const supervisorBody = buildSupervisorScript()
+    expect(typeof supervisorBody).toBe('string')
+    const sweepBody = buildGuestSweepScript()
+    expect(typeof sweepBody).toBe('string')
+    const driver = [
+      'ORCA_SIDECAR_NONCE=tree-nonce sh -c "$SUPERVISOR_BODY" sup-helper \'\' sh -c \'sleep 30 & wait\' >"$OUT" 2>&1 & sup=$!;',
+      'i=0; child="";',
+      'while [ "$i" -lt 100 ]; do',
+      'child=$(sed -n \'s/^ORCA_SIDECAR_CHILD pid=\\([0-9]*\\) nonce=tree-nonce$/\\1/p\' "$OUT" | head -1);',
+      '[ -n "$child" ] && break;',
+      'sleep 0.1; i=$((i + 1));',
+      'done;',
+      '[ -n "$child" ] || { echo NOCHILD; kill -9 $sup 2>/dev/null; exit 1; };',
+      'sh -c "$SWEEP_BODY" sweep-helper tree-nonce "$sup" "$child";',
+      'wait "$sup" 2>/dev/null;',
+      'kill -0 "$sup" 2>/dev/null && echo SUP_ALIVE || echo SUP_DEAD;',
+      'kill -0 -- "-$child" 2>/dev/null && echo GROUP_ALIVE || echo GROUP_EMPTY'
+    ].join(' ')
+    const driverWithOut = `OUT=$(mktemp); ${driver}; rm -f "$OUT"`
+    const result = spawnSync('sh', ['-c', driverWithOut], {
+      encoding: 'utf8',
+      timeout: 25000,
+      input: '',
+      env: {
+        ...process.env,
+        SUPERVISOR_BODY: supervisorBody as string,
+        SWEEP_BODY: sweepBody as string
+      }
+    })
+    const output = String(result.stdout)
+    expect(result.status).toBe(0)
+    expect(output).toContain('ORCA_SWEEP done=1')
+    expect(output).toContain('SUP_DEAD')
+    expect(output).toContain('GROUP_EMPTY')
   })
 
   it('a missing lease exits before READY', () => {

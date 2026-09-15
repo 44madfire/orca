@@ -37,10 +37,19 @@ export function buildSupervisorScript(): string {
     // with no explicit stdin redirection reads /dev/null under
     // non-interactive sh, which would starve the service of requests.
     'exec 3<&0 || exit 127',
+    // Job control puts the backgrounded service in its own process group
+    // (pgid equals its pid), so teardown reaps the whole guest subtree —
+    // helpers and grandchildren included — instead of only the direct
+    // child. Best-effort: without it the service shares this shell's
+    // group and teardown stays correct, just coarser.
+    'set -m 2>/dev/null || true',
     `printf '%s\\n' "${CONTROL_PREFIX}READY pid=$$ nonce=$nonce"`,
     'child=',
-    // wait reaps the child synchronously so no exit path strands it.
-    'trap \'kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 143\' TERM INT HUP',
+    // The trap kills the service directly, then its process group (helpers
+    // and grandchildren that never daemonized away), then waits: no exit
+    // path strands the guest subtree. A double-forked daemon escapes any
+    // same-tree reaping by design and stays out of scope.
+    'trap \'kill "$child" 2>/dev/null; kill -TERM -- "-$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 143\' TERM INT HUP',
     // Explicit redirection onto the fd-3 dup: without it the backgrounded
     // service would read /dev/null instead of the host pipe.
     '"$@" <&3 &',
@@ -60,16 +69,41 @@ export function buildSupervisorScript(): string {
 // WSLENV), so it must be shell-word-safe; the host mints UUIDs.
 const NONCE_WORD_RE = /^[A-Za-z0-9_-]+$/
 
+// Explicit guest environment for the service. `env` argv words carry
+// arbitrary values safely (no shell parsing between wsl.exe and env(1)),
+// so names are restricted but values only forbid NUL. With an explicit map
+// the service sees exactly it plus the lease (`env -i`: nothing ambient);
+// without one the service inherits the distro default plus the lease.
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+
 export function buildSupervisorArgv(
   nonce: string,
   guestCwd: string | null,
-  serviceArgv: readonly string[]
+  serviceArgv: readonly string[],
+  env?: Record<string, string | undefined> | undefined
 ): string[] {
   if (!NONCE_WORD_RE.test(nonce)) {
     throw new Error('sidecar nonce must be a shell-word-safe token')
   }
+  const assignments: string[] = []
+  for (const [name, value] of Object.entries(env ?? {})) {
+    // Undefined entries cannot exist in an exec environment; skip them the
+    // way a spawn layer drops them rather than smuggling the word.
+    if (value === undefined) {
+      continue
+    }
+    if (!ENV_NAME_RE.test(name)) {
+      throw new Error(`invalid environment name: ${name}`)
+    }
+    if (value.includes('\0')) {
+      throw new Error(`environment value for ${name} contains NUL`)
+    }
+    assignments.push(`${name}=${value}`)
+  }
   return [
     '/usr/bin/env',
+    ...(env === undefined ? [] : ['-i']),
+    ...assignments,
     `${SIDECAR_NONCE_ENV}=${nonce}`,
     '/bin/sh',
     '-c',
@@ -171,20 +205,20 @@ export async function verifyGuestProcessNonce(
 // match here and is never signaled, and an unreadable identity is skipped
 // the same way. `ORCA_SWEEP_PROCROOT` overrides /proc for tests only.
 export function buildGuestSweepScript(): string {
+  const LF = String.fromCharCode(10)
   return [
     'nonce="$1"; shift',
     // Refuse an empty or smuggled lease: an empty pattern would match any
     // lease-holder, so a missing argv fails closed instead of signaling.
     'case "$nonce" in ""|*[!A-Za-z0-9_-]*) exit 1 ;; esac',
     'procroot="${ORCA_SWEEP_PROCROOT:-/proc}"',
-    'signal_verified() {',
-    '  sig="$1"; shift',
-    '  for p in "$@"; do',
-    '    case "$p" in ""|*[!0-9]*) continue ;; esac',
-    '    if grep -qF "ORCA_SIDECAR_NONCE=$nonce" "$procroot/$p/environ" 2>/dev/null; then',
-    '      kill "$sig" "$p" 2>/dev/null',
-    '    fi',
-    '  done',
+    'verified() {',
+    '  p="$1"',
+    '  case "$p" in ""|*[!0-9]*) return 1 ;; esac',
+    '  if grep -qF "ORCA_SIDECAR_NONCE=$nonce" "$procroot/$p/environ" 2>/dev/null; then',
+    '    return 0',
+    '  fi',
+    '  return 1',
     '}',
     'is_live() {',
     '  p="$1"',
@@ -194,45 +228,90 @@ export function buildGuestSweepScript(): string {
     '  case "$stat" in " Z"*) return 1 ;; esac',
     '  return 0',
     '}',
-    'signal_verified -TERM "$@"',
+    'group_live() {',
+    '  g="$1"',
+    '  case "$g" in ""|*[!0-9]*) return 1 ;; esac',
+    '  kill -0 -- "-$g" 2>/dev/null',
+    '}',
+    'kill_tree() {',
+    '  sig="$1"; shift',
+    '  for p in "$@"; do',
+    '    if [ "$p" = "$sup" ]; then',
+    '      if verified "$p"; then kill "$sig" "$p" 2>/dev/null; fi',
+    '    else',
+    '      if verified "$p"; then kill "$sig" "$p" 2>/dev/null; kill "$sig" -- "-$p" 2>/dev/null; fi',
+    '    fi',
+    '  done',
+    '}',
+    'collect_status() {',
+    '  alive=""',
+    '  cgroup=""',
+    '  if [ -n "$sup" ] && is_live "$sup"; then alive="$alive $sup"; fi',
+    '  if [ -n "$child" ] && group_live "$child"; then cgroup="$child"; fi',
+    '}',
+    'sup="$1"; child="$2"',
+    'kill_tree -TERM "$sup" "$child"',
     'i=0; while [ "$i" -lt 20 ]; do',
-    '  alive=""; for p in "$@"; do is_live "$p" && alive="$alive $p"; done',
-    '  if [ -z "$alive"; then printf \'%s\\n\' "ORCA_SWEEP done=1"; exit 0; fi',
+    '  collect_status',
+    '  if [ -z "$alive$cgroup" ]; then echo "ORCA_SWEEP done=1"; exit 0; fi',
     '  sleep 0.25; i=$((i + 1))',
     'done',
-    'signal_verified -KILL "$@"',
+    'kill_tree -KILL "$sup" "$child"',
     'i=0; while [ "$i" -lt 20 ]; do',
-    '  alive=""; for p in "$@"; do is_live "$p" && alive="$alive $p"; done',
-    '  if [ -z "$alive"; then printf \'%s\\n\' "ORCA_SWEEP done=1"; exit 0; fi',
+    '  collect_status',
+    '  if [ -z "$alive$cgroup" ]; then echo "ORCA_SWEEP done=1"; exit 0; fi',
     '  sleep 0.25; i=$((i + 1))',
     'done',
-    'alive=""; for p in "$@"; do is_live "$p" && alive="$alive $p"; done',
-    'printf \'%s\\n\' "ORCA_SWEEP done=0 alive=$alive"',
+    'collect_status',
+    'echo "ORCA_SWEEP done=0 alive=$alive group=$cgroup"',
     'exit 0'
-  ].join('\n')
+  ].join(LF)
 }
+export type GuestSweepReport = { done: boolean; alive: number[]; groups: number[] }
 
-// Argv for one sweep invocation: the lease and targets travel as words
-// (safe under wsl.exe --exec), never baked into the script. Both are
-// validated here and re-guarded in-script, where the environ match remains
-// the kill gate adjacent to each signal.
-export function buildGuestSweepArgv(nonce: string, targets: readonly number[]): string[] {
-  if (!NONCE_WORD_RE.test(nonce)) {
-    throw new Error('sidecar nonce must be a shell-word-safe token')
-  }
-  const pids = targets.filter((pid) => Number.isInteger(pid) && pid > 0).map(String)
-  return ['/bin/sh', '-c', buildGuestSweepScript(), 'orca-sweep', nonce, ...pids]
-}
-
-export function parseGuestSweepOutput(stdout: string): { done: boolean; alive: number[] } {
-  const match = /^ORCA_SWEEP done=([01])( alive=(.*))?$/.exec(stdout.trim().split('\n').pop() ?? '')
-  if (!match) {
-    return { done: false, alive: [] }
-  }
-  const alive =
-    match[3]
+function parsePidList(value: string | undefined): number[] {
+  return (
+    value
       ?.split(' ')
       .map((part) => Number(part))
       .filter((pid) => Number.isInteger(pid) && pid > 0) ?? []
-  return { done: match[1] === '1', alive }
+  )
+}
+
+// Argv for one sweep invocation: the lease plus supervisor and child pids
+// travel as words (safe under wsl.exe --exec), never baked into the script.
+// All three are validated here and re-guarded in-script, where the environ
+// match remains the kill gate adjacent to each signal.
+export function buildGuestSweepArgv(
+  nonce: string,
+  supervisorPid: number | null,
+  childPid: number | null
+): string[] {
+  if (!NONCE_WORD_RE.test(nonce)) {
+    throw new Error('sidecar nonce must be a shell-word-safe token')
+  }
+  for (const pid of [supervisorPid, childPid]) {
+    if (pid !== null && (!Number.isInteger(pid) || pid <= 0)) {
+      throw new Error('sweep target must be a positive pid')
+    }
+  }
+  return [
+    '/bin/sh',
+    '-c',
+    buildGuestSweepScript(),
+    'orca-sweep',
+    nonce,
+    supervisorPid === null ? '' : String(supervisorPid),
+    childPid === null ? '' : String(childPid)
+  ]
+}
+
+export function parseGuestSweepOutput(stdout: string): GuestSweepReport {
+  const match = /^ORCA_SWEEP done=([01])( alive=(.*?))?( group=(.*?))?$/.exec(
+    stdout.trim().split('\n').pop() ?? ''
+  )
+  if (!match) {
+    return { done: false, alive: [], groups: [] }
+  }
+  return { done: match[1] === '1', alive: parsePidList(match[3]), groups: parsePidList(match[5]) }
 }

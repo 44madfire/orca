@@ -62,7 +62,7 @@ export function buildSidecarSpawnSpec(
     return {
       program: 'wsl.exe',
       args: buildWslExecArgs(runtime.distro, [
-        ...buildSupervisorArgv(nonce, runtime.linuxPath, serviceArgv)
+        ...buildSupervisorArgv(nonce, runtime.linuxPath, serviceArgv, launch.env)
       ]),
       cwd: undefined,
       env: undefined,

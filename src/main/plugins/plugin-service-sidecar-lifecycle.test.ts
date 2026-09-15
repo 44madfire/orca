@@ -319,6 +319,7 @@ function wslController(
     ) => (args: readonly string[]) => Promise<{ code: number | null; stdout: string }>
     sweepImpl?: (distro: string, argv: readonly string[]) => Promise<boolean>
     sweeps?: { distro: string; argv: readonly string[] }[]
+    launchEnv?: Record<string, string>
   }
 ): { controller: ServiceSidecarController; children: FakeWslChild[] } {
   const children: FakeWslChild[] = []
@@ -327,7 +328,7 @@ function wslController(
   const controller = new ServiceSidecarController(
     'svc.wsl',
     { ...WSL_RUNTIME },
-    { program: '/usr/bin/svc', args: ['--serve'] },
+    { program: '/usr/bin/svc', args: ['--serve'], env: extra?.launchEnv },
     { serviceId: 'svc.wsl', buildLaunch: () => null, limits },
     {
       platform: 'win32',
@@ -412,6 +413,26 @@ describe('wsl sidecar lifecycle', () => {
       const envIndex = guestArgv.indexOf('/usr/bin/env')
       expect(envIndex).toBeGreaterThanOrEqual(0)
       expect(guestArgv[envIndex + 1]).toMatch(/^ORCA_SIDECAR_NONCE=[A-Za-z0-9_-]+$/)
+    } finally {
+      await controller.dispose()
+    }
+  })
+
+  it('carries the registered environment into the guest spawn', async () => {
+    const { controller, children } = wslController(
+      (child) => {
+        const nonce = nonceOf(child.spec)
+        answerRequests(child)
+        child.stdout.write(`ORCA_SIDECAR_READY pid=100 nonce=${nonce}\n`)
+      },
+      undefined,
+      { launchEnv: { FOO_REQ: 'req-value' } }
+    )
+    try {
+      expect(await controller.invoke({ ping: 1 })).toEqual({ ping: 1 })
+      const guestArgv = children[0].spec.args ?? []
+      expect(guestArgv).toContain('-i')
+      expect(guestArgv).toContain('FOO_REQ=req-value')
     } finally {
       await controller.dispose()
     }
@@ -644,7 +665,7 @@ describe('wsl sidecar lifecycle', () => {
       expect(await codeOf(pending)).toBe('crashed')
       await controller.dispose()
       expect(sweeps).toHaveLength(1)
-      expect(sweeps[0].argv.slice(-1)).toEqual(['100'])
+      expect(sweeps[0].argv.slice(-3)).toEqual([nonceOf(children[0].spec), '100', ''])
     } finally {
       await controller.dispose()
     }
@@ -674,7 +695,7 @@ describe('wsl sidecar lifecycle', () => {
       expect(children).toHaveLength(2)
       // Only the proven supervisor pid is signaled.
       expect(sweeps).toHaveLength(1)
-      expect(sweeps[0].argv.slice(-1)).toEqual(['100'])
+      expect(sweeps[0].argv.slice(-3)).toEqual([nonceOf(children[0].spec), '100', ''])
     } finally {
       await controller.dispose()
     }

@@ -210,16 +210,19 @@ async function sweepVerifiedGuest(
   if (supervisor === 'not-ours' && child === 'not-ours') {
     return true
   }
-  const targets: number[] = []
-  if (supervisor === 'ours' && target.supervisorPid !== null) {
-    targets.push(target.supervisorPid)
-  }
-  if (child === 'ours' && target.childPid !== null) {
-    targets.push(target.childPid)
-  }
+  // Only proven-ours pids travel to the sweep; the script re-proves each
+  // one adjacent to its signals, with the child addressed directly and as
+  // a process group so non-daemonized descendants die with it.
   const sweep = deps.sweepGuestImpl ?? defaultSweepGuest
   try {
-    return await sweep(target.distro, buildGuestSweepArgv(target.nonce, targets))
+    return await sweep(
+      target.distro,
+      buildGuestSweepArgv(
+        target.nonce,
+        supervisor === 'ours' ? target.supervisorPid : null,
+        child === 'ours' ? target.childPid : null
+      )
+    )
   } catch {
     return false
   }
