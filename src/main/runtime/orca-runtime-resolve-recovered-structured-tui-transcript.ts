@@ -5,6 +5,7 @@ import { agentSessionOwnerBindingsEqual } from '../../shared/claimed-agent-pty-o
 import { resolvePinnedCodexRolloutProof } from '../codex/codex-tui-rollout-proof'
 import { supportsCodexStructuredLocation } from '../codex/codex-structured-location-support'
 import { supportsClaudeStructuredLocation } from '../claude/claude-structured-location-support'
+import { supportsPiStructuredLocation } from '../pi/pi-structured-location-support'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import { resolveStructuredAgentSessionCreateSupport } from '../native-chat/structured-agent-session-create-support'
 import {
@@ -57,7 +58,7 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
 
   async getStructuredAgentSessionCreateSupport(
     worktreeSelector: string,
-    agent: 'claude' | 'codex'
+    agent: 'claude' | 'codex' | 'pi'
   ): Promise<{ supported: boolean; reason?: 'agent' | 'remote' | 'wsl' }> {
     const location = await this.resolveStructuredAgentSessionLocation(worktreeSelector)
     return resolveStructuredAgentSessionCreateSupport({
@@ -66,7 +67,9 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
       adapterSupportsCreate:
         agent === 'claude'
           ? supportsClaudeStructuredLocation(location)
-          : supportsCodexStructuredLocation(location),
+          : agent === 'pi'
+            ? supportsPiStructuredLocation(location)
+            : supportsCodexStructuredLocation(location),
       getSettings: () => this.requireStore().getSettings()
     })
   }
@@ -125,10 +128,13 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
   async resolveStructuredAgentSessionCreateIntent(input: {
     envelope: { sessionId: string; clientOperationId: string }
     worktree: string
-    agent: 'claude' | 'codex'
+    agent: 'claude' | 'codex' | 'pi'
     callerKey?: string
     resumeFrom?: { providerSessionId: string }
   }): Promise<AgentSessionAttachParams> {
+    if (input.agent === 'pi') {
+      return this.resolvePiStructuredAgentSessionIntent(input)
+    }
     if (input.agent === 'claude') {
       return this.resolveStructuredAgentSessionIntent(input, async ({ launchEnv, location }) => {
         return (
@@ -156,11 +162,31 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
     })
   }
 
+  /**
+   * Pi intent create: pins `PI_STATE_DIR` to the workspace path (the Pi RPC
+   * child is workspace-bound; the exact session file comes from Pi itself at
+   * acquire). Transcript adoption is refused for Pi — Pi history has no
+   * legacy transcript decoder, so resume flows through structured re-acquire
+   * of an existing session, never intent adoption.
+   */
+  protected async resolvePiStructuredAgentSessionIntent(input: {
+    envelope: { sessionId: string; clientOperationId: string }
+    worktree: string
+    agent: 'pi'
+    callerKey?: string
+    resumeFrom?: { providerSessionId: string }
+  }): Promise<AgentSessionAttachParams> {
+    if (input.resumeFrom) {
+      throw new Error('structured_agent_session_unsupported')
+    }
+    return this.resolveStructuredAgentSessionIntent(input, async ({ workspacePath }) => workspacePath)
+  }
+
   protected async resolveStructuredAgentSessionIntent(
     input: {
       envelope: { sessionId: string; clientOperationId: string }
       worktree: string
-      agent: 'claude' | 'codex'
+      agent: 'claude' | 'codex' | 'pi'
       callerKey?: string
       resumeFrom?: { providerSessionId: string }
     },
@@ -227,7 +253,12 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
       provider: input.agent,
       agent: input.agent,
       accountHome: {
-        variable: input.agent === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME',
+        variable:
+          input.agent === 'claude'
+            ? 'CLAUDE_CONFIG_DIR'
+            : input.agent === 'pi'
+              ? 'PI_STATE_DIR'
+              : 'CODEX_HOME',
         path: adoption ? adoption.accountHomePath : selectedAccountHomePath
       },
       ...(options ? { options } : {}),

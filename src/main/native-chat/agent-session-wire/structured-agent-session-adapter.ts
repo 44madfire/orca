@@ -126,6 +126,13 @@ export type StructuredAgentSessionLifecycleEvent = {
   settlementRetryRequired?: boolean
 }
 
+/** One rebuilt history row for provider-resume reconciliation (text only, never bytes). */
+export type StructuredAgentSessionResumeRow = {
+  id: string
+  role: 'user' | 'assistant' | 'tool' | 'system'
+  text: string
+}
+
 export type StructuredAgentSessionAcquireInput = {
   identity: AgentSessionJournalIdentity
   rewind?: {
@@ -142,6 +149,12 @@ export type StructuredAgentSessionAcquireInput = {
   /** Provider events may begin before acquisition returns. */
   events?: StructuredAgentSessionEventSink
   recordPhase?: AgentSessionCreatePhaseRecorder
+  /**
+   * Host-owned exact resume locator (e.g. the Pi session file from the
+   * durable chain head). Only hosts with record access set this; adapters
+   * fail closed when a resume needs it and it is absent.
+   */
+  resumeSessionFile?: string
 }
 
 export type StructuredAgentSessionSetOptionInput = {
@@ -252,6 +265,15 @@ export type StructuredAgentSessionAdapter = {
     identity: AgentSessionJournalIdentity
     accountHome: AgentSessionAccountHome
   }): Promise<ProviderHistoryWindow | null>
+  /**
+   * Provider-resume history rebuild for handoff reconciliation (Pi session
+   * file root → leaf). The host replaces the journal epoch wholesale; rows
+   * carry stable provider ids so a retry reconciles instead of duplicating.
+   */
+  readResumeHistory?(input: { sessionId: string; fence: number }): Promise<{
+    rows: StructuredAgentSessionResumeRow[]
+    leafId: string | null
+  }>
   /** Gracefully stops the structured owner after its event stream is drained. */
   /** Returns true only after the provider child exit is proven. */
   closeSession?(sessionId: string): Promise<boolean>

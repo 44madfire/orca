@@ -207,7 +207,7 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
       tuiStatus: (owner) => this.structuredTuiStatus(owner),
       closeTuiOwner: (owner) => this.closeStructuredTuiOwner(owner),
       revealNativeSession: async ({ workspaceId, sessionId, agent = 'codex', adoptedTerminal }) => {
-        if (adoptedTerminal || (agent !== 'codex' && agent !== 'claude')) {
+        if (adoptedTerminal || (agent !== 'codex' && agent !== 'claude' && agent !== 'pi')) {
           return
         }
         await this.publishStructuredAgentSessionTab({

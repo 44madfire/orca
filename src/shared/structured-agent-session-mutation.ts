@@ -41,7 +41,7 @@ export function structuredAgentSessionDomainFingerprint(input: {
 export function structuredAgentSessionCreateFingerprint(input: {
   sessionId: string
   worktree: string
-  agent: 'claude' | 'codex' | 'external'
+  agent: string
   resumeFrom?: { providerSessionId: string }
 }): string {
   return structuredAgentSessionPayloadFingerprint({

@@ -10,6 +10,16 @@ import { journalIdentityFor } from './structured-agent-session-attach'
 import type { AttachFlowInput } from './structured-agent-session-attach-flow'
 import { readNativeSessionOptions } from './structured-agent-session-option-restoration'
 import { withAgentSessionCreatePhase } from '../../observability/agent-session-instrumentation'
+import { agentSessionProviderHandleChainHead } from '../../../shared/agent-session-provider-handle'
+
+/** Exact Pi resume locator from the durable chain head, if the adapter persisted one. */
+function piResumeSessionFile(record: AgentSessionRecord): string | undefined {
+  const head = agentSessionProviderHandleChainHead(record.providerHandleChain)
+  if (head?.handle.provider === 'pi' && head.handle.sessionFile) {
+    return head.handle.sessionFile
+  }
+  return undefined
+}
 
 /** A reservation with no process behind it is only a promise to spawn; the
  * adapter makes it real and the store then grants the writer. */
@@ -45,7 +55,10 @@ export async function acquireOwner(
       spawnToken,
       ...(record.options ? { options: record.options } : {}),
       ...(input.eventSink ? { events: input.eventSink } : {}),
-      ...(input.recordPhase ? { recordPhase: input.recordPhase } : {})
+      ...(input.recordPhase ? { recordPhase: input.recordPhase } : {}),
+      // Pi resumes by exact session file carried on the durable chain head;
+      // other providers ignore this locator.
+      ...(piResumeSessionFile(record) ? { resumeSessionFile: piResumeSessionFile(record) as string } : {})
     })
     const options = await withAgentSessionCreatePhase('restore_options', input.recordPhase, () =>
       readNativeSessionOptions({

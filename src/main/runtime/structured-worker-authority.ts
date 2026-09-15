@@ -7,6 +7,7 @@
  * pinned to another execution host is no longer this runtime's structured worker.
  */
 
+import type { AgentSessionHandleProvider } from '../../shared/agent-session-provider-handle'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
 import type { RuntimeTerminalState } from '../../shared/runtime-types'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
@@ -71,7 +72,7 @@ export function resolveStructuredWorkerAuthority(
  */
 export function structuredWorkerAgent(
   identity: StructuredWorkerIdentity
-): 'claude' | 'codex' | 'external' {
+): AgentSessionHandleProvider {
   return (
     identity.agent ?? readStructuredAgentSessionRecord(identity.sessionId)?.provider ?? 'claude'
   )
