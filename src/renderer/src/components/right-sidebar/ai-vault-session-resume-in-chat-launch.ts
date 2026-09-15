@@ -30,6 +30,13 @@ export async function resumeAiVaultSessionInNewChat(
   agent: AgentSessionHandleProvider,
   worktreeId: string
 ): Promise<void> {
+  // SNC1.3 dev seam has no TUI resume surface; fail closed rather than misrouting.
+  if (agent === 'external') {
+    notifyAiVaultSessionResumeInChatFailure(
+      new Error('external bridge sessions cannot resume in chat')
+    )
+    return
+  }
   try {
     // Codex rows can live under a shared legacy home; the same preparation the terminal resume
     // runs re-pins them, and its result is what names the conversation the host will look for.
