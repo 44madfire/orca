@@ -240,6 +240,9 @@ export class BridgeHost {
   /** Ensure the provider is spawned + hello-negotiated. Throws fail-closed errors. */
   async ensureStarted(): Promise<BridgeSupport> {
     if (this.disposed) throw new BridgeUnavailableError("bridge host is disposed", "BRIDGE_DISPOSED");
+    // Never spawn beside a possibly-live child: force-close (which retries
+    // the kill) must settle the previous helper first.
+    if (this.exitUnproven) throw new BridgeUnavailableError("previous helper exit is unproven; force-close before starting", "BRIDGE_EXIT_UNPROVEN");
     // A dead child never reports ready. Calling ensureStarted/probeSupport/
     // restart is the explicit restart path: drop the dead child and reset
     // exit diagnostics so the next hello starts fresh. dispatch()
@@ -262,12 +265,19 @@ export class BridgeHost {
   }
 
   /**
-   * Explicit restart: bounded teardown of any current child (healthy, dead,
-   * or failed), then fresh hello negotiation. Use after exit/failure instead
-   * of relying on implicit respawn (dispatch never auto-respawns after death).
+   * Explicit restart: settle any current child (healthy, dead, or failed),
+   * then fresh hello negotiation. Refuses with BRIDGE_EXIT_UNPROVEN instead
+   * of silently orphaning a helper whose exit cannot be proven. Use after
+   * exit/failure instead of relying on implicit respawn (dispatch never
+   * auto-respawns after death).
    */
   async restart(): Promise<BridgeSupport> {
     if (this.disposed) throw new BridgeUnavailableError("bridge host is disposed", "BRIDGE_DISPOSED");
+    if (this.exitUnproven) {
+      // Settle-or-throw: shutdownProcess proves the exit or rejects, so a
+      // replacement never spawns beside a possibly-live helper.
+      await this.shutdownProcess("force");
+    }
     await this.abandonChildBestEffort();
     this.exited = null;
     this.helloError = null;
@@ -338,20 +348,28 @@ export class BridgeHost {
 
   /**
    * Best-effort bounded teardown of a failed/dead child without clearing the
-   * diagnostic reason (helloError/spawnError/exited). Leaves the host ready
-   * for an explicit restart: proc nulled, reader detached, provider cleared.
-   * Never throws and never hangs (bounded SIGTERM/SIGKILL; an unproven exit
-   * is swallowed here because no session/lease exists yet to protect).
+   * diagnostic reason (helloError/spawnError/exited). On a proven shutdown
+   * leaves the host ready for an explicit restart: proc nulled, reader
+   * detached, provider cleared. On an unproven exit retains the child and
+   * marks it (see exitUnproven) instead of silently orphaning a
+   * possibly-live helper. Never throws and never hangs.
    */
   private async abandonChildBestEffort(): Promise<void> {
     const proc = this.proc;
     if (proc) {
       try {
         await this.shutdownProcessInner(proc, "force");
-      } catch {
-        // Best-effort: never let cleanup throw.
+      } catch (error) {
+        if (error instanceof BridgeUnavailableError && error.code === "BRIDGE_EXIT_UNPROVEN") {
+          // Retain: ensureStarted/restart refuse to spawn beside it, and a
+          // later force-close retries the kill against the same handle.
+          this.exitUnproven = true;
+          return;
+        }
+        // Best-effort: never let other cleanup errors throw.
       }
     }
+    this.exitUnproven = false;
     this.detachAll();
     this.proc = null;
     this.provider = null;
@@ -830,7 +848,6 @@ export class BridgeHost {
       }
       // Ignore — process already gone.
     }
-    this.exitUnproven = false;
     this.detachAll();
     for (const [, entry] of this.pending) {
       clearTimeout(entry.timer);
@@ -1100,7 +1117,11 @@ export class BridgeHost {
 
   private async shutdownProcess(mode: "graceful" | "force"): Promise<{ code: number | null; signal: string | null }> {
     const proc = this.proc;
-    if (!proc) return { code: null, signal: null };
+    if (!proc) {
+      // No child handle exists, so nothing can be duplicated: vacuous settle.
+      this.exitUnproven = false;
+      return { code: null, signal: null };
+    }
     // Already observed exit (e.g. dispose runs close + force shutdown back to
     // back): return it instead of waiting for a second exit that never comes.
     if (this.exited) return { ...this.exited };
@@ -1109,6 +1130,9 @@ export class BridgeHost {
     if ((proc.exitCode as number | null | undefined) != null || (proc as unknown as { signalCode?: string | null }).signalCode != null) {
       return { code: proc.exitCode, signal: (proc as unknown as { signalCode?: string | null }).signalCode ?? null };
     }
-    return this.shutdownProcessInner(proc, mode);
+    const result = await this.shutdownProcessInner(proc, mode);
+    // Normal return proves the exit (observed event, exit code, or signal).
+    this.exitUnproven = false;
+    return result;
   }
 }

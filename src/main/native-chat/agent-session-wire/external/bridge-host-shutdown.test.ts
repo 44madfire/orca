@@ -39,7 +39,11 @@ function hostWithSwallower(): { host: BridgeHost; proc: SwallowingProc } {
     bridgeArgs: [],
     workspaceRoot: '/tmp/ws',
     closeGraceMs: 10,
-    killGraceMs: 10
+    killGraceMs: 10,
+    // Fail-closed sentinel: no test path may spawn a real helper process.
+    spawnFn: () => {
+      throw new Error('must not spawn')
+    }
   })
   const proc = new SwallowingProc()
   ;(host as unknown as { proc: unknown }).proc = proc as unknown as ChildProcess
@@ -101,5 +105,27 @@ describe('BridgeHost unproven-exit shutdown', () => {
     // A real exit settles teardown.
     proc.emitExit(1, null)
     await expect(host.close('force')).resolves.toEqual({ code: 1, signal: null })
+  })
+
+  it('restart and ensureStarted refuse while a helper exit is unproven', async () => {
+    const { host } = hostWithSwallower()
+    ;(
+      host as unknown as {
+        terminateOnTransportError(source: string, error: unknown): void
+      }
+    ).terminateOnTransportError('stderr', new Error('EIO'))
+    // No replacement may spawn beside the possibly-live helper.
+    const started = await host.ensureStarted().then(
+      () => null,
+      (error: unknown) => error,
+    )
+    expect(started).toBeInstanceOf(BridgeUnavailableError)
+    expect((started as BridgeUnavailableError).code).toBe('BRIDGE_EXIT_UNPROVEN')
+    const restarted = await host.restart().then(
+      () => null,
+      (error: unknown) => error,
+    )
+    expect(restarted).toBeInstanceOf(BridgeUnavailableError)
+    expect((restarted as BridgeUnavailableError).code).toBe('BRIDGE_EXIT_UNPROVEN')
   })
 })
