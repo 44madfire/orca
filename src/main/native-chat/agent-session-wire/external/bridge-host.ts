@@ -149,6 +149,10 @@ export class BridgeHost {
   // later force-close can retry, and every shutdown path reports unsettled
   // instead of a success receipt until an exit is proven.
   private exitUnproven = false;
+  // One-shot exit observation re-armed whenever `proc` is retained across
+  // a detach (transport error, unproven dispose). Disarmed by detachAll so
+  // a stale watch can never attribute an old proc's exit to a fresh child.
+  private detachExitWatch: (() => void) | null = null;
   private disposed = false;
   private starting: Promise<BridgeSupport> | null = null;
   private stderr = "";
@@ -455,6 +459,12 @@ export class BridgeHost {
 
   /** Detach every listener attached in spawnProvider (reader, data, stdio/child errors, exit). Never throws. */
   private detachAll(): void {
+    try {
+      this.detachExitWatch?.();
+    } catch {
+      // Cleanup must not throw.
+    }
+    this.detachExitWatch = null;
     const fns = this.detachFns.splice(0);
     for (const fn of fns) {
       try {
@@ -476,20 +486,25 @@ export class BridgeHost {
    * stdin/stdout/stderr `error`, or child `error` with no subsequent
    * `exit`). Invalidates provider/session ownership, detaches every
    * listener, best-effort SIGKills + destroys stdio while the failing proc
-   * is still reachable, then clears it — so an `error`-without-`exit` child
-   * can never orphan a live helper while the host spawns a replacement.
+   * is still reachable. The exit stays unproven — no synthetic `exited`
+   * record — and the child handle is retained, so a later teardown waits
+   * for a real exit (or rejects BRIDGE_EXIT_UNPROVEN) instead of spending
+   * a success receipt for a helper that may still be alive. A later real
+   * `exit` on the retained proc still settles teardown normally.
    * In-flight dispatches resolve `unknown` (the write may or may not have
    * landed); post-failure dispatch rejects `bridge-unavailable` until
-   * explicit restart/probe. Idempotent: a later `exit` on the detached old
-   * proc is a no-op (listener removed). Diagnostics carry only the stream
+   * explicit restart/probe. Idempotent: repeats while unproven re-kill
+   * without further state change. Diagnostics carry only the stream
    * name + OS message (never prompt text or env).
    */
   private terminateOnTransportError(source: "stdin" | "stdout" | "stderr" | "child", error: unknown): void {
     const proc = this.proc;
-    if (!proc && this.exited) return;
+    if (!proc && (this.exited || this.exitUnproven)) return;
     const osMessage = sanitizeReason(error instanceof Error ? error.message : String(error));
     this.spawnError = source === "child" ? `process-error: ${osMessage}` : `transport-${source}-error: ${osMessage}`;
-    if (!this.exited) this.exited = { code: null, signal: null };
+    // Proven death (a raced real exit) always wins; otherwise the exit is
+    // unproven and teardown must stay unsettled until exit evidence lands.
+    if (!this.exited) this.exitUnproven = true;
     this.provider = null;
     this.capabilities = null;
     this.sessions.clear();
@@ -510,7 +525,10 @@ export class BridgeHost {
     } catch {
       // Ignore.
     }
-    this.proc = null;
+    // Retain `proc`: the exit is unproven (see above), so teardown must be
+    // able to wait on / retry the kill against the same handle. A later
+    // real exit settles teardown; explicit restart replaces the child.
+    if (proc) this.armExitWatch(proc);
     this.failAllPending(new BridgeUnavailableError(sanitizeReason(this.spawnError), "BRIDGE_PROCESS_ERROR"));
     this.emitLifecycle({ kind: "provider-error", message: sanitizeReason(this.spawnError) });
   }
@@ -519,6 +537,9 @@ export class BridgeHost {
   private handleChildExit(code: number | null, signal: string | null): void {
     if (!this.proc && this.exited) return;
     this.exited = { code, signal };
+    // An observed exit is proof of death, including after a transport error
+    // that left the exit unproven: teardown may settle from here.
+    this.exitUnproven = false;
     // Finalize so support/ensureStarted never report stale ready and the
     // next explicit start spawns fresh. In-flight dispatches resolve
     // `unknown` (ambiguous ownership); post-exit dispatches reject as
@@ -801,7 +822,10 @@ export class BridgeHost {
         this.lifecycleListeners.clear();
         this.sessions.clear();
         // Retain `proc`: a later force-close retries the kill against the
-        // same handle instead of orphaning a possibly-live helper.
+        // same handle instead of orphaning a possibly-live helper. Re-arm
+        // exit observation (detachAll above removed it) so a real exit
+        // still settles teardown.
+        if (this.proc) this.armExitWatch(this.proc);
         throw error;
       }
       // Ignore — process already gone.
@@ -958,6 +982,52 @@ export class BridgeHost {
 
   private killGraceMs(): number {
     return this.options.killGraceMs ?? this.options.closeGraceMs ?? DEFAULT_CLOSE_GRACE_MS;
+  }
+
+  /**
+   * One-shot exit observation for a retained child whose spawn-time exit
+   * listener was detached (transport error, unproven dispose). A real exit
+   * is proof of death, so it settles teardown via handleChildExit even
+   * outside a shutdown wait. Self-removing on fire; disarmed by detachAll
+   * so a stale watch never attributes an old proc's exit to a fresh child.
+   * Never throws (fakes may lack an emitter; shutdown waits observe exits
+   * through their own listener regardless).
+   */
+  private armExitWatch(proc: ChildProcess): void {
+    try {
+      this.detachExitWatch?.();
+    } catch {
+      // Cleanup must not throw.
+    }
+    this.detachExitWatch = null;
+    const onExit = (code: number | null, signal: string | null): void => {
+      this.detachExitWatch = null;
+      this.handleChildExit(code, signal);
+    };
+    const off = (): void => {
+      try {
+        ;(
+          proc as unknown as {
+            off?(event: string, listener: (...args: unknown[]) => void): unknown
+          }
+        )?.off?.("exit", onExit as (...args: unknown[]) => void);
+      } catch {
+        // Cleanup must not throw.
+      }
+    };
+    try {
+      // `once`: one-shot observation matches the self-removing contract
+      // and stays compatible with minimal proc fakes (same surface the
+      // shutdown waits use).
+      ;(
+        proc as unknown as {
+          once(event: string, listener: (...args: unknown[]) => void): unknown
+        }
+      ).once("exit", onExit as (...args: unknown[]) => void);
+    } catch {
+      return;
+    }
+    this.detachExitWatch = off;
   }
 
   /** Wait for one explicit proc's exit with a hard deadline; always resolves. */
