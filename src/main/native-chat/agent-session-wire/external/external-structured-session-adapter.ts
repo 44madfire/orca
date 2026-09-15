@@ -145,6 +145,10 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
   >()
   private readonly sessionOptions = new Map<string, BridgeSessionOptions>()
   private readonly optionRestoreFailures = new Map<string, Set<string>>()
+  // Sessions whose helper exit is unproven (possibly-live child retained).
+  // Acquire refuses to spawn a second helper beside one of these; only a
+  // settled teardown/force-close clears the entry.
+  private readonly unprovenSessions = new Set<string>()
   private readonly generations = new Map<string, string>()
 
   constructor(private readonly deps: ExternalAdapterDeps) {}
@@ -172,6 +176,17 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
       )
     }
     const orcaSessionId = input.identity.sessionId
+    if (this.unprovenSessions.has(orcaSessionId)) {
+      // A prior attempt left a possibly-live helper tracked here: settle it
+      // before spawning a replacement, and refuse while its exit is
+      // unproven (a second helper beside it could double-own the session).
+      await this.teardown(orcaSessionId)
+      if (this.unprovenSessions.has(orcaSessionId)) {
+        throw new AgentSessionPreSpawnError(
+          'previous external helper exit is unproven; force-close the session before retrying acquire',
+        )
+      }
+    }
     const workspaceRoot = await this.deps.resolveWorkspacePath(input.identity.workspaceId)
     const createHost =
       this.deps.createHost ??
@@ -205,9 +220,22 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
         `external bridge unavailable: ${support.reason} (fall back to Pi TUI)`,
       )
     }
-    const acquired = await host.acquire({ options: optionsFromRecord(input.options) })
-    const bridgeSessionId = acquired.sessionId
+    // Track the live child before the fallible acquire: probe already
+    // spawned it, so an acquire failure must still settle it through
+    // teardown (proven exit or retained-for-retry) instead of leaking an
+    // untracked helper that a retry would duplicate.
     this.hosts.set(orcaSessionId, host)
+    let acquired: {
+      sessionId: string
+      metadata: { model?: string; thinkingLevel?: string }
+    }
+    try {
+      acquired = await host.acquire({ options: optionsFromRecord(input.options) })
+    } catch (error) {
+      await this.teardown(orcaSessionId)
+      throw error
+    }
+    const bridgeSessionId = acquired.sessionId
     this.bridgeSessionByOrca.set(orcaSessionId, bridgeSessionId)
     this.orcaSessionByBridge.set(bridgeSessionId, orcaSessionId)
     const initialOptions: BridgeSessionOptions = {}
@@ -228,8 +256,7 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
       resolvedPid = typeof maybeProc?.pid === 'number' ? (maybeProc.pid as number) : null
     }
     if (resolvedPid === null || !Number.isSafeInteger(resolvedPid) || resolvedPid <= 0) {
-      await host.dispose().catch(() => undefined)
-      this.hosts.delete(orcaSessionId)
+      await this.teardown(orcaSessionId)
       throw new AgentSessionPreSpawnError('external bridge started without a probeable pid')
     }
     let startTime: number | null = null
@@ -451,7 +478,9 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
       // still be alive, allowing a second owner for the same session.
       if (error instanceof BridgeUnavailableError && error.code === 'BRIDGE_EXIT_UNPROVEN') {
         exitUnproven = true
+        this.unprovenSessions.add(sessionId)
       } else {
+        this.unprovenSessions.delete(sessionId)
         return false
       }
     } finally {
@@ -478,7 +507,9 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
     }
     // An unproven exit is unsettled: no stop receipt, so the durable lease
     // is never released for a helper that may still be alive.
-    return !exitUnproven
+    if (exitUnproven) return false
+    this.unprovenSessions.delete(sessionId)
+    return true
   }
 
   private routeSessionEvent(orcaSessionId: string, envelope: SessionEventEnvelope): void {

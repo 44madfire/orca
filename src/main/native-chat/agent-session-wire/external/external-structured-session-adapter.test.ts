@@ -497,6 +497,78 @@ describe('ExternalStructuredSessionAdapter', () => {
     expect(fake.disposed).toBe(true)
     expect(await adapter.closeSession('sess-external-01')).toBe(false)
   })
+
+  it('failed acquire disposes the live helper so a retry cannot duplicate it', async () => {
+    const created: ReturnType<typeof makeFakeHost>[] = []
+    let failAcquire = true
+    const adapter = new ExternalStructuredSessionAdapter({
+      resolveWorkspacePath: () => '/tmp/ws',
+      env: DEV_ENV,
+      argv: DEV_ARGV,
+      createHost: () => {
+        const fake = makeFakeHost({ sessionId: `bridge-ses-r${created.length}` })
+        if (failAcquire) {
+          failAcquire = false
+          fake.acquire = async () => {
+            throw new Error('acquire-timeout')
+          }
+        }
+        created.push(fake)
+        return fake
+      }
+    })
+    await expect(
+      adapter.acquire({ identity: makeIdentity(), fence: 0, spawnToken: 't-r' })
+    ).rejects.toThrow(/acquire-timeout/)
+    // The first helper was settled, not orphaned: exactly one helper live.
+    expect(created.length).toBe(1)
+    expect(created[0].disposed).toBe(true)
+    const acquired = await adapter.acquire({ identity: makeIdentity(), fence: 0, spawnToken: 't-r2' })
+    expect(created.length).toBe(2)
+    expect(acquired.link.handle).toEqual({ provider: 'external', sessionId: 'bridge-ses-r1' })
+    expect(await adapter.closeSession('sess-external-01')).toBe(true)
+  })
+
+  it('failed acquire with unproven exit refuses a duplicate spawn until force-close settles', async () => {
+    const fake = makeFakeHost({ sessionId: 'bridge-ses-u2' })
+    let createCount = 0
+    let failUnproven = true
+    fake.acquire = async () => {
+      throw new Error('acquire-timeout')
+    }
+    fake.dispose = async () => {
+      if (failUnproven) {
+        throw new BridgeUnavailableError(
+          'provider exit unproven after SIGKILL grace',
+          'BRIDGE_EXIT_UNPROVEN',
+        )
+      }
+      fake.disposed = true
+    }
+    const adapter = new ExternalStructuredSessionAdapter({
+      resolveWorkspacePath: () => '/tmp/ws',
+      env: DEV_ENV,
+      argv: DEV_ARGV,
+      createHost: () => {
+        createCount += 1
+        return fake
+      }
+    })
+    await expect(
+      adapter.acquire({ identity: makeIdentity(), fence: 0, spawnToken: 't-u2' })
+    ).rejects.toThrow(/acquire-timeout/)
+    // No stop receipt while the helper may still be alive.
+    expect(await adapter.closeSession('sess-external-01')).toBe(false)
+    // Retry refused: no second helper beside a possibly-live one.
+    await expect(
+      adapter.acquire({ identity: makeIdentity(), fence: 0, spawnToken: 't-u3' })
+    ).rejects.toThrow(/unproven/)
+    expect(createCount).toBe(1)
+    // Force-close retries the kill; once proven, the session settles.
+    failUnproven = false
+    expect(await adapter.forceCloseSession('sess-external-01')).toBe(true)
+    expect(fake.disposed).toBe(true)
+  })
 })
 
 describe('ExternalStructuredSessionAdapter (real BridgeHost + inline mock provider)', () => {
