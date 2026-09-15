@@ -37,6 +37,7 @@ import type { StructuredAgentSessionEventSink } from '../structured-agent-sessio
 import { BridgeHost, type SessionEventEnvelope } from './bridge-host'
 import { externalProviderHandleLink } from './external-structured-owner-identity'
 import type { BridgeProviderEvent, BridgeSessionOptions } from './bridge-protocol'
+import { BridgeUnavailableError } from './bridge-protocol'
 import {
   EXTERNAL_BRIDGE_COMMAND_ENV,
   readExternalBridgeConfig,
@@ -434,6 +435,7 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
     const host = this.hosts.get(sessionId)
     const bridgeSessionId = this.bridgeSessionByOrca.get(sessionId)
     if (!host) return false
+    let exitUnproven = false
     try {
       if (bridgeSessionId) {
         try {
@@ -443,10 +445,21 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
         }
       }
       await host.dispose()
-    } catch {
-      return false
+    } catch (error) {
+      // An unproven helper exit must not yield a stop receipt: the router
+      // would spend it by releasing the durable lease while the helper may
+      // still be alive, allowing a second owner for the same session.
+      if (error instanceof BridgeUnavailableError && error.code === 'BRIDGE_EXIT_UNPROVEN') {
+        exitUnproven = true
+      } else {
+        return false
+      }
     } finally {
-      this.hosts.delete(sessionId)
+      // Retain the host on an unproven exit so a later force-close retries
+      // the kill against the same handle instead of orphaning the helper.
+      if (!exitUnproven) {
+        this.hosts.delete(sessionId)
+      }
       this.sinks.delete(sessionId)
       const bridgeId = this.bridgeSessionByOrca.get(sessionId)
       if (bridgeId) this.orcaSessionByBridge.delete(bridgeId)
@@ -463,7 +476,9 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
         if (pending.sessionId === sessionId) this.promptRequestByItemId.delete(itemId)
       }
     }
-    return true
+    // An unproven exit is unsettled: no stop receipt, so the durable lease
+    // is never released for a helper that may still be alive.
+    return !exitUnproven
   }
 
   private routeSessionEvent(orcaSessionId: string, envelope: SessionEventEnvelope): void {

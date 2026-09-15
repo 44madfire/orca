@@ -17,8 +17,10 @@
  *   malformed ack. Unknown prompts are never auto-resent.
  *
  * Teardown: `dispose()` joins Orca teardown — bounded EOF grace → SIGTERM
- * grace → SIGKILL grace → synthetic finalization (never hangs), plus
- * listener detach and timer clear. Idempotent.
+ * grace → SIGKILL grace (never hangs), plus listener detach and timer
+ * clear. Idempotent. An unproven exit throws BRIDGE_EXIT_UNPROVEN instead
+ * of a success receipt so the host never releases ownership of a helper
+ * that may still be alive.
  *
  * Secret hygiene: the host never sends `env`/credentials over the bridge
  * and never includes prompt text in errors. Stderr is bounded + redacted.
@@ -142,6 +144,11 @@ export class BridgeHost {
   private helloError: string | null = null;
   private spawnError: string | null = null;
   private exited: { code: number | null; signal: string | null } | null = null;
+  // Set when the final SIGKILL grace expires without an observed exit.
+  // The child may still be alive: `proc` is retained (never nulled) so a
+  // later force-close can retry, and every shutdown path reports unsettled
+  // instead of a success receipt until an exit is proven.
+  private exitUnproven = false;
   private disposed = false;
   private starting: Promise<BridgeSupport> | null = null;
   private stderr = "";
@@ -329,7 +336,8 @@ export class BridgeHost {
    * Best-effort bounded teardown of a failed/dead child without clearing the
    * diagnostic reason (helloError/spawnError/exited). Leaves the host ready
    * for an explicit restart: proc nulled, reader detached, provider cleared.
-   * Never throws and never hangs (bounded SIGTERM/SIGKILL + synthetic finish).
+   * Never throws and never hangs (bounded SIGTERM/SIGKILL; an unproven exit
+   * is swallowed here because no session/lease exists yet to protect).
    */
   private async abandonChildBestEffort(): Promise<void> {
     const proc = this.proc;
@@ -737,7 +745,9 @@ export class BridgeHost {
   /**
    * Graceful (`close` + EOF→SIGTERM→SIGKILL, each bounded) or forceful
    * (SIGKILL, bounded) provider shutdown. Never hangs: every stage has a
-   * hard deadline and ends with synthetic finalization.
+   * hard deadline. Throws BRIDGE_EXIT_UNPROVEN when the deadline expires
+   * without an observed exit — only an observed exit counts as proof, never
+   * a `kill()` return or a synthetic result.
    */
   async close(mode: "graceful" | "force" = "graceful"): Promise<{ code: number | null; signal: string | null }> {
     const proc = this.proc;
@@ -761,22 +771,42 @@ export class BridgeHost {
 
   /**
    * Join Orca teardown: close (graceful then force), detach the stdio
-   * reader, clear timers/listeners, and kill the helper. Idempotent and
-   * safe to call twice or after exit.
+   * reader, clear timers/listeners, and kill the helper. Idempotent once
+   * settled; a retry after BRIDGE_EXIT_UNPROVEN re-attempts the force kill.
+   * Throws BRIDGE_EXIT_UNPROVEN (retaining the child handle) when the final
+   * grace expires without an observed exit, so the caller must not release
+   * ownership of a helper that may still be alive.
    */
   async dispose(): Promise<void> {
-    if (this.disposed) return;
+    if (this.disposed && !this.exitUnproven) return;
     this.disposed = true;
     try {
       await this.close("graceful");
     } catch {
-      // Dispose never throws for transport failures.
+      // Swallowed: transport failures and an unproven graceful close both
+      // fall through to the force kill below, which is authoritative.
     }
     try {
       await this.shutdownProcess("force");
-    } catch {
+    } catch (error) {
+      if (error instanceof BridgeUnavailableError && error.code === "BRIDGE_EXIT_UNPROVEN") {
+        this.exitUnproven = true;
+        this.detachAll();
+        for (const [, entry] of this.pending) {
+          clearTimeout(entry.timer);
+          entry.reject(new BridgeUnavailableError("bridge host disposed", "BRIDGE_DISPOSED"));
+        }
+        this.pending.clear();
+        this.sessionListeners.clear();
+        this.lifecycleListeners.clear();
+        this.sessions.clear();
+        // Retain `proc`: a later force-close retries the kill against the
+        // same handle instead of orphaning a possibly-live helper.
+        throw error;
+      }
       // Ignore — process already gone.
     }
+    this.exitUnproven = false;
     this.detachAll();
     for (const [, entry] of this.pending) {
       clearTimeout(entry.timer);
@@ -952,9 +982,10 @@ export class BridgeHost {
 
   /**
    * Bounded shutdown of one explicit child: EOF grace → SIGTERM grace →
-   * SIGKILL grace → synthetic `{code:null,signal:null}`. Never hangs, even
-   * if the helper ignores stdin EOF, SIGTERM, and SIGKILL (regression: fake
-   * that swallows all three still resolves within ~3 graces).
+   * SIGKILL grace. Never hangs. Throws BRIDGE_EXIT_UNPROVEN when the final
+   * grace expires without an observed exit: a `kill()` return is never
+   * trusted as proof (it reports delivery, not death), so only the exit
+   * event or a prior exit code/signal counts.
    */
   private async shutdownProcessInner(proc: ChildProcess, mode: "graceful" | "force"): Promise<{ code: number | null; signal: string | null }> {
     const eofGrace = this.options.closeGraceMs ?? DEFAULT_CLOSE_GRACE_MS;
@@ -982,11 +1013,20 @@ export class BridgeHost {
     }
     const killed = await this.waitForProcExit(proc, killGrace);
     if (killed !== "timeout") return killed;
-    // Synthetic finalization: the helper ignored even SIGKILL (only possible
-    // for swallowed-signal fakes; real SIGKILL cannot be ignored). Resolve
-    // teardown instead of hanging Orca; caller nulls/detaches regardless.
-    return { code: null, signal: null };
+    // No synthetic success: the helper ignored even SIGKILL (only possible
+    // for swallowed-signal fakes; real SIGKILL cannot be ignored), so its
+    // death is unproven. The caller must not treat teardown as settled.
+    throw new BridgeUnavailableError(
+      "provider exit unproven after SIGKILL grace; helper may still be running",
+      "BRIDGE_EXIT_UNPROVEN",
+    );
   }
+
+  /**
+   * Shut down the current child, if any. Throws BRIDGE_EXIT_UNPROVEN when
+   * the exit cannot be proven; a missing child with no observed exit is the
+   * only case that resolves without proof (there is nothing to kill).
+   */
 
   private async shutdownProcess(mode: "graceful" | "force"): Promise<{ code: number | null; signal: string | null }> {
     const proc = this.proc;

@@ -23,6 +23,7 @@ import {
   readExternalBridgeConfig
 } from './external-structured-bridge-config'
 import type { SessionEventEnvelope } from './bridge-host'
+import { BridgeUnavailableError } from './bridge-protocol'
 import { externalProviderHandleLink } from './external-structured-owner-identity'
 import { createExternalStructuredSessionAdapterForRuntime } from './external-structured-runtime'
 import { StructuredAgentSessionAdapterRouter } from '../structured-agent-session-adapter-router'
@@ -462,6 +463,39 @@ describe('ExternalStructuredSessionAdapter', () => {
       fence: 0
     })
     expect(outcome.state).toBe('rejected')
+  })
+
+  it('teardown reports unsettled and retains the helper when the exit is unproven', async () => {
+    const fake = makeFakeHost({ sessionId: 'bridge-ses-u' })
+    let disposeCalls = 0
+    let failUnproven = true
+    const dispose = async (): Promise<void> => {
+      disposeCalls += 1
+      if (failUnproven) {
+        throw new BridgeUnavailableError(
+          'provider exit unproven after SIGKILL grace',
+          'BRIDGE_EXIT_UNPROVEN',
+        )
+      }
+      fake.disposed = true
+    }
+    fake.dispose = dispose
+    const adapter = new ExternalStructuredSessionAdapter({
+      resolveWorkspacePath: () => '/tmp/ws',
+      env: DEV_ENV,
+      argv: DEV_ARGV,
+      createHost: () => fake
+    })
+    await adapter.acquire({ identity: makeIdentity(), fence: 0, spawnToken: 't-u' })
+    // No stop receipt while the helper may still be alive: the durable
+    // lease must stay held so no second owner can be created.
+    expect(await adapter.closeSession('sess-external-01')).toBe(false)
+    // A later force-close retries the kill against the retained helper.
+    failUnproven = false
+    expect(await adapter.forceCloseSession('sess-external-01')).toBe(true)
+    expect(disposeCalls).toBe(2)
+    expect(fake.disposed).toBe(true)
+    expect(await adapter.closeSession('sess-external-01')).toBe(false)
   })
 })
 
