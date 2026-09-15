@@ -10,6 +10,10 @@ export function seedStructuredAgentLaunchDraft(
   agent: AgentSessionHandleProvider,
   options: StructuredAgentLaunchOptions
 ): void {
+  // SNC1.3 dev seam never seeds a TUI draft; packaged Orca never sees it.
+  if (agent === 'external') {
+    return
+  }
   if (options.promptDelivery !== 'draft' || !options.prompt) {
     return
   }

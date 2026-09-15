@@ -227,8 +227,10 @@ function isAgentSessionAccountHome(value: unknown): value is AgentSessionAccount
   }
   const home = value as Partial<AgentSessionAccountHome>
   return (
-    (home.variable === 'CLAUDE_CONFIG_DIR' || home.variable === 'CODEX_HOME' ||
-      home.variable === 'EXTERNAL_BRIDGE_DIR' || home.variable === 'PI_STATE_DIR') &&
+    (home.variable === 'CLAUDE_CONFIG_DIR' ||
+      home.variable === 'CODEX_HOME' ||
+      home.variable === 'EXTERNAL_BRIDGE_DIR' ||
+      home.variable === 'PI_STATE_DIR') &&
     isBoundedString(home.path, MAX_PATH_LENGTH)
   )
 }
@@ -343,8 +345,10 @@ export function isAgentSessionRecord(value: unknown): value is AgentSessionRecor
     record.schemaVersion === AGENT_SESSION_RECORD_SCHEMA_VERSION &&
     isAgentSessionId(record.sessionId) &&
     isAgentSessionExecutionLocation(record.location) &&
-    (record.provider === 'claude' || record.provider === 'codex' ||
-      record.provider === 'external' || record.provider === 'pi') &&
+    (record.provider === 'claude' ||
+      record.provider === 'codex' ||
+      record.provider === 'external' ||
+      record.provider === 'pi') &&
     isAgentSessionProviderHandleChain(record.providerHandleChain) &&
     isAgentSessionAccountHome(record.accountHome) &&
     (record.options === undefined || isAgentSessionOptions(record.options)) &&
