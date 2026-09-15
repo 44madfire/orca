@@ -213,18 +213,18 @@ export class ExternalStructuredSessionAdapter implements StructuredAgentSessionA
         [EXTERNAL_BRIDGE_SPAWN_TOKEN_ENV]: input.spawnToken,
       },
     })
+    // Track the live child from birth: probe already spawns the helper, so
+    // every failure below (probe, acquire, pid) settles it through teardown
+    // (proven exit or retained-for-retry) instead of leaking an untracked
+    // helper that a retry would duplicate.
+    this.hosts.set(orcaSessionId, host)
     const support = await host.probeSupport()
     if (!support.available) {
-      await host.dispose().catch(() => undefined)
+      await this.teardown(orcaSessionId)
       throw new AgentSessionPreSpawnError(
         `external bridge unavailable: ${support.reason} (fall back to Pi TUI)`,
       )
     }
-    // Track the live child before the fallible acquire: probe already
-    // spawned it, so an acquire failure must still settle it through
-    // teardown (proven exit or retained-for-retry) instead of leaking an
-    // untracked helper that a retry would duplicate.
-    this.hosts.set(orcaSessionId, host)
     let acquired: {
       sessionId: string
       metadata: { model?: string; thinkingLevel?: string }
