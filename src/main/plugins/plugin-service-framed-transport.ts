@@ -13,8 +13,11 @@ export type JsonlFramerEvents = {
 }
 
 // Strict bounded JSONL framer. Incremental UTF-8 decoding keeps a multibyte
-// character split across chunks intact; an overlong line errors the stream
-// and resyncs at the next LF instead of growing the heap.
+// character split across chunks intact. The byte bound applies to each
+// complete line independently — coalesced responses in one chunk are all
+// valid — and only the trailing partial line is bounded while incomplete.
+// An overlong line errors and resyncs at the next LF instead of growing
+// the heap.
 export function createJsonlFramer(
   serviceId: string,
   maxLineBytes: number,
@@ -22,7 +25,6 @@ export function createJsonlFramer(
 ): { push: (chunk: Buffer) => void; finish: () => void } {
   const decoder = new StringDecoder('utf8')
   let buffer = ''
-  let bufferBytes = 0
   let overlong = false
 
   const emitLine = (line: string): void => {
@@ -41,6 +43,12 @@ export function createJsonlFramer(
     events.onMessage(value)
   }
 
+  const overlongLine = (): void => {
+    events.onFramingError(
+      serviceExecutionError('malformed-response', serviceId, 'sidecar line exceeds bound')
+    )
+  }
+
   const scan = (): void => {
     for (;;) {
       const index = buffer.indexOf('\n')
@@ -50,12 +58,15 @@ export function createJsonlFramer(
       const raw = buffer.slice(0, index)
       buffer = buffer.slice(index + 1)
       if (overlong) {
-        // Dropped the overlong prefix; this LF ends the resync window.
+        // Dropped the overlong tail; this LF ends the resync window.
         overlong = false
-        bufferBytes = Buffer.byteLength(buffer, 'utf8')
         continue
       }
-      bufferBytes = Buffer.byteLength(buffer, 'utf8')
+      if (Buffer.byteLength(raw, 'utf8') > maxLineBytes) {
+        // One overlong line is dropped; the stream continues after it.
+        overlongLine()
+        continue
+      }
       emitLine(raw.endsWith('\r') ? raw.slice(0, -1) : raw)
     }
   }
@@ -63,31 +74,20 @@ export function createJsonlFramer(
   return {
     push(chunk: Buffer): void {
       buffer += decoder.write(chunk)
-      bufferBytes += chunk.length
+      scan()
       if (overlong) {
-        // Still discarding; scan() drops through the resync LF.
-        scan()
+        // Still inside the overlong line: keep nothing while waiting for
+        // its LF, or an LF-less line would grow the heap unchecked.
+        buffer = ''
         return
       }
-      if (bufferBytes > maxLineBytes) {
-        const index = buffer.indexOf('\n')
-        if (index === -1) {
-          overlong = true
-          buffer = ''
-          bufferBytes = 0
-          events.onFramingError(
-            serviceExecutionError('malformed-response', serviceId, 'sidecar line exceeds bound')
-          )
-          return
-        }
-        // Overlong prefix before the first LF: drop through it, keep the rest.
-        buffer = buffer.slice(index + 1)
-        bufferBytes = Buffer.byteLength(buffer, 'utf8')
-        events.onFramingError(
-          serviceExecutionError('malformed-response', serviceId, 'sidecar line exceeds bound')
-        )
+      // Only the incomplete tail is bounded: complete lines above were
+      // already measured one by one.
+      if (Buffer.byteLength(buffer, 'utf8') > maxLineBytes) {
+        overlong = true
+        buffer = ''
+        overlongLine()
       }
-      scan()
     },
     finish(): void {
       buffer += decoder.end()
@@ -102,7 +102,6 @@ export function createJsonlFramer(
       }
       emitLine(buffer.endsWith('\r') ? buffer.slice(0, -1) : buffer)
       buffer = ''
-      bufferBytes = 0
     }
   }
 }

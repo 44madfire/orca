@@ -256,12 +256,14 @@ function makeFakeWslChild(spec: ProcessSpec, pid: number): FakeWslChild {
 }
 
 function nonceOf(spec: ProcessSpec): string {
-  const marker = 'orca-sidecar-supervisor'
-  const index = spec.args?.indexOf(marker) ?? -1
-  if (index === -1 || !spec.args?.[index + 1]) {
+  // The lease travels at exec time through env(1), never as a bare word.
+  const pair = spec.args?.find(
+    (arg) => typeof arg === 'string' && arg.startsWith('ORCA_SIDECAR_NONCE=')
+  )
+  if (!pair) {
     throw new Error('fake wsl child saw no supervisor nonce')
   }
-  return spec.args![index + 1] as string
+  return pair.slice('ORCA_SIDECAR_NONCE='.length)
 }
 
 const WSL_RUNTIME = {
@@ -272,23 +274,36 @@ const WSL_RUNTIME = {
   linuxPath: '/home/you/repo'
 } as const
 
-// Fake guest /proc: pids present in `owned` prove the given nonce, every
-// other pid reads as recycled. Unlisted distros throw (unknown identity).
+// Fake guest filesystem mirroring verifyGuestProcessNonce's protocol:
+// `test -d` probes existence, `cat` probes readability + content.
 function fakeGuestRunner(
   owned: Map<number, string>,
-  onVerify?: (pid: number) => void
+  onVerify?: (pid: number) => void,
+  opts?: { present?: Set<number>; unreadable?: Set<number> }
 ): (
   distro: string
 ) => (args: readonly string[]) => Promise<{ code: number | null; stdout: string }> {
+  // Lookups stay live on `owned`: tests populate it when the fake supervisor
+  // reports, which is after this runner is constructed.
+  const isPresent = (pid: number): boolean => (opts?.present ?? owned).has(pid)
+  const isReadable = (pid: number): boolean => !opts?.unreadable?.has(pid) && owned.has(pid)
   return () => async (args) => {
-    const target = /\/proc\/(\d+)\/environ/.exec(args.join(' '))
-    const pid = target ? Number(target[1]) : Number.NaN
+    if (args[0] === 'test') {
+      const dir = args[2] ?? ''
+      if (dir === '/proc') {
+        return { code: 0, stdout: '' }
+      }
+      const pid = Number(/^\/proc\/(\d+)$/.exec(dir)?.[1])
+      onVerify?.(pid)
+      return { code: isPresent(pid) ? 0 : 1, stdout: '' }
+    }
+    const pid = Number(/^\/proc\/(\d+)\/environ$/.exec(args[1] ?? '')?.[1])
     onVerify?.(pid)
-    const nonce = owned.get(pid)
-    if (!nonce) {
+    if (!isReadable(pid)) {
       return { code: 1, stdout: '' }
     }
-    return { code: 0, stdout: `PATH=/usr/bin\0ORCA_SIDECAR_NONCE=${nonce}\0` }
+    const nonce = owned.get(pid)
+    return { code: 0, stdout: `PATH=/usr/bin\0ORCA_SIDECAR_NONCE=${nonce ?? '?'}\0` }
   }
 }
 
@@ -297,6 +312,7 @@ function wslController(
   limits?: RegisteredSidecarService['limits'],
   extra?: {
     ownedGuests?: Map<number, string>
+    unreadableGuests?: Set<number>
     onVerify?: (pid: number) => void
     runnerImpl?: (
       distro: string
@@ -326,7 +342,9 @@ function wslController(
         isPidAlive: () => false,
         terminateTree: async () => true
       },
-      guestRunnerImpl: extra?.runnerImpl ?? fakeGuestRunner(owned, extra?.onVerify),
+      guestRunnerImpl:
+        extra?.runnerImpl ??
+        fakeGuestRunner(owned, extra?.onVerify, { unreadable: extra?.unreadableGuests }),
       sweepGuestImpl: async (distro, script) => {
         extra?.sweeps?.push({ distro, script })
         return extra?.sweepImpl ? extra.sweepImpl(distro, script) : true
@@ -389,6 +407,11 @@ describe('wsl sidecar lifecycle', () => {
       expect(children[0].spec.program).toBe('wsl.exe')
       expect(children[0].spec.args).toContain('--exec')
       expect(children[0].spec.args?.join(' ')).not.toContain('-ilc')
+      // Lease at exec time through env(1): what /proc environ can prove.
+      const guestArgv = children[0].spec.args ?? []
+      const envIndex = guestArgv.indexOf('/usr/bin/env')
+      expect(envIndex).toBeGreaterThanOrEqual(0)
+      expect(guestArgv[envIndex + 1]).toMatch(/^ORCA_SIDECAR_NONCE=[A-Za-z0-9_-]+$/)
     } finally {
       await controller.dispose()
     }
@@ -501,7 +524,16 @@ describe('wsl sidecar lifecycle', () => {
       const order = events.filter(
         (event) => event.startsWith('verify:') || event === 'sweep' || event.startsWith('spawn')
       )
-      expect(order).toEqual(['spawn1', 'verify:100', 'verify:101', 'sweep', 'spawn2'])
+      // Existence then content per pid, both before the sweep.
+      expect(order).toEqual([
+        'spawn1',
+        'verify:100',
+        'verify:100',
+        'verify:101',
+        'verify:101',
+        'sweep',
+        'spawn2'
+      ])
     } finally {
       await controller.dispose()
     }
@@ -660,6 +692,33 @@ describe('wsl sidecar lifecycle', () => {
       expect(Date.now() - startedAt).toBeLessThan(2500)
     } finally {
       await controller.dispose()
+    }
+  })
+
+  it('an unreadable live identity refuses the kill as teardown-unverified', async () => {
+    // EACCES-shaped guest: the /proc entry exists but environ is locked.
+    const owned = new Map<number, string>()
+    const { controller, children } = wslController(
+      (child) => {
+        const nonce = nonceOf(child.spec)
+        owned.set(100, nonce)
+        holdableResponder(child)
+        child.stdout.write(`ORCA_SIDECAR_READY pid=100 nonce=${nonce}\n`)
+      },
+      undefined,
+      { ownedGuests: owned, unreadableGuests: new Set([100]) }
+    )
+    try {
+      expect(await controller.invoke({ ping: 1 })).toEqual({ ping: 1 })
+      const pending = controller.invoke({ hold: true })
+      pending.catch(() => undefined)
+      children[0].closeWith(1)
+      expect(await codeOf(pending)).toBe('crashed')
+      // Alive as far as anyone can prove: no kill, no replacement.
+      expect(await codeOf(controller.invoke({ after: 'crash' }))).toBe('teardown-unverified')
+      expect(children).toHaveLength(1)
+    } finally {
+      await controller.dispose().catch(() => undefined)
     }
   })
 

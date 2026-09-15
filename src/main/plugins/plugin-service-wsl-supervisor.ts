@@ -24,14 +24,15 @@ export type SupervisorControlEvent =
 // can never be mistaken for the current one.
 export function buildSupervisorScript(): string {
   return [
-    'nonce="$1"; guestCwd="$2"; shift 2',
+    'nonce="${ORCA_SIDECAR_NONCE:-}"; guestCwd="$1"; shift',
+    // The lease must arrive at exec time (the host runs the shell through
+    // `env VAR=...`): /proc/<pid>/environ reflects the exec environment, so
+    // an export here could never authenticate the supervisor itself. A
+    // missing lease exits before READY so the host reports start-failed.
+    'if [ -z "$nonce" ]; then exit 127; fi',
     // The guest cwd comes from the resolved runtime, never the panel. A
     // failed cd exits before READY so the host reports start-failed.
     'if [ -n "$guestCwd" ]; then cd "$guestCwd" || exit 127; fi',
-    // Exported (not command-prefixed) so the supervisor's own /proc environ
-    // also carries the lease: the host's pre-kill ownership check must prove
-    // the supervisor pid too, and the service inherits it either way.
-    `export ${SIDECAR_NONCE_ENV}="$nonce"`,
     // Duplicating the host pipe to fd 3 before spawning: a background job
     // with no explicit stdin redirection reads /dev/null under
     // non-interactive sh, which would starve the service of requests.
@@ -53,17 +54,27 @@ export function buildSupervisorScript(): string {
   ].join('\n')
 }
 
+// The supervisor shell is exec'd through env(1) so the lease lands in its
+// exec-time environment: the only thing /proc/<pid>/environ can prove.
+// The nonce travels as one argv word (never through shell expansion or
+// WSLENV), so it must be shell-word-safe; the host mints UUIDs.
+const NONCE_WORD_RE = /^[A-Za-z0-9_-]+$/
+
 export function buildSupervisorArgv(
   nonce: string,
   guestCwd: string | null,
   serviceArgv: readonly string[]
 ): string[] {
+  if (!NONCE_WORD_RE.test(nonce)) {
+    throw new Error('sidecar nonce must be a shell-word-safe token')
+  }
   return [
+    '/usr/bin/env',
+    `${SIDECAR_NONCE_ENV}=${nonce}`,
     '/bin/sh',
     '-c',
     buildSupervisorScript(),
     'orca-sidecar-supervisor',
-    nonce,
     guestCwd ?? '',
     ...serviceArgv
   ]
@@ -112,10 +123,13 @@ export type GuestCommandRunner = (args: readonly string[]) => Promise<{
   stdout: string
 }>
 
-// In-distro identity proof: the supervisor exports the nonce into the
-// service's environment, so /proc/<pid>/environ either names our generation
-// (ours), names nothing (not-ours: recycled pid), or is unreadable (unknown).
-// `unknown` is never evidence of exit — callers hold `unverifiable`.
+// In-distro identity proof: the lease sits in the exec-time environment,
+// so /proc/<pid>/environ either names our generation (ours), names another
+// one (not-ours: recycled pid), or cannot decide. Existence and readability
+// are probed separately: cat(1) reports one exit code for a missing file
+// and for EACCES, and only a missing /proc entry proves absence. A live
+// process with an unreadable identity is `unknown` — never permission to
+// kill, never evidence of exit.
 export async function verifyGuestProcessNonce(
   runner: GuestCommandRunner,
   pid: number,
@@ -126,10 +140,18 @@ export async function verifyGuestProcessNonce(
   }
   let stdout: string
   try {
+    const entry = await runner(['test', '-d', `/proc/${pid}`])
+    if (entry.code !== 0) {
+      // No /proc entry: gone — unless /proc itself is missing, in which
+      // case this host cannot answer at all.
+      const proc = await runner(['test', '-d', '/proc'])
+      return proc.code === 0 ? 'not-ours' : 'unknown'
+    }
     const result = await runner(['cat', `/proc/${pid}/environ`])
     if (result.code !== 0) {
-      // No /proc entry: gone (or never ours). Confirm liveness separately.
-      return 'not-ours'
+      // Present but unreadable (EACCES, ptrace scope, corrupted): alive
+      // as far as anyone can prove, identity withheld.
+      return 'unknown'
     }
     stdout = result.stdout
   } catch {

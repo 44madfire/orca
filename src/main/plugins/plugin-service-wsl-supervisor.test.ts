@@ -30,10 +30,17 @@ describe('supervisor script', () => {
     expect(spawn.args).toContain('--exec')
     expect(spawn.args.join(' ')).not.toContain('-ilc')
     const argv = buildSupervisorArgv('nonce-1', '/home/you/repo', ['/usr/bin/svc'])
-    expect(argv[0]).toBe('/bin/sh')
-    // Nonce and cwd travel as argv, never through wsl.exe expansion or WSLENV.
-    expect(argv).toContain('nonce-1')
+    // The lease enters at exec time through env(1): the only thing
+    // /proc/<pid>/environ can prove about the supervisor itself.
+    expect(argv[0]).toBe('/usr/bin/env')
+    expect(argv[1]).toBe('ORCA_SIDECAR_NONCE=nonce-1')
+    expect(argv).toContain('/bin/sh')
     expect(argv).toContain('/home/you/repo')
+  })
+
+  it('rejects non-word-safe nonces instead of smuggling argv', () => {
+    expect(() => buildSupervisorArgv('a b', null, ['/usr/bin/svc'])).toThrow()
+    expect(() => buildSupervisorArgv('a$b', null, ['/usr/bin/svc'])).toThrow()
   })
 
   it('parses nonce-bound control lines and rejects foreign ones', () => {
@@ -59,31 +66,72 @@ describe('supervisor script', () => {
 })
 
 describe('verifyGuestProcessNonce', () => {
+  // Fake guest filesystem: `present` pids have a /proc entry, `readable`
+  // pids allow reading it, `owned` maps pid to its lease nonce.
+  const guestRunner = ({
+    present = new Set([42]),
+    readable = new Set([42]),
+    owned = new Map([[42, 'n1']]),
+    procfs = true,
+    throws = false
+  }: {
+    present?: Set<number>
+    readable?: Set<number>
+    owned?: Map<number, string>
+    procfs?: boolean
+    throws?: boolean
+  } = {}) => {
+    return async (args: readonly string[]): Promise<{ code: number | null; stdout: string }> => {
+      if (throws) {
+        throw new Error('transport down')
+      }
+      if (args[0] === 'test') {
+        const dir = args[2] ?? ''
+        if (dir === '/proc') {
+          return { code: procfs ? 0 : 1, stdout: '' }
+        }
+        const pid = Number(/^\/proc\/(\d+)$/.exec(dir)?.[1])
+        return { code: present.has(pid) ? 0 : 1, stdout: '' }
+      }
+      const pid = Number(/^\/proc\/(\d+)\/environ$/.exec(args[1] ?? '')?.[1])
+      if (!readable.has(pid)) {
+        return { code: 1, stdout: '' }
+      }
+      const nonce = owned.get(pid)
+      return { code: 0, stdout: `PATH=/usr/bin\0ORCA_SIDECAR_NONCE=${nonce ?? 'other'}\0` }
+    }
+  }
+
   it('proves identity from /proc environ', async () => {
-    const runner = async () => ({
-      code: 0,
-      stdout: `PATH=/usr/bin\0ORCA_SIDECAR_NONCE=n1\0HOME=/home/you\0`
-    })
+    const runner = guestRunner()
     expect(await verifyGuestProcessNonce(runner, 42, 'n1')).toBe('ours')
     expect(await verifyGuestProcessNonce(runner, 42, 'other')).toBe('not-ours')
   })
 
-  it('reads a missing /proc entry as not-ours and failures as unknown', async () => {
-    expect(await verifyGuestProcessNonce(async () => ({ code: 1, stdout: '' }), 42, 'n1')).toBe(
-      'not-ours'
-    )
-    expect(
-      await verifyGuestProcessNonce(
-        async () => {
-          throw new Error('transport down')
-        },
-        42,
-        'n1'
-      )
-    ).toBe('unknown')
-    expect(await verifyGuestProcessNonce(async () => ({ code: 0, stdout: '' }), -1, 'n1')).toBe(
-      'unknown'
-    )
+  it('reads a missing /proc entry as not-ours', async () => {
+    const runner = guestRunner({ present: new Set(), readable: new Set(), owned: new Map() })
+    expect(await verifyGuestProcessNonce(runner, 42, 'n1')).toBe('not-ours')
+  })
+
+  it('reads a live but unreadable identity as unknown, never not-ours', async () => {
+    // EACCES-shaped: the /proc entry exists but environ cannot be read.
+    const runner = guestRunner({ readable: new Set(), owned: new Map() })
+    expect(await verifyGuestProcessNonce(runner, 42, 'n1')).toBe('unknown')
+  })
+
+  it('reads a missing /proc filesystem as unknown', async () => {
+    const runner = guestRunner({
+      present: new Set(),
+      readable: new Set(),
+      owned: new Map(),
+      procfs: false
+    })
+    expect(await verifyGuestProcessNonce(runner, 42, 'n1')).toBe('unknown')
+  })
+
+  it('reads transport failures as unknown', async () => {
+    expect(await verifyGuestProcessNonce(guestRunner({ throws: true }), 42, 'n1')).toBe('unknown')
+    expect(await verifyGuestProcessNonce(guestRunner(), -1, 'n1')).toBe('unknown')
   })
 })
 
@@ -121,10 +169,11 @@ describeWithSh('supervisor protocol under sh', () => {
     const service = `line='{"id":"r1","result":"ok"}'; printf '%s\\n' "$line"; read ignored || true`
     const result = spawnSync(
       'sh',
-      ['-c', buildSupervisorScript(), 'sup', 'test-nonce', '', 'sh', '-c', service],
+      ['-c', buildSupervisorScript(), 'sup', '', 'sh', '-c', service],
       {
         input: '\n',
-        encoding: 'utf8'
+        encoding: 'utf8',
+        env: { ...process.env, ORCA_SIDECAR_NONCE: 'test-nonce' }
       }
     )
     expect(result.status).toBe(0)
@@ -144,10 +193,11 @@ describeWithSh('supervisor protocol under sh', () => {
     const service = 'IFS= read -r req; printf \'{"id":"fixed1","result":"seen"}\\n\''
     const result = spawnSync(
       'sh',
-      ['-c', buildSupervisorScript(), 'sup', 'pipe-nonce', '', 'sh', '-c', service],
+      ['-c', buildSupervisorScript(), 'sup', '', 'sh', '-c', service],
       {
         input: '{"id":"fixed1","params":{}}' + '\n',
-        encoding: 'utf8'
+        encoding: 'utf8',
+        env: { ...process.env, ORCA_SIDECAR_NONCE: 'pipe-nonce' }
       }
     )
     expect(result.status).toBe(0)
@@ -160,9 +210,10 @@ describeWithSh('supervisor protocol under sh', () => {
       'tr "\\0" "\\n" < /proc/$PPID/environ | grep ORCA_SIDECAR_NONCE || echo missing-sup'
     const result = spawnSync(
       'sh',
-      ['-c', buildSupervisorScript(), 'sup', 'sup-nonce', '', 'sh', '-c', service],
+      ['-c', buildSupervisorScript(), 'sup', '', 'sh', '-c', service],
       {
-        encoding: 'utf8'
+        encoding: 'utf8',
+        env: { ...process.env, ORCA_SIDECAR_NONCE: 'sup-nonce' }
       }
     )
     expect(String(result.stdout)).toContain('ORCA_SIDECAR_NONCE=sup-nonce')
@@ -172,9 +223,10 @@ describeWithSh('supervisor protocol under sh', () => {
     const service = 'tr "\\0" "\\n" < /proc/$$/environ | grep ORCA_SIDECAR_NONCE || echo missing'
     const result = spawnSync(
       'sh',
-      ['-c', buildSupervisorScript(), 'sup', 'env-nonce', '', 'sh', '-c', service],
+      ['-c', buildSupervisorScript(), 'sup', '', 'sh', '-c', service],
       {
-        encoding: 'utf8'
+        encoding: 'utf8',
+        env: { ...process.env, ORCA_SIDECAR_NONCE: 'env-nonce' }
       }
     )
     expect(String(result.stdout)).toContain('ORCA_SIDECAR_NONCE=env-nonce')
@@ -183,9 +235,10 @@ describeWithSh('supervisor protocol under sh', () => {
   it('propagates a failing service status', () => {
     const result = spawnSync(
       'sh',
-      ['-c', buildSupervisorScript(), 'sup', 'fail-nonce', '', 'sh', '-c', 'exit 3'],
+      ['-c', buildSupervisorScript(), 'sup', '', 'sh', '-c', 'exit 3'],
       {
-        encoding: 'utf8'
+        encoding: 'utf8',
+        env: { ...process.env, ORCA_SIDECAR_NONCE: 'fail-nonce' }
       }
     )
     expect(result.status).toBe(3)
@@ -202,14 +255,16 @@ describeWithSh('supervisor protocol under sh', () => {
         '-c',
         buildSupervisorScript(),
         'sup',
-        'term-nonce',
         '',
         'sh',
         '-c',
         // exec keeps the service at the supervised pid (no unsupervised middle).
         'exec sleep 30'
       ],
-      { stdio: ['ignore', 'pipe', 'pipe'] }
+      {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, ORCA_SIDECAR_NONCE: 'term-nonce' }
+      }
     )
     let output = ''
     supervised.stdout.on('data', (chunk) => {
@@ -236,11 +291,62 @@ describeWithSh('supervisor protocol under sh', () => {
     }
   })
 
+  // The lease must be provable from OUTSIDE the supervisor (this is what
+  // the host's pre-kill check reads), not merely visible to its children.
+  // POSIX-only: native Windows processes cannot see the MSYS /proc view.
+  const describeWithProcfs = shAvailable() && process.platform !== 'win32' ? it : it.skip
+  describeWithProcfs(
+    'an external process reads the lease from the supervisor environ',
+    async () => {
+      const { readFileSync } = await import('node:fs')
+      const supervised = spawn(
+        'sh',
+        ['-c', buildSupervisorScript(), 'sup', '', 'sh', '-c', 'exec sleep 30'],
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, ORCA_SIDECAR_NONCE: 'ext-nonce' }
+        }
+      )
+      let output = ''
+      supervised.stdout.on('data', (chunk) => {
+        output += String(chunk)
+      })
+      supervised.stderr.on('data', () => undefined)
+      try {
+        let supervisorPid = 0
+        await vi.waitFor(() => {
+          const match = /ORCA_SIDECAR_READY pid=(\d+) nonce=ext-nonce/.exec(output)
+          if (!match) {
+            throw new Error('supervisor has not reported readiness yet')
+          }
+          supervisorPid = Number(match[1])
+        })
+        const environ = readFileSync(`/proc/${supervisorPid}/environ`, 'utf8')
+        expect(environ.split('\0')).toContain('ORCA_SIDECAR_NONCE=ext-nonce')
+      } finally {
+        supervised.kill('SIGKILL')
+      }
+    }
+  )
+
+  it('a missing lease exits before READY', () => {
+    const result = spawnSync(
+      'sh',
+      ['-c', buildSupervisorScript(), 'sup', '', 'sh', '-c', 'exit 0'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, ORCA_SIDECAR_NONCE: '' }
+      }
+    )
+    expect(result.status).toBe(127)
+    expect(String(result.stdout)).not.toContain('ORCA_SIDECAR_READY')
+  })
+
   it('a bad guest cwd exits before READY', () => {
     const result = spawnSync(
       'sh',
-      ['-c', buildSupervisorScript(), 'sup', 'cwd-nonce', '/no/such/dir', 'sh', '-c', 'exit 0'],
-      { encoding: 'utf8' }
+      ['-c', buildSupervisorScript(), 'sup', '/no/such/dir', 'sh', '-c', 'exit 0'],
+      { encoding: 'utf8', env: { ...process.env, ORCA_SIDECAR_NONCE: 'cwd-nonce' } }
     )
     expect(result.status).toBe(127)
     expect(String(result.stdout)).not.toContain('ORCA_SIDECAR_READY')

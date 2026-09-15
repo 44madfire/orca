@@ -46,6 +46,18 @@ describe('createJsonlFramer', () => {
     }
   })
 
+  it('measures each line independently inside one chunk', () => {
+    // Two valid lines, each below the limit, arriving coalesced in a chunk
+    // whose combined bytes exceed it: both must parse, no error raised.
+    const { messages, errors, framer } = collect(32)
+    framer.push(Buffer.from('{"id":"1","result":1}\n{"id":"2","result":2}\n'))
+    expect(errors).toEqual([])
+    expect(messages).toEqual([
+      { id: '1', result: 1 },
+      { id: '2', result: 2 }
+    ])
+  })
+
   it('tolerates CRLF and skips blank lines', () => {
     const { messages, framer } = collect()
     framer.push(Buffer.from('\r\n{"id":"1","result":1}\r\n\r\n'))
@@ -61,7 +73,7 @@ describe('createJsonlFramer', () => {
   })
 
   it('errors an overlong line and resyncs at the next LF', () => {
-    const { messages, errors, framer } = collect(16)
+    const { messages, errors, framer } = collect(30)
     framer.push(Buffer.from('{"id":"way-too-long-for-the-bound"}\n{"id":"2","result":2}\n'))
     expect(errors).toHaveLength(1)
     expect((errors[0] as ServiceExecutionError).code).toBe('malformed-response')
@@ -69,8 +81,8 @@ describe('createJsonlFramer', () => {
   })
 
   it('drops an overlong line that arrives without any LF', () => {
-    const { messages, errors, framer } = collect(8)
-    framer.push(Buffer.from('{"id":"no-lf-yet"'))
+    const { messages, errors, framer } = collect(24)
+    framer.push(Buffer.from('{"id":"definitely-way-too-long-for-the-bound"'))
     expect(errors).toHaveLength(1)
     expect(messages).toEqual([])
     framer.push(Buffer.from('}\n{"id":"2","result":2}\n'))
