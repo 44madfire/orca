@@ -12,7 +12,6 @@ import {
   attachQuiet,
   createGeneration,
   detachGenerationStreams,
-  encodeGenerationRequest,
   failGenerationPending,
   flushGeneration,
   markGenerationGuestChild,
@@ -20,6 +19,7 @@ import {
   openGenerationFramer,
   pushGenerationMessage,
   pushGenerationStdout,
+  sendGenerationRequest,
   type Generation,
   type GenerationStreamHooks,
   type SidecarLifecycleDeps
@@ -28,7 +28,9 @@ import { claimSidecarProcess } from './plugin-service-process-ownership'
 import {
   createGenerationTeardown,
   stopSidecarGeneration,
-  type GenerationTeardown
+  sweepOrphanedGuestList,
+  type GenerationTeardown,
+  type OrphanedGuest
 } from './plugin-service-sidecar-teardown'
 
 export type { SidecarLifecycleDeps } from './plugin-service-sidecar-generation'
@@ -45,6 +47,7 @@ export class ServiceSidecarController {
   private readonly limits: ReturnType<typeof resolveSidecarLimits>
   private readonly deps: SidecarLifecycleDeps
   private current: Generation | null = null
+  private orphans: OrphanedGuest[] = []
   private generationCounter = 0
   private requestCounter = 0
   private tail: Promise<void> = Promise.resolve()
@@ -79,61 +82,22 @@ export class ServiceSidecarController {
       throw serviceExecutionError('overloaded', this.serviceId, 'too many pending requests')
     }
     const id = `${gen.id}:${this.requestCounter++}`
-    const encoded = encodeGenerationRequest(
-      id,
-      payload,
-      this.serviceId,
-      this.limits.maxMessageBytes
-    )
     const stdin = gen.child?.stdin
     if (!stdin) {
       throw serviceExecutionError('crashed', this.serviceId, 'sidecar is not running')
     }
-    const timeoutMs = options.timeoutMs ?? this.limits.requestTimeoutMs
-    return new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        if (gen.pending.delete(id)) {
-          cleanup()
-          reject(serviceExecutionError('timeout', this.serviceId))
-        }
-      }, timeoutMs)
-      timer.unref?.()
-      // Wrapped settle removes the abort listener, so a caller-shared
-      // signal never accumulates listeners across invokes.
-      const cleanup = (): void => {
-        clearTimeout(timer)
-        options.signal?.removeEventListener('abort', onAbort)
-      }
-      const onAbort = (): void => {
-        if (gen.pending.delete(id)) {
-          cleanup()
-          reject(serviceExecutionError('cancelled', this.serviceId))
-        }
-      }
-      gen.pending.set(id, {
-        timer,
-        resolve: (value) => {
-          cleanup()
-          resolve(value)
-        },
-        reject: (error) => {
-          cleanup()
-          reject(error)
-        }
-      })
-      options.signal?.addEventListener('abort', onAbort, { once: true })
-      try {
-        stdin.write(encoded)
-      } catch {
-        clearTimeout(timer)
-        gen.pending.delete(id)
-        throw serviceExecutionError('crashed', this.serviceId, 'sidecar is not running')
-      }
+    return sendGenerationRequest(gen, id, payload, {
+      serviceId: this.serviceId,
+      maxMessageBytes: this.limits.maxMessageBytes,
+      timeoutMs: options.timeoutMs ?? this.limits.requestTimeoutMs,
+      signal: options.signal,
+      send: (bytes) => stdin.write(bytes)
     })
   }
 
   stop(): Promise<void> {
     return this.serialized(async () => {
+      await this.sweepOrphanedGuests()
       await stopSidecarGeneration(this.teardownContext(), this.current)
     })
   }
@@ -141,8 +105,26 @@ export class ServiceSidecarController {
   dispose(): Promise<void> {
     return this.serialized(async () => {
       this.closed = true
+      await this.sweepOrphanedGuests()
       await stopSidecarGeneration(this.teardownContext(), this.current)
     })
+  }
+
+  // Reap guests orphaned by earlier wrapper crashes before this scope
+  // forgets them. A failed sweep keeps the records and fails loud instead
+  // of starting or stopping beside a possibly-live guest.
+  private async sweepOrphanedGuests(): Promise<void> {
+    if (this.orphans.length === 0) {
+      return
+    }
+    this.orphans = await sweepOrphanedGuestList(this.deps, this.orphans)
+    if (this.orphans.length > 0) {
+      throw serviceExecutionError(
+        'teardown-unverified',
+        this.serviceId,
+        'guest processes may survive'
+      )
+    }
   }
 
   private teardownContext(): GenerationTeardown {
@@ -155,8 +137,16 @@ export class ServiceSidecarController {
         if (this.current === gen) {
           this.current = null
         }
-      }
+      },
+      (orphan) => this.noteOrphan(orphan)
     )
+  }
+
+  private noteOrphan(orphan: OrphanedGuest): void {
+    // One record per generation: the sweep is idempotent, the list is not.
+    if (!this.orphans.some((existing) => existing.nonce === orphan.nonce)) {
+      this.orphans.push(orphan)
+    }
   }
 
   private streamHooks(): GenerationStreamHooks {
@@ -190,11 +180,19 @@ export class ServiceSidecarController {
         }
         throw serviceExecutionError('start-failed', this.serviceId, 'sidecar failed to start')
       }
+      // Settle anything left behind (a failed-live generation keeps its
+      // child + claim for exactly this retry) before starting fresh, so a
+      // replacement never starts beside an unverified tree.
+      if (existing) {
+        await stopSidecarGeneration(this.teardownContext(), existing)
+      }
       return this.startGeneration()
     })
   }
 
   private async startGeneration(): Promise<Generation> {
+    // A replacement never starts beside a possibly-live orphan: reap first.
+    await this.sweepOrphanedGuests()
     const platform = this.deps.platform ?? process.platform
     const id = ++this.generationCounter
     const nonce = (this.deps.createNonce ?? randomUUID)()
@@ -232,15 +230,12 @@ export class ServiceSidecarController {
       jobBinder: this.deps.jobBinder ?? null
     })
     if (!claim) {
-      try {
-        child.kill()
-      } catch {
-        /* already gone */
-      }
-      gen.child = null
       const error = serviceExecutionError('start-failed', this.serviceId, 'sidecar failed to start')
       gen.state = 'failed'
       gen.readyReject(error)
+      // Best-effort root kill for the unclaimable child; this teardown path
+      // holds no claim and never throws.
+      await stopSidecarGeneration(this.teardownContext(), gen)
       throw error
     }
     gen.claim = claim
@@ -296,27 +291,42 @@ export class ServiceSidecarController {
     }
     flushGeneration(gen, this.runtime.kind === 'wsl', this.streamHooks())
     detachGenerationStreams(gen)
+    // Losing the wrapper is not losing the guest: preserve the in-distro
+    // identity so restart/stop sweeps the supervisor with proof.
+    if (
+      this.runtime.kind === 'wsl' &&
+      (gen.guestSupervisorPid !== null || gen.guestChildPid !== null)
+    ) {
+      this.noteOrphan({
+        distro: this.runtime.distro,
+        nonce: gen.nonce,
+        supervisorPid: gen.guestSupervisorPid,
+        childPid: gen.guestChildPid
+      })
+    }
+    if (gen.state === 'stopping') {
+      // Owned by an in-flight stopSidecarGeneration: leave child + claim
+      // for its verification instead of stealing them here.
+      return
+    }
     const wasReady = gen.state === 'ready'
-    const stopping = gen.state === 'stopping'
     gen.state = 'failed'
     gen.child = null
-    if (!stopping) {
-      const error =
-        !wasReady && via === 'close'
-          ? serviceExecutionError('start-failed', this.serviceId, 'sidecar exited during startup')
-          : normalizeServiceExecutionError(
-              new Error('sidecar exited'),
-              this.serviceId,
-              wasReady ? 'crashed' : 'start-failed'
-            )
-      gen.readyReject(error)
-      failGenerationPending(
-        gen,
-        wasReady
-          ? error
-          : serviceExecutionError('start-failed', this.serviceId, 'sidecar exited during startup'),
-        true
-      )
-    }
+    const error =
+      !wasReady && via === 'close'
+        ? serviceExecutionError('start-failed', this.serviceId, 'sidecar exited during startup')
+        : normalizeServiceExecutionError(
+            new Error('sidecar exited'),
+            this.serviceId,
+            wasReady ? 'crashed' : 'start-failed'
+          )
+    gen.readyReject(error)
+    failGenerationPending(
+      gen,
+      wasReady
+        ? error
+        : serviceExecutionError('start-failed', this.serviceId, 'sidecar exited during startup'),
+      true
+    )
   }
 }

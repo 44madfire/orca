@@ -13,7 +13,11 @@ import type {
   ProcessOwnershipDeps
 } from './plugin-service-process-ownership'
 import type { SidecarJobBinder } from './plugin-service-windows-job'
-import { isSupervisorControlLine, parseSupervisorLine } from './plugin-service-wsl-supervisor'
+import {
+  isSupervisorControlLine,
+  parseSupervisorLine,
+  type GuestCommandRunner
+} from './plugin-service-wsl-supervisor'
 
 // One generation of a sidecar: its process, its in-flight requests, and its
 // byte routing. The lifecycle owns when generations live; this module owns
@@ -50,6 +54,9 @@ export type SidecarLifecycleDeps = {
   ownership?: ProcessOwnershipDeps
   jobBinder?: SidecarJobBinder | null
   sweepGuestImpl?: (distro: string, script: string) => Promise<boolean>
+  // In-distro ownership proofs for PID-addressed kills; production runs
+  // `cat /proc/<pid>/environ` through wsl.exe bounded.
+  guestRunnerImpl?: (distro: string) => GuestCommandRunner
   platform?: NodeJS.Platform
   createNonce?: () => string
 }
@@ -139,6 +146,64 @@ export function encodeGenerationRequest(
 
 // Native bytes flow straight to the framer; WSL stdout is line-split first
 // so supervisor control lines never reach JSON parsing.
+export type GenerationRequestSend = (bytes: Buffer) => void
+
+// Register one request on a ready generation: timeout, cancellation, and
+// settle all clean up after themselves, so a caller-shared AbortSignal never
+// accumulates listeners across invokes.
+export function sendGenerationRequest(
+  gen: Generation,
+  requestId: string,
+  payload: unknown,
+  opts: {
+    serviceId: string
+    maxMessageBytes: number
+    timeoutMs: number
+    signal?: AbortSignal
+    send: GenerationRequestSend
+  }
+): Promise<unknown> {
+  const encoded = encodeGenerationRequest(requestId, payload, opts.serviceId, opts.maxMessageBytes)
+  return new Promise<unknown>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (gen.pending.delete(requestId)) {
+        cleanup()
+        reject(serviceExecutionError('timeout', opts.serviceId))
+      }
+    }, opts.timeoutMs)
+    timer.unref?.()
+    const cleanup = (): void => {
+      clearTimeout(timer)
+      opts.signal?.removeEventListener('abort', onAbort)
+    }
+    const onAbort = (): void => {
+      if (gen.pending.delete(requestId)) {
+        cleanup()
+        reject(serviceExecutionError('cancelled', opts.serviceId))
+      }
+    }
+    gen.pending.set(requestId, {
+      timer,
+      resolve: (value) => {
+        cleanup()
+        resolve(value)
+      },
+      reject: (error) => {
+        cleanup()
+        reject(error)
+      }
+    })
+    opts.signal?.addEventListener('abort', onAbort, { once: true })
+    try {
+      opts.send(encoded)
+    } catch {
+      clearTimeout(timer)
+      gen.pending.delete(requestId)
+      throw serviceExecutionError('crashed', opts.serviceId, 'sidecar is not running')
+    }
+  })
+}
+
 export function pushGenerationStdout(
   gen: Generation,
   chunk: Buffer,

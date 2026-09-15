@@ -133,14 +133,20 @@ export async function verifyGuestProcessNonce(
   return stdout.split('\0').includes(token) ? 'ours' : 'not-ours'
 }
 
-// One guest invocation that kills supervisor + child, escalates to -9, and
-// reports who is still alive. The host runs it bounded (runProcess timeout)
-// and treats any surviving pid as teardown-unverified.
-export function buildGuestSweepScript(supervisorPid: number, childPid: number | null): string {
-  const targets =
-    childPid && childPid !== supervisorPid ? `${supervisorPid} ${childPid}` : `${supervisorPid}`
+// One guest invocation that kills the proven-ours targets, escalates to
+// -9, and reports who is still alive. The host runs it bounded (runProcess
+// timeout) and treats any surviving pid as teardown-unverified. Either pid
+// may be null when only the other was proven ours.
+export function buildGuestSweepScript(
+  supervisorPid: number | null,
+  childPid: number | null
+): string {
+  const targets = [supervisorPid, childPid].filter(
+    (pid): pid is number => Number.isInteger(pid) && (pid as number) > 0
+  )
+  const unique = [...new Set(targets)].join(' ')
   return [
-    `targets="${targets}"`,
+    `targets="${unique}"`,
     'for p in $targets; do kill "$p" 2>/dev/null; done',
     'i=0; while [ "$i" -lt 20 ]; do',
     '  alive=""; for p in $targets; do kill -0 "$p" 2>/dev/null && alive="$alive $p"; done',

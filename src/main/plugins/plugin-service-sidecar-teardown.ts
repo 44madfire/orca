@@ -7,7 +7,12 @@ import {
   type ClaimedSidecarProcess
 } from './plugin-service-process-ownership'
 import type { SidecarJobBinder } from './plugin-service-windows-job'
-import { buildGuestSweepScript, parseGuestSweepOutput } from './plugin-service-wsl-supervisor'
+import {
+  buildGuestSweepScript,
+  parseGuestSweepOutput,
+  verifyGuestProcessNonce,
+  type GuestCommandRunner
+} from './plugin-service-wsl-supervisor'
 import {
   detachGenerationStreams,
   failGenerationPending,
@@ -15,12 +20,23 @@ import {
   type SidecarLifecycleDeps
 } from './plugin-service-sidecar-generation'
 
+// A WSL guest that outlived its wrapper. The wrapper's death is not the
+// guest's: the VM outlives wsl.exe, so the nonce + in-distro pids must be
+// preserved and swept with proof before the scope forgets them.
+export type OrphanedGuest = {
+  distro: string
+  nonce: string
+  supervisorPid: number | null
+  childPid: number | null
+}
+
 export type GenerationTeardown = {
   serviceId: string
   runtime: ServiceWorktreeRuntime
   deps: SidecarLifecycleDeps
   isCurrent: (gen: Generation | null) => boolean
   clearCurrent: (gen: Generation) => void
+  noteOrphan: (orphan: OrphanedGuest) => void
 }
 
 export function createGenerationTeardown(
@@ -28,12 +44,14 @@ export function createGenerationTeardown(
   runtime: ServiceWorktreeRuntime,
   deps: SidecarLifecycleDeps,
   isCurrent: (gen: Generation | null) => boolean,
-  clearCurrent: (gen: Generation) => void
+  clearCurrent: (gen: Generation) => void,
+  noteOrphan: (orphan: OrphanedGuest) => void
 ): GenerationTeardown {
-  return { serviceId, runtime, deps, isCurrent, clearCurrent }
+  return { serviceId, runtime, deps, isCurrent, clearCurrent, noteOrphan }
 }
 
 const GUEST_SWEEP_TIMEOUT_MS = 12_000
+const GUEST_PROBE_TIMEOUT_MS = 8_000
 
 // End one generation: fail its callers, close stdin, sweep the guest first
 // (WSL), then tear the wrapper down through ownership-verified teardown. Any
@@ -70,7 +88,10 @@ export async function stopSidecarGeneration(
     ctx.runtime.kind === 'wsl' &&
     (gen.guestSupervisorPid !== null || gen.guestChildPid !== null)
   ) {
-    if (!(await sweepGuest(ctx, gen))) {
+    if (!(await sweepVerifiedGuest(ctx.deps, guestTarget(ctx, gen)))) {
+      // Identity is preserved in the orphan record so a later stop/dispose
+      // retries the sweep instead of leaking the guest behind this throw.
+      ctx.noteOrphan(guestTarget(ctx, gen))
       markGone(ctx, gen)
       throw serviceExecutionError(
         'teardown-unverified',
@@ -86,16 +107,95 @@ export async function stopSidecarGeneration(
     })
     releaseJob(ctx.deps.jobBinder, gen.claim, gen.id)
     detachGenerationStreams(gen)
-    gen.child = null
-    markGone(ctx, gen)
     if (verdict === 'unverifiable') {
+      // Keep child + claim + current: a retrying dispose re-attempts this
+      // exact teardown instead of succeeding over a possibly-live tree.
+      gen.state = 'failed'
       throw serviceExecutionError('teardown-unverified', ctx.serviceId, 'sidecar may survive')
     }
+    gen.child = null
+    markGone(ctx, gen)
     return
   }
   killGenerationRoot(gen)
   detachGenerationStreams(gen)
   markGone(ctx, gen)
+}
+
+function guestTarget(ctx: GenerationTeardown, gen: Generation): OrphanedGuest {
+  return {
+    distro: ctx.runtime.kind === 'wsl' ? ctx.runtime.distro : '',
+    nonce: gen.nonce,
+    supervisorPid: gen.guestSupervisorPid,
+    childPid: gen.guestChildPid
+  }
+}
+
+// Sweep previously orphaned guests (wrapper lost before teardown). Returns
+// the unswept remainder; a non-empty remainder is teardown-unverified.
+export async function sweepOrphanedGuestList(
+  deps: SidecarLifecycleDeps,
+  orphans: readonly OrphanedGuest[]
+): Promise<OrphanedGuest[]> {
+  const remaining: OrphanedGuest[] = []
+  for (const orphan of orphans) {
+    const swept = await sweepVerifiedGuest(deps, orphan).catch(() => false)
+    if (!swept) {
+      remaining.push(orphan)
+    }
+  }
+  return remaining
+}
+
+// Verified guest sweep: prove nonce ownership in-distro BEFORE signaling.
+// A recycled pid reads as not-ours (our process is gone: nothing to kill);
+// an unreadable identity reads as unknown (never permission to kill).
+async function sweepVerifiedGuest(
+  deps: SidecarLifecycleDeps,
+  target: OrphanedGuest
+): Promise<boolean> {
+  if (!target.distro) {
+    return true
+  }
+  const runner = (deps.guestRunnerImpl ?? defaultGuestRunner)(target.distro)
+  // verifyGuestProcessNonce never rejects: transport failures read as
+  // unknown, which below refuses the kill.
+  const supervisor =
+    target.supervisorPid === null
+      ? 'not-ours'
+      : await verifyGuestProcessNonce(runner, target.supervisorPid, target.nonce)
+  const child =
+    target.childPid === null
+      ? 'not-ours'
+      : await verifyGuestProcessNonce(runner, target.childPid, target.nonce)
+  if (supervisor === 'unknown' || child === 'unknown') {
+    return false
+  }
+  if (supervisor === 'not-ours' && child === 'not-ours') {
+    return true
+  }
+  const script = buildGuestSweepScript(
+    supervisor === 'ours' ? target.supervisorPid : null,
+    child === 'ours' ? target.childPid : null
+  )
+  const sweep = deps.sweepGuestImpl ?? defaultSweepGuest
+  try {
+    return await sweep(target.distro, script)
+  } catch {
+    return false
+  }
+}
+
+function defaultGuestRunner(distro: string): GuestCommandRunner {
+  return async (args) => {
+    const result = await runProcess({
+      program: 'wsl.exe',
+      args: buildWslExecArgs(distro, [...args]),
+      timeoutMs: GUEST_PROBE_TIMEOUT_MS,
+      maxOutputBytes: 64 * 1024
+    })
+    return { code: result.code, stdout: result.stdout }
+  }
 }
 
 function markGone(ctx: GenerationTeardown, gen: Generation): void {
@@ -110,20 +210,6 @@ function killGenerationRoot(gen: Generation): void {
     gen.child?.kill()
   } catch {
     /* already gone */
-  }
-}
-
-async function sweepGuest(ctx: GenerationTeardown, gen: Generation): Promise<boolean> {
-  const distro = ctx.runtime.kind === 'wsl' ? ctx.runtime.distro : null
-  if (!distro || gen.guestSupervisorPid === null) {
-    return true
-  }
-  const script = buildGuestSweepScript(gen.guestSupervisorPid, gen.guestChildPid)
-  const sweep = ctx.deps.sweepGuestImpl ?? defaultSweepGuest
-  try {
-    return await sweep(distro, script)
-  } catch {
-    return false
   }
 }
 

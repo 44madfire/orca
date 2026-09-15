@@ -99,6 +99,9 @@ describe('guest sweep', () => {
       alive: [100, 101]
     })
     expect(parseGuestSweepOutput('garbage\n')).toEqual({ done: false, alive: [] })
+    // Only the proven-ours pid is signaled; a recycled co-target is excluded.
+    const solo = buildGuestSweepScript(null, 101)
+    expect(solo).toContain('targets="101"')
   })
 })
 

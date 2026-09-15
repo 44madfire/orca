@@ -272,12 +272,42 @@ const WSL_RUNTIME = {
   linuxPath: '/home/you/repo'
 } as const
 
+// Fake guest /proc: pids present in `owned` prove the given nonce, every
+// other pid reads as recycled. Unlisted distros throw (unknown identity).
+function fakeGuestRunner(
+  owned: Map<number, string>,
+  onVerify?: (pid: number) => void
+): (
+  distro: string
+) => (args: readonly string[]) => Promise<{ code: number | null; stdout: string }> {
+  return () => async (args) => {
+    const target = /\/proc\/(\d+)\/environ/.exec(args.join(' '))
+    const pid = target ? Number(target[1]) : Number.NaN
+    onVerify?.(pid)
+    const nonce = owned.get(pid)
+    if (!nonce) {
+      return { code: 1, stdout: '' }
+    }
+    return { code: 0, stdout: `PATH=/usr/bin\0ORCA_SIDECAR_NONCE=${nonce}\0` }
+  }
+}
+
 function wslController(
   onSpawn: (child: FakeWslChild) => void,
-  limits?: RegisteredSidecarService['limits']
+  limits?: RegisteredSidecarService['limits'],
+  extra?: {
+    ownedGuests?: Map<number, string>
+    onVerify?: (pid: number) => void
+    runnerImpl?: (
+      distro: string
+    ) => (args: readonly string[]) => Promise<{ code: number | null; stdout: string }>
+    sweepImpl?: (distro: string, script: string) => Promise<boolean>
+    sweeps?: { distro: string; script: string }[]
+  }
 ): { controller: ServiceSidecarController; children: FakeWslChild[] } {
   const children: FakeWslChild[] = []
   let pid = 5000
+  const owned = extra?.ownedGuests ?? new Map<number, string>()
   const controller = new ServiceSidecarController(
     'svc.wsl',
     { ...WSL_RUNTIME },
@@ -296,10 +326,36 @@ function wslController(
         isPidAlive: () => false,
         terminateTree: async () => true
       },
-      sweepGuestImpl: async () => true
+      guestRunnerImpl: extra?.runnerImpl ?? fakeGuestRunner(owned, extra?.onVerify),
+      sweepGuestImpl: async (distro, script) => {
+        extra?.sweeps?.push({ distro, script })
+        return extra?.sweepImpl ? extra.sweepImpl(distro, script) : true
+      }
     }
   )
   return { controller, children }
+}
+
+// Responder that leaves `hold` requests in-flight so a crash lands on a
+// live request; awaiting its failure proves crash processing finished.
+function holdableResponder(child: FakeWslChild): void {
+  let buffer = ''
+  child.stdin.on('data', (chunk: Buffer) => {
+    buffer += String(chunk)
+    let index: number
+    while ((index = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, index)
+      buffer = buffer.slice(index + 1)
+      if (!line.trim()) {
+        continue
+      }
+      const msg = JSON.parse(line) as { id: string; params: unknown }
+      if ((msg.params as { hold?: boolean } | null)?.hold === true) {
+        continue
+      }
+      child.stdout.write(`${JSON.stringify({ id: msg.id, result: msg.params })}\n`)
+    }
+  })
 }
 
 function answerRequests(child: FakeWslChild): void {
@@ -395,6 +451,167 @@ describe('wsl sidecar lifecycle', () => {
       // Deterministic restart: the next invoke spawns exactly one new wrapper.
       expect(await controller.invoke({ after: 'crash' })).toEqual({ after: 'crash' })
       expect(children).toHaveLength(2)
+    } finally {
+      await controller.dispose()
+    }
+  })
+
+  it('a wrapper crash reaps the orphaned guest before restart, verified first', async () => {
+    const events: string[] = []
+    const sweeps: { distro: string; script: string }[] = []
+    const owned = new Map<number, string>()
+    let spawns = 0
+    const { controller, children } = wslController(
+      (child) => {
+        spawns += 1
+        events.push(`spawn${spawns}`)
+        const nonce = nonceOf(child.spec)
+        if (spawns === 1) {
+          owned.set(100, nonce)
+          owned.set(101, nonce)
+        }
+        holdableResponder(child)
+        child.stdout.write(`ORCA_SIDECAR_READY pid=100 nonce=${nonce}\n`)
+        child.stdout.write(`ORCA_SIDECAR_CHILD pid=101 nonce=${nonce}\n`)
+      },
+      undefined,
+      {
+        ownedGuests: owned,
+        sweeps,
+        onVerify: (pid) => events.push(`verify:${pid}`),
+        // The helper records the script; here only the ordering event matters.
+        sweepImpl: async () => {
+          events.push('sweep')
+          return true
+        }
+      }
+    )
+    try {
+      expect(await controller.invoke({ ping: 1 })).toEqual({ ping: 1 })
+      const pending = controller.invoke({ hold: true })
+      pending.catch(() => undefined)
+      children[0].closeWith(1)
+      expect(await codeOf(pending)).toBe('crashed')
+      // Restart reaps the lost guest first: verify, then sweep, then respawn.
+      expect(await controller.invoke({ after: 'crash' })).toEqual({ after: 'crash' })
+      expect(children).toHaveLength(2)
+      expect(sweeps).toHaveLength(1)
+      expect(sweeps[0].script).toContain('100')
+      expect(sweeps[0].script).toContain('101')
+      const order = events.filter(
+        (event) => event.startsWith('verify:') || event === 'sweep' || event.startsWith('spawn')
+      )
+      expect(order).toEqual(['spawn1', 'verify:100', 'verify:101', 'sweep', 'spawn2'])
+    } finally {
+      await controller.dispose()
+    }
+  })
+
+  it('recycled guest pids are never signaled', async () => {
+    const sweeps: { distro: string; script: string }[] = []
+    const { controller, children } = wslController(
+      (child) => {
+        const nonce = nonceOf(child.spec)
+        holdableResponder(child)
+        child.stdout.write(`ORCA_SIDECAR_READY pid=100 nonce=${nonce}\n`)
+        child.stdout.write(`ORCA_SIDECAR_CHILD pid=101 nonce=${nonce}\n`)
+      },
+      undefined,
+      { sweeps }
+    )
+    try {
+      expect(await controller.invoke({ ping: 1 })).toEqual({ ping: 1 })
+      const pending = controller.invoke({ hold: true })
+      pending.catch(() => undefined)
+      children[0].closeWith(1)
+      expect(await codeOf(pending)).toBe('crashed')
+      // Both pids recycled (no /proc entry): nothing to kill, restart proceeds.
+      expect(await controller.invoke({ after: 'crash' })).toEqual({ after: 'crash' })
+      expect(children).toHaveLength(2)
+      expect(sweeps).toEqual([])
+    } finally {
+      await controller.dispose()
+    }
+  })
+
+  it('unknown guest identity fails restart as teardown-unverified', async () => {
+    const { controller, children } = wslController(
+      (child) => {
+        const nonce = nonceOf(child.spec)
+        holdableResponder(child)
+        child.stdout.write(`ORCA_SIDECAR_READY pid=100 nonce=${nonce}\n`)
+      },
+      undefined,
+      {
+        runnerImpl: () => async () => {
+          throw new Error('wsl.exe transport down')
+        }
+      }
+    )
+    try {
+      expect(await controller.invoke({ ping: 1 })).toEqual({ ping: 1 })
+      const pending = controller.invoke({ hold: true })
+      pending.catch(() => undefined)
+      children[0].closeWith(1)
+      expect(await codeOf(pending)).toBe('crashed')
+      // Identity unreadable: no kill is attempted, no replacement starts.
+      expect(await codeOf(controller.invoke({ after: 'crash' }))).toBe('teardown-unverified')
+      expect(children).toHaveLength(1)
+    } finally {
+      await controller.dispose().catch(() => undefined)
+    }
+  })
+
+  it('a failed guest sweep fails restart as teardown-unverified', async () => {
+    const owned = new Map<number, string>()
+    const { controller, children } = wslController(
+      (child) => {
+        const nonce = nonceOf(child.spec)
+        owned.set(100, nonce)
+        holdableResponder(child)
+        child.stdout.write(`ORCA_SIDECAR_READY pid=100 nonce=${nonce}\n`)
+      },
+      undefined,
+      {
+        ownedGuests: owned,
+        sweepImpl: async () => false
+      }
+    )
+    try {
+      expect(await controller.invoke({ ping: 1 })).toEqual({ ping: 1 })
+      const pending = controller.invoke({ hold: true })
+      pending.catch(() => undefined)
+      children[0].closeWith(1)
+      expect(await codeOf(pending)).toBe('crashed')
+      expect(await codeOf(controller.invoke({ after: 'crash' }))).toBe('teardown-unverified')
+      expect(children).toHaveLength(1)
+    } finally {
+      await controller.dispose().catch(() => undefined)
+    }
+  })
+
+  it('dispose sweeps a crash-orphaned guest', async () => {
+    const sweeps: { distro: string; script: string }[] = []
+    const owned = new Map<number, string>()
+    const { controller, children } = wslController(
+      (child) => {
+        const nonce = nonceOf(child.spec)
+        owned.set(100, nonce)
+        holdableResponder(child)
+        child.stdout.write(`ORCA_SIDECAR_READY pid=100 nonce=${nonce}\n`)
+      },
+      undefined,
+      { ownedGuests: owned, sweeps }
+    )
+    try {
+      expect(await controller.invoke({ ping: 1 })).toEqual({ ping: 1 })
+      const pending = controller.invoke({ hold: true })
+      pending.catch(() => undefined)
+      children[0].closeWith(1)
+      expect(await codeOf(pending)).toBe('crashed')
+      await controller.dispose()
+      expect(sweeps).toHaveLength(1)
+      expect(sweeps[0].script).toContain('100')
     } finally {
       await controller.dispose()
     }

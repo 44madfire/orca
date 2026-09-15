@@ -97,16 +97,15 @@ export function createSidecarServiceHandler(
       entryIds: () => [...scopes.keys()],
       closeEntry: async (id) => {
         const controller = scopes.get(id)
-        scopes.delete(id)
         if (!controller) {
           return true
         }
-        try {
-          await controller.dispose()
-          return true
-        } catch {
-          return false
-        }
+        // Delete only after disposal succeeds: closeProcessRegistry
+        // decides retries from hasEntries, so an early delete would both
+        // swallow a teardown failure and lose the scope needed to retry.
+        await controller.dispose()
+        scopes.delete(id)
+        return true
       },
       failureMessage: `service ${registration.serviceId} teardown-unverified: sidecars may survive`
     })

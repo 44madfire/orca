@@ -119,6 +119,50 @@ describe('createSidecarServiceHandler', () => {
     }
   })
 
+  it('dispose reports teardown failure and retains the scope for retry', async () => {
+    const seen: ServiceWorktreeRuntime[] = []
+    const spawned: { kill: () => void }[] = []
+    let terminations = 0
+    const handler = createSidecarServiceHandler(echoRegistration(seen), {
+      resolveWorktree: async () => worktree('wt-a'),
+      runtimeProbe: { platform: 'linux' },
+      lifecycle: {
+        spawnImpl: (spec) => {
+          const child = spawnProcess(spec)
+          spawned.push(child)
+          return child
+        },
+        ownership: {
+          terminateTree: async () => {
+            terminations += 1
+            return false
+          },
+          readCreationTimeMs: async () => 111,
+          isPidAlive: () => true,
+          verifyPollMs: 1,
+          verifyDeadlineMs: 5
+        }
+      }
+    })
+    try {
+      expect(await handler({ n: 1 }, { pluginId: 'p', serviceId: 'svc.echo' })).toEqual({ n: 1 })
+      // The kill cannot be verified: dispose must fail loud, keep the scope,
+      // and retry the exact teardown on the next dispose.
+      await expect(handler.dispose()).rejects.toThrow('teardown-unverified')
+      expect(terminations).toBeGreaterThanOrEqual(3)
+      await expect(handler.dispose()).rejects.toThrow('teardown-unverified')
+      expect(terminations).toBeGreaterThanOrEqual(6)
+    } finally {
+      for (const child of spawned) {
+        try {
+          child.kill()
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+  })
+
   it('dispose leaves no scope behind and restarts cleanly', async () => {
     const seen: ServiceWorktreeRuntime[] = []
     const handler = createSidecarServiceHandler(echoRegistration(seen), {
