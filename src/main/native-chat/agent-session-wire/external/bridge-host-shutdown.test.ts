@@ -26,6 +26,11 @@ class SwallowingProc {
     this.listeners.delete(fn)
     return this
   }
+  emitExit(code: number | null, signal: string | null): void {
+    for (const fn of [...this.listeners]) {
+      ;(fn as (...args: unknown[]) => void)(code, signal)
+    }
+  }
 }
 
 function hostWithSwallower(): { host: BridgeHost; proc: SwallowingProc } {
@@ -77,5 +82,24 @@ describe('BridgeHost unproven-exit shutdown', () => {
     // A late observed exit settles teardown.
     ;(host as unknown as { exited: unknown }).exited = { code: null, signal: 'SIGKILL' }
     await host.dispose()
+  })
+
+  it('transport error without exit keeps teardown unsettled until a real exit', async () => {
+    const { host, proc } = hostWithSwallower()
+    // White-box: the stream-error wiring that spawn attaches is bypassed
+    // by proc injection, so invoke the finalizer directly.
+    ;(
+      host as unknown as {
+        terminateOnTransportError(source: string, error: unknown): void
+      }
+    ).terminateOnTransportError('stdin', new Error('EPIPE'))
+    // No synthetic exit: the child is retained and shutdown stays unsettled.
+    expect((host as unknown as { proc: unknown }).proc).not.toBeNull()
+    const error = await closeError(host, 'force')
+    expect(error).toBeInstanceOf(BridgeUnavailableError)
+    expect((error as BridgeUnavailableError).code).toBe('BRIDGE_EXIT_UNPROVEN')
+    // A real exit settles teardown.
+    proc.emitExit(1, null)
+    await expect(host.close('force')).resolves.toEqual({ code: 1, signal: null })
   })
 })
