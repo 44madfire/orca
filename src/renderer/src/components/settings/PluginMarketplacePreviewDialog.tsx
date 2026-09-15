@@ -14,6 +14,7 @@ import {
   DialogTitle
 } from '../ui/dialog'
 import { pluginCapabilityDescription } from './plugin-capability-presentation'
+import { mergeServiceInvokeCapabilities } from '../../../../shared/plugins/plugin-capabilities'
 
 export type PluginMarketplacePreviewMode = 'install' | 'update'
 
@@ -215,17 +216,28 @@ export function PluginMarketplacePreviewDialog({
                     'Requested access'
                   )}
                 </p>
-                {preview.manifest.capabilities.map((capability) => (
-                  <div key={capability.kind} className="flex items-start gap-2 text-sm leading-6">
-                    <Check className="mt-1 size-3.5 shrink-0 text-muted-foreground" />
-                    <span>
-                      {pluginCapabilityDescription(capability.kind, capability.kind)}{' '}
-                      <span className="font-mono text-[11px] text-muted-foreground">
-                        ({capability.kind})
+                {mergeServiceInvokeCapabilities(preview.manifest.capabilities).map(
+                  (capability, index) => (
+                    <div
+                      key={`${capability.kind}-${index}`}
+                      className="flex items-start gap-2 text-sm leading-6"
+                    >
+                      {' '}
+                      <Check className="mt-1 size-3.5 shrink-0 text-muted-foreground" />
+                      <span>
+                        {pluginCapabilityDescription(capability.kind, capability.kind)}{' '}
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          ({capability.kind})
+                        </span>
+                        {capability.kind === 'service:invoke' && capability.serviceIds?.length ? (
+                          <span className="font-mono block text-[11px] text-muted-foreground">
+                            {capability.serviceIds.join(', ')}
+                          </span>
+                        ) : null}
                       </span>
-                    </span>
-                  </div>
-                ))}
+                    </div>
+                  )
+                )}
               </div>
             ) : null}
             {preview.manifest.main ? (

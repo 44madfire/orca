@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { PLUGIN_EVENT_NAMES } from './plugin-manifest'
+import { pluginServiceIdSchema } from './plugin-capabilities'
 import type { PluginCapabilityKind } from './plugin-capabilities'
 
 /**
@@ -95,12 +96,30 @@ const eventsSubscribeParams = z.object({
 })
 const eventsSubscribeResult = z.object({ subscribed: z.array(z.enum(PLUGIN_EVENT_NAMES)) })
 
+// Scoped service invocation: panel supplies only a registered service id plus
+// a structured JSON payload. No exec paths, shell strings, cwd, or env.
+export const PLUGIN_SERVICE_REQUEST_MAX_BYTES = 64 * 1024
+export const PLUGIN_SERVICE_RESPONSE_MAX_BYTES = 64 * 1024
+const serviceInvokeParams = z
+  .object({
+    serviceId: pluginServiceIdSchema,
+    request: pluginJsonValueSchema.optional()
+  })
+  .strict()
+const serviceInvokeResult = z.object({ response: pluginJsonValueSchema }).strict()
+
 export type PluginHostMethodSpec = {
   name: string
   /** pluginApi minor the method appeared in (`1.0` for the v0 set). */
   since: string
   /** Machine-readable resource boundary enforced by the host binding. */
-  scope: 'active-worktree' | 'explicit-terminal' | 'plugin-private' | 'desktop' | 'host-events'
+  scope:
+    | 'active-worktree'
+    | 'explicit-terminal'
+    | 'plugin-private'
+    | 'desktop'
+    | 'host-events'
+    | 'registered-service'
   stability: 'experimental'
   capability: PluginCapabilityKind
   /** Mutations are audit-logged with actor `plugin:<id>`. */
@@ -249,6 +268,16 @@ export const PLUGIN_HOST_API_V0: readonly PluginHostMethodSpec[] = [
     panel: false,
     params: eventsSubscribeParams,
     result: eventsSubscribeResult
+  }),
+  spec({
+    name: 'service.invoke',
+    since: '1.1',
+    scope: 'registered-service',
+    capability: 'service:invoke',
+    mutation: true,
+    panel: true,
+    params: serviceInvokeParams,
+    result: serviceInvokeResult
   })
 ]
 

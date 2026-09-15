@@ -29,6 +29,11 @@ export type PluginGateSubject = {
   /** True when the call arrives over the sandboxed panel bridge (narrower
    *  method surface than workers). */
   viaPanel: boolean
+  /** Explicitly authorized service ids for service:invoke; null matches the
+   *  stale-consent case above. Undefined on old policy resolvers fails closed. */
+  grantedServiceIds?: readonly string[] | null
+  /** Validated service id under review for service.invoke calls. */
+  serviceId?: string
 }
 
 export function gatePluginHostCall(subject: PluginGateSubject, method: string): PluginGateDecision {
@@ -57,6 +62,36 @@ export function gatePluginHostCall(subject: PluginGateSubject, method: string): 
       granted: false,
       code: 'capability_denied',
       error: `plugin does not have the "${spec.capability}" capability`
+    }
+  }
+  // Least-privilege service scope: the kind alone grants nothing; the
+  // requested id must be explicitly listed. Missing scopes fail closed so
+  // old policy resolvers cannot accidentally grant every service.
+  if (spec.capability === 'service:invoke') {
+    const grantedServiceIds = subject.grantedServiceIds
+    if (grantedServiceIds === null || grantedServiceIds === undefined) {
+      if (grantedServiceIds === null) {
+        return {
+          granted: false,
+          code: 'consent_required',
+          error: 'plugin is not enabled with current consent'
+        }
+      }
+      return {
+        granted: false,
+        code: 'capability_denied',
+        error: 'plugin does not have an authorized service scope'
+      }
+    }
+    if (typeof subject.serviceId !== 'string' || !grantedServiceIds.includes(subject.serviceId)) {
+      return {
+        granted: false,
+        code: 'capability_denied',
+        error:
+          typeof subject.serviceId === 'string'
+            ? `plugin is not authorized for service "${subject.serviceId}"`
+            : 'plugin is not authorized for this service'
+      }
     }
   }
   return { granted: true }
