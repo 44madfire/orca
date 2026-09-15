@@ -32,6 +32,10 @@ export function classifyRuntimeLongPoll(request: RpcRequest): RuntimeLongPollCla
   if (request.method === 'terminal.wait') {
     return 'wait'
   }
+  // Why: snapshot cold start (agent-browser connect + CDP proxy) is 15-30s and AX traversal can push it past the 30s socket idle timer; without keepalive the server destroys the socket and the CLI reports runtime_unavailable with no _meta.
+  if (request.method === 'browser.snapshot') {
+    return 'wait'
+  }
   // Agent-prompt submission waits for the PTY's lifecycle transition (up to
   // the verification budget); keep the local socket alive for that wait.
   if (
