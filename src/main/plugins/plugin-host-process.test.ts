@@ -311,6 +311,18 @@ describe('startPluginWorker RPC', () => {
     await expect(result).resolves.toEqual({ done: true })
   })
 
+  it('rejects an invalid context immediately without leaking in-flight state', async () => {
+    const child = new FakeChild()
+    const handle = await readyRpc(child)
+    child.send.mockClear()
+
+    await expect(
+      handle.invokeRpc('panel.echo', null, { panelId: '', worktree: null, grantedCapabilities: [] })
+    ).rejects.toThrow('invalid RPC request')
+    expect(child.send).not.toHaveBeenCalled()
+    expect(handle.inFlightCount()).toBe(0)
+  })
+
   it('counts RPC as activity for idle reap', async () => {
     const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_000)
     try {
