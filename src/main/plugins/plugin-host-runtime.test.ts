@@ -187,6 +187,72 @@ describe('plugin worker private RPC', () => {
     expect(result.error!.length).toBeLessThanOrEqual(8192)
   })
 
+  it('resolves an async handler with its awaited JSON value', async () => {
+    const { runtime, send } = await initWith((orca) => {
+      orca.rpc.register('panel.async', async (params) => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        return { echo: params }
+      })
+    })
+    send.mockClear()
+
+    await runtime.handleMessage({
+      type: 'invokeRpc',
+      callId: 13,
+      method: 'panel.async',
+      params: { n: 42 },
+      context: rpcContext()
+    })
+
+    expect(send).toHaveBeenCalledWith({
+      type: 'rpcResult',
+      callId: 13,
+      ok: true,
+      value: { echo: { n: 42 } }
+    })
+  })
+
+  it('contains an async handler rejection without killing the worker', async () => {
+    const { runtime, send, exit } = await initWith((orca) => {
+      orca.rpc.register('panel.flaky', async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        throw new Error('async handler blew up')
+      })
+      orca.rpc.register('panel.healthy', () => ({ alive: true }))
+    })
+    send.mockClear()
+
+    await runtime.handleMessage({
+      type: 'invokeRpc',
+      callId: 14,
+      method: 'panel.flaky',
+      context: rpcContext()
+    })
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'rpcResult', callId: 14, ok: false })
+    )
+    const result: { error?: string } = send.mock.calls[0]?.[0]
+    expect(result.error).toContain('async handler blew up')
+    expect(result.error!.length).toBeLessThanOrEqual(8192)
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'fatal' }))
+    expect(exit).not.toHaveBeenCalled()
+
+    send.mockClear()
+    await runtime.handleMessage({
+      type: 'invokeRpc',
+      callId: 15,
+      method: 'panel.healthy',
+      context: rpcContext()
+    })
+    expect(send).toHaveBeenCalledWith({
+      type: 'rpcResult',
+      callId: 15,
+      ok: true,
+      value: { alive: true }
+    })
+  })
+
   it('refuses an unknown method without running any handler', async () => {
     const handler = vi.fn(() => null)
     const { runtime, send } = await initWith((orca) => {
