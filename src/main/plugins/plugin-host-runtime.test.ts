@@ -290,6 +290,52 @@ describe('plugin worker private RPC', () => {
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rpcResult' }))
   })
 
+  it('accepts empty branch and displayName from host-constructed context', async () => {
+    const { runtime, send } = await initWith((orca) => {
+      orca.rpc.register('panel.echo', (params) => params)
+    })
+    send.mockClear()
+
+    await runtime.handleMessage({
+      type: 'invokeRpc',
+      callId: 12,
+      method: 'panel.echo',
+      params: null,
+      context: {
+        panelId: 'panel',
+        worktree: { worktreeId: 'wt-1', path: '/repo', branch: '', displayName: '' },
+        grantedCapabilities: []
+      }
+    })
+
+    expect(send).toHaveBeenCalledWith({
+      type: 'rpcResult',
+      callId: 12,
+      ok: true,
+      value: null
+    })
+  })
+
+  it('preserves registration order across multiple RPC methods', async () => {
+    const { send } = await initWith((orca) => {
+      orca.rpc.register('panel.zeta', () => null)
+      orca.rpc.register('panel.alpha', () => null)
+      orca.rpc.register('panel.mid', () => null)
+    })
+
+    expect(send).toHaveBeenCalledWith({
+      type: 'ready',
+      commands: [],
+      rpcMethods: ['panel.zeta', 'panel.alpha', 'panel.mid']
+    })
+  })
+
+  it('reports an empty method list when nothing is registered', async () => {
+    const { send } = await initWith(() => {})
+
+    expect(send).toHaveBeenCalledWith({ type: 'ready', commands: [], rpcMethods: [] })
+  })
+
   it('keeps commands working when RPC methods are registered', async () => {
     const { runtime, send } = await initWith((orca) => {
       orca.commands.register('run', () => ({ ok: true }))
