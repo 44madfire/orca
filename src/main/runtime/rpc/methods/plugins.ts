@@ -11,7 +11,8 @@ import {
   PluginInvokeCommandParams,
   PluginReadPanelEntryParams,
   PluginSetEnabledParams,
-  PluginsPanelActionParams
+  PluginsPanelActionParams,
+  PluginsPanelRpcParams
 } from '../../../../shared/rpc-contract/plugins-params'
 
 /**
@@ -112,6 +113,21 @@ export const PLUGIN_METHODS = [
       await service.whenReady()
       return {
         outcome: await service.panels.execute(bindRpcPanelOwner(service, context), params)
+      }
+    }
+  }),
+  defineMethod({
+    // Why: headless serve clients relay panel worker-RPC bridge requests
+    // over RPC with the same session-bound authority as panel actions.
+    name: 'plugins.panelRpc',
+    // Why: raw admission must run before strict schema parsing so malformed
+    // and oversized traffic cannot bypass the panel budget.
+    params: PluginsPanelRpcParams,
+    handler: async (params, context) => {
+      const service = requirePluginService()
+      await service.whenReady()
+      return {
+        outcome: await service.panels.executeRpc(bindRpcPanelOwner(service, context), params)
       }
     }
   }),
