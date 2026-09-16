@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { PLUGIN_COMMAND_LIMIT, PLUGIN_EVENT_NAMES, pluginCommandIdSchema } from './plugin-manifest'
-import { PLUGIN_CAPABILITY_KINDS } from './plugin-capabilities'
+import { PLUGIN_CAPABILITY_KINDS, type PluginCapabilityKind } from './plugin-capabilities'
 
 /**
  * Message protocol between the Orca process and the out-of-process plugin
@@ -26,6 +26,34 @@ export const pluginWorkerInvokeCommandSchema = z.object({
   args: z.unknown().optional()
 })
 
+export const pluginPanelRpcWorktreeSchema = z
+  .object({
+    worktreeId: z.string().min(1).max(1024),
+    path: z.string().min(1).max(4096),
+    branch: z.string().min(1).max(512),
+    displayName: z.string().min(1).max(512)
+  })
+  .strict()
+
+export const pluginPanelRpcContextSchema = z
+  .object({
+    panelId: z.string().min(1).max(128),
+    worktree: pluginPanelRpcWorktreeSchema.nullable(),
+    grantedCapabilities: z.array(z.enum(PLUGIN_CAPABILITY_KINDS)).readonly()
+  })
+  .strict()
+
+export type PluginPanelRpcContext = {
+  panelId: string
+  worktree: {
+    worktreeId: string
+    path: string
+    branch: string
+    displayName: string
+  } | null
+  grantedCapabilities: readonly PluginCapabilityKind[]
+}
+
 export const pluginWorkerInvokeRpcSchema = z.object({
   type: z.literal('invokeRpc'),
   callId: z.number().int().nonnegative(),
@@ -34,7 +62,8 @@ export const pluginWorkerInvokeRpcSchema = z.object({
   method: pluginCommandIdSchema,
   // Why: JSON-only v1 — fork serialization supports richer values but the
   // public RPC contract must stay JSON-compatible.
-  params: z.json().optional()
+  params: z.json().optional(),
+  context: pluginPanelRpcContextSchema
 })
 
 export const pluginWorkerDeliverEventSchema = z.object({
@@ -82,14 +111,27 @@ export const pluginWorkerCommandResultSchema = z.object({
   error: z.string().max(8192).optional()
 })
 
-export const pluginWorkerRpcResultSchema = z.object({
-  type: z.literal('rpcResult'),
-  callId: z.number().int().nonnegative(),
-  ok: z.boolean(),
-  // Why: JSON-only v1, unlike commandResult which permits structured-clone.
-  value: z.json().optional(),
-  error: z.string().max(8192).optional()
-})
+export const pluginWorkerRpcResultSchema = z.discriminatedUnion('ok', [
+  z
+    .object({
+      type: z.literal('rpcResult'),
+      callId: z.number().int().nonnegative(),
+      ok: z.literal(true),
+      // Why: JSON-only v1, unlike commandResult which permits structured-clone.
+      value: z.json().optional()
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('rpcResult'),
+      callId: z.number().int().nonnegative(),
+      ok: z.literal(false),
+      error: z.string().max(8192)
+    })
+    .strict()
+])
+
+export type PluginWorkerRpcResult = z.infer<typeof pluginWorkerRpcResultSchema>
 
 export const pluginWorkerEventAckSchema = z.object({
   type: z.literal('eventAck'),

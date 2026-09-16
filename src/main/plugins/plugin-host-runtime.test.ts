@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import type { PluginPanelRpcContext } from '../../shared/plugins/plugin-host-protocol'
 import { createPluginWorkerRuntime, type PluginWorkerOrcaApi } from './plugin-host-runtime'
 
 describe('plugin worker shutdown', () => {
@@ -95,6 +96,14 @@ describe('plugin worker private RPC', () => {
     return { runtime, send, exit }
   }
 
+  function rpcContext(): PluginPanelRpcContext {
+    return {
+      panelId: 'panel',
+      worktree: { worktreeId: 'wt-1', path: '/repo', branch: 'main', displayName: 'repo' },
+      grantedCapabilities: []
+    }
+  }
+
   it('reports registered RPC methods in the ready handshake', async () => {
     const { send } = await initWith((orca) => {
       orca.rpc.register('panel.echo', (params) => params)
@@ -143,7 +152,8 @@ describe('plugin worker private RPC', () => {
       type: 'invokeRpc',
       callId: 7,
       method: 'panel.sum',
-      params: { values: [1, 2, 3] }
+      params: { values: [1, 2, 3] },
+      context: rpcContext()
     })
 
     expect(send).toHaveBeenCalledWith({
@@ -162,7 +172,12 @@ describe('plugin worker private RPC', () => {
     })
     send.mockClear()
 
-    await runtime.handleMessage({ type: 'invokeRpc', callId: 1, method: 'panel.boom' })
+    await runtime.handleMessage({
+      type: 'invokeRpc',
+      callId: 1,
+      method: 'panel.boom',
+      context: rpcContext()
+    })
 
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'rpcResult', callId: 1, ok: false })
@@ -179,7 +194,12 @@ describe('plugin worker private RPC', () => {
     })
     send.mockClear()
 
-    await runtime.handleMessage({ type: 'invokeRpc', callId: 3, method: 'panel.missing' })
+    await runtime.handleMessage({
+      type: 'invokeRpc',
+      callId: 3,
+      method: 'panel.missing',
+      context: rpcContext()
+    })
 
     expect(handler).not.toHaveBeenCalled()
     expect(send).toHaveBeenCalledWith({
@@ -197,7 +217,12 @@ describe('plugin worker private RPC', () => {
     })
     send.mockClear()
 
-    await runtime.handleMessage({ type: 'invokeRpc', callId: 4, method: 'panel.bad' })
+    await runtime.handleMessage({
+      type: 'invokeRpc',
+      callId: 4,
+      method: 'panel.bad',
+      context: rpcContext()
+    })
 
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'rpcResult', callId: 4, ok: false })
@@ -210,7 +235,56 @@ describe('plugin worker private RPC', () => {
     })
     send.mockClear()
 
-    await runtime.handleMessage({ type: 'invokeRpc', callId: 5, method: 'bad id!' })
+    await runtime.handleMessage({
+      type: 'invokeRpc',
+      callId: 5,
+      method: 'bad id!',
+      context: rpcContext()
+    })
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'log', level: 'warn' }))
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rpcResult' }))
+  })
+
+  it('passes the validated context to the handler as the second argument', async () => {
+    const seen: unknown[] = []
+    const { runtime, send } = await initWith((orca) => {
+      orca.rpc.register('panel.echo', (params, context) => {
+        seen.push(context)
+        return params
+      })
+    })
+    send.mockClear()
+    const context = {
+      panelId: 'panel',
+      worktree: { worktreeId: 'wt-9', path: '/other', branch: 'dev', displayName: 'other' },
+      grantedCapabilities: []
+    } as const
+
+    await runtime.handleMessage({
+      type: 'invokeRpc',
+      callId: 11,
+      method: 'panel.echo',
+      params: { a: 1 },
+      context: { ...context, grantedCapabilities: [...context.grantedCapabilities] }
+    })
+
+    expect(send).toHaveBeenCalledWith({
+      type: 'rpcResult',
+      callId: 11,
+      ok: true,
+      value: { a: 1 }
+    })
+    expect(seen).toEqual([context])
+  })
+
+  it('ignores an RPC envelope missing its context without replying', async () => {
+    const { runtime, send } = await initWith((orca) => {
+      orca.rpc.register('panel.echo', (params) => params)
+    })
+    send.mockClear()
+
+    await runtime.handleMessage({ type: 'invokeRpc', callId: 6, method: 'panel.echo' })
 
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'log', level: 'warn' }))
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rpcResult' }))
