@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isPluginPanelAction } from './plugin-host-api'
+import { pluginCommandIdSchema } from './plugin-manifest-fields'
 
 /**
  * postMessage protocol between a sandboxed plugin panel iframe and the host
@@ -14,6 +15,8 @@ import { isPluginPanelAction } from './plugin-host-api'
 
 export const PANEL_ACTION_REQUEST_TYPE = 'orca-panel-action'
 export const PANEL_ACTION_RESULT_TYPE = 'orca-panel-action-result'
+export const PANEL_RPC_REQUEST_TYPE = 'orca-panel-rpc'
+export const PANEL_RPC_RESULT_TYPE = 'orca-panel-rpc-result'
 export const PANEL_PING_TYPE = 'orca-panel-ping'
 export const PANEL_PONG_TYPE = 'orca-panel-pong'
 export const PLUGIN_PANEL_FRAME_NAME_PREFIX = 'orca-plugin-panel:'
@@ -122,6 +125,122 @@ export function parsePanelActionRequest(data: unknown): PanelActionRequestParseR
     requestId,
     error: `${path}: ${issue?.message ?? 'invalid panel action request'}`
   }
+}
+
+/** Private worker RPC request from a sandboxed panel to its own worker. The
+ *  iframe never supplies target identity: pluginKey/session/worktree fields
+ *  are rejected by the strict schema and resolved host-side from the panel
+ *  session instead. Params stay JSON-only (v1 public contract). */
+export const panelRpcRequestSchema = z
+  .object({
+    type: z.literal(PANEL_RPC_REQUEST_TYPE),
+    /** Plugin-chosen correlation id echoed back on the result message. */
+    requestId: z.string().min(1).max(128),
+    method: pluginCommandIdSchema,
+    params: z.json().optional()
+  })
+  .strict()
+
+export type PluginPanelRpcRequest = z.infer<typeof panelRpcRequestSchema>
+
+export type PluginPanelRpcErrorCode =
+  | 'invalid_request'
+  | 'unknown_method'
+  | 'rate_limited'
+  | 'unavailable'
+  | 'action_failed'
+
+/** Result message posted back into the panel iframe. */
+export type PluginPanelRpcResultMessage = {
+  type: typeof PANEL_RPC_RESULT_TYPE
+  requestId: string
+  ok: boolean
+  value?: unknown
+  errorCode?: PluginPanelRpcErrorCode
+  error?: string
+}
+
+/** Outcome of executing a panel RPC in main (wire shape of
+ *  `plugins:panelRpc` / `plugins.panelRpc`). */
+export type PluginPanelRpcOutcome =
+  | { ok: true; value: unknown }
+  | { ok: false; code: PluginPanelRpcErrorCode; error: string }
+
+export const panelRpcErrorCodeSchema = z.enum([
+  'invalid_request',
+  'unknown_method',
+  'rate_limited',
+  'unavailable',
+  'action_failed'
+])
+
+export const panelRpcResultSchema = z.discriminatedUnion('ok', [
+  z
+    .object({
+      type: z.literal(PANEL_RPC_RESULT_TYPE),
+      requestId: z.string().min(1).max(128),
+      ok: z.literal(true),
+      value: z.json().optional()
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal(PANEL_RPC_RESULT_TYPE),
+      requestId: z.string().min(1).max(128),
+      ok: z.literal(false),
+      errorCode: panelRpcErrorCodeSchema,
+      error: z.string().max(8192)
+    })
+    .strict()
+])
+
+/** Call shape relayed by a trusted panel host. The opaque session is issued
+ *  while loading one approved panel, so the caller never supplies identity. */
+export const panelRpcCallSchema = z
+  .object({
+    sessionToken: panelSessionTokenSchema,
+    method: pluginCommandIdSchema,
+    params: z.json().optional()
+  })
+  .strict()
+
+export type PluginPanelRpcCall = z.infer<typeof panelRpcCallSchema>
+
+export type PanelRpcRequestParseResult =
+  | { ok: true; request: PluginPanelRpcRequest }
+  | { ok: false; requestId: string | null; error: string }
+
+/** Validates a raw `message` event payload carrying an RPC request. On
+ *  failure still surfaces a best-effort requestId so the host can answer
+ *  with an error instead of silently dropping the request. */
+export function parsePanelRpcRequest(data: unknown): PanelRpcRequestParseResult {
+  const parsed = panelRpcRequestSchema.safeParse(data)
+  if (parsed.success) {
+    return { ok: true, request: parsed.data }
+  }
+  let requestId: string | null = null
+  if (typeof data === 'object' && data !== null && 'requestId' in data) {
+    const raw = (data as { requestId?: unknown }).requestId
+    if (typeof raw === 'string' && raw.length > 0 && raw.length <= 128) {
+      requestId = raw
+    }
+  }
+  const issue = parsed.error.issues[0]
+  const path = issue?.path.join('.') || '(root)'
+  return {
+    ok: false,
+    requestId,
+    error: `${path}: ${issue?.message ?? 'invalid panel RPC request'}`.slice(0, 512)
+  }
+}
+
+/** True when `data` even looks like an RPC bridge request (right `type`). */
+export function looksLikePanelRpcRequest(data: unknown): boolean {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as { type?: unknown }).type === PANEL_RPC_REQUEST_TYPE
+  )
 }
 
 /** True when `data` even looks like a bridge request (right `type`). Used to

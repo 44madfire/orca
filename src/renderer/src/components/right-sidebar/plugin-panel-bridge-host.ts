@@ -1,11 +1,17 @@
 import {
   PANEL_ACTION_RESULT_TYPE,
   PANEL_CONTROL_MESSAGE_MAX_BYTES,
+  PANEL_RPC_REQUEST_TYPE,
+  PANEL_RPC_RESULT_TYPE,
   looksLikePanelActionRequest,
+  looksLikePanelRpcRequest,
   parsePanelActionRequest,
+  parsePanelRpcRequest,
   readPanelPongId,
   type PluginPanelActionOutcome,
-  type PluginPanelActionResultMessage
+  type PluginPanelActionResultMessage,
+  type PluginPanelRpcOutcome,
+  type PluginPanelRpcResultMessage
 } from '../../../../shared/plugins/plugin-panel-bridge'
 import {
   createPanelControlMessageBudget,
@@ -31,11 +37,19 @@ export type PanelActionCall = {
   params?: unknown
 }
 
+export type PanelRpcCall = {
+  sessionToken: string
+  method: string
+  params?: unknown
+}
+
 export type PanelBridgeHostOptions = {
   sessionToken: string
   /** The mounted panel iframe's contentWindow, or null when unmounted. */
   getPanelWindow: () => Window | null
   callPanelAction: (call: PanelActionCall) => Promise<PluginPanelActionOutcome>
+  /** Panel→own-worker RPC relay. Absent on old preloads: RPC then reports unavailable. */
+  callPanelRpc?: (call: PanelRpcCall) => Promise<PluginPanelRpcOutcome>
   /** False once the requesting panel document/session has been replaced. */
   isActive?: () => boolean
   onPong?: (pingId: number) => void
@@ -65,6 +79,23 @@ export function callPanelActionViaPreload(
   return panelAction(call)
 }
 
+/** Relays a panel RPC through the preload API, degrading to a bridge-level
+ *  error when the preload predates the plugins.panelRpc surface. */
+export function callPanelRpcViaPreload(call: PanelRpcCall): Promise<PluginPanelRpcOutcome> {
+  const panelRpc = window.api?.plugins?.panelRpc
+  if (!panelRpc) {
+    return Promise.resolve({
+      ok: false,
+      code: 'unavailable',
+      error: translate(
+        'auto.components.rightSidebar.pluginPanelBridgeHost.actionsUnavailable',
+        'Plugin actions are not available in this client.'
+      )
+    })
+  }
+  return panelRpc(call)
+}
+
 export function createPanelBridgeMessageHandler(
   options: PanelBridgeHostOptions
 ): (event: MessageEvent) => void {
@@ -86,6 +117,12 @@ export function createPanelBridgeMessageHandler(
       }
       // Why: targetOrigin must be '*' — an opaque origin never matches a
       // concrete origin, so anything stricter would silently drop the reply.
+      requestingWindow.postMessage(message, '*')
+    }
+    const respondRpc = (message: PluginPanelRpcResultMessage): void => {
+      if (options.isActive?.() === false || options.getPanelWindow() !== requestingWindow) {
+        return
+      }
       requestingWindow.postMessage(message, '*')
     }
     // A valid pong is the one frame the host must never lose: it takes a
@@ -111,7 +148,8 @@ export function createPanelBridgeMessageHandler(
       return
     }
     // Budgets run before parsing: a flood of malformed junk must not buy
-    // free schema-validation CPU either.
+    // free schema-validation CPU either. Actions and RPC share one budget so
+    // RPC cannot become an unlimited second lane around panel limits.
     const refusal = budget.admit(now(), structuredCloneMessageBytes(event.data, budget.maxBytes))
     if (refusal) {
       const requestId =
@@ -119,23 +157,87 @@ export function createPanelBridgeMessageHandler(
           ? (event.data as { requestId?: unknown }).requestId
           : undefined
       if (typeof requestId === 'string' && requestId.length > 0 && requestId.length <= 128) {
-        respond({
-          type: PANEL_ACTION_RESULT_TYPE,
-          requestId,
-          ok: false,
-          errorCode: refusal === 'oversized' ? 'invalid_request' : 'rate_limited',
-          error:
-            refusal === 'oversized'
-              ? translate(
-                  'auto.components.rightSidebar.pluginPanelBridgeHost.messageTooLarge',
-                  'Message exceeds the size limit.'
-                )
-              : translate(
-                  'auto.components.rightSidebar.pluginPanelBridgeHost.tooManyRequests',
-                  'Too many requests.'
-                )
-        })
+        const error =
+          refusal === 'oversized'
+            ? translate(
+                'auto.components.rightSidebar.pluginPanelBridgeHost.messageTooLarge',
+                'Message exceeds the size limit.'
+              )
+            : translate(
+                'auto.components.rightSidebar.pluginPanelBridgeHost.tooManyRequests',
+                'Too many requests.'
+              )
+        if (
+          typeof event.data === 'object' &&
+          event.data !== null &&
+          (event.data as { type?: unknown }).type === PANEL_RPC_REQUEST_TYPE
+        ) {
+          respondRpc({
+            type: PANEL_RPC_RESULT_TYPE,
+            requestId,
+            ok: false,
+            errorCode: refusal === 'oversized' ? 'invalid_request' : 'rate_limited',
+            error
+          })
+        } else {
+          respond({
+            type: PANEL_ACTION_RESULT_TYPE,
+            requestId,
+            ok: false,
+            errorCode: refusal === 'oversized' ? 'invalid_request' : 'rate_limited',
+            error
+          })
+        }
       }
+      return
+    }
+    // RPC relay: the iframe supplies only method/params; the host attaches
+    // the session token at relay time and never forwards caller identity.
+    const relayPanelRpc = (
+      data: unknown,
+      reply: (message: PluginPanelRpcResultMessage) => void
+    ): void => {
+      const parsed = parsePanelRpcRequest(data)
+      if (!parsed.ok) {
+        if (parsed.requestId) {
+          reply({
+            type: PANEL_RPC_RESULT_TYPE,
+            requestId: parsed.requestId,
+            ok: false,
+            errorCode: 'invalid_request',
+            error: parsed.error
+          })
+        }
+        return
+      }
+      const { requestId, method, params } = parsed.request
+      const relay = options.callPanelRpc ?? callPanelRpcViaPreload
+      relay({ sessionToken: options.sessionToken, method, params })
+        .then((outcome) => {
+          reply(
+            outcome.ok
+              ? { type: PANEL_RPC_RESULT_TYPE, requestId, ok: true, value: outcome.value }
+              : {
+                  type: PANEL_RPC_RESULT_TYPE,
+                  requestId,
+                  ok: false,
+                  errorCode: outcome.code,
+                  error: outcome.error
+                }
+          )
+        })
+        .catch((error: unknown) => {
+          reply({
+            type: PANEL_RPC_RESULT_TYPE,
+            requestId,
+            ok: false,
+            errorCode: 'action_failed',
+            error: error instanceof Error ? error.message : String(error)
+          })
+        })
+    }
+    if (looksLikePanelRpcRequest(event.data)) {
+      relayPanelRpc(event.data, respondRpc)
       return
     }
     if (!looksLikePanelActionRequest(event.data)) {
