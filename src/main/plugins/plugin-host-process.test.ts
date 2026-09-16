@@ -15,7 +15,10 @@ class FakeChild extends EventEmitter {
   kill = vi.fn()
 }
 
-function start(child: FakeChild, options: { eventTimeoutMs?: number } = {}) {
+function start(
+  child: FakeChild,
+  options: { eventTimeoutMs?: number; invokeTimeoutMs?: number } = {}
+) {
   processMocks.fork.mockReturnValue(child)
   return startPluginWorker({
     pluginId: 'orca-samples.demo',
@@ -131,5 +134,152 @@ describe('startPluginWorker', () => {
 
     expect(handle.inFlightCount()).toBe(64)
     expect(child.kill).toHaveBeenCalledWith('SIGKILL')
+  })
+})
+
+describe('startPluginWorker RPC', () => {
+  async function readyRpc(child: FakeChild, rpcMethods: string[] = ['panel.echo']) {
+    const pending = start(child)
+    child.emit('message', { type: 'ready', commands: [], rpcMethods })
+    return pending
+  }
+
+  it('exposes registered RPC methods from the ready handshake', async () => {
+    const child = new FakeChild()
+    const handle = await readyRpc(child, ['panel.a', 'panel.b'])
+
+    expect(handle.rpcMethods).toEqual(['panel.a', 'panel.b'])
+  })
+
+  it('resolves an RPC call with its JSON value', async () => {
+    const child = new FakeChild()
+    const handle = await readyRpc(child)
+    child.send.mockClear()
+
+    const result = handle.invokeRpc('panel.echo', { hello: 'world' })
+    const sent: { callId: number } = child.send.mock.calls[0]?.[0]
+    child.emit('message', { type: 'rpcResult', callId: sent.callId, ok: true, value: { hi: 1 } })
+
+    await expect(result).resolves.toEqual({ hi: 1 })
+    expect(handle.inFlightCount()).toBe(0)
+  })
+
+  it('rejects when the worker reports a handler failure', async () => {
+    const child = new FakeChild()
+    const handle = await readyRpc(child)
+    child.send.mockClear()
+
+    const result = handle.invokeRpc('panel.echo')
+    const sent: { callId: number } = child.send.mock.calls[0]?.[0]
+    child.emit('message', {
+      type: 'rpcResult',
+      callId: sent.callId,
+      ok: false,
+      error: 'handler blew up'
+    })
+
+    await expect(result).rejects.toThrow('handler blew up')
+  })
+
+  it('rejects an unknown method without dispatching to the worker', async () => {
+    const child = new FakeChild()
+    const handle = await readyRpc(child, ['panel.known'])
+    child.send.mockClear()
+
+    await expect(handle.invokeRpc('panel.missing')).rejects.toThrow('unknown RPC method')
+    expect(child.send).not.toHaveBeenCalled()
+  })
+
+  it('rejects non-JSON params without dispatching to the worker', async () => {
+    const child = new FakeChild()
+    const handle = await readyRpc(child)
+    child.send.mockClear()
+
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: fixture passes non-JSON to prove the host refuses it before dispatch.
+    await expect(handle.invokeRpc('panel.echo', BigInt(1) as unknown)).rejects.toThrow(
+      'JSON-compatible'
+    )
+    expect(child.send).not.toHaveBeenCalled()
+  })
+
+  it('correlates concurrent RPC calls to the correct results', async () => {
+    const child = new FakeChild()
+    const handle = await readyRpc(child, ['panel.a', 'panel.b'])
+    child.send.mockClear()
+
+    const first = handle.invokeRpc('panel.a', { n: 1 })
+    const second = handle.invokeRpc('panel.b', { n: 2 })
+    expect(handle.inFlightCount()).toBe(2)
+    const firstCall = child.send.mock.calls[0]
+    const secondCall = child.send.mock.calls[1]
+    expect(firstCall).toBeDefined()
+    expect(secondCall).toBeDefined()
+    const firstId: number = firstCall![0].callId
+    const secondId: number = secondCall![0].callId
+    child.emit('message', { type: 'rpcResult', callId: secondId, ok: true, value: { n: 2 } })
+    child.emit('message', { type: 'rpcResult', callId: firstId, ok: true, value: { n: 1 } })
+
+    await expect(first).resolves.toEqual({ n: 1 })
+    await expect(second).resolves.toEqual({ n: 2 })
+    expect(handle.inFlightCount()).toBe(0)
+  })
+
+  it('times out an RPC call that never answers', async () => {
+    vi.useFakeTimers()
+    const child = new FakeChild()
+    const pending = start(child, { invokeTimeoutMs: 30 })
+    child.emit('message', { type: 'ready', commands: [], rpcMethods: ['panel.echo'] })
+    const handle = await pending
+
+    const result = handle.invokeRpc('panel.echo', { n: 1 })
+    const settled = result.then(
+      () => 'resolved',
+      (error: Error) => error.message
+    )
+    await vi.advanceTimersByTimeAsync(30)
+
+    await expect(settled).resolves.toContain('timed out')
+    expect(handle.inFlightCount()).toBe(0)
+  })
+
+  it('rejects in-flight RPC when the worker exits', async () => {
+    const child = new FakeChild()
+    const handle = await readyRpc(child)
+    child.send.mockClear()
+
+    const result = handle.invokeRpc('panel.echo', { n: 1 })
+    child.emit('exit', 1)
+
+    await expect(result).rejects.toThrow('exited')
+    expect(handle.inFlightCount()).toBe(0)
+  })
+
+  it('rejects in-flight RPC when the worker disconnects', async () => {
+    const child = new FakeChild()
+    const handle = await readyRpc(child)
+    child.send.mockClear()
+
+    const result = handle.invokeRpc('panel.echo', { n: 1 })
+    child.connected = false
+    child.emit('disconnect')
+
+    await expect(result).rejects.toThrow('disconnected')
+    expect(handle.inFlightCount()).toBe(0)
+  })
+
+  it('counts RPC as activity for idle reap', async () => {
+    const child = new FakeChild()
+    const handle = await readyRpc(child)
+    child.send.mockClear()
+    const before = handle.lastActivityAt()
+
+    const result = handle.invokeRpc('panel.echo')
+    expect(handle.inFlightCount()).toBe(1)
+    const sent: { callId: number } = child.send.mock.calls[0]?.[0]
+    child.emit('message', { type: 'rpcResult', callId: sent.callId, ok: true, value: null })
+    await result
+
+    expect(handle.inFlightCount()).toBe(0)
+    expect(handle.lastActivityAt()).toBeGreaterThanOrEqual(before)
   })
 })

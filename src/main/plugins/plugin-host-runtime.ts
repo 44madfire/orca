@@ -1,10 +1,15 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { z } from 'zod'
 import {
   pluginWorkerParentMessageSchema,
   type PluginWorkerChildMessage
 } from '../../shared/plugins/plugin-host-protocol'
-import type { PluginEventName } from '../../shared/plugins/plugin-manifest'
+import {
+  PLUGIN_COMMAND_LIMIT,
+  pluginCommandIdSchema,
+  type PluginEventName
+} from '../../shared/plugins/plugin-manifest'
 
 /**
  * Message-loop core of the out-of-process plugin worker. Electron-free and
@@ -21,6 +26,10 @@ export type PluginWorkerOrcaApi = {
   /** Register the handler for a command declared in the manifest. */
   commands: {
     register(commandId: string, handler: (args: unknown) => unknown): void
+  }
+  /** Register a private worker handler callable only from the plugin's own panel. */
+  rpc: {
+    register(method: string, handler: (params: unknown) => unknown): void
   }
   /** Handle an event the manifest subscribed to (`contributes.events`). */
   events: {
@@ -49,6 +58,8 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? (error.stack ?? error.message) : String(error)
 }
 
+const pluginWorkerJsonValueSchema = z.json()
+
 export function createPluginWorkerRuntime(
   options: PluginWorkerRuntimeOptions
 ): PluginWorkerRuntime {
@@ -56,6 +67,7 @@ export function createPluginWorkerRuntime(
   const importModule = options.importModule ?? ((specifier: string) => import(specifier))
   const exit = options.exit ?? ((code: number) => process.exit(code))
   const commandHandlers = new Map<string, (args: unknown) => unknown>()
+  const rpcHandlers = new Map<string, (params: unknown) => unknown>()
   const eventHandlers = new Map<string, ((payload: unknown) => void | Promise<void>)[]>()
   const pendingHostCalls = new Map<
     number,
@@ -95,6 +107,21 @@ export function createPluginWorkerRuntime(
           commandHandlers.set(commandId, handler)
         }
       },
+      rpc: {
+        register(method, handler) {
+          const parsed = pluginCommandIdSchema.safeParse(method)
+          if (!parsed.success) {
+            throw new Error(`invalid RPC method ${method}`)
+          }
+          if (rpcHandlers.has(method)) {
+            throw new Error(`duplicate RPC method ${method}`)
+          }
+          if (rpcHandlers.size >= PLUGIN_COMMAND_LIMIT) {
+            throw new Error(`RPC method limit of ${PLUGIN_COMMAND_LIMIT} exceeded`)
+          }
+          rpcHandlers.set(method, handler)
+        }
+      },
       events: {
         on(event, handler) {
           const handlers = eventHandlers.get(event) ?? []
@@ -117,7 +144,11 @@ export function createPluginWorkerRuntime(
       }
     }
     await activate(orca)
-    send({ type: 'ready', commands: [...commandHandlers.keys()] })
+    send({
+      type: 'ready',
+      commands: [...commandHandlers.keys()],
+      rpcMethods: [...rpcHandlers.keys()]
+    })
   }
 
   return {
@@ -154,6 +185,44 @@ export function createPluginWorkerRuntime(
                 callId: message.callId,
                 ok: false,
                 error: toErrorMessage(error)
+              })
+            }
+            return
+          }
+          case 'invokeRpc': {
+            const handler = rpcHandlers.get(message.method)
+            if (!handler) {
+              send({
+                type: 'rpcResult',
+                callId: message.callId,
+                ok: false,
+                error: `unknown RPC method ${message.method}`
+              })
+              return
+            }
+            try {
+              const value = await handler(message.params)
+              if (value === undefined) {
+                send({ type: 'rpcResult', callId: message.callId, ok: true })
+                return
+              }
+              const json = pluginWorkerJsonValueSchema.safeParse(value)
+              if (!json.success) {
+                send({
+                  type: 'rpcResult',
+                  callId: message.callId,
+                  ok: false,
+                  error: `RPC method ${message.method} returned a non-JSON value`
+                })
+                return
+              }
+              send({ type: 'rpcResult', callId: message.callId, ok: true, value: json.data })
+            } catch (error) {
+              send({
+                type: 'rpcResult',
+                callId: message.callId,
+                ok: false,
+                error: toErrorMessage(error).slice(0, 8192)
               })
             }
             return
