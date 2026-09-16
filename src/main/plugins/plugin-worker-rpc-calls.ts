@@ -41,23 +41,30 @@ export class PluginWorkerRpcCalls {
       return Promise.reject(new Error(`${this.tag} RPC params must be JSON-compatible`))
     }
     const callId = this.nextCallId++
+    // Why: validate before registering pending state, so a malformed
+    // request rejects immediately instead of leaking a phantom in-flight
+    // entry that lingers until the invoke timeout with a raw ZodError.
+    const parsed = pluginWorkerInvokeRpcSchema.safeParse({
+      type: 'invokeRpc',
+      callId,
+      method,
+      ...(params === undefined ? {} : { params }),
+      context
+    })
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0]
+      const detail = issue
+        ? `${issue.path.join('.') || '(root)'}: ${issue.message}`
+        : 'invalid RPC request'
+      return Promise.reject(new Error(`${this.tag} invalid RPC request: ${detail}`.slice(0, 512)))
+    }
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(callId)
         reject(new Error(`${this.tag} ${method} timed out after ${this.invokeTimeoutMs}ms`))
       }, this.invokeTimeoutMs)
       this.pending.set(callId, { resolve, reject, timer })
-      // Why: params already JSON-validated; re-parse so the wire object
-      // carries the schema's JSON type without an assertion.
-      this.send(
-        pluginWorkerInvokeRpcSchema.parse({
-          type: 'invokeRpc',
-          callId,
-          method,
-          ...(params === undefined ? {} : { params }),
-          context
-        })
-      )
+      this.send(parsed.data)
     })
   }
 

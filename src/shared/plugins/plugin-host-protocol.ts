@@ -30,8 +30,11 @@ export const pluginPanelRpcWorktreeSchema = z
   .object({
     worktreeId: z.string().min(1).max(1024),
     path: z.string().min(1).max(4096),
-    branch: z.string().min(1).max(512),
-    displayName: z.string().min(1).max(512)
+    // Why: plain strings — the host reports branch: "" for folder
+    // workspaces, detached HEAD, and degraded SSH rows, so transport must
+    // not reject valid host output; construction semantics belong to ORPC-3.
+    branch: z.string().max(512),
+    displayName: z.string().max(512)
   })
   .strict()
 
