@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import {
   pluginWorkerInvokeRpcSchema,
-  type PluginWorkerParentMessage
+  type PluginPanelRpcContext,
+  type PluginWorkerParentMessage,
+  type PluginWorkerRpcResult
 } from '../../shared/plugins/plugin-host-protocol'
 
 export type PluginWorkerPendingCall = {
@@ -31,11 +33,7 @@ export class PluginWorkerRpcCalls {
     this.methods = methods
   }
 
-  getMethods(): readonly string[] {
-    return this.methods
-  }
-
-  invoke(method: string, params?: unknown): Promise<unknown> {
+  invoke(method: string, params: unknown, context: PluginPanelRpcContext): Promise<unknown> {
     if (!this.methods.includes(method)) {
       return Promise.reject(new Error(`${this.tag} unknown RPC method ${method}`))
     }
@@ -56,13 +54,14 @@ export class PluginWorkerRpcCalls {
           type: 'invokeRpc',
           callId,
           method,
-          ...(params === undefined ? {} : { params })
+          ...(params === undefined ? {} : { params }),
+          context
         })
       )
     })
   }
 
-  handleResult(message: { callId: number; ok: boolean; value?: unknown; error?: string }): boolean {
+  handleResult(message: PluginWorkerRpcResult): boolean {
     const entry = this.pending.get(message.callId)
     if (!entry) {
       return false
@@ -73,7 +72,7 @@ export class PluginWorkerRpcCalls {
     if (message.ok) {
       entry.resolve(message.value)
     } else {
-      entry.reject(new Error(message.error ?? 'plugin RPC failed'))
+      entry.reject(new Error(message.error))
     }
     return true
   }

@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url'
 import { z } from 'zod'
 import {
   pluginWorkerParentMessageSchema,
+  type PluginPanelRpcContext,
   type PluginWorkerChildMessage
 } from '../../shared/plugins/plugin-host-protocol'
 import {
@@ -29,7 +30,10 @@ export type PluginWorkerOrcaApi = {
   }
   /** Register a private worker handler callable only from the plugin's own panel. */
   rpc: {
-    register(method: string, handler: (params: unknown) => unknown): void
+    register(
+      method: string,
+      handler: (params: unknown, context: PluginPanelRpcContext) => unknown
+    ): void
   }
   /** Handle an event the manifest subscribed to (`contributes.events`). */
   events: {
@@ -67,7 +71,10 @@ export function createPluginWorkerRuntime(
   const importModule = options.importModule ?? ((specifier: string) => import(specifier))
   const exit = options.exit ?? ((code: number) => process.exit(code))
   const commandHandlers = new Map<string, (args: unknown) => unknown>()
-  const rpcHandlers = new Map<string, (params: unknown) => unknown>()
+  const rpcHandlers = new Map<
+    string,
+    (params: unknown, context: PluginPanelRpcContext) => unknown
+  >()
   const eventHandlers = new Map<string, ((payload: unknown) => void | Promise<void>)[]>()
   const pendingHostCalls = new Map<
     number,
@@ -201,7 +208,7 @@ export function createPluginWorkerRuntime(
               return
             }
             try {
-              const value = await handler(message.params)
+              const value = await handler(message.params, message.context)
               if (value === undefined) {
                 send({ type: 'rpcResult', callId: message.callId, ok: true })
                 return

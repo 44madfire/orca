@@ -3,6 +3,7 @@ import {
   PLUGIN_WORKER_INVOKE_TIMEOUT_MS,
   PLUGIN_WORKER_READY_TIMEOUT_MS,
   pluginWorkerChildMessageSchema,
+  type PluginPanelRpcContext,
   type PluginWorkerParentMessage
 } from '../../shared/plugins/plugin-host-protocol'
 import type { PluginCapabilityKind } from '../../shared/plugins/plugin-capabilities'
@@ -33,7 +34,7 @@ export type PluginWorkerHandle = {
   /** Private worker RPC methods registered on activate. */
   rpcMethods: readonly string[]
   invokeCommand(commandId: string, args?: unknown): Promise<unknown>
-  invokeRpc(method: string, params?: unknown): Promise<unknown>
+  invokeRpc(method: string, params: unknown, context: PluginPanelRpcContext): Promise<unknown>
   deliverEvent(event: PluginEventName, payload: unknown): void
   /** Milliseconds timestamp of the last completed work (for idle reap). */
   lastActivityAt(): number
@@ -271,11 +272,10 @@ export async function startPluginWorker(
         sendToChild({ type: 'invokeCommand', callId, commandId, args })
       })
     },
-    invokeRpc(method, params) {
-      if (exited || disposed) {
-        return Promise.reject(new Error(`${tag} worker is not running`))
-      }
-      return rpcCalls.invoke(method, params)
+    invokeRpc(method, params, context) {
+      return exited || disposed
+        ? Promise.reject(new Error(`${tag} worker is not running`))
+        : rpcCalls.invoke(method, params, context)
     },
     deliverEvent(event, payload) {
       if (exited || disposed) {
