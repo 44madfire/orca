@@ -400,7 +400,8 @@ import {
   PluginInvokeCommandParams,
   PluginReadPanelEntryParams,
   PluginSetEnabledParams,
-  PluginsPanelActionParams
+  PluginsPanelActionParams,
+  PluginsPanelRpcParams
 } from './plugins-params'
 import {
   PreflightCheck,
@@ -1005,6 +1006,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'plugins.invokeCommand': PluginInvokeCommandParams,
   'plugins.list': null,
   'plugins.panelAction': PluginsPanelActionParams,
+  'plugins.panelRpc': PluginsPanelRpcParams,
   'plugins.readPanelEntry': PluginReadPanelEntryParams,
   'plugins.setEnabled': PluginSetEnabledParams,
   'preflight.check': PreflightCheck,

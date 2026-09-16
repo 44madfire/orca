@@ -1,7 +1,8 @@
 import { ipcRenderer } from 'electron'
 import type {
   PluginPanelActionOutcome,
-  PluginPanelEntry
+  PluginPanelEntry,
+  PluginPanelRpcOutcome
 } from '../../shared/plugins/plugin-panel-bridge'
 import type { PluginConsentRequest } from '../../shared/plugins/plugin-consent-request'
 import type { PluginChangeEvent } from '../../shared/plugins/plugin-change-event'
@@ -31,6 +32,11 @@ export const pluginsApi = {
     action: string
     params?: unknown
   }): Promise<PluginPanelActionOutcome> => ipcRenderer.invoke('plugins:panelAction', args),
+  panelRpc: (args: {
+    sessionToken: string
+    method: string
+    params?: unknown
+  }): Promise<PluginPanelRpcOutcome> => ipcRenderer.invoke('plugins:panelRpc', args),
   install: (source: PluginHostInstallSource): Promise<PluginHostInstallResult> =>
     ipcRenderer.invoke('plugins:install', source),
   listMarketplaces: () => ipcRenderer.invoke('plugins:listMarketplaces'),

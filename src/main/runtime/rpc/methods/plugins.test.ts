@@ -71,4 +71,31 @@ describe('plugin panel serve RPC identity', () => {
       params: {}
     })
   })
+
+  it('routes panel RPC through the same session-bound owner without a plugin target', async () => {
+    const service = {
+      whenReady: vi.fn().mockResolvedValue(undefined),
+      panels: {
+        open: vi.fn(),
+        execute: vi.fn(),
+        executeRpc: vi.fn().mockResolvedValue({ ok: true, value: { echoed: true } }),
+        bindOwnerSignal: vi.fn(),
+        revokeOwner: vi.fn()
+      }
+    } as unknown as PluginService
+    setPluginServiceForRpc(service)
+    const rpcContext = context('connection-one')
+
+    await expect(
+      method('plugins.panelRpc').handler(
+        { sessionToken: SESSION_TOKEN, method: 'panel.echo', params: { n: 1 } },
+        rpcContext
+      )
+    ).resolves.toEqual({ outcome: { ok: true, value: { echoed: true } } })
+    expect(service.panels.executeRpc).toHaveBeenCalledWith('runtime:connection-one', {
+      sessionToken: SESSION_TOKEN,
+      method: 'panel.echo',
+      params: { n: 1 }
+    })
+  })
 })

@@ -18,3 +18,5 @@ export const PluginInvokeCommandParams = z.object({
 })
 
 export const PluginsPanelActionParams = z.unknown()
+
+export const PluginsPanelRpcParams = z.unknown()
