@@ -26,6 +26,17 @@ export const pluginWorkerInvokeCommandSchema = z.object({
   args: z.unknown().optional()
 })
 
+export const pluginWorkerInvokeRpcSchema = z.object({
+  type: z.literal('invokeRpc'),
+  callId: z.number().int().nonnegative(),
+  // Why: reuse the command-id grammar for private RPC methods; no
+  // contributes.rpc surface exists, so the same portable charset applies.
+  method: pluginCommandIdSchema,
+  // Why: JSON-only v1 — fork serialization supports richer values but the
+  // public RPC contract must stay JSON-compatible.
+  params: z.json().optional()
+})
+
 export const pluginWorkerDeliverEventSchema = z.object({
   type: z.literal('deliverEvent'),
   eventId: z.number().int().nonnegative(),
@@ -47,6 +58,7 @@ export const pluginWorkerShutdownSchema = z.object({ type: z.literal('shutdown')
 export const pluginWorkerParentMessageSchema = z.discriminatedUnion('type', [
   pluginWorkerInitSchema,
   pluginWorkerInvokeCommandSchema,
+  pluginWorkerInvokeRpcSchema,
   pluginWorkerDeliverEventSchema,
   pluginWorkerHostResultSchema,
   pluginWorkerShutdownSchema
@@ -55,7 +67,9 @@ export const pluginWorkerParentMessageSchema = z.discriminatedUnion('type', [
 export const pluginWorkerReadySchema = z.object({
   type: z.literal('ready'),
   /** Command ids the worker registered handlers for (⊆ manifest commands). */
-  commands: z.array(pluginCommandIdSchema).max(PLUGIN_COMMAND_LIMIT)
+  commands: z.array(pluginCommandIdSchema).max(PLUGIN_COMMAND_LIMIT),
+  /** Private worker RPC methods; default keeps old workers parseable. */
+  rpcMethods: z.array(pluginCommandIdSchema).max(PLUGIN_COMMAND_LIMIT).default([])
 })
 
 export const pluginWorkerCommandResultSchema = z.object({
@@ -65,6 +79,15 @@ export const pluginWorkerCommandResultSchema = z.object({
   // Why: value crosses a fork() IPC boundary, so it is structured-clone data
   // by construction; zod treats it as opaque and callers re-validate shape.
   value: z.unknown().optional(),
+  error: z.string().max(8192).optional()
+})
+
+export const pluginWorkerRpcResultSchema = z.object({
+  type: z.literal('rpcResult'),
+  callId: z.number().int().nonnegative(),
+  ok: z.boolean(),
+  // Why: JSON-only v1, unlike commandResult which permits structured-clone.
+  value: z.json().optional(),
   error: z.string().max(8192).optional()
 })
 
@@ -95,6 +118,7 @@ export const pluginWorkerFatalSchema = z.object({
 export const pluginWorkerChildMessageSchema = z.discriminatedUnion('type', [
   pluginWorkerReadySchema,
   pluginWorkerCommandResultSchema,
+  pluginWorkerRpcResultSchema,
   pluginWorkerEventAckSchema,
   pluginWorkerHostCallSchema,
   pluginWorkerLogSchema,
