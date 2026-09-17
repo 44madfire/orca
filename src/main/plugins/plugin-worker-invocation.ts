@@ -5,6 +5,11 @@ import type { ValidDiscoveredPlugin } from './plugin-discovery'
 import type { PluginWorkerHandle } from './plugin-host-process'
 import type { PluginWorkerController } from './plugin-worker-controller'
 import { buildPanelRpcContext } from './plugin-panel-rpc-context'
+import {
+  pluginWorkerRpcFailureKindOf,
+  pluginWorkerRpcOutcomeCodeForKind,
+  wrapPluginWorkerStartupFailure
+} from './plugin-worker-rpc-failure'
 
 /**
  * Narrow host surface for plugin worker-invocation entries (worker commands
@@ -54,11 +59,8 @@ export async function invokePanelRpcForPlugin(
   try {
     handle = await host.workerController.ensure(plugin)
   } catch {
-    return {
-      ok: false,
-      code: 'unavailable',
-      error: `plugin ${pluginKey} worker is not available`
-    }
+    const startupFailure = wrapPluginWorkerStartupFailure(pluginKey)
+    return { ok: false, code: 'unavailable', error: startupFailure.message }
   }
   if (!handle.rpcMethods.includes(method)) {
     return { ok: false, code: 'unknown_method', error: `unknown RPC method ${method}` }
@@ -75,25 +77,16 @@ export async function invokePanelRpcForPlugin(
   }
 }
 
-/** Maps worker invocation rejections to the bounded panel RPC error model.
- *  The pre-dispatch method-presence check owns unknown_method; anything the
- *  worker fork reports afterwards is transport/lifecycle or handler failure. */
+/** Maps invokeRpc rejections to the bounded panel RPC error model via the
+ *  typed ORPC-1 failure kind. The pre-dispatch method-presence check owns
+ *  unknown_method; anything the worker fork reports afterwards is transport/
+ *  lifecycle or handler failure. Untagged errors are startup/transport
+ *  faults, hence unavailable. */
 function mapPanelRpcInvocationError(error: unknown): PluginPanelRpcOutcome {
   const message = (error instanceof Error ? error.message : String(error)).slice(0, 2048)
-  if (message.includes('unknown RPC method')) {
-    return { ok: false, code: 'unknown_method', error: message }
-  }
-  if (message.includes('JSON-compatible') || message.includes('invalid RPC request')) {
-    return { ok: false, code: 'invalid_request', error: message }
-  }
-  if (
-    message.includes('timed out') ||
-    message.includes('not running') ||
-    message.includes('exited') ||
-    message.includes('disconnected') ||
-    message.includes('crashed')
-  ) {
+  const kind = pluginWorkerRpcFailureKindOf(error)
+  if (!kind) {
     return { ok: false, code: 'unavailable', error: message }
   }
-  return { ok: false, code: 'action_failed', error: message }
+  return { ok: false, code: pluginWorkerRpcOutcomeCodeForKind(kind), error: message }
 }

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fingerprintPluginConsent } from '../../shared/plugins/plugin-consent-fingerprint'
 import { pluginManifestSchema, type PluginManifest } from '../../shared/plugins/plugin-manifest'
 import type { PluginWorkerHandle } from './plugin-host-process'
+import { PluginWorkerRpcError } from './plugin-worker-rpc-failure'
 import { PluginService } from './plugin-service'
 import type { PluginWorkerFactory } from './plugin-worker-manager'
 
@@ -153,7 +154,7 @@ describe('PluginService.invokePanelRpc', () => {
     const root = await pluginRoot(pluginManifest)
     const worker = testWorker()
     worker.invokeRpc = vi.fn(async () => {
-      throw new Error('x'.repeat(5000))
+      throw new PluginWorkerRpcError('action_failed', 'x'.repeat(5000))
     })
     const service = createService([
       { key: 'orca-samples.alpha', manifest: pluginManifest, root, worker }
@@ -173,12 +174,33 @@ describe('PluginService.invokePanelRpc', () => {
     }
   })
 
+  it('maps handler failures by kind even when the message names a transport fault', async () => {
+    const pluginManifest = manifestFor('orca-samples', 'alpha')
+    const root = await pluginRoot(pluginManifest)
+    const worker = testWorker()
+    worker.invokeRpc = vi.fn(async () => {
+      throw new PluginWorkerRpcError('action_failed', 'operation timed out in handler')
+    })
+    const service = createService([
+      { key: 'orca-samples.alpha', manifest: pluginManifest, root, worker }
+    ])
+    await service.initialize()
+
+    await expect(
+      service.invokePanelRpc('orca-samples.alpha', 'dashboard', 'panel.echo', null)
+    ).resolves.toMatchObject({ ok: false, code: 'action_failed' })
+  })
+
   it('maps worker lifecycle failures to unavailable', async () => {
     const pluginManifest = manifestFor('orca-samples', 'alpha')
     const root = await pluginRoot(pluginManifest)
     const worker = testWorker()
     worker.invokeRpc = vi.fn(async () => {
-      throw new Error('[plugin:orca-samples.alpha] worker exited before responding')
+      throw new PluginWorkerRpcError(
+        'unavailable',
+        '[plugin:orca-samples.alpha] worker exited before responding',
+        'worker_exit'
+      )
     })
     const service = createService([
       { key: 'orca-samples.alpha', manifest: pluginManifest, root, worker }

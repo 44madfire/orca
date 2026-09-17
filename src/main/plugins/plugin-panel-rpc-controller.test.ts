@@ -128,6 +128,39 @@ describe('PluginPanelController.executeRpc session binding', () => {
     ).resolves.toMatchObject({ ok: false, code: 'invalid_request' })
   })
 
+  it('rejects a replayed token after the session rotates on manifest change', async () => {
+    const plugin = await createPlugin('orca-samples', 'alpha')
+    let current: ValidDiscoveredPlugin | null = plugin
+    const executeRpc = vi.fn(async () => ({ ok: true, value: null }) as const)
+    const controller = controllerFor([plugin], executeRpc, {
+      resolveApproved: () => current
+    })
+    const first = await controller.open('runtime:one', plugin.pluginKey, 'dashboard')
+
+    current = {
+      ...plugin,
+      manifest: pluginManifestSchema.parse({ ...plugin.manifest, version: '1.0.1' })
+    }
+    const second = await controller.open('runtime:one', plugin.pluginKey, 'dashboard')
+    expect(second!.sessionToken).not.toBe(first!.sessionToken)
+
+    // The old token still resolves but its binding is stale, so it is rejected.
+    await expect(
+      controller.executeRpc('runtime:one', {
+        sessionToken: first!.sessionToken,
+        method: 'panel.echo'
+      })
+    ).resolves.toMatchObject({ ok: false, code: 'unavailable' })
+    // The rotated-in token carries the fresh binding and still dispatches.
+    await expect(
+      controller.executeRpc('runtime:one', {
+        sessionToken: second!.sessionToken,
+        method: 'panel.echo'
+      })
+    ).resolves.toMatchObject({ ok: true })
+    expect(executeRpc).toHaveBeenCalledTimes(1)
+  })
+
   it('invalidates calls after manifest/root changes and plugin disable', async () => {
     const plugin = await createPlugin('orca-samples', 'alpha')
     let current: ValidDiscoveredPlugin | null = plugin
