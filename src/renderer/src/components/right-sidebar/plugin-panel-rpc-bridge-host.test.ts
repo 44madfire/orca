@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { PluginPanelRpcOutcome } from '../../../../shared/plugins/plugin-panel-bridge'
+import { createPanelMessageBudget } from '../../../../shared/plugins/plugin-panel-message-budget'
 import { createPanelBridgeMessageHandler } from './plugin-panel-bridge-host'
 
 type FakePanelWindow = Window & { postMessage: ReturnType<typeof vi.fn> }
@@ -191,5 +192,74 @@ describe('panel RPC renderer bridge host', () => {
     await flush()
 
     expect(onPong).toHaveBeenCalledWith(7)
+  })
+
+  it('shares one budget across alternating action and RPC calls', async () => {
+    const panelWindow = createFakePanelWindow()
+    const callPanelAction = vi.fn().mockResolvedValue({ ok: true, value: { accepted: true } })
+    const callPanelRpc = vi.fn().mockResolvedValue({ ok: true, value: { echoed: true } })
+    const handler = createPanelBridgeMessageHandler({
+      sessionToken: SESSION_TOKEN,
+      getPanelWindow: () => panelWindow,
+      callPanelAction,
+      callPanelRpc,
+      budget: createPanelMessageBudget({ maxMessages: 2, perMs: 10_000 }),
+      now: () => 0
+    })
+    const action = {
+      type: 'orca-panel-action',
+      requestId: 'req-1',
+      action: 'terminal.sendText',
+      params: { terminalId: 'term-1', text: 'hi', enter: true }
+    }
+
+    handler(messageEvent(action, panelWindow))
+    handler(messageEvent(VALID_RPC, panelWindow))
+    await flush()
+    expect(callPanelAction).toHaveBeenCalledTimes(1)
+    expect(callPanelRpc).toHaveBeenCalledTimes(1)
+
+    // One action plus one RPC exhausts the shared budget, so the next RPC
+    // is refused even though only one prior RPC was admitted.
+    handler(messageEvent({ ...VALID_RPC, requestId: 'rpc-2' }, panelWindow))
+    expect(callPanelRpc).toHaveBeenCalledTimes(1)
+    expect(panelWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'orca-panel-rpc-result',
+        requestId: 'rpc-2',
+        ok: false,
+        errorCode: 'rate_limited'
+      }),
+      '*'
+    )
+  })
+
+  it('reports a rejected RPC relay call as a bounded action_failed result', async () => {
+    const panelWindow = createFakePanelWindow()
+    const callPanelRpc = vi.fn().mockRejectedValue(new Error('x'.repeat(20_000)))
+    const handler = createPanelBridgeMessageHandler({
+      sessionToken: SESSION_TOKEN,
+      getPanelWindow: () => panelWindow,
+      callPanelAction: vi.fn(),
+      callPanelRpc
+    })
+
+    handler(messageEvent(VALID_RPC, panelWindow))
+    await flush()
+
+    expect(panelWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'orca-panel-rpc-result',
+        requestId: 'rpc-1',
+        ok: false,
+        errorCode: 'action_failed'
+      }),
+      '*'
+    )
+    const posted: { error?: unknown } = vi.mocked(panelWindow.postMessage).mock.calls[0]?.[0]
+    expect(typeof posted.error).toBe('string')
+    if (typeof posted.error === 'string') {
+      expect(posted.error.length).toBeLessThanOrEqual(8192)
+    }
   })
 })
