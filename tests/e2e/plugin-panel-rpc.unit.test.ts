@@ -134,7 +134,13 @@ function runtimeBackedFactory(options: {
         return new Promise<unknown>((resolve, reject) => {
           pending.set(callId, { resolve, reject })
           void runtime
-            .handleMessage({ type: 'invokeRpc', callId, method, params: params as never, context })
+            .handleMessage({
+              type: 'invokeRpc',
+              callId,
+              method,
+              ...(params === undefined ? {} : { params }),
+              context
+            })
             .catch((error: unknown) => {
               pending.delete(callId)
               reject(error instanceof Error ? error : new Error(String(error)))
@@ -205,12 +211,25 @@ type PanelResult = {
   error?: string
 }
 
+function isPanelResultMessage(value: unknown): value is PanelResult {
+  if (typeof value !== 'object' || value === null || !('requestId' in value)) {
+    return false
+  }
+  return typeof value.requestId === 'string'
+}
+
 // Why: single postMessage mock demultiplexes by requestId so concurrent
 // panel RPCs correlate deterministically via promise gates, never sleeps.
 function createE2EPanelHarness(options: {
   service: PluginService
   ownerKey: string
   sessionToken: string
+  callPanelRpc?: (call: {
+    sessionToken: string
+    method: string
+    params?: unknown
+  }) => Promise<PluginPanelRpcOutcome>
+  isActive?: () => boolean
 }): {
   panelWindow: FakePanelWindow
   handler: (event: { data: unknown; source: unknown }) => void
@@ -219,25 +238,34 @@ function createE2EPanelHarness(options: {
   const panelWindow: FakePanelWindow = { postMessage: vi.fn() }
   const results = new Map<string, PanelResult>()
   const waiters = new Map<string, (value: PanelResult) => void>()
-  vi.mocked(panelWindow.postMessage).mockImplementation(((message: unknown) => {
-    const frame = message as PanelResult
-    if (frame?.requestId) {
-      results.set(frame.requestId, frame)
-      waiters.get(frame.requestId)?.(frame)
+  vi.mocked(panelWindow.postMessage).mockImplementation((message: unknown) => {
+    if (isPanelResultMessage(message)) {
+      results.set(message.requestId, message)
+      waiters.get(message.requestId)?.(message)
     }
     return undefined
-  }) as never)
+  })
   // Why: mirrors PluginPanel wiring — the renderer attaches the host-issued
   // session at relay time; preload/main re-resolve it, never trusting the frame.
   const bridgeHandler = createPanelBridgeMessageHandler({
     sessionToken: options.sessionToken,
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the bridge handler reads only postMessage from the panel window and compares it by identity; the double supplies exactly that member and every test asserts the reply lands on the same object.
     getPanelWindow: () => panelWindow as unknown as Window,
     callPanelAction: vi.fn(async () => ({ ok: true, value: null }) as const),
-    callPanelRpc: (call) => options.service.panels.executeRpc(options.ownerKey, call)
+    callPanelRpc:
+      options.callPanelRpc ??
+      ((call) => options.service.panels.executeRpc(options.ownerKey, call)),
+    ...(options.isActive === undefined ? {} : { isActive: options.isActive })
   })
+  const emitRpc = (data: unknown, source: unknown): void => {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the bridge handler reads only event.data and event.source; the double carries exactly those two members and every test asserts dispatch/reply behavior on the result.
+    bridgeHandler({ data, source } as MessageEvent)
+  }
   return {
     panelWindow,
-    handler: bridgeHandler as unknown as (event: { data: unknown; source: unknown }) => void,
+    handler: (event: { data: unknown; source: unknown }): void => {
+      emitRpc(event.data, event.source)
+    },
     waitFor: (requestId: string) => {
       const existing = results.get(requestId)
       if (existing) {
@@ -316,8 +344,9 @@ describe('ORPC-4 real-stack panel→worker E2E', () => {
     // Fake scope must not retarget the trusted worktree or the projected
     // panel worktree; it survives only inside the echoed params payload.
     expect(seenContexts[0]?.worktree?.path).toBe(TRUSTED.path)
-    const value = result.value as { worktree?: unknown; echo?: unknown }
-    expect(value.worktree).toEqual({ branch: TRUSTED.branch, displayName: TRUSTED.displayName })
+    expect(result.value).toMatchObject({
+      worktree: { branch: TRUSTED.branch, displayName: TRUSTED.displayName }
+    })
   })
 
   it('correlates two concurrent panel RPCs to matching results out of order', async () => {
@@ -356,7 +385,10 @@ describe('ORPC-4 real-stack panel→worker E2E', () => {
     expect(result.ok).toBe(false)
     expect(result.errorCode).toBe('action_failed')
     expect(typeof result.error).toBe('string')
-    expect((result.error as string).length).toBeLessThanOrEqual(8192)
+    if (typeof result.error !== 'string') {
+      throw new Error('expected a bounded string error from the failed RPC')
+    }
+    expect(result.error.length).toBeLessThanOrEqual(8192)
   })
 
   it('rejects a revoked session before worker dispatch', async () => {
@@ -404,16 +436,16 @@ describe('ORPC-4 real-stack panel→worker E2E', () => {
       'orca-samples.alpha',
       'dashboard'
     )
-    const desktopOutcome = (await service.panels.executeRpc('renderer:one', {
+    const desktopOutcome = await service.panels.executeRpc('renderer:one', {
       sessionToken: desktop!.sessionToken,
       method: 'hello.getStatus',
       params: { hello: 'panel' }
-    })) as PluginPanelRpcOutcome
-    const runtimeOutcome = (await service.panels.executeRpc('runtime:connection-one', {
+    })
+    const runtimeOutcome = await service.panels.executeRpc('runtime:connection-one', {
       sessionToken: runtimeEntry!.sessionToken,
       method: 'hello.getStatus',
       params: { hello: 'panel' }
-    })) as PluginPanelRpcOutcome
+    })
     expect(desktopOutcome).toEqual(runtimeOutcome)
     expect(desktopOutcome).toMatchObject({ ok: true })
     // Cross-owner replay stays rejected.
@@ -496,33 +528,29 @@ describe('ORPC-4 security regression through the real stack', () => {
   })
 
   it('drops a deferred result after the panel document is replaced', async () => {
-    const { service, sessionToken } = await createE2EService()
-    const panelWindow: FakePanelWindow = { postMessage: vi.fn() }
+    const { service, ownerKey, sessionToken } = await createE2EService()
     let active = true
-    const { createPanelBridgeMessageHandler: createHandler } = await import(
-      '../../src/renderer/src/components/right-sidebar/plugin-panel-bridge-host'
-    )
     let releaseRpc!: (outcome: PluginPanelRpcOutcome) => void
     const gatedRpc = vi.fn(
       () => new Promise<PluginPanelRpcOutcome>((resolve) => (releaseRpc = resolve))
     )
-    const handler = createHandler({
+    const harness = createE2EPanelHarness({
+      service,
+      ownerKey,
       sessionToken,
-      getPanelWindow: () => panelWindow as unknown as Window,
-      callPanelAction: vi.fn(async () => ({ ok: true, value: null }) as const),
       callPanelRpc: gatedRpc,
       isActive: () => active
     })
-    ;(handler as unknown as (event: { data: unknown; source: unknown }) => void)({
+    harness.handler({
       data: { type: 'orca-panel-rpc', requestId: 'rpc-stale', method: 'hello.getStatus' },
-      source: panelWindow
+      source: harness.panelWindow
     })
     expect(gatedRpc).toHaveBeenCalledTimes(1)
     active = false
     releaseRpc({ ok: true, value: { stale: true } })
     await Promise.resolve()
     await Promise.resolve()
-    expect(panelWindow.postMessage).not.toHaveBeenCalled()
+    expect(harness.panelWindow.postMessage).not.toHaveBeenCalled()
     // The service layer itself is unaffected; only the replaced document drops.
     expect(service).toBeDefined()
   })
