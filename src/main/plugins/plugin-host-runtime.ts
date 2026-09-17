@@ -29,7 +29,14 @@ export type PluginWorkerOrcaApi = {
   commands: {
     register(commandId: string, handler: (args: unknown) => unknown): void
   }
-  /** Register a private worker handler callable only from the plugin's own panel. */
+  /** Register a private worker handler callable only from the plugin's own
+   *  panel (`orca.rpc.register(method, handler)`). Private, not a manifest
+   *  contribution: only the owning panel addresses it, params/results are
+   *  JSON-compatible and bounded, and `context` carries host-owned
+   *  per-request worktree scope (`workspace:read` governs `worktree`) plus
+   *  a fresh grant snapshot. Renderer/preload are transport, not authority:
+   *  the panel cannot select a plugin/worktree target. v1 has no streaming,
+   *  push, cross-plugin calls, or cancellation. */
   rpc: {
     register(
       method: string,

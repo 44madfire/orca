@@ -40,6 +40,10 @@ on:
     paths:
       - 'mobile/**'
       - '.github/workflows/mobile.yml'
+      # Why: rpc-contract edits change mobile's types even with no mobile
+      # file touched; the push run has no verify job, so the pin guard must
+      # still see the same fence as the PR run.
+      - 'src/shared/rpc-contract/**'
 
 concurrency:
   # Per commit on main, not per branch. GitHub cancels any PENDING run in a group when a new one

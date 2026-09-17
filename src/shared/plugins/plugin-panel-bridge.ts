@@ -127,10 +127,13 @@ export function parsePanelActionRequest(data: unknown): PanelActionRequestParseR
   }
 }
 
-/** Private worker RPC request from a sandboxed panel to its own worker. The
- *  iframe never supplies target identity: pluginKey/session/worktree fields
- *  are rejected by the strict schema and resolved host-side from the panel
- *  session instead. Params stay JSON-only (v1 public contract). */
+/** Private worker RPC request from a sandboxed panel to its own worker
+ *  (`{ type: 'orca-panel-rpc', requestId, method, params }` via postMessage;
+ *  the host replies `{ type: 'orca-panel-rpc-result', requestId, ok, ... }`).
+ *  The iframe never supplies target identity: pluginKey/session/worktree
+ *  fields are rejected by the strict schema and resolved host-side from the
+ *  panel session instead. Renderer/preload are transport, not authority.
+ *  Params stay JSON-only (v1 public contract). */
 export const panelRpcRequestSchema = z
   .object({
     type: z.literal(PANEL_RPC_REQUEST_TYPE),

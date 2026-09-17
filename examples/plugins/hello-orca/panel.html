@@ -47,6 +47,7 @@
     <select id="terms" hidden></select>
     <button id="send" hidden>Type "echo hi from plugin" into selected terminal</button>
     <button id="notify">Show a notification</button>
+    <button id="rpc">Get worker status via RPC</button>
     <p class="status" id="status"></p>
     <script>
       'use strict'
@@ -68,9 +69,31 @@
         })
       }
 
+      function callRpc(method, params) {
+        return new Promise(function (resolve) {
+          var requestId = 'rpc-' + ++seq
+          pending[requestId] = resolve
+          // Private worker RPC: the panel supplies only method/params. The
+          // host attaches the session token and resolves the plugin, panel,
+          // and worktree scope — the panel cannot select a target.
+          window.parent.postMessage(
+            { type: 'orca-panel-rpc', requestId: requestId, method: method, params: params },
+            '*'
+          )
+        })
+      }
+
       window.addEventListener('message', function (event) {
         var data = event.data
-        if (!data || data.type !== 'orca-panel-action-result') return
+        if (!data) return
+        if (data.type === 'orca-panel-rpc-result') {
+          var rpcResolve = pending[data.requestId]
+          if (!rpcResolve) return
+          delete pending[data.requestId]
+          rpcResolve(data)
+          return
+        }
+        if (data.type !== 'orca-panel-action-result') return
         var resolve = pending[data.requestId]
         if (!resolve) return
         delete pending[data.requestId]
@@ -118,6 +141,22 @@
           statusEl.textContent = result.ok
             ? 'notification delivered=' + result.value.delivered
             : 'notify failed: ' + (result.error || result.errorCode)
+        })
+      })
+
+      document.getElementById('rpc').addEventListener('click', function () {
+        // The worker echoes branch/displayName only; the path never reaches
+        // panel output even when the host attached it to the RPC context.
+        callRpc('hello.getStatus', { hello: 'panel' }).then(function (result) {
+          if (!result.ok) {
+            statusEl.textContent = 'rpc failed: ' + (result.error || result.errorCode)
+            return
+          }
+          var value = result.value || {}
+          var scope = value.worktree
+            ? value.worktree.displayName + ' on branch ' + value.worktree.branch
+            : 'no focused worktree'
+          statusEl.textContent = 'worker panel=' + value.panelId + ' scope=' + scope
         })
       })
     </script>
