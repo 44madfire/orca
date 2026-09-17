@@ -60,6 +60,16 @@ export type PanelBridgeHostOptions = {
   now?: () => number
 }
 
+/** Matches the panelRpcResultSchema error cap so a relay throw stays postable. */
+const PANEL_BRIDGE_ERROR_MAX_LENGTH = 8192
+
+function toBoundedBridgeError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(
+    0,
+    PANEL_BRIDGE_ERROR_MAX_LENGTH
+  )
+}
+
 /** Relays a bridge call through the preload API, degrading to a bridge-level
  *  error when the preload predates the plugins.panelAction surface. */
 export function callPanelActionViaPreload(
@@ -232,7 +242,7 @@ export function createPanelBridgeMessageHandler(
             requestId,
             ok: false,
             errorCode: 'action_failed',
-            error: error instanceof Error ? error.message : String(error)
+            error: toBoundedBridgeError(error)
           })
         })
     }
@@ -278,7 +288,7 @@ export function createPanelBridgeMessageHandler(
           requestId,
           ok: false,
           errorCode: 'action_failed',
-          error: error instanceof Error ? error.message : String(error)
+          error: toBoundedBridgeError(error)
         })
       })
   }

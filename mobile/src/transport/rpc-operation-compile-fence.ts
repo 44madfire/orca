@@ -118,12 +118,13 @@ declare const fenceTighterThanParsed: {
 }[RpcMethodName] & {}
 export const fenceNoTighterMethod: never = fenceTighterThanParsed
 
-// z.input collapses every coercing builder to `unknown`. Only plugins.panelAction may be
-// unknown, because its schema is literally z.unknown().
+// z.input collapses every coercing builder to `unknown`. Only plugins.panelAction and
+// plugins.panelRpc may be unknown, because their schemas are literally z.unknown().
 declare const fenceUnknownParams: {
   [Method in RpcMethodName]: unknown extends RpcSendParams<Method> ? Method : never
 }[RpcMethodName] & {}
-export const fenceOnlyDeclaredUnknown: 'plugins.panelAction' = fenceUnknownParams
+export const fenceOnlyDeclaredUnknown: 'plugins.panelAction' | 'plugins.panelRpc' =
+  fenceUnknownParams
 
 export async function fenceBarrierAndParams(): Promise<void> {
   await runRpcOperation(
