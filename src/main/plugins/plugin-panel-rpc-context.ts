@@ -1,12 +1,20 @@
 import type { PluginCapabilityKind } from '../../shared/plugins/plugin-capabilities'
 import type { PluginPanelRpcContext } from '../../shared/plugins/plugin-host-protocol'
 
+/** Host-owned worktree snapshot input for trusted RPC context. Verbatim
+ *  strings from PluginRuntimeDelegate.resolveActiveWorktreeContext(). */
+export type PanelRpcWorktreeSnapshot = {
+  worktreeId: string
+  path: string
+  branch: string
+  displayName: string
+} | null
+
 /**
  * ORPC-2 minimal panel RPC context. Only host-derived identity is attached:
  * the panelId comes from the resolved panel session and worktree stays null.
- * Granted capabilities pass through from the plugin's current approval
- * grants when trivially available. ORPC-3 replaces this seam with trusted
- * per-request worktree snapshots and consent-race hardening.
+ * Kept for backwards-compatible callers; ORPC-3 dispatch uses
+ * buildTrustedPanelRpcContext below.
  */
 export function buildPanelRpcContext(
   panelId: string,
@@ -16,5 +24,34 @@ export function buildPanelRpcContext(
     panelId,
     worktree: null,
     grantedCapabilities: [...grantedCapabilities]
+  }
+}
+
+/**
+ * ORPC-3 trusted per-request context. Filters the host snapshot by the
+ * v1 capability rule: workspace:read present -> snapshot (copied by value);
+ * absent -> null. Never normalizes the path string; the plugin interprets it.
+ */
+export function buildTrustedPanelRpcContext(
+  panelId: string,
+  grantedCapabilities: readonly PluginCapabilityKind[],
+  snapshot: PanelRpcWorktreeSnapshot
+): PluginPanelRpcContext {
+  const grants = [...grantedCapabilities]
+  const hasWorkspaceRead = grants.includes('workspace:read')
+  if (!hasWorkspaceRead || !snapshot) {
+    return { panelId, worktree: null, grantedCapabilities: grants }
+  }
+  // Why: copy by value so later delegate/focus changes cannot mutate an
+  // admitted invocation's immutable snapshot.
+  return {
+    panelId,
+    worktree: {
+      worktreeId: snapshot.worktreeId,
+      path: snapshot.path,
+      branch: snapshot.branch,
+      displayName: snapshot.displayName
+    },
+    grantedCapabilities: grants
   }
 }
