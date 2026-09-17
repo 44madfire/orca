@@ -269,7 +269,7 @@ export class PluginService {
   }
 
   /** Session-bound panel→own-worker RPC. Callers pass only session-derived
-   *  identity; the worker context seam stays minimal until ORPC-3. */
+   *  identity; dispatch attaches trusted per-request worktree context. */
   invokePanelRpc(pluginKey: string, panelId: string, method: string, params: unknown) {
     return invokePanelRpcForPlugin(this.workerInvocation, pluginKey, panelId, method, params)
   }

@@ -11,23 +11,6 @@ export type PanelRpcWorktreeSnapshot = {
 } | null
 
 /**
- * ORPC-2 minimal panel RPC context. Only host-derived identity is attached:
- * the panelId comes from the resolved panel session and worktree stays null.
- * Kept for backwards-compatible callers; ORPC-3 dispatch uses
- * buildTrustedPanelRpcContext below.
- */
-export function buildPanelRpcContext(
-  panelId: string,
-  grantedCapabilities: readonly PluginCapabilityKind[]
-): PluginPanelRpcContext {
-  return {
-    panelId,
-    worktree: null,
-    grantedCapabilities: [...grantedCapabilities]
-  }
-}
-
-/**
  * ORPC-3 trusted per-request context. Filters the host snapshot by the
  * v1 capability rule: workspace:read present -> snapshot (copied by value);
  * absent -> null. Never normalizes the path string; the plugin interprets it.
