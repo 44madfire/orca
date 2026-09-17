@@ -4,7 +4,10 @@ import { assertPluginWorkerCommand } from './plugin-command-invocation'
 import type { ValidDiscoveredPlugin } from './plugin-discovery'
 import type { PluginWorkerHandle } from './plugin-host-process'
 import type { PluginWorkerController } from './plugin-worker-controller'
-import { buildPanelRpcContext } from './plugin-panel-rpc-context'
+import {
+  buildTrustedPanelRpcContext,
+  type PanelRpcWorktreeSnapshot
+} from './plugin-panel-rpc-context'
 import {
   pluginWorkerRpcFailureKindOf,
   pluginWorkerRpcOutcomeCodeForKind,
@@ -20,6 +23,8 @@ export type PluginWorkerInvocationHost = {
   findValidPlugin(pluginKey: string): ValidDiscoveredPlugin | null
   isRuntimeApproved(plugin: ValidDiscoveredPlugin): boolean
   getGrantedCapabilities(pluginKey: string): PluginCapabilityKind[] | null
+  /** Host-owned active-worktree snapshot; null/absent means no trusted scope. */
+  resolveActiveWorktreeContext?: () => Promise<PanelRpcWorktreeSnapshot>
   workerController: Pick<PluginWorkerController, 'ensure'>
 }
 
@@ -41,8 +46,9 @@ export async function invokePluginCommand(
   return handle.invokeCommand(commandId, args)
 }
 
-/** Session-bound panel→own-worker RPC. Context stays minimal (ORPC-2); the
- *  builder seam is owned by ORPC-3 for trusted worktree snapshots. */
+/** Session-bound panel→own-worker RPC with trusted per-request context
+ *  (ORPC-3). Order: approval -> fresh grants -> snapshot+filter (before any
+ *  async worker dispatch) -> ensure -> invoke with the immutable snapshot. */
 export async function invokePanelRpcForPlugin(
   host: PluginWorkerInvocationHost,
   pluginKey: string,
@@ -54,7 +60,41 @@ export async function invokePanelRpcForPlugin(
   if (!plugin || !host.isRuntimeApproved(plugin)) {
     return { ok: false, code: 'unavailable', error: `plugin ${pluginKey} is not available` }
   }
-  const grantedCapabilities = host.getGrantedCapabilities(pluginKey) ?? []
+  // Why: fresh per-request authority — a grant revoked after worker start
+  // must hit the next call immediately; a null re-read fails closed instead
+  // of dispatching with an empty grant set for a revoked plugin.
+  const grantedCapabilities = host.getGrantedCapabilities(pluginKey)
+  if (!grantedCapabilities) {
+    return { ok: false, code: 'unavailable', error: `plugin ${pluginKey} is not available` }
+  }
+  // Why: snapshot before async dispatch so a focus switch during ensure/
+  // invoke cannot retarget this admitted call. Skip the delegate without
+  // workspace:read (filtered to null anyway); delegate absent -> null.
+  let snapshot: PanelRpcWorktreeSnapshot = null
+  if (
+    grantedCapabilities.includes('workspace:read') &&
+    host.resolveActiveWorktreeContext
+  ) {
+    try {
+      snapshot = await host.resolveActiveWorktreeContext()
+    } catch {
+      return {
+        ok: false,
+        code: 'unavailable',
+        error: `plugin ${pluginKey} worktree context is not available`
+      }
+    }
+    if (snapshot !== null && !isWellFormedWorktreeSnapshot(snapshot)) {
+      return {
+        ok: false,
+        code: 'unavailable',
+        error: `plugin ${pluginKey} worktree context is not available`
+      }
+    }
+  }
+  // Why: immutable by value — the fork serializes a copy and later focus or
+  // consent changes only affect the next request's fresh snapshot.
+  const context = buildTrustedPanelRpcContext(panelId, grantedCapabilities, snapshot)
   let handle: PluginWorkerHandle
   try {
     handle = await host.workerController.ensure(plugin)
@@ -66,15 +106,26 @@ export async function invokePanelRpcForPlugin(
     return { ok: false, code: 'unknown_method', error: `unknown RPC method ${method}` }
   }
   try {
-    const value = await handle.invokeRpc(
-      method,
-      params,
-      buildPanelRpcContext(panelId, grantedCapabilities)
-    )
+    const value = await handle.invokeRpc(method, params, context)
     return { ok: true, value }
   } catch (error) {
     return mapPanelRpcInvocationError(error)
   }
+}
+
+/** Structural guard for delegate output; no path normalization here. */
+function isWellFormedWorktreeSnapshot(snapshot: PanelRpcWorktreeSnapshot): boolean {
+  if (snapshot === null) {
+    return true
+  }
+  return (
+    typeof snapshot.worktreeId === 'string' &&
+    snapshot.worktreeId.length >= 1 &&
+    typeof snapshot.path === 'string' &&
+    snapshot.path.length >= 1 &&
+    typeof snapshot.branch === 'string' &&
+    typeof snapshot.displayName === 'string'
+  )
 }
 
 /** Maps invokeRpc rejections to the bounded panel RPC error model via the
