@@ -38,15 +38,19 @@ export function createStructuredAgentSessionId(
  * The durable `agentSession.create` envelope every client replays on an ambiguous
  * transport failure. The fingerprint must be computed over the same fields the host
  * recomputes, so both clients build it here rather than each assembling their own.
+ *
+ * Generic over the agent so a caller that already narrowed away the local-only `external`
+ * bridge keeps that narrowness: the `agentSession.create` wire contract only admits TUI
+ * providers, and a wide return would not satisfy it.
  */
-export function structuredAgentSessionCreateParams(args: {
+export function structuredAgentSessionCreateParams<A extends AgentSessionHandleProvider>(args: {
   sessionId: string
   worktree: string
-  agent: AgentSessionHandleProvider
+  agent: A
   resumeFrom?: StructuredAgentSessionResumeSource
   randomUuid: () => string
   now?: number
-}): StructuredAgentSessionCreateParams {
+}): StructuredAgentSessionCreateParams & { agent: A } {
   const fields = {
     worktree: args.worktree,
     agent: args.agent,
