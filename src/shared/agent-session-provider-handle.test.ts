@@ -404,8 +404,8 @@ describe('external bridge handles (SNC1.3 dev seam)', () => {
   })
 
   it('keys an external handle by bridge session id under its own namespace', () => {
-    expect(agentSessionProviderHandleKey(EXTERNAL)).toBe('external:\"ses_bridge_1\"')
-    expect(agentSessionProviderHandleRoot(EXTERNAL)).toBe('external:\"ses_bridge_1\"')
+    expect(agentSessionProviderHandleKey(EXTERNAL)).toBe('external:"ses_bridge_1"')
+    expect(agentSessionProviderHandleRoot(EXTERNAL)).toBe('external:"ses_bridge_1"')
     expect(agentSessionProviderHandlesEqual(EXTERNAL, { ...EXTERNAL })).toBe(true)
     expect(
       agentSessionProviderHandlesEqual(EXTERNAL, { provider: 'codex', threadId: 'ses_bridge_1' })

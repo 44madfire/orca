@@ -29,9 +29,9 @@ export function splitBridgeLines(buffer: string): { lines: string[]; rest: strin
   let start = 0;
   for (;;) {
     const idx = buffer.indexOf("\n", start);
-    if (idx === -1) break;
+    if (idx === -1) {break;}
     let line = buffer.slice(start, idx);
-    if (line.endsWith("\r")) line = line.slice(0, -1);
+    if (line.endsWith("\r")) {line = line.slice(0, -1);}
     lines.push(line);
     start = idx + 1;
   }
@@ -55,10 +55,10 @@ export class BridgeFramer {
 
   finish(): string[] {
     this.text += this.decoder.end();
-    if (this.text.length === 0) return [];
+    if (this.text.length === 0) {return [];}
     let line = this.text;
     this.text = "";
-    if (line.endsWith("\r")) line = line.slice(0, -1);
+    if (line.endsWith("\r")) {line = line.slice(0, -1);}
     return [line];
   }
 }
@@ -79,10 +79,10 @@ export function attachBridgeReader(stream: BridgeReadable, onLine: (line: string
     buffer += typeof chunk === "string" ? chunk : decoder.write(chunk as Buffer);
     for (;;) {
       const idx = buffer.indexOf("\n");
-      if (idx === -1) return;
+      if (idx === -1) {return;}
       let line = buffer.slice(0, idx);
       buffer = buffer.slice(idx + 1);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
+      if (line.endsWith("\r")) {line = line.slice(0, -1);}
       onLine(line);
     }
   };

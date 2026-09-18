@@ -17,7 +17,7 @@ export function createExternalStructuredSessionAdapterForRuntime(deps: {
   env?: NodeJS.ProcessEnv
   argv?: readonly string[]
 }): ExternalStructuredSessionAdapter | null {
-  if (!isExternalBridgeConfigured(deps.env, deps.argv)) return null
+  if (!isExternalBridgeConfigured(deps.env, deps.argv)) {return null}
   return new ExternalStructuredSessionAdapter({
     resolveWorkspacePath: deps.resolveWorkspacePath,
     ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),

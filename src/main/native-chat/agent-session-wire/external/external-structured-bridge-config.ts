@@ -27,7 +27,7 @@ export type ExternalBridgeConfig = {
 
 function parseCommand(command: string): { command: string; args: string[] } {
   const trimmed = command.trim()
-  if (trimmed === '') return { command: '', args: [] }
+  if (trimmed === '') {return { command: '', args: [] }}
   // Minimal whitespace split honoring single/double quotes (dev paths only,
   // never user input over the bridge). No shell expansion, no env interpolation.
   const parts: string[] = []
@@ -36,8 +36,8 @@ function parseCommand(command: string): { command: string; args: string[] } {
   for (let i = 0; i < trimmed.length; i += 1) {
     const ch = trimmed[i]!
     if (quote) {
-      if (ch === quote) quote = null
-      else current += ch
+      if (ch === quote) {quote = null}
+      else {current += ch}
     } else if (ch === '"' || ch === "'") {
       quote = ch
     } else if (/\s/.test(ch)) {
@@ -49,8 +49,8 @@ function parseCommand(command: string): { command: string; args: string[] } {
       current += ch
     }
   }
-  if (current !== '') parts.push(current)
-  if (parts.length === 0) return { command: '', args: [] }
+  if (current !== '') {parts.push(current)}
+  if (parts.length === 0) {return { command: '', args: [] }}
   const [head, ...rest] = parts as [string, ...string[]]
   return { command: head, args: rest }
 }
