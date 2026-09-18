@@ -92,7 +92,10 @@ export function validateSessionOptions(opts: unknown, missingCode: string, badCo
   if (!isRec(opts)) {return missingCode;}
   if (opts["model"] !== undefined && !isStr(opts["model"])) {return badCode;}
   if (opts["thinkingLevel"] !== undefined && !isStr(opts["thinkingLevel"])) {return badCode;}
-  if (opts["queueMode"] !== undefined && !QUEUE_MODES.has(opts["queueMode"] as string)) {return badCode;}
+  if (
+    opts["queueMode"] !== undefined &&
+    (typeof opts["queueMode"] !== "string" || !QUEUE_MODES.has(opts["queueMode"]))
+  ) {return badCode;}
   if (opts["autoCompaction"] !== undefined && typeof opts["autoCompaction"] !== "boolean") {return badCode;}
   return null;
 }

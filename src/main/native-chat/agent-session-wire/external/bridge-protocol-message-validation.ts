@@ -96,7 +96,10 @@ export function validateBridgeMessage(value: unknown): string | null {
       if (bad) {return bad;}
       const msg = v["message"];
       if (!isRec(msg) || typeof msg["text"] !== "string") {return "dispatch-missing-text";}
-      if (v["queue"] !== undefined && !QUEUE_MODES.has(v["queue"] as string)) {return "dispatch-bad-queue";}
+      if (
+        v["queue"] !== undefined &&
+        (typeof v["queue"] !== "string" || !QUEUE_MODES.has(v["queue"]))
+      ) {return "dispatch-bad-queue";}
       if (msg["images"] !== undefined) {
         if (!Array.isArray(msg["images"])) {return "dispatch-bad-images";}
         for (const image of msg["images"]) {
