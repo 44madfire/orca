@@ -9,8 +9,11 @@
 
 import { mapPiRecordToSessionEvents } from './translation/pi-record-mapping'
 import { applyPiSessionEvent } from './pi-event-journal'
-import { resolvePiModelRef, validatePiThinkingLevel } from './pi-session-options'
-import { qualifyPiModelRef } from './pi-session-options'
+import {
+  qualifyPiModelRef,
+  resolvePiModelRef,
+  validatePiThinkingLevel
+} from './pi-session-options'
 import { shortPiError } from './pi-driver-errors'
 import { rebuildPiHistory } from './pi-rpc-session-resume'
 import { PiRpcSessionTurns } from './pi-rpc-session-turns'
