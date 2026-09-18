@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { z } from 'zod'
 import {
+  PLUGIN_WORKER_RPC_RESULT_MAX_BYTES,
   pluginWorkerParentMessageSchema,
   type PluginPanelRpcContext,
   type PluginWorkerChildMessage
@@ -63,6 +64,20 @@ function toErrorMessage(error: unknown): string {
 }
 
 const pluginWorkerJsonValueSchema = z.json()
+
+// Serialized-JSON byte count for the RPC result bound. Returns null when
+// the value is not serializable so the caller fails closed without throwing.
+function pluginWorkerRpcResultByteLength(value: unknown): number | null {
+  try {
+    const text = JSON.stringify(value)
+    if (typeof text !== 'string') {
+      return null
+    }
+    return Buffer.byteLength(text, 'utf8')
+  } catch {
+    return null
+  }
+}
 
 export function createPluginWorkerRuntime(
   options: PluginWorkerRuntimeOptions
@@ -220,6 +235,30 @@ export function createPluginWorkerRuntime(
                   callId: message.callId,
                   ok: false,
                   error: `RPC method ${message.method} returned a non-JSON value`
+                })
+                return
+              }
+              // Why before-send: an unbounded result would cross the fork
+              // unchecked. Oversized results are handler contract violations,
+              // so the bounded refusal flows back as ok:false and the parent
+              // attributes it to the handler (handler_failure) — no text
+              // sniffing, no wire change.
+              const resultBytes = pluginWorkerRpcResultByteLength(json.data)
+              if (resultBytes === null) {
+                send({
+                  type: 'rpcResult',
+                  callId: message.callId,
+                  ok: false,
+                  error: `RPC method ${message.method} returned a non-JSON value`
+                })
+                return
+              }
+              if (resultBytes > PLUGIN_WORKER_RPC_RESULT_MAX_BYTES) {
+                send({
+                  type: 'rpcResult',
+                  callId: message.callId,
+                  ok: false,
+                  error: `RPC method ${message.method} result exceeds ${PLUGIN_WORKER_RPC_RESULT_MAX_BYTES} bytes`
                 })
                 return
               }
