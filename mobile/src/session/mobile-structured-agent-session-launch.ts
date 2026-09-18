@@ -6,8 +6,7 @@ import type {
 import { isDefinitiveAgentSessionCreateRefusal } from '../../../src/shared/agent-session-definitive-refusal'
 import {
   createStructuredAgentSessionId,
-  structuredAgentSessionCreateParams,
-  type StructuredAgentSessionCreateParams
+  structuredAgentSessionCreateParams
 } from '../../../src/shared/structured-agent-session-create'
 import { TUI_AGENT_DISPLAY_NAMES } from '../../../src/shared/tui-agent-display-names'
 import { hasRuntimeRpcErrorCode } from '../../../src/shared/runtime-rpc-error-code'
@@ -36,10 +35,7 @@ export type MobileStructuredAgentLaunchResult =
   | { kind: 'failed'; message: string }
   | { kind: 'unknown'; message: string }
 
-function createParamsFor(
-  agent: AgentSessionHandleProvider,
-  worktree: string
-): StructuredAgentSessionCreateParams {
+function createParamsFor<A extends AgentSessionHandleProvider>(agent: A, worktree: string) {
   return structuredAgentSessionCreateParams({
     sessionId: createStructuredAgentSessionId(agent, structuredSessionRandomUuid),
     worktree,
@@ -56,12 +52,21 @@ function unknownCreateResult(
   return { kind: 'unknown', message: message || unconfirmedMessage(agent) }
 }
 
+// The external bridge is a local-only dev path with no TUI catalog entry; name it explicitly
+// the way the desktop seam does instead of indexing the TUI display names with it.
+function providerDisplayName(agent: AgentSessionHandleProvider): string {
+  if (agent === 'external') {
+    return 'External'
+  }
+  return TUI_AGENT_DISPLAY_NAMES[agent]
+}
+
 function unconfirmedMessage(agent: AgentSessionHandleProvider): string {
-  return `The ${TUI_AGENT_DISPLAY_NAMES[agent]} chat result could not be confirmed.`
+  return `The ${providerDisplayName(agent)} chat result could not be confirmed.`
 }
 
 function failedMessage(agent: AgentSessionHandleProvider): string {
-  return `Could not open ${TUI_AGENT_DISPLAY_NAMES[agent]} chat.`
+  return `Could not open ${providerDisplayName(agent)} chat.`
 }
 
 /** Only a refusal the host names as definitive may become `failed`; anything else keeps the
@@ -82,6 +87,11 @@ export async function createMobileStructuredAgentSession(
   worktreeId: string,
   agent: AgentSessionHandleProvider
 ): Promise<MobileStructuredAgentLaunchResult> {
+  // Fail closed like the desktop launch paths: the host agentSession.create contract only
+  // admits TUI providers, so an external bridge session can never be created from mobile.
+  if (agent === 'external') {
+    return { kind: 'unsupported', reason: 'agent' }
+  }
   const worktree = `id:${worktreeId}`
   let supportResponse
   for (let attempt = 0; ; attempt += 1) {
