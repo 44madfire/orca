@@ -7,22 +7,15 @@
 // that never install one) acquire fails closed with
 // `PI_STRUCTURED_UNAVAILABLE` so callers fall back to ordinary Pi TUI.
 
-import { randomUUID } from 'node:crypto'
 import type {
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
 } from '../../shared/agent-session-journal-types'
-import type { AgentSessionProviderHandleLink } from '../../shared/agent-session-provider-handle'
-import type {
-  AgentSessionExecutionLocation,
-  AgentSessionProcessIdentity
-} from '../../shared/agent-session-record'
+import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
 import { closeProcessRegistry } from '../../shared/child-process/close-process-registry'
 import {
   AgentSessionAcquisitionExitUnprovenError,
-  AgentSessionAcquisitionRefusal,
   AgentSessionAcquisitionRootExitObservedError,
-  AgentSessionPreSpawnError,
   type AgentSessionDispatchOutcome,
   type StructuredAgentSessionAcquireInput,
   type StructuredAgentSessionAdapter,
@@ -30,27 +23,40 @@ import {
   type StructuredAgentSessionSetOptionInput
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { supportsPiStructuredLocation } from './pi-structured-location-support'
-import { piProviderHandleLink } from './pi-structured-owner-identity'
 import { PiRootExitObservedError } from './pi-process-teardown'
-import {
-  opaquePiResumeSessionId,
-  resolvePiProcessIdentity,
-  type PiStructuredAcquireResult,
-  type PiStructuredBackend,
-  type PiStructuredDispatchResult
+import type {
+  PiSession,
+  PiStructuredBackend,
+  PiStructuredDispatchResult,
+  PiStructuredSessionAdapterDeps
 } from './pi-structured-backend'
+import { acquirePiStructuredSession } from './pi-structured-session-acquire'
+import {
+  readPiHistoryFilePath,
+  readPiOptionRestoreFailures,
+  readPiResumeHistory,
+  readPiSessionOptions,
+  setPiSessionOption,
+  type PiStructuredSessionInspectionState
+} from './pi-structured-session-inspection'
 
 export { PI_STRUCTURED_AGENT } from './pi-structured-agent'
 export type { PiStructuredBackend, PiStructuredSessionAdapterDeps } from './pi-structured-backend'
-import type { PiSession, PiStructuredSessionAdapterDeps } from './pi-structured-backend'
-
-const PI_OPTION_KEYS = new Set(['model', 'thinkingLevel', 'queueMode', 'autoCompaction'])
 
 export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter {
   private readonly sessions = new Map<string, PiSession>()
   private readonly optionRestoreFailures = new Map<string, Set<string>>()
 
   constructor(private readonly deps: PiStructuredSessionAdapterDeps) {}
+
+  private inspectionState(): PiStructuredSessionInspectionState {
+    return {
+      sessions: this.sessions,
+      failures: this.optionRestoreFailures,
+      deps: this.deps,
+      live: (sessionId) => this.requireLive(sessionId)
+    }
+  }
 
   supportsCreate = (location: AgentSessionExecutionLocation, agent: string): boolean => {
     if (agent !== 'pi') {
@@ -83,85 +89,13 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     }
   }
 
-  async acquire(input: StructuredAgentSessionAcquireInput): Promise<{
-    process: AgentSessionProcessIdentity
-    link: AgentSessionProviderHandleLink
-    acquisitionGeneration?: string
-  }> {
-    if (input.identity.agent !== 'pi') {
-      throw new AgentSessionAcquisitionRefusal(`pi adapter does not own agent ${input.identity.agent}`)
-    }
-    const backend = this.requireBackend()
-    const workspaceRoot = await this.deps.resolveWorkspacePath(input.identity.workspaceId)
-    if (!workspaceRoot || workspaceRoot.trim() === '') {
-      throw new AgentSessionPreSpawnError('BAD_WORKSPACE: acquire requires a non-empty workspaceRoot')
-    }
-    // Resume comes from the durable chain via opaque `pi:<sessionId>` plus the
-    // host-owned session file on the chain head (see `resumeSessionFile`);
-    // a fresh create mints a new Pi session.
-    const resumePiSessionId = opaquePiResumeSessionId(input.identity)
-    if (resumePiSessionId && !input.resumeSessionFile) {
-      throw new AgentSessionPreSpawnError(
-        'PI_RESUME_FAILED: Pi resume needs the exact session file (reacquire without resume for a fresh session)'
-      )
-    }
-    let acquired: PiStructuredAcquireResult
-    try {
-      acquired = await backend.acquire({
-        orcaSessionId: input.identity.sessionId,
-        workspaceRoot,
-        ...(resumePiSessionId ? { resumePiSessionId } : {}),
-        ...(input.resumeSessionFile ? { resumeSessionFile: input.resumeSessionFile } : {}),
-        ...(input.options ? { options: input.options } : {}),
-        spawnToken: input.spawnToken,
-        ...(input.events ? { sink: input.events } : {})
-      })
-    } catch (error) {
-      throw new AgentSessionPreSpawnError(error)
-    }
-    if (!acquired.piSessionId || acquired.piSessionId.trim() === '') {
-      throw new AgentSessionPreSpawnError('PI_STATE_FAILED: Pi started but reported no session id')
-    }
-    // Start-time proof is mandatory; a child without it is reaped before retry.
-    const exactProcess = await resolvePiProcessIdentity({
-      identity: input.identity,
-      spawnToken: input.spawnToken,
-      pid: acquired.pid,
-      ...(this.deps.readProcessStartTime
-        ? { readProcessStartTime: this.deps.readProcessStartTime }
-        : {})
-    }).catch(async (error: unknown) => {
-      await backend.close({ orcaSessionId: input.identity.sessionId }).catch(() => undefined)
-      throw new AgentSessionPreSpawnError(error)
+  async acquire(input: StructuredAgentSessionAcquireInput) {
+    return acquirePiStructuredSession({
+      deps: this.deps,
+      sessions: this.sessions,
+      backend: this.requireBackend(),
+      input
     })
-    const now = this.deps.now?.() ?? Date.now()
-    const generation = randomUUID()
-    this.sessions.set(input.identity.sessionId, {
-      orcaSessionId: input.identity.sessionId,
-      piSessionId: acquired.piSessionId,
-      leafId: acquired.leafId,
-      fence: input.fence,
-      generation,
-      process: exactProcess,
-      sessionFilePath: acquired.sessionFilePath ?? null,
-      sink: input.events ?? null,
-      closed: false
-    })
-    // The exact session file is host-observed backend output, persisted on the
-    // durable link so structured→TUI can build `pi --session <file>` after restart.
-    const sessionFile =
-      typeof acquired.sessionFilePath === 'string' && acquired.sessionFilePath !== ''
-        ? acquired.sessionFilePath
-        : undefined
-    const link = piProviderHandleLink({
-      sessionId: acquired.piSessionId,
-      leafId: acquired.leafId,
-      resumed: resumePiSessionId !== null,
-      fence: input.fence,
-      observedAt: now,
-      ...(sessionFile ? { sessionFile } : {})
-    })
-    return { process: exactProcess, link, acquisitionGeneration: generation }
   }
 
   async releaseAcquisition(input: { sessionId: string }): Promise<boolean> {
@@ -247,105 +181,21 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     })
   }
 
-  async setOption(
-    input: StructuredAgentSessionSetOptionInput
-  ): Promise<void | Readonly<Record<string, string>>> {
-    const session = this.requireLive(input.sessionId)
-    if (session.fence !== input.fence) {
-      throw new Error('agent_session_checkpoint_stale')
-    }
-    if (!PI_OPTION_KEYS.has(input.key)) {
-      this.trackRestoreFailure(input.sessionId, input.key)
-      throw new Error(`pi has no session option named ${input.key}`)
-    }
-    const set = this.requireBackend().setOption
-    if (!set) {
-      this.trackRestoreFailure(input.sessionId, input.key)
-      throw new Error('Pi options are unavailable in this build.')
-    }
-    try {
-      return await set({
-        orcaSessionId: input.sessionId,
-        key: input.key,
-        value: input.value
-      })
-    } catch (error) {
-      this.trackRestoreFailure(input.sessionId, input.key)
-      throw error
-    }
+  async setOption(input: StructuredAgentSessionSetOptionInput) {
+    return setPiSessionOption(this.inspectionState(), input)
   }
 
-  readOptions = async (input: { sessionId: string; fence: number }) => {
-    const session = this.requireLive(input.sessionId)
-    if (session.fence !== input.fence) {
-      throw new Error('agent_session_checkpoint_stale')
-    }
-    const backend = this.requireBackend()
-    const current = await backend.readOptions?.({ orcaSessionId: input.sessionId })
-    const model = current?.model ?? 'pi'
-    const effort = current?.thinkingLevel
-    let models: { id: string; label: string; isDefault: boolean; defaultEffort?: string; efforts: { value: string; label: string }[] }[] = []
-    try {
-      const [catalog, levels] = await Promise.all([
-        backend.listModels?.({ orcaSessionId: input.sessionId }) ?? Promise.resolve([]),
-        backend.listThinkingLevels?.({ orcaSessionId: input.sessionId }) ?? Promise.resolve([])
-      ])
-      models = catalog.map((entry) => {
-        const qualified = `${entry.provider}/${entry.id}`
-        return {
-          id: qualified,
-          label: entry.id,
-          isDefault: qualified === model || entry.id === model,
-          ...(effort ? { defaultEffort: effort } : {}),
-          efforts: levels.map((level) => ({ value: level, label: level }))
-        }
-      })
-    } catch {
-      models = []
-    }
-    return { models, current: { model, ...(effort ? { effort } : {}) } }
-  }
+  readOptions = (input: { sessionId: string; fence: number }) =>
+    readPiSessionOptions(this.inspectionState(), input)
 
-  readOptionRestoreFailures = (sessionId: string): readonly string[] => [
-    ...(this.optionRestoreFailures.get(sessionId) ?? [])
-  ]
+  readOptionRestoreFailures = (sessionId: string): readonly string[] =>
+    readPiOptionRestoreFailures(this.optionRestoreFailures, sessionId)
 
-  readResumeHistory = async (input: { sessionId: string; fence: number }): Promise<{
-    rows: { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string }[]
-    leafId: string | null
-  }> => {
-    const session = this.requireLive(input.sessionId)
-    if (session.fence !== input.fence) {
-      throw new Error('agent_session_checkpoint_stale')
-    }
-    const read = this.requireBackend().readResumeHistory
-    if (!read) {
-      throw new Error('Pi history resume is unavailable in this build.')
-    }
-    const rebuilt = await read({ orcaSessionId: input.sessionId })
-    const rows: { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string }[] = []
-    for (const row of rebuilt.rows) {
-      const role = row.role
-      if (role === 'user' || role === 'assistant' || role === 'tool' || role === 'system') {
-        rows.push({ id: row.id, role, text: row.text })
-      }
-    }
-    return { rows, leafId: rebuilt.leafId }
-  }
+  readResumeHistory = (input: { sessionId: string; fence: number }) =>
+    readPiResumeHistory(this.inspectionState(), input)
 
-  historyFilePath = async (input: {
-    identity: AgentSessionJournalIdentity
-  }): Promise<string | null> => {
-    const session = this.sessions.get(input.identity.sessionId)
-    if (session?.sessionFilePath) {
-      return session.sessionFilePath
-    }
-    const backend = this.deps.backend
-    if (!backend?.sessionFilePath || !session) {
-      return null
-    }
-    return (await backend.sessionFilePath({ orcaSessionId: input.identity.sessionId })) ?? null
-  }
+  historyFilePath = (input: { identity: AgentSessionJournalIdentity }): Promise<string | null> =>
+    readPiHistoryFilePath(this.inspectionState(), input)
 
   closeSession = (sessionId: string): Promise<boolean> => this.close(sessionId)
 
@@ -410,11 +260,5 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
       throw new Error('PI_STRUCTURED_UNAVAILABLE: native Pi backend is not configured')
     }
     return backend
-  }
-
-  private trackRestoreFailure(sessionId: string, key: string): void {
-    const failures = this.optionRestoreFailures.get(sessionId) ?? new Set<string>()
-    failures.add(key)
-    this.optionRestoreFailures.set(sessionId, failures)
   }
 }

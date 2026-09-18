@@ -11,12 +11,8 @@ import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
-import { createCodexStructuredLaunchResolver } from '../codex/codex-structured-launch-resolution'
 import type { CodexStructuredPermissionPolicy } from '../codex/codex-structured-permission-policy'
-import {
-  CodexStructuredSessionAdapter,
-  type CodexStructuredSessionAdapterDeps
-} from '../codex/codex-structured-session-adapter'
+import type { CodexStructuredSessionAdapterDeps } from '../codex/codex-structured-session-adapter'
 import type { ClaudeStructuredSessionAdapterDeps } from '../claude/claude-structured-session-adapter'
 import {
   StructuredAgentSessionHost,
@@ -24,14 +20,16 @@ import {
 } from '../native-chat/agent-session-wire/structured-agent-session-host'
 import { StructuredAgentSessionAdapterRouter } from '../native-chat/agent-session-wire/structured-agent-session-adapter-router'
 import { createExternalStructuredSessionAdapterForRuntime } from '../native-chat/agent-session-wire/external/external-structured-runtime'
-import { PiStructuredSessionAdapter } from '../pi/pi-structured-session-adapter'
-import { createPiRpcBackend, type PiRpcBackendDeps } from '../pi/pi-rpc-backend'
+import type { PiRpcBackendDeps } from '../pi/pi-rpc-backend'
+import {
+  buildClaudeStructuredAdapter,
+  buildCodexStructuredAdapter,
+  buildPiStructuredAdapter
+} from './structured-agent-session-runtime-adapters'
+import { tearDownStructuredAgentSessionRuntime } from './structured-agent-session-runtime-teardown'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
-import {
-  readClaudeManagedAccountGateSettings,
-  type ClaudeManagedAccountGateSettings
-} from '../native-chat/claude-structured-managed-account-support'
+import type { ClaudeManagedAccountGateSettings } from '../native-chat/claude-structured-managed-account-support'
 import { AgentSessionRecordStore } from './agent-session-record-store'
 import { agentSessionStorePath } from './agent-session-record-store-file'
 import { stopOrphanAgentSessionChildren } from './agent-session-orphan-child-reaper'
@@ -43,7 +41,6 @@ import { agentSessionPtyWriteGate } from './agent-session-pty-write-gate'
 import { resolveLoginShellEnvironment } from '../startup/login-shell-environment'
 import { recordAgentSessionProviderHandle } from './agent-session-provider-handle-transition'
 import type { ClaudeStructuredAuthPolicy } from '../claude-accounts/claude-structured-auth-policy'
-import { createStructuredClaudeRuntimeAdapter } from './structured-claude-runtime-adapter'
 
 /** Sibling of the journal tree rather than inside it: one file adjudicates every
  *  session's lease, while a journal is per session. */
@@ -164,53 +161,11 @@ export async function stopStructuredAgentSessionRuntime(): Promise<void> {
   const failures: unknown[] = []
   for (const runtime of outstanding) {
     try {
-      await tearDownRuntime(runtime)
+      await tearDownStructuredAgentSessionRuntime(runtime)
     } catch (error) {
       pendingTeardown.add(runtime)
       failures.push(error)
     }
-  }
-  if (failures.length === 1) {
-    throw failures[0]
-  }
-  if (failures.length > 1) {
-    throw new AggregateError(failures, 'structured agent-session runtime teardown failed')
-  }
-}
-
-async function tearDownRuntime(installed: InstalledRuntime): Promise<void> {
-  // Drain an in-flight recovery before stopping children; recovery may still
-  // be writing lifecycle rows or acquiring a replacement child.
-  await installed.waitForRecovery()
-  const failures: unknown[] = []
-  // Host teardown runs FIRST, which inverts the older order. It is what stops this host's
-  // provider children now: it evicts each owned session through the adapter, and that eviction
-  // only releases the lease once `disposeSession` PROVES the child gone. Closing the adapter
-  // first would hand every one of those steps a vacuous receipt from an already-closed router,
-  // and would race the attach drain the host runs in the same teardown.
-  //
-  // Tail rows are protected by eviction's own per-session ordering — stop the child, drain what
-  // it already published, settle, then unbind the sink — not by which of the two teardowns runs
-  // first. `closeAll` is only a backstop for children eviction never took: an acquisition that
-  // failed before the host indexed it, or a session whose eviction was refused and left indexed.
-  // A row a child delivers during that backstop close is not captured, and was not captured
-  // under the old order either. The drain below keeps a late callback from outliving the runtime.
-  try {
-    await installed.host.flushAllStreamedEvents()
-  } catch (error) {
-    failures.push(error)
-  }
-  try {
-    // Backstop for children eviction never took: unindexed acquisitions and refused evictions.
-    await installed.adapter.closeAll()
-  } catch (error) {
-    failures.push(error)
-  }
-  // A backstop close can still deliver a final exit callback.
-  try {
-    await installed.waitForRecovery()
-  } catch (error) {
-    failures.push(error)
   }
   if (failures.length === 1) {
     throw failures[0]
@@ -267,16 +222,26 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
         })
       )
     }
-    const codex = new CodexStructuredSessionAdapter({
-      resolveLaunch: createCodexStructuredLaunchResolver({
-        store,
-        resolveWorkspacePath: deps.resolveWorkspacePath,
-        resolveEnvironment: resolveCodexEnvironment,
-        ...(deps.resolveCodexPermissionPolicy
-          ? { resolvePermissionPolicy: deps.resolveCodexPermissionPolicy }
-          : {}),
-        ...(deps.resolveCodexCommand ? { resolveCommand: deps.resolveCodexCommand } : {})
-      }),
+    // Serialize recovery with teardown. Exit callbacks arrive from child
+    // process tasks, so a fire-and-forget callback can otherwise append
+    // after the host has flushed and its journal directory is removed.
+    const chainExitRecovery = (scope: string, run: () => Promise<unknown>): void => {
+      recoveryChain = recoveryChain.then(async () => {
+        try {
+          await run()
+        } catch (error) {
+          deps.onError?.({ scope, error })
+        }
+      })
+    }
+    const codex = buildCodexStructuredAdapter({
+      store,
+      resolveWorkspacePath: deps.resolveWorkspacePath,
+      resolveEnvironment: resolveCodexEnvironment,
+      ...(deps.resolveCodexPermissionPolicy
+        ? { resolvePermissionPolicy: deps.resolveCodexPermissionPolicy }
+        : {}),
+      ...(deps.resolveCodexCommand ? { resolveCommand: deps.resolveCodexCommand } : {}),
       ...(deps.openCodexConnection ? { openConnection: deps.openCodexConnection } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
       onBackgroundTasksChanged: (sessionId, state) =>
@@ -286,19 +251,12 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
         if (event.type !== 'ended' || !('cause' in event) || event.cause !== 'unexpected-exit') {
           return
         }
-        // Serialize recovery with teardown. Exit callbacks arrive from child
-        // process tasks, so a fire-and-forget callback can otherwise append
-        // after the host has flushed and its journal directory is removed.
-        recoveryChain = recoveryChain.then(async () => {
-          try {
-            await host?.handleAdapterEvent(event)
-          } catch (error) {
-            deps.onError?.({ scope: `structured-agent-session-exit:${event.sessionId}`, error })
-          }
+        chainExitRecovery(`structured-agent-session-exit:${event.sessionId}`, async () => {
+          await host?.handleAdapterEvent(event)
         })
       }
     })
-    const claude = createStructuredClaudeRuntimeAdapter({
+    const claude = buildClaudeStructuredAdapter({
       store,
       resolveWorkspacePath: deps.resolveWorkspacePath,
       ...(deps.resolveClaudeCommand ? { resolveClaudeCommand: deps.resolveClaudeCommand } : {}),
@@ -310,18 +268,11 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
         ? { resolveClaudePermissionMode: deps.resolveClaudePermissionMode }
         : {}),
       ...(deps.getClaudeManagedAccountGateSettings
-        ? {
-            readClaudeManagedAccountGate: () =>
-              readClaudeManagedAccountGateSettings(deps.getClaudeManagedAccountGateSettings!)
-          }
+        ? { getClaudeManagedAccountGateSettings: deps.getClaudeManagedAccountGateSettings }
         : {}),
       onUnexpectedExit: (event) => {
-        recoveryChain = recoveryChain.then(async () => {
-          try {
-            await host?.handleAdapterEvent(event)
-          } catch (error) {
-            deps.onError?.({ scope: `structured-agent-session-exit:${event.sessionId}`, error })
-          }
+        chainExitRecovery(`structured-agent-session-exit:${event.sessionId}`, async () => {
+          await host?.handleAdapterEvent(event)
         })
       },
       onBackgroundTasksChanged: (sessionId, state) =>
@@ -345,29 +296,19 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       ...(await bootEnvironment),
       ...(await deps.resolveLaunchEnv?.())
     })
-    let pi: PiStructuredSessionAdapter | null = null
-    const piBackend = createPiRpcBackend({
-      ...(deps.spawnPiProcess ? { spawnImpl: deps.spawnPiProcess } : {}),
-      resolveEnv: resolvePiEnvironment,
-      ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
-      onUnexpectedExit: (sessionId) => pi?.publishUnexpectedExit(sessionId)
-    })
-    pi = new PiStructuredSessionAdapter({
+    const pi = buildPiStructuredAdapter({
       resolveWorkspacePath: deps.resolveWorkspacePath,
+      resolveEnv: resolvePiEnvironment,
+      ...(deps.spawnPiProcess ? { spawnImpl: deps.spawnPiProcess } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
-      backend: piBackend,
       onEvent: (event) => {
         if (event.type !== 'ended' || event.cause !== 'unexpected-exit') {
           return
         }
         // Same serialization as Codex exits: recovery must not append after
         // the host has flushed and its journal directory is removed.
-        recoveryChain = recoveryChain.then(async () => {
-          try {
-            await host?.handleAdapterEvent(event)
-          } catch (error) {
-            deps.onError?.({ scope: `structured-agent-session-exit:${event.sessionId}`, error })
-          }
+        chainExitRecovery(`structured-agent-session-exit:${event.sessionId}`, async () => {
+          await host?.handleAdapterEvent(event)
         })
       }
     })

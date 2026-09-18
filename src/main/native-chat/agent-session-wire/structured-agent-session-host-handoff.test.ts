@@ -14,9 +14,9 @@ import { createDeferredStructuredAgentSessionEventSink } from './structured-agen
 import type { StructuredAgentSessionHostDeps } from './structured-agent-session-host-types'
 import {
   acquireNativeHandoffOwner,
-  createStructuredAgentSessionHostHandoff,
-  structuredTuiTranscriptImportOptions
+  createStructuredAgentSessionHostHandoff
 } from './structured-agent-session-host-handoff'
+import { structuredTuiTranscriptImportOptions } from './structured-agent-session-host-handoff-history'
 
 const journals = createTrackedJournalOpener()
 
