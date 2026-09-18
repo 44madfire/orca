@@ -176,6 +176,10 @@ export type PluginWorkerInit = z.infer<typeof pluginWorkerInitSchema>
 
 export const PLUGIN_WORKER_READY_TIMEOUT_MS = 10_000
 export const PLUGIN_WORKER_INVOKE_TIMEOUT_MS = 30_000
+/** Serialized-JSON cap on a single worker RPC result, enforced worker-side
+ *  before the fork send. Matches PLUGIN_SERVICE_RESPONSE_MAX_BYTES: both
+ *  are serialized-JSON response envelopes crossing a plugin boundary. */
+export const PLUGIN_WORKER_RPC_RESULT_MAX_BYTES = 64 * 1024
 /** Idle reap: a worker with no in-flight work for this long is disposed and
  *  re-forked on the next trigger. */
 export const PLUGIN_WORKER_IDLE_REAP_MS = 5 * 60_000

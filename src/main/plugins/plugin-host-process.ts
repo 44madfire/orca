@@ -104,13 +104,13 @@ export async function startPluginWorker(
     lastActivityAt = Date.now()
   })
 
-  function rejectAllPending(reason: string): void {
+  function rejectAllPending(reason: string, rpcKind: 'disconnect' | 'worker_crash' | 'worker_exit'): void {
     for (const [callId, entry] of pendingCommands) {
       clearTimeout(entry.timer)
       pendingCommands.delete(callId)
       entry.reject(new Error(reason))
     }
-    rpcCalls.rejectAll(reason)
+    rpcCalls.rejectAll(reason, rpcKind)
     for (const timer of pendingEvents.values()) {
       clearTimeout(timer)
     }
@@ -120,7 +120,7 @@ export async function startPluginWorker(
   child.on('exit', (code) => {
     exited = true
     exitCode = code
-    rejectAllPending(`${tag} worker exited before responding`)
+    rejectAllPending(`${tag} worker exited before responding`, 'worker_exit')
     for (const callback of exitCallbacks) {
       callback(code)
     }
@@ -128,7 +128,7 @@ export async function startPluginWorker(
   child.on('disconnect', () => {
     // Why: a worker can drop fork IPC while its event loop stays alive. Kill
     // it so the ensuing exit enters the normal supervision/backoff path.
-    rejectAllPending(`${tag} worker disconnected before responding`)
+    rejectAllPending(`${tag} worker disconnected before responding`, 'disconnect')
     if (!exited) {
       child.kill('SIGKILL')
     }
@@ -158,9 +158,9 @@ export async function startPluginWorker(
         const failure = new Error(`${tag} worker process error: ${error.message}`)
         fail(failure)
         child.kill('SIGKILL')
-        // Why: fail() no-ops once ready; a post-ready channel fault must still
-        // reject in-flight calls instead of letting each hit its own timeout.
-        rejectAllPending(failure.message)
+        // Why: fail() no-ops once ready; a post-ready 'disconnect' fault must
+        // still reject in-flight calls instead of letting each time out.
+        rejectAllPending(failure.message, 'disconnect')
       })
       child.on('exit', (code) =>
         fail(new Error(`${tag} worker exited before ready (code ${code})`))
@@ -236,7 +236,7 @@ export async function startPluginWorker(
           }
           case 'fatal': {
             fail(new Error(`${tag} worker crashed: ${message.error}`))
-            rejectAllPending(`${tag} worker crashed: ${message.error}`)
+            rejectAllPending(`${tag} worker crashed: ${message.error}`, 'worker_crash')
             child.kill('SIGKILL')
           }
         }
@@ -273,9 +273,7 @@ export async function startPluginWorker(
       })
     },
     invokeRpc(method, params, context) {
-      return exited || disposed
-        ? Promise.reject(new Error(`${tag} worker is not running`))
-        : rpcCalls.invoke(method, params, context)
+      return exited || disposed ? rpcCalls.rejectAfterExit(tag) : rpcCalls.invoke(method, params, context)
     },
     deliverEvent(event, payload) {
       if (exited || disposed) {
