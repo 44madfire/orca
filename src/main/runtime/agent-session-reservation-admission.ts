@@ -22,7 +22,6 @@ import {
 } from '../../shared/agent-session-lease-adjudication'
 import {
   AGENT_SESSION_RECORD_SCHEMA_VERSION,
-  agentSessionExecutionLocationsEqual,
   isAgentSessionLaunchArgs,
   isAgentSessionLaunchEnv,
   isAgentSessionOptions,
@@ -32,6 +31,7 @@ import {
   type AgentSessionLaunchEnv,
   type AgentSessionRecord
 } from '../../shared/agent-session-record'
+import { agentSessionExecutionLocationsEqual } from '../../shared/agent-session-scope-key'
 import {
   agentSessionProviderHandleRoot,
   type AgentSessionHandleProvider,

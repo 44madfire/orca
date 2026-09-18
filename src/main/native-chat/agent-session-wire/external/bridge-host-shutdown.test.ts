@@ -27,6 +27,7 @@ class SwallowingProc {
     return this
   }
   emitExit(code: number | null, signal: string | null): void {
+    // oxlint-disable-next-line unicorn/no-useless-spread -- copy-safe: listeners may unsubscribe during iteration
     for (const fn of [...this.listeners]) {
       ;(fn as (...args: unknown[]) => void)(code, signal)
     }

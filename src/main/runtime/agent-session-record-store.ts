@@ -21,12 +21,12 @@ import {
 import type { AgentSessionOwnerProbe } from '../../shared/agent-session-lease-adjudication'
 import { classifyObservedAgentSessionSpawnToken } from '../../shared/agent-session-lease-adjudication'
 import type { AgentSessionProviderHandleLink } from '../../shared/agent-session-provider-handle'
-import {
-  agentSessionScopeKey,
-  type AgentSessionExecutionLocation,
-  type AgentSessionJournalCheckpoint,
-  type AgentSessionOptionsReplacement,
-  type AgentSessionRecord
+import { agentSessionScopeKey } from '../../shared/agent-session-scope-key'
+import type {
+  AgentSessionExecutionLocation,
+  AgentSessionJournalCheckpoint,
+  AgentSessionOptionsReplacement,
+  AgentSessionRecord
 } from '../../shared/agent-session-record'
 import {
   commitAgentSessionProcessIdentity,
