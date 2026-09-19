@@ -351,7 +351,26 @@ describe('ORPC-3 consent race uses fresh per-request grants', () => {
       approved: true
     }
     const host = fakeHost(plugin, state, worker)
-    const staleActivationGrants: readonly PluginCapabilityKind[] = ['workspace:read']
+    // Why: activation-time orca.grantedCapabilities is informational only;
+    // capture the real init array so the test proves per-request wins over
+    // what the worker actually saw at startup, not over a local const.
+    let activationGrants: readonly string[] | null = null
+    const runtime = createPluginWorkerRuntime({
+      send: vi.fn(),
+      importModule: async () => ({
+        default: (orca: { grantedCapabilities: readonly string[] }) => {
+          activationGrants = [...orca.grantedCapabilities]
+        }
+      })
+    })
+    await runtime.handleMessage({
+      type: 'init',
+      pluginId: plugin.pluginKey,
+      pluginRoot: plugin.rootDir,
+      mainEntry: 'worker.js',
+      grantedCapabilities: ['workspace:read']
+    })
+    expect(activationGrants).toEqual(['workspace:read'])
 
     await expect(
       invokePanelRpcForPlugin(host, plugin.pluginKey, 'dashboard', 'panel.echo', null)
@@ -366,8 +385,8 @@ describe('ORPC-3 consent race uses fresh per-request grants', () => {
     await expect(
       invokePanelRpcForPlugin(host, plugin.pluginKey, 'dashboard', 'panel.echo', null)
     ).resolves.toMatchObject({ ok: true })
-    // Stale activation array still claims workspace:read; per-request wins.
-    expect(staleActivationGrants).toContain('workspace:read')
+    // Activation still claims workspace:read; the revoked per-request wins.
+    expect(activationGrants).toContain('workspace:read')
     expect(worker.invokeRpc).toHaveBeenLastCalledWith(
       'panel.echo',
       null,
@@ -541,6 +560,151 @@ describe('ORPC-3 path fidelity', () => {
     await runtime.handleMessage({ type: 'invokeRpc', callId: 1, method: 'panel.echo', context })
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({ worktree: { path } })
+  })
+})
+
+describe('ORPC-3 malformed snapshots and grant flips fail closed', () => {
+  function malformedHost(
+    plugin: ValidDiscoveredPlugin,
+    snapshot: unknown,
+    worker: PluginWorkerHandle
+  ): PluginWorkerInvocationHost & { ensure: ReturnType<typeof vi.fn> } {
+    const ensure = vi.fn(async () => worker)
+    return {
+      findValidPlugin: () => plugin,
+      isRuntimeApproved: () => true,
+      getGrantedCapabilities: () => ['workspace:read'],
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: fixtures prove malformed delegate output fails closed.
+      resolveActiveWorktreeContext: async () => snapshot as never,
+      workerController: { ensure },
+      ensure
+    }
+  }
+
+  async function malformedPlugin(): Promise<ValidDiscoveredPlugin> {
+    const manifest = manifestFor('orca-samples', 'alpha', [{ kind: 'workspace:read' }])
+    const rootDir = await pluginRoot(manifest)
+    return {
+      pluginKey: 'orca-samples.alpha',
+      rootDir,
+      manifest,
+      consentFingerprint: 'sha256-consented',
+      contentHash: null,
+      isDev: true
+    }
+  }
+
+  it.each([
+    ['empty worktreeId', { worktreeId: '', path: '/repo', branch: 'main', displayName: 'repo' }],
+    ['empty path', { worktreeId: 'repo::/repo', path: '', branch: 'main', displayName: 'repo' }],
+    [
+      'non-string branch',
+      { worktreeId: 'repo::/repo', path: '/repo', branch: 42, displayName: 'repo' }
+    ],
+    [
+      'non-string displayName',
+      { worktreeId: 'repo::/repo', path: '/repo', branch: 'main', displayName: null }
+    ],
+    [
+      'oversized path',
+      { worktreeId: 'repo::/repo', path: `/${'x'.repeat(4096)}`, branch: 'main', displayName: 'repo' }
+    ],
+    [
+      'oversized worktreeId',
+      { worktreeId: `w${'y'.repeat(1024)}`, path: '/repo', branch: 'main', displayName: 'repo' }
+    ],
+    [
+      'oversized branch',
+      { worktreeId: 'repo::/repo', path: '/repo', branch: 'b'.repeat(513), displayName: 'repo' }
+    ],
+    [
+      'oversized displayName',
+      { worktreeId: 'repo::/repo', path: '/repo', branch: 'main', displayName: 'd'.repeat(513) }
+    ]
+  ])('rejects malformed snapshot (%s) as bounded unavailable before worker ensure', async (_label, snapshot) => {
+    const plugin = await malformedPlugin()
+    const worker = testWorker()
+    const host = malformedHost(plugin, snapshot, worker)
+
+    const outcome = await invokePanelRpcForPlugin(host, plugin.pluginKey, 'dashboard', 'panel.echo', null)
+    expect(outcome).toMatchObject({ ok: false, code: 'unavailable' })
+    expect(host.ensure).not.toHaveBeenCalled()
+    expect(worker.invokeRpc).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when grants flip to null between checks', async () => {
+    const plugin = await malformedPlugin()
+    const worker = testWorker()
+    const ensure = vi.fn(async () => worker)
+    const resolveActiveWorktreeContext = vi.fn(async () => ({ ...TRUSTED }))
+    const host: PluginWorkerInvocationHost = {
+      findValidPlugin: () => plugin,
+      isRuntimeApproved: () => true,
+      getGrantedCapabilities: () => null,
+      resolveActiveWorktreeContext,
+      workerController: { ensure }
+    }
+
+    await expect(
+      invokePanelRpcForPlugin(host, plugin.pluginKey, 'dashboard', 'panel.echo', null)
+    ).resolves.toMatchObject({ ok: false, code: 'unavailable' })
+    expect(resolveActiveWorktreeContext).not.toHaveBeenCalled()
+    expect(ensure).not.toHaveBeenCalled()
+    expect(worker.invokeRpc).not.toHaveBeenCalled()
+  })
+
+  it('keeps concurrent calls on their own snapshots (promise gates, no sleeps)', async () => {
+    const plugin = await malformedPlugin()
+    const worker = testWorker()
+    const worktreeA = { ...TRUSTED }
+    const worktreeB = {
+      worktreeId: 'repo::/other/path',
+      path: '/other/path',
+      branch: 'main',
+      displayName: 'other'
+    }
+    let active = worktreeA
+    const enteredFirst = deferred()
+    const releaseFirst = deferred()
+    const enteredSecond = deferred()
+    const releaseSecond = deferred()
+    let ensureCalls = 0
+    const ensure = vi.fn(async () => {
+      ensureCalls += 1
+      if (ensureCalls === 1) {
+        enteredFirst.resolve()
+        await releaseFirst.promise
+      } else {
+        enteredSecond.resolve()
+        await releaseSecond.promise
+      }
+      return worker
+    })
+    const host: PluginWorkerInvocationHost = {
+      findValidPlugin: () => plugin,
+      isRuntimeApproved: () => true,
+      getGrantedCapabilities: () => ['workspace:read'],
+      resolveActiveWorktreeContext: async () => ({ ...active }),
+      workerController: { ensure }
+    }
+
+    const first = invokePanelRpcForPlugin(host, plugin.pluginKey, 'dashboard', 'panel.echo', { n: 1 })
+    await enteredFirst.promise
+    active = worktreeB
+    const second = invokePanelRpcForPlugin(host, plugin.pluginKey, 'dashboard', 'panel.echo', { n: 2 })
+    await enteredSecond.promise
+    releaseFirst.resolve()
+    releaseSecond.resolve()
+    await expect(first).resolves.toMatchObject({ ok: true })
+    await expect(second).resolves.toMatchObject({ ok: true })
+    expect(ensure).toHaveBeenCalledTimes(2)
+    const contexts = vi.mocked(worker.invokeRpc).mock.calls.map((call) => call[2])
+    expect(contexts).toHaveLength(2)
+    expect(contexts[0]?.worktree).toEqual(worktreeA)
+    expect(contexts[1]?.worktree).toEqual(worktreeB)
+    // Params stay paired with their own snapshot; no cross-wiring.
+    expect(vi.mocked(worker.invokeRpc).mock.calls[0]?.[1]).toEqual({ n: 1 })
+    expect(vi.mocked(worker.invokeRpc).mock.calls[1]?.[1]).toEqual({ n: 2 })
   })
 })
 
