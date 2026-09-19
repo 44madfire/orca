@@ -106,6 +106,130 @@ export function callPanelRpcViaPreload(call: PanelRpcCall): Promise<PluginPanelR
   return panelRpc(call)
 }
 
+type PanelBridgeHandlerState = {
+  options: PanelBridgeHostOptions
+  budget: PanelMessageBudget
+  controlBudget: PanelMessageBudget
+  now: () => number
+  requestingWindow: Window
+}
+
+// Single post path so stale-document checks cannot drift between result types.
+function postPanelBridgeResult(
+  state: PanelBridgeHandlerState,
+  message: PluginPanelActionResultMessage | PluginPanelRpcResultMessage
+): void {
+  if (
+    state.options.isActive?.() === false ||
+    state.options.getPanelWindow() !== state.requestingWindow
+  ) {
+    return
+  }
+  // Why: targetOrigin must be '*' — an opaque origin never matches a
+  // concrete origin, so anything stricter would silently drop the reply.
+  state.requestingWindow.postMessage(message, '*')
+}
+
+function handlePanelPong(state: PanelBridgeHandlerState, data: unknown, pongId: number): void {
+  const timestamp = state.now()
+  // One walk, capped at the smaller lane bound, serves both budgets: a
+  // pong above that cap is refused here anyway.
+  const pongBytes = structuredCloneMessageBytes(
+    data,
+    state.controlBudget.maxBytes ?? PANEL_CONTROL_MESSAGE_MAX_BYTES
+  )
+  // Charged to both: the data budget still meters this traffic, while a
+  // refusal there cannot by itself silence liveness.
+  state.budget.admit(timestamp, pongBytes)
+  if (!state.controlBudget.admit(timestamp, pongBytes)) {
+    state.options.onPong?.(pongId)
+  }
+}
+
+function handlePanelActionRequest(state: PanelBridgeHandlerState, data: unknown): void {
+  const parsed = parsePanelActionRequest(data)
+  if (!parsed.ok) {
+    if (parsed.requestId) {
+      postPanelBridgeResult(state, {
+        type: PANEL_ACTION_RESULT_TYPE,
+        requestId: parsed.requestId,
+        ok: false,
+        errorCode: 'invalid_request',
+        error: parsed.error
+      })
+    }
+    return
+  }
+  const { requestId, action, params } = parsed.request
+  state.options
+    .callPanelAction({ sessionToken: state.options.sessionToken, action, params })
+    .then((outcome) => {
+      postPanelBridgeResult(
+        state,
+        outcome.ok
+          ? { type: PANEL_ACTION_RESULT_TYPE, requestId, ok: true, value: outcome.value }
+          : {
+              type: PANEL_ACTION_RESULT_TYPE,
+              requestId,
+              ok: false,
+              errorCode: outcome.code,
+              error: outcome.error
+            }
+      )
+    })
+    .catch((error: unknown) => {
+      postPanelBridgeResult(state, {
+        type: PANEL_ACTION_RESULT_TYPE,
+        requestId,
+        ok: false,
+        errorCode: 'action_failed',
+        error: toBoundedBridgeError(error)
+      })
+    })
+}
+
+function handlePanelRpcRequest(state: PanelBridgeHandlerState, data: unknown): void {
+  const parsed = parsePanelRpcRequest(data)
+  if (!parsed.ok) {
+    if (parsed.requestId) {
+      postPanelBridgeResult(state, {
+        type: PANEL_RPC_RESULT_TYPE,
+        requestId: parsed.requestId,
+        ok: false,
+        errorCode: 'invalid_request',
+        error: parsed.error
+      })
+    }
+    return
+  }
+  const { requestId, method, params } = parsed.request
+  const relay = state.options.callPanelRpc ?? callPanelRpcViaPreload
+  relay({ sessionToken: state.options.sessionToken, method, params })
+    .then((outcome) => {
+      postPanelBridgeResult(
+        state,
+        outcome.ok
+          ? { type: PANEL_RPC_RESULT_TYPE, requestId, ok: true, value: outcome.value }
+          : {
+              type: PANEL_RPC_RESULT_TYPE,
+              requestId,
+              ok: false,
+              errorCode: outcome.code,
+              error: outcome.error
+            }
+      )
+    })
+    .catch((error: unknown) => {
+      postPanelBridgeResult(state, {
+        type: PANEL_RPC_RESULT_TYPE,
+        requestId,
+        ok: false,
+        errorCode: 'action_failed',
+        error: toBoundedBridgeError(error)
+      })
+    })
+}
+
 export function createPanelBridgeMessageHandler(
   options: PanelBridgeHostOptions
 ): (event: MessageEvent) => void {
@@ -120,20 +244,12 @@ export function createPanelBridgeMessageHandler(
     if (!panelWindow || event.source !== panelWindow) {
       return
     }
-    const requestingWindow = panelWindow
-    const respond = (message: PluginPanelActionResultMessage): void => {
-      if (options.isActive?.() === false || options.getPanelWindow() !== requestingWindow) {
-        return
-      }
-      // Why: targetOrigin must be '*' — an opaque origin never matches a
-      // concrete origin, so anything stricter would silently drop the reply.
-      requestingWindow.postMessage(message, '*')
-    }
-    const respondRpc = (message: PluginPanelRpcResultMessage): void => {
-      if (options.isActive?.() === false || options.getPanelWindow() !== requestingWindow) {
-        return
-      }
-      requestingWindow.postMessage(message, '*')
+    const state: PanelBridgeHandlerState = {
+      options,
+      budget,
+      controlBudget,
+      now,
+      requestingWindow: panelWindow
     }
     // A valid pong is the one frame the host must never lose: it takes a
     // reserved lane so a panel saturating its data budget can still prove it
@@ -142,19 +258,7 @@ export function createPanelBridgeMessageHandler(
     // data budget below like any other malformed frame.
     const pongId = readPanelPongId(event.data)
     if (pongId !== null) {
-      const timestamp = now()
-      // One walk, capped at the smaller lane bound, serves both budgets: a
-      // pong above that cap is refused here anyway.
-      const pongBytes = structuredCloneMessageBytes(
-        event.data,
-        controlBudget.maxBytes ?? PANEL_CONTROL_MESSAGE_MAX_BYTES
-      )
-      // Charged to both: the data budget still meters this traffic, while a
-      // refusal there cannot by itself silence liveness.
-      budget.admit(timestamp, pongBytes)
-      if (!controlBudget.admit(timestamp, pongBytes)) {
-        options.onPong?.(pongId)
-      }
+      handlePanelPong(state, event.data, pongId)
       return
     }
     // Budgets run before parsing: a flood of malformed junk must not buy
@@ -182,7 +286,7 @@ export function createPanelBridgeMessageHandler(
           event.data !== null &&
           (event.data as { type?: unknown }).type === PANEL_RPC_REQUEST_TYPE
         ) {
-          respondRpc({
+          postPanelBridgeResult(state, {
             type: PANEL_RPC_RESULT_TYPE,
             requestId,
             ok: false,
@@ -190,7 +294,7 @@ export function createPanelBridgeMessageHandler(
             error
           })
         } else {
-          respond({
+          postPanelBridgeResult(state, {
             type: PANEL_ACTION_RESULT_TYPE,
             requestId,
             ok: false,
@@ -203,93 +307,13 @@ export function createPanelBridgeMessageHandler(
     }
     // RPC relay: the iframe supplies only method/params; the host attaches
     // the session token at relay time and never forwards caller identity.
-    const relayPanelRpc = (
-      data: unknown,
-      reply: (message: PluginPanelRpcResultMessage) => void
-    ): void => {
-      const parsed = parsePanelRpcRequest(data)
-      if (!parsed.ok) {
-        if (parsed.requestId) {
-          reply({
-            type: PANEL_RPC_RESULT_TYPE,
-            requestId: parsed.requestId,
-            ok: false,
-            errorCode: 'invalid_request',
-            error: parsed.error
-          })
-        }
-        return
-      }
-      const { requestId, method, params } = parsed.request
-      const relay = options.callPanelRpc ?? callPanelRpcViaPreload
-      relay({ sessionToken: options.sessionToken, method, params })
-        .then((outcome) => {
-          reply(
-            outcome.ok
-              ? { type: PANEL_RPC_RESULT_TYPE, requestId, ok: true, value: outcome.value }
-              : {
-                  type: PANEL_RPC_RESULT_TYPE,
-                  requestId,
-                  ok: false,
-                  errorCode: outcome.code,
-                  error: outcome.error
-                }
-          )
-        })
-        .catch((error: unknown) => {
-          reply({
-            type: PANEL_RPC_RESULT_TYPE,
-            requestId,
-            ok: false,
-            errorCode: 'action_failed',
-            error: toBoundedBridgeError(error)
-          })
-        })
-    }
     if (looksLikePanelRpcRequest(event.data)) {
-      relayPanelRpc(event.data, respondRpc)
+      handlePanelRpcRequest(state, event.data)
       return
     }
     if (!looksLikePanelActionRequest(event.data)) {
       return
     }
-    const parsed = parsePanelActionRequest(event.data)
-    if (!parsed.ok) {
-      if (parsed.requestId) {
-        respond({
-          type: PANEL_ACTION_RESULT_TYPE,
-          requestId: parsed.requestId,
-          ok: false,
-          errorCode: 'invalid_request',
-          error: parsed.error
-        })
-      }
-      return
-    }
-    const { requestId, action, params } = parsed.request
-    options
-      .callPanelAction({ sessionToken: options.sessionToken, action, params })
-      .then((outcome) => {
-        respond(
-          outcome.ok
-            ? { type: PANEL_ACTION_RESULT_TYPE, requestId, ok: true, value: outcome.value }
-            : {
-                type: PANEL_ACTION_RESULT_TYPE,
-                requestId,
-                ok: false,
-                errorCode: outcome.code,
-                error: outcome.error
-              }
-        )
-      })
-      .catch((error: unknown) => {
-        respond({
-          type: PANEL_ACTION_RESULT_TYPE,
-          requestId,
-          ok: false,
-          errorCode: 'action_failed',
-          error: toBoundedBridgeError(error)
-        })
-      })
+    handlePanelActionRequest(state, event.data)
   }
 }
