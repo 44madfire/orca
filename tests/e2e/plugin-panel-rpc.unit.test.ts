@@ -10,6 +10,7 @@ import { createPluginWorkerRuntime } from '../../src/main/plugins/plugin-host-ru
 import type { PluginWorkerHandle } from '../../src/main/plugins/plugin-host-process'
 import type { PluginWorkerFactory } from '../../src/main/plugins/plugin-worker-manager'
 import type { PluginRuntimeDelegate } from '../../src/main/plugins/plugin-host-service-bindings'
+import { PluginWorkerRpcError } from '../../src/main/plugins/plugin-worker-rpc-failure'
 import { PluginService } from '../../src/main/plugins/plugin-service'
 import { createPanelBridgeMessageHandler } from '../../src/renderer/src/components/right-sidebar/plugin-panel-bridge-host'
 
@@ -69,6 +70,9 @@ function runtimeBackedFactory(options: {
   seenContexts: PluginPanelRpcContext[]
   activationGrants: { grants: readonly string[] | null }
   handler?: (params: unknown, context: PluginPanelRpcContext) => unknown
+  // Rejects invokeRpc with the typed worker_exit failure, mirroring
+  // PluginWorkerRpcCalls.rejectAfterExit when the child is gone.
+  workerExitMessage?: string
 }): PluginWorkerFactory {
   return async (workerOptions) => {
     options.activationGrants.grants = [...workerOptions.grantedCapabilities]
@@ -92,7 +96,9 @@ function runtimeBackedFactory(options: {
           if (message.ok) {
             entry.resolve(message.value)
           } else {
-            entry.reject(new Error(message.error))
+            // Mirrors PluginWorkerRpcCalls.handleResult: the wire carries
+            // only an error string, so every ok:false is an action_failed.
+            entry.reject(new PluginWorkerRpcError('action_failed', message.error))
           }
         }
       },
@@ -130,6 +136,13 @@ function runtimeBackedFactory(options: {
       rpcMethods: readyMethods,
       invokeCommand: () => Promise.reject(new Error('no commands')),
       invokeRpc: (method, params, context) => {
+        // Worker-gone short-circuit: no runtime dispatch, exactly like a
+        // parent-side pre-check rejection after the child exits.
+        if (options.workerExitMessage !== undefined) {
+          return Promise.reject(
+            new PluginWorkerRpcError('worker_exit', options.workerExitMessage)
+          )
+        }
         const callId = nextCallId++
         return new Promise<unknown>((resolve, reject) => {
           pending.set(callId, { resolve, reject })
@@ -163,6 +176,7 @@ async function createE2EService(options: {
   seenContexts?: PluginPanelRpcContext[]
   activationGrants?: { grants: readonly string[] | null }
   handler?: (params: unknown, context: PluginPanelRpcContext) => unknown
+  workerExitMessage?: string
 } = {}): Promise<{
   service: PluginService
   ownerKey: string
@@ -176,7 +190,12 @@ async function createE2EService(options: {
   const seenContexts = options.seenContexts ?? []
   const activationGrants = options.activationGrants ?? { grants: null }
   const delegate = options.delegate === undefined ? fakeDelegate() : options.delegate
-  const factory = runtimeBackedFactory({ seenContexts, activationGrants, handler: options.handler })
+  const factory = runtimeBackedFactory({
+    seenContexts,
+    activationGrants,
+    handler: options.handler,
+    workerExitMessage: options.workerExitMessage
+  })
   const consents = { 'orca-samples.alpha': fingerprintPluginConsent(manifest) }
   const service = new PluginService({
     userDataPath: root,
@@ -510,10 +529,10 @@ describe('ORPC-4 security regression through the real stack', () => {
   })
 
   it('delivers a bounded unavailable result when the worker exits', async () => {
+    // Handler throws are always handler_failure regardless of their text,
+    // so the exit path rejects with the typed worker_exit failure instead.
     const { service, ownerKey, sessionToken } = await createE2EService({
-      handler: () => {
-        throw new Error('[plugin:orca-samples.alpha] worker exited before responding')
-      }
+      workerExitMessage: '[plugin:orca-samples.alpha] worker exited before responding'
     })
     const harness = createE2EPanelHarness({ service, ownerKey, sessionToken })
     const resultPromise = harness.waitFor('rpc-crash')
