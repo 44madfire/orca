@@ -10,6 +10,7 @@ import {
 } from '../../../../shared/plugins/plugin-panel-shell'
 import {
   callPanelActionViaPreload,
+  callPanelRpcViaPreload,
   createPanelBridgeMessageHandler
 } from './plugin-panel-bridge-host'
 import { createPanelWatchdog } from './plugin-panel-watchdog'
@@ -89,6 +90,7 @@ function PluginPanel({ tabKey }: PluginPanelProps): React.JSX.Element {
       sessionToken,
       getPanelWindow: () => iframeRef.current?.contentWindow ?? null,
       callPanelAction: callPanelActionViaPreload,
+      callPanelRpc: callPanelRpcViaPreload,
       isActive: () => active,
       onPong: (pingId) => watchdog.handlePong(pingId)
     })

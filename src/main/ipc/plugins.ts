@@ -4,7 +4,8 @@ import type { Store } from '../persistence'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import type {
   PluginPanelActionOutcome,
-  PluginPanelEntry
+  PluginPanelEntry,
+  PluginPanelRpcOutcome
 } from '../../shared/plugins/plugin-panel-bridge'
 import { getUserPluginsDir, getPluginsDataDir } from '../plugins/plugin-discovery'
 import {
@@ -170,6 +171,17 @@ export function registerPluginHandlers(
     async (event, args: unknown): Promise<PluginPanelActionOutcome> => {
       await pluginService.whenReady()
       return pluginService.panels.execute(rendererPanelOwner(event.sender.id), args)
+    }
+  )
+
+  // Panel-originated private worker RPC relayed by the renderer's
+  // postMessage bridge host. Target identity comes only from the
+  // host-issued session; the iframe payload carries no authority fields.
+  ipcMain.handle(
+    'plugins:panelRpc',
+    async (event, args: unknown): Promise<PluginPanelRpcOutcome> => {
+      await pluginService.whenReady()
+      return pluginService.panels.executeRpc(rendererPanelOwner(event.sender.id), args)
     }
   )
 
