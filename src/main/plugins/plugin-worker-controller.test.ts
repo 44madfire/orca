@@ -48,7 +48,9 @@ async function plugin(): Promise<ValidDiscoveredPlugin> {
 function worker(commands: string[]): PluginWorkerHandle & { dispose: ReturnType<typeof vi.fn> } {
   return {
     commands,
+    rpcMethods: [],
     invokeCommand: vi.fn(async () => null),
+    invokeRpc: vi.fn(async () => null),
     deliverEvent: vi.fn(),
     lastActivityAt: () => Date.now(),
     inFlightCount: () => 0,

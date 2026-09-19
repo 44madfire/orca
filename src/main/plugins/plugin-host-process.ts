@@ -1,10 +1,9 @@
 import { fork, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import {
   PLUGIN_WORKER_INVOKE_TIMEOUT_MS,
   PLUGIN_WORKER_READY_TIMEOUT_MS,
   pluginWorkerChildMessageSchema,
+  type PluginPanelRpcContext,
   type PluginWorkerParentMessage
 } from '../../shared/plugins/plugin-host-protocol'
 import type { PluginCapabilityKind } from '../../shared/plugins/plugin-capabilities'
@@ -12,6 +11,8 @@ import type { PluginEventName } from '../../shared/plugins/plugin-manifest'
 import type { PluginPanelActionOutcome } from '../../shared/plugins/plugin-panel-bridge'
 import { buildPluginWorkerEnv } from './plugin-worker-env'
 import { pipePluginWorkerOutput } from './plugin-worker-output-buffer'
+import { PluginWorkerRpcCalls, type PluginWorkerPendingCall } from './plugin-worker-rpc-calls'
+import type { PluginWorkerRpcFailureReason } from './plugin-worker-rpc-failure'
 
 // Grace between the shutdown message and SIGKILL: long enough for plugin
 // cleanup, short enough that disable/quit never feels stuck.
@@ -31,7 +32,10 @@ export type PluginWorkerHostCallExecutor = (
 export type PluginWorkerHandle = {
   /** Command ids the worker registered on activate (⊆ manifest commands). */
   commands: readonly string[]
+  /** Private worker RPC methods registered on activate. */
+  rpcMethods: readonly string[]
   invokeCommand(commandId: string, args?: unknown): Promise<unknown>
+  invokeRpc(method: string, params: unknown, context: PluginPanelRpcContext): Promise<unknown>
   deliverEvent(event: PluginEventName, payload: unknown): void
   /** Milliseconds timestamp of the last completed work (for idle reap). */
   lastActivityAt(): number
@@ -54,26 +58,6 @@ export type StartPluginWorkerOptions = {
   invokeTimeoutMs?: number
   eventTimeoutMs?: number
   signal?: AbortSignal
-}
-
-/**
- * Resolves the compiled child entry from the app path. Mirrors
- * getDaemonEntryPath(): packaged apps must fork the asar-unpacked copy
- * because fork() cannot execute scripts from inside app.asar.
- */
-export function resolvePluginHostEntryPath(appPath: string, isPackaged: boolean): string {
-  const basePath = isPackaged ? appPath.replace('app.asar', 'app.asar.unpacked') : appPath
-  const directEntryPath = join(basePath, 'plugin-host-entry.js')
-  if (existsSync(directEntryPath)) {
-    return directEntryPath
-  }
-  return join(basePath, 'out', 'main', 'plugin-host-entry.js')
-}
-
-type PendingCall = {
-  resolve: (value: unknown) => void
-  reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
 }
 
 export async function startPluginWorker(
@@ -101,7 +85,7 @@ export async function startPluginWorker(
   pipePluginWorkerOutput(child.stdout, 'info', log)
   pipePluginWorkerOutput(child.stderr, 'error', log)
 
-  const pendingCommands = new Map<number, PendingCall>()
+  const pendingCommands = new Map<number, PluginWorkerPendingCall>()
   const pendingEvents = new Map<number, ReturnType<typeof setTimeout>>()
   const exitCallbacks: ((code: number | null) => void)[] = []
   let nextCallId = 0
@@ -117,12 +101,17 @@ export async function startPluginWorker(
     }
   }
 
-  function rejectAllPending(reason: string): void {
+  const rpcCalls = new PluginWorkerRpcCalls(tag, invokeTimeoutMs, sendToChild, () => {
+    lastActivityAt = Date.now()
+  })
+
+  function rejectAllPending(message: string, reason: PluginWorkerRpcFailureReason): void {
     for (const [callId, entry] of pendingCommands) {
       clearTimeout(entry.timer)
       pendingCommands.delete(callId)
-      entry.reject(new Error(reason))
+      entry.reject(new Error(message))
     }
+    rpcCalls.rejectAll(message, reason)
     for (const timer of pendingEvents.values()) {
       clearTimeout(timer)
     }
@@ -132,7 +121,7 @@ export async function startPluginWorker(
   child.on('exit', (code) => {
     exited = true
     exitCode = code
-    rejectAllPending(`${tag} worker exited before responding`)
+    rejectAllPending(`${tag} worker exited before responding`, 'worker_exit')
     for (const callback of exitCallbacks) {
       callback(code)
     }
@@ -140,126 +129,136 @@ export async function startPluginWorker(
   child.on('disconnect', () => {
     // Why: a worker can drop fork IPC while its event loop stays alive. Kill
     // it so the ensuing exit enters the normal supervision/backoff path.
-    rejectAllPending(`${tag} worker disconnected before responding`)
+    rejectAllPending(`${tag} worker disconnected before responding`, 'disconnect')
     if (!exited) {
       child.kill('SIGKILL')
     }
   })
 
-  const commands = await new Promise<string[]>((resolve, reject) => {
-    let settled = false
-    const timer = setTimeout(() => {
-      fail(new Error(`${tag} worker did not become ready within ${readyTimeoutMs}ms`))
-      child.kill('SIGKILL')
-    }, readyTimeoutMs)
-    function fail(error: Error): void {
-      if (!settled) {
-        settled = true
-        clearTimeout(timer)
-        options.signal?.removeEventListener('abort', onAbort)
-        reject(error)
+  const ready = await new Promise<{ commands: string[]; rpcMethods: string[] }>(
+    (resolve, reject) => {
+      let settled = false
+      const timer = setTimeout(() => {
+        fail(new Error(`${tag} worker did not become ready within ${readyTimeoutMs}ms`))
+        child.kill('SIGKILL')
+      }, readyTimeoutMs)
+      function fail(error: Error): void {
+        if (!settled) {
+          settled = true
+          clearTimeout(timer)
+          options.signal?.removeEventListener('abort', onAbort)
+          reject(error)
+        }
       }
-    }
-    const onAbort = (): void => {
-      fail(new Error(`${tag} worker startup was cancelled`))
-      child.kill('SIGKILL')
-    }
-    options.signal?.addEventListener('abort', onAbort, { once: true })
-    child.on('error', (error) => {
-      const failure = new Error(`${tag} worker process error: ${error.message}`)
-      fail(failure)
-      child.kill('SIGKILL')
-      // Why: fail() no-ops once ready; a post-ready channel fault must still
-      // reject in-flight calls instead of letting each hit its own timeout.
-      rejectAllPending(failure.message)
-    })
-    child.on('exit', (code) => fail(new Error(`${tag} worker exited before ready (code ${code})`)))
-    child.on('message', (raw) => {
-      const parsed = pluginWorkerChildMessageSchema.safeParse(raw)
-      if (!parsed.success) {
-        log('warn', 'ignoring malformed worker message')
-        return
+      const onAbort = (): void => {
+        fail(new Error(`${tag} worker startup was cancelled`))
+        child.kill('SIGKILL')
       }
-      const message = parsed.data
-      switch (message.type) {
-        case 'ready': {
-          if (!settled) {
-            settled = true
-            clearTimeout(timer)
-            options.signal?.removeEventListener('abort', onAbort)
-            resolve(message.commands)
-          }
+      options.signal?.addEventListener('abort', onAbort, { once: true })
+      child.on('error', (error) => {
+        const failure = new Error(`${tag} worker process error: ${error.message}`)
+        fail(failure)
+        child.kill('SIGKILL')
+        // Why: fail() no-ops once ready; a post-ready 'disconnect' fault must
+        // still reject in-flight calls instead of letting each time out.
+        rejectAllPending(failure.message, 'disconnect')
+      })
+      child.on('exit', (code) =>
+        fail(new Error(`${tag} worker exited before ready (code ${code})`))
+      )
+      child.on('message', (raw) => {
+        const parsed = pluginWorkerChildMessageSchema.safeParse(raw)
+        if (!parsed.success) {
+          log('warn', 'ignoring malformed worker message')
           return
         }
-        case 'commandResult': {
-          const entry = pendingCommands.get(message.callId)
-          if (!entry) {
+        const message = parsed.data
+        switch (message.type) {
+          case 'ready': {
+            if (!settled) {
+              settled = true
+              clearTimeout(timer)
+              options.signal?.removeEventListener('abort', onAbort)
+              resolve({ commands: message.commands, rpcMethods: message.rpcMethods })
+            }
             return
           }
-          clearTimeout(entry.timer)
-          pendingCommands.delete(message.callId)
-          lastActivityAt = Date.now()
-          if (message.ok) {
-            entry.resolve(message.value)
-          } else {
-            entry.reject(new Error(message.error ?? 'plugin command failed'))
-          }
-          return
-        }
-        case 'eventAck': {
-          const timer = pendingEvents.get(message.eventId)
-          if (timer) {
-            clearTimeout(timer)
-            pendingEvents.delete(message.eventId)
-          }
-          lastActivityAt = Date.now()
-          return
-        }
-        case 'hostCall': {
-          lastActivityAt = Date.now()
-          // Host API calls from the worker: gate + execute in main, then
-          // relay the outcome. Never throws — errors become outcomes.
-          void options.executeHostCall(message.method, message.params).then((outcome) => {
+          case 'commandResult': {
+            const entry = pendingCommands.get(message.callId)
+            if (!entry) {
+              return
+            }
+            clearTimeout(entry.timer)
+            pendingCommands.delete(message.callId)
             lastActivityAt = Date.now()
-            sendToChild(
-              outcome.ok
-                ? { type: 'hostResult', callId: message.callId, ok: true, value: outcome.value }
-                : {
-                    type: 'hostResult',
-                    callId: message.callId,
-                    ok: false,
-                    errorCode: outcome.code,
-                    error: outcome.error
-                  }
-            )
-          })
-          return
+            if (message.ok) {
+              entry.resolve(message.value)
+            } else {
+              entry.reject(new Error(message.error ?? 'plugin command failed'))
+            }
+            return
+          }
+          case 'rpcResult': {
+            rpcCalls.handleResult(message)
+            return
+          }
+          case 'eventAck': {
+            const timer = pendingEvents.get(message.eventId)
+            if (timer) {
+              clearTimeout(timer)
+              pendingEvents.delete(message.eventId)
+            }
+            lastActivityAt = Date.now()
+            return
+          }
+          case 'hostCall': {
+            lastActivityAt = Date.now()
+            // Host API calls from the worker: gate + execute in main, then
+            // relay the outcome. Never throws — errors become outcomes.
+            void options.executeHostCall(message.method, message.params).then((outcome) => {
+              lastActivityAt = Date.now()
+              sendToChild(
+                outcome.ok
+                  ? { type: 'hostResult', callId: message.callId, ok: true, value: outcome.value }
+                  : {
+                      type: 'hostResult',
+                      callId: message.callId,
+                      ok: false,
+                      errorCode: outcome.code,
+                      error: outcome.error
+                    }
+              )
+            })
+            return
+          }
+          case 'log': {
+            log(message.level, message.message)
+            return
+          }
+          case 'fatal': {
+            fail(new Error(`${tag} worker crashed: ${message.error}`))
+            rejectAllPending(`${tag} worker crashed: ${message.error}`, 'worker_crash')
+            child.kill('SIGKILL')
+          }
         }
-        case 'log': {
-          log(message.level, message.message)
-          return
-        }
-        case 'fatal': {
-          fail(new Error(`${tag} worker crashed: ${message.error}`))
-          rejectAllPending(`${tag} worker crashed: ${message.error}`)
-          child.kill('SIGKILL')
-        }
+      })
+      sendToChild({
+        type: 'init',
+        pluginId,
+        pluginRoot: rootDir,
+        mainEntry,
+        grantedCapabilities: [...options.grantedCapabilities]
+      })
+      if (options.signal?.aborted) {
+        onAbort()
       }
-    })
-    sendToChild({
-      type: 'init',
-      pluginId,
-      pluginRoot: rootDir,
-      mainEntry,
-      grantedCapabilities: [...options.grantedCapabilities]
-    })
-    if (options.signal?.aborted) {
-      onAbort()
     }
-  })
+  )
 
+  rpcCalls.setMethods(ready.rpcMethods)
   return {
-    commands,
+    commands: ready.commands,
+    rpcMethods: ready.rpcMethods,
     invokeCommand(commandId, args) {
       if (exited || disposed) {
         return Promise.reject(new Error(`${tag} worker is not running`))
@@ -273,6 +272,9 @@ export async function startPluginWorker(
         pendingCommands.set(callId, { resolve, reject, timer })
         sendToChild({ type: 'invokeCommand', callId, commandId, args })
       })
+    },
+    invokeRpc(method, params, context) {
+      return exited || disposed ? rpcCalls.rejectAfterExit(tag) : rpcCalls.invoke(method, params, context)
     },
     deliverEvent(event, payload) {
       if (exited || disposed) {
@@ -294,7 +296,7 @@ export async function startPluginWorker(
       sendToChild({ type: 'deliverEvent', eventId, event, payload })
     },
     lastActivityAt: () => lastActivityAt,
-    inFlightCount: () => pendingCommands.size + pendingEvents.size,
+    inFlightCount: () => pendingCommands.size + rpcCalls.inFlightCount() + pendingEvents.size,
     async dispose() {
       if (disposed) {
         return

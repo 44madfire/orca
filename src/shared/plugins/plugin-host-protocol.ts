@@ -26,6 +26,40 @@ export const pluginWorkerInvokeCommandSchema = z.object({
   args: z.unknown().optional()
 })
 
+export const pluginPanelRpcWorktreeSchema = z
+  .object({
+    worktreeId: z.string().min(1).max(1024),
+    path: z.string().min(1).max(4096),
+    // Why: plain strings — the host reports branch: "" for folder
+    // workspaces, detached HEAD, and degraded SSH rows, so transport must
+    // not reject valid host output; construction semantics belong to ORPC-3.
+    branch: z.string().max(512),
+    displayName: z.string().max(512)
+  })
+  .strict()
+
+export const pluginPanelRpcContextSchema = z
+  .object({
+    panelId: z.string().min(1).max(128),
+    worktree: pluginPanelRpcWorktreeSchema.nullable(),
+    grantedCapabilities: z.array(z.enum(PLUGIN_CAPABILITY_KINDS)).readonly()
+  })
+  .strict()
+
+export type PluginPanelRpcContext = z.infer<typeof pluginPanelRpcContextSchema>
+
+export const pluginWorkerInvokeRpcSchema = z.object({
+  type: z.literal('invokeRpc'),
+  callId: z.number().int().nonnegative(),
+  // Why: reuse the command-id grammar for private RPC methods; no
+  // contributes.rpc surface exists, so the same portable charset applies.
+  method: pluginCommandIdSchema,
+  // Why: JSON-only v1 — fork serialization supports richer values but the
+  // public RPC contract must stay JSON-compatible.
+  params: z.json().optional(),
+  context: pluginPanelRpcContextSchema
+})
+
 export const pluginWorkerDeliverEventSchema = z.object({
   type: z.literal('deliverEvent'),
   eventId: z.number().int().nonnegative(),
@@ -47,6 +81,7 @@ export const pluginWorkerShutdownSchema = z.object({ type: z.literal('shutdown')
 export const pluginWorkerParentMessageSchema = z.discriminatedUnion('type', [
   pluginWorkerInitSchema,
   pluginWorkerInvokeCommandSchema,
+  pluginWorkerInvokeRpcSchema,
   pluginWorkerDeliverEventSchema,
   pluginWorkerHostResultSchema,
   pluginWorkerShutdownSchema
@@ -55,7 +90,9 @@ export const pluginWorkerParentMessageSchema = z.discriminatedUnion('type', [
 export const pluginWorkerReadySchema = z.object({
   type: z.literal('ready'),
   /** Command ids the worker registered handlers for (⊆ manifest commands). */
-  commands: z.array(pluginCommandIdSchema).max(PLUGIN_COMMAND_LIMIT)
+  commands: z.array(pluginCommandIdSchema).max(PLUGIN_COMMAND_LIMIT),
+  /** Private worker RPC methods; default keeps old workers parseable. */
+  rpcMethods: z.array(pluginCommandIdSchema).max(PLUGIN_COMMAND_LIMIT).default([])
 })
 
 export const pluginWorkerCommandResultSchema = z.object({
@@ -67,6 +104,28 @@ export const pluginWorkerCommandResultSchema = z.object({
   value: z.unknown().optional(),
   error: z.string().max(8192).optional()
 })
+
+export const pluginWorkerRpcResultSchema = z.discriminatedUnion('ok', [
+  z
+    .object({
+      type: z.literal('rpcResult'),
+      callId: z.number().int().nonnegative(),
+      ok: z.literal(true),
+      // Why: JSON-only v1, unlike commandResult which permits structured-clone.
+      value: z.json().optional()
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('rpcResult'),
+      callId: z.number().int().nonnegative(),
+      ok: z.literal(false),
+      error: z.string().max(8192)
+    })
+    .strict()
+])
+
+export type PluginWorkerRpcResult = z.infer<typeof pluginWorkerRpcResultSchema>
 
 export const pluginWorkerEventAckSchema = z.object({
   type: z.literal('eventAck'),
@@ -95,6 +154,7 @@ export const pluginWorkerFatalSchema = z.object({
 export const pluginWorkerChildMessageSchema = z.discriminatedUnion('type', [
   pluginWorkerReadySchema,
   pluginWorkerCommandResultSchema,
+  pluginWorkerRpcResultSchema,
   pluginWorkerEventAckSchema,
   pluginWorkerHostCallSchema,
   pluginWorkerLogSchema,
@@ -107,6 +167,10 @@ export type PluginWorkerInit = z.infer<typeof pluginWorkerInitSchema>
 
 export const PLUGIN_WORKER_READY_TIMEOUT_MS = 10_000
 export const PLUGIN_WORKER_INVOKE_TIMEOUT_MS = 30_000
+/** Serialized-JSON cap on a single worker RPC result, enforced worker-side
+ *  before the fork send. Matches PLUGIN_SERVICE_RESPONSE_MAX_BYTES: both
+ *  are serialized-JSON response envelopes crossing a plugin boundary. */
+export const PLUGIN_WORKER_RPC_RESULT_MAX_BYTES = 64 * 1024
 /** Idle reap: a worker with no in-flight work for this long is disposed and
  *  re-forked on the next trigger. */
 export const PLUGIN_WORKER_IDLE_REAP_MS = 5 * 60_000
