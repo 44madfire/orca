@@ -1,28 +1,38 @@
-import type { PluginPanelActionOutcome } from '../../shared/plugins/plugin-panel-bridge'
-
 /**
- * Internal failure provenance for worker-private RPC. The parent<->child
- * wire shape stays `{ ok: false, error: string }` — the kind never crosses
- * the fork. Every invokeRpc rejection is a PluginWorkerRpcError, so outcome
- * mappers branch on `kind`, never on message text.
+ * Typed failure for worker-private RPC. The parent<->child wire shape stays
+ * `{ ok: false, error: string }` — the kind never crosses the fork. Every
+ * invokeRpc rejection is a PluginWorkerRpcError, so outcome mappers branch
+ * on `kind`, never on message text. The lifecycle detail (timeout, exit,
+ * disconnect, crash, startup) is preserved in `reason` for messages/logs
+ * only — never for control flow.
  */
 export type PluginWorkerRpcFailureKind =
-  | 'handler_failure'
+  | 'action_failed'
+  | 'invalid_request'
+  | 'unknown_method'
+  | 'unavailable'
+
+/** Collapsed lifecycle detail behind `unavailable`. Log/detail only. */
+export type PluginWorkerRpcFailureReason =
   | 'timeout'
   | 'worker_exit'
   | 'disconnect'
   | 'worker_crash'
-  | 'invalid_request'
-  | 'unknown_method'
   | 'worker_unavailable'
 
 export class PluginWorkerRpcError extends Error {
   readonly kind: PluginWorkerRpcFailureKind
+  readonly reason: PluginWorkerRpcFailureReason | null
 
-  constructor(kind: PluginWorkerRpcFailureKind, message: string) {
+  constructor(
+    kind: PluginWorkerRpcFailureKind,
+    message: string,
+    reason: PluginWorkerRpcFailureReason | null = null
+  ) {
     super(message)
     this.name = 'PluginWorkerRpcError'
     this.kind = kind
+    this.reason = reason
   }
 }
 
@@ -30,48 +40,17 @@ export function pluginWorkerRpcFailureKindOf(error: unknown): PluginWorkerRpcFai
   return error instanceof PluginWorkerRpcError ? error.kind : null
 }
 
-/** Panel outcome codes reachable from worker RPC. Shared subset of the host
- *  action and (ORPC-2) panel-RPC outcome shapes, so both mappers reuse it. */
-export type PluginWorkerRpcOutcomeCode =
-  | 'action_failed'
-  | 'unavailable'
-  | 'unknown_method'
-  | 'invalid_request'
+/** Panel outcome codes reachable from worker RPC. Same four values as the
+ *  failure kind, so the mapping is the identity — kept as a named helper
+ *  so (ORPC-2) panel-RPC mappers delegate here instead of switching. */
+export type PluginWorkerRpcOutcomeCode = PluginWorkerRpcFailureKind
 
 /** Kind-only code mapping. No message inspection: a handler that throws
  *  "operation timed out" still maps to action_failed. */
 export function pluginWorkerRpcOutcomeCodeForKind(
   kind: PluginWorkerRpcFailureKind
 ): PluginWorkerRpcOutcomeCode {
-  switch (kind) {
-    case 'unknown_method':
-      return 'unknown_method'
-    case 'invalid_request':
-      return 'invalid_request'
-    case 'handler_failure':
-      return 'action_failed'
-    case 'timeout':
-    case 'worker_exit':
-    case 'disconnect':
-    case 'worker_crash':
-    case 'worker_unavailable':
-      return 'unavailable'
-  }
-}
-
-/** Public outcome mapping for invokeRpc rejections. Branches only on the
- *  typed kind. Untagged errors (worker spawn/ensure failures raised outside
- *  invokeRpc — tag them with wrapPluginWorkerStartupFailure) are
- *  startup/transport faults, hence unavailable. */
-export function mapPluginWorkerRpcErrorToOutcome(error: unknown): PluginPanelActionOutcome {
-  // Why 2048: matches the service.invoke action_failed bound and the panel
-  // relay error cap — outcomes stay small no matter what the handler threw.
-  const message = (error instanceof Error ? error.message : String(error)).slice(0, 2048)
-  const kind = pluginWorkerRpcFailureKindOf(error)
-  if (!kind) {
-    return { ok: false, code: 'unavailable', error: message }
-  }
-  return { ok: false, code: pluginWorkerRpcOutcomeCodeForKind(kind), error: message }
+  return kind
 }
 
 /** Tags worker spawn/ensure failures (thrown outside invokeRpc) so the
@@ -80,7 +59,8 @@ export function wrapPluginWorkerStartupFailure(pluginKey: string): PluginWorkerR
   // Why static panel message: spawn failures can carry host paths; the cause
   // stays in the activation error log, not the panel outcome.
   return new PluginWorkerRpcError(
-    'worker_unavailable',
-    `plugin ${pluginKey} worker is not available`
+    'unavailable',
+    `plugin ${pluginKey} worker is not available`,
+    'worker_unavailable'
   )
 }

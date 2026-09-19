@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { PLUGIN_COMMAND_LIMIT, PLUGIN_EVENT_NAMES, pluginCommandIdSchema } from './plugin-manifest'
-import { PLUGIN_CAPABILITY_KINDS, type PluginCapabilityKind } from './plugin-capabilities'
+import { PLUGIN_CAPABILITY_KINDS } from './plugin-capabilities'
 
 /**
  * Message protocol between the Orca process and the out-of-process plugin
@@ -46,16 +46,7 @@ export const pluginPanelRpcContextSchema = z
   })
   .strict()
 
-export type PluginPanelRpcContext = {
-  panelId: string
-  worktree: {
-    worktreeId: string
-    path: string
-    branch: string
-    displayName: string
-  } | null
-  grantedCapabilities: readonly PluginCapabilityKind[]
-}
+export type PluginPanelRpcContext = z.infer<typeof pluginPanelRpcContextSchema>
 
 export const pluginWorkerInvokeRpcSchema = z.object({
   type: z.literal('invokeRpc'),

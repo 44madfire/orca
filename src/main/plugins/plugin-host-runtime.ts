@@ -241,7 +241,7 @@ export function createPluginWorkerRuntime(
               // Why before-send: an unbounded result would cross the fork
               // unchecked. Oversized results are handler contract violations,
               // so the bounded refusal flows back as ok:false and the parent
-              // attributes it to the handler (handler_failure) — no text
+              // attributes it to the handler (action_failed) — no text
               // sniffing, no wire change.
               const resultBytes = pluginWorkerRpcResultByteLength(json.data)
               if (resultBytes === null) {

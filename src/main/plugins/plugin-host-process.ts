@@ -12,6 +12,7 @@ import type { PluginPanelActionOutcome } from '../../shared/plugins/plugin-panel
 import { buildPluginWorkerEnv } from './plugin-worker-env'
 import { pipePluginWorkerOutput } from './plugin-worker-output-buffer'
 import { PluginWorkerRpcCalls, type PluginWorkerPendingCall } from './plugin-worker-rpc-calls'
+import type { PluginWorkerRpcFailureReason } from './plugin-worker-rpc-failure'
 
 // Grace between the shutdown message and SIGKILL: long enough for plugin
 // cleanup, short enough that disable/quit never feels stuck.
@@ -104,13 +105,13 @@ export async function startPluginWorker(
     lastActivityAt = Date.now()
   })
 
-  function rejectAllPending(reason: string, rpcKind: 'disconnect' | 'worker_crash' | 'worker_exit'): void {
+  function rejectAllPending(message: string, reason: PluginWorkerRpcFailureReason): void {
     for (const [callId, entry] of pendingCommands) {
       clearTimeout(entry.timer)
       pendingCommands.delete(callId)
-      entry.reject(new Error(reason))
+      entry.reject(new Error(message))
     }
-    rpcCalls.rejectAll(reason, rpcKind)
+    rpcCalls.rejectAll(message, reason)
     for (const timer of pendingEvents.values()) {
       clearTimeout(timer)
     }
