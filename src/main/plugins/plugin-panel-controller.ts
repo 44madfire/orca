@@ -42,6 +42,13 @@ type LoadedPluginPanel = {
   binding: PluginPanelSessionBinding
 }
 
+// Shared failure codes for the session authority chain; both outcome shapes accept them.
+type PanelBindingFailureCode = 'invalid_request' | 'rate_limited' | 'unavailable'
+
+type ResolvedPanelBinding =
+  | { ok: true; binding: PluginPanelSessionBinding }
+  | { ok: false; code: PanelBindingFailureCode; error: string }
+
 export class PluginPanelController {
   private readonly sessions = new PluginPanelSessions()
   private readonly boundOwnerSignals = new WeakSet<AbortSignal>()
@@ -71,35 +78,19 @@ export class PluginPanelController {
   }
 
   async execute(ownerKey: string, call: unknown): Promise<PluginPanelActionOutcome> {
-    const sessionToken = this.extractSessionToken(call)
-    if (!sessionToken) {
-      return { ok: false, code: 'invalid_request', error: 'invalid panel session' }
-    }
-    const binding = this.sessions.resolve(ownerKey, sessionToken)
-    if (!binding) {
-      return { ok: false, code: 'invalid_request', error: 'invalid panel session' }
-    }
-    const admissionRefusal = admitPluginPanelCall(this.panelAdmission, binding.pluginKey, call)
-    if (admissionRefusal) {
-      return admissionRefusal
+    const resolved = this.resolveCurrentPanelBinding(ownerKey, call)
+    if (!resolved.ok) {
+      return resolved
     }
     const parsed = panelActionCallSchema.safeParse(call)
     if (!parsed.success) {
       return { ok: false, code: 'invalid_request', error: 'malformed panel action call' }
     }
-    const plugin = this.options.resolveApprovedPlugin(binding.pluginKey)
-    const panelExists = plugin?.manifest.contributes.panels.some(
-      (panel) => panel.id === binding.panelId
+    return this.options.executeHostCall(
+      resolved.binding.pluginKey,
+      parsed.data.action,
+      parsed.data.params
     )
-    if (
-      !plugin ||
-      plugin.rootDir !== binding.rootDir ||
-      JSON.stringify(plugin.manifest) !== binding.manifestRevision ||
-      !panelExists
-    ) {
-      return { ok: false, code: 'unavailable', error: 'panel session is no longer available' }
-    }
-    return this.options.executeHostCall(binding.pluginKey, parsed.data.action, parsed.data.params)
   }
 
   /** Session-bound panel→own-worker RPC. Never routes through Host API
@@ -107,45 +98,21 @@ export class PluginPanelController {
    *  host methods. Plugin/panel identity comes only from the resolved
    *  session; the iframe payload carries no authority fields. */
   async executeRpc(ownerKey: string, call: unknown): Promise<PluginPanelRpcOutcome> {
-    const sessionToken = this.extractSessionToken(call)
-    if (!sessionToken) {
-      return { ok: false, code: 'invalid_request', error: 'invalid panel session' }
-    }
-    const binding = this.sessions.resolve(ownerKey, sessionToken)
-    if (!binding) {
-      return { ok: false, code: 'invalid_request', error: 'invalid panel session' }
-    }
-    const admissionRefusal = admitPluginPanelCall(this.panelAdmission, binding.pluginKey, call)
-    // Admission refusals are only invalid_request/rate_limited, which both
-    // outcome shapes share; map explicitly so no Host API-only code leaks.
-    if (admissionRefusal && !admissionRefusal.ok) {
-      return admissionRefusal.code === 'rate_limited'
-        ? { ok: false, code: 'rate_limited' as const, error: admissionRefusal.error }
-        : { ok: false, code: 'invalid_request' as const, error: admissionRefusal.error }
+    const resolved = this.resolveCurrentPanelBinding(ownerKey, call)
+    if (!resolved.ok) {
+      return resolved
     }
     const parsed = panelRpcCallSchema.safeParse(call)
     if (!parsed.success) {
       return { ok: false, code: 'invalid_request', error: 'malformed panel RPC call' }
-    }
-    const plugin = this.options.resolveApprovedPlugin(binding.pluginKey)
-    const panelExists = plugin?.manifest.contributes.panels.some(
-      (panel) => panel.id === binding.panelId
-    )
-    if (
-      !plugin ||
-      plugin.rootDir !== binding.rootDir ||
-      JSON.stringify(plugin.manifest) !== binding.manifestRevision ||
-      !panelExists
-    ) {
-      return { ok: false, code: 'unavailable', error: 'panel session is no longer available' }
     }
     if (!this.options.executeRpc) {
       return { ok: false, code: 'unavailable', error: 'panel RPC is not available' }
     }
     try {
       return await this.options.executeRpc(
-        binding.pluginKey,
-        binding.panelId,
+        resolved.binding.pluginKey,
+        resolved.binding.panelId,
         parsed.data.method,
         parsed.data.params
       )
@@ -181,6 +148,39 @@ export class PluginPanelController {
 
   dispose(): void {
     this.revokeAll()
+  }
+
+  // Single authority checkpoint for panel calls: token extraction, owner-bound
+  // session resolution, admission, plus current-plugin/root/revision/panel checks.
+  private resolveCurrentPanelBinding(ownerKey: string, call: unknown): ResolvedPanelBinding {
+    const sessionToken = this.extractSessionToken(call)
+    if (!sessionToken) {
+      return { ok: false, code: 'invalid_request', error: 'invalid panel session' }
+    }
+    const binding = this.sessions.resolve(ownerKey, sessionToken)
+    if (!binding) {
+      return { ok: false, code: 'invalid_request', error: 'invalid panel session' }
+    }
+    const admissionRefusal = admitPluginPanelCall(this.panelAdmission, binding.pluginKey, call)
+    // Admit yields only shared codes, so either outcome shape accepts the refusal.
+    if (admissionRefusal && !admissionRefusal.ok) {
+      return admissionRefusal.code === 'rate_limited'
+        ? { ok: false, code: 'rate_limited', error: admissionRefusal.error }
+        : { ok: false, code: 'invalid_request', error: admissionRefusal.error }
+    }
+    const plugin = this.options.resolveApprovedPlugin(binding.pluginKey)
+    const panelExists = plugin?.manifest.contributes.panels.some(
+      (panel) => panel.id === binding.panelId
+    )
+    if (
+      !plugin ||
+      plugin.rootDir !== binding.rootDir ||
+      JSON.stringify(plugin.manifest) !== binding.manifestRevision ||
+      !panelExists
+    ) {
+      return { ok: false, code: 'unavailable', error: 'panel session is no longer available' }
+    }
+    return { ok: true, binding }
   }
 
   private extractSessionToken(call: unknown): string | null {
