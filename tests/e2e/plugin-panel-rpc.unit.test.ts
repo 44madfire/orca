@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fingerprintPluginConsent } from '../../src/shared/plugins/plugin-consent-fingerprint'
 import { pluginManifestSchema, type PluginManifest } from '../../src/shared/plugins/plugin-manifest'
 import type { PluginPanelRpcContext } from '../../src/shared/plugins/plugin-host-protocol'
-import type { PluginPanelRpcOutcome } from '../../src/shared/plugins/plugin-panel-bridge'
 import { createPluginWorkerRuntime } from '../../src/main/plugins/plugin-host-runtime'
 import type { PluginWorkerHandle } from '../../src/main/plugins/plugin-host-process'
 import type { PluginWorkerFactory } from '../../src/main/plugins/plugin-worker-manager'
@@ -70,13 +69,13 @@ function runtimeBackedFactory(options: {
   seenContexts: PluginPanelRpcContext[]
   activationGrants: { grants: readonly string[] | null }
   handler?: (params: unknown, context: PluginPanelRpcContext) => unknown
-  // Rejects invokeRpc with the typed worker_exit failure, mirroring
-  // PluginWorkerRpcCalls.rejectAfterExit when the child is gone.
-  workerExitMessage?: string
 }): PluginWorkerFactory {
   return async (workerOptions) => {
     options.activationGrants.grants = [...workerOptions.grantedCapabilities]
-    const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
+    const pending = new Map<
+      number,
+      { resolve: (value: unknown) => void; reject: (error: Error) => void }
+    >()
     let readyMethods: string[] = []
     let notifyReady!: () => void
     const readyPromise = new Promise<void>((resolve) => {
@@ -104,7 +103,12 @@ function runtimeBackedFactory(options: {
       },
       importModule: async () => ({
         default: (orca: {
-          rpc: { register: (method: string, handler: (params: unknown, context: PluginPanelRpcContext) => unknown) => void }
+          rpc: {
+            register: (
+              method: string,
+              handler: (params: unknown, context: PluginPanelRpcContext) => unknown
+            ) => void
+          }
         }) => {
           orca.rpc.register('hello.getStatus', async (params, context) => {
             options.seenContexts.push(structuredClone(context))
@@ -136,13 +140,6 @@ function runtimeBackedFactory(options: {
       rpcMethods: readyMethods,
       invokeCommand: () => Promise.reject(new Error('no commands')),
       invokeRpc: (method, params, context) => {
-        // Worker-gone short-circuit: no runtime dispatch, exactly like a
-        // parent-side pre-check rejection after the child exits.
-        if (options.workerExitMessage !== undefined) {
-          return Promise.reject(
-            new PluginWorkerRpcError('worker_exit', options.workerExitMessage)
-          )
-        }
         const callId = nextCallId++
         return new Promise<unknown>((resolve, reject) => {
           pending.set(callId, { resolve, reject })
@@ -171,13 +168,14 @@ function runtimeBackedFactory(options: {
   }
 }
 
-async function createE2EService(options: {
-  delegate?: PluginRuntimeDelegate | null
-  seenContexts?: PluginPanelRpcContext[]
-  activationGrants?: { grants: readonly string[] | null }
-  handler?: (params: unknown, context: PluginPanelRpcContext) => unknown
-  workerExitMessage?: string
-} = {}): Promise<{
+async function createE2EService(
+  options: {
+    delegate?: PluginRuntimeDelegate | null
+    seenContexts?: PluginPanelRpcContext[]
+    activationGrants?: { grants: readonly string[] | null }
+    handler?: (params: unknown, context: PluginPanelRpcContext) => unknown
+  } = {}
+): Promise<{
   service: PluginService
   ownerKey: string
   sessionToken: string
@@ -193,8 +191,7 @@ async function createE2EService(options: {
   const factory = runtimeBackedFactory({
     seenContexts,
     activationGrants,
-    handler: options.handler,
-    workerExitMessage: options.workerExitMessage
+    handler: options.handler
   })
   const consents = { 'orca-samples.alpha': fingerprintPluginConsent(manifest) }
   const service = new PluginService({
@@ -216,7 +213,14 @@ async function createE2EService(options: {
   if (!entry) {
     throw new Error('panel failed to open')
   }
-  return { service, ownerKey, sessionToken: entry.sessionToken, seenContexts, activationGrants, delegate }
+  return {
+    service,
+    ownerKey,
+    sessionToken: entry.sessionToken,
+    seenContexts,
+    activationGrants,
+    delegate
+  }
 }
 
 type FakePanelWindow = { postMessage: ReturnType<typeof vi.fn> }
@@ -237,18 +241,11 @@ function isPanelResultMessage(value: unknown): value is PanelResult {
   return typeof value.requestId === 'string'
 }
 
-// Why: single postMessage mock demultiplexes by requestId so concurrent
-// panel RPCs correlate deterministically via promise gates, never sleeps.
+// Why: single postMessage mock demultiplexes by requestId, never sleeps.
 function createE2EPanelHarness(options: {
   service: PluginService
   ownerKey: string
   sessionToken: string
-  callPanelRpc?: (call: {
-    sessionToken: string
-    method: string
-    params?: unknown
-  }) => Promise<PluginPanelRpcOutcome>
-  isActive?: () => boolean
 }): {
   panelWindow: FakePanelWindow
   handler: (event: { data: unknown; source: unknown }) => void
@@ -271,10 +268,7 @@ function createE2EPanelHarness(options: {
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the bridge handler reads only postMessage from the panel window and compares it by identity; the double supplies exactly that member and every test asserts the reply lands on the same object.
     getPanelWindow: () => panelWindow as unknown as Window,
     callPanelAction: vi.fn(async () => ({ ok: true, value: null }) as const),
-    callPanelRpc:
-      options.callPanelRpc ??
-      ((call) => options.service.panels.executeRpc(options.ownerKey, call)),
-    ...(options.isActive === undefined ? {} : { isActive: options.isActive })
+    callPanelRpc: (call) => options.service.panels.executeRpc(options.ownerKey, call)
   })
   const emitRpc = (data: unknown, source: unknown): void => {
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the bridge handler reads only event.data and event.source; the double carries exactly those two members and every test asserts dispatch/reply behavior on the result.
@@ -303,6 +297,10 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
+// Trimmed cross-stack suite: the four architectural invariants only.
+// Detailed matrices live in the owning unit suites (see below); this file
+// proves the full panel→bridge→session→service→worker→result path once
+// per invariant plus the hello-orca sample contract (no lower-layer owner).
 describe('ORPC-4 real-stack panel→worker E2E', () => {
   it('traverses panel message → bridge → session → service → runtime → panel result', async () => {
     const { service, ownerKey, sessionToken, seenContexts, activationGrants } =
@@ -311,7 +309,12 @@ describe('ORPC-4 real-stack panel→worker E2E', () => {
     const resultPromise = harness.waitFor('rpc-1')
 
     harness.handler({
-      data: { type: 'orca-panel-rpc', requestId: 'rpc-1', method: 'hello.getStatus', params: { hello: 'panel' } },
+      data: {
+        type: 'orca-panel-rpc',
+        requestId: 'rpc-1',
+        method: 'hello.getStatus',
+        params: { hello: 'panel' }
+      },
       source: harness.panelWindow
     })
 
@@ -368,24 +371,6 @@ describe('ORPC-4 real-stack panel→worker E2E', () => {
     })
   })
 
-  it('correlates two concurrent panel RPCs to matching results out of order', async () => {
-    const { service, ownerKey, sessionToken } = await createE2EService()
-    const harness = createE2EPanelHarness({ service, ownerKey, sessionToken })
-    const firstPromise = harness.waitFor('rpc-a')
-    const secondPromise = harness.waitFor('rpc-b')
-    harness.handler({
-      data: { type: 'orca-panel-rpc', requestId: 'rpc-a', method: 'hello.getStatus', params: { n: 1 } },
-      source: harness.panelWindow
-    })
-    harness.handler({
-      data: { type: 'orca-panel-rpc', requestId: 'rpc-b', method: 'hello.getStatus', params: { n: 2 } },
-      source: harness.panelWindow
-    })
-    const [first, second] = await Promise.all([firstPromise, secondPromise])
-    expect(first).toMatchObject({ requestId: 'rpc-a', ok: true, value: { echo: { n: 1 } } })
-    expect(second).toMatchObject({ requestId: 'rpc-b', ok: true, value: { echo: { n: 2 } } })
-  })
-
   it('delivers a bounded action_failed result when the worker handler throws', async () => {
     const { service, ownerKey, sessionToken } = await createE2EService({
       handler: () => {
@@ -427,151 +412,6 @@ describe('ORPC-4 real-stack panel→worker E2E', () => {
       errorCode: 'invalid_request'
     })
     expect(seenContexts).toHaveLength(0)
-  })
-
-  it('rejects an unknown method without running the worker handler', async () => {
-    const { service, ownerKey, sessionToken, seenContexts } = await createE2EService()
-    const harness = createE2EPanelHarness({ service, ownerKey, sessionToken })
-    const resultPromise = harness.waitFor('rpc-unknown')
-
-    harness.handler({
-      data: { type: 'orca-panel-rpc', requestId: 'rpc-unknown', method: 'hello.missing' },
-      source: harness.panelWindow
-    })
-
-    await expect(resultPromise).resolves.toMatchObject({
-      requestId: 'rpc-unknown',
-      ok: false,
-      errorCode: 'unknown_method'
-    })
-    expect(seenContexts).toHaveLength(0)
-  })
-
-  it('keeps the runtime/serve owner on the same authority as the desktop owner', async () => {
-    const { service, seenContexts } = await createE2EService()
-    const desktop = await service.panels.open('renderer:one', 'orca-samples.alpha', 'dashboard')
-    const runtimeEntry = await service.panels.open(
-      'runtime:connection-one',
-      'orca-samples.alpha',
-      'dashboard'
-    )
-    const desktopOutcome = await service.panels.executeRpc('renderer:one', {
-      sessionToken: desktop!.sessionToken,
-      method: 'hello.getStatus',
-      params: { hello: 'panel' }
-    })
-    const runtimeOutcome = await service.panels.executeRpc('runtime:connection-one', {
-      sessionToken: runtimeEntry!.sessionToken,
-      method: 'hello.getStatus',
-      params: { hello: 'panel' }
-    })
-    expect(desktopOutcome).toEqual(runtimeOutcome)
-    expect(desktopOutcome).toMatchObject({ ok: true })
-    // Cross-owner replay stays rejected.
-    await expect(
-      service.panels.executeRpc('runtime:connection-one', {
-        sessionToken: desktop!.sessionToken,
-        method: 'hello.getStatus'
-      })
-    ).resolves.toMatchObject({ ok: false, code: 'invalid_request' })
-    expect(seenContexts.length).toBeGreaterThanOrEqual(2)
-  })
-})
-
-describe('ORPC-4 security regression through the real stack', () => {
-  it('ignores an RPC-shaped message from any other window', async () => {
-    const { service, ownerKey, sessionToken, seenContexts } = await createE2EService()
-    const harness = createE2EPanelHarness({ service, ownerKey, sessionToken })
-    const otherWindow: FakePanelWindow = { postMessage: vi.fn() }
-    harness.handler({
-      data: { type: 'orca-panel-rpc', requestId: 'rpc-evil', method: 'hello.getStatus' },
-      source: otherWindow
-    })
-    harness.handler({
-      data: { type: 'orca-panel-rpc', requestId: 'rpc-evil', method: 'hello.getStatus' },
-      source: null
-    })
-    // Deterministic gate: a genuine request still resolves, proving the evil
-    // frames produced no dispatch and no reply.
-    const genuine = harness.waitFor('rpc-genuine')
-    harness.handler({
-      data: { type: 'orca-panel-rpc', requestId: 'rpc-genuine', method: 'hello.getStatus' },
-      source: harness.panelWindow
-    })
-    await expect(genuine).resolves.toMatchObject({ requestId: 'rpc-genuine', ok: true })
-    expect(seenContexts).toHaveLength(1)
-    expect(harness.panelWindow.postMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ requestId: 'rpc-evil' }),
-      expect.anything()
-    )
-    expect(otherWindow.postMessage).not.toHaveBeenCalled()
-  })
-
-  it('rejects an oversized panel RPC without worker dispatch', async () => {
-    const { service, ownerKey, sessionToken, seenContexts } = await createE2EService()
-    const harness = createE2EPanelHarness({ service, ownerKey, sessionToken })
-    const resultPromise = harness.waitFor('rpc-big')
-    harness.handler({
-      data: {
-        type: 'orca-panel-rpc',
-        requestId: 'rpc-big',
-        method: 'hello.getStatus',
-        params: { padding: 'x'.repeat(128 * 1024) }
-      },
-      source: harness.panelWindow
-    })
-    await expect(resultPromise).resolves.toMatchObject({
-      requestId: 'rpc-big',
-      ok: false,
-      errorCode: 'invalid_request'
-    })
-    expect(seenContexts).toHaveLength(0)
-  })
-
-  it('delivers a bounded unavailable result when the worker exits', async () => {
-    // Handler throws are always handler_failure regardless of their text,
-    // so the exit path rejects with the typed worker_exit failure instead.
-    const { service, ownerKey, sessionToken } = await createE2EService({
-      workerExitMessage: '[plugin:orca-samples.alpha] worker exited before responding'
-    })
-    const harness = createE2EPanelHarness({ service, ownerKey, sessionToken })
-    const resultPromise = harness.waitFor('rpc-crash')
-    harness.handler({
-      data: { type: 'orca-panel-rpc', requestId: 'rpc-crash', method: 'hello.getStatus' },
-      source: harness.panelWindow
-    })
-    const result = await resultPromise
-    expect(result.ok).toBe(false)
-    expect(result.errorCode).toBe('unavailable')
-    expect(typeof result.error).toBe('string')
-  })
-
-  it('drops a deferred result after the panel document is replaced', async () => {
-    const { service, ownerKey, sessionToken } = await createE2EService()
-    let active = true
-    let releaseRpc!: (outcome: PluginPanelRpcOutcome) => void
-    const gatedRpc = vi.fn(
-      () => new Promise<PluginPanelRpcOutcome>((resolve) => (releaseRpc = resolve))
-    )
-    const harness = createE2EPanelHarness({
-      service,
-      ownerKey,
-      sessionToken,
-      callPanelRpc: gatedRpc,
-      isActive: () => active
-    })
-    harness.handler({
-      data: { type: 'orca-panel-rpc', requestId: 'rpc-stale', method: 'hello.getStatus' },
-      source: harness.panelWindow
-    })
-    expect(gatedRpc).toHaveBeenCalledTimes(1)
-    active = false
-    releaseRpc({ ok: true, value: { stale: true } })
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(harness.panelWindow.postMessage).not.toHaveBeenCalled()
-    // The service layer itself is unaffected; only the replaced document drops.
-    expect(service).toBeDefined()
   })
 })
 
