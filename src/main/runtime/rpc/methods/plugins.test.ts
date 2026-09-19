@@ -73,6 +73,7 @@ describe('plugin panel serve RPC identity', () => {
   })
 
   it('routes panel RPC through the same session-bound owner without a plugin target', async () => {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the panelRpc handler reaches only whenReady, panels.bindOwnerSignal, and panels.executeRpc; the double stubs exactly those members and the test asserts the relayed call, so an omitted member throws rather than reading a wrong value.
     const service = {
       whenReady: vi.fn().mockResolvedValue(undefined),
       panels: {
