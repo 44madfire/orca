@@ -54,6 +54,9 @@ export class PluginService {
     findValidPlugin: (pluginKey) => this.findValidPlugin(pluginKey),
     isRuntimeApproved: (plugin) => this.isRuntimeApproved(plugin),
     getGrantedCapabilities: (pluginKey) => this.getGrantedCapabilities(pluginKey),
+    // Why: ORPC-3 snapshots the active worktree per request through this
+    // host; without it panel RPC would silently run with a null worktree.
+    resolveActiveWorktreeContext: () => this.resolveActiveWorktreeContext(),
     workerController: { ensure: (plugin) => this.workerController.ensure(plugin) }
   }
   private readonly logBuffer = new PluginLogBuffer()
@@ -108,6 +111,11 @@ export class PluginService {
 
   setRuntimeDelegate(delegate: PluginRuntimeDelegate | null): void {
     this.runtimeDelegate = delegate
+  }
+
+  // Host-owned worktree snapshot for panel RPC (ORPC-3); absent -> null.
+  resolveActiveWorktreeContext(): ReturnType<PluginRuntimeDelegate['resolveActiveWorktreeContext']> {
+    return this.runtimeDelegate?.resolveActiveWorktreeContext() ?? Promise.resolve(null)
   }
 
   onChanged(listener: (event: PluginChangeEvent) => void): () => void {
