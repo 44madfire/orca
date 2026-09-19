@@ -15,11 +15,11 @@ import { startPluginWorker } from './plugin-host-process'
 import { PluginWorkerRpcCalls } from './plugin-worker-rpc-calls'
 import {
   PluginWorkerRpcError,
-  mapPluginWorkerRpcErrorToOutcome,
   pluginWorkerRpcFailureKindOf,
   pluginWorkerRpcOutcomeCodeForKind,
   wrapPluginWorkerStartupFailure
 } from './plugin-worker-rpc-failure'
+import { mapPluginWorkerRpcErrorToOutcome } from './plugin-worker-rpc-outcome'
 import { createPluginWorkerRuntime, type PluginWorkerOrcaApi } from './plugin-host-runtime'
 
 function rpcContext(): PluginPanelRpcContext {
@@ -59,7 +59,7 @@ describe('typed RPC failure provenance', () => {
     'renderer crashed while painting',
     'unknown RPC method panel.other',
     'timed out, exited, crashed, disconnected, unknown RPC method'
-  ])('maps handler text %j to handler_failure, never a lifecycle kind', async (text) => {
+  ])('maps handler text %j to action_failed, never unavailable', async (text) => {
     const { calls, send } = trackCalls()
     const { callId, failure } = await invokeFailure(calls, send)
     const refusal: PluginWorkerRpcResult = {
@@ -73,7 +73,7 @@ describe('typed RPC failure provenance', () => {
 
     const error = await failure
     expect(error).toBeInstanceOf(PluginWorkerRpcError)
-    expect(pluginWorkerRpcFailureKindOf(error)).toBe('handler_failure')
+    expect(pluginWorkerRpcFailureKindOf(error)).toBe('action_failed')
     expect(mapPluginWorkerRpcErrorToOutcome(error)).toMatchObject({
       ok: false,
       code: 'action_failed'
@@ -81,7 +81,7 @@ describe('typed RPC failure provenance', () => {
     expect(calls.inFlightCount()).toBe(0)
   })
 
-  it('produces the timeout kind when the worker never answers', async () => {
+  it('produces unavailable with the timeout reason when the worker never answers', async () => {
     vi.useFakeTimers()
     try {
       const { calls, send } = trackCalls()
@@ -94,7 +94,8 @@ describe('typed RPC failure provenance', () => {
       await vi.advanceTimersByTimeAsync(30_000)
 
       const error = await failure
-      expect(pluginWorkerRpcFailureKindOf(error)).toBe('timeout')
+      expect(pluginWorkerRpcFailureKindOf(error)).toBe('unavailable')
+      expect(error).toMatchObject({ reason: 'timeout' })
       expect(mapPluginWorkerRpcErrorToOutcome(error)).toMatchObject({
         ok: false,
         code: 'unavailable'
@@ -154,29 +155,33 @@ describe('typed RPC failure provenance', () => {
     ['worker_exit', 'worker exited before responding'],
     ['disconnect', 'worker disconnected before responding'],
     ['worker_crash', 'worker crashed: boom']
-  ] as const)('rejects in-flight calls with the %s kind', async (kind, reason) => {
-    const { calls, send } = trackCalls()
-    const { failure } = await invokeFailure(calls, send)
+  ] as const)(
+    'rejects in-flight calls as unavailable with the %s reason',
+    async (reason, detail) => {
+      const { calls, send } = trackCalls()
+      const { failure } = await invokeFailure(calls, send)
 
-    calls.rejectAll(`[plugin:orca-samples.demo] ${reason}`, kind)
+      calls.rejectAll(`[plugin:orca-samples.demo] ${detail}`, reason)
 
-    const error = await failure
-    expect(pluginWorkerRpcFailureKindOf(error)).toBe(kind)
-    expect(mapPluginWorkerRpcErrorToOutcome(error)).toMatchObject({
-      ok: false,
-      code: 'unavailable'
-    })
-    expect(calls.inFlightCount()).toBe(0)
-  })
+      const error = await failure
+      expect(pluginWorkerRpcFailureKindOf(error)).toBe('unavailable')
+      expect(error).toMatchObject({ reason })
+      expect(mapPluginWorkerRpcErrorToOutcome(error)).toMatchObject({
+        ok: false,
+        code: 'unavailable'
+      })
+      expect(calls.inFlightCount()).toBe(0)
+    }
+  )
 
   it('branches on kind, never on message text', () => {
     const text = 'operation timed out after 30000ms'
-    expect(pluginWorkerRpcOutcomeCodeForKind('timeout')).toBe('unavailable')
+    expect(pluginWorkerRpcOutcomeCodeForKind('unavailable')).toBe('unavailable')
     expect(
-      mapPluginWorkerRpcErrorToOutcome(new PluginWorkerRpcError('timeout', text))
+      mapPluginWorkerRpcErrorToOutcome(new PluginWorkerRpcError('unavailable', text, 'timeout'))
     ).toMatchObject({ code: 'unavailable' })
     expect(
-      mapPluginWorkerRpcErrorToOutcome(new PluginWorkerRpcError('handler_failure', text))
+      mapPluginWorkerRpcErrorToOutcome(new PluginWorkerRpcError('action_failed', text))
     ).toMatchObject({ code: 'action_failed' })
   })
 
@@ -186,7 +191,8 @@ describe('typed RPC failure provenance', () => {
       code: 'unavailable'
     })
     const wrapped = wrapPluginWorkerStartupFailure('orca-samples.demo')
-    expect(pluginWorkerRpcFailureKindOf(wrapped)).toBe('worker_unavailable')
+    expect(pluginWorkerRpcFailureKindOf(wrapped)).toBe('unavailable')
+    expect(wrapped).toMatchObject({ reason: 'worker_unavailable' })
     expect(mapPluginWorkerRpcErrorToOutcome(wrapped)).toEqual({
       ok: false,
       code: 'unavailable',
@@ -195,7 +201,7 @@ describe('typed RPC failure provenance', () => {
   })
 
   it('bounds outcome error text regardless of handler verbosity', () => {
-    const error = new PluginWorkerRpcError('handler_failure', 'x'.repeat(9000))
+    const error = new PluginWorkerRpcError('action_failed', 'x'.repeat(9000))
     const outcome = mapPluginWorkerRpcErrorToOutcome(error)
     expect(outcome.ok).toBe(false)
     if (!outcome.ok) {
@@ -254,7 +260,7 @@ describe('worker handle RPC failure kinds', () => {
     return failure
   }
 
-  it('carries handler_failure across the handle boundary', async () => {
+  it('carries action_failed across the handle boundary', async () => {
     const error = await invokeKind((child, callId) => {
       child.emit('message', {
         type: 'rpcResult',
@@ -264,10 +270,10 @@ describe('worker handle RPC failure kinds', () => {
       })
     })
 
-    expect(pluginWorkerRpcFailureKindOf(error)).toBe('handler_failure')
+    expect(pluginWorkerRpcFailureKindOf(error)).toBe('action_failed')
   })
 
-  it('carries worker_exit when the worker exits mid-call', async () => {
+  it('carries unavailable with the worker_exit reason when the worker exits mid-call', async () => {
     const child = new FakeChild()
     const handle = await readyHandle(child)
     child.send.mockClear()
@@ -278,11 +284,13 @@ describe('worker handle RPC failure kinds', () => {
     )
     child.emit('exit', 1)
 
-    expect(pluginWorkerRpcFailureKindOf(await failure)).toBe('worker_exit')
+    const exitError = await failure
+    expect(pluginWorkerRpcFailureKindOf(exitError)).toBe('unavailable')
+    expect(exitError).toMatchObject({ reason: 'worker_exit' })
     expect(handle.inFlightCount()).toBe(0)
   })
 
-  it('carries disconnect when the IPC channel drops', async () => {
+  it('carries unavailable with the disconnect reason when the IPC channel drops', async () => {
     const child = new FakeChild()
     const handle = await readyHandle(child)
     child.send.mockClear()
@@ -294,11 +302,13 @@ describe('worker handle RPC failure kinds', () => {
     child.connected = false
     child.emit('disconnect')
 
-    expect(pluginWorkerRpcFailureKindOf(await failure)).toBe('disconnect')
+    const disconnectError = await failure
+    expect(pluginWorkerRpcFailureKindOf(disconnectError)).toBe('unavailable')
+    expect(disconnectError).toMatchObject({ reason: 'disconnect' })
     expect(handle.inFlightCount()).toBe(0)
   })
 
-  it('carries worker_crash on a fatal worker message', async () => {
+  it('carries unavailable with the worker_crash reason on a fatal worker message', async () => {
     const child = new FakeChild()
     const handle = await readyHandle(child)
     child.send.mockClear()
@@ -309,11 +319,13 @@ describe('worker handle RPC failure kinds', () => {
     )
     child.emit('message', { type: 'fatal', error: 'worker blew up' })
 
-    expect(pluginWorkerRpcFailureKindOf(await failure)).toBe('worker_crash')
+    const crashError = await failure
+    expect(pluginWorkerRpcFailureKindOf(crashError)).toBe('unavailable')
+    expect(crashError).toMatchObject({ reason: 'worker_crash' })
     expect(handle.inFlightCount()).toBe(0)
   })
 
-  it('carries timeout across the handle boundary', async () => {
+  it('carries unavailable with the timeout reason across the handle boundary', async () => {
     vi.useFakeTimers()
     const child = new FakeChild()
     processMocks.fork.mockReturnValue(child)
@@ -336,11 +348,13 @@ describe('worker handle RPC failure kinds', () => {
     )
     await vi.advanceTimersByTimeAsync(30)
 
-    expect(pluginWorkerRpcFailureKindOf(await failure)).toBe('timeout')
+    const timeoutError = await failure
+    expect(pluginWorkerRpcFailureKindOf(timeoutError)).toBe('unavailable')
+    expect(timeoutError).toMatchObject({ reason: 'timeout' })
     expect(handle.inFlightCount()).toBe(0)
   })
 
-  it('rejects calls after exit with worker_exit', async () => {
+  it('rejects calls after exit as unavailable', async () => {
     const child = new FakeChild()
     const handle = await readyHandle(child)
     child.emit('exit', 1)
@@ -349,7 +363,8 @@ describe('worker handle RPC failure kinds', () => {
       () => null,
       (failure: unknown) => failure
     )
-    expect(pluginWorkerRpcFailureKindOf(error)).toBe('worker_exit')
+    expect(pluginWorkerRpcFailureKindOf(error)).toBe('unavailable')
+    expect(error).toMatchObject({ reason: 'worker_exit' })
   })
 
   it('rejects unknown methods via the handle with unknown_method', async () => {
@@ -442,7 +457,7 @@ describe('serialized RPC result-size bound', () => {
     expect(result.error).toContain('exceeds')
   })
 
-  it('settles the parent pending call as handler_failure instead of hanging', async () => {
+  it('settles the parent pending call as action_failed instead of hanging', async () => {
     const size = PLUGIN_WORKER_RPC_RESULT_MAX_BYTES - payloadOverhead() + 1
     const { runtime, send } = await initWith((orca) => {
       orca.rpc.register('panel.big', () => ({ data: 'x'.repeat(size) }))
@@ -484,7 +499,7 @@ describe('serialized RPC result-size bound', () => {
     expect(parentCalls.handleResult(retargeted)).toBe(true)
 
     const error = await settled
-    expect(pluginWorkerRpcFailureKindOf(error)).toBe('handler_failure')
+    expect(pluginWorkerRpcFailureKindOf(error)).toBe('action_failed')
     expect(parentCalls.inFlightCount()).toBe(0)
   })
 
