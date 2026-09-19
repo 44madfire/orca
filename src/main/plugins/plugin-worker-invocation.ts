@@ -1,3 +1,4 @@
+import { pluginPanelRpcWorktreeSchema } from '../../shared/plugins/plugin-host-protocol'
 import type { PluginCapabilityKind } from '../../shared/plugins/plugin-capabilities'
 import type { PluginPanelRpcOutcome } from '../../shared/plugins/plugin-panel-bridge'
 import { assertPluginWorkerCommand } from './plugin-command-invocation'
@@ -71,10 +72,7 @@ export async function invokePanelRpcForPlugin(
   // invoke cannot retarget this admitted call. Skip the delegate without
   // workspace:read (filtered to null anyway); delegate absent -> null.
   let snapshot: PanelRpcWorktreeSnapshot = null
-  if (
-    grantedCapabilities.includes('workspace:read') &&
-    host.resolveActiveWorktreeContext
-  ) {
+  if (grantedCapabilities.includes('workspace:read') && host.resolveActiveWorktreeContext) {
     try {
       snapshot = await host.resolveActiveWorktreeContext()
     } catch {
@@ -84,7 +82,9 @@ export async function invokePanelRpcForPlugin(
         error: `plugin ${pluginKey} worktree context is not available`
       }
     }
-    if (!isWellFormedWorktreeSnapshot(snapshot)) {
+    // Why: single source of truth — the fork-protocol worktree schema owns
+    // the shape; failure maps to bounded unavailable before worker ensure.
+    if (snapshot !== null && !pluginPanelRpcWorktreeSchema.safeParse(snapshot).success) {
       return {
         ok: false,
         code: 'unavailable',
@@ -111,28 +111,6 @@ export async function invokePanelRpcForPlugin(
   } catch (error) {
     return mapPanelRpcInvocationError(error)
   }
-}
-
-/** Structural guard for delegate output; mirrors the fork-protocol maxima
- *  (worktreeId 1024 / path 4096 / branch+displayName 512) with no path
- *  normalization here. Oversized snapshots fail as bounded unavailable
- *  before worker ensure, not as invalid_request after dispatch. */
-function isWellFormedWorktreeSnapshot(snapshot: PanelRpcWorktreeSnapshot): boolean {
-  if (snapshot === null) {
-    return true
-  }
-  return (
-    typeof snapshot.worktreeId === 'string' &&
-    snapshot.worktreeId.length >= 1 &&
-    snapshot.worktreeId.length <= 1024 &&
-    typeof snapshot.path === 'string' &&
-    snapshot.path.length >= 1 &&
-    snapshot.path.length <= 4096 &&
-    typeof snapshot.branch === 'string' &&
-    snapshot.branch.length <= 512 &&
-    typeof snapshot.displayName === 'string' &&
-    snapshot.displayName.length <= 512
-  )
 }
 
 /** Maps invokeRpc rejections to the bounded panel RPC error model via the
