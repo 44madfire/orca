@@ -36,6 +36,7 @@ import type { PluginChangeEvent } from '../../shared/plugins/plugin-change-event
 import { waitForPluginRefreshSettlement } from './plugin-refresh-settlement'
 import { deliverPluginEvent } from './plugin-event-delivery'
 import { invokePanelRpcForPlugin, invokePluginCommand } from './plugin-worker-invocation'
+import type { PluginWorkerInvocationHost } from './plugin-worker-invocation'
 
 export type { PluginRuntimeDelegate } from './plugin-host-service-bindings'
 export type { PluginLogLine } from './plugin-log-buffer'
@@ -46,9 +47,15 @@ export class PluginService {
   private readonly registry: PluginExtensionRegistry = createPluginExtensionRegistry()
   private readonly eventBus = new PluginEventBus()
   private readonly audit: PluginAuditLog
-  // Public for the worker-invocation entries (commands + panel RPC), which
-  // take the service as a structural host; not part of the service API.
-  readonly workerController: PluginWorkerController
+  private readonly workerController: PluginWorkerController
+  // Narrow host surface for the worker-invocation entries; arrows run
+  // post-construction, so declaration order is irrelevant.
+  private readonly workerInvocation: PluginWorkerInvocationHost = {
+    findValidPlugin: (pluginKey) => this.findValidPlugin(pluginKey),
+    isRuntimeApproved: (plugin) => this.isRuntimeApproved(plugin),
+    getGrantedCapabilities: (pluginKey) => this.getGrantedCapabilities(pluginKey),
+    workerController: { ensure: (plugin) => this.workerController.ensure(plugin) }
+  }
   private readonly logBuffer = new PluginLogBuffer()
   private readonly contentVerifier = new PluginContentVerifier()
   readonly contentPacks: PluginContentPackRegistry
@@ -77,7 +84,7 @@ export class PluginService {
       executeHostCall: (pluginKey, method, params) =>
         this.executeHostCall(pluginKey, method, params, { viaPanel: true }),
       executeRpc: (pluginKey, panelId, method, params) =>
-        invokePanelRpcForPlugin(this, pluginKey, panelId, method, params),
+        this.invokePanelRpc(pluginKey, panelId, method, params),
       log: (pluginKey, line) => this.logBuffer.append(pluginKey, 'error', line)
     })
     this.workerController = new PluginWorkerController({
@@ -277,11 +284,11 @@ export class PluginService {
   /** Session-bound panel→own-worker RPC. Callers pass only session-derived
    *  identity; the worker context seam stays minimal until ORPC-3. */
   invokePanelRpc(pluginKey: string, panelId: string, method: string, params: unknown) {
-    return invokePanelRpcForPlugin(this, pluginKey, panelId, method, params)
+    return invokePanelRpcForPlugin(this.workerInvocation, pluginKey, panelId, method, params)
   }
 
   async invokeCommand(pluginKey: string, commandId: string, args?: unknown): Promise<unknown> {
-    return invokePluginCommand(this, pluginKey, commandId, args)
+    return invokePluginCommand(this.workerInvocation, pluginKey, commandId, args)
   }
 
   emitEvent(event: PluginEventName, payload: unknown): void {
