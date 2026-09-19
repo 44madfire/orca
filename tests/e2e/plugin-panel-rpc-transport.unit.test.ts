@@ -51,6 +51,7 @@ import {
   type PluginPanelRpcOutcome
 } from '../../src/shared/plugins/plugin-panel-bridge'
 import { createPluginWorkerRuntime } from '../../src/main/plugins/plugin-host-runtime'
+import { PluginWorkerRpcError } from '../../src/main/plugins/plugin-worker-rpc-failure'
 import type { PluginWorkerHandle } from '../../src/main/plugins/plugin-host-process'
 import type { PluginWorkerFactory } from '../../src/main/plugins/plugin-worker-manager'
 import { PluginService } from '../../src/main/plugins/plugin-service'
@@ -122,7 +123,9 @@ function workerFactory(throwMessage?: string): PluginWorkerFactory {
           if (message.ok) {
             entry.resolve(message.value)
           } else {
-            entry.reject(new Error(message.error))
+            // Mirrors PluginWorkerRpcCalls.handleResult: the wire carries
+            // only an error string, so every ok:false is an action_failed.
+            entry.reject(new PluginWorkerRpcError('action_failed', message.error))
           }
         }
       },
@@ -275,9 +278,9 @@ describe('ORPC-4 panel RPC preload↔main transport contract', () => {
     if (viaTransport.ok) {
       throw new Error('expected the throwing worker to fail the panel RPC')
     }
-    // String-based codes: no typed-provenance failure kinds exist on this
-    // base — the ORPC-1 typed-provenance fix flows down on the next stack
-    // rebase, at which point this pins the typed code instead.
+    // Typed provenance: the fake fork transport tags ok:false as
+    // action_failed exactly like PluginWorkerRpcCalls.handleResult, so
+    // the kind-based mapper pins action_failed here.
     expect(viaTransport.code).toBe('action_failed')
     expect(viaTransport.error.length).toBeLessThanOrEqual(8192)
   })
