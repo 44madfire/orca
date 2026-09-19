@@ -6,10 +6,12 @@ import { createPanelBridgeMessageHandler } from './plugin-panel-bridge-host'
 type FakePanelWindow = Window & { postMessage: ReturnType<typeof vi.fn> }
 
 function createFakePanelWindow(): FakePanelWindow {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the bridge handler reads only postMessage from the panel window and compares it by identity; the double supplies exactly that member and every test asserts the reply lands on the same object.
   return { postMessage: vi.fn() } as unknown as FakePanelWindow
 }
 
 function messageEvent(data: unknown, source: unknown): MessageEvent {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the bridge handler reads only event.data and event.source; the double carries exactly those two members and every test asserts dispatch/reply behavior on the result.
   return { data, source } as unknown as MessageEvent
 }
 
@@ -170,6 +172,32 @@ describe('panel RPC renderer bridge host', () => {
         requestId: 'rpc-1',
         ok: false,
         errorCode: 'rate_limited'
+      }),
+      '*'
+    )
+  })
+
+  it('answers oversized RPC frames with invalid_request on the RPC result type', () => {
+    const panelWindow = createFakePanelWindow()
+    const callPanelAction = vi.fn()
+    const callPanelRpc = vi.fn()
+    const handler = createPanelBridgeMessageHandler({
+      sessionToken: SESSION_TOKEN,
+      getPanelWindow: () => panelWindow,
+      callPanelAction,
+      callPanelRpc,
+      budget: { maxBytes: 1024, admit: () => 'oversized' }
+    })
+
+    handler(messageEvent(VALID_RPC, panelWindow))
+
+    expect(callPanelRpc).not.toHaveBeenCalled()
+    expect(panelWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'orca-panel-rpc-result',
+        requestId: 'rpc-1',
+        ok: false,
+        errorCode: 'invalid_request'
       }),
       '*'
     )

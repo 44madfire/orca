@@ -239,7 +239,8 @@ export function looksLikePanelRpcRequest(data: unknown): boolean {
   return (
     typeof data === 'object' &&
     data !== null &&
-    (data as { type?: unknown }).type === PANEL_RPC_REQUEST_TYPE
+    'type' in data &&
+    data.type === PANEL_RPC_REQUEST_TYPE
   )
 }
 
@@ -249,7 +250,8 @@ export function looksLikePanelActionRequest(data: unknown): boolean {
   return (
     typeof data === 'object' &&
     data !== null &&
-    (data as { type?: unknown }).type === PANEL_ACTION_REQUEST_TYPE
+    'type' in data &&
+    data.type === PANEL_ACTION_REQUEST_TYPE
   )
 }
 

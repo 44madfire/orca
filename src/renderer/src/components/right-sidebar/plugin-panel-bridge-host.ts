@@ -1,7 +1,6 @@
 import {
   PANEL_ACTION_RESULT_TYPE,
   PANEL_CONTROL_MESSAGE_MAX_BYTES,
-  PANEL_RPC_REQUEST_TYPE,
   PANEL_RPC_RESULT_TYPE,
   looksLikePanelActionRequest,
   looksLikePanelRpcRequest,
@@ -281,11 +280,7 @@ export function createPanelBridgeMessageHandler(
                 'auto.components.rightSidebar.pluginPanelBridgeHost.tooManyRequests',
                 'Too many requests.'
               )
-        if (
-          typeof event.data === 'object' &&
-          event.data !== null &&
-          (event.data as { type?: unknown }).type === PANEL_RPC_REQUEST_TYPE
-        ) {
+        if (looksLikePanelRpcRequest(event.data)) {
           postPanelBridgeResult(state, {
             type: PANEL_RPC_RESULT_TYPE,
             requestId,
