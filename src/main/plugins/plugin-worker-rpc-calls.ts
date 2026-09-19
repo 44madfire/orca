@@ -7,7 +7,7 @@ import {
 } from '../../shared/plugins/plugin-host-protocol'
 import {
   PluginWorkerRpcError,
-  type PluginWorkerRpcFailureKind
+  type PluginWorkerRpcFailureReason
 } from './plugin-worker-rpc-failure'
 
 export type PluginWorkerPendingCall = {
@@ -41,7 +41,9 @@ export class PluginWorkerRpcCalls {
   rejectAfterExit(tag: string): Promise<never> {
     // Why worker_exit: after dispose the worker is shutting down, so from
     // the caller's view it is gone the same as after an exit event.
-    return Promise.reject(new PluginWorkerRpcError('worker_exit', `${tag} worker is not running`))
+    return Promise.reject(
+      new PluginWorkerRpcError('unavailable', `${tag} worker is not running`, 'worker_exit')
+    )
   }
 
   invoke(method: string, params: unknown, context: PluginPanelRpcContext): Promise<unknown> {
@@ -86,8 +88,9 @@ export class PluginWorkerRpcCalls {
         this.pending.delete(callId)
         reject(
           new PluginWorkerRpcError(
-            'timeout',
-            `${this.tag} ${method} timed out after ${this.invokeTimeoutMs}ms`
+            'unavailable',
+            `${this.tag} ${method} timed out after ${this.invokeTimeoutMs}ms`,
+            'timeout'
           )
         )
       }, this.invokeTimeoutMs)
@@ -107,21 +110,23 @@ export class PluginWorkerRpcCalls {
     if (message.ok) {
       entry.resolve(message.value)
     } else {
-      // Why handler_failure for every ok:false: the wire carries only an
+      // Why action_failed for every ok:false: the wire carries only an
       // error string, so any worker-side refusal (throw, non-JSON value,
       // oversized result) is attributed to the handler. Transport and
       // lifecycle faults never flow through here — they reject via
-      // rejectAll with their own kind — so no text sniffing is needed.
-      entry.reject(new PluginWorkerRpcError('handler_failure', message.error))
+      // rejectAll as unavailable — so no text sniffing is needed.
+      entry.reject(new PluginWorkerRpcError('action_failed', message.error))
     }
     return true
   }
 
-  rejectAll(reason: string, kind: PluginWorkerRpcFailureKind): void {
+  /** Rejects in-flight calls as unavailable; the lifecycle detail rides in
+   *  `reason` for logs only, never for control flow. */
+  rejectAll(message: string, reason: PluginWorkerRpcFailureReason): void {
     for (const [callId, entry] of this.pending) {
       clearTimeout(entry.timer)
       this.pending.delete(callId)
-      entry.reject(new PluginWorkerRpcError(kind, reason))
+      entry.reject(new PluginWorkerRpcError('unavailable', message, reason))
     }
   }
 
