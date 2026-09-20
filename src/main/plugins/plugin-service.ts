@@ -1,10 +1,7 @@
 import type { PluginEventName } from '../../shared/plugins/plugin-manifest'
 import type { PluginCapabilityKind } from '../../shared/plugins/plugin-capabilities'
 import { grantedCapabilityKindsFor, resolveGrantedServiceIds } from './plugin-granted-scopes'
-import {
-  getPluginActivationState,
-  type PluginConsentLists
-} from '../../shared/plugins/plugin-consent-state'
+import type { PluginConsentLists } from '../../shared/plugins/plugin-consent-state'
 import type { PluginPanelActionOutcome } from '../../shared/plugins/plugin-panel-bridge'
 import {
   createPluginExtensionRegistry,
@@ -14,10 +11,15 @@ import {
   discoverPlugins,
   getPluginsDataDir,
   getUserPluginsDir,
-  isInvalidDiscoveredPlugin,
   type DiscoveredPlugin,
   type ValidDiscoveredPlugin
 } from './plugin-discovery'
+import {
+  findValidDiscoveredPlugin,
+  isPluginRuntimeApproved,
+  pluginActivationState,
+  pluginActivationError
+} from './plugin-discovery-queries'
 import { PluginEventBus } from './plugin-event-bus'
 import { PluginAuditLog } from './plugin-audit-log'
 import { executePluginHostCallRequest } from './plugin-host-call-adapter'
@@ -210,33 +212,15 @@ export class PluginService {
   }
 
   findValidPlugin(pluginKey: string): ValidDiscoveredPlugin | null {
-    for (const plugin of this.discovered) {
-      if (!isInvalidDiscoveredPlugin(plugin) && plugin.pluginKey === pluginKey) {
-        return plugin
-      }
-    }
-    return null
+    return findValidDiscoveredPlugin(this.discovered, pluginKey)
   }
 
-  activationState(plugin: ValidDiscoveredPlugin): ReturnType<typeof getPluginActivationState> {
-    // The feature flag is an authority boundary, not only a discovery hint:
-    // callers fail closed immediately even before async reconciliation ends.
-    if (!this.options.isPluginSystemEnabled()) {
-      return 'disabled'
-    }
-    return getPluginActivationState(plugin.pluginKey, plugin.consentFingerprint, {
-      pluginConsents: this.options.getPluginConsents(),
-      disabledPlugins: this.options.getDisabledPlugins()
-    })
+  activationState(plugin: ValidDiscoveredPlugin): ReturnType<typeof pluginActivationState> {
+    return pluginActivationState(this.options, plugin)
   }
 
   isRuntimeApproved(plugin: ValidDiscoveredPlugin): boolean {
-    return (
-      this.contentPacksReady &&
-      this.activationState(plugin) === 'approved' &&
-      !this.contentPacks.error(plugin.pluginKey) &&
-      !this.options.getPluginKillListEntry?.(plugin.pluginKey)
-    )
+    return isPluginRuntimeApproved(this.options, this.contentPacks, this.contentPacksReady, plugin)
   }
 
   workerState(pluginKey: string): { state: PluginRunState; restarts: number } {
@@ -244,12 +228,7 @@ export class PluginService {
   }
 
   activationError(pluginKey: string): string | null {
-    const blocked = this.options.getPluginKillListEntry?.(pluginKey)
-    return (
-      (blocked ? `Blocked by Orca's plugin safety list: ${blocked.reason}` : null) ??
-      this.contentPacks.error(pluginKey) ??
-      this.workerController.activationError(pluginKey)
-    )
+    return pluginActivationError(this.options, this.contentPacks, this.workerController, pluginKey)
   }
 
   /** Consented capability kinds for an approved plugin; null otherwise so
