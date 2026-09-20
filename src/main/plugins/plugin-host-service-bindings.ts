@@ -37,7 +37,7 @@ export type PluginRuntimeDelegate = {
 export type PluginHostServiceHandler = (
   request: unknown,
   context: { pluginId: string; serviceId: string }
-) => Promise<unknown> | unknown
+) => unknown
 
 /** Host-owned registry: only ids registered by trusted host code are callable. */
 export type PluginHostServiceRegistry = ReadonlyMap<string, PluginHostServiceHandler>
