@@ -136,12 +136,12 @@ export function createRelayServer(
   const app = createRelayApp(config, {
     store,
     assignments,
-    drain: (graceMs) => sessions.drain(graceMs),
+    drain: (graceMs, options) => sessions.drain(graceMs, options ?? {}),
     drainHost: (input) => sessions.drainHost(input),
     idleRehome: (input) => {
       const now = (options.now ?? Date.now)()
       if (input.directorSafety.observedAt > now || now - input.directorSafety.observedAt > 60_000) {
-        return Promise.resolve({ outcome: 'deferred' })
+        return Promise.resolve({ outcome: 'deferred', reason: 'director-safety-stale' })
       }
       return sessions.idleRehome(input,
         () => assignments.commitIdleRegionalRehome(input, combineRegionalRehomeSafety(

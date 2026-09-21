@@ -15,7 +15,7 @@ import {
   structuredAgentSessionCreate,
   structuredAgentSupportProbe
 } from './mobile-session-launch-operations'
-import { structuredSessionRandomUuid } from './mobile-structured-agent-session-rpc'
+import { structuredSessionRandomUuid } from './structured-session-operation-id'
 
 type StructuredCreateSupport = {
   supported?: boolean

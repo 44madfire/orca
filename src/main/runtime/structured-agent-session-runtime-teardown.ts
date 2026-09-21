@@ -1,21 +1,36 @@
-// Teardown half of the structured agent-session runtime.
+// Stopping an installed structured-session runtime, and the durable record of WHY it is stopping.
 //
-// Split from `structured-agent-session-runtime` (line budget): the ordered shutdown
-// both `stopStructuredAgentSessionRuntime` and test isolation share. Pure over the
-// installed runtime, so no module slot crosses the split.
+// Split out of `structured-agent-session-runtime` because installing a runtime and tearing one down
+// are separate concerns that share only the handle below — and because that module had no room
+// left to grow.
 
+import type { AgentSessionResumeTrigger } from '../../shared/agent-session-resume-marker'
 import type { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-host'
 
-export type InstalledStructuredAgentSessionRuntime = {
-  host: Pick<StructuredAgentSessionHost, 'flushAllStreamedEvents'>
+export type InstalledRuntime = {
+  host: StructuredAgentSessionHost
   adapter: { closeAll(): Promise<void> }
   /** Resolves after every observed adapter exit has published, and every
    *  recovery callback it raised has settled. */
   waitForRecovery: () => Promise<void>
 }
 
-export async function tearDownStructuredAgentSessionRuntime(
-  installed: InstalledStructuredAgentSessionRuntime
+/** Why the app is going away, for the resume markers teardown stamps. A module-level latch rather
+ *  than an argument because the quit path's call to `stopStructuredAgentSessionRuntime()` is
+ *  asserted verbatim by the startup-ordering ratchet. */
+let teardownTrigger: AgentSessionResumeTrigger = 'quit'
+
+export function setStructuredAgentSessionTeardownTrigger(trigger: AgentSessionResumeTrigger): void {
+  teardownTrigger = trigger
+}
+
+export function structuredAgentSessionTeardownTrigger(): AgentSessionResumeTrigger {
+  return teardownTrigger
+}
+
+export async function tearDownRuntime(
+  installed: InstalledRuntime,
+  trigger: AgentSessionResumeTrigger
 ): Promise<void> {
   // Drain an in-flight recovery before stopping children; recovery may still
   // be writing lifecycle rows or acquiring a replacement child.
@@ -34,7 +49,7 @@ export async function tearDownStructuredAgentSessionRuntime(
   // A row a child delivers during that backstop close is not captured, and was not captured
   // under the old order either. The drain below keeps a late callback from outliving the runtime.
   try {
-    await installed.host.flushAllStreamedEvents()
+    await installed.host.flushAllStreamedEvents({ trigger })
   } catch (error) {
     failures.push(error)
   }

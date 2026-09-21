@@ -11,6 +11,13 @@ import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
+import type { AgentSessionResumeTrigger } from '../../shared/agent-session-resume-marker'
+import {
+  structuredAgentSessionTeardownTrigger,
+  tearDownRuntime,
+  type InstalledRuntime
+} from './structured-agent-session-runtime-teardown'
+import { AgentSessionRecoveryCapsule } from './agent-session-recovery-capsule'
 import type { CodexStructuredPermissionPolicy } from '../codex/codex-structured-permission-policy'
 import type { CodexStructuredSessionAdapterDeps } from '../codex/codex-structured-session-adapter'
 import type { ClaudeStructuredSessionAdapterDeps } from '../claude/claude-structured-session-adapter'
@@ -26,7 +33,6 @@ import {
   buildCodexStructuredAdapter,
   buildPiStructuredAdapter
 } from './structured-agent-session-runtime-adapters'
-import { tearDownStructuredAgentSessionRuntime } from './structured-agent-session-runtime-teardown'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import type { ClaudeManagedAccountGateSettings } from '../native-chat/claude-structured-managed-account-support'
@@ -96,14 +102,6 @@ export type StructuredAgentSessionRuntimeDeps = {
   reapOrphanChildren?: typeof stopOrphanAgentSessionChildren
 }
 
-type InstalledRuntime = {
-  host: StructuredAgentSessionHost
-  adapter: { closeAll(): Promise<void> }
-  /** Resolves after every observed adapter exit has published, and every
-   *  recovery callback it raised has settled. */
-  waitForRecovery: () => Promise<void>
-}
-
 let installing: Promise<InstalledRuntime> | null = null
 
 /** Thrown when the host is installed without a Claude auth policy resolver. */
@@ -147,7 +145,10 @@ export async function waitForStructuredAgentSessionRecovery(): Promise<void> {
  *  A teardown that fails is RETRIED by the next stop rather than forgotten: the
  *  host keeps every journal whose close rejected, and this is the only handle
  *  onto that host once the module slot is cleared. */
-export async function stopStructuredAgentSessionRuntime(): Promise<void> {
+export async function stopStructuredAgentSessionRuntime(options?: {
+  trigger?: AgentSessionResumeTrigger
+}): Promise<void> {
+  const trigger = options?.trigger ?? structuredAgentSessionTeardownTrigger()
   const pending = installing
   installing = null
   setStructuredAgentSessionHost(null)
@@ -161,7 +162,7 @@ export async function stopStructuredAgentSessionRuntime(): Promise<void> {
   const failures: unknown[] = []
   for (const runtime of outstanding) {
     try {
-      await tearDownStructuredAgentSessionRuntime(runtime)
+      await tearDownRuntime(runtime, trigger)
     } catch (error) {
       pendingTeardown.add(runtime)
       failures.push(error)
@@ -326,6 +327,7 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
     host = new StructuredAgentSessionHost({
       store,
       adapter,
+      recoveryCapsule: new AgentSessionRecoveryCapsule(deps.stateDirectory),
       journalRoot: deps.stateDirectory,
       claimKeyId: deps.claimKeyId,
       probeOwner: createStructuredAgentSessionOwnerProbe(deps.hostId),
