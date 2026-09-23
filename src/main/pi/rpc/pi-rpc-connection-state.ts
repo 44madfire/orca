@@ -12,7 +12,15 @@
 // and `CLOSE_TERM_GRACE_MS` are exported for the sibling chunks.
 
 import { JsonlFramer } from "./pi-jsonl-framing";
-import { STDERR_TAIL_MAX_CHARS, redactStderrTail, type PiRpcError } from "./pi-rpc-errors";
+import { STDERR_TAIL_MAX_CHARS, boundTail, redactSecrets, type PiRpcError } from "./pi-rpc-errors";
+import { PiFamilyChunkDecoder } from "./pi-family-rpc-chunks";
+import type {
+  OmpReadyFrame,
+  PiFamilyProtocolVersion,
+  PiFamilyProvider,
+  PiFamilyReadyInfo,
+} from "./pi-family-rpc-types";
+import { readyInfoOf } from "./pi-family-rpc-types";
 import type { SpawnedProcess } from "../../../shared/child-process/process-spec";
 import type {
   PiExtensionUiRequest,
@@ -27,6 +35,12 @@ export type PiRpcSpawnFn = (
 ) => SpawnedProcess;
 
 export type PiRpcConnectionOptions = {
+  /**
+   * Provider discriminant (`pi` default). Selects diagnostics labels and
+   * OMP negotiation; framing/correlation/deadlines stay identical so one
+   * transport serves both children.
+   */
+  readonly provider?: PiFamilyProvider;
   /** Pi executable (default `"pi"`). */
   readonly piCommand?: string;
   /**
@@ -57,6 +71,8 @@ export type PiRpcConnectionOptions = {
   readonly startupProbeTimeoutMs?: number;
   /** Stderr ring-buffer bound in chars (default 16_384). */
   readonly stderrMaxBytes?: number;
+  /** Reassembled `rpc_chunk` ceiling in bytes (default 64 MiB). */
+  readonly maxReassembledBytes?: number;
   readonly spawnFn?: PiRpcSpawnFn;
   /** Id factory (tests inject determinism; default `r1`, `r2`, …). */
   readonly generateId?: () => string;
@@ -118,12 +134,12 @@ export class PiRpcConnectionState {
   protected readonly malformedHandlers = new Set<
     PiRpcEventHandler<{ linePreview: string; count: number }>
   >();
+  protected readonly readyHandlers = new Set<PiRpcEventHandler<PiFamilyReadyInfo>>();
   protected readonly exitHandlers = new Set<PiRpcEventHandler<PiRpcCloseResult>>();
-  protected readonly settledWaiters: {
-    resolve: () => void;
-    reject: (error: PiRpcError) => void;
-    timer: ReturnType<typeof setTimeout>;
-  }[] = [];
+  protected readonly provider: PiFamilyProvider;
+  protected readonly chunkDecoder: PiFamilyChunkDecoder;
+  protected readyInfo: PiFamilyReadyInfo | null = null;
+  protected negotiatedProtocol: PiFamilyProtocolVersion = 1;
   protected readonly generateId: () => string;
   protected readonly defaultTimeoutMs: number;
   protected readonly startupTimeoutMs: number;
@@ -141,6 +157,8 @@ export class PiRpcConnectionState {
   protected readonly detachFns: (() => void)[] = [];
 
   constructor(protected readonly options: PiRpcConnectionOptions = {}) {
+    this.provider = options.provider ?? "pi";
+    this.chunkDecoder = new PiFamilyChunkDecoder(options.maxReassembledBytes);
     this.generateId = options.generateId ?? defaultIdFactory();
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
@@ -171,6 +189,58 @@ export class PiRpcConnectionState {
 
   /** Bounded, redacted stderr tail (safe for logs/diagnostics). */
   get stderrTail(): string {
-    return redactStderrTail(this.stderrRaw.slice(-this.stderrMaxBytes), STDERR_TAIL_MAX_CHARS);
+    // Redact before bounding: a cut applied first could split a token and
+    // leave an unredacted suffix past the ring-buffer boundary.
+    return boundTail(redactSecrets(this.stderrRaw), STDERR_TAIL_MAX_CHARS);
+  }
+
+  /** Orca-owned child accepted via injected spawn; lifecycle stays authoritative. */
+  get child(): SpawnedProcess | null {
+    return this.proc;
+  }
+
+  get pid(): number | undefined {
+    return this.proc?.pid;
+  }
+
+  get negotiatedProtocolVersion(): PiFamilyProtocolVersion {
+    return this.negotiatedProtocol;
+  }
+
+  get observedReady(): PiFamilyReadyInfo | null {
+    return this.readyInfo;
+  }
+
+  /** Backpressure: pause the child stdout; the sink owns resume timing. */
+  pause(): void {
+    try {
+      this.proc?.stdout?.pause();
+    } catch {
+      // Teardown races never break backpressure callers.
+    }
+  }
+
+  resume(): void {
+    try {
+      this.proc?.stdout?.resume();
+    } catch {
+      // Ignore.
+    }
+  }
+
+  /** Record the first OMP `ready` advertisement (later duplicates ignored). */
+  protected observeReady(frame: OmpReadyFrame): PiFamilyReadyInfo {
+    if (!this.readyInfo) {
+      this.readyInfo = readyInfoOf(this.provider, frame);
+      // oxlint-disable-next-line unicorn/no-useless-spread -- copy-safe: listeners may unsubscribe during iteration
+      for (const h of [...this.readyHandlers]) {
+        try {
+          h(this.readyInfo);
+        } catch {
+          // Listener errors never break framing.
+        }
+      }
+    }
+    return this.readyInfo;
   }
 }
