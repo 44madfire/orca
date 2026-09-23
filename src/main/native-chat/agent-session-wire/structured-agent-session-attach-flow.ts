@@ -89,13 +89,16 @@ export async function performAttach(
   if (!admitted.ok) {
     return admitted
   }
-  // The durable record cannot carry every handle-valid provider yet: `omp` validates
-  // as a handle but has no RPC/record create path (later PIF). Refuse before reserving
-  // or spawning — for a mismatched agent/provider pair too — so the failure is pre-spawn
-  // and definitive (`structured_agent_session_unsupported` still falls back to terminal).
+  // Handle-valid providers without an acquisition path still refuse here before
+  // reserving or spawning, so the failure is pre-spawn and definitive
+  // (`structured_agent_session_unsupported` still falls back to terminal).
+  // `omp` carries a real path since PIF-3 (#24). A provider/agent pair that
+  // disagrees is incoherent — the lease, router, and handle chain all key on
+  // one discriminant — so it refuses here too instead of failing at proof.
   if (
     !isStructuredSessionCreatableProvider(params.provider) ||
-    !isStructuredSessionCreatableProvider(params.agent)
+    !isStructuredSessionCreatableProvider(params.agent) ||
+    params.provider !== params.agent
   ) {
     return unsupported()
   }

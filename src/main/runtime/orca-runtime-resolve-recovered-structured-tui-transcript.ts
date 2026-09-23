@@ -60,10 +60,6 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
     worktreeSelector: string,
     agent: 'claude' | 'codex' | 'pi' | 'omp'
   ): Promise<{ supported: boolean; reason?: 'agent' | 'remote' | 'wsl' }> {
-    if (agent === 'omp') {
-      // Handle-valid but not creatable until the RPC/record path carries it (later PIF).
-      return { supported: false, reason: 'agent' }
-    }
     const location = await this.resolveStructuredAgentSessionLocation(worktreeSelector)
     return resolveStructuredAgentSessionCreateSupport({
       agent,
@@ -71,7 +67,7 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
       adapterSupportsCreate:
         agent === 'claude'
           ? supportsClaudeStructuredLocation(location)
-          : agent === 'pi'
+          : agent === 'pi' || agent === 'omp'
             ? supportsPiStructuredLocation(location)
             : supportsCodexStructuredLocation(location),
       getSettings: () => this.requireStore().getSettings()
@@ -132,11 +128,18 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
   async resolveStructuredAgentSessionCreateIntent(input: {
     envelope: { sessionId: string; clientOperationId: string }
     worktree: string
-    agent: 'claude' | 'codex' | 'pi'
+    agent: 'claude' | 'codex' | 'pi' | 'omp'
     callerKey?: string
     resumeFrom?: { providerSessionId: string }
-  }): Promise<AgentSessionAttachParams> {
-    if (input.agent === 'pi') {
+    // Every branch echoes the narrow input agent into provider/agent (adoption
+    // replays, Pi-family, Claude, and Codex intents), so callers need no cast.
+  }): Promise<
+    AgentSessionAttachParams & {
+      provider: 'claude' | 'codex' | 'pi' | 'omp'
+      agent: 'claude' | 'codex' | 'pi' | 'omp'
+    }
+  > {
+    if (input.agent === 'pi' || input.agent === 'omp') {
       return this.resolvePiStructuredAgentSessionIntent(input)
     }
     if (input.agent === 'claude') {
@@ -167,16 +170,16 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
   }
 
   /**
-   * Pi intent create: pins `PI_STATE_DIR` to the workspace path (the Pi RPC
-   * child is workspace-bound; the exact session file comes from Pi itself at
-   * acquire). Transcript adoption is refused for Pi — Pi history has no
-   * legacy transcript decoder, so resume flows through structured re-acquire
-   * of an existing session, never intent adoption.
+   * Pi-family intent create: pins `PI_STATE_DIR` to the workspace path (the
+   * Pi/OMP RPC child is workspace-bound; the exact session file comes from the
+   * provider itself at acquire). Transcript adoption is refused for the family —
+   * neither history has a legacy transcript decoder, so resume flows through
+   * structured re-acquire of an existing session, never intent adoption.
    */
   protected async resolvePiStructuredAgentSessionIntent(input: {
     envelope: { sessionId: string; clientOperationId: string }
     worktree: string
-    agent: 'pi'
+    agent: 'pi' | 'omp'
     callerKey?: string
     resumeFrom?: { providerSessionId: string }
   }): Promise<AgentSessionAttachParams> {
@@ -190,7 +193,7 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
     input: {
       envelope: { sessionId: string; clientOperationId: string }
       worktree: string
-      agent: 'claude' | 'codex' | 'pi'
+      agent: 'claude' | 'codex' | 'pi' | 'omp'
       callerKey?: string
       resumeFrom?: { providerSessionId: string }
     },
@@ -260,7 +263,7 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
         variable:
           input.agent === 'claude'
             ? 'CLAUDE_CONFIG_DIR'
-            : input.agent === 'pi'
+            : input.agent === 'pi' || input.agent === 'omp'
               ? 'PI_STATE_DIR'
               : 'CODEX_HOME',
         path: adoption ? adoption.accountHomePath : selectedAccountHomePath

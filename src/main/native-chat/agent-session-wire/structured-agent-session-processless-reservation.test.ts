@@ -336,7 +336,7 @@ describe('processless structured session reservation', () => {
   })
 })
 
-describe('uncreatable provider attach (omp is handle-valid but the record cannot carry it)', () => {
+describe('pi-family provider attach (omp is creatable through the shared adapter since PIF-3)', () => {
   function ompParams(
     overrides: Partial<AgentSessionAttachParams> = {}
   ): AgentSessionAttachParams {
@@ -372,14 +372,16 @@ describe('uncreatable provider attach (omp is handle-valid but the record cannot
     }
   }
 
-  // The stub adapter claims omp support on purpose: the refusal must come from the
-  // creatability gate, before any reservation exists and before any child spawns.
+  // The stub adapter claims omp support on purpose: a matching attach must pass
+  // the creatability gate into reservation and acquisition, while a mismatched
+  // pair still refuses before any reservation exists and before any child spawns.
   function claimingAdapter(
     acquire: StructuredAgentSessionAdapter['acquire']
   ): StructuredAgentSessionAdapter {
     return {
       supportsCreate: () => true,
       acquire,
+      releaseAcquisition: async () => true,
       dispatch: async () => ({ state: 'unknown', reason: 'unreachable' }),
       cancelTurn: async () => ({ cancelled: false }),
       answerPrompt: async () => undefined,
@@ -387,14 +389,31 @@ describe('uncreatable provider attach (omp is handle-valid but the record cannot
     }
   }
 
-  async function attachUncreatable(params: AgentSessionAttachParams) {
-    root = await mkdtemp(join(tmpdir(), 'orca-uncreatable-attach-'))
+  async function attachOmp(params: AgentSessionAttachParams) {
+    root = await mkdtemp(join(tmpdir(), 'orca-omp-attach-'))
     const store = await AgentSessionRecordStore.open({
       directory: join(root, 'store'),
       hostId: 'local'
     })
     const reserveOwner = vi.spyOn(store, 'reserveOwner')
-    const acquire = vi.fn<StructuredAgentSessionAdapter['acquire']>()
+    const acquire = vi.fn<StructuredAgentSessionAdapter['acquire']>().mockImplementation(
+      async ({ fence, spawnToken }) => ({
+        process: { hostId: 'local', pid: 4242, processStartTimeMs: NOW, spawnToken },
+        link: {
+          linkId: 'link-omp-1',
+          handle: {
+            provider: 'omp',
+            sessionId: 'omp-ses-1',
+            leafId: null,
+            sessionFile: '/tmp/omp-ses-1.jsonl'
+          },
+          origin: 'created',
+          mintedAtFence: fence,
+          observedAt: NOW
+        }
+      })
+    )
+    const journals: { close: () => Promise<void> }[] = []
     const result = await performAttach({
       store,
       adapter: claimingAdapter(acquire),
@@ -408,24 +427,30 @@ describe('uncreatable provider attach (omp is handle-valid but the record cannot
       callerKey: 'client-1',
       params,
       now: () => NOW,
-      onAttached: () => {}
+      onAttached: (attached) => {
+        journals.push(attached.journal)
+      }
     })
+    // Test-only cleanup: the host owns journal lifetime in production, but an
+    // open journal holds its sqlite lock and breaks temp-dir removal on Windows.
+    for (const journal of journals) {
+      await journal.close().catch(() => undefined)
+    }
     return { result, reserveOwner, acquire, store }
   }
 
-  it('refuses an omp attach before reserving or spawning', async () => {
-    const { result, reserveOwner, acquire, store } = await attachUncreatable(ompParams())
-    expect(result).toMatchObject({
-      ok: false,
-      refusal: { code: 'structured_agent_session_unsupported' }
-    })
-    expect(reserveOwner).not.toHaveBeenCalled()
-    expect(acquire).not.toHaveBeenCalled()
-    expect(store.getRecord(SESSION)).toBeNull()
+  it('admits a matching omp attach through reservation into acquisition', async () => {
+    const { result, reserveOwner, acquire } = await attachOmp(ompParams())
+    expect(reserveOwner).toHaveBeenCalled()
+    expect(acquire).toHaveBeenCalled()
+    expect(result).toMatchObject({ ok: true })
   })
 
   it('refuses a mismatched pi-provider/omp-agent attach before spawning', async () => {
-    const { result, reserveOwner, acquire, store } = await attachUncreatable(
+    // Both discriminants are creatable, but the pair disagrees: the lease,
+    // router, and handle chain key on one discriminant, so the incoherent
+    // pair refuses pre-spawn exactly like an uncreatable provider.
+    const { result, reserveOwner, acquire, store } = await attachOmp(
       ompParams({ provider: 'pi' })
     )
     expect(result).toMatchObject({

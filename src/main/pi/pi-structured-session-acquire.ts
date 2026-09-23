@@ -12,6 +12,7 @@ import {
   AgentSessionPreSpawnError,
   type StructuredAgentSessionAcquireInput
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
+import { resolvePiFamilyFlavor } from './pi-family-flavor'
 import { piProviderHandleLink } from './pi-structured-owner-identity'
 import {
   opaquePiFamilyResume,
@@ -64,6 +65,7 @@ export async function acquirePiStructuredSession(args: {
     acquired = await backend.acquire({
       orcaSessionId: input.identity.sessionId,
       workspaceRoot,
+      provider,
       ...(resume ? { resumePiSessionId: resume.sessionId } : {}),
       ...(input.resumeSessionFile ? { resumeSessionFile: input.resumeSessionFile } : {}),
       ...(input.options ? { options: input.options } : {}),
@@ -88,6 +90,7 @@ export async function acquirePiStructuredSession(args: {
   })
   const now = deps.now?.() ?? Date.now()
   const generation = randomUUID()
+  const flavor = resolvePiFamilyFlavor(provider)
   sessions.set(input.identity.sessionId, {
     orcaSessionId: input.identity.sessionId,
     provider,
@@ -98,7 +101,10 @@ export async function acquirePiStructuredSession(args: {
     process: exactProcess,
     sessionFilePath: acquired.sessionFilePath ?? null,
     sink: input.events ?? null,
-    closed: false
+    closed: false,
+    // The live child exposes its own final-settle predicate; the shared
+    // transport never owns settlement (#23 removed the Pi-only settle API).
+    isSettledEvent: flavor.isSettled
   })
   // The exact session file is host-observed backend output, persisted on the
   // durable link so resume and structured→TUI address the same file after restart.

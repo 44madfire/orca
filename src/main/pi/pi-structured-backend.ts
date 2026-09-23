@@ -11,6 +11,8 @@ import type { AgentSessionProcessIdentity } from '../../shared/agent-session-rec
 import type { NativeChatBlock } from '../../shared/native-chat-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
+import type { PiFamilySettledEvent } from './pi-family-flavor'
+import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
 import { piProcessIdentity } from './pi-structured-owner-identity'
 
 export type PiStructuredAcquireResult = {
@@ -31,6 +33,7 @@ export type PiStructuredBackend = {
   acquire(input: {
     orcaSessionId: string
     workspaceRoot: string
+    provider?: PiFamilyProvider
     resumePiSessionId?: string
     resumeSessionFile?: string
     options?: Readonly<Record<string, string>>
@@ -101,6 +104,8 @@ export type PiSession = {
   sessionFilePath: string | null
   sink: StructuredAgentSessionEventSink | null
   closed: boolean
+  /** Provider-specific final-settle predicate for this live child (PIF-3, #24). */
+  isSettledEvent: (event: PiFamilySettledEvent) => boolean
 }
 
 /** Pi-family resume target parsed from the journal's opaque provider handle

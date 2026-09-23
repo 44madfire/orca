@@ -94,9 +94,8 @@ describe('resolveAgentLaunchRoute', () => {
     // openclaude and grok render native chat but have no structured adapter.
     expect(route({ agent: 'openclaude' })).toBe('legacy-native-chat')
     expect(route({ agent: 'grok' })).toBe('legacy-native-chat')
-    // omp is handle-valid but not creatable yet: it must keep its TUI/legacy chat,
-    // never route structured (createSupport would reject it without terminal fallback).
-    expect(route({ agent: 'omp' })).toBe('legacy-native-chat')
+    // Both Pi-family providers acquire through the shared adapter since PIF-3 (#24).
+    expect(route({ agent: 'omp' })).toBe('structured-native-chat')
     expect(route({ agent: 'pi' })).toBe('structured-native-chat')
     expect(route({ requiresTuiLaunchCommand: true })).toBe('legacy-native-chat')
   })

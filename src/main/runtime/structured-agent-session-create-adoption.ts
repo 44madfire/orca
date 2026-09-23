@@ -22,15 +22,15 @@ type AdoptionSettings = {
 export function resolveCommittedStructuredAgentSessionAdoptionIntent(input: {
   host: StructuredAgentSessionHost | null
   envelope: { sessionId: string; clientOperationId: string }
-  agent: 'claude' | 'codex' | 'pi'
+  agent: 'claude' | 'codex' | 'pi' | 'omp'
   callerKey?: string
   resumeFrom?: { providerSessionId: string }
   location: AgentSessionExecutionLocation
   options?: Readonly<Record<string, string>>
 }): AgentSessionAttachParams | null {
-  // Pi has no transcript adoption (history resumes through structured
-  // re-acquire); there is no committed adoption replay to find.
-  if (input.agent === 'pi') {
+  // The Pi family has no transcript adoption (history resumes through
+  // structured re-acquire); there is no committed adoption replay to find.
+  if (input.agent === 'pi' || input.agent === 'omp') {
     return null
   }
   const replay =
@@ -68,13 +68,13 @@ export function resolveCommittedStructuredAgentSessionAdoptionIntent(input: {
 export async function resolveStructuredAgentSessionAdoptionForCreate(input: {
   host: StructuredAgentSessionHost | null
   settings: AdoptionSettings
-  agent: 'claude' | 'codex' | 'pi'
+  agent: 'claude' | 'codex' | 'pi' | 'omp'
   providerSessionId: string
   selfSessionId: string
   selectedAccountHomePath: string
 }) {
-  // Pi has no transcript decoder; adoption would mis-attribute history.
-  if (input.agent === 'pi') {
+  // The Pi family has no transcript decoder; adoption would mis-attribute history.
+  if (input.agent === 'pi' || input.agent === 'omp') {
     throw new Error('structured_agent_session_unsupported')
   }
   const conflict = input.host
@@ -87,9 +87,7 @@ export async function resolveStructuredAgentSessionAdoptionForCreate(input: {
           input.host.deps.store.listRecords()
         ).filter(
           (owner): owner is Extract<typeof owner, { provider: 'claude' | 'codex' }> =>
-            owner.provider !== 'external' &&
-            owner.provider !== 'pi' &&
-            owner.provider !== 'omp'
+            owner.provider !== 'external' && owner.provider !== 'pi' && owner.provider !== 'omp'
         )
       })
     : null
@@ -111,10 +109,10 @@ export async function resolveStructuredAgentSessionAdoptionForCreate(input: {
   })
 }
 
-/** Recognised adoption homes, most-preferred first. Pi never reaches here (refused above). */
+/** Recognised adoption homes, most-preferred first. Pi-family never reaches here (refused above). */
 function structuredAdoptionAccountHomeCandidates(input: {
   settings: AdoptionSettings
-  agent: 'claude' | 'codex' | 'pi'
+  agent: 'claude' | 'codex' | 'pi' | 'omp'
   selectedAccountHomePath: string
 }): string[] {
   if (input.agent === 'claude') {

@@ -95,9 +95,9 @@ export const AttachParams = z
   .object({
     envelope: MutationEnvelope,
     location: ExecutionLocation,
-    // `external` is the SNC1.3 dev seam (explicit bridge path only); `pi` is the
-    // SNC1.9 native Pi provider (local-only structured sessions + Pi TUI handoff).
-    provider: z.enum(['codex', 'claude', 'external', 'pi']),
+    // `external` is the SNC1.3 dev seam (explicit bridge path only); `pi`/`omp` are the
+    // Pi-family providers (local-only structured sessions + provider TUI handoff).
+    provider: z.enum(['codex', 'claude', 'external', 'pi', 'omp']),
     agent: Identifier('Invalid agent'),
     accountHome: AccountHome,
     runtimeKind: z.enum(['native', 'tui']),
@@ -118,7 +118,7 @@ export const CreateIntentParams = z
   .object({
     envelope: MutationEnvelope,
     worktree: Identifier('Invalid worktree selector'),
-    agent: z.enum(['claude', 'codex', 'pi']),
+    agent: z.enum(['claude', 'codex', 'pi', 'omp']),
     resumeFrom: ResumeSource.optional()
   })
   .strict()
@@ -128,7 +128,7 @@ export const CreateParams = z.union([AttachParams, CreateIntentParams])
 export const CreateSupportParams = z
   .object({
     worktree: Identifier('Invalid worktree selector'),
-    agent: z.enum(['claude', 'codex', 'pi'])
+    agent: z.enum(['claude', 'codex', 'pi', 'omp'])
   })
   .strict()
 
@@ -189,7 +189,10 @@ export const CancelParams = z
       ctx.addIssue({ code: 'custom', message: 'A task id requires background-task scope' })
     }
     if (value.prompt !== undefined && value.scope === 'background-tasks') {
-      ctx.addIssue({ code: 'custom', message: 'A prompt cannot use background-task scope' })
+      ctx.addIssue({
+        code: 'custom',
+        message: 'A prompt cannot use background-task scope'
+      })
     }
   })
 
@@ -243,7 +246,9 @@ export const RestartResumableParams = z.object({}).strict()
 /** Omitting `sessionIds` takes the whole offered set; naming them takes that subset. Either way the
  *  host re-derives eligibility, so an id a client invents is simply not in the set. */
 export const RestartResumeParams = z
-  .object({ sessionIds: z.array(SessionId).max(MAX_RESTART_RESUME_SESSIONS).optional() })
+  .object({
+    sessionIds: z.array(SessionId).max(MAX_RESTART_RESUME_SESSIONS).optional()
+  })
   .strict()
 
 export const HistoryParams = z

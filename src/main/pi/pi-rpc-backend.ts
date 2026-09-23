@@ -17,7 +17,12 @@
 
 import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
-import { PiRpcSessionDriver, type PiDriverAcquireResult, type PiDriverDeps } from './pi-rpc-session-driver'
+import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
+import {
+  PiRpcSessionDriver,
+  type PiDriverAcquireResult,
+  type PiDriverDeps
+} from './pi-rpc-session-driver'
 import { collectPiDispatchContent } from './pi-dispatch-images'
 import type {
   PiStructuredAcquireResult,
@@ -42,6 +47,7 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
     async acquire(input: {
       orcaSessionId: string
       workspaceRoot: string
+      provider?: PiFamilyProvider
       resumePiSessionId?: string
       resumeSessionFile?: string
       options?: Readonly<Record<string, string>>
@@ -61,11 +67,25 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
         }
         drivers.delete(input.orcaSessionId)
       }
-      const driver = new PiRpcSessionDriver(input.orcaSessionId, deps)
+      // Generation fencing: a superseded driver's late exit must not publish
+      // against its replacement. Only the indexed driver (or one racing an
+      // empty slot mid-acquire) may forward unexpected exits.
+      let driver: PiRpcSessionDriver
+      const driverDeps: PiDriverDeps = {
+        ...deps,
+        onUnexpectedExit: (sessionId) => {
+          const current = drivers.get(sessionId)
+          if (current === driver || current === undefined) {
+            deps.onUnexpectedExit?.(sessionId)
+          }
+        }
+      }
+      driver = new PiRpcSessionDriver(input.orcaSessionId, driverDeps)
       let acquired: PiDriverAcquireResult
       try {
         acquired = await driver.acquire({
           workspaceRoot: input.workspaceRoot,
+          ...(input.provider !== undefined ? { provider: input.provider } : {}),
           ...(input.resumeSessionFile !== undefined ? { resumeSessionFile: input.resumeSessionFile } : {}),
           ...(input.resumePiSessionId !== undefined ? { resumePiSessionId: input.resumePiSessionId } : {}),
           ...(input.options !== undefined ? { options: input.options } : {}),

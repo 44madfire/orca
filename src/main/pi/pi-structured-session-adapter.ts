@@ -12,6 +12,7 @@ import type {
   AgentSessionJournalIdentity
 } from '../../shared/agent-session-journal-types'
 import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
+import type { PiFamilySettledEvent } from './pi-family-flavor'
 import { closeProcessRegistry } from '../../shared/child-process/close-process-registry'
 import {
   AgentSessionAcquisitionExitUnprovenError,
@@ -69,6 +70,30 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
 
   supportsLocation = (location: AgentSessionExecutionLocation): boolean =>
     supportsPiStructuredLocation(location)
+
+  /**
+   * Final-settle predicate for one live child (PIF-3, #24; consumed by later issues).
+   * A generation that no longer owns the session cannot settle anything: stale
+   * lifecycle events from a superseded child answer false instead of leaking
+   * through the replacement's predicate.
+   */
+  isSettledEvent = (input: {
+    sessionId: string
+    event: PiFamilySettledEvent
+    acquisitionGeneration?: string
+  }): boolean => {
+    const session = this.sessions.get(input.sessionId)
+    if (!session || session.closed) {
+      return false
+    }
+    if (
+      input.acquisitionGeneration !== undefined &&
+      input.acquisitionGeneration !== session.generation
+    ) {
+      return false
+    }
+    return session.isSettledEvent(input.event)
+  }
 
   /** Backend exit callback: publish the lifecycle event the host recovers from. */
   publishUnexpectedExit = (orcaSessionId: string): void => {

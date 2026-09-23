@@ -172,13 +172,30 @@ describe('structured agent-session create-support probe', () => {
     }
   )
 
-  it('reports omp unsupported without consulting location support', async () => {
-    // omp is handle-valid but has no RPC/record create path yet: fail closed with the
-    // agent reason rather than answer from Pi location support.
+  it('reports omp supported on a proven local location without installing the host', async () => {
+    // PIF-3 (#24): omp acquires through the shared Pi-family adapter, so it
+    // answers from Pi location support exactly like pi.
     await expectSupportWithoutInstall({
       agent: 'omp',
       location: { executionHostId: 'local', wslDistro: null },
-      expected: { supported: false, reason: 'agent' }
+      expected: { supported: true },
+      repetitions: 3
+    })
+  })
+
+  it('still reports an unsupported remote omp location without installing the host', async () => {
+    await expectSupportWithoutInstall({
+      agent: 'omp',
+      location: { executionHostId: 'ssh-host-1', wslDistro: null },
+      expected: { supported: false, reason: 'remote' }
+    })
+  })
+
+  it('still reports an unsupported WSL omp location without installing the host', async () => {
+    await expectSupportWithoutInstall({
+      agent: 'omp',
+      location: { executionHostId: 'local', wslDistro: 'Ubuntu' },
+      expected: { supported: false, reason: 'wsl' }
     })
   })
 

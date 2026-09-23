@@ -11,6 +11,7 @@
 
 import { open } from 'node:fs/promises'
 import { resolve as resolvePath } from 'node:path'
+import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
 import type { PiRpcConnection } from './rpc/pi-rpc-connection'
 import type { PiEntry, PiState, PiTreeNode } from './rpc/pi-wire-protocol'
 import {
@@ -79,6 +80,43 @@ export async function resumePiSession(
   } catch {
     throw new Error('PI_STATE_FAILED: Pi resumed but get_state failed (reacquire the session)')
   }
+}
+
+/**
+ * Switch one fresh child onto an existing session file for either provider.
+ * The file must already exist: a missing path would silently become a new
+ * empty session on real providers, so resume fails closed before switching.
+ * Pi files keep the header CWD check; OMP files stay opaque (same-provider
+ * switch plus session-id verification, never parsed here).
+ */
+export async function resumePiFamilySession(
+  conn: SwitchCapableConnection,
+  input: { provider: PiFamilyProvider; resumePath: string; workspaceRoot: string; timeoutMs: number }
+): Promise<{ state: PiState; resumed: boolean }> {
+  try {
+    const handle = await open(input.resumePath, 'r')
+    await handle.close().catch(() => undefined)
+  } catch {
+    throw new Error('PI_RESUME_FAILED: Pi-family session file is missing (reacquire without resume for a fresh session)')
+  }
+  if (input.provider === 'omp') {
+    let cancelled = false
+    try {
+      const switched = await conn.switchSession(input.resumePath, { timeoutMs: input.timeoutMs })
+      cancelled = switched?.cancelled === true
+    } catch {
+      throw new Error('PI_RESUME_FAILED: OMP session resume failed (reacquire without resume for a fresh session)')
+    }
+    if (cancelled) {
+      throw new Error('PI_RESUME_CANCELLED: OMP refused the session switch')
+    }
+    try {
+      return { state: await conn.getState({ timeoutMs: input.timeoutMs }), resumed: true }
+    } catch {
+      throw new Error('PI_STATE_FAILED: OMP resumed but get_state failed (reacquire the session)')
+    }
+  }
+  return resumePiSession(conn, input)
 }
 
 type HistoryCapableConnection = Pick<PiRpcConnection, 'getEntries' | 'getTree' | 'switchSession' | 'getState'>
