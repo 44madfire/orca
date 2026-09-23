@@ -26,7 +26,6 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
   private familyProvider: PiFamilyProvider = 'pi'
   private streamGate: PiFamilyAcquisitionGate | null = null
   private readonly factTray = new PiFamilyFactTray()
-
   protected beginAcquisitionWindow(): void {
     const gate = new PiFamilyAcquisitionGate(this.deps.acquisitionBufferLimits)
     this.streamGate = gate
@@ -250,6 +249,9 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
   }
 
   private deliverPiRecord(record: Record<string, unknown>): void {
+    // Dispatch settlement observes every record here: steady-state records bypass
+    // handlePiRecord via the acquisition gate. The observer must never throw.
+    this.recordObserver?.(record)
     if (record['type'] === 'thinking_level_changed' && typeof record['level'] === 'string') {
       this.optionsState.thinkingLevel = record['level']
     }

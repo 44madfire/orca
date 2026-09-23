@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentSessionJournalIdentity } from '../../shared/agent-session-journal-types'
+import type {
+  AgentJournalMessageItem,
+  AgentSessionJournalIdentity
+} from '../../shared/agent-session-journal-types'
 import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
 import type { StructuredAgentSessionAdapter } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { StructuredAgentSessionAdapterRouter } from '../native-chat/agent-session-wire/structured-agent-session-adapter-router'
@@ -39,13 +42,24 @@ function textBody(text: string) {
   return { kind: 'message', role: 'user', blocks: [{ type: 'text', text }] } as never
 }
 
-function fakeBackend(overrides?: Partial<PiStructuredBackend>): PiStructuredBackend & { calls: string[] } {
+function fakeBackend(
+  overrides?: Partial<PiStructuredBackend>
+): PiStructuredBackend & { calls: string[] } {
   const calls: string[] = []
-  return {
+  const backend: PiStructuredBackend & { calls: string[] } = {
     calls,
-    acquire: async (input: { orcaSessionId: string; workspaceRoot: string; spawnToken: string }) => {
+    acquire: async (input: {
+      orcaSessionId: string
+      workspaceRoot: string
+      spawnToken: string
+    }) => {
       calls.push(`acquire:${input.workspaceRoot}:${input.spawnToken}`)
-      return { piSessionId: 'pi-ses-1', leafId: 'leaf-1', pid: 4242, sessionFilePath: '/tmp/pi-ses-1.jsonl' }
+      return {
+        piSessionId: 'pi-ses-1',
+        leafId: 'leaf-1',
+        pid: 4242,
+        sessionFilePath: '/tmp/pi-ses-1.jsonl'
+      }
     },
     dispatch: async () => ({ status: 'accepted' }),
     cancel: async () => ({ cancelled: true }),
@@ -53,12 +67,17 @@ function fakeBackend(overrides?: Partial<PiStructuredBackend>): PiStructuredBack
     sessionFilePath: async () => '/tmp/pi-ses-1.jsonl',
     answerPrompt: async () => undefined,
     setOption: async (input: { key: string; value: string }) => ({ [input.key]: input.value }),
-    readOptions: async () => ({ options: { model: 'test/model' }, model: 'test/model', thinkingLevel: undefined }),
+    readOptions: async () => ({
+      options: { model: 'test/model' },
+      model: 'test/model',
+      thinkingLevel: undefined
+    }),
     listModels: async () => [],
     listThinkingLevels: async () => [],
     readResumeHistory: async () => ({ rows: [], leafId: 'leaf-1' }),
     ...overrides
-  } as unknown as PiStructuredBackend & { calls: string[] }
+  }
+  return backend
 }
 
 function adapterWithFake(
@@ -83,12 +102,8 @@ describe('PiStructuredSessionAdapter capability gates', () => {
     expect(adapter.supportsCreate?.(LOCAL, 'codex')).toBe(false)
     expect(adapter.supportsCreate?.(LOCAL, 'claude')).toBe(false)
     expect(adapter.supportsCreate?.(LOCAL, 'external')).toBe(false)
-    expect(
-      adapter.supportsCreate?.({ ...LOCAL, wslDistro: 'Ubuntu' }, 'pi')
-    ).toBe(false)
-    expect(
-      adapter.supportsCreate?.({ ...LOCAL, executionHostId: 'ssh:host-1' }, 'pi')
-    ).toBe(false)
+    expect(adapter.supportsCreate?.({ ...LOCAL, wslDistro: 'Ubuntu' }, 'pi')).toBe(false)
+    expect(adapter.supportsCreate?.({ ...LOCAL, executionHostId: 'ssh:host-1' }, 'pi')).toBe(false)
   })
 
   it('fails closed without a backend rather than fabricating a session', async () => {
@@ -103,10 +118,13 @@ describe('PiStructuredSessionAdapter capability gates', () => {
       resolveWorkspacePath: () => '/tmp/ws',
       backend: fakeBackend()
     })
-    const identity = { ...freshIdentity('ses-1'), agent: 'codex' } as unknown as AgentSessionJournalIdentity
-    await expect(
-      adapter.acquire({ identity, fence: 0, spawnToken: 'spawn-1' })
-    ).rejects.toThrow('does not own agent')
+    const identity: AgentSessionJournalIdentity = {
+      ...freshIdentity('ses-1'),
+      agent: 'codex' as const
+    }
+    await expect(adapter.acquire({ identity, fence: 0, spawnToken: 'spawn-1' })).rejects.toThrow(
+      'does not own agent'
+    )
   })
 
   it('requires a non-empty workspaceRoot', async () => {
@@ -134,7 +152,11 @@ describe('PiStructuredSessionAdapter lifecycle proof', () => {
   it('mints the exact Pi session/leaf link with a pid-reuse-safe process identity', async () => {
     const backend = fakeBackend()
     const adapter = adapterWithFake(backend)
-    const acquired = await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 7, spawnToken: 'spawn-1' })
+    const acquired = await adapter.acquire({
+      identity: freshIdentity('ses-1'),
+      fence: 7,
+      spawnToken: 'spawn-1'
+    })
     expect(acquired.link.handle).toEqual({
       provider: 'pi',
       sessionId: 'pi-ses-1',
@@ -142,7 +164,11 @@ describe('PiStructuredSessionAdapter lifecycle proof', () => {
       sessionFile: '/tmp/pi-ses-1.jsonl'
     })
     expect(acquired.link.mintedAtFence).toBe(7)
-    expect(acquired.process).toMatchObject({ pid: 4242, processStartTimeMs: 12345, spawnToken: 'spawn-1' })
+    expect(acquired.process).toMatchObject({
+      pid: 4242,
+      processStartTimeMs: 12345,
+      spawnToken: 'spawn-1'
+    })
     expect(typeof acquired.acquisitionGeneration).toBe('string')
   })
 
@@ -161,7 +187,10 @@ describe('PiStructuredSessionAdapter lifecycle proof', () => {
       resumeSessionFile: '/tmp/pi-ses-1.jsonl'
     })
     expect(acquire).toHaveBeenCalledWith(
-      expect.objectContaining({ resumePiSessionId: 'pi-ses-1', resumeSessionFile: '/tmp/pi-ses-1.jsonl' })
+      expect.objectContaining({
+        resumePiSessionId: 'pi-ses-1',
+        resumeSessionFile: '/tmp/pi-ses-1.jsonl'
+      })
     )
     expect(acquired.link.origin).toBe('resumed')
     expect(acquired.link.handle).toMatchObject({ sessionId: 'pi-ses-1', leafId: 'leaf-2' })
@@ -186,8 +215,13 @@ describe('PiStructuredSessionAdapter lifecycle proof', () => {
     await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 0, spawnToken: 'spawn-1' })
     await expect(adapter.closeSession('ses-1')).resolves.toBe(false)
     await expect(
-      adapter.dispatch({ sessionId: 'ses-1', clientMessageId: 'c1', body: textBody('hi'), fence: 0 })
-    ).resolves.toMatchObject({ state: 'accepted' })
+      adapter.dispatch({
+        sessionId: 'ses-1',
+        clientMessageId: 'c1',
+        body: textBody('hi'),
+        fence: 0
+      })
+    ).resolves.toMatchObject({ state: 'admitted' })
   })
 
   it('proves closeAll across every live child and reports the shutdown when unprovable', async () => {
@@ -238,7 +272,12 @@ describe('PiStructuredSessionAdapter dispatch honesty', () => {
     const adapter = adapterWithFake(backend)
     await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 5, spawnToken: 'spawn-1' })
     await expect(
-      adapter.dispatch({ sessionId: 'ses-1', clientMessageId: 'c1', body: textBody('hi'), fence: 4 })
+      adapter.dispatch({
+        sessionId: 'ses-1',
+        clientMessageId: 'c1',
+        body: textBody('hi'),
+        fence: 4
+      })
     ).resolves.toMatchObject({ state: 'rejected' })
     const unknown = await adapter.dispatch({
       sessionId: 'ses-1',
@@ -261,21 +300,35 @@ describe('PiStructuredSessionAdapter dispatch honesty', () => {
   it('fence-checks cancel and reports the Pi session file for handoff identity', async () => {
     const adapter = adapterWithFake(fakeBackend())
     await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 5, spawnToken: 'spawn-1' })
-    await expect(adapter.cancelTurn({ sessionId: 'ses-1', turnId: 't1', fence: 4 })).resolves.toEqual({
+    await expect(
+      adapter.cancelTurn({ sessionId: 'ses-1', turnId: 't1', fence: 4 })
+    ).resolves.toEqual({
       cancelled: false
     })
-    await expect(
-      adapter.historyFilePath?.({ identity: freshIdentity('ses-1') })
-    ).resolves.toBe('/tmp/pi-ses-1.jsonl')
-    await expect(adapter.historyFilePath?.({ identity: freshIdentity('missing') })).resolves.toBe(null)
+    await expect(adapter.historyFilePath?.({ identity: freshIdentity('ses-1') })).resolves.toBe(
+      '/tmp/pi-ses-1.jsonl'
+    )
+    await expect(adapter.historyFilePath?.({ identity: freshIdentity('missing') })).resolves.toBe(
+      null
+    )
   })
 
   it('routes prompt answers by journal item key and tracks restore failures', async () => {
     const answerPrompt = vi.fn(async () => undefined)
     const adapter = adapterWithFake(fakeBackend({ answerPrompt }))
     await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 0, spawnToken: 'spawn-1' })
-    await adapter.answerPrompt({ sessionId: 'ses-1', itemId: 'item-key-1', kind: 'approval', optionId: 'confirm', fence: 0 })
-    expect(answerPrompt).toHaveBeenCalledWith({ itemKey: 'item-key-1', kind: 'approval', optionId: 'confirm' })
+    await adapter.answerPrompt({
+      sessionId: 'ses-1',
+      itemId: 'item-key-1',
+      kind: 'approval',
+      optionId: 'confirm',
+      fence: 0
+    })
+    expect(answerPrompt).toHaveBeenCalledWith({
+      itemKey: 'item-key-1',
+      kind: 'approval',
+      optionId: 'confirm'
+    })
     await expect(
       adapter.setOption({ sessionId: 'ses-1', key: 'bogus', value: 'x', fence: 0 })
     ).rejects.toThrow('no session option named')
@@ -283,7 +336,10 @@ describe('PiStructuredSessionAdapter dispatch honesty', () => {
   })
 
   it('reads resume history only for the live fence', async () => {
-    const readResumeHistory = vi.fn(async (): Promise<{ rows: []; leafId: string }> => ({ rows: [], leafId: 'leaf-1' }))
+    const readResumeHistory = vi.fn(async (): Promise<{ rows: []; leafId: string }> => ({
+      rows: [],
+      leafId: 'leaf-1'
+    }))
     const adapter = adapterWithFake(fakeBackend({ readResumeHistory }))
     await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 5, spawnToken: 'spawn-1' })
     await expect(adapter.readResumeHistory?.({ sessionId: 'ses-1', fence: 4 })).rejects.toThrow(
@@ -295,10 +351,79 @@ describe('PiStructuredSessionAdapter dispatch honesty', () => {
     })
   })
 
+  it('maps a prompt acknowledgement to admitted, never straight to accepted', async () => {
+    const dispatch = vi.fn(async () => ({ status: 'accepted' as const }))
+    const adapter = adapterWithFake(fakeBackend({ dispatch }))
+    await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 0, spawnToken: 'spawn-1' })
+    // No synchronous provider identity: stable identity settles later from history.
+    await expect(
+      adapter.dispatch({
+        sessionId: 'ses-1',
+        clientMessageId: 'c1',
+        body: textBody('hi'),
+        fence: 0
+      })
+    ).resolves.toEqual({ state: 'admitted' })
+  })
+
+  it('rejects unrepresentable bodies locally before any RPC write', async () => {
+    const dispatch = vi.fn(async () => ({ status: 'accepted' as const }))
+    const adapter = adapterWithFake(fakeBackend({ dispatch }))
+    await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 0, spawnToken: 'spawn-1' })
+    const body: AgentJournalMessageItem = {
+      kind: 'message',
+      role: 'user',
+      blocks: [
+        { type: 'text', text: 'secret prompt' },
+        { type: 'image-ref', url: 'https://example.invalid/secret' }
+      ]
+    }
+    const outcome = await adapter.dispatch({
+      sessionId: 'ses-1',
+      clientMessageId: 'c1',
+      body,
+      fence: 0
+    })
+    expect(outcome.state).toBe('rejected')
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('passes definite refusal through and keeps ambiguity unresent', async () => {
+    const dispatch = vi.fn(async () => ({
+      status: 'rejected' as const,
+      reason: 'pi-rejected-prompt'
+    }))
+    const adapter = adapterWithFake(fakeBackend({ dispatch }))
+    await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 0, spawnToken: 'spawn-1' })
+    await expect(
+      adapter.dispatch({
+        sessionId: 'ses-1',
+        clientMessageId: 'c1',
+        body: textBody('hi'),
+        fence: 0
+      })
+    ).resolves.toEqual({ state: 'rejected', reason: 'pi-rejected-prompt' })
+    dispatch.mockRejectedValueOnce(new Error('transport lost'))
+    await expect(
+      adapter.dispatch({
+        sessionId: 'ses-1',
+        clientMessageId: 'c2',
+        body: textBody('hi'),
+        fence: 0
+      })
+    ).resolves.toMatchObject({ state: 'unknown' })
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(dispatch).toHaveBeenCalledTimes(2)
+  })
+
   it('reports the live model catalog instead of an empty temp', async () => {
     const adapter = adapterWithFake(
       fakeBackend({
-        readOptions: async () => ({ options: { model: 'test/model' }, model: 'test/model', thinkingLevel: 'high' }),
+        readOptions: async () => ({
+          options: { model: 'test/model' },
+          model: 'test/model',
+          thinkingLevel: 'high'
+        }),
         listModels: async () => [{ id: 'model', provider: 'test' }],
         listThinkingLevels: async () => ['low', 'high']
       })
@@ -343,7 +468,10 @@ describe('Pi router routing preserves Codex/Claude', () => {
 
   it('forwards history resume reads to the owning adapter', async () => {
     const readResumeHistory = vi.fn(
-      async (): Promise<{ rows: { id: string; role: string; text: string }[]; leafId: string }> => ({
+      async (): Promise<{
+        rows: { id: string; role: string; text: string }[]
+        leafId: string
+      }> => ({
         rows: [],
         leafId: 'leaf-1'
       })
@@ -409,9 +537,7 @@ describe('PiStructuredSessionAdapter OMP discriminant (PIF-1)', () => {
     expect(adapter.supportsCreate?.(LOCAL, 'pi')).toBe(true)
     expect(adapter.supportsCreate?.(LOCAL, 'codex')).toBe(false)
     expect(adapter.supportsCreate?.({ ...LOCAL, wslDistro: 'Ubuntu' }, 'omp')).toBe(false)
-    expect(adapter.supportsCreate?.({ ...LOCAL, executionHostId: 'ssh:host-1' }, 'omp')).toBe(
-      false
-    )
+    expect(adapter.supportsCreate?.({ ...LOCAL, executionHostId: 'ssh:host-1' }, 'omp')).toBe(false)
   })
 
   it('mints an omp link with the exact session file and answers dispatch as omp', async () => {
@@ -428,11 +554,15 @@ describe('PiStructuredSessionAdapter OMP discriminant (PIF-1)', () => {
       sessionFile: '/tmp/omp-ses-1.jsonl'
     })
     await expect(
-      adapter.dispatch({ sessionId: 'ses-omp', clientMessageId: 'c1', body: textBody('hi'), fence: 7 })
-    ).resolves.toMatchObject({
-      state: 'accepted',
-      providerIdentity: { provider: 'legacy', agent: 'omp', sessionId: 'omp-ses-1' }
-    })
+      adapter.dispatch({
+        sessionId: 'ses-omp',
+        clientMessageId: 'c1',
+        body: textBody('hi'),
+        fence: 7
+      })
+      // PIF-4: a prompt acknowledgement admits the submission; stable provider
+      // identity settles later from history, never synchronously from the ack.
+    ).resolves.toEqual({ state: 'admitted' })
   })
 
   it('resumes the exact omp session when the host-owned file accompanies the resume identity', async () => {
@@ -498,7 +628,10 @@ describe('PiStructuredSessionAdapter OMP discriminant (PIF-1)', () => {
       supportsLocation: () => true
     } as unknown as StructuredAgentSessionAdapter
     const pi = adapterWithFake(ompBackend())
-    const router = new StructuredAgentSessionAdapterRouter({ codex, claude: codex, pi }, async () => {})
+    const router = new StructuredAgentSessionAdapterRouter(
+      { codex, claude: codex, pi },
+      async () => {}
+    )
     expect(router.supportsCreate?.(LOCAL, 'pi')).toBe(true)
     expect(router.supportsCreate?.(LOCAL, 'omp')).toBe(true)
     const piAcquired = await router.acquire({
@@ -516,6 +649,6 @@ describe('PiStructuredSessionAdapter OMP discriminant (PIF-1)', () => {
         body: textBody('hi'),
         fence: 0
       })
-    ).resolves.toMatchObject({ state: 'accepted' })
+    ).resolves.toMatchObject({ state: 'admitted' })
   })
 })

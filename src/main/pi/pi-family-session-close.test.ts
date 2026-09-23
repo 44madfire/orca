@@ -265,7 +265,7 @@ describe('Pi-family adapter close semantics', () => {
         body: textBody('hi'),
         fence: 0
       })
-    ).resolves.toMatchObject({ state: 'accepted' })
+    ).resolves.toMatchObject({ state: 'admitted' })
   })
 
   it('maps a root exit without tree proof to evidence, never to a clean release', async () => {
@@ -292,7 +292,7 @@ describe('Pi-family adapter close semantics', () => {
         body: textBody('hi'),
         fence: 3
       })
-    ).resolves.toMatchObject({ state: 'accepted' })
+    ).resolves.toMatchObject({ state: 'admitted' })
     expect(events).toHaveLength(0)
   })
 
