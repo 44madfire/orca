@@ -13,9 +13,25 @@ import { PiRpcSessionLifecycle, type PiDriverDispatchResult } from './pi-rpc-ses
 import { shortPiError } from './pi-driver-errors'
 
 export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
-  protected abstract synthesizeAbort(opId: string): void;
+  /**
+   * Per-session provider-record observer (PIF-4 dispatch settlement); cleared
+   * with the driver. Must never throw: it runs inline on the record path.
+   */
+  recordObserver: ((record: Record<string, unknown>) => void) | null = null
 
-  protected static readonly catalogLookupTimeoutMs = 3_000;
+  /** Durable history for settlement matching; OMP-native payloads pass through undecoded. */
+  async readHistoryEntries(
+    since?: string
+  ): Promise<{ entries: readonly unknown[]; leafId: string }> {
+    const conn = this.requireLive()
+    const data = await conn.getEntries(since, { timeoutMs: this.optionTimeout })
+    const entries: readonly unknown[] = data.entries
+    return { entries, leafId: data.leafId }
+  }
+
+  protected abstract synthesizeAbort(opId: string): void
+
+  protected static readonly catalogLookupTimeoutMs = 3_000
   protected sessionOptions(): Record<string, string> {
     const options: Record<string, string> = {}
     if (this.optionsState.model !== undefined) {
@@ -37,9 +53,14 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
       await this.optionsState.catalog(conn, PiRpcSessionTurns.catalogLookupTimeoutMs)
     }
     const liveSupports =
-      imageCount > 0 ? piModelSupportsImages(this.optionsState.model, this.optionsState.cachedModels) : null
+      imageCount > 0
+        ? piModelSupportsImages(this.optionsState.model, this.optionsState.cachedModels)
+        : null
     if (liveSupports === false) {
-      return { status: 'rejected', reason: `model-rejects-images: ${this.optionsState.model ?? 'unknown-model'}` }
+      return {
+        status: 'rejected',
+        reason: `model-rejects-images: ${this.optionsState.model ?? 'unknown-model'}`
+      }
     }
     const validation = validatePiDispatch(
       { text: input.text, ...(input.images ? { images: input.images } : {}) },
@@ -61,25 +82,47 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
     try {
       await conn.prompt(input.text, {
         ...(input.images && input.images.length > 0
-          ? { images: input.images.map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType })) }
+          ? {
+              images: input.images.map((image) => ({
+                type: 'image' as const,
+                data: image.data,
+                mimeType: image.mimeType
+              }))
+            }
           : {}),
         ...(this.queueMode === 'steer' || this.queueMode === 'followUp'
-          ? { streamingBehavior: this.queueMode === 'steer' ? ('steer' as const) : ('followUp' as const) }
+          ? {
+              streamingBehavior:
+                this.queueMode === 'steer' ? ('steer' as const) : ('followUp' as const)
+            }
           : {})
       })
     } catch (error) {
       if (error instanceof PiRpcError && error.code === 'rejected' && !error.ambiguous) {
         this.activeOp = null
-        return { status: 'rejected', reason: error.piError ? shortPiError(error) : 'pi-rejected-prompt' }
+        return {
+          status: 'rejected',
+          reason: error.piError ? shortPiError(error) : 'pi-rejected-prompt'
+        }
       }
-      return { status: 'unknown', reason: 'pi-prompt-ambiguous (reconcile via history; do not auto-resend)' }
+      return {
+        status: 'unknown',
+        reason: 'pi-prompt-ambiguous (reconcile via history; do not auto-resend)'
+      }
     }
     return { status: 'accepted' }
   }
 
-  protected async dispatchImmediate(conn: PiRpcConnection, text: string): Promise<PiDriverDispatchResult> {
+  protected async dispatchImmediate(
+    conn: PiRpcConnection,
+    text: string
+  ): Promise<PiDriverDispatchResult> {
     if (this.activeOp) {
-      return { status: 'rejected', reason: 'already-streaming (immediate / commands need an idle session; wait for idle or cancel)' }
+      return {
+        status: 'rejected',
+        reason:
+          'already-streaming (immediate / commands need an idle session; wait for idle or cancel)'
+      }
     }
     const opId = `pi-immediate-${(this.opSeq += 1)}`
     this.turn = createPiTurnBuffer()
@@ -102,9 +145,15 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
       .then((): PiDriverDispatchResult => ({ status: 'accepted' }))
       .catch((error: unknown): PiDriverDispatchResult => {
         if (error instanceof PiRpcError && error.code === 'rejected' && !error.ambiguous) {
-          return { status: 'rejected', reason: error.piError ? shortPiError(error) : 'pi-rejected-prompt' }
+          return {
+            status: 'rejected',
+            reason: error.piError ? shortPiError(error) : 'pi-rejected-prompt'
+          }
         }
-        return { status: 'unknown', reason: 'pi-prompt-ambiguous (reconcile via history; do not auto-resend)' }
+        return {
+          status: 'unknown',
+          reason: 'pi-prompt-ambiguous (reconcile via history; do not auto-resend)'
+        }
       })
     const raced = await Promise.race([
       prompted,

@@ -26,9 +26,6 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
   private familyProvider: PiFamilyProvider = 'pi'
   private streamGate: PiFamilyAcquisitionGate | null = null
   private readonly factTray = new PiFamilyFactTray()
-  /** Per-session provider-record observer (PIF-4 dispatch settlement); cleared with the driver. */
-  recordObserver: ((record: Record<string, unknown>) => void) | null = null
-
   protected beginAcquisitionWindow(): void {
     const gate = new PiFamilyAcquisitionGate(this.deps.acquisitionBufferLimits)
     this.streamGate = gate
@@ -53,17 +50,6 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
   /** Narrow #25 seam: prompt/catalog facts since the last drain. */
   drainFamilyFacts(): PiFamilyPromptFact[] {
     return this.factTray.drain()
-  }
-
-  /** Durable history for settlement matching; OMP-native payloads pass through undecoded. */
-  async readHistoryEntries(
-    since?: string
-  ): Promise<{ entries: readonly unknown[]; leafId: string }> {
-    const conn = this.requireLive()
-    const data = await conn.getEntries(since, { timeoutMs: this.optionTimeout })
-    const entries: readonly unknown[] = data.entries
-    return { entries, leafId: data.leafId }
-  }
   }
 
   protected synthesizeAbort(opId: string): void {
@@ -263,14 +249,9 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
   }
 
   private deliverPiRecord(record: Record<string, unknown>): void {
-    // Dispatch settlement observes every record ahead of turn/journal handling.
-    // Placed here (not in handlePiRecord) because steady-state records arrive
-    // via the acquisition gate straight into deliverPiRecord.
-    try {
-      this.recordObserver?.(record)
-    } catch {
-      // Observer errors never break streaming; settlement retries at the next boundary.
-    }
+    // Dispatch settlement observes every record here: steady-state records bypass
+    // handlePiRecord via the acquisition gate. The observer must never throw.
+    this.recordObserver?.(record)
     if (record['type'] === 'thinking_level_changed' && typeof record['level'] === 'string') {
       this.optionsState.thinkingLevel = record['level']
     }
