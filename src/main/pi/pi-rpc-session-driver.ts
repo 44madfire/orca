@@ -8,7 +8,16 @@
 // prompt text, or bytes.
 
 import { mapPiRecordToSessionEvents } from './translation/pi-record-mapping'
+import {
+  extractPiFamilyRecordFact,
+  type PiFamilyPromptFact
+} from './translation/pi-family-record-dialect'
 import { applyPiSessionEvent } from './pi-event-journal'
+import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
+import {
+  PiFamilyAcquisitionWindow,
+  estimatePiFamilyRecordBytes
+} from './pi-family-acquisition-window'
 import { qualifyPiModelRef, resolvePiModelRef, validatePiThinkingLevel } from './pi-session-options'
 import { shortPiError } from './pi-driver-errors'
 import { rebuildPiHistory } from './pi-rpc-session-resume'
@@ -18,22 +27,75 @@ import { PiRpcError } from './rpc/pi-rpc-errors'
 import { PiFamilyCommandCatalog } from './pi-family-commands'
 import type { AgentSessionSlashCommand } from '../../shared/agent-session-wire'
 
+const MAX_PI_FAMILY_FACTS = 128
+
 export class PiRpcSessionDriver extends PiRpcSessionTurns {
   private readonly commandCatalog = new PiFamilyCommandCatalog()
+  private familyProvider: PiFamilyProvider = 'pi'
+  private acquisitionWindow: PiFamilyAcquisitionWindow | null = null
+  private unbindReadingControl: (() => void) | null = null
+  private readonly familyFacts: PiFamilyPromptFact[] = []
+
+  protected beginAcquisitionWindow(): void {
+    const limits = this.deps.acquisitionBufferLimits
+    this.acquisitionWindow = new PiFamilyAcquisitionWindow({
+      ...(limits?.maxOperations !== undefined ? { maxOperations: limits.maxOperations } : {}),
+      ...(limits?.maxBytes !== undefined ? { maxBytes: limits.maxBytes } : {})
+    })
+    this.conn?.onEvent((record) => this.handlePiRecord(record))
+  }
+
+  protected finishAcquisitionWindow(): void {
+    const window = this.acquisitionWindow
+    const conn = this.conn
+    if (!window || !conn) {
+      return
+    }
+    if (window.isOverflowed) {
+      throw new Error(
+        'PI_ACQUIRE_OVERFLOW: Pi-family startup events exceeded the bounded pre-publication buffer (reacquire the session)'
+      )
+    }
+    this.familyProvider = conn.familyProvider
+    for (const record of window.drain()) {
+      this.deliverPiRecord(record)
+    }
+    // Sink pressure drives the selected provider stdout; close unbinds.
+    this.unbindReadingControl =
+      this.sink?.bindReadingControl?.({
+        pauseReading: () => conn.pauseReading(),
+        resumeReading: () => conn.resumeReading()
+      }) ?? null
+  }
+
+  protected teardownAcquisitionState(): void {
+    this.unbindReadingControl?.()
+    this.unbindReadingControl = null
+    this.acquisitionWindow?.fail()
+    this.acquisitionWindow = null
+  }
+
+  /** Narrow #25 seam: prompt/catalog facts since the last drain. */
+  drainFamilyFacts(): PiFamilyPromptFact[] {
+    return this.familyFacts.splice(0)
+  }
+
   protected synthesizeAbort(opId: string): void {
     if (this.activeOp !== opId || !this.sink) {
       return
     }
-    for (const event of this.translator.applyPiRecord({
-      type: 'turn_end',
-      stopReason: 'aborted'
-    })) {
+    for (const event of this.translator.applyPiRecord(
+      { type: 'turn_end', stopReason: 'aborted' },
+      this.familyProvider
+    )) {
       this.journalEvent(opId, event)
     }
-    for (const event of this.translator.applyPiRecord({
-      type: 'agent_settled',
-      willRetry: false
-    })) {
+    // Synthesize the provider's own settle shape, never the sibling's.
+    const settleRecord =
+      this.familyProvider === 'omp'
+        ? { type: 'agent_end', isTerminal: true, willRetry: false }
+        : { type: 'agent_settled', willRetry: false }
+    for (const event of this.translator.applyPiRecord(settleRecord, this.familyProvider)) {
       this.journalEvent(opId, event)
     }
     this.translator.settle()
@@ -218,16 +280,36 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
   }
 
   protected handlePiRecord(record: Record<string, unknown>): void {
+    if (this.closed || this.closing) {
+      return
+    }
+    const window = this.acquisitionWindow
+    if (window) {
+      if (window.buffer(record, estimatePiFamilyRecordBytes(record))) {
+        return
+      }
+      if (window.isOverflowed) {
+        return
+      }
+    }
+    this.deliverPiRecord(record)
+  }
+
+  private deliverPiRecord(record: Record<string, unknown>): void {
     if (record['type'] === 'thinking_level_changed' && typeof record['level'] === 'string') {
       this.optionsState.thinkingLevel = record['level']
     }
     // OMP pushed catalog refresh on the normal event path (no second
     // subscription); Pi stays pull-based and ignores this frame.
     this.commandCatalog.observePush(record, this.conn?.familyProvider ?? 'pi')
+    const fact = extractPiFamilyRecordFact(record)
+    if (fact) {
+      this.rememberFamilyFact(fact)
+    }
     if (this.activeOp) {
       let events: PiSessionEvent[]
       try {
-        events = this.translator.applyPiRecord(record)
+        events = this.translator.applyPiRecord(record, this.familyProvider)
       } catch {
         return
       }
@@ -274,9 +356,16 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     }
   }
 
+  private rememberFamilyFact(fact: PiFamilyPromptFact): void {
+    this.familyFacts.push(fact)
+    if (this.familyFacts.length > MAX_PI_FAMILY_FACTS) {
+      this.familyFacts.splice(0, this.familyFacts.length - MAX_PI_FAMILY_FACTS)
+    }
+  }
+
   protected journalEvent(opId: string, event: PiSessionEvent): void {
     const sink = this.sink
-    if (!sink) {
+    if (!sink || this.closed || this.closing) {
       return
     }
     applyPiSessionEvent({
@@ -285,7 +374,8 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
       opId,
       turn: this.turn,
       event,
-      promptTracker: this.promptTracker
+      promptTracker: this.promptTracker,
+      provider: this.familyProvider
     })
   }
 }

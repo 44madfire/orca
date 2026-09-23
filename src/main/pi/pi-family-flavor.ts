@@ -47,6 +47,21 @@ export type PiFamilyLaunchConfig = {
   readonly ompArgs?: readonly string[]
 }
 
+/** Extra argv for acquire options (model/thinking), unless already pinned. */
+export function argsForOptions(
+  options: Readonly<Record<string, string>> | undefined,
+  baseArgs: readonly string[]
+): string[] {
+  const extra: string[] = []
+  if (options?.['model'] && !baseArgs.includes('--model')) {
+    extra.push('--model', options['model'])
+  }
+  if (options?.['thinkingLevel'] && !baseArgs.includes('--thinking')) {
+    extra.push('--thinking', options['thinkingLevel'])
+  }
+  return extra
+}
+
 /** Resolve the provider executable plus base argv (before `--mode rpc`). */
 export function resolvePiFamilyLaunchCommand(
   provider: PiFamilyProvider,

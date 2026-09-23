@@ -29,27 +29,14 @@ import type { PiState } from './rpc/pi-wire-protocol'
 import { spawnProcess } from '../../shared/child-process/run-process'
 import type { SpawnedProcess } from '../../shared/child-process/process-spec'
 import { PiTranslator } from './translation/pi-turn-translator'
-import { resolvePiFamilyLaunchCommand } from './pi-family-flavor'
+import type { PiFamilyAcquisitionBufferLimits } from './pi-family-acquisition-window'
+import { argsForOptions, resolvePiFamilyLaunchCommand } from './pi-family-flavor'
 import { rebuildPiHistory, resumePiFamilySession } from './pi-rpc-session-resume'
 import { createPiTurnBuffer } from './pi-event-journal'
 import { PiSessionOptionState, qualifyPiModelRef } from './pi-session-options'
 import { isPiPidAbsent, PiRootExitObservedError, terminatePiProcessTree } from './pi-process-teardown'
 import { PI_SPAWN_TOKEN_ENV } from './pi-structured-owner-identity'
 import { classifyStartupError, shortPiError } from './pi-driver-errors'
-
-function argsForOptions(
-  options: Readonly<Record<string, string>> | undefined,
-  baseArgs: readonly string[]
-): string[] {
-  const extra: string[] = []
-  if (options?.['model'] && !baseArgs.includes('--model')) {
-    extra.push('--model', options['model'])
-  }
-  if (options?.['thinkingLevel'] && !baseArgs.includes('--thinking')) {
-    extra.push('--thinking', options['thinkingLevel'])
-  }
-  return extra
-}
 
 export type PiDriverAcquireInput = {
   orcaSessionId: string
@@ -91,6 +78,8 @@ export type PiDriverDeps = {
   optionTimeoutMs?: number
   closeGraceMs?: number
   onUnexpectedExit?: (orcaSessionId: string) => void
+  /** Test-only bound override for the pre-publication acquisition window. */
+  acquisitionBufferLimits?: PiFamilyAcquisitionBufferLimits
 }
 
 const PI_OPTION_TIMEOUT_MS = 8_000
@@ -128,6 +117,12 @@ export abstract class PiRpcSessionLifecycle {
   protected get closeGrace(): number {
     return this.deps.closeGraceMs ?? PI_CLOSE_GRACE_MS
   }
+  /** Pre-start event tap for bounded pre-publication buffering; driver owns it. */
+  protected beginAcquisitionWindow(): void {}
+  /** Drain the window (or fail on overflow) once acquisition publishes. */
+  protected finishAcquisitionWindow(): void {}
+  /** Unbind backpressure and discard acquisition state; always safe to repeat. */
+  protected teardownAcquisitionState(): void {}
   async acquire(input: Omit<PiDriverAcquireInput, 'orcaSessionId'>): Promise<PiDriverAcquireResult> {
     if (!input.workspaceRoot || input.workspaceRoot.trim() === '') {
       throw new Error('BAD_WORKSPACE: acquire requires a non-empty workspaceRoot')
@@ -170,6 +165,7 @@ export abstract class PiRpcSessionLifecycle {
       ...(this.deps.startupTimeoutMs !== undefined ? { startupTimeoutMs: this.deps.startupTimeoutMs } : {})
     })
     this.conn = conn
+    this.beginAcquisitionWindow()
     try {
       await conn.start()
     } catch (error) {
@@ -185,7 +181,9 @@ export abstract class PiRpcSessionLifecycle {
       throw new Error(`PI_STARTUP_FAILED: ${classifyStartupError(error, who)}`)
     }
     try {
-      return await this.finishAcquire(conn, input)
+      const acquired = await this.finishAcquire(conn, input)
+      this.finishAcquisitionWindow()
+      return acquired
     } catch (error) {
       await conn.close(this.closeGrace).catch(() => undefined)
       throw error
@@ -247,7 +245,7 @@ export abstract class PiRpcSessionLifecycle {
       }
       this.leafId = rebuilt.history.leafId
     }
-    conn.onEvent((record) => this.handlePiRecord(record as Record<string, unknown>))
+    // Live routing was attached pre-start for pre-publication buffering; only the exit observer lands here.
     conn.onExit(() => this.handleExit())
     void this.optionsState.catalog(conn, PI_CATALOG_LOOKUP_TIMEOUT_MS).catch(() => null)
     return {
@@ -291,6 +289,7 @@ export abstract class PiRpcSessionLifecycle {
       return false
     } finally {
       this.closing = false
+      this.teardownAcquisitionState()
     }
   }
 

@@ -18,6 +18,7 @@
 import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
+import type { PiFamilyPromptFact } from './translation/pi-family-record-dialect'
 import {
   PiRpcSessionDriver,
   type PiDriverAcquireResult,
@@ -157,6 +158,11 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
 
     async cancel(input: { orcaSessionId: string }): Promise<{ cancelled: boolean }> {
       return requireDriver(input.orcaSessionId).cancel()
+    },
+
+    drainPromptFacts(input: { orcaSessionId: string }): PiFamilyPromptFact[] {
+      const driver = drivers.get(input.orcaSessionId)
+      return driver ? driver.drainFamilyFacts() : []
     },
 
     async close(input: { orcaSessionId: string }): Promise<boolean> {

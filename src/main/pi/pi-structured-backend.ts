@@ -14,6 +14,7 @@ import type { StructuredAgentSessionEventSink } from '../native-chat/agent-sessi
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { PiFamilySettledEvent } from './pi-family-flavor'
 import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
+import type { PiFamilyPromptFact } from './translation/pi-family-record-dialect'
 import { piProcessIdentity } from './pi-structured-owner-identity'
 
 export type PiStructuredAcquireResult = {
@@ -46,6 +47,8 @@ export type PiStructuredBackend = {
     body: AgentJournalMessageItem
   }): Promise<PiStructuredDispatchResult>
   cancel(input: { orcaSessionId: string }): Promise<{ cancelled: boolean }>
+  /** Narrow #25 seam: prompt/catalog facts observed since the last drain. */
+  drainPromptFacts?(input: { orcaSessionId: string }): PiFamilyPromptFact[]
   // Returns true only after the Pi child exit AND descendant cleanup are proven.
   // Throws when the root exit was observed but descendants stay unverified.
   close(input: { orcaSessionId: string }): Promise<boolean>
