@@ -117,7 +117,7 @@ function adapterFor(
   dir: string,
   env: Record<string, string>,
   seen: string[] = [],
-  extra: Record<string, unknown> = {}
+  extra: Parameters<typeof createPiRpcBackend>[0] = {}
 ) {
   const settlements: Settlement[] = []
   const backend = createPiRpcBackend({
@@ -130,7 +130,7 @@ function adapterFor(
       seen.push(spec.program)
       return spawnProcess(spec)
     },
-    ...(extra as object)
+    ...extra
   })
   const adapter = new PiStructuredSessionAdapter({
     resolveWorkspacePath: () => dir,
