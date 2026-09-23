@@ -52,8 +52,17 @@ describe('the settings default', () => {
 })
 
 describe('per-launch structured feasibility', () => {
-  it.each(['claude', 'codex'] as const)('supports a local %s launch', (agent) => {
+  it.each(['claude', 'codex', 'pi'] as const)('supports a local %s launch', (agent) => {
     expect(support({ agent })).toEqual({ supported: true })
+  })
+
+  it('refuses omp: handle-valid but not creatable until the RPC/record path carries it', () => {
+    // A structured offer for omp would strand a provisional chat: createSupport still
+    // rejects omp as invalid_argument (not a definitive refusal), so no terminal fallback.
+    expect(support({ agent: 'omp' })).toEqual({
+      supported: false,
+      blocker: 'agent-without-structured-session'
+    })
   })
 
   const blockerCases: [string, Partial<StructuredNativeChatSupportInput>, string][] = [

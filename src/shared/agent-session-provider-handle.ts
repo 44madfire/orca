@@ -33,6 +33,32 @@ export function isAgentSessionHandleProvider(value: unknown): value is AgentSess
   )
 }
 
+/**
+ * Providers Orca can actually create/attach as structured sessions today.
+ *
+ * Deliberately narrower than the handle union: `omp` is handle-valid (validation,
+ * root, key, chain) but NOT creatable until the RPC/record path carries it (later
+ * PIF). Capability answers must use this set, never `isAgentSessionHandleProvider`:
+ * answering "supported" from handle validity strands a provisional chat with no
+ * terminal fallback. PIF-3/4 widens this list when `omp` becomes genuinely creatable.
+ */
+export const STRUCTURED_SESSION_CREATABLE_PROVIDERS = [
+  'claude',
+  'codex',
+  'external',
+  'pi'
+] as const
+
+export type StructuredSessionCreatableProvider =
+  (typeof STRUCTURED_SESSION_CREATABLE_PROVIDERS)[number]
+
+/** Launch/attach capability answer. `omp` is handle-valid but uncreatable: fail closed. */
+export function isStructuredSessionCreatableProvider(
+  value: unknown
+): value is StructuredSessionCreatableProvider {
+  return value === 'claude' || value === 'codex' || value === 'external' || value === 'pi'
+}
+
 export type AgentSessionProviderHandle =
   | { provider: 'claude'; sessionId: string; leafUuid: string | null }
   | { provider: 'codex'; threadId: string }

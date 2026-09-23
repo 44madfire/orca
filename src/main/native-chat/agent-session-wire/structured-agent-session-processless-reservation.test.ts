@@ -335,3 +335,105 @@ describe('processless structured session reservation', () => {
     })
   })
 })
+
+describe('uncreatable provider attach (omp is handle-valid but the record cannot carry it)', () => {
+  function ompParams(
+    overrides: Partial<AgentSessionAttachParams> = {}
+  ): AgentSessionAttachParams {
+    const params: AgentSessionAttachParams = {
+      envelope: {
+        sessionId: SESSION,
+        clientOperationId: OPERATION,
+        expectedRuntimeFence: null,
+        payloadFingerprint: ''
+      },
+      location: {
+        executionHostId: 'local',
+        wslDistro: null,
+        workspaceId: 'workspace-1',
+        workspaceKind: 'folder'
+      },
+      provider: 'omp',
+      agent: 'omp',
+      accountHome: { variable: 'PI_STATE_DIR', path: '/tmp/omp-state' },
+      runtimeKind: 'native',
+      ...overrides
+    }
+    return {
+      ...params,
+      envelope: {
+        ...params.envelope,
+        payloadFingerprint: computeAgentSessionPayloadFingerprint({
+          method: 'agentSession.attach',
+          sessionId: SESSION,
+          fields: attachFingerprintFields(params)
+        })
+      }
+    }
+  }
+
+  // The stub adapter claims omp support on purpose: the refusal must come from the
+  // creatability gate, before any reservation exists and before any child spawns.
+  function claimingAdapter(
+    acquire: StructuredAgentSessionAdapter['acquire']
+  ): StructuredAgentSessionAdapter {
+    return {
+      supportsCreate: () => true,
+      acquire,
+      dispatch: async () => ({ state: 'unknown', reason: 'unreachable' }),
+      cancelTurn: async () => ({ cancelled: false }),
+      answerPrompt: async () => undefined,
+      setOption: async () => undefined
+    }
+  }
+
+  async function attachUncreatable(params: AgentSessionAttachParams) {
+    root = await mkdtemp(join(tmpdir(), 'orca-uncreatable-attach-'))
+    const store = await AgentSessionRecordStore.open({
+      directory: join(root, 'store'),
+      hostId: 'local'
+    })
+    const reserveOwner = vi.spyOn(store, 'reserveOwner')
+    const acquire = vi.fn<StructuredAgentSessionAdapter['acquire']>()
+    const result = await performAttach({
+      store,
+      adapter: claimingAdapter(acquire),
+      journalRoot: root,
+      authority: {
+        spawnToken: 'spawn-a',
+        claimKeyId: 'key-1',
+        handoffOperationId: OPERATION,
+        probe: { outcome: 'reservation-unused' }
+      },
+      callerKey: 'client-1',
+      params,
+      now: () => NOW,
+      onAttached: () => {}
+    })
+    return { result, reserveOwner, acquire, store }
+  }
+
+  it('refuses an omp attach before reserving or spawning', async () => {
+    const { result, reserveOwner, acquire, store } = await attachUncreatable(ompParams())
+    expect(result).toMatchObject({
+      ok: false,
+      refusal: { code: 'structured_agent_session_unsupported' }
+    })
+    expect(reserveOwner).not.toHaveBeenCalled()
+    expect(acquire).not.toHaveBeenCalled()
+    expect(store.getRecord(SESSION)).toBeNull()
+  })
+
+  it('refuses a mismatched pi-provider/omp-agent attach before spawning', async () => {
+    const { result, reserveOwner, acquire, store } = await attachUncreatable(
+      ompParams({ provider: 'pi' })
+    )
+    expect(result).toMatchObject({
+      ok: false,
+      refusal: { code: 'structured_agent_session_unsupported' }
+    })
+    expect(reserveOwner).not.toHaveBeenCalled()
+    expect(acquire).not.toHaveBeenCalled()
+    expect(store.getRecord(SESSION)).toBeNull()
+  })
+})
