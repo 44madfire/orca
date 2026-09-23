@@ -1,3 +1,6 @@
+import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
+import type { PiFamilyRpcConnection } from './rpc/pi-family-rpc-connection'
+
 // Bounded pre-publication buffer for Pi-family acquisition (PIF-5, #26).
 //
 // Provider events may arrive before acquisition publication (OMP emits
@@ -19,6 +22,81 @@ export function estimatePiFamilyRecordBytes(record: Record<string, unknown>): nu
     return Buffer.byteLength(JSON.stringify(record) ?? '', 'utf8')
   } catch {
     return 256
+  }
+}
+
+export type PiFamilyAcquisitionRecordHandler = (record: Record<string, unknown>) => void
+
+/**
+ * One acquisition's window plus its sink backpressure binding. The driver
+ * taps the transport pre-start through `begin`, drains (or throws
+ * `PI_ACQUIRE_OVERFLOW`) at publication through `finish`, and unbinds plus
+ * discards through `teardown` on close. In-memory only, never journaled.
+ */
+export class PiFamilyAcquisitionGate {
+  private window: PiFamilyAcquisitionWindow | null = null
+  private unbindReadingControl: (() => void) | null = null
+
+  constructor(private readonly limits?: PiFamilyAcquisitionBufferLimits) {}
+
+  begin(
+    conn: PiFamilyRpcConnection | null,
+    onRecord: PiFamilyAcquisitionRecordHandler
+  ): void {
+    if (!conn) {
+      return
+    }
+    const limits = this.limits
+    this.window = new PiFamilyAcquisitionWindow({
+      ...(limits?.maxOperations !== undefined ? { maxOperations: limits.maxOperations } : {}),
+      ...(limits?.maxBytes !== undefined ? { maxBytes: limits.maxBytes } : {})
+    })
+    conn.onEvent((record) => this.route(record, onRecord))
+  }
+
+  finish(
+    conn: PiFamilyRpcConnection,
+    sink: StructuredAgentSessionEventSink | null,
+    onRecord: PiFamilyAcquisitionRecordHandler
+  ): void {
+    const window = this.window
+    if (!window) {
+      return
+    }
+    if (window.isOverflowed) {
+      throw new Error(
+        'PI_ACQUIRE_OVERFLOW: Pi-family startup events exceeded the bounded pre-publication buffer (reacquire the session)'
+      )
+    }
+    for (const record of window.drain()) {
+      onRecord(record)
+    }
+    // Sink pressure drives the selected provider stdout; teardown unbinds.
+    this.unbindReadingControl =
+      sink?.bindReadingControl?.({
+        pauseReading: () => conn.pauseReading(),
+        resumeReading: () => conn.resumeReading()
+      }) ?? null
+  }
+
+  teardown(): void {
+    this.unbindReadingControl?.()
+    this.unbindReadingControl = null
+    this.window?.fail()
+    this.window = null
+  }
+
+  private route(record: Record<string, unknown>, onRecord: PiFamilyAcquisitionRecordHandler): void {
+    const window = this.window
+    if (window) {
+      if (window.buffer(record, estimatePiFamilyRecordBytes(record))) {
+        return
+      }
+      if (window.isOverflowed) {
+        return
+      }
+    }
+    onRecord(record)
   }
 }
 

@@ -23,6 +23,28 @@ export type PiFamilyPromptFact =
   | { kind: 'prompt-result'; agentInvoked: boolean }
   | { kind: 'commands-update'; count: number }
 
+const MAX_PI_FAMILY_FACTS = 128
+
+/** Bounded tray of handoff facts since the last drain (#25 seam). */
+export class PiFamilyFactTray {
+  private readonly facts: PiFamilyPromptFact[] = []
+
+  observe(record: Record<string, unknown>): void {
+    const fact = extractPiFamilyRecordFact(record)
+    if (!fact) {
+      return
+    }
+    this.facts.push(fact)
+    if (this.facts.length > MAX_PI_FAMILY_FACTS) {
+      this.facts.splice(0, this.facts.length - MAX_PI_FAMILY_FACTS)
+    }
+  }
+
+  drain(): PiFamilyPromptFact[] {
+    return this.facts.splice(0)
+  }
+}
+
 /**
  * Extract the owning-subsystem fact from one async record, if any.
  * `prompt_result.agentInvoked:false` means the prompt completed locally with
