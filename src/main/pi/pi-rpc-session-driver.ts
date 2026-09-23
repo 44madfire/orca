@@ -9,32 +9,41 @@
 
 import { mapPiRecordToSessionEvents } from './translation/pi-record-mapping'
 import { applyPiSessionEvent } from './pi-event-journal'
-import {
-  qualifyPiModelRef,
-  resolvePiModelRef,
-  validatePiThinkingLevel
-} from './pi-session-options'
+import { qualifyPiModelRef, resolvePiModelRef, validatePiThinkingLevel } from './pi-session-options'
 import { shortPiError } from './pi-driver-errors'
 import { rebuildPiHistory } from './pi-rpc-session-resume'
 import { PiRpcSessionTurns } from './pi-rpc-session-turns'
 import type { PiSessionEvent } from './translation/pi-session-events'
+import { PiRpcError } from './rpc/pi-rpc-errors'
+import { PiFamilyCommandCatalog } from './pi-family-commands'
+import type { AgentSessionSlashCommand } from '../../shared/agent-session-wire'
 
 export class PiRpcSessionDriver extends PiRpcSessionTurns {
+  private readonly commandCatalog = new PiFamilyCommandCatalog()
   protected synthesizeAbort(opId: string): void {
     if (this.activeOp !== opId || !this.sink) {
       return
     }
-    for (const event of this.translator.applyPiRecord({ type: 'turn_end', stopReason: 'aborted' })) {
+    for (const event of this.translator.applyPiRecord({
+      type: 'turn_end',
+      stopReason: 'aborted'
+    })) {
       this.journalEvent(opId, event)
     }
-    for (const event of this.translator.applyPiRecord({ type: 'agent_settled', willRetry: false })) {
+    for (const event of this.translator.applyPiRecord({
+      type: 'agent_settled',
+      willRetry: false
+    })) {
       this.journalEvent(opId, event)
     }
     this.translator.settle()
     this.activeOp = null
   }
 
-  async readResumeHistory(): Promise<{ rows: { id: string; role: string; text: string }[]; leafId: string }> {
+  async readResumeHistory(): Promise<{
+    rows: { id: string; role: string; text: string }[]
+    leafId: string
+  }> {
     const conn = this.requireLive()
     const rebuilt = await rebuildPiHistory(conn, {
       timeoutMs: this.optionTimeout,
@@ -47,7 +56,11 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     this.leafId = rebuilt.history.leafId
     return {
       leafId: rebuilt.history.leafId,
-      rows: rebuilt.history.rows.map((row) => ({ id: row.id, role: row.role, text: row.text ?? '' }))
+      rows: rebuilt.history.rows.map((row) => ({
+        id: row.id,
+        role: row.role,
+        text: row.text ?? ''
+      }))
     }
   }
 
@@ -70,7 +83,9 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
         throw new Error(`${resolved.code}: ${resolved.message}`)
       }
       try {
-        const applied = await conn.setModel(resolved.provider, resolved.modelId, { timeoutMs: this.optionTimeout })
+        const applied = await conn.setModel(resolved.provider, resolved.modelId, {
+          timeoutMs: this.optionTimeout
+        })
         const qualified = qualifyPiModelRef(applied) ?? `${resolved.provider}/${resolved.modelId}`
         this.optionsState.model = qualified
         this.optionsState.cachedModels = undefined
@@ -86,7 +101,9 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
       try {
         levels = (await conn.getAvailableThinkingLevels({ timeoutMs: this.optionTimeout })).levels
       } catch (error) {
-        throw new Error(`PI_OPTION_FAILED: thinking-level operations unavailable (${shortPiError(error)})`)
+        throw new Error(
+          `PI_OPTION_FAILED: thinking-level operations unavailable (${shortPiError(error)})`
+        )
       }
       const valid = validatePiThinkingLevel(wanted, levels)
       if (!valid.ok) {
@@ -124,7 +141,27 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     return confirmed
   }
 
-  async readOptions(): Promise<{ options: Record<string, string>; model: string | undefined; thinkingLevel: string | undefined }> {
+  async readOptions(): Promise<{
+    options: Record<string, string>
+    model: string | undefined
+    thinkingLevel: string | undefined
+  }> {
+    // Provider-confirmed state only: never serve optimistic local values.
+    const conn = this.requireLive()
+    let state: Awaited<ReturnType<typeof conn.getState>>
+    try {
+      state = await conn.getState({ timeoutMs: this.optionTimeout })
+    } catch (error) {
+      throw new Error(`PI_STATE_FAILED: option read failed (${shortPiError(error)})`)
+    }
+    const model = qualifyPiModelRef(state.model)
+    this.optionsState.model = model === undefined ? undefined : model
+    if (typeof state.thinkingLevel === 'string') {
+      this.optionsState.thinkingLevel = state.thinkingLevel
+    }
+    if (typeof state.autoCompactionEnabled === 'boolean') {
+      this.autoCompaction = state.autoCompactionEnabled
+    }
     const options: Record<string, string> = {}
     if (this.optionsState.model !== undefined) {
       options['model'] = this.optionsState.model
@@ -138,7 +175,11 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     if (this.autoCompaction !== undefined) {
       options['autoCompaction'] = String(this.autoCompaction)
     }
-    return { options, model: this.optionsState.model, thinkingLevel: this.optionsState.thinkingLevel }
+    return {
+      options,
+      model: this.optionsState.model,
+      thinkingLevel: this.optionsState.thinkingLevel
+    }
   }
 
   async listModels(): Promise<{ id: string; provider: string }[]> {
@@ -152,10 +193,37 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     return [...(await conn.getAvailableThinkingLevels({ timeoutMs: this.optionTimeout })).levels]
   }
 
+  async compact(): Promise<{ error?: string }> {
+    const conn = this.requireLive()
+    try {
+      await conn.compact({ timeoutMs: this.optionTimeout })
+      return {}
+    } catch (error) {
+      // Definite provider refusal maps to {error}; transport ambiguity
+      // throws so the host marks the outcome unknown (never auto-resent).
+      if (error instanceof PiRpcError && error.code === 'rejected' && !error.ambiguous) {
+        const message = shortPiError(error)
+        return { error: message === '' ? 'Compaction was not confirmed by the provider.' : message }
+      }
+      throw error
+    }
+  }
+
+  readCommands(): AgentSessionSlashCommand[] | undefined {
+    return this.commandCatalog.snapshot()
+  }
+
+  async refreshCommands(): Promise<AgentSessionSlashCommand[] | undefined> {
+    return this.commandCatalog.refresh(this.requireLive(), this.optionTimeout)
+  }
+
   protected handlePiRecord(record: Record<string, unknown>): void {
     if (record['type'] === 'thinking_level_changed' && typeof record['level'] === 'string') {
       this.optionsState.thinkingLevel = record['level']
     }
+    // OMP pushed catalog refresh on the normal event path (no second
+    // subscription); Pi stays pull-based and ignores this frame.
+    this.commandCatalog.observePush(record, this.conn?.familyProvider ?? 'pi')
     if (this.activeOp) {
       let events: PiSessionEvent[]
       try {
@@ -222,4 +290,9 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
   }
 }
 
-export type { PiDriverAcquireInput, PiDriverAcquireResult, PiDriverDispatchResult, PiDriverDeps } from './pi-rpc-session-lifecycle';
+export type {
+  PiDriverAcquireInput,
+  PiDriverAcquireResult,
+  PiDriverDispatchResult,
+  PiDriverDeps
+} from './pi-rpc-session-lifecycle'

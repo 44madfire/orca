@@ -86,8 +86,12 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
         acquired = await driver.acquire({
           workspaceRoot: input.workspaceRoot,
           ...(input.provider !== undefined ? { provider: input.provider } : {}),
-          ...(input.resumeSessionFile !== undefined ? { resumeSessionFile: input.resumeSessionFile } : {}),
-          ...(input.resumePiSessionId !== undefined ? { resumePiSessionId: input.resumePiSessionId } : {}),
+          ...(input.resumeSessionFile !== undefined
+            ? { resumeSessionFile: input.resumeSessionFile }
+            : {}),
+          ...(input.resumePiSessionId !== undefined
+            ? { resumePiSessionId: input.resumePiSessionId }
+            : {}),
           ...(input.options !== undefined ? { options: input.options } : {}),
           spawnToken: input.spawnToken,
           ...(input.sink !== undefined ? { sink: input.sink } : {})
@@ -106,6 +110,8 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
         throw error
       }
       drivers.set(input.orcaSessionId, driver)
+      // Best-effort dialect command pull; failures leave the catalog absent (never fabricated).
+      await driver.refreshCommands()
       return {
         piSessionId: acquired.piSessionId,
         leafId: acquired.leafId,
@@ -201,12 +207,26 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
       return requireDriver(input.orcaSessionId).readOptions()
     },
 
-    async listModels(input: { orcaSessionId: string }): Promise<{ id: string; provider: string }[]> {
+    async listModels(input: {
+      orcaSessionId: string
+    }): Promise<{ id: string; provider: string }[]> {
       return requireDriver(input.orcaSessionId).listModels()
     },
 
     async listThinkingLevels(input: { orcaSessionId: string }): Promise<string[]> {
       return requireDriver(input.orcaSessionId).listThinkingLevels()
+    },
+
+    readCommands(input: { orcaSessionId: string }) {
+      return drivers.get(input.orcaSessionId)?.readCommands()
+    },
+
+    async refreshCommands(input: { orcaSessionId: string }) {
+      return requireDriver(input.orcaSessionId).refreshCommands()
+    },
+
+    async compact(input: { orcaSessionId: string }): Promise<{ error?: string }> {
+      return requireDriver(input.orcaSessionId).compact()
     },
 
     async readResumeHistory(input: { orcaSessionId: string }): Promise<{
@@ -220,7 +240,10 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
 
 function sanitizeDispatchError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  const singleLine = message.replace(/[\r\n]+/g, ' ').trim().slice(0, 220)
+  const singleLine = message
+    .replace(/[\r\n]+/g, ' ')
+    .trim()
+    .slice(0, 220)
   if (/^(pi-exited|no live pi structured session)/.test(singleLine)) {
     return singleLine
   }
@@ -229,7 +252,10 @@ function sanitizeDispatchError(error: unknown): string {
 
 function sanitizeImageError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  if (/^Pi (image|messages) /.test(message) || message === 'image reference has neither a path nor a URL') {
+  if (
+    /^Pi (image|messages) /.test(message) ||
+    message === 'image reference has neither a path nor a URL'
+  ) {
     return message
   }
   return 'Pi image could not be read (missing or unreadable file)'

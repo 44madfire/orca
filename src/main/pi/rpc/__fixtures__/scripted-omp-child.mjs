@@ -20,7 +20,7 @@
 //   (split records, multi-record chunks, U+2028, malformed, bad chunks).
 // - `test_chunked {padBytes}` → success response sent as `rpc_chunk` frames.
 
-import { readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
 
 const SESSION_FILE = process.env.OMP_SCRIPT_SESSION_FILE ?? ''
 const EXIT_AT_START = process.env.OMP_SCRIPT_EXIT_AT_START === '1'
@@ -159,23 +159,97 @@ function handleCommand(cmd) {
       return
     }
     case 'get_available_models':
+      if (process.env.OMP_SCRIPT_LOG) {
+        try {
+          appendFileSync(process.env.OMP_SCRIPT_LOG, 'catalog:get_available_models\n')
+        } catch {}
+      }
       respond(cmd, true, {
-        models: [{ id: 'script-model', name: 'Script Model', provider: 'script-provider' }]
+        models: [
+          {
+            id: 'script-model',
+            name: 'Script Model',
+            provider: 'script-provider',
+            reasoning: true,
+            supportsImages: true,
+            api: 'openai',
+            baseUrl: 'https://example.invalid',
+            cost: { input: 1 },
+            secret: 'must-not-leak'
+          },
+          {
+            id: 'text-model',
+            name: 'Text Model',
+            provider: 'script-provider',
+            reasoning: false,
+            supportsImages: false
+          },
+          { id: 'dup-model', name: 'Dup A', provider: 'provider-a', reasoning: false },
+          { id: 'dup-model', name: 'Dup B', provider: 'provider-b', reasoning: false }
+        ]
       })
       return
-    case 'set_model':
-      if (cmd.provider !== 'script-provider' || cmd.modelId !== 'script-model') {
+    case 'get_available_commands':
+      if (process.env.OMP_SCRIPT_LOG) {
+        try {
+          appendFileSync(process.env.OMP_SCRIPT_LOG, 'catalog:get_available_commands\n')
+        } catch {}
+      }
+      respond(cmd, true, {
+        commands: [
+          {
+            name: 'omp-review',
+            description: 'OMP review',
+            source: 'builtin',
+            aliases: ['or'],
+            input: { schema: 1 },
+            subcommands: [{ name: 'deep' }],
+            secret: 'must-not-leak'
+          },
+          { name: 'omp-deploy', description: 'OMP deploy', source: 'skill' }
+        ]
+      })
+      return
+    case 'set_model': {
+      if (process.env.OMP_SCRIPT_LOG) {
+        try {
+          appendFileSync(process.env.OMP_SCRIPT_LOG, `set_model:${cmd.provider}/${cmd.modelId}\n`)
+        } catch {}
+      }
+      const found = [
+        { id: 'script-model', provider: 'script-provider' },
+        { id: 'text-model', provider: 'script-provider' },
+        { id: 'dup-model', provider: 'provider-a' },
+        { id: 'dup-model', provider: 'provider-b' }
+      ].find((m) => m.provider === cmd.provider && m.id === cmd.modelId)
+      if (!found) {
         respond(cmd, false, undefined, 'unknown model')
         return
       }
-      session.model = { id: cmd.modelId, provider: cmd.provider }
+      session.model = { id: found.id, provider: found.provider }
+      session.thinkingLevel = found.id === 'text-model' ? 'off' : 'medium'
       respond(cmd, true, session.model)
       return
-    case 'get_available_thinking_levels':
-      respond(cmd, true, { levels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] })
+    }
+    case 'get_available_thinking_levels': {
+      const levels =
+        session.model.id === 'text-model'
+          ? ['off']
+          : ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+      respond(cmd, true, { levels })
       return
-    case 'set_thinking_level':
-      if (!['off', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(cmd.level)) {
+    }
+    case 'set_thinking_level': {
+      if (process.env.OMP_SCRIPT_LOG) {
+        try {
+          appendFileSync(process.env.OMP_SCRIPT_LOG, `set_thinking_level:${cmd.level}\n`)
+        } catch {}
+      }
+      const allowed =
+        session.model.id === 'text-model'
+          ? ['off']
+          : ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+      if (!allowed.includes(cmd.level)) {
         respond(cmd, false, undefined, 'unknown thinking level')
         return
       }
@@ -183,10 +257,15 @@ function handleCommand(cmd) {
       send({ type: 'thinking_level_changed', level: cmd.level })
       respond(cmd, true, {})
       return
+    }
     case 'set_auto_compaction':
       respond(cmd, true, {})
       return
     case 'compact':
+      if (process.env.OMP_SCRIPT_COMPACT_FAIL === '1') {
+        respond(cmd, false, undefined, 'Nothing to compact')
+        return
+      }
       respond(cmd, true, {})
       return
     case 'switch_session':
@@ -259,6 +338,11 @@ function handleCommand(cmd) {
       return
     }
     default:
+      if (cmd.type === 'get_commands' && process.env.OMP_SCRIPT_LOG) {
+        try {
+          appendFileSync(process.env.OMP_SCRIPT_LOG, 'catalog:get_commands\n')
+        } catch {}
+      }
       respond(cmd, false, undefined, `Unknown command: ${cmd.type}`)
   }
 }
@@ -304,7 +388,17 @@ if (!NO_STARTUP_FRAMES) {
   })
   send({
     type: 'available_commands_update',
-    commands: [{ name: 'script-cmd', description: 'scripted', source: 'builtin' }]
+    commands: [
+      {
+        name: 'omp-review',
+        description: 'OMP review',
+        source: 'builtin',
+        aliases: ['or'],
+        input: { schema: 1 },
+        subcommands: [{ name: 'deep' }]
+      },
+      { name: 'omp-deploy', description: 'OMP deploy', source: 'skill' }
+    ]
   })
 }
 
