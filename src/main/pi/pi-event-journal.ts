@@ -18,7 +18,9 @@ import {
   boundToolInput,
   DEFAULT_JOURNAL_PAYLOAD_LIMITS
 } from '../native-chat/agent-session-journal/journal-payload-bounds'
+import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
 import type { PiSessionEvent } from './translation/pi-session-events'
+import type { PiTranslator } from './translation/pi-turn-translator'
 
 export const PI_JOURNAL_AGENT = 'pi'
 
@@ -37,9 +39,10 @@ function newTurnBuffer(): PiTurnBuffer {
 
 function messageIdentity(
   orcaSessionId: string,
-  recordId: string
+  recordId: string,
+  provider: PiFamilyProvider = 'pi'
 ): AgentJournalItemIdentity {
-  return { provider: 'legacy', agent: PI_JOURNAL_AGENT, sessionId: orcaSessionId, recordId }
+  return { provider: 'legacy', agent: provider, sessionId: orcaSessionId, recordId }
 }
 
 /** Tracks Pi dialog requests journaled as prompt items so answers route exactly once. */
@@ -52,8 +55,12 @@ export function applyPiSessionEvent(input: {
   turn: PiTurnBuffer
   event: PiSessionEvent
   promptTracker: PiPromptTracker
+  /** Durable discriminant; journal rows carry it as the agent. */
+  provider?: PiFamilyProvider
 }): void {
-  const { sink, orcaSessionId, opId, turn, event, promptTracker } = input
+  const { sink, orcaSessionId, opId, turn, event, promptTracker, provider = 'pi' } = input
+  const rowIdentity = (recordId: string): AgentJournalItemIdentity =>
+    messageIdentity(orcaSessionId, recordId, provider)
   switch (event.type) {
     case 'turn_start': {
       sink.setActivity?.({ turnId: opId, text: '' })
@@ -71,7 +78,7 @@ export function applyPiSessionEvent(input: {
       const index = event.contentIndex ?? 0
       const next = (turn.textByIndex.get(index) ?? '') + event.delta
       turn.textByIndex.set(index, next)
-      sink.appendItem(messageIdentity(orcaSessionId, `${opId}-text-${index}`), {
+      sink.appendItem(rowIdentity(`${opId}-text-${index}`), {
         kind: 'message',
         role: 'assistant',
         blocks: [{ type: 'text', text: next }]
@@ -84,7 +91,7 @@ export function applyPiSessionEvent(input: {
       const index = event.contentIndex ?? 0
       const finalText = event.text ?? turn.textByIndex.get(index) ?? ''
       turn.textByIndex.set(index, finalText)
-      sink.appendItem(messageIdentity(orcaSessionId, `${opId}-text-${index}`), {
+      sink.appendItem(rowIdentity(`${opId}-text-${index}`), {
         kind: 'message',
         role: 'assistant',
         blocks: [{ type: 'text', text: finalText }]
@@ -99,7 +106,7 @@ export function applyPiSessionEvent(input: {
       const index = event.contentIndex ?? 0
       const next = (turn.thinkingByIndex.get(index) ?? '') + event.delta
       turn.thinkingByIndex.set(index, next)
-      sink.appendItem(messageIdentity(orcaSessionId, `${opId}-thinking-${index}`), {
+      sink.appendItem(rowIdentity(`${opId}-thinking-${index}`), {
         kind: 'message',
         role: 'reasoning',
         blocks: [{ type: 'text', text: next }]
@@ -114,7 +121,7 @@ export function applyPiSessionEvent(input: {
       if (finalText === '') {
         break
       }
-      sink.appendItem(messageIdentity(orcaSessionId, `${opId}-thinking-${index}`), {
+      sink.appendItem(rowIdentity(`${opId}-thinking-${index}`), {
         kind: 'message',
         role: 'reasoning',
         blocks: [{ type: 'text', text: finalText }]
@@ -131,7 +138,7 @@ export function applyPiSessionEvent(input: {
         done: false,
         isError: false
       })
-      sink.appendItem(messageIdentity(orcaSessionId, `${opId}-tool-${event.toolCallId}`), {
+      sink.appendItem(rowIdentity(`${opId}-tool-${event.toolCallId}`), {
         kind: 'tool-call',
         name: event.toolName,
         input,
@@ -145,7 +152,7 @@ export function applyPiSessionEvent(input: {
       if (tool) {
         tool.output = event.partialResult
       }
-      sink.appendItem(messageIdentity(orcaSessionId, `${opId}-tool-${event.toolCallId}`), {
+      sink.appendItem(rowIdentity(`${opId}-tool-${event.toolCallId}`), {
         kind: 'tool-call',
         name: tool?.name ?? 'tool',
         input: tool?.input ?? {},
@@ -162,7 +169,7 @@ export function applyPiSessionEvent(input: {
         tool.done = true
         tool.isError = event.isError
       }
-      sink.appendItem(messageIdentity(orcaSessionId, `${opId}-tool-${event.toolCallId}`), {
+      sink.appendItem(rowIdentity(`${opId}-tool-${event.toolCallId}`), {
         kind: 'tool-call',
         name: tool?.name ?? 'tool',
         input: tool?.input ?? {},
@@ -202,7 +209,7 @@ export function applyPiSessionEvent(input: {
           resolution: { state: 'pending', selectedOptionId: null, resolvedBy: null, resolvedAt: null }
         }
       }
-      const identity = messageIdentity(orcaSessionId, `${opId}-prompt-${event.requestId}`)
+      const identity = rowIdentity(`${opId}-prompt-${event.requestId}`)
       sink.appendItem(identity, body)
       sink.publish()
       promptTracker.set(agentJournalItemKey(identity), {
@@ -213,7 +220,7 @@ export function applyPiSessionEvent(input: {
     }
     case 'turn_end': {
       if (event.stopReason === 'error') {
-        sink.appendItem(messageIdentity(orcaSessionId, `${opId}-error`), {
+        sink.appendItem(rowIdentity(`${opId}-error`), {
           kind: 'status',
           text: 'provider dispatch failed'
         })
@@ -227,7 +234,7 @@ export function applyPiSessionEvent(input: {
       break
     }
     case 'error': {
-      sink.appendItem(messageIdentity(orcaSessionId, `${opId}-pi-error`), {
+      sink.appendItem(rowIdentity(`${opId}-pi-error`), {
         kind: 'status',
         text: 'provider dispatch failed'
       })
@@ -239,4 +246,29 @@ export function applyPiSessionEvent(input: {
 
 export function createPiTurnBuffer(): PiTurnBuffer {
   return newTurnBuffer()
+}
+
+/**
+ * Journal one aborted turn: the aborted boundary plus the provider's own
+ * settle shape (never the sibling's), then clear translator transient.
+ */
+export function synthesizePiFamilyAbortTurn(input: {
+  translator: PiTranslator
+  journal: (event: PiSessionEvent) => void
+  provider: PiFamilyProvider
+}): void {
+  for (const event of input.translator.applyPiRecord(
+    { type: 'turn_end', stopReason: 'aborted' },
+    input.provider
+  )) {
+    input.journal(event)
+  }
+  const settleRecord =
+    input.provider === 'omp'
+      ? { type: 'agent_end', isTerminal: true, willRetry: false }
+      : { type: 'agent_settled', willRetry: false }
+  for (const event of input.translator.applyPiRecord(settleRecord, input.provider)) {
+    input.journal(event)
+  }
+  input.translator.settle()
 }

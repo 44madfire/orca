@@ -228,6 +228,15 @@ export class PiRpcConnectionState {
     }
   }
 
+  /** Sink-shaped aliases so journal backpressure binds stdout directly. */
+  pauseReading(): void {
+    this.pause();
+  }
+
+  resumeReading(): void {
+    this.resume();
+  }
+
   /** Record the first OMP `ready` advertisement (later duplicates ignored). */
   protected observeReady(frame: OmpReadyFrame): PiFamilyReadyInfo {
     if (!this.readyInfo) {

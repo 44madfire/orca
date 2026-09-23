@@ -283,13 +283,27 @@ function handleCommand(cmd) {
         process.exit(1)
       }
       respond(cmd, true, { agentInvoked: true })
-      send({ type: 'prompt_result', id: cmd.id, agentInvoked: true })
-      send({
-        type: 'agent_end',
-        isTerminal: true,
-        messages: [],
-        willRetry: false
-      })
+      const settle = () => {
+        send({ type: 'prompt_result', id: cmd.id, agentInvoked: true })
+        send({
+          type: 'agent_end',
+          isTerminal: true,
+          messages: [],
+          willRetry: false
+        })
+      }
+      // SLOW keeps the turn open so cancel/settle races stay deterministic.
+      // A non-terminal agent_end precedes settlement: the runtime continues
+      // and the turn must stay active through it.
+      if (text.includes('SLOW')) {
+        setTimeout(
+          () => send({ type: 'agent_end', isTerminal: false, messages: [], willRetry: false }),
+          200
+        ).unref?.()
+        setTimeout(settle, 1500).unref?.()
+        return
+      }
+      settle()
       return
     }
     case 'abort':

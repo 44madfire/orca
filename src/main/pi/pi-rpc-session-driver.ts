@@ -8,7 +8,10 @@
 // prompt text, or bytes.
 
 import { mapPiRecordToSessionEvents } from './translation/pi-record-mapping'
-import { applyPiSessionEvent } from './pi-event-journal'
+import { PiFamilyFactTray, type PiFamilyPromptFact } from './translation/pi-family-record-dialect'
+import { applyPiSessionEvent, synthesizePiFamilyAbortTurn } from './pi-event-journal'
+import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
+import { PiFamilyAcquisitionGate } from './pi-family-acquisition-window'
 import { qualifyPiModelRef, resolvePiModelRef, validatePiThinkingLevel } from './pi-session-options'
 import { shortPiError } from './pi-driver-errors'
 import { rebuildPiHistory } from './pi-rpc-session-resume'
@@ -20,23 +23,45 @@ import type { AgentSessionSlashCommand } from '../../shared/agent-session-wire'
 
 export class PiRpcSessionDriver extends PiRpcSessionTurns {
   private readonly commandCatalog = new PiFamilyCommandCatalog()
+  private familyProvider: PiFamilyProvider = 'pi'
+  private streamGate: PiFamilyAcquisitionGate | null = null
+  private readonly factTray = new PiFamilyFactTray()
+
+  protected beginAcquisitionWindow(): void {
+    const gate = new PiFamilyAcquisitionGate(this.deps.acquisitionBufferLimits)
+    this.streamGate = gate
+    gate.begin(this.conn, (record) => this.handlePiRecord(record))
+  }
+
+  protected finishAcquisitionWindow(): void {
+    const gate = this.streamGate
+    const conn = this.conn
+    if (!gate || !conn) {
+      return
+    }
+    this.familyProvider = conn.familyProvider
+    gate.finish(conn, this.sink, (record) => this.deliverPiRecord(record))
+  }
+
+  protected teardownAcquisitionState(): void {
+    this.streamGate?.teardown()
+    this.streamGate = null
+  }
+
+  /** Narrow #25 seam: prompt/catalog facts since the last drain. */
+  drainFamilyFacts(): PiFamilyPromptFact[] {
+    return this.factTray.drain()
+  }
+
   protected synthesizeAbort(opId: string): void {
     if (this.activeOp !== opId || !this.sink) {
       return
     }
-    for (const event of this.translator.applyPiRecord({
-      type: 'turn_end',
-      stopReason: 'aborted'
-    })) {
-      this.journalEvent(opId, event)
-    }
-    for (const event of this.translator.applyPiRecord({
-      type: 'agent_settled',
-      willRetry: false
-    })) {
-      this.journalEvent(opId, event)
-    }
-    this.translator.settle()
+    synthesizePiFamilyAbortTurn({
+      translator: this.translator,
+      journal: (event) => this.journalEvent(opId, event),
+      provider: this.familyProvider
+    })
     this.activeOp = null
   }
 
@@ -218,16 +243,24 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
   }
 
   protected handlePiRecord(record: Record<string, unknown>): void {
+    if (this.closed || this.closing) {
+      return
+    }
+    this.deliverPiRecord(record)
+  }
+
+  private deliverPiRecord(record: Record<string, unknown>): void {
     if (record['type'] === 'thinking_level_changed' && typeof record['level'] === 'string') {
       this.optionsState.thinkingLevel = record['level']
     }
     // OMP pushed catalog refresh on the normal event path (no second
     // subscription); Pi stays pull-based and ignores this frame.
     this.commandCatalog.observePush(record, this.conn?.familyProvider ?? 'pi')
+    this.factTray.observe(record)
     if (this.activeOp) {
       let events: PiSessionEvent[]
       try {
-        events = this.translator.applyPiRecord(record)
+        events = this.translator.applyPiRecord(record, this.familyProvider)
       } catch {
         return
       }
@@ -276,7 +309,7 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
 
   protected journalEvent(opId: string, event: PiSessionEvent): void {
     const sink = this.sink
-    if (!sink) {
+    if (!sink || this.closed || this.closing) {
       return
     }
     applyPiSessionEvent({
@@ -285,7 +318,8 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
       opId,
       turn: this.turn,
       event,
-      promptTracker: this.promptTracker
+      promptTracker: this.promptTracker,
+      provider: this.familyProvider
     })
   }
 }
