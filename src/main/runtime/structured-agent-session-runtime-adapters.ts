@@ -103,6 +103,7 @@ export function buildPiStructuredAdapter(args: {
   resolveEnv: () => Promise<NodeJS.ProcessEnv>
   spawnImpl?: PiRpcBackendDeps['spawnImpl']
   readProcessStartTime?: CodexStructuredSessionAdapterDeps['readProcessStartTime']
+  onDispatchSettledLate?: CodexStructuredSessionAdapterDeps['onDispatchSettledLate']
   onEvent: (event: StructuredAgentSessionLifecycleEvent) => void
 }): PiStructuredSessionAdapter {
   let pi: PiStructuredSessionAdapter | null = null
@@ -116,7 +117,37 @@ export function buildPiStructuredAdapter(args: {
     resolveWorkspacePath: args.resolveWorkspacePath,
     ...(args.readProcessStartTime ? { readProcessStartTime: args.readProcessStartTime } : {}),
     backend: piBackend,
+    ...(args.onDispatchSettledLate ? { onDispatchSettledLate: args.onDispatchSettledLate } : {}),
     onEvent: args.onEvent
   })
   return pi
+}
+
+// SNC1.9 native Pi for the installed runtime: always installed with the
+// production RPC backend — one `pi --mode rpc` child per session in the
+// Orca-selected workspace. A missing/unusable Pi binary fails closed at
+// acquire (callers fall back to ordinary Pi TUI); Codex/Claude selection is
+// unchanged. Split from the installer (line budget); behavior matches the
+// inline construction it replaces exactly.
+export function buildPiStructuredAdapterForRuntime(args: {
+  resolveWorkspacePath: (workspaceId: string) => Promise<string>
+  bootEnvironment: Promise<NodeJS.ProcessEnv>
+  resolveLaunchEnv?: () => Promise<NodeJS.ProcessEnv>
+  spawnImpl?: PiRpcBackendDeps['spawnImpl']
+  readProcessStartTime?: CodexStructuredSessionAdapterDeps['readProcessStartTime']
+  onDispatchSettledLate?: CodexStructuredSessionAdapterDeps['onDispatchSettledLate']
+  onExit: (event: StructuredAgentSessionLifecycleEvent) => void
+}): PiStructuredSessionAdapter {
+  const resolvePiEnvironment = async (): Promise<NodeJS.ProcessEnv> => ({
+    ...(await args.bootEnvironment),
+    ...(await args.resolveLaunchEnv?.())
+  })
+  return buildPiStructuredAdapter({
+    resolveWorkspacePath: args.resolveWorkspacePath,
+    resolveEnv: resolvePiEnvironment,
+    ...(args.spawnImpl ? { spawnImpl: args.spawnImpl } : {}),
+    ...(args.readProcessStartTime ? { readProcessStartTime: args.readProcessStartTime } : {}),
+    ...(args.onDispatchSettledLate ? { onDispatchSettledLate: args.onDispatchSettledLate } : {}),
+    onEvent: args.onExit
+  })
 }

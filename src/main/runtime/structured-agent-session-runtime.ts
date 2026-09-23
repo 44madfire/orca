@@ -31,7 +31,7 @@ import type { PiRpcBackendDeps } from '../pi/pi-rpc-backend'
 import {
   buildClaudeStructuredAdapter,
   buildCodexStructuredAdapter,
-  buildPiStructuredAdapter
+  buildPiStructuredAdapterForRuntime
 } from './structured-agent-session-runtime-adapters'
 import type { StructuredAgentSessionHandoffTransport } from '../native-chat/agent-session-wire/structured-agent-session-handoff-types'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
@@ -289,20 +289,15 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
       resolveWorkspacePath: deps.resolveWorkspacePath,
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {})
     })
-    // SNC1.9 native Pi: always installed with the production RPC backend —
-    // one `pi --mode rpc` child per session in the Orca-selected workspace.
-    // A missing/unusable Pi binary fails closed at acquire (callers fall back
-    // to ordinary Pi TUI); Codex/Claude selection is unchanged.
-    const resolvePiEnvironment = async (): Promise<NodeJS.ProcessEnv> => ({
-      ...(await bootEnvironment),
-      ...(await deps.resolveLaunchEnv?.())
-    })
-    const pi = buildPiStructuredAdapter({
+    // SNC1.9 native Pi (assembled in `structured-agent-session-runtime-adapters`).
+    const pi = buildPiStructuredAdapterForRuntime({
       resolveWorkspacePath: deps.resolveWorkspacePath,
-      resolveEnv: resolvePiEnvironment,
+      bootEnvironment,
+      ...(deps.resolveLaunchEnv ? { resolveLaunchEnv: deps.resolveLaunchEnv } : {}),
       ...(deps.spawnPiProcess ? { spawnImpl: deps.spawnPiProcess } : {}),
       ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
-      onEvent: (event) => {
+      onDispatchSettledLate,
+      onExit: (event) => {
         if (event.type !== 'ended' || event.cause !== 'unexpected-exit') {
           return
         }

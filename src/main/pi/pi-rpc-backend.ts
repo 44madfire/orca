@@ -54,6 +54,8 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
       options?: Readonly<Record<string, string>>
       spawnToken: string
       sink?: StructuredAgentSessionEventSink | null
+      /** Per-session provider-record observer for dispatch settlement (PIF-4, #25). */
+      onRecord?: (record: Record<string, unknown>) => void
     }): Promise<PiStructuredAcquireResult> {
       const stale = drivers.get(input.orcaSessionId)
       if (stale) {
@@ -82,6 +84,8 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
         }
       }
       driver = new PiRpcSessionDriver(input.orcaSessionId, driverDeps)
+      // Bound before the first prompt can land so no settle/prompt_result frame is missed.
+      driver.recordObserver = input.onRecord ?? null
       let acquired: PiDriverAcquireResult
       try {
         acquired = await driver.acquire({
@@ -163,6 +167,13 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
     drainPromptFacts(input: { orcaSessionId: string }): PiFamilyPromptFact[] {
       const driver = drivers.get(input.orcaSessionId)
       return driver ? driver.drainFamilyFacts() : []
+    },
+
+    async readEntries(input: {
+      orcaSessionId: string
+      since?: string
+    }): Promise<{ entries: readonly unknown[]; leafId: string }> {
+      return requireDriver(input.orcaSessionId).readHistoryEntries(input.since)
     },
 
     async close(input: { orcaSessionId: string }): Promise<boolean> {

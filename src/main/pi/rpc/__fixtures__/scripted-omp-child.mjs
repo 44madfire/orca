@@ -67,6 +67,46 @@ function loadSessionFile(path) {
   }
 }
 
+function nowIso() {
+  return new Date().toISOString()
+}
+
+let ompSeq = 0
+const ompId = (prefix) => `${prefix}${(ompSeq += 1)}`
+
+// PIF-4 settlement history: prompts append durable entries before the
+// terminal frame. Pi-shaped by default; OMP-native when
+// OMP_SCRIPT_NATIVE_ENTRIES=1 (top-level role/text, distinct type strings).
+const NATIVE_ENTRIES = process.env.OMP_SCRIPT_NATIVE_ENTRIES === '1'
+
+function ompAppend(role, text) {
+  const id = ompId('omp-live-')
+  const parentId = session.leafId ?? (session.entries.length > 0 ? session.entries.at(-1).id : null)
+  const entry = NATIVE_ENTRIES
+    ? { type: 'omp_message', id, parentId, role, text }
+    : {
+        type: 'message',
+        id,
+        parentId,
+        timestamp: nowIso(),
+        message: { role, content: [{ type: 'text', text }] }
+      }
+  session.entries.push(entry)
+  session.leafId = id
+  return entry
+}
+
+function ompAppendNoise() {
+  ompAppend('toolResult', 'scripted omp tool output')
+  const id = ompId('omp-live-')
+  const parentId = session.leafId
+  const entry = NATIVE_ENTRIES
+    ? { type: 'omp_summary', id, parentId, text: 'scripted summary' }
+    : { type: 'summary', id, parentId, timestamp: nowIso() }
+  session.entries.push(entry)
+  session.leafId = id
+}
+
 function send(record) {
   process.stdout.write(`${JSON.stringify(record)}\n`)
 }
@@ -282,15 +322,57 @@ function handleCommand(cmd) {
       if (text.includes('EXIT')) {
         process.exit(1)
       }
+      if (text.includes('HANG')) {
+        return
+      }
+      if (text.includes('REJECT')) {
+        respond(cmd, false, undefined, 'scripted rejection')
+        return
+      }
+      if (text.includes('LOCAL-ONLY')) {
+        respond(cmd, true, { agentInvoked: false })
+        send({ type: 'prompt_result', id: cmd.id, agentInvoked: false })
+        // No agent turn follows a locally-completed prompt; the user entry is
+        // already durable, so history-backed settlement needs no terminal frame.
+        if (!text.includes('NO-ENTRY')) {
+          ompAppend('user', text)
+        }
+        if (text.includes('DUP-RESULT')) {
+          send({ type: 'prompt_result', id: cmd.id, agentInvoked: false })
+        }
+        return
+      }
       respond(cmd, true, { agentInvoked: true })
       const settle = () => {
         send({ type: 'prompt_result', id: cmd.id, agentInvoked: true })
+        if (text.includes('TWO-USER')) {
+          ompAppend('user', text)
+          ompAppend('user', text)
+        } else if (!text.includes('NO-USER')) {
+          ompAppend('user', text)
+        }
+        if (text.includes('WITH-NOISE')) {
+          ompAppendNoise()
+        } else if (!text.includes('NO-USER')) {
+          ompAppend('assistant', `scripted omp reply ${session.entries.length}`)
+        }
+        if (text.includes('DUP-RESULT')) {
+          send({ type: 'prompt_result', id: cmd.id, agentInvoked: true })
+        }
         send({
           type: 'agent_end',
           isTerminal: true,
           messages: [],
           willRetry: false
         })
+        if (text.includes('DUP-SETTLE')) {
+          send({
+            type: 'agent_end',
+            isTerminal: true,
+            messages: [],
+            willRetry: false
+          })
+        }
       }
       // SLOW keeps the turn open so cancel/settle races stay deterministic.
       // A non-terminal agent_end precedes settlement: the runtime continues

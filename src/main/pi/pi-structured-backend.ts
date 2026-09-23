@@ -4,6 +4,7 @@
 // core (SNC1.8, orca-pi owned); tests inject fakes.
 
 import type {
+  AgentJournalItemIdentity,
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
 } from '../../shared/agent-session-journal-types'
@@ -41,7 +42,14 @@ export type PiStructuredBackend = {
     options?: Readonly<Record<string, string>>
     spawnToken: string
     sink?: StructuredAgentSessionEventSink | null
+    /** Per-session provider-record observer for dispatch settlement (PIF-4, #25). */
+    onRecord?: (record: Record<string, unknown>) => void
   }): Promise<PiStructuredAcquireResult>
+  /** Durable history for settlement matching; entries stay provider-native. */
+  readEntries?(input: {
+    orcaSessionId: string
+    since?: string
+  }): Promise<{ entries: readonly unknown[]; leafId: string }>
   dispatch(input: {
     orcaSessionId: string
     body: AgentJournalMessageItem
@@ -103,6 +111,12 @@ export type PiStructuredSessionAdapterDeps = {
   hostId?: string
   /** Publishes adapter lifecycle events (unexpected exits) to the host. */
   onEvent?: (event: StructuredAgentSessionLifecycleEvent) => void
+  /** History-proven late dispatch settlement, mirroring the Codex/Claude path. */
+  onDispatchSettledLate?: (input: {
+    sessionId: string
+    clientMessageId: string
+    providerIdentity: AgentJournalItemIdentity
+  }) => void
 }
 
 export type PiSession = {

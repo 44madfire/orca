@@ -93,6 +93,22 @@ function liveAppend(role, text) {
 
 let liveTurn = null
 
+function appendNonUserHistory() {
+  const toolId = nextId('live-')
+  const toolParent = session.leafId ?? (session.entries.length > 0 ? session.entries.at(-1).id : null)
+  session.entries.push({
+    type: 'message',
+    id: toolId,
+    parentId: toolParent,
+    timestamp: nowIso(),
+    message: { role: 'toolResult', content: [{ type: 'text', text: 'scripted tool output' }] }
+  })
+  session.leafId = toolId
+  const summaryId = nextId('live-')
+  session.entries.push({ type: 'summary', id: summaryId, parentId: toolId, timestamp: nowIso() })
+  session.leafId = summaryId
+}
+
 function endTurn(op, { aborted = false, error = false } = {}) {
   const stopReason = error ? 'error' : aborted ? 'aborted' : 'stop'
   send({
@@ -102,6 +118,9 @@ function endTurn(op, { aborted = false, error = false } = {}) {
   })
   liveTurn = null
   send({ type: 'agent_settled', willRetry: false })
+  if (typeof op === 'string' && op.includes('DUP-SETTLE')) {
+    send({ type: 'agent_settled', willRetry: false })
+  }
   void op
 }
 
@@ -348,6 +367,10 @@ function handleCommand(cmd) {
       if (text.includes('HANG')) {
         return
       }
+      if (text.includes('REJECT')) {
+        respond(false, undefined, 'scripted rejection')
+        return
+      }
       if (text.includes('PROMPT-ME')) {
         const dialogId = nextId('dlg-')
         pendingDialogs.set(dialogId, id)
@@ -410,7 +433,15 @@ function runTurn(text) {
   }
   liveTurn = true
   send({ type: 'turn_start' })
-  liveAppend('user', text)
+  if (!text.includes('NO-USER')) {
+    liveAppend('user', text)
+  }
+  if (text.includes('TWO-USER')) {
+    liveAppend('user', text)
+  }
+  if (text.includes('WITH-NOISE')) {
+    appendNonUserHistory()
+  }
   const reply = `scripted reply for turn ${session.entries.length}`
   if (text.includes('THINK')) {
     streamThinking('scripted thinking trace')
@@ -421,7 +452,7 @@ function runTurn(text) {
     liveAppend('assistant', '')
   }
   if (text.includes('ERROR-TURN')) {
-    endTurn(null, { error: true })
+    endTurn(text, { error: true })
     return
   }
   if (text.includes('SLOW')) {
@@ -452,7 +483,7 @@ function runTurn(text) {
   }
   streamTextDeltas(reply)
   liveAppend('assistant', reply)
-  endTurn(null)
+  endTurn(text)
 }
 
 function handleLine(line) {

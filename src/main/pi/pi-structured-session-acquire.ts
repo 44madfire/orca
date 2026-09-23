@@ -28,6 +28,8 @@ export async function acquirePiStructuredSession(args: {
   sessions: Map<string, PiSession>
   backend: PiStructuredBackend
   input: StructuredAgentSessionAcquireInput
+  /** Provider-record observer bound to this acquisition's session (PIF-4 dispatch settlement). */
+  onProviderRecord?: (record: Record<string, unknown>) => void
 }): Promise<{
   process: AgentSessionProcessIdentity
   link: AgentSessionProviderHandleLink
@@ -65,6 +67,7 @@ export async function acquirePiStructuredSession(args: {
     acquired = await backend.acquire({
       orcaSessionId: input.identity.sessionId,
       workspaceRoot,
+      ...(args.onProviderRecord ? { onRecord: args.onProviderRecord } : {}),
       provider,
       ...(resume ? { resumePiSessionId: resume.sessionId } : {}),
       ...(input.resumeSessionFile ? { resumeSessionFile: input.resumeSessionFile } : {}),
