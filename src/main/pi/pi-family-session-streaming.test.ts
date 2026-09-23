@@ -14,10 +14,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import type {
   AgentJournalItemBody,
+  AgentJournalMessageItem,
   AgentSessionJournalIdentity
 } from '../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { createPiRpcBackend } from './pi-rpc-backend'
+import type { PiDriverDeps } from './pi-rpc-session-lifecycle'
 import { PiStructuredSessionAdapter } from './pi-structured-session-adapter'
 import type { PiStructuredBackend } from './pi-structured-backend'
 import { PiFamilyRpcConnection } from './rpc/pi-family-rpc-connection'
@@ -57,14 +59,17 @@ function rmDir(dir: string): void {
   }
 }
 
-function backendWithScripts(env: Record<string, string>, extra: Record<string, unknown> = {}) {
+function backendWithScripts(
+  env: Record<string, string>,
+  extra: Pick<PiDriverDeps, 'acquisitionBufferLimits'> = {}
+) {
   return createPiRpcBackend({
     piCommand: process.execPath,
     piArgs: [PI_SCRIPT],
     ompCommand: process.execPath,
     ompArgs: [OMP_SCRIPT],
     resolveEnv: () => ({ ...process.env, ...env }),
-    ...(extra as object)
+    ...extra
   })
 }
 
@@ -126,8 +131,8 @@ async function acquireSession(
   })
 }
 
-function textBody(text: string): never {
-  return { kind: 'message', role: 'user', blocks: [{ type: 'text', text }] } as never
+function textBody(text: string): AgentJournalMessageItem {
+  return { kind: 'message', role: 'user', blocks: [{ type: 'text', text }] }
 }
 
 async function waitFor(cond: () => boolean, timeoutMs = 10_000): Promise<void> {
