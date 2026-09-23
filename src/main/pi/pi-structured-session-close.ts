@@ -8,7 +8,7 @@ import {
   AgentSessionAcquisitionExitUnprovenError,
   AgentSessionAcquisitionRootExitObservedError
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import type { PiFamilyDispatchTracker } from './pi-family-dispatch'
+import type { PiFamilyDispatchTracker } from './pi-family-dispatch-tracker'
 import { PiRootExitObservedError } from './pi-process-teardown'
 import type { PiSession, PiStructuredBackend } from './pi-structured-backend'
 

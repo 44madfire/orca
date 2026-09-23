@@ -12,6 +12,8 @@ import type {
   AgentJournalMessageItem
 } from '../../shared/agent-session-journal-types'
 import { collectPiDispatchContent } from './pi-dispatch-images'
+import type { PiStructuredBackend } from './pi-structured-backend'
+import type { PiFamilyDispatchCursor, PiFamilyDispatchTracker } from './pi-family-dispatch-tracker'
 import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
 
 /** Shared Pi-family prompt shape: text plus opaque base64 image payloads. */
@@ -118,13 +120,15 @@ export type PiFamilySettlingCandidates =
 /** User entries committed strictly after the pre-dispatch cursor (uniqueness is the proof). */
 export function findPiFamilySettlingCandidates(input: {
   entries: readonly unknown[]
-  preDispatchLeafId: string | null
+  cursor: PiFamilyDispatchCursor
 }): PiFamilySettlingCandidates {
+  if (input.cursor.status === 'unknown') {
+    return { ok: false, reason: 'cursor-unknown' }
+  }
   let fresh = input.entries
-  if (input.preDispatchLeafId !== null) {
-    const cursorIndex = input.entries.findIndex(
-      (entry) => historyEntryId(entry) === input.preDispatchLeafId
-    )
+  if (input.cursor.status === 'known') {
+    const leafId = input.cursor.leafId
+    const cursorIndex = input.entries.findIndex((entry) => historyEntryId(entry) === leafId)
     if (cursorIndex === -1) {
       return { ok: false, reason: 'cursor-unknown' }
     }
@@ -138,66 +142,6 @@ export function findPiFamilySettlingCandidates(input: {
     }
   }
   return { ok: true, candidates }
-}
-
-/** Ephemeral correlation for one admitted submission (never a durable outbox). */
-export type PiFamilyPendingDispatch = {
-  readonly clientMessageId: string
-  readonly provider: PiFamilyProvider
-  readonly generation: string
-  readonly preDispatchLeafId: string | null
-}
-
-/** Admitted submissions awaiting history-backed settlement, keyed by Orca session. */
-export class PiFamilyDispatchTracker {
-  private readonly pending = new Map<string, PiFamilyPendingDispatch[]>()
-
-  arm(sessionId: string, entry: PiFamilyPendingDispatch): void {
-    const list = this.pending.get(sessionId) ?? []
-    if (list.some((item) => item.clientMessageId === entry.clientMessageId)) {
-      return
-    }
-    list.push(entry)
-    this.pending.set(sessionId, list)
-  }
-
-  pendingFor(sessionId: string): PiFamilyPendingDispatch[] {
-    return [...(this.pending.get(sessionId) ?? [])]
-  }
-
-  retainOnly(sessionId: string, entries: readonly PiFamilyPendingDispatch[]): void {
-    if (entries.length === 0) {
-      this.pending.delete(sessionId)
-    } else {
-      this.pending.set(sessionId, [...entries])
-    }
-  }
-
-  claim(
-    sessionId: string,
-    clientMessageId: string,
-    generation: string
-  ): PiFamilyPendingDispatch | null {
-    const list = this.pending.get(sessionId)
-    if (!list) {
-      return null
-    }
-    const index = list.findIndex(
-      (item) => item.clientMessageId === clientMessageId && item.generation === generation
-    )
-    if (index === -1) {
-      return null
-    }
-    const [claimed] = list.splice(index, 1)
-    if (list.length === 0) {
-      this.pending.delete(sessionId)
-    }
-    return claimed ?? null
-  }
-
-  dropSession(sessionId: string): void {
-    this.pending.delete(sessionId)
-  }
 }
 
 /** Stable provider-native identity (never synthesized from `clientMessageId`). */
@@ -231,6 +175,84 @@ export type PiFamilyLateSettlement = (input: {
   providerIdentity: AgentJournalItemIdentity
 }) => void
 
+export type PiFamilyHistorySnapshot = {
+  entries: readonly unknown[]
+  leafId: string
+}
+
+export type PiFamilyDispatchCursorRead = {
+  cursor: PiFamilyDispatchCursor
+  history: PiFamilyHistorySnapshot | null
+}
+
+/** Read the pre-dispatch cursor; failure degrades to unknown (fail closed, never blocks admission). */
+export async function readPiFamilyDispatchCursor(
+  backend: Pick<PiStructuredBackend, 'readEntries'> | undefined,
+  sessionId: string
+): Promise<PiFamilyDispatchCursorRead> {
+  try {
+    const history = await backend?.readEntries?.({ orcaSessionId: sessionId })
+    if (!history) {
+      return { cursor: { status: 'unknown' }, history: null }
+    }
+    // Only a positively proven empty history treats all entries as new.
+    if (history.entries.length === 0) {
+      return { cursor: { status: 'fresh' }, history }
+    }
+    if (typeof history.leafId !== 'string' || history.leafId === '') {
+      return { cursor: { status: 'unknown' }, history }
+    }
+    return { cursor: { status: 'known', leafId: history.leafId }, history }
+  } catch {
+    return { cursor: { status: 'unknown' }, history: null }
+  }
+}
+
+async function readPiFamilyHistoryForSettlement(
+  backend: Pick<PiStructuredBackend, 'readEntries'> | undefined,
+  orcaSessionId: string
+): Promise<PiFamilyHistorySnapshot> {
+  const history = await backend?.readEntries?.({ orcaSessionId })
+  if (!history) {
+    throw new Error('pi history unavailable for dispatch settlement')
+  }
+  return { entries: history.entries, leafId: history.leafId }
+}
+
+/**
+ * Attempt settlement for one live session, optionally reusing a pre-read
+ * history (no extra RPC). Generation-fenced: a superseded session settles
+ * nothing, so a stale boundary cannot mutate replacement dispatch state.
+ */
+export async function settlePiFamilySessionFromHistory(args: {
+  sessions: Map<string, PiFamilySettlingSession & { closed: boolean }>
+  tracker: PiFamilyDispatchTracker
+  backend: Pick<PiStructuredBackend, 'readEntries'> | undefined
+  onSettled: PiFamilyLateSettlement | undefined
+  session: PiFamilySettlingSession & { closed: boolean }
+  preRead: PiFamilyHistorySnapshot | null | undefined
+}): Promise<void> {
+  const live = args.sessions.get(args.session.orcaSessionId)
+  if (!live || live.closed || live.generation !== args.session.generation) {
+    return
+  }
+  const preRead = args.preRead
+  await settlePiFamilyPendingDispatch({
+    session: live,
+    tracker: args.tracker,
+    readEntries:
+      preRead === undefined
+        ? async (read) => readPiFamilyHistoryForSettlement(args.backend, read.orcaSessionId)
+        : async () => {
+            if (!preRead) {
+              throw new Error('pi history unavailable for dispatch settlement')
+            }
+            return preRead
+          },
+    onSettled: args.onSettled
+  })
+}
+
 /**
  * Settle one admitted submission from durable history. Settles only when
  * exactly one live pending and exactly one new user entry prove each other;
@@ -255,6 +277,11 @@ export async function settlePiFamilyPendingDispatch(args: {
   if (!only) {
     return false
   }
+  // An unproven cursor fails closed without even reading: absence of proof is
+  // never evidence, so a failed pre-dispatch read can never adopt an entry.
+  if (only.cursor.status === 'unknown') {
+    return false
+  }
   let history: { entries: readonly unknown[]; leafId: string }
   try {
     history = await args.readEntries({ orcaSessionId: args.session.orcaSessionId })
@@ -263,7 +290,7 @@ export async function settlePiFamilyPendingDispatch(args: {
   }
   const match = findPiFamilySettlingCandidates({
     entries: history.entries,
-    preDispatchLeafId: only.preDispatchLeafId
+    cursor: only.cursor
   })
   if (!match.ok || match.candidates.length !== 1) {
     return false

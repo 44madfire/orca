@@ -6,7 +6,7 @@
 // generations cannot mutate replacement state. Scripted-child settlement
 // lives in `pi-family-dispatch-settlement.test.ts`.
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type {
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
@@ -196,7 +196,9 @@ describe('PiStructuredSessionAdapter history-backed settlement (PIF-4)', () => {
     const marker = markerEntry()
     const fresh = userEntry('e-new', 'leaf-0', 'second')
     const before = { entries: [marker], leafId: 'leaf-0' }
+    // Staged reads: cursor, post-ack attempt (no user entry yet), terminal attempt.
     const { adapter, settlements, recordHandlers } = harness([
+      before,
       before,
       { entries: [marker, fresh], leafId: 'e-new' }
     ])
@@ -218,7 +220,9 @@ describe('PiStructuredSessionAdapter history-backed settlement (PIF-4)', () => {
     const marker = markerEntry()
     const fresh = userEntry('e-new', 'leaf-0', 'second')
     const before = { entries: [marker], leafId: 'leaf-0' }
+    // Staged reads: old cursor, old post-ack attempt, new cursor, new post-ack attempt.
     const { adapter, settlements, recordHandlers } = harness([
+      before,
       before,
       before,
       { entries: [marker, fresh], leafId: 'e-new' }
@@ -249,5 +253,66 @@ describe('PiStructuredSessionAdapter history-backed settlement (PIF-4)', () => {
         providerIdentity: expect.objectContaining({ recordId: 'e-new' })
       })
     ])
+  })
+
+  it('a failed pre-dispatch history read admits but never settles from unproven history', async () => {
+    const settlements: Settlement[] = []
+    const recordHandlers: ((record: Record<string, unknown>) => void)[] = []
+    const dispatch = vi.fn(async () => ({ status: 'accepted' as const }))
+    const backend: PiStructuredBackend = {
+      dispatch,
+      cancel: async () => ({ cancelled: false }),
+      close: async () => true,
+      acquire: async (input: Parameters<PiStructuredBackend['acquire']>[0]) => {
+        if (input.onRecord) {
+          recordHandlers.push(input.onRecord)
+        }
+        return {
+          piSessionId: 'pi-ses-1',
+          leafId: 'leaf-1',
+          pid: 4242,
+          sessionFilePath: '/tmp/pi-ses-1.jsonl'
+        }
+      },
+      readEntries: async () => {
+        throw new Error('pi history unreadable')
+      }
+    }
+    const adapter = new PiStructuredSessionAdapter({
+      resolveWorkspacePath: () => '/tmp/ws',
+      backend,
+      readProcessStartTime: async () => 12345,
+      onDispatchSettledLate: (settlement) => {
+        const identity = settlement.providerIdentity
+        if (identity.provider === 'legacy') {
+          settlements.push({
+            sessionId: settlement.sessionId,
+            clientMessageId: settlement.clientMessageId,
+            providerIdentity: {
+              provider: identity.provider,
+              agent: identity.agent,
+              sessionId: identity.sessionId,
+              recordId: identity.recordId
+            }
+          })
+        }
+      }
+    })
+    await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 0, spawnToken: 'spawn-1' })
+    // Admission proceeds (the provider may still take the prompt), but the
+    // unproven cursor fails closed: no terminal observation may adopt an entry.
+    await expect(
+      adapter.dispatch({
+        sessionId: 'ses-1',
+        clientMessageId: 'c1',
+        body: textBody('second'),
+        fence: 0
+      })
+    ).resolves.toEqual({ state: 'admitted' })
+    recordHandlers[0]?.({ type: 'agent_settled' })
+    recordHandlers[0]?.({ type: 'prompt_result', id: 'r1', agentInvoked: false })
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(settlements).toHaveLength(0)
+    expect(dispatch).toHaveBeenCalledTimes(1)
   })
 })

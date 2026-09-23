@@ -552,10 +552,12 @@ describe('Pi-family dispatch admission and settlement', () => {
           fence: 0,
           spawnToken: 'gen-1'
         })
+        // The old turn commits no user entry, so it can never settle; only the
+        // generation fence (not absence of proof) retires it at reacquire.
         await adapter.dispatch({
           sessionId,
           clientMessageId: 'c-old',
-          body: textBody('hello old'),
+          body: textBody('NO-USER hello old'),
           fence: 0
         })
         await adapter.acquire({

@@ -19,11 +19,11 @@ import {
   interpretOmpPromptResult,
   normalizePiFamilyHistoryEntry,
   piFamilySettlementIdentity,
-  PiFamilyDispatchTracker,
   sanitizePiFamilyPromptError,
   settlePiFamilyPendingDispatch,
   translatePiFamilyPromptBody
 } from './pi-family-dispatch'
+import { PiFamilyDispatchTracker } from './pi-family-dispatch-tracker'
 
 const DIRS: string[] = []
 afterEach(() => {
@@ -134,7 +134,7 @@ describe('translatePiFamilyPromptBody', () => {
     ).rejects.toThrow('Pi does not support the image type')
   })
 
-  it('leaves empty text to the pre-write validation downstream (image-only turns stay valid)', async () => {
+  it('leaves empty text to pre-write validation downstream (the driver still refuses it)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pi-family-prompt-'))
     DIRS.push(dir)
     const png = join(dir, 'shot.png')
@@ -227,18 +227,29 @@ describe('findPiFamilySettlingCandidates', () => {
     ]
     const match = findPiFamilySettlingCandidates({
       entries: [...seed, ...fresh],
-      preDispatchLeafId: 'e2'
+      cursor: { status: 'known', leafId: 'e2' }
     })
     expect(match).toEqual({ ok: true, candidates: [expect.objectContaining({ id: 'e3' })] })
   })
 
-  it('treats a null cursor as a fresh session (every entry is new)', () => {
-    const match = findPiFamilySettlingCandidates({ entries: seed, preDispatchLeafId: null })
+  it('treats a proven-fresh cursor as a new session (every entry is new)', () => {
+    const match = findPiFamilySettlingCandidates({ entries: seed, cursor: { status: 'fresh' } })
     expect(match).toEqual({ ok: true, candidates: [expect.objectContaining({ id: 'e1' })] })
   })
 
+  it('fails closed on an unproven cursor without matching anything', () => {
+    expect(
+      findPiFamilySettlingCandidates({ entries: seed, cursor: { status: 'unknown' } })
+    ).toEqual({ ok: false, reason: 'cursor-unknown' })
+  })
+
   it('fails closed when the cursor is gone (fork/truncation proves nothing)', () => {
-    expect(findPiFamilySettlingCandidates({ entries: seed, preDispatchLeafId: 'absent' })).toEqual({
+    expect(
+      findPiFamilySettlingCandidates({
+        entries: seed,
+        cursor: { status: 'known', leafId: 'absent' }
+      })
+    ).toEqual({
       ok: false,
       reason: 'cursor-unknown'
     })
@@ -252,7 +263,7 @@ describe('findPiFamilySettlingCandidates', () => {
       null,
       { id: 'broken' }
     ]
-    const match = findPiFamilySettlingCandidates({ entries, preDispatchLeafId: null })
+    const match = findPiFamilySettlingCandidates({ entries, cursor: { status: 'fresh' } })
     expect(match).toEqual({ ok: true, candidates: [] })
   })
 })
@@ -264,7 +275,7 @@ describe('PiFamilyDispatchTracker', () => {
       clientMessageId: 'c1',
       provider: 'pi',
       generation: 'g1',
-      preDispatchLeafId: null
+      cursor: { status: 'fresh' }
     })
     expect(tracker.pendingFor('s1')).toHaveLength(1)
     expect(tracker.claim('s1', 'c1', 'g1')).toMatchObject({ clientMessageId: 'c1' })
@@ -278,17 +289,42 @@ describe('PiFamilyDispatchTracker', () => {
       clientMessageId: 'c1',
       provider: 'pi',
       generation: 'g1',
-      preDispatchLeafId: 'e1'
+      cursor: { status: 'known', leafId: 'e1' }
     })
     tracker.arm('s1', {
       clientMessageId: 'c1',
       provider: 'pi',
       generation: 'g1',
-      preDispatchLeafId: 'e9'
+      cursor: { status: 'known', leafId: 'e9' }
     })
     expect(tracker.pendingFor('s1')).toEqual([
-      { clientMessageId: 'c1', provider: 'pi', generation: 'g1', preDispatchLeafId: 'e1' }
+      {
+        clientMessageId: 'c1',
+        provider: 'pi',
+        generation: 'g1',
+        cursor: { status: 'known', leafId: 'e1' }
+      }
     ])
+  })
+
+  it('disarms a definitely declined write while keeping the rest', () => {
+    const tracker = new PiFamilyDispatchTracker()
+    tracker.arm('s1', {
+      clientMessageId: 'c1',
+      provider: 'pi',
+      generation: 'g1',
+      cursor: { status: 'fresh' }
+    })
+    tracker.arm('s1', {
+      clientMessageId: 'c2',
+      provider: 'pi',
+      generation: 'g1',
+      cursor: { status: 'fresh' }
+    })
+    expect(tracker.disarm('s1', 'c1', 'g1')).toBe(true)
+    expect(tracker.disarm('s1', 'c1', 'g1')).toBe(false)
+    expect(tracker.disarm('s1', 'c2', 'g9')).toBe(false)
+    expect(tracker.pendingFor('s1')).toHaveLength(1)
   })
 
   it('refuses cross-generation claims and drops sessions wholesale', () => {
@@ -297,7 +333,7 @@ describe('PiFamilyDispatchTracker', () => {
       clientMessageId: 'c1',
       provider: 'omp',
       generation: 'g1',
-      preDispatchLeafId: null
+      cursor: { status: 'fresh' }
     })
     expect(tracker.claim('s1', 'c1', 'g2')).toBeNull()
     expect(tracker.pendingFor('s1')).toHaveLength(1)
@@ -307,7 +343,7 @@ describe('PiFamilyDispatchTracker', () => {
       clientMessageId: 'c1',
       provider: 'omp',
       generation: 'g1',
-      preDispatchLeafId: null
+      cursor: { status: 'fresh' }
     })
     tracker.dropSession('s1')
     expect(tracker.pendingFor('s1')).toHaveLength(0)
@@ -346,7 +382,7 @@ describe('settlePiFamilyPendingDispatch', () => {
       clientMessageId: 'c1',
       provider: 'pi',
       generation: 'g1',
-      preDispatchLeafId: 'e2'
+      cursor: { status: 'known', leafId: 'e2' }
     })
     const sink = settled()
     const settledOk = await settlePiFamilyPendingDispatch({
@@ -401,7 +437,7 @@ describe('settlePiFamilyPendingDispatch', () => {
         clientMessageId: 'c1',
         provider: 'pi',
         generation: 'g1',
-        preDispatchLeafId: 'e2'
+        cursor: { status: 'known', leafId: 'e2' }
       })
       const sink = settled()
       const settledOk = await settlePiFamilyPendingDispatch({
@@ -416,13 +452,40 @@ describe('settlePiFamilyPendingDispatch', () => {
     }
   })
 
+  it('never settles an unproven cursor, even with a lone user entry in history', async () => {
+    const tracker = new PiFamilyDispatchTracker()
+    tracker.arm('ses-1', {
+      clientMessageId: 'c1',
+      provider: 'pi',
+      generation: 'g1',
+      cursor: { status: 'unknown' }
+    })
+    const sink = settled()
+    let reads = 0
+    await expect(
+      settlePiFamilyPendingDispatch({
+        session,
+        tracker,
+        readEntries: async () => {
+          reads += 1
+          return { entries: [piMessage('e3', null, 'user', 'unrelated')], leafId: 'e3' }
+        },
+        onSettled: sink.onSettled
+      })
+    ).resolves.toBe(false)
+    // Fail closed before any read: no proof is even attempted, so no identity can be adopted.
+    expect(reads).toBe(0)
+    expect(sink.calls).toHaveLength(0)
+    expect(tracker.pendingFor('ses-1')).toHaveLength(1)
+  })
+
   it('retains pending on cursor loss, history failure, and missing settlement sink', async () => {
     const tracker = new PiFamilyDispatchTracker()
     tracker.arm('ses-1', {
       clientMessageId: 'c1',
       provider: 'pi',
       generation: 'g1',
-      preDispatchLeafId: 'gone'
+      cursor: { status: 'known', leafId: 'gone' }
     })
     const sink = settled()
     await expect(
@@ -450,7 +513,7 @@ describe('settlePiFamilyPendingDispatch', () => {
       clientMessageId: 'c2',
       provider: 'pi',
       generation: 'g1',
-      preDispatchLeafId: null
+      cursor: { status: 'fresh' }
     })
     await expect(
       settlePiFamilyPendingDispatch({
@@ -473,7 +536,7 @@ describe('settlePiFamilyPendingDispatch', () => {
       clientMessageId: 'c-old',
       provider: 'pi',
       generation: 'g0',
-      preDispatchLeafId: null
+      cursor: { status: 'fresh' }
     })
     const sink = settled()
     const settledOk = await settlePiFamilyPendingDispatch({
@@ -493,7 +556,7 @@ describe('settlePiFamilyPendingDispatch', () => {
       clientMessageId: 'c1',
       provider: 'pi',
       generation: 'g1',
-      preDispatchLeafId: null
+      cursor: { status: 'fresh' }
     })
     const sink = settled()
     const history = { entries: [piMessage('e3', null, 'user', 'new')], leafId: 'e3' }
@@ -522,7 +585,7 @@ describe('settlePiFamilyPendingDispatch', () => {
       clientMessageId: 'c1',
       provider: 'pi',
       generation: 'g1',
-      preDispatchLeafId: null
+      cursor: { status: 'fresh' }
     })
     const sink = settled()
     const settledOk = await settlePiFamilyPendingDispatch({

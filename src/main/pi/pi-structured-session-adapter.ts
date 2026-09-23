@@ -15,11 +15,14 @@ import type { AgentSessionExecutionLocation } from '../../shared/agent-session-r
 import type { PiFamilySettledEvent } from './pi-family-flavor'
 import {
   interpretOmpPromptResult,
-  PiFamilyDispatchTracker,
+  readPiFamilyDispatchCursor,
   sanitizePiFamilyPromptError,
-  settlePiFamilyPendingDispatch,
-  translatePiFamilyPromptBody
+  settlePiFamilySessionFromHistory,
+  translatePiFamilyPromptBody,
+  type PiFamilyHistorySnapshot,
+  type PiFamilyLateSettlement
 } from './pi-family-dispatch'
+import { PiFamilyDispatchTracker } from './pi-family-dispatch-tracker'
 import { closeProcessRegistry } from '../../shared/child-process/close-process-registry'
 import type {
   AgentSessionDispatchOutcome,
@@ -149,7 +152,7 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
       if (interpretOmpPromptResult(record) !== 'local-only') {
         return
       }
-      void this.settlePendingFromHistory(session).catch(() => undefined)
+      void this.settleSession(session).catch(() => undefined)
       return
     }
     // Records are untrusted wire payloads; the settle predicate reads only its narrow shape.
@@ -160,7 +163,7 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     if (!session.isSettledEvent(settledCandidate)) {
       return
     }
-    void this.settlePendingFromHistory(session).catch(() => undefined)
+    void this.settleSession(session).catch(() => undefined)
   }
 
   async releaseAcquisition(input: { sessionId: string }): Promise<boolean> {
@@ -183,8 +186,18 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     } catch (error) {
       return { state: 'rejected', reason: sanitizePiFamilyPromptError(error) }
     }
-    // Best-effort cursor: admission never waits on history; a missing cursor just narrows later proof.
-    const preDispatchLeafId = await this.readDispatchCursor(input.sessionId)
+    // Cursor before the write; a failed read degrades to unknown (fail closed, never blocks admission).
+    const preDispatch = await readPiFamilyDispatchCursor(this.deps.backend, input.sessionId)
+    // Settle provable older pendings before arming, reusing the pre-read history (no extra RPC).
+    await this.settleSession(session, preDispatch.history).catch(() => undefined)
+    // Armed before the write (Codex ordering): a boundary frame landing in the
+    // same stdout read as the ack is observed with correlation already present.
+    this.dispatches.arm(input.sessionId, {
+      clientMessageId: input.clientMessageId,
+      provider: session.provider,
+      generation: session.generation,
+      cursor: preDispatch.cursor
+    })
     let result: PiStructuredDispatchResult
     try {
       result = await this.requireBackend().dispatch({
@@ -192,59 +205,42 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
         body: input.body
       })
     } catch (error) {
-      // Unsettled dispatch stays `unknown`; the caller reconciles via history, never by resend.
+      // Transport failure keeps correlation armed (the write may have landed); reconcile via history, never resend.
+      void this.settleSession(session).catch(() => undefined)
       return { state: 'unknown', reason: error instanceof Error ? error.message : String(error) }
     }
     if (result.status === 'rejected') {
+      // Definite refusal: the provider declined, so no boundary for this write can arrive.
+      this.dispatches.disarm(input.sessionId, input.clientMessageId, session.generation)
       return { state: 'rejected', reason: result.reason }
     }
+    // A boundary that already arrived settles now instead of being lost.
+    void this.settleSession(session).catch(() => undefined)
     if (result.status === 'unknown') {
       return { state: 'unknown', reason: result.reason }
     }
-    // Prompt acknowledged means admitted, never accepted: stable identity settles later from history.
-    this.dispatches.arm(input.sessionId, {
-      clientMessageId: input.clientMessageId,
-      provider: session.provider,
-      generation: session.generation,
-      preDispatchLeafId
-    })
+    // Prompt acknowledged means admitted, never accepted: identity settles later from history.
     return { state: 'admitted' }
   }
 
-  private async readDispatchCursor(sessionId: string): Promise<string | null> {
-    try {
-      const history = await this.requireBackend().readEntries?.({ orcaSessionId: sessionId })
-      // An empty history has no cursor yet: the turn's commits are all new evidence.
-      if (!history || history.entries.length === 0) {
-        return null
-      }
-      return history.leafId ?? null
-    } catch {
-      return null
-    }
+  private settleSession(
+    session: PiSession,
+    preRead?: PiFamilyHistorySnapshot | null
+  ): Promise<void> {
+    return settlePiFamilySessionFromHistory({
+      sessions: this.sessions,
+      tracker: this.dispatches,
+      backend: this.deps.backend,
+      onSettled: this.settlementSink(),
+      session,
+      preRead
+    })
   }
 
-  private async settlePendingFromHistory(session: PiSession): Promise<void> {
-    const live = this.sessions.get(session.orcaSessionId)
-    if (!live || live.closed || live.generation !== session.generation) {
-      return
-    }
-    await settlePiFamilyPendingDispatch({
-      session: live,
-      tracker: this.dispatches,
-      readEntries: async (read) => {
-        const history = await this.requireBackend().readEntries?.({
-          orcaSessionId: read.orcaSessionId
-        })
-        if (!history) {
-          throw new Error('pi history unavailable for dispatch settlement')
-        }
-        return { entries: history.entries, leafId: history.leafId }
-      },
-      onSettled: this.deps.onDispatchSettledLate
-        ? (settlement) => this.deps.onDispatchSettledLate?.(settlement)
-        : undefined
-    })
+  private settlementSink(): PiFamilyLateSettlement | undefined {
+    return this.deps.onDispatchSettledLate
+      ? (settlement) => this.deps.onDispatchSettledLate?.(settlement)
+      : undefined
   }
 
   async cancelTurn(input: {
