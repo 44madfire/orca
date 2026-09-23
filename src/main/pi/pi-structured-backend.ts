@@ -54,14 +54,34 @@ export type PiStructuredBackend = {
     orcaSessionId: string
     body: AgentJournalMessageItem
   }): Promise<PiStructuredDispatchResult>
-  cancel(input: { orcaSessionId: string }): Promise<{ cancelled: boolean }>
+  /**
+   * Abort exactly the turn named by `expectedTurnId` (PIF-6, #27).
+   * A mismatch sends no provider abort and claims nothing.
+   */
+  cancel(input: { orcaSessionId: string; expectedTurnId?: string }): Promise<{
+    cancelled: boolean
+  }>
+  /** Adapter-local live turn for the cancellation guard, if the backend tracks one. */
+  liveTurnId?(input: { orcaSessionId: string }): string | null
+  /** Owning op for one journaled prompt key, or null when it is not answerable. */
+  promptOwner?(input: { orcaSessionId: string; itemKey: string }): {
+    requestId: string
+    opId: string
+  } | null
   /** Narrow #25 seam: prompt/catalog facts observed since the last drain. */
   drainPromptFacts?(input: { orcaSessionId: string }): PiFamilyPromptFact[]
   // Returns true only after the Pi child exit AND descendant cleanup are proven.
   // Throws when the root exit was observed but descendants stay unverified.
   close(input: { orcaSessionId: string }): Promise<boolean>
   sessionFilePath?(input: { orcaSessionId: string }): Promise<string | null>
+  /**
+   * Answer one journaled prompt exactly once (PIF-6, #27). Scoped to the
+   * owning session so a stale generation can never answer through a
+   * replacement child. Unknown/answered/retired keys throw
+   * `UNKNOWN_REQUEST` without touching the provider.
+   */
   answerPrompt?(input: {
+    orcaSessionId: string
     itemKey: string
     kind: 'approval' | 'question'
     optionId: string

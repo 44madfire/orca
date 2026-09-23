@@ -20,7 +20,6 @@ import {
 } from '../native-chat/agent-session-journal/journal-payload-bounds'
 import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
 import type { PiSessionEvent } from './translation/pi-session-events'
-import type { PiTranslator } from './translation/pi-turn-translator'
 
 export const PI_JOURNAL_AGENT = 'pi'
 
@@ -246,29 +245,4 @@ export function applyPiSessionEvent(input: {
 
 export function createPiTurnBuffer(): PiTurnBuffer {
   return newTurnBuffer()
-}
-
-/**
- * Journal one aborted turn: the aborted boundary plus the provider's own
- * settle shape (never the sibling's), then clear translator transient.
- */
-export function synthesizePiFamilyAbortTurn(input: {
-  translator: PiTranslator
-  journal: (event: PiSessionEvent) => void
-  provider: PiFamilyProvider
-}): void {
-  for (const event of input.translator.applyPiRecord(
-    { type: 'turn_end', stopReason: 'aborted' },
-    input.provider
-  )) {
-    input.journal(event)
-  }
-  const settleRecord =
-    input.provider === 'omp'
-      ? { type: 'agent_end', isTerminal: true, willRetry: false }
-      : { type: 'agent_settled', willRetry: false }
-  for (const event of input.translator.applyPiRecord(settleRecord, input.provider)) {
-    input.journal(event)
-  }
-  input.translator.settle()
 }

@@ -9,7 +9,7 @@
 
 import { mapPiRecordToSessionEvents } from './translation/pi-record-mapping'
 import { PiFamilyFactTray, type PiFamilyPromptFact } from './translation/pi-family-record-dialect'
-import { applyPiSessionEvent, synthesizePiFamilyAbortTurn } from './pi-event-journal'
+import { applyPiSessionEvent } from './pi-event-journal'
 import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
 import { PiFamilyAcquisitionGate } from './pi-family-acquisition-window'
 import { qualifyPiModelRef, resolvePiModelRef, validatePiThinkingLevel } from './pi-session-options'
@@ -50,18 +50,6 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
   /** Narrow #25 seam: prompt/catalog facts since the last drain. */
   drainFamilyFacts(): PiFamilyPromptFact[] {
     return this.factTray.drain()
-  }
-
-  protected synthesizeAbort(opId: string): void {
-    if (this.activeOp !== opId || !this.sink) {
-      return
-    }
-    synthesizePiFamilyAbortTurn({
-      translator: this.translator,
-      journal: (event) => this.journalEvent(opId, event),
-      provider: this.familyProvider
-    })
-    this.activeOp = null
   }
 
   async readResumeHistory(): Promise<{

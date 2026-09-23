@@ -160,8 +160,22 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
       }
     },
 
-    async cancel(input: { orcaSessionId: string }): Promise<{ cancelled: boolean }> {
-      return requireDriver(input.orcaSessionId).cancel()
+    async cancel(input: {
+      orcaSessionId: string
+      expectedTurnId?: string
+    }): Promise<{ cancelled: boolean }> {
+      return requireDriver(input.orcaSessionId).cancel(input.expectedTurnId)
+    },
+
+    liveTurnId(input: { orcaSessionId: string }): string | null {
+      return drivers.get(input.orcaSessionId)?.liveTurnId() ?? null
+    },
+
+    promptOwner(input: { orcaSessionId: string; itemKey: string }): {
+      requestId: string
+      opId: string
+    } | null {
+      return drivers.get(input.orcaSessionId)?.promptTurnOwner(input.itemKey) ?? null
     },
 
     drainPromptFacts(input: { orcaSessionId: string }): PiFamilyPromptFact[] {
@@ -194,18 +208,19 @@ export function createPiRpcBackend(deps: PiRpcBackendDeps = {}): PiStructuredBac
     },
 
     async answerPrompt(input: {
+      orcaSessionId: string
       itemKey: string
       kind: 'approval' | 'question'
       optionId: string
     }): Promise<void> {
-      for (const driver of drivers.values()) {
-        const tracked = driver.promptTracker.get(input.itemKey)
-        if (tracked) {
-          driver.answerPrompt(tracked.requestId, { kind: input.kind, optionId: input.optionId })
-          return
-        }
+      // Session-scoped: a stale generation answers through its own driver
+      // lookup and never through a replacement child's prompts.
+      const driver = drivers.get(input.orcaSessionId)
+      const owner = driver?.promptTurnOwner(input.itemKey)
+      if (!driver || !owner) {
+        throw new Error('UNKNOWN_REQUEST: unknown prompt request (already answered or retired)')
       }
-      throw new Error('UNKNOWN_REQUEST: unknown prompt request (already answered or retired)')
+      driver.answerPrompt(owner.requestId, { kind: input.kind, optionId: input.optionId })
     },
 
     async setOption(input: {

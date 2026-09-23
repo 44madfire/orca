@@ -33,6 +33,8 @@ import type {
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { supportsPiStructuredLocation } from './pi-structured-location-support'
 import { closePiStructuredSession } from './pi-structured-session-close'
+import { PiFamilyPromptClaims, answerPiFamilyPrompt } from './pi-family-prompt-answers'
+import { cancelPiFamilyTurn } from './pi-family-turn-cancellation'
 import type {
   PiSession,
   PiStructuredBackend,
@@ -59,6 +61,9 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
   private readonly optionRestoreFailures = new Map<string, Set<string>>()
   // Admitted submissions awaiting history-backed settlement (ephemeral; the journal stays authoritative).
   private readonly dispatches = new PiFamilyDispatchTracker()
+  // Ephemeral prompt-operation claims (answer vs prompt-bound cancel); the
+  // journal stays authoritative and driver callbacks stay provider-scoped.
+  private readonly promptClaims = new PiFamilyPromptClaims()
 
   constructor(private readonly deps: PiStructuredSessionAdapterDeps) {}
 
@@ -243,20 +248,15 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
       : undefined
   }
 
-  async cancelTurn(input: {
-    sessionId: string
-    turnId: string
-    fence: number
-  }): Promise<{ cancelled: boolean }> {
-    const session = this.sessions.get(input.sessionId)
-    if (!session || session.closed || session.fence !== input.fence) {
-      return { cancelled: false }
-    }
-    try {
-      return await this.requireBackend().cancel({ orcaSessionId: input.sessionId })
-    } catch {
-      return { cancelled: false }
-    }
+  async cancelTurn(
+    input: Parameters<StructuredAgentSessionAdapter['cancelTurn']>[0]
+  ): Promise<{ cancelled: boolean }> {
+    return cancelPiFamilyTurn({
+      sessions: this.sessions,
+      backend: this.requireBackend(),
+      claims: this.promptClaims,
+      input
+    })
   }
 
   rewindSupport: NonNullable<StructuredAgentSessionAdapter['rewindSupport']> = () => ({
@@ -264,27 +264,17 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     reason: 'unsupported'
   })
 
-  async answerPrompt(input: {
-    sessionId: string
-    itemId: string
-    kind: 'approval' | 'question'
-    optionId: string
-    fence: number
-  }): Promise<void> {
-    const session = this.requireLive(input.sessionId)
-    if (session.fence !== input.fence) {
-      throw new Error('agent_session_checkpoint_stale')
-    }
+  async answerPrompt(
+    input: Parameters<StructuredAgentSessionAdapter['answerPrompt']>[0]
+  ): Promise<void> {
     // `itemId` is the journal item key the driver journaled the dialog under;
-    // the backend routes it to the owning driver exactly once.
-    const answer = this.requireBackend().answerPrompt
-    if (!answer) {
-      throw new Error('Pi prompts are unavailable in this build.')
-    }
-    await answer({
-      itemKey: input.itemId,
-      kind: input.kind,
-      optionId: input.optionId
+    // ownership (claim, host commit, single provider response) lives in the
+    // shared prompt-answers helper so cancels race it through one claim.
+    return answerPiFamilyPrompt({
+      sessions: this.sessions,
+      backend: this.requireBackend(),
+      claims: this.promptClaims,
+      input
     })
   }
 
@@ -331,6 +321,8 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
   }
 
   private close(sessionId: string): Promise<boolean> {
+    // Ephemeral prompt claims die with the session; the journal stays authoritative.
+    this.promptClaims.dropSession(sessionId)
     return closePiStructuredSession({
       sessions: this.sessions,
       backend: this.deps.backend,
