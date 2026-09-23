@@ -9,6 +9,7 @@ import type {
 } from '../../shared/agent-session-journal-types'
 import type { AgentSessionProcessIdentity } from '../../shared/agent-session-record'
 import type { NativeChatBlock } from '../../shared/native-chat-types'
+import type { AgentSessionSlashCommand } from '../../shared/agent-session-wire'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { PiFamilySettledEvent } from './pi-family-flavor'
@@ -54,7 +55,11 @@ export type PiStructuredBackend = {
     kind: 'approval' | 'question'
     optionId: string
   }): Promise<void>
-  setOption?(input: { orcaSessionId: string; key: string; value: string }): Promise<Record<string, string>>
+  setOption?(input: {
+    orcaSessionId: string
+    key: string
+    value: string
+  }): Promise<Record<string, string>>
   readOptions?(input: { orcaSessionId: string }): Promise<{
     options: Record<string, string>
     model: string | undefined
@@ -62,6 +67,11 @@ export type PiStructuredBackend = {
   }>
   listModels?(input: { orcaSessionId: string }): Promise<{ id: string; provider: string }[]>
   listThinkingLevels?(input: { orcaSessionId: string }): Promise<string[]>
+  readCommands?(input: { orcaSessionId: string }): AgentSessionSlashCommand[] | undefined
+  refreshCommands?(input: {
+    orcaSessionId: string
+  }): Promise<AgentSessionSlashCommand[] | undefined>
+  compact?(input: { orcaSessionId: string }): Promise<{ error?: string }>
   readResumeHistory?(input: { orcaSessionId: string }): Promise<{
     rows: { id: string; role: string; text: string }[]
     leafId: string
@@ -153,5 +163,9 @@ export async function resolvePiProcessIdentity(input: {
       reader
     )
   }
-  return piProcessIdentity({ identity: input.identity, spawnToken: input.spawnToken, pid: input.pid })
+  return piProcessIdentity({
+    identity: input.identity,
+    spawnToken: input.spawnToken,
+    pid: input.pid
+  })
 }

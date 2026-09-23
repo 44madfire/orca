@@ -33,9 +33,11 @@ import type {
 } from './pi-structured-backend'
 import { acquirePiStructuredSession } from './pi-structured-session-acquire'
 import {
+  compactPiSession,
   readPiHistoryFilePath,
   readPiOptionRestoreFailures,
   readPiResumeHistory,
+  readPiSessionCommands,
   readPiSessionOptions,
   setPiSessionOption,
   type PiStructuredSessionInspectionState
@@ -141,7 +143,10 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
     }
     let result: PiStructuredDispatchResult
     try {
-      result = await this.requireBackend().dispatch({ orcaSessionId: input.sessionId, body: input.body })
+      result = await this.requireBackend().dispatch({
+        orcaSessionId: input.sessionId,
+        body: input.body
+      })
     } catch (error) {
       // Unsettled dispatch stays `unknown`; the caller reconciles via history.
       return { state: 'unknown', reason: error instanceof Error ? error.message : String(error) }
@@ -215,6 +220,15 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
 
   readOptions = (input: { sessionId: string; fence: number }) =>
     readPiSessionOptions(this.inspectionState(), input)
+
+  readCommands = (sessionId: string) => readPiSessionCommands(this.inspectionState(), sessionId)
+
+  compact = (input: {
+    turnId: string
+    sessionId: string
+    fence: number
+    onLateResult?: (result: { error?: string }) => Promise<void>
+  }) => compactPiSession(this.inspectionState(), input)
 
   readOptionRestoreFailures = (sessionId: string): readonly string[] =>
     readPiOptionRestoreFailures(this.optionRestoreFailures, sessionId)
