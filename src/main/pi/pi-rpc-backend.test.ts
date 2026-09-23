@@ -457,7 +457,7 @@ describe('Pi RPC backend over a scripted child', () => {
         resumed: true,
         fence: 9,
         observedAt: Date.now(),
-        sessionFile: acquired.sessionFilePath ?? undefined
+        sessionFile: acquired.sessionFilePath ?? file
       })
       const record = {
         sessionId: 'ses-r',

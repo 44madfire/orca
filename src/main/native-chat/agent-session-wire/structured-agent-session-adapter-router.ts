@@ -7,8 +7,9 @@ import type { StructuredAgentSessionAdapter } from './structured-agent-session-a
 
 /**
  * Provider adapters behind one structured-session contract. `claude` and `codex` are always
- * present; `pi` is the SNC1.9 native Pi adapter (local-only, fail-closed without the Pi RPC
- * backend); `external` is the SNC1.3 dev seam (hot-swappable out-of-process bridge) and is
+ * present; `pi`/`omp` share one installed Pi-family adapter (local-only, fail-closed without
+ * Pi-family RPC support — either key may hold it and both discriminants resolve to it);
+ * `external` is the SNC1.3 dev seam (hot-swappable out-of-process bridge) and is
  * only installed when the dev flag + bridge command are configured — packaged Orca never sees it.
  */
 type SessionRoute = { adapter: StructuredAgentSessionAdapter; state: 'live' | 'stopped' }
@@ -19,7 +20,7 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
 
   constructor(
     private readonly adapters: Record<'claude' | 'codex', StructuredAgentSessionAdapter> &
-      Partial<Record<'external' | 'pi', StructuredAgentSessionAdapter>>,
+      Partial<Record<'external' | 'pi' | 'omp', StructuredAgentSessionAdapter>>,
     private readonly closeAdapters: () => Promise<void>
   ) {}
 
@@ -235,7 +236,13 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
       return this.adapters.external ?? null
     }
     if (agent === 'pi') {
-      return this.adapters.pi ?? null
+      // One Pi-family adapter serves both discriminants; either key may hold it, so each
+      // discriminant falls back to the other key rather than to `external` (which is never
+      // consulted here — an absent Pi-family adapter fails closed below).
+      return this.adapters.pi ?? this.adapters.omp ?? null
+    }
+    if (agent === 'omp') {
+      return this.adapters.omp ?? this.adapters.pi ?? null
     }
     return null
   }

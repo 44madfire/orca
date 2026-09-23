@@ -82,12 +82,14 @@ export async function resolveStructuredAgentSessionAdoptionForCreate(input: {
         agent: input.agent,
         providerSessionId: input.providerSessionId,
         selfSessionId: input.selfSessionId,
-        // Adoption is TUI-only (claude/codex); external bridge sessions never adopt.
+        // Adoption is TUI-only (claude/codex); external bridge and Pi-family sessions never adopt.
         ownership: listStructuredProviderSessionOwnership(
           input.host.deps.store.listRecords()
         ).filter(
           (owner): owner is Extract<typeof owner, { provider: 'claude' | 'codex' }> =>
-            owner.provider !== 'external'
+            owner.provider !== 'external' &&
+            owner.provider !== 'pi' &&
+            owner.provider !== 'omp'
         )
       })
     : null

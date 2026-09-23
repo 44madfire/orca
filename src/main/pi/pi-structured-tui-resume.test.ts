@@ -158,13 +158,16 @@ describe('Pi native acquire → TUI launch planning', () => {
 
 describe('Pi TUI resume planning fails closed', () => {
   it('refuses a missing or relative locator without naming any path', () => {
-    const bare = {
-      linkId: 'pi-3-x-leaf',
-      handle: { provider: 'pi' as const, sessionId: PI_SESSION_ID, leafId: PI_LEAF },
-      origin: 'created' as const,
-      mintedAtFence: 3,
-      observedAt: 0
-    }
+    // A file-less chain as persisted JSON would decode it: the planner must fail closed.
+    const bare: AgentSessionProviderHandleLink = JSON.parse(
+      JSON.stringify({
+        linkId: 'pi-3-x-leaf',
+        handle: { provider: 'pi', sessionId: PI_SESSION_ID, leafId: PI_LEAF },
+        origin: 'created',
+        mintedAtFence: 3,
+        observedAt: 0
+      })
+    )
     expect(() => buildPiTuiResumeProviderSession(piRecord(bare))).toThrow(
       'agent_session_identity_required'
     )

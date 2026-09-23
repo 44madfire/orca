@@ -58,7 +58,7 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
 
   async getStructuredAgentSessionCreateSupport(
     worktreeSelector: string,
-    agent: 'claude' | 'codex' | 'pi'
+    agent: 'claude' | 'codex' | 'pi' | 'omp'
   ): Promise<{ supported: boolean; reason?: 'agent' | 'remote' | 'wsl' }> {
     const location = await this.resolveStructuredAgentSessionLocation(worktreeSelector)
     return resolveStructuredAgentSessionCreateSupport({
@@ -67,7 +67,7 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
       adapterSupportsCreate:
         agent === 'claude'
           ? supportsClaudeStructuredLocation(location)
-          : agent === 'pi'
+          : agent === 'pi' || agent === 'omp'
             ? supportsPiStructuredLocation(location)
             : supportsCodexStructuredLocation(location),
       getSettings: () => this.requireStore().getSettings()

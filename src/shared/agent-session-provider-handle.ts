@@ -5,26 +5,40 @@
  * identifies a conversation. Claude's session id is the identity root and its leaf uuid is a
  * branch cursor; Codex's thread id is the whole key; an external bridge session id is the
  * whole key (SNC1.3 dev seam — the out-of-process provider names it, Orca never mints it);
- * Pi's session id is the identity root and its leaf id is the current-branch cursor
- * (SNC1.9 native Pi — the Pi session file is authoritative, leaf always names the Pi leaf).
+ * Pi/OMP session ids are identity roots and their leaf ids are current-branch cursors
+ * (Pi-family native sessions — the exact session file is the authoritative resume locator,
+ * required on every Pi/OMP handle, and part of the handle key but never the root).
  * Resumes extend the chain, forks start a new
  * identity root, and the chain records which is which so a fork is never presented as a resume.
  */
 
-export const AGENT_SESSION_PROVIDER_HANDLE_PROVIDERS = ['claude', 'codex', 'external', 'pi'] as const
+export const AGENT_SESSION_PROVIDER_HANDLE_PROVIDERS = [
+  'claude',
+  'codex',
+  'external',
+  'pi',
+  'omp'
+] as const
 
 export type AgentSessionHandleProvider = (typeof AGENT_SESSION_PROVIDER_HANDLE_PROVIDERS)[number]
 
 /** Runtime guard for persisted/remote provider metadata. Unknown values must not impersonate Codex. */
 export function isAgentSessionHandleProvider(value: unknown): value is AgentSessionHandleProvider {
-  return value === 'claude' || value === 'codex' || value === 'external' || value === 'pi'
+  return (
+    value === 'claude' ||
+    value === 'codex' ||
+    value === 'external' ||
+    value === 'pi' ||
+    value === 'omp'
+  )
 }
 
 export type AgentSessionProviderHandle =
   | { provider: 'claude'; sessionId: string; leafUuid: string | null }
   | { provider: 'codex'; threadId: string }
   | { provider: 'external'; sessionId: string }
-  | { provider: 'pi'; sessionId: string; leafId: string | null; sessionFile?: string }
+  | { provider: 'pi'; sessionId: string; leafId: string | null; sessionFile: string }
+  | { provider: 'omp'; sessionId: string; leafId: string | null; sessionFile: string }
 
 export type AgentSessionProviderHandleOrigin = 'created' | 'adopted' | 'resumed' | 'forked'
 
@@ -71,13 +85,15 @@ export function isAgentSessionProviderHandle(value: unknown): value is AgentSess
   if (handle.provider === 'external') {
     return isHandleField(handle.sessionId)
   }
-  // `sessionFile` is locator metadata for `pi --session` resume, never identity:
-  // links enter the chain only via adapter-minted handles, never client params.
-  if (handle.provider === 'pi') {
+  // `sessionFile` is the exact opaque resume locator, minted only by the owning
+  // provider's adapter: links enter the chain only via adapter-minted handles, never
+  // client params. It names the writer target (key) but never the root — a leaf or
+  // file change resumes, a provider or session change forks.
+  if (handle.provider === 'pi' || handle.provider === 'omp') {
     return (
       isHandleField(handle.sessionId) &&
       (handle.leafId === null || isHandleField(handle.leafId)) &&
-      (handle.sessionFile === undefined || isHandleField(handle.sessionFile))
+      isHandleField(handle.sessionFile)
     )
   }
   return handle.provider === 'codex' && isHandleField(handle.threadId)
@@ -91,8 +107,8 @@ export function agentSessionProviderHandleKey(handle: AgentSessionProviderHandle
   if (handle.provider === 'external') {
     return `external:${JSON.stringify(handle.sessionId)}`
   }
-  if (handle.provider === 'pi') {
-    return `pi:${JSON.stringify([handle.sessionId, handle.leafId])}`
+  if (handle.provider === 'pi' || handle.provider === 'omp') {
+    return `${handle.provider}:${JSON.stringify([handle.sessionId, handle.leafId, handle.sessionFile])}`
   }
   return `codex:${JSON.stringify(handle.threadId)}`
 }
@@ -108,8 +124,8 @@ export function agentSessionProviderHandleRoot(handle: AgentSessionProviderHandl
   if (handle.provider === 'external') {
     return `external:${JSON.stringify(handle.sessionId)}`
   }
-  if (handle.provider === 'pi') {
-    return `pi:${JSON.stringify(handle.sessionId)}`
+  if (handle.provider === 'pi' || handle.provider === 'omp') {
+    return `${handle.provider}:${JSON.stringify(handle.sessionId)}`
   }
   return `codex:${JSON.stringify(handle.threadId)}`
 }

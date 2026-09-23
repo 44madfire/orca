@@ -91,6 +91,8 @@ export type PiStructuredSessionAdapterDeps = {
 
 export type PiSession = {
   orcaSessionId: string
+  /** Durable Pi-family discriminant this session was acquired under; never inferred. */
+  provider: 'pi' | 'omp'
   piSessionId: string
   leafId: string | null
   fence: number
@@ -101,18 +103,27 @@ export type PiSession = {
   closed: boolean
 }
 
-export function opaquePiResumeSessionId(identity: AgentSessionJournalIdentity): string | null {
+/** Pi-family resume target parsed from the journal's opaque provider handle
+ *  (`pi:<sessionId>` or `omp:<sessionId>`). The provider travels with the id so
+ *  acquisition can refuse a cross-provider resume instead of mis-attributing it. */
+export function opaquePiFamilyResume(
+  identity: AgentSessionJournalIdentity
+): { sessionId: string; provider: 'pi' | 'omp' } | null {
   const handle = identity.providerHandle
   if (!handle || typeof handle !== 'object') {
     return null
   }
-  if (
-    (handle as { kind?: string }).kind === 'opaque' &&
-    (handle as { agent?: string }).agent === 'pi'
-  ) {
-    const value = (handle as { value?: unknown }).value
-    if (typeof value === 'string' && value.startsWith('pi:') && value.slice(3).trim() !== '') {
-      return value.slice(3)
+  if (handle.kind !== 'opaque') {
+    return null
+  }
+  const value = handle.value
+  if (typeof value !== 'string') {
+    return null
+  }
+  for (const provider of ['pi', 'omp'] as const) {
+    const rest = value.startsWith(`${provider}:`) ? value.slice(provider.length + 1) : ''
+    if (rest.trim() !== '') {
+      return { sessionId: rest, provider }
     }
   }
   return null

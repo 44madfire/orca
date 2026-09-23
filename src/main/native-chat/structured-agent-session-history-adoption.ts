@@ -58,9 +58,13 @@ export function findCommittedStructuredAgentSessionAdoptionReplay(input: {
   ) {
     return null
   }
-  // Pi adoption reconciles via provider-resume (Pi session file root → leaf),
+  // Pi-family adoption reconciles via provider-resume (exact session file root → leaf),
   // never via transcript adoption; fail closed here rather than mis-attribute.
-  if (adopted.handle.provider === 'external' || adopted.handle.provider === 'pi') {
+  if (
+    adopted.handle.provider === 'external' ||
+    adopted.handle.provider === 'pi' ||
+    adopted.handle.provider === 'omp'
+  ) {
     return null
   }
   const providerSessionId =
