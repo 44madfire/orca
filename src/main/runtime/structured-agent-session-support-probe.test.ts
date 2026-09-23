@@ -82,7 +82,7 @@ function createRuntime(location: TestLocation): OrcaRuntimeService {
 }
 
 async function expectSupportWithoutInstall(input: {
-  agent: 'claude' | 'codex'
+  agent: 'claude' | 'codex' | 'omp'
   location: TestLocation
   expected: SupportResult
   repetitions?: number
@@ -171,6 +171,16 @@ describe('structured agent-session create-support probe', () => {
       })
     }
   )
+
+  it('reports omp unsupported without consulting location support', async () => {
+    // omp is handle-valid but has no RPC/record create path yet: fail closed with the
+    // agent reason rather than answer from Pi location support.
+    await expectSupportWithoutInstall({
+      agent: 'omp',
+      location: { executionHostId: 'local', wslDistro: null },
+      expected: { supported: false, reason: 'agent' }
+    })
+  })
 
   it.each(['codex', 'claude'] as const)(
     'supports a local folder workspace for %s without installing the host',

@@ -30,11 +30,12 @@ describe('Pi handoff quiesce policy', () => {
 })
 
 describe('Pi handoff identity', () => {
+  const FILE = '/tmp/pi-ses-1.jsonl'
   it('resumes the exact same Pi session while the leaf advances', () => {
     expect(
       validatePiHandoffIdentity({
-        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9' },
-        to: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-10' }
+        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9', sessionFile: FILE },
+        to: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-10', sessionFile: FILE }
       })
     ).toMatchObject({ ok: true })
   })
@@ -42,19 +43,19 @@ describe('Pi handoff identity', () => {
   it('fails closed when the Pi session changes, the handle is missing, or the provider mismatches', () => {
     expect(
       validatePiHandoffIdentity({
-        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9' },
-        to: { provider: 'pi', sessionId: 'pi-ses-2', leafId: 'leaf-9' }
+        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9', sessionFile: FILE },
+        to: { provider: 'pi', sessionId: 'pi-ses-2', leafId: 'leaf-9', sessionFile: FILE }
       })
     ).toMatchObject({ ok: false, code: 'PI_HANDOFF_SESSION_MISMATCH' })
     expect(
       validatePiHandoffIdentity({
-        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9' },
+        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9', sessionFile: FILE },
         to: null
       })
     ).toMatchObject({ ok: false, code: 'PI_HANDOFF_UNKNOWN_DISPATCH' })
     expect(
       validatePiHandoffIdentity({
-        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9' },
+        from: { provider: 'pi', sessionId: 'pi-ses-1', leafId: 'leaf-9', sessionFile: FILE },
         to: { provider: 'codex', threadId: 'thread-1' }
       })
     ).toMatchObject({ ok: false, code: 'PI_HANDOFF_PROVIDER_MISMATCH' })

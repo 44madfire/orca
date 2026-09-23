@@ -58,8 +58,12 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
 
   async getStructuredAgentSessionCreateSupport(
     worktreeSelector: string,
-    agent: 'claude' | 'codex' | 'pi'
+    agent: 'claude' | 'codex' | 'pi' | 'omp'
   ): Promise<{ supported: boolean; reason?: 'agent' | 'remote' | 'wsl' }> {
+    if (agent === 'omp') {
+      // Handle-valid but not creatable until the RPC/record path carries it (later PIF).
+      return { supported: false, reason: 'agent' }
+    }
     const location = await this.resolveStructuredAgentSessionLocation(worktreeSelector)
     return resolveStructuredAgentSessionCreateSupport({
       agent,

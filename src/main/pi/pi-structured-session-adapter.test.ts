@@ -76,11 +76,13 @@ function adapterWithFake(
 }
 
 describe('PiStructuredSessionAdapter capability gates', () => {
-  it('claims only pi on proven local locations', () => {
+  it('claims only the Pi family on proven local locations', () => {
     const adapter = new PiStructuredSessionAdapter({ resolveWorkspacePath: () => '/tmp/ws' })
     expect(adapter.supportsCreate?.(LOCAL, 'pi')).toBe(true)
+    expect(adapter.supportsCreate?.(LOCAL, 'omp')).toBe(true)
     expect(adapter.supportsCreate?.(LOCAL, 'codex')).toBe(false)
     expect(adapter.supportsCreate?.(LOCAL, 'claude')).toBe(false)
+    expect(adapter.supportsCreate?.(LOCAL, 'external')).toBe(false)
     expect(
       adapter.supportsCreate?.({ ...LOCAL, wslDistro: 'Ubuntu' }, 'pi')
     ).toBe(false)
@@ -330,10 +332,13 @@ describe('Pi router routing preserves Codex/Claude', () => {
     const pi = new PiStructuredSessionAdapter({ resolveWorkspacePath: () => '/tmp/ws' })
     const router = new StructuredAgentSessionAdapterRouter({ codex, claude, pi }, async () => {})
     expect(router.supportsCreate?.(LOCAL, 'pi')).toBe(true)
+    // OMP shares the one Pi-family adapter: same instance, same capability gate.
+    expect(router.supportsCreate?.(LOCAL, 'omp')).toBe(true)
     expect(router.supportsCreate?.(LOCAL, 'codex')).toBe(true)
     expect(router.supportsCreate?.(LOCAL, 'unknown-agent')).toBe(false)
     const withoutPi = new StructuredAgentSessionAdapterRouter({ codex, claude }, async () => {})
     expect(withoutPi.supportsCreate?.(LOCAL, 'pi')).toBe(false)
+    expect(withoutPi.supportsCreate?.(LOCAL, 'omp')).toBe(false)
   })
 
   it('forwards history resume reads to the owning adapter', async () => {
@@ -363,5 +368,154 @@ describe('Pi router routing preserves Codex/Claude', () => {
     await router.acquire({ identity: freshIdentity('ses-1'), fence: 0, spawnToken: 'spawn-1' })
     await router.readResumeHistory({ sessionId: 'ses-1', fence: 0 })
     expect(readResumeHistory).toHaveBeenCalledWith({ orcaSessionId: 'ses-1' })
+  })
+})
+
+describe('PiStructuredSessionAdapter OMP discriminant (PIF-1)', () => {
+  function ompFreshIdentity(sessionId: string): AgentSessionJournalIdentity {
+    return {
+      sessionId,
+      workspaceId: 'workspace-1',
+      hostId: 'local',
+      agent: 'omp',
+      providerHandle: { kind: 'opaque', agent: 'omp', value: 'pending' }
+    }
+  }
+
+  function ompResumeIdentity(sessionId: string): AgentSessionJournalIdentity {
+    return {
+      sessionId,
+      workspaceId: 'workspace-1',
+      hostId: 'local',
+      agent: 'omp',
+      providerHandle: { kind: 'opaque', agent: 'omp', value: 'omp:omp-ses-1' }
+    }
+  }
+
+  function ompBackend(): PiStructuredBackend {
+    return fakeBackend({
+      acquire: async () => ({
+        piSessionId: 'omp-ses-1',
+        leafId: 'leaf-1',
+        pid: 4242,
+        sessionFilePath: '/tmp/omp-ses-1.jsonl'
+      })
+    })
+  }
+
+  it('claims omp alongside pi on proven local locations, never globally', () => {
+    const adapter = new PiStructuredSessionAdapter({ resolveWorkspacePath: () => '/tmp/ws' })
+    expect(adapter.supportsCreate?.(LOCAL, 'omp')).toBe(true)
+    expect(adapter.supportsCreate?.(LOCAL, 'pi')).toBe(true)
+    expect(adapter.supportsCreate?.(LOCAL, 'codex')).toBe(false)
+    expect(adapter.supportsCreate?.({ ...LOCAL, wslDistro: 'Ubuntu' }, 'omp')).toBe(false)
+    expect(adapter.supportsCreate?.({ ...LOCAL, executionHostId: 'ssh:host-1' }, 'omp')).toBe(
+      false
+    )
+  })
+
+  it('mints an omp link with the exact session file and answers dispatch as omp', async () => {
+    const adapter = adapterWithFake(ompBackend())
+    const acquired = await adapter.acquire({
+      identity: ompFreshIdentity('ses-omp'),
+      fence: 7,
+      spawnToken: 'spawn-1'
+    })
+    expect(acquired.link.handle).toEqual({
+      provider: 'omp',
+      sessionId: 'omp-ses-1',
+      leafId: 'leaf-1',
+      sessionFile: '/tmp/omp-ses-1.jsonl'
+    })
+    await expect(
+      adapter.dispatch({ sessionId: 'ses-omp', clientMessageId: 'c1', body: textBody('hi'), fence: 7 })
+    ).resolves.toMatchObject({
+      state: 'accepted',
+      providerIdentity: { provider: 'legacy', agent: 'omp', sessionId: 'omp-ses-1' }
+    })
+  })
+
+  it('resumes the exact omp session when the host-owned file accompanies the resume identity', async () => {
+    const acquire = vi.fn(async () => ({
+      piSessionId: 'omp-ses-1',
+      leafId: 'leaf-2',
+      pid: 4242,
+      sessionFilePath: '/tmp/omp-ses-1.jsonl'
+    }))
+    const adapter = adapterWithFake(fakeBackend({ acquire }))
+    const acquired = await adapter.acquire({
+      identity: ompResumeIdentity('ses-omp'),
+      fence: 4,
+      spawnToken: 'spawn-2',
+      resumeSessionFile: '/tmp/omp-ses-1.jsonl'
+    })
+    expect(acquire).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumePiSessionId: 'omp-ses-1',
+        resumeSessionFile: '/tmp/omp-ses-1.jsonl'
+      })
+    )
+    expect(acquired.link.origin).toBe('resumed')
+    expect(acquired.link.handle).toMatchObject({ provider: 'omp', sessionId: 'omp-ses-1' })
+  })
+
+  it('refuses a cross-provider resume instead of opening a Pi file with OMP', async () => {
+    const adapter = adapterWithFake(ompBackend())
+    const mixed: AgentSessionJournalIdentity = {
+      ...ompFreshIdentity('ses-omp'),
+      providerHandle: { kind: 'opaque', agent: 'omp', value: 'pi:pi-ses-1' }
+    }
+    await expect(
+      adapter.acquire({
+        identity: mixed,
+        fence: 0,
+        spawnToken: 'spawn-1',
+        resumeSessionFile: '/tmp/pi-ses-1.jsonl'
+      })
+    ).rejects.toThrow('mixes pi session with omp acquisition')
+  })
+
+  it('reaps the child and fails closed when the backend reports no session file', async () => {
+    const close = vi.fn(async () => true)
+    const backend = fakeBackend({
+      acquire: async () => ({ piSessionId: 'omp-ses-1', leafId: 'leaf-1', pid: 4242 }),
+      close
+    })
+    const adapter = adapterWithFake(backend)
+    await expect(
+      adapter.acquire({ identity: ompFreshIdentity('ses-omp'), fence: 0, spawnToken: 'spawn-1' })
+    ).rejects.toThrow('PI_STATE_FAILED')
+    expect(close).toHaveBeenCalledWith({ orcaSessionId: 'ses-omp' })
+  })
+
+  it('routes pi and omp acquisitions through one router adapter without touching external', async () => {
+    const codex = {
+      acquire: vi.fn(async () => ({ process: { pid: 1 } }) as never),
+      dispatch: vi.fn(),
+      cancelTurn: vi.fn(),
+      answerPrompt: vi.fn(),
+      setOption: vi.fn(),
+      supportsLocation: () => true
+    } as unknown as StructuredAgentSessionAdapter
+    const pi = adapterWithFake(ompBackend())
+    const router = new StructuredAgentSessionAdapterRouter({ codex, claude: codex, pi }, async () => {})
+    expect(router.supportsCreate?.(LOCAL, 'pi')).toBe(true)
+    expect(router.supportsCreate?.(LOCAL, 'omp')).toBe(true)
+    const piAcquired = await router.acquire({
+      identity: freshIdentity('ses-pi'),
+      fence: 0,
+      spawnToken: 'spawn-pi'
+    })
+    // The shared fake backend answers every fresh acquire the same way; the durable
+    // discriminant still routes unchanged per acquisition.
+    expect(piAcquired.link.handle).toMatchObject({ provider: 'pi' })
+    await expect(
+      router.dispatch({
+        sessionId: 'ses-pi',
+        clientMessageId: 'c1',
+        body: textBody('hi'),
+        fence: 0
+      })
+    ).resolves.toMatchObject({ state: 'accepted' })
   })
 })

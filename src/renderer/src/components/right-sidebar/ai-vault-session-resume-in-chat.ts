@@ -7,7 +7,7 @@
 import { isWslStoredAiVaultSessionFile } from '@/lib/ai-vault-resume-target'
 import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
-import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
+import { isStructuredSessionCreatableProvider } from '../../../../shared/agent-session-provider-handle'
 import {
   isAiVaultSessionResumableContent,
   type AiVaultSession
@@ -70,7 +70,7 @@ export function resolveAiVaultSessionResumeInChatEligibility(args: {
   structuredRouteAvailable: boolean
 }): AiVaultResumeInChatEligibility {
   const { session } = args
-  if (!isAgentSessionHandleProvider(session.agent)) {
+  if (!isStructuredSessionCreatableProvider(session.agent)) {
     return { available: false, reason: 'agent' }
   }
   // An already-adopted row reopens its own chat instead; offering a second resume of it would ask

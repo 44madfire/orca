@@ -59,7 +59,9 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
   }
 
   supportsCreate = (location: AgentSessionExecutionLocation, agent: string): boolean => {
-    if (agent !== 'pi') {
+    // One Pi-family adapter owns both discriminants; capability stays adapter-driven so
+    // neither provider is ever globally supported merely because the handle type exists.
+    if (agent !== 'pi' && agent !== 'omp') {
       return false
     }
     return supportsPiStructuredLocation(location)
@@ -124,7 +126,8 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
         state: 'accepted',
         providerIdentity: {
           provider: 'legacy',
-          agent: 'pi',
+          // The discriminant of the session that owns this turn; Pi and OMP never share one.
+          agent: session.provider,
           sessionId: session.piSessionId,
           recordId: input.clientMessageId
         }

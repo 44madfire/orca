@@ -44,6 +44,8 @@ export async function piProcessIdentity(
 }
 
 export function piProviderHandleLink(input: {
+  /** Durable Pi-family discriminant; defaults to Pi for the pre-OMP call sites. */
+  provider?: 'pi' | 'omp'
   sessionId: string
   leafId: string | null
   resumed: boolean
@@ -51,18 +53,19 @@ export function piProviderHandleLink(input: {
   fence: number
   linkId?: string
   observedAt: number
-  /** Exact Pi session file from the backend acquire result (host-observed locator). */
-  sessionFile?: string
+  /** Exact host-observed session file; required — a Pi-family handle without one is unresumable. */
+  sessionFile: string
 }): AgentSessionProviderHandleLink {
+  const provider = input.provider ?? 'pi'
   return {
     linkId:
       input.linkId ??
-      `pi-${input.fence}-${input.sessionId}-${input.leafId ?? 'empty'}`.slice(0, 128),
+      `${provider}-${input.fence}-${input.sessionId}-${input.leafId ?? 'empty'}`.slice(0, 128),
     handle: {
-      provider: 'pi',
+      provider,
       sessionId: input.sessionId,
       leafId: input.leafId,
-      ...(input.sessionFile ? { sessionFile: input.sessionFile } : {})
+      sessionFile: input.sessionFile
     },
     origin: input.origin ?? (input.resumed ? 'resumed' : 'created'),
     mintedAtFence: input.fence,

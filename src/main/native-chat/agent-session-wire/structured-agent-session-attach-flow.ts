@@ -18,6 +18,7 @@ import type {
 import { agentSessionLeaseAdmitsWriter } from '../../../shared/agent-session-lease-adjudication'
 import type { AgentSessionJournalIdentity } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
+import { isStructuredSessionCreatableProvider } from '../../../shared/agent-session-provider-handle'
 import {
   admitAttachOrRefuse,
   attachJournal,
@@ -87,6 +88,16 @@ export async function performAttach(
   const admitted = admitAttachOrRefuse(params)
   if (!admitted.ok) {
     return admitted
+  }
+  // The durable record cannot carry every handle-valid provider yet: `omp` validates
+  // as a handle but has no RPC/record create path (later PIF). Refuse before reserving
+  // or spawning — for a mismatched agent/provider pair too — so the failure is pre-spawn
+  // and definitive (`structured_agent_session_unsupported` still falls back to terminal).
+  if (
+    !isStructuredSessionCreatableProvider(params.provider) ||
+    !isStructuredSessionCreatableProvider(params.agent)
+  ) {
+    return unsupported()
   }
   // Ensure/recovery bypass create-intent, so recheck before reserving or spawning.
   if (!adapterSupportsCreateIfDeclared(input.adapter, params.location, params.agent)) {
