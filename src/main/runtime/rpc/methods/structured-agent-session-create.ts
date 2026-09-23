@@ -35,7 +35,7 @@ export type PreparedStructuredAgentSessionCreate = {
   host: StructuredAgentSessionHost
   attachParams: AgentSessionAttachParams
   /** Null when the caller supplied its own location; only a resolved worktree publishes a tab. */
-  tab: { workspaceId: string; agent: 'claude' | 'codex' | 'pi' } | null
+  tab: { workspaceId: string; agent: 'claude' | 'codex' | 'pi' | 'omp' } | null
 }
 
 /** The pre-commit half. Throws; the caller is expected to run it inside
@@ -46,7 +46,7 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
   ensureHost: () => Promise<StructuredAgentSessionHost>
   envelope: AgentSessionMutationEnvelope
   worktree: string
-  agent: 'claude' | 'codex' | 'pi'
+  agent: 'claude' | 'codex' | 'pi' | 'omp'
   caller: StructuredAgentSessionCaller
   resumeFrom?: StructuredAgentSessionResumeSource
   /** Replaces the seed options the host resolves from settings. Orchestration passes the
@@ -78,13 +78,13 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
       // they are the session's initial state, not its identity, so a retry that re-resolves them
       // must replay rather than conflict.
       ...(args.options ? { options: args.options } : {}),
-      provider: resolved.provider as 'claude' | 'codex' | 'pi',
-      agent: resolved.agent as 'claude' | 'codex' | 'pi',
+      provider: resolved.provider,
+      agent: resolved.agent,
       envelope: { ...args.envelope, payloadFingerprint: hostFingerprint }
     },
     tab: {
       workspaceId: resolved.location.workspaceId,
-      agent: resolved.agent as 'claude' | 'codex' | 'pi'
+      agent: resolved.agent
     }
   }
 }
@@ -127,7 +127,7 @@ export async function createStructuredAgentSessionForWorktree(args: {
   caller: StructuredAgentSessionCaller
   envelope: AgentSessionMutationEnvelope
   worktree: string
-  agent: 'claude' | 'codex' | 'pi'
+  agent: 'claude' | 'codex' | 'pi' | 'omp'
   activate: boolean
   options?: Readonly<Record<string, string>>
 }): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {

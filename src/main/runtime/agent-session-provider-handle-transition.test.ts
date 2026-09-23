@@ -180,7 +180,7 @@ describe('recordAgentSessionProviderHandle (Pi-family)', () => {
     expect(isAgentSessionRecord(reloaded)).toBe(true)
   })
 
-  it('refuses a persisted omp record: the record cannot carry omp until the RPC path does', () => {
+  it('accepts a persisted omp record now that Pi-family acquisition carries it', () => {
     const record = livePiFamilyRecord(
       createdPiFamilyLink({
         provider: 'omp',
@@ -189,8 +189,8 @@ describe('recordAgentSessionProviderHandle (Pi-family)', () => {
         sessionFile: OMP_FILE
       })
     )
-    // Handles, keys, roots, and chains accept omp; the durable record does not yet.
-    expect(isAgentSessionRecord(JSON.parse(JSON.stringify(record)))).toBe(false)
+    // Handles, keys, roots, chains, and — since PIF-3 (#24) — the record carry omp.
+    expect(isAgentSessionRecord(JSON.parse(JSON.stringify(record)))).toBe(true)
   })
 
   it('refuses a persisted Pi-family chain that lost its session file', () => {

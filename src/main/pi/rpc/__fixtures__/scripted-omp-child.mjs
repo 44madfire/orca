@@ -32,7 +32,39 @@ const session = {
   sessionId: process.env.OMP_SCRIPT_SESSION_ID ?? 'omp-script-ses-1',
   sessionFile: SESSION_FILE,
   model: { id: 'script-model', provider: 'script-provider' },
-  thinkingLevel: 'medium'
+  thinkingLevel: 'medium',
+  entries: [],
+  leafId: null
+}
+
+// Minimal session-file load so resume tests converge: the shared history
+// layer only reads the structural subset (id/parentId), never OMP payloads.
+function loadSessionFile(path) {
+  const text = readFileSync(path, 'utf8')
+  const lines = text.split('\n').filter((line) => line.trim() !== '')
+  let header = null
+  const entries = []
+  for (const line of lines) {
+    const record = JSON.parse(line)
+    if (record && record.type === 'session') {
+      header = record
+    } else if (record && typeof record.id === 'string') {
+      entries.push(record)
+    }
+  }
+  session.entries = entries
+  if (header) {
+    if (typeof header.sessionId === 'string' && header.sessionId !== '') {
+      session.sessionId = header.sessionId
+    }
+    if (typeof header.leafId === 'string' && header.leafId !== '') {
+      session.leafId = header.leafId
+    }
+    session.sessionFile = path
+  } else if (entries.length > 0) {
+    session.leafId = entries.at(-1).id
+    session.sessionFile = path
+  }
 }
 
 function send(record) {
@@ -101,11 +133,31 @@ function handleCommand(cmd) {
       respond(cmd, true, stateData())
       return
     case 'get_entries':
-      respond(cmd, true, { entries: [], leafId: 'leaf-empty' })
+      respond(cmd, true, {
+        entries: session.entries,
+        leafId: session.leafId ?? 'leaf-empty'
+      })
       return
-    case 'get_tree':
-      respond(cmd, true, { tree: [], leafId: 'leaf-empty' })
+    case 'get_tree': {
+      const byParent = new Map()
+      for (const entry of session.entries) {
+        const key = entry.parentId ?? ''
+        if (!byParent.has(key)) {
+          byParent.set(key, [])
+        }
+        byParent.get(key).push(entry)
+      }
+      const build = (parentId) =>
+        (byParent.get(parentId ?? '') ?? []).map((entry) => ({
+          entry,
+          children: build(entry.id)
+        }))
+      respond(cmd, true, {
+        tree: build(null),
+        leafId: session.leafId ?? 'leaf-empty'
+      })
       return
+    }
     case 'get_available_models':
       respond(cmd, true, {
         models: [{ id: 'script-model', name: 'Script Model', provider: 'script-provider' }]
@@ -138,6 +190,12 @@ function handleCommand(cmd) {
       respond(cmd, true, {})
       return
     case 'switch_session':
+      try {
+        loadSessionFile(cmd.sessionPath ?? cmd.resumePath ?? '')
+      } catch (error) {
+        respond(cmd, false, undefined, `cannot load session file: ${error.message}`)
+        return
+      }
       respond(cmd, true, { cancelled: false })
       return
     case 'prompt': {
@@ -147,7 +205,12 @@ function handleCommand(cmd) {
       }
       respond(cmd, true, { agentInvoked: true })
       send({ type: 'prompt_result', id: cmd.id, agentInvoked: true })
-      send({ type: 'agent_end', isTerminal: true, messages: [], willRetry: false })
+      send({
+        type: 'agent_end',
+        isTerminal: true,
+        messages: [],
+        willRetry: false
+      })
       return
     }
     case 'abort':
@@ -208,7 +271,12 @@ function handleLine(line) {
   try {
     cmd = JSON.parse(line)
   } catch {
-    send({ type: 'response', command: 'parse', success: false, error: 'malformed JSON' })
+    send({
+      type: 'response',
+      command: 'parse',
+      success: false,
+      error: 'malformed JSON'
+    })
     return
   }
   if (cmd && cmd.type === 'extension_ui_response') {
@@ -245,8 +313,15 @@ function emitNoise() {
     type: 'available_commands_update',
     commands: [{ name: 'script-cmd', description: 'scripted', source: 'builtin' }]
   })
-  send({ type: 'host_tool_call', toolCallId: 'ht-1', toolName: 'script-host-tool' })
-  send({ type: 'subagent_lifecycle', payload: { id: 'child-1', status: 'started' } })
+  send({
+    type: 'host_tool_call',
+    toolCallId: 'ht-1',
+    toolName: 'script-host-tool'
+  })
+  send({
+    type: 'subagent_lifecycle',
+    payload: { id: 'child-1', status: 'started' }
+  })
   send({ type: 'notice', message: 'scripted notice' })
   send({ type: 'omp_future_xyz', future: true })
 }
@@ -262,7 +337,7 @@ if (process.env.SCRIPT_STDERR_FLOOD === '1') {
 
 if (SESSION_FILE !== '') {
   try {
-    readFileSync(SESSION_FILE, 'utf8')
+    loadSessionFile(SESSION_FILE)
   } catch {
     // Start empty; the transport only needs get_state identity.
   }

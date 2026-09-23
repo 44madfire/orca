@@ -81,8 +81,8 @@ export function resolveStructuredNativeChatSupport(
     return { supported: false, blocker: 'reused-terminal' }
   }
   if (!isStructuredSessionCreatableProvider(input.agent)) {
-    // `omp` is handle-valid but not creatable yet (no RPC/record create path):
-    // offering it structured chat would strand a provisional tab with no terminal fallback.
+    // Offering an uncreatable agent structured chat would strand a provisional
+    // tab with no terminal fallback. `omp` is creatable via Pi-family acquisition.
     return { supported: false, blocker: 'agent-without-structured-session' }
   }
   if (input.workspaceKind === 'floating') {
