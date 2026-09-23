@@ -205,6 +205,13 @@ export abstract class PiRpcConnectionStartup extends PiRpcConnectionState {
       );
     }
 
+    // OMP negotiation (non-fatal, bounded): when the `ready` frame offers
+    // protocol v2 within our reassembly ceiling, ask for it so oversized
+    // frames arrive as lossless `rpc_chunk` sequences. Any outcome — silent
+    // child, rejection, exit — falls through to the `get_state` probe below,
+    // which stays the sole readiness proof (`ready` alone never suffices).
+    await this.negotiateOmpProtocol();
+
     // Phase 2 — RPC readiness probe (unless explicitly disabled for
     // framing-only unit tests). A bounded internal `get_state` round-trip
     // proves Pi is actually speaking RPC; an exit before/during the probe
@@ -288,6 +295,31 @@ export abstract class PiRpcConnectionStartup extends PiRpcConnectionState {
   }
 
 
+  /** Best-effort v2 upgrade; never fails startup, never proves readiness. */
+  protected async negotiateOmpProtocol(): Promise<void> {
+    if (this.provider !== "omp" || this.negotiatedProtocol !== 1) {return;}
+    // `spawn` fires before the child writes `ready`; wait bounded so the
+    // advertisement is usually observed before the probe decides readiness.
+    if (!this.readyInfo) {
+      const start = Date.now();
+      while (!this.readyInfo && Date.now() - start < 1_000) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+    const ready = this.readyInfo;
+    if (!ready || !ready.supportedProtocolVersions.includes(2)) {return;}
+    if (ready.maxReassembledFrameBytes > this.chunkDecoder.capacity) {return;}
+    try {
+      await this.requestRaw(
+        { type: "negotiate_protocol", protocolVersion: 2 },
+        { timeoutMs: Math.min(2_000, this.startupTimeoutMs) },
+      );
+      this.negotiatedProtocol = 2;
+    } catch {
+      // Stay on v1; the readiness probe classifies real failures.
+    }
+  }
+
   protected detachAll(): void {
     const fns = this.detachFns.splice(0);
     for (const fn of fns) {
@@ -301,6 +333,7 @@ export abstract class PiRpcConnectionStartup extends PiRpcConnectionState {
 
 
   protected detachAndKill(signal: NodeJS.Signals = "SIGKILL"): void {
+    this.chunkDecoder.reset();
     const proc = this.proc;
     this.detachAll();
     if (proc) {

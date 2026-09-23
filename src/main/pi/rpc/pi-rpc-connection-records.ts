@@ -7,6 +7,7 @@
 
 import { PiRpcError, boundTail, redactLinePreview } from "./pi-rpc-errors";
 import { PiRpcConnectionStartup } from "./pi-rpc-connection-startup";
+import { isOmpChunkFrame, isOmpReadyFrame } from "./pi-family-rpc-types";
 import type { SpawnedProcess } from "../../../shared/child-process/process-spec";
 import type { PiRpcCloseResult } from "./pi-rpc-connection-state";
 import {
@@ -208,17 +209,34 @@ export abstract class PiRpcConnectionRecords extends PiRpcConnectionStartup {
     try {
       value = JSON.parse(line);
     } catch {
-      this.malformedCount += 1;
-      const preview = redactLinePreview(line);
-      const count = this.malformedCount;
-      // oxlint-disable-next-line unicorn/no-useless-spread -- copy-safe: listeners may unsubscribe during iteration
-      for (const h of [...this.malformedHandlers]) {
-        try {
-          h({ linePreview: preview, count });
-        } catch {
-          // Listener errors never break framing.
-        }
+      this.noteMalformed(line);
+      return;
+    }
+    this.handleValue(value, line);
+  }
+
+  /** Route one parsed record; `rawLine` bounds chunk-violation previews. */
+  protected handleValue(value: unknown, rawLine: string): void {
+    // OMP `ready` never holds a correlation slot: record negotiation facts
+    // and fan out as an ordinary async record (readiness still needs RPC).
+    if (isOmpReadyFrame(value)) {
+      this.observeReady(value);
+      this.emitEvent(value);
+      return;
+    }
+    // OMP `rpc_chunk` reassembles exactly once, bounded; violations are
+    // malformed diagnostics, never connection crashes.
+    if (isOmpChunkFrame(value) || this.chunkDecoder.hasPending) {
+      let frame: object | undefined;
+      try {
+        frame = this.chunkDecoder.push(value);
+      } catch {
+        this.chunkDecoder.reset();
+        this.noteMalformed(rawLine);
+        return;
       }
+      if (frame === undefined) {return;}
+      this.handleValue(frame, rawLine);
       return;
     }
     if (isPiResponse(value)) {
@@ -226,14 +244,7 @@ export abstract class PiRpcConnectionRecords extends PiRpcConnectionStartup {
       return;
     }
     const event = value as PiServerEvent;
-    // oxlint-disable-next-line unicorn/no-useless-spread -- copy-safe: listeners may unsubscribe during iteration
-    for (const h of [...this.eventHandlers]) {
-      try {
-        h(event);
-      } catch {
-        // Listener errors never break framing.
-      }
-    }
+    this.emitEvent(event);
     if (isExtensionUiRequest(event)) {
       // oxlint-disable-next-line unicorn/no-useless-spread -- copy-safe: listeners may unsubscribe during iteration
       for (const h of [...this.extensionUiHandlers]) {
@@ -253,6 +264,33 @@ export abstract class PiRpcConnectionRecords extends PiRpcConnectionStartup {
     }
   }
 
+
+  /** Fan one async record out; unknown future shapes stay ignorable. */
+  protected emitEvent(event: PiServerEvent): void {
+    // oxlint-disable-next-line unicorn/no-useless-spread -- copy-safe: listeners may unsubscribe during iteration
+    for (const h of [...this.eventHandlers]) {
+      try {
+        h(event);
+      } catch {
+        // Listener errors never break framing.
+      }
+    }
+  }
+
+  /** Bound one malformed line; later valid records always survive. */
+  protected noteMalformed(line: string): void {
+    this.malformedCount += 1;
+    const preview = redactLinePreview(line);
+    const count = this.malformedCount;
+    // oxlint-disable-next-line unicorn/no-useless-spread -- copy-safe: listeners may unsubscribe during iteration
+    for (const h of [...this.malformedHandlers]) {
+      try {
+        h({ linePreview: preview, count });
+      } catch {
+        // Listener errors never break framing.
+      }
+    }
+  }
 
   protected handleResponse(res: PiResponse): void {
     // oxlint-disable-next-line unicorn/no-useless-spread -- copy-safe: listeners may unsubscribe during iteration

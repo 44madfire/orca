@@ -20,6 +20,7 @@ import type {
   PiResponse,
   PiServerEvent,
 } from "./pi-wire-protocol";
+import type { PiFamilyReadyInfo } from "./pi-family-rpc-types";
 import type { SpawnedProcess } from "../../../shared/child-process/process-spec";
 
 export abstract class PiRpcConnectionRequests extends PiRpcConnectionRecords {
@@ -51,6 +52,14 @@ export abstract class PiRpcConnectionRequests extends PiRpcConnectionRecords {
   }
 
 
+  /** Subscribe to the OMP `ready` advertisement (once per connection). */
+  onReady(handler: PiRpcEventHandler<PiFamilyReadyInfo>): () => void {
+    this.readyHandlers.add(handler);
+    return () => {
+      this.readyHandlers.delete(handler);
+    };
+  }
+
   /** Subscribe to malformed stdout lines (framing diagnostics). */
   onMalformedLine(
     handler: PiRpcEventHandler<{ linePreview: string; count: number }>,
@@ -77,6 +86,7 @@ export abstract class PiRpcConnectionRequests extends PiRpcConnectionRecords {
     this.responseHandlers.clear();
     this.extensionUiHandlers.clear();
     this.malformedHandlers.clear();
+    this.readyHandlers.clear();
     this.exitHandlers.clear();
   }
 

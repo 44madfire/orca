@@ -227,6 +227,9 @@ function handleCommand(cmd) {
     case "set_auto_compaction":
       respond(true, {});
       return;
+    case "compact":
+      respond(true, {});
+      return;
     case "switch_session":
       try {
         loadSessionFile(cmd.sessionPath ?? cmd.resumePath ?? "");
@@ -259,6 +262,31 @@ function handleCommand(cmd) {
       }
       respond(true, {});
       runTurn(text);
+      return;
+    }
+    case "test_delay": {
+      const ms = typeof cmd.ms === "number" ? cmd.ms : 0;
+      const marker = cmd.marker ?? null;
+      setTimeout(() => respond(true, { marker }), ms).unref?.();
+      break;
+    }
+    case "test_hang":
+      break;
+    case "test_emit": {
+      const chunks = Array.isArray(cmd.chunks) ? cmd.chunks : [];
+      const delayMs = typeof cmd.delayMs === "number" ? cmd.delayMs : 5;
+      let index = 0;
+      const tick = () => {
+        // The ack goes last so a split record never glues onto it mid-stream.
+        if (index >= chunks.length) {
+          respond(true, {});
+          return;
+        }
+        process.stdout.write(Buffer.from(chunks[index], "base64"));
+        index += 1;
+        setTimeout(tick, delayMs).unref?.();
+      };
+      tick();
       return;
     }
     case "abort":
@@ -349,6 +377,11 @@ function handleLine(line) {
 if (EXIT_AT_START) {
   process.stderr.write("scripted pi unavailable\n");
   process.exit(1);
+}
+
+if (process.env.SCRIPT_STDERR_FLOOD === "1") {
+  const secret = "token sk-proj-abcdef1234567890 home /home/fixtureuser/secret";
+  process.stderr.write(`${secret}\n`.repeat(2000));
 }
 
 if (SESSION_FILE !== "") {
