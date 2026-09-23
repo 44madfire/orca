@@ -17,6 +17,23 @@ import {
   type PiServerEvent,
 } from "./pi-wire-protocol";
 
+/**
+ * Metadata-only chunk-violation preview: the base64 payload (up to 256 KiB
+ * of oversized-frame bytes) never reaches diagnostics, where
+ * redactSecrets could not scrub it.
+ */
+function chunkViolationPreview(value: unknown, error: unknown): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  if (!isOmpChunkFrame(value)) {
+    return `{"type":"rpc_chunk","interrupted":true,"error":${JSON.stringify(reason)}}`;
+  }
+  return (
+    `{"type":"rpc_chunk","chunkId":${JSON.stringify(value.chunkId)},` +
+    `"index":${JSON.stringify(value.index)},"count":${JSON.stringify(value.count)},` +
+    `"byteLength":${JSON.stringify(value.byteLength)},"error":${JSON.stringify(reason)}}`
+  );
+}
+
 export abstract class PiRpcConnectionRecords extends PiRpcConnectionStartup {
   // Implemented by later chunks: unexpected exits notify through the closer,
   // and record handling releases subscriptions owned by request correlation.
@@ -160,16 +177,6 @@ export abstract class PiRpcConnectionRecords extends PiRpcConnectionStartup {
         ),
       );
     }
-    const waiters = this.settledWaiters.splice(0);
-    for (const w of waiters) {
-      clearTimeout(w.timer);
-      w.reject(
-        new PiRpcError(
-          { code: "transport-closed", command: "waitForSettled", ambiguous: false },
-          `pi transport ${source} failed before agent_settled: ${osMessage}`,
-        ),
-      );
-    }
     // oxlint-disable-next-line unicorn/no-useless-spread -- copy-safe: listeners may unsubscribe during iteration
     for (const h of [...this.exitHandlers]) {
       try {
@@ -212,11 +219,11 @@ export abstract class PiRpcConnectionRecords extends PiRpcConnectionStartup {
       this.noteMalformed(line);
       return;
     }
-    this.handleValue(value, line);
+    this.handleValue(value);
   }
 
-  /** Route one parsed record; `rawLine` bounds chunk-violation previews. */
-  protected handleValue(value: unknown, rawLine: string): void {
+  /** Route one parsed record; never a settlement predicate (see #25). */
+  protected handleValue(value: unknown): void {
     // OMP `ready` never holds a correlation slot: record negotiation facts
     // and fan out as an ordinary async record (readiness still needs RPC).
     if (isOmpReadyFrame(value)) {
@@ -230,13 +237,13 @@ export abstract class PiRpcConnectionRecords extends PiRpcConnectionStartup {
       let frame: object | undefined;
       try {
         frame = this.chunkDecoder.push(value);
-      } catch {
+      } catch (error) {
         this.chunkDecoder.reset();
-        this.noteMalformed(rawLine);
+        this.noteMalformed(chunkViolationPreview(value, error));
         return;
       }
       if (frame === undefined) {return;}
-      this.handleValue(frame, rawLine);
+      this.handleValue(frame);
       return;
     }
     if (isPiResponse(value)) {
@@ -253,13 +260,6 @@ export abstract class PiRpcConnectionRecords extends PiRpcConnectionStartup {
         } catch {
           // Ignore.
         }
-      }
-    }
-    if ((event as Record<string, unknown>)["type"] === "agent_settled") {
-      const waiters = this.settledWaiters.splice(0);
-      for (const w of waiters) {
-        clearTimeout(w.timer);
-        w.resolve();
       }
     }
   }

@@ -56,23 +56,6 @@ export class PiRpcConnection extends PiRpcConnectionCommands {
         ),
       );
     }
-    const waiters = this.settledWaiters.splice(0);
-    for (const w of waiters) {
-      clearTimeout(w.timer);
-      w.reject(
-        new PiRpcError(
-          {
-            code: "process-exited",
-            command: "waitForSettled",
-            ambiguous: false,
-            exitCode: code,
-            signal,
-            stderrTail: tail,
-          },
-          `pi exited before agent_settled (code=${String(code)} signal=${String(signal)})`,
-        ),
-      );
-    }
     // Unexpected death outside close(): funnel through the same
     // finalization as close() (no leaked children/listeners) while keeping
     // the `process-exited` ambiguity semantics established above. Notify
@@ -261,16 +244,6 @@ export class PiRpcConnection extends PiRpcConnectionCommands {
             signal,
           },
           `transport closed before answering ${entry.command} (id=${id})`,
-        ),
-      );
-    }
-    const waiters = this.settledWaiters.splice(0);
-    for (const w of waiters) {
-      clearTimeout(w.timer);
-      w.reject(
-        new PiRpcError(
-          { code: "transport-closed", command: "waitForSettled", ambiguous: false },
-          "transport closed before agent_settled",
         ),
       );
     }

@@ -233,40 +233,6 @@ export abstract class PiRpcConnectionRequests extends PiRpcConnectionRecords {
     }
   }
 
-
-  /**
-   * Resolve when the next `agent_settled` event arrives. Always waits for a
-   * *new* settle after invocation (callers tracking turns should snapshot
-   * counts first). Rejects on timeout, exit, or close.
-   */
-  waitForSettled(timeoutMs?: number): Promise<void> {
-    if (this.closed) {
-      return Promise.reject(
-        new PiRpcError({ code: "transport-closed", ambiguous: false }, "transport is closed"),
-      );
-    }
-    const deadline = timeoutMs ?? this.defaultTimeoutMs;
-    return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const idx = this.settledWaiters.findIndex((w) => w.resolve === resolve);
-        if (idx !== -1) {this.settledWaiters.splice(idx, 1);}
-        reject(
-          new PiRpcError(
-            {
-              code: "request-timeout",
-              command: "waitForSettled",
-              ambiguous: false,
-              timeoutMs: deadline,
-            },
-            `timed out after ${deadline}ms waiting for agent_settled`,
-          ),
-        );
-      }, deadline);
-      (timer as unknown as { unref?: () => void }).unref?.();
-      this.settledWaiters.push({ resolve, reject, timer });
-    });
-  }
-
   // -------------------------------------------------------------------------
   // Typed wrappers for the protocol proven in #11.
   // -------------------------------------------------------------------------

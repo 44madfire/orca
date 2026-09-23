@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PiFamilyRpcConnection } from './pi-family-rpc-connection'
 import { PiRpcError } from './pi-rpc-errors'
+import { PI_FAMILY_MAX_REASSEMBLED_BYTES } from './pi-family-rpc-chunks'
 import type { SpawnedProcess } from '../../../shared/child-process/process-spec'
 import type { PiServerEvent } from './pi-wire-protocol'
 
@@ -44,19 +45,29 @@ function spawnScript(script: string, extraEnv: Record<string, string> = {}) {
   }
 }
 
-async function startConn(
+function buildConn(
   provider: Provider,
-  env: Record<string, string> = {}
-): Promise<PiFamilyRpcConnection> {
+  env: Record<string, string> = {},
+  maxReassembledBytes = PI_FAMILY_MAX_REASSEMBLED_BYTES
+): PiFamilyRpcConnection {
   const conn = new PiFamilyRpcConnection({
     provider,
     piCommand: process.execPath,
     piArgs: [provider === 'pi' ? PI_SCRIPT : OMP_SCRIPT],
     defaultTimeoutMs: 3_000,
     startupTimeoutMs: 10_000,
+    maxReassembledBytes,
     spawnFn: spawnScript(provider === 'pi' ? PI_SCRIPT : OMP_SCRIPT, env)
   })
   live.push(conn)
+  return conn
+}
+
+async function startConn(
+  provider: Provider,
+  env: Record<string, string> = {}
+): Promise<PiFamilyRpcConnection> {
+  const conn = buildConn(provider, env)
   await conn.start()
   return conn
 }
@@ -333,30 +344,35 @@ describe.each(PROVIDERS)('framing/correlation over a %s-like child', (provider) 
 
 describe('OMP startup and chunk extras', () => {
   it('tolerates ready and negotiates without stealing a correlation slot', async () => {
-    const conn = await startConn('omp')
+    const conn = buildConn('omp')
     const readySeen: string[] = []
     conn.onEvent((event) => {
       if (event.type === 'ready') {
         readySeen.push(event.type)
       }
     })
+    let readyCount = 0
+    const off = conn.onReady(() => {
+      readyCount += 1
+    })
+    await conn.start()
+    off()
+    expect(readySeen).toEqual(['ready'])
+    expect(readyCount).toBe(1)
     expect(conn.observedReady).not.toBeNull()
     expect(conn.observedReady?.supportedProtocolVersions).toContain(2)
     expect(conn.negotiatedProtocolVersion).toBe(2)
     expect(conn.pendingCount).toBe(0)
     await conn.getState()
-    expect(readySeen.length).toBeGreaterThanOrEqual(0)
   })
 
-  it('notifies ready subscribers exactly once per connection', async () => {
-    const conn = await startConn('omp')
-    let count = 0
-    const off = conn.onReady(() => {
-      count += 1
-    })
-    await conn.getState()
-    off()
-    expect(count).toBeLessThanOrEqual(1)
+  it('stays on v1 when the advertised ceiling exceeds local capacity', async () => {
+    const conn = buildConn('omp', {}, 1024)
+    await conn.start()
+    expect(conn.observedReady).not.toBeNull()
+    expect(conn.negotiatedProtocolVersion).toBe(1)
+    const state = await conn.getState()
+    expect(typeof state.sessionId).toBe('string')
   })
 
   it('starts an OMP child without ready frames on the probe alone', async () => {
@@ -396,6 +412,23 @@ describe('OMP startup and chunk extras', () => {
       delayMs: 10
     })
     await waitFor(() => conn.malformedLineCount >= before + 2)
+    const state = await conn.getState()
+    expect(typeof state.sessionId).toBe('string')
+  })
+
+  it('rejects chunk sequences past the reassembly ceiling', async () => {
+    const conn = await startConn('omp')
+    const before = conn.malformedLineCount
+    await conn.request({
+      type: 'test_emit',
+      chunks: [
+        b64(
+          `${JSON.stringify({ type: 'rpc_chunk', chunkId: 'huge', index: 0, count: 300, byteLength: 70 * 1024 * 1024, data: 'eA==' })}\n`
+        )
+      ],
+      delayMs: 10
+    })
+    await waitFor(() => conn.malformedLineCount >= before + 1)
     const state = await conn.getState()
     expect(typeof state.sessionId).toBe('string')
   })

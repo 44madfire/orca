@@ -4,8 +4,11 @@
 // JSONL, id correlation, bounded deadlines, ambiguous-vs-definite errors,
 // async subscribers, bounded/redacted stderr, pause/resume, exit
 // observation, idempotent close, OMP `ready`/negotiation/`rpc_chunk`
-// tolerance. Transport plumbing only: no session, journal, settlement,
-// history, or lifecycle semantics. Typed command wrappers live in
+// tolerance. Transport plumbing only: no session, journal, settlement
+// predicate, history, or lifecycle semantics — terminal settlement stays
+// provider-specific (`agent_settled` for Pi, terminal `agent_end` for OMP)
+// and belongs to the lifecycle dialect (#25), never to this class.
+// Typed command wrappers live in
 // `pi-rpc-connection-commands.ts` and cover only the shared contract listed
 // in `pi-family-rpc-types.ts`; command discovery stays provider-specific.
 //

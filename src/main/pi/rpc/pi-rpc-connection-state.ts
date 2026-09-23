@@ -12,7 +12,7 @@
 // and `CLOSE_TERM_GRACE_MS` are exported for the sibling chunks.
 
 import { JsonlFramer } from "./pi-jsonl-framing";
-import { STDERR_TAIL_MAX_CHARS, redactStderrTail, type PiRpcError } from "./pi-rpc-errors";
+import { STDERR_TAIL_MAX_CHARS, boundTail, redactSecrets, type PiRpcError } from "./pi-rpc-errors";
 import { PiFamilyChunkDecoder } from "./pi-family-rpc-chunks";
 import type {
   OmpReadyFrame,
@@ -136,11 +136,6 @@ export class PiRpcConnectionState {
   >();
   protected readonly readyHandlers = new Set<PiRpcEventHandler<PiFamilyReadyInfo>>();
   protected readonly exitHandlers = new Set<PiRpcEventHandler<PiRpcCloseResult>>();
-  protected readonly settledWaiters: {
-    resolve: () => void;
-    reject: (error: PiRpcError) => void;
-    timer: ReturnType<typeof setTimeout>;
-  }[] = [];
   protected readonly provider: PiFamilyProvider;
   protected readonly chunkDecoder: PiFamilyChunkDecoder;
   protected readyInfo: PiFamilyReadyInfo | null = null;
@@ -194,7 +189,9 @@ export class PiRpcConnectionState {
 
   /** Bounded, redacted stderr tail (safe for logs/diagnostics). */
   get stderrTail(): string {
-    return redactStderrTail(this.stderrRaw.slice(-this.stderrMaxBytes), STDERR_TAIL_MAX_CHARS);
+    // Redact before bounding: a cut applied first could split a token and
+    // leave an unredacted suffix past the ring-buffer boundary.
+    return boundTail(redactSecrets(this.stderrRaw), STDERR_TAIL_MAX_CHARS);
   }
 
   /** Orca-owned child accepted via injected spawn; lifecycle stays authoritative. */
