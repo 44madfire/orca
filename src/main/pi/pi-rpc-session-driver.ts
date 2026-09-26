@@ -1,4 +1,4 @@
-// First-party Pi RPC session driver (SNC1.9 native Pi).
+// First-party Pi-family RPC session driver (SNC1.9 native Pi/OMP).
 //
 // Mechanical split of the session driver (see `pi-rpc-session-lifecycle.ts`).
 // Owns Pi event streaming into the journal, exactly-once prompt answers,
@@ -8,7 +8,11 @@
 // prompt text, or bytes.
 
 import { mapPiRecordToSessionEvents } from './translation/pi-record-mapping'
-import { PiFamilyFactTray, type PiFamilyPromptFact } from './translation/pi-family-record-dialect'
+import {
+  PiFamilyFactTray,
+  extractPiFamilyRecordFact,
+  type PiFamilyPromptFact
+} from './translation/pi-family-record-dialect'
 import { applyPiSessionEvent } from './pi-event-journal'
 import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
 import { PiFamilyAcquisitionGate } from './pi-family-acquisition-window'
@@ -249,6 +253,21 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     this.commandCatalog.observePush(record, this.conn?.familyProvider ?? 'pi')
     this.factTray.observe(record)
     if (this.activeOp) {
+      // OMP dialect, cleared exactly like final settle: a locally-completed
+      // prompt (`prompt_result` with `agentInvoked:false`) runs no agent turn,
+      // so the live op retires here. Without this the op stays armed behind a
+      // turn that will never settle, wedging dispatch and history rebuild.
+      // Peeked through the same fact classifier the tray uses; the tray keeps
+      // its facts for the drain seam, so no second state machine is added.
+      const fact = extractPiFamilyRecordFact(record)
+      if (fact?.kind === 'prompt-result' && !fact.agentInvoked) {
+        const opId = this.activeOp
+        this.translator.settle()
+        this.activeOp = null
+        this.optionsState.retirePromptsForOp(opId)
+        void this.refreshSessionFile()
+        return
+      }
       let events: PiSessionEvent[]
       try {
         events = this.translator.applyPiRecord(record, this.familyProvider)

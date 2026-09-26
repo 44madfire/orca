@@ -1,8 +1,8 @@
-// Production Pi RPC backend (SNC1.9 native Pi).
+// Production Pi-family RPC backend (SNC1.9 native Pi/OMP).
 //
 // Implements `PiStructuredBackend` over first-party per-session drivers
-// (`pi-rpc-session-driver`): exactly one `pi --mode rpc` child per Orca
-// structured session, spawned in the Orca-selected workspaceRoot through
+// (`pi-rpc-session-driver`): exactly one selected provider RPC child
+// (`pi --mode rpc` or `omp --mode rpc`) per Orca structured session, spawned in the Orca-selected workspaceRoot through
 // Orca's child-process chokepoint. Journal-visible prompt ids are the
 // driver's Pi-local ids; answers route by journal item key, so no
 // cross-session namespacing is needed (unlike the external bridge, where op

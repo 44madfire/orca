@@ -1,13 +1,13 @@
-// Pi RPC session lifecycle: acquire, close, and session-file tracking (SNC1.9).
+// Pi-family RPC session lifecycle: acquire, close, and session-file tracking (SNC1.9).
 //
 // Mechanical split of `pi-rpc-session-driver.ts` (protected-subclass chain,
 // one class per file) so each file meets the line budget. Turn dispatch and
 // streaming/options live in `pi-rpc-session-turns` and `pi-rpc-session-driver`.
 
-// First-party Pi RPC session driver (SNC1.9 native Pi).
+// First-party Pi-family RPC session driver (SNC1.9 native Pi/OMP).
 //
-// Owns one `pi --mode rpc` child per Orca structured session over the vendored
-// transport (`./rpc`), with Pi semantics following the proven orca-pi
+// Owns one selected provider RPC child per Orca structured session over the
+// Orca-owned transport (`./rpc`), with Pi-family semantics following the proven orca-pi
 // `PiBridgeProvider` flows as reference: exact-cwd spawn, `get_state` lease
 // identity, typed `switch_session` resume with header CWD validation,
 // single-turn dispatch honesty, translator-driven streaming, exactly-once

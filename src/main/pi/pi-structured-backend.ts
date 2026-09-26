@@ -1,7 +1,7 @@
-// Pi structured backend slot (SNC1.9).
-// Transport-neutral contract for the Pi RPC child (`pi --mode rpc` per session,
-// cwd = acquire workspaceRoot). Production fills this with the vendored Pi RPC
-// core (SNC1.8, orca-pi owned); tests inject fakes.
+// Pi-family structured backend slot (SNC1.9).
+// Transport-neutral contract for one Pi-family RPC child (`pi --mode rpc` or
+// `omp --mode rpc` per session, cwd = acquire workspaceRoot). Production fills
+// this with the Orca-owned Pi-family backend (`pi-rpc-backend`); tests inject fakes.
 
 import type {
   AgentJournalItemIdentity,

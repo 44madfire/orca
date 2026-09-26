@@ -1,11 +1,12 @@
-// Native Pi structured-session adapter (SNC1.9 Orca-side).
+// Pi-family structured-session adapter (SNC1.9 Orca-side).
 //
-// Owns capability gates, fence-checked dispatch, proven exit, exact Pi
+// Owns capability gates, fence-checked dispatch, proven exit, exact Pi-family
 // session/leaf identity, and explicit recoverable failures over the production
-// Pi RPC backend (`pi-rpc-backend`: one `pi --mode rpc` child per session).
+// Pi-family RPC backend (`pi-rpc-backend`: one `pi --mode rpc` or `omp --mode rpc`
+// child per session, selected by the durable discriminant).
 // Never fabricates a clean exit or auto-resends. Without a backend (tests
 // that never install one) acquire fails closed with
-// `PI_STRUCTURED_UNAVAILABLE` so callers fall back to ordinary Pi TUI.
+// `PI_STRUCTURED_UNAVAILABLE` so callers fall back to the ordinary provider TUI.
 
 import type {
   AgentJournalMessageItem,
