@@ -1,4 +1,4 @@
-// Pi RPC turn dispatch and cancellation (SNC1.9).
+// Pi-family RPC turn dispatch and cancellation (SNC1.9).
 //
 // Mechanical split of the session driver (see `pi-rpc-session-lifecycle.ts`).
 // Owns single-turn honesty: at most one live turn; busy dispatches refuse

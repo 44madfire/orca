@@ -1,4 +1,4 @@
-// First-party Pi RPC session driver (SNC1.9 native Pi).
+// First-party Pi-family RPC session driver (SNC1.9 native Pi/OMP).
 //
 // Mechanical split of the session driver (see `pi-rpc-session-lifecycle.ts`).
 // Owns Pi event streaming into the journal, exactly-once prompt answers,
