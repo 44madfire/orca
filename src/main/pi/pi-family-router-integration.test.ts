@@ -599,6 +599,21 @@ describe('PIF-9 OMP lifecycle dialect over scripted children', () => {
       expect(settled).toHaveLength(1)
       expect(settled[0]?.providerIdentity.sessionId).toBe('omp-pif9-local-1')
       expect(settled[0]?.providerIdentity.recordId).not.toBe('c-local-1')
+      // No phantom live turn: the locally-completed prompt retires the op.
+      expect(stack.backend.liveTurnId?.({ orcaSessionId: sessionId }) ?? null).toBe(null)
+      // The user-visible property: a follow-up prompt dispatches instead of
+      // refusing behind already-streaming, and the epoch rebuild stays idle.
+      const followUp = await stack.router.dispatch({
+        sessionId,
+        clientMessageId: 'c-local-2',
+        body: textBody('hello after local'),
+        fence: 3
+      })
+      expect(followUp).toEqual({ state: 'admitted' })
+      await waitSettlement(stack.settlements, 'c-local-2')
+      await expect(
+        stack.router.readResumeHistory({ sessionId, fence: 3 })
+      ).resolves.toMatchObject({ rows: expect.any(Array) })
       await expect(stack.router.closeSession(sessionId)).resolves.toBe(true)
     } finally {
       await stack.router.closeSession(sessionId).catch(() => undefined)
@@ -621,9 +636,12 @@ describe('PIF-9 OMP lifecycle dialect over scripted children', () => {
       })
       expect(outcome).toEqual({ state: 'admitted' })
       // The fixture emits agent_end{isTerminal:false} at ~200ms and settles at
-      // ~1500ms; mid-window the turn must still be live.
+      // ~1500ms; mid-window the turn must still be live and unsettled.
       await new Promise((resolve) => setTimeout(resolve, 600))
       expect(stack.backend.liveTurnId?.({ orcaSessionId: sessionId }) ?? null).not.toBe(null)
+      expect(
+        stack.settlements.filter((entry) => entry.clientMessageId === 'c-slow-1')
+      ).toHaveLength(0)
       const settled = await waitSettlement(stack.settlements, 'c-slow-1')
       expect(settled).toHaveLength(1)
       // Exactly one settlement despite two agent_end frames on the wire.
@@ -706,6 +724,10 @@ describe('PIF-9 provider file boundaries over scripted children', () => {
       expect(piHandle.sessionFile).not.toBe(ompHandle.sessionFile)
       expect(piAcquired.process.pid).not.toBe(ompAcquired.process.pid)
       expect(stack.spawns).toHaveLength(2)
+      // Each spawn carries its provider's script: the selected runtime is
+      // launched directly, never a shared helper binary.
+      expect(stack.spawns.some((line) => line.includes('scripted-pi-child.mjs'))).toBe(true)
+      expect(stack.spawns.some((line) => line.includes('scripted-omp-child.mjs'))).toBe(true)
       await expect(stack.router.closeSession('ses-pif9-pi-file')).resolves.toBe(true)
       await expect(stack.router.closeSession('ses-pif9-omp-file')).resolves.toBe(true)
       // Closing proves the exit; it never spawns a replacement child.
