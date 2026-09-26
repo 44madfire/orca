@@ -16,7 +16,6 @@ import type {
   AgentSessionMutationResult
 } from '../../../shared/agent-session-wire'
 import { agentSessionLeaseAdmitsWriter } from '../../../shared/agent-session-lease-adjudication'
-import type { AgentSessionJournalIdentity } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import { isStructuredSessionCreatableProvider } from '../../../shared/agent-session-provider-handle'
 import {
@@ -31,6 +30,7 @@ import {
 } from './structured-agent-session-attach'
 import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import { adapterSupportsCreateIfDeclared } from './structured-agent-session-provider-support'
+import { piFamilyDurableResumeTarget } from '../../pi/pi-structured-owner-identity'
 import type { StructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
 import { resolveAgentSessionReplayOutcome } from './structured-agent-session-replay-outcome'
 import { readAgentSessionHydrationPage } from './agent-session-history-page'
@@ -167,12 +167,7 @@ export async function performAttach(
     // Sample provider history before a new child is acquired. Once acquireOwner
     // starts the child, the adapter's liveness signal intentionally becomes
     // conservative and an absent prompt can no longer prove non-delivery.
-    providerHistoryWindow = await readProviderHistoryWindow({
-      adapter: input.adapter,
-      identity: journalIdentityFor(record, params),
-      accountHome: record.accountHome,
-      ownerAlreadyAdmitted: agentSessionLeaseAdmitsWriter(record.lease)
-    })
+    providerHistoryWindow = await readProviderHistoryWindow(input, record, params)
     if (!agentSessionLeaseAdmitsWriter(record.lease)) {
       const acquired = await withAgentSessionCreatePhase('acquire_owner', input.recordPhase, () =>
         acquireOwner(input, record)
@@ -280,25 +275,31 @@ export async function performAttach(
   }
 }
 
-async function readProviderHistoryWindow(input: {
-  adapter: StructuredAgentSessionAdapter
-  identity: AgentSessionJournalIdentity
-  accountHome: AgentSessionRecord['accountHome']
-  ownerAlreadyAdmitted: boolean
-}): Promise<ProviderHistoryWindow | null> {
+async function readProviderHistoryWindow(
+  input: AttachFlowInput,
+  record: AgentSessionRecord,
+  params: AgentSessionAttachParams
+): Promise<ProviderHistoryWindow | null> {
   const read = input.adapter.providerHistoryWindow
   if (!read) {
     return null
   }
+  const ownerAlreadyAdmitted = agentSessionLeaseAdmitsWriter(record.lease)
+  const target = piFamilyDurableResumeTarget(record)
   let history: ProviderHistoryWindow | null
   try {
-    history = await read({ identity: input.identity, accountHome: input.accountHome })
+    history = await read({
+      identity: journalIdentityFor(record, params),
+      accountHome: record.accountHome,
+      resumeSessionFile: target?.sessionFile,
+      durableLeafId: target?.leafId
+    })
   } catch {
     return null
   }
   // A lease that was already live may belong to a provider child this process
   // has not indexed yet. Preserve the safe unknown outcome in that case.
-  return history && input.ownerAlreadyAdmitted ? { ...history, turnInFlight: true } : history
+  return history && ownerAlreadyAdmitted ? { ...history, turnInFlight: true } : history
 }
 
 async function settleUnsupportedReservation(

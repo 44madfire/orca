@@ -14,10 +14,10 @@ import { resolve as resolvePath } from 'node:path'
 import type { PiFamilyProvider } from './rpc/pi-family-rpc-types'
 import type { PiRpcConnection } from './rpc/pi-rpc-connection'
 import type { PiEntry, PiState, PiTreeNode } from './rpc/pi-wire-protocol'
+import { translatePiFamilyBranchToHistory } from './pi-family-history'
 import {
   extractActiveBranch,
   extractActiveBranchFromTree,
-  translatePiBranchToHistory,
   type ActiveBranchResult,
   type PiHistoryEntryLike,
   type PiHistoryTreeNodeLike
@@ -216,7 +216,7 @@ function branchResultToFailure(result: Exclude<ActiveBranchResult, { ok: true }>
  */
 export async function rebuildPiHistory(
   conn: HistoryCapableConnection,
-  opts: { timeoutMs: number; busy: boolean; closed: boolean }
+  opts: { timeoutMs: number; busy: boolean; closed: boolean; provider?: PiFamilyProvider }
 ): Promise<PiHistoryRebuild> {
   if (opts.closed) {
     return { ok: false, code: 'PI_EXITED', message: 'pi-exited (reacquire the session)' }
@@ -262,6 +262,7 @@ export async function rebuildPiHistory(
       message: 'Pi history is empty or unavailable (reacquire the session)'
     }
   }
-  const rows = translatePiBranchToHistory(branchEntries)
+  // One structural walk for both providers; only the entry normalizer is provider-aware.
+  const rows = translatePiFamilyBranchToHistory(branchEntries, opts.provider ?? 'pi')
   return { ok: true, history: { rows, leafId } }
 }

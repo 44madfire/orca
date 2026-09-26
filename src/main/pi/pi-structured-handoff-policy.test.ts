@@ -60,6 +60,29 @@ describe('Pi handoff identity', () => {
       })
     ).toMatchObject({ ok: false, code: 'PI_HANDOFF_PROVIDER_MISMATCH' })
   })
+
+  it('validates OMP the same way and never lets a handoff cross providers', () => {
+    const ompFile = '/tmp/omp-ses-1.jsonl'
+    expect(
+      validatePiHandoffIdentity({
+        from: { provider: 'omp', sessionId: 'omp-ses-1', leafId: 'leaf-9', sessionFile: ompFile },
+        to: { provider: 'omp', sessionId: 'omp-ses-1', leafId: 'leaf-10', sessionFile: ompFile }
+      })
+    ).toMatchObject({ ok: true })
+    // A Pi file is never opened by OMP and vice versa, even with equal ids.
+    expect(
+      validatePiHandoffIdentity({
+        from: { provider: 'omp', sessionId: 'shared-1', leafId: 'leaf-9', sessionFile: ompFile },
+        to: { provider: 'pi', sessionId: 'shared-1', leafId: 'leaf-9', sessionFile: FILE }
+      })
+    ).toMatchObject({ ok: false, code: 'PI_HANDOFF_PROVIDER_MISMATCH' })
+    expect(
+      validatePiHandoffIdentity({
+        from: { provider: 'pi', sessionId: 'shared-1', leafId: 'leaf-9', sessionFile: FILE },
+        to: { provider: 'omp', sessionId: 'shared-1', leafId: 'leaf-9', sessionFile: ompFile }
+      })
+    ).toMatchObject({ ok: false, code: 'PI_HANDOFF_PROVIDER_MISMATCH' })
+  })
 })
 
 describe('Pi history reconciliation', () => {

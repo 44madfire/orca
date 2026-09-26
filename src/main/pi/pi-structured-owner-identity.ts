@@ -7,7 +7,11 @@
 
 import type { AgentSessionJournalIdentity } from '../../shared/agent-session-journal-types'
 import type { AgentSessionProviderHandleLink } from '../../shared/agent-session-provider-handle'
-import type { AgentSessionProcessIdentity } from '../../shared/agent-session-record'
+import { agentSessionProviderHandleChainHead } from '../../shared/agent-session-provider-handle'
+import type {
+  AgentSessionProcessIdentity,
+  AgentSessionRecord
+} from '../../shared/agent-session-record'
 import { readProcessStartTimeMs } from '../runtime/agent-session-process-identity-probe'
 
 /** Child echoes its spawn token so the owner probe tells a live child from a same-pid stranger. */
@@ -41,6 +45,39 @@ export async function piProcessIdentity(
     processStartTimeMs,
     spawnToken: input.spawnToken
   }
+}
+
+export type PiFamilyDurableResumeTarget = {
+  provider: 'pi' | 'omp'
+  sessionId: string
+  leafId: string | null
+  sessionFile: string
+}
+
+/**
+ * Exact Pi-family resume locator from the durable chain head, if the adapter persisted one.
+ * Shared by acquisition (exact resume) and restart/history sampling: never inferred.
+ */
+export function piFamilyDurableResumeTarget(
+  record: AgentSessionRecord
+): PiFamilyDurableResumeTarget | undefined {
+  const head = agentSessionProviderHandleChainHead(record.providerHandleChain)
+  const handle = head?.handle
+  if (
+    (handle?.provider === 'pi' || handle?.provider === 'omp') &&
+    typeof handle.sessionId === 'string' &&
+    handle.sessionId !== '' &&
+    typeof handle.sessionFile === 'string' &&
+    handle.sessionFile !== ''
+  ) {
+    return {
+      provider: handle.provider,
+      sessionId: handle.sessionId,
+      leafId: handle.leafId,
+      sessionFile: handle.sessionFile
+    }
+  }
+  return undefined
 }
 
 export function piProviderHandleLink(input: {

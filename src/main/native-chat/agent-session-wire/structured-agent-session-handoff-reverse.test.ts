@@ -55,6 +55,157 @@ function contextWith(
   }
 }
 
+function piFamilyRecord(): AgentSessionRecord {
+  // Partial handoff record: the reverse flow only reads session/provider/chain/lease here.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowed flow record with the exact fields this handoff path reads.
+  return {
+    sessionId: SESSION_ID,
+    provider: 'pi',
+    location: {
+      executionHostId: 'local',
+      wslDistro: null,
+      workspaceId: 'workspace-1',
+      workspaceKind: 'git-worktree'
+    },
+    providerHandleChain: [
+      {
+        linkId: 'pi-5-ses-leaf',
+        handle: {
+          provider: 'pi',
+          sessionId: 'pi-ses-1',
+          leafId: 'leaf-9',
+          sessionFile: '/tmp/pi-ses-1.jsonl'
+        },
+        origin: 'resumed',
+        mintedAtFence: 5,
+        observedAt: 0
+      }
+    ],
+    lease: {
+      runtimeFence: 5,
+      handoffStage: 'old-owner-stopped',
+      handoffOperationId: OPERATION_ID
+    }
+  } as unknown as AgentSessionRecord
+}
+
+function piFamilyContext(order: string[]): {
+  context: StructuredAgentSessionHandoffFlowContext
+  importTuiHistory: ReturnType<typeof vi.fn>
+  acquireNative: ReturnType<typeof vi.fn>
+} {
+  const importTuiHistory = vi.fn(async () => {
+    order.push('import')
+  })
+  const acquired = {
+    ...piFamilyRecord(),
+    lease: { runtimeFence: 6, handoffStage: 'new-owner-proving' }
+  }
+  const acquireNative = vi.fn(async () => {
+    order.push('acquire')
+    return acquired
+  })
+  // Only the Pi-family import/acquire ordering is exercised; the store
+  // transitions stay mocked and the remaining flow surface is stubbed.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowed flow stub with the exact deps/owner this reverse path calls.
+  const context = {
+    deps: {
+      store: {} as never,
+      claimKeyId: 'key-1',
+      now: () => 1_800_000_000_000,
+      importTuiHistory,
+      acquireNative,
+      transport: {
+        revealNativeSession: async () => {
+          order.push('reveal')
+        }
+      }
+    },
+    owner: () => ({
+      terminal: { handle: 'h', tabId: 't', paneKey: 'p', ptyId: 'y' },
+      process: {},
+      link: {
+        linkId: 'pi-5-ses-leaf',
+        handle: {
+          provider: 'pi',
+          sessionId: 'pi-ses-1',
+          leafId: 'leaf-9',
+          sessionFile: '/tmp/pi-ses-1.jsonl'
+        },
+        origin: 'resumed',
+        mintedAtFence: 5,
+        observedAt: 0
+      },
+      historySource: 'provider-resume'
+    }),
+    retainOwner: vi.fn(),
+    releaseOwner: vi.fn(),
+    setStatus: vi.fn(),
+    enterPreparing: vi.fn(async () => undefined),
+    publishStage: vi.fn(),
+    requireRecord: () => piFamilyRecord()
+  } as unknown as StructuredAgentSessionHandoffFlowContext
+  return { context, importTuiHistory, acquireNative }
+}
+
+describe('handoffStructuredSessionToNative Pi-family provider-resume', () => {
+  it('imports TUI history once, after the native re-acquire, at the new fence', async () => {
+    const order: string[] = []
+    const { context, importTuiHistory, acquireNative } = piFamilyContext(order)
+
+    await handoffStructuredSessionToNative(
+      context,
+      { envelope: { sessionId: SESSION_ID, clientOperationId: OPERATION_ID } } as never,
+      true
+    )
+
+    // The provider-resume import needs the live RPC child, so it runs after
+    // the acquire (which resumes the exact file) and never before it.
+    expect(order).toEqual(['acquire', 'import', 'reveal'])
+    expect(acquireNative).toHaveBeenCalledTimes(1)
+    expect(importTuiHistory).toHaveBeenCalledTimes(1)
+    expect(importTuiHistory).toHaveBeenCalledWith({ sessionId: SESSION_ID, fence: 6 })
+  })
+
+  it('still runs the legacy pre-acquire import for non-Pi-family owners', async () => {
+    const order: string[] = []
+    const importTuiHistory = vi.fn(async () => {
+      order.push('import')
+    })
+    const acquireNative = vi.fn(async () => {
+      order.push('acquire')
+      return record()
+    })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowed flow stub mirroring the file harness for the legacy control path.
+    const context = {
+      deps: {
+        store: {} as never,
+        claimKeyId: 'key-1',
+        now: () => 1_800_000_000_000,
+        importTuiHistory,
+        acquireNative,
+        transport: { revealNativeSession: async () => undefined }
+      },
+      owner: () => undefined,
+      retainOwner: vi.fn(),
+      releaseOwner: vi.fn(),
+      setStatus: vi.fn(),
+      enterPreparing: vi.fn(async () => undefined),
+      publishStage: vi.fn(),
+      requireRecord: () => record()
+    } as unknown as StructuredAgentSessionHandoffFlowContext
+
+    await handoffStructuredSessionToNative(
+      context,
+      { envelope: { sessionId: SESSION_ID, clientOperationId: OPERATION_ID } } as never,
+      true
+    )
+
+    expect(order).toEqual(['import', 'acquire'])
+    expect(importTuiHistory).toHaveBeenCalledTimes(1)
+  })
+})
+
 // Why this ordering matters: releaseOwner has already run by the time the reveal fires,
 // so a reveal that rejects before the status flip leaves the session released but never
 // marked native — a stuck chat with no owner on either side.

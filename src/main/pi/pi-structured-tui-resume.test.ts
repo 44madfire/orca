@@ -156,6 +156,50 @@ describe('Pi native acquire → TUI launch planning', () => {
   })
 })
 
+describe('OMP TUI resume planning mirrors Pi with the OMP executable', () => {
+  const OMP_SESSION_ID = 'omp-ses-9'
+  const OMP_FILE = join(tmpdir(), 'omp-ses-9.jsonl')
+  const OMP_LEAF = 'leaf-77'
+
+  function ompLink(): AgentSessionProviderHandleLink {
+    return {
+      linkId: 'omp-3-x-leaf',
+      handle: { provider: 'omp', sessionId: OMP_SESSION_ID, leafId: OMP_LEAF, sessionFile: OMP_FILE },
+      origin: 'created',
+      mintedAtFence: 3,
+      observedAt: 0
+    }
+  }
+
+  function ompRecord(link: AgentSessionProviderHandleLink): AgentSessionRecord {
+    return { ...piRecord(link), provider: 'omp', sessionId: 'session-omp-9' }
+  }
+
+  it('routes the exact OMP file to omp --resume', () => {
+    const providerSession = buildPiTuiResumeProviderSession(ompRecord(ompLink()))
+    expect(providerSession).toEqual({ key: 'session_id', id: OMP_SESSION_ID, transcriptPath: OMP_FILE })
+    expect(getAgentResumeArgv('omp', providerSession)).toEqual(['omp', '--resume', OMP_FILE])
+  })
+
+  it('refuses a Pi file for an OMP record and an OMP file for a Pi record', () => {
+    const piFileLink: AgentSessionProviderHandleLink = {
+      linkId: 'pi-3-x-leaf',
+      handle: { provider: 'pi', sessionId: PI_SESSION_ID, leafId: PI_LEAF, sessionFile: PI_FILE },
+      origin: 'created',
+      mintedAtFence: 3,
+      observedAt: 0
+    }
+    const ompRecordWithPiFile = { ...ompRecord(ompLink()), providerHandleChain: [piFileLink] }
+    expect(() => buildPiTuiResumeProviderSession(ompRecordWithPiFile)).toThrow(
+      'agent_session_identity_required'
+    )
+    const piRecordWithOmpFile = { ...piRecord(piFileLink), providerHandleChain: [ompLink()] }
+    expect(() => buildPiTuiResumeProviderSession(piRecordWithOmpFile)).toThrow(
+      'agent_session_identity_required'
+    )
+  })
+})
+
 describe('Pi TUI resume planning fails closed', () => {
   it('refuses a missing or relative locator without naming any path', () => {
     // A file-less chain as persisted JSON would decode it: the planner must fail closed.

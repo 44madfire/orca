@@ -72,7 +72,8 @@ export class PiRpcSessionDriver extends PiRpcSessionTurns {
     const rebuilt = await rebuildPiHistory(conn, {
       timeoutMs: this.optionTimeout,
       busy: this.activeOp !== null,
-      closed: false
+      closed: false,
+      provider: this.familyProvider
     })
     if (!rebuilt.ok) {
       throw new Error(`${rebuilt.code}: ${rebuilt.message}`)

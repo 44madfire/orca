@@ -23,6 +23,7 @@ import {
   type PiFamilyLateSettlement
 } from './pi-family-dispatch'
 import { PiFamilyDispatchTracker } from './pi-family-dispatch-tracker'
+import { readPiFamilyProviderHistoryWindow } from './pi-family-history-window'
 import { closeProcessRegistry } from '../../shared/child-process/close-process-registry'
 import type {
   AgentSessionDispatchOutcome,
@@ -309,6 +310,10 @@ export class PiStructuredSessionAdapter implements StructuredAgentSessionAdapter
 
   readResumeHistory = (input: { sessionId: string; fence: number }) =>
     readPiResumeHistory(this.inspectionState(), input)
+
+  providerHistoryWindow: NonNullable<StructuredAgentSessionAdapter['providerHistoryWindow']> = (
+    input
+  ) => readPiFamilyProviderHistoryWindow({ sessions: this.sessions, deps: this.deps }, input)
 
   historyFilePath = (input: { identity: AgentSessionJournalIdentity }): Promise<string | null> =>
     readPiHistoryFilePath(this.inspectionState(), input)
