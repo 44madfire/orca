@@ -64,19 +64,20 @@ function isNonEmptyHandleField(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 512 && value === value.trim()
 }
 
-// The new owner must resume the exact same Pi session. The leaf is the current
-// branch cursor: it may advance between handoff preparation and acquisition
+// The new owner must resume the exact same Pi-family session with the same provider
+// discriminant (a Pi file is never opened by OMP and vice versa). The leaf is the
+// current branch cursor: it may advance between handoff preparation and acquisition
 // (the old owner settled one last turn), but it must never be missing and the
 // session root must never change — a changed root is a fork, not a resume.
 export function validatePiHandoffIdentity(input: {
   from: AgentSessionProviderHandle
   to: AgentSessionProviderHandle | null
 }): PiHandoffIdentityVerdict {
-  if (input.from.provider !== 'pi') {
+  if (input.from.provider !== 'pi' && input.from.provider !== 'omp') {
     return {
       ok: false,
       code: 'PI_HANDOFF_PROVIDER_MISMATCH',
-      message: 'Pi handoff requires a Pi provider handle (refusing to mis-attribute history).'
+      message: 'Pi-family handoff requires a Pi or OMP provider handle (refusing to mis-attribute history).'
     }
   }
   if (!input.to) {
@@ -86,11 +87,11 @@ export function validatePiHandoffIdentity(input: {
       message: 'Pi handoff acquired no provider handle (unknown dispatch; never auto-resend).'
     }
   }
-  if (input.to.provider !== 'pi') {
+  if (input.to.provider !== input.from.provider) {
     return {
       ok: false,
       code: 'PI_HANDOFF_PROVIDER_MISMATCH',
-      message: 'Pi handoff landed on a non-Pi provider handle (refusing to mis-attribute history).'
+      message: 'Pi-family handoff changed provider (refusing to cross-open provider files).'
     }
   }
   if (input.to.sessionId !== input.from.sessionId) {

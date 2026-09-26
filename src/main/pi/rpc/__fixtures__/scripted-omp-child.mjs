@@ -172,12 +172,28 @@ function handleCommand(cmd) {
     case 'get_state':
       respond(cmd, true, stateData())
       return
-    case 'get_entries':
+    case 'get_entries': {
+      // Unknown cursors reject (`Entry not found`); known cursors return
+      // strictly-after append rows with the current leaf preserved.
+      const since = typeof cmd.since === 'string' ? cmd.since : undefined
+      if (since !== undefined) {
+        const cursor = session.entries.findIndex((entry) => entry.id === since)
+        if (cursor === -1) {
+          respond(cmd, false, undefined, 'Entry not found')
+          return
+        }
+        respond(cmd, true, {
+          entries: session.entries.slice(cursor + 1),
+          leafId: session.leafId ?? 'leaf-empty'
+        })
+        return
+      }
       respond(cmd, true, {
         entries: session.entries,
         leafId: session.leafId ?? 'leaf-empty'
       })
       return
+    }
     case 'get_tree': {
       const byParent = new Map()
       for (const entry of session.entries) {
@@ -319,6 +335,13 @@ function handleCommand(cmd) {
       return
     case 'prompt': {
       const text = typeof cmd.message === 'string' ? cmd.message : ''
+      if (process.env.OMP_SCRIPT_LOG) {
+        try {
+          appendFileSync(process.env.OMP_SCRIPT_LOG, `prompt:${text}\n`)
+        } catch {
+          // Logging is test-only diagnostics; never break the protocol.
+        }
+      }
       if (text.includes('EXIT')) {
         process.exit(1)
       }

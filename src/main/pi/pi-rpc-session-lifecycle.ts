@@ -239,7 +239,7 @@ export abstract class PiRpcSessionLifecycle {
       await this.applyOptions(input.options)
     }
     if (resumed) {
-      const rebuilt = await rebuildPiHistory(conn, { timeoutMs: this.optionTimeout, busy: false, closed: false })
+      const rebuilt = await rebuildPiHistory(conn, { timeoutMs: this.optionTimeout, busy: false, closed: false, provider: conn.familyProvider })
       if (!rebuilt.ok) {
         throw new Error(`${rebuilt.code}: ${rebuilt.message}`)
       }

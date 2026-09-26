@@ -141,6 +141,8 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
   providerHistoryWindow = (input: {
     identity: AgentSessionJournalIdentity
     accountHome: AgentSessionAccountHome
+    resumeSessionFile?: string
+    durableLeafId?: string | null
   }) => this.requireAgent(input.identity).providerHistoryWindow?.(input) ?? Promise.resolve(null)
 
   closeSession = (sessionId: string): Promise<boolean> =>

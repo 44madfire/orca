@@ -16,6 +16,7 @@ import type {
 } from '../../../shared/agent-session-provider-handle'
 import { claudeProviderHandleLink } from '../../claude/claude-structured-owner-identity'
 import { codexProviderHandleLink } from '../../codex/codex-structured-owner-identity'
+import { piFamilyDurableResumeTarget } from '../../pi/pi-structured-owner-identity'
 import type {
   AgentSessionAccountHome,
   AgentSessionExecutionLocation,
@@ -229,6 +230,7 @@ export async function attachJournal(input: {
       journal: opened.journal,
       fence,
       accountHome: input.record.accountHome,
+      durableTarget: piFamilyDurableResumeTarget(input.record),
       ...(Object.hasOwn(input, 'providerHistoryWindow')
         ? { history: input.providerHistoryWindow }
         : {})
@@ -255,6 +257,7 @@ async function reconcileAgainstProviderHistory(input: {
   journal: AgentSessionJournal
   fence: number
   accountHome: AgentSessionAccountHome
+  durableTarget: { sessionFile: string; leafId: string | null } | undefined
   history?: ProviderHistoryWindow | null
 }): Promise<string[]> {
   let history = input.history
@@ -265,7 +268,9 @@ async function reconcileAgainstProviderHistory(input: {
     try {
       history = await input.adapter.providerHistoryWindow({
         identity: input.identity,
-        accountHome: input.accountHome
+        accountHome: input.accountHome,
+        resumeSessionFile: input.durableTarget?.sessionFile,
+        durableLeafId: input.durableTarget?.leafId
       })
     } catch {
       return []

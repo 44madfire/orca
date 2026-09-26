@@ -222,9 +222,25 @@ function handleCommand(cmd) {
         totalMessages: session.entries.length
       })
       return
-    case 'get_entries':
+    case 'get_entries': {
+      // Unknown cursors reject (`Entry not found`); known cursors return
+      // strictly-after append rows with the current leaf preserved.
+      const since = typeof cmd.since === 'string' ? cmd.since : undefined
+      if (since !== undefined) {
+        const cursor = session.entries.findIndex((entry) => entry.id === since)
+        if (cursor === -1) {
+          respond(false, undefined, 'Entry not found')
+          return
+        }
+        respond(true, {
+          entries: session.entries.slice(cursor + 1),
+          leafId: session.leafId ?? 'leaf-empty'
+        })
+        return
+      }
       respond(true, { entries: session.entries, leafId: session.leafId ?? 'leaf-empty' })
       return
+    }
     case 'get_tree': {
       const byParent = new Map()
       for (const entry of session.entries) {

@@ -88,7 +88,12 @@ export async function handoffStructuredSessionToNative(
     throw new Error('agent_session_operation_conflict')
   }
   deps.stopTuiHistoryCatchup?.(sessionId)
-  if (owner?.historySource !== 'provider-resume') {
+  // Pi-family history reconciles through provider-resume AFTER the native
+  // owner is re-acquired: the import reads the live RPC child the acquire
+  // below proves, so the pre-acquire legacy import is skipped for Pi/OMP and
+  // deferred to the post-acquire step instead of running twice or never.
+  const piFamilyResume = record.provider === 'pi' || record.provider === 'omp'
+  if (!piFamilyResume && owner?.historySource !== 'provider-resume') {
     await deps.importTuiHistory({
       sessionId,
       fence: record.lease.runtimeFence,
@@ -119,6 +124,15 @@ export async function handoffStructuredSessionToNative(
       fence: record.lease.runtimeFence,
       spawnToken
     })
+    if (piFamilyResume) {
+      // Whole-epoch provider-resume reconciliation, exactly once: the live
+      // child holds the TUI leg's root → leaf chain under stable provider
+      // ids, so a retried handoff reconciles instead of duplicating.
+      await deps.importTuiHistory({
+        sessionId,
+        fence: record.lease.runtimeFence
+      })
+    }
   } catch (error) {
     if (error instanceof AgentSessionAcquisitionExitUnprovenError) {
       await markStructuredHandoffManualRecovery(context, sessionId, operationId)

@@ -39,11 +39,11 @@ export async function importTuiHistory(
   if (!record || !head) {
     throw new Error('agent_session_identity_required')
   }
-  // Pi reconciles through provider-resume (session file root → leaf), never
-  // the legacy row importer: rebuilt rows replace the epoch wholesale with
-  // stable Pi entry ids, so a retry reconciles instead of duplicating.
-  if (record.provider === 'pi') {
-    await importPiResumeHistoryIntoJournal(deps, host, input, record)
+  // Pi-family reconciles through provider-resume (session file root → leaf),
+  // never the legacy row importer: rebuilt rows replace the epoch wholesale
+  // with stable provider entry ids, so a retry reconciles instead of duplicating.
+  if (record.provider === 'pi' || record.provider === 'omp') {
+    await importPiFamilyResumeHistoryIntoJournal(deps, host, input, record)
     return
   }
   const options = structuredTuiTranscriptImportOptions(record, input.transcriptPath)
@@ -62,7 +62,7 @@ export async function importTuiHistory(
   host.subscribers.reset(input.sessionId, session.journal, 'epoch_changed', input.fence)
 }
 
-async function importPiResumeHistoryIntoJournal(
+async function importPiFamilyResumeHistoryIntoJournal(
   deps: StructuredAgentSessionHostDeps,
   host: HostHandoffAccess,
   input: { sessionId: string; fence: number },
@@ -70,7 +70,13 @@ async function importPiResumeHistoryIntoJournal(
 ): Promise<void> {
   const session = host.session(input.sessionId)
   const head = agentSessionProviderHandleChainHead(record.providerHandleChain)
-  if (head?.handle.provider !== 'pi') {
+  // Same-provider resume only: the rows below carry the head discriminant,
+  // so a Pi file can never land in an OMP journal and vice versa.
+  if (
+    !head ||
+    (head.handle.provider !== 'pi' && head.handle.provider !== 'omp') ||
+    head.handle.provider !== record.provider
+  ) {
     throw new Error('agent_session_identity_required')
   }
   const read = deps.adapter.readResumeHistory
@@ -85,7 +91,7 @@ async function importPiResumeHistoryIntoJournal(
     }
     if (row.role === 'tool') {
       items.push({
-        identity: { provider: 'legacy', agent: 'pi', sessionId: head.handle.sessionId, recordId: row.id },
+        identity: { provider: 'legacy', agent: head.handle.provider, sessionId: head.handle.sessionId, recordId: row.id },
         body: {
           kind: 'tool-call',
           name: 'tool',
@@ -97,7 +103,7 @@ async function importPiResumeHistoryIntoJournal(
       continue
     }
     items.push({
-      identity: { provider: 'legacy', agent: 'pi', sessionId: head.handle.sessionId, recordId: row.id },
+      identity: { provider: 'legacy', agent: head.handle.provider, sessionId: head.handle.sessionId, recordId: row.id },
       body: { kind: 'message', role: row.role, blocks: [{ type: 'text', text: row.text }] }
     })
   }
