@@ -29,8 +29,6 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
     return { entries, leafId: data.leafId }
   }
 
-  protected abstract synthesizeAbort(opId: string): void
-
   protected static readonly catalogLookupTimeoutMs = 3_000
   protected sessionOptions(): Record<string, string> {
     const options: Record<string, string> = {}
@@ -165,18 +163,44 @@ export abstract class PiRpcSessionTurns extends PiRpcSessionLifecycle {
     return raced
   }
 
-  async cancel(): Promise<{ cancelled: boolean }> {
+  /** Adapter-local live turn: the single op owning the provider, if any. */
+  liveTurnId(): string | null {
+    return this.activeOp
+  }
+
+  /** Owning op for one journaled prompt key, or null when it is not answerable. */
+  promptTurnOwner(itemKey: string): { requestId: string; opId: string } | null {
+    const tracked = this.promptTracker.get(itemKey)
+    if (!tracked) {
+      return null
+    }
+    const opId = this.optionsState.pendingPrompts.get(tracked.requestId)
+    return opId === undefined ? null : { requestId: tracked.requestId, opId }
+  }
+
+  /**
+   * Abort exactly the turn named by `expectedTurnId` (PIF-6, #27).
+   * A mismatch — settled, replaced, or never-live — sends no abort and
+   * claims nothing. An abort rejection or transport failure stays
+   * `{ cancelled: false }`: ambiguity is never fabricated into success, and
+   * settlement still arrives through the normal provider frames (#26).
+   */
+  async cancel(expectedTurnId?: string): Promise<{ cancelled: boolean }> {
     const conn = this.conn
     if (!conn || conn.isClosed || !this.activeOp) {
       return { cancelled: false }
     }
+    if (expectedTurnId !== undefined && this.activeOp !== expectedTurnId) {
+      return { cancelled: false }
+    }
     const opId = this.activeOp
-    this.optionsState.retirePromptsForOp(opId)
     try {
       await conn.abort()
     } catch {
-      this.synthesizeAbort(opId)
+      return { cancelled: false }
     }
+    // Confirmed abort only: the provider's own settle frames clear the turn.
+    this.optionsState.retirePromptsForOp(opId)
     return { cancelled: true }
   }
 }

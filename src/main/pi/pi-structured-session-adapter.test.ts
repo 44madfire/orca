@@ -315,20 +315,14 @@ describe('PiStructuredSessionAdapter dispatch honesty', () => {
 
   it('routes prompt answers by journal item key and tracks restore failures', async () => {
     const answerPrompt = vi.fn(async () => undefined)
-    const adapter = adapterWithFake(fakeBackend({ answerPrompt }))
+    const promptOwner = vi.fn(() => ({ requestId: 'dlg-1', opId: 'pi-turn-1' }))
+    const commit = vi.fn(async () => undefined)
+    const adapter = adapterWithFake(fakeBackend({ answerPrompt, promptOwner }))
     await adapter.acquire({ identity: freshIdentity('ses-1'), fence: 0, spawnToken: 'spawn-1' })
-    await adapter.answerPrompt({
-      sessionId: 'ses-1',
-      itemId: 'item-key-1',
-      kind: 'approval',
-      optionId: 'confirm',
-      fence: 0
-    })
-    expect(answerPrompt).toHaveBeenCalledWith({
-      itemKey: 'item-key-1',
-      kind: 'approval',
-      optionId: 'confirm'
-    })
+    await adapter.answerPrompt({ sessionId: 'ses-1', itemId: 'item-key-1', kind: 'approval', optionId: 'confirm', fence: 0, commit })
+    expect(promptOwner).toHaveBeenCalledWith({ orcaSessionId: 'ses-1', itemKey: 'item-key-1' })
+    expect(commit).toHaveBeenCalledTimes(1)
+    expect(answerPrompt).toHaveBeenCalledWith({ orcaSessionId: 'ses-1', itemKey: 'item-key-1', kind: 'approval', optionId: 'confirm' })
     await expect(
       adapter.setOption({ sessionId: 'ses-1', key: 'bogus', value: 'x', fence: 0 })
     ).rejects.toThrow('no session option named')

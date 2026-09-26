@@ -387,9 +387,33 @@ function handleCommand(cmd) {
         respond(false, undefined, 'scripted rejection')
         return
       }
-      if (text.includes('PROMPT-ME')) {
+      if (
+        text.includes('PROMPT-ME') ||
+        text.includes('PROMPT-SELECT') ||
+        text.includes('PROMPT-INPUT')
+      ) {
         const dialogId = nextId('dlg-')
         pendingDialogs.set(dialogId, id)
+        if (text.includes('PROMPT-SELECT')) {
+          send({
+            type: 'extension_ui_request',
+            id: dialogId,
+            method: 'select',
+            title: 'Pick one',
+            options: ['alpha', 'beta']
+          })
+          return
+        }
+        if (text.includes('PROMPT-INPUT')) {
+          send({
+            type: 'extension_ui_request',
+            id: dialogId,
+            method: 'input',
+            title: 'Name it',
+            placeholder: 'scripted placeholder'
+          })
+          return
+        }
         send({
           type: 'extension_ui_request',
           id: dialogId,
@@ -430,13 +454,21 @@ function handleCommand(cmd) {
     }
     case 'abort':
       respond(true, {})
-      if (liveTurn) {
-        const op = liveTurn
-        liveTurn = null
-        send({ type: 'turn_end', message: { stopReason: 'aborted' } })
-        send({ type: 'agent_settled', willRetry: false })
-        void op
+      // A blocked dialog ends with the turn: fail its prompt so the hanging
+      // `prompt` callers observe the abort instead of waiting forever.
+      for (const [dialogId, promptOp] of pendingDialogs) {
+        pendingDialogs.delete(dialogId)
+        send({
+          type: 'response',
+          command: 'prompt',
+          id: promptOp,
+          success: false,
+          error: 'aborted'
+        })
       }
+      liveTurn = null
+      send({ type: 'turn_end', message: { stopReason: 'aborted' } })
+      send({ type: 'agent_settled', willRetry: false })
       return
     default:
       respond(false, undefined, `unknown command ${type}`)

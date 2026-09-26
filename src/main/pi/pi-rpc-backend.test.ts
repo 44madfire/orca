@@ -353,9 +353,9 @@ describe('Pi RPC backend over a scripted child', () => {
         }
         return false
       })
-      await must(backend.answerPrompt, 'answerPrompt')({ itemKey, kind: 'approval', optionId: 'confirm' })
+      await must(backend.answerPrompt, 'answerPrompt')({ orcaSessionId: 'ses-p', itemKey, kind: 'approval', optionId: 'confirm' })
       await expect(pending).resolves.toEqual({ status: 'accepted' })
-      await expect(must(backend.answerPrompt, 'answerPrompt')({ itemKey, kind: 'approval', optionId: 'confirm' })).rejects.toThrow(
+      await expect(must(backend.answerPrompt, 'answerPrompt')({ orcaSessionId: 'ses-p', itemKey, kind: 'approval', optionId: 'confirm' })).rejects.toThrow(
         'UNKNOWN_REQUEST'
       )
       await expect(backend.close({ orcaSessionId: 'ses-p' })).resolves.toBe(true)

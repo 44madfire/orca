@@ -141,6 +141,9 @@ function stateData() {
 }
 
 let chunkSeq = 0
+let dlgSeq = 0
+let liveTurn = false
+const pendingDialogs = new Map()
 
 function sendChunked(record) {
   const json = JSON.stringify(record)
@@ -365,8 +368,49 @@ function handleCommand(cmd) {
         }
         return
       }
+      // Blocking dialogs wait for the matching `extension_ui_response`
+      // before the prompt is acknowledged, mirroring the Pi fixture.
+      if (
+        text.includes('PROMPT-ME') ||
+        text.includes('PROMPT-SELECT') ||
+        text.includes('PROMPT-INPUT')
+      ) {
+        const dialogId = `dlg-${(dlgSeq += 1)}`
+        pendingDialogs.set(dialogId, cmd)
+        if (text.includes('PROMPT-SELECT')) {
+          send({
+            type: 'extension_ui_request',
+            id: dialogId,
+            method: 'select',
+            title: 'Pick one',
+            options: ['alpha', 'beta']
+          })
+        } else if (text.includes('PROMPT-INPUT')) {
+          send({
+            type: 'extension_ui_request',
+            id: dialogId,
+            method: 'input',
+            title: 'Name it',
+            placeholder: 'scripted placeholder'
+          })
+        } else {
+          send({
+            type: 'extension_ui_request',
+            id: dialogId,
+            method: 'confirm',
+            title: 'Scripted?',
+            message: 'Proceed?'
+          })
+        }
+        return
+      }
       respond(cmd, true, { agentInvoked: true })
+      liveTurn = true
       const settle = () => {
+        if (!liveTurn) {
+          return
+        }
+        liveTurn = false
         send({ type: 'prompt_result', id: cmd.id, agentInvoked: true })
         if (text.includes('TWO-USER')) {
           ompAppend('user', text)
@@ -401,18 +445,33 @@ function handleCommand(cmd) {
       // A non-terminal agent_end precedes settlement: the runtime continues
       // and the turn must stay active through it.
       if (text.includes('SLOW')) {
-        setTimeout(
-          () => send({ type: 'agent_end', isTerminal: false, messages: [], willRetry: false }),
-          200
-        ).unref?.()
+        setTimeout(() => {
+          if (liveTurn) {
+            send({ type: 'agent_end', isTerminal: false, messages: [], willRetry: false })
+          }
+        }, 200).unref?.()
         setTimeout(settle, 1500).unref?.()
         return
+      }
+      // NOISE-TURN interleaves host-tool/subagent/notice extras mid-turn:
+      // they must stay bounded and never block settlement.
+      if (text.includes('NOISE-TURN')) {
+        emitNoise()
       }
       settle()
       return
     }
     case 'abort':
       respond(cmd, true, {})
+      // Blocked dialogs end locally: the aborted prompt runs no agent turn.
+      for (const [dialogId, promptCmd] of pendingDialogs) {
+        pendingDialogs.delete(dialogId)
+        respond(promptCmd, false, undefined, 'aborted')
+        send({ type: 'prompt_result', id: promptCmd.id, agentInvoked: false })
+        void dialogId
+      }
+      liveTurn = false
+      send({ type: 'agent_end', isTerminal: true, messages: [], willRetry: false })
       return
     case 'test_delay': {
       const ms = typeof cmd.ms === 'number' ? cmd.ms : 0
@@ -483,6 +542,14 @@ function handleLine(line) {
     return
   }
   if (cmd && cmd.type === 'extension_ui_response') {
+    const dialogId = cmd.id
+    const promptCmd = pendingDialogs.get(dialogId)
+    pendingDialogs.delete(dialogId)
+    if (promptCmd !== undefined) {
+      respond(promptCmd, true, { agentInvoked: true })
+      send({ type: 'prompt_result', id: promptCmd.id, agentInvoked: true })
+      send({ type: 'agent_end', isTerminal: true, messages: [], willRetry: false })
+    }
     return
   }
   try {
